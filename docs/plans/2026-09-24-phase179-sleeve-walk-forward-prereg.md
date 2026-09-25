@@ -216,7 +216,7 @@ taken in S0 and hashed into the manifest.
   panel, including instrument calibration and covariance, so the null sees exactly the pipeline
   the real signal sees. Panel-wide shifting keeps cross-asset signal correlation and
   persistence; the 63-session floor keeps slow features' autocorrelation from leaking alignment
-  back in. The shifted panel is the whole S2 alpha panel (2011-01 through 2025-12-23, about 3,750 sessions), since the warmup years feed calibration and standardization; about 3,620 admissible shifts, p-value resolution near 0.0003 (amendment A3).
+  back in. The shifted panel is the whole S2 alpha panel (2011-01 through 2025-12-23, about 3,750 sessions), since the warmup years feed calibration and standardization; about 3,620 circular shifts, of which about 2,860 are admissible after the todo 424 `shift_memory` exclusion (12.1), p-value resolution near 0.00035 (amendment A3).
 - Multiplicity: Westfall-Young max-statistic permutation adjustment across the three arms,
   which uses the exact joint null the shared shifts already produce. For each arm j,
   standardize by its own null: `Z_j = (S_j - mean(S_j_null)) / sd(S_j_null)`, and likewise for
@@ -370,6 +370,24 @@ in-sample for production already, so it spends nothing.
   of 31,800. The residual is bootstrap noise from the different cell-key seed strings, nothing
   else. Artifact `logs/phase179/v4_20260924T235010Z.json` (`v4 --seed-reference 4242`).
   V2 and V3 are synthetic and do not read the calendar, so they stand.
+- **Todo 424 decisions (2026-09-24, before any S1 output on the official snapshot was
+  read).** (a) Shift null: circular shifts within `shift_memory` = 758 sessions of a full
+  rotation are excluded (`admissible_shifts(n, 63, memory=758)`, S3 and V2/V3 alike): a wrapped
+  copy's feature window would contain the target date's return. 758 = the longest bounded 1d
+  feature reach, 504 (`price_vol_corr_slow`) + 252 (z-score normalization), plus the 2-session
+  forward span. It removes about 758 of about 3,620 shifts (section 7's resolution becomes about
+  0.00035). On phase 181's TSMOM panel the leaking copies' median Sharpe was 1.60 vs 1.21, so
+  this makes the null more accurate, not easier to pass. (b) N_tested is 18: the phase 181 TSMOM
+  sleeve verdict (FAIL, p 0.22) was recorded 2026-09-24 before this test runs; ACT needs
+  adjusted p < 0.05/18 (0.0028). (c) Slow-signal power stays a residual (section 14) sized by
+  V3b; the arms are unchanged. V2 and V3 are rerun under (a) before the freeze. **V3b
+  (pinned before it runs):** 200 seeds x 199 shifts of phase 181's TSMOM-kind synthetic panel
+  (planted latent drift, AR(1) phi 0.995, alpha = the 252-session return signal computed from
+  the synthetic closes) at the planted sizes phase 181's V3 calibrated for a fixed-sign book at
+  excess Sharpe 0.6 and 0.8 (signal_ic 0.0457 and 0.0551), scored by this test's calibrated
+  arms (`run.py --stage v3b`). Reported, not gating: the phase proceeds whatever it shows. If
+  the PASS rate at 0.8 is below 50%, the verdict writeup states that a FAIL is uninformative
+  about slow, return-built edges of that size.
 - **Official S0 snapshot: `97719acbf3dd7ee3`**, built from main a967ef844 at the 2025-12-24
   05:15 UTC window; a second build from main reproduced the same content hash.
 - **V5 operational definitions (pinned before any S1 output on the official snapshot was
@@ -417,10 +435,24 @@ in-sample for production already, so it spends nothing.
 - **Design-time snooping.** Feature definitions and APR values were chosen by people who had
   seen the full history. The walk-forward can't remove that; it's why ACT also needs the holdout
   sign and why N_tested is counted.
-- **Sleeve data depth.** TLT's 1d history starts in 2017 in this corpus (listed since 2002);
+- **Sleeve data depth.** TLT's 1d history starts 2016-02-03 in this corpus (listed since 2002;
+  `ohlcv_empty_history` verified, todo 424);
   the point-in-time coverage filter admits it when its trailing window fills, so it's absent from
   about the first four out-of-sample years.
 - **Holdout viewed once in aggregate** (section 2); hence sign-check-only use.
+- **Slow-signal power (todo 424, finding 1).** The calibrated arms learn each symbol's IC sign
+  and size from a trailing 504-session window. For a slow signal whose innovations are the
+  returns themselves, that in-window IC is noisy and Stambaugh-biased: on a planted AR(1)
+  phi = 0.995 trend (IC +0.035), a fixed-direction book earned Sharpe +2.2 while
+  `vol_normalized` earned -1.0 (phase 181 synthetic, seed 0). V3 plants a signal proportional to
+  the forward return and does not exercise this. Direction: toward FAIL, never a false PASS. The
+  arms stay as pre-registered (adding a fixed-sign arm would widen the Westfall-Young family);
+  a FAIL is read with this caveat, and the V3b entry in 12.1 sizes it at the persistence of
+  this test's own alpha.
+- **Expanding-window features and the shift null.** `shift_memory` (12.1) bounds the leak from
+  features with a finite reach; expanding-window features (ranks, durations) still see every
+  earlier date, with at most 1/756 weight on any one return at the excluded boundary.
+  Direction: inflates the null slightly, toward FAIL.
 - **Equity-learned weights for non-equity assets.** Production learns weights from the equity
   group's pooled IC, stratified by U.S. equity breadth/vol regimes, and applies them to GLD, TLT
   and the rest of the sleeve. The harness reproduces this faithfully; an

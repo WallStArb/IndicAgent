@@ -14,6 +14,7 @@ CFG = HarnessConfig(
         ("2013-07-01", "2014-12-31"),
     ),
     bootstrap_reps=100,
+    shift_memory=40,  # the 800-session panels are shorter than the pinned 758
 )
 
 
@@ -76,3 +77,14 @@ def test_calibration_bisects_on_signal_panels():
         **SMALL,
     )
     assert 0.0 < ic < 0.3
+
+
+def test_calibrated_arms_on_a_signal_source_panel():
+    """V3b: a TSMOM-kind panel scored by phase 179's calibrated arms, not TSMOM's own book."""
+    from scripts.analysis.sleeve_walk_forward.synthetic import _eval_kwargs, _reported_arm
+
+    kw = {"alpha_kind": "tsmom", "calibrated_arms": True}
+    assert _eval_kwargs(kw, CFG) == {"memory": CFG.shift_memory}
+    assert _reported_arm(kw) == "vol_normalized"
+    out = run_v2(range(4), n_shifts=19, workers=1, cfg=CFG, signal_ic=0.05, **kw, **SMALL)
+    assert out["n_seeds"] == 4 and "mean_excess_sharpe_vol_normalized" in out

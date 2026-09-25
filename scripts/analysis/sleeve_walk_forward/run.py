@@ -202,7 +202,9 @@ def _stage_s3(args: argparse.Namespace) -> Path:
     s2 = _load(args.input, args.allow_code_drift)["payload"]
     apr = s2["apr"]
     signal = s2.get("signal")  # None: phase 179's calibrated arms
-    eval_kw = {} if signal is None else SIGNALS[signal].evaluate_kwargs()
+    eval_kw = (
+        {"memory": CONFIG.shift_memory} if signal is None else SIGNALS[signal].evaluate_kwargs()
+    )
     t0 = time.monotonic()
     res, error = safe_evaluate(
         evaluate,
@@ -261,9 +263,22 @@ def _stage_s0(args: argparse.Namespace) -> Path:
     )
 
 
+# V3b (pre-reg 12.1, todo 424): planted TSMOM latent-drift sizes phase 181's V3 calibrated
+# for its fixed-sign book at target excess Sharpe 0.6 and 0.8 (logs/phase181/v3_e0ef8d77006b0283).
+_V3B_SIGNAL_IC = {0.6: 0.045703125, 0.8: 0.05507812499999999}
+
+
 def _stage_v(args: argparse.Namespace) -> Path:
     panel_kw = {} if args.signal is None else {"alpha_kind": args.signal}
-    if args.stage == "v2":
+    if args.stage == "v3b":
+        panel_kw = {"alpha_kind": "tsmom", "calibrated_arms": True}
+        payload = {
+            str(target): run_v2(
+                range(200), n_shifts=199, workers=args.workers, cfg=CONFIG, signal_ic=ic, **panel_kw
+            )
+            for target, ic in _V3B_SIGNAL_IC.items()
+        }
+    elif args.stage == "v2":
         payload = run_v2(range(200), n_shifts=199, workers=args.workers, cfg=CONFIG, **panel_kw)
     else:
         payload = run_v3(
@@ -285,6 +300,7 @@ _STAGES = {
     "s4": _stage_s4,
     "v2": _stage_v,
     "v3": _stage_v,
+    "v3b": _stage_v,
 }
 
 

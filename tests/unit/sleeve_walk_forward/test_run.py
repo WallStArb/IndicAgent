@@ -17,6 +17,7 @@ CFG = HarnessConfig(
     warmup_sessions=60,
     calibration_refit_sessions=30,
     min_shift=20,
+    shift_memory=10,  # the fixture panel is a few hundred sessions
     trading_start="2009-04-15",
     sub_periods=(
         ("2009-04-15", "2009-05-31"),

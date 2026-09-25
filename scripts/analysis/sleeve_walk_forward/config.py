@@ -38,8 +38,14 @@ class HarnessConfig:
         ("2021-01-01", "2025-12-23"),
     )
     alpha: float = 0.05
-    # Ledger rows at the time of use (pre-reg 12.1): 14 + H-A + H-B verdicted 2026-09-24 + this test.
-    n_tested: int = 17
+    # Ledger rows at the time of use (pre-reg 12.1): 14 + H-A + H-B + phase 181 TSMOM, all
+    # verdicted 2026-09-24, + this test.
+    n_tested: int = 18
+    # Circular shifts within this many sessions of a full rotation are excluded from the null
+    # (todo 424): a wrapped copy's feature window would contain the target date's return. The
+    # longest bounded 1d feature reach is 504 (price_vol_corr_slow) + 252 (z-score
+    # normalization) sessions, plus the 2-session forward span.
+    shift_memory: int = 758
     min_positive_sub_periods: int = 2
     bootstrap_mean_block: int = 21
     bootstrap_reps: int = 2000

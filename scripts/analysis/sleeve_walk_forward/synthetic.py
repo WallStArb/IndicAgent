@@ -86,8 +86,8 @@ def _ar1(rng: np.random.Generator, n: int, m: int, phi: float) -> np.ndarray:
 def _one_seed(
     seed: int, n_shifts: int, cfg: HarnessConfig, signal_ic: float, panel_kw: dict
 ) -> tuple[str | None, float]:
-    alpha, fwd, closes, dates = synthetic_panel(seed, signal_ic=signal_ic, **panel_kw)
-    eval_kw = _eval_kwargs(panel_kw)
+    alpha, fwd, closes, dates = synthetic_panel(seed, signal_ic=signal_ic, **_panel_args(panel_kw))
+    eval_kw = _eval_kwargs(panel_kw, cfg)
     shifts = np.sort(
         np.random.default_rng(seed).choice(
             admissible_shifts(len(dates), cfg.min_shift, eval_kw.get("memory", 0)),
@@ -114,15 +114,29 @@ def _one_seed(
     )
 
 
-def _eval_kwargs(panel_kw: dict) -> dict:
-    kind = panel_kw.get("alpha_kind", "ar1")
-    return {} if kind == "ar1" else SIGNALS[kind].evaluate_kwargs()
+def _panel_args(panel_kw: dict) -> dict:
+    """panel_kw minus `calibrated_arms`, which picks the evaluator, not the panel."""
+    return {k: v for k, v in panel_kw.items() if k != "calibrated_arms"}
+
+
+def _uses_calibrated_arms(panel_kw: dict) -> bool:
+    """Phase 179's calibrated arms: always for an ar1 panel; for a signal-source panel only
+    when `calibrated_arms=True` (V3b: 179's arms on a slow, return-built planted edge)."""
+    return panel_kw.get("alpha_kind", "ar1") == "ar1" or bool(panel_kw.get("calibrated_arms"))
+
+
+def _eval_kwargs(panel_kw: dict, cfg: HarnessConfig) -> dict:
+    """The calibrated arms use the pre-registered shift memory, as the real S3 run does."""
+    if _uses_calibrated_arms(panel_kw):
+        return {"memory": cfg.shift_memory}
+    return SIGNALS[panel_kw["alpha_kind"]].evaluate_kwargs()
 
 
 def _reported_arm(panel_kw: dict) -> str:
     """vol_normalized for the calibrated arms, the signal source's own arm otherwise."""
-    kind = panel_kw.get("alpha_kind", "ar1")
-    return "vol_normalized" if kind == "ar1" else SIGNALS[kind].arm
+    return (
+        "vol_normalized" if _uses_calibrated_arms(panel_kw) else SIGNALS[panel_kw["alpha_kind"]].arm
+    )
 
 
 def _run_seeds(
