@@ -431,6 +431,18 @@ run_step 8 "alpha_publisher" \
     2>&1 | tee -a "$LOG_DIR/vocabulary_drift_$(date +%Y%m%d_%H%M%S).log" || true ) &
 echo "Vocabulary drift audit backgrounded (PID: $!)"
 
+# Classification Coverage Audit (Phase 182, D-09 point 3): reports every active instrument
+# without a current indicagent_v1 assignment (integrity_monitor row with
+# monitor_type='classification_coverage', OTel counter, logger.error naming the symbols)
+# plus the unclassified stratum size per level. Catches what the seed guard and the
+# onboarding gate cannot, e.g. a raw UPDATE instruments SET is_active = true. Same
+# contract as the vocabulary drift audit above: observability-only, backgrounded, `|| true`,
+# outside run_step, so it never gates alpha_publisher's committed completion; PID echoed
+# for traceability.
+( "$PYTHON" -m src.config.classification_coverage \
+    2>&1 | tee -a "$LOG_DIR/classification_coverage_$(date +%Y%m%d_%H%M%S).log" || true ) &
+echo "Classification coverage audit backgrounded (PID: $!)"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
