@@ -27,14 +27,23 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
+import sys
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
 import numpy as np
 
-from src.intelligence.research import guards, provenance, snapshot, store
+from src.intelligence.research import guards, power, provenance, snapshot, store, synthetic
 from src.intelligence.research import panel as panel_mod
+from src.intelligence.research.book import (
+    book_memory_rows,
+    book_weights,
+    evaluate_book,
+    flatten_stack,
+)
+from src.intelligence.research.combiner import RidgeSpec, walk_forward_ridge
 from src.intelligence.research.evaluate import (
     PoolFactory,
     evaluate,
@@ -55,7 +64,7 @@ from src.intelligence.research.portfolio import (
     rank_vol_neutral_weights,
     trailing_vol,
 )
-from src.intelligence.research.spec import FamilySpec, LoadedSpec, resolve_member
+from src.intelligence.research.spec import BookSpec, FamilySpec, LoadedSpec, resolve_member
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
 
@@ -288,7 +297,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str]:
     return panel, digest
 
 
-def _vol(spec: FamilySpec, resid_bar: np.ndarray, bps: int) -> np.ndarray:
+def _vol(spec: FamilySpec | BookSpec, resid_bar: np.ndarray, bps: int) -> np.ndarray:
     c = spec.construction
     window = c.vol_window_sessions * bps
     return trailing_vol(
@@ -456,6 +465,298 @@ async def run_family(
         if unfinished:
             try:
                 await finish_all(
+                    "failed", {"stage": "run", "error": f"{type(error).__name__}: {error}"}
+                )
+            except Exception:  # noqa: BLE001 - the original error is the one to raise
+                pass
+        raise
+
+
+def _log(stage: str) -> None:
+    """Progress to stderr, so a run of several hours can be followed from its log."""
+    print(f"{datetime.now(UTC).isoformat(timespec='seconds')} {stage}", file=sys.stderr, flush=True)
+
+
+def book_identities(loaded: LoadedSpec) -> list[Identity]:
+    """Every family's identities plus the book version, whose parents are its families."""
+    book = loaded.model
+    ids: list[Identity] = []
+    for fam in loaded.families:
+        ids.extend(family_identities(fam))
+    ids.append(
+        Identity(
+            f"book.{book.book}",
+            "book_version",
+            f"Book version {book.book} ({book.prior_source})",
+            {"spec_path": loaded.path, "families": list(book.families)},
+            parents=tuple(f"family.{f.model.family}" for f in loaded.families),
+        )
+    )
+    return ids
+
+
+def _power_problem(book: BookSpec, fam: FamilySpec, panel: Panel, shifts, bmax, members, ridge):
+    p = book.power
+    bps = panel.bars_per_session
+    synth = synthetic.SyntheticSpec(
+        bars_per_session=bps,
+        participation_ratio=p.participation_ratio,
+        n_common_factors=p.n_common_factors,
+        plant_lags_sessions=p.plant_lags_sessions,
+    )
+    finite_mask = np.isfinite(panel.close)  # carries no return information (pattern 8)
+    plant = synthetic.calibrate_plant(
+        synth,
+        finite_mask,
+        members=members,
+        coverage_floor=book.construction.coverage_floor,
+        target_ic=p.planted_rank_ic,
+        tolerance=p.calibration_tolerance,
+        n_panels=p.calibration_panels,
+        seed=p.calibration_seed,
+    )
+    c = book.construction
+    window = c.vol_window_sessions * bps
+    problem = power.PowerProblem(
+        synth=synth,
+        plant_coef=plant.plant_coef,
+        finite_mask=finite_mask,
+        dates=np.asarray(panel.timestamps),
+        valid=np.asarray(panel.valid),
+        members=tuple(members),
+        coverage_floor=c.coverage_floor,
+        direction=float(c.direction),
+        ridge=ridge,
+        vol_window_rows=window,
+        vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
+        cfg=book.scoring.evaluation_config(),
+        shifts=shifts,
+        bmax=bmax,
+    )
+    return problem, plant
+
+
+async def run_book(
+    loaded: LoadedSpec,
+    ctx: RunContext,
+    *,
+    mode: Literal["real", "synthetic"],
+    panel: Panel | None = None,
+    power_replicates: int | None = None,
+) -> dict:
+    """The book test (S8) of one book version, budget-charged in real mode (D-08, D-11)."""
+    book = loaded.model
+    if not isinstance(book, BookSpec):
+        raise TypeError("run_book needs a book spec")
+    real = mode == "real"
+    if real and power_replicates is not None:
+        raise ValueError("power_replicates overrides the spec in synthetic mode only")
+    families = [f.model for f in loaded.families]
+    fam0 = families[0]
+    subject = f"book.{book.book}"
+    run_id = None
+    code_commit = None
+    if real:
+        if ctx.ledger is None:
+            raise RunRefused("real mode needs a ledger")
+        _, code_commit = await _gate(loaded, ctx)
+        request = RunRequest(
+            kind="book_test",
+            spec_path=loaded.path,
+            spec_hash=loaded.spec_hash,
+            spec_blob=loaded.blob_sha,
+            code_commit=code_commit,
+            vintage=ctx.budget.vintage_id,
+            budget_m=ctx.budget.budget_m,
+            screen_alpha=ctx.budget.screen_alpha,
+        )
+        try:
+            started = await ctx.ledger.start_runs(request, book_identities(loaded), [subject])
+        except LedgerRefusal as error:
+            raise RunRefused(str(error)) from error
+        run_id = started[subject]
+    else:
+        for fam in families:
+            _check_spec(fam)
+        if panel is None:
+            raise ValueError("synthetic mode needs a panel")
+
+    result: dict = {}
+    snapshot_hash: str | None = None
+
+    async def finish(status: str, evidence: dict) -> dict:
+        result.update(status=status, run_id=run_id, evidence=evidence)
+        if real:
+            await ctx.ledger.finish_run(
+                run_id, status=status, snapshot_hash=snapshot_hash, evidence=evidence
+            )
+        return result
+
+    try:
+        if real:
+            _log("S0 snapshot")
+            panel, snapshot_hash = await _load_panel(fam0, ctx)
+        factor_spec = FACTOR_SPECS[fam0.factor_spec]
+        bps, n = panel.bars_per_session, len(panel.timestamps)
+        _log("S1 residuals")
+        residuals = compute_residuals(panel, horizon=fam0.horizon, factor_spec=factor_spec)
+        _log("S2 members")
+        columns, members, memories = [], [], []
+        for fam in families:
+            fam_members = compute_members(fam, residuals.bar, bars_per_session=bps)
+            _log(f"S3 guards {fam.family}")
+            try:
+                real_guards(panel, fam, fam_members, residuals, factor_spec=factor_spec)
+            except guards.GuardFailure as error:
+                return await finish(
+                    "guard_failed", {"stage": "S3", "family": fam.family, "error": str(error)}
+                )
+            for m in fam.members:
+                columns.append(fam_members[m.name])
+                members.append((resolve_member(m.signal), dict(m.params)))
+                memories.append(m.declared_memory_rows)
+            del fam_members
+        stack = np.stack(columns, axis=2).astype(np.float32)
+        del columns
+
+        alpha_level, budget_m = ctx.budget.screen_alpha, ctx.budget.budget_m
+        shifts = session_shifts(
+            n, bps, book.scoring.min_shift, book_memory_rows(memories, fam0.horizon)
+        )
+        bmax = power.b_max(len(shifts), alpha_level, budget_m)
+        ridge = RidgeSpec(
+            window_rows=book.combiner.window_sessions * bps,
+            refit_rows=book.combiner.refit_sessions * bps,
+            penalty=book.combiner.penalty,
+            embargo=fwd_span(fam0.horizon),
+            min_obs=book.combiner.min_obs,
+        )
+        try:
+            guards.require_testable(
+                n_shifts=len(shifts), alpha_level=alpha_level, budget_m=budget_m, power=None
+            )
+        except guards.GuardFailure as error:
+            return await finish(
+                "refused", {"stage": "refusal", "refusal": str(error), "n_shifts": len(shifts)}
+            )
+
+        _log("power: calibrating the plant")
+        problem, plant = _power_problem(book, fam0, panel, shifts, bmax, members, ridge)
+        _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
+        run = power.estimate_power(
+            problem,
+            replicates=power_replicates or book.power.replicates,
+            min_power=guards.MIN_POWER,
+            seed=book.power.seed,
+            workers=ctx.workers,
+            pool_factory=ctx.pool_factory,
+            stop_check_every=book.power.stop_check_every,
+        )
+        del problem
+        d = run.decision
+        power_record = {
+            "powered": d.powered,
+            "passes": d.passes,
+            "failures": d.failures,
+            "replicates": d.replicates,
+            "decided_after": d.decided_after,
+            "min_power": d.min_power,
+            "planted_rank_ic": book.power.planted_rank_ic,
+            "plant_coef": plant.plant_coef,
+            "achieved_ic": plant.achieved_ic,
+            "ic_se": plant.ic_se,
+            "calibration_iterations": plant.iterations,
+            "participation_ratio": book.power.participation_ratio,
+            "n_shifts": len(shifts),
+            "bmax": bmax,
+            "seconds": run.seconds,
+        }
+        _log(f"power: {'powered' if d.powered else 'underpowered'} ({d.passes}/{d.decided_after})")
+        try:
+            guards.require_testable(
+                n_shifts=len(shifts),
+                alpha_level=alpha_level,
+                budget_m=budget_m,
+                power=1.0 if d.powered else 0.0,
+            )
+        except guards.GuardFailure:
+            return await finish(
+                "refused",
+                {
+                    "stage": "refusal",
+                    "refusal": f"underpowered at IC {book.power.planted_rank_ic}",
+                    "power": power_record,
+                },
+            )
+
+        _log("S8 book test")
+        vol = _vol(book, residuals.bar, bps)
+        cfg = book.scoring.evaluation_config()
+        c = book.construction
+        res = evaluate_book(
+            stack,
+            residuals.fwd,
+            panel.close,
+            panel.timestamps,
+            panel.valid,
+            cfg,
+            ridge=ridge,
+            vol=vol,
+            direction=float(c.direction),
+            coverage_floor=c.coverage_floor,
+            memory=book_memory_rows(memories, fam0.horizon),
+            bars_per_session=bps,
+            workers=ctx.workers,
+            pool_factory=ctx.pool_factory,
+            mv_condition_max=book.scoring.mv_condition_max,
+            ic_shrinkage_k=book.scoring.ic_shrinkage_k,
+            shifts=shifts,
+        )
+        weights, has_position = book_weights(
+            flatten_stack(stack),
+            residuals.fwd,
+            n_members=stack.shape[2],
+            ridge=ridge,
+            vol=vol,
+            direction=float(c.direction),
+            coverage_floor=c.coverage_floor,
+        )
+        trade = trade_mask(panel.timestamps, cfg) & panel.valid
+        combined = walk_forward_ridge(stack, residuals.fwd, ridge)
+        p_value = float(res.adjusted_p[0])
+        bar = alpha_level / budget_m
+        record = evidence_record(
+            res,
+            kind="book_test",
+            subject=subject,
+            n_shifts=len(shifts),
+            power=power_record,
+            coverage=coverage_summary(guards.integrity(panel, combined), combined, trade),
+            turnover=turnover_per_session(weights, has_position, trade, bps),
+            costs=book.costs,
+            hashes={
+                "spec_hash": loaded.spec_hash,
+                "spec_blob": loaded.blob_sha,
+                "snapshot_hash": snapshot_hash,
+                "code_commit": code_commit,
+                "family_specs": {f.path: f.spec_hash for f in loaded.families},
+            },
+            guards={"families": [f.family for f in families]},
+            sub_periods=cfg.sub_periods,
+            screen={
+                "alpha": alpha_level,
+                "budget_m": budget_m,
+                "bar": bar,
+                "p": p_value,
+                "p_below_bar": p_value < bar,
+            },
+        )
+        _log("done")
+        return await finish("completed", record)
+    except Exception as error:
+        if not result:
+            try:
+                await finish(
                     "failed", {"stage": "run", "error": f"{type(error).__name__}: {error}"}
                 )
             except Exception:  # noqa: BLE001 - the original error is the one to raise
