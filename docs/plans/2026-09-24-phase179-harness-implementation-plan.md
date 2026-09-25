@@ -623,7 +623,7 @@ def test_negative_holdout_downgrades_act_to_pass():
 - [ ] `.venv/bin/pytest tests/unit/ -q` green; ruff and black clean.
 - [ ] Merge `--ff-only` to main, push.
 - [ ] After the 178 recompute finishes (check `ps aux | grep ic_engine` shows nothing): run `run.py --stage v2` (200 seeds x 199 shifts) and `--stage v3` (IR 0.6 and 0.8, 200 seeds each); record PASS rates, CIs and measured seconds per shift in the pre-reg section 12 addendum draft. V2 outside 5% +/- 3.1%, or V3 below 50% at IR 0.8, stops the phase for a design revisit (spec 10).
-- [ ] Section 11 diagnostics (net-of-cost with todo 393's fix, per-year/per-symbol/per-stratum excess, equal-weight and static-tilt references, uniform-weight and production-pool variants, feature decay, no-weight days) are reported-only and land as a follow-up plan before the freeze (step 7); none of them feeds the token.
+- [x] (plan: `docs/plans/2026-09-24-phase179-diagnostics-plan.md`) Section 11 diagnostics (net-of-cost with todo 393's fix, per-year/per-symbol/per-stratum excess, equal-weight and static-tilt references, uniform-weight and production-pool variants, feature decay, no-weight days) are reported-only and land as a follow-up plan before the freeze (step 7); none of them feeds the token.
 - [ ] Update the 179 memory and pre-reg build order: step 5 done, next step 6 (HMM audit, deprecated-feature decision, S0 snapshot, V4, V4b, V5).
 
 ## Execution record (2026-09-24)
