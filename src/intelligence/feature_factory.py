@@ -1958,11 +1958,13 @@ def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> floa
 
 def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> float:
     """Deliberate look-ahead leak (positive control): pairs bar i with the
-    return realized from bars i+1 -> i+2 (i.e. 2 bars in the future relative
-    to i) -- the exact ret_lag_1 shape, forward-shifted instead of
-    backward-shifted. Must clear the IC significance gate spectacularly:
-    proves this pipeline can detect contamination when it is genuinely
-    present. Falls back to 0.0 when the future bars don't exist yet (end of
+    close-to-close return realized from bars i+1 -> i+2 (the ret_lag_1 shape,
+    forward-shifted). Against the executable open-to-open labels it is fully
+    contained only in lookahead h >= 2 (open[i+1] -> open[i+h+1]); the h = 1
+    label shares just the overnight gap close[i+1] -> open[i+2], so its IC
+    peaks at h = 2 (1d pooled: ~0.32 at h=1, ~0.64 at h=2) and a small h = 1
+    cell can miss significance. Detection checks gate on the containing
+    lookahead (phase 179 V5). Falls back to 0.0 when the future bars don't exist yet (end of
     the batch series, or the live single-bar compute() path, which by
     definition has no future data -- see FeatureFactory.compute() docstring).
     """
