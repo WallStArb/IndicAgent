@@ -77,3 +77,13 @@ rather than IndicAgent's.
   recurrences without having found this root cause; update once this todo lands
 - [284](284-gsd-review-agy-stdin-invocation-broken.md) -- same disposition precedent (GSD
   tooling bug, not IndicAgent code, P3)
+
+## Related bug 2026-09-25: `gsd-sdk query phase.add` reuses an existing phase number
+
+`phase.add "Security classification hierarchy (todo 384)"` returned phase 177 and inserted a
+`### Phase 177` section, although the active milestone already owns phases 177-181. Those
+phases exist only as rows in ROADMAP's milestone table and in the edge-proof plan, with no
+`### Phase N` section or `.planning/phases/` directory, so the tool took max(section numbers) =
+176 and added 1. It fails silently into a duplicate ID. The phase was re-added by hand as 182.
+Fix: derive the next number from every phase reference (milestone table, sections, directories,
+archived milestone dirs), or refuse when the result collides with any reference.
