@@ -186,3 +186,11 @@ Fails on p, not on stability. Section 6 applies: classic TSMOM and the section 3
 closed on this sleeve. Diagnostics (section 11 style, never decisive): observed Sortino 0.65,
 max drawdown 16.4% of log wealth, hit rate 53.5%. Signal coverage: TLT has no signal until
 2017-02 (its history starts 2016-02-03), as section 7 expected.
+
+Provenance: the branch was rebased onto main before merging, so the commits cited above
+(b766685d2, b01eb751a, 0c33a2596 and the verdict record a208e08b2) are kept reachable by the
+tags `phase181-tsmom-frozen` (0c33a2596) and `phase181-tsmom-run` (a208e08b2). Reproducibility
+check after the rebase, which brought in main's session-calendar change (a967ef844): a fresh
+snapshot and the same chain gave a bit-identical sleeve panel (dates, alpha, forward returns,
+closes) and a bit-identical verdict (`logs/phase181/repro/s4_43d83e47c7407a26.json`), confirming
+section 7's calendar claim. It checks the record and is not a second test.
