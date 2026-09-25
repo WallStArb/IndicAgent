@@ -63,7 +63,7 @@ class AlphaPublisher(BaseBatch):
     """Batch compute service: ensemble_alpha → alpha_events (DB) + Kafka alpha.events topic.
 
     Shadow mode: alpha events are written and published for external consumption only.
-    No execution engine, no trade framing, no position sizing in this service.
+    No order management, no trade framing, no position sizing in this service.
     """
 
     job_name = "alpha-publisher"

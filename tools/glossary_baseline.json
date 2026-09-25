@@ -76,9 +76,6 @@
   ".planning/todos/pending/430-terminology-enforcement-curate-then-ratchet.md": {
    "market detector": 1
   },
-  "README.md": {
-   "alpha discovery": 1
-  },
   "docs/architecture/architecture-v2-event-driven-pipeline.md": {
    "counterfactual recording": 1,
    "counterfactual tracking": 2,
@@ -136,9 +133,6 @@
   "production/migrations/131_3table_schema.sql": {
    "intrinsic composite": 1
   },
-  "production/migrations/137_phase130_apr_seeds.sql": {
-   "confidence level": 1
-  },
   "production/migrations/158_hmm_probability_vector.sql": {
    "direction score": 1
   },
@@ -150,9 +144,6 @@
   },
   "scripts/analysis/universe_expansion_correlation_structure_check.py": {
    "config store": 1
-  },
-  "services/alpha_publisher.py": {
-   "execution engine": 1
   },
   "src/intelligence/archive/trading_i7/delta_exhaustion.py": {
    "intrinsic composite": 1
@@ -180,9 +171,6 @@
   },
   "src/intelligence/research/signals.py": {
    "signal source": 1
-  },
-  "src/intelligence/statistics/gate_math.py": {
-   "confidence level": 1
   },
   "src/intelligence/trading/delta_exhaustion.py": {
    "intrinsic composite": 1

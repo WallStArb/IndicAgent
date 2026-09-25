@@ -476,7 +476,9 @@ The probability of observing a result at least as extreme as the measured one, a
 
 **Not:** a confidence level. p = 0.05 means 5% false positive rate, not 95% confidence that the relationship exists.
 
-**Banned:** confidence level
+**Banned:** (none)
+**Avoid:** "confidence level" as a synonym for a p-value (an interval's confidence level, such as
+`confidence_level=0.95`, is a different and valid concept)
 **Status:** active
 
 ---

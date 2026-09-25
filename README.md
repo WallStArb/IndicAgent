@@ -65,7 +65,7 @@ Built and run in production starting early 2026, processing eight analytical tie
 
 Every I7 signal passes through a deterministic 10-stage quality pipeline before it's ever emitted — clamp confidence to a sane range, decay it for autocorrelated re-fires, score it against six confluence buckets, gate it against structural quality and regime alignment, adjust for time-of-day win-rate history, calibrate it against real historical outcomes (isotonic regression, not a hand-picked curve), rank it against other candidates by rolling Sharpe, and run it past the specialist swarm — before a single structural-completeness check confirms nothing required is missing. No stage trusts the previous one's output blindly; each one is independently auditable.
 
-### Generation 2 (V3.0) — AlphaEngine: Statistical Alpha Discovery
+### Generation 2 (V3.0) — AlphaEngine: IC Discovery
 
 The current, active build. V2's flaw wasn't its engineering — it was epistemological: 138 signal plugins encoded 138 human theories about what confluence means, and could only ever discover edges a researcher already believed in. V3.0's answer:
 
