@@ -60,3 +60,19 @@ def test_signal_panel_smoke_null_low_planted_high():
     assert null["n_degenerate"] == 0 and null["pass_rate"] <= 0.5
     planted = run_v2(range(10), n_shifts=49, workers=2, cfg=CFG, signal_ic=0.3, **kw)
     assert planted["pass_rate"] >= 0.8
+
+
+def test_calibration_bisects_on_signal_panels():
+    from scripts.analysis.sleeve_walk_forward.synthetic import calibrate_signal_ic
+
+    ic = calibrate_signal_ic(
+        0.5,
+        seeds=range(2),
+        n_shifts=9,
+        workers=1,
+        cfg=CFG,
+        iterations=2,
+        alpha_kind="tsmom",
+        **SMALL,
+    )
+    assert 0.0 < ic < 0.3
