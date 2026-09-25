@@ -64,11 +64,11 @@ Both `Instrument.sector` builders (`get_active_contracts()` and `cache_manager._
 ## Task commits
 
 1. Task 1: get_active_contracts reads sector from the classification
-   - `164ad7d2a` test (RED)
-   - `ae995f61a` feat (GREEN)
+   - `d7442f4c0` test (RED)
+   - `c08a3bab6` feat (GREEN)
 2. Task 2: cache_manager reads sector from the classification
-   - `7c9199967` test (RED)
-   - `247afec21` feat (GREEN), includes the deferred-items entry
+   - `c363d042a` test (RED)
+   - `178c3b83a` feat (GREEN), includes the deferred-items entry
 
 ## Deviations from plan
 
@@ -79,7 +79,7 @@ Both `Instrument.sector` builders (`get_active_contracts()` and `cache_manager._
 - Issue: it built futures templates with `Instrument(**cd)`, carrying `contract_details.sector` into every futures Instrument it returned, a second sector definition the plan did not list.
 - Fix: extracted `_futures_template_sql()` and `_index_futures_templates()`; both functions use them.
 - Files modified: src/config/settings.py
-- Commit: ae995f61a
+- Commit: c08a3bab6
 
 **2. Test fixture adjustments**
 - The fallback-constructor test triggers the fallback by removing `symbol` from contract_details (Instrument ignores unknown keys, so an extra key does not trigger it).
@@ -101,4 +101,6 @@ None. The only interpolated SQL is `current_level_name_sql("instruments")` with 
 ## Self-Check: PASSED
 
 - Files: all modified files exist
-- Commits: 164ad7d2a, ae995f61a, 7c9199967, 247afec21 present in git log
+- Commits: d7442f4c0, c08a3bab6, c363d042a, 178c3b83a present in git log
+
+Publish note: the post-rebase full unit run had one failure, `tests/unit/research/test_portfolio_r1.py::test_rank_vol_neutral_returns_meets_performance_target` (phase 183, a 2.0s wall-clock budget, measured 3.99s/4.69s while a concurrent session held several cores at 100%). It does not import any module this plan touched; every other test passed.
