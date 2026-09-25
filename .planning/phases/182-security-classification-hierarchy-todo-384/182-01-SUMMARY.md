@@ -109,3 +109,10 @@ None - no external service configuration required.
 *Phase: 182-security-classification-hierarchy-todo-384*
 *Plan: 01*
 *Completed: 2026-09-25*
+
+## Self-Check: PASSED
+
+All created files verified present (`production/migrations/364_classification_schema.sql`,
+`src/config/classification_service.py`, `tests/unit/test_classification_service.py`, this
+SUMMARY.md). All commit hashes (`8dd8aea57`, `906d3e497`, `280b4053d`) verified present in
+`git log --oneline --all`.
