@@ -104,6 +104,20 @@ _DEFAULT_CLIENT_ID: int = 40
 _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 
 
+def _restrict_timeframes(configured: list[str], only: list[str] | None) -> list[str]:
+    """`only` (the --tf flag) narrows the APR set, keeping its order; a tf outside it raises
+    rather than being silently skipped (todo 421: refresh 1d alone without recomputing
+    every intraday bar)."""
+    if only is None:
+        return configured
+    unknown = [tf for tf in only if tf not in configured]
+    if unknown:
+        raise ValueError(
+            f"--tf {unknown!r} not in feature.factory.target_timeframes {configured!r}"
+        )
+    return [tf for tf in configured if tf in only]
+
+
 def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     """Load the APR-backed set of timeframes backfill_feature_factory processes.
 
@@ -822,6 +836,7 @@ async def run_fetch_stage(
     client_id: int,
     symbols: list[str] | None,
     db_conn: Any,
+    timeframes: list[str] | None = None,
 ) -> None:
     """Fetch IBKR OHLCV history for ETFs into market_data_ohlcv.
 
@@ -835,7 +850,7 @@ async def run_fetch_stage(
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
     cfg = _load_config_service(db_conn)
-    target_timeframes = _get_target_timeframes(cfg)
+    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
 
     # Load existing status to skip already-fetched pairs
     all_symbols = [c.symbol for c in etf_contracts]
@@ -1024,6 +1039,7 @@ def run_compute_stage(
     pipeline_version: str = "3.0.0",
     n_workers: int = 1,
     refresh: bool = False,
+    timeframes: list[str] | None = None,
 ) -> tuple[dict[tuple[str, str], dict], float]:
     """Compute FeatureVectors from market_data_ohlcv_tradeable and batch-insert into feature_vectors.
 
@@ -1038,7 +1054,7 @@ def run_compute_stage(
     """
     cfg = _load_config_service(db_conn)
     config = _build_feature_factory_config(cfg)
-    target_timeframes = _get_target_timeframes(cfg)
+    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
     # todo 178 IN-01: was "threshold.backfill.coverage_threshold", which was never seeded --
     # migration 153 only ever seeded "threshold.backfill.coverage_gate", so the read always
     # fell through to the hardcoded 0.80 default and any dashboard edit to coverage_gate was
@@ -1682,6 +1698,12 @@ def _parse_args() -> argparse.Namespace:
         help="Number of parallel workers (default: APR infra.feature_factory.workers, fallback 1)",
     )
     parser.add_argument(
+        "--tf",
+        default=None,
+        help="Comma-separated timeframes to limit scope, e.g. 1d (default: every tf in "
+        "feature.factory.target_timeframes; one outside it is an error)",
+    )
+    parser.add_argument(
         "--refresh",
         action="store_true",
         help=(
@@ -1704,6 +1726,7 @@ def main() -> None:
     symbols: list[str] | None = None
     if args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
+    timeframes = [t.strip() for t in args.tf.split(",") if t.strip()] if args.tf else None
 
     settings = Settings()
     db_conn = _connect_db(settings)
@@ -1744,6 +1767,7 @@ def main() -> None:
                     client_id=args.client_id,
                     symbols=symbols,
                     db_conn=db_conn,
+                    timeframes=timeframes,
                 )
             )
             _logger.info("stage1_complete")
@@ -1760,6 +1784,7 @@ def main() -> None:
                 pipeline_version=args.pipeline_version,
                 n_workers=n_workers,
                 refresh=args.refresh,
+                timeframes=timeframes,
             )
             db_conn = None  # already closed inside run_compute_stage
             _log_coverage_report(coverage, coverage_threshold)

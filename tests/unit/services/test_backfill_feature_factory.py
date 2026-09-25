@@ -1708,3 +1708,25 @@ class TestBuildLtfReturnSeries:
             _build_ltf_return_series([{"ts": datetime(2026, 1, 1, tzinfo=UTC), "close": 1.0}], [])
             == {}
         )
+
+
+class TestRestrictTimeframes:
+    """Todo 421: --tf narrows the APR timeframe set; an unknown tf is an error."""
+
+    def test_none_keeps_the_configured_set(self):
+        from services.backfill_feature_factory import _restrict_timeframes
+
+        assert _restrict_timeframes(["5m", "15m", "1h", "1d"], None) == ["5m", "15m", "1h", "1d"]
+
+    def test_narrows_in_configured_order(self):
+        from services.backfill_feature_factory import _restrict_timeframes
+
+        assert _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d", "5m"]) == ["5m", "1d"]
+
+    def test_unknown_tf_raises(self):
+        import pytest
+
+        from services.backfill_feature_factory import _restrict_timeframes
+
+        with pytest.raises(ValueError, match="1m"):
+            _restrict_timeframes(["5m", "1d"], ["1m"])
