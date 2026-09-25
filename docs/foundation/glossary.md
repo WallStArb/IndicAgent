@@ -2,7 +2,7 @@
 
 **Version:** 2.0
 **Status:** active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-25
 
 ---
 
@@ -244,6 +244,7 @@ A measurable market force against which an instrument's sensitivity is computed.
 A statistically validated, repeatable edge — a pattern whose forward return expectation is non-zero after costs, measured with sufficient sample size and p < 0.05. Not performance. Not returns. Not an opinion.
 
 **Not:** a synonym for "returns," "outperformance," or "good signal." Every use of "alpha" is a statistical claim, not a qualitative one.
+Two other uses of the letter are not this term: the significance level of a test (written "alpha / M" or "test level"), and the research code's `alpha[row, symbol]` arrays, which hold `predictor` scores.
 
 **Banned:** outperformance
 **Status:** active
@@ -508,6 +509,7 @@ Correlation computed at multiple time lags between two return series. Used to me
 The time for a measured relationship's effective weight to decay to 50% of its estimated value. Applies exponential decay: `effective_weight = weight × exp(-days_since_estimated / half_life_days)`. Shorter half-lives for unstable instruments (high `beta_stability` variance); longer half-lives for stable relationships.
 
 **Not:** the expiry date of a tag. A tag with decayed weight is not expired — it is discounted until re-estimated.
+The same definition covers a research smoothing half-life (an exponential moving average of a `predictor` whose weights halve every half-life rows), chosen from the fixed menu in the multi-timeframe design (D3).
 
 **Banned:** (none)
 **Status:** active
@@ -1040,7 +1042,7 @@ v3.0 vectors (V1 built first; V2+ gated on V1 demonstrating IC > 0):
 - **V3 Macro:** Cross-asset signals — VIX z-score, yield curve slope, flight-to-quality. Regime-speed (slow-moving). Some columns already in V1 FeatureVector as macro context features; full vector adds breadth.
 - **V5 Flow / V7 Qual:** (future) Order flow microstructure; qualitative AI sentiment.
 
-**Not:** a synonym for "tier." I1-I4 are measurement layers within V1, not vectors themselves. Not a synonym for "signal" — a vector produces a score every bar; a signal is emitted only when the score crosses a threshold.
+**Not:** a synonym for "tier." I1-I4 are measurement layers within V1, not vectors themselves. Not a `family`: a family is one pre-registered mechanism inside a vector. Not a synonym for "signal" — a vector produces a score every bar; a signal is emitted only when the score crosses a threshold.
 
 **Banned:** "intelligence channel," "signal source," "alpha source" (use `intelligence vector`)
 **Status:** V1 active — live (FeatureFactory, Phase A shipped, `feature_vectors` 106M+ rows verified 2026-09-04); V3+ gated on V1 demonstrating IC > 0
@@ -1418,6 +1420,194 @@ per-timeframe `|alpha_score| > alpha.quant.threshold.{tf}`, direction-aware CI +
 non-empty `top_features`) → `alpha_events` table
 **Not:** a trading decision. The alpha emitter says "a score crossed threshold"; the
 Portfolio layer (Layer 2) decides whether and how much to trade.
+
+---
+
+## Research Layer and Evidence Terms (E15)
+
+Added 2026-09-25. The vocabulary of the research layer (`src/intelligence/research/`) and the
+evidence framework (`docs/plans/2026-09-24-evidence-framework.md`, methodology-change-ledger
+E15). Three older entries collide with how research code and the E15 docs use their words; the
+resolutions are in `predictor`, `horizon` and `IC term structure` below, and in the notes added to
+`alpha`, `intelligence vector` and `half-life`.
+
+### `book`
+
+The one portfolio a test evaluates: every member of the admitted families, combined by the
+walk-forward ridge combiner (S7) into one position per (row, symbol) on one `clock`, scored
+against one target. The book, not an idea or a predictor, is what earns capital.
+
+**Not:** a sleeve (a fixed symbol subset used by legacy phase 179 tests), a strategy, or a
+family. A family contributes predictors to a book; it is never tested alone on the forward span.
+**Banned:** (none)
+**Status:** active (design); built by phase 183 (S7 combiner, S8 book test)
+
+---
+
+### `book version`
+
+The unit of test: a book's set of registered families plus its combiner spec. Any change to
+either (adding or removing a family or member, changing the combiner) is a new book version, and
+each book version tested on the searched `vintage` spends one test from the `screen` budget.
+
+**Banned:** (none)
+**Status:** active (evidence framework section 6)
+
+---
+
+### `family`
+
+A group of 3 to 8 `family member`s sharing one pre-registered mechanism and prior (a paper or a
+stated economic cause), for example intraday same-slot periodicity. Families enter a book by
+pre-registration and mechanical guards only, never by an outcome screen, and every member stays
+in; the combiner sets weights.
+
+**Not:** an `intelligence vector`. A vector is an information domain (V1 quant, V3 macro, V5
+flow); a family is one mechanism inside a domain, and a vector holds many families.
+**Banned:** (none)
+**Status:** active; queue and status in `docs/research/construction-verdict-ledger.md` section 1
+
+---
+
+### `family member`
+
+One `predictor` registered in a family's spec with its parameters pinned (windows, direction,
+declared memory, and any smoothing from the fixed half-life menu). The same predictor with a
+different window is a different member.
+
+**Banned:** (none)
+**Status:** active
+**Code surface:** `members` in `research/specs/*.yaml` (phase 183)
+
+---
+
+### `predictor`
+
+A pure, registered computation from a panel to a continuous score per (row, symbol), using only
+data through its row, with a declared memory and a pre-registered direction. It has no fitted
+parameters. What the research code calls a "signal" is a predictor.
+
+**Not:** a `signal` (the archived v2.x trade hypothesis with entry, direction and exit), an
+`alpha` (a validated edge), or an `alpha score` (the production ensemble's output).
+**Banned:** (none; "signal" and "signal source" are already reserved or banned elsewhere, so new
+research prose says predictor)
+**Status:** active
+**Code surface:** `SignalSource` in `src/intelligence/research/signals.py`, whose name predates
+this entry and uses a banned term; rename to `Predictor` coordinated with phase 183, which is
+building on it. Research arrays named `alpha` hold predictor scores (legacy naming).
+
+---
+
+### `clock`
+
+The row grid a book trades on and is scored on: the daily clock (one row per session) or an
+intraday clock (a fixed slot grid per session). A book has exactly one clock and one target.
+Predictors computed on another timeframe enter through the causal alignment node (S2b), never
+directly.
+
+**Not:** a timeframe. A timeframe is a property of an input; a clock is a property of a book.
+**Banned:** (none)
+**Status:** active (design, `docs/plans/2026-09-25-multi-timeframe-horizon-design.md`)
+
+---
+
+### `horizon`
+
+The number of rows between entry and exit of a forward return, both at opens (Invariant 1). On
+the daily clock a book's target has horizon 1.
+
+**Not:** `lookahead`, which new text reserves for lookahead bias (using data not yet available at
+decision time). The legacy ic_engine column `lookahead_bars` means horizon; it keeps its name.
+**Banned:** (none)
+**Status:** active
+**Code surface:** `horizon` and `fwd_span()` in `src/intelligence/research/panel.py`
+
+---
+
+### `vintage`
+
+A dated span of data with its own screen budget. Vintage 1 is all data before
+`alpha.validation.oos_start` (2025-12-24). The span after it is the `forward span`, reserved for
+`confirmation`.
+
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `screen`
+
+A test of a `book version` on the searched vintage, one-sided at alpha / M, where M is the
+vintage's declared screen budget (M = 30 on vintage 1, bar p < 0.00167). Passing a screen makes a
+book a candidate for freezing, not for capital.
+
+**Not:** confirmation, and not an admission test for families (families enter without one).
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `confirmation`
+
+The single test of a frozen book on the forward span, alpha 0.05 one-sided, on a date fixed at
+freeze by a power calculation. The only test that controls false discovery and the only gate to
+capital.
+
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `evidence record`
+
+A result recorded by the research runner for a family, member or book version: what ran (spec,
+snapshot and code hashes), what it measured, and its refusals. A record is evidence, not a
+verdict and not a test token.
+
+**Banned:** (none)
+**Status:** active; sole writer is the S6 ledger writer (phase 183)
+
+---
+
+### `shift null`
+
+The book test's null distribution: the whole signal stack shifted against returns by whole
+sessions (every symbol by the same shift), keeping cross-sectional structure and persistence and
+breaking only the alignment. Shifts within `min_shift` or the declared memory are excluded.
+
+**Not:** valid at its nominal tail for persistent predictors on its own: with an
+`autocorrelation time` above about 40 sessions on about 4,700 sessions, its rejection rate at
+p 0.00167 runs 2 to 6 times nominal (simulated 2026-09-25). The calibration fix is E16.
+**Banned:** (none)
+**Status:** active
+**Code surface:** `src/intelligence/statistics/panel_null.py`
+
+---
+
+### `autocorrelation time`
+
+tau = 1 + 2 x (sum of a predictor's lag autocorrelations), in rows of its clock: roughly how
+many rows it takes the predictor to forget itself. A w-session moving average has tau of about w.
+A book's shift null has about (admissible sessions / tau) independent draws. Measured from
+predictors alone, so measuring it spends nothing.
+
+**Not:** `half-life` (a decay parameter chosen for a weight or smoothing) or declared memory (how
+far back a predictor reads).
+**Banned:** (none)
+**Status:** active (step 0 of the evidence framework)
+
+---
+
+### `IC term structure`
+
+The correlation of a predictor at row t with the one-row residual return k rows later, for
+k = 1 .. K, read as a whole curve against a joint shift-null band. A record of how long a
+predictor's information lasts, produced by every recorded run and fed into nothing.
+
+**Not:** `alpha decay` (a feature's rolling IC losing significance over calendar time) or the
+legacy cumulative-horizon IC ladder (overlapping targets).
+**Banned:** (none)
+**Status:** design (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` D2)
 
 ---
 

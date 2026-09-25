@@ -165,6 +165,15 @@ no prior is fitted to the program ledger, whose rows are too few and too heterog
   confirmation stay gross, with the cost band reported as a diagnostic.
 - **Owner parameters,** set when the first book is frozen (none is close): the overall risk
   budget (the single fractional-Kelly choice), the loss limits, and the posterior quantile.
+- **Design inputs for those decisions** (recorded 2026-09-25, not adopted; multi-manager pod
+  practice, reviewed in conversation): (1) books on different clocks (daily and intraday, one
+  clock per book) combine at the P&L level like pods, each with its own risk budget, because
+  their positions are not on one grid; within a clock, predictors combine at the signal level
+  (S7), which is the part pods cannot do. (2) Drawdown-triggered de-risking scales a confirmed
+  book's risk down on a pre-set ladder and back up as it recovers, but never removes a family or
+  member: pruning on realized P&L is outcome selection and makes a new book version. (3) A hard
+  loss limit per book stops trading and sends the book back to a new confirmation. (4) Risk is
+  sized to volatility, not notional.
 
 ## 9. Transition
 
