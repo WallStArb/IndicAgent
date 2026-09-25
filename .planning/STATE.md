@@ -233,7 +233,7 @@ the Phase Summary table above, and the full planning/execution record for any CO
 in its own `.planning/milestones/v3.1-phases/<N>-*/` directory (archived at milestone close 2026-09-02; future phases create fresh dirs under `.planning/phases/`) and `docs/foundation/`/`docs/research/` docs, not
 duplicated here. Currently open/not-yet-planned phases, compressed to current status only:
 
-- **Phase 183** (Research layer: runner, ledger, combiner, book test): added 2026-09-25; not planned. Gates family 1's first real-data run.
+- **Phase 183** (Research layer: runner, ledger, combiner, book test): plans 01-09 and 11 executed 2026-09-25 (runner, research_run ledger + migration 366, specs, R1/R2, ridge, E16 book test and power, family 1 members and specs). E16 adopted and built (9152597eb). Plan 10 in progress: family 1 real evidence run launched 2026-09-25 18:49 EDT (spec b828c285, commit 531da089d); book_v1 screen test next, then outcome docs. Follow-ups: todo 429, todo 430 step 4 (SignalSource rename).
 - **Phase 182** (Security classification hierarchy, todo 384): COMPLETE 2026-09-25. 7/7 plans, migrations 364/365/367/368 live, 295 instruments classified, verification passed (182-VERIFICATION.md). Follow-ups: todo 431 and 182 deferred-items.md.
 - **Phase 169** (Symbol State Query Layer): design doc only, `docs/research/intel-symbol-state-query-layer.md`. Not planned. Needs its own live-verification refresh before planning (flagged stale 2026-08-21 -- its "What Exists" section's row/symbol counts predate the universe expansion to 231 symbols).
 - **Phase 168** (Cost-Hurdle-Adjusted Spread Construction): plans execution-ready but blocked indefinitely -- Phase 167 has no live construction left to refine. `docs/research/trade-construction-layer.md`.

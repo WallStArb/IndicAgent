@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-24
 source: todo 422 build (phase 181 TSMOM), synthetic diagnostics 2026-09-24
@@ -29,3 +29,15 @@ pre-registration addresses them or records them as residual.
 
 Also: 179 pre-registration section 14 says TLT's history starts 2017; it starts 2016-02-03
 (`ohlcv_empty_history` verified).
+
+## Closed 2026-09-25 (phase 183 session): overtaken, not fixed in 179
+
+- The decision point passed: phase 179 was verdicted FAIL and frozen on 2026-09-25 (E14 rerun);
+  its record stands with these residuals as they were.
+- Neither finding carries into the research layer. Finding 1 (calibrated arms short slow
+  trends) does not apply: research books use R1, a fixed-direction construction, never the
+  calibrated arms. Finding 2 (wrapped shifts leak long-window features) is moot for decisions:
+  E16 retired the shift null for book tests and evidence records, and the diagnostic shift null
+  the runner still reports passes each member's declared memory to `session_shifts`, which
+  excludes the leaking shifts.
+- Finding 3 (N_tested) belongs to the retired per-idea bar; E15/E16 count book versions only.
