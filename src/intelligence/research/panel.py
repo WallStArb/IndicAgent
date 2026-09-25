@@ -31,9 +31,10 @@ class Panel:
     open: np.ndarray  # [n, m], NaN where missing
     close: np.ndarray  # [n, m]
     volume: np.ndarray  # [n, m]
-    # Each symbol's instruments.contract_details sector ('' for none) as S0 captured it, for
-    # display and diagnostics. S1 does not read it (its groups come from prices). Empty when
-    # not captured.
+    # Legacy: each symbol's flat sector label, captured by S0 until 2026-09-25 and kept only so
+    # older snapshots load (scripts/analysis/s1_grouping_comparison.py reads its own). S0 no
+    # longer fills it: a present-day label on a historical panel is reference-data lookahead,
+    # and phase 182 stopped maintaining the flat label. S1 groups names by prices.
     sectors: tuple[str, ...] = ()
     manifest: dict = dataclasses.field(default_factory=dict)
 
