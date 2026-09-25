@@ -359,6 +359,17 @@ in-sample for production already, so it spends nothing.
   of 31,800. The residual is bootstrap noise from the different cell-key seed strings, nothing
   else. Artifact `logs/phase179/v4_20260924T235010Z.json` (`v4 --seed-reference 4242`).
   V2 and V3 are synthetic and do not read the calendar, so they stand.
+- **Official S0 snapshot: `97719acbf3dd7ee3`**, built from main a967ef844 at the 2025-12-24
+  05:15 UTC window; a second build from main reproduced the same content hash.
+- **V5 operational definitions (pinned before any S1 output on the official snapshot was
+  read; code `scripts/analysis/sleeve_walk_forward/v5.py`).** (1) Detection: at every refit, every
+  `reliable` pooled row of `canary_acausal_placebo` at the fast lookahead has ic_sign = +1 and
+  ic_ci_lower > 0; one miss fails. Longer lookaheads are reported only, since the placebo's
+  overlap with the label shrinks as the horizon grows. (2) Noise rate: across all refits, the
+  share of `canary_noise_gaussian`, `canary_noise_uniform` and `canary_near_constant` rows
+  carrying a passes_fdr flag that pass FDR must not exceed fdr_alpha, one-sided binomial, fail at
+  p < 0.05 (anti-conservative given cross-lookahead correlation, the strict direction).
+  `canary_constant` is reported only. (3) No `canary_*` feature in any fitted equity stratum.
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.

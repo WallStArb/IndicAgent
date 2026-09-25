@@ -42,7 +42,7 @@ class GroupArrays:
 
 @dataclasses.dataclass(frozen=True)
 class Snapshot:
-    sessions: np.ndarray  # datetime64[D], NYSE sessions
+    sessions: np.ndarray  # datetime64[D], union of universe 1d feature-row dates
     groups: dict[str, GroupArrays]  # regime group -> its routed symbols' rows
     all_1d: GroupArrays  # every 1d symbol, equity labels (the trainer's stratum X)
     sleeve_features: np.ndarray  # [n_sessions, n_sleeve, n_features], NULL -> NaN
