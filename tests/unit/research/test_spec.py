@@ -111,7 +111,6 @@ BOOK = textwrap.dedent("""
       calibration_panels: 4
       calibration_seed: 5
       calibration_tolerance: 1.0e-4
-      stop_check_every: 10
     """)
 
 

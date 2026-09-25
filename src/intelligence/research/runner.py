@@ -37,13 +37,8 @@ import numpy as np
 
 from src.intelligence.research import guards, power, provenance, snapshot, store, synthetic
 from src.intelligence.research import panel as panel_mod
-from src.intelligence.research.book import (
-    book_memory_rows,
-    book_weights,
-    evaluate_book,
-    flatten_stack,
-)
-from src.intelligence.research.combiner import RidgeSpec, walk_forward_ridge
+from src.intelligence.research.book import book_memory_rows, book_timing
+from src.intelligence.research.combiner import RidgeSpec
 from src.intelligence.research.evaluate import (
     PoolFactory,
     evaluate,
@@ -65,6 +60,7 @@ from src.intelligence.research.portfolio import (
     trailing_vol,
 )
 from src.intelligence.research.spec import BookSpec, FamilySpec, LoadedSpec, resolve_member
+from src.intelligence.research.timing import timing_test
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
 
@@ -303,24 +299,26 @@ def _vol(spec: FamilySpec | BookSpec, resid_bar: np.ndarray, bps: int) -> np.nda
     )
 
 
-def _evaluate_member(
-    spec: FamilySpec,
-    member,
+def _shift_diagnostic(
     alpha: np.ndarray,
+    memory: int,
+    spec: FamilySpec | BookSpec,
+    horizon: int,
     panel: Panel,
     residuals: Residuals,
     vol: np.ndarray,
-    shifts: np.ndarray,
     ctx: RunContext,
 ):
+    """The whole-session shift null of alpha under R1 and session scoring, a diagnostic since
+    E16. (None, 0) when the panel admits no shift for this memory: the diagnostic is then
+    absent, which never blocks a record."""
     c, s = spec.construction, spec.scoring
-    construction = functools.partial(
-        rank_vol_neutral_returns,
-        vol=vol,
-        direction=float(c.direction),
-        coverage_floor=c.coverage_floor,
-    )
-    return evaluate(
+    n, bps = len(panel.timestamps), panel.bars_per_session
+    try:
+        shifts = session_shifts(n, bps, s.min_shift, memory)
+    except ValueError:
+        return None, 0
+    res = evaluate(
         alpha,
         residuals.fwd,
         panel.close,
@@ -330,14 +328,20 @@ def _evaluate_member(
         ic_shrinkage_k=s.ic_shrinkage_k,
         shifts=shifts,
         workers=ctx.workers,
-        construction=construction,
-        memory=member.declared_memory_rows + fwd_span(spec.horizon),
-        bars_per_session=panel.bars_per_session,
+        construction=functools.partial(
+            rank_vol_neutral_returns,
+            vol=vol,
+            direction=float(c.direction),
+            coverage_floor=c.coverage_floor,
+        ),
+        memory=memory,
+        bars_per_session=bps,
         valid=panel.valid,
-        embargo=fwd_span(spec.horizon),
+        embargo=fwd_span(horizon),
         pool_factory=ctx.pool_factory,
         session_scoring=s.session_scoring,
     )
+    return res, len(shifts)
 
 
 async def run_family(
@@ -404,27 +408,6 @@ async def run_family(
         except guards.GuardFailure as error:
             await finish_all("guard_failed", {"stage": "S3", "error": str(error)})
             return results
-        n = len(panel.timestamps)
-        shift_sets = {}
-        try:
-            for m in spec.members:
-                shifts = session_shifts(
-                    n, bps, spec.scoring.min_shift, m.declared_memory_rows + fwd_span(spec.horizon)
-                )
-                shift_sets[m.name] = shifts
-                guards.require_testable(
-                    n_shifts=len(shifts),
-                    alpha_level=ctx.budget.screen_alpha,
-                    budget_m=ctx.budget.budget_m,
-                    power=None,
-                )
-        except guards.GuardFailure as error:
-            counts = {k: len(v) for k, v in shift_sets.items()}
-            await finish_all(
-                "refused", {"stage": "refusal", "error": str(error), "n_shifts": counts}
-            )
-            return results
-
         vol = _vol(spec, residuals.bar, bps)
         cfg = spec.scoring.evaluation_config()
         trade = trade_mask(panel.timestamps, cfg) & panel.valid
@@ -436,18 +419,36 @@ async def run_family(
         }
         for m in spec.members:
             alpha = members[m.name]
-            res = _evaluate_member(spec, m, alpha, panel, residuals, vol, shift_sets[m.name], ctx)
             weights, has_position = rank_vol_neutral_weights(
                 alpha,
                 vol=vol,
                 direction=float(spec.construction.direction),
                 coverage_floor=spec.construction.coverage_floor,
             )
+            timing = timing_test(
+                weights,
+                residuals.fwd,
+                has_position,
+                trade,
+                bars_per_session=bps,
+                warmup_sessions=cfg.warmup_sessions,
+            )
+            res, n_shifts = _shift_diagnostic(
+                alpha,
+                m.declared_memory_rows + fwd_span(spec.horizon),
+                spec,
+                spec.horizon,
+                panel,
+                residuals,
+                vol,
+                ctx,
+            )
             record = evidence_record(
+                timing,
                 res,
                 kind="evidence",
                 subject=f"member.{spec.family}.{m.name}",
-                n_shifts=len(shift_sets[m.name]),
+                n_shifts=n_shifts,
                 power=None,
                 coverage=coverage_summary(checked["reports"][m.name], alpha, trade),
                 turnover=turnover_per_session(weights, has_position, trade, bps),
@@ -493,9 +494,7 @@ def book_identities(loaded: LoadedSpec) -> list[Identity]:
     return ids
 
 
-def _power_problem(
-    book: BookSpec, panel: Panel, residuals: Residuals, shifts, bmax, members, ridge
-):
+def _power_problem(book: BookSpec, panel: Panel, residuals: Residuals, bar: float, members, ridge):
     """Synthetic replicates planted on the real test's availability: members read S1 residual
     bar returns, which are missing wherever S1 cannot fit (each name's loading warm-up, not
     only its missing bars), and the target has its own pattern. Planting on the close mask
@@ -528,6 +527,7 @@ def _power_problem(
         synth=synth,
         plant_coef=plant.plant_coef,
         finite_mask=finite_mask,
+        target_mask=target_mask,
         dates=np.asarray(panel.timestamps),
         valid=np.asarray(panel.valid),
         members=tuple(members),
@@ -537,9 +537,7 @@ def _power_problem(
         vol_window_rows=window,
         vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
         cfg=book.scoring.evaluation_config(),
-        shifts=shifts,
-        bmax=bmax,
-        target_mask=target_mask,
+        bar=bar,
     )
     return problem, plant
 
@@ -628,10 +626,7 @@ async def run_book(
         del columns
 
         alpha_level, budget_m = ctx.budget.screen_alpha, ctx.budget.budget_m
-        shifts = session_shifts(
-            n, bps, book.scoring.min_shift, book_memory_rows(memories, fam0.horizon)
-        )
-        bmax = power.b_max(len(shifts), alpha_level, budget_m)
+        bar = alpha_level / budget_m
         ridge = RidgeSpec(
             window_rows=book.combiner.window_sessions * bps,
             refit_rows=book.combiner.refit_sessions * bps,
@@ -639,17 +634,10 @@ async def run_book(
             embargo=fwd_span(fam0.horizon),
             min_obs=book.combiner.min_obs,
         )
-        try:
-            guards.require_testable(
-                n_shifts=len(shifts), alpha_level=alpha_level, budget_m=budget_m, power=None
-            )
-        except guards.GuardFailure as error:
-            return await finish(
-                "refused", {"stage": "refusal", "refusal": str(error), "n_shifts": len(shifts)}
-            )
 
+        # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
-        problem, plant = _power_problem(book, panel, residuals, shifts, bmax, members, ridge)
+        problem, plant = _power_problem(book, panel, residuals, bar, members, ridge)
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
             problem,
@@ -658,7 +646,6 @@ async def run_book(
             seed=book.power.seed,
             workers=ctx.workers,
             pool_factory=ctx.pool_factory,
-            stop_check_every=book.power.stop_check_every,
         )
         del problem
         d = run.decision
@@ -669,24 +656,18 @@ async def run_book(
             "replicates": d.replicates,
             "decided_after": d.decided_after,
             "min_power": d.min_power,
+            "bar": bar,
             "planted_rank_ic": book.power.planted_rank_ic,
             "plant_coef": plant.plant_coef,
             "achieved_ic": plant.achieved_ic,
             "ic_se": plant.ic_se,
             "calibration_iterations": plant.iterations,
             "participation_ratio": book.power.participation_ratio,
-            "n_shifts": len(shifts),
-            "bmax": bmax,
             "seconds": run.seconds,
         }
         _log(f"power: {'powered' if d.powered else 'underpowered'} ({d.passes}/{d.decided_after})")
         try:
-            guards.require_testable(
-                n_shifts=len(shifts),
-                alpha_level=alpha_level,
-                budget_m=budget_m,
-                power=1.0 if d.powered else 0.0,
-            )
+            guards.require_testable(power=1.0 if d.powered else 0.0)
         except guards.GuardFailure:
             return await finish(
                 "refused",
@@ -701,46 +682,42 @@ async def run_book(
         vol = _vol(book, residuals.bar, bps)
         cfg = book.scoring.evaluation_config()
         c = book.construction
-        res = evaluate_book(
+        trade = trade_mask(panel.timestamps, cfg) & panel.valid
+        booked = book_timing(
             stack,
             residuals.fwd,
-            panel.close,
-            panel.timestamps,
-            panel.valid,
-            cfg,
+            vol,
+            trade,
             ridge=ridge,
-            vol=vol,
             direction=float(c.direction),
             coverage_floor=c.coverage_floor,
-            memory=book_memory_rows(memories, fam0.horizon),
             bars_per_session=bps,
-            workers=ctx.workers,
-            pool_factory=ctx.pool_factory,
-            mv_condition_max=book.scoring.mv_condition_max,
-            ic_shrinkage_k=book.scoring.ic_shrinkage_k,
-            shifts=shifts,
+            warmup_sessions=cfg.warmup_sessions,
         )
-        weights, has_position = book_weights(
-            flatten_stack(stack),
-            residuals.fwd,
-            n_members=stack.shape[2],
-            ridge=ridge,
-            vol=vol,
-            direction=float(c.direction),
-            coverage_floor=c.coverage_floor,
+        del stack
+        _log("S8 shift-null diagnostic")
+        res, n_shifts = _shift_diagnostic(
+            booked.combined,
+            book_memory_rows(memories, fam0.horizon, ridge),
+            book,
+            fam0.horizon,
+            panel,
+            residuals,
+            vol,
+            ctx,
         )
-        trade = trade_mask(panel.timestamps, cfg) & panel.valid
-        combined = walk_forward_ridge(stack, residuals.fwd, ridge)
-        p_value = float(res.adjusted_p[0])
-        bar = alpha_level / budget_m
+        p_value = booked.timing.hac.p
         record = evidence_record(
+            booked.timing,
             res,
             kind="book_test",
             subject=subject,
-            n_shifts=len(shifts),
+            n_shifts=n_shifts,
             power=power_record,
-            coverage=coverage_summary(guards.integrity(panel, combined), combined, trade),
-            turnover=turnover_per_session(weights, has_position, trade, bps),
+            coverage=coverage_summary(
+                guards.integrity(panel, booked.combined), booked.combined, trade
+            ),
+            turnover=turnover_per_session(booked.weights, booked.has_position, trade, bps),
             costs=book.costs,
             hashes={
                 "spec_hash": loaded.spec_hash,
@@ -752,6 +729,7 @@ async def run_book(
             guards={"families": [f.family for f in families]},
             sub_periods=cfg.sub_periods,
             screen={
+                "statistic": "hac_timing_t",
                 "alpha": alpha_level,
                 "budget_m": budget_m,
                 "bar": bar,

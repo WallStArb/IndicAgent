@@ -63,4 +63,3 @@ power:
   calibration_panels: 4
   calibration_seed: 1832
   calibration_tolerance: 0.0001
-  stop_check_every: 25

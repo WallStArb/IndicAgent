@@ -261,14 +261,15 @@ def test_guard_failure_ends_rows_guard_failed(repo, saved_panel, monkeypatch):
     assert "lookahead" in ledger.evidence["error"]
 
 
-def test_shift_floor_refusal_ends_rows_refused(repo, saved_panel):
+def test_evidence_runs_have_no_shift_floor(repo, saved_panel):
+    """E16: the shift null is a diagnostic; a small panel is recorded, never refused."""
     ledger, calls = FakeLedger(), []
     out = _run(
         load_spec_from_head(repo, SPEC_PATH), _ctx(repo, ledger, saved_panel, calls, budget_m=30)
     )
-    assert {v["status"] for v in out.values()} == {"refused"}
-    assert "null cannot resolve the bar" in ledger.evidence["error"]
-    assert all(0 < k < 600 for k in ledger.evidence["n_shifts"].values())
+    assert {v["status"] for v in out.values()} == {"completed"}
+    assert ledger.evidence["decision"]["statistic"] == "hac_timing_t"
+    assert 0 < ledger.evidence["shift_null"]["n_shifts"] < 600
 
 
 def test_exception_ends_rows_failed_and_propagates(repo, saved_panel, monkeypatch):
@@ -302,7 +303,7 @@ def test_synthetic_mode_touches_no_git_ledger_or_snapshot(repo, monkeypatch):
     assert {v["status"] for v in out.values()} == {"completed"}
     assert {v["run_id"] for v in out.values()} == {None}
     rec = out["lag1"]["evidence"]
-    assert rec["hashes"]["snapshot_hash"] is None and rec["n_shifts"] >= 20
+    assert rec["hashes"]["snapshot_hash"] is None and rec["shift_null"]["n_shifts"] >= 20
 
 
 def test_store_verify_returns_digest_and_detects_tampering(saved_panel, tmp_path):

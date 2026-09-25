@@ -175,14 +175,12 @@ def test_integrity_skips_volume_on_synthetic_panel():
     assert not integrity(panel, np.zeros((10, 2))).volume_checked
 
 
-def test_require_testable_resolution_and_power():
-    require_testable(n_shifts=600, alpha_level=0.05, budget_m=30, power=0.5)
-    with pytest.raises(GuardFailure, match="resolve"):
-        require_testable(n_shifts=599, alpha_level=0.05, budget_m=30, power=0.9)
+def test_require_testable_is_power_only():
+    require_testable(power=0.5)
     with pytest.raises(GuardFailure, match="underpowered"):
-        require_testable(n_shifts=5000, alpha_level=0.05, budget_m=30, power=0.49)
+        require_testable(power=0.49)
     with pytest.raises(GuardFailure, match="underpowered"):
-        require_testable(n_shifts=5000, alpha_level=0.05, budget_m=30, power=float("nan"))
+        require_testable(power=float("nan"))
 
 
 def test_probe_rows_cover_month_ends_listing_edges_and_half_days():

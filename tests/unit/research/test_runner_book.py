@@ -8,9 +8,6 @@ import numpy as np
 import pytest
 
 from src.intelligence.research import runner as runner_mod
-from src.intelligence.research.book import book_memory_rows
-from src.intelligence.research.evaluate import session_shifts
-from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.power import PowerDecision, PowerRun
 from src.intelligence.research.runner import (
     BudgetConfig,
@@ -31,7 +28,7 @@ from tests.unit.research.test_runner_order import (
 )
 
 BOOK_PATH = "research/specs/book.yaml"
-KEYS = {"schema", "estimate", "bootstrap_se", "permutation_p", "power", "screen", "cost_band"}
+KEYS = {"schema", "decision", "shift_null", "power", "screen", "cost_band"}
 
 
 def _book_text(replicates=4):
@@ -73,7 +70,6 @@ def _book_text(replicates=4):
           calibration_panels: 1
           calibration_seed: 12
           calibration_tolerance: 0.01
-          stop_check_every: 5
         """)
 
 
@@ -108,7 +104,7 @@ def fast_power(monkeypatch):
         return CalibratedPlant(0.1, 0.05, 0.001, 3)
 
     def estimate(problem, **kwargs):
-        calls.append(("estimate_power", len(problem.shifts), problem.bmax))
+        calls.append(("estimate_power", problem.bar))
         calls.append(("masks", problem.finite_mask, problem.target_mask))
         return PowerRun(PowerDecision(True, 60, 10, 100, 0.5, 70), (), 1.0)
 
@@ -142,13 +138,13 @@ def _run(repo, ledger, saved_panel, **kw):
 
 
 def _spy_evaluate(monkeypatch, ledger):
-    real = runner_mod.evaluate_book
+    real = runner_mod.book_timing
 
     def spy(*args, **kwargs):
-        ledger.calls.append("evaluate_book")
+        ledger.calls.append("book_timing")
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(runner_mod, "evaluate_book", spy)
+    monkeypatch.setattr(runner_mod, "book_timing", spy)
 
 
 def test_real_order_and_request(repo, saved_panel, fast_power, monkeypatch):
@@ -156,20 +152,17 @@ def test_real_order_and_request(repo, saved_panel, fast_power, monkeypatch):
     _spy_evaluate(monkeypatch, ledger)
     out = _run(repo, ledger, saved_panel)
     assert ledger.calls[:3] == ["has_real_run", "start_runs", "build_snapshot"]
-    assert ledger.calls[3:] == ["evaluate_book", ("finish_run", "completed")]
+    assert ledger.calls[3:] == ["book_timing", ("finish_run", "completed")]
     assert fast_power  # estimate_power ran, before evaluate_book (it is not in ledger.calls)
     r = ledger.request
     assert (r.kind, r.budget_m, r.screen_alpha, r.vintage) == ("book_test", 1, 0.05, "test")
     assert out["status"] == "completed"
     ev = ledger.evidence
     assert KEYS <= set(ev)
-    assert ev["screen"]["p"] == ev["permutation_p"]
-    assert ev["screen"]["p_below_bar"] == (ev["permutation_p"] < 0.05 / 1)
+    assert ev["screen"]["p"] == ev["decision"]["p"]
+    assert ev["screen"]["p_below_bar"] == (ev["decision"]["p"] < 0.05 / 1)
     assert ev["power"]["powered"] is True and ev["power"]["passes"] == 60
-    n_rows = len(_panel().timestamps)
-    memory = book_memory_rows([declared_memory_rows(w, BPS) for w in (1, 5)], 2)
-    want = session_shifts(n_rows, BPS, 5, memory)
-    assert ev["n_shifts"] == len(want) and fast_power[0][1] == len(want)
+    assert fast_power[0] == ("estimate_power", 0.05 / 1)
     # Replicates are planted on the real residual availability, not the close mask: S1's
     # loading warm-up leaves the first sessions without residuals (no power inflation).
     _, finite_mask, target_mask = fast_power[1]
@@ -218,15 +211,6 @@ def test_refuses_dirty_code_prior_run_and_exhausted_budget(repo, saved_panel, fa
     assert "start_runs" not in _refused(repo, saved_panel).calls
 
 
-def test_shift_floor_refusal_skips_power_and_s8(repo, saved_panel, fast_power, monkeypatch):
-    ledger = BookLedger()
-    _spy_evaluate(monkeypatch, ledger)
-    out = _run(repo, ledger, saved_panel, budget_m=30)
-    assert out["status"] == "refused"
-    assert "null cannot resolve the bar" in ledger.evidence["refusal"]
-    assert fast_power == [] and "evaluate_book" not in ledger.calls
-
-
 def test_underpowered_refusal(repo, saved_panel, monkeypatch):
     monkeypatch.setattr(
         runner_mod.synthetic,
@@ -245,8 +229,8 @@ def test_underpowered_refusal(repo, saved_panel, monkeypatch):
     ev = ledger.evidence
     assert ev["refusal"] == "underpowered at IC 0.05"
     assert ev["power"]["passes"] == 10 and ev["power"]["failures"] == 51
-    assert ev["power"]["plant_coef"] == 0.1 and "estimate" not in ev
-    assert "evaluate_book" not in ledger.calls
+    assert ev["power"]["plant_coef"] == 0.1 and "decision" not in ev
+    assert "book_timing" not in ledger.calls
 
 
 def test_guard_failure_ends_row_guard_failed(repo, saved_panel, fast_power, monkeypatch):
@@ -263,7 +247,7 @@ def test_evaluate_error_fails_row_and_propagates(repo, saved_panel, fast_power, 
     def boom(*args, **kwargs):
         raise RuntimeError("S8 exploded")
 
-    monkeypatch.setattr(runner_mod, "evaluate_book", boom)
+    monkeypatch.setattr(runner_mod, "book_timing", boom)
     ledger = BookLedger()
     with pytest.raises(RuntimeError, match="exploded"):
         _run(repo, ledger, saved_panel)

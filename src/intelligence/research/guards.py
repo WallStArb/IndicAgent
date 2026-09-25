@@ -21,9 +21,8 @@ signals, which have no SignalSource.
   member would take hours; the runner probes S1 once on a bounded sub-panel and probes the
   members on the fixed, full-size S1 residual array with these. The memory shock is additive
   (the array holds returns), SHOCK_SDS of each column's own standard deviation.
-- require_testable: the shift null can resolve the vintage bar, and synthetic power at the
-  declared effect is at least 50% (evidence framework section 6). Evidence runs pass
-  power=None: only book tests are refused on power (D-21).
+- require_testable: synthetic power at the declared effect is at least 50% (evidence
+  framework section 6, E16). Only book tests call it (D-21).
 """
 
 from __future__ import annotations
@@ -285,18 +284,10 @@ def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
     return IntegrityReport(coverage=coverage, volume_checked=volume_checked)
 
 
-def require_testable(
-    *, n_shifts: int, alpha_level: float, budget_m: int, power: float | None
-) -> None:
-    """The permutation p cannot go below 1 / (n_shifts + 1), so the null resolves the bar
-    alpha / M only with n_shifts >= M / alpha (600 at M = 30, alpha 0.05). power None skips the
-    power check: evidence runs record power null and are never refused on power (D-21); book
-    tests pass their synthetic power."""
-    needed = int(np.ceil(round(budget_m / alpha_level, 9)))
-    if n_shifts < needed:
-        raise GuardFailure(
-            f"null cannot resolve the bar: {n_shifts} shifts < {needed} (M {budget_m}, "
-            f"alpha {alpha_level})"
-        )
-    if power is not None and not power >= MIN_POWER:
+def require_testable(*, power: float) -> None:
+    """A book test runs only when its synthetic power at the pre-declared effect, through the
+    same statistic and bar, is at least MIN_POWER (evidence framework section 6,
+    methodology-change-ledger E16 (d): the shift-count floor it replaced is gone with the
+    shift null). Evidence runs are never refused on power (D-21)."""
+    if not power >= MIN_POWER:
         raise GuardFailure(f"underpowered: synthetic power {power:.2f} < {MIN_POWER}")

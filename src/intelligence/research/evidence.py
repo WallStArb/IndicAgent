@@ -1,10 +1,12 @@
-"""The evidence record (evidence framework section 5, D-09): what every measurement writes.
+"""The evidence record (evidence framework section 5, D-09, methodology-change-ledger E16).
 
-Estimate (excess annualized Sharpe over the shift-null median), stationary-bootstrap standard
-error and interval, permutation p, per-period estimates, shape diagnostics, the shift count,
-power (None for an evidence run, D-21), coverage, turnover and a cost band, the resolution time
-the estimate implies, the hashes and the guard summary. No token: an evidence run gates
-nothing. A book test adds its screen outcome (p against alpha / M), passed in by the runner.
+The decision block is the E16 statistic: the one-sided HAC t of the timing P&L (the P&L in
+excess of the causal static tilt), its mean, HAC standard error, p, lag and session count, and
+its annualized Sharpe. The shift-null readout (excess Sharpe over the null median, bootstrap
+interval, permutation p, per-period estimates, shape) is kept as a diagnostic block. Also:
+power (None for an evidence run, D-21), coverage, turnover and a cost band, the resolution
+time the decision Sharpe implies, the hashes and the guard summary. No token: an evidence run
+gates nothing. A book test adds its screen outcome (decision p against alpha / M).
 
 Turnover and the cost band are diagnostics only, never a gate (standing directive; family 1
 prereg section 4). Every value goes through ledger.jsonable, so NaN becomes null and numpy
@@ -22,8 +24,9 @@ from src.intelligence.research.evaluate import SESSIONS_PER_YEAR, EvaluationResu
 from src.intelligence.research.guards import IntegrityReport
 from src.intelligence.research.ledger import jsonable
 from src.intelligence.research.spec import CostSpec
+from src.intelligence.research.timing import TimingResult
 
-SCHEMA = "research_evidence_v1"
+SCHEMA = "research_evidence_v2"  # v2: E16 decision statistic, shift null as diagnostic
 _BPS = 1e-4  # one basis point
 
 
@@ -63,8 +66,29 @@ def coverage_summary(report: IntegrityReport, alpha: np.ndarray, trade: np.ndarr
     }
 
 
+def _shift_null(res: EvaluationResult | None, n_shifts: int, sub_periods) -> dict | None:
+    """The shift-null readout, a diagnostic since E16 (None when no shift was admissible)."""
+    if res is None:
+        return None
+    return {
+        "estimate": float(res.excess[0]),
+        "bootstrap_se": None if res.excess_se is None else float(res.excess_se[0]),
+        "bootstrap_ci": res.excess_ci[0],
+        "permutation_p": float(res.adjusted_p[0]),
+        "sharpe_observed": float(res.sharpe_obs[0]),
+        "null_median_sharpe": float(np.median(res.sharpe_null[:, 0])),
+        "per_period": [
+            {"start": a, "end": b, "mean_session_excess": res.sub_period_excess[0, j]}
+            for j, (a, b) in enumerate(sub_periods)
+        ],
+        "shape": res.diagnostics,
+        "n_shifts": n_shifts,
+    }
+
+
 def evidence_record(
-    res: EvaluationResult,
+    timing: TimingResult,
+    shift_null: EvaluationResult | None,
     *,
     kind: str,
     subject: str,
@@ -78,35 +102,36 @@ def evidence_record(
     sub_periods,
     screen: dict | None = None,
 ) -> dict:
-    estimate = float(res.excess[0])
-    drag = {
-        "bps_low": costs.bps_low,
-        "bps_high": costs.bps_high,
-        "annual_drag_low": turnover * costs.bps_low * _BPS * SESSIONS_PER_YEAR,
-        "annual_drag_high": turnover * costs.bps_high * _BPS * SESSIONS_PER_YEAR,
-        "diagnostic_only": True,
-    }
+    """The E16 record: the decision statistic is the HAC timing t; the shift null is kept as
+    a diagnostic block."""
+    h = timing.hac
     record = {
         "schema": SCHEMA,
         "kind": kind,
         "subject": subject,
-        "estimate": estimate,
-        "bootstrap_se": None if res.excess_se is None else float(res.excess_se[0]),
-        "bootstrap_ci": res.excess_ci[0],
-        "permutation_p": float(res.adjusted_p[0]),
-        "sharpe_observed": float(res.sharpe_obs[0]),
-        "null_median_sharpe": float(np.median(res.sharpe_null[:, 0])),
-        "per_period": [
-            {"start": a, "end": b, "mean_session_excess": res.sub_period_excess[0, j]}
-            for j, (a, b) in enumerate(sub_periods)
-        ],
-        "shape": res.diagnostics,
-        "n_shifts": n_shifts,
+        "decision": {
+            "statistic": "hac_timing_t",
+            "mean_session_pnl": h.mean,
+            "se": h.se,
+            "t": h.t,
+            "p": h.p,
+            "lag": h.lag,
+            "n_sessions": h.n,
+            "warmup_sessions": timing.warmup_sessions,
+            "annualized_sharpe": timing.annualized_sharpe,
+        },
+        "shift_null": _shift_null(shift_null, n_shifts, sub_periods),
         "power": power,
         "coverage": coverage,
         "turnover_per_session": turnover,
-        "cost_band": drag,
-        "resolution_years_80pct_power": resolution_years(estimate),
+        "cost_band": {
+            "bps_low": costs.bps_low,
+            "bps_high": costs.bps_high,
+            "annual_drag_low": turnover * costs.bps_low * _BPS * SESSIONS_PER_YEAR,
+            "annual_drag_high": turnover * costs.bps_high * _BPS * SESSIONS_PER_YEAR,
+            "diagnostic_only": True,
+        },
+        "resolution_years_80pct_power": resolution_years(timing.annualized_sharpe),
         "hashes": hashes,
         "guards": guards,
     }

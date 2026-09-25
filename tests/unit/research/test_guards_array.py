@@ -1,4 +1,4 @@
-"""Array-input guard probes (D-25) and require_testable for evidence runs (D-21)."""
+"""Array-input guard probes (D-25)."""
 
 import functools
 
@@ -10,7 +10,6 @@ from src.intelligence.research.guards import (
     GuardFailure,
     causality_probe_array,
     memory_check_array,
-    require_testable,
 )
 
 
@@ -99,12 +98,3 @@ def test_family_members_pass_array_probes(window):
     rows = np.array([5 * bps + 3, 10 * bps - 1, 13 * bps + 7])
     causality_probe_array(fn, x, rows, seed=2)
     assert memory_check_array(fn, x, rows, declared=window * bps) <= window * bps
-
-
-def test_require_testable_power_none_for_evidence_runs():
-    require_testable(n_shifts=600, alpha_level=0.05, budget_m=30, power=None)
-    with pytest.raises(GuardFailure, match="cannot resolve"):
-        require_testable(n_shifts=599, alpha_level=0.05, budget_m=30, power=None)
-    with pytest.raises(GuardFailure, match="underpowered"):
-        require_testable(n_shifts=600, alpha_level=0.05, budget_m=30, power=0.4)
-    require_testable(n_shifts=600, alpha_level=0.05, budget_m=30, power=0.5)

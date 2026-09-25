@@ -76,8 +76,8 @@ def _print_book(result: dict, loaded, out_dir: Path) -> None:
                 "book": loaded.model.book,
                 "status": result["status"],
                 "run_id": result["run_id"],
-                "estimate": ev.get("estimate"),
-                "permutation_p": ev.get("permutation_p"),
+                "t": (ev.get("decision") or {}).get("t"),
+                "p": (ev.get("decision") or {}).get("p"),
                 "p_below_bar": (ev.get("screen") or {}).get("p_below_bar"),
                 "powered": (ev.get("power") or {}).get("powered"),
             }
@@ -122,8 +122,8 @@ def _print(results: dict, loaded, out_dir: Path) -> None:
                     "member": member,
                     "status": row["status"],
                     "run_id": row["run_id"],
-                    "estimate": ev.get("estimate"),
-                    "permutation_p": ev.get("permutation_p"),
+                    "t": (ev.get("decision") or {}).get("t"),
+                    "p": (ev.get("decision") or {}).get("p"),
                 }
             ),
             flush=True,

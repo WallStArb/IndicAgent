@@ -222,7 +222,6 @@ class PowerSpec(BaseModel):
     calibration_panels: int = Field(ge=1)
     calibration_seed: int
     calibration_tolerance: float = Field(gt=0)
-    stop_check_every: int = Field(ge=1)
 
 
 class BookSpec(BaseModel):

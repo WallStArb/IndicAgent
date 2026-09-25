@@ -13,20 +13,15 @@ from src.intelligence.research.evidence import (
     turnover_per_session,
 )
 from src.intelligence.research.spec import CostSpec
+from src.intelligence.research.timing import TimingResult
+from src.intelligence.statistics.hac import HacTestResult
 
 KEYS = {
     "schema",
     "kind",
     "subject",
-    "estimate",
-    "bootstrap_se",
-    "bootstrap_ci",
-    "permutation_p",
-    "sharpe_observed",
-    "null_median_sharpe",
-    "per_period",
-    "shape",
-    "n_shifts",
+    "decision",
+    "shift_null",
     "power",
     "coverage",
     "turnover_per_session",
@@ -35,6 +30,7 @@ KEYS = {
     "hashes",
     "guards",
 }
+TIMING = TimingResult(HacTestResult(0.001, 0.0004, 2.5, 0.006, 8, 3000), 0.9, 252)
 PERIODS = (("2010-01-04", "2014-12-31"), ("2015-01-01", "2025-12-23"))
 
 
@@ -60,6 +56,7 @@ def _result():
 def _record(**kw):
     kw.setdefault("screen", None)
     return evidence_record(
+        TIMING,
         _result(),
         kind="evidence",
         subject="member.intraday_periodicity.same_slot_lag1",
@@ -93,8 +90,8 @@ def test_record_is_json_clean_and_complete():
     assert set(rec) == KEYS
     assert rec["schema"] == SCHEMA
     assert rec["power"] is None
-    assert rec["per_period"][1]["mean_session_excess"] is None
-    assert rec["shape"]["rank_vol_neutral"]["observed"]["skew"] is None
+    assert rec["shift_null"]["per_period"][1]["mean_session_excess"] is None
+    assert rec["shift_null"]["shape"]["rank_vol_neutral"]["observed"]["skew"] is None
     for v in _walk(rec):
         assert not isinstance(v, (np.generic, np.ndarray))
 
@@ -107,11 +104,14 @@ def test_record_has_no_tokens():
 
 def test_record_maps_result_fields():
     rec = _record()
-    assert rec["estimate"] == 0.7
-    assert rec["bootstrap_se"] == 0.4
-    assert rec["bootstrap_ci"] == [-0.1, 1.5]
-    assert rec["permutation_p"] == 0.25
-    assert rec["null_median_sharpe"] == pytest.approx(0.1)
+    assert rec["decision"]["statistic"] == "hac_timing_t"
+    assert (rec["decision"]["t"], rec["decision"]["p"], rec["decision"]["lag"]) == (2.5, 0.006, 8)
+    assert rec["resolution_years_80pct_power"] == pytest.approx(
+        ((1.6449 + 0.8416) / 0.9) ** 2, rel=1e-3
+    )
+    sn = rec["shift_null"]
+    assert sn["estimate"] == 0.7 and sn["bootstrap_se"] == 0.4 and sn["permutation_p"] == 0.25
+    assert sn["bootstrap_ci"] == [-0.1, 1.5] and sn["null_median_sharpe"] == pytest.approx(0.1)
 
 
 def test_resolution_years():
@@ -139,3 +139,21 @@ def test_screen_carried_only_when_given():
     screen = {"alpha": 0.05, "budget_m": 30, "bar": 0.05 / 30, "p": 0.001, "p_below_bar": True}
     assert _record(screen=screen)["screen"] == screen
     assert "screen" not in _record()
+
+
+def test_missing_shift_null_is_recorded_as_none():
+    rec = evidence_record(
+        TIMING,
+        None,
+        kind="evidence",
+        subject="s",
+        n_shifts=0,
+        power=None,
+        coverage={},
+        turnover=1.0,
+        costs=CostSpec(bps_low=1.0, bps_high=5.0),
+        hashes={},
+        guards={},
+        sub_periods=PERIODS,
+    )
+    assert rec["shift_null"] is None and rec["decision"]["p"] == 0.006
