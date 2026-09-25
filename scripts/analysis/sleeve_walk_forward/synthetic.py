@@ -176,9 +176,7 @@ def calibrate_signal_ic(
     lo, hi = 0.0, 0.3
     for _ in range(iterations):
         mid = (lo + hi) / 2
-        got = np.nanmean(
-            [e for _, e, _ in _run_seeds(seeds, n_shifts, workers, cfg, mid, panel_kw)]
-        )
+        got = np.nanmean([e for _, e in _run_seeds(seeds, n_shifts, workers, cfg, mid, panel_kw)])
         lo, hi = (mid, hi) if got < target_excess else (lo, mid)
     return (lo + hi) / 2
 
