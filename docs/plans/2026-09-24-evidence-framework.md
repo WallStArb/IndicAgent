@@ -87,10 +87,11 @@ searched vintage  [2007 .. cutoff)       unsearched forward span  [cutoff .. tes
 
 Written for every measurement (signal, family, book), from `evaluate()`:
 
-- **Estimate** `e = S_obs - median(S_null)`: excess annualized Sharpe over shifted copies, and
-  for panels wide enough to carry it, the excess mean cross-sectional rank IC.
-- **Standard error** from the stationary bootstrap of the daily excess series.
-- **Permutation p** from the shift null.
+- **Decision statistic** (E16): the one-sided Newey-West HAC t of the timing P&L, the daily P&L
+  in excess of the book's causal static tilt with returns causally demeaned, per (bar-of-session,
+  symbol); its mean, HAC standard error, p and annualized Sharpe (`src/intelligence/research/timing.py`).
+- **Shift-null diagnostic** (kept, decides nothing): excess annualized Sharpe over shifted copies,
+  its stationary-bootstrap standard error, and the permutation p.
 - Per-period estimates, shape diagnostics, snapshot hash, spec hash, code commit, and the
   **resolution time** implied by the estimate (section 2).
 
@@ -114,8 +115,8 @@ no prior is fitted to the program ledger, whose rows are too few and too heterog
   ones whose evidence records look weak. Ridge shrinkage, fitted walk-forward on past data only,
   sets the weights. Removing a family or member after seeing its record is a new book version.
 - **Book version.** A book version is the set of registered families plus the combiner spec.
-  Each book version tested on the vintage is one screen test, one-sided at alpha / M on its
-  permutation p.
+  Each book version tested on the vintage is one screen test, one-sided at alpha / M on its HAC
+  timing p (E16).
 - **Budget.** Vintage 1 is all data before `alpha.validation.oos_start` (2025-12-24). Its budget
   is **M = 30**, declared 2026-09-25, count restarted at 0; bar **p < 0.00167**. The 18 legacy
   standalone verdicts stay frozen in the ledger with their own tokens and are not charged:
@@ -124,10 +125,10 @@ no prior is fitted to the program ledger, whose rows are too few and too heterog
   longer runs, and section 3 is why a restart is sound. The ledger records every book version
   and every guard failure; a run registers its ledger row before computing, so an aborted run is
   still counted.
-- **Refusals, before any real-data number.** A test is refused if its null cannot resolve the
-  bar (fewer than M / alpha admissible shifts, so at least 600 at M = 30), or if its synthetic
-  V3 power at the pre-declared effect size is below 50%. Phase 179's V3b (0% power on slow
-  signals) is the case this prevents.
+- **Refusal, before any real-data number.** A test is refused if its synthetic V3 power at the
+  pre-declared effect size, through the same statistic and bar, is below 50%. Phase 179's V3b
+  (0% power on slow signals) is the case this prevents. The earlier floor of 600 admissible
+  shifts went with the shift null (E16).
 - **When the budget runs out,** new book versions wait for the vintage to roll (section 7).
 
 ## 7. Confirmation on the forward span
@@ -141,7 +142,8 @@ no prior is fitted to the program ledger, whose rows are too few and too heterog
   for in-sample selection; it plans power and never enters the test). Interim views of the
   forward P&L are allowed for loss-limit monitoring only; no significance is read before the
   test date. Optional stopping is the bias this closes.
-- **The test.** One-sided, alpha 0.05, on the frozen book's forward excess over its shift null.
+- **The test.** One-sided, alpha 0.05, the HAC timing t of the frozen book's forward P&L (E16;
+  the shift null has too few effective draws on a span this short).
   One spend per span; if two books are frozen on the same span, the split is declared at the
   second freeze.
 - **Vintage roll.** When a confirmation is spent, pass or fail, the cutoff moves to the test

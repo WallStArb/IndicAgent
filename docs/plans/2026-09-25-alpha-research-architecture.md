@@ -75,7 +75,7 @@ S4  residualize   alpha vs factors (combiner input); vs book signals (diagnostic
 S5  measure       evaluate(): arms, session-aligned shift null, bootstrap -> record        [exists, generalize]
 S6  ledger        sole writer: concept_registry(domain='construction'), vintage budget     [evidence framework step 2]
 S7  combine       walk-forward ridge over every registered signal of admitted families     [new, reuses portfolio]
-S8  book test     S5 with S7 as construction: joint shift of signal stack, refit per shift [new, same S5 code]
+S8  book test     S7 once, R1, HAC timing t at the bar; shift null diagnostic (E16)       [new]
 S9  freeze, forward shadow, confirmation on the pre-dated test day                         [evidence framework 7]
 ```
 
@@ -180,13 +180,14 @@ This is the main change to the evidence framework.
   then weights them by registration order. Signals are standardized inside each walk-forward
   fold and ridge handles their collinearity. Residualizing a candidate against the book
   (evidence framework section 5) stays as a diagnostic readout of what it adds.
-- **The book null refits.** S8 shifts the stacked signal panel `[t, i, k]` jointly by one
-  whole-session shift, reruns S7 on the shifted stack and scores it, the pattern S5 already uses
-  for phase 179's calibration. Shifting the combined alpha after fitting would leave the fit's
-  own capacity out of the null. Ridge is closed form, so refits per shift are cheap.
+- **The book test is a timing test (E16, superseding the refit-per-shift null).** S7 fits once,
+  walk-forward; its out-of-sample P&L already has zero mean under H0, so no fitting capacity is
+  left to remove. S8 tests the one-sided HAC t of the book's P&L in excess of its causal static
+  tilt (returns causally demeaned, per bar-of-session and symbol). The whole-session shift null
+  was anti-conservative for persistent signals and is kept only as a diagnostic.
 - **Budget.** Each book version tested on the vintage is one screen test at 0.05 / M, M = 30,
-  bar p < 0.00167, with a null of at least 600 admissible shifts and synthetic power of at least
-  50% checked before the run. The gain is power, not a looser bar: a book over hundreds of names
+  bar p < 0.00167, with synthetic power of at least 50% through the same statistic checked
+  before the run. The gain is power, not a looser bar: a book over hundreds of names
   pools many weak signals into one statistic. The book that clears the screen is frozen and
   confirmed on the forward span (evidence framework section 7).
 - **Standalone and residual records** are still written for every signal, for diagnosis and

@@ -847,7 +847,7 @@ when this was found.
   screen is. Several legacy tests also ran on data or code later corrected (E12's spread
   constant, E14's coverage bug, stale feature snapshots). Legacy rows keep their tokens.
 
-### E16 — 2026-09-25 (PROPOSED, owner decision pending): book test and confirmation move from the shift null to a HAC test on book P&L minus its static tilt
+### E16 — 2026-09-25 (ADOPTED 2026-09-25 by the owner): book test and confirmation move from the shift null to a HAC test on book P&L minus its static tilt
 
 - **Observed first:** in H0 simulations with the exact `panel_null.admissible_shifts` rules
   (n = 4,700 sessions, min_shift 63, memory 252), the whole-session shift null is
@@ -893,6 +893,20 @@ when this was found.
   common factor and volatility clustering, not with regime breaks or richer cross-sectional
   dependence. Daily books' P&L must be total-return (todo 428) for the static-tilt leg to mean
   what it says. Scripts: `scripts/analysis/e16_null_size/`.
+- **Adoption refinements (phase 183, before any real-data number), each from a new H0
+  simulation (`scripts/analysis/e16_null_size/slot_tilt_size.py`: 4 slots, slot-level fixed
+  effects in returns, one factor, t4 noise, volatility clustering, persistent predictor whose
+  static part aligns with the fixed effects; 4,000 simulations per cell):** (1) on intraday
+  panels the static tilt is per (bar-of-session, symbol): a per-symbol tilt rejected in every
+  simulation with slot fixed effects, because the shift null this replaces kept each bar's time
+  of day. (2) The return is demeaned by its own causal expanding mean per (bar-of-session,
+  symbol): the pinned `(w - wbar) * r` carries `(w - wbar) * mean return`, as persistent as the
+  predictor and invisible to the Newey-West lag, and was oversized at the 0.00167 bar (0.0040 at
+  tau 200 with realistic static means of 0.03 noise sd; 0.042 and 0.152 at tau 40 and 200 with
+  0.3). The adopted series `sum (w - wbar)(r - rbar)` has the same expectation and held size in
+  every cell: 0.047 to 0.054 at 0.05, 0.0085 to 0.011 at 0.01, 0.00075 to 0.0025 at 0.00167.
+  Implemented in `src/intelligence/research/timing.py` and `src/intelligence/statistics/hac.py`
+  (the unfloored Newey-West t the simulations used).
 - **What it changes if adopted:** evidence framework sections 3, 6 and 7; the architecture's S8;
   phase 183 plans 06 and 09 (book test), which the phase 183 session is holding; D6 of
   `docs/plans/2026-09-25-multi-timeframe-horizon-design.md`.

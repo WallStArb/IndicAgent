@@ -141,6 +141,22 @@ evidence records and book version 1's screen test.
   fixed S1 residuals, as research proposes, since recomputing S1 per probe row takes hours.
 - **Deferred:** the S5 rank-IC readout (prereg: "once S5's rank-IC readout exists").
 
+### E16 adoption (owner decision 2026-09-25; supersedes D-11's refit null and the 600-shift floor)
+
+- **D-26 Decision statistic.** Book tests and evidence records decide on the one-sided
+  Newey-West HAC t (Bartlett, lag floor(4 (n / 100)^(2/9)), Student t with n - 1 df, unfloored
+  variance) of the timing P&L: sum over a session's traded rows of (w - wbar)(r - rbar), wbar
+  and rbar the causal expanding means per (bar-of-session, symbol) over prior scored sessions,
+  tested after warmup_sessions. Code: statistics/hac.py, research/timing.py.
+- **D-27 S8 simplified.** The ridge fits once (walk-forward); the book is scored like a member
+  on the combined alpha (book.book_timing). The per-shift refit null and the shift-level power
+  machinery are deleted. The shift null of the (combined) alpha stays as a diagnostic block,
+  absent when no shift is admissible.
+- **D-28 Refusals.** Only a book's synthetic power (through book_timing at the bar, R = 100,
+  exact fixed-R curtailment) refuses a test; the 600-shift floor is gone. Evidence runs are
+  never refused.
+- **D-29 Record schema** research_evidence_v2: decision block and shift_null block.
+
 ## Claude's discretion
 
 - Module split inside `src/intelligence/research/` (runner, ledger, combiner, book test,
