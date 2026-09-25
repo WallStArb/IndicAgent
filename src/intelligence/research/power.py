@@ -16,14 +16,25 @@ shift of every replicate:
 Rejected: subsampling shifts per replicate (the sleeve harness's method), which is neither
 exact nor consistently conservative; and one null shared across replicates, which is not
 provably equivalent. MIN_POWER lives in guards.py; curtail takes it as an argument.
+
+estimate_power runs replicates in parallel, one per worker task, so each early stop frees a
+worker; outcomes feed curtail in completion order (the fixed-R decision does not depend on
+order), and once decided a shared stop flag makes in-flight replicates abort. Replicates are
+scored exactly as the real S8 test (same construction, session scoring and shift set); only
+the panel differs. Workers compute and return outcomes, nothing else (D-17).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
 import math
+import multiprocessing
+import time
 from collections.abc import Callable, Iterable
+from concurrent.futures import as_completed
 from fractions import Fraction
+from typing import Any
 
 import numpy as np
 
@@ -104,3 +115,122 @@ def curtail(
         f"power undecided after {passes + failures} of {replicates} replicates "
         f"({passes} passed, need {need})"
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class PowerProblem:
+    synth: Any  # synthetic.SyntheticSpec
+    plant_coef: float
+    finite_mask: np.ndarray
+    dates: np.ndarray
+    valid: np.ndarray
+    members: tuple[tuple[Callable, dict], ...]
+    coverage_floor: int
+    direction: float
+    ridge: Any  # combiner.RidgeSpec
+    vol_window_rows: int
+    vol_min_finite: int
+    cfg: Any  # an evaluate.EvaluationConfig
+    shifts: np.ndarray
+    bmax: int
+
+
+def run_replicate(
+    problem: PowerProblem, seed: int, stop: Any | None = None, stop_check_every: int = 1
+) -> ReplicateOutcome:
+    """One synthetic replicate of the book test (compute-only). `stop` is an Event-like object
+    or None."""
+    # Imported here: power's decision primitives stay importable without the book stack.
+    from src.intelligence.research.book import book_returns, book_sharpe, flatten_stack
+    from src.intelligence.research.evaluate import trade_mask
+    from src.intelligence.research.portfolio import trailing_vol
+    from src.intelligence.research.synthetic import _member_stack, generate_residual_panel
+
+    bps = problem.synth.bars_per_session
+    resid, target = generate_residual_panel(
+        problem.synth, problem.finite_mask, plant_coef=problem.plant_coef, seed=seed
+    )
+    stack = _member_stack(resid, problem.members, bps, problem.coverage_floor)
+    vol = trailing_vol(
+        resid, window_rows=problem.vol_window_rows, min_finite=problem.vol_min_finite
+    )
+    del resid
+    construction = functools.partial(
+        book_returns,
+        n_members=stack.shape[2],
+        ridge=problem.ridge,
+        vol=vol,
+        direction=problem.direction,
+        coverage_floor=problem.coverage_floor,
+    )
+    trade = trade_mask(problem.dates, problem.cfg) & problem.valid
+    flat = flatten_stack(stack)
+    score = functools.partial(book_sharpe, flat, target, construction, trade, bars_per_session=bps)
+    s_obs = score()
+    return replicate_passes(
+        s_obs,
+        problem.shifts,
+        lambda k: score(shift=k),
+        problem.bmax,
+        np.random.default_rng(seed),
+        stop=None if stop is None else stop.is_set,
+        stop_check_every=stop_check_every,
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class PowerRun:
+    decision: PowerDecision
+    outcomes: tuple[ReplicateOutcome, ...]
+    seconds: float
+
+
+def estimate_power(
+    problem: PowerProblem,
+    *,
+    replicates: int,
+    min_power: float,
+    seed: int,
+    workers: int,
+    pool_factory: Callable[[int], Any] | None,
+    stop_check_every: int,
+) -> PowerRun:
+    """The exact fixed-R power decision (D-23): replicate r uses seed + r."""
+    start = time.monotonic()
+    outcomes: list[ReplicateOutcome] = []
+
+    def record(outcome: ReplicateOutcome) -> ReplicateOutcome:
+        outcomes.append(outcome)
+        return outcome
+
+    if workers <= 1:
+        decision = curtail(
+            (record(run_replicate(problem, seed + r)) for r in range(replicates)),
+            replicates=replicates,
+            min_power=min_power,
+        )
+        return PowerRun(decision, tuple(outcomes), time.monotonic() - start)
+
+    if pool_factory is None:
+        raise TypeError("workers > 1 needs a pool_factory")
+    manager = multiprocessing.Manager()
+    stop = manager.Event()
+    pool = pool_factory(workers)
+    futures = []
+    try:
+        futures = [
+            pool.submit(run_replicate, problem, seed + r, stop, stop_check_every)
+            for r in range(replicates)
+        ]
+        decision = curtail(
+            (record(f.result()) for f in as_completed(futures)),
+            replicates=replicates,
+            min_power=min_power,
+        )
+    finally:
+        stop.set()
+        for future in futures:
+            future.cancel()
+        pool.shutdown(wait=True)
+        manager.shutdown()
+    return PowerRun(decision, tuple(outcomes), time.monotonic() - start)
