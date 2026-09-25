@@ -31,7 +31,7 @@ _BAND = 0.15
 _NEXT_YEAR = 252
 
 
-def label_grouping(labels, r_w, market_w, min_rows, min_size):
+def label_grouping(labels, r_w, market_x, min_rows, min_size):
     return group_ids(labels, min_size)
 
 

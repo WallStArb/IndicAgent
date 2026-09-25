@@ -36,7 +36,8 @@ def _structured(seed: int, n: int = 600):
 
 def test_spec_is_pinned():
     assert VINTAGE_1 == FactorSpec(252, 21, 5, 126, 5)
-    assert VINTAGE_1.factor_names == ("market", "group", "pc1", "pc2", "pc3", "pc4", "pc5")
+    assert VINTAGE_1.factor_names() == ("market", "group", "pc1", "pc2", "pc3", "pc4", "pc5")
+    assert VINTAGE_1.factor_names(2)[:3] == ("market_slot0", "market_slot1", "group")
 
 
 def test_leave_one_out_mean_excludes_own_value():
@@ -163,7 +164,7 @@ def test_causal_groups_recover_planted_clusters():
 
     r, _ = _structured(8)
     rows = slice(0, 120)
-    groups = _causal_groups(r[rows], _market(r)[rows], 60, 5)
+    groups = _causal_groups(r[rows], _market(r)[rows][:, :, None], 60, 5)
     labels = np.array(LABELS)
     majority = {
         g: Counter(labels[groups == g]).most_common(1)[0][0] for g in np.unique(groups[groups >= 0])
@@ -198,3 +199,67 @@ def test_groups_are_exposed_and_independent_of_column_order():
         # the same partition under relabelling: names share a group in one iff in the other
         np.testing.assert_array_equal(a[:, None] == a[None, :], c[:, None] == c[None, :])
     np.testing.assert_allclose(shuffled.residual, res.residual[:, perm], atol=1e-10, equal_nan=True)
+
+
+def _intraday_u_beta(seed: int, bps: int = 6, n_sessions: int = 260):
+    """Returns whose market beta varies by time-of-day slot (a U-shape), plus idiosyncratic."""
+    rng = np.random.default_rng(seed)
+    m = len(LABELS)
+    n = n_sessions * bps
+    slot = np.arange(n) % bps
+    market = rng.normal(0, 0.004, n)
+    base = rng.uniform(0.5, 1.5, m)
+    shape = 1.0 + 1.5 * ((np.arange(bps) - (bps - 1) / 2) / ((bps - 1) / 2)) ** 2  # U
+    beta = base[None, :] * shape[slot][:, None]  # [n, m]
+    idio = rng.normal(0, 0.002, (n, m))
+    return market[:, None] * beta + idio, market, slot
+
+
+def test_daily_market_design_is_the_single_market_column():
+    from src.intelligence.research.factors import _market, _slot_market
+
+    r, _ = _structured(11)
+    market = _market(r)
+    x = _slot_market(market, 17, 1)
+    assert x.shape == (*market.shape, 1)
+    np.testing.assert_array_equal(x[:, :, 0], market)
+    slots = _slot_market(market[:12], 5, 4)  # rows 5..16: slots 1, 2, 3, 0, 1, ...
+    np.testing.assert_array_equal(slots[0, :, 1], market[0])
+    np.testing.assert_array_equal(slots[0, :, [0, 2, 3]], 0.0)
+    np.testing.assert_array_equal(slots[3, :, 0], market[3])
+
+
+def test_slot_betas_remove_slot_specific_market_exposure():
+    bps = 6
+    r, market, slot = _intraday_u_beta(12, bps=bps)
+    spec = FactorSpec(
+        window_sessions=120, refit_sessions=10, n_components=2, min_finite_sessions=60
+    )
+    res = residual_returns(r, bars_per_session=bps, spec=spec)
+    live = np.isfinite(res.residual).all(axis=1)
+    for s in range(bps):
+        rows = live & (slot == s)
+        exposure = [
+            abs(np.corrcoef(res.residual[rows, i], market[rows])[0, 1]) for i in range(r.shape[1])
+        ]
+        assert np.median(exposure) < 0.1, (s, np.median(exposure))
+    assert res.loadings.shape[2] == bps + 1 + 2
+    # the fitted per-slot market betas trace the planted U: edges above the middle
+    beta = np.nanmedian(res.loadings[-1][:, :bps], axis=0)
+    assert beta[0] > beta[bps // 2] and beta[-1] > beta[bps // 2]
+
+
+def test_neutralize_uses_the_row_slot_beta():
+    bps = 6
+    r, _, _ = _intraday_u_beta(13, bps=bps)
+    spec = FactorSpec(
+        window_sessions=120, refit_sessions=10, n_components=2, min_finite_sessions=60
+    )
+    res = residual_returns(r, bars_per_session=bps, spec=spec)
+    t = res.refit_rows[2] + 3  # slot 3
+    beta = res.loadings_at(t)
+    alpha = np.full(r.shape, np.nan)
+    alpha[t] = 2.0 * beta[:, t % bps] + np.random.default_rng(0).normal(size=r.shape[1])
+    out = neutralize(alpha, res)
+    ok = np.isfinite(out[t])
+    np.testing.assert_allclose(out[t, ok] @ beta[ok, t % bps], 0.0, atol=1e-9)

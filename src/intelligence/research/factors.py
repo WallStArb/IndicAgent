@@ -6,7 +6,13 @@ contains the name's own return at t. (A name's history in the window does shape 
 quantities, its loadings and the PC weights, as estimation from the window should.)
 
 Factors per name i at row s, from the return panel R [n, m] itself:
-  1. market: equal-weighted mean of the other names' returns;
+  1. market: equal-weighted mean of the other names' returns. On an intraday panel the market
+     loading is per time-of-day slot: the market factor enters as one column per slot (zero
+     outside its slot), so each slot's beta is estimated from that slot's rows in the window.
+     Intraday market beta is U-shaped across the day; a pooled beta would leave a
+     slot-specific market exposure in every residual, which recurs across days and would read
+     as cross-sectional same-slot persistence (family 1 prereg, R3). On a 1d panel this is the
+     single market column;
   2. group: equal-weighted mean of the other members of i's statistical group. Groups are
      re-formed at every refit from prices only (_causal_groups): average-linkage clustering on
      distance 1 - correlation of the window's market-residual returns, cut to the smallest
@@ -59,8 +65,6 @@ from scipy.spatial.distance import squareform
 from src.intelligence.research.panel import fwd_span
 from src.intelligence.statistics.correlation import pairwise_corr
 
-FACTOR_NAMES_BASE = ("market", "group")
-
 
 @dataclasses.dataclass(frozen=True)
 class FactorSpec:
@@ -101,10 +105,15 @@ class FactorSpec:
     min_finite_sessions: int = 126
     min_group_size: int = 5
 
-    @property
-    def factor_names(self) -> tuple[str, ...]:
-        """Column labels of Residualized.loadings."""
-        return FACTOR_NAMES_BASE + tuple(f"pc{k + 1}" for k in range(self.n_components))
+    def factor_names(self, bars_per_session: int = 1) -> tuple[str, ...]:
+        """Column labels of Residualized.loadings: one market column per slot, then group and
+        the PCs."""
+        market = (
+            ("market",)
+            if bars_per_session == 1
+            else tuple(f"market_slot{s}" for s in range(bars_per_session))
+        )
+        return market + ("group",) + tuple(f"pc{k + 1}" for k in range(self.n_components))
 
 
 # Vintage 1 (data before alpha.validation.oos_start), pinned 2026-09-25 by the owner's S1 spec.
@@ -115,8 +124,9 @@ VINTAGE_1 = FactorSpec()
 class Residualized:
     residual: np.ndarray  # [n, m]
     refit_rows: np.ndarray  # [B] first row each block's loadings apply to
-    loadings: np.ndarray  # [B, m, K] per block, columns FactorSpec.factor_names, NaN where none
+    loadings: np.ndarray  # [B, m, K] per block, columns FactorSpec.factor_names(), NaN if none
     groups: np.ndarray  # int [B, m] statistical group per block, -1 where ungrouped
+    bars_per_session: int = 1  # the first bars_per_session loadings are per-slot market betas
 
     def loadings_at(self, t: int) -> np.ndarray:
         """[m, K] loadings in force at row t (NaN before the first refit)."""
@@ -165,25 +175,36 @@ def _market(r: np.ndarray) -> np.ndarray:
     return leave_one_out_mean(r, np.zeros(r.shape[1], dtype=int))
 
 
-def _base_factors(r: np.ndarray, market: np.ndarray, groups: np.ndarray) -> np.ndarray:
-    """[T, m, 2]: leave-one-out market and group returns; group fixed at 0 for ungrouped."""
+def _slot_market(market: np.ndarray, first_row: int, bars_per_session: int) -> np.ndarray:
+    """[T, m, S]: the market factor rows starting at absolute row first_row, one column per
+    time-of-day slot, zero outside its slot. S = 1 on a 1d panel."""
+    if bars_per_session == 1:
+        return market[:, :, None]
+    slot = (first_row + np.arange(market.shape[0])) % bars_per_session
+    onehot = slot[:, None] == np.arange(bars_per_session)[None, :]  # [T, S]
+    return np.where(onehot[:, None, :], market[:, :, None], 0.0)
+
+
+def _base_factors(r: np.ndarray, market_x: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """[T, m, S + 1]: per-slot leave-one-out market columns, then the group return (fixed at 0
+    for ungrouped names)."""
     group = leave_one_out_mean(r, groups)
     group[:, groups < 0] = 0.0
-    return np.stack([market, group], axis=2)
+    return np.concatenate([market_x, group[:, :, None]], axis=2)
 
 
 def _causal_groups(
-    r_w: np.ndarray, market_w: np.ndarray, min_rows: int, min_size: int
+    r_w: np.ndarray, market_x: np.ndarray, min_rows: int, min_size: int
 ) -> np.ndarray:
     """int [m]: statistical groups from one window's prices; -1 for names without min_rows
-    finite market residuals. Average linkage on 1 - correlation of market residuals; groups
+    finite market residuals (market_x: _slot_market columns). Average linkage on 1 - correlation of market residuals; groups
     are the smallest subtrees with at least min_size names, and a name left in a smaller
     subtree joins the core group (members before any leftover joins) it has the highest average
     correlation with, so the assignment does not depend on column order."""
     m = r_w.shape[1]
     groups = np.full(m, -1)
-    a, b = _ols_loadings(r_w, market_w[:, :, None], min_rows)
-    e = r_w - a - market_w * b[:, 0]
+    a, b = _ols_loadings(r_w, market_x, min_rows)
+    e = r_w - a - np.einsum("tmk,mk->tm", market_x, b)
     use = np.flatnonzero(np.isfinite(e).sum(axis=0) >= min_rows)
     if len(use) < 2 * min_size:
         return groups
@@ -248,7 +269,7 @@ def residual_returns(
     """Residualize a return panel r [n, m]: bar returns (horizon None) or forward returns over
     `horizon` rows (panel.forward_returns). Rows before the first full window are NaN.
 
-    `grouping(r_w, market_w, min_rows, min_size) -> int [m]` replaces the causal clusters, for
+    `grouping(r_w, market_x, min_rows, min_size) -> int [m]` replaces the causal clusters, for
     method comparisons only (scripts/analysis/s1_grouping_comparison.py); every S1 run uses the
     default."""
     grouping = grouping or _causal_groups
@@ -263,12 +284,13 @@ def residual_returns(
     residual = np.full((n, m), np.nan)
     first = -(-(window - 1 + lag) // bars_per_session) * bars_per_session
     refit_rows = np.arange(first, n, step)
-    loadings = np.full((len(refit_rows), m, 2 + k), np.nan)
+    loadings = np.full((len(refit_rows), m, bars_per_session + 1 + k), np.nan)
     groups_by_block = np.full((len(refit_rows), m), -1)
     for b, p in enumerate(refit_rows):
         rows = slice(p - lag - window + 1, p - lag + 1)
         block = slice(p, min(p + step, n))
-        r_w, market_w, r_t = r[rows], market[rows], r[block]
+        r_w, r_t = r[rows], r[block]
+        market_w = _slot_market(market[rows], rows.start, bars_per_session)
         groups = grouping(r_w, market_w, min_rows, spec.min_group_size)
         groups_by_block[b] = groups
         base_w = _base_factors(r_w, market_w, groups)
@@ -279,31 +301,38 @@ def residual_returns(
         )
         loadings[b] = beta
 
-        base_t = _base_factors(r_t, market[block], groups)
+        base_t = _base_factors(r_t, _slot_market(market[block], p, bars_per_session), groups)
         x_t = np.concatenate([base_t, _pc_factors(r_t, weights)], axis=2)
         residual[block] = r_t - np.einsum("tmk,mk->tm", x_t, beta)
-    return Residualized(residual, refit_rows, loadings, groups_by_block)
+    return Residualized(residual, refit_rows, loadings, groups_by_block, bars_per_session)
 
 
 def neutralize(alpha: np.ndarray, fitted: Residualized) -> np.ndarray:
     """Cross-sectional residual of alpha [n, m] on the loadings in force at each row (with an
-    intercept), for score-type signals. NaN where alpha or the loadings are missing, and for a
-    row with no more names than regressors."""
+    intercept), for score-type signals: the row's own slot's market beta, the group beta and the
+    PC betas. NaN where alpha or the loadings are missing, and for a row with no more names
+    than regressors."""
     n, m = alpha.shape
+    s_count = fitted.bars_per_session
     out = np.full((n, m), np.nan)
     bounds = np.append(fitted.refit_rows, n)
     for b in range(len(fitted.refit_rows)):
         beta = fitted.loadings[b]
-        has = np.isfinite(beta).all(axis=1)
-        design = np.where(has[:, None], np.column_stack([np.ones(m), beta]), 0.0)  # [m, K+1]
-        block = slice(bounds[b], bounds[b + 1])
-        a = alpha[block]
-        ok = has & np.isfinite(a)  # [T, m]
-        a0 = np.where(ok, a, 0.0)
-        xtx = np.einsum("tn,nk,nl->tkl", ok.astype(float), design, design)
-        xty = np.einsum("tn,nk->tk", a0, design)
-        coef = (np.linalg.pinv(xtx) @ xty[:, :, None])[:, :, 0]
-        fit = coef @ design.T
-        enough = ok.sum(axis=1, keepdims=True) > design.shape[1]
-        out[block] = np.where(ok & enough, a - fit, np.nan)
+        rows = np.arange(bounds[b], bounds[b + 1])
+        for s in range(s_count):
+            slot_rows = rows[rows % s_count == s]
+            if len(slot_rows) == 0:
+                continue
+            loads = np.column_stack([beta[:, s], beta[:, s_count:]])
+            has = np.isfinite(loads).all(axis=1)
+            design = np.where(has[:, None], np.column_stack([np.ones(m), loads]), 0.0)
+            a = alpha[slot_rows]
+            ok = has & np.isfinite(a)  # [T, m]
+            a0 = np.where(ok, a, 0.0)
+            xtx = np.einsum("tn,nk,nl->tkl", ok.astype(float), design, design)
+            xty = np.einsum("tn,nk->tk", a0, design)
+            coef = (np.linalg.pinv(xtx) @ xty[:, :, None])[:, :, 0]
+            fit = coef @ design.T
+            enough = ok.sum(axis=1, keepdims=True) > design.shape[1]
+            out[slot_rows] = np.where(ok & enough, a - fit, np.nan)
     return out
