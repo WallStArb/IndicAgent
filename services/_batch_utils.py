@@ -471,110 +471,119 @@ def _restore_compression_jobs_sync(
 
 
 @contextmanager
-def compressed_hypertable_write_session(conn: Any, hypertable: str):
-    """Brackets a batch of row-level UPDATEs against a compressed TimescaleDB hypertable.
+def compressed_hypertable_write_session(conn: Any, hypertable: str, *, decompress: bool = True):
+    """decompress=False (todo 426) keeps the job pause and GUC overrides but skips the
+        decompress-all, recompress and VACUUM: for INSERT/UPSERT writers, which TimescaleDB 2.27's
+        native DML decompression handles per (symbol, tf) segment. Measured 2026-09-25: one
+        symbol's 4,834-row 1d upsert took 3.9 s with every chunk left compressed and no disk growth,
+        where decompress-all needed 527 GB of 454 GB free. Row-level UPDATE writers
+        (bulk_update_by_key, regime_writer) keep decompress=True until their native cost is
+        measured.
 
-    Proven necessary 2026-08-14: a compressed TimescaleDB chunk has no usable per-row index
-    at all. Confirmed via EXPLAIN: a 4,875-row single-symbol UPDATE against feature_vectors
-    forced a Seq Scan of the full chunk (cost ~1.2M) instead of an Index Scan on the PK
-    (cost ~1,200 on the same chunk decompressed) -- roughly 1000x, independent of how
-    selective the UPDATE's WHERE/JOIN predicate is. `bulk_update_by_key` and any hand-rolled
-    UPDATE against a compressed hypertable both hit this identically -- the cost comes from
-    TimescaleDB's chunk-level compression storage, not from the query shape.
+    Brackets a batch of row-level UPDATEs against a compressed TimescaleDB hypertable.
 
-    A batch job issuing more than a handful of row-level UPDATEs (e.g. regime_writer.py's
-    ~1,000 sequential per-symbol/tf writes) must bracket the whole batch in this session
-    instead of letting TimescaleDB decompress-and-recompress per call -- that per-call
-    pattern is what turned a 12-hour compression policy cycle into a disk-fill incident
-    (2026-08-13/14): every call decompresses, nothing waits for the next call before
-    autovacuum/compression can catch up, so dead-tuple bloat compounds across calls faster
-    than it's reclaimed. Every write in that incident also failed outright (statement
-    timeout) -- this isn't only a disk-space fix, the writes literally cannot complete
-    against a compressed hypertable at this call volume.
+        Proven necessary 2026-08-14: a compressed TimescaleDB chunk has no usable per-row index
+        at all. Confirmed via EXPLAIN: a 4,875-row single-symbol UPDATE against feature_vectors
+        forced a Seq Scan of the full chunk (cost ~1.2M) instead of an Index Scan on the PK
+        (cost ~1,200 on the same chunk decompressed) -- roughly 1000x, independent of how
+        selective the UPDATE's WHERE/JOIN predicate is. `bulk_update_by_key` and any hand-rolled
+        UPDATE against a compressed hypertable both hit this identically -- the cost comes from
+        TimescaleDB's chunk-level compression storage, not from the query shape.
 
-    Decompresses every currently-compressed chunk of `hypertable` on entry (one server-side
-    statement -- `decompress_chunk()` invoked per matching chunk row inside a single SELECT,
-    not a per-chunk round trip), then yields, then -- in a `finally`, so this always runs
-    even if the caller's write loop raises -- recompresses every chunk left decompressed
-    (same single-statement shape) and issues a bare top-level `VACUUM` (autocommit; VACUUM
-    cannot run inside a transaction block, see docs/foundation/timescaledb-compressed-
-    column-migration.md step 4). `decompress_chunk(if_compressed=True)` /
-    `compress_chunk(if_not_compressed=True)` are idempotent -- a session resumed after a
-    prior run was killed mid-way finds those chunks already decompressed and safely no-ops
-    them instead of erroring or double-working. That resumed run still recompresses +
-    VACUUMs everything at its own exit, so the table converges back to fully-compressed
-    state as long as one session eventually runs to completion.
+        A batch job issuing more than a handful of row-level UPDATEs (e.g. regime_writer.py's
+        ~1,000 sequential per-symbol/tf writes) must bracket the whole batch in this session
+        instead of letting TimescaleDB decompress-and-recompress per call -- that per-call
+        pattern is what turned a 12-hour compression policy cycle into a disk-fill incident
+        (2026-08-13/14): every call decompresses, nothing waits for the next call before
+        autovacuum/compression can catch up, so dead-tuple bloat compounds across calls faster
+        than it's reclaimed. Every write in that incident also failed outright (statement
+        timeout) -- this isn't only a disk-space fix, the writes literally cannot complete
+        against a compressed hypertable at this call volume.
 
-    Scoped to the whole hypertable, not the caller's actual write footprint -- matches the
-    canonical decompress-all/recompress-all reference pattern in the migration doc above,
-    and TimescaleDB compression is a chunk-granularity operation regardless (there is no
-    row-scoped decompress). A caller writing a narrow slice (e.g. one training_window_end)
-    pays decompress/recompress work on chunks it didn't need to touch; not optimized here
-    without measured evidence it matters for those lower-frequency callers.
+        Decompresses every currently-compressed chunk of `hypertable` on entry (one server-side
+        statement -- `decompress_chunk()` invoked per matching chunk row inside a single SELECT,
+        not a per-chunk round trip), then yields, then -- in a `finally`, so this always runs
+        even if the caller's write loop raises -- recompresses every chunk left decompressed
+        (same single-statement shape) and issues a bare top-level `VACUUM` (autocommit; VACUUM
+        cannot run inside a transaction block, see docs/foundation/timescaledb-compressed-
+        column-migration.md step 4). `decompress_chunk(if_compressed=True)` /
+        `compress_chunk(if_not_compressed=True)` are idempotent -- a session resumed after a
+        prior run was killed mid-way finds those chunks already decompressed and safely no-ops
+        them instead of erroring or double-working. That resumed run still recompresses +
+        VACUUMs everything at its own exit, so the table converges back to fully-compressed
+        state as long as one session eventually runs to completion.
 
-    Does NOT protect against the process dying without running Python `finally` blocks at
-    all (SIGKILL, OOM, power loss) -- that leaves the table decompressed with elevated disk
-    usage until the next session that runs to completion. Logs chunk-compression counts on
-    entry/exit at WARNING/INFO so this state is visible in `logs/` immediately instead of
-    requiring a live investigation to notice, which is what the 2026-08-13/14 incident cost.
+        Scoped to the whole hypertable, not the caller's actual write footprint -- matches the
+        canonical decompress-all/recompress-all reference pattern in the migration doc above,
+        and TimescaleDB compression is a chunk-granularity operation regardless (there is no
+        row-scoped decompress). A caller writing a narrow slice (e.g. one training_window_end)
+        pays decompress/recompress work on chunks it didn't need to touch; not optimized here
+        without measured evidence it matters for those lower-frequency callers.
 
-    Sets `_active_write_session_hypertable` for the duration so `bulk_update_by_key` can
-    detect a caller that forgot to open a session at all (see that function's docstring) --
-    does NOT protect against a *different*, un-bracketed writer touching the same
-    hypertable concurrently (ic_engine.py's two feature_ic_scores UPDATE call sites were
-    exactly this gap until todo 307 wrapped them 2026-08-20 -- every known writer against
-    both known compressed-hypertable tables is now bracketed, but a future new raw
-    UPDATE against either table would reopen it): this session's exit recompresses "every
-    chunk currently decompressed," not only the ones it personally decompressed, so a
-    concurrent unbracketed writer's chunk could be recompressed out from under it mid-
-    write. Safe today because every known caller runs sequentially (`ops_corpus_pipeline_
-    run.sh`'s step ordering) -- if that ever stops being true, this session needs a real
-    advisory lock, not just a contextvar.
+        Does NOT protect against the process dying without running Python `finally` blocks at
+        all (SIGKILL, OOM, power loss) -- that leaves the table decompressed with elevated disk
+        usage until the next session that runs to completion. Logs chunk-compression counts on
+        entry/exit at WARNING/INFO so this state is visible in `logs/` immediately instead of
+        requiring a live investigation to notice, which is what the 2026-08-13/14 incident cost.
 
-    conn: caller-owned, open psycopg connection (autocommit False is fine -- this function
-    manages its own commits and only toggles autocommit for the final VACUUM). Never closed
-    here -- same ownership contract as bulk_update_by_key.
+        Sets `_active_write_session_hypertable` for the duration so `bulk_update_by_key` can
+        detect a caller that forgot to open a session at all (see that function's docstring) --
+        does NOT protect against a *different*, un-bracketed writer touching the same
+        hypertable concurrently (ic_engine.py's two feature_ic_scores UPDATE call sites were
+        exactly this gap until todo 307 wrapped them 2026-08-20 -- every known writer against
+        both known compressed-hypertable tables is now bracketed, but a future new raw
+        UPDATE against either table would reopen it): this session's exit recompresses "every
+        chunk currently decompressed," not only the ones it personally decompressed, so a
+        concurrent unbracketed writer's chunk could be recompressed out from under it mid-
+        write. Safe today because every known caller runs sequentially (`ops_corpus_pipeline_
+        run.sh`'s step ordering) -- if that ever stops being true, this session needs a real
+        advisory lock, not just a contextvar.
 
-    Overrides the GUCs in _SESSION_GUC_OVERRIDES (statement_timeout, idle_session_timeout,
-    idle_in_transaction_session_timeout) for the duration of the session, in one combined
-    round trip per direction, and restores the connection's prior values on exit.
+        conn: caller-owned, open psycopg connection (autocommit False is fine -- this function
+        manages its own commits and only toggles autocommit for the final VACUUM). Never closed
+        here -- same ownership contract as bulk_update_by_key.
 
-    statement_timeout (infra.compressed_hypertable_write_session.statement_timeout_ms APR
-    key, default 4h) bounds how long any single statement this function itself issues may
-    run. Confirmed necessary live 2026-08-14: the role/database default (30min, tuned for
-    interactive/API queries) killed regime_writer.py's very first decompress_chunk() call
-    outright with zero rows written, and repeating that failure compounds -- every killed
-    attempt leaves dead-tuple bloat that recruits more autovacuum workers onto the same
-    chunks, slowing the next attempt's decompress further.
+        Overrides the GUCs in _SESSION_GUC_OVERRIDES (statement_timeout, idle_session_timeout,
+        idle_in_transaction_session_timeout) for the duration of the session, in one combined
+        round trip per direction, and restores the connection's prior values on exit.
 
-    idle_session_timeout (infra.compressed_hypertable_write_session.idle_session_timeout_ms
-    APR key, default disabled) is a DIFFERENT failure mode: this connection can legitimately
-    sit completely idle for a long time between statements (e.g. while a caller's
-    ProcessPoolExecutor workers compute HMM fits in separate processes), and the role/
-    database default idle_session_timeout has nothing to do with any single statement's
-    runtime. Confirmed necessary live 2026-08-15: regime_writer.py's session decompressed
-    cleanly, sat idle ~55min waiting on worker compute, and was killed by the role/database
-    default (1h) -- stranding the table fully decompressed across all 85 chunks (todo 318).
+        statement_timeout (infra.compressed_hypertable_write_session.statement_timeout_ms APR
+        key, default 4h) bounds how long any single statement this function itself issues may
+        run. Confirmed necessary live 2026-08-14: the role/database default (30min, tuned for
+        interactive/API queries) killed regime_writer.py's very first decompress_chunk() call
+        outright with zero rows written, and repeating that failure compounds -- every killed
+        attempt leaves dead-tuple bloat that recruits more autovacuum workers onto the same
+        chunks, slowing the next attempt's decompress further.
 
-    idle_in_transaction_session_timeout (same APR key/value as idle_session_timeout) is
-    defense-in-depth, not itself observed live -- see _SESSION_GUC_OVERRIDES's comment for
-    why it's still covered.
+        idle_session_timeout (infra.compressed_hypertable_write_session.idle_session_timeout_ms
+        APR key, default disabled) is a DIFFERENT failure mode: this connection can legitimately
+        sit completely idle for a long time between statements (e.g. while a caller's
+        ProcessPoolExecutor workers compute HMM fits in separate processes), and the role/
+        database default idle_session_timeout has nothing to do with any single statement's
+        runtime. Confirmed necessary live 2026-08-15: regime_writer.py's session decompressed
+        cleanly, sat idle ~55min waiting on worker compute, and was killed by the role/database
+        default (1h) -- stranding the table fully decompressed across all 85 chunks (todo 318).
 
-    Pauses `hypertable`'s own TimescaleDB compression policy job(s) (`alter_job(job_id,
-    scheduled => false)`) for the session's duration and restores each job's prior
-    `scheduled` value on exit (todo 314). Proven necessary 2026-08-14: `Columnstore Policy
-    [1065]` (feature_vectors' compression job) ran concurrently with a regime_writer.py
-    write session and deadlocked -- the job held `AccessExclusiveLock` compressing a chunk
-    this session's decompress had already opened with `RowExclusiveLock`, each waiting on
-    the other. `alter_job(scheduled => false)` only stops FUTURE scheduled runs from being
-    picked up; it does not cancel a run already in progress -- if the policy job is already
-    executing at the moment this session starts, this does not retroactively stop it (same
-    residual race the manual "pause job 1065, kill the wedged backend" 2026-08-14 mitigation
-    had to handle by hand). No known caller has hit that narrower race live; documented so
-    it isn't mistaken for full protection.
+        idle_in_transaction_session_timeout (same APR key/value as idle_session_timeout) is
+        defense-in-depth, not itself observed live -- see _SESSION_GUC_OVERRIDES's comment for
+        why it's still covered.
+
+        Pauses `hypertable`'s own TimescaleDB compression policy job(s) (`alter_job(job_id,
+        scheduled => false)`) for the session's duration and restores each job's prior
+        `scheduled` value on exit (todo 314). Proven necessary 2026-08-14: `Columnstore Policy
+        [1065]` (feature_vectors' compression job) ran concurrently with a regime_writer.py
+        write session and deadlocked -- the job held `AccessExclusiveLock` compressing a chunk
+        this session's decompress had already opened with `RowExclusiveLock`, each waiting on
+        the other. `alter_job(scheduled => false)` only stops FUTURE scheduled runs from being
+        picked up; it does not cancel a run already in progress -- if the policy job is already
+        executing at the moment this session starts, this does not retroactively stop it (same
+        residual race the manual "pause job 1065, kill the wedged backend" 2026-08-14 mitigation
+        had to handle by hand). No known caller has hit that narrower race live; documented so
+        it isn't mistaken for full protection.
     """
     _validate_compressed_hypertable(hypertable)
-    _assert_decompress_headroom(conn, hypertable)
+    if decompress:
+        _assert_decompress_headroom(conn, hypertable)
     guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
     compression_jobs: list[tuple[int, bool]] = []
     try:
@@ -620,8 +629,10 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
                 tuple(x for name, val in zip(guc_names, override_values) for x in (name, val)),
             )
 
-            cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
-            n_decompressed = cur.rowcount
+            n_decompressed = 0
+            if decompress:
+                cur.execute(_DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL, (hypertable,))
+                n_decompressed = cur.rowcount
         conn.commit()
     except BaseException:
         # Code review, todo 314: a compression job paused above, followed by ANY failure
@@ -662,20 +673,22 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
         # committed work.
         conn.rollback()
 
-        with conn.cursor() as cur:
-            cur.execute(_COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL, (hypertable,))
-            n_recompressed = cur.rowcount
-        conn.commit()
-
-        prior_autocommit = conn.autocommit
-        conn.autocommit = True
-        try:
+        n_recompressed = 0
+        if decompress:
             with conn.cursor() as cur:
-                # hypertable validated against _WRITE_SESSION_HARDENED_TABLES above --
-                # never attacker-controlled, and VACUUM's target can't be a bind parameter.
-                cur.execute(f"VACUUM {hypertable}")
-        finally:
-            conn.autocommit = prior_autocommit
+                cur.execute(_COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL, (hypertable,))
+                n_recompressed = cur.rowcount
+            conn.commit()
+
+            prior_autocommit = conn.autocommit
+            conn.autocommit = True
+            try:
+                with conn.cursor() as cur:
+                    # hypertable validated against _WRITE_SESSION_HARDENED_TABLES above --
+                    # never attacker-controlled, and VACUUM's target can't be a bind parameter.
+                    cur.execute(f"VACUUM {hypertable}")
+            finally:
+                conn.autocommit = prior_autocommit
 
         with conn.cursor() as cur:
             cur.execute(

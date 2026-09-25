@@ -1388,3 +1388,26 @@ class TestDecompressHeadroomGuard:
                 async with async_compressed_hypertable_write_session(conn, "feature_vectors"):
                     pass
         conn.execute.assert_not_called()
+
+
+class TestNativeDmlWriteMode:
+    """Todo 426: decompress=False pauses jobs and sets GUCs but never decompresses,
+    recompresses or VACUUMs, and skips the decompress headroom pre-flight."""
+
+    @pytest.mark.real_headroom_check
+    def test_no_decompress_statements(self):
+        from services._batch_utils import compressed_hypertable_write_session
+
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchall.return_value = []
+        cur.fetchone.return_value = ("0", "0", "0")
+        with patch("services._batch_utils.shutil.disk_usage") as usage:
+            with compressed_hypertable_write_session(conn, "feature_vectors", decompress=False):
+                pass
+        usage.assert_not_called()
+        sql = " ".join(str(c.args[0]) for c in cur.execute.call_args_list)
+        assert "decompress_chunk" not in sql
+        assert "compress_chunk" not in sql
+        assert "VACUUM" not in sql
+        assert "set_config" in sql

@@ -1221,7 +1221,11 @@ def run_compute_stage(
     # todo 318).
     db_conn.autocommit = False
     with (
-        _write_session(db_conn, "feature_vectors"),
+        # decompress=False (todo 426): these writes are INSERT/UPSERT, which TimescaleDB's
+        # native DML decompression handles per (symbol, tf) segment; decompress-all would
+        # need more disk than the host has. The session still pauses the compression job and
+        # lifts the idle timeouts for the long worker waits.
+        _write_session(db_conn, "feature_vectors", decompress=False),
         _make_worker_pool(n_workers, blas_threads_per_worker) as pool,
     ):
         for result in pool.map(_run_compute_worker, worker_args, chunksize=1):
