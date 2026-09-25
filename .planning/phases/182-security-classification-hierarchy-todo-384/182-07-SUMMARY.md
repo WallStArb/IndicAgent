@@ -143,8 +143,8 @@ nightly coverage audit.
 ## Task Commits
 
 1. **Task 1: apply migration 365 live** - no commit (DB-only; the file was already committed in 65d2d9a59/17e3a90e6)
-2. **Task 2: live-DB integration tests** - `459d1acfd` (test)
-3. **Task 3: docs and todo 384 closure** - `1a7fe9740` (docs)
+2. **Task 2: live-DB integration tests** - `f15f6f9d1` (test)
+3. **Task 3: docs and todo 384 closure** - `2f651f13c` (docs)
 
 ## Deviations from Plan
 
@@ -173,4 +173,4 @@ Phase 182's goal holds end to end in the live DB. The orchestrator owns STATE.md
 
 ## Self-Check: PASSED
 
-All created files are present, and commits 459d1acfd, 1a7fe9740, 65d2d9a59 and 17e3a90e6 are in git.
+All created files are present, and commits f15f6f9d1, 2f651f13c, 65d2d9a59 and 17e3a90e6 are in git.
