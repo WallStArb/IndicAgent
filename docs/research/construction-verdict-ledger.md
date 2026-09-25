@@ -1,52 +1,80 @@
-# Construction & Hypothesis Verdict Ledger
+# Research ledger: every alpha idea and where it stands
 
-**Status:** current, filename-stable (edited in place, not re-dated on rewrite per
-`docs/research/` convention).
-**Purpose:** one place to answer "have we tried this, and what happened" for every
-predictive-signal construction/hypothesis this project has run to a definitive verdict.
-Distinct from `methodology-change-ledger.md` (tracks changes to test *machinery* made after
-seeing results) and `docs/research/catalog.md` (tracks idea *docs* and their status, not
-individual construction test outcomes).
+**Status:** current, filename-stable (edited in place). Last full reconciliation 2026-09-25.
+**Purpose:** the one list of alpha research. Section 1 is what is queued or running, section 2
+what is reopened, section 3 what was never tested, section 4 the frozen verdict record. It
+replaces the idea rows of the deleted `docs/research/catalog.md` and the alpha bullets of
+`.planning/IDEAS.md`. Designs live in the linked docs; status lives here only.
 
-**Sources, not duplicated here beyond a one-line summary:**
-- `concept_registry` (`domain='construction'`, Postgres) — the canonical, structured record
-  for constructions tested since the pre-registration discipline formalized (2026-09-02
-  onward). Query directly for the authoritative current text; this doc's entries for that era
-  are a snapshot, not a live mirror.
-- Individual pre-registration/measurement docs (`docs/research/measurement-*.md`,
-  `docs/plans/*-prereg*.md`) — full methodology and numbers.
-- Session memory (`project_*` files) — process history, informal until a verdict lands here
-  or in `concept_registry`.
+**How status works under E15** (`docs/plans/2026-09-24-evidence-framework.md`, adopted
+2026-09-25): the unit of test is a book version, not an idea. Ideas enter as pre-registered
+family members; the ridge combiner sets their weights walk-forward; each book version tested on
+vintage 1 (data before `alpha.validation.oos_start`, 2025-12-24) spends one screen test from a
+budget of M = 30, count restarted at 0 on adoption (bar p < 0.00167). Confirmation is one test
+of a frozen book on the forward span. A frozen verdict below is never edited; revisiting an idea
+means a new pre-registered family member ("reopened as family X"), which enters a counted book
+version. The 18 pre-E15 verdicts count toward nothing now, but every family built on seen data
+discloses that look.
 
-**Scope:** predictive-signal hypothesis tests only (does construction X have real, tradeable
-IC/edge) — not infrastructure phases, architecture decisions, or regime-labeling mechanics
-unless they were themselves the thing under test.
+**Maintenance:** change a row's status in the same commit as the work that changes it. Add a
+section 4 row when a pre-E15-style standalone verdict is recorded (none are expected now).
 
-**Maintenance:** append a row when a construction reaches a definitive verdict (DEAD / FAIL /
-PASS / KILLED-ON-PAPER / structurally inconclusive). Don't relitigate a closed row here — if a
-successor construction is tried, it gets its own row with a pointer back.
+## 1. Active queue
 
-**Program-level multiplicity (meta-FDR):** each row below controls family-wise error *within
-its own pre-registered test* (BH/BY-FDR across that construction's own hypotheses).
-Nothing upstream of this ledger controls error across the growing number of *independent
-constructions* this program has tried — analogous to what `methodology-change-ledger.md`
-does for pipeline-machinery changes, but for hypothesis count instead. As of 2026-09-25,
-**18 constructions have been run to a definitive verdict** (count the rows below). Any future
-PASS must be discounted against this count before being treated as action-worthy — e.g. a
-construction's own within-test alpha (typically 0.05) should be read as `alpha / N_tested`
-(~0.0028 at N=18) for the purpose of deciding whether to act on it, not taken at face value.
-Update N_tested when a new row is appended; re-derive by counting rows, don't hand-increment
-a stale number.
+Family designs are in `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. No
+family has a real-data number yet: the first run waits for phase 183 (spec runner, ledger
+writer, combiner, book test), so no number exists outside a recorded run.
 
-**Superseded for new work 2026-09-25 (methodology-change-ledger E15).** The rows above keep
-their tokens. New work is tested at the book level against a per-vintage screen budget (vintage
-1: M = 30, count restarted, bar p < 0.00167) and confirmed once on the forward span
-(`docs/plans/2026-09-24-evidence-framework.md`). Keep appending rows for the record; book
-versions and confirmations get rows too.
+| # | Family | Status | Blocked on |
+|---|---|---|---|
+| 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **REGISTERED** 2026-09-25, `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` | Phase 183; family 1 build items R1 (dollar-neutral construction) and R2 (session-aggregated scoring). R3 (per-slot market beta) shipped c73cb8307 |
+| 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data |
+| 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019) | Design only | Pre-registration |
+| 3 | ETF-to-constituent and cross-asset lead-lag, 5m to 1h | Design only; same idea as the Edge Source Thesis's never-run `cross_asset_lead_lag` | Pre-registration |
+| 4 | Short-term reversal (todo 423) | Design only. In-sample panel is seen data (2026-09-13 screen); daily form runs only on symbols added since or phase 180 onboarding, never the forward span | Pre-registration with disclosure and one-bar skip variants |
+| 5 | Period-end marking (Carhart, Kaniel, Musto, Reed 2002) | Design only (owner-proposed) | Power check, then pre-registration |
+| 6 | Period-end disclosure and liquidation flows (window dressing, tax-loss selling) | Design only (owner-proposed) | Power check; survivorship (todo 376) if marginal |
+| 7 | Index reconstitution | **Held** | A point-in-time event history (no source) |
+| 8 | Options expiry flows (pinning and release, quarterly dose-response) | Design only | A split history (stored prices are split-adjusted); no open-interest capture (owner decision 2026-09-25) |
 
----
+## 2. Reopened as new family members (pre-registration pending)
 
-## Verdicted constructions, chronological
+Owner decision 2026-09-25. Reopened because the old verdict came from a gate E15 removed, from a
+failure the new architecture fixes, or from an underpowered vehicle; not because code changed.
+Each is disclosed as seen data. The section 4 rows stay frozen.
+
+| Idea | Frozen verdict | Why reopened | Enters as |
+|---|---|---|---|
+| `alpha_score_residual_single_security_15m` | FAIL 2026-09-03: family statistic and both nulls passed, 0/231 names qualified individually | The per-name concentration gate is removed under E15; a weak effect spread across many names is the target shape. S1 now removes the common component that dominated the raw arm | A 15m single-name family on S1 residual targets |
+| `range_pct_fast_xs_ls_h5` (both forms) | DEAD 2026-09-02 / 2026-09-13: real signal (shuffled p 0.001), beta tilt; single-name form failed 3/3 stability | S1 residualizes the target, which is the failure mechanism; the 3/3 stability gate is removed | A cross-sectional family on S1 residual targets |
+| Corpus features through the ensemble (phase 179) | FAIL 2026-09-25 on the 13-ETF sleeve | Wrong vehicle: 13 names, arms with 0% power on slow edges (V3b). The ~290-column corpus has never been tested as a book on the 233-name residual panel | Feature families (SMC structure, volatility state, ...) admitted on prior, corpus IC table disclosed |
+| TSMOM on the sleeve | FAIL 2026-09-24, p 0.22, positive in 3/3 sub-periods | Underpowered on 13 names | New construction: residual momentum, 12-1 month on S1 residual returns (Blitz, Huij, Martens 2011) |
+
+## 3. Open, never tested
+
+Candidates with no verdict. None is queued; each needs a family spec to enter a book.
+
+| Idea | Where | Note |
+|---|---|---|
+| Overnight futures path to ETF open | `docs/research/data-edge-source-thesis.md` | Falsification pre-registered in that doc, never run |
+| `ctf_momentum` combined with the other untested `_build_ctf_series()` siblings | same | "Both proven independently, combination untested" |
+| Adaptive combiner weights (regime-aware ensemble weights) | `docs/research/measurement-adaptive-combiner-weights.md` | Gated-open since 2026-08-07; overlaps S7's walk-forward ridge, decide there |
+| Volume-price confirmation and systematic-dominance statistics as features (todo 281) | `.planning/milestones/v3.1-phases/171-hmm-walk-forward-regime-labeling-parameter-lookahead-fix/171-CANDIDATE-REGIME-AXES-FINDINGS.md` §6 | Rejected as regime axes, never tested as features |
+| Confluence as a governed predictor family | `docs/research/intel-confluence-detection-persistence-layer.md` | Draft |
+| PrecedentEngine (k-NN retrieval of similar states) | `docs/research/intel-precedent-engine.md` | Draft; glossary gates it on the ensemble showing IC > 0 |
+| Interaction Factory v2 (curated interactions) | `docs/research/intel-feature-interaction-factory.md` | v2 design not reviewed; GBM ensemble pilot also never run |
+| OHLCV primitive expansion | `docs/research/signal-renaissance-primitives-ohlcv.md` | Idea |
+| Sensitivity x regime interaction primitives | `docs/ideas/signal-sensitivity-regime-interaction-primitives.md` | Revision required after its 2026-09-18 review |
+| Quarterly seasonality / OPEX risk-off | `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` | Overlaps families 5 and 8 |
+| Political / policy regime | `docs/ideas/signal-political-policy-regime.md` | Idea |
+| Event catalog and impact measurement | `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md` | Idea |
+| Factor sensitivity, cross-asset regime levels | `docs/ideas/from-ssfi/signal-factor-sensitivity-cross-asset.md` | Idea |
+| Convolutional raw-window representation | `docs/ideas/signal-convolutional-raw-window-representation.md` | Idea, skeptical on arrival |
+| Implied borrow cost from listed derivatives | `docs/ideas/signal-implied-borrow-cost-from-listed-derivatives.md` | Needs options data |
+| Orderflow setups (delta divergence, imbalance, absorption) | `.planning/IDEAS.md` | Needs tick-level bid/ask data |
+| News sentiment, alternative data | `.planning/IDEAS.md`, `docs/research/data-alt-data-sources.md` | Needs a data source |
+
+## 4. Verdict record (frozen, chronological)
 
 | Construction | Date | Verdict | Why |
 |---|---|---|---|
@@ -70,7 +98,7 @@ versions and confirmations get rows too.
 | `tsmom_sleeve` classic time-series momentum, 13-symbol cross-asset sleeve (1d, fixed sign) | 2026-09-24 | **FAIL (p 0.22), weak positive excess in all sub-periods** | Pre-registered (`docs/plans/2026-09-24-phase181-tsmom-sleeve-prereg.md`, frozen 0c33a2596; V2 2.0%, V3 54% at excess 0.50). 12-month trailing log return, sign/vol book, phase 179 evaluator with memory-aware whole-panel shift null (K=3,389). Observed Sharpe 0.47 gross vs null median 0.27: excess +0.19, bootstrap CI [-0.32, +0.73], permutation p 0.22; sub-period excess positive 3/3. Most of the book's return is drift a shifted copy also earns; the timing part is below detection at 13 years. Closes classic TSMOM and its variants (unsigned, 12-1, other lookbacks) on this sleeve. First test of the paradigm here (the 2026-09-13 screen measured a daily RSI). N_tested 18. |
 | Phase 179 cross-asset sleeve walk-forward: production ensemble weights (equity-group pooled 1d IC, yearly refits 2011-2025), calibrated arms `ic_proportional`/`vol_normalized`/`mean_variance` on the 13-symbol sleeve | 2026-09-25 | **FAIL (no arm qualifies; best adj p 0.36)** | Pre-registered (`docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`, frozen da0548a96; rerun under methodology-change-ledger E14 after the frozen run ended FIDELITY BROKEN on a calibration-coverage defect, no performance number read in between). Point-in-time walk-forward, 2013-2025, whole-panel shift null (2,885 shifts, memory 758), Westfall-Young across 3 arms. Excess Sharpe: ic_proportional +0.22 (CI -0.33 to +0.68, adj p 0.36, sub-periods -/+/+), vol_normalized -0.15 (p 0.88), mean_variance -0.11 (p 0.85). The in-sample Sharpe ~1.19 portfolio diagnostic (2026-09-22) does not survive point-in-time weights. Scope: V3b showed these calibrated arms have 0% power on slow return-built edges, so this FAIL says nothing about those; V3 power on the planted fast edge was 83% at excess 0.85. N_tested 18. |
 
-## Supporting measurements (not standalone construction verdicts, but load-bearing context)
+## 5. Supporting measurements (not verdicts, but load-bearing context)
 
 - **TSMOM per-symbol (time-series/absolute momentum) screen — NEGATIVE, 2026-09-13.**
   Council review of the fired decision gate found this construction TYPE (per-symbol,
@@ -131,22 +159,3 @@ versions and confirmations get rows too.
   — the same column round 1 of the 2026-09-06 volume-divergence pre-registration found
   measures the wrong thing for that construction) showing literally zero gate-clears anywhere.
   Corroborating, not conclusive on its own.
-
-## Currently in flight (not yet verdicted)
-
-- **Reconsidered graveyard refinements, 2026-09-11** — a deliberately neutral-framed Fable
-  pass re-examined all 4 DEAD/settled constructions below (excluding the already-final
-  `range_pct_fast`/Phase 148 verdicts) for whether the failure mechanism was fundamental or a
-  measurement artifact. Item #1 (`alpha_score_residual` bucketed retest) FAST-KILLED (0/8
-  buckets) — closed same day. Item #2 (`bars_since_high_fast` regime-gate) also CLOSED same
-  day, on stronger grounds than "unreproduced": the cited premise decomposed into an average
-  across 4 incompatible regime taxonomies dominated by a 52-day event-clustered commodity
-  cell — see its own ledger row above. Item #3 (`cointegrated_pairs_residual` same-sector
-  screen) also CLOSED same day, decisively: 0/471 same-sector single-equity pairs qualify —
-  a far stronger result than the original 0/6, see its own ledger row above. Item #4 remains
-  queued: `cross_sectional_relative_value`'s dead `ctf_momentum` ranking doesn't retire the
-  construction TYPE, whose production gate-evaluation infra
-  (`cross_sectional_spread_tracker.py`) has never been tried with a different feature — but
-  neither item #2 nor #3 produced the clean substitute feature it was gated on, so item #4
-  has no current candidate and stays queued with no clear path forward. Full detail:
-  `docs/research/2026-09-11-strategic-plans-features-ensemble-construction.md`.

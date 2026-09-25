@@ -7,10 +7,10 @@ Full planning system: `.planning/PLANNING-SYSTEM.md`.
 
 **Scope note (2026-07-05):** this file has drifted to pre-v3.0-era ideas only — nothing below
 tracks the active v3.0 intelligence cluster (Feature Factory, stratification, IC, ensemble,
-Concept Registry, etc.). For that cluster's current, maintained index, use
-`docs/research/idea-catalog.md` instead — it's kept in sync with that work; this file isn't,
-and backfilling 75 bullets here to match it would just be duplicate upkeep. New ideas outside
-the v3.0 cluster still belong here as before.
+Concept Registry, etc.). Alpha research status (queued families, reopened ideas, never-tested
+candidates, verdicts) lives in `docs/research/construction-verdict-ledger.md`, the one
+consolidated list since 2026-09-25; this file is a capture inbox only. New ideas outside the
+v3.0 cluster still belong here as before.
 
 **Cleanup pass (2026-07-05):** every `docs/research/` link below was broken — they predate the
 2026-06/07 rename to `vision-0N-`/`intel-0N-`/`platform-0N-`/`ai-0N-`/`signal-0N-` prefixes

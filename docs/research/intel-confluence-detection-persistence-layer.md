@@ -298,8 +298,8 @@ publication. Design for it:
 - `docs/research/multi-engine-regime-architecture.md` — Partial IC validation protocol (gate 1's direct
   ancestor)
 - `docs/research/intel-04-confluence-patterns.md` — pre-v3.0 confluence concept (I6, plugin-based)
-- `docs/research/intel-case-substrate.md` (formerly `intel-13-analog-engine.md`, renamed with the
-  AnalogEngine→CaseSubstrate rename, `1d41f1da`) — return-distribution primitive, definedness
+- `docs/research/intel-precedent-engine.md` (formerly `intel-13-analog-engine.md`, then
+  CaseSubstrate; the glossary's name is PrecedentEngine) — return-distribution primitive, definedness
   rules, analog point-in-time discipline (all inherited verbatim, not restated)
 - `docs/research/measurement-ic-engine.md` (formerly `intel-15-measurement-engine.md`) — the shared
   kernel gate 1 lives in

@@ -310,7 +310,7 @@ order:
 - Business/vision altitude (this doc) → tier mechanism detail: `intelligence-layer-architecture.md`
 - Tier mechanism detail → current concrete implementation: `intelligence-alphaengine.md`
 - What's weak/proposed per area, kept current: `docs/research/roadmap-scope-map.md`
-- Full idea-doc navigation index: `docs/research/catalog.md`
+- Every alpha idea and its status: `docs/research/construction-verdict-ledger.md`
 - Clean-sheet structural proposal this doc draws on heavily:
   `docs/research/fable-2026-07-02-v3-topdown-architecture.md`
 - What the running system actually does today, verified against code/DB:
