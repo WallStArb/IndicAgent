@@ -16,8 +16,14 @@ signals, which have no SignalSource.
 - integrity: no inf, no alpha where the row's own close is missing, no bar with non-positive
   volume (research reads market_data_ohlcv_tradeable, so a zero-volume bar means a panel built
   off the raw table), and per-row coverage reported.
+- causality_probe_array, memory_check_array: the same two probes over a plain array (D-25).
+  On the real panel S1 takes minutes per call, so recomputing it inside every probe of every
+  member would take hours; the runner probes S1 once on a bounded sub-panel and probes the
+  members on the fixed, full-size S1 residual array with these. The memory shock is additive
+  (the array holds returns), SHOCK_SDS of each column's own standard deviation.
 - require_testable: the shift null can resolve the vintage bar, and synthetic power at the
-  declared effect is at least 50% (evidence framework section 6).
+  declared effect is at least 50% (evidence framework section 6). Evidence runs pass
+  power=None: only book tests are refused on power (D-21).
 """
 
 from __future__ import annotations
@@ -182,6 +188,74 @@ def memory_check(fn: PanelFn, panel: Panel, rows: np.ndarray, *, declared: int) 
     return furthest
 
 
+ArrayFn = Callable[[np.ndarray], np.ndarray]
+
+
+def causality_probe_array(
+    fn: ArrayFn, x: np.ndarray, rows: np.ndarray, *, seed: int, reach: int = 0
+) -> None:
+    """causality_probe over an array input: raise unless fn(x)[:t + 1] is unchanged when rows
+    after t + reach are replaced, once with NaN and once with per-cell random rescaling."""
+    base = fn(x)
+    base_nan = np.isnan(base)
+    rng = np.random.default_rng(seed)
+    for fill in ("nan", "rescale"):
+        work = x.astype(float, copy=True)
+        filled_from = len(x)
+        for t in np.sort(rows)[::-1]:
+            cut = int(t) + reach + 1
+            if cut < filled_from:
+                block = work[cut:filled_from]
+                if fill == "nan":
+                    block[:] = np.nan
+                else:
+                    block *= np.exp(rng.normal(0.0, 0.5, block.shape))
+                filled_from = cut
+            out = fn(work)
+            head = slice(0, int(t) + 1)
+            moved = _moved(out[head], base[head], base_nan[head], tol=0.0)
+            if moved.any():
+                raise GuardFailure(
+                    f"lookahead: output at row {int(np.argwhere(moved)[0][0])} changed when rows "
+                    f"after {int(t) + reach} were replaced ({fill})"
+                )
+
+
+def memory_check_array(fn: ArrayFn, x: np.ndarray, rows: np.ndarray, *, declared: int) -> int:
+    """memory_check over an array of returns: add SHOCK_SDS of each column's sd at row t and
+    return the furthest reach at which the output moves; raise on lookahead or a reach beyond
+    `declared`."""
+    base = fn(x)
+    base_nan = np.isnan(base)
+    scale = float(np.nanstd(base))
+    tol = MEMORY_TOLERANCE * scale if np.isfinite(scale) and scale > 0 else 0.0
+    with np.errstate(invalid="ignore"):
+        sd = np.nanstd(x, axis=0)
+    overall = float(np.nanstd(x))
+    shock = SHOCK_SDS * np.where(np.isfinite(sd) & (sd > 0), sd, overall)
+    work = x.astype(float, copy=True)
+    furthest = 0
+    for t in rows:
+        t = int(t)
+        work[t] = x[t] + shock
+        out = fn(work)
+        work[t] = x[t]
+        moved = _moved(out, base, base_nan, tol).reshape(len(out), -1).any(axis=1)
+        changed = np.flatnonzero(moved)
+        if len(changed) == 0:
+            continue
+        if changed[0] < t:
+            raise GuardFailure(f"lookahead: a shock at row {t} moved row {changed[0]}")
+        reach = int(changed[-1]) - t
+        if reach > declared:
+            raise GuardFailure(
+                f"memory: a shock at row {t} moved row {changed[-1]}, reach {reach} > "
+                f"declared {declared}"
+            )
+        furthest = max(furthest, reach)
+    return furthest
+
+
 def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
     if alpha.shape != panel.close.shape:
         raise EvaluatorMisuse(f"alpha shape {alpha.shape} != panel {panel.close.shape}")
@@ -211,14 +285,18 @@ def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
     return IntegrityReport(coverage=coverage, volume_checked=volume_checked)
 
 
-def require_testable(*, n_shifts: int, alpha_level: float, budget_m: int, power: float) -> None:
+def require_testable(
+    *, n_shifts: int, alpha_level: float, budget_m: int, power: float | None
+) -> None:
     """The permutation p cannot go below 1 / (n_shifts + 1), so the null resolves the bar
-    alpha / M only with n_shifts >= M / alpha (600 at M = 30, alpha 0.05)."""
+    alpha / M only with n_shifts >= M / alpha (600 at M = 30, alpha 0.05). power None skips the
+    power check: evidence runs record power null and are never refused on power (D-21); book
+    tests pass their synthetic power."""
     needed = int(np.ceil(round(budget_m / alpha_level, 9)))
     if n_shifts < needed:
         raise GuardFailure(
             f"null cannot resolve the bar: {n_shifts} shifts < {needed} (M {budget_m}, "
             f"alpha {alpha_level})"
         )
-    if not power >= MIN_POWER:
+    if power is not None and not power >= MIN_POWER:
         raise GuardFailure(f"underpowered: synthetic power {power:.2f} < {MIN_POWER}")
