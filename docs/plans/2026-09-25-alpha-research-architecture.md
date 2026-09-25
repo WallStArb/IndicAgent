@@ -196,10 +196,14 @@ This is the main change to the evidence framework.
 
 Ordered by prior, cleanliness of the evidence available, and power:
 
-1. **Intraday momentum** (last half-hour return predicted by the first half-hour and the
-   overnight return; Gao, Han, Li and Zhou 2018). No hint has been seen on this data, so the
-   in-sample vintage is clean for it. Needs 15m or 5m bars (both exist to 2006) and the
-   session-aligned null.
+1. **Intraday return periodicity and momentum, cross-sectional.** Heston, Korajczyk and
+   Sadka (2010): a name's return in a half-hour slot predicts its return in the same slot on
+   following days, relative to other names. Plus a residual first-half-hour to last-half-hour
+   variant. The market-level form (Gao, Han, Li and Zhou 2018, SPY) is one time-series bet that
+   market residualization removes by construction, so it is not a member. No hint has been seen
+   on this data. Needs 15m bars, the session-aligned null, and S1's session-close exit for the
+   last slot: exit at the final bar's close (a market-on-close order), NaN when the name has no
+   final-slot bar. Breadth is priced at the 1d figure (one bet per name per slot-day).
 2. **Overnight versus intraday return decomposition** (the two legs carry different, partly
    opposite premia; Lou, Polk and Skouras 2019). Also unseen; needs only opens and closes.
 3. **ETF-to-constituent and cross-asset lead-lag** at 5m to 1h. The universe mixes sector ETFs
