@@ -28,25 +28,29 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 import asyncpg
 import structlog
+
+from src.config.classification_service import DEFAULT_SCHEME, ClassificationAssignment
 
 if TYPE_CHECKING:
     from src.core.models import Instrument
 
 logger = structlog.get_logger(__name__)
 
-# Migration 296's fixed ten-key contract_details JSONB shape -- reuse exactly,
-# do not invent a new key set per caller.
+# Migration 296's fixed ten-key contract_details JSONB shape minus the flat sector
+# label, which stopped being written in Phase 182 (D-10, todo 384) -- the
+# classification tables are the source of truth for sector now; existing rows keep
+# their sector value as historical data, this module just never writes it again.
 _CONTRACT_DETAILS_KEYS = (
     "symbol",
     "base",
     "name",
     "asset_class",
     "exchange",
-    "sector",
     "tick_size",
     "session_id",
     "point_value",
@@ -67,6 +71,15 @@ _INSERT_TAG_SQL = """
 INSERT INTO instrument_tags (symbol, tag, weight, source, evidence)
 VALUES ($1, $2, $3, 'human', $4::jsonb)
 ON CONFLICT (symbol, tag) DO NOTHING
+"""
+
+_SELECT_CLASSIFICATION_NODE_SQL = """
+SELECT 1 FROM classification_node WHERE scheme = $1 AND code = $2 AND valid_to IS NULL
+"""
+
+_INSERT_CLASSIFICATION_SQL = """
+INSERT INTO instrument_classification (symbol, scheme, code, valid_from, source_ref)
+VALUES ($1, $2, $3, $4, $5)
 """
 
 _INSERT_METADATA_SQL = """
@@ -180,6 +193,7 @@ class OnboardResult:
     symbol: str
     qualified: bool
     instrument_inserted: bool
+    classification_code: str
     tags_inserted: int
     metadata_written: bool
     backfill_rows_seeded: int
@@ -194,6 +208,7 @@ async def onboard_instrument(
     timeframes: Sequence[str] | None = None,
     metadata: dict | None = None,
     metadata_skip_reason: str = "",
+    classification: ClassificationAssignment | None = None,
     compute_eligible: bool = False,
     live_tradeable: bool = False,
 ) -> OnboardResult:
@@ -243,6 +258,12 @@ async def onboard_instrument(
         metadata_skip_reason: required non-empty string when metadata is
             omitted; logged as a WARNING-level structlog event so the skip is
             visible, not silent.
+        classification: a ClassificationAssignment (code, source_ref) naming the
+            indicagent_v1 node this instrument belongs to. Required -- there is
+            no skip escape hatch (D-09, todo 384): an instrument that cannot be
+            classified is not onboarded. The code must already exist as a
+            current classification_node; the row is written to
+            instrument_classification inside this call's own transaction.
         compute_eligible: defaults to False -- a newly onboarded symbol has
             no history yet, so it is backfill-eligible but not
             compute-eligible until a later promotion step (Plan 12).
@@ -251,10 +272,12 @@ async def onboard_instrument(
 
     Raises:
         OnboardingRejected: qualification failed, one or more tags are not
-            registered in tag_vocabulary, or the symbol already exists in
+            registered in tag_vocabulary, the classification code is not a
+            current classification_node, or the symbol already exists in
             `instruments`. No DB write happens in any of these cases -- re-onboarding
             an existing symbol is refused rather than silently reported as done.
-        ValueError: metadata is None and metadata_skip_reason is empty.
+        ValueError: metadata is None and metadata_skip_reason is empty, or
+            classification is None (D-09 -- no skip escape hatch).
 
     Returns:
         OnboardResult summarizing what was written.
@@ -265,6 +288,14 @@ async def onboard_instrument(
             "a silent instrument_metadata omission is not permitted (D-08, todo 282). "
             "Pass metadata=... or a non-empty metadata_skip_reason=... explaining why "
             f"this instrument (symbol={instrument.symbol!r}) has no metadata row."
+        )
+
+    if classification is None:
+        raise ValueError(
+            "onboard_instrument: classification is None -- a new instrument must carry "
+            "an indicagent_v1 classification at onboarding (D-09, todo 384); there is no "
+            "skip escape hatch, an instrument that cannot be classified is not onboarded "
+            f"(symbol={instrument.symbol!r})."
         )
 
     # Qualification gate (V5 / T-174-02) -- runs before the transaction opens
@@ -290,6 +321,16 @@ async def onboard_instrument(
                     "vocabulary, not invented at insert time (ITR rule)."
                 )
 
+        node_exists = await conn.fetchval(
+            _SELECT_CLASSIFICATION_NODE_SQL, DEFAULT_SCHEME, classification.code
+        )
+        if node_exists is None:
+            raise OnboardingRejected(
+                f"onboard_instrument: {instrument.symbol!r} classification code "
+                f"{classification.code!r} is not a current {DEFAULT_SCHEME} node -- "
+                "rejected before any DB write."
+            )
+
         contract_details = {key: getattr(instrument, key) for key in _CONTRACT_DETAILS_KEYS}
 
         status = await conn.execute(
@@ -309,6 +350,18 @@ async def onboard_instrument(
                 "through this path."
             )
         instrument_inserted = True
+
+        # No ON CONFLICT: a brand-new symbol cannot already have a row here, and if one
+        # somehow exists the unique violation (uq_instrument_classification_current) must
+        # surface rather than be silently absorbed.
+        await conn.execute(
+            _INSERT_CLASSIFICATION_SQL,
+            instrument.symbol,
+            DEFAULT_SCHEME,
+            classification.code,
+            datetime.now(UTC).date(),
+            classification.source_ref,
+        )
 
         tags_inserted = 0
         for tag_name, weight, evidence in tags:
@@ -350,6 +403,7 @@ async def onboard_instrument(
         symbol=instrument.symbol,
         qualified=qualified,
         instrument_inserted=instrument_inserted,
+        classification_code=classification.code,
         tags_inserted=tags_inserted,
         metadata_written=metadata_written,
         backfill_rows_seeded=backfill_rows_seeded,
