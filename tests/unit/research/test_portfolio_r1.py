@@ -263,3 +263,23 @@ def test_rank_vol_neutral_returns_is_vectorized():
     rank_vol_neutral_returns(alpha, fwd, None, vol=vol, direction=1.0, coverage_floor=20)
     elapsed = time.monotonic() - start
     assert elapsed < 20.0, f"rank_vol_neutral_returns took {elapsed:.2f}s; is it looping per row?"
+
+
+@pytest.mark.parametrize("seed", [30, 31, 32])
+def test_returns_kernel_equals_weights_path(seed):
+    """The fused per-row kernel agrees with the vectorized weights, ties and NaNs included."""
+    rng = np.random.default_rng(seed)
+    n, m = 300, 40
+    alpha = rng.integers(0, 8, (n, m)).astype(float)  # many ties
+    alpha[rng.random((n, m)) < 0.2] = np.nan
+    vol = rng.uniform(0.5, 3.0, (n, m))
+    vol[rng.random((n, m)) < 0.05] = np.nan
+    fwd = rng.normal(0, 0.01, (n, m))
+    fwd[rng.random((n, m)) < 0.05] = np.nan
+    for direction in (1.0, -1.0):
+        w, has = rank_vol_neutral_weights(alpha, vol=vol, direction=direction, coverage_floor=20)
+        want = np.where(has, (w * np.nan_to_num(fwd)).sum(axis=1), np.nan)
+        got = rank_vol_neutral_returns(
+            alpha, fwd, None, vol=vol, direction=direction, coverage_floor=20
+        )[RANK_VOL_NEUTRAL_ARM]
+        np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-15, equal_nan=True)

@@ -40,6 +40,7 @@ from typing import Protocol
 
 import numpy as np
 import pandas as pd
+from numba import njit
 from scipy.stats import spearmanr
 
 from src.intelligence.portfolio.weighting import instrument_covariance, shrink_instrument_ic
@@ -219,20 +220,30 @@ def trailing_vol(returns: np.ndarray, *, window_rows: int, min_finite: int) -> n
 
 
 def average_ranks(values: np.ndarray) -> np.ndarray:
-    """0-based average ranks along axis 1; NaN entries sort last and take NaN ranks."""
+    """0-based average ranks along axis 1; NaN entries sort last and take NaN ranks. A row
+    with no tied finite values takes its sort positions directly; only rows with ties pay for
+    the tie averaging."""
     keyed = np.where(np.isnan(values), np.inf, values)
     order = np.argsort(keyed, axis=1, kind="stable")
     ordered = np.take_along_axis(keyed, order, axis=1)
     n, m = values.shape
-    pos = np.broadcast_to(np.arange(m), (n, m))
-    starts = np.ones((n, m), dtype=bool)
-    starts[:, 1:] = ordered[:, 1:] != ordered[:, :-1]
-    ends = np.ones((n, m), dtype=bool)
-    ends[:, :-1] = starts[:, 1:]
-    first = np.maximum.accumulate(np.where(starts, pos, 0), axis=1)
-    last = np.minimum.accumulate(np.where(ends, pos, m - 1)[:, ::-1], axis=1)[:, ::-1]
+    pos = np.broadcast_to(np.arange(m, dtype=np.float64), (n, m))
     ranks = np.empty((n, m))
-    np.put_along_axis(ranks, order, (first + last) / 2.0, axis=1)
+    np.put_along_axis(ranks, order, pos, axis=1)
+    tied = (ordered[:, 1:] == ordered[:, :-1]) & np.isfinite(ordered[:, 1:])
+    tie_rows = np.flatnonzero(tied.any(axis=1))
+    if tie_rows.size:
+        ordered_t, order_t = ordered[tie_rows], order[tie_rows]
+        pos_t = pos[: tie_rows.size]
+        starts = np.ones(ordered_t.shape, dtype=bool)
+        starts[:, 1:] = ordered_t[:, 1:] != ordered_t[:, :-1]
+        ends = np.ones(ordered_t.shape, dtype=bool)
+        ends[:, :-1] = starts[:, 1:]
+        first = np.maximum.accumulate(np.where(starts, pos_t, 0), axis=1)
+        last = np.minimum.accumulate(np.where(ends, pos_t, m - 1)[:, ::-1], axis=1)[:, ::-1]
+        tie_ranks = np.empty(ordered_t.shape)
+        np.put_along_axis(tie_ranks, order_t, (first + last) / 2.0, axis=1)
+        ranks[tie_rows] = tie_ranks
     return np.where(np.isnan(values), np.nan, ranks)
 
 
@@ -248,15 +259,22 @@ def _rank_vol_neutral_rows(
 ) -> tuple[np.ndarray, np.ndarray]:
     """(rows with a position, their weights [len(rows), m]); see rank_vol_neutral_weights."""
     _check_r1_args(direction, coverage_floor)
-    valid = np.isfinite(alpha) & np.isfinite(vol) & (vol > 0)
-    rows = np.flatnonzero(valid.sum(axis=1) >= coverage_floor)
+    # Rows with too few finite alphas never trade; vol is only read on the rest.
+    finite = np.isfinite(alpha)
+    cand = np.flatnonzero(finite.sum(axis=1) >= coverage_floor)
+    vol_c = vol[cand]
+    with np.errstate(invalid="ignore"):
+        valid = finite[cand] & np.isfinite(vol_c) & (vol_c > 0)
+    keep = valid.sum(axis=1) >= coverage_floor
+    rows = cand[keep]
     if len(rows) == 0:
         return rows, np.zeros((0, alpha.shape[1]))
-    ok_names = valid[rows]
+    ok_names = valid[keep]
+    vol_rows = vol_c[keep]
     a = np.where(ok_names, alpha[rows], np.nan).astype(float)
     n_valid = ok_names.sum(axis=1, keepdims=True)
     centred = average_ranks(a) / (n_valid - 1) - 0.5
-    raw = np.nan_to_num(direction * centred / np.where(ok_names, vol[rows], 1.0))
+    raw = np.nan_to_num(direction * centred / np.where(ok_names, vol_rows, 1.0))
     pos = np.where(raw > 0, raw, 0.0)
     neg = np.where(raw < 0, raw, 0.0)
     pos_sum = pos.sum(axis=1, keepdims=True)
@@ -293,11 +311,67 @@ def rank_vol_neutral_returns(
     coverage_floor: int,
 ) -> dict[str, np.ndarray]:
     """R1's per-row gross return, NaN on rows without a position. `plan` is ignored (R1 sizes
-    by its own trailing vol); the argument keeps the evaluate() construction signature."""
-    rows, w = _rank_vol_neutral_rows(alpha, vol, direction, coverage_floor)
-    r = np.full(alpha.shape[0], np.nan)
-    r[rows] = (w * np.nan_to_num(fwd_ret[rows])).sum(axis=1)
+    by its own trailing vol); the argument keeps the evaluate() construction signature. Runs
+    once per shift inside the null and the power check, so it is a fused per-row kernel
+    (_r1_returns_kernel) with the same arithmetic as rank_vol_neutral_weights."""
+    _check_r1_args(direction, coverage_floor)
+    r = _r1_returns_kernel(
+        np.ascontiguousarray(alpha, dtype=np.float64),
+        np.ascontiguousarray(fwd_ret, dtype=np.float64),
+        np.ascontiguousarray(vol, dtype=np.float64),
+        float(direction),
+        int(coverage_floor),
+    )
     return {RANK_VOL_NEUTRAL_ARM: r}
+
+
+@njit(cache=True)
+def _r1_returns_kernel(alpha, fwd, vol, direction, floor):  # pragma: no cover - numba
+    n, m = alpha.shape
+    out = np.full(n, np.nan)
+    idx = np.empty(m, dtype=np.int64)
+    vals = np.empty(m)
+    raw = np.empty(m)
+    for t in range(n):
+        k = 0
+        for i in range(m):
+            a, v = alpha[t, i], vol[t, i]
+            if np.isfinite(a) and np.isfinite(v) and v > 0:
+                idx[k] = i
+                vals[k] = a
+                k += 1
+        if k < floor:
+            continue
+        order = np.argsort(vals[:k])
+        # Average 0-based ranks over ties, then centred rank / vol.
+        start = 0
+        while start < k:
+            stop = start + 1
+            while stop < k and vals[order[stop]] == vals[order[start]]:
+                stop += 1
+            rank = 0.5 * (start + stop - 1)
+            for q in range(start, stop):
+                j = order[q]
+                raw[j] = direction * (rank / (k - 1) - 0.5) / vol[t, idx[j]]
+            start = stop
+        pos = 0.0
+        neg = 0.0
+        for j in range(k):
+            if raw[j] > 0:
+                pos += raw[j]
+            elif raw[j] < 0:
+                neg -= raw[j]
+        if pos <= 0 or neg <= 0:
+            continue
+        total = 0.0
+        for j in range(k):
+            f = fwd[t, idx[j]]
+            if not np.isfinite(f):
+                continue
+            w = 0.5 * raw[j] / pos if raw[j] > 0 else (0.5 * raw[j] / neg if raw[j] < 0 else 0.0)
+            total += w * f
+        out[t] = total
+    return out
 
 
 def _normalize(raw: np.ndarray) -> np.ndarray:

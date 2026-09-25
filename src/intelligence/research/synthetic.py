@@ -163,13 +163,13 @@ def combo_rank_ic(
 
 
 def _member_stack(resid_bar, members, bps: int, coverage_floor: int) -> np.ndarray:
-    return np.stack(
-        [
-            fn(resid_bar, bars_per_session=bps, coverage_floor=coverage_floor, **params)
-            for fn, params in members
-        ],
-        axis=2,
-    ).astype(np.float32)
+    """[n, m, K] float32, filled one member at a time to bound peak memory."""
+    stack = np.empty((*resid_bar.shape, len(members)), dtype=np.float32)
+    for k, (fn, params) in enumerate(members):
+        stack[:, :, k] = fn(
+            resid_bar, bars_per_session=bps, coverage_floor=coverage_floor, **params
+        )
+    return stack
 
 
 @dataclasses.dataclass(frozen=True)

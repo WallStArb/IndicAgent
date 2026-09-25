@@ -20,8 +20,7 @@ overlaps the first predicted row. Rows p up to the next refit are predicted with
   question 6).
 
 Moments come from per-row sums (count, sum x, sum xx', sum xy, sum y) accumulated in float64
-over the rows holding at least one complete case, in chunks of refit_rows rows, then prefix
-summed and differenced per fold. Compute-only numpy with no I/O, safe to run inside a
+by a fused per-row kernel, then prefix summed and differenced per fold. Compute-only numpy with no I/O, safe to run inside a
 ProcessPoolExecutor worker (D-17).
 """
 
@@ -30,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+from numba import njit
 
 _EPS = np.finfo(np.float64).eps
 
@@ -56,29 +56,52 @@ def refit_positions(n: int, spec: RidgeSpec) -> np.ndarray:
     return np.arange(spec.window_rows + spec.embargo - 1, n, spec.refit_rows)
 
 
-def _prefix_moments(
-    stack: np.ndarray, target: np.ndarray, chunk_rows: int
-) -> tuple[np.ndarray, ...]:
-    n, _, k = stack.shape
-    ok = np.isfinite(target) & np.isfinite(stack).all(axis=2)
-    rows = np.flatnonzero(ok.any(axis=1))
+def _prefix_moments(stack: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Prefix sums over rows of the complete-case moments (count, sum x, sum xx', sum xy,
+    sum y), index r holding rows < r, plus `live` [n]: rows where some name has every member
+    finite. Runs once per shift in the null and the power check, so the per-row accumulation
+    is a fused kernel (float64 accumulation whatever the stack dtype)."""
+    count, sx, sxx, sxy, sy, live = _row_moments_kernel(
+        np.ascontiguousarray(stack), np.ascontiguousarray(target)
+    )
+    sums = tuple(np.cumsum(a, axis=0) for a in (count, sx, sxx, sxy, sy))
+    return (*sums, live)
+
+
+@njit(cache=True)
+def _row_moments_kernel(stack, target):  # pragma: no cover - numba
+    n, m, k = stack.shape
     count = np.zeros(n + 1)
     sx = np.zeros((n + 1, k))
     sxx = np.zeros((n + 1, k, k))
     sxy = np.zeros((n + 1, k))
     sy = np.zeros(n + 1)
-    for start in range(0, rows.size, chunk_rows):
-        r = rows[start : start + chunk_rows]
-        w = ok[r]
-        x = np.where(w[..., None], stack[r], 0).astype(np.float64)
-        y = np.where(w, target[r], 0).astype(np.float64)
-        out = r + 1
-        count[out] = w.sum(axis=1)
-        sx[out] = x.sum(axis=1)
-        sxx[out] = np.matmul(x.transpose(0, 2, 1), x)
-        sxy[out] = np.matmul(x.transpose(0, 2, 1), y[..., None])[..., 0]
-        sy[out] = y.sum(axis=1)
-    return tuple(np.cumsum(a, axis=0) for a in (count, sx, sxx, sxy, sy))
+    live = np.zeros(n, dtype=np.bool_)
+    x = np.empty(k)
+    for t in range(n):
+        o = t + 1
+        for i in range(m):
+            complete = True
+            for a in range(k):
+                v = np.float64(stack[t, i, a])
+                if not np.isfinite(v):
+                    complete = False
+                    break
+                x[a] = v
+            if not complete:
+                continue
+            live[t] = True
+            y = np.float64(target[t, i])
+            if not np.isfinite(y):
+                continue
+            count[o] += 1.0
+            sy[o] += y
+            for a in range(k):
+                sx[o, a] += x[a]
+                sxy[o, a] += x[a] * y
+                for b in range(k):
+                    sxx[o, a, b] += x[a] * x[b]
+    return count, sx, sxx, sxy, sy, live
 
 
 def walk_forward_ridge(stack: np.ndarray, target: np.ndarray, spec: RidgeSpec) -> np.ndarray:
@@ -90,9 +113,8 @@ def walk_forward_ridge(stack: np.ndarray, target: np.ndarray, spec: RidgeSpec) -
     positions = refit_positions(n, spec)
     if positions.size == 0:
         return combined
-    count, sx, sxx, sxy, sy = _prefix_moments(stack, target, spec.refit_rows)
-    # Prediction touches only rows where some name has every member finite; the rest stay NaN.
-    live = np.isfinite(stack).all(axis=2).any(axis=1)
+    # `live`: rows where some name has every member finite; prediction touches only those.
+    count, sx, sxx, sxy, sy, live = _prefix_moments(stack, target)
     eye = np.eye(k)
     ends = np.append(positions[1:], n)
     for p, q in zip(positions, ends, strict=True):
