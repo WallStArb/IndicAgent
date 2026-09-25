@@ -2,8 +2,8 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-24, at Brandon's request; parent plan
 `docs/plans/2026-09-24-edge-proof-program.md`.
-**Status:** FROZEN 2026-09-25 by the commit that adds section 12.2 (code at main
-`a64af3d1a`). Any change from here is a `methodology-change-ledger.md` entry.
+**Status:** FROZEN 2026-09-25 (section 12.2); rerun under ledger E14 (12.4). **Verdict:
+FAIL, FIDELITY OK (12.5).**
 
 ## 1. The question
 
@@ -486,6 +486,29 @@ Section 7's calibration rule now reads: a symbol's IC is computed when at least
 (at least 2 paired); otherwise 0; the paired count still sets the shrinkage. Pinned before any
 rerun. Everything else in 12.2 stands. Rerun once, in order, at the fix commit: V2, V3, V3b,
 V4, S1, V5, then S2-S4. The 12.2 results are superseded by that rerun's record.
+
+### 12.5 Rerun record (2026-09-25): SLEEVE_VERDICT = FAIL, FIDELITY = OK
+
+Rerun once at main `5fa10430a` (E14), artifacts in `logs/phase179/rerun_e14/`. Gates: V2 6.0%
+(CI 2.7-9.3%), V3 69% / 83%, V3b 0% / 0% (reported), V4 PASS (31,800 keys, deterministic
+fields exact), S1 `s1_*` 15 refits, V5 PASS (placebo 362/362 at the containing lookahead, noise
+16/4,197, no canary weighted). S3: 2,885 admissible shifts, no error. S4
+`s4_9ea44a7d5ff42961.json`:
+
+| Arm | Observed Sharpe | Null median | Excess | Excess 95% CI | Adjusted p | Sub-periods positive |
+|---|---|---|---|---|---|---|
+| ic_proportional | 0.198 | -0.018 | +0.216 | [-0.326, +0.677] | 0.360 | 2 of 3 (-2.5, +1.6, +5.2 bp/day) |
+| vol_normalized | -0.177 | -0.031 | -0.146 | [-0.750, +0.370] | 0.881 | 1 of 3 |
+| mean_variance | -0.126 | -0.021 | -0.106 | [-0.645, +0.386] | 0.855 | 1 of 3 |
+
+No arm has adjusted p < 0.05, so no arm qualifies and the token is FAIL; the holdout sign check
+(ACT only) does not run. Read with the V3b scope limit pinned in 12.1: these calibrated arms have
+no power against slow, return-built edges of the planted sizes, so the FAIL says nothing about
+such edges. Shifted books trade on 2,216-2,521 of 3,265 trading days against 2,592 observed, so
+the null is the same construction. One reported-only diagnostic is mislabelled: the S3
+"null_median" shape measures (hit rate 0.0, skew -55, kurtosis 3,086) are the shape of the
+day-by-day median series across shifts, not the median of each shift's own measures; the
+section 11 diagnostics script computes the latter.
 
 ## 13. Pinned deviations from production
 
