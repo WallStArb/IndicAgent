@@ -61,6 +61,7 @@ close-or-park), target under 60 pending.
 
 | Todo | Why now |
 |---|---|
+| [428](pending/428-no-dividend-history-daily-targets-price-only.md) | New 2026-09-25. No dividend data: daily open-to-open targets and price-level features are price-only, so ex-dividend drops bias family 2's overnight leg and can manufacture family 9's anchoring signal on high-yield names. Blocks confirmation of daily-clock books with price-level members. |
 | [423](pending/423-phase181-short-term-reversal-prereg.md) | New 2026-09-24. Phase 181 candidate 2: short-term reversal on single names, market-neutral. Consistent in-sample hint (IC about -0.026, all splits) must be disclosed and its symbols/window excluded. Needs V2 at low persistence first. |
 | [424](pending/424-phase179-calibrated-arms-slow-signal-power-and-shift-leak.md) | New 2026-09-24, from the 422 build. Phase 179: calibrated arms short a planted slow trend (Stambaugh-biased in-window IC), full-range shifts leak long-window features into the null, and N_tested is now 18. Power-side only (no false-PASS risk); decide before the 179 freeze. |
 | [426](pending/426-compressed-write-session-decompresses-whole-feature-vectors-exceeds-disk.md) | New 2026-09-25. The compressed write session would decompress all of feature_vectors (491 GB decompressed vs 414 GB free) with no headroom check: disk-full before any row is written. Blocks 421/411 and any orchestrator run; add a guard, then write per chunk. |
