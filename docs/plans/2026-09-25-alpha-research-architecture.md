@@ -217,6 +217,30 @@ Ordered by prior, cleanliness of the evidence available, and power:
    on seen data, counted like any other test, and its members pre-declare a one-bar skip
    variant so bounce and genuine reversal separate.
 
+Owner-proposed families (2026-09-25), forced trading on a known calendar. Each needs its
+who, when and direction pinned in the spec, and a power check before anything else, because
+events are sparse in time (breadth per event is the cross-section, but there are only 12 month
+ends and 4 quarter ends a year):
+
+5. **Period-end marking** ("leaning for the tape"; Carhart, Kaniel, Musto and Reed 2002).
+   Fund-favored names rise in the last 30 minutes of month-, quarter- and year-end sessions and
+   give it back at the next open. Uses 15m bars and the same session-close exit as family 1,
+   so it can be built alongside it. No holdings data: past-period winners proxy for what funds
+   hold, stated as a weaker test than the paper's. The effect was publicized and scrutinized
+   after 2002, so the prior allows for decay.
+6. **Period-end disclosure and liquidation flows**: window dressing (buy winners, sell losers
+   before the quarter-end holdings report; Lakonishok, Shleifer, Thaler and Vishny 1991),
+   mutual-fund tax-loss selling into the 31 October excise year end (Gibson, Safieddine and
+   Titman 2000) and individuals' into 31 December, and hedge-fund selling of losers ahead of
+   quarter-end redemptions. Prior-period losers are pressured in the last sessions of the period
+   and rebound after it. Daily bars, single-name equities only, ETFs as a placebo arm.
+   Survivorship (todo 376) inflates this most, because losers that were later delisted are
+   missing from a present-day universe: stated in the manifest, and a reason to hold this family
+   until 376 lands if the power check shows it is marginal.
+7. **Index reconstitution** (name-specific adds and deletes). Needs a point-in-time event
+   history that the project does not hold, and the mega-cap universe sees few events. Held until
+   a data source is identified.
+
 Each is a family of 3 to 8 pre-declared variants. Families from the existing feature corpus
 (SMC structure, volatility state) can be admitted the same way on prior, with the corpus IC
 table recorded as prior context and disclosed, not used as the gate.
