@@ -34,8 +34,8 @@ Nightly, non-gating `ClassificationCoverageAuditor` reports every active instrum
 
 | Task | Name | Commits |
 | ---- | ---- | ------- |
-| 1 | ClassificationCoverageAuditor with pure coverage functions (TDD) | 2f7b3f178 (RED), 3c26f7753 (GREEN) |
-| 2 | Chain the audit into the nightly corpus pipeline | c79283179 |
+| 1 | ClassificationCoverageAuditor with pure coverage functions (TDD) | b270d06b6 (RED), 3322b72ec (GREEN) |
+| 2 | Chain the audit into the nightly corpus pipeline | 136fdd623 |
 
 ## Verification
 
@@ -56,4 +56,4 @@ None.
 
 - FOUND: src/config/classification_coverage.py
 - FOUND: tests/unit/test_classification_coverage.py
-- FOUND commits: 2f7b3f178, 3c26f7753, c79283179
+- FOUND commits: b270d06b6, 3322b72ec, 136fdd623
