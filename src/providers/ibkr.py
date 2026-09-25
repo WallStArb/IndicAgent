@@ -16,6 +16,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
@@ -153,6 +154,23 @@ _HIST_REQUEST_TIMEOUT_SEC = 90.0
 # historical-data hang; a contract-qualification hang would otherwise only be
 # caught by the external bar-count watchdog (much slower, much less specific).
 _CONTRACT_DETAILS_TIMEOUT_SEC = 30.0
+
+
+@dataclass(frozen=True)
+class ContractClassification:
+    """IBKR-sourced industry/category/subcategory candidate for one symbol.
+
+    Phase 182 (D-06): review input only, never written directly to the
+    classification tables -- Plan 03 maps these fields into indicagent_v1
+    codes via human review.
+    """
+
+    symbol: str
+    industry: str
+    category: str
+    subcategory: str
+    long_name: str
+
 
 # Error 162 "no data" fires for ANY empty query window -- a genuine pre-listing date,
 # but also extended halts, thin back-month futures windows, or permission hiccups. A
@@ -969,6 +987,60 @@ class IBKRProvider:
         if not isinstance(head, datetime):
             return None, "no head timestamp returned"
         return (head if head.tzinfo else head.replace(tzinfo=UTC)), None
+
+    async def fetch_contract_classification(self, symbol: str) -> ContractClassification | None:
+        """Fetch IBKR industry/category/subcategory/longName for a single-name equity.
+
+        Phase 182 (D-06): sourcing path for classification candidates. Read-only,
+        never called on the hot connect path (unlike qualify_instrument). Reuses the
+        same Stock(SMART, USD) contract construction and the same
+        asyncio.wait_for(..., timeout=_CONTRACT_DETAILS_TIMEOUT_SEC) wrapper as
+        qualify_instrument -- reqContractDetailsAsync has no timeout of its own in
+        ib_async (see the F4 rationale above qualify_instrument's call site).
+
+        Returns None if IBKR has no contract details for the symbol. Raises
+        ValueError if multiple listings resolve to disagreeing (industry, category,
+        subcategory) triples -- an ambiguous listing must be loud, never a silent
+        pick of one candidate. Raises RuntimeError if called before connect().
+        Exceptions from the wait_for (TimeoutError) propagate uncaught; the caller
+        decides how to record a per-symbol failure.
+        """
+        if self._ib is None:
+            raise RuntimeError(
+                "fetch_contract_classification: IBKRProvider is not connected "
+                f"(symbol={symbol!r}). Call connect() first."
+            )
+        contract = Stock(symbol=symbol, exchange="SMART", currency="USD")
+        details_list = await asyncio.wait_for(
+            self._ib.reqContractDetailsAsync(contract), timeout=_CONTRACT_DETAILS_TIMEOUT_SEC
+        )
+        if not details_list:
+            return None
+
+        triples = {
+            (
+                getattr(d, "industry", "") or "",
+                getattr(d, "category", "") or "",
+                getattr(d, "subcategory", "") or "",
+            )
+            for d in details_list
+        }
+        if len(triples) > 1:
+            raise ValueError(
+                f"fetch_contract_classification: {symbol!r} has {len(details_list)} "
+                f"contract details listings with disagreeing (industry, category, "
+                f"subcategory) triples: {sorted(triples)}. Ambiguous listing -- "
+                "refusing to silently pick one."
+            )
+
+        first = details_list[0]
+        return ContractClassification(
+            symbol=symbol,
+            industry=getattr(first, "industry", "") or "",
+            category=getattr(first, "category", "") or "",
+            subcategory=getattr(first, "subcategory", "") or "",
+            long_name=getattr(first, "longName", "") or "",
+        )
 
     async def qualify_instrument(
         self,
