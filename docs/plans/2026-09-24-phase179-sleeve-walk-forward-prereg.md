@@ -410,6 +410,25 @@ in-sample for production already, so it spends nothing.
   construction. (3) `n_rows_off_session`: removed with the calendar fix; the session calendar
   is the union of universe feature-row dates, so every row is on-session by construction (it
   was 23 on the SPY calendar).
+- **V5 first official run (2026-09-25, S1 `s1_60b3d9a9678a9fe2` on snapshot `97719acbf3dd7ee3`):
+  FAIL under the definition pinned above, on detection only.** Noise: 16 of 4,197 FDR-flagged
+  noise-canary rows pass (0.4%, binomial p = 1.0 against 5%). Never weighted: no canary in any
+  stratum. Detection at h = 1: 350 of 362 reliable cells, 12 misses, all rare commodity/fx labels
+  (`strong_dollar_risk_on` at 8 refits, `down_secondary_backwardation` at 3, one
+  `down_primary_neutral`), each with IC +0.10 to +0.24 and CI lower bounds just below zero at
+  108-275 independent observations. At h = 2: 362 of 362; h = 5: 362 of 362; h = 10: 307 of 313.
+  **Root cause: the pinned definition was wrong on its own premise.** The placebo is
+  ln(close[i+2] / close[i+1]); the executable h = 1 label ln(open[i+2] / open[i+1]) shares only
+  the overnight gap with it, while the h = 2 label contains its whole span. The IC profile shows
+  exactly this, in the harness and in production alike (production pooled 1d means: 0.32 at h = 1,
+  0.64 at h = 2, 0.40 at h = 5, 0.28 at h = 10; production's h = 1 cells all pass because they use
+  the full history). **Correction, made after seeing this result and labeled as such:**
+  detection gates on the containing lookahead, the smallest configured lookahead >= 2 (h = 2),
+  where the placebo is detected in every cell at every refit. The correction cannot favour the
+  token: the placebo is never selected or weighted, and V5 only establishes that the machinery
+  detects leakage, which the h = 2 and h = 5 results show. The feature_factory docstring's
+  "exact ret_lag_1 shape" claim predates executable labels and is corrected with todo 421's
+  bundle. V5 is rerun on the frozen code's S1.
 - **Deprecated-feature decision: moot.** `new_high_flag` and `new_low_flag` were deprecated by
   operator override with no gate metric and are no longer `FeatureVector` fields (migration 284
   tombstones), so they cannot enter the pool.

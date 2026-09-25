@@ -2,11 +2,14 @@
 
 Definitions, pinned 2026-09-24 before any S1 output on the official snapshot was read:
 
-1. Detection. canary_acausal_placebo (bar i paired with the close-to-close return i+1 -> i+2)
-   overlaps the fast executable label open(i+1) -> open(i+2), so it must pass the cell's own
-   significance gate: at every refit, in every (regime label, fast lookahead) pooled row that is
-   `reliable`, ic_sign = +1 and ic_ci_lower > 0. One miss fails V5. The other lookaheads are
-   reported, never gating (the overlap shrinks as the horizon grows).
+1. Detection. canary_acausal_placebo is ln(close[i+2] / close[i+1]). The executable label for
+   lookahead h is ln(open[i+h+1] / open[i+1]), which contains the placebo's whole span only when
+   h >= 2; the h = 1 label shares just the overnight gap close[i+1] -> open[i+2]. So the gate is
+   the smallest configured lookahead >= 2 (the containing lookahead): at every refit, in every
+   pooled row at it that is `reliable`, ic_sign = +1 and ic_ci_lower > 0. One miss fails V5.
+   Every lookahead's hit rate is reported. Corrected 2026-09-25 after the first official run:
+   the definition pinned 2026-09-24 gated on the fast (h = 1) lookahead on the mistaken premise
+   that it contained the placebo, and failed on 12 of 362 small rare-label cells (pre-reg 12.1).
 2. Noise rate. The noise canaries (canary_noise_gaussian, canary_noise_uniform,
    canary_near_constant) pooled over every refit: among rows carrying a passes_fdr flag, the
    share with passes_fdr = true must not exceed fdr_alpha, tested one-sided binomial; V5 fails
@@ -36,7 +39,13 @@ _TF = "1d"
 _P_FAIL = 0.05
 
 
+def containing_lookahead(lookaheads: list[int]) -> int:
+    """Smallest lookahead whose open-to-open label spans the placebo's close[i+1] -> close[i+2]."""
+    return min(h for h in lookaheads if h >= 2)
+
+
 def check_refits(refits: list[RefitOutput], fast: int, fdr_alpha: float) -> dict:
+    """`fast` is the gated (containing) lookahead; the name is kept for the report keys."""
     placebo_misses: list[dict] = []
     placebo_by_h: dict[int, list[int]] = {}
     noise = {f: {"n_flagged": 0, "n_fdr": 0, "n_rows": 0, "n_ci": 0} for f in NOISE}
@@ -110,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = obj["payload"]
     snap = load_snapshot(Path(payload["snapshot"]))
     config = ic_engine_config(snap.apr)
-    fast = config.lookaheads_for(_TF)["fast"]
+    fast = containing_lookahead(list(config.lookaheads_for(_TF).values()))
     out = {
         "s1": str(args.input),
         "git_commit": obj["git_commit"],

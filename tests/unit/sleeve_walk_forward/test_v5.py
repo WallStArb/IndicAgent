@@ -73,3 +73,10 @@ def test_weighted_canary_fails():
 def test_no_placebo_cells_fails_rather_than_passing_vacuously():
     out = check_refits([_refit(_noise(0, 50))], fast=1, fdr_alpha=0.05)
     assert not out["detection_ok"]
+
+
+def test_containing_lookahead_is_the_smallest_label_spanning_the_placebo():
+    from scripts.analysis.sleeve_walk_forward.v5 import containing_lookahead
+
+    assert containing_lookahead([1, 2, 5, 10]) == 2
+    assert containing_lookahead([1, 3, 10]) == 3
