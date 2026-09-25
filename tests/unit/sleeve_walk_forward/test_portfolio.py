@@ -4,7 +4,11 @@ import pytest
 from scipy.stats import spearmanr
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
-from scripts.analysis.sleeve_walk_forward.portfolio import arm_returns, plan_covariance
+from scripts.analysis.sleeve_walk_forward.portfolio import (
+    arm_returns,
+    fixed_sign_returns,
+    plan_covariance,
+)
 from src.intelligence.portfolio import weighting as W
 
 CFG = HarnessConfig(warmup_sessions=60, calibration_refit_sessions=30)
@@ -104,4 +108,30 @@ def test_plan_is_shared_across_shifts():
     a2 = arm_returns(np.roll(alpha, 70, axis=0), fwd, plan, CFG, K)
     assert not np.allclose(
         np.nan_to_num(a1["ic_proportional"]), np.nan_to_num(a2["ic_proportional"])
+    )
+
+
+def test_fixed_sign_is_direction_times_sign_over_sigma_gross_one():
+    closes, alpha, fwd = _panel(4, nan_frac=0.0)
+    plan = plan_covariance(closes, CFG, MV_COND)
+    out = fixed_sign_returns(alpha, fwd, plan, direction=1.0)["fixed_sign"]
+    p = plan.refit_positions[0]
+    idx, sig = plan.symbol_idx[0], plan.sigma[0]
+    w = np.sign(alpha[p, idx]) / sig
+    w /= np.abs(w).sum()
+    assert out[p] == pytest.approx(float(w @ fwd[p, idx]))
+    assert np.isnan(out[:p]).all()  # nothing before the first calibration refit
+    flipped = fixed_sign_returns(alpha, fwd, plan, direction=-1.0)["fixed_sign"]
+    np.testing.assert_allclose(flipped[p:], -out[p:])
+
+
+def test_fixed_sign_missing_alpha_takes_no_position():
+    closes, alpha, fwd = _panel(5, nan_frac=0.0)
+    alpha[:, 0] = np.nan
+    plan = plan_covariance(closes, CFG, MV_COND)
+    base = fixed_sign_returns(alpha, fwd, plan, direction=1.0)["fixed_sign"]
+    moved = fwd.copy()
+    moved[:, 0] += 1.0
+    np.testing.assert_allclose(
+        fixed_sign_returns(alpha, moved, plan, direction=1.0)["fixed_sign"], base
     )

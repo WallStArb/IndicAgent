@@ -2,19 +2,22 @@
 
 Pre-registration section 7. The covariance plan depends only on returns, so it is built once
 and shared by the real run and every shift; everything that depends on alpha (calibration,
-standardization, weights) reruns per shift inside portfolio.arm_returns.
+standardization, weights) reruns per shift inside the construction. The construction is a
+parameter, (alpha, fwd_ret, plan) -> {arm: daily returns}: phase 179's calibrated arms by
+default, a signal source's pinned construction otherwise (signals.SignalSource).
 """
 
 from __future__ import annotations
 
 import dataclasses
+import functools
+from collections.abc import Callable
 
 import numpy as np
 from scipy.stats import kurtosis, skew
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
 from scripts.analysis.sleeve_walk_forward.portfolio import (
-    ARMS,
     CovariancePlan,
     arm_returns,
     plan_covariance,
@@ -28,6 +31,8 @@ from src.intelligence.statistics.panel_null import (
 )
 
 _SESSIONS_PER_YEAR = 252
+
+Construction = Callable[[np.ndarray, np.ndarray, CovariancePlan], dict[str, np.ndarray]]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,17 +92,17 @@ def _run_shifts(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
     plan: CovariancePlan,
-    cfg: HarnessConfig,
-    k: float,
+    construction: Construction,
+    arms: tuple[str, ...],
     shifts: np.ndarray,
     trade: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute-only worker: per shift, each arm's Sharpe and its daily returns (float32)."""
-    sharpe = np.empty((len(shifts), len(ARMS)))
-    daily = np.empty((len(shifts), len(ARMS), alpha.shape[0]), dtype=np.float32)
+    sharpe = np.empty((len(shifts), len(arms)))
+    daily = np.empty((len(shifts), len(arms), alpha.shape[0]), dtype=np.float32)
     for i, shift in enumerate(shifts):
-        out = arm_returns(shift_panel(alpha, int(shift)), fwd_ret, plan, cfg, k)
-        for j, arm in enumerate(ARMS):
+        out = construction(shift_panel(alpha, int(shift)), fwd_ret, plan)
+        for j, arm in enumerate(arms):
             sharpe[i, j] = annualized_sharpe(out[arm], trade)
             daily[i, j] = out[arm]
     return sharpe, daily
@@ -114,16 +119,25 @@ def evaluate(
     ic_shrinkage_k: float,
     shifts: np.ndarray | None = None,
     workers: int = 1,
+    construction: Construction | None = None,
+    memory: int = 0,
 ) -> EvaluationResult:
+    """`memory` feeds admissible_shifts when `shifts` is not given; a picklable
+    `construction` (module-level function or functools.partial) replaces the calibrated arms."""
     n = alpha.shape[0]
     trade = trade_mask(dates, cfg)
     plan = plan_covariance(closes, cfg, mv_condition_max)
-    obs = arm_returns(alpha, fwd_ret, plan, cfg, ic_shrinkage_k)
-    obs_daily = np.stack([obs[arm] for arm in ARMS])
+    if construction is None:
+        construction = functools.partial(arm_returns, cfg=cfg, ic_shrinkage_k=ic_shrinkage_k)
+    obs = construction(alpha, fwd_ret, plan)
+    arms = tuple(obs)
+    obs_daily = np.stack([obs[arm] for arm in arms])
     sharpe_obs = np.array([annualized_sharpe(r, trade) for r in obs_daily])
 
-    shifts = admissible_shifts(n, cfg.min_shift) if shifts is None else np.asarray(shifts)
-    args = (alpha, fwd_ret, plan, cfg, ic_shrinkage_k)
+    if shifts is None:
+        shifts = admissible_shifts(n, cfg.min_shift, memory)
+    shifts = np.asarray(shifts)
+    args = (alpha, fwd_ret, plan, construction, arms)
     if workers > 1:
         chunks = np.array_split(shifts, workers)
         with make_worker_pool(workers, cfg.blas_threads_per_worker) as pool:
@@ -137,7 +151,7 @@ def evaluate(
     excess_daily = obs_daily - null_median_daily
     sub_masks = [m & trade for m in sub_period_masks(dates, cfg.sub_periods)]
     return EvaluationResult(
-        arms=ARMS,
+        arms=arms,
         sharpe_obs=sharpe_obs,
         sharpe_null=sharpe_null,
         shifts=shifts,
@@ -159,7 +173,7 @@ def evaluate(
                 "observed": shape_diagnostics(obs_daily[j][trade]),
                 "null_median": shape_diagnostics(null_median_daily[j][trade]),
             }
-            for j, arm in enumerate(ARMS)
+            for j, arm in enumerate(arms)
         },
     )
 

@@ -27,6 +27,18 @@ class TestAdmissibleShifts:
         with pytest.raises(ValueError, match="no admissible shift"):
             admissible_shifts(5, 3)
 
+    def test_memory_drops_wrapped_copies_that_read_the_target(self) -> None:
+        # out[t] = panel[(t - k) mod n]: for t < k the copy comes from t + (n - k) sessions
+        # later, whose window reaches back `memory` sessions; n - k must exceed it.
+        np.testing.assert_array_equal(
+            admissible_shifts(20, 3, memory=5), [3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        )
+        assert (20 - admissible_shifts(20, 3, memory=5) > 5).all()
+
+    def test_memory_too_long_raises(self) -> None:
+        with pytest.raises(ValueError, match="no admissible shift"):
+            admissible_shifts(10, 3, memory=5)
+
     def test_min_shift_below_one_raises(self) -> None:
         # k = 0 is the observed alignment, never a null draw.
         with pytest.raises(ValueError, match="min_shift"):

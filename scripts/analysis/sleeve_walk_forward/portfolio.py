@@ -17,6 +17,12 @@ loop over src/intelligence/portfolio/weighting.py that this module must match.
 
 The covariance, and the mean-variance solve built on it, depend only on returns, so
 plan_covariance runs once and every shifted panel reuses it.
+
+fixed_sign_returns is the construction for a signal source with a pre-registered direction
+(Moskowitz, Ooi and Pedersen 2012): no fitted IC, weights direction * sign(alpha) / sigma over
+the refit's admitted symbols, gross 1. The calibrated arms above learn each symbol's IC sign
+from a trailing window, which for a slow signal built from the returns themselves is noisy and
+biased (Stambaugh), and on synthetic trending panels shorts the trend it should ride.
 """
 
 from __future__ import annotations
@@ -32,6 +38,7 @@ from src.intelligence.portfolio.weighting import instrument_covariance, shrink_i
 from src.intelligence.statistics.ic_math import check_condition_number
 
 ARMS = ("ic_proportional", "vol_normalized", "mean_variance")
+FIXED_SIGN_ARM = "fixed_sign"
 _EMBARGO = 2
 _ZERO_SUM = 1e-10
 _ZERO_STD = 1e-12
@@ -114,6 +121,25 @@ def arm_returns(
         mv = vol if matrix is None else _normalize(mu @ matrix.T)
         out["mean_variance"][block] = (mv * r).sum(axis=1)
     return out
+
+
+def fixed_sign_returns(
+    alpha: np.ndarray, fwd_ret: np.ndarray, plan: CovariancePlan, *, direction: float
+) -> dict[str, np.ndarray]:
+    n = alpha.shape[0]
+    out = np.full(n, np.nan)
+    bounds = np.append(plan.refit_positions, n)
+    state = None
+    for k, p in enumerate(plan.refit_positions):
+        if plan.symbol_idx[k] is not None:
+            state = (plan.symbol_idx[k], plan.sigma[k])
+        if state is None:
+            continue
+        idx, sig = state
+        block = slice(p, bounds[k + 1])
+        raw = direction * np.sign(np.nan_to_num(alpha[block][:, idx])) / sig
+        out[block] = (_normalize(raw) * np.nan_to_num(fwd_ret[block][:, idx])).sum(axis=1)
+    return {FIXED_SIGN_ARM: out}
 
 
 def _normalize(raw: np.ndarray) -> np.ndarray:

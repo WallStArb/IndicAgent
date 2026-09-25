@@ -52,6 +52,10 @@ def score_panel(
     return alpha, dict(counts)
 
 
+# fwd[D] reaches FWD_SPAN_SESSIONS sessions past D (exit at D+2's open).
+FWD_SPAN_SESSIONS = 2
+
+
 def forward_returns(opens: np.ndarray) -> np.ndarray:
     """fwd[D] = ln(open[D+2] / open[D+1]): alpha at D's close, enter at the next open, exit one
     session later (pre-registration section 3). The last two rows, and any row missing an open,

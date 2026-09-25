@@ -42,3 +42,21 @@ def test_no_signal_smoke_pass_rate_is_low():
 def test_planted_signal_smoke_pass_rate_is_high():
     out = run_v2(range(10), n_shifts=49, workers=2, cfg=CFG, signal_ic=0.3, **SMALL)
     assert out["pass_rate"] >= 0.8
+
+
+def test_signal_panel_computes_the_signal_from_its_own_prices():
+    from scripts.analysis.sleeve_walk_forward.signals import tsmom
+
+    alpha, fwd, closes, _ = synthetic_panel(1, signal_ic=0.1, alpha_kind="tsmom", **SMALL)
+    assert alpha.shape == fwd.shape == closes.shape == (800, 6)
+    assert np.isfinite(alpha).all()  # the dropped history gives a full lookback from row 0
+    np.testing.assert_allclose(alpha[252:], tsmom(closes)[252:], atol=1e-12)
+    np.testing.assert_allclose(fwd[:-2], np.log(closes[2:] / closes[1:-1]), atol=1e-12)
+
+
+def test_signal_panel_smoke_null_low_planted_high():
+    kw = dict(alpha_kind="tsmom", **SMALL)
+    null = run_v2(range(10), n_shifts=49, workers=2, cfg=CFG, **kw)
+    assert null["n_degenerate"] == 0 and null["pass_rate"] <= 0.5
+    planted = run_v2(range(10), n_shifts=49, workers=2, cfg=CFG, signal_ic=0.3, **kw)
+    assert planted["pass_rate"] >= 0.8
