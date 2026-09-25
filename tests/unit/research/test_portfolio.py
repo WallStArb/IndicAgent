@@ -4,12 +4,12 @@ import pytest
 from scipy.stats import spearmanr
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
-from scripts.analysis.sleeve_walk_forward.portfolio import (
+from src.intelligence.portfolio import weighting as W
+from src.intelligence.research.portfolio import (
     arm_returns,
     fixed_sign_returns,
     plan_covariance,
 )
-from src.intelligence.portfolio import weighting as W
 
 CFG = HarnessConfig(warmup_sessions=60, calibration_refit_sessions=30)
 MV_COND = 1000.0
@@ -140,7 +140,7 @@ def test_fixed_sign_missing_alpha_takes_no_position():
 
 def test_arm_weights_reproduce_arm_returns():
     """The stored weights are the ones the returns were built from (section 11 inputs)."""
-    from scripts.analysis.sleeve_walk_forward.portfolio import arm_returns, arm_weights
+    from src.intelligence.research.portfolio import arm_returns, arm_weights
 
     closes, alpha, fwd = _panel(4)
     plan = plan_covariance(closes, CFG, MV_COND)
@@ -158,7 +158,7 @@ def test_arm_weights_reproduce_arm_returns():
 def test_gappy_alpha_still_calibrates():
     """Todo 425: alpha missing on a third of days (no-weight strata) must not zero the IC; the
     coverage bar is over the days alpha is defined, returns fully present there."""
-    from scripts.analysis.sleeve_walk_forward.portfolio import _calibrate
+    from src.intelligence.research.portfolio import _calibrate
 
     rng = np.random.default_rng(7)
     n, m = 300, 3
@@ -170,7 +170,7 @@ def test_gappy_alpha_still_calibrates():
 
 
 def test_missing_returns_on_alpha_days_zero_the_ic():
-    from scripts.analysis.sleeve_walk_forward.portfolio import _calibrate
+    from src.intelligence.research.portfolio import _calibrate
 
     rng = np.random.default_rng(8)
     n, m = 300, 3

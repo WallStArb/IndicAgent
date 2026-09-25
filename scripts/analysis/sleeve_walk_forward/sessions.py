@@ -28,7 +28,3 @@ def label_cutoff(sessions: np.ndarray, refit: np.datetime64, embargo: int) -> in
     if pos - embargo < 0:
         raise ValueError(f"refit date {refit} has fewer than {embargo} prior sessions")
     return pos - embargo
-
-
-def sub_period_masks(dates: np.ndarray, periods: tuple[tuple[str, str], ...]) -> list[np.ndarray]:
-    return [(dates >= np.datetime64(a)) & (dates <= np.datetime64(b)) for a, b in periods]

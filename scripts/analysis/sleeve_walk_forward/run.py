@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import functools
 import hashlib
 import json
 import pickle
@@ -38,10 +39,9 @@ import numpy as np
 import structlog
 
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG
-from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.refit import run_refit
 from scripts.analysis.sleeve_walk_forward.results import Snapshot
-from scripts.analysis.sleeve_walk_forward.score import forward_returns, score_panel
+from scripts.analysis.sleeve_walk_forward.score import score_panel
 from scripts.analysis.sleeve_walk_forward.sessions import refit_dates
 from scripts.analysis.sleeve_walk_forward.signals import SIGNALS
 from scripts.analysis.sleeve_walk_forward.snapshot import (
@@ -54,13 +54,16 @@ from scripts.analysis.sleeve_walk_forward.verdict import decide, safe_evaluate
 from services._batch_utils import make_worker_pool
 from services.ic_engine import _checkpoint_content_key
 from src.config.settings import Settings
+from src.intelligence.research.evaluate import evaluate
+from src.intelligence.research.panel import daily_panel, forward_returns
 
 CONFIG = DEFAULT_CONFIG
 _JOB = "sleeve-walk-forward"
 _logger = structlog.get_logger(__name__)
 
 
-# Harness code outside src/ and services/, which _checkpoint_content_key does not hash.
+# Harness code outside src/ and services/, which _checkpoint_content_key does not hash (the
+# research package it imports is under src/ and is hashed there).
 _HARNESS_SOURCES: tuple[Path, ...] = (
     *sorted(Path(__file__).parent.glob("*.py")),
     Path(__file__).parents[2] / "ops" / "alpha" / "ops_ic_shrinkage.py",
@@ -188,7 +191,12 @@ def _stage_s2(args: argparse.Namespace) -> Path:
 def _stage_s2sig(args: argparse.Namespace) -> Path:
     verify_snapshot(Path(args.input))
     snap = load_snapshot(Path(args.input))
-    alpha = SIGNALS[args.signal].compute(np.asarray(snap.sleeve_closes))
+    panel = daily_panel(
+        np.asarray(snap.sleeve_closes),
+        dates=snap.sessions,
+        opens=np.asarray(snap.sleeve_opens),
+    )
+    alpha = SIGNALS[args.signal].compute(panel)
     # Same panel start as S2, so the shift set, warmup and trading window match phase 179's.
     start = int(np.searchsorted(snap.sessions, refit_dates(snap.sessions, CONFIG.refit_years)[0]))
     years = snap.sessions[start:].astype("datetime64[Y]").astype(int) + 1970
@@ -216,6 +224,9 @@ def _stage_s3(args: argparse.Namespace) -> Path:
         mv_condition_max=float(apr.get(CONFIG.mv_condition_max_key, ("1000", "float"))[0]),
         ic_shrinkage_k=float(apr.get(CONFIG.ic_shrinkage_k_key, ("100", "float"))[0]),
         workers=args.workers,
+        pool_factory=functools.partial(
+            make_worker_pool, blas_threads_per_worker=CONFIG.blas_threads_per_worker
+        ),
         **eval_kw,
     )
     seconds = time.monotonic() - t0

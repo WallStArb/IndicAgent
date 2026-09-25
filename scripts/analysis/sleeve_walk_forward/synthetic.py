@@ -19,11 +19,12 @@ from typing import Any
 import numpy as np
 
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG, HarnessConfig
-from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.score import FWD_SPAN_SESSIONS
 from scripts.analysis.sleeve_walk_forward.signals import SIGNALS
 from scripts.analysis.sleeve_walk_forward.verdict import decide, safe_evaluate
 from services._batch_utils import make_worker_pool
+from src.intelligence.research.evaluate import evaluate
+from src.intelligence.research.panel import daily_panel
 from src.intelligence.statistics.panel_null import admissible_shifts
 
 _DAILY_VOL = 0.01
@@ -57,7 +58,7 @@ def synthetic_panel(
     chol = np.linalg.cholesky(np.full((m, m), corr) + (1 - corr) * np.eye(m))
     drift = rng.normal(0.0, drift_sd, m)
     source = None if alpha_kind == "ar1" else SIGNALS[alpha_kind]
-    history = 0 if source is None else source.lookback
+    history = 0 if source is None else source.memory
     r = drift + _DAILY_VOL * rng.standard_normal((n + history, m)) @ chol.T
     if source is not None:
         r += signal_ic * _DAILY_VOL * _ar1(rng, n + history, m, _LATENT_DRIFT_AR1)
@@ -68,7 +69,7 @@ def synthetic_panel(
     if source is None:
         alpha = _ar1(rng, n, m, alpha_ar1) + signal_ic * np.nan_to_num((fwd - drift) / _DAILY_VOL)
     else:
-        alpha = source.compute(all_closes)[history:]
+        alpha = source.compute(daily_panel(all_closes))[history:]
     dates = np.busday_offset(_START, np.arange(n), roll="forward")
     return alpha, fwd, closes, dates
 

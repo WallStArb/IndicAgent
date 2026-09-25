@@ -13,7 +13,7 @@ from collections.abc import Callable
 from typing import Any
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
-from scripts.analysis.sleeve_walk_forward.evaluate import EvaluationResult
+from src.intelligence.research.evaluate import EvaluationResult
 
 
 def decide(

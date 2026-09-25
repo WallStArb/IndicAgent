@@ -4,7 +4,6 @@ import pytest
 from scripts.analysis.sleeve_walk_forward.sessions import (
     label_cutoff,
     refit_dates,
-    sub_period_masks,
 )
 
 
@@ -30,16 +29,3 @@ def test_label_cutoff_is_five_sessions_before_refit():
     refit = np.datetime64("2011-01-17")
     idx = label_cutoff(s, refit, embargo=5)
     assert s[idx] == np.datetime64("2011-01-12")
-
-
-def test_sub_period_masks_partition_inclusive():
-    d = _sessions("2016-12-30", "2017-01-03", "2020-12-31", "2021-01-04")
-    m = sub_period_masks(
-        d,
-        (("2013-01-01", "2016-12-31"), ("2017-01-01", "2020-12-31"), ("2021-01-01", "2025-12-23")),
-    )
-    assert [x.tolist() for x in m] == [
-        [True, False, False, False],
-        [False, True, True, False],
-        [False, False, False, True],
-    ]

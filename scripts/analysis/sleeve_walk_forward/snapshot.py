@@ -16,22 +16,20 @@ manifest.json. The hash covers every array's bytes and the manifest.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
-import shutil
 from pathlib import Path
 
-import asyncpg
 import numpy as np
 
 from scripts.analysis.sleeve_walk_forward.results import GroupArrays, Snapshot
 from services.cross_sectional_regime_model import _parse_group_configs
 from services.ic_engine import _FEATURE_NAMES, _build_symbol_regime_class
 from src.config.settings import dimension_where_clause
+from src.intelligence.research import store
+from src.intelligence.research.snapshot import read_only_pool
 
 _SCALES = ("fast", "mid", "slow", "extended")
 _NUMERIC = {"float4", "float8", "int2", "int4", "int8", "numeric", "bool"}
-_POOL_SIZE = 6
 
 _CONFIG_SQL = (
     "SELECT cs.config_key, cs.config_value, csc.value_type "
@@ -74,15 +72,6 @@ _LABELS_SQL = (
     "SELECT regime_group, ts, regime_label FROM market_regimes "
     "WHERE tf = '1d' AND ts >= $1 AND ts < $2"
 )
-
-
-async def read_only_pool(dsn: str) -> asyncpg.Pool:
-    return await asyncpg.create_pool(
-        dsn,
-        min_size=1,
-        max_size=_POOL_SIZE,
-        server_settings={"default_transaction_read_only": "on"},
-    )
 
 
 def _day(ts) -> np.datetime64:
@@ -253,34 +242,13 @@ def _assemble(sessions, symbol_blocks, sleeve, bar_rows, label_rows, routing, br
     return arrays, manifest
 
 
-def _digest(directory: Path, names: list[str]) -> str:
-    digest = hashlib.sha256()
-    for name in names:
-        digest.update(name.encode())
-        digest.update((directory / f"{name}.npy").read_bytes())
-    digest.update((directory / "meta.json").read_bytes())
-    return digest.hexdigest()
-
-
 def _write(out_dir: Path, arrays: dict[str, np.ndarray], meta: dict) -> Path:
-    tmp = out_dir / "snapshot_tmp"
-    shutil.rmtree(tmp, ignore_errors=True)
-    tmp.mkdir(parents=True)
-    for name in sorted(arrays):
-        np.save(tmp / f"{name}.npy", arrays[name], allow_pickle=False)
-    (tmp / "meta.json").write_text(json.dumps(meta, sort_keys=True, default=str))
-    final = out_dir / f"snapshot_{_digest(tmp, sorted(arrays))[:16]}"
-    shutil.rmtree(final, ignore_errors=True)
-    tmp.rename(final)
-    return final
+    return store.write(out_dir, "snapshot", arrays, meta)
 
 
 def verify_snapshot(path: Path) -> None:
     """Recompute the content hash and compare it with the directory name."""
-    path = Path(path)
-    names = sorted(p.stem for p in path.glob("*.npy"))
-    if not path.name.endswith(_digest(path, names)[:16]):
-        raise ValueError(f"snapshot hash mismatch: {path} was modified after it was written")
+    store.verify(path)
 
 
 def load_snapshot(path: Path) -> Snapshot:

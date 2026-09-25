@@ -96,23 +96,6 @@ def test_refit_dates_must_match_refits():
         )
 
 
-def test_forward_returns_enter_next_open_exit_one_session_later():
-    from scripts.analysis.sleeve_walk_forward.score import forward_returns
-
-    opens = np.array([[100.0], [101.0], [103.0], [102.0]])
-    fwd = forward_returns(opens)
-    # Alpha at D's close: enter open D+1, exit open D+2 (pre-reg section 3).
-    np.testing.assert_allclose(fwd[:2, 0], [np.log(103 / 101), np.log(102 / 103)])
-    assert np.isnan(fwd[2:]).all()
-
-
-def test_forward_returns_missing_open_is_nan():
-    from scripts.analysis.sleeve_walk_forward.score import forward_returns
-
-    fwd = forward_returns(np.array([[100.0], [np.nan], [103.0], [102.0]]))
-    assert np.isnan(fwd[0, 0]) and np.isfinite(fwd[1, 0])
-
-
 def test_refit_date_off_the_session_axis_raises():
     refits, features, has_row, labels = _inputs()
     moved = [_refit("2011-01-02", refits[0].strata), refits[1]]

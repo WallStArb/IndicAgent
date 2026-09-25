@@ -1,8 +1,11 @@
+import functools
+
 import numpy as np
 import pytest
 
 from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
-from scripts.analysis.sleeve_walk_forward.evaluate import annualized_sharpe, evaluate
+from services._batch_utils import make_worker_pool
+from src.intelligence.research.evaluate import annualized_sharpe, evaluate, sub_period_masks
 
 CFG = HarnessConfig(
     warmup_sessions=60,
@@ -69,6 +72,7 @@ def test_parallel_equals_serial():
         ic_shrinkage_k=100.0,
         shifts=np.arange(20, 80),
         workers=3,
+        pool_factory=functools.partial(make_worker_pool, blas_threads_per_worker=1),
     )
     np.testing.assert_array_equal(a.sharpe_null, b.sharpe_null)
 
@@ -80,7 +84,7 @@ def test_strong_signal_gets_small_p_and_positive_excess():
 
 
 def test_shape_diagnostics_hand_computed():
-    from scripts.analysis.sleeve_walk_forward.evaluate import shape_diagnostics
+    from src.intelligence.research.evaluate import shape_diagnostics
 
     r = np.array([0.02, -0.01, 0.03, -0.04, 0.01])
     d = shape_diagnostics(r)
@@ -93,7 +97,7 @@ def test_shape_diagnostics_hand_computed():
 
 
 def test_shape_diagnostics_ignores_nan_and_has_no_downside():
-    from scripts.analysis.sleeve_walk_forward.evaluate import shape_diagnostics
+    from src.intelligence.research.evaluate import shape_diagnostics
 
     d = shape_diagnostics(np.array([0.01, np.nan, 0.02]))
     assert d["hit_rate"] == 1.0 and d["max_drawdown"] == 0.0 and np.isnan(d["sortino"])
@@ -109,9 +113,22 @@ def test_evaluate_reports_diagnostics_for_real_and_null_median():
 
 
 def test_trade_mask_is_bounded_by_the_last_sub_period():
-    from scripts.analysis.sleeve_walk_forward.evaluate import trade_mask
+    from src.intelligence.research.evaluate import trade_mask
 
     dates = np.array(
         ["2000-05-31", "2000-06-01", "2001-12-31", "2002-01-02"], dtype="datetime64[D]"
     )
     assert trade_mask(dates, CFG).tolist() == [False, True, True, False]
+
+
+def test_sub_period_masks_partition_inclusive():
+    d = np.array(["2016-12-30", "2017-01-03", "2020-12-31", "2021-01-04"], dtype="datetime64[D]")
+    m = sub_period_masks(
+        d,
+        (("2013-01-01", "2016-12-31"), ("2017-01-01", "2020-12-31"), ("2021-01-01", "2025-12-23")),
+    )
+    assert [x.tolist() for x in m] == [
+        [True, False, False, False],
+        [False, True, True, False],
+        [False, False, False, True],
+    ]

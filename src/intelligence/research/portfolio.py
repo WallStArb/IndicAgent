@@ -1,12 +1,17 @@
-"""S3 core: daily gross returns of the three signal arms for one alpha panel.
+"""S3 core: gross per-row returns of the signal arms for one alpha panel.
+
+Rows are the panel's time axis: sessions on a 1d panel, bars on an intraday one. Every window
+length below (warmup, calibration spacing, embargo) is counted in rows; the evaluator converts a
+session-denominated config to rows before calling in (evaluate.rows_config).
 
 Array-first so the null can rerun it on every shifted panel. Semantics are the diagnostic's
 (scripts/analysis/portfolio_covariance_weighting_diagnostic.py::run_walk_forward) on the
-pre-registration's pinned values; tests/unit/sleeve_walk_forward/test_portfolio.py holds a slow
+pre-registration's pinned values; tests/unit/research/test_portfolio.py holds a slow
 loop over src/intelligence/portfolio/weighting.py that this module must match.
 
-- Calibration refit at session p for p >= warmup, every calibration_refit_sessions, using data
-  through p - 2 (the diagnostic's _EMBARGO_BARS): instrument covariance of the trailing
+- Calibration refit at row p for p >= warmup, every calibration_refit_sessions, using data
+  through p - embargo (the forward return's span; 2 on a 1d panel, the diagnostic's
+  _EMBARGO_BARS): instrument covariance of the trailing
   close-to-close log returns, then per admitted symbol a Spearman IC of its alpha against its
   forward return over the same trailing rows, shrunk toward the leave-one-out peer mean. The
   IC is 0 unless coverage_fraction of the window's finite-alpha days also have a finite forward
@@ -31,20 +36,31 @@ biased (Stambaugh), and on synthetic trending panels shorts the trend it should 
 from __future__ import annotations
 
 import dataclasses
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
 
-from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
 from src.intelligence.portfolio.weighting import instrument_covariance, shrink_instrument_ic
+from src.intelligence.research.panel import fwd_span
 from src.intelligence.statistics.ic_math import check_condition_number
 
 ARMS = ("ic_proportional", "vol_normalized", "mean_variance")
 FIXED_SIGN_ARM = "fixed_sign"
-_EMBARGO = 2
+# A 1d panel's forward return spans 2 sessions (enter at the next open, exit one session later).
+DAILY_EMBARGO = fwd_span(1)
 _ZERO_SUM = 1e-10
 _ZERO_STD = 1e-12
+
+
+class PortfolioConfig(Protocol):
+    """The fields the arms read, in rows (phase 179's HarnessConfig satisfies it)."""
+
+    warmup_sessions: int
+    calibration_refit_sessions: int
+    coverage_fraction: float
+    ridge_epsilon_fraction: float
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,17 +73,22 @@ class CovariancePlan:
     # Matrix M with raw mean-variance weights = mu @ M.T (Sigma^-1, or the ridge inverse),
     # or None for the vol-normalized fallback.
     mv_matrix: list[np.ndarray | None]
+    # Rows between a calibration's last data row and its refit row: the forward return's span.
+    embargo: int = DAILY_EMBARGO
 
 
 def plan_covariance(
-    closes: np.ndarray, cfg: HarnessConfig, mv_condition_max: float
+    closes: np.ndarray,
+    cfg: PortfolioConfig,
+    mv_condition_max: float,
+    embargo: int = DAILY_EMBARGO,
 ) -> CovariancePlan:
     n = closes.shape[0]
     log_ret = np.log(closes[1:] / closes[:-1])  # row i-1 is the return into session i
     positions = np.arange(cfg.warmup_sessions, n, cfg.calibration_refit_sessions)
     symbol_idx, sigma, mv_matrix = [], [], []
     for p in positions:
-        b = p - _EMBARGO
+        b = p - embargo
         first = max(1, b - cfg.warmup_sessions + 1)
         window = pd.DataFrame(log_ret[first - 1 : b], index=range(first, b + 1))
         cov, kept = instrument_covariance(window, min_coverage_fraction=cfg.coverage_fraction)
@@ -79,7 +100,7 @@ def plan_covariance(
         symbol_idx.append(np.array(kept, dtype=int))
         sigma.append(np.sqrt(np.maximum(np.diag(cov), _ZERO_STD)))
         mv_matrix.append(_mean_variance_matrix(cov, mv_condition_max, cfg.ridge_epsilon_fraction))
-    return CovariancePlan(positions, symbol_idx, sigma, mv_matrix)
+    return CovariancePlan(positions, symbol_idx, sigma, mv_matrix, embargo)
 
 
 def _mean_variance_matrix(
@@ -99,7 +120,7 @@ def _arm_blocks(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
     plan: CovariancePlan,
-    cfg: HarnessConfig,
+    cfg: PortfolioConfig,
     ic_shrinkage_k: float,
 ):
     """Yield (block, symbol idx, {arm: weights [block_len, len(idx)]}) per calibration segment."""
@@ -110,7 +131,7 @@ def _arm_blocks(
     for k, p in enumerate(plan.refit_positions):
         idx = plan.symbol_idx[k]
         if idx is not None:
-            ic = _calibrate(alpha, fwd_ret, idx, p - _EMBARGO, cfg, ic_shrinkage_k)
+            ic = _calibrate(alpha, fwd_ret, idx, p - plan.embargo, cfg, ic_shrinkage_k)
             state = (idx, plan.sigma[k], ic, plan.mv_matrix[k])
         if state is None:
             continue
@@ -130,7 +151,7 @@ def arm_returns(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
     plan: CovariancePlan,
-    cfg: HarnessConfig,
+    cfg: PortfolioConfig,
     ic_shrinkage_k: float,
 ) -> dict[str, np.ndarray]:
     out = {arm: np.full(alpha.shape[0], np.nan) for arm in ARMS}
@@ -145,12 +166,12 @@ def arm_weights(
     alpha: np.ndarray,
     fwd_ret: np.ndarray,
     plan: CovariancePlan,
-    cfg: HarnessConfig,
+    cfg: PortfolioConfig,
     ic_shrinkage_k: float,
 ) -> dict[str, np.ndarray]:
-    """Each arm's daily weights over the full sleeve, [n, n_sleeve], NaN before the first
+    """Each arm's per-row weights over every symbol, [n, m], NaN before the first
     calibration and 0 for symbols outside a segment's admitted set. Section 11 diagnostics only
-    (turnover, costs, per-symbol contribution); never read by `decide`."""
+    (turnover, costs, per-symbol contribution); never read by a decision rule."""
     out = {arm: np.full(alpha.shape, np.nan) for arm in ARMS}
     for block, idx, weights in _arm_blocks(alpha, fwd_ret, plan, cfg, ic_shrinkage_k):
         for arm, w in weights.items():
@@ -214,7 +235,7 @@ def _calibrate(
     fwd_ret: np.ndarray,
     idx: np.ndarray,
     through: int,
-    cfg: HarnessConfig,
+    cfg: PortfolioConfig,
     k: float,
 ) -> np.ndarray:
     rows = slice(max(0, through - cfg.warmup_sessions + 1), through + 1)

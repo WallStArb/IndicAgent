@@ -225,14 +225,12 @@ def test_artifact_name_ignores_git_state(harness, monkeypatch):
 
 
 def test_signal_source_chains_to_a_verdict_with_its_own_n_tested(harness, monkeypatch):
-    import functools
-
     from scripts.analysis.sleeve_walk_forward import signals
 
     out, _ = harness
     # The fixture's scored panel is 177 sessions: shorten the lookback so shifts exist.
     short = signals.SignalSource(
-        functools.partial(signals.tsmom, lookback=20), 20, direction=1.0, n_tested=18
+        lambda panel: signals.tsmom(panel.close, lookback=20), 20, direction=1.0, n_tested=18
     )
     monkeypatch.setitem(signals.SIGNALS, "tsmom", short)
     snap_dir = str(out / "snapshot_fixture")

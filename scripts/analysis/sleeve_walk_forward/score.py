@@ -13,6 +13,7 @@ from collections import defaultdict
 import numpy as np
 
 from scripts.analysis.sleeve_walk_forward.results import RefitOutput
+from src.intelligence.research.panel import fwd_span
 
 REASONS = ("no_label", "no_stratum_weights", "no_feature_row")
 
@@ -52,15 +53,6 @@ def score_panel(
     return alpha, dict(counts)
 
 
-# fwd[D] reaches FWD_SPAN_SESSIONS sessions past D (exit at D+2's open).
-FWD_SPAN_SESSIONS = 2
-
-
-def forward_returns(opens: np.ndarray) -> np.ndarray:
-    """fwd[D] = ln(open[D+2] / open[D+1]): alpha at D's close, enter at the next open, exit one
-    session later (pre-registration section 3). The last two rows, and any row missing an open,
-    are NaN."""
-    fwd = np.full(opens.shape, np.nan)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        fwd[:-2] = np.log(opens[2:] / opens[1:-1])
-    return fwd
+# fwd[D] reaches FWD_SPAN_SESSIONS sessions past D (exit at D+2's open; pre-registration
+# section 3, research.panel.forward_returns at horizon 1).
+FWD_SPAN_SESSIONS = fwd_span(1)
