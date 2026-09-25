@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-24
 source: Phase 179 V4 run, logs/phase179/v4_*.json (trial snapshot 668f4b07dab9bebb, main c9ea43113)
@@ -34,3 +34,16 @@ the snapshot vs production's `chunk_sql` for the same group and label, diff them
 snapshot or refit assembly, rerun V4 (`python -m scripts.analysis.sleeve_walk_forward.v4
 --snapshot DIR`, about 90 s). Pin the RNG-field tolerance in pre-reg 12.1 once deterministic
 fields match.
+
+## Closure (2026-09-24)
+
+Suspect 1 in a different form. The snapshot's session calendar came from SPY's tradeable 1d bars,
+and SPY has no usable bar on two real sessions: 2007-04-02 (`price_sanity_status =
+'confirmed_corrupt'`) and 2007-07-02 (`synthetic_fill`). Every universe row on those days (23)
+was dropped as off-session, while production's cells, keyed on `market_regimes.ts`, keep them.
+Diff of equity `high_bull`: harness 20,482 rows, production 20,501, 19 only-production rows, all
+2007-07-02; `mid_bear` (no such day) matched exactly. Fixed in a967ef844: the calendar is the
+union of universe feature-row dates (weekend dates raise). V4 rerun on snapshot
+`97719acbf3dd7ee3`: all 31,800 rows equal on all 16 deterministic fields; RNG fields within 1.04x
+of the harness's own two-seed spread (tolerance pinned at 1.25x in pre-reg 12.1). Artifact
+`logs/phase179/v4_20260924T235010Z.json`.
