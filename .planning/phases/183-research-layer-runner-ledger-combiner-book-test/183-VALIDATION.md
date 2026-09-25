@@ -2,7 +2,7 @@
 phase: 183
 slug: research-layer-runner-ledger-combiner-book-test
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-09-25
 ---
@@ -57,11 +57,11 @@ created: 2026-09-25
 
 ## Wave 0 requirements
 
-- [ ] `tests/unit/research/test_portfolio_r1.py`, `test_evaluate_session_scoring.py`
-- [ ] `tests/unit/research/test_spec.py`, `test_runner_git.py`, `test_runner_order.py`, `test_runner_evidence.py`
-- [ ] `tests/unit/research/test_combiner.py`, `test_book.py`, `test_power.py`, `test_synthetic.py`
-- [ ] `tests/unit/research/test_families_intraday.py`, `test_ledger_sole_writer.py`
-- [ ] `tests/integration/test_research_ledger.py`
+- [x] `tests/unit/research/test_portfolio_r1.py`, `test_evaluate_session_scoring.py`
+- [x] `tests/unit/research/test_spec.py`, `test_runner_git.py`, `test_runner_order.py`, `test_runner_evidence.py`
+- [x] `tests/unit/research/test_combiner.py`, `test_book.py`, `test_power.py`, `test_synthetic.py`
+- [x] `tests/unit/research/test_families_intraday.py`, `test_ledger_sole_writer.py`
+- [x] `tests/integration/test_research_ledger.py`
 
 ## Manual-only verifications
 
@@ -71,11 +71,11 @@ created: 2026-09-25
 
 ## Validation sign-off
 
-- [ ] All tasks have an automated verify or a Wave 0 dependency
-- [ ] No 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all missing references
-- [ ] No watch-mode flags
-- [ ] Feedback latency under 60 s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have an automated verify or a Wave 0 dependency
+- [x] No 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all missing references
+- [x] No watch-mode flags
+- [x] Feedback latency under 60 s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-09-25 (plan checker: 0 blockers; per-task verifies exclude slow tests, which run at wave and phase gates)
