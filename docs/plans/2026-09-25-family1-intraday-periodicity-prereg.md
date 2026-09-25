@@ -4,7 +4,9 @@
 `docs/plans/2026-09-25-alpha-research-architecture.md` section 4).
 **Governing rules:** `docs/plans/2026-09-24-evidence-framework.md` version 4
 (methodology-change-ledger E15).
-**Status:** DRAFT until the AGY review is recorded (section 8), then REGISTERED. No real-data number for any member exists. The first
+**Status:** REGISTERED 2026-09-25 after the AGY review (section 8). No real-data number exists.
+The first real-data run waits for phase 183 (runner, ledger, combiner, book test) and for the
+three build requirements in section 9. No real-data number for any member exists. The first
 real-data run waits for phase 183's runner and ledger; the runner's machine spec must
 reproduce every number pinned here, and a mismatch is a methodology change.
 
@@ -21,10 +23,10 @@ residualization is part of what is being tested.
 Direction for every same-slot member: continuation (+1). A name whose residual return in slot
 s was high on recent days is expected to have a high residual return in slot s today.
 
-A fifth member tests a weaker, related prior: a name's own residual return in the first half
-hour predicts its residual return in the last half hour (the stock-level analogue of Gao, Han,
-Li and Zhou 2018, whose documented effect is market-level and is removed by residualization).
-Direction +1. Its prior is weaker than the four same-slot members and is recorded as such.
+The first-half-hour to last-half-hour idea (the stock-level analogue of Gao, Han, Li and Zhou
+2018) was in the draft as a fifth member. It is a different mechanism (same-session momentum,
+not multi-day periodicity) and trades one slot a day, so it is not a member of this family; it
+will be registered as its own family.
 
 ## 2. Data
 
@@ -34,7 +36,11 @@ Direction +1. Its prior is weaker than the four same-slot members and is recorde
   start; a missing bar is NaN, never filled.
 - **Returns:** S1 residual bar returns (`src.intelligence.research.factors`, vintage-1 spec as
   merged at the time of the run: leave-one-out market, causal price-correlation clusters,
-  5 principal components, loadings from past data only). Signals are built from residual bar
+  5 principal components, loadings from past data only). On intraday panels the market loading
+  is estimated per slot (26 loadings per name, each from that slot's trailing 252 sessions),
+  because market beta varies by time of day: a pooled beta leaves a slot-specific market
+  exposure in every residual, and if the market's own slot returns recur across days, that
+  exposure would pass for cross-sectional same-slot persistence (requirement R3). Signals are built from residual bar
   returns, not neutralized after the fact (factors.py's rule for return-built signals).
 - **Half-hour slot:** two consecutive 15m bars. Slot j of session d covers bars 2j and 2j+1
   (j = 0..12). Slot residual return = sum of its two bar residual returns; NaN if either bar
@@ -44,9 +50,10 @@ Direction +1. Its prior is weaker than the four same-slot members and is recorde
 
 ## 3. Members
 
-For the same-slot members, alpha is formed at the last bar before slot j (row t = bar 2j - 1
-of session d) from past sessions' slot j residual returns only. Slot 0 (09:30) carries no
-same-slot position, because its signal row would sit in the previous session:
+For every member, alpha for slot j of session d is formed at the last bar before the slot
+(row t = bar 2j - 1 of session d; for slot 0, the previous session's last bar, entering at the
+09:30 open) from past sessions' slot j residual returns only. All 13 slots trade, including the
+opening slot, which carries the largest volume and the strongest effect in HKS:
 
 | Member | alpha before slot j of session d | Declared memory (sessions of slot history) |
 |---|---|---|
@@ -54,7 +61,6 @@ same-slot position, because its signal row would sit in the previous session:
 | P2 `same_slot_mean5` | mean slot j residual return over d-5 .. d-1 | 5 |
 | P3 `same_slot_mean20` | mean over d-20 .. d-1 | 20 |
 | P4 `same_slot_mean40` | mean over d-40 .. d-1 (the horizon HKS report) | 40 |
-| P5 `first_to_last_half_hour` | own residual return in slot 0 (09:30-10:00) of session d, held for slot 12 (15:30-16:00) | 0 (same session) |
 
 - Means require at least half the window's days finite; otherwise NaN.
 - **Cross-sectional form:** at each row, alpha is converted to a centred rank,
@@ -72,30 +78,37 @@ same-slot position, because its signal row would sit in the previous session:
   of the following slot (horizon 2 bars); slot 12 exits at the session's final close (the
   market-on-close exit in `panel.forward_returns(..., closes=...)`). No target crosses the
   overnight gap. Target is the S1 residual of that forward return (lag = fwd_span(horizon)).
-- **P5:** alpha at row t = bar 23 (15:15), enter at the 15:30 open, exit at the session's final
-  close (horizon 2 with the close exit).
-- **Construction:** `portfolio.fixed_sign_returns`, direction +1, on the centred rank; a
-  dollar-neutral long-short book scaled by each name's volatility, as the evaluator's
-  covariance plan provides.
+- **Construction (requirement R1):** weights proportional to centred rank divided by each
+  name's volatility; the positive weights are scaled to sum to +0.5 and the negative weights to
+  -0.5, so every slot's book is exactly dollar-neutral whatever the volatility mix. Direction
+  +1. The existing `fixed_sign_returns` is not used: it keeps only the sign of alpha and, after
+  volatility scaling, is not dollar-neutral.
+- **Scoring unit (requirement R2):** the book's P&L is summed over each session's 13 slots and
+  scored as a daily series (annualized with 252), for the observed book and for every shifted
+  copy alike. Daily is the unit the confirmation test and capital use, and it absorbs intraday
+  autocorrelation between slots.
 - **Costs:** gross (standing directive). Turnover and the cost band are reported as
   diagnostics. Same-slot members trade every half hour, so the band will be large; that
   binds at the capital step, not here.
 
 ## 5. Evidence and the test
 
-- **Evidence records** (diagnostic, gate nothing): each member standalone, through
+- **Evidence records** (diagnostic, gate nothing): each member standalone, with the R1
+  construction and R2 scoring, through
   `evaluate()` with the whole-session shift null: excess annualized Sharpe over the null
   median, stationary-bootstrap standard error, permutation p, per-period estimates, turnover,
   and the cross-sectional rank-IC series of residualized alpha against the residualized
   target once S5's rank-IC readout exists.
-- **Book version 1 (screen test 1 of M = 30 on vintage 1):** all five members, combined by the
+- **Book version 1 (screen test 1 of M = 30 on vintage 1):** all four members, combined by the
   S7 walk-forward ridge (phase 183), tested by S8 at one-sided p < 0.05 / 30 = 0.00167. No
   member is dropped after seeing its record; dropping one would be a new, counted book version.
 - **Refusals before any real-data number:** S3 guards on every member (integrity, causality
   probe, memory check); at least 600 admissible whole-session shifts; synthetic V3 power of
-  the book at a planted per-slot rank IC of 0.01 of at least 50%. If power is below 50%, the
-  run is refused and the result is recorded as "underpowered at IC 0.01", with no real-data
-  number produced.
+  the book at a planted per-slot rank IC of 0.002 of at least 50%. An IC of 0.01 would imply an
+  annualized IR near 4 on this breadth (0.01 x sqrt(13 slots x 252 days x about 60 independent
+  names)), not a realistic effect for 30-minute residual returns on large caps; 0.002 implies
+  about 0.9. If power is below 50%, the run is refused and recorded as "underpowered at IC
+  0.002", with no real-data number produced.
 - **If book version 1 clears the screen,** it is frozen and its confirmation date on the
   forward span is fixed at freeze by the power rule (evidence framework section 7).
 
@@ -123,4 +136,23 @@ same-slot position, because its signal row would sit in the previous session:
 
 ## 8. Review record
 
-Pending: AGY adversarial review of this draft, 2026-09-25.
+AGY adversarial review of the draft, 2026-09-25 (commit 80eeb7767). Adopted: slot 0 was
+dropped by an indexing choice, not a timing constraint, and HKS find the opening slot strongest
+(now traded, entered at the open from the prior session's last bar); the sign-only,
+volatility-scaled construction was neither magnitude-aware nor dollar-neutral (now R1); the
+planted power IC of 0.01 implied an IR near 4 and would have made the power gate vacuous (now
+0.002); the first-to-last half-hour member is a different mechanism and a one-slot signal (now
+its own future family); a pooled intraday market beta leaks slot-specific market exposure (now
+R3; AGY rated it LOW, but it is load-bearing here because slot-specific market exposure recurs
+by slot). Partly adopted: zero-return rows distorting the Sharpe. The distortion is small (zeros
+scale mean and standard deviation together, and the null carries the same zeros), but daily
+scoring is cleaner and matches the confirmation unit, so R2 adopts it for that reason.
+
+## 9. Build requirements before the first real-data run
+
+- **R1** rank-weighted, leg-normalized, dollar-neutral construction in
+  `src/intelligence/research/portfolio.py`.
+- **R2** session-aggregated scoring in `evaluate()`: per-row construction P&L summed per
+  session before the Sharpe, for observed and null alike.
+- **R3** per-slot market loading in S1 for intraday panels.
+- Phase 183's runner, ledger, combiner and book test.
