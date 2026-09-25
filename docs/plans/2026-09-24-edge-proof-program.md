@@ -230,6 +230,12 @@ industry group > industry) for all 273 active instruments, replacing the flat se
 Runs in parallel and gates no verdict: the research residual target groups names by causal
 price-correlation clusters, not by labels. Scope: ROADMAP.md phase 182.
 
+### Phase 183: Research layer: runner, ledger, combiner, book test (added 2026-09-25)
+
+Architecture steps 4-6. The first real-data family run waits for the runner and ledger, so no
+number is ever produced outside a recorded, reproducible run and none has to be redone.
+Scope: ROADMAP.md phase 183.
+
 ## What stops
 
 - New feature primitives measured against the full corpus. The corpus is saturated at about 8
