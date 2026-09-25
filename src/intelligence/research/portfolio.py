@@ -243,6 +243,30 @@ def _check_r1_args(direction: float, coverage_floor: int) -> None:
         raise ValueError(f"R1 coverage_floor must be at least 2, got {coverage_floor}")
 
 
+def _rank_vol_neutral_rows(
+    alpha: np.ndarray, vol: np.ndarray, direction: float, coverage_floor: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """(rows with a position, their weights [len(rows), m]); see rank_vol_neutral_weights."""
+    _check_r1_args(direction, coverage_floor)
+    valid = np.isfinite(alpha) & np.isfinite(vol) & (vol > 0)
+    rows = np.flatnonzero(valid.sum(axis=1) >= coverage_floor)
+    if len(rows) == 0:
+        return rows, np.zeros((0, alpha.shape[1]))
+    ok_names = valid[rows]
+    a = np.where(ok_names, alpha[rows], np.nan).astype(float)
+    n_valid = ok_names.sum(axis=1, keepdims=True)
+    centred = _average_ranks(a) / (n_valid - 1) - 0.5
+    raw = np.nan_to_num(direction * centred / np.where(ok_names, vol[rows], 1.0))
+    pos = np.where(raw > 0, raw, 0.0)
+    neg = np.where(raw < 0, raw, 0.0)
+    pos_sum = pos.sum(axis=1, keepdims=True)
+    neg_sum = -neg.sum(axis=1, keepdims=True)
+    ok = (pos_sum[:, 0] > 0) & (neg_sum[:, 0] > 0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        w = 0.5 * pos[ok] / pos_sum[ok] + 0.5 * neg[ok] / neg_sum[ok]
+    return rows[ok], w
+
+
 def rank_vol_neutral_weights(
     alpha: np.ndarray, *, vol: np.ndarray, direction: float, coverage_floor: int
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -251,27 +275,11 @@ def rank_vol_neutral_weights(
     vol; the positive side is scaled to +0.5 and the negative to -0.5, so every row is exactly
     dollar-neutral whatever the vol mix. A row below `coverage_floor` valid names, or with an
     empty side (all ranks tied), carries no position: zero weights, has_position False."""
-    _check_r1_args(direction, coverage_floor)
-    n, m = alpha.shape
-    weights = np.zeros((n, m))
-    has_position = np.zeros(n, dtype=bool)
-    valid = np.isfinite(alpha) & np.isfinite(vol) & (vol > 0)
-    n_valid = valid.sum(axis=1)
-    rows = np.flatnonzero(n_valid >= coverage_floor)
-    if len(rows) == 0:
-        return weights, has_position
-    a = np.where(valid[rows], alpha[rows], np.nan).astype(float)
-    centred = _average_ranks(a) / (n_valid[rows, None] - 1) - 0.5
-    raw = np.nan_to_num(direction * centred / np.where(valid[rows], vol[rows], 1.0))
-    pos = np.where(raw > 0, raw, 0.0)
-    neg = np.where(raw < 0, raw, 0.0)
-    pos_sum = pos.sum(axis=1, keepdims=True)
-    neg_sum = -neg.sum(axis=1, keepdims=True)
-    ok = (pos_sum[:, 0] > 0) & (neg_sum[:, 0] > 0)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        w = 0.5 * pos / pos_sum + 0.5 * neg / neg_sum
-    weights[rows[ok]] = w[ok]
-    has_position[rows[ok]] = True
+    rows, w = _rank_vol_neutral_rows(alpha, vol, direction, coverage_floor)
+    weights = np.zeros(alpha.shape)
+    weights[rows] = w
+    has_position = np.zeros(alpha.shape[0], dtype=bool)
+    has_position[rows] = True
     return weights, has_position
 
 
@@ -286,11 +294,10 @@ def rank_vol_neutral_returns(
 ) -> dict[str, np.ndarray]:
     """R1's per-row gross return, NaN on rows without a position. `plan` is ignored (R1 sizes
     by its own trailing vol); the argument keeps the evaluate() construction signature."""
-    weights, has_position = rank_vol_neutral_weights(
-        alpha, vol=vol, direction=direction, coverage_floor=coverage_floor
-    )
-    r = (weights * np.nan_to_num(fwd_ret)).sum(axis=1)
-    return {RANK_VOL_NEUTRAL_ARM: np.where(has_position, r, np.nan)}
+    rows, w = _rank_vol_neutral_rows(alpha, vol, direction, coverage_floor)
+    r = np.full(alpha.shape[0], np.nan)
+    r[rows] = (w * np.nan_to_num(fwd_ret[rows])).sum(axis=1)
+    return {RANK_VOL_NEUTRAL_ARM: r}
 
 
 def _normalize(raw: np.ndarray) -> np.ndarray:

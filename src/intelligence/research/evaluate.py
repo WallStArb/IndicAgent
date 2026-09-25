@@ -91,11 +91,15 @@ class EvaluationResult:
     # Section 11 shape measures per arm, {"observed": {...}, "null_median": {...}}. Reported
     # for sizing; no decision rule reads them.
     diagnostics: dict = dataclasses.field(default_factory=dict)
-    # observed_daily / null_median_daily: [J, n] per-row returns. observed_weights: {arm:
-    # [n, m]}, set for the calibrated arms only.
+    # observed_daily / null_median_daily: [J, n] per-row returns, or [J, n_sessions]
+    # per-session sums under session scoring. observed_weights: {arm: [n, m]}, set for the
+    # calibrated arms only.
     observed_daily: np.ndarray | None = None
     null_median_daily: np.ndarray | None = None
     observed_weights: dict = dataclasses.field(default_factory=dict)
+    # [J] standard deviation of the stationary-bootstrap Sharpe draws behind excess_ci (the
+    # evidence record's standard error, evidence framework section 5).
+    excess_se: np.ndarray | None = None
 
 
 class EvaluatorMisuse(TypeError):
@@ -146,6 +150,33 @@ def shape_diagnostics(r: np.ndarray, periods_per_year: int = SESSIONS_PER_YEAR) 
     }
 
 
+def aggregate_sessions(
+    r: np.ndarray, trade: np.ndarray, bars_per_session: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-session sums of the finite rows in `trade` (NaN for a session with none), and
+    session_trade: True where any row of the session is in `trade`. R2's scoring unit (family 1
+    prereg section 4): a book trading several slots a day is scored on its daily P&L."""
+    in_trade = trade.reshape(-1, bars_per_session)
+    x = np.where(in_trade, r.reshape(-1, bars_per_session), np.nan)
+    has = np.isfinite(x).any(axis=1)
+    sums = np.where(has, np.nansum(np.where(np.isfinite(x), x, 0.0), axis=1), np.nan)
+    return sums, in_trade.any(axis=1)
+
+
+def scored_sharpe(
+    r: np.ndarray,
+    trade: np.ndarray,
+    *,
+    periods_per_year: int,
+    bars_per_session: int,
+    session_scoring: bool,
+) -> float:
+    """The annualized Sharpe evaluate() scores: per row, or per session with 252 periods."""
+    if not session_scoring:
+        return annualized_sharpe(r, trade, periods_per_year)
+    return annualized_sharpe(*aggregate_sessions(r, trade, bars_per_session), SESSIONS_PER_YEAR)
+
+
 def trade_mask(dates: np.ndarray, cfg: EvaluationConfig) -> np.ndarray:
     """Rows in the scored span: trading_start through the last sub-period's end. The panel's
     last rows have no forward return and must not enter the Sharpe as zero-return rows."""
@@ -183,15 +214,29 @@ def _run_shifts(
     shifts: np.ndarray,
     trade: np.ndarray,
     periods_per_year: int,
+    bars_per_session: int = 1,
+    session_scoring: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute-only worker: per shift, each arm's Sharpe and its per-row returns (float32)."""
+    """Compute-only worker: per shift, each arm's Sharpe and its per-row returns (float32), or
+    its per-session sums under session scoring."""
+    width = alpha.shape[0] // bars_per_session if session_scoring else alpha.shape[0]
     sharpe = np.empty((len(shifts), len(arms)))
-    daily = np.empty((len(shifts), len(arms), alpha.shape[0]), dtype=np.float32)
+    daily = np.empty((len(shifts), len(arms), width), dtype=np.float32)
     for i, shift in enumerate(shifts):
         out = construction(shift_panel(alpha, int(shift)), fwd_ret, plan)
         for j, arm in enumerate(arms):
-            sharpe[i, j] = annualized_sharpe(out[arm], trade, periods_per_year)
-            daily[i, j] = out[arm]
+            sharpe[i, j] = scored_sharpe(
+                out[arm],
+                trade,
+                periods_per_year=periods_per_year,
+                bars_per_session=bars_per_session,
+                session_scoring=session_scoring,
+            )
+            daily[i, j] = (
+                aggregate_sessions(out[arm], trade, bars_per_session)[0]
+                if session_scoring
+                else out[arm]
+            )
     return sharpe, daily
 
 
@@ -212,10 +257,14 @@ def evaluate(
     valid: np.ndarray | None = None,
     embargo: int = DAILY_EMBARGO,
     pool_factory: PoolFactory | None = None,
+    session_scoring: bool = False,
 ) -> EvaluationResult:
     """`memory` (rows) feeds the shift set when `shifts` is not given; a picklable
     `construction` (module-level function or functools.partial) replaces the calibrated arms.
-    `embargo` is the forward return's span in rows. `workers` > 1 needs `pool_factory`."""
+    `embargo` is the forward return's span in rows. `workers` > 1 needs `pool_factory`.
+    `session_scoring` (R2) sums each construction's per-row P&L per session before the Sharpe,
+    for the observed book and every shift alike; the bootstrap, sub-period and shape readouts
+    then run on the per-session series."""
     n = alpha.shape[0]
     rcfg = rows_config(cfg, bars_per_session)
     periods_per_year = SESSIONS_PER_YEAR * bars_per_session
@@ -229,7 +278,13 @@ def evaluate(
     obs = construction(alpha, fwd_ret, plan)
     arms = tuple(obs)
     obs_daily = np.stack([obs[arm] for arm in arms])
-    sharpe_obs = np.array([annualized_sharpe(r, trade, periods_per_year) for r in obs_daily])
+    score = functools.partial(
+        scored_sharpe,
+        periods_per_year=periods_per_year,
+        bars_per_session=bars_per_session,
+        session_scoring=session_scoring,
+    )
+    sharpe_obs = np.array([score(r, trade) for r in obs_daily])
 
     if shifts is None:
         shifts = session_shifts(n, bars_per_session, cfg.min_shift, memory)
@@ -239,22 +294,30 @@ def evaluate(
             "intraday shifts must be whole sessions (multiples of bars_per_session)"
         )
     args = (alpha, fwd_ret, plan, construction, arms)
+    tail = (trade, periods_per_year, bars_per_session, session_scoring)
     if workers > 1:
         if pool_factory is None:
             raise EvaluatorMisuse("workers > 1 needs a pool_factory")
         chunks = np.array_split(shifts, workers)
         with pool_factory(workers) as pool:
-            parts = list(
-                pool.map(_run_shifts, *zip(*[(*args, c, trade, periods_per_year) for c in chunks]))
-            )
+            parts = list(pool.map(_run_shifts, *zip(*[(*args, c, *tail) for c in chunks])))
         sharpe_null = np.concatenate([p[0] for p in parts])
         null_daily = np.concatenate([p[1] for p in parts])
     else:
-        sharpe_null, null_daily = _run_shifts(*args, shifts, trade, periods_per_year)
+        sharpe_null, null_daily = _run_shifts(*args, shifts, *tail)
 
-    null_median_daily = np.median(null_daily, axis=0)  # [J, n]
+    if session_scoring:
+        obs_daily = np.stack([aggregate_sessions(r, trade, bars_per_session)[0] for r in obs_daily])
+    scored, readout_dates, readout_ppy, block = _readout_units(
+        trade, dates, cfg, rcfg, bars_per_session, periods_per_year, session_scoring
+    )
+    null_median_daily = np.median(null_daily, axis=0)  # [J, n] (or [J, n_sessions])
     excess_daily = obs_daily - null_median_daily
-    sub_masks = [m & trade for m in sub_period_masks(dates, cfg.sub_periods)]
+    sub_masks = [m & scored for m in sub_period_masks(readout_dates, cfg.sub_periods)]
+    draws = [
+        _bootstrap_sharpe_draws(row[scored], block, cfg.bootstrap_reps, cfg.seed, readout_ppy)
+        for row in excess_daily
+    ]
     return EvaluationResult(
         observed_daily=obs_daily,
         null_median_daily=null_median_daily,
@@ -270,26 +333,34 @@ def evaluate(
         sub_period_excess=np.array(
             [[np.nanmean(row[m]) for m in sub_masks] for row in excess_daily]
         ),
-        excess_ci=np.array(
-            [
-                _bootstrap_sharpe_ci(
-                    row[trade],
-                    rcfg.bootstrap_mean_block,
-                    cfg.bootstrap_reps,
-                    cfg.seed,
-                    periods_per_year,
-                )
-                for row in excess_daily
-            ]
-        ),
+        excess_ci=np.array([np.percentile(d, [2.5, 97.5]) for d in draws]),
+        excess_se=np.array([np.std(d, ddof=1) for d in draws]),
         diagnostics={
             arm: {
-                "observed": shape_diagnostics(obs_daily[j][trade], periods_per_year),
-                "null_median": shape_diagnostics(null_median_daily[j][trade], periods_per_year),
+                "observed": shape_diagnostics(obs_daily[j][scored], readout_ppy),
+                "null_median": shape_diagnostics(null_median_daily[j][scored], readout_ppy),
             }
             for j, arm in enumerate(arms)
         },
     )
+
+
+def _readout_units(
+    trade: np.ndarray,
+    dates: np.ndarray,
+    cfg: EvaluationConfig,
+    rcfg: EvaluationConfig,
+    bars_per_session: int,
+    periods_per_year: int,
+    session_scoring: bool,
+) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """The readouts' unit in one place (mask, dates, periods per year, bootstrap block), so the
+    bootstrap, sub-periods and shape diagnostics cannot disagree: rows, or sessions under R2
+    (block in sessions, 252 periods, each session dated by its first row)."""
+    if not session_scoring:
+        return trade, dates, periods_per_year, rcfg.bootstrap_mean_block
+    session_trade = trade.reshape(-1, bars_per_session).any(axis=1)
+    return session_trade, dates[::bars_per_session], SESSIONS_PER_YEAR, cfg.bootstrap_mean_block
 
 
 def _bootstrap_sharpe_ci(
@@ -301,6 +372,19 @@ def _bootstrap_sharpe_ci(
 ) -> np.ndarray:
     """Politis-Romano stationary bootstrap (geometric blocks, circular) 95% CI of the
     annualized Sharpe. Reported only; the permutation p decides."""
+    return np.percentile(
+        _bootstrap_sharpe_draws(x, mean_block, reps, seed, periods_per_year), [2.5, 97.5]
+    )
+
+
+def _bootstrap_sharpe_draws(
+    x: np.ndarray,
+    mean_block: int,
+    reps: int,
+    seed: int,
+    periods_per_year: int = SESSIONS_PER_YEAR,
+) -> np.ndarray:
+    """The annualized Sharpe of each stationary-bootstrap resample of the finite values."""
     x = x[np.isfinite(x)]
     n = len(x)
     rng = np.random.default_rng(seed)
@@ -313,4 +397,4 @@ def _bootstrap_sharpe_ci(
     sample = x[idx]
     sd = sample.std(axis=1, ddof=1)
     sharpe = np.where(sd > 0, sample.mean(axis=1) / np.where(sd > 0, sd, 1.0), 0.0)
-    return np.percentile(sharpe * np.sqrt(periods_per_year), [2.5, 97.5])
+    return sharpe * np.sqrt(periods_per_year)
