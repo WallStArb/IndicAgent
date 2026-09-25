@@ -18,7 +18,7 @@ The principles below follow directly from that.
 
 - **Instrument everything.** No data point left uncaptured. If it happened, it should be measurable.
 - **Let the system run.** Don't override data with intuition. Build the automation, then trust it.
-- **Earn the right through proof.** No model, strategy, or feature gets promoted to production without statistically significant evidence (p < 0.05, sufficient N). Shadow mode first, always.
+- **Earn the right through proof.** Nothing gets capital without a pre-registered, adequately powered test on data no one has searched: the forward span after the vintage cutoff, one confirmation per frozen book. In-sample results are a screen that decides what spends that span, not proof. Shadow mode first, always. (Revised 2026-09-25 from "p < 0.05, sufficient N"; `docs/plans/2026-09-24-evidence-framework.md`, methodology-change-ledger E15.)
 - **Segment relentlessly.** A rule that works globally is weaker than one that works in a specific regime. Always ask: "under what conditions does this hold?"
 - **Degrade gracefully, adapt automatically.** Systems that require manual tuning are fragile. Build feedback loops that self-correct.
 - **Data quality over model complexity.** Clean, complete data beats a smarter model on dirty data every time.

@@ -25,3 +25,13 @@ screen (`scripts/analysis/tsmom_per_symbol_ic_screen.py`) found a consistent neg
 - Survivorship stated as a residual bias (todo 376); it inflates reversal on losers most.
 
 Runs after todo 422's verdict (TSMOM, FAIL 2026-09-24); reuses the same signal-source stage and evaluator.
+
+## Update 2026-09-25 (evidence framework adopted, methodology-change-ledger E15)
+
+Reversal is now fourth in the family queue (`docs/plans/2026-09-25-alpha-research-architecture.md`
+section 4), behind intraday momentum, overnight/intraday decomposition and lead-lag. The
+2026-09-13 screen already looked at it on 231 of these names in-sample. The holdout option above
+is withdrawn: the forward span is reserved for one confirmation test of a frozen book, so a
+standalone reversal look would spend it. Daily form: symbols added since the 09-13 screen, or
+phase 180 onboarding. Intraday form: a disclosed re-specification on seen data, pre-declaring a
+one-bar skip variant. Either is a family member entering the book, not a standalone verdict.

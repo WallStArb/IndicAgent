@@ -821,3 +821,28 @@ when this was found.
   the fix cannot be tuned toward an outcome; the new rule is pinned here before any rerun. Same
   hypothesis, same arms, null, thresholds and N_tested (18). Everything downstream of the code
   change is rerun once at the fix commit: V2, V3, V3b, V4, S1, V5, then S2-S4.
+
+### E15 — 2026-09-25: Evidence framework adopted: book-version screen at M = 30 (count restarted), error control on the forward span
+
+- **Observed first:** 18 pre-registered standalone verdicts on vintage 1 (data before
+  `alpha.validation.oos_start`, 2025-12-24), zero PASS. The last two with real power machinery
+  (TSMOM, Phase 179 E14 rerun) both landed at excess Sharpe +0.19 to +0.22, p 0.22 to 0.36, on a
+  13-name daily sleeve where a Sharpe-0.5 edge takes about 16 years to reach t = 2.
+- **Changed:** `docs/plans/2026-09-24-evidence-framework.md` version 4 and
+  `docs/plans/2026-09-25-alpha-research-architecture.md` (adopted). The unit of test is a book
+  version, not an idea; families enter the book by pre-registration and clean guards, never by
+  an outcome screen; per-signal and per-family results are evidence records, not tokens. Tests
+  on the searched vintage are a screen at alpha / M, one-sided, with M = 30 declared on vintage 1
+  and the count restarted at 0 (owner decision); bar p < 0.00167. A test whose null has fewer
+  than 600 admissible shifts, or whose synthetic power is below 50%, is refused before any
+  real-data number. Error control moves to the forward span (holdout plus accruing data): one
+  confirmation test of a frozen book, alpha 0.05 one-sided, on a date fixed at freeze by power.
+  Capital only after confirmation, sized net of costs from the low end of the evidence.
+  Replaces the program-wide `alpha / N_tested` rule in `construction-verdict-ledger.md`, the
+  2-of-3 sub-period rule, and the Track 1 gates for new work.
+- **Pre-registered?** No; a change of decision rules after seeing 18 results. Justification:
+  no frozen verdict is re-scored, and no pending candidate's numbers exist yet. The count
+  restart does not forgive the 18 looks, because none of them touched the forward span, which is
+  where false discovery is now controlled; the restart changes only how strict the in-sample
+  screen is. Several legacy tests also ran on data or code later corrected (E12's spread
+  constant, E14's coverage bug, stale feature snapshots). Legacy rows keep their tokens.

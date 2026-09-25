@@ -5,8 +5,9 @@ alpha ... design this like Renaissance would").
 **Informed by:** AGY adversarial review of draft 1, 2026-09-25 (section 9).
 **Parents:** `docs/plans/2026-09-24-edge-proof-program.md` (sequence),
 `docs/plans/2026-09-24-evidence-framework.md` (draft 3, evidence records, per-vintage budget).
-**Status:** DRAFT 2. Proposes amendments to both parents; neither is edited until this is
-accepted.
+**Status:** ADOPTED 2026-09-25 (draft 2 plus the owner-decision edits of section 9), together
+with evidence framework version 4 (methodology-change-ledger E15). The framework owns the
+rules; this doc owns the build.
 
 ## 1. Diagnosis
 
@@ -30,9 +31,10 @@ data to reach t = 2 and a Sharpe-0.5 book 16. `feature_vectors` holds 233 names 
 unmeasured (section 5, step 0), but it is the only place in the project's data where a weak
 combined edge could resolve inside one vintage.
 
-**1.3 Tests are spent on ideas instead of on the book.** Each standalone test draws on the
-vintage budget, and the 18 already run keep counting (evidence framework section 6; this doc
-does not reset them). What changes is what the remaining budget buys. A standalone test of a
+**1.3 Tests are spent on ideas instead of on the book.** Each standalone test drew on the
+vintage budget. Under the adopted framework the budget is a screen on book versions (M = 30 on
+vintage 1, count restarted by owner decision; error control moved to the forward span,
+evidence framework sections 3 and 6). What changes is what the budget buys. A standalone test of a
 weak signal has almost no power at p < 0.05 / M. A test of a combined book on a broad panel
 pools many weak signals into one statistic, so the same bar is reachable. Signal selection
 inside the book is handled by walk-forward ridge fitted on past data only, and admission to
@@ -73,8 +75,8 @@ S4  residualize   alpha vs factors (combiner input); vs book signals (diagnostic
 S5  measure       evaluate(): arms, session-aligned shift null, bootstrap -> record        [exists, generalize]
 S6  ledger        sole writer: concept_registry(domain='construction'), vintage budget     [evidence framework step 2]
 S7  combine       walk-forward ridge over every registered signal of admitted families     [new, reuses portfolio]
-S8  book test     book's walk-forward excess over its own shift null, budget-charged       [new, same S5 code]
-S9  holdout, then forward shadow                                                           [evidence framework 6-7]
+S8  book test     S5 with S7 as construction: joint shift of signal stack, refit per shift [new, same S5 code]
+S9  freeze, forward shadow, confirmation on the pre-dated test day                         [evidence framework 7]
 ```
 
 One direction, no cycles. S0 is the only node with I/O besides S6. S1 to S5 and S7 are
@@ -175,10 +177,15 @@ This is the main change to the evidence framework.
   then weights them by registration order. Signals are standardized inside each walk-forward
   fold and ridge handles their collinearity. Residualizing a candidate against the book
   (evidence framework section 5) stays as a diagnostic readout of what it adds.
-- **Budget.** Each book version tested on the vintage is one test against M, and M already
-  includes the 18 verdicts. The bar stays 0.05 / M. The gain is power, not a looser bar: a book
-  over hundreds of names pools many weak signals into one statistic. Book versions per vintage
-  are declared with M, so cutting versions cannot buy extra tests.
+- **The book null refits.** S8 shifts the stacked signal panel `[t, i, k]` jointly by one
+  whole-session shift, reruns S7 on the shifted stack and scores it, the pattern S5 already uses
+  for phase 179's calibration. Shifting the combined alpha after fitting would leave the fit's
+  own capacity out of the null. Ridge is closed form, so refits per shift are cheap.
+- **Budget.** Each book version tested on the vintage is one screen test at 0.05 / M, M = 30,
+  bar p < 0.00167, with a null of at least 600 admissible shifts and synthetic power of at least
+  50% checked before the run. The gain is power, not a looser bar: a book over hundreds of names
+  pools many weak signals into one statistic. The book that clears the screen is frozen and
+  confirmed on the forward span (evidence framework section 7).
 - **Standalone and residual records** are still written for every signal, for diagnosis and
   for "have we tried this"; they gate nothing.
 
@@ -196,8 +203,9 @@ Ordered by prior, cleanliness of the evidence available, and power:
    with their large constituents, the setup this family needs.
 4. **Short-term reversal** (todo 423). The best-documented prior, but the 2026-09-13 screen
    already looked at a reversal-like statistic on 231 of these names over the whole in-sample
-   window, so the in-sample panel is not clean evidence for it. Its daily form runs where the
-   todo already says: the holdout, symbols added since, or phase 180 onboarding. An intraday
+   window, so the in-sample panel is not clean evidence for it. Its daily form runs on symbols
+   added since that screen or on phase 180 onboarding, never on the holdout: the forward span is
+   reserved for one confirmation of a frozen book, and a standalone look spends it. An intraday
    reversal family on the in-sample panel is admissible only as a disclosed re-specification
    on seen data, counted like any other test, and its members pre-declare a one-bar skip
    variant so bounce and genuine reversal separate.
@@ -231,10 +239,9 @@ how it is controlled.
 
 ## 6. What changes in the parent plans, if accepted
 
-- Evidence framework: admission is by prior only; section 5's residualization against the book
-  becomes a diagnostic; the combiner fits factor-residualized signals; section 6's budget is
-  spent on book versions, declared up front, with the 18 counted. Everything else in draft 3
-  stands.
+- Evidence framework: done, version 4 (book-version screen at M = 30 with the count restarted,
+  admission by prior only, confirmation on the forward span dated by power, capital sized net
+  after confirmation).
 - Edge-proof program: phase 181's queue becomes families on the 233-name panel in section 4's
   order. Phase 180 (sleeve breadth expansion) drops in priority, pending the step 0 breadth
   measurement. Phase 177 is not on this path for in-sample work: the vintage ends 2025-12-24
@@ -267,6 +274,12 @@ how it is controlled.
   run, not after.
 
 ## 9. Review record
+
+Owner decisions and council edits, 2026-09-25, on adoption. The owner set M = 30 on vintage 1
+with the count restarted; this reverses draft 2's "M includes the 18", and it is sound only
+because the evidence framework now puts error control on the forward span, not the screen
+(framework section 3). Added: the book null refits the combiner per shift. Changed: daily
+reversal no longer runs on the holdout, which is reserved for confirmation.
 
 AGY, 2026-09-25, on draft 1. Adopted: family admission by a data screen launders selection
 into the book, and the 18 prior tests must stay in M (now: admission on prior only, M includes

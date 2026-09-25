@@ -177,6 +177,11 @@ recompute only while that is running. Each run adds a row to the ledger and rais
 
 #### Phase 181 queue (re-ranked 2026-09-24, council review)
 
+**Superseded 2026-09-25:** the queue is now families on the 233-name panel, in the order of
+`docs/plans/2026-09-25-alpha-research-architecture.md` section 4 (intraday momentum first,
+reversal fourth), tested as book versions under the evidence framework (E15). The text below is
+the record of the 2026-09-24 ordering.
+
 Sixteen verdicts, zero PASS, mostly on constructions with no economic mechanism and no
 published out-of-sample record. Each test spends multiplicity budget, so the queue is ordered
 by prior times power, not by what is ready to run. Two findings set the new order:

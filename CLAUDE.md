@@ -1,11 +1,11 @@
 # CLAUDE.md
 
-Version: 5.55.6
+Version: 5.55.7
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
 
-**Principles:** Instrument everything · shadow mode first · data quality over model complexity · never drop data that could contain signal · earn promotion through proof (p<0.05, sufficient N) · segment by regime · automate manual tasks · empirical over theoretical · resist overfitting. Full doc: `docs/foundation/principles.md`.
+**Principles:** Instrument everything · shadow mode first · data quality over model complexity · never drop data that could contain signal · earn capital through proof (screen in-sample, confirm once on the unsearched forward span; `docs/plans/2026-09-24-evidence-framework.md`) · segment by regime · automate manual tasks · empirical over theoretical · resist overfitting. Full doc: `docs/foundation/principles.md`.
 **Design mindset:** Think as a council of senior engineers at Renaissance Technologies. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. SoC: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
 **5-Step mandate (Musk):** Make requirements less dumb → delete → simplify → accelerate → automate. Run in order. Don't optimize what should be deleted. Don't accelerate in the wrong direction. Don't automate what isn't proven. Full doc: `docs/foundation/musk-5-step-process.md`.
 **Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/`, `src/observability/` = Ring 0 portable infrastructure (no domain vocab, no imports from `services/`); `src/intelligence/` = Ring 1 domain; `services/` = Ring 2 daemons. Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.

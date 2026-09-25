@@ -38,6 +38,12 @@ construction's own within-test alpha (typically 0.05) should be read as `alpha /
 Update N_tested when a new row is appended; re-derive by counting rows, don't hand-increment
 a stale number.
 
+**Superseded for new work 2026-09-25 (methodology-change-ledger E15).** The rows above keep
+their tokens. New work is tested at the book level against a per-vintage screen budget (vintage
+1: M = 30, count restarted, bar p < 0.00167) and confirmed once on the forward span
+(`docs/plans/2026-09-24-evidence-framework.md`). Keep appending rows for the record; book
+versions and confirmations get rows too.
+
 ---
 
 ## Verdicted constructions, chronological
