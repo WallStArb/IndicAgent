@@ -2957,19 +2957,19 @@ as a source of truth. Layer 2 (`parent_tag`) is out of scope until a consumer ex
 Plans:
 **Wave 1**
 
-- [ ] 182-01-PLAN.md - Layer 1 schema migration 364 (applied live) + ClassificationService and shared contract
-- [ ] 182-02-PLAN.md - IBKR industry/category/subcategory sourcing for single names -> committed candidates CSV
+- [x] 182-01-PLAN.md - Layer 1 schema migration 364 (applied live) + ClassificationService and shared contract
+- [x] 182-02-PLAN.md - IBKR industry/category/subcategory sourcing for single names -> committed candidates CSV
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 182-03-PLAN.md - indicagent_v1 node list + per-instrument mapping (data module), rendered seed migration 365, human review
-- [ ] 182-04-PLAN.md - onboarding requires a classification (no escape hatch); contract_details.sector no longer written
-- [ ] 182-05-PLAN.md - Instrument.sector builders (settings.py, cache_manager.py) read the classification
-- [ ] 182-06-PLAN.md - nightly classification coverage audit chained beside the vocabulary drift audit
+- [x] 182-03-PLAN.md - indicagent_v1 node list + per-instrument mapping (data module), rendered seed migration 365, automated two-pass review (owner-delegated)
+- [x] 182-04-PLAN.md - onboarding requires a classification (no escape hatch); contract_details.sector no longer written
+- [x] 182-05-PLAN.md - Instrument.sector builders (settings.py, cache_manager.py) read the classification
+- [x] 182-06-PLAN.md - nightly classification coverage audit chained beside the vocabulary drift audit
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 182-07-PLAN.md - apply seed live, live-DB integration tests, docs, close todo 384
+- [x] 182-07-PLAN.md - apply seed live, live-DB integration tests, docs, close todo 384
 
 ### Phase 183: Research layer: runner, ledger, combiner, book test
 
