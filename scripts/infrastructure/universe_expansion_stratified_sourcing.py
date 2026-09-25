@@ -16,6 +16,12 @@ D-01: `alpha.universe.target_sample_size` stays 0 (= UNSET) until Plan 11 measur
 the ic_engine OOM fix's actually-supported scale -- this script fails loud naming
 that key rather than picking a number. Do NOT run this script in --commit mode in
 this plan; Plan 12 owns the real run, once Plan 11 has set the target size.
+
+Phase 182 (D-09, todo 384): `--commit` now requires `--classification-csv PATH`
+(columns symbol, code, source_ref) naming every sampled symbol's indicagent_v1
+classification -- onboard_instrument() hard-fails without one and there is no skip
+escape hatch. A symbol sampled but missing from the CSV aborts the whole run before
+any IBKR connection or database write, not partway through.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa:
 from scripts.infrastructure.universe_expansion_fetch_iwv_holdings import (  # noqa: E402
     parse_holdings,
 )
+from src.config.classification_service import ClassificationAssignment  # noqa: E402
 from src.config.instrument_onboarding import (  # noqa: E402
     OnboardingRejected,
     load_compute_timeframes,
@@ -265,6 +272,30 @@ def _sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
+def load_classifications(path: Path) -> dict[str, ClassificationAssignment]:
+    """Parse a classification CSV (columns symbol, code, source_ref) into a dict keyed by
+    symbol -- the operator-supplied D-09 input naming every sampled symbol's indicagent_v1
+    classification. ClassificationAssignment's own __post_init__ validates code/source_ref
+    eagerly, so a malformed source_ref fails at parse time, not at INSERT time. A duplicate
+    symbol raises ValueError (todo 384: ambiguity here is a mistake in the file, not a
+    runtime choice to resolve silently).
+    """
+    result: dict[str, ClassificationAssignment] = {}
+    with path.open(newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            symbol = row["symbol"].strip()
+            if symbol in result:
+                raise ValueError(
+                    f"load_classifications: duplicate symbol {symbol!r} in {path} -- "
+                    "each symbol may appear at most once."
+                )
+            result[symbol] = ClassificationAssignment(
+                code=row["code"].strip(), source_ref=row["source_ref"].strip()
+            )
+    return result
+
+
 def _print_bucket_summary(sample: pd.DataFrame, bucketed_pop: pd.DataFrame) -> None:
     """Print bucket idx / cap min / cap max / population count / drawn count,
     ascending by bucket index. `bucketed_pop` must be the SAME post-exclusion,
@@ -337,13 +368,28 @@ async def _gateway_preflight(settings: Settings) -> tuple[bool, str]:
 
 
 async def _run_commit(
-    sample: pd.DataFrame, settings: Settings, timeframes: tuple[str, ...] | None
+    sample: pd.DataFrame,
+    settings: Settings,
+    timeframes: tuple[str, ...] | None,
+    classifications: dict[str, ClassificationAssignment],
 ) -> dict[str, int]:
     """--commit mode: qualify + write every drawn symbol through
     onboard_instrument() (the sole sanctioned write path, D-08/T-174-02/T-174-03).
-    Runs the gateway pre-flight probe first and aborts before the loop if it
-    fails (T-174-50).
+    Checks that every sampled symbol has a classification BEFORE the gateway
+    pre-flight probe or any provider is constructed (D-09, todo 384: an
+    unclassifiable instrument is not onboarded, and a partial run must not
+    start), then runs the gateway pre-flight probe and aborts before the loop
+    if it fails (T-174-50).
     """
+    missing = sorted(set(sample["symbol"]) - set(classifications))
+    if missing:
+        raise RuntimeError(
+            "universe_expansion_stratified_sourcing: missing --classification-csv row(s) "
+            f"for {len(missing)} sampled symbol(s): {missing} -- D-09 (todo 384): an "
+            "unclassifiable instrument is not onboarded, and a partial run must not start. "
+            "Add a row for every symbol above before re-running."
+        )
+
     ok, probe_symbol = await _gateway_preflight(settings)
     if not ok:
         raise RuntimeError(
@@ -401,6 +447,7 @@ async def _run_commit(
                             "symbol/name/index_position_value contract; a follow-on pass can "
                             "backfill this from a per-symbol data source if needed."
                         ),
+                        classification=classifications[row.symbol],
                         compute_eligible=False,
                         live_tradeable=False,
                     )
@@ -465,7 +512,8 @@ async def _async_main(args: argparse.Namespace) -> int:
         return 0
 
     timeframes = tuple(args.timeframes.split(",")) if args.timeframes else None
-    result = await _run_commit(sample, settings, timeframes)
+    classifications = load_classifications(args.classification_csv)
+    result = await _run_commit(sample, settings, timeframes, classifications)
     print(
         "Commit run complete:",
         {
@@ -506,7 +554,19 @@ def main(argv: list[str] | None = None) -> int:
             "APR compute stack, feature.factory.target_timeframes)."
         ),
     )
+    parser.add_argument(
+        "--classification-csv",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a CSV with columns symbol, code, source_ref -- one row per sampled "
+            "symbol, naming its indicagent_v1 classification (D-09, todo 384). Required "
+            "when --commit is given; there is no skip escape hatch."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.commit and args.classification_csv is None:
+        parser.error("--classification-csv is required when --commit is given (D-09, todo 384)")
 
     status = "success"
     try:

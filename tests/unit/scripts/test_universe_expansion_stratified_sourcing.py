@@ -7,6 +7,7 @@ itself is reproducible and seed-sensitive (D-02's requirement) independent of
 whatever live alpha.universe.* values happen to be configured when this suite runs.
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -17,8 +18,14 @@ import pandas as pd
 import pytest
 
 from scripts.infrastructure.universe_expansion_stratified_sourcing import (  # noqa: E402
+    _run_commit,
     exclude_set_sha256,
+    load_classifications,
     stratified_sample,
+)
+from src.config.classification_service import (  # noqa: E402
+    SOURCE_REF_FUND_MANDATE,
+    ClassificationAssignment,
 )
 
 _RESULT_COLUMNS = [
@@ -256,3 +263,86 @@ def test_exclude_set_sha256_is_order_independent_and_content_sensitive():
     """174 review IN-06: provenance must pin the exact exclude set, not just its size."""
     assert exclude_set_sha256({"B", "A"}) == exclude_set_sha256({"A", "B"})
     assert exclude_set_sha256({"A", "B"}) != exclude_set_sha256({"A", "C"})
+
+
+# ---------------------------------------------------------------------------
+# load_classifications() -- Phase 182 D-09, todo 384
+# ---------------------------------------------------------------------------
+
+
+def _write_csv(tmp_path: Path, rows: list[tuple[str, str, str]]) -> Path:
+    path = tmp_path / "classifications.csv"
+    lines = ["symbol,code,source_ref"] + [",".join(row) for row in rows]
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def test_load_classifications_valid_file(tmp_path):
+    path = _write_csv(
+        tmp_path,
+        [
+            ("AAA", "EQ.BROAD", "fund_mandate"),
+            ("BBB", "EQ.IT.SEMI", "ibkr_contract_details+review"),
+        ],
+    )
+
+    result = load_classifications(path)
+
+    assert result == {
+        "AAA": ClassificationAssignment("EQ.BROAD", "fund_mandate"),
+        "BBB": ClassificationAssignment("EQ.IT.SEMI", "ibkr_contract_details+review"),
+    }
+
+
+def test_load_classifications_duplicate_symbol_raises(tmp_path):
+    path = _write_csv(
+        tmp_path,
+        [
+            ("AAA", "EQ.BROAD", "fund_mandate"),
+            ("AAA", "EQ.IT.SEMI", "fund_mandate"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="duplicate symbol"):
+        load_classifications(path)
+
+
+def test_load_classifications_bad_source_ref_raises(tmp_path):
+    path = _write_csv(tmp_path, [("AAA", "EQ.BROAD", "made_up_source")])
+
+    with pytest.raises(ValueError, match="ALLOWED_SOURCE_REFS"):
+        load_classifications(path)
+
+
+# ---------------------------------------------------------------------------
+# _run_commit() missing-classification pre-check -- Phase 182 D-09, todo 384
+# ---------------------------------------------------------------------------
+
+
+def test_missing_classification_aborts_before_gateway_preflight(monkeypatch):
+    """A sampled symbol absent from --classification-csv must abort the whole run
+    before the gateway pre-flight probe (and therefore before any IBKR connection
+    or database write) -- D-09: a partial run must not start.
+    """
+    preflight_called = {"value": False}
+
+    async def _fake_preflight(settings):
+        preflight_called["value"] = True
+        return True, "SPY"
+
+    monkeypatch.setattr(
+        "scripts.infrastructure.universe_expansion_stratified_sourcing._gateway_preflight",
+        _fake_preflight,
+    )
+
+    sample = pd.DataFrame(
+        {"symbol": ["AAA", "BBB"], "name": ["A Co", "B Co"], "index_position_value": [1.0, 2.0]}
+    )
+    classifications = {"AAA": ClassificationAssignment("EQ.BROAD", SOURCE_REF_FUND_MANDATE)}
+
+    with pytest.raises(RuntimeError, match="BBB"):
+        asyncio.run(
+            _run_commit(sample, settings=object(), timeframes=None, classifications=classifications)
+        )
+
+    assert preflight_called["value"] is False

@@ -34,6 +34,10 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
+from src.config.classification_service import (  # noqa: E402
+    SOURCE_REF_FUND_MANDATE,
+    ClassificationAssignment,
+)
 from src.config.instrument_onboarding import (  # noqa: E402
     OnboardingRejected,
     OnboardResult,
@@ -106,6 +110,11 @@ _EMLC_TAG_EVIDENCE = {
         "implying a clean, credit-free FX signal."
     ),
 }
+
+# Phase 182 (D-09, todo 384) -- indicagent_v1 codes pinned by Plan 03's reviewed seed
+# (production/migrations/365_indicagent_v1_classification_seed.sql, shape-tested).
+_EMLC_CLASSIFICATION = ClassificationAssignment("FI.EM", SOURCE_REF_FUND_MANDATE)
+_VIXY_CLASSIFICATION = ClassificationAssignment("VOL.EQUITY", SOURCE_REF_FUND_MANDATE)
 
 _VIXY_CONTRACT = {
     "name": "ProShares VIX Short-Term Futures ETF",
@@ -200,9 +209,9 @@ async def _run_commit(settings: Settings) -> list[OnboardResult]:
 
         async with db.pool.acquire() as conn, conn.transaction():
             timeframes = await load_compute_timeframes(conn)  # once per run
-            for instrument, tag_name, tag_evidence, metadata in (
-                (emlc, "fx_em", _EMLC_TAG_EVIDENCE, _EMLC_METADATA),
-                (vixy, "vol_proxy", _VIXY_TAG_EVIDENCE, _VIXY_METADATA),
+            for instrument, tag_name, tag_evidence, metadata, classification in (
+                (emlc, "fx_em", _EMLC_TAG_EVIDENCE, _EMLC_METADATA, _EMLC_CLASSIFICATION),
+                (vixy, "vol_proxy", _VIXY_TAG_EVIDENCE, _VIXY_METADATA, _VIXY_CLASSIFICATION),
             ):
                 try:
                     result = await onboard_instrument(
@@ -212,6 +221,7 @@ async def _run_commit(settings: Settings) -> list[OnboardResult]:
                         tags=((tag_name, 1.0, tag_evidence),),
                         timeframes=timeframes,
                         metadata=metadata,
+                        classification=classification,
                         compute_eligible=False,
                         live_tradeable=False,
                     )
