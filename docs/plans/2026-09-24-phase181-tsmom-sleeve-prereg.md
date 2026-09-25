@@ -2,9 +2,11 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-24, at Brandon's request; parent plan
 `docs/plans/2026-09-24-edge-proof-program.md` ("Phase 181 queue", candidate 1; todo 419).
-**Status:** DRAFT. Freezes on the commit that fills section 9 (V2/V3 results, code commit) and
-flips this line to FROZEN, which must land before any real-data number for this signal
-exists. After that, any change is a `methodology-change-ledger.md` entry.
+**Status:** FROZEN 2026-09-24 by the commit that adds this line, before any real-data number
+for this signal existed. Harness code: b01eb751a plus a docstring-only change in the same
+commit. Any change from here is a `methodology-change-ledger.md` entry. Code review
+(`/code-review`, 2026-09-24): no correctness findings; shift bound, causality and phase 179
+bit-identity independently confirmed.
 
 ## 1. The question
 
@@ -88,6 +90,9 @@ python -m scripts.analysis.sleeve_walk_forward.run --stage s4 --in logs/phase181
   within 254 sessions after t contains t's target return (the signal's lookback plus the
   return's two-session span). Those copies would see the answer; on the synthetic trend panel
   their median Sharpe was 1.60 against 1.21 for the rest. About 3,370 shifts remain.
+- Shifts near the 63 floor share about 75% of the 252-session window with the real alignment,
+  so the null keeps part of any real trend edge. That makes the test stricter, never looser;
+  V3 measures the power it costs.
 - Excess: `S_obs - median(S_null)`. Stability: mean daily excess over the null median in each
   sub-period. Reported CI: stationary bootstrap, mean block 21. All as phase 179.
 - A degenerate null or an undefined Sharpe issues no token (`safe_evaluate`).
@@ -145,7 +150,19 @@ panel needs the nightly OHLCV backfill current for all 13 symbols (check `max(ti
 | V3-TSMOM power | Planted latent drift (AR(1), phi 0.995, half-life about 6 months) at the strengths that give mean excess Sharpe 0.6 and 0.8 | Reported; below 50% at 0.8 means the design is revisited before freezing |
 | Unit tests | `tests/unit/sleeve_walk_forward/`, `tests/unit/test_panel_null.py` | Green |
 
-Results: pending (filled at freeze).
+Results (2026-09-24, synthetic only; no real-data number existed):
+
+- **V2-TSMOM: PASS.** PASS rate 2.0% (4/200), inside the 1.9-8.1% band at its conservative
+  edge; mean excess Sharpe -0.035. The test raises false alarms slightly less often than
+  nominal, which costs a little power and never inflates a PASS. Harness at b766685d2
+  (V2's code path is unchanged by b01eb751a). Artifact `logs/phase181/clean/v2_799d32e2cd648b12.json`.
+- **V3-TSMOM: PASS.** The bisection undershot the targets, so read power against the realized
+  mean excess Sharpe: 54% PASS (CI 47-61%) at 0.50 (target 0.6, latent drift sd 0.0457 daily
+  vols), 74.5% (CI 68-81%) at 0.72 (target 0.8, 0.0551). Above the 50%-at-0.8 floor and in line
+  with the arithmetic below. Harness at b01eb751a. Artifact
+  `logs/phase181/clean/v3_5b8655f0d848d357.json`.
+- Both reproduce bit-for-bit an earlier run of the same code from an uncommitted tree.
+- **Unit tests:** green at b01eb751a.
 
 Power by the same arithmetic as phase 179 section 9 (13 years, one arm, one-sided): PASS needs
 t = 1.645, so excess IR about 0.46 at 50% power and 0.63 at 80%; ACT needs t = 2.77, excess IR
