@@ -8,8 +8,11 @@ loop over src/intelligence/portfolio/weighting.py that this module must match.
 - Calibration refit at session p for p >= warmup, every calibration_refit_sessions, using data
   through p - 2 (the diagnostic's _EMBARGO_BARS): instrument covariance of the trailing
   close-to-close log returns, then per admitted symbol a Spearman IC of its alpha against its
-  forward return over the same trailing rows (IC 0 below coverage_fraction paired rows), shrunk
-  toward the leave-one-out peer mean. A refit that admits fewer than 2 symbols keeps the previous
+  forward return over the same trailing rows, shrunk toward the leave-one-out peer mean. The
+  IC is 0 unless coverage_fraction of the window's finite-alpha days also have a finite forward
+  return (todo 425, methodology-change-ledger E14: counted over the whole window, the bar was
+  voided by the NaN alpha of no-weight-stratum days); small samples are left to the shrinkage,
+  which scales by the paired count. A refit that admits fewer than 2 symbols keeps the previous
   refit's state.
 - Each day d: z_i is alpha_i[d] standardized on its own trailing warmup window (0 when alpha is
   missing or the window has no variance), mu = IC * sigma * z, weights per arm, return
@@ -226,7 +229,7 @@ def _calibrate(
             continue
         paired = fa & np.isfinite(f)
         n_eff[j] = paired.sum()
-        if n_eff[j] >= cfg.coverage_fraction * cfg.warmup_sessions:
+        if n_eff[j] >= 2 and n_eff[j] >= cfg.coverage_fraction * fa.sum():
             rho = spearmanr(a[paired], f[paired])[0]
             ic_raw[j] = float(rho) if np.isfinite(rho) else 0.0
     return shrink_instrument_ic(ic_raw, n_eff, k)

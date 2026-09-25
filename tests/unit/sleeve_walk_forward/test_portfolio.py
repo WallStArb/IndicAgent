@@ -49,7 +49,8 @@ def reference(closes, alpha, fwd, cfg=CFG):
                     z = W.standardize_scores(a[s].loc[:b].tail(cfg.warmup_sessions))
                     f = pd.Series(fwd[:, s]).loc[:b].tail(cfg.warmup_sessions)
                     p = pd.concat([z, f], axis=1).dropna()
-                    ok = len(p) >= cfg.coverage_fraction * cfg.warmup_sessions
+                    n_alpha = int(a[s].loc[:b].tail(cfg.warmup_sessions).notna().sum())
+                    ok = len(p) >= 2 and len(p) >= cfg.coverage_fraction * n_alpha
                     r = spearmanr(p.iloc[:, 0], p.iloc[:, 1])[0] if ok else 0.0
                     ic_raw.append(0.0 if not np.isfinite(r) else float(r))
                     n_eff.append(float(len(p)))
@@ -152,3 +153,29 @@ def test_arm_weights_reproduce_arm_returns():
             (np.nan_to_num(w[arm]) * np.nan_to_num(fwd)).sum(axis=1),
         )
         np.testing.assert_allclose(rebuilt, r, rtol=1e-12, atol=1e-15, equal_nan=True)
+
+
+def test_gappy_alpha_still_calibrates():
+    """Todo 425: alpha missing on a third of days (no-weight strata) must not zero the IC; the
+    coverage bar is over the days alpha is defined, returns fully present there."""
+    from scripts.analysis.sleeve_walk_forward.portfolio import _calibrate
+
+    rng = np.random.default_rng(7)
+    n, m = 300, 3
+    fwd = rng.normal(0, 0.01, (n, m))
+    alpha = fwd + rng.normal(0, 0.01, (n, m))  # informative
+    alpha[rng.random((n, m)) < 0.33] = np.nan
+    ic = _calibrate(alpha, fwd, np.arange(m), n - 1, CFG, K)
+    assert (ic > 0.2).all()
+
+
+def test_missing_returns_on_alpha_days_zero_the_ic():
+    from scripts.analysis.sleeve_walk_forward.portfolio import _calibrate
+
+    rng = np.random.default_rng(8)
+    n, m = 300, 3
+    fwd = rng.normal(0, 0.01, (n, m))
+    alpha = fwd + rng.normal(0, 0.01, (n, m))
+    fwd[rng.random((n, m)) < 0.2] = np.nan  # 20% of alpha days lack a return: below 95%
+    ic = _calibrate(alpha, fwd, np.arange(m), n - 1, CFG, K)
+    np.testing.assert_allclose(ic, 0.0)

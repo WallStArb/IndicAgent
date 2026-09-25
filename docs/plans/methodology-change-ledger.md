@@ -799,3 +799,25 @@ when this was found.
   measurement that nobody has run yet is indistinguishable from a missing one until someone
   actually runs it — worth checking for other wired-but-dormant measurement tools before
   concluding a hypothesis "can't be tested."
+
+### E14 — 2026-09-25: Phase 179 calibration coverage counted over finite-alpha days, after the frozen run ended FIDELITY BROKEN
+
+- **Observed first:** the frozen Phase 179 run (code a64af3d1a, pre-registration section 12.3)
+  ended `FIDELITY = BROKEN` with no token: S3 raised on a zero-variance shifted series. Located
+  from coverage counts alone, with no observed or null Sharpe read: section 6 sets alpha = NaN on
+  days whose equity stratum has no weights, and section 7's calibration gave a symbol IC 0 unless
+  95% of its trailing 504 sessions paired a finite alpha with a finite return. Only the 2023 and
+  2024 calibration segments passed; the book held a position on 447 of 3,265 trading days.
+- **Changed:** `scripts/analysis/sleeve_walk_forward/portfolio.py::_calibrate` (and the test
+  reference): the IC is computed when at least `coverage_fraction` (95%) of the window's
+  finite-alpha days also have a finite forward return (and at least 2 are paired). The
+  coverage bar's purpose in the source diagnostic, whose alpha was defined every day, was
+  missing return data; sample size is already handled by `shrink_instrument_ic`, which scales by
+  the paired count. Under the new rule every one of the 13 segments calibrates and the book holds
+  a position on 2,592 of 3,265 days (the rest are the no-weight-stratum days section 6 means to
+  be flat). Owner decision 2026-09-25 (todo 425, option A).
+- **Pre-registered?** No; a change to a frozen design after its run failed. Justification: the
+  run produced no token and no performance number was read before or during the diagnosis, so
+  the fix cannot be tuned toward an outcome; the new rule is pinned here before any rerun. Same
+  hypothesis, same arms, null, thresholds and N_tested (18). Everything downstream of the code
+  change is rerun once at the fix commit: V2, V3, V3b, V4, S1, V5, then S2-S4.

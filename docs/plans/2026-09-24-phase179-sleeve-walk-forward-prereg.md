@@ -479,6 +479,14 @@ The rule came over unchanged from the in-sample diagnostic, whose alpha (product
 `alpha_events`) was defined on every day; the harness's stratum-gated alpha is not. Any fix is a
 change to a frozen design and is decided outside this record (todo 425).
 
+### 12.4 Rerun under methodology-change-ledger E14 (owner decision, todo 425)
+
+Section 7's calibration rule now reads: a symbol's IC is computed when at least
+`coverage_fraction` of the trailing window's finite-alpha days also have a finite forward return
+(at least 2 paired); otherwise 0; the paired count still sets the shrinkage. Pinned before any
+rerun. Everything else in 12.2 stands. Rerun once, in order, at the fix commit: V2, V3, V3b,
+V4, S1, V5, then S2-S4. The 12.2 results are superseded by that rerun's record.
+
 ## 13. Pinned deviations from production
 
 | # | Deviation | Why | Sized by |
