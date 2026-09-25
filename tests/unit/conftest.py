@@ -64,3 +64,23 @@ def _prewarm_compressed_hypertable_cache(monkeypatch: pytest.MonkeyPatch) -> Non
         "_compressed_hypertable_names_cache",
         frozenset({"feature_vectors", "feature_ic_scores"}),
     )
+
+
+@pytest.fixture(autouse=True)
+def _skip_decompress_headroom_preflight(request, monkeypatch):
+    """Todo 426: compressed_hypertable_write_session's disk-headroom pre-flight issues its own
+    queries and reads the host filesystem, which the scripted fake connections throughout
+    tests/unit/ don't model. It is tested directly in test_batch_utils.py; tests that need the
+    real pre-flight mark themselves `real_headroom_check`."""
+    if request.node.get_closest_marker("real_headroom_check"):
+        return
+    try:
+        import services._batch_utils as batch_utils
+    except ImportError:
+        return
+
+    async def _noop_async(conn, hypertable):
+        return None
+
+    monkeypatch.setattr(batch_utils, "_assert_decompress_headroom", lambda conn, hypertable: None)
+    monkeypatch.setattr(batch_utils, "_assert_decompress_headroom_async", _noop_async)

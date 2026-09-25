@@ -1327,3 +1327,64 @@ def test_disk_backed_append_row_with_flush_at_still_works(tmp_path):
         assert out[:, 0].tolist() == [0, 1, 2, 3, 4]
     finally:
         acc.close()
+
+
+class TestDecompressHeadroomGuard:
+    """Todo 426: refuse before decompressing when the disk can't hold the decompressed chunks."""
+
+    _TB = 10**12
+
+    def _usage(self, total, free):
+        import shutil as _shutil
+
+        return _shutil._ntuple_diskusage(total, total - free, free)
+
+    def test_raises_when_decompress_would_eat_the_reserve(self):
+        from services._batch_utils import check_decompress_headroom
+
+        with patch(
+            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+        ):
+            with pytest.raises(RuntimeError, match="refused"):
+                check_decompress_headroom("feature_vectors", int(491e9), "/", 0.10)
+
+    def test_passes_with_room_to_spare(self):
+        from services._batch_utils import check_decompress_headroom
+
+        with patch(
+            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+        ):
+            check_decompress_headroom("feature_vectors", int(6e9), "/", 0.10)
+
+    @pytest.mark.real_headroom_check
+    def test_sync_session_refuses_before_touching_anything(self):
+        from services._batch_utils import compressed_hypertable_write_session
+
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.fetchone.return_value = (int(491e9),)
+        cur.fetchall.return_value = []
+        with patch(
+            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+        ):
+            with pytest.raises(RuntimeError, match="refused"):
+                with compressed_hypertable_write_session(conn, "feature_vectors"):
+                    pass
+        sql = " ".join(str(c.args[0]) for c in cur.execute.call_args_list)
+        assert "alter_job" not in sql and "decompress_chunk" not in sql
+
+    @pytest.mark.real_headroom_check
+    async def test_async_session_refuses_before_touching_anything(self):
+        from services._batch_utils import async_compressed_hypertable_write_session
+
+        conn = MagicMock()
+        conn.fetchval = AsyncMock(return_value=int(491e9))
+        conn.fetch = AsyncMock(return_value=[])
+        conn.execute = AsyncMock()
+        with patch(
+            "services._batch_utils.shutil.disk_usage", return_value=self._usage(914e9, 414e9)
+        ):
+            with pytest.raises(RuntimeError, match="refused"):
+                async with async_compressed_hypertable_write_session(conn, "feature_vectors"):
+                    pass
+        conn.execute.assert_not_called()

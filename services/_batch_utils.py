@@ -7,6 +7,7 @@ import csv
 import io
 import json
 import os
+import shutil
 import tempfile
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -302,6 +303,73 @@ _FIND_COMPRESSION_JOBS_SQL = (
     "WHERE hypertable_name = %s AND proc_name = 'policy_compression'"
 )
 
+# Disk the session's decompress-all step needs (todo 426): the chunks' uncompressed size, the
+# conservative peak while compressed and decompressed copies coexist.
+_DECOMPRESS_BYTES_SQL = (
+    "SELECT COALESCE(sum(before_compression_total_bytes), 0)::bigint "
+    "FROM chunk_compression_stats(%s) WHERE compression_status = 'Compressed'"
+)
+_DECOMPRESS_BYTES_ASYNCPG_SQL = _DECOMPRESS_BYTES_SQL.replace("%s", "$1")
+_DISK_PATH_KEY = "infra.compressed_hypertable_write_session.disk_path"
+_MIN_FREE_AFTER_KEY = "infra.compressed_hypertable_write_session.min_free_after_fraction"
+_DISK_PATH_DEFAULT = "/"
+_MIN_FREE_AFTER_DEFAULT = 0.10
+
+
+def check_decompress_headroom(
+    hypertable: str, required_bytes: int, disk_path: str, min_free_after_fraction: float
+) -> None:
+    """Raise before anything is decompressed when the decompress-all step would leave less
+    than `min_free_after_fraction` of the filesystem free (todo 426: feature_vectors reached
+    491 GB decompressed against 414 GB free, a disk-full before any row is written, the
+    2026-08-13 incident shape). `disk_path` must be on the filesystem that holds the database
+    volume."""
+    usage = shutil.disk_usage(disk_path)
+    reserve = int(min_free_after_fraction * usage.total)
+    if usage.free - required_bytes < reserve:
+        raise RuntimeError(
+            f"compressed_hypertable_write_session({hypertable!r}) refused: decompressing its "
+            f"compressed chunks needs {required_bytes / 1e9:.0f} GB, {usage.free / 1e9:.0f} GB "
+            f"is free on {disk_path}, and {min_free_after_fraction:.0%} "
+            f"({reserve / 1e9:.0f} GB) must stay free. Write per chunk (todo 426) or free space."
+        )
+
+
+def _assert_decompress_headroom(conn: Any, hypertable: str) -> None:
+    """Sync session's pre-flight: measured bytes + APR, then check_decompress_headroom."""
+    with conn.cursor() as cur:
+        cur.execute(_DECOMPRESS_BYTES_SQL, (hypertable,))
+        (required_bytes,) = cur.fetchone()
+        cur.execute(
+            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
+            ([_DISK_PATH_KEY, _MIN_FREE_AFTER_KEY],),
+        )
+        apr = dict(cur.fetchall())
+    conn.commit()
+    check_decompress_headroom(
+        hypertable,
+        int(required_bytes),
+        apr.get(_DISK_PATH_KEY, _DISK_PATH_DEFAULT),
+        float(apr.get(_MIN_FREE_AFTER_KEY, _MIN_FREE_AFTER_DEFAULT)),
+    )
+
+
+async def _assert_decompress_headroom_async(conn: Any, hypertable: str) -> None:
+    """Async session's pre-flight, same check."""
+    required_bytes = await conn.fetchval(_DECOMPRESS_BYTES_ASYNCPG_SQL, hypertable)
+    rows = await conn.fetch(
+        "SELECT config_key, config_value FROM config_state WHERE config_key = ANY($1)",
+        [_DISK_PATH_KEY, _MIN_FREE_AFTER_KEY],
+    )
+    apr = {r["config_key"]: r["config_value"] for r in rows}
+    check_decompress_headroom(
+        hypertable,
+        int(required_bytes),
+        apr.get(_DISK_PATH_KEY, _DISK_PATH_DEFAULT),
+        float(apr.get(_MIN_FREE_AFTER_KEY, _MIN_FREE_AFTER_DEFAULT)),
+    )
+
+
 _DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL = (
     # %%I (not %I): psycopg's client-side placeholder scanner treats any single '%' in the
     # query text as a potential bind placeholder and rejects '%I' as an unrecognized one
@@ -506,6 +574,7 @@ def compressed_hypertable_write_session(conn: Any, hypertable: str):
     it isn't mistaken for full protection.
     """
     _validate_compressed_hypertable(hypertable)
+    _assert_decompress_headroom(conn, hypertable)
     guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
     compression_jobs: list[tuple[int, bool]] = []
     try:
@@ -785,6 +854,7 @@ async def async_compressed_hypertable_write_session(conn: Any, hypertable: str):
     function's docstring for the full incident rationale.
     """
     _validate_compressed_hypertable(hypertable)
+    await _assert_decompress_headroom_async(conn, hypertable)
     guc_names = [name for name, _, _ in _SESSION_GUC_OVERRIDES]
 
     compression_jobs = [

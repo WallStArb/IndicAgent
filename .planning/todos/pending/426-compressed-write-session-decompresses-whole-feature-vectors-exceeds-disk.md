@@ -35,3 +35,14 @@ Blocks: todo 421's velocity backfill, todo 411's catch-up, and any corpus orches
    compression segments by (symbol, tf) inside time chunks, but only one is decompressed at once.
 3. Both edit `_batch_utils.py`, which ic_engine and the phase 179 harness import (code key):
    never while an ic_engine run or a 179 stage run is live or resumable.
+
+## Update 2026-09-25: step 1 (guard) landed
+
+`compressed_hypertable_write_session` and its async sibling call a pre-flight
+(`_assert_decompress_headroom[_async]` -> `check_decompress_headroom`) before pausing jobs or
+decompressing: the compressed chunks' `before_compression_total_bytes` must leave
+`infra.compressed_hypertable_write_session.min_free_after_fraction` (0.10) of the filesystem at
+`...disk_path` ("/") free, else RuntimeError. Migration 362 seeds both keys (applied live).
+Live check: feature_vectors refused (527 GB needed, 454 GB free, 98 GB reserve);
+feature_ic_scores passes. Step 2 (per-chunk writes) is still open and still blocks 421/411 and
+the orchestrator's regime steps, which now fail loudly instead of filling the disk.
