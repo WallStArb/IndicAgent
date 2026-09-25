@@ -12,11 +12,17 @@ implements the InstrumentQualifier Protocol without ever touching ib_async.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from structlog.testing import capture_logs
 
+from src.config.classification_service import (
+    DEFAULT_SCHEME,
+    SOURCE_REF_IBKR_REVIEWED,
+    ClassificationAssignment,
+)
 from src.config.instrument_onboarding import (
     OnboardingRejected,
     onboard_instrument,
@@ -74,6 +80,7 @@ class FakeConnection:
         existing_tags: set[tuple[str, str]] | None = None,
         existing_backfill: set[tuple[str, str]] | None = None,
         apr_timeframes: str | None = '["5m", "15m", "1h", "1d"]',
+        known_codes: set[str] | None = None,
     ) -> None:
         self.statements: list[tuple[str, tuple]] = []
         self.tx_stack: list[_FakeTransactionCM] = []
@@ -87,6 +94,9 @@ class FakeConnection:
         self._existing_tags = existing_tags or set()
         self._existing_backfill = existing_backfill or set()
         self._apr_timeframes = apr_timeframes
+        # Default matches _SOME_CLASSIFICATION.code below so every test that doesn't
+        # care about the node-existence gate passes it without extra setup.
+        self._known_codes = known_codes if known_codes is not None else {"EQ.IT.SEMI"}
 
     def transaction(self) -> _FakeTransactionCM:
         self.transaction_call_count += 1
@@ -109,6 +119,9 @@ class FakeConnection:
         self.statements.append((sql, args))
         if "config_state" in sql:
             return self._apr_timeframes
+        if "classification_node" in sql:
+            _scheme, code = args
+            return 1 if code in self._known_codes else None
         return None
 
     async def execute(self, sql: str, *args: Any) -> str:
@@ -165,6 +178,8 @@ _SOME_METADATA = {
     "description": "test description",
 }
 
+_SOME_CLASSIFICATION = ClassificationAssignment("EQ.IT.SEMI", SOURCE_REF_IBKR_REVIEWED)
+
 
 def _statements_starting_with(conn: FakeConnection, prefix: str) -> list[tuple[str, tuple]]:
     return [(sql, args) for sql, args in conn.statements if sql.strip().startswith(prefix)]
@@ -181,7 +196,13 @@ async def test_qualification_rejection_writes_nothing() -> None:
     instrument = _make_instrument("BADTICK")
 
     with pytest.raises(OnboardingRejected):
-        await onboard_instrument(conn, instrument, qualifier=qualifier, metadata=_SOME_METADATA)
+        await onboard_instrument(
+            conn,
+            instrument,
+            qualifier=qualifier,
+            metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
+        )
 
     assert _statements_starting_with(conn, "INSERT INTO instruments") == []
     assert conn.statements == []
@@ -206,16 +227,33 @@ async def test_happy_path_writes_all_four_tables() -> None:
             ("geopolitical", 0.7, {"reason": "supply chain risk"}),
         ],
         metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
 
     assert len(_statements_starting_with(conn, "INSERT INTO instruments")) == 1
     assert len(_statements_starting_with(conn, "INSERT INTO instrument_tags")) == 2
     assert len(_statements_starting_with(conn, "INSERT INTO instrument_metadata")) == 1
     assert len(_statements_starting_with(conn, "INSERT INTO backfill_status")) == 4
+    classification_stmts = _statements_starting_with(conn, "INSERT INTO instrument_classification")
+    assert len(classification_stmts) == 1
+    _sql, class_args = classification_stmts[0]
+    assert class_args == (
+        "CCJ",
+        DEFAULT_SCHEME,
+        "EQ.IT.SEMI",
+        datetime.now(UTC).date(),
+        SOURCE_REF_IBKR_REVIEWED,
+    )
+    instrument_index = conn.statements.index(
+        _statements_starting_with(conn, "INSERT INTO instruments")[0]
+    )
+    classification_index = conn.statements.index(classification_stmts[0])
+    assert instrument_index < classification_index
     assert result.backfill_rows_seeded == 4
     assert result.tags_inserted == 2
     assert result.metadata_written is True
     assert result.instrument_inserted is True
+    assert result.classification_code == "EQ.IT.SEMI"
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +297,7 @@ async def test_metadata_omission_with_reason_logs_warning_event() -> None:
             qualifier=qualifier,
             metadata=None,
             metadata_skip_reason="ETN, no issuer listing record",
+            classification=_SOME_CLASSIFICATION,
         )
 
     assert result.metadata_written is False
@@ -269,6 +308,65 @@ async def test_metadata_omission_with_reason_logs_warning_event() -> None:
     assert entry["log_level"] == "warning"
     assert entry["symbol"] == "ETNX"
     assert entry["reason"] == "ETN, no issuer listing record"
+
+
+# ---------------------------------------------------------------------------
+# Case 4a: classification is required -- no skip escape hatch (D-09, todo 384)
+# ---------------------------------------------------------------------------
+
+
+async def test_classification_none_raises_valueerror_before_qualifier() -> None:
+    conn = FakeConnection()
+    qualifier = FakeQualifier(qualifies=True)
+    instrument = _make_instrument("NOCLASS")
+
+    with pytest.raises(ValueError, match="D-09"):
+        await onboard_instrument(
+            conn,
+            instrument,
+            qualifier=qualifier,
+            metadata=_SOME_METADATA,
+            classification=None,
+        )
+
+    assert conn.statements == []
+    assert qualifier.calls == []
+
+
+async def test_unknown_classification_code_rejected_and_writes_nothing() -> None:
+    conn = FakeConnection(known_codes=set())
+    qualifier = FakeQualifier(qualifies=True)
+    instrument = _make_instrument("BADCODE")
+
+    with pytest.raises(OnboardingRejected, match="EQ.IT.SEMI"):
+        await onboard_instrument(
+            conn,
+            instrument,
+            qualifier=qualifier,
+            metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
+        )
+
+    assert _statements_starting_with(conn, "INSERT INTO instruments") == []
+    assert _statements_starting_with(conn, "INSERT INTO instrument_classification") == []
+
+
+async def test_contract_details_has_no_sector_key() -> None:
+    conn = FakeConnection()
+    qualifier = FakeQualifier(qualifies=True)
+    instrument = _make_instrument("NOSECTOR")
+
+    await onboard_instrument(
+        conn,
+        instrument,
+        qualifier=qualifier,
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
+    )
+
+    [(_sql, args)] = _statements_starting_with(conn, "INSERT INTO instruments")
+    contract_details = args[2]
+    assert "sector" not in contract_details
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +386,7 @@ async def test_unregistered_tag_rejected() -> None:
             qualifier=qualifier,
             tags=[("not_a_real_tag", 1.0, {"reason": "invented at insert time"})],
             metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
         )
 
     assert _statements_starting_with(conn, "INSERT INTO instruments") == []
@@ -306,7 +405,11 @@ async def test_hostile_symbol_reaches_db_only_as_bound_parameter() -> None:
     instrument = _make_instrument(hostile)
 
     result = await onboard_instrument(
-        conn, instrument, qualifier=qualifier, metadata=_SOME_METADATA
+        conn,
+        instrument,
+        qualifier=qualifier,
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
 
     assert result.symbol == hostile
@@ -327,7 +430,13 @@ async def test_defaults_bind_compute_eligible_and_live_tradeable_false() -> None
     qualifier = FakeQualifier(qualifies=True)
     instrument = _make_instrument("DEFAULT1")
 
-    await onboard_instrument(conn, instrument, qualifier=qualifier, metadata=_SOME_METADATA)
+    await onboard_instrument(
+        conn,
+        instrument,
+        qualifier=qualifier,
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
+    )
 
     [(_sql, args)] = _statements_starting_with(conn, "INSERT INTO instruments")
     # Positional args: symbol, base, contract_details_json, compute_eligible, live_tradeable
@@ -347,7 +456,13 @@ async def test_atomicity_exception_propagates_without_commit_or_rollback() -> No
     instrument = _make_instrument("ATOMIC1")
 
     with pytest.raises(RuntimeError):
-        await onboard_instrument(conn, instrument, qualifier=qualifier, metadata=_SOME_METADATA)
+        await onboard_instrument(
+            conn,
+            instrument,
+            qualifier=qualifier,
+            metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
+        )
 
     assert conn.commit_calls == 0
     assert conn.rollback_calls == 0
@@ -377,6 +492,7 @@ async def test_never_calls_commit_or_rollback_on_any_path() -> None:
         qualifier=qualifier,
         tags=[("single_name_equity", 1.0, {"reason": "x"})],
         metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
     assert conn.commit_calls == 0
     assert conn.rollback_calls == 0
@@ -391,6 +507,7 @@ async def test_never_calls_commit_or_rollback_on_any_path() -> None:
             _make_instrument("REJECT1"),
             qualifier=rejecting_qualifier,
             metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
         )
     assert conn2.commit_calls == 0
     assert conn2.rollback_calls == 0
@@ -404,6 +521,7 @@ async def test_never_calls_commit_or_rollback_on_any_path() -> None:
             _make_instrument("RAISE1"),
             qualifier=qualifier3,
             metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
         )
     assert conn3.commit_calls == 0
     assert conn3.rollback_calls == 0
@@ -423,7 +541,13 @@ async def test_outer_transaction_survives_rejected_inner_onboarding() -> None:
 
     outer_tx = conn.transaction()
     async with outer_tx:
-        result = await onboard_instrument(conn, good, qualifier=qualifier, metadata=_SOME_METADATA)
+        result = await onboard_instrument(
+            conn,
+            good,
+            qualifier=qualifier,
+            metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
+        )
         assert result.instrument_inserted is True
         assert outer_tx.exited is False
 
@@ -434,6 +558,7 @@ async def test_outer_transaction_survives_rejected_inner_onboarding() -> None:
                 qualifier=qualifier,
                 tags=[("unregistered_tag", 1.0, {"reason": "x"})],
                 metadata=_SOME_METADATA,
+                classification=_SOME_CLASSIFICATION,
             )
 
         # The outer transaction context has NOT exited -- the rejected inner
@@ -465,6 +590,7 @@ async def test_existing_symbol_is_rejected_and_writes_nothing_after_insert() -> 
             qualifier=FakeQualifier(),
             tags=[("single_name_equity", 1.0, {})],
             metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
         )
 
     for table in ("instrument_tags", "instrument_metadata", "backfill_status"):
@@ -486,6 +612,7 @@ async def test_counts_report_only_rows_actually_written() -> None:
         qualifier=FakeQualifier(),
         tags=[("single_name_equity", 1.0, {}), ("geopolitical", 0.7, {})],
         metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
 
     assert result.tags_inserted == 1
@@ -498,7 +625,11 @@ async def test_backfill_seed_never_resets_an_existing_checkpoint() -> None:
     conn = FakeConnection()
 
     await onboard_instrument(
-        conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+        conn,
+        _make_instrument("CCJ"),
+        qualifier=FakeQualifier(),
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
 
     (sql, _args), *_ = _statements_starting_with(conn, "INSERT INTO backfill_status")
@@ -511,7 +642,11 @@ async def test_default_timeframes_come_from_apr() -> None:
     conn = FakeConnection(apr_timeframes='["1h", "1d"]')
 
     result = await onboard_instrument(
-        conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+        conn,
+        _make_instrument("CCJ"),
+        qualifier=FakeQualifier(),
+        metadata=_SOME_METADATA,
+        classification=_SOME_CLASSIFICATION,
     )
 
     seeded = [
@@ -530,6 +665,7 @@ async def test_explicit_timeframes_skip_apr_lookup() -> None:
         qualifier=FakeQualifier(),
         metadata=_SOME_METADATA,
         timeframes=("1d",),
+        classification=_SOME_CLASSIFICATION,
     )
 
     assert result.backfill_rows_seeded == 1
@@ -541,5 +677,9 @@ async def test_missing_or_malformed_apr_timeframes_fail_loudly(raw) -> None:
 
     with pytest.raises(RuntimeError, match="feature.factory.target_timeframes"):
         await onboard_instrument(
-            conn, _make_instrument("CCJ"), qualifier=FakeQualifier(), metadata=_SOME_METADATA
+            conn,
+            _make_instrument("CCJ"),
+            qualifier=FakeQualifier(),
+            metadata=_SOME_METADATA,
+            classification=_SOME_CLASSIFICATION,
         )
