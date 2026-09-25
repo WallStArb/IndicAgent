@@ -55,12 +55,22 @@ For every member, alpha for slot j of session d is formed at the last bar before
 09:30 open) from past sessions' slot j residual returns only. All 13 slots trade, including the
 opening slot, which carries the largest volume and the strongest effect in HKS:
 
-| Member | alpha before slot j of session d | Declared memory (sessions of slot history) |
-|---|---|---|
-| P1 `same_slot_lag1` | slot j residual return on d-1 | 1 |
-| P2 `same_slot_mean5` | mean slot j residual return over d-5 .. d-1 | 5 |
-| P3 `same_slot_mean20` | mean over d-20 .. d-1 | 20 |
-| P4 `same_slot_mean40` | mean over d-40 .. d-1 (the horizon HKS report) | 40 |
+| Member | alpha before slot j of session d | Declared memory (sessions of slot history) | Expected autocorrelation time (sessions) |
+|---|---|---|---|
+| P1 `same_slot_lag1` | slot j residual return on d-1 | 1 | 1 |
+| P2 `same_slot_mean5` | mean slot j residual return over d-5 .. d-1 | 5 | 5 |
+| P3 `same_slot_mean20` | mean over d-20 .. d-1 | 20 | 20 |
+| P4 `same_slot_mean40` | mean over d-40 .. d-1 (the horizon HKS report) | 40 | 40 |
+
+- **Autocorrelation time** (added 2026-09-25, before any real-data number): each member's
+  per-slot series is a rectangular moving average of L near-independent residual returns, whose
+  integrated autocorrelation time is 1 + 2 x sum over k < L of (1 - k/L) = L sessions. The
+  whole-session shift null is anti-conservative at the tail for slow signals (indicagent-63,
+  2026-09-25: true rejection 0.0021 at a nominal 0.00167 for an autocorrelation time of 39,
+  0.0038 at 79). Family 1's slowest member sits at 40, so its book test uses the per-book
+  sign-flip surrogate calibration of the bar (methodology-change-ledger E16, pending) like every
+  book, not the nominal bar alone. The measured autocorrelation time of each member is
+  reported with its evidence record.
 
 - Means require at least half the window's days finite; otherwise NaN.
 - **Cross-sectional form:** at each row, alpha is converted to a centred rank,
