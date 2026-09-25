@@ -17,22 +17,28 @@ from __future__ import annotations
 import numpy as np
 
 
-def admissible_shifts(n: int, min_shift: int) -> np.ndarray:
-    """Every shift k with min_shift <= k <= n - min_shift, ascending.
+def admissible_shifts(n: int, min_shift: int, memory: int = 0) -> np.ndarray:
+    """Every shift k with min_shift <= k <= n - min_shift - memory, ascending.
 
     The lower bound keeps a slow feature's autocorrelation from leaking the true alignment
     back into the null; the upper bound is the same distance from a full rotation, which
-    is the true alignment again.
+    is the true alignment again. `memory` is how many sessions after the signal date the
+    target can reach back into the signal's own window (the signal's lookback plus the
+    return's span): a copy wrapped from within that distance after a date would read that
+    date's target return, so those shifts are excluded.
     """
     if min_shift < 1:
         raise ValueError(
             f"min_shift must be >= 1 (k = 0 is the observed alignment), got {min_shift}"
         )
-    if n - min_shift < min_shift:
+    if memory < 0:
+        raise ValueError(f"memory must be >= 0, got {memory}")
+    if n - min_shift - memory < min_shift:
         raise ValueError(
-            f"no admissible shift: n={n} is shorter than 2 * min_shift={2 * min_shift}"
+            f"no admissible shift: n={n} is shorter than 2 * min_shift + memory="
+            f"{2 * min_shift + memory}"
         )
-    return np.arange(min_shift, n - min_shift + 1)
+    return np.arange(min_shift, n - min_shift - memory + 1)
 
 
 def shift_panel(panel: np.ndarray, k: int) -> np.ndarray:

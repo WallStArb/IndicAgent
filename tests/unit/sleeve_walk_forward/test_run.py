@@ -221,3 +221,37 @@ def test_artifact_name_ignores_git_state(harness, monkeypatch):
     clean = run.main(args).name
     monkeypatch.setattr(run, "_git", lambda: ("b" * 40, True))
     assert run.main(args).name == clean
+
+
+def test_signal_source_chains_to_a_verdict_with_its_own_n_tested(harness, monkeypatch):
+    import functools
+
+    from scripts.analysis.sleeve_walk_forward import signals
+
+    out, _ = harness
+    # The fixture's scored panel is 177 sessions: shorten the lookback so shifts exist.
+    short = signals.SignalSource(
+        functools.partial(signals.tsmom, lookback=20), 20, direction=1.0, n_tested=18
+    )
+    monkeypatch.setitem(signals.SIGNALS, "tsmom", short)
+    snap_dir = str(out / "snapshot_fixture")
+    s2 = run.main(
+        ["--stage", "s2sig", "--signal", "tsmom", "--in", snap_dir, "--out-dir", str(out)]
+    )
+    payload = pickle.loads(s2.read_bytes())["payload"]
+    assert payload["signal"] == "tsmom"
+    # Same panel start as S2: the first session of the first refit year.
+    sessions = _e2e_snapshot().sessions
+    assert payload["dates"][0] == sessions[sessions >= np.datetime64("2009-01-01")][0]
+    assert payload["alpha"].shape == payload["fwd_ret"].shape == payload["closes"].shape
+    s3 = run.main(["--stage", "s3", "--in", str(s2), "--out-dir", str(out)])
+    s4 = run.main(["--stage", "s4", "--in", str(s3), "--out-dir", str(out), "--fidelity", "OK"])
+    verdict = json.loads(s4.with_suffix(".json").read_text())
+    assert verdict["signal"] == "tsmom" and verdict["n_tested"] == 18
+    assert verdict["sleeve_verdict"] in {"FAIL", "PASS"}
+
+
+def test_signal_stage_requires_a_signal(harness):
+    out, _ = harness
+    with pytest.raises(SystemExit):  # parser.error
+        run.main(["--stage", "s2sig", "--in", str(out / "snapshot_fixture"), "--out-dir", str(out)])

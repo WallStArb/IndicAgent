@@ -5,7 +5,13 @@
         --out-dir DIR --excluded-file excluded.json [--workers N]
     ... --stage s2 --in s1_<h>.pkl   ... --stage s3 --in s2_<h>.pkl [--workers N]
     ... --stage s4 --in s3_<h>.pkl --fidelity OK|BROKEN
-    ... --stage v2|v3 --out-dir DIR [--workers N]
+    ... --stage v2|v3 --out-dir DIR [--workers N] [--signal NAME]
+    ... --stage s2sig --signal NAME --in DIR/snapshot_<h> --out-dir DIR
+
+s2sig writes an S2-shaped artifact from a parameter-free signal source (signals.SIGNALS) over the
+snapshot's sleeve closes, so S3/S4 run on it unchanged; it has no refit and no V4. v2/v3 with
+--signal compute that signal from synthetic prices. S3 and S4 carry the signal's name, and s4
+takes N_tested from the signal source (its pre-registration's number).
 
 Each stage writes <stage>_<sha256[:16]>.pkl holding its payload, its parent's path and the code
 commit, and prints the path. A stage refuses a parent built at a different commit unless
@@ -18,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import hashlib
 import json
 import pickle
@@ -33,8 +40,10 @@ import structlog
 from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG
 from scripts.analysis.sleeve_walk_forward.evaluate import evaluate
 from scripts.analysis.sleeve_walk_forward.refit import run_refit
+from scripts.analysis.sleeve_walk_forward.results import Snapshot
 from scripts.analysis.sleeve_walk_forward.score import forward_returns, score_panel
 from scripts.analysis.sleeve_walk_forward.sessions import refit_dates
+from scripts.analysis.sleeve_walk_forward.signals import SIGNALS
 from scripts.analysis.sleeve_walk_forward.snapshot import (
     build_snapshot,
     load_snapshot,
@@ -141,6 +150,22 @@ def _stage_s1(args: argparse.Namespace) -> Path:
     return _save(args.out_dir, "s1", payload, str(args.input))
 
 
+def _s2_payload(
+    snap: Snapshot, start: int, alpha: np.ndarray, counts: dict, snapshot: str, **extra: Any
+) -> dict:
+    """The S2-shaped panel S3 reads: every array from the panel's first session on."""
+    return {
+        "snapshot": snapshot,
+        **extra,
+        "dates": snap.sessions[start:],
+        "alpha": alpha[start:],
+        "fwd_ret": forward_returns(np.asarray(snap.sleeve_opens))[start:],
+        "closes": np.asarray(snap.sleeve_closes)[start:],
+        "no_alpha_counts": counts,
+        "apr": snap.apr,
+    }
+
+
 def _stage_s2(args: argparse.Namespace) -> Path:
     s1 = _load(args.input, args.allow_code_drift)["payload"]
     snap = load_snapshot(Path(s1["snapshot"]))
@@ -156,22 +181,28 @@ def _stage_s2(args: argparse.Namespace) -> Path:
         snap.sessions[-1],
     )
     start = int(np.searchsorted(snap.sessions, refits[0].refit_date))
-    fwd = forward_returns(np.asarray(snap.sleeve_opens))
-    payload = {
-        "snapshot": s1["snapshot"],
-        "dates": snap.sessions[start:],
-        "alpha": alpha[start:],
-        "fwd_ret": fwd[start:],
-        "closes": np.asarray(snap.sleeve_closes)[start:],
-        "no_alpha_counts": counts,
-        "apr": snap.apr,
-    }
+    payload = _s2_payload(snap, start, alpha, counts, s1["snapshot"])
     return _save(args.out_dir, "s2", payload, str(args.input))
+
+
+def _stage_s2sig(args: argparse.Namespace) -> Path:
+    verify_snapshot(Path(args.input))
+    snap = load_snapshot(Path(args.input))
+    alpha = SIGNALS[args.signal].compute(np.asarray(snap.sleeve_closes))
+    # Same panel start as S2, so the shift set, warmup and trading window match phase 179's.
+    start = int(np.searchsorted(snap.sessions, refit_dates(snap.sessions, CONFIG.refit_years)[0]))
+    years = snap.sessions[start:].astype("datetime64[Y]").astype(int) + 1970
+    missing = ~np.isfinite(alpha[start:])
+    counts = {int(y): {"no_signal": int(missing[years == y].sum())} for y in np.unique(years)}
+    payload = _s2_payload(snap, start, alpha, counts, str(args.input), signal=args.signal)
+    return _save(args.out_dir, "s2sig", payload, str(args.input))
 
 
 def _stage_s3(args: argparse.Namespace) -> Path:
     s2 = _load(args.input, args.allow_code_drift)["payload"]
     apr = s2["apr"]
+    signal = s2.get("signal")  # None: phase 179's calibrated arms
+    eval_kw = {} if signal is None else SIGNALS[signal].evaluate_kwargs()
     t0 = time.monotonic()
     res, error = safe_evaluate(
         evaluate,
@@ -183,25 +214,36 @@ def _stage_s3(args: argparse.Namespace) -> Path:
         mv_condition_max=float(apr.get(CONFIG.mv_condition_max_key, ("1000", "float"))[0]),
         ic_shrinkage_k=float(apr.get(CONFIG.ic_shrinkage_k_key, ("100", "float"))[0]),
         workers=args.workers,
+        **eval_kw,
     )
     seconds = time.monotonic() - t0
     n_shifts = 0 if res is None else len(res.shifts)
     _logger.info(
         "sleeve_walk_forward.s3_done", seconds=round(seconds, 1), n_shifts=n_shifts, error=error
     )
-    return _save(
-        args.out_dir, "s3", {"result": res, "error": error, "seconds": seconds}, str(args.input)
-    )
+    payload = {"result": res, "error": error, "seconds": seconds}
+    if signal is not None:
+        payload["signal"] = signal
+    return _save(args.out_dir, "s3", payload, str(args.input))
 
 
 def _stage_s4(args: argparse.Namespace) -> Path:
     s3 = _load(args.input, args.allow_code_drift)["payload"]
     fidelity_ok = args.fidelity == "OK" and s3["error"] is None
+    signal = s3.get("signal")
     if s3["result"] is None:
         verdict = {"sleeve_verdict": None, "fidelity": "BROKEN", "reason": s3["error"]}
     else:
-        verdict = decide(s3["result"], CONFIG, fidelity_ok=fidelity_ok)
+        # A signal source's pre-registration pins its own N_tested.
+        cfg = (
+            CONFIG
+            if signal is None
+            else dataclasses.replace(CONFIG, n_tested=SIGNALS[signal].n_tested)
+        )
+        verdict = decide(s3["result"], cfg, fidelity_ok=fidelity_ok)
         verdict["diagnostics"] = s3["result"].diagnostics  # section 11, reported only
+    if signal is not None:
+        verdict.update(signal=signal, n_tested=SIGNALS[signal].n_tested)
     path = _save(args.out_dir, "s4", verdict, str(args.input))
     path.with_suffix(".json").write_text(json.dumps(verdict, indent=2, default=str))
     return path
@@ -220,10 +262,15 @@ def _stage_s0(args: argparse.Namespace) -> Path:
 
 
 def _stage_v(args: argparse.Namespace) -> Path:
+    panel_kw = {} if args.signal is None else {"alpha_kind": args.signal}
     if args.stage == "v2":
-        payload = run_v2(range(200), n_shifts=199, workers=args.workers, cfg=CONFIG)
+        payload = run_v2(range(200), n_shifts=199, workers=args.workers, cfg=CONFIG, **panel_kw)
     else:
-        payload = run_v3((0.6, 0.8), range(200), n_shifts=199, workers=args.workers, cfg=CONFIG)
+        payload = run_v3(
+            (0.6, 0.8), range(200), n_shifts=199, workers=args.workers, cfg=CONFIG, **panel_kw
+        )
+    if args.signal is not None:
+        payload = {"signal": args.signal, "result": payload}
     path = _save(args.out_dir, args.stage, payload, "")
     path.with_suffix(".json").write_text(json.dumps(payload, indent=2, default=str))
     return path
@@ -233,6 +280,7 @@ _STAGES = {
     "s0": _stage_s0,
     "s1": _stage_s1,
     "s2": _stage_s2,
+    "s2sig": _stage_s2sig,
     "s3": _stage_s3,
     "s4": _stage_s4,
     "v2": _stage_v,
@@ -250,10 +298,13 @@ def main(argv: list[str] | None = None) -> Path:
     parser.add_argument("--fidelity", choices=("OK", "BROKEN"))
     parser.add_argument("--allow-code-drift", action="store_true")
     parser.add_argument("--dsn", default=None, help="default: Settings().database_url")
+    parser.add_argument("--signal", choices=sorted(SIGNALS))
     parser.add_argument("--end-exclusive", default="2025-12-24T05:15:00+00:00")
     args = parser.parse_args(argv)
-    if args.stage in {"s1", "s2", "s3", "s4"} and args.input is None:
+    if args.stage in {"s1", "s2", "s2sig", "s3", "s4"} and args.input is None:
         parser.error(f"--in is required for {args.stage}")
+    if args.stage == "s2sig" and args.signal is None:
+        parser.error("--signal is required for s2sig")
     if args.stage == "s4" and args.fidelity is None:
         parser.error("--fidelity is required for s4 (V1, V4 and V5 decide it)")
     args.out_dir.mkdir(parents=True, exist_ok=True)
