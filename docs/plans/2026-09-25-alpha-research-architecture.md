@@ -241,6 +241,17 @@ ends and 4 quarter ends a year):
    history that the project does not hold, and the mega-cap universe sees few events. Held until
    a data source is identified.
 
+8. **Options expiry flows.** Dealers delta-hedge; when they are long gamma, hedging pins a
+   stock toward heavily held strikes on expiry day, and the pin releases after (Ni, Pearson and
+   Poteshman 2005); when short gamma, hedging amplifies moves. Testable now from calendar and
+   price alone: move toward the nearest standard strike on monthly expiry (third Friday) and
+   the release in the following sessions, single names and ETFs. Needs a split history first:
+   stored prices are split-adjusted (NVDA closes at 8.81 on 2020-06-01, when it traded near
+   350), so strikes must be placed on unadjusted prices or every later-split name is pinned to
+   the wrong level. Monthly expiries only; weekly listings vary by name and date, and nobody
+   holds a point-in-time record of them. Members that need open interest or dealer gamma (the
+   sign of the hedging flow) wait for a historical options data source.
+
 Each is a family of 3 to 8 pre-declared variants. Families from the existing feature corpus
 (SMC structure, volatility state) can be admitted the same way on prior, with the corpus IC
 table recorded as prior context and disclosed, not used as the gate.

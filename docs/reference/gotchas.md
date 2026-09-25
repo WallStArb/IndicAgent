@@ -118,3 +118,13 @@ the `--from-step` value alone.
 
 - **CIS weights column mismatch (fixed Phase 091):** `_load_cis_weights` was querying the `weights` JSONB column (always `{}`); actual learned weights live in `trend_w`/`momentum_w`/etc. columns. Fixed to read individual columns scoped to `asset_cluster='global' AND timeframe='global'`.
 - **v2.x Signal Ledger schema (archived, no live consumer as of 2026-07-02):** `signal_schema_version` constant lives in `src/intelligence/trading/signal_schema.py`. `entry_type` values: `at_close`, `at_pullback`, `at_limit`, `at_reclaim`, `zone_proximal`. Status strings (raw, no enum): `"pending"`, `"active"`, `"regime_suppressed"`, `"expired"`. `signal_computed_at` is nullable — always `COALESCE(signal_computed_at, timestamp)`.
+
+## OHLCV prices are split-adjusted
+
+`market_data_ohlcv` holds IBKR `TRADES` bars, which are split-adjusted back through history
+(NVDA closes at 8.81 on 2020-06-01, when it traded near 350; AAPL at 108.94 on 2020-08-03, before
+its 4:1 split). Returns and ratios are unaffected. Anything that depends on the absolute price
+level at the time (option strikes, round-number levels, tick-size regimes, "price below $5"
+filters) is wrong for every name that later split, unless it un-adjusts with a split history
+first. The project holds no split history yet (found 2026-09-25, research architecture family 8).
+
