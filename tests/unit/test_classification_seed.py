@@ -126,6 +126,18 @@ def test_seed_validate_rejects_unused_equity_level4() -> None:
     assert "'EQ.IT.SOFTWARE'" not in message
 
 
+def test_seed_validate_rejects_duplicate_name_within_level() -> None:
+    nodes = _NODES + (NodeSeed("FI.EN", "FI", 2, "Broad market (multi-sector)"),)
+    assignments = _ASSIGNMENTS + (AssignmentSeed("XLE", "FI.EN", "fund_mandate", "x"),)
+    message = _errors(nodes=nodes, assignments=assignments)
+    assert "FI.EN" in message and "EQ.BROAD" in message
+
+
+def test_seed_validate_allows_same_name_across_levels() -> None:
+    # EQ.IT.SEMI and EQ.IT.SEMI.EQUIP share a name at levels 3 and 4 in the toy tree.
+    validate_seed(_SCHEME, _NODES, _ASSIGNMENTS)
+
+
 def test_seed_validate_reports_every_problem_at_once() -> None:
     nodes = _NODES + (NodeSeed("bad", None, 1, "x"), NodeSeed("FI.MUNI", "FI", 2, "Muni"))
     message = _errors(nodes=nodes)

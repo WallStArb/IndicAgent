@@ -5,13 +5,19 @@ reviewable data. `src/config/classification_seed.py` renders it into
 `production/migrations/365_indicagent_v1_classification_seed.sql`; a unit test fails if the
 committed migration drifts from the render.
 
-Reviewed per D-06 (executor pass plus an independent AGY pass, reconciled in
-`.planning/phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`).
+Reviewed per D-06: an executor pass plus an independent fresh-context pass (AGY and Codex were
+out of quota on the review date), reconciled in
+`.planning/phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`.
 
 indicagent_v1 is project-owned. Its equity levels 2-4 reuse public GICS sector, industry
 group and industry names, but it is not GICS and assigns nothing from GICS (D-03): single
 names are mapped from their IBKR industry / category / subcategory triple by judgment of the
 company's primary business, ETFs by fund mandate, and futures/FX by contract underlying.
+
+ETF depth rule (D-05, written down in the 182-03 review): an ETF sits at the deepest node that
+holds roughly 80% or more of its index weight by the fund's own methodology; otherwise it moves
+up a level, and a mandate spanning two or more sectors goes to EQ.BROAD. Geography and style are
+not levels of this scheme (they are tag territory), so country and factor funds sit in EQ.BROAD.
 
 Snapshot rule (D-07): this module describes the build date only. Once migration 365 is
 applied, a change to any node or assignment goes through a new close-and-insert migration,
@@ -158,7 +164,7 @@ NODES: tuple[NodeSeed, ...] = (
     NodeSeed("FI.CONV", "FI", 2, "Convertible securities"),
     NodeSeed("FI.EM", "FI", 2, "Emerging-market debt"),
     NodeSeed("CMD.BROAD", "CMD", 2, "Broad commodities"),
-    NodeSeed("CMD.ENERGY", "CMD", 2, "Energy"),
+    NodeSeed("CMD.ENERGY", "CMD", 2, "Energy commodities"),
     NodeSeed("CMD.PREC", "CMD", 2, "Precious metals"),
     NodeSeed("CMD.INDMET", "CMD", 2, "Industrial metals"),
     NodeSeed("CMD.AG", "CMD", 2, "Agriculture"),
@@ -345,6 +351,7 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.COM.MEDIA.INTERACTIVE",
         SOURCE_REF_IBKR_REVIEWED,
         "Communications / Internet / Internet Content-Entmnt",
+        "Ad-funded social platforms; Interactive Media & Services, unlike NFLX's subscription streaming",
     ),
     AssignmentSeed(
         "CMCSA",
@@ -433,6 +440,7 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.CS.HOUSEHOLD.HOUSEHOLD",
         SOURCE_REF_IBKR_REVIEWED,
         "Consumer, Non-cyclical / Cosmetics/Personal Care / Cosmetics&Toiletries",
+        "Fabric & home care is the largest segment, so Household Products rather than the triple's cosmetics/personal care",
     ),
     AssignmentSeed(
         "CASY",
@@ -467,13 +475,6 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.EN.ENERGY.EQUIPSVC",
         SOURCE_REF_IBKR_REVIEWED,
         "Energy / Oil&Gas Services / Oil-Field Services",
-    ),
-    AssignmentSeed(
-        "CCJ",
-        "EQ.EN.ENERGY.OILGAS",
-        SOURCE_REF_IBKR_REVIEWED,
-        "Basic Materials / Mining / Non-Ferrous Metals",
-        "Uranium miner and nuclear-fuel supplier; uranium is a consumable fuel, so Oil, Gas & Consumable Fuels (Energy) rather than non-ferrous metals mining",
     ),
     AssignmentSeed(
         "COP",
@@ -550,6 +551,7 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.FIN.FINSVC.CAPMKTS",
         SOURCE_REF_IBKR_REVIEWED,
         "Financial / Diversified Finan Serv / Finance-Other Services",
+        "Crypto exchange and brokerage; transaction revenue makes it Capital Markets, unlike PURR's token-holding vehicle",
     ),
     AssignmentSeed(
         "FRHC",
@@ -869,6 +871,7 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.IND.CAPGOODS.ELECTRICAL",
         SOURCE_REF_IBKR_REVIEWED,
         "Industrial / Machinery-Constr&Mining / Machinery-Electric Util",
+        "Gas turbines, wind turbines and grid equipment for utilities are Electrical Equipment, not Machinery",
     ),
     AssignmentSeed(
         "ATMU",
@@ -1118,6 +1121,12 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "Basic Materials / Mining / Diversified Minerals",
     ),
     AssignmentSeed(
+        "CCJ",
+        "EQ.MAT.MATERIALS.METALS",
+        SOURCE_REF_IBKR_REVIEWED,
+        "Basic Materials / Mining / Non-Ferrous Metals",
+    ),
+    AssignmentSeed(
         "CSTM",
         "EQ.MAT.MATERIALS.METALS",
         SOURCE_REF_IBKR_REVIEWED,
@@ -1365,6 +1374,12 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "iShares Russell 2000 ETF: US small caps across all sectors",
     ),
     AssignmentSeed(
+        "IYZ",
+        "EQ.BROAD",
+        SOURCE_REF_FUND_MANDATE,
+        "iShares U.S. Telecommunications ETF: telecom service providers plus communications equipment makers (an IT industry) at material weight; the mandate spans two sectors. Daily-return correlation 0.63 with XLK, 0.52 with XLC, 0.27 with T",
+    ),
+    AssignmentSeed(
         "KWEB",
         "EQ.BROAD",
         SOURCE_REF_FUND_MANDATE,
@@ -1431,6 +1446,12 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "SPDR S&P 500 ETF: US large caps across all sectors (D-05 anchor)",
     ),
     AssignmentSeed(
+        "URA",
+        "EQ.BROAD",
+        SOURCE_REF_FUND_MANDATE,
+        "Global X Uranium ETF: uranium miners, physical uranium trusts and nuclear component and construction companies; the mandate spans materials, industrials and a physical commodity",
+    ),
+    AssignmentSeed(
         "USMV",
         "EQ.BROAD",
         SOURCE_REF_FUND_MANDATE,
@@ -1461,28 +1482,34 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "Vanguard High Dividend Yield ETF: US high-dividend stocks, all sectors",
     ),
     AssignmentSeed(
+        "XHB",
+        "EQ.BROAD",
+        SOURCE_REF_FUND_MANDATE,
+        "SPDR S&P Homebuilders ETF: equal-weighted homebuilders, furnishings, appliances, home-improvement retail and building products; building products (Industrials) are about a third, so the mandate spans two sectors",
+    ),
+    AssignmentSeed(
+        "XTL",
+        "EQ.BROAD",
+        SOURCE_REF_FUND_MANDATE,
+        "SPDR S&P Telecom ETF: equal-weighted S&P Telecom Select Industry index, which includes the communications equipment sub-industry (IT) at over a third of names; the mandate spans two sectors. Daily-return correlation 0.76 with XLK, about 0 with T, VZ, TMUS",
+    ),
+    AssignmentSeed(
+        "ITB",
+        "EQ.CD",
+        SOURCE_REF_FUND_MANDATE,
+        "iShares U.S. Home Construction ETF: homebuilders (about two thirds) plus home-improvement retail, building products and materials; the non-homebuilder share is too large for the industry level, and most of it is still Consumer Discretionary",
+    ),
+    AssignmentSeed(
         "VCR",
         "EQ.CD",
         SOURCE_REF_FUND_MANDATE,
         "Vanguard Consumer Discretionary ETF: US consumer discretionary sector",
     ),
     AssignmentSeed(
-        "XHB",
-        "EQ.CD",
-        SOURCE_REF_FUND_MANDATE,
-        "SPDR S&P Homebuilders ETF: equal-weighted homebuilders, home furnishings, appliances, home-improvement retail and building products; homebuilders are about a third, so the mandate only pins Consumer Discretionary",
-    ),
-    AssignmentSeed(
         "XLY",
         "EQ.CD",
         SOURCE_REF_FUND_MANDATE,
         "Consumer Discretionary Select Sector SPDR: S&P 500 Consumer Discretionary sector",
-    ),
-    AssignmentSeed(
-        "ITB",
-        "EQ.CD.DURABLES.HOUSEHOLD",
-        SOURCE_REF_FUND_MANDATE,
-        "iShares U.S. Home Construction ETF: Dow Jones US Select Home Construction index, majority homebuilders (Household Durables) with building products and home-improvement retail as the minority",
     ),
     AssignmentSeed(
         "XRT",
@@ -1503,18 +1530,6 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "Communication Services Select Sector SPDR: S&P 500 Communication Services sector",
     ),
     AssignmentSeed(
-        "IYZ",
-        "EQ.COM.TELECOM",
-        SOURCE_REF_FUND_MANDATE,
-        "iShares U.S. Telecommunications ETF: US telecom service providers and telecom equipment",
-    ),
-    AssignmentSeed(
-        "XTL",
-        "EQ.COM.TELECOM",
-        SOURCE_REF_FUND_MANDATE,
-        "SPDR S&P Telecom ETF: S&P telecom select industry index, equal weighted",
-    ),
-    AssignmentSeed(
         "VDC",
         "EQ.CS",
         SOURCE_REF_FUND_MANDATE,
@@ -1531,12 +1546,6 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "EQ.EN.ENERGY",
         SOURCE_REF_FUND_MANDATE,
         "Invesco S&P 500 Equal Weight Energy ETF (ticker RSPG since Invesco's 2023 renaming; the instruments row's name says Consumer Staples, which is RSPS). Daily-return correlation over two years: 0.98 with XLE, 0.15 with XLP. Energy has one industry group",
-    ),
-    AssignmentSeed(
-        "URA",
-        "EQ.EN.ENERGY",
-        SOURCE_REF_FUND_MANDATE,
-        "Global X Uranium ETF: uranium miners and nuclear fuel suppliers plus nuclear component makers; the fuel producers dominate, so Energy, above industry because of the component makers",
     ),
     AssignmentSeed(
         "XLE",
@@ -1620,16 +1629,16 @@ ASSIGNMENTS: tuple[AssignmentSeed, ...] = (
         "iShares Transportation Average ETF: Dow Jones Transportation Average, airlines, rails, trucking, air freight",
     ),
     AssignmentSeed(
+        "JETS",
+        "EQ.IND.TRANSPORT",
+        SOURCE_REF_FUND_MANDATE,
+        "U.S. Global Jets ETF: passenger airlines plus airports, aircraft makers and online travel agents; the non-airline sleeve keeps it at the Transportation group",
+    ),
+    AssignmentSeed(
         "XTN",
         "EQ.IND.TRANSPORT",
         SOURCE_REF_FUND_MANDATE,
         "SPDR S&P Transportation ETF: S&P transportation select industry index across all transport industries",
-    ),
-    AssignmentSeed(
-        "JETS",
-        "EQ.IND.TRANSPORT.AIRLINES",
-        SOURCE_REF_FUND_MANDATE,
-        "U.S. Global Jets ETF: passenger airlines, mostly US carriers",
     ),
     AssignmentSeed(
         "CIBR",

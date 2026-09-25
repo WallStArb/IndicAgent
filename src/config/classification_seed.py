@@ -118,6 +118,19 @@ def validate_seed(
         if not node.name.strip():
             problems.append(f"node {node.code!r} has an empty name")
 
+    # Names must be unique within a level: consumers read the level-2 name as the sector
+    # label (D-10), so two same-named nodes would silently merge strata keyed by name.
+    seen_names: dict[tuple[int, str], str] = {}
+    for node in nodes:
+        key = (node.level, node.name.strip().lower())
+        if key in seen_names:
+            problems.append(
+                f"node {node.code!r} name {node.name!r} duplicates {seen_names[key]!r} "
+                f"at level {node.level}"
+            )
+        else:
+            seen_names[key] = node.code
+
     symbols: set[str] = set()
     used: set[str] = set()
     for assignment in assignments:
