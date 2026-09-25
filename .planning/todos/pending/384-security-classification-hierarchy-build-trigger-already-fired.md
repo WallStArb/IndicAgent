@@ -109,3 +109,30 @@ reviewed twice. Needs an explicit owner call:
   verdict (0/471 same-sector single-equity pairs), the session thread that surfaced this
 - `src/providers/ibkr.py` -- confirmed does not currently request/store IBKR's
   `industry`/`category`/`subcategory` contract-detail fields
+
+## Update 2026-09-25: now on the research critical path
+
+The adopted research architecture's S1 residual target (`src/intelligence/research/factors.py`,
+FactorSpec VINTAGE_1) uses a leave-one-out sector factor from `contract_details->>'sector'`.
+Measured on real 1d data 2013-2025 (indicagent-63): at min_group_size 5, groups of 5+ come out
+within +/-0.15 average within-group residual correlation, but 2-4 name groups cannot be fixed
+by any minimum (energy_midstream +0.33, transports +0.72, utilities_water +0.61, rates +0.45,
+municipal_bonds +0.46, credit +0.34, industrials_rail +0.41, and others). Rolling them up to a
+parent level fixes them, which is exactly this hierarchy. The label source is also wrong in
+places: 'equity' holds GLD, SMH, SPY, TLT and XLF; 24 names are unlabeled (AGG, ARKK, BIL,
+CIBR, EWJ, EWT, EWY, IBIT, IGV, INDA, ITA, KWEB, MUB, OIH, PFF, RSP, SCHD, TIP, VNQ, VTV, VUG,
+XBI, XHB, XRT).
+
+Deadline: S1 is frozen at the first book-version screen test (evidence framework E15). The
+hierarchy should land before that test, so S1 reads it instead of a hand map in FactorSpec.
+Validity does not depend on it (the whole-panel shift null keeps cross-name correlation), only
+efficiency: near-duplicate residuals overstate breadth.
+
+Migration 363 (2026-09-25) fixed the flat label for the compute_eligible universe: the
+'equity' placeholder is gone and the 24 blank ETFs carry fund-mandate labels. Still unlabeled:
+40 active single names from the 1d-only pilot (ACTG, ALMS, ARRY, ATMU, AVBP, BEAM, BKE, CASY,
+CENT, COFS, CRI, CRUS, CRWV, CSTM, DAR, FRHC, GKOS, GRBK, INSW, JBS, KEX, MAR, MGM, MTH, PGNY,
+PURR, RCL, RGR, RIVN, RJF, SLM, SPNT, SSP, THRM, TXT, UNFI, UPB, VNDA, WCC, WSHP). Stocks need a
+real industry classification, which is this hierarchy's job. Owner decision 2026-09-25: build
+it. S1 moved to price-correlation clusters (causal) the same day, so the hierarchy is off the
+research critical path; it serves stratification, peer groups and reporting.
