@@ -18,6 +18,7 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -283,12 +284,16 @@ def test_watermark_equal_when_all_components_identical():
     assert w1 == w2
 
 
+_TWE = datetime(2025, 12, 24, 5, 15, tzinfo=UTC)
+
+
 class _FakeCursor:
     """Records the params passed to every execute() call; returns dummy
     fetchone() rows shaped to match each real query in call order."""
 
     def __init__(self, fetchone_results: list[tuple]):
         self.captured_params: list[dict] = []
+        self.captured_sql: list[str] = []
         self._fetchone_results = fetchone_results
         self._call_idx = 0
 
@@ -299,6 +304,7 @@ class _FakeCursor:
         return False
 
     def execute(self, sql, params=None):
+        self.captured_sql.append(sql)
         self.captured_params.append(params)
 
     def fetchone(self):
@@ -332,6 +338,7 @@ def test_compute_upstream_watermark_per_symbol_cross_sectional_scopes_to_own_sym
         fake_conn,
         "SPY",
         "1d",
+        training_window_end=_TWE,
         concept_registry_watermark={"broadcast_hash": "precomputed"},
     )
     assert len(fake_conn._cursor.captured_params) == 2
@@ -356,6 +363,7 @@ def test_compute_upstream_watermark_group_pooled_scopes_to_regime_group_and_peer
         fake_conn,
         symbol=None,
         tf="1d",
+        training_window_end=_TWE,
         is_group_pooled=True,
         regime_group="equity",
         symbol_list=["SPY", "QQQ"],
@@ -381,6 +389,7 @@ def test_compute_upstream_watermark_rejects_group_pooled_with_a_real_symbol():
             fake_conn,
             "SPY",
             "1d",
+            training_window_end=_TWE,
             is_group_pooled=True,
             regime_group="equity",
             symbol_list=["SPY", "QQQ"],
@@ -393,7 +402,7 @@ def test_compute_upstream_watermark_rejects_per_symbol_with_no_symbol():
     """
     fake_conn = _FakeConn(fetchone_results=[])
     with pytest.raises(AssertionError):
-        _compute_upstream_watermark(fake_conn, None, "1d")
+        _compute_upstream_watermark(fake_conn, None, "1d", training_window_end=_TWE)
 
 
 # ---------------------------------------------------------------------------
@@ -802,3 +811,50 @@ def test_symbol_expected_cells_cluster_regime_conditioned_no_effect_when_not_cro
         ("1d", "pooled"),
         ("1d", "symbol_hmm"),
     }
+
+
+def test_every_watermark_query_is_bounded_by_the_training_window():
+    """Todo 412: rows past training_window_end can't change an IC value, so none of the
+    watermark's bar-indexed components may count them: new bars (a feature catch-up, a
+    nightly run) must leave the window's fingerprints valid."""
+    fake_conn = _FakeConn(
+        fetchone_results=[(None, 0, None), (None, 0), (None, 0, "hash1"), ("hash2",)]
+    )
+    _compute_upstream_watermark(
+        fake_conn,
+        symbol=None,
+        tf="1d",
+        training_window_end=_TWE,
+        is_group_pooled=True,
+        regime_group="equity",
+        symbol_list=["SPY", "QQQ"],
+        concept_registry_watermark={"broadcast_hash": "precomputed"},
+    )
+    fr, fv, mr, _tags = fake_conn._cursor.captured_sql
+    assert "bar_ts <= %(training_window_end)s" in fr
+    assert "bar_ts <= %(training_window_end)s" in fv
+    assert "ts <= %(training_window_end)s" in mr
+    for params in fake_conn._cursor.captured_params[:3]:
+        assert params["training_window_end"] == _TWE
+
+
+def test_content_key_covers_the_feature_vectors_producers():
+    """feature_factory and regime_writer write the values cells read, and the
+    feature_vectors watermark can't see an in-place rewrite, so their code is hashed."""
+    from services.ic_engine import _checkpoint_content_key
+
+    _checkpoint_content_key()
+    assert "services.regime_writer" in sys.modules
+    assert "src.intelligence.feature_factory" in sys.modules
+
+
+def test_main_drops_each_consumed_future():
+    """Todo 399: a completed Future holds its symbol's full result rows until the pool
+    block exits (~44 MB/symbol of main RSS in the Phase 178 run). The as_completed loop
+    must drop each one after recording it."""
+    import services.ic_engine as ic_module
+
+    source = inspect.getsource(ic_module.main)
+    loop = source[source.index("for future in as_completed(futures):") :]
+    loop = loop[: loop.index("Cross-sectional IC pass")]
+    assert "del futures[future]" in loop

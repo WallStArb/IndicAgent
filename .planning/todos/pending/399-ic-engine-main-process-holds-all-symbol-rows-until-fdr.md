@@ -50,3 +50,9 @@ Not applied yet: editing `ic_engine.py` mid-run moves `code_content_key` and dis
 completed cell. The 178 run was killed at 103/233 and resumed (fingerprinted cells skip) as the
 workaround. Land the one-line fix after the 178 run completes, with the next change that already
 forces a recompute. Acceptance unchanged: main RSS flat in symbol count.
+
+## Update 2026-09-24: landed with 412
+
+`del futures[future]` after each result is recorded (guard test in
+test_ic_engine_fingerprint.py). Close when the next full recompute shows main RSS flat in symbol
+count.

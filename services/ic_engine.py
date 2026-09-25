@@ -1124,10 +1124,12 @@ def _watermark_concept_registry(conn: Any) -> dict[str, Any]:
 
 
 def _watermark_forward_returns_feature_vectors(
-    conn: Any, symbols: list[str], tf: str
+    conn: Any, symbols: list[str], tf: str, training_window_end: Any
 ) -> dict[str, Any]:
     """(a) forward_returns + (b) feature_vectors -- scoped to (symbols, tf) only,
-    NOT pass_type.
+    NOT pass_type, and to bar_ts <= training_window_end, the exact bound every cell's
+    fetch uses (todo 412): rows past the window can't change an IC value, so computing
+    features or labels for new bars must not invalidate the window's cells.
 
     Callers should cache the result per (symbol-or-regime_group, tf) pair (162
     simplify-pass) -- pooled/symbol_hmm/cross_sectional (plus an optional dual-write
@@ -1146,8 +1148,9 @@ def _watermark_forward_returns_feature_vectors(
             FROM forward_returns
             WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s
               AND return_type = 'executable_open_to_open'
+              AND bar_ts <= %(training_window_end)s
             """,
-            {"symbols": symbols, "tf": tf},
+            {"symbols": symbols, "tf": tf, "training_window_end": training_window_end},
         )
         max_bar_ts, fr_count, max_computed_at = cur.fetchone()
         watermark["forward_returns"] = {
@@ -1158,13 +1161,16 @@ def _watermark_forward_returns_feature_vectors(
 
         # (b) feature_vectors -- the feature side, no write-timestamp column.
         # In-place feature mutations are covered TRANSITIVELY: a feature-code change
-        # moves code_content_key; a bar correction recomputes forward_returns
-        # (caught by (a), since the correction workflow recomputes both from the
-        # same corrected bars).
+        # moves code_content_key (feature_factory is imported at module top for exactly
+        # this; before that import it was not in the hashed module set, so a feature-code
+        # change plus a --refresh rewrote values under an unchanged fingerprint); a bar
+        # correction recomputes forward_returns (caught by (a), since the correction
+        # workflow recomputes both from the same corrected bars).
         cur.execute(
             "SELECT MAX(bar_ts), COUNT(*) FROM feature_vectors "
-            "WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s",
-            {"symbols": symbols, "tf": tf},
+            "WHERE symbol = ANY(%(symbols)s) AND tf = %(tf)s"
+            " AND bar_ts <= %(training_window_end)s",
+            {"symbols": symbols, "tf": tf, "training_window_end": training_window_end},
         )
         max_fv_bar_ts, fv_count = cur.fetchone()
         watermark["feature_vectors"] = {
@@ -1175,10 +1181,15 @@ def _watermark_forward_returns_feature_vectors(
 
 
 def _watermark_market_regimes_instrument_tags(
-    conn: Any, regime_group: str | None, tf: str, symbol_list: list[str] | None
+    conn: Any,
+    regime_group: str | None,
+    tf: str,
+    symbol_list: list[str] | None,
+    training_window_end: Any,
 ) -> dict[str, Any]:
     """(c) market_regimes + (d) instrument_tags -- scoped to (regime_group, tf) and
-    symbol_list only, NOT regime_label.
+    symbol_list only, NOT regime_label. market_regimes is bounded by ts <=
+    training_window_end, the cell's own regime-timestamp bound (todo 412).
 
     Callers should cache per (regime_group, tf) (162 simplify-pass) -- every
     regime_label within a group shares the same (regime_group, tf) and previously
@@ -1198,8 +1209,9 @@ def _watermark_market_regimes_instrument_tags(
                    md5(COALESCE(string_agg(regime_label, '' ORDER BY ts), ''))
             FROM market_regimes
             WHERE regime_group = %(regime_group)s AND tf = %(tf)s
+              AND ts <= %(training_window_end)s
             """,
-            {"regime_group": regime_group, "tf": tf},
+            {"regime_group": regime_group, "tf": tf, "training_window_end": training_window_end},
         )
         max_ts, mr_count, regime_hash = cur.fetchone()
         watermark["market_regimes"] = {
@@ -1232,6 +1244,7 @@ def _compute_upstream_watermark(
     symbol: str | None,
     tf: str,
     *,
+    training_window_end: Any,
     is_group_pooled: bool = False,
     regime_group: str | None = None,
     symbol_list: list[str] | None = None,
@@ -1299,7 +1312,9 @@ def _compute_upstream_watermark(
     if fr_fv_cache is not None and fr_fv_key in fr_fv_cache:
         watermark.update(fr_fv_cache[fr_fv_key])
     else:
-        fr_fv = _watermark_forward_returns_feature_vectors(conn, symbols_for_fr_fv, tf)
+        fr_fv = _watermark_forward_returns_feature_vectors(
+            conn, symbols_for_fr_fv, tf, training_window_end
+        )
         if fr_fv_cache is not None:
             fr_fv_cache[fr_fv_key] = fr_fv
         watermark.update(fr_fv)
@@ -1309,7 +1324,9 @@ def _compute_upstream_watermark(
         if mr_tags_cache is not None and mr_tags_key in mr_tags_cache:
             watermark.update(mr_tags_cache[mr_tags_key])
         else:
-            mr_tags = _watermark_market_regimes_instrument_tags(conn, regime_group, tf, symbol_list)
+            mr_tags = _watermark_market_regimes_instrument_tags(
+                conn, regime_group, tf, symbol_list, training_window_end
+            )
             if mr_tags_cache is not None:
                 mr_tags_cache[mr_tags_key] = mr_tags
             watermark.update(mr_tags)
@@ -5368,6 +5385,15 @@ def _checkpoint_content_key() -> str:
     against a live comment-only commit landing mid-run. A real semantic change
     still moves the hash; this only removes false positives.
     """
+    # The feature_vectors producers (feature_factory via backfill_feature_factory, and
+    # regime_writer, which owns regime_volatility and 15 other columns). The
+    # feature_vectors watermark component is MAX(bar_ts)/COUNT only, so a producer-code
+    # change plus a --refresh rewrites values under an unchanged watermark; hashing the
+    # producers' code here makes that invalidate. Imported inside this function, which
+    # only a main process calls, so forkserver workers don't carry the ~300 MB.
+    import services.backfill_feature_factory  # noqa: F401
+    import services.regime_writer  # noqa: F401
+
     repo_root = Path(__file__).resolve().parent.parent
     # Allowlist first-party source roots (Ring 0/1/2 per naming-system.md) rather
     # than blocklisting vendored paths -- a venv living somewhere unexpected
@@ -6236,6 +6262,7 @@ def main() -> None:
                                 conn,
                                 symbol,
                                 tf,
+                                training_window_end=training_window_end,
                                 concept_registry_watermark=concept_registry_watermark,
                                 fr_fv_cache=fr_fv_cache,
                                 mr_tags_cache=mr_tags_cache,
@@ -6293,6 +6320,7 @@ def main() -> None:
                                     conn,
                                     symbol=None,
                                     tf=tf,
+                                    training_window_end=training_window_end,
                                     is_group_pooled=True,
                                     regime_group=group_name,
                                     symbol_list=group_symbols,
@@ -6501,6 +6529,10 @@ def main() -> None:
                                 ]
                                 _upsert_cell_fingerprints(settings, fp_rows)
                             n_done += 1
+                            # Todo 399: a completed Future keeps its full result rows
+                            # until the pool block exits (~44 MB/symbol of main RSS);
+                            # as_completed drops its own reference, so this is the last.
+                            del futures[future]
                             IC_ENGINE_SYMBOLS_COMPLETED_TOTAL.add(1, {"source": "fresh"})
                             _logger.info(
                                 "ic_engine.symbol_computed",

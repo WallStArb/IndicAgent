@@ -30,3 +30,18 @@ Bound both watermark queries (and any other component, e.g. `market_regimes`, ch
 watermark once, so land it with the next planned full recompute, never mid-run (CLAUDE.md
 ic_engine mid-run rule). Test: inserting rows after training_window_end leaves the watermark
 unchanged; inserting one before moves it.
+
+## Update 2026-09-24: landed, live verification pending
+
+Fixed on main (this commit): the forward_returns, feature_vectors and market_regimes watermark
+queries are bounded `<= training_window_end`, the same comparison every cell fetch uses, and
+`_compute_upstream_watermark` takes the window as a required keyword. Found alongside: the
+feature_vectors component is MAX/COUNT only and its comment relied on "a feature-code change moves
+code_content_key", but ic_engine never imported the producers, so a producer-code change plus a
+`--refresh` rewrote values under a valid fingerprint. `_checkpoint_content_key` now imports
+`backfill_feature_factory` (feature_factory) and `regime_writer` (owner of `regime_volatility`
+and 15 other columns) so their code is hashed; the import is inside the function (main process
+only), not at module top, to keep ~300 MB out of every forkserver worker.
+
+Close after: the next full recompute completes, `--dry-run-validity` reports 0 invalid cells,
+the 411 catch-up adds post-window bars, and `--dry-run-validity` still reports 0 invalid.
