@@ -2903,6 +2903,7 @@ axis, and close the phase on a real `feature_ic_scores` FDR/walk-forward gate ve
 **Plans:** 8/8 plans complete
 
 Requirements:
+
 - ES-01 — `earnings_season_flag` computed from `bar_ts` at every `FeatureVector` construction site
 - ES-02 — `days_since_quarter_end` continuous companion field (D-02), not exempted by the flag's evidence
 - ES-03 — 14/42-day window boundaries APR-backed (`feature.earnings_season.*`), no literals in compute
@@ -2954,12 +2955,20 @@ as a source of truth. Layer 2 (`parent_tag`) is out of scope until a consumer ex
 **Plans:** 7 plans (3 waves)
 
 Plans:
+**Wave 1**
+
 - [ ] 182-01-PLAN.md - Layer 1 schema migration 364 (applied live) + ClassificationService and shared contract
 - [ ] 182-02-PLAN.md - IBKR industry/category/subcategory sourcing for single names -> committed candidates CSV
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 182-03-PLAN.md - indicagent_v1 node list + per-instrument mapping (data module), rendered seed migration 365, human review
 - [ ] 182-04-PLAN.md - onboarding requires a classification (no escape hatch); contract_details.sector no longer written
 - [ ] 182-05-PLAN.md - Instrument.sector builders (settings.py, cache_manager.py) read the classification
 - [ ] 182-06-PLAN.md - nightly classification coverage audit chained beside the vocabulary drift audit
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 182-07-PLAN.md - apply seed live, live-DB integration tests, docs, close todo 384
 
 ### Phase 183: Research layer: runner, ledger, combiner, book test
@@ -2979,6 +2988,7 @@ shift), budget-charged. Family 1's first real-data run waits for (4) and (5).
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 183 to break down)
 
 ---
