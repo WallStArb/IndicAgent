@@ -2938,18 +2938,17 @@ Requirements:
 
 ### Phase 182: Security classification hierarchy (todo 384)
 
-**Goal:** Every active instrument carries a dated, tiered classification that research and
-reporting can join as of any date without look-ahead. Build Layer 1 of
-`docs/research/stratification-security-classification-hierarchy.md` (`classification_scheme`,
-`classification_node`, `instrument_classification`: point-in-time, append-only,
-`ON DELETE RESTRICT`, node-immutability seed guard) and Layer 2's `parent_tag` column on
-`tag_vocabulary`, a `ClassificationService` read layer with an as-of helper, and the explicit
-`unclassified` stratum rule. First scheme: project-owned, four levels (asset class > sector >
-industry group > industry), ETFs by fund mandate, single names seeded from IBKR contract-detail
-industry/category/subcategory and human-reviewed. Membership `valid_from` = build date and
-accumulates forward; history is never backfilled from a snapshot except dated, cited
-reclassification events. Covers all 273 active instruments, including the 40 unlabeled 1d-pilot
-names. Replaces the flat `contract_details->>'sector'` label (interim-fixed by migration 363).
+**Goal:** Every active instrument carries a dated, tiered classification that stratification,
+peer grouping, reporting and onboarding read from one source of truth. Layer 1 of
+`docs/research/stratification-security-classification-hierarchy.md` (three tables,
+point-in-time, append-only, node-immutability guard), a project-owned four-level scheme
+`indicagent_v1` (asset class > sector > industry group > industry; equity levels follow the
+public GICS structure by name but are not GICS), all 273 active instruments assigned from the
+build date forward (single names seeded from IBKR contract details and reviewed; ETFs by fund
+mandate), a `ClassificationService` with an as-of lookup and an explicit `unclassified` stratum,
+onboarding and CI enforcement of coverage, and the flat `contract_details` sector label retired
+as a source of truth. Layer 2 (`parent_tag`) is out of scope until a consumer exists. Decisions:
+`.planning/phases/182-security-classification-hierarchy-todo-384/182-CONTEXT.md`.
 **Requirements**: TBD
 **Depends on:** none (off the research critical path: S1 uses causal price clusters)
 **Plans:** 0 plans
