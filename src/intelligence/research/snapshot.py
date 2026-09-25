@@ -49,6 +49,10 @@ _BARS_SQL = (
     "ORDER BY timestamp"
 )
 
+# instruments' universe eligibility columns (migration 337). universe_symbols accepts only these,
+# so a column name never comes from caller text.
+UNIVERSE_DIMENSIONS = ("compute_eligible", "compute_eligible_1d", "live_tradeable")
+
 Bars = dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]  # ts[ns UTC], o, c, v
 
 
@@ -143,6 +147,20 @@ def _reject_non_trading_days(sessions: np.ndarray) -> None:
         raise ValueError(f"bars on {len(bad)} non-{_EXCHANGE}-trading dates, e.g. {bad[:5]}")
 
 
+async def universe_symbols(dsn: str, dimension: str) -> list[str]:
+    """Symbols whose instruments row has `dimension` true, sorted (a pinned universe query)."""
+    if dimension not in UNIVERSE_DIMENSIONS:
+        raise ValueError(f"unknown universe dimension {dimension!r}; one of {UNIVERSE_DIMENSIONS}")
+    pool = await read_only_pool(dsn)
+    try:
+        rows = await pool.fetch(
+            f"SELECT symbol FROM instruments WHERE {dimension} = true ORDER BY symbol"
+        )
+    finally:
+        await pool.close()
+    return [r["symbol"] for r in rows]
+
+
 async def build_panel(
     dsn: str,
     out_dir: Path,
@@ -151,8 +169,10 @@ async def build_panel(
     tf: str,
     start: str,
     end_exclusive: str,
+    manifest_extra: dict | None = None,
 ) -> Path:
-    """Fetch, grid, and write a content-hashed panel directory; returns its path."""
+    """Fetch, grid, and write a content-hashed panel directory; returns its path.
+    `manifest_extra` (for example the universe dimension) is merged into the manifest."""
     lo, hi = (_utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
     pool = await read_only_pool(dsn)
     try:
@@ -188,6 +208,7 @@ async def build_panel(
         "end_exclusive": end_exclusive,
         "oos_start": oos.isoformat(),
         "symbols_without_bars": empty,
+        **(manifest_extra or {}),
     }
     missing = [s for s in grid.symbols if s not in sectors]
     if missing:

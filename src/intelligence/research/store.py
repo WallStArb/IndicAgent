@@ -42,12 +42,15 @@ def write(out_dir: Path, prefix: str, arrays: dict[str, np.ndarray], meta: dict)
     return final
 
 
-def verify(path: Path) -> None:
-    """Recompute the content hash and compare it with the directory name."""
+def verify(path: Path) -> str:
+    """Recompute the content hash, compare it with the directory name, and return the full
+    sha256 hex digest (the snapshot hash a run records)."""
     path = Path(path)
     names = sorted(p.stem for p in path.glob("*.npy"))
-    if not path.name.endswith(_digest(path, names)[:16]):
+    digest = _digest(path, names)
+    if not path.name.endswith(digest[:16]):
         raise ValueError(f"snapshot hash mismatch: {path} was modified after it was written")
+    return digest
 
 
 def read_meta(path: Path) -> dict:
