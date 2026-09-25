@@ -1,5 +1,5 @@
-"""Helpers shared by family members: the centred cross-sectional rank, declared memory in
-rows, and the panel adapter the S3 guards use.
+"""Helpers shared by family members: the centred cross-sectional rank and declared memory in
+rows.
 
 Member contract (the runner calls every member this way, spec params as keywords):
 `member(resid_bar_returns, *, bars_per_session, coverage_floor, **params) -> alpha [n, m]`,
@@ -9,12 +9,9 @@ runner computes S1 once and hands every member the same array (research pattern 
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import numpy as np
 
-from src.intelligence.research.factors import VINTAGE_1, FactorSpec, residual_returns
-from src.intelligence.research.panel import Panel, bar_returns
+from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.portfolio import average_ranks
 
 
@@ -37,21 +34,3 @@ def declared_memory_rows(
     return (
         slot_history_sessions + factor_spec.window_sessions + factor_spec.refit_sessions
     ) * bars_per_session
-
-
-def member_on_panel(
-    panel: Panel,
-    *,
-    member: Callable[..., np.ndarray],
-    factor_spec: FactorSpec,
-    coverage_floor: int,
-    params: dict,
-) -> np.ndarray:
-    """A member computed end to end from prices (S1 inside), for the panel-level S3 guards.
-    Module-level, so functools.partial over it pickles."""
-    resid = residual_returns(
-        bar_returns(panel), bars_per_session=panel.bars_per_session, spec=factor_spec
-    ).residual
-    return member(
-        resid, bars_per_session=panel.bars_per_session, coverage_floor=coverage_floor, **params
-    )

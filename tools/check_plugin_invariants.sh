@@ -52,7 +52,10 @@ case "$CHECK" in
       [ -z "$file" ] && continue
       case "$file" in
         *schemas.py|*alpha_multiplier.py|*dag.py|*position_sizer.py) continue ;;
-        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*) continue ;;
+        # research/ is the research DAG library (panels, specs, ledger, statistics), not
+        # plugin code: like statistics/, its classes are data and computation types that the
+        # plugin suffix taxonomy does not describe (Panel, RidgeSpec, PostgresLedger).
+        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
       FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \

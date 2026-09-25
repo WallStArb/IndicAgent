@@ -363,20 +363,6 @@ def _readout_units(
     return session_trade, dates[::bars_per_session], SESSIONS_PER_YEAR, cfg.bootstrap_mean_block
 
 
-def _bootstrap_sharpe_ci(
-    x: np.ndarray,
-    mean_block: int,
-    reps: int,
-    seed: int,
-    periods_per_year: int = SESSIONS_PER_YEAR,
-) -> np.ndarray:
-    """Politis-Romano stationary bootstrap (geometric blocks, circular) 95% CI of the
-    annualized Sharpe. Reported only; the permutation p decides."""
-    return np.percentile(
-        _bootstrap_sharpe_draws(x, mean_block, reps, seed, periods_per_year), [2.5, 97.5]
-    )
-
-
 def _bootstrap_sharpe_draws(
     x: np.ndarray,
     mean_block: int,
@@ -384,7 +370,9 @@ def _bootstrap_sharpe_draws(
     seed: int,
     periods_per_year: int = SESSIONS_PER_YEAR,
 ) -> np.ndarray:
-    """The annualized Sharpe of each stationary-bootstrap resample of the finite values."""
+    """The annualized Sharpe of each Politis-Romano stationary-bootstrap resample (geometric
+    blocks, circular) of the finite values. The 95% interval and standard error are read off
+    these draws; both are reported only, the permutation p decides."""
     x = x[np.isfinite(x)]
     n = len(x)
     rng = np.random.default_rng(seed)

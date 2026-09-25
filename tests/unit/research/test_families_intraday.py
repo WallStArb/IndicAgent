@@ -6,19 +6,15 @@ import functools
 import numpy as np
 import pytest
 
-from src.intelligence.research.factors import FactorSpec
-from src.intelligence.research.families.common import (
-    centred_rank,
-    declared_memory_rows,
-    member_on_panel,
-)
+from src.intelligence.research.factors import FactorSpec, residual_returns
+from src.intelligence.research.families.common import centred_rank, declared_memory_rows
 from src.intelligence.research.families.intraday_periodicity import (
     place_slot_alpha,
     same_slot_mean,
     slot_returns,
 )
 from src.intelligence.research.guards import integrity, run_guards
-from src.intelligence.research.panel import Panel
+from src.intelligence.research.panel import Panel, bar_returns
 from src.intelligence.research.signals import SignalSource
 
 BPS = 6
@@ -203,6 +199,18 @@ def _synthetic_panel(seed=7, sessions=100, m=24, bps=26):
         open=opens,
         close=close,
         volume=np.where(missing, np.nan, 1e5),
+    )
+
+
+def member_on_panel(panel, *, member, factor_spec, coverage_floor, params):
+    """A member end to end from prices (S1 inside), for the panel-level S3 guards. The runner
+    probes S1 and the members separately on real data (D-25); this whole-path form is what the
+    synthetic guard tests exercise."""
+    resid = residual_returns(
+        bar_returns(panel), bars_per_session=panel.bars_per_session, spec=factor_spec
+    ).residual
+    return member(
+        resid, bars_per_session=panel.bars_per_session, coverage_floor=coverage_floor, **params
     )
 
 

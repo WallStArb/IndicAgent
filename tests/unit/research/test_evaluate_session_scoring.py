@@ -150,8 +150,11 @@ def test_intraday_bootstrap_and_sub_periods_use_sessions():
     _, st = aggregate_sessions(res.observed_daily[0].repeat(BPS), trade, BPS)
     excess = res.observed_daily[0] - res.null_median_daily[0]
     x = excess[st]
-    ci = ev._bootstrap_sharpe_ci(
-        x, CFG.bootstrap_mean_block, CFG.bootstrap_reps, CFG.seed, SESSIONS_PER_YEAR
+    ci = np.percentile(
+        ev._bootstrap_sharpe_draws(
+            x, CFG.bootstrap_mean_block, CFG.bootstrap_reps, CFG.seed, SESSIONS_PER_YEAR
+        ),
+        [2.5, 97.5],
     )
     np.testing.assert_allclose(res.excess_ci[0], ci)
     session_days = dates[::BPS].astype("datetime64[D]")
@@ -164,10 +167,6 @@ def test_excess_se_is_std_of_bootstrap_draws():
     rng = np.random.default_rng(5)
     x = rng.normal(0.001, 0.01, 300)
     draws = ev._bootstrap_sharpe_draws(x, 5, 200, 7, SESSIONS_PER_YEAR)
-    np.testing.assert_allclose(
-        ev._bootstrap_sharpe_ci(x, 5, 200, 7, SESSIONS_PER_YEAR),
-        np.percentile(draws, [2.5, 97.5]),
-    )
     res, *_ = _intraday_run()
     assert res.excess_se is not None and res.excess_se.shape == (1,)
     assert res.excess_se[0] > 0
