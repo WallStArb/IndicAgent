@@ -45,6 +45,38 @@ does not harden the split.
 5. Deletions: whatever has no consumer after 1-4 (candidates: the IC-weighted combiner, the
    phase 179 sleeve harness, parts of the ic_engine grid, `context_writer`).
 
+6. Contribution accounting as a standard output of every book test (owner request
+   2026-09-26: understand each component's contribution). See the section below.
+
+## Contribution accounting (owner request, refined 2026-09-26)
+
+Two questions, different measures: who earned the return (attribution, additive) and who is
+necessary (marginal, counterfactual; catches redundancy between correlated families).
+Levels: member, family, discovery method, combiner.
+
+1. Exact P&L attribution: book timing P&L splits into per-member terms (walk-forward weight x
+   member P&L). Report share of mean return and share of risk (Euler: cov with book / book
+   variance). One pass, no refits.
+2. Leave-one-family-out: walk-forward refit without family k; change in the book statistic.
+3. Shapley over families: order-independent marginal credit; about 2^F closed-form ridge
+   refits (about 1,000 at 10 families), sampled if F grows.
+4. Uniqueness and breadth: each member residualized against all others; effective number of
+   independent signals from the signal correlation eigenvalues.
+5. Standalone vs in-book table: ic_engine IC beside in-book contribution per member; flags
+   strong-but-redundant and weak-but-additive; feedback on whether IC-as-proposer picks
+   contributors.
+6. Stability: by sub-period, by regime (disclosure), by lag (decay); weight sign stability
+   across folds.
+7. Turnover and cost share per member (diagnostic only; costs never gate discovery).
+8. Forward monitoring: in the frozen book's shadow run, each member's realized contribution on a
+   control chart against its in-sample expectation; drift out of band is the decay alarm.
+
+Discipline: contributions are diagnostics, not tests (no M = 30 spend, per-member t-stats are
+not significance claims). They never edit the book they measure: pruning or reweighting on them
+creates a new book version, recorded as outcome-informed, spending one screen. Counterfactual
+refits reuse the book's walk-forward folds. Placement: compute-only S8 extension; results in the
+run record via the S6 ledger writer; alpha_publisher emits per-member series in forward shadow.
+
 ## How
 
 Brainstorm with the owner, then a draft in `docs/plans/` marked PROPOSED, then adoption
