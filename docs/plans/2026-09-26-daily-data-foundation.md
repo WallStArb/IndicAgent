@@ -121,7 +121,22 @@ have non-positive prices, every bar's `price_sanity_status` is NULL (never class
    labels (D0) report how many it touched.
 3. **Validate every rule on known answers first:** known splits and reverse splits, known
    corporate events (mergers, spin-offs), the 15 confirmed-corrupt rows, and hand-checked real
-   extreme moves, so a rule neither misses seams nor quarantines real returns.
+   extreme moves, so a rule neither misses seams nor quarantines real returns. A dry run of
+   `scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --tf 1d` over all 932 names
+   (2026-09-26, no writes) adds to the known-answer set:
+   - 45 bars classified confirmed-corrupt, not yet flagged, mostly 2006-2009 highs and lows of
+     0.01, 999.99, 100000 or more on sane opens and closes (IWO 2009-05-26 high 1,000,000;
+     TRST 2007-07-26 high 500,000; ARE 2007-02-27 low 0.01), plus UHAL 2022-11-09 with a bad
+     close. About a dozen are in the 233 `compute_eligible` names, so their `feature_vectors`
+     and `forward_returns` rows need recomputing once flagged.
+   - A defect in the classifier's cross-symbol corroboration: 27 bars pass as market events
+     because other symbols spike the same day. 26 are 2010-05-06 Flash Crash stub prints (lows
+     of 0.01, EQIX high 100000), trades that were busted, so the prices are wrong however many
+     symbols share them; EWW 2006-11-07 (high 100000, n=10) passes the same way. Corroboration
+     must not clear a print beyond the magnitude threshold, and the Flash Crash date is a
+     known answer for that rule.
+   - 1,864 ambiguous bars, which on inspection are first and last bars with no neighbor, not
+     candidates.
 4. **One historical pass as a batch job** over all 1d history (minutes, not the 4.1 years todo 155
    estimated through the live auditor's cadence), then the same rules on every nightly derivation.
    Folds in todos 155 (historical price sanity), 347 (the unusable price-sanity index) and 052

@@ -696,6 +696,14 @@ columns such as todo 421's rank_z features and exact duplicates such as todo 115
 sampled drift report against the old table; swap names; drop the old table. This replaces the
 in-place refresh chain (426 step 2, 411) with one build.
 
+**Timeframes in the rebuild: open, decide before specifying it.** 5m holds 75M of the 109M
+`feature_vectors` rows (about 69%), so it is most of the rebuild's cost. No active family reads 5m
+features (families 1 and 2 run on the 15m grid); ledger family 3 (sector ETF leads constituents)
+is written "5m or 15m". The 2026-09-13 per-timeframe cost check found 5m signal real but economic
+only at about half-day holds, a horizon 15m also covers. Untested: whether 5m features add IC
+over 15m at matched horizons. Run that test first; if they add nothing, the rebuild covers 15m,
+1h and 1d, and raw 5m bars keep ingesting either way (raw data is permanent, features are cache).
+
 **Safeguards.**
 
 1. Summary cards are written and checked before anything is dropped.
