@@ -70,8 +70,8 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 | UD-20 | Forward span per book: feature and ctf-like books confirm only on data after their freeze (2026-08-08 at the earliest); price-only families 1 and 2 keep 2025-12-24, disclosed | 7.3 |
 | UD-21 | Review resolutions (Fable, 19 findings) | 20 |
 | UD-22 | Preconception-free discovery: `generated_family`, a registered grammar that enumerates candidate predictors from primitives, selected and weighted only inside training folds | 6.1 |
-| UD-24 | Refactor map: refactor only surviving code the design touches, parity-checked; delete the rest (14.6) | 14.6 |
 | UD-23 | Accounting groups inside large families: by feature origin (primary) and by in-fold correlation cluster (beside it); for reading contributions only | 13 |
+| UD-24 | Refactor map: refactor only surviving code the design touches, parity-checked; delete the rest (14.6) | 14.6 |
 
 ## 3. Target pipeline
 
