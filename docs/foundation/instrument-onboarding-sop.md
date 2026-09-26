@@ -51,7 +51,11 @@ State them in the README entry for the batch; research discloses them through ph
   A moved name looks like a late listing until 185 D3 recovers the earlier years.
 - **Unscrubbed prints.** Bars arrive unscrubbed. The 1d dry run on 2026-09-26 found 45 corrupt
   bars across the 932 names (185 D2a).
-- **Price-only returns.** No dividends (todo 428).
+- **Price-only bars.** Stored bars are split-adjusted, not dividend-adjusted. Dividends live in
+  `dividend_events` (Yahoo, refreshed daily for every active equity; todo 428), and a research
+  spec gets total-return prices only if it declares `panel.total_return`. A newly onboarded name
+  gets its dividend history on the next daily run (06:30 UTC); before that a total-return spec
+  treats it as uncovered (NaN), never as paying nothing.
 
 ## The DAG
 

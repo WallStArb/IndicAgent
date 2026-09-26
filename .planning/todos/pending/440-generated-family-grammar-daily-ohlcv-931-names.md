@@ -29,3 +29,10 @@ configuration plus selector is one attempt.
 
 The grammar is registered, the enumerator and in-fold selector pass synthetic power and H0 checks,
 and attempt 3b is recorded.
+
+## Dividends (todo 428, closed 2026-09-26)
+
+A daily-clock spec declares `panel.total_return: {suspect_yield: <x>}`. Price-only daily returns
+carry every ex-dividend drop as a loss, which biases daily targets and can manufacture
+price-level signals on high-yield names. See `research/dividends.py`; state the suspect_yield
+(0.10 is the value the reference checks used) in the pre-registration.

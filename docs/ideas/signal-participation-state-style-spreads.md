@@ -24,8 +24,9 @@ All legs are already in the universe with daily bars (`market_data_ohlcv_tradeab
 QQEW / QQQ (concentration inside NDX) would need QQEW onboarded; not needed for a first test.
 An equal-weight R1K ETF adds nothing over RSP, and no liquid equal-weight R2K ETF exists.
 
-Prices are split-adjusted, not dividend-adjusted (todo 428). The legs' yields differ by a
-fraction of a percent a year, which is noise against a quarter-long trend but is disclosed.
+Stored prices are split-adjusted, not dividend-adjusted; a spec declaring `panel.total_return`
+(todo 428, closed 2026-09-26) gets total-return prices. Either way the legs' yields differ by a
+fraction of a percent a year, noise against a quarter-long trend; declare it and the gap is gone.
 
 ## 2. Why this is not a family on the S1 target
 
@@ -119,8 +120,8 @@ Checked against the principles in `docs/foundation/principles.md` before registr
     mega-caps. S1 residualizes the target, so the member signals do not carry that exposure;
     the combiner cannot rediscover concentration as a disguised style bet. Verify with the
     book's loadings on the 5 PCs, reported as a diagnostic.
-  - Dividends: price-only legs (todo 428); a sub-1% annual yield gap is negligible against a
-    quarterly trend, disclosed.
+  - Dividends: the spec declares `panel.total_return` (todo 428), so the legs are total-return
+    prices and the sub-1% yield gap between them does not enter.
   - Breadth illusion: the interaction does not add bets. The book's effective breadth is the
     base book's; the test is still one book-level HAC timing t.
 - **Async.** Not applicable: this is batch numpy inside the research runner. Adding async

@@ -43,3 +43,10 @@ Re-scoped: from a standalone reversal pre-registration to family 4's spec (ledge
 ## Unified design adopted 2026-09-26
 
 Retitled by the adopted unified design (todo 436, section 14.3): this is a family 4 member entering a book, not a "Phase 181 candidate". Run it with the price-only daily families (todo 441) on the names the 2026-09-13 screen never saw (attempt 3); declare its costed construction for promotion (E18).
+
+## Dividends (todo 428, closed 2026-09-26)
+
+A daily-clock spec declares `panel.total_return: {suspect_yield: <x>}`. Price-only daily returns
+carry every ex-dividend drop as a loss, which biases daily targets and can manufacture
+price-level signals on high-yield names. See `research/dividends.py`; state the suspect_yield
+(0.10 is the value the reference checks used) in the pre-registration.

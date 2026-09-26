@@ -23,3 +23,10 @@ delisting-return sensitivity, and declares its costed construction for promotion
 ## Done when
 
 Specs are registered and run as attempts 3 and 4.
+
+## Dividends (todo 428, closed 2026-09-26)
+
+A daily-clock spec declares `panel.total_return: {suspect_yield: <x>}`. Price-only daily returns
+carry every ex-dividend drop as a loss, which biases daily targets and can manufacture
+price-level signals on high-yield names. See `research/dividends.py`; state the suspect_yield
+(0.10 is the value the reference checks used) in the pre-registration.
