@@ -7,7 +7,7 @@ committed migration drifts from the render.
 
 Reviewed per D-06: an executor pass plus an independent fresh-context pass (AGY and Codex were
 out of quota on the review date), reconciled in
-`.planning/phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`.
+`.planning/milestones/v3.4-phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`.
 
 indicagent_v1 is project-owned. Its equity levels 2-4 reuse public GICS sector, industry
 group and industry names, but it is not GICS and assigns nothing from GICS (D-03): single
