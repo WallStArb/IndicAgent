@@ -2,7 +2,7 @@
   "mode": "yolo",
   "parallelization": true,
   "commit_docs": true,
-  "model_profile": "balanced",
+  "model_profile": "quality",
   "workflow": {
     "research": true,
     "plan_check": true,
@@ -61,5 +61,39 @@
       ],
       "section": "## Data Flow Patterns"
     }
-  ]
+  ],
+  "models": {
+    "planning": "opus",
+    "discuss": "opus",
+    "research": "opus",
+    "execution": "opus",
+    "verification": "opus",
+    "completion": "opus"
+  },
+  "model_overrides": {
+    "gsd-phase-researcher": "opus",
+    "gsd-codebase-mapper": "opus",
+    "gsd-debugger": "opus",
+    "gsd-executor": "opus",
+    "gsd-integration-checker": "opus",
+    "gsd-nyquist-auditor": "opus",
+    "gsd-plan-checker": "opus",
+    "gsd-planner": "opus",
+    "gsd-project-researcher": "opus",
+    "gsd-research-synthesizer": "opus",
+    "gsd-roadmapper": "opus",
+    "gsd-verifier": "opus",
+    "gsd-pattern-mapper": "opus",
+    "gsd-ui-researcher": "opus",
+    "gsd-ui-checker": "opus",
+    "gsd-ui-auditor": "opus",
+    "gsd-doc-writer": "opus",
+    "gsd-doc-verifier": "opus",
+    "gsd-code-reviewer": "opus",
+    "gsd-code-fixer": "opus",
+    "gsd-security-auditor": "opus",
+    "gsd-advisor-researcher": "opus",
+    "gsd-assumptions-analyzer": "opus",
+    "gsd-debug-session-manager": "opus"
+  }
 }
