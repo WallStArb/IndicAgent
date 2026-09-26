@@ -54,6 +54,30 @@ bullets with current facts.
   phase 186 rebuild); live IBKR streaming down; nightly batch backfill refreshes OHLCV only.
   Check `max(timestamp)` before citing freshness.
 
+## Starting a new session
+
+Read in order: this file -> `ROADMAP.md` (active milestone table) ->
+`docs/plans/2026-09-26-unified-research-to-production-design.md` (sections 2, 16 and the section
+for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run in parallel.
+
+| Lane | Start with | Owner and boundary |
+|---|---|---|
+| Research (phase 183) | Plan 10, E17 battery, then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
+| Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
+| Quick data and infra | Todos 438 (borrow snapshots, loses a day every day it waits), 443, 439 | Independent; 439's IC purge lands with phase 186's recompute |
+| Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
+| Phase 185 | `/gsd-plan-phase 185` (`docs/plans/2026-09-26-daily-data-foundation.md`) | Owns `src/providers/ibkr.py` changes and todo 433 |
+
+Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers from
+`.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
+
+## Decisions waiting on the owner
+
+- **E17 H0 battery gating criterion** (commit 4a58f0b60, methodology-change-ledger E17): the
+  builder moved the gating cells from 0.3 of the slot sd (tail oversized) to twice the measured
+  sizes (size holds; family 2's combined cell about 7-8% at 0.05) after seeing the failure, so the
+  owner decides. Gates every book test, including attempts 1a-1c.
+
 ## Open items that are not verdicts
 
 - Todo 248 (HMM per-symbol lookahead): walk-forward fix built, not deployed; deploy with the
