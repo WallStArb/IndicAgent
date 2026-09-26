@@ -180,6 +180,12 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Oneshot `_agent.py` exceptions:** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — `_agent` suffix intentionally preserved.
 - **API health router prefix is `/health`** not `/api/health`. Routes: `/health/system`, `/health/database`, etc.
 - **`agent_last_message_timestamp_seconds` label key is `agent_id`** — use `r["metric"].get("agent_id")` when querying from Prometheus.
+- **Research changes keep frozen verdicts bit-identical:** after any edit under `src/intelligence/research/` or `src/intelligence/statistics/`, run `.venv/bin/python scripts/analysis/sleeve_walk_forward/repro_frozen.py <scratch_dir> --logs /home/bg/dev/indicagent/logs` (from a worktree); it must report bit-identical. Moves before phase 186 deletes that directory (todo 448).
+- **New optional research-spec fields go in `spec.py`'s `_OPTIONAL_*_FIELDS`** (dropped from the canonical form when unset), or every recorded spec hash moves and the ledger's run records stop matching their specs.
+- **Validating a test statistic:** check the H0 mean and sd of t and rejection counts against a binomial bound at each level, never one-sided p ranges alone (E16's bias hid behind p 0.28-0.77). Commit the pass criterion before the result exists.
+- **Shift nulls have (sessions - L) / tau effective draws,** not one per shift: a persistent signal (tau 40-60) gets about 60-90 and cannot resolve p < 0.00167, however many shifts are run.
+- **Ad hoc multiprocess scripts:** build the pool with `make_worker_pool(n, blas_threads_per_worker=1)` or export `OMP_NUM_THREADS=1`; a bare pool spawns 24 BLAS threads per numpy worker.
+- **Never `pkill -f` / `pgrep -f` a pattern that appears in your own command line** (it matches and kills the invoking shell, exit 144); select PIDs with `ps -eo pid,cmd | awk '/pat/ && !/awk/'`.
 
 **Services**
 - **Logging**: `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging("logs/<name>.log")`. NOT journald.
