@@ -149,6 +149,9 @@ class ScoringSpec(BaseModel):
     ridge_epsilon_fraction: float = Field(gt=0)
     mv_condition_max: float = Field(gt=0)
     ic_shrinkage_k: float = Field(ge=0)
+    # The decision statistic (methodology-change-ledger E17). Unset on specs written before
+    # E17, which keep their recorded hashes and never run for real (runner._check_spec_tree).
+    timing_statistic: Literal["e17"] | None = None
 
     @field_validator("sub_periods", mode="before")
     @classmethod
@@ -328,13 +331,27 @@ def _sha(text: str) -> str:
 # PanelSpec fields added after specs were run: left out of the canonical form while unset, so
 # every spec written before them keeps its recorded hash (family 1, book_v1).
 _OPTIONAL_PANEL_FIELDS = ("transform", "members_universe")
+# The same for scoring: specs run under E16 keep their hashes.
+_OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
+TIMING_STATISTIC = "e17"
+
+
+def _drop_unset(data: dict, section: str, keys: tuple[str, ...]) -> None:
+    for key in keys:
+        if data[section][key] is None:
+            del data[section][key]
 
 
 def _family_dump(model: FamilySpec) -> dict:
     data = model.model_dump(mode="json")
-    for key in _OPTIONAL_PANEL_FIELDS:
-        if data["panel"][key] is None:
-            del data["panel"][key]
+    _drop_unset(data, "panel", _OPTIONAL_PANEL_FIELDS)
+    _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)
+    return data
+
+
+def _book_dump(model: BookSpec) -> dict:
+    data = model.model_dump(mode="json")
+    _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)
     return data
 
 
@@ -347,7 +364,7 @@ def _build(
         _check_book(model, families)
         canonical = canonical_json(
             {
-                "book": model.model_dump(mode="json"),
+                "book": _book_dump(model),
                 "families": [json.loads(f.canonical) for f in families],
             }
         )

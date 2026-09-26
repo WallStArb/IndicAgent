@@ -104,6 +104,7 @@ def _problem(plant, sessions=400, m=30, bar=0.05):
         vol_window_rows=20 * BPS,
         vol_min_finite=10 * BPS,
         cfg=CFG,
+        memory_sessions=5,  # the members' largest slot history
         bar=bar,
     )
 
@@ -125,6 +126,7 @@ def test_replicate_is_the_real_statistic_on_a_planted_panel():
         coverage_floor=20,
         bars_per_session=BPS,
         warmup_sessions=60,
+        memory_sessions=5,
     )
     assert out.p == want.timing.hac.p and out.passed == (want.timing.hac.p < 0.05)
     assert out == run_replicate(problem, 11)

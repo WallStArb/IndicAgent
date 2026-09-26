@@ -60,7 +60,13 @@ from src.intelligence.research.portfolio import (
     rank_vol_neutral_weights,
     trailing_vol,
 )
-from src.intelligence.research.spec import BookSpec, FamilySpec, LoadedSpec, resolve_member
+from src.intelligence.research.spec import (
+    TIMING_STATISTIC,
+    BookSpec,
+    FamilySpec,
+    LoadedSpec,
+    resolve_member,
+)
 from src.intelligence.research.timing import timing_test
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
@@ -299,6 +305,14 @@ def _check_spec_tree(loaded: LoadedSpec) -> None:
     for spec in specs:
         if isinstance(spec, FamilySpec):
             _check_spec(spec)
+    # A real record's spec hash names its decision statistic (E17): a spec written before E17
+    # never runs, and re-scoring one under E17 is a new spec hash, not the old one reused.
+    for spec in {id(s): s for s in [loaded.model, *specs]}.values():
+        if spec.scoring.timing_statistic != TIMING_STATISTIC:
+            raise RunRefused(
+                f"spec predates {TIMING_STATISTIC}: scoring.timing_statistic must be "
+                f"{TIMING_STATISTIC!r} (methodology-change-ledger E17)"
+            )
 
 
 def _prepare_panel(
@@ -511,6 +525,7 @@ async def run_family(
                 trade,
                 bars_per_session=bps,
                 warmup_sessions=cfg.warmup_sessions,
+                memory_sessions=m.slot_history_sessions,
             )
             res, n_shifts = _shift_diagnostic(
                 alpha,
@@ -573,7 +588,15 @@ def book_identities(loaded: LoadedSpec) -> list[Identity]:
     return ids
 
 
-def _power_problem(book: BookSpec, panel: Panel, residuals: Residuals, bar: float, members, ridge):
+def _power_problem(
+    book: BookSpec,
+    panel: Panel,
+    residuals: Residuals,
+    bar: float,
+    members,
+    ridge,
+    memory_sessions: int,
+):
     """Synthetic replicates planted on the real test's availability: members read S1 residual
     bar returns, which are missing wherever S1 cannot fit (each name's loading warm-up, not
     only its missing bars), and the target has its own pattern. Planting on the close mask
@@ -616,6 +639,7 @@ def _power_problem(book: BookSpec, panel: Panel, residuals: Residuals, bar: floa
         vol_window_rows=window,
         vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
         cfg=book.scoring.evaluation_config(),
+        memory_sessions=memory_sessions,
         bar=bar,
     )
     return problem, plant
@@ -690,7 +714,7 @@ async def run_book(
         _log("S1 residuals")
         residuals = compute_residuals(panel, horizon=fam0.horizon, factor_spec=factor_spec)
         _log("S2 members")
-        columns, members, memories = [], [], []
+        columns, members, memories, slot_histories = [], [], [], []
         for fam in families:
             fam_members = compute_members(fam, residuals.bar, bars_per_session=bps)
             _log(f"S3 guards {fam.family}")
@@ -711,6 +735,7 @@ async def run_book(
                 columns.append(fam_members[m.name])
                 members.append((resolve_member(m.signal), dict(m.params)))
                 memories.append(m.declared_memory_rows)
+                slot_histories.append(m.slot_history_sessions)
             del fam_members
         stack = np.stack(columns, axis=2).astype(np.float32)
         del columns
@@ -727,7 +752,9 @@ async def run_book(
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
-        problem, plant = _power_problem(book, panel, residuals, bar, members, ridge)
+        problem, plant = _power_problem(
+            book, panel, residuals, bar, members, ridge, max(slot_histories)
+        )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
             problem,
@@ -757,7 +784,7 @@ async def run_book(
         }
         _log(f"power: {'powered' if d.powered else 'underpowered'} ({d.passes}/{d.decided_after})")
         try:
-            guards.require_testable(power=1.0 if d.powered else 0.0)
+            guards.require_testable(power=float(d.powered))
         except guards.GuardFailure:
             return await finish(
                 "refused",
@@ -783,6 +810,7 @@ async def run_book(
             coverage_floor=c.coverage_floor,
             bars_per_session=bps,
             warmup_sessions=cfg.warmup_sessions,
+            memory_sessions=max(slot_histories),
         )
         del stack
         _log("S8 shift-null diagnostic")
@@ -819,7 +847,7 @@ async def run_book(
             guards={"families": [f.family for f in families]},
             sub_periods=cfg.sub_periods,
             screen={
-                "statistic": "hac_timing_t",
+                "statistic": "hac_timing_t_e17",
                 "alpha": alpha_level,
                 "budget_m": budget_m,
                 "bar": bar,

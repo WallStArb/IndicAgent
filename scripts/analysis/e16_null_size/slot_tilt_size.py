@@ -69,7 +69,14 @@ for _ in range(sims):
     for kind, d in (
         ("pinned", pinned_series(w, r)),
         ("symbol", per_symbol_series(w, r)),
-        ("adopted", timing_series(w, r, ones, ones, bars_per_session=bps, warmup_sessions=warm)),
+        # Since E17 this arm is the E17 statistic (weights here never read returns, so any
+        # memory is exact; 1 session). E16's own results stay recorded in the ledger entry.
+        (
+            "adopted",
+            timing_series(
+                w, r, ones, ones, bars_per_session=bps, warmup_sessions=warm, memory_sessions=1
+            ),
+        ),
     ):
         p = hac_mean_test(d).p
         for a in alphas:

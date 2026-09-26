@@ -82,6 +82,7 @@ class PowerProblem:
     vol_window_rows: int
     vol_min_finite: int
     cfg: Any  # an evaluate.EvaluationConfig (trade span, warmup_sessions)
+    memory_sessions: int  # the book's E17 memory: the largest slot history over its members
     bar: float  # alpha / M
 
 
@@ -115,6 +116,7 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
         coverage_floor=problem.coverage_floor,
         bars_per_session=bps,
         warmup_sessions=problem.cfg.warmup_sessions,
+        memory_sessions=problem.memory_sessions,
     )
     hac = result.timing.hac
     return ReplicateOutcome(passed=hac.p < problem.bar, p=hac.p, t=hac.t)

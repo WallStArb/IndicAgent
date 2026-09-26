@@ -29,10 +29,13 @@ def test_book_timing_is_ridge_then_r1_then_timing():
         coverage_floor=20,
         bars_per_session=BPS,
         warmup_sessions=60,
+        memory_sessions=5,
     )
     combined = walk_forward_ridge(stack, fwd, RIDGE)
     w, has = rank_vol_neutral_weights(combined, vol=vol, direction=1.0, coverage_floor=20)
-    want = timing_test(w, fwd, has, trade, bars_per_session=BPS, warmup_sessions=60)
+    want = timing_test(
+        w, fwd, has, trade, bars_per_session=BPS, warmup_sessions=60, memory_sessions=5
+    )
     assert got.timing == want
     np.testing.assert_array_equal(got.combined, combined)
     assert got.timing.hac.p < 0.05  # the planted relation is found

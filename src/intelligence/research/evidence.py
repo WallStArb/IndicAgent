@@ -1,7 +1,7 @@
-"""The evidence record (evidence framework section 5, D-09, methodology-change-ledger E16).
+"""The evidence record (evidence framework section 5, D-09, methodology-change-ledger E16, E17).
 
-The decision block is the E16 statistic: the one-sided HAC t of the timing P&L (the P&L in
-excess of the causal static tilt), its mean, HAC standard error, p, lag and session count, and
+The decision block is the E17 statistic: the one-sided HAC t of the timing P&L (weights against
+returns net of the memory-lagged cell mean), the memory L and history floor it used, its mean, HAC standard error, p, lag and session count, and
 its annualized Sharpe. The shift-null readout (excess Sharpe over the null median, bootstrap
 interval, permutation p, per-period estimates, shape) is kept as a diagnostic block. Also:
 power (None for an evidence run, D-21), coverage, turnover and a cost band, the resolution
@@ -26,7 +26,7 @@ from src.intelligence.research.ledger import jsonable
 from src.intelligence.research.spec import CostSpec
 from src.intelligence.research.timing import TimingResult
 
-SCHEMA = "research_evidence_v2"  # v2: E16 decision statistic, shift null as diagnostic
+SCHEMA = "research_evidence_v3"  # v3: E17 decision statistic (v2: E16), shift null diagnostic
 _BPS = 1e-4  # one basis point
 
 
@@ -102,7 +102,7 @@ def evidence_record(
     sub_periods,
     screen: dict | None = None,
 ) -> dict:
-    """The E16 record: the decision statistic is the HAC timing t; the shift null is kept as
+    """The E17 record: the decision statistic is the HAC timing t; the shift null is kept as
     a diagnostic block."""
     h = timing.hac
     record = {
@@ -110,7 +110,9 @@ def evidence_record(
         "kind": kind,
         "subject": subject,
         "decision": {
-            "statistic": "hac_timing_t",
+            "statistic": "hac_timing_t_e17",
+            "memory_sessions": timing.memory_sessions,
+            "min_history_sessions": timing.min_history_sessions,
             "mean_session_pnl": h.mean,
             "se": h.se,
             "t": h.t,

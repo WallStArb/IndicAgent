@@ -30,7 +30,7 @@ KEYS = {
     "hashes",
     "guards",
 }
-TIMING = TimingResult(HacTestResult(0.001, 0.0004, 2.5, 0.006, 8, 3000), 0.9, 252)
+TIMING = TimingResult(HacTestResult(0.001, 0.0004, 2.5, 0.006, 8, 3000), 0.9, 252, 40, 60)
 PERIODS = (("2010-01-04", "2014-12-31"), ("2015-01-01", "2025-12-23"))
 
 
@@ -104,7 +104,9 @@ def test_record_has_no_tokens():
 
 def test_record_maps_result_fields():
     rec = _record()
-    assert rec["decision"]["statistic"] == "hac_timing_t"
+    assert rec["decision"]["statistic"] == "hac_timing_t_e17"
+    assert rec["decision"]["memory_sessions"] == 40
+    assert rec["decision"]["min_history_sessions"] == 60
     assert (rec["decision"]["t"], rec["decision"]["p"], rec["decision"]["lag"]) == (2.5, 0.006, 8)
     assert rec["resolution_years_80pct_power"] == pytest.approx(
         ((1.6449 + 0.8416) / 0.9) ** 2, rel=1e-3

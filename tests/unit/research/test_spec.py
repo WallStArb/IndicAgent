@@ -231,3 +231,18 @@ def test_load_from_head_reads_the_committed_blob(tmp_path):
 def test_canonical_json_refuses_nan():
     with pytest.raises(ValueError):
         canonical_json({"x": float("nan")})
+
+
+def test_timing_statistic_is_hashed_only_when_set():
+    """Specs run under E16 keep their recorded hashes; setting the E17 statistic is a new one."""
+    assert "timing_statistic" not in FAMILY
+    e17 = FAMILY.replace(
+        "ic_shrinkage_k: 100.0\n", "ic_shrinkage_k: 100.0\n  timing_statistic: e17\n"
+    )
+    assert parse_spec_text(e17).scoring.timing_statistic == "e17"
+    assert '"timing_statistic"' not in canonical_json(
+        spec_mod._family_dump(parse_spec_text(FAMILY))
+    )
+    assert _hash(e17) != _hash(FAMILY)
+    with pytest.raises(ValidationError):
+        parse_spec_text(e17.replace("timing_statistic: e17", "timing_statistic: e16"))

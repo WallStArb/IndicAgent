@@ -73,6 +73,7 @@ def _spec_text(universe_line: str = "") -> str:
           ridge_epsilon_fraction: 0.1
           mv_condition_max: 1000.0
           ic_shrinkage_k: 100.0
+          timing_statistic: e17
         guards: {seed: 3, n_random: 1, max_rows: 6, s1_probe_sessions: 330}
         costs: {bps_low: 1.0, bps_high: 5.0}
         """)

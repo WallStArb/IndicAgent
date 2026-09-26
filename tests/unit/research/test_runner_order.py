@@ -68,6 +68,7 @@ def _spec_text(member=MEMBER, mem1=None):
           ridge_epsilon_fraction: 0.1
           mv_condition_max: 1000.0
           ic_shrinkage_k: 100.0
+          timing_statistic: e17
         guards: {{seed: 3, n_random: 1, max_rows: 6, s1_probe_sessions: 330}}
         costs: {{bps_low: 1.0, bps_high: 5.0}}
         """)
@@ -268,7 +269,7 @@ def test_evidence_runs_have_no_shift_floor(repo, saved_panel):
         load_spec_from_head(repo, SPEC_PATH), _ctx(repo, ledger, saved_panel, calls, budget_m=30)
     )
     assert {v["status"] for v in out.values()} == {"completed"}
-    assert ledger.evidence["decision"]["statistic"] == "hac_timing_t"
+    assert ledger.evidence["decision"]["statistic"] == "hac_timing_t_e17"
     assert 0 < ledger.evidence["shift_null"]["n_shifts"] < 600
 
 
@@ -325,3 +326,14 @@ def test_universe_symbols_rejects_unknown_dimension():
 
     with pytest.raises(ValueError, match="unknown universe dimension"):
         asyncio.run(universe_symbols("postgresql://nowhere/none", "is_active; DROP TABLE x"))
+
+
+def test_refuses_spec_written_before_e17(repo, saved_panel):
+    """A spec without scoring.timing_statistic predates E17: it keeps its recorded hash but
+    never runs for real, so a record's spec hash always names its decision statistic."""
+    pre = _spec_text().replace("  timing_statistic: e17\n", "")
+    assert pre != _spec_text()
+    (repo / SPEC_PATH).write_text(pre)
+    _git(repo, "commit", "-qam", "pre-E17 spec")
+    ledger = _refused(repo, saved_panel)
+    assert "has_real_run" not in ledger.calls  # refused at the spec check, before the ledger

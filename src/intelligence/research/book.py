@@ -2,8 +2,8 @@
 
 The book is every registered member of its families, combined once by the S7 walk-forward
 ridge and constructed with R1. Its statistic is the E16 timing test (timing.timing_test) on the
-book's final weights, the one-sided HAC t of its P&L in excess of its causal static tilt, at
-the vintage bar. The ridge's walk-forward fit uses only past data, so its out-of-sample P&L
+book's final weights, the one-sided HAC t of its P&L against returns net of the memory-lagged
+cell mean (E17), at the vintage bar. Its memory is the largest slot history over its members. The ridge's walk-forward fit uses only past data, so its out-of-sample P&L
 already has zero mean under H0 and no refit per shifted copy is needed; the shift null that
 refit served is kept as a diagnostic readout computed on the fitted combined alpha.
 
@@ -43,6 +43,7 @@ def book_timing(
     coverage_floor: int,
     bars_per_session: int,
     warmup_sessions: int,
+    memory_sessions: int,
 ) -> BookResult:
     combined = walk_forward_ridge(stack, fwd, ridge)
     weights, has_position = rank_vol_neutral_weights(
@@ -55,6 +56,7 @@ def book_timing(
         trade,
         bars_per_session=bars_per_session,
         warmup_sessions=warmup_sessions,
+        memory_sessions=memory_sessions,
     )
     return BookResult(timing, combined, weights, has_position)
 
