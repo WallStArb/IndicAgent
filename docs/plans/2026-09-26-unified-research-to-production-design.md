@@ -68,6 +68,8 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 | UD-19 | Build order: price-only daily families on the 931 names and single-family books run first while the feature infrastructure is built; then delete, data path, research core, features into books, forward, capital | 16 |
 | UD-20 | Forward span per book: feature and ctf-like books confirm only on data after their freeze (2026-08-08 at the earliest); price-only families 1 and 2 keep 2025-12-24, disclosed | 7.3 |
 | UD-21 | Review resolutions (Fable, 19 findings) | 20 |
+| UD-22 | Preconception-free discovery: `generated_family`, a registered grammar that enumerates candidate predictors from primitives, selected and weighted only inside training folds | 6.1 |
+| UD-23 | Accounting groups inside large families: by feature origin (primary) and by in-fold correlation cluster (beside it); for reading contributions only | 13 |
 
 ## 3. Target pipeline
 
@@ -260,10 +262,45 @@ The fixed evidence path is section 7. Methods compete inside it:
 | `in_fold_selection` | Members selected by IC computed inside each training fold, then combined | A combiner variant; the screen is not biased by it |
 | `ic_proposal` | A human reads the corpus IC table and proposes a family | Outcome-informed: recorded with `informed_by`, disclosed |
 | `learned_member` | ML-derived members (later) | Declared memory and guards like any member |
+| `generated_family` | Candidates enumerated by a registered grammar over primitives, no idea behind any single one (6.1) | Selection and weighting inside training folds only; one attempt per grammar configuration |
 
 The `alpha_score_residual_single_security_15m` idea reopened in the ledger used the old
 ensemble's score as its signal. It is re-expressed as `corpus_family` with the IC-Sharpe
 combiner, not read from the frozen `ensemble_alpha` table.
+
+### 6.1 Discovery without preconceptions
+
+Prior-driven families test ideas someone already had, and `corpus_family` only reaches the
+features someone already designed. Renaissance's reported practice (Laufer's intraday
+periodicities, Berlekamp-era pattern searches) included searching the data for non-random
+structure with no story attached, then demanding the evidence hold. `generated_family` is that
+process under this design's controls.
+
+1. **Grammar, registered before any run.** The only preconception is the grammar, never an idea:
+   - primitives: returns at each clock, volume, range, gaps (overnight, intraday legs),
+     time-of-day and calendar position, cross-sectional and sector (SCH) aggregates;
+   - operators, all causal by construction: lag, difference, time-series mean, z-score and rank
+     over trailing windows, cross-sectional demean and rank, products of two terms;
+   - windows from a fixed menu; a maximum expression depth (2 to start).
+   The enumerated library holds thousands of candidates.
+2. **No admission.** Every generated candidate is a member. Selection happens only inside each
+   training fold (`in_fold_selection`, by in-fold IC), followed by ridge, so the out-of-fold
+   series is honest however many candidates exist.
+3. **Counting.** One grammar configuration plus its selector is one attempt in the selection
+   universe (7.1). Changing the grammar after seeing results is a new, outcome-informed attempt.
+4. **Guards.** Causality holds by grammar construction; the S3 causality probe still runs on a
+   sample of generated members, and `temporal_integrity` covers their inputs. Generated members
+   also pass the missing-member rule and the E17 memory rule (4.5); a generated expression's memory
+   is derived from its windows.
+5. **Compute.** A library of about 5,000 candidates over 931 names and about 5,000 sessions is
+   about 93 GB in float32, so candidates are never materialized together. In-fold IC uses per-fold
+   sufficient statistics (prefix moments, as `combiner.py` already does for ridge), computed one
+   candidate block at a time.
+6. **Interpretation after the fact.** A selected generated member with lasting contribution earns a
+   recipe card and, where one is found, a mechanism; lacking a mechanism never removes it.
+
+The first run is daily OHLCV primitives on the 931 names (attempt 3b), which needs no feature
+pipeline.
 
 **Planned order** (an order, not a cap). The shortest path to a tradeable verdict comes first:
 books that need no feature infrastructure run while tracks A-C are built. `feature_vectors`
@@ -275,6 +312,7 @@ covers only the 233 `compute_eligible` names; the 931-name daily universe has OH
 | 1c | Pod book of 1a + 1b (P&L-level sum of their D_s series, section 4.1) | 1a, 1b |
 | 2 | Low-turnover forms of family 1 (costed kappa; extreme slots only; trade only when the predicted move clears cost) | First-cut cost model (track Now) |
 | 3 | Price-only daily cross-sectional families on the 931 names: residual short-term reversal (todo 423, on the names the 2026-09-13 screen never saw), residual and industry momentum | S1 residual target on the 931 names; 185 D0 survivorship bound |
+| 3b | `generated_family` over daily OHLCV primitives on the 931 names, in-fold selection plus ridge | 3's S1 target; grammar registered; E17 H0 battery ridge cells |
 | 4 | Sector-ETF-leads-constituent lead-lag at 5m or 15m (ledger family 3), sectors from SCH | Intraday bars for the constituents in the book's universe |
 | 5 | + `corpus_family`, equal weight with in-fold signs | 435; 184 B3 alignment; full feature recompute under provenance batches (section 12.1); `temporal_integrity`, `no_fill`, `point_in_time` checks on the feature columns |
 | 6 | `corpus_family`, ridge; then `corpus_family`, `in_fold_selection` | 5; E17 H0 battery ridge cells (4.5) |
@@ -577,6 +615,20 @@ return (attribution, additive) and who is necessary (marginal, counterfactual).
 7. Turnover and cost share per member.
 8. Forward monitoring: per-member realized contribution on a control chart against its in-sample
    expectation; leaving the band is the decay alarm (section 8).
+
+**Accounting groups inside large families.** Items 1-3 need groups to split. A prior-driven
+family is small enough to read member by member, but `corpus_family` (about 300 members) and
+`generated_family` (thousands) are one family each, so leave-one-family-out and Shapley have
+nothing to split. Inside them, contributions are read by:
+
+- **feature origin (primary):** the feature phase or grammar branch that built each member (SMC,
+  VP/SR, calendar, momentum, volatility, ...; for generated members, primitive and operator).
+  Readable and fixed in advance.
+- **in-fold correlation clusters (beside it):** clusters computed inside each training fold,
+  never from full-vintage data.
+
+Accounting groups exist only for reading contributions. They never decide admission or weights,
+so they cannot bias the test.
 
 Discipline: diagnostics, not tests; per-member t-stats are not significance claims. They never
 edit the book they measure: a pruned book is a new version, outcome-informed, and a counted
