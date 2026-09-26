@@ -62,7 +62,7 @@ per scale); verify against the post-change run's logs rather than citing the est
 
 ## Consumer impact
 
-The 2026-09-23 Phase 176-05 audit (`.planning/phases/176-.../176-SCOPE-CONSUMER-AUDIT.md`)
+The 2026-09-23 Phase 176-05 audit (`.planning/milestones/v3.4-phases/176-.../176-SCOPE-CONSUMER-AUDIT.md`)
 inventoried all 39 `feature_ic_scores` consumers with a DECISION-DRIVING verdict per
 file. That audit's axis was `regime_scope`; this change's axis is scale/lookahead
 removal. Execution step: re-walk that same table and classify each decision-driving

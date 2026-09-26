@@ -193,7 +193,7 @@ about whether to fold a delisted-name sample into the corpus and re-run a closed
 
 - `.planning/todos/pending/376-survivorship-bias-active-only-universe-no-owner.md` — the todo
   this document's Delisted-constituent feasibility section directly answers action item 1 for.
-- `.planning/phases/174-universe-expansion-single-name-breadth-scaling-targeted-etf-/174-RESEARCH.md`
+- `.planning/milestones/v3.4-phases/174-universe-expansion-single-name-breadth-scaling-targeted-etf-/174-RESEARCH.md`
   — Open Question 1 (Russell 3000 sourcing schema) and Pitfall 4 (`ib-gateway` down).
 - `scripts/infrastructure/universe_expansion_fetch_iwv_holdings.py` — the fetch/parse module
   whose schema decisions this document records.

@@ -4,6 +4,26 @@
 
 ---
 
+## Milestone: v3.4 — Edge Proof (closed 2026-09-26)
+
+### What worked
+- Pre-registration and recorded runs: every verdict (179, 181, 176) was reached without a
+  post-hoc rescue, and the ledger kept the track record honest.
+- Independent adversarial review repeatedly caught what the authoring session could not (E12's
+  10x cost bug, E16's bias, the 436 review's holdout-contamination and net-tradeability findings).
+
+### What was inefficient
+- Testing ideas one at a time on a 13-name sleeve spent weeks on tests with almost no power.
+- Two overlapping ensemble layers grew without a stated relation until todo 436 forced one design.
+- Planning files accreted history (ROADMAP 3,149 lines, STATE 294) until cleanup at close.
+
+### Key lessons
+- The unit of research is the book; breadth is the lever; count every look at the data.
+- A gross statistic can pass on an untradeable book: promotion needs net expectation.
+- Raw data is permanent, derived data is cache, conclusions are records.
+
+---
+
 ## Milestone: v2.10 — Data Architecture Evolution
 
 **Shipped:** 2026-06-20

@@ -1,5 +1,23 @@
 # Milestones
 
+## v3.4 Edge Proof (Closed: 2026-09-26)
+
+**Phases:** 174-182. Complete: 175 (ITR materiality tags, shadow mode), 176 (earnings-season
+primitive, both primitives FAIL the IC gate), 178 (recompute throughput bundle, champion weights
+refreshed), 182 (security classification hierarchy). Verdicts: 174 single-name breadth gate
+FAILED (pivot to cross-asset); 179 cross-asset sleeve walk-forward FAIL (best arm excess +0.22,
+adjusted p 0.36); 181 construction track FAIL (H-A, H-B, TSMOM on the sleeve). Superseded: 177
+(data floor, now phase 185 and todos 411/395/387), 180 (cross-asset breadth, now the 931-name
+daily universe). Carried into v3.5: 183, 184, 185.
+**What the milestone established:** standalone construction tests on a 13-ETF sleeve cannot
+resolve weak edges; the research unit became the book (E15), the timing statistic was corrected
+twice (E16, E17), and the whole path from data to capital was redesigned as one pipeline
+(`docs/plans/2026-09-26-unified-research-to-production-design.md`, adopted with E18).
+**Archive:** `.planning/milestones/v3.4-phases/` (174, 175, 176, 182),
+`.planning/milestones/v3.4-ROADMAP.md`, `.planning/milestones/v3.4-STATE.md`.
+
+---
+
 ## v3.1 AlphaEngine Validation + Alpha Scoring (Shipped: 2026-09-02)
 
 **Phases:** 24 complete (140.5, 141, 141.1, 142A, 142B, 142B.1, 142.5, 143, 143.1, 144, 146, 148, 160, 161, 162, 163, 164, 165, 166, 167, 170, 171, 172, 173); 145/168/169 planned but never executed (blocked/superseded at close); 151 Waves 6-7 paused. Timeline: 2026-06-26 → 2026-08-26.

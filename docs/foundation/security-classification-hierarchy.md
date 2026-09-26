@@ -128,7 +128,7 @@ Depth follows the instrument:
 
 The reviewed mapping is committed data (`src/config/classification_seed_data.py`), never computed
 at runtime. The review record, including every override and its evidence, is
-`.planning/phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`.
+`.planning/milestones/v3.4-phases/182-security-classification-hierarchy-todo-384/182-03-REVIEW.md`.
 
 ## Read layer
 

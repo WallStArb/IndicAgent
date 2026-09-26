@@ -37,7 +37,12 @@ SCANNED_SUFFIXES = (".py", ".md", ".ts", ".tsx", ".yaml", ".yml", ".sql")
 _IDENTIFIER_SUFFIXES = (".py", ".ts", ".tsx", ".yaml", ".yml", ".sql")
 _WHOLE_FILE_PROSE_SUFFIXES = (".md", ".ts", ".tsx", ".yaml", ".yml", ".sql")
 # Archived docs are frozen history; the glossary defines the banned terms themselves.
-_EXCLUDED_PATTERNS = ("docs/ideas/archive/*", "docs/plans/archive/*", "docs/research/archive/*")
+_EXCLUDED_PATTERNS = (
+    "docs/ideas/archive/*",
+    "docs/plans/archive/*",
+    "docs/research/archive/*",
+    ".planning/milestones/*",
+)
 _TERM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.\-/]*$")
 
 

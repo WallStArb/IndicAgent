@@ -12,7 +12,7 @@ Phase 176-08's pinned rule returned `CONDITIONING_VERDICT=SHARPENS` and kept
 qualifying features rest on 1 to 10 matched triples each, the population in-season / parent
 `|ic_sharpe_hac|` ratio is 0.96 to 1.03 in every tf, and the in-season partition is about a
 third of each cell, so its statistics reach extreme ratios more often by chance
-(`.planning/phases/176-earnings-season-calendar-primitive-todo-353/176-GATE-VERDICT.md`). While
+(`.planning/milestones/v3.4-phases/176-earnings-season-calendar-primitive-todo-353/176-GATE-VERDICT.md`). While
 the key stays `true`, every full corpus run pays for the season passes (2.4M extra
 `feature_ic_scores` rows in 176-08).
 

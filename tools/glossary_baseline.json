@@ -8,58 +8,7 @@
    "param store": 3
   },
   ".planning/ROADMAP.md": {
-   "counterfactual tracking": 1,
-   "param store": 2
-  },
-  ".planning/STATE.md": {
-   "counterfactual tracking": 1,
-   "execution engine": 1
-  },
-  ".planning/milestones/v2.10-REQUIREMENTS.md": {
-   "execution engine": 1
-  },
-  ".planning/milestones/v2.10-ROADMAP.md": {
-   "3-table architecture": 1
-  },
-  ".planning/milestones/v2.7-PHASE-DETAILS.md": {
-   "config system": 1
-  },
-  ".planning/milestones/v2.9-ROADMAP.md": {
-   "param store": 4,
-   "v2.10 schema": 2
-  },
-  ".planning/milestones/v3.1-phases/142.5-renaissance-primitives/142.5-RESEARCH.md": {
-   "temporal coordinate primitive": 1
-  },
-  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-CONTEXT.md": {
-   "counterfactual tracking": 3
-  },
-  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-DISCUSSION-LOG.md": {
-   "counterfactual tracking": 2
-  },
-  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-PATTERNS.md": {
-   "counterfactual tracking": 1
-  },
-  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-RESEARCH.md": {
-   "counterfactual tracking": 1
-  },
-  ".planning/milestones/v3.1-phases/142B-frame-simulation-counterfactual-tracking/142B-VERIFICATION.md": {
-   "counterfactual tracking": 1
-  },
-  ".planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-CONTEXT.md": {
-   "spread signal": 1
-  },
-  ".planning/milestones/v3.1-phases/146-empirical-instrument-tag-calibrator/146-RESEARCH.md": {
-   "spread signal": 1
-  },
-  ".planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-01-PLAN.md": {
-   "config store": 1
-  },
-  ".planning/milestones/v3.1-phases/166-frame-execution-recalibration/166-02-PLAN.md": {
-   "config store": 1
-  },
-  ".planning/milestones/v3.1-phases/167-cross-sectional-trade-construction/167-06-SUMMARY.md": {
-   "signal source": 1
+   "param store": 1
   },
   ".planning/reviews/2026-06-22-foundation-council-review.md": {
    "signal source": 1
