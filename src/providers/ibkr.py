@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import functools
+import json
 import logging
 import math
 import os
@@ -17,9 +18,10 @@ import signal
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
 # published as aeventkit but still imported as `eventkit`) calls asyncio.get_event_loop()
@@ -263,6 +265,29 @@ class _SlidingWindowRateLimiter:
 
 _hist_rate_limiter = _SlidingWindowRateLimiter()
 _tf_rate_limiters: dict[str, _SlidingWindowRateLimiter] = {}
+
+
+HIST_RATE_LIMIT_KEYS = (
+    "infra.ibkr.rate_limit_max_requests",
+    "infra.ibkr.rate_limit_window_sec",
+    "infra.ibkr.rate_limit_max_requests_by_tf",
+)
+
+
+def apply_hist_rate_limit_config(values: Mapping[str, Any]) -> None:
+    """Overlay the APR historical rate-limit keys (HIST_RATE_LIMIT_KEYS, config_key -> stored
+    config_value) onto the module constants every limiter reads fresh on acquire(). Absent
+    keys keep their defaults. DB-ignorant: each caller loads the rows its own way."""
+    global _IBKR_HIST_RATE_LIMIT, _IBKR_HIST_WINDOW_S, _IBKR_HIST_RATE_LIMIT_BY_TF  # noqa: PLW0603
+    if "infra.ibkr.rate_limit_max_requests" in values:
+        _IBKR_HIST_RATE_LIMIT = int(values["infra.ibkr.rate_limit_max_requests"])
+    if "infra.ibkr.rate_limit_window_sec" in values:
+        _IBKR_HIST_WINDOW_S = float(values["infra.ibkr.rate_limit_window_sec"])
+    if "infra.ibkr.rate_limit_max_requests_by_tf" in values:
+        _IBKR_HIST_RATE_LIMIT_BY_TF = {
+            tf: int(n)
+            for tf, n in json.loads(values["infra.ibkr.rate_limit_max_requests_by_tf"]).items()
+        }
 
 
 def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
@@ -793,26 +818,9 @@ class IBKRProvider:
             # ContFuture + ADJUSTED_LAST: IBKR prohibits setting endDateTime.
             # Fetch in a single request from now backwards by total duration.
             total_days = max(1, (end - start).days + 1)
-            duration_str = _days_to_duration_str(total_days)
-            try:
-                ib_bars = await asyncio.wait_for(
-                    self._ib.reqHistoricalDataAsync(
-                        contract,
-                        endDateTime="",  # must be empty for ContFuture
-                        durationStr=duration_str,
-                        barSizeSetting=_TF_TO_IB[timeframe],
-                        whatToShow=what_to_show,
-                        useRTH=False,
-                        formatDate=1,
-                    ),
-                    timeout=_HIST_REQUEST_TIMEOUT_SEC,
-                )
-            except TimeoutError:
-                logger.error(
-                    "ibkr.hist_request_outer_timeout",
-                    extra={"symbol": symbol, "timeframe": timeframe, "continuous": True},
-                )
-                ib_bars = []
+            ib_bars = await self._request_back_from_now(
+                contract, symbol, timeframe, what_to_show, _days_to_duration_str(total_days), False
+            )
             continuous_bars: list[OHLCVBar] = []
             for bar in ib_bars or []:
                 bar_ts = _normalize_ib_bar_ts(bar.date)
@@ -1172,6 +1180,52 @@ class IBKRProvider:
         if not isinstance(head, datetime):
             return None, "no head timestamp returned"
         return (head if head.tzinfo else head.replace(tzinfo=UTC)), None
+
+    async def _request_back_from_now(
+        self, contract, symbol: str, timeframe: str, what_to_show: str, duration: str, rth: bool
+    ) -> list:
+        """One historical request ending now (endDateTime empty, which ADJUSTED_LAST requires),
+        bounded by _HIST_REQUEST_TIMEOUT_SEC; [] on timeout. Pacing is the caller's."""
+        try:
+            return (
+                await asyncio.wait_for(
+                    self._ib.reqHistoricalDataAsync(
+                        contract,
+                        endDateTime="",
+                        durationStr=duration,
+                        barSizeSetting=_TF_TO_IB[timeframe],
+                        whatToShow=what_to_show,
+                        useRTH=rth,
+                        formatDate=1,
+                    ),
+                    timeout=_HIST_REQUEST_TIMEOUT_SEC,
+                )
+                or []
+            )
+        except TimeoutError:
+            logger.error(
+                "ibkr.hist_request_outer_timeout",
+                extra={"symbol": symbol, "timeframe": timeframe, "what_to_show": what_to_show},
+            )
+            return []
+
+    async def fetch_adjusted_daily_closes(
+        self, symbol: str, years: int
+    ) -> tuple[dict[date, float], str | None]:
+        """ADJUSTED_LAST daily closes (split- and dividend-adjusted, RTH) for a qualified equity
+        over the last `years` years: ({day: close}, None) or ({}, error). The unadjusted series
+        is fetch_historical_bars(timeframe="1d"). IBKR re-bases this series on every new
+        dividend, so it is only meaningful next to TRADES closes fetched in the same run."""
+        contract = self._qualified_contracts.get(symbol)
+        if not contract or not self._ib:
+            return {}, "not qualified or not connected"
+        await _hist_limiter_for("1d").acquire()
+        bars = await self._request_back_from_now(
+            contract, symbol, "1d", "ADJUSTED_LAST", f"{years} Y", True
+        )
+        if not bars:
+            return {}, "ADJUSTED_LAST returned no bars"
+        return {_normalize_ib_bar_ts(b.date).date(): float(b.close) for b in bars}, None
 
     async def fetch_contract_classification(self, symbol: str) -> ContractClassification | None:
         """Fetch IBKR industry/category/subcategory/longName for a single-name equity.

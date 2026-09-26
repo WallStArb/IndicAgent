@@ -78,6 +78,7 @@ ib_async>=2.1.0  # ib_insync fork replaced 2026-08-03: erdewit/ib_insync stalled
 # event-loop bugs). aeventkit (ib_async's own eventkit fork) installs under the same
 # `eventkit` import name -- no code changes needed for that dependency.
 pydantic>=2.12.0
+yfinance>=1.7.0  # reference data only (dividends, todo 428); src/providers/yahoo.py
 pydantic-ai>=2.0,<3
 pydantic-settings>=2.12.0
 pyyaml>=6.0  # hard-imported by src/core/ai/registry.py; was previously unpinned, only present

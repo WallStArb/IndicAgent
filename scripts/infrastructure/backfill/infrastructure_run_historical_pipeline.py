@@ -599,15 +599,7 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
                 rows = dict(cur.fetchall())
         finally:
             conn.close()
-        if "infra.ibkr.rate_limit_max_requests" in rows:
-            ibkr._IBKR_HIST_RATE_LIMIT = int(rows["infra.ibkr.rate_limit_max_requests"])
-        if "infra.ibkr.rate_limit_window_sec" in rows:
-            ibkr._IBKR_HIST_WINDOW_S = float(rows["infra.ibkr.rate_limit_window_sec"])
-        if "infra.ibkr.rate_limit_max_requests_by_tf" in rows:
-            ibkr._IBKR_HIST_RATE_LIMIT_BY_TF = {
-                tf: int(n)
-                for tf, n in json.loads(rows["infra.ibkr.rate_limit_max_requests_by_tf"]).items()
-            }
+        ibkr.apply_hist_rate_limit_config(rows)
     except Exception as error:
         print(f"  (APR rate-limit lookup failed, using hardcoded defaults: {error})")
 

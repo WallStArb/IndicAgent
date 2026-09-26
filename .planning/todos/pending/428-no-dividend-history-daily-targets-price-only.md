@@ -41,3 +41,33 @@ predictor that reacts to price level (52-week distance, percentile, VWAP deviati
 exactly those dates, and the drop lands in the next open-to-open return: a timing artifact the
 demeaning does not remove. Family 2's overnight leg is unaffected by the demeaning. The done-when
 condition above stands.
+
+## Update 2026-09-26: dividend history stored (part 1 of 3)
+
+Migration 376 and `services/dividend_event_writer.py` store dividends from two independent
+sources with per-source coverage, and reconcile them:
+
+- `yahoo`: declared cash dividends, full history (73,940 events over 932 active equities).
+- `ibkr_adjusted_last_ratio`: the ex-date step in IBKR's ADJUSTED_LAST / TRADES daily ratio.
+  Rounding noise has a hard bound (0.005/close on each of two days), so no false events
+  (unit-tested at the exact bound on $4, $75 and $600 walks).
+
+Two sources because each has holes the other fills and neither can see its own: IBKR lacks SPY's
+2001-2005 dividends and five HYG months; Yahoo lacks HYG's November 2012 distribution. Where
+both report an event their yields agree to a median 0.3-1.2% relative. A dividend reported on
+different dates by the two sources rolls the symbol back (the reader view would count it twice).
+
+Reader surface: `dividend_events_reconciled` (per-source yields plus a default Yahoo-first
+`dividend_yield`) and `dividend_event_coverage` (outside Yahoo's span: unknown, never zero). Use
+`amount / prev_close` only; amounts are in the split units of the day they were derived.
+
+Remaining for done-when:
+1. S0 emits total-return-adjusted opens and closes from the reconciled view, marks a return
+   unknown when it spans a date outside Yahoo coverage or an event the spec treats as suspect
+   (113 Yahoo events exceed a 10% yield: mostly spin-offs recorded as dividends, and at least one
+   vendor error, VATE 2020-05-14 at 129%), and the guard test (a synthetic high-yield name with
+   no alpha produces no family 9 signal). This touches phase 183's panel: coordinate with that
+   session, which is building family 2 on the same panel.
+2. Chain `dividend_event_writer.py --sources yahoo` into the nightly job so new ex-dates arrive
+   daily; the IBKR cross-check can run weekly (a full universe pass is about 1.6h at the 1d
+   rate limit).
