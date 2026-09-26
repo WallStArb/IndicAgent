@@ -2,7 +2,7 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-24; reviewed by AGY the same day (four findings adopted: harness instead of DB services, excess-over-null power, two-level decision, 179 off 178's path), at Brandon's request ("come up with concrete steps
 and make our priorities/roadmap reflect what levers need to be pulled").
-**Status:** active. This doc owns the ordering of milestone v3.4 (phases 177-181).
+**Status:** SUPERSEDED 2026-09-26 by `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted, E18), which owns the sequence from here; this doc's verdicts and records stand. Previously: this doc owned the ordering of milestone v3.4 (phases 177-181).
 `.planning/ROADMAP.md` carries the phase entries, `.planning/STATE.md` the current position,
 `.planning/todos/PRIORITIES.md` the todo tiers. When they disagree, fix them to match this doc
 or revise this doc; don't let a fourth copy of the sequence grow anywhere else.

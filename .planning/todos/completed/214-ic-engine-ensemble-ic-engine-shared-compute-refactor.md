@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-30
 source: user question mid-session, prompted by todo 210's root cause -- filed rather than
@@ -54,3 +54,7 @@ duplicated across `ICEngineConfig.from_apr`, `EnsembleICConfig.from_apr`, and
 (`services/_batch_utils.py`), commit `955e6fbe`. This is one small instance of the
 duplication class this todo describes, not the compute-core consolidation (fetch → mask →
 rank-IC → walk-forward folds) that is this todo's actual scope. Still open.
+
+## Closure
+
+Closed 2026-09-26 as moot: the adopted unified design (todo 436, section 14) deletes `ensemble_ic_engine.py` in phase 186, so there is no second implementation left to share compute with.

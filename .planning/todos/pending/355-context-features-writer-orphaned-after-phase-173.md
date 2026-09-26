@@ -69,3 +69,7 @@ more orphaned rows.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Re-scoped: retire `context_writer` (`indicagent-ctx-writer.service`, running 2026-09-26, writing `context_features`, which nothing reads). First verify `vix_z`, `yield_slope_z` and `flight_quality` are populated in `feature_vectors` for the same span; then stop, disable and archive per the dual-path plan.
+
+## Unified design adopted 2026-09-26
+
+Folded into phase 186 (adopted unified design, todo 436, section 14): `context_features` is fenced, and the `context_features` writer goes with the old-chain deletion after a consumer check.

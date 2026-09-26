@@ -18,3 +18,7 @@ Confirmed not a reuse bug in the diff that surfaced it -- `_flush_chunk` follows
 ## Fix (if picked up)
 
 A `chunked_executemany(pool, sql, chunk, chunk_size)` (or similar) primitive in `services/_batch_utils.py`, matching `bulk_update_by_key`'s precedent of centralizing a repeated batch-write shape. Migrate all 3+ call sites onto it in one dedicated pass, not piecemeal.
+
+## Unified design adopted 2026-09-26
+
+The `alpha_publisher` instance of the duplicated chunk-flush pattern goes away when phase 186 replaces `alpha_publisher` (adopted unified design, todo 436, section 14); the remaining instances stand.

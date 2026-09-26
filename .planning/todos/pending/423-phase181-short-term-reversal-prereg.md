@@ -5,7 +5,7 @@ filed: 2026-09-24
 source: council review 2026-09-24, docs/plans/2026-09-24-edge-proof-program.md "Phase 181 queue"
 ---
 
-# Phase 181 candidate 2: short-term reversal on single names, market-neutral
+# Family 4 member: residual short-term reversal on single names, market-neutral
 
 ## What
 
@@ -39,3 +39,7 @@ one-bar skip variant. Either is a family member entering the book, not a standal
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Re-scoped: from a standalone reversal pre-registration to family 4's spec (ledger section 1 row 4), with the in-sample disclosure (2026-09-13 screen) and one-bar skip variants the ledger row requires. Relation to family 9 declared.
+
+## Unified design adopted 2026-09-26
+
+Retitled by the adopted unified design (todo 436, section 14.3): this is a family 4 member entering a book, not a "Phase 181 candidate". Run it with the price-only daily families (todo 441) on the names the 2026-09-13 screen never saw (attempt 3); declare its costed construction for promotion (E18).

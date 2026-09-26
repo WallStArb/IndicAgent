@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-23
 source: memory warning during the Phase 176-08 corpus run (main process RSS growth measured live)
@@ -56,3 +56,7 @@ forces a recompute. Acceptance unchanged: main RSS flat in symbol count.
 `del futures[future]` after each result is recorded (guard test in
 test_ic_engine_fingerprint.py). Close when the next full recompute shows main RSS flat in symbol
 count.
+
+## Closure
+
+Closed 2026-09-26 as moot: the per-symbol x regime grid whose FDR stage held every symbol's rows is deleted by the adopted unified design (todo 436, section 11; phase 186). Reopen if the shrunk engine shows the same memory pattern.

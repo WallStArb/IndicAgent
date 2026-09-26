@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-21
 source: split out of todo 164 -- the 1h portion (population-scarcity, mechanical per-tf
@@ -49,3 +49,7 @@ plan, not a same-session follow-on to todo 164.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.
+
+## Closure
+
+Closed 2026-09-26 as moot: ensemble eligibility is a per-feature admission gate, which E15 removed and the adopted unified design deletes with `ensemble_trainer` (todo 436, section 14; phase 186). The small-sample power problem at 1d now surfaces as book-level power (E15 refusal rule), not eligibility.

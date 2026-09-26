@@ -977,3 +977,45 @@ when this was found.
     risk in the methodology itself, so it is the owner's decision, not the builder's.
 - **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
   Family 1's member evidence exists and stays as recorded, annotated per condition (4).
+
+### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
+
+- **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),
+  sections 7 and 9, after a section-by-section brainstorm with the owner and an independent
+  adversarial review (Fable 5.1, section 20 of that doc).
+- **Replaces E15's screen budget.** E15's hard M = 30 book-version budget per vintage and its
+  per-screen Bonferroni bar (p < 0.05 / 30) are replaced by:
+  1. uncapped iteration; every real-vintage series a person can see is recorded with its full
+     return series and joins the selection universe: book attempts in any runner mode (a new
+     `exploration` mode included), member evidence runs, and diagnostic subset refits
+     (leave-one-family-out, Shapley). A run that computed a statistic and then failed still counts;
+  2. no bar per attempt; at selection, Romano-Wolf StepM over the whole selection universe at
+     family-wise 0.05, on each attempt's E17 D_s per session, one common session calendar with
+     per-series studentization, one joint stationary-bootstrap index draw, mean block length above
+     the longest holding horizon. Known gap, disclosed: step-down tests assume a fixed model set
+     while `informed_by` chains are adaptive; the forward confirmation covers it;
+  3. vintage extension re-evaluates prior attempts; the count does not reset.
+- **Promotion requires positive net expectation.** Within the selection set, the book that spends
+  a forward span is chosen by pre-declared net expectation from the cost model at a conservative
+  quantile; a book at or below zero is not promoted. Test statistics stay gross: the standing
+  costs-not-gating directive holds for discovery and for every statistic. The promoted
+  construction (costed partial-adjustment rate, cost-aware construction where used) must itself be
+  an attempt in the selection set. Motivation: family 1's members carry gross Sharpe 3.8 to 5.3 at
+  about 26x gross turnover per session, where 1 bp per side costs about 65% a year against about
+  4.7% gross.
+- **Forward span per book.** `.planning/gate_look_log.jsonl` records 7 scored looks at data after
+  `alpha.validation.oos_start` (2025-12-24), the last on 2026-08-07 (Phase 148's `alpha_score`,
+  the gate166 candidates, the `ctf_momentum` decile long-short), and until 2026-07-02 every IC and
+  ensemble computation included that span. Books with `feature_vectors` members or
+  `ctf_momentum`-like members confirm only on data after the book's freeze date and never before
+  2026-08-08. Price-only families 1 and 2 keep the 2025-12-24 start, disclosed as adjacent to the
+  `ctf_momentum` looks. A power-dated test date more than 3 years out refuses promotion.
+- **Sealed shadow.** Every book in the selection set runs forward in shadow; its positions are
+  readable only for loss-limit monitoring until its power-dated test date.
+- **Unchanged:** each forward span's single use; E16/E17's statistic (E17 gains ridge and
+  partial-adjustment cells in its H0 battery, and L for fitted books adds combiner and horizon-rule
+  reach, design section 4.5). Frozen verdicts are not re-scored; nothing has been charged on
+  vintage 1 (book_v1 was refused).
+- **Built by:** roadmap phase 187 (research core). Until it lands, the phase 183 runner's
+  M = 30 accounting stays in force for any book test run.
+- **Pre-registered?** No real-data book test exists on vintage 1.

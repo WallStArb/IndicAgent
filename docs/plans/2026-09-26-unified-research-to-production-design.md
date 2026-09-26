@@ -9,9 +9,10 @@ and 2026-10-15. An independent adversarial review by Fable 5.1 (file paths only,
 raised 19 findings; each was checked against the code and database before acceptance, the two
 that reversed approved decisions were put to the owner and accepted, and the dispositions are in
 section 20.
-**Status:** PROPOSED. No code until adopted. Adoption needs one methodology-change-ledger entry
-(E18, section 7.4), because this design replaces E15's hard M = 30 screen budget, moves the
-forward span per book, and adds a net-expectation condition at promotion.
+**Status:** ADOPTED 2026-09-26 by the owner, with methodology-change-ledger E18 (section 7.4):
+this design replaces E15's hard M = 30 screen budget, moves the forward span per book, and adds a
+net-expectation condition at promotion. Implementation is tracked by roadmap phases 186-188 and
+the todos filed at adoption (section 19).
 **Parents:** `docs/plans/2026-09-24-evidence-framework.md` (E15),
 `docs/plans/2026-09-25-alpha-research-architecture.md` (adopted),
 `docs/plans/methodology-change-ledger.md` E16 and E17.
@@ -784,14 +785,22 @@ Recorded as `idea` concepts in UCR once it exists, not lost:
 
 ## 19. Adoption actions
 
-1. Independent review of this doc (Fable, file paths only, adversarial prompt); findings folded
-   in; Informed by line updated.
-2. Owner adoption; status line to ADOPTED.
-3. Methodology-change-ledger E18 (7.4).
-4. Glossary and naming-system updates (15).
-5. ROADMAP: new phases for tracks A, C, E; re-scope notes on 156-159, 170, 184, 149-150.
-6. Todo dispositions (14.4) and new implementation todos, each with a PRIORITIES.md row.
-7. STATE.md strategic plan bullet replaced.
+All done 2026-09-26:
+
+1. Independent review (Fable 5.1, file paths only, adversarial prompt); findings folded in
+   (section 20).
+2. Owner adoption; status line ADOPTED.
+3. Methodology-change-ledger E18.
+4. Glossary (retired terms marked legacy, new vocabulary added, `book`, `book version`,
+   `screen`, `confirmation`, `vintage` redefined) and naming-system (`AlphaEngine` retired,
+   `PrecedentEngine` repointed). Bans are left to todo 430's curation.
+5. ROADMAP: phases 186 (track A), 187 (track C), 188 (track E); re-scope notes on 149, 150, 156,
+   170 and 184; v4.0 parking note revised.
+6. Todos: 214, 385, 399, 337, 419, 166 closed as moot, 393 folded into 437, 436 closed; notes on
+   009, 038, 039, 099, 115, 191, 228, 352, 355, 423 (retitled), 435; new 437-442 with
+   PRIORITIES.md rows.
+7. STATE.md strategic plan updated; `docs/plans/2026-09-24-edge-proof-program.md` marked
+   superseded.
 
 ## 20. Review resolutions
 

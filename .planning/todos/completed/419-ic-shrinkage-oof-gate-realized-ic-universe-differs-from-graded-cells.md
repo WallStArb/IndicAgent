@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-24
 source: reading scripts/ops/alpha/ops_ic_shrinkage.py while fixing 417
@@ -29,3 +29,7 @@ Restrict the fetch to the stratum's own group symbols (production routing,
 `_build_symbol_regime_class`) and join `market_regimes` on that group; state explicitly which
 groups the gate covers. Then re-run the gate (the ic_input flip is one-way and already `ic_shrunk`,
 so a FAIL here would be a finding to act on, not an automatic revert). ~2h run.
+
+## Closure
+
+Closed 2026-09-26 as moot: the IC-shrinkage out-of-fold gate grades the old ensemble's admission cells, which the adopted unified design deletes (todo 436, sections 11 and 14; phase 186).

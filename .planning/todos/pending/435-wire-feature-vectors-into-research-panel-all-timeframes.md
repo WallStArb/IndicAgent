@@ -58,3 +58,7 @@ illiq enters any family.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Added in triage: (1) HMM-derived columns (regime labels, `hmm_*`) may not enter any family until todo 248's walk-forward refit is deployed; phase 179 used the same exclusion. (2) Methods plan (todo 436): besides prior-driven feature families, the whole corpus may enter as one data-driven family without per-member priors (the ledger's reopened corpus-features row); that is the first Renaissance-style use once steps 1-3 land.
+
+## Unified design adopted 2026-09-26
+
+Adopted unified design (todo 436): the first feature book needs a full feature recompute under provenance batches (existing rows carry no record of the APR values or code that computed them, design section 12.1) and phase 184's B3 alignment; `corpus_family` signs come from training folds and missing members follow the combining rule (section 4.2). The feature books are attempts 5-8, after the price-only attempts.

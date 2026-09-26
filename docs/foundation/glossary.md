@@ -706,6 +706,8 @@ code; do not conflate the two when reading history.
 
 ### `AlphaEngine`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: the unified research-to-production pipeline (no single system name); IC measurement is `ic_engine`, combination is the research layer's combiner.
+
 The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 (Prediction) of the four-layer architecture — Layer 0 (Data) → Layer 1 (Prediction) → Layer 2 (Portfolio) → Layer 3 (Execution); see `docs/intelligence/intelligence-alphaengine.md` "Three-Layer Architecture" (name kept for continuity, now describes four layers with Layer 0 made explicit). Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
 
 Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builder, nightly Alpha Emitter). FeatureFactory runs in-process on the hot path, writing to `feature_vectors` as a DB sink only.
@@ -736,6 +738,8 @@ Combination → Emission), naming each stage's contract separately from its curr
 
 ### `Stage 0` (Primitive Measurement)
 
+**Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
+
 AlphaEngine's first internal stage. Contract: raw OHLCV bar in, a fixed-width vector of scalar
 measurements out. No theory, no conditioning on state. Current mechanism: `FeatureFactory`
 producing `FeatureVector`.
@@ -757,6 +761,8 @@ feature-lifecycle system now. The sub-tier taxonomy proposal itself was never re
 
 ### `Stage 1` (Stratification)
 
+**Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
+
 AlphaEngine's second internal stage. Contract: the `FeatureVector` corpus in, a discrete
 conditioning-state label per bar out. Current mechanism: `regime`, produced by two coexisting
 implementations — per-symbol `GaussianHMM` (**idiosyncratic**/**symbol** regime) and a
@@ -777,6 +783,8 @@ yet exist (see intelligence-layer-architecture.md's "gaps" section)
 
 ### `Stage 2` (Edge Measurement)
 
+**Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
+
 AlphaEngine's third internal stage. Contract: a `FeatureVector` column (optionally stratified by
 a Stage 1 label) plus forward returns in, a predictive statistic with a confidence interval out.
 Current mechanism: `IC Engine`, using Spearman `Information Coefficient`.
@@ -792,6 +800,8 @@ candidates for an additional or alternative mechanism at this stage.
 ---
 
 ### `Stage 3` (Combination)
+
+**Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
 AlphaEngine's fourth internal stage. Contract: many Stage-2-scored features in, one scalar
 composite score per bar out. Current mechanism: `Ensemble`, IC-Sharpe-weighted with Ledoit-Wolf
@@ -811,6 +821,8 @@ paths; `ensemble_weights` currently holds only `weight_version='v1'` rows — se
 ---
 
 ### `Stage 4` (Emission)
+
+**Legacy (retired 2026-09-26, unified design section 15.1):** AlphaEngine stage numbering is not used; pipeline stages are named (ingest, feature, measure, research, book, forward, capital, execution) and S0-S9 are research-layer sub-steps only.
 
 AlphaEngine's fifth and final internal stage. Contract: a per-bar composite score in, a discrete
 timestamped tradeable event out, gated on magnitude and confidence. Current mechanism: a
@@ -1079,6 +1091,8 @@ rule and is exempt only until its rename to `Predictor` (see `predictor`, todo 4
 
 ### `alpha score`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `book forecast`.
+
 The z-scored ensemble prediction for a given bar — the IC-weighted linear combination of rank-normalized `FeatureVector` columns, normalized to standard deviation units within a rolling 20-day window. Stored in `ensemble_alpha.alpha_score`.
 
 ```
@@ -1110,6 +1124,8 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 ### `ensemble alpha`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `book forecast`.
+
 The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, tf, bar_ts) once ensemble weights exist. The unconditional output of the AlphaEngine — every bar is scored regardless of whether it will trigger an emission. Populated by the nightly Ensemble Builder.
 
 `ensemble_alpha` is the input to the Alpha Emitter, which filters for `|alpha_score| > threshold` and writes `alpha_events`. It is also the rolling window used by the Alpha Decay Monitor to recompute IC on recent data.
@@ -1123,6 +1139,8 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 ---
 
 ### `IC discovery`
+
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `ic_proposal` (disclosure and proposal, never admission).
 
 The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
 
@@ -1280,6 +1298,8 @@ The table of emitted alpha signals in v3.0 — one row per (symbol, tf, bar_ts) 
 
 ### `weight_version`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `recipe version` of a book.
+
 A monotonically increasing integer that identifies a specific set of ensemble weights in `ensemble_weights`. Incremented on every run of the Ensemble Builder that produces any weight change. All rows in `ensemble_weights` with the same `weight_version` form a complete, consistent weight set.
 
 `ensemble_alpha` records the `weight_version` used to score each bar, creating a full audit trail: any historical `alpha_score` can be reproduced by finding the corresponding weight set.
@@ -1411,6 +1431,8 @@ of which method or grain is used.
 
 ### `ensemble optimizer`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: a `combiner` (research layer).
+
 The functional slot that derives a weight vector from the history of predictive
 measurement scores, producing a covariance-adjusted weight per feature that maximizes
 expected portfolio IR subject to constraints. Runs on a batch schedule (weekly or
@@ -1425,6 +1447,8 @@ the alpha scorer applies them.
 
 ### `alpha scorer`
 
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: a `combiner` (research layer).
+
 The functional slot that applies the current ensemble weight vector to each bar's
 FeatureVector, producing a scalar score per (symbol, tf, bar_ts). Runs nightly on the
 full `feature_vectors` history and in near-real-time on the hot path for live bars.
@@ -1437,6 +1461,8 @@ scores every bar; the alpha emitter selects which bars to act on.
 ---
 
 ### `alpha emitter`
+
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: `forward runner`.
 
 The functional slot that filters alpha scorer output and emits actionable events when
 the score crosses a threshold with sufficient statistical confidence. The boundary
@@ -1461,25 +1487,27 @@ resolutions are in `predictor`, `horizon` and `IC term structure` below, and in 
 
 ### `book`
 
-The one portfolio a test evaluates: every member of the admitted families, combined by the
-walk-forward ridge combiner (S7) into one position per (row, symbol) on one `clock`, scored
-against one target. The book, not an idea or a predictor, is what earns capital.
+The one portfolio a test evaluates, four frozen parts plus a spec hash: its members (registered
+families and their pinned members), a combiner that sets `member weight`s walk-forward, a
+`construction rule` that turns the `book forecast` into `position weight`s, and a `horizon rule`.
+S8 tests the construction that will trade. The book, not an idea or a predictor, is what earns
+capital. Families on different clocks combine only at the P&L level, as a pod book.
 
-**Not:** a sleeve (a fixed symbol subset used by legacy phase 179 tests), a strategy, or a
-family. A family contributes predictors to a book; it is never tested alone on the forward span.
+**Not:** a sleeve (retired: a fixed symbol subset used by legacy phase 179 tests), a strategy, or
+a family. A family contributes predictors to a book; it is never tested alone on the forward span.
 **Banned:** (none)
-**Status:** active (design); built by phase 183 (S7 combiner, S8 book test)
+**Status:** active; `docs/plans/2026-09-26-unified-research-to-production-design.md` section 4
 
 ---
 
 ### `book version`
 
-The unit of test: a book's set of registered families plus its combiner spec. Any change to
-either (adding or removing a family or member, changing the combiner) is a new book version, and
-each book version tested on the searched `vintage` spends one test from the `screen` budget.
+Any change to a book's members, combiner, construction rule or horizon rule makes a new book
+version, and running it on the vintage makes a new `attempt`. There is no fixed budget of
+versions: every attempt is counted and priced by the `selection test` (E18).
 
 **Banned:** (none)
-**Status:** active (evidence framework section 6)
+**Status:** active (E18)
 
 ---
 
@@ -1555,7 +1583,7 @@ decision time). The legacy ic_engine column `lookahead_bars` means horizon; it k
 
 ### `vintage`
 
-A dated span of data with its own screen budget. Vintage 1 is all data before
+A dated span of data whose attempts are counted together for the `selection test`. Vintage 1 is all data before
 `alpha.validation.oos_start` (2025-12-24). The span after it is the `forward span`, reserved for
 `confirmation`.
 
@@ -1566,24 +1594,24 @@ A dated span of data with its own screen budget. Vintage 1 is all data before
 
 ### `screen`
 
-A test of a `book version` on the searched vintage, one-sided at alpha / M, where M is the
-vintage's declared screen budget (M = 30 on vintage 1, bar p < 0.00167). Passing a screen makes a
-book a candidate for freezing, not for capital.
+Legacy (E15, replaced by E18 on 2026-09-26): a test of a book version at alpha / M against a fixed
+budget of M = 30. Under E18 an attempt has no per-run bar; the `selection test` prices every
+attempt at once. Use `attempt` and `selection test`.
 
-**Not:** confirmation, and not an admission test for families (families enter without one).
 **Banned:** (none)
-**Status:** active
+**Status:** legacy
 
 ---
 
 ### `confirmation`
 
-The single test of a frozen book on the forward span, alpha 0.05 one-sided, on a date fixed at
-freeze by a power calculation. The only test that controls false discovery and the only gate to
-capital.
+The single test of a promoted book on its own forward span, alpha 0.05 one-sided, on a date fixed
+at freeze by a power calculation (at most 3 years out). The span must be data no one looked at while
+shaping the book: books with `feature_vectors` or `ctf_momentum`-like members confirm only on data
+after their freeze date and never before 2026-08-08 (E18). The only gate to capital.
 
 **Banned:** (none)
-**Status:** active
+**Status:** active (E18)
 
 ---
 
@@ -1637,6 +1665,182 @@ predictor's information lasts, produced by every recorded run and fed into nothi
 legacy cumulative-horizon IC ladder (overlapping targets).
 **Banned:** (none)
 **Status:** design (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` D2)
+
+---
+
+## Unified design vocabulary (2026-09-26)
+
+Added with `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted, E18),
+section 15. Collisions it resolves: invariants are named, not numbered (I1-I4 are intelligence
+tiers); discovery methods are named, not D-numbered (phase 185 and 183 use D codes); `member
+weight` and `position weight` separate the two meanings of `weight`.
+
+### `member weight`
+
+The weight a combiner gives a family member when forming the `book forecast`, fitted on training
+folds only. **Not:** `position weight`.
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `book forecast`
+
+The combiner's output per (row, symbol): the sum of member scores times member weights.
+**Not:** `alpha score` or `ensemble alpha` (legacy production outputs).
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `position weight`
+
+A holding per (row, symbol) produced by a `construction rule` from the book forecast.
+**Banned:** (none)
+**Status:** active
+
+---
+
+### `construction rule`
+
+The rule that turns a book forecast into position weights: R1 (rank, inverse vol, market
+neutral), `vol_normalized`, `ic_proportional`, `mean_variance` or `fixed_sign`, behind the
+`ConstructionRule` protocol. Part of the frozen book.
+**Banned:** (none)
+**Status:** active (phase 187)
+
+---
+
+### `horizon rule`
+
+Partial adjustment toward target positions, `w_t = w_(t-1) + kappa (w*_t - w_(t-1))`. Kappa is a
+cost device (Garleanu and Pedersen): derived from the cost model and the signal's own
+autocorrelation, pinned before the attempt; kappa = 1 when uncosted.
+**Banned:** (none)
+**Status:** active (phase 187)
+
+---
+
+### `attempt`
+
+One recorded evaluation of a series on the real vintage that a person can see: a book run in any
+runner mode, a member evidence run, or a diagnostic subset refit. Every attempt joins the
+selection universe; nothing on the vintage is uncounted.
+**Banned:** (none)
+**Status:** active (E18)
+
+---
+
+### `selection test`
+
+Romano-Wolf StepM over every attempt on a vintage at family-wise 0.05, returning the set of books
+that beat zero given everything tried. Promotion then chooses within that set by net expectation.
+**Not:** `confirmation` (the one forward test) or the legacy `screen`.
+**Banned:** (none)
+**Status:** active (E18; built in phase 187)
+
+---
+
+### `frozen book`
+
+A book whose four parts and spec hash are recorded in UCR and never edited; a change is a new book
+version. **Banned:** (none)
+**Status:** active
+
+---
+
+### `forward runner`
+
+The stage that runs frozen books forward on the same research code (`BookTracker` computes,
+`BookPositionWriter` persists), in sealed shadow until each book's test date.
+**Not:** `alpha emitter` (legacy). **Banned:** (none)
+**Status:** design (phase 188)
+
+---
+
+### `champion` / `challenger` (books)
+
+The deployed book (champion) and a new version run beside it in sealed shadow (challenger);
+capital moves only after a pre-declared paired test passes.
+**Banned:** (none)
+**Status:** design (phase 188)
+
+---
+
+### `recipe` / `recipe version`
+
+A concept's exact definition in UCR: code pointer and commit, pinned parameters with their APR
+values, inputs, universe selector, vocabulary codes, mechanism and sources. Versions are
+append-only (`concept_recipe`). **Banned:** (none)
+**Status:** design (phase 187)
+
+---
+
+### `research stage`
+
+How far a concept has got in research (idea, specified, registered, tested, refused, frozen,
+confirmed), derived from recipes and attempts, never stored. **Not:** `status` (the production
+lifecycle). **Banned:** (none)
+**Status:** design (phase 187)
+
+---
+
+### `decay alarm`
+
+A frozen book's member leaving its control band of realized contribution in forward monitoring;
+it triggers review, not removal. **Banned:** (none)
+**Status:** design (phase 188)
+
+---
+
+### `contribution`
+
+What a member or family adds to a book. Attribution (who earned the return: additive, forecast
+level exact always, P&L level exact for linear constructions) differs from marginal contribution
+(who is necessary: leave-one-family-out, Shapley). **Banned:** (none)
+**Status:** active (design section 13)
+
+---
+
+### `state variable`
+
+A continuous macro regime input (vol z, breadth, curve z, dollar z) used to condition members as
+`s` and `s x z_t`, instead of regime buckets. **Banned:** (none)
+**Status:** active (design section 5.2)
+
+---
+
+### `regime disclosure`
+
+The fixed per-regime table (P&L share, mean, HAC t, IC, hit rate, effective observations) and
+regime-explained share reported on every book test; never gating. **Banned:** (none)
+**Status:** active
+
+---
+
+### `provenance batch`
+
+The record of one write batch to a bulk table (writer, per-kernel code key, APR snapshot, input
+content digest, symbol x tf x time range); the lineage record and the idempotency key.
+**Banned:** (none)
+**Status:** design (phase 187)
+
+---
+
+### `fenced table`
+
+A table with no writer, kept as evidence: raising write triggers, a frozen comment and a CI read
+allow-list. The old ensemble chain's tables are fenced, not dropped. **Banned:** (none)
+**Status:** design (phase 186)
+
+---
+
+### `generated_family`
+
+A family whose members are enumerated by a registered grammar over primitives, with no idea behind
+any single member; selection and weighting happen only inside training folds.
+**Banned:** (none)
+**Status:** design (design section 6.1)
 
 ---
 

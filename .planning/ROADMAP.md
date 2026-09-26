@@ -29,13 +29,14 @@
 - 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145, 146** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 149-151 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/stratification-dimension-unification.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 149** (intel-13: PrecedentEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 149's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
 - 📋 **v3.2 Signal Diversification — PrecedentEngine + Feature Expansion** — Phases 149-151 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 149; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 150 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-precedent-engine.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "PrecedentEngine" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
 - 📋 **v4.0 Execution Layer** — **Phases 156-159** (numbered 2026-07-12 from a production-readiness review, was "Phases TBD"; **restructured same day** to split out Portfolio State as its own foundational phase after catching a gap — this milestone's own design is portfolio-level, not per-security, and had no persisted entity for portfolio state to live in: 156 Portfolio State Foundation, 157 Position Sizing & Risk Management, 158 Live Execution Layer + broker resilience, 159 Cost Calibration Feedback Loop + Execution Scoring) (planned; hard-gated on v3.2 complete (Phase 155 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
-- 🔄 **v3.4 Edge Proof** - Phases 177-185 (set 2026-09-24; active; 182 and 183 added 2026-09-25, 184 added 2026-09-25, 185 added 2026-09-26). Data floor, recompute throughput, a weight-level walk-forward verdict on the cross-asset sleeve and a parallel construction track (the two alpha-generation tracks), cross-asset breadth. Plan: `docs/plans/2026-09-24-edge-proof-program.md`.
+- 🔄 **v3.4 Edge Proof** - Phases 177-188 (set 2026-09-24; active; 182 and 183 added 2026-09-25, 184 added 2026-09-25, 185 added 2026-09-26, 186-188 added 2026-09-26 with the adopted unified design, todo 436). Data floor, recompute throughput, a weight-level walk-forward verdict on the cross-asset sleeve and a parallel construction track (the two alpha-generation tracks), cross-asset breadth. Plan: `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted 2026-09-26, E18) owns the sequence from here; `docs/plans/2026-09-24-edge-proof-program.md` is superseded.
 - 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 152, 153 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/measurement-governance-monitor.md` (current design, supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 152 and 153 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 152 depends only on `feature_vectors` (exists today); Phase 153 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher.
 
 ## Planned Phases — Priority Order
 
-**Active milestone: v3.4 Edge Proof (phases 177-185), set 2026-09-24.** Ordering and rationale:
-`docs/plans/2026-09-24-edge-proof-program.md`, the single owner of sequence. STATE.md records
+**Active milestone: v3.4 Edge Proof (phases 177-188), set 2026-09-24.** Ordering and rationale:
+`docs/plans/2026-09-26-unified-research-to-production-design.md` section 16 (adopted 2026-09-26),
+the single owner of sequence; it supersedes `docs/plans/2026-09-24-edge-proof-program.md`. STATE.md records
 current position only; PRIORITIES.md tiers todos; this list names the phases in order.
 
 | Order | Phase | Lever | Status |
@@ -47,14 +48,19 @@ current position only; PRIORITIES.md tiers todos; this list names the phases in 
 | 5 | 181 Construction track | H-A/H-B both FAIL 2026-09-24; queue re-ranked by prior (plan's "Phase 181 queue"): TSMOM on the sleeve FAIL 2026-09-24 (422, p 0.22), next short-term reversal (423), then cross-TF divergence | Active, parallel with 179 |
 | 6 | 182 Security classification hierarchy (todo 384) | Dated, tiered classification of every instrument (asset class > sector > industry group > industry): stratification, peer groups, reporting. Off the research critical path (S1 uses causal price clusters) | Complete 2026-09-25 |
 | 7 | 183 Research layer: runner, ledger, combiner, book test | Architecture steps 4-6 (`docs/plans/2026-09-25-alpha-research-architecture.md`): spec-as-pre-registration runner, S6 ledger writer with the vintage budget, S7 walk-forward ridge combiner, S8 book test. Every real-data number goes through it, so none has to be re-run or back-recorded | Not planned; steps 1-3 (panel, S1, S3 guards) on main 2026-09-25 |
-| 8 | 184 Multi-timeframe research inputs | One clock and one target per book; predictors from other timeframes enter through one causal alignment node; corpus features recomputed from `feature_factory` kernels (never read from `feature_vectors`); 15m and 1h built from 5m. Unblocks families 9 and 10 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`) | Not planned; waits on 183 |
+| 8 | 184 Multi-timeframe research inputs | One clock and one target per book; predictors from other timeframes enter through one causal alignment node; corpus features read from `feature_vectors` (revised by todo 435; the draft's recompute-instead-of-read D5 was never approved); 15m and 1h built from 5m; B3 alignment is a prerequisite for feature books. Unblocks families 9 and 10 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`) | Not planned; waits on 183 |
 | 9 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; venue-move history (todo 433, P0) recovered after validation; splits and dividends point in time; daily reconciliation of IBKR's independent views; verdicts carry measured data-quality labels. IBKR-only (owner, 2026-09-26). Spec: `docs/plans/2026-09-26-daily-data-foundation.md` | Accepted 2026-09-26; parallel with research. 433 branch (verify-only) ready to merge after the running backfill |
+| 10 | 186 Old ensemble chain retirement and ic_engine re-scope | Track A of the unified design: delete the old chain, fence its tables with raising triggers, shrink ic_engine to proposer + term structure + monitoring, feature lifecycle on data-quality gates | Not planned; waits on no live or resumable ic_engine run |
+| 11 | 187 Research core: recipe book, selection, construction | Track C: UCR recipe book, StepM selection (E18), `ConstructionRule`, pod books, costed horizon rule, missing-member rule, contribution accounting, `generated_family` grammar support, DAG manifest, vocabulary renames | Not planned; waits on 183 plan 10 |
+| 12 | 188 Forward runner and capital tier | Track E: `BookTracker`/`BookPositionWriter`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
 
 177, 178 and 179 run in parallel (IBKR/alerting, ic_engine, an in-memory analysis harness).
 179 does not wait on 178: its walk-forward never touches the production IC or weight tables.
 
 **Parked until a 179/180 PASS or a milestone-boundary review:** 145, 147, 149, 150, 151
-waves 6-7, 155, 168, 169, v4.1 (152/153), v2.8 Part 2. v4.0 (156-159) stays gated on a PASS.
+waves 6-7, 155, 168, 169, v4.1 (152/153), v2.8 Part 2. v4.0 (156-159) is re-scoped by the unified
+design (section 14.3): 156-157 fold into phase 188 on top of the forward runner, not
+`alpha_events`; 158-159 stay interface-only until a book passes forward confirmation.
 Phase numbers are stable IDs; parking changes order, not numbers.
 
 ## Phases
@@ -1660,6 +1666,9 @@ while 148 sits behind Phase 147 completing plus Phase 142B accumulating 60 days 
 
 ### Phase 149: PrecedentEngine — Embedding + Retrieval Foundation 📋 PLANNED
 
+**Re-scoped 2026-09-26 (unified design, section 14.3):** precedent-derived predictors enter books as members of a family, not "weighted by AlphaEngine's ensemble"; the old ensemble chain is deleted in phase 186.
+
+
 **Goal:** Build the non-parametric retrieval substrate. Embed bar states into pgvector HNSW index. Validate retrieval quality before committing to a dimension and building the full corpus. "Have we seen a bar like this before, and what happened next?"
 
 **Depends on:** **v3.15 complete** (Phase 144 `regime_group` live + todo 026 P2b/P2c/P3 resolved) — added 2026-07-03, intel-13's hard prerequisite: retrieval hard-filters on regime labels and re-embedding after the fact is prohibitively expensive. Plus Phase 142A OOS validation showing `ic_ci_lower > 0` at p < 0.05 (see EIC-04 verdict log in Phase 142A's section — not yet passing as of 2026-07-03). PRECEDENT-01..05 read `feature_vectors` only — no dependency on `alpha_events`, `alpha_frames`, or v2.x retirement.
@@ -1691,6 +1700,9 @@ Thin research utility built on top of the retrieval primitive. Accepts an arbitr
 ---
 
 ### Phase 150: PrecedentEngine — Case Predictors + Measurement Integration 📋 PLANNED
+
+**Re-scoped 2026-09-26 (unified design, section 14.3):** case predictors enter books as family members through the research layer, measured by the book test and contribution accounting, not the deleted ensemble chain.
+
 
 **Goal:** Turn retrieval into measured predictors. Compute the shared return-distribution primitive and the precedent predictor family from retrieved neighbor sets in a nightly batch, register each output as an ordinary predictor in the shared IC machinery, and let the existing ensemble weight the survivors. One measurement engine, one ensemble, one book (D4, `docs/research/intel-precedent-engine.md`): precedent outputs are a second evidence source entering the same pipeline as every parametric feature, not a second system.
 
@@ -1870,6 +1882,9 @@ EPS surprises, P/B. Quarterly data → daily TF only via fill-forward join, as-r
 **Numbered 2026-07-12** (was "Phases TBD" — this milestone's design was already detailed in prose below; converting to real phases per a production-readiness review). **Restructured same day** to split "Portfolio Construction & Risk Management" into two phases after a review caught a real architectural gap: this milestone's own design (Portfolio Kelly, aggregate VaR, correlation-aware sizing, a portfolio-level kill switch) is fundamentally a **portfolio-level** concern, not a per-security one — none of it is computable from any single symbol's `alpha_score`. Every other stateful concept in this system that multiple consumers need (regime, feature lifecycle, config) gets its own persisted, single-writer entity — `market_regimes`, `feature_registry`, `config_state`. The portfolio's own current state (open positions, aggregate exposure, correlation-cluster concentration, capital utilization, drawdown-to-date) had no such home; it was about to be computed inline inside a sizing function instead, which would have silently violated this project's own "one model, one book" principle (`docs/foundation/principles.md`) — that principle names the goal but never had an architectural home until now. Four phases, sequenced: 156 (Portfolio State — the entity) → 157 (Position Sizing & Risk — the first consumer) → 158 (execution, needs 157's position sizes) → 159 (cost calibration, needs 158's real fills to regress against).
 
 ### Phase 156: Portfolio State Foundation 📋 PLANNED
+
+**Re-scoped 2026-09-26 (unified design, section 14.3):** folds into phase 188: `portfolio_state` sits on top of the forward runner and construction rules, not `alpha_events` (fenced, no new writes).
+
 
 **Goal:** Establish "the portfolio" as a first-class, persisted, single-writer entity — not math recomputed inline wherever it's needed. Every downstream consumer (sizing, execution, health monitoring, future risk dashboards) reads this instead of re-deriving it.
 
@@ -2636,6 +2651,9 @@ Plans:
 
 ### Phase 170: Concept Registry Feature Domain Migration (`feature_registry` Retirement)
 
+**Re-scoped 2026-09-26 (unified design, section 14.3):** plans 07-08's gate (`alpha_ensemble_ic` rows) never clears because the ensemble chain is deleted; the `feature_registry` retirement finishes in phase 186 without the ensemble rehearsal, since feature status becomes data-quality based.
+
+
 **Goal:** Retire `feature_registry`/`feature_transition_log` (built Phase 140.5 P3) into `concept_registry`/`concept_gate`/`concept_transition_log` (`domain='feature'`, MVP built Phase 160), completing the unification that Phase 160 deliberately scoped out (`domain='ensemble_strategy'` only, 5 rows seeded). One governance system, not two parallel ones — confirmed direction 2026-08-04, `feature_registry` treated as an anachronism, migrate as soon as the real remaining gate clears rather than leaving both live indefinitely.
 **Requirements:** Full scope already written up in todo 118 (`.planning/todos/pending/118-migrate-feature-domain-into-concept-registry.md`) — (1) migrate 150+ feature rows in, port CAS + demotion-counter-reset semantics onto the concept tables, (2) schema fix L-5: `concept_gate` is missing `consecutive_shadow_passes`/`observations_since_demotion` equivalents, must be added before the fold-in or shadow-recovery mechanics silently regress, (3) hardening L-6: move `fdr_required` enforcement into `ConceptRegistryService.record_comparison_outcome` itself rather than trusting each of ic_engine/ensemble_trainer to remember it upstream, (4) repoint `ic_engine`'s post-run lifecycle hook + `ensemble_trainer`'s eligibility reads + `integrity_monitor`, (5) retire `feature_registry`/`feature_transition_log` via literal `DROP TABLE` (2026-08-04 explicit user override of this project's usual rename-not-drop default) once a shadow-mode corpus run confirms identical lifecycle decisions AND `feature_transition_log` has been fully replayed into `concept_transition_log` (not the lighter genesis-seed alternative — no archived table survives to point back to). **Three schema gaps found comparing the two registries, all three now have concrete designs written (todo 118 L-8/L-9/L-10), not just flagged for later:** L-8, multi-parent lineage is real in production (8 live interaction features have 2 parents each, e.g. `vol_body_product` ← `{body_ratio, volume_z}`) — `concept_registry.parent_concept_id` is a single FK and cannot represent this; resolved as a real `concept_parent` many-to-many join table with FK constraints on both sides, deliberately not mirroring `feature_registry.parent_features`' unenforced text-array pattern (that array references parents by name string with zero referential integrity — fixed during this one-way migration rather than carried forward). L-9, `concept_registry` has no equivalent of the `trg_cascade_parent_deprecation` DB trigger — full replacement trigger SQL written against the L-8 join table, generalizes across all domains (no `tier` string filter) and cascades multi-level automatically via trigger recursion (safe only because the DAG has no cycles; needs an explicit cycle-check constraint on `concept_parent` inserts). L-10, `is_control`/`control_expectation` are actively queried by two live scripts (`ops_canary_integrity_assert.py`, `ops_ensemble_ablation.py`), not decorative — resolved as two dedicated columns on `concept_registry` itself (identity-level, alongside `domain`/`sensitivity`), not `metadata` JSONB; both scripts get repointed as part of this migration. Full SQL for all three: todo 118.
 **Depends on:** `alpha_ensemble_ic` having real rows (0 as of 2026-08-04, pending the in-flight corpus rebuild) — `ConceptRegistryService.record_comparison_outcome`'s live write path has never executed against real data (H-1/M-B rehearsal, todo 118), and that rehearsal is the actual remaining gate, not a queue-priority decision. Todo 117 (a different, already-completed actuator proof for `feature_registry`'s own operator-override CLI, closed 2026-07-19) is done and is not this phase's blocker.
@@ -3005,6 +3023,9 @@ Plans:
 
 ### Phase 184: Multi-timeframe research inputs
 
+**Revised 2026-09-26 (todos 435, 436):** S0 reads `feature_vectors`; D5's recompute-instead-of-read is withdrawn; B3 alignment is a prerequisite for feature books; B4's IC term structure is disclosure, not the source of the partial-adjustment rate (design section 4.4).
+
+
 **Goal:** Predictors computed on any timeframe can enter a book on one clock without a lookahead,
 a filled value or a second implementation of a feature. Build section 7 of
 `docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 2, adversarially reviewed):
@@ -3048,6 +3069,64 @@ recompute, never under a live ic_engine run (Phase 178's worktree).
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 185 to break down)
+
+### Phase 186: Old ensemble chain retirement and ic_engine re-scope
+
+**Goal:** One route from research to capital. Track A of
+`docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted 2026-09-26, sections 11
+and 14): delete `ensemble_trainer`, `ensemble_ic_engine`, `alpha_frame_writer`,
+`counterfactual_tracker`, the old-chain ops scripts, the phase 179 harness plumbing and the
+orchestrator steps after `feature_lifecycle`; fence `ensemble_weights`, `ensemble_alpha`,
+`alpha_ensemble_ic`, `alpha_events`, `alpha_frames` and `context_features` with raising triggers,
+table comments and a CI read allow-list; shrink ic_engine to the proposer, IC term structure and
+member monitoring, purging IC targets that cross `oos_start`; move feature lifecycle to
+data-quality gates; consumer checks for `context_writer` (unit active) and
+`cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
+ensemble rehearsal.
+**Requirements**: TBD
+**Depends on:** no live or resumable ic_engine run (import rule); phase 183 not touching these
+modules.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 186 to break down)
+
+### Phase 187: Research core: recipe book, selection, construction
+
+**Goal:** Every look at the vintage is recorded and priced, and every book tests the construction
+that will trade. Track C of the unified design (sections 4, 6.1, 7, 10, 13, 15): UCR recipe book
+(typed domains, append-only `concept_recipe`, attempts with typed results and `informed_by`,
+derived research stage, legacy verdict import, generated ledger); runner `exploration` mode and
+Romano-Wolf StepM selection (E18); `ConstructionRule` protocol, pod books, costed horizon rule,
+the missing-member combining rule, in-fold signs, calendar-anchored refits; `generated_family`
+grammar support; contribution accounting with accounting groups; YAML DAG manifest; research
+package renames with todo 430 step 4.
+**Requirements**: TBD
+**Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
+the phase 183 runner's M = 30 accounting stays in force.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 187 to break down)
+
+### Phase 188: Forward runner and capital tier
+
+**Goal:** A frozen book runs forward on the same code that tested it, and capital is sized on
+measured net. Track E of the unified design (sections 3, 7.3, 8, 9): `BookTracker` and
+`BookPositionWriter` (replacing `alpha_publisher`), sealed shadow for every book in the selection
+set, append-only positions with revision alarms, positions parity with research; full cost model
+(impact, borrow constraint, capacity curve, implementation shortfall); `portfolio_state`, sizing
+and risk limits (re-scoped phases 156-157); challenger protocol with a paired test.
+**Requirements**: TBD
+**Depends on:** a candidate book in the selection set; phase 185 D8 live before any forward span
+starts.
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 188 to break down)
 
 ---
 

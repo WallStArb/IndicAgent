@@ -270,3 +270,7 @@ verbatim carryover of the original proposal.
    `tests/unit/test_ic_math_walk_forward_folds.py`.
 
 **Part E fully closed** — all 3 items done, no remaining scope.
+
+## Unified design adopted 2026-09-26
+
+Item 4 (relocate `_meta_eligible` out of `ensemble_trainer`) is moot: the adopted unified design (todo 436, section 14) deletes `ensemble_trainer` in phase 186. The other items stand.

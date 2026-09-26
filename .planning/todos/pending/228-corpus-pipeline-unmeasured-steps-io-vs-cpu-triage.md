@@ -42,3 +42,7 @@ producing real per-step durations for all 8 steps. Once that data exists:
 
 Investigation only, no code changes implied yet -- sizing for any resulting fix depends
 entirely on what step turns out to dominate and whether it's I/O- or CPU-bound.
+
+## Unified design adopted 2026-09-26
+
+Steps 6-8 (`ic_shrinkage`, `ensemble_trainer`, `alpha_publisher`) leave the corpus pipeline in phase 186 (adopted unified design, todo 436, section 14); measure the remaining steps only.

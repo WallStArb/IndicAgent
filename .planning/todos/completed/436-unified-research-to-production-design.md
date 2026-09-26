@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-26
 source: 2026-09-26 backlog triage, owner direction
@@ -174,3 +174,7 @@ directive.
 
 Serving the IC-as-proposer method: 191, 038, 166, 099, 039, 115. Implementation todos (UCR
 recipe book, I1 audit, cost model, deletions) are filed after adoption.
+
+## Closure
+
+Closed 2026-09-26: design written, reviewed (Fable 5.1, section 20) and ADOPTED by the owner: `docs/plans/2026-09-26-unified-research-to-production-design.md`, methodology-change-ledger E18. Implementation: roadmap phases 186-188 and todos 437-442; dispositions of other todos in the design's section 14.4.

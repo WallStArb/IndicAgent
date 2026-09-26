@@ -109,3 +109,7 @@ the CAS-lock fix above. Left open in this file.
 
 Finding 3 (fixed): was P1, now closed. Finding 4 (open): P2/P3 -- no correctness impact, deliberately
 deferred, pick up opportunistically.
+
+## Closure
+
+Closed 2026-09-26 as moot: feature lifecycle moves from IC-driven `concept_gate` counters to data-quality gates under the adopted unified design (todo 436, section 11; phase 186), so the counter-advance writes go away.

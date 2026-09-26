@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-19
 source: user statement 2026-09-19 that a 1000-2000 symbol universe is not reachable at the current
@@ -154,3 +154,7 @@ restoring `alpha.ic.max_cell_rows` to 15,000,000 after migration 347 raised it t
 2026-09-20 rerun), immediately before the next recompute that is already required, never mid-run.
 Lever 1 (thread counts) is APR-only and does not invalidate. Also hold `TagCalibrator` runs while a
 rerun is resumable: the upstream watermark hashes `instrument_tags` (symbol, tag, source, weight).
+
+## Closure
+
+Closed 2026-09-26 as moot: the adopted unified design (todo 436, section 11) shrinks ic_engine to the pooled proposer, IC term structure and member monitoring and deletes the per-symbol x regime grid (phase 186). Reopen if the shrunk engine's recompute cost at 931 names is measured and found binding.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-23
 source: root-caused closing todo 388 (whose "turnover never reported" premise was stale); this is
@@ -75,3 +75,7 @@ everywhere the numbers are cited. Tier is the owner's call.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Closed: the portfolio diagnostic is superseded by phase 179's verdict and nothing cites its net numbers; do not cite `net_realized_return` from it.
+
+## Closure
+
+Closed 2026-09-26: folded into todo 437 (first-cut cost model) under the adopted unified design (todo 436, section 9). The old proxy is deleted with the old chain in phase 186.

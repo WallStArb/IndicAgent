@@ -55,3 +55,7 @@ picked up. Not urgent; this is a diagnostic-quality improvement, not a bug fix.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.
+
+## Unified design adopted 2026-09-26
+
+Adopted unified design (todo 436): held under the `ic_proposal` and `in_fold_selection` methods (section 6); feeds contribution accounting's uniqueness and effective-breadth outputs (section 13).

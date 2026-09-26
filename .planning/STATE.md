@@ -21,12 +21,19 @@ progress:
 critical path live only in `.planning/todos/PRIORITIES.md`. `feature_vectors` is the basis of the
 research layer: phase 183 never read it (both families use raw 15m returns), so todo 435 (P0) wires
 features into S0 at all four timeframes, and the phase 184 draft's D5 (recompute instead of read)
-was never approved and gets revised. Nothing in the ic_engine chain is frozen. Next design step,
-before 435 is planned: todo 436, one pipeline from data to a frozen book (the old
-ensemble_trainer/alpha_publisher layer and the new S7/S8 layer overlap), with the charter as eight
-testable invariants, UCR as the recipe book of ideas and attempts, contribution accounting and a
-measured cost model. The brainstorm for 436 has not started. Feature path: 426 step 2 -> 290 ->
-248 refit bundle -> 411 refresh.
+was never approved and gets revised. Feature path: 426 step 2 -> 290 -> 248 refit bundle -> 411
+refresh, then a full feature recompute under provenance batches before the first feature book.
+
+**Unified research-to-production design ADOPTED 2026-09-26 (todo 436, E18).**
+`docs/plans/2026-09-26-unified-research-to-production-design.md` owns the sequence (section 16) and
+supersedes the edge-proof program doc. One pipeline to a frozen book; the old ensemble chain is
+deleted and its tables fenced (phase 186); research core with the UCR recipe book, Romano-Wolf StepM
+selection over every look and construction rules (phase 187); forward runner and capital tier
+(phase 188). Promotion needs positive net expectation (statistics stay gross); forward span per
+book (feature books never before 2026-08-08, after 7 recorded holdout looks). Alpha track first:
+E17 -> attempts 1a-1c (442), first-cut cost model (437), price-only daily and generated families on
+the 931 names (441, 423, 440); feature books (attempts 5-8) after 186, the data path and 187. Until
+phase 187 lands, the phase 183 runner's M = 30 accounting stays in force.
 
 **Universe and daily data, 2026-09-26.** Active universe 273 -> 932 (659 names onboarded
 at 1d: 368 S&P 500, all 195 seeded small caps, 96 ETFs and Dow fills). 931 are

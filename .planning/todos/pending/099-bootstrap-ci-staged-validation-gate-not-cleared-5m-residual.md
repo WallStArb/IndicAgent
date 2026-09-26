@@ -99,3 +99,7 @@ pre-committed gate's outcome after seeing the result).
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.
+
+## Unified design adopted 2026-09-26
+
+Adopted unified design (todo 436): held under the `ic_proposal` method (section 6); the staged-validation gate it describes belongs to the deleted admission path, so only the statistical question remains.
