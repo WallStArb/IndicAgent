@@ -16,7 +16,7 @@ def test_source_panel_legs_and_target_are_the_drawn_legs():
     )
     rng = np.random.default_rng(0)
     u = nb._legs(sc, rng)
-    listed = nb._listing_mask(sc, rng)
+    listed = nb.listing_mask(sc, rng)
     lp = legs.session_legs(nb._source_panel(u, listed, rng))
     r = bar_returns(lp).reshape(40, 3, 25) / nb._PRICE_SCALE
     live = listed.reshape(40, 3, 25)[:, 0]

@@ -73,7 +73,7 @@ def _slot_returns(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
     return u
 
 
-def _listing_mask(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
+def listing_mask(sc: NullScenario, rng: np.random.Generator) -> np.ndarray:
     """bool [n, m]: False before each name lists."""
     n, m = sc.sessions * sc.bars_per_session, sc.names
     start = np.zeros(m, dtype=int)
@@ -138,7 +138,7 @@ def null_panel(sc: NullScenario, seed: int) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
     bps = sc.bars_per_session
     u = _slot_returns(sc, rng)
-    listed = _listing_mask(sc, rng)
+    listed = listing_mask(sc, rng)
     bars = _bars(u, rng)
     bars[~listed] = np.nan
     if sc.s1:

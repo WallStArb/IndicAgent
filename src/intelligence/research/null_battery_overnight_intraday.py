@@ -30,7 +30,7 @@ import numpy as np
 
 from src.intelligence.research.families import overnight_intraday as f2
 from src.intelligence.research.legs import LEGS, SIGNAL_LEG
-from src.intelligence.research.null_battery import _listing_mask
+from src.intelligence.research.null_battery import listing_mask
 from src.intelligence.research.panel import Panel
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
 from src.intelligence.research.timing import timing_test
@@ -66,7 +66,7 @@ class LegsScenario:
     late_fraction: float = 0.0
     late_name: bool = False
     s1: bool = False
-    bars_per_session: int = LEGS  # _listing_mask's row unit
+    bars_per_session: int = LEGS  # listing_mask's row unit
 
 
 def _legs(sc: LegsScenario, rng: np.random.Generator) -> np.ndarray:
@@ -132,7 +132,7 @@ def null_panel(sc: LegsScenario, seed: int) -> tuple[np.ndarray, np.ndarray]:
     """(residual leg returns [3S, m], residual target [3S, m] on row 1) of one H0 panel."""
     rng = np.random.default_rng(seed)
     u = _legs(sc, rng)
-    listed = _listing_mask(sc, rng)  # [3S, m], session-aligned since bars_per_session = 3
+    listed = listing_mask(sc, rng)  # [3S, m], session-aligned since bars_per_session = 3
     if sc.s1:
         from src.intelligence.research import transforms
         from src.intelligence.research.runner import FACTOR_SPECS, compute_residuals
