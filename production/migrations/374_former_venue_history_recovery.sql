@@ -9,10 +9,13 @@
 --
 -- src/providers/ibkr.py now requests the uncovered head of a 1d stock walk from each former
 -- venue candidate and keeps the one with the most volume, stored with source 'ibkr_venue'
--- (src/core/bar_normalizer.py SOURCE_IBKR_VENUE). This migration:
+-- (src/core/bar_normalizer.py SOURCE_IBKR_VENUE) once store_bars is switched on. This migration:
 --
--- 1. Seeds the three infra.ibkr.venue_fallback.* APR keys the backfill overlays onto ibkr.py
---    (defaults match the module constants exactly).
+-- 1. Seeds the four infra.ibkr.venue_fallback.* APR keys the backfill overlays onto ibkr.py
+--    (defaults match the module constants exactly). store_bars starts false (verify-only):
+--    former venues are asked so a span with history there is never recorded empty, but their
+--    bars are not stored until the listing-venue validation study passes (owner decision
+--    2026-09-26; docs/plans/2026-09-26-daily-data-foundation.md, D3 and D4).
 -- 2. Makes market_data_ohlcv_tradeable report NULL volume on ibkr_venue rows. Every compute
 --    and research read goes through this view, so one rule keeps venue-only volume from being
 --    read as consolidated anywhere: prices and returns are exact across the seam, volume is
@@ -49,6 +52,13 @@ VALUES
     '7',
     1, 3650,
     '[conventional] Minimum days between the requested start and the first SMART bar before former venues are asked; smaller gaps are weekends and holidays, not venue moves. Not an ML learning target.'
+),
+(
+    'infra.ibkr.venue_fallback.store_bars',
+    'bool',
+    'false',
+    NULL, NULL,
+    '[user_preference] Operator switch. false: former venues only verify (history found there blocks an empty-history record and is logged). true: the highest-volume venue''s bars are stored as source ibkr_venue. Set true only after the D3 listing-venue validation study passes. Not an ML learning target.'
 )
 ON CONFLICT (config_key) DO NOTHING;
 
@@ -56,14 +66,16 @@ INSERT INTO config_state (config_key, config_value, version)
 VALUES
     ('infra.ibkr.venue_fallback.exchanges', '["NYSE", "ARCA", "ISLAND", "AMEX", "BATS"]', 1),
     ('infra.ibkr.venue_fallback.timeframes', '["1d"]', 1),
-    ('infra.ibkr.venue_fallback.min_gap_days', '7', 1)
+    ('infra.ibkr.venue_fallback.min_gap_days', '7', 1),
+    ('infra.ibkr.venue_fallback.store_bars', 'false', 1)
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
 VALUES
     (NOW(), 'infra.ibkr.venue_fallback.exchanges', 1, '["NYSE", "ARCA", "ISLAND", "AMEX", "BATS"]', 'migration_374', 'Initial value: matches ibkr.py _VENUE_FALLBACK_EXCHANGES [rca_analysis]'),
     (NOW(), 'infra.ibkr.venue_fallback.timeframes', 1, '["1d"]', 'migration_374', 'Initial value: matches ibkr.py _VENUE_FALLBACK_TIMEFRAMES [initial_estimate]'),
-    (NOW(), 'infra.ibkr.venue_fallback.min_gap_days', 1, '7', 'migration_374', 'Initial value: matches ibkr.py _VENUE_FALLBACK_MIN_GAP_DAYS [conventional]')
+    (NOW(), 'infra.ibkr.venue_fallback.min_gap_days', 1, '7', 'migration_374', 'Initial value: matches ibkr.py _VENUE_FALLBACK_MIN_GAP_DAYS [conventional]'),
+    (NOW(), 'infra.ibkr.venue_fallback.store_bars', 1, 'false', 'migration_374', 'Verify-only until the D3 validation study passes (owner decision 2026-09-26) [user_preference]')
 ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE VIEW market_data_ohlcv_tradeable AS

@@ -205,6 +205,10 @@ _RETRY_BACKOFF_BASE_S = 65
 _VENUE_FALLBACK_EXCHANGES: list[str] = ["NYSE", "ARCA", "ISLAND", "AMEX", "BATS"]
 _VENUE_FALLBACK_TIMEFRAMES: set[str] = {"1d"}
 _VENUE_FALLBACK_MIN_GAP_DAYS = 7
+# False (verify-only): former venues are still asked, and any bars they return block an
+# empty-history record and are logged, but none are returned for storage. Stays False until the
+# listing-venue validation study passes (docs/plans/2026-09-26-daily-data-foundation.md, D3).
+_VENUE_FALLBACK_STORE_BARS = False
 _VENUE_ALIASES = {"ISLAND": "NASDAQ"}
 
 
@@ -1032,7 +1036,8 @@ class IBKRProvider:
         it does not list, and only the listing venue's auctions give the official open and
         close. Venue bars count that venue's trades only (SOURCE_IBKR_VENUE).
 
-        Returns (venue bars, empty-history span). The span is SMART's only when every venue
+        Returns (venue bars, empty-history span). Venue bars are returned only when
+        _VENUE_FALLBACK_STORE_BARS is set; in verify-only mode they still block the span. The span is SMART's only when every venue
         also answered a definitive "no data"; any venue that failed ambiguously leaves the
         head unverified (None), so it is asked again next run instead of recorded empty.
         """
@@ -1064,9 +1069,11 @@ class IBKRProvider:
                     "n_bars": len(best),
                     "first": best[0].timestamp.isoformat(),
                     "last": best[-1].timestamp.isoformat(),
+                    "stored": _VENUE_FALLBACK_STORE_BARS,
                 },
             )
-            return best, None
+            # Either way the head is not empty: history exists on a former venue.
+            return (best if _VENUE_FALLBACK_STORE_BARS else []), None
         return [], smart_empty if verified_empty else None
 
     async def get_head_timestamp(self, symbol: str) -> tuple[datetime | None, str | None]:

@@ -852,6 +852,7 @@ class TestLoadIbkrVenueFallbackConfig:
             ibkr._VENUE_FALLBACK_EXCHANGES,
             ibkr._VENUE_FALLBACK_TIMEFRAMES,
             ibkr._VENUE_FALLBACK_MIN_GAP_DAYS,
+            ibkr._VENUE_FALLBACK_STORE_BARS,
         )
         try:
             mock_conn = MagicMock()
@@ -861,6 +862,7 @@ class TestLoadIbkrVenueFallbackConfig:
                 ("infra.ibkr.venue_fallback.exchanges", '["NYSE", "ARCA"]'),
                 ("infra.ibkr.venue_fallback.timeframes", '["1d", "1h"]'),
                 ("infra.ibkr.venue_fallback.min_gap_days", "10"),
+                ("infra.ibkr.venue_fallback.store_bars", "true"),
             ]
             with patch(
                 "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
@@ -870,9 +872,11 @@ class TestLoadIbkrVenueFallbackConfig:
             assert ibkr._VENUE_FALLBACK_EXCHANGES == ["NYSE", "ARCA"]
             assert ibkr._VENUE_FALLBACK_TIMEFRAMES == {"1d", "1h"}
             assert ibkr._VENUE_FALLBACK_MIN_GAP_DAYS == 10
+            assert ibkr._VENUE_FALLBACK_STORE_BARS is True
         finally:
             (
                 ibkr._VENUE_FALLBACK_EXCHANGES,
                 ibkr._VENUE_FALLBACK_TIMEFRAMES,
                 ibkr._VENUE_FALLBACK_MIN_GAP_DAYS,
+                ibkr._VENUE_FALLBACK_STORE_BARS,
             ) = saved

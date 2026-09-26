@@ -510,7 +510,7 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
 def _load_ibkr_venue_fallback_config(settings: Settings) -> None:
     """Overlay the APR-configured former-venue recovery parameters (migration 374, todo 433)
     onto ibkr._VENUE_FALLBACK_EXCHANGES / _VENUE_FALLBACK_TIMEFRAMES /
-    _VENUE_FALLBACK_MIN_GAP_DAYS in place. Same fallback contract as the loaders above --
+    _VENUE_FALLBACK_MIN_GAP_DAYS / _VENUE_FALLBACK_STORE_BARS in place. Same fallback contract as the loaders above --
     falls back to the hardcoded defaults if the APR keys aren't present or the DB is
     unreachable.
     """
@@ -535,6 +535,8 @@ def _load_ibkr_venue_fallback_config(settings: Settings) -> None:
             )
         if "infra.ibkr.venue_fallback.min_gap_days" in rows:
             ibkr._VENUE_FALLBACK_MIN_GAP_DAYS = int(rows["infra.ibkr.venue_fallback.min_gap_days"])
+        if "infra.ibkr.venue_fallback.store_bars" in rows:
+            ibkr._VENUE_FALLBACK_STORE_BARS = rows["infra.ibkr.venue_fallback.store_bars"] == "true"
     except Exception as error:
         print(f"  (APR venue-fallback lookup failed, using hardcoded defaults: {error})")
 

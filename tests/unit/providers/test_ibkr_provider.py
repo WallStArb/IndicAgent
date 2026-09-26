@@ -508,7 +508,9 @@ class TestPreMoveHistory:
             out.append(bar)
         return out
 
-    async def _fetch(self, provider, mock_ib, answers, *, timeframe="1d", primary="NASDAQ"):
+    async def _fetch(
+        self, provider, mock_ib, answers, *, timeframe="1d", primary="NASDAQ", store=True
+    ):
         """answers: routed exchange -> list of bars | 'no_data' | 'timeout'."""
         from ib_async import BarDataList, Stock
 
@@ -539,7 +541,10 @@ class TestPreMoveHistory:
         async def on_chunk(bars):
             persisted.extend(bars)
 
-        with patch.object(ibkr_module, "_RETRY_COUNT", 1):
+        with (
+            patch.object(ibkr_module, "_RETRY_COUNT", 1),
+            patch.object(ibkr_module, "_VENUE_FALLBACK_STORE_BARS", store),
+        ):
             bars = await provider.fetch_historical_bars(
                 "XYZ",
                 timeframe,
@@ -594,3 +599,13 @@ class TestPreMoveHistory:
         with patch.object(ibkr_module, "_MAX_CHUNK_DAYS", {"1h": 7300}):
             _, _, _, asked = await self._fetch(provider, mock_ib, {"SMART": smart}, timeframe="1h")
         assert set(asked) == {"SMART"}
+
+    @pytest.mark.asyncio
+    async def test_verify_only_stores_nothing_but_blocks_empty_record(self, provider, mock_ib):
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        bars, persisted, reports, asked = await self._fetch(
+            provider, mock_ib, {"NYSE": nyse}, store=False
+        )
+        assert bars == [] and persisted == []
+        assert reports == []  # SMART alone said "no data"; NYSE has history, so not empty
+        assert "NYSE" in asked
