@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-stopped_at: "v3.4 closed and v3.5 opened 2026-09-26; phase 183 plan 10 in progress (other session)"
+stopped_at: "phase 183 plans complete 2026-09-26 (verification pending); E17 decided option C, todo 447 next in the research lane"
 last_updated: "2026-09-26T21:00:00.000Z"
 progress:
   total_phases: 6
@@ -40,9 +40,11 @@ bullets with current facts.
 
 ## Current position (2026-09-26)
 
-- **Phase 183** (other session): plans 01-09 and 11 done; plan 10 in progress. Family 1 evidence
-  done (HAC t 13-19 gross, about 26x turnover per session, untradeable net at 1 bp); book_v1
-  refused (E16 bias); E17 adopted, H0 battery gating real runs; family 2 registered.
+- **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26), phase verification
+  pending. Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
+  turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
+  built and its gating decided (option C: todo 447 is the per-family precondition); family 2
+  registered, its evidence run waits on 447.
 - **Phase 185:** accepted, spec revision 2 (2026-09-26), not planned. It is now the
   price-integrity layer: D2a scrubbing (flag, never delete; rules validated on known answers; one
   historical batch pass) and D7 reconciliation. No existing service checks historical price
@@ -70,7 +72,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 
 | Lane | Start with | Owner and boundary |
 |---|---|---|
-| Research (phase 183) | Plan 10, todo 447 (E17 per-family guard), then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
+| Research (phase 183) | Todo 447 (E17 per-family guard), then todo 442; phase 183 verification | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |

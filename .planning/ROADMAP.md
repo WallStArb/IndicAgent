@@ -43,10 +43,10 @@ current position only; PRIORITIES.md tiers todos.
 
 | Order | Phase | Lever | Status |
 |---|---|---|---|
-| 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | Plans 01-09, 11 done; plan 10 (real runs) in progress, other session |
+| 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition (todo 447) and attempts (442) continue in this lane |
 | 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Accepted 2026-09-26, not planned |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Not planned; no live ic_engine run |
-| 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on 183 plan 10 |
+| 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on family 2's evidence run (183 plan 10 done) |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
 
@@ -95,7 +95,7 @@ Plans:
 - [x] 183-07-PLAN.md - runner evidence mode, evidence records, CLI, family 1 spec (wave 2)
 - [x] 183-08-PLAN.md - residual-space synthetic generator and exact power estimator (wave 3)
 - [x] 183-09-PLAN.md - runner book mode, book v1 spec, full-size synthetic dry run (wave 4)
-- [ ] 183-10-PLAN.md - first real-data run: family 1 evidence, then book v1 (wave 5; evidence run launched 2026-09-25)
+- [x] 183-10-PLAN.md - first real-data run: family 1 evidence, then book v1 (wave 5; evidence completed, book v1 refused uncharged; summary 02b021ae3)
 - [x] 183-11 (no PLAN.md; owner decision executed inline) - E16 adopted and built: HAC timing t decides, shift null diagnostic, power through the same statistic (183-11-SUMMARY.md)
 
 ### Phase 184: Multi-timeframe research inputs
