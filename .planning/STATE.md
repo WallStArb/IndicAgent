@@ -17,6 +17,17 @@ progress:
 
 ## Strategic Plan (read this first)
 
+**Backlog triage and direction, 2026-09-26 (owner).** Pending todos 128 -> 71; tiers and the
+critical path live only in `.planning/todos/PRIORITIES.md`. `feature_vectors` is the basis of the
+research layer: phase 183 never read it (both families use raw 15m returns), so todo 435 (P0) wires
+features into S0 at all four timeframes, and the phase 184 draft's D5 (recompute instead of read)
+was never approved and gets revised. Nothing in the ic_engine chain is frozen. Next design step,
+before 435 is planned: todo 436, one pipeline from data to a frozen book (the old
+ensemble_trainer/alpha_publisher layer and the new S7/S8 layer overlap), with the charter as eight
+testable invariants, UCR as the recipe book of ideas and attempts, contribution accounting and a
+measured cost model. The brainstorm for 436 has not started. Feature path: 426 step 2 -> 290 ->
+248 refit bundle -> 411 refresh.
+
 **Universe and daily data, 2026-09-26.** Active universe 273 -> 932 (659 names onboarded
 at 1d: 368 S&P 500, all 195 seeded small caps, 96 ETFs and Dow fills). 931 are
 `compute_eligible_1d`; CLBK has no IBKR daily history. 233 still carry the intraday stack.
