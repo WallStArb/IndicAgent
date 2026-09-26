@@ -66,17 +66,42 @@ The check cannot tell "nothing traded" from "nothing on this route": a SMART req
 returning no data twice is not verification. The 2026-09-26 backfill of the 546 new names
 will add rows the same way (ADI, ADP, XEL, UAL, IEI, CAR at least).
 
+## Intraday is truncated too
+
+5m and 1h history for the moved names starts on exactly the same dates as their 1d history:
+AMD 2015-01-02, CSX 2015-12-22, IEF 2017-08-03, PEP 2017-12-20, TLT 2016-02-03. The intraday
+corpus, and every `feature_vectors` row built from it, treats these names as listed at their
+move. 72 of the 88 `ohlcv_empty_history` rows per intraday timeframe are likely the same false
+record.
+
+## Decisions (owner, 2026-09-26)
+
+- Re-tiered P0.
+- Volume: former-venue bars keep their venue volume in storage, and
+  `market_data_ohlcv_tradeable` reports it as NULL (migration 374).
+- Ship the empty-history rule now in verify-only mode: former venues are asked, history found
+  there blocks the empty record and is logged, and no venue bar is stored until the
+  listing-venue validation study passes (`infra.ibkr.venue_fallback.store_bars` = false).
+- The full fix is part of the daily data foundation phase
+  (`docs/plans/2026-09-26-daily-data-foundation.md`, D3 and D4).
+
+## Status
+
+Branch `fix/433-venue-move-history` (worktree `../indicagent-433`), not merged: verify-only
+recovery, migration 374, research guard change, tests. Before merging: confirm IBKR accepts the
+ISLAND, AMEX and BATS routing codes; apply 374 only after every 1d backfill in flight has
+finished.
+
 ## Next
 
-1. Inventory: every active equity with a "Query failed" 1d fetch, or a first SMART bar
-   later than its trading start. Record the old venue per name (NYSE, ARCA for ETFs, AMEX).
-2. Backfill the pre-move span through the old venue under a distinct `source` tag, so it is
-   never mistaken for consolidated data, and delete the false `ohlcv_empty_history` rows.
-   Change the empty-history check to try old-venue routing before recording a range as
-   empty.
-3. Volume across the seam: venue-only volume understates consolidated volume by a varying
-   factor, so volume and dollar-volume features must not read it as consolidated. Either
-   store pre-move volume as NULL with prices intact, or keep it and exclude those rows from
-   volume features by source tag. Decide before step 2 writes anything.
+1. Merge the branch as above, apply migration 374, re-run the 1d backfill for all names. The
+   verify-only log (`ibkr.hist_venue_fallback_recovered`) plus the "Query failed" lines give the
+   moved-name inventory (D6).
+2. D3 validation study: on at least 30 names whose listing venue is known today (NYSE, Nasdaq,
+   NYSE Arca), check that the listing venue has the most volume and that only its closes match
+   SMART's. Pass: set `store_bars` true and re-backfill the moved names; check closes chain
+   across each move date. Fail: venue bars stay unstored.
+3. Intraday: extend verify-only to intraday timeframes, then recovery after the study covers
+   intraday bars, through a planned corpus recompute (never under a live ic_engine run).
 4. Check the September finding that the head-timestamp lookup failed with "Query failed" for
    112 of 273 active names: likely the same mechanism.

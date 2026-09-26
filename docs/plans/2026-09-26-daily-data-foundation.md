@@ -2,12 +2,15 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-26, at Brandon's request ("write the phase proposal with
 vendor shortlist; we can't add new data sources yet").
-**Status:** proposed. Not on the roadmap until the owner accepts it; `/gsd-phase` adds it.
+**Status:** accepted 2026-09-26 (all four decisions at the end). Roadmap entry pending.
 
 ## Why now
 
 Daily bars feed phase 183's research panel and every daily verdict since. They have four
-defects, all confirmed on 2026-09-26:
+defects, all confirmed on 2026-09-26. The first also reaches the intraday corpus: 5m and 1h
+history for the moved names starts on exactly the same dates as their 1d history (AMD
+2015-01-02, CSX 2015-12-22, IEF 2017-08-03, PEP 2017-12-20, TLT 2016-02-03), so every intraday
+feature treats them as listed at their move too.
 
 1. **History truncated at listing-venue moves (todo 433, P0).** A SMART-routed IBKR request
    serves history only from a stock's current primary listing on. AMD, CSX, PEP, MAR, TLT, IEF,
@@ -49,8 +52,24 @@ holds the vendor shortlist until the constraint lifts.
 
 ## Scope (IBKR only)
 
-Daily bars only. Intraday (about 660M rows, mostly calendar placeholders) is out of scope; the
-same pattern can extend there once it has proven itself at 1d.
+Daily bars are the scope of D1, D2 and D5. Intraday (about 660M rows, mostly calendar
+placeholders) keeps its current table; the raw-store pattern extends there once it has proven
+itself at 1d. Two parts do reach intraday now: D3's venue-move inventory and recovery, and D7's
+check of daily bars against aggregated intraday bars.
+
+### D0. Measure the damage (runs in parallel from day one)
+
+A verdict is not evidence until its data defects have been bounded. For each verdict the project
+relies on:
+- **Venue moves:** rerun it with moved names excluded before their move. If it survives, the
+  defect did not matter for it.
+- **Dividends:** re-score the ETF families, the most exposed (bond, utility and REIT funds earn
+  much of their return as dividends), on approximate total returns from ADJUSTED_LAST.
+- **Survivorship:** it cannot be fixed without delisted data, but it can be bounded. Apply a
+  haircut of the size the literature reports (roughly 1-2% a year in small caps, less in large
+  caps) and report whether the verdict survives it.
+
+Each verdict carries the result as a data-quality label in the construction-verdict ledger.
 
 ### D1. Raw observation store
 
@@ -62,12 +81,13 @@ roughly 10-15M rows with the routes below, small next to the intraday tables.
 
 ### D2. Canonical daily bar
 
-A deterministic, versioned rule derives the 1d rows research reads from D1 (either into
-`market_data_ohlcv` or a new canonical table behind `market_data_ohlcv_tradeable`; decided in
-planning). Changing the rule is a recompute, not a re-fetch, and each canonical row carries the
+A deterministic, versioned rule derives the 1d rows research reads from D1 and writes them into
+`market_data_ohlcv`, whose 1d rows then have exactly one writer: the derivation (owner decision
+2026-09-26). Every consumer keeps reading the same table and view, while raw and canonical stay
+separate. Changing the rule is a recompute, not a re-fetch, and each canonical row carries the
 rule version and the observations it came from.
 
-### D3. Venue-move recovery (todo 433), rebased on D1
+### D3. Venue-move recovery (todo 433), rebased on D1 (1d and intraday)
 
 Branch `fix/433-venue-move-history` (a905709b4) already asks every former-venue candidate and
 keeps the one with the most volume. Rebased on D1 it stores every venue's answer and leaves the
@@ -77,11 +97,21 @@ has the most volume on nearly every day, and only its closes match SMART's. If e
 venue bars stay stored and unused. Venue volume stays NULL in the tradeable view either way
 (owner decision 2026-09-26).
 
+Intraday uses the same routing. Volume matters more there (participation, dollar volume,
+illiquidity), so recovered intraday bars get the same NULL-volume treatment, and no intraday
+feature reads them until the validation study covers intraday bars too. Recovered intraday
+history changes `feature_vectors` inputs, so it goes in through a planned corpus recompute, never
+under a live or resumable ic_engine run.
+
 ### D4. Empty history as a derived fact
 
 A span is recorded empty only when every route answered a definitive "no data", with the
-answers kept in D1. Near-term, the same rule ships ahead of D1 in the 433 branch, which also
-deletes the existing 1d `ohlcv_empty_history` rows for re-verification.
+answers kept in D1. The rule ships ahead of D1 in the 433 branch in verify-only mode (owner
+decision 2026-09-26): former venues are asked, history found there blocks the empty record and
+is logged for the D6 inventory, and no venue bar is stored until D3's study passes
+(`infra.ibkr.venue_fallback.store_bars`, false). Migration 374 also deletes the existing 1d
+`ohlcv_empty_history` rows for re-verification. The intraday rows (72 of 88 per timeframe) need
+the same treatment once verify-only covers intraday.
 
 ### D5. Corporate actions, point in time
 
@@ -103,9 +133,14 @@ series has a seam.
 
 ### D7. Reconciliation and audits
 
+With one vendor, redundancy comes from IBKR's own independent views of a bar: SMART against
+each venue, TRADES against ADJUSTED_LAST, and daily bars against our own intraday bars
+aggregated up (the daily close must equal the last regular-session 5m close, daily volume must
+match the intraday sum). They are different requests and code paths, so disagreement is signal.
 A daily audit, chained after the nightly backfill, reports into `integrity_monitor` and Grafana:
 - route disagreements (SMART against venue, TRADES against ADJUSTED_LAST outside explained
   factors)
+- daily against aggregated intraday: close and volume mismatches
 - unexplained seams: a close-to-close jump beyond a threshold with no corporate action recorded
 - heads that start later than the instrument's first known trade
 - empty-history rows not confirmed by every route
@@ -132,7 +167,8 @@ on the canonical bars, and the ledger records whether each verdict moved.
 
 ## Order
 
-1. D1 observation store and D4's rule (the silent-wrong part of 433 first).
+0. D0 damage measurement, in parallel with everything below.
+1. D4's rule via the 433 branch (verify-only), then the D1 observation store.
 2. D3 rebased on D1, then the validation study.
 3. D2 canonical derivation, then the 433 re-backfill through it.
 4. D5 splits, the ADJUSTED_LAST dividend study, the corpus seam audit.
@@ -170,11 +206,10 @@ in the small-cap draws (todo 376). Otherwise Sharadar for prices, corporate acti
 membership, with EODHD as a cheap reconciliation source. In either case IBKR stays the source for
 intraday and live data.
 
-## Decisions for the owner
+## Decisions (owner, 2026-09-26)
 
-1. Accept the phase into the roadmap (and its milestone slot).
-2. D2's form: canonical rows written into `market_data_ohlcv`, or a new canonical table behind
-   the tradeable view.
-3. Whether the 433 branch ships its D4 rule now (recommended) with venue recovery switched off
-   until D3's validation passes.
-4. When Stage V may open.
+1. Accepted into the roadmap.
+2. D2 writes derived 1d bars into `market_data_ohlcv`, with the derivation as their only writer.
+3. The 433 branch ships D4's rule now in verify-only mode; venue bars are stored only after
+   D3's validation study passes.
+4. Stage V stays closed: no new data sources for now.
