@@ -1,6 +1,6 @@
 ---
 priority: P2
-status: pending
+status: completed
 source: /simplify pass on Phase 173's diff, 2026-08-26 (4 parallel reuse/simplification/
   efficiency/altitude review agents; reuse and simplification agents independently found the
   same issue)
@@ -38,3 +38,7 @@ Factor the shared per-scale block into one helper taking the mask/count/feature-
 parameters; all three cell functions call it. Real DRY payoff (a future rolling-metrics fix or
 new decomposition column currently needs 3 edit sites, silently divergeable) but not urgent —
 none of the three copies is currently buggy.
+
+## Closure
+
+Closed 2026-09-26 as moot: `_compute_one_broadcast_cell` lives in the old `services/ic_engine.py`, which phase 186 replaces with a small engine written fresh (refactor map item 2) and then deletes; the duplication disappears with it.

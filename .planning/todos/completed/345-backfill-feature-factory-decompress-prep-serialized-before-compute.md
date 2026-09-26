@@ -55,3 +55,7 @@ Real risk to accept mid-`/simplify` rather than a scoped, tested follow-up.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Re-scoped: the decompress/GUC-prep cost is gone for this writer (`decompress=False`, todo 426). What remains is `pool.map` head-of-line blocking; `submit()` + `as_completed()`.
+
+## Closure
+
+Closed 2026-09-26 as moot: the decompress/GUC prep exists for in-place writes to compressed `feature_vectors`; phase 186 replaces the in-place refresh with an append-only rebuild written in time order (design 14.2), so there is nothing to decompress.

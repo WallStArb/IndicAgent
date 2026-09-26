@@ -171,7 +171,7 @@ data-quality gates; database hygiene from the 2026-09-26 best-practices audit (d
 14.5): new writers (shrunk ic_engine, the `feature_vectors` rebuild) load with `COPY` in chunk
 order instead of row-at-a-time inserts, drop the duplicate `market_regimes` index (387 MB, same
 key as the unused PK), primary keys on every surviving table, and a measured `shared_buffers` and
-`work_mem` review under the performance-investigation SOP; refactor map items 1-6 (design section 14.6): `feature_factory` split into
+`work_mem` review under the performance-investigation SOP; the fresh ic_engine's uniqueness key includes scope explicitly (todo 391); refactor map items 1-6 (design section 14.6): `feature_factory` split into
 per-origin modules behind one kernel registry, the shrunk ic_engine written fresh beside the old
 one to parity, one `COPY`-based bulk-load primitive in `_batch_utils` (absorbs todos 301, 343,
 352), the batch feature path as the rebuild writer, `regime_writer` walk-forward only (290, 291),

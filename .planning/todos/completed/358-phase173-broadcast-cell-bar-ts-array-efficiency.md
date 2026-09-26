@@ -1,6 +1,6 @@
 ---
 priority: P2
-status: pending
+status: completed
 source: /simplify pass on Phase 173's diff, 2026-08-26 (efficiency review agent)
 ---
 
@@ -43,3 +43,7 @@ Fix both together in one pass (same function, same session, natural to verify jo
 extraction into the existing per-row loop instead of a separate comprehension. Re-run the
 smallest-and-one-medium-cell smoke test (per Plan 04's own precedent) to confirm no behavior
 change before merging.
+
+## Closure
+
+Closed 2026-09-26 as moot: the broadcast-cell chunked fetch is part of the old `services/ic_engine.py` that phase 186 replaces and deletes (refactor map item 2). The new engine's fetch follows the design's array-first rules.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-22
 source: Codex cross-AI plan review of Phase 176 (176-REVIEWS.md, HIGH severity, explicitly scoped as a follow-up rather than a Phase 176 blocker)
@@ -75,3 +75,7 @@ Open questions that make this a real evaluation rather than a one-line migration
 
 Phase 176's workaround is correct and tested. This is about the next scope, not this one.
 </content>
+
+## Closure
+
+Closed 2026-09-26: folded into phase 186 as a requirement on the fresh ic_engine schema: the uniqueness key includes the scope explicitly instead of encoding it in the `regime` string (refactor map item 2).

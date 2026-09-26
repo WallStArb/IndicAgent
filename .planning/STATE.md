@@ -43,11 +43,16 @@ bullets with current facts.
 - **Phase 183** (other session): plans 01-09 and 11 done; plan 10 in progress. Family 1 evidence
   done (HAC t 13-19 gross, about 26x turnover per session, untradeable net at 1 bp); book_v1
   refused (E16 bias); E17 adopted, H0 battery gating real runs; family 2 registered.
-- **Phase 185:** accepted, not planned. First stage D8 (delisting record, holdings snapshots).
-  Todo 433 (IBKR history truncated at venue moves, P0) is owned here; verify-only fix merged.
+- **Phase 185:** accepted, spec revision 2 (2026-09-26), not planned. It is now the
+  price-integrity layer: D2a scrubbing (flag, never delete; rules validated on known answers; one
+  historical batch pass) and D7 reconciliation. No existing service checks historical price
+  correctness (3.86M daily bars never price-sanity classified; 253 unexplained >50% moves). First
+  stage: the D8 capture job (delisting, holdings, borrow snapshots). Daily attempts 3, 3b and 4
+  wait on its minimum data bar. Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
-- **Quick, independent todos:** 438 (borrow snapshots; every unrecorded day is lost), 443
-  (exporter scrape cost, idle-in-transaction timeout), 439 (write-once `oos_start`).
+- **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
+  (write-once `oos_start`). Borrow snapshots (438) now start with phase 185's D8 capture job.
+- **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`.
 - **Data freshness:** features and regimes stale since 2026-08-10 (todo 411, now replaced by the
@@ -64,7 +69,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 |---|---|---|
 | Research (phase 183) | Plan 10, E17 battery, then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
-| Quick data and infra | Todos 438 (borrow snapshots, loses a day every day it waits), 443, 439 | Independent; 439's IC purge lands with phase 186's recompute |
+| Quick data and infra | Todos 443, 439; 438 via phase 185's D8 capture job (loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
 | Phase 185 | `/gsd-plan-phase 185` (`docs/plans/2026-09-26-daily-data-foundation.md`) | Owns `src/providers/ibkr.py` changes and todo 433 |
 
