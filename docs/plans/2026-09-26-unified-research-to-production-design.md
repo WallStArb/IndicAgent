@@ -12,7 +12,9 @@ section 20.
 **Status:** ADOPTED 2026-09-26 by the owner, with methodology-change-ledger E18 (section 7.4):
 this design replaces E15's hard M = 30 screen budget, moves the forward span per book, and adds a
 net-expectation condition at promotion. Implementation is tracked by roadmap phases 186-188 and
-the todos filed at adoption (section 19).
+the todos filed at adoption (section 19). **Amended 2026-09-26 (owner-approved):** UD-25, one
+bar grid and one target kernel (section 14.7), from a measured parity check of `forward_returns`
+against the research kernel.
 **Parents:** `docs/plans/2026-09-24-evidence-framework.md` (E15),
 `docs/plans/2026-09-25-alpha-research-architecture.md` (adopted),
 `docs/plans/methodology-change-ledger.md` E16 and E17.
@@ -72,6 +74,7 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 | UD-22 | Preconception-free discovery: `generated_family`, a registered grammar that enumerates candidate predictors from primitives, selected and weighted only inside training folds | 6.1 |
 | UD-23 | Accounting groups inside large families: by feature origin (primary) and by in-fold correlation cluster (beside it); for reading contributions only | 13 |
 | UD-24 | Refactor map: refactor only surviving code the design touches, parity-checked; delete the rest (14.6) | 14.6 |
+| UD-25 | One bar grid, one target kernel: 15m and 1h derived from 5m in the data layer; `panel.forward_returns` the only forward-return definition; the `forward_returns` table and its writer deleted once the shrunk ic_engine reaches parity; the grid lands before the `feature_vectors` rebuild (amended 2026-09-26) | 14.7 |
 
 ## 3. Target pipeline
 
@@ -79,7 +82,7 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 
 | Stage | One job | Writes | Change from today |
 |---|---|---|---|
-| ingest | IBKR -> bars, source recorded | `market_data_ohlcv` via phase 185's derivation | Phase 185 |
+| ingest | IBKR -> bars, source recorded; 15m and 1h derived from 5m | `market_data_ohlcv` via phase 185's derivation | Phase 185; UD-25 |
 | feature | Compute features and regime columns | `feature_vectors`, `market_regimes` | Refresh chain 426 -> 290 -> 248 -> 411 |
 | measure | Standalone IC for proposal, IC term structure, member monitoring | `feature_ic_scores` | Shrunk (section 11) |
 | research | S0 panel -> S1 target -> S2 families -> S3 guards -> S7 combiner -> construction -> S8 book test + contribution accounting | nothing except through S6 | Construction named; 435 wires features into S0 |
@@ -528,6 +531,11 @@ needs the per-symbol x regime grid:
 Regime-stratified IC is kept as disclosure for `regime_volatility` only. The per-symbol x regime
 grid is deleted, which makes todos 385 and 399 moot. Todo 412 (watermark) stays.
 
+Targets come from the research kernel (`panel.forward_returns`) on an S0 panel, never from a
+stored table (UD-25, section 14.7). Horizons follow the multi-timeframe design's D1: an intraday
+horizon stays inside one session, and decay beyond a session is measured on the daily clock. The
+fixed `alpha.ic.lookahead.<tf>.<scale>` columns go with the `forward_returns` table.
+
 IC rows whose target window ends at or after `alpha.validation.oos_start` are purged. Today the
 bound is `bar_ts <= training_window_end` (`services/ic_engine.py`), so the forward returns of the
 last bars reach past the vintage end by up to the horizon: a small leak into the forward span.
@@ -583,7 +591,7 @@ quality first); `single_writer` and `asset_agnostic` are cheap CI checks, landin
 
 | Guard | Rule |
 |---|---|
-| Uncounted backtests | Research reads of `feature_vectors` and `forward_returns` go through the runner (exploration mode included), which records every attempt. A CI boundary test (the `market_data_ohlcv` pattern) fences committed code that bypasses it; the 63 existing scripts go on an allow-list with reasons. Ad hoc queries cannot be fenced; the forward span remains the backstop |
+| Uncounted backtests | Research reads of `feature_vectors` and of bar panels (targets are computed from them, UD-25) go through the runner (exploration mode included), which records every attempt. A CI boundary test (the `market_data_ohlcv` pattern) fences committed code that bypasses it; the 63 existing scripts go on an allow-list with reasons. Ad hoc queries cannot be fenced; the forward span remains the backstop |
 | Forward-span leakage | `snapshot.py` already refuses `end_exclusive` past `alpha.validation.oos_start`. That key becomes write-once (DB trigger refusing updates), so one config write cannot silently reopen the span |
 | Survivorship | The 932-name universe is today's S&P 500 plus names alive today, and both research universes read current state (`snapshot.py` reads `valid_to IS NULL` tags and classification; `universe_symbols` reads current flags). Every attempt states its universe as of t and carries phase 185 D0's survivorship bound; daily cross-sectional books also report a delisting-return sensitivity (a fixed delisting return applied at a Shumway-style hazard), since reversal books are the most exposed; books on long-lived ETFs are disclosed separately. 185 D8 (keep every name, record delistings) must be live before a forward span starts |
 | Parameter hindsight | A structured APR provenance column; values tuned on outcomes (`[rca_analysis]`, `ml_learned`, anything tuned on IC or returns) are disclosed for every book that uses them. `[conventional]` values are not hindsight |
@@ -683,7 +691,7 @@ Measured 2026-09-26 (database 174 GB):
 | `alpha_events`, `ensemble_alpha`, `ensemble_weights`, `alpha_ensemble_ic`, `alpha_frames`, `context_features` | 9.7 GB | Summarize, then drop |
 | `feature_ic_scores_history` | 38 GB, uncompressed | Drop: an archive of superseded IC rows on each fingerprint invalidation; no decision reads it and the grid it archives is deleted |
 | `feature_ic_scores` | 0.7 GB | Keep (live: proposal, term structure, monitoring). Old-grid rows go with the ic_engine shrink; current rows stay until the shrunk engine writes fresh ones on rebuilt features |
-| `forward_returns` | 14 GB | Keep (live, rebuildable) |
+| `forward_returns` | 14 GB | Drop once the shrunk ic_engine reaches parity on the kernel (UD-25, 14.7): a derived cache holding a second definition of the target, stale by construction (1,008 1d bars with no row) |
 | `feature_vectors` | 89 GB (491 GB uncompressed) | Live input: replaced by a rebuild (below), old table dropped only after the rebuild is validated |
 | `.planning/gate_look_log.jsonl` | small | Keep: the forward-span contamination record is a conclusion, not a cache |
 
@@ -723,7 +731,7 @@ Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once 
 | Phases 156-157 | `portfolio_state` and sizing on top of construction and the forward runner |
 | Phases 158-159 | Interface only, then fill-calibrated costs, after a book passes confirmation |
 | Phases 149-150, todo 275, glossary `PrecedentEngine` | Precedent predictors enter as family members, not "weighted by AlphaEngine's ensemble" |
-| Phase 184 | Revised per 435 (reads `feature_vectors`); B4 feeds kappa |
+| Phase 184 | Revised per 435 (reads `feature_vectors`) and UD-25 (multi-timeframe design revision 3): B1 loses the 5m aggregation (moved to phase 185), B2 builds on 186's kernel registry, B4 discloses the term structure the shrunk ic_engine computes and feeds nothing, kappa included (4.4) |
 | `docs/plans/2026-09-24-edge-proof-program.md` | Status: superseded by this design |
 | Todo 423 | Retitled as a family 4 member |
 
@@ -771,7 +779,8 @@ the v2.x tree (archived under the dual intelligence-path decision), `src/provide
 | 7 | `services/service_auditor.py` (891), `ops_corpus_pipeline_run.sh` | Both read the DAG manifest; `_DAG_ORDER` deleted | 187 |
 | 8 | Research package (`runner.py` 934, `portfolio.py`, `signals.py`) | The three protocols; construction arms become rules; `runner.py` split into spec loading, execution and recording; renames with todo 430. Waits for phase 183 plan 10 | 187 |
 
-**Delete, not refactor:** the old chain (`ensemble_trainer`, `ensemble_ic_engine`,
+**Delete, not refactor:** `services/forward_return_writer.py` (924) and the `forward_returns`
+table, after parity (14.7); the old chain (`ensemble_trainer`, `ensemble_ic_engine`,
 `alpha_frame_writer`, `counterfactual_tracker`, `alpha_publisher`, about 5,500 lines);
 `cross_sectional_spread_tracker.py` (1,942) if R1 covers it; `scripts/analysis/` (71 scripts,
 26.8k lines) once summary cards exist, after promoting reusable helpers (`_date_panel.py`, the
@@ -787,6 +796,62 @@ cost-band helpers) into the research package. Git history keeps every deleted fi
 
 Net effect: the three largest modules become small single-purpose modules and about 34k lines of
 dead chain and analysis scripts go, roughly a third of the live codebase.
+
+### 14.7 One bar grid, one target kernel (UD-25, amended 2026-09-26)
+
+**The problem, measured 2026-09-26.** The forward return had two implementations with two
+definitions. `services/forward_return_writer.py` writes `forward_returns` with SQL `LEAD()` over
+traded rows, four fixed horizons per timeframe from APR, no session gate for intraday.
+`panel.forward_returns` in the research package computes the same formula on S0's fixed session
+grid for any horizon and never lets an intraday target cross a session. Real data, 2023 to 2025,
+kernel on S0's grid against the table:
+
+| Timeframe | Horizon 1 | Longer horizons |
+|---|---|---|
+| 1d, 41 names | identical | 0.03 to 0.06% of rows differ, by up to 0.11 log return |
+| 5m, 16 names | identical | 1.6 to 6.9% differ; 467k extended rows exist only in the table |
+| 1h, 16 names | identical | 20 and 60 bar horizons exist only in the table |
+
+The differing rows are gaps: where a name did not trade on a bar, the table's "N bars ahead" is
+N traded bars, so its holding time stretches with illiquidity, a liquidity-dependent horizon in
+the names where it matters most. The kernel holds the horizon fixed. The table's cross-session
+intraday horizons are executable, but the multi-timeframe design's D1 retired them in favor of
+daily-clock lags. The table is also stale by construction: 1,008 1d bars on 4 names (2024-01 to
+2025-07) have no row because they were backfilled after it was written; it covers 233 of 932
+names and ends 2025-12-23.
+
+The grid had the same fault one layer down (todo 446). Stored 15m bars equal aggregated 5m
+exactly. Stored 1h bars, where present, equal aggregated 5m exactly, but 39 of 231 names (SPY
+included, every year 2006 to 2025) have no 09:30 to 10:00 bar, only a zero-volume 09:00
+placeholder, while the other 192 have a partial 09:30 bar. 1h features for those names never
+see the open, and a cross-sectional 1h row compares different intervals.
+
+**Decision.**
+
+1. **One grid.** Phase 185's derivation writes 15m and 1h bars from 5m on session-anchored
+   edges; stored IBKR 15m and 1h bars become raw observations, not what readers see. Features,
+   targets, S0 and the forward runner read one grid. The multi-timeframe design's B1 aggregation
+   leaves S0.
+2. **One target kernel.** `panel.forward_returns` is the only forward-return definition: the
+   research runner, the shrunk ic_engine and the forward runner call it. Measured cost: all four
+   5m horizons on 91M cells in about 5 s on one core, against 61 s to read the same returns from
+   the table; the bar panel is loaded anyway and cached as a content-hashed snapshot. The
+   proposer runs it in symbol chunks (columns are independent, so chunking is exact) to bound
+   memory at 932 names.
+3. **Quality flags move to bars.** The writer's `suspect` flags, corroboration pass and
+   `has_gap_before_entry` describe bars, not returns; they become D2a scrubbing flags on the bar,
+   which every reader sees.
+4. **Revision detection moves to bars.** ic_engine's `forward_returns.computed_at` watermark is
+   replaced by the bar content digest (3.3).
+5. **Deletion order (phase 186).** The shrunk ic_engine is written on the kernel beside the old
+   engine; parity on pooled cells, with the gap rows above as the only disclosed difference; then
+   `forward_return_writer`, the `forward_returns` table, the fixed lookahead APR keys and the
+   scripts that read the table go in one change. A stored cache comes back only if a profile of
+   the new proposer shows recomputation dominates; it would be written by the same kernel, keyed
+   by the bar content digest, with a parity test.
+6. **Order against the rebuild.** The derived 15m and 1h grid lands before the phase 186
+   `feature_vectors` rebuild, so the most expensive recompute in the plan runs once, on the
+   right bars.
 
 ## 15. Vocabulary
 
@@ -839,7 +904,7 @@ infrastructure (owner directive, alpha first).
 | Now | First-cut cost model (IBKR commission, Abdi-Ranaldo spread, validated on a quoted overlap); borrow snapshot capture; `oos_start` write-once; 185 D8 holdings snapshots | nothing |
 | Alpha, continuous | 183-10 and E17's H0 battery (with ridge and kappa cells) -> attempts 1a-1c; attempt 2 with the first-cut cost model; attempts 3-4 (price-only daily families on the 931 names, sector lead-lag) | running; S1 residual target on 931 names |
 | A: delete | Remove the old chain; summarize then drop its tables and `feature_ic_scores_history`; shrink ic_engine; feature lifecycle to data-quality gates; close moot todos | Phase 183 not touching those modules; no live or resumable ic_engine run (the import rule) |
-| B: data path | 426 -> 290 -> 248 -> 411 (+412, 421); `temporal_integrity`, `no_fill`, `point_in_time` audits; phase 185 | A's ic_engine shrink (smaller recompute) |
+| B: data path | 426 -> 290 -> 248 -> 411 (+412, 421); `temporal_integrity`, `no_fill`, `point_in_time` audits; phase 185, including the derived 15m and 1h grid (UD-25, todo 446) before the feature rebuild | A's ic_engine shrink (smaller recompute) |
 | C: research core | UCR recipe book and migration; StepM selection and E18; `ConstructionRule`, pod books and horizon rule; missing-member combining rule; contribution accounting; DAG manifest; vocabulary renames with 430 | 183-10 finished |
 | D: features into books | Full feature recompute under provenance batches; 435 S0 wiring; revised 184 (B3 alignment) -> attempts 5-8 | B, C |
 | E: forward | `BookTracker` and sealed shadow for every book in the selection set; full cost model; attempt 9; 156-157 re-scoped | A candidate from the alpha track or D |

@@ -69,8 +69,8 @@ holds the vendor shortlist until the constraint lifts.
 
 Daily bars are the scope of D1, D2 and D5. Intraday (about 660M rows, mostly calendar
 placeholders) keeps its current table; the raw-store pattern extends there once it has proven
-itself at 1d. Two parts do reach intraday now: D3's venue-move inventory and recovery, and D7's
-check of daily bars against aggregated intraday bars.
+itself at 1d. Three parts do reach intraday now: D3's venue-move inventory and recovery, D7's
+check of daily bars against aggregated intraday bars, and D2b's derived 15m and 1h grid.
 
 ### D0. Data-quality labels on attempts (runs in parallel from day one)
 
@@ -107,10 +107,22 @@ rule version and the observations it came from.
 **Revisions propagate.** D2 rule changes, D3 recovery and D5 split re-derivation all revise past
 bars. The derivation writes through the unified design's provenance batches keyed by an input
 content digest per (symbol, tf, range) (design 3.3), so downstream writers (the `feature_vectors`
-rebuild, forward returns) recompute only the affected cells. Every research snapshot records the
+rebuild, the shrunk ic_engine's targets) recompute only the affected cells. Every research snapshot records the
 D2 rule version it read, so a frozen book's inputs are pinned and a revision is visible, never
 silent. D1's writer and D2's derivation are separate database roles (design 14.5) and load with
 `COPY`.
+
+### D2b. Derived 15m and 1h bars (unified design UD-25, todo 446)
+
+The derivation writes 15m and 1h bars from 5m on session-anchored edges (09:30, 09:45, ...;
+09:30, 10:30, ...): open of the first 5m bar, close of the last, high max, low min, volume sum,
+never across a session boundary. Those become the only 15m and 1h rows readers see; stored IBKR
+15m and 1h bars become raw observations. Measured 2026-09-26: stored 15m equals aggregated 5m
+exactly, so 15m changes no value; stored 1h has no 09:30 to 10:00 bar on 39 of 231 names (SPY
+included, every year 2006 to 2025), only a zero-volume 09:00 placeholder, so 1h features and
+targets for those names skip the open. This lands before phase 186's `feature_vectors` rebuild,
+so 1h features are rebuilt once, on the right bars. Test: derived bars equal a direct
+computation from 5m and none spans a session (multi-timeframe design D7 guard 4).
 
 ### D2a. Scrubbing (validation between raw and canonical)
 
@@ -135,7 +147,7 @@ have non-positive prices, every bar's `price_sanity_status` is NULL (never class
      0.01, 999.99, 100000 or more on sane opens and closes (IWO 2009-05-26 high 1,000,000;
      TRST 2007-07-26 high 500,000; ARE 2007-02-27 low 0.01), plus UHAL 2022-11-09 with a bad
      close. About a dozen are in the 233 `compute_eligible` names, so their `feature_vectors`
-     and `forward_returns` rows need recomputing once flagged.
+     rows need recomputing once flagged (targets are computed from bars, UD-25).
    - A defect in the classifier's cross-symbol corroboration: 27 bars pass as market events
      because other symbols spike the same day. 26 are 2010-05-06 Flash Crash stub prints (lows
      of 0.01, EQIX high 100000), trades that were busted, so the prices are wrong however many
@@ -148,7 +160,10 @@ have non-positive prices, every bar's `price_sanity_status` is NULL (never class
    estimated through the live auditor's cadence), then the same rules on every nightly derivation.
    Folds in todos 155 (historical price sanity), 347 (the unusable price-sanity index) and 052
    (the adversarial error hunt, as rule 3's known-answer set plus a search for new classes).
-5. **Intraday** gets the same rules once they have proven themselves at 1d.
+5. **Intraday** gets the same rules once they have proven themselves at 1d. The flags
+   `forward_return_writer` sets on returns (`return_*_suspect`, the cross-symbol corroboration
+   pass, `has_gap_before_entry`) describe bars, not returns; they move here as bar flags before
+   that writer is deleted in phase 186 (unified design 14.7).
 6. **Reuse, don't rewrite.** The existing price-sanity classifier
    (`src/intelligence/statistics/price_sanity.py`, `classify_candidate_bar`) becomes one D2a rule.
    It has never classified history because it only runs inside `bar_auditor`, a streaming-era

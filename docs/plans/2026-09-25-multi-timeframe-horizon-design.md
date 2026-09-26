@@ -6,10 +6,16 @@ on multiple TF, especially across day event horizons ... design this like Renais
 agent (AGY and Codex were both out of quota); 13 findings, dispositions in section 9.
 **Parents:** `docs/plans/2026-09-25-alpha-research-architecture.md` (S0 to S8),
 `docs/plans/2026-09-24-evidence-framework.md` (E15 rules).
-**Status:** proposed, revision 2 (D6 updated 2026-09-25 for the adopted E16). Build items in section 7 are a follow-on phase after 183 (183 was
-**Revision pending (2026-09-26, todos 435 and 436):** D5 (recompute instead of reading `feature_vectors`) is withdrawn; S0 reads the rebuilt `feature_vectors`. B3 alignment is a prerequisite for feature books. B4's IC term structure is disclosure only, not the source of the partial-adjustment rate (unified design section 4.4).
-planned, 10 plans, before this revision and does not include them). D6 needs an owner
-decision (a methodology change to E15's refusal rule).
+**Status:** proposed, revision 3 (2026-09-26), aligned with the adopted unified design
+(`docs/plans/2026-09-26-unified-research-to-production-design.md`, UD-25 and section 14.7).
+Build items in section 7 are roadmap phase 184, after phases 183, 185's derived grid and 186's
+kernel registry. D6 is superseded by E16.
+**Revision 3 (2026-09-26, todos 435, 436 and 446):** D4's 5m aggregation moves from S0 to the
+data layer (phase 185), so features, targets and research read one grid; D5 is rewritten: S0
+reads the rebuilt `feature_vectors`, whose one implementation is phase 186's kernel registry;
+`panel.forward_returns` is the only target definition and the `forward_returns` table goes; the
+term structure is computed by the shrunk ic_engine and disclosed here, feeding nothing (kappa
+included, unified design 4.4). B3 alignment is a prerequisite for feature books.
 
 ## 1. The question and the answer
 
@@ -52,6 +58,11 @@ from the same shift null (D2), never lag by lag.
 | Daily | one row per session | `ln(open[t+2] / open[t+1])`, S1 residual |
 | Intraday | session slot grid | next-slot open to open, S1 residual, never crossing a session (unchanged) |
 
+Both targets come from one function, `panel.forward_returns`, the only forward-return definition
+in the codebase (unified design UD-25). A stored table of forward returns counted N traded bars
+rather than N grid rows, so its holding time stretched with illiquidity; it is deleted in phase
+186.
+
 A book's holding period follows from its members' persistence and the construction, not from a
 declared target horizon. Multi-day targets are deleted as a design option: they add overlap,
 not information.
@@ -75,12 +86,16 @@ E15 defers costs until then.
 
 **D4. Bars come from one source; timeframes meet in one causal alignment node.**
 
-- **One intraday source.** S0 builds 15m and 1h grids by aggregating 5m bars on session-anchored
-  edges (09:30, 09:45, ...; 09:30, 10:30, ...). Stored 15m and 1h bars are not read by the
-  research layer: IBKR's 1h series has a 09:30 bar on some names and sessions and not others, and
-  where present it is a 30-minute partial (review finding 11). 5m history starts in 2006, the same
-  as 1h and 15m, so nothing is lost. Daily rows stay the stored 1d bars (official open and close).
-  No family has a real-data number yet, so family 1 moves to the derived grids at no cost.
+- **One intraday source, derived in the data layer.** Phase 185's derivation writes 15m and 1h
+  bars from 5m on session-anchored edges (09:30, 09:45, ...; 09:30, 10:30, ...); stored IBKR 15m
+  and 1h bars become raw observations. Features, targets, S0 and the forward runner then read the
+  same grid; deriving inside S0 alone (revision 2) would have left features on the stored grid and
+  targets on the derived one. Measured 2026-09-26 (todo 446): stored 15m bars equal aggregated
+  5m exactly; stored 1h bars equal aggregated 5m where present, but 39 of 231 names (SPY
+  included, every year 2006 to 2025) have no 09:30 to 10:00 bar at all, only a zero-volume 09:00
+  placeholder, while the other 192 carry a 30-minute partial 09:30 bar (review finding 11). 5m
+  history starts in 2006, the same as 1h and 15m, so nothing is lost. Daily rows stay the stored
+  1d bars (official open and close).
 - **`closes_at`.** S0 adds each grid row's bar end, UTC, from the exchange calendar (half days,
   both DST transitions). A grid row no symbol traded (a half day's missing afternoon) gets NaT.
 - **The node.**
@@ -100,32 +115,34 @@ for each dst row t and symbol j:
   slot carries the previous session's daily value. `max_age_rows` is in source rows (sessions for
   a daily source), never calendar time, so a weekend does not age a value.
 
-**D5. Corpus features are recomputed in the research layer from one implementation.**
-`feature_vectors` is not read: it has been stale since 2026-08-10, and its windows come from live
-APR, which can drift after a pre-registration. (Revision 1 also said it was computed on the
-placeholder calendar grid; that was wrong, production reads `market_data_ohlcv_tradeable`.)
+**D5. Features have one implementation; research reads its output (revision 3).**
+Revision 2 recomputed features inside the research layer because `feature_vectors` was stale and
+read live APR windows. The unified design removes both reasons: phase 186 rebuilds
+`feature_vectors` append-only with provenance (code key per kernel, APR snapshot, input digest),
+on the derived grid, from one kernel registry (unified design 14.6 item 1). S0 reads that table;
+a pre-registration pins a feature by its provenance, so later APR edits cannot drift it. The
+requirements revision 2 placed on research kernels become requirements on the registry, checked
+in phase 186:
 
-- **A kernel table in `feature_factory.py`:** name -> (pure `_*_series_full` function, inputs,
-  window parameters, declared memory). Inputs are price fields or other table entries (ATR feeds
-  the distance-from-high kernels), resolved once as a small acyclic graph and tested.
+- **Declared inputs and memory.** Each registry entry declares its inputs (price fields or other
+  entries, resolved once as a small acyclic graph), window parameters and memory. A recursive
+  kernel (Wilder RSI) declares memory as the lag where its impulse response falls below 1e-4 of
+  peak, the `signals.py` convention.
 - **Bounded memory only.** A kernel whose value depends on the start of the array is excluded.
-  `_vwap_dev_sigma_series_full` uses an expanding `cumsum` from index 0 for both VWAP and its
-  deviation spread, so its value depends on where the history starts (production passes 2006
-  onward). Family 9's VWAP member is re-specified as a rolling-window kernel (a new feature; the
-  corpus IC of the expanding version does not transfer). A recursive kernel (Wilder RSI) declares
-  memory as the lag where its impulse response falls below 1e-4 of peak, the `signals.py`
-  convention.
-- **No filled values.** Kernels return filled values during their own warmup (RSI 50, z-score 0,
-  percentile 0.5, partial 52-week windows). `kernel_source` masks output to NaN wherever a symbol
-  has fewer present rows than the declared memory, and S0 fetches a warmup prefix of the largest
-  member memory before the span start, so the span's first rows are real.
-- **Gaps.** A kernel runs over a symbol's present rows (a missing bar is missing, as in the
-  corpus). Any window spanning more than a pinned number of missing sessions is NaN; the manifest
-  counts both.
-- **Pinned windows.** `kernel_source(name, params)` takes window values from the
-  pre-registration. The kernels read no APR or global state (verified in review).
-- **Parity.** A one-time test compares bounded-memory kernels, after warmup, against
-  `feature_vectors` on a sample, to verify reuse fidelity. A test, not a dependency.
+  `_vwap_dev_sigma_series_full` uses an expanding `cumsum` from index 0, so its value depends on
+  where the history starts; family 9's VWAP member is a new rolling-window kernel (the corpus IC
+  of the expanding version does not transfer).
+- **No filled values.** Output is NaN until a symbol has the declared memory of present rows
+  (today's kernels emit RSI 50, z-score 0, percentile 0.5 and partial 52-week windows during
+  warmup). The rebuild writes NaN, and S0 reads a warmup prefix of the largest member memory.
+- **Gaps.** A kernel runs over a symbol's present rows; a window spanning more than a pinned
+  number of missing sessions is NaN, counted in provenance.
+- **Parity.** Bounded-memory kernels, after warmup, match the old `feature_vectors` on a sample
+  before the swap, verifying the refactor changed no output.
+
+Phase 184 adds only what research needs on top: the new kernels as registry entries (vectorized
+percentile and 52-week, rolling VWAP) and the `kernel_source` adapter for members computed on a
+panel at pinned windows that the table does not carry.
 
 **D6. Persistent predictors and the book test: superseded by E16 (adopted 2026-09-25).**
 Revision 2 proposed an effective-draw refusal on the shift null. Simulation then showed the shift
@@ -150,8 +167,9 @@ under E16, subject to the survivorship and dividend conditions in D8.
    transitions.
 3. `closes_at` fixtures: half day, both DST transitions, a session with a missing final bar, a
    grid row with NaT.
-4. Aggregated 15m and 1h bars equal a direct computation from 5m (open of first, close of last,
-   high max, low min, volume sum), and no aggregated bar spans a session boundary.
+4. Derived 15m and 1h bars equal a direct computation from 5m (open of first, close of last,
+   high max, low min, volume sum), and no derived bar spans a session boundary (a phase 185
+   derivation test).
 5. A table entry with an expanding kernel is rejected; a masked kernel emits NaN until its
    declared memory.
 6. The book test holds size on synthetic AR(1) predictors across autocorrelation times, at the
@@ -175,23 +193,26 @@ under E16, subject to the survivorship and dividend conditions in D8.
 ## 4. The DAG
 
 ```
-S0 snapshot (async, read-only pool): 1d bars; 5m bars -> derived 15m, 1h
+data layer (phase 185): 5m bars -> derived 15m, 1h bars; feature (phase 186): registry -> feature_vectors
+S0 snapshot (async, read-only pool): 1d, 5m, 15m, 1h bars and feature_vectors
       -> Panel(tf): OHLCV + high, low, closes_at, warmup prefix
-S2 kernels per tf (pure, per symbol, masked to NaN before declared memory) -> alpha(tf)
+S1 target: panel.forward_returns (the only definition)
+S2 members per tf: feature_vectors columns, or kernel_source at pinned windows -> alpha(tf)
 S2b align to the book clock (pure, causal)                               -> alpha(book clock)
 S3 guards -> S4 neutralize -> S7 ridge, one target -> S8 book test (E16 timing HAC t)
       -> S6 ledger (sole writer)
       \-> term structure with joint null band (record, feeds nothing)
 ```
 
-One direction, no cycles. S0 is the only node that touches stored bars; S2b is the only node that
-sees two clocks.
+One direction, no cycles. S0 is the only research node that reads stored data; S2b is the only
+node that sees two clocks.
 
 ## 5. Performance
 
 - **I/O is the only async part.** S0 fetches symbols concurrently on the existing read-only pool;
-  everything after S0 is synchronous numpy. Deriving 15m and 1h from 5m removes two of three
-  intraday fetches.
+  everything after S0 is synchronous numpy. Targets are computed, not fetched: all four 5m
+  horizons on 91M cells take about 5 s on one core, against 61 s to read them from a stored
+  table (measured 2026-09-26).
 - **S0's own footprint.** `build_grid` allocates float64 (`snapshot.py`); five fields on a 5m
   panel over 233 names are about 2.4 GB. New intraday fields are float32; existing fields change
   dtype only if `repro_frozen.py` stays bit-identical.
@@ -210,32 +231,34 @@ sees two clocks.
 
 - No extension of `alpha.ic.lookahead.*` ladders and no tf x horizon x regime grid in the
   research layer. `feature_ic_scores` stays a disclosure record, never an admission input.
-- No reads of `feature_vectors`, stored 15m bars or stored 1h bars from the research layer.
+- No reads of stored IBKR 15m or 1h bars by any consumer once phase 185 derives them; no stored
+  `forward_returns` table (unified design 14.7).
 - No multi-day targets and no per-family horizon lists; one fixed smoothing menu instead.
 - Family 9's "horizons 1d h 5, 10, 20, 60" is gone (ledger row updated).
 
-## 7. Build items (a follow-on phase after 183)
+## 7. Build items (roadmap phase 184)
 
 | # | Item | Depends on |
 |---|---|---|
-| B1 | S0: `high`, `low`, `closes_at` (NaT on untraded rows), warmup prefix, 15m and 1h derived from 5m; D7 guards 3 and 4 | none |
-| B2 | Kernel table (bounded memory, declared inputs, NaN masking, gap rule), `kernel_source`, vectorized percentile and 52-week kernels, rolling VWAP kernel, parity test; D7 guard 5 | B1 |
+| B1 | S0: `high`, `low`, `closes_at` (NaT on untraded rows), warmup prefix, reading the derived 15m and 1h bars; D7 guard 3 | phase 185 derived grid |
+| B2 | New registry entries (vectorized percentile and 52-week, rolling VWAP) and `kernel_source` on phase 186's registry; D7 guard 5 | phase 186 registry |
 | B3 | `align` node; D7 guards 1 and 2 | B1 |
-| B4 | Term structure with joint shift-null band as a run record | S8 |
+| B4 | Disclose the IC term structure the shrunk ic_engine computes (with the run's joint shift-null band) as a run record; feeds nothing | S8, phase 186 ic_engine |
 | B5 | Fixed smoothing menu on `SignalSource` | B2 |
-| B6 | Rerun the E16 size check (slot fixed effects, persistent predictors) on the built S8 with phase 184's aligned and kernel predictors; D7 guard 6 | 183 (E16 built) |
+| B6 | Rerun the E16 size check (slot fixed effects, persistent predictors) on the built S8 with aligned and registry predictors; D7 guard 6 | 183 (E16 built) |
 | B7 | `repro_frozen.py` bit-identical after each item (D7 guard 8) | each |
 
-Dividend history (todo 428, D7 guard 7) is outside phase 183 and gates confirmation, not the
-screen.
+D7 guard 4 belongs to phase 185's derivation. Dividend history (todo 428, D7 guard 7) gates
+confirmation of daily books with price-level members, not the screen.
 
 ## 8. What would change this design
 
 - If step 0 shows most proposed daily families have `tau` above the D6 threshold, the
   within-cluster permutation null (D6 option 2) moves ahead of new family work, because without it
   the daily clock can only screen fast signals.
-- If the B2 parity test finds a bounded-memory kernel diverging from `feature_vectors` after
-  warmup, the corpus IC table is also suspect for that feature, recorded in the ledger's section 5.
+- If phase 186's registry parity test finds a bounded-memory kernel diverging from the old
+  `feature_vectors` after warmup, the corpus IC table is also suspect for that feature, recorded
+  in the ledger's section 5.
 
 ## 9. Review dispositions (2026-09-25)
 

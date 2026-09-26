@@ -100,23 +100,24 @@ Plans:
 
 ### Phase 184: Multi-timeframe research inputs
 
-**Revised 2026-09-26 (todos 435, 436):** S0 reads `feature_vectors`; D5's recompute-instead-of-read is withdrawn; B3 alignment is a prerequisite for feature books; B4's IC term structure is disclosure, not the source of the partial-adjustment rate (design section 4.4).
-
+**Revised 2026-09-26 (todos 435, 436, 446; unified design UD-25):** scope follows revision 3 of
+the multi-timeframe design. The 5m aggregation moved to phase 185, the kernel table is phase
+186's registry, S0 reads the rebuilt `feature_vectors`, and the IC term structure is computed by
+the shrunk ic_engine.
 
 **Goal:** Predictors computed on any timeframe can enter a book on one clock without a lookahead,
 a filled value or a second implementation of a feature. Build section 7 of
-`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 2, adversarially reviewed):
-B1 S0 adds `high`, `low` and `closes_at` (NaT on untraded rows), fetches a warmup prefix, and
-builds 15m and 1h from 5m on session-anchored edges (stored 15m and 1h are no longer read); B2 a
-kernel table in `feature_factory.py` (bounded memory only, declared inputs resolved as an acyclic
-graph, NaN until declared memory, a pinned gap rule), a `kernel_source` adapter, vectorized
-percentile and 52-week kernels, a rolling VWAP kernel, and a parity test against
-`feature_vectors`; B3 the causal `align` node with its guards; B4 the IC term structure as a run
-record that feeds nothing; B5 the fixed smoothing menu (half-lives 5, 21, 63 sessions); B6 the
-E16 book test holds size on synthetic persistent predictors (autocorrelation time measured in
-E15 step 0); B7 `repro_frozen.py` bit-identical after each item.
+`docs/plans/2026-09-25-multi-timeframe-horizon-design.md` (revision 3): B1 S0 adds `high`, `low`
+and `closes_at` (NaT on untraded rows), fetches a warmup prefix, and reads phase 185's derived 15m
+and 1h bars; B2 new registry entries (vectorized percentile and 52-week, rolling VWAP) and a
+`kernel_source` adapter on phase 186's kernel registry; B3 the causal `align` node with its
+guards (prerequisite for feature books); B4 disclosure of the shrunk ic_engine's IC term
+structure as a run record that feeds nothing, kappa included; B5 the fixed smoothing menu
+(half-lives 5, 21, 63 sessions); B6 the E16 book test holds size on synthetic persistent
+predictors; B7 `repro_frozen.py` bit-identical after each item.
 **Requirements**: TBD
-**Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session). Daily books
+**Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session), phase 185's
+derived 15m and 1h grid (B1), phase 186's kernel registry and shrunk ic_engine (B2, B4). Daily books
 with price-level members declare `panel.total_return` (todo 428, closed 2026-09-26).
 **Plans:** 0 plans
 
@@ -152,6 +153,10 @@ which needs D1. D2a's known-answer set includes the 2026-09-26 1d dry run (45 un
 bars; the classifier's cross-symbol corroboration clears Flash Crash stub prints). D8 also
 closes the onboarding SOP's first and last gaps (`docs/foundation/instrument-onboarding-sop.md`:
 the delisting guard, scheduled holdings snapshots) and D2a its second (scrubbing in the chain).
+UD-25 (unified design 14.7, todo 446): D2 also derives 15m and 1h bars from 5m on
+session-anchored edges (stored 1h drops the 09:30-10:00 half hour on 39 names, SPY included),
+landing before phase 186's `feature_vectors` rebuild; D2a takes over `forward_return_writer`'s
+suspect, corroboration and gap flags as flags on bars.
 **Requirements**: TBD
 **Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
 recompute, never under a live ic_engine run (Phase 178's worktree).
@@ -177,7 +182,12 @@ data-quality gates; database hygiene from the 2026-09-26 best-practices audit (d
 14.5): new writers (shrunk ic_engine, the `feature_vectors` rebuild) load with `COPY` in chunk
 order instead of row-at-a-time inserts, drop the duplicate `market_regimes` index (387 MB, same
 key as the unused PK), primary keys on every surviving table, and a measured `shared_buffers` and
-`work_mem` review under the performance-investigation SOP; the fresh ic_engine's uniqueness key includes scope explicitly (todo 391); refactor map items 1-6 (design section 14.6): `feature_factory` split into
+`work_mem` review under the performance-investigation SOP; the fresh ic_engine's uniqueness key includes scope explicitly (todo 391); one target kernel
+(UD-25, design 14.7): the shrunk ic_engine computes targets with `panel.forward_returns` on S0
+panels (in symbol chunks), intraday horizons inside one session, and once it reaches parity on
+pooled cells `forward_return_writer`, the `forward_returns` table, the fixed
+`alpha.ic.lookahead.*` keys and the scripts reading the table are deleted in one change; the
+`feature_vectors` rebuild runs on phase 185's derived 15m and 1h grid, never before it; refactor map items 1-6 (design section 14.6): `feature_factory` split into
 per-origin modules behind one kernel registry, the shrunk ic_engine written fresh beside the old
 one to parity, one `COPY`-based bulk-load primitive in `_batch_utils` (absorbs todos 301, 343,
 352), the batch feature path as the rebuild writer, `regime_writer` walk-forward only (290, 291),
@@ -189,7 +199,8 @@ promotion; consumer checks for `context_writer` (unit active) and
 ensemble rehearsal.
 **Requirements**: TBD
 **Depends on:** no live or resumable ic_engine run (import rule); phase 183 not touching these
-modules.
+modules; the `feature_vectors` rebuild step also on phase 185's derived 15m and 1h grid (UD-25)
+and todo 445's timeframe decision.
 **Plans:** 0 plans
 
 Plans:
