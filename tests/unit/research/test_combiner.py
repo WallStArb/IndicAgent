@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from src.intelligence.research.combiner import RidgeSpec, refit_positions, walk_forward_ridge
+from src.intelligence.research.combiner import (
+    EqualWeight,
+    RidgeSpec,
+    refit_positions,
+    walk_forward_ridge,
+)
 
 SPEC = RidgeSpec(window_rows=120, refit_rows=40, penalty=0.5, embargo=3, min_obs=30)
 
@@ -181,3 +186,31 @@ def test_float32_matches_float64():
     assert got32.dtype == np.float64
     np.testing.assert_allclose(got32, want, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(got32, got64, rtol=1e-4, atol=1e-5)
+
+
+def test_equal_weight_is_the_signed_mean_of_per_row_z_scores():
+    rng = np.random.default_rng(9)
+    n, m = 30, 12
+    stack = rng.normal(size=(n, m, 3))
+    stack[4, 2, 1] = np.nan  # name 2 drops out of row 4 entirely (complete cases)
+    got = EqualWeight(signs=(1.0, -1.0, 1.0)).combine(stack, np.zeros((n, m)))
+    for t in (0, 4):
+        ok = np.isfinite(stack[t]).all(axis=1)
+        x = stack[t][ok]
+        z = (x - x.mean(axis=0)) / x.std(axis=0)
+        np.testing.assert_allclose(got[t][ok], (z * [1, -1, 1]).mean(axis=1), rtol=1e-12)
+    assert np.isnan(got[4, 2]) and np.isfinite(got[4][np.arange(m) != 2]).all()
+
+
+def test_equal_weight_reads_no_target_and_rejects_bad_signs():
+    stack = np.random.default_rng(1).normal(size=(10, 8, 2))
+    ew = EqualWeight(signs=(1.0, 1.0))
+    a = ew.combine(stack, np.zeros((10, 8)))
+    b = ew.combine(stack, np.full((10, 8), 7.0))
+    np.testing.assert_array_equal(a, b)
+    assert ew.training_rows == 0 and SPEC.training_rows == SPEC.window_rows + SPEC.embargo
+    for bad in ((), (1.0, 0.5)):
+        with pytest.raises(ValueError, match="signs"):
+            EqualWeight(signs=bad)
+    with pytest.raises(ValueError, match="does not match"):
+        EqualWeight(signs=(1.0,)).combine(stack, np.zeros((10, 8)))

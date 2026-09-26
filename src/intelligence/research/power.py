@@ -1,7 +1,7 @@
-"""Synthetic power of the book test (D-12, D-23; methodology-change-ledger E16 (d)).
+"""Synthetic power of the book test (D-12, D-23; methodology-change-ledger E16 (d), E17).
 
 A replicate is a planted synthetic panel scored by exactly the real test: book.book_timing
-(walk-forward ridge once, R1, the E16 timing test) at the vintage bar. It passes when its
+(the book's combiner once, R1, the E17 timing test) at the vintage bar. It passes when its
 one-sided HAC p is below the bar. curtail consumes replicate outcomes until the fixed-R
 decision "passes / R >= min_power" is determined, which is identical to running all R.
 
@@ -78,7 +78,7 @@ class PowerProblem:
     members: tuple[tuple[Callable, dict], ...]
     coverage_floor: int
     direction: float
-    ridge: Any  # combiner.RidgeSpec
+    combiner: Any  # a combiner.Combiner (EqualWeight or RidgeSpec)
     vol_window_rows: int
     vol_min_finite: int
     cfg: Any  # an evaluate.EvaluationConfig (trade span, warmup_sessions)
@@ -110,7 +110,7 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
         target,
         vol,
         trade_mask(problem.dates, problem.cfg) & problem.valid,
-        ridge=problem.ridge,
+        combiner=problem.combiner,
         direction=problem.direction,
         coverage_floor=problem.coverage_floor,
         bars_per_session=bps,

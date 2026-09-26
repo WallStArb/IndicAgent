@@ -24,7 +24,7 @@ def test_book_timing_is_ridge_then_r1_then_timing():
         fwd,
         vol,
         trade,
-        ridge=RIDGE,
+        combiner=RIDGE,
         direction=1.0,
         coverage_floor=20,
         bars_per_session=BPS,

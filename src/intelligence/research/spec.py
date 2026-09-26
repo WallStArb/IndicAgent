@@ -234,11 +234,27 @@ class FamilySpec(BaseModel):
 
 
 class CombinerSpec(BaseModel):
+    """kind unset is the walk-forward ridge as book_v1 pinned it (its hash unchanged);
+    "equal_weight" is the fixed pre-registration-signed mean (the default for new books, E17's
+    owner decision), with one sign per member keyed "<family>.<member>" and no ridge fields."""
+
     model_config = _STRICT
-    window_sessions: int = Field(ge=1)
-    refit_sessions: int = Field(ge=1)
-    penalty: float = Field(gt=0)
-    min_obs: int = Field(ge=1)
+    kind: Literal["ridge", "equal_weight"] | None = None
+    window_sessions: int | None = Field(default=None, ge=1)
+    refit_sessions: int | None = Field(default=None, ge=1)
+    penalty: float | None = Field(default=None, gt=0)
+    min_obs: int | None = Field(default=None, ge=1)
+    signs: dict[str, Literal[1, -1]] | None = None
+
+    @model_validator(mode="after")
+    def _fields_match_kind(self) -> CombinerSpec:
+        ridge = (self.window_sessions, self.refit_sessions, self.penalty, self.min_obs)
+        if self.kind == "equal_weight":
+            if any(v is not None for v in ridge) or not self.signs:
+                raise ValueError("an equal_weight combiner takes signs and no ridge fields")
+        elif any(v is None for v in ridge) or self.signs is not None:
+            raise ValueError("a ridge combiner takes all four ridge fields and no signs")
+        return self
 
 
 class PowerSpec(BaseModel):
@@ -331,8 +347,16 @@ def _sha(text: str) -> str:
 # PanelSpec fields added after specs were run: left out of the canonical form while unset, so
 # every spec written before them keeps its recorded hash (family 1, book_v1).
 _OPTIONAL_PANEL_FIELDS = ("transform", "members_universe")
-# The same for scoring: specs run under E16 keep their hashes.
+# The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
+_OPTIONAL_COMBINER_FIELDS = (
+    "kind",
+    "window_sessions",
+    "refit_sessions",
+    "penalty",
+    "min_obs",
+    "signs",
+)
 TIMING_STATISTIC = "e17"
 
 
@@ -352,6 +376,7 @@ def _family_dump(model: FamilySpec) -> dict:
 def _book_dump(model: BookSpec) -> dict:
     data = model.model_dump(mode="json")
     _drop_unset(data, "scoring", _OPTIONAL_SCORING_FIELDS)
+    _drop_unset(data, "combiner", _OPTIONAL_COMBINER_FIELDS)
     return data
 
 
@@ -381,6 +406,14 @@ def _check_book(book: BookSpec, families: tuple[LoadedSpec, ...]) -> None:
         for field in ("panel", "horizon", "factor_spec"):
             if getattr(f, field) != getattr(first, field):
                 raise ValueError(f"book {book.book}: families disagree on {field}")
+    if book.combiner.signs is not None:
+        members = {f"{f.family}.{m.name}" for f in models for m in f.members}
+        if set(book.combiner.signs) != members:
+            raise ValueError(
+                f"book {book.book}: combiner signs must name every member exactly: "
+                f"missing {sorted(members - set(book.combiner.signs))}, "
+                f"unknown {sorted(set(book.combiner.signs) - members)}"
+            )
 
 
 def _git(root: Path, *args: str) -> str:

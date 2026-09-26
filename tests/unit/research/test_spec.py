@@ -2,6 +2,7 @@
 resolver restricted to the families package."""
 
 import dataclasses
+import json
 import subprocess
 import textwrap
 
@@ -246,3 +247,51 @@ def test_timing_statistic_is_hashed_only_when_set():
     assert _hash(e17) != _hash(FAMILY)
     with pytest.raises(ValidationError):
         parse_spec_text(e17.replace("timing_statistic: e17", "timing_statistic: e16"))
+
+
+_RIDGE = "combiner: {window_sessions: 252, refit_sessions: 21, penalty: 1.0, min_obs: 10000}"
+
+
+def _book(tmp_path, combiner_line):
+    (tmp_path / "research/specs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "research/specs/fam.yaml").write_text(FAMILY)
+    book = tmp_path / "research/specs/book.yaml"
+    book.write_text(BOOK.replace(_RIDGE, combiner_line))
+    return load_spec_from_file(book, root=tmp_path)
+
+
+def test_legacy_ridge_combiner_keeps_its_canonical_form(tmp_path):
+    loaded = _book(tmp_path, _RIDGE)
+    combiner = json.loads(loaded.canonical)["book"]["combiner"]
+    assert combiner == {
+        "window_sessions": 252,
+        "refit_sessions": 21,
+        "penalty": 1.0,
+        "min_obs": 10000,
+    }
+    assert loaded.model.combiner.kind is None
+
+
+def test_equal_weight_combiner_needs_one_sign_per_member(tmp_path):
+    names = [m.name for m in parse_spec_text(FAMILY).members]
+    signs = ", ".join(f"fam_one.{n}: 1" for n in names)
+    loaded = _book(tmp_path, f"combiner: {{kind: equal_weight, signs: {{{signs}}}}}")
+    assert loaded.model.combiner.signs == {f"fam_one.{n}": 1 for n in names}
+    assert loaded.spec_hash != _book(tmp_path, _RIDGE).spec_hash
+    partial = ", ".join(f"fam_one.{n}: 1" for n in names[1:])
+    with pytest.raises(ValueError, match="missing"):
+        _book(tmp_path, f"combiner: {{kind: equal_weight, signs: {{{partial}}}}}")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "combiner: {kind: equal_weight, signs: {fam_one.x: 1}, penalty: 1.0}",
+        "combiner: {kind: equal_weight}",
+        "combiner: {kind: equal_weight, signs: {fam_one.x: 2}}",
+        "combiner: {window_sessions: 252, refit_sessions: 21, penalty: 1.0}",
+    ],
+)
+def test_combiner_fields_must_match_kind(tmp_path, line):
+    with pytest.raises(ValueError):
+        _book(tmp_path, line)

@@ -48,7 +48,7 @@ from src.intelligence.research import (
 )
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.book import book_memory_rows, book_timing
-from src.intelligence.research.combiner import RidgeSpec
+from src.intelligence.research.combiner import Combiner, EqualWeight, RidgeSpec
 from src.intelligence.research.evaluate import (
     PoolFactory,
     evaluate,
@@ -628,7 +628,7 @@ def _power_problem(
     residuals: Residuals,
     bar: float,
     members,
-    ridge,
+    combiner: Combiner,
     memory_sessions: int,
 ):
     """Synthetic replicates planted on the real test's availability: members read S1 residual
@@ -664,7 +664,7 @@ def _power_problem(
         members=tuple(members),
         coverage_floor=c.coverage_floor,
         direction=float(c.direction),
-        ridge=ridge,
+        combiner=combiner,
         vol_window_rows=window,
         vol_min_finite=math.ceil(c.vol_min_finite_fraction * window),
         cfg=book.scoring.evaluation_config(),
@@ -672,6 +672,20 @@ def _power_problem(
         bar=bar,
     )
     return problem, plant
+
+
+def _combiner(book: BookSpec, member_keys: list[str], bps: int, horizon: int) -> Combiner:
+    """The book's S7 combiner, its signs in the member stack's column order."""
+    c = book.combiner
+    if c.kind == "equal_weight":
+        return EqualWeight(signs=tuple(float(c.signs[k]) for k in member_keys))
+    return RidgeSpec(
+        window_rows=c.window_sessions * bps,
+        refit_rows=c.refit_sessions * bps,
+        penalty=c.penalty,
+        embargo=fwd_span(horizon),
+        min_obs=c.min_obs,
+    )
 
 
 async def run_book(
@@ -744,7 +758,7 @@ async def run_book(
             panel, horizon=fam0.horizon, factor_spec=factor_spec, transform=transform
         )
         _log("S2 members")
-        columns, members, memories, slot_histories = [], [], [], []
+        columns, members, memories, slot_histories, member_keys = [], [], [], [], []
         for fam in families:
             fam_members = compute_members(fam, residuals.bar, bars_per_session=bps)
             _log(f"S3 guards {fam.family}")
@@ -767,24 +781,19 @@ async def run_book(
                 members.append((resolve_member(m.signal), dict(m.params)))
                 memories.append(m.declared_memory_rows)
                 slot_histories.append(m.slot_history_sessions)
+                member_keys.append(f"{fam.family}.{m.name}")
             del fam_members
         stack = np.stack(columns, axis=2).astype(np.float32)
         del columns
 
         alpha_level, budget_m = ctx.budget.screen_alpha, ctx.budget.budget_m
         bar = alpha_level / budget_m
-        ridge = RidgeSpec(
-            window_rows=book.combiner.window_sessions * bps,
-            refit_rows=book.combiner.refit_sessions * bps,
-            penalty=book.combiner.penalty,
-            embargo=fwd_span(fam0.horizon),
-            min_obs=book.combiner.min_obs,
-        )
+        combiner = _combiner(book, member_keys, bps, fam0.horizon)
 
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
         problem, plant = _power_problem(
-            book, families, panel, residuals, bar, members, ridge, max(slot_histories)
+            book, families, panel, residuals, bar, members, combiner, max(slot_histories)
         )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
@@ -836,7 +845,7 @@ async def run_book(
             residuals.fwd,
             vol,
             trade,
-            ridge=ridge,
+            combiner=combiner,
             direction=float(c.direction),
             coverage_floor=c.coverage_floor,
             bars_per_session=bps,
@@ -847,7 +856,7 @@ async def run_book(
         _log("S8 shift-null diagnostic")
         res, n_shifts = _shift_diagnostic(
             booked.combined,
-            book_memory_rows(memories, fam0.horizon, ridge),
+            book_memory_rows(memories, fam0.horizon, combiner),
             book,
             fam0.horizon,
             panel,

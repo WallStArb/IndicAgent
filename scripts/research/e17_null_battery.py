@@ -1,19 +1,23 @@
 """E17 condition 2: the H0 battery for the timing statistic (methodology-change-ledger E17).
 
-Runs `sims` simulations of each scenario in src/intelligence/research/null_battery.py and
-reports, per scenario and arm (each family 1 member and the equal-weight book), the rejection
-rate of the one-sided HAC test at 0.05, 0.01 and 0.00167 and the mean and sd of t. Size holds
-at a level when the rejection count is at most the upper 99% binomial quantile under that level
-(a one-sided check: an undersized test is conservative, an oversized one is not). Writes one
+Runs `sims` simulations of each scenario of a battery module and reports, per scenario and
+arm, the rejection rate of the one-sided HAC test at 0.05, 0.01 and 0.00167 and the mean and sd
+of t. The default module is src/intelligence/research/null_battery.py (family 1's members and
+equal-weight book); any module with scenarios(), simulate(scenario, seed) -> {arm: (t, p)} and
+DIAGNOSTIC_CELLS works, so a family with its own panel shape brings its own cells. Size holds at
+a level when the rejection count is at most the upper 99% binomial quantile under that level (a
+one-sided check: an undersized test is conservative, an oversized one is not). Cells in
+DIAGNOSTIC_CELLS are reported but do not gate (a documented limit, not a size claim). Writes one
 JSON record to the output path.
 
     .venv/bin/python scripts/research/e17_null_battery.py <out.json> [--sims 1000] [--workers 6]
-        [--cells name,name]
+        [--cells name,name] [--battery module.path]
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import statistics
 import sys
@@ -24,19 +28,14 @@ from scipy.stats import binom
 
 sys.path.insert(0, ".")
 from services._batch_utils import make_worker_pool  # noqa: E402
-from src.intelligence.research.null_battery import (  # noqa: E402
-    ALPHAS,
-    DIAGNOSTIC_CELLS,
-    scenarios,
-    simulate,
-)
+from src.intelligence.research.null_battery import ALPHAS  # noqa: E402
 
 _BOUND_QUANTILE = 0.99
 
 
 def _run(args: tuple) -> tuple[str, dict]:
-    sc, seed = args
-    return sc.name, simulate(sc, seed)
+    module, sc, seed = args
+    return sc.name, importlib.import_module(module).simulate(sc, seed)
 
 
 def main() -> int:
@@ -45,8 +44,15 @@ def main() -> int:
     parser.add_argument("--sims", type=int, default=1000)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--cells", default=None, help="comma-separated scenario names")
+    parser.add_argument(
+        "--battery",
+        default="src.intelligence.research.null_battery",
+        help="module with scenarios(), simulate(scenario, seed) and DIAGNOSTIC_CELLS",
+    )
     args = parser.parse_args()
-    cells = scenarios()
+    battery = importlib.import_module(args.battery)
+    diagnostic = battery.DIAGNOSTIC_CELLS
+    cells = battery.scenarios()
     if args.cells:
         wanted = set(args.cells.split(","))
         cells = tuple(sc for sc in cells if sc.name in wanted)
@@ -54,7 +60,9 @@ def main() -> int:
             raise SystemExit(f"unknown cells: {wanted - {sc.name for sc in cells}}")
     start = time.time()
     draws: dict[tuple[str, str], list[tuple[float, float]]] = {}
-    jobs = [(sc, 10_000 * k + i) for k, sc in enumerate(cells) for i in range(args.sims)]
+    jobs = [
+        (args.battery, sc, 10_000 * k + i) for k, sc in enumerate(cells) for i in range(args.sims)
+    ]
     with make_worker_pool(args.workers, blas_threads_per_worker=1) as pool:
         for name, out in pool.map(_run, jobs, chunksize=4):
             for arm, tp in out.items():
@@ -68,7 +76,7 @@ def main() -> int:
             rejected = sum(p < a for _, p in tps)
             bound = int(binom.ppf(_BOUND_QUANTILE, n, a))
             levels[str(a)] = {"rate": rejected / n, "rejected": rejected, "bound": bound}
-            if rejected > bound and name not in DIAGNOSTIC_CELLS:
+            if rejected > bound and name not in diagnostic:
                 failures.append(f"{name}/{arm} at {a}: {rejected} > {bound}")
         report.append(
             {
@@ -90,6 +98,7 @@ def main() -> int:
         )
     record = {
         "schema": "e17_null_battery_v1",
+        "battery": args.battery,
         "sims_per_cell": args.sims,
         "bound_quantile": _BOUND_QUANTILE,
         "scenarios": [sc.__dict__ for sc in cells],

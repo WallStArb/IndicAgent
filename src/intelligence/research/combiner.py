@@ -1,4 +1,13 @@
-"""S7: walk-forward ridge over a stack of member alphas (D-10, D-22).
+"""S7: the book's combiner over a stack of member alphas (D-10, D-22; E17's owner decision).
+
+Two combiners share one interface (Combiner): `combine(stack, target)` returns the combined
+alpha, and `training_rows` is how far before a row its fit reaches (the book's memory adds it).
+EqualWeight is the default for new books: a fixed, pre-registration-signed mean of the
+members' per-row z-scores, nothing fitted. RidgeSpec is the walk-forward ridge below; at a
+per-slot IC of 0.002 its fold estimates cost about half the book's t (todo 432), so it is a
+separately counted book version, not the default.
+
+Walk-forward ridge:
 
 Inputs are the factor-residualized member alphas stack[t, i, k] and the S1 residual forward
 return target[t, i]. At each refit row p (refit_positions) one coefficient vector b, pooled
@@ -27,11 +36,49 @@ ProcessPoolExecutor worker (D-17).
 from __future__ import annotations
 
 import dataclasses
+import warnings
+from typing import Protocol
 
 import numpy as np
 from numba import njit
 
 _EPS = np.finfo(np.float64).eps
+
+
+class Combiner(Protocol):
+    @property
+    def training_rows(self) -> int: ...
+
+    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray: ...
+
+
+@dataclasses.dataclass(frozen=True)
+class EqualWeight:
+    """The mean over members of sign_k * z_k, z_k member k's cross-sectional z-score per row
+    over the complete-case names (every member finite, as D-22); NaN elsewhere, and on a row
+    with fewer than two such names or a member with zero spread. Signs are pre-registered."""
+
+    signs: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if not self.signs or any(s not in (-1.0, 1.0) for s in self.signs):
+            raise ValueError(f"signs must be a non-empty tuple of +1 and -1, got {self.signs}")
+
+    @property
+    def training_rows(self) -> int:
+        return 0
+
+    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray:
+        if stack.ndim != 3 or stack.shape[2] != len(self.signs):
+            raise ValueError(f"stack {stack.shape} does not match {len(self.signs)} signs")
+        x = stack.astype(np.float64)
+        complete = np.isfinite(x).all(axis=2, keepdims=True)
+        x = np.where(complete, x, np.nan)
+        with warnings.catch_warnings(), np.errstate(invalid="ignore", divide="ignore"):
+            warnings.simplefilter("ignore", RuntimeWarning)  # empty rows stay NaN
+            sd = np.nanstd(x, axis=1, keepdims=True)
+            z = (x - np.nanmean(x, axis=1, keepdims=True)) / np.where(sd > 0, sd, np.nan)
+        return (z * np.asarray(self.signs)).mean(axis=2)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,6 +90,13 @@ class RidgeSpec:
     penalty: float
     embargo: int
     min_obs: int
+
+    @property
+    def training_rows(self) -> int:
+        return self.window_rows + self.embargo
+
+    def combine(self, stack: np.ndarray, target: np.ndarray) -> np.ndarray:
+        return walk_forward_ridge(stack, target, self)
 
     def __post_init__(self) -> None:
         if self.window_rows < 1 or self.refit_rows < 1 or self.embargo < 1:

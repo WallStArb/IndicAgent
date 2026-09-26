@@ -1,11 +1,13 @@
-"""S8, the book test (methodology-change-ledger E16).
+"""S8, the book test (methodology-change-ledger E16, E17).
 
-The book is every registered member of its families, combined once by the S7 walk-forward
-ridge and constructed with R1. Its statistic is the E16 timing test (timing.timing_test) on the
-book's final weights, the one-sided HAC t of its P&L against returns net of the memory-lagged
-cell mean (E17), at the vintage bar. Its memory is the largest slot history over its members. The ridge's walk-forward fit uses only past data, so its out-of-sample P&L
-already has zero mean under H0 and no refit per shifted copy is needed; the shift null that
-refit served is kept as a diagnostic readout computed on the fitted combined alpha.
+The book is every registered member of its families, combined once by its S7 combiner (a fixed
+pre-registration-signed equal weight by default, or the walk-forward ridge) and constructed with
+R1. Its statistic is the E17 timing test (timing.timing_test) on the book's final weights: the
+one-sided HAC t of its P&L against returns net of the memory-lagged cell mean, at the vintage
+bar, with the book's memory the largest slot history over its members. Neither combiner reads
+a target at or after the row it predicts, so the combined alpha's out-of-sample P&L has zero
+mean under H0 and no refit per shifted copy is needed; the shift null is kept as a diagnostic
+readout computed on the combined alpha.
 
 book_timing is the one path the observed book and every synthetic power replicate go through,
 so the power check is a statement about exactly the statistic the test computes.
@@ -18,7 +20,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from src.intelligence.research.combiner import RidgeSpec, walk_forward_ridge
+from src.intelligence.research.combiner import Combiner
 from src.intelligence.research.panel import fwd_span
 from src.intelligence.research.portfolio import rank_vol_neutral_weights
 from src.intelligence.research.timing import TimingResult, timing_test
@@ -38,14 +40,14 @@ def book_timing(
     vol: np.ndarray,
     trade: np.ndarray,
     *,
-    ridge: RidgeSpec,
+    combiner: Combiner,
     direction: float,
     coverage_floor: int,
     bars_per_session: int,
     warmup_sessions: int,
     memory_sessions: int,
 ) -> BookResult:
-    combined = walk_forward_ridge(stack, fwd, ridge)
+    combined = combiner.combine(stack, fwd)
     weights, has_position = rank_vol_neutral_weights(
         combined, vol=vol, direction=direction, coverage_floor=coverage_floor
     )
@@ -61,7 +63,8 @@ def book_timing(
     return BookResult(timing, combined, weights, has_position)
 
 
-def book_memory_rows(member_memory_rows: Sequence[int], horizon: int, ridge: RidgeSpec) -> int:
-    """Rows the fitted combined alpha at t can read before t, plus the forward span: the
-    members' memory, the ridge's training window and embargo. Sets the diagnostic shift set."""
-    return max(member_memory_rows) + ridge.window_rows + ridge.embargo + fwd_span(horizon)
+def book_memory_rows(member_memory_rows: Sequence[int], horizon: int, combiner: Combiner) -> int:
+    """Rows the combined alpha at t can read before t, plus the forward span: the members'
+    memory and the combiner's training reach (0 for equal weight). Sets the diagnostic shift
+    set."""
+    return max(member_memory_rows) + combiner.training_rows + fwd_span(horizon)
