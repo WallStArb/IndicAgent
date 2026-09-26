@@ -21,8 +21,8 @@ construction is independently proven.
 same `ctf_momentum`-family leak explained 43.8-90.6% of the measured uplift (todo 245, closed
 2026-08-04). A small, real, statistically significant residual survives at every tf once
 excluded -- see its own section for the corrected numbers. Two pre-registration gaps found and
-fixed the same investigation ([todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md),
-[todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
+fixed the same investigation ([todo 240](../../.planning/todos/completed/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md),
+[todo 239](../../.planning/todos/completed/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
 The natural next step -- rank `cross_sectional_relative_value` by the tree's score instead of
 the dead `ctf_momentum` (todo 238) -- is blocked on the *construction* being dead, not just its
 ranking feature; re-scope before resuming rather than assuming the original framing still holds.
@@ -767,7 +767,7 @@ finding, and all three should travel with the headline number.**
    result uninteresting (the 15m tree score is a strong ranking candidate for todo 238 on its
    own merits, where `ctf_momentum` is the correct reference because it is what the live tracker
    ranks by) -- it means the *thesis as stated* is untested.
-   [Todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md).
+   [Todo 240](../../.planning/todos/completed/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md).
 2. **The embargo is in rows, not bars.** `_nonlinear_interaction_combiner_shared.py` passes
    `embargo_bars` into `build_walk_forward_folds(n_valid=len(X), ...)` where `X` is the pooled
    panel (~80 rows per `bar_ts`, `ORDER BY bar_ts, symbol`), so `build_walk_forward_folds` does
@@ -779,7 +779,7 @@ finding, and all three should travel with the headline number.**
    training rows, so it does **not** plausibly explain a 0.18-0.25 cross-sectional-neutral
    `point_ic`. It is still wrong, it is still quoted above as a rigor credential, and it is
    cheap to fix.
-   [Todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md).
+   [Todo 239](../../.planning/todos/completed/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md).
 3. **"80/80 symbols pass" is not 80 independent confirmations.** This doc's own "Breadth Is the
    Binding Constraint" section measures effective breadth at ~4.5 for this 80-ETF-only
    population (participation-ratio method, 2026-08-07 -- see that section for the full
@@ -846,7 +846,7 @@ factor-attribution check, and an effective-breadth-preservation check, since a t
 ranking output can silently encode a static factor tilt or narrow effective breadth in ways
 `ctf_momentum` doesn't) written down before running, not after seeing the number -- same
 discipline as cross_sectional_relative_value's shuffled-null and nonlinear_interaction_combiner's own todo-184 canary-leakage check. Full pre-registered
-design: [todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md).
+design: [todo 238](../../.planning/todos/completed/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md).
 Gated on the 5m result above landing first, since it may change which tf(s) are worth testing.
 
 #### Five New Signal-Extraction Candidates, added 2026-08-03
@@ -1123,11 +1123,11 @@ pulled last.
    the tree-ranked result may change which signal/tf combination is even worth comparing.
 9. **Added 2026-08-03, from re-checking each result against the criterion pre-registered for
    it.** Two gaps in nonlinear_interaction_combiner's evidence, both filed, both cheap, and
-   [todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md)
+   [todo 240](../../.planning/todos/completed/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md)
    gates todo 238: the tree has never been compared to the linear ensemble its own falsification
    bar names (only to `ctf_momentum` alone), and the walk-forward embargo is applied in
    pooled-panel rows rather than bars
-   ([todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
+   ([todo 239](../../.planning/todos/completed/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)).
    Neither overturns the finding; both change how it should be described until they are closed.
    Separately, horizon_risk_premium's falsification criterion was replaced because the original
    could not be contradicted by any outcome, and retail_immediacy_provision's status was
@@ -1174,10 +1174,10 @@ pulled last.
   `scripts/analysis/t3_cross_sectional_long_short_ctf_momentum_check.py` (cross_sectional_relative_value's falsification
   script and 2026-07-26 pass result), `scripts/analysis/t3_ctf_family_check.py` (the CTF-sibling
   rejections), `scripts/analysis/t5_canary_leakage_check.py` (todo 184's canary check)
-- [Todo 239](../../.planning/todos/pending/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)
-  and [todo 240](../../.planning/todos/pending/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md)
+- [Todo 239](../../.planning/todos/completed/239-nonlinear-interaction-combiner-embargo-passed-in-pooled-panel-rows-not-bars.md)
+  and [todo 240](../../.planning/todos/completed/240-nonlinear-interaction-combiner-baseline-is-single-feature-not-the-linear-ensemble.md)
   -- nonlinear_interaction_combiner's two open pre-registration gaps
-- [Todo 235](../../.planning/todos/pending/235-cross-sectional-relative-value-5m-construction-never-tested-15m-is-a-default-not-a-finding.md)
+- [Todo 235](../../.planning/todos/completed/235-cross-sectional-relative-value-5m-construction-never-tested-15m-is-a-default-not-a-finding.md)
   -- cross_sectional_relative_value at 5m under the current `ctf_momentum` ranking
 - `docs/ideas/signal-convolutional-raw-window-representation.md` -- the rejected CNN paper
   critique behind the path-shape input-feature note in nonlinear_interaction_combiner's section

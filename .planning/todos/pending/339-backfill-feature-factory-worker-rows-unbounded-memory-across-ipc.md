@@ -58,3 +58,7 @@ already-landed correctness fix.
 - `services/backfill_feature_factory.py` — `_compute_symbol_tf` (row accumulation),
   `_run_compute_worker` (per-symbol results collection), `run_compute_stage` (aggregation
   loop chunking)
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Relevant now: the 411 refresh is a full `--refresh`, the case this bounds.

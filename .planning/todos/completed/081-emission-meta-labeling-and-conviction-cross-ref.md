@@ -3,7 +3,7 @@
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §9 (L6-1, L6-3).
 **Reconciliation note:** a separate, independent Fable review of the emission layer already
 exists — `docs/research/measurement-alpha-emission.md` (dated 2026-07-07) — with its own filed
-todo, `.planning/todos/pending/065-emission-layer-calibration-proposals.md` (EM-CAL/EM-STAMP/
+todo, `.planning/todos/completed/065-emission-layer-calibration-proposals.md` (EM-CAL/EM-STAMP/
 EM-RANK/EM-HYST). **L6-2 (hysteresis) from this doc directly duplicates EM-HYST — do not build
 both, EM-HYST is the canonical version.** L6-1 (conviction column) partially overlaps EM-CAL but
 proposes a different v1 mechanism (pure CI-margin geometry vs. EM-CAL's statistical calibration

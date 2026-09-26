@@ -350,6 +350,6 @@ multi-bar forward return under the gate.
 
 The "confirmed Step 2 candidate grid" table above and its "all four rows final" verdict
 are now provisional for 5m/15m/1h (not 1d, which has no session gate either way). Open
-investigation: `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
+investigation: `.planning/todos/completed/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
 — re-running Step 1 with the `--allow-overnight` diagnostic to actually resolve the
 (i)/(ii) fork this doc deferred, rather than continue treating (i) as decided.

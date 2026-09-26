@@ -49,3 +49,7 @@ convention.
   2026-09-22; the divide is at line 2284)
 - Related: [340](completed/340-ihf-5m-feature-compute-zero-row-positive-input-error.md) (same
   root data condition, different function, already fixed)
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input. Must land before `illiq` enters any family.

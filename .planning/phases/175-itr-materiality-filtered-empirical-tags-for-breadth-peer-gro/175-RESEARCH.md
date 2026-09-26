@@ -719,7 +719,7 @@ project's existing APR and migration-commit conventions.
 - `docs/foundation/apr-calibration-backlog.md` (partial read) — confirms
   `alpha.tag_calibrator.*` keys are already flagged `[initial_estimate]`, establishing the
   provenance-tagging convention this phase's new keys must follow.
-- `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`,
+- `.planning/todos/deferred/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`,
   `.planning/todos/pending/125-...md`, `.planning/todos/pending/126-...md`,
   `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` — full design
   record, all three reviewers' original proposals.

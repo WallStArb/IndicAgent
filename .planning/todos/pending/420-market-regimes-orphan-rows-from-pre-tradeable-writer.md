@@ -28,3 +28,7 @@ longer labels) that could coincide with a real feature row and hand a cell a sta
    transaction), since it always recomputes full history; delete the orphans.
 3. Any orphan that joined a feature row changes IC cells: land with the next planned recompute
    (ic_engine's market_regimes watermark will invalidate the affected cells).
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

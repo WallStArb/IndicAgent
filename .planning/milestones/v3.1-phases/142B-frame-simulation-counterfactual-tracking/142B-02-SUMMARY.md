@@ -36,7 +36,7 @@ key-files:
     - tests/unit/test_counterfactual_tracker_exit_priority.py
     - tests/unit/test_frame_gate.py
     - tests/unit/test_counterfactual_tracker.py
-    - .planning/todos/pending/089-ensemble-ic-engine-recurring-cadence.md
+    - .planning/todos/completed/089-ensemble-ic-engine-recurring-cadence.md
   modified:
     - services/counterfactual_tracker.py
     - src/observability/metrics.py
@@ -144,7 +144,7 @@ instructions, not a deviation)._
 - `tests/unit/test_counterfactual_tracker_exit_priority.py` - direction-aware exit-priority + pnl-sign coverage, mandatory short-frame cases (25 tests)
 - `tests/unit/test_frame_gate.py` - day-clustered block-bootstrap gate coverage, wider-CI-when-clustered proof, analytic-CLT-path proof (6 tests)
 - `tests/unit/test_counterfactual_tracker.py` - worker write-free contract, incremental-flush mock test, UPDATE-key guard, gate-evaluation helper coverage, service registration (14 tests)
-- `.planning/todos/pending/089-ensemble-ic-engine-recurring-cadence.md` - D-10 follow-on todo
+- `.planning/todos/completed/089-ensemble-ic-engine-recurring-cadence.md` - D-10 follow-on todo
 
 ## Decisions Made
 

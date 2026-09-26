@@ -941,7 +941,7 @@ volume divergence) is also flat (51-58% sign consistency). **Confidence caveat,
 recorded rather than smoothed over**: unlike this program's other four construction
 verdicts, this one's spread-check and successor numbers have no committed,
 pre-registered falsification script behind them — filed as
-[todo 374](../../.planning/todos/pending/374-bars-since-high-fast-verdict-lacks-committed-falsification-script.md)
+[todo 374](../../.planning/todos/completed/374-bars-since-high-fast-verdict-lacks-committed-falsification-script.md)
 for remediation. It does not carry this gate on its own; it is corroborating, not
 load-bearing (see multiplicity note below). **Item #3
 (`cointegrated_pairs_residual` same-sector screen) verdicted CLOSED**: 0/471

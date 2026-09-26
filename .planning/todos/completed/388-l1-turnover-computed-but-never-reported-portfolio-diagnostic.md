@@ -74,6 +74,6 @@ git history before acting (todo 308's standing lesson):
    diagnostic's 1d cadence. Migration 260's own comments carry a Pitfall warning against
    exactly this confusion with the real bps-based cost mechanism
    (`alpha.construction.cost_hurdle_bps_round_trip`). The honest heir of this todo's intent is
-   filed as [393](../pending/393-portfolio-diagnostic-cost-proxy-semantically-wrong.md): give the
+   filed as [393](../completed/393-portfolio-diagnostic-cost-proxy-semantically-wrong.md): give the
    diagnostic a real per-instrument cost proxy (spec update required first, per the module's
    own "do not fix without updating the spec" docstring).

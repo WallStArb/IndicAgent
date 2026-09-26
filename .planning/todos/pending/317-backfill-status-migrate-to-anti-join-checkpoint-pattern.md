@@ -69,3 +69,7 @@ what 316 already fixed.
   `_load_fv_presence_map` (todo 316), `backfill_status` schema
 - `services/alpha_frame_writer.py` -- reference implementation ("Pattern 4")
 - `services/regime_writer.py` -- second reference implementation (NULL-on-target)
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Absorbed todos 279 and 392 (`completed/279-...`, `completed/392-...`): `rows_written` exceeding `theoretical_max`, and `error_msg` not cleared on a successful completion. This todo owns `backfill_status` correctness; 433 now relies on `fetch_complete`.

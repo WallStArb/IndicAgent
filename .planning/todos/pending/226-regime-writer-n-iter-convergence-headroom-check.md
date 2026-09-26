@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-08-02
 source: throughput brainstorm following todo 216's BLAS thread-cap fix -- todo 216 found
   zero hmm_not_converged_retry cells across 244 fits (clean convergence), but never
@@ -85,3 +85,7 @@ one-time, deliberate re-run, not a casual tune.
 Small measurement step (add one log line, read it after one run) + a contingent full
 re-run only if the data justifies changing the cap. Don't size the re-run until the
 headroom is actually confirmed.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Fold into the 248 refit: settle the `n_iter` cap from the logged `monitor_.iter` distribution before the refit.

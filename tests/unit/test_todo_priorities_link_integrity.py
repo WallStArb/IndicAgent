@@ -39,13 +39,7 @@ _LINK_PATTERN = re.compile(r"\(pending/([^)]+\.md)\)")
 # tables. Adding an entry here requires a real justification, not just silencing
 # the test -- the correct fix for a genuinely-untracked todo is almost always to
 # add its row, not allow-list the gap.
-_UNLINKED_ALLOW_LIST: dict[str, str] = {
-    "080-ensemble-combination-e-candidates-queue.md": (
-        "Deliberate redirect stub, not live work: content moved 2026-08-07 to "
-        "docs/research/measurement-adaptive-combiner-weights.md, file kept in "
-        "pending/ only as a pointer."
-    ),
-}
+_UNLINKED_ALLOW_LIST: dict[str, str] = {}
 
 # {filename: reason} -- PRIORITIES.md links deliberately pointing at a filename
 # with no live pending/ file (e.g. a documented pending rename in flight).

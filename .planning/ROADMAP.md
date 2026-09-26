@@ -1283,7 +1283,7 @@ statistic non-deterministic; fixed by aggregating per-`bar_ts` before the cumula
 method tested — full detail, evidence tables, and both gates' exact numbers in
 `docs/plans/archive/2026-07-22-phase148-promotion-decision.md`.
 
-**Two non-blocking follow-up todos filed:** [172](../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
+**Two non-blocking follow-up todos filed:** [172](../.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
 (broader sweep for other order-sensitive statistics), [173](../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md)
 (`ensemble_alpha` 1h/1d OOS coverage gap).
 
@@ -1684,7 +1684,7 @@ Rolling rate and severity of null/near-null retrievals across queries; nearest-n
 Empty retrieval (`[]`) when no precedents within `max_distance`. This is a named, surfaced event — not a fallback to nearest-available. PrecedentEngine must never silently return the nearest bar when it is out-of-distribution. OOD is information.
 
 **CASE-RESEARCH-01 — Hypothesis backtester script (todo 017):**
-Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `scripts/analysis/case_backtest.py` alongside the retrieval primitive in Wave 4 (gated backlog entry: `.planning/todos/deferred/017-non-parametric-hypothesis-backtester.md`).
+Thin research utility built on top of the retrieval primitive. Accepts an arbitrary query feature vector, runs K-NN against `embeddings`, reads empirical outcome distributions from `forward_returns`. Answers "Is this edge real?" with zero new infrastructure. Ships as `scripts/analysis/case_backtest.py` alongside the retrieval primitive in Wave 4 (gated backlog entry: `.planning/todos/completed/017-non-parametric-hypothesis-backtester.md`).
 
 **Plans:** 4 plans (Wave 1: dimension calibration study; Wave 2: embedding contract + concept_registry registration; Wave 3: bar-embedder + HNSW; Wave 4: OOD monitor + retrieval primitive + hypothesis backtester script)
 
@@ -2863,7 +2863,7 @@ group-scoped peer pools.
 **Requirements**: P175-01 through P175-08, synthesized in `175-RESEARCH.md`'s
 `<phase_requirements>` section from CONTEXT.md's D-01 through D-07 plus folded todos 125/126
 (this project has no `.planning/REQUIREMENTS.md`). See
-`.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`
+`.planning/todos/deferred/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md`
 for the full design record (all three reviewers' complete proposals) and
 `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` for the
 original stopgap's design doc this phase extends.

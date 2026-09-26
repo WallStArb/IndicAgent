@@ -65,3 +65,7 @@ File for future prioritization. Check `systemctl list-timers | grep context.feat
 equivalent unit name) before acting, per CLAUDE.md's "all systemd timers are confirmed disabled
 as of 2026-07-02" caveat -- the writer may already be dormant rather than actively accumulating
 more orphaned rows.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-scoped: retire `context_writer` (`indicagent-ctx-writer.service`, running 2026-09-26, writing `context_features`, which nothing reads). First verify `vix_z`, `yield_slope_z` and `flight_quality` are populated in `feature_vectors` for the same span; then stop, disable and archive per the dual-path plan.

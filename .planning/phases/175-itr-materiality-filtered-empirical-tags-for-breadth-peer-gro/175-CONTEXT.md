@@ -141,7 +141,7 @@ followed: significance and materiality are different questions at n=250+ observa
 
 ### This phase's own design record
 - `.planning/todos/completed/379-empirical-tags-contaminate-equity-breadth-and-peer-grouping.md` — the stopgap this phase extends, full resolution record.
-- `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md` — this phase's source todo; all three reviewers' (Codex/Fable/AGY) complete original proposals.
+- `.planning/todos/deferred/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md` — this phase's source todo; all three reviewers' (Codex/Fable/AGY) complete original proposals.
 - `docs/plans/2026-09-17-itr-source-filter-breadth-peer-grouping-design.md` — the original stopgap design doc.
 - `.planning/todos/pending/125-tag-calibrator-discovery-oos-gate-not-enforced.md` — folded todo, discovery_oos_days enforcement.
 - `.planning/todos/pending/126-instrument-tags-valid-to-no-consumer-contract.md` — folded todo, valid_to filtering (needs its own stale-reference correction to the deleted equity_regime_model.py path).

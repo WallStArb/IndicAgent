@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-22
 source: /simplify's efficiency + altitude review agents on todo 382's fix (removing
   nightly-backfill's batch_size cap) -- both independently converged on the same
@@ -73,3 +73,7 @@ would catch finding 1 above if it turns out to matter in practice.
 
 - [382](../completed/382-nightly-backfill-batch-size-conflates-check-cost-with-fetch-cost.md) --
   the P0 fix this is a follow-up to
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-tiered P2 -> P1: OHLCV freshness is the input to every book. Absorbed the live item from closed todo 298: an automated end-of-run completeness summary (the `n_tf` SQL exists, not wired in).

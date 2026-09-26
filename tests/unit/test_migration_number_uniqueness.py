@@ -3,7 +3,7 @@ number prefix (e.g. 042_foo.sql and 042_bar.sql).
 
 Per docs/foundation/naming-system.md #11, migration numbers must be unique -- a
 duplicate is a real naming violation. Todo 101
-(.planning/todos/pending/101-migration-duplicate-number-sweep.md) found 14 such
+(.planning/todos/completed/101-migration-duplicate-number-sweep.md) found 14 such
 duplicate groups accumulated across production/migrations/'s history (concurrent
 worktree sessions independently picking the same "next free" number) and resolved
 all 14 in commit 18551320 (2026-07-18, "renumber to close 14 duplicate leading-number

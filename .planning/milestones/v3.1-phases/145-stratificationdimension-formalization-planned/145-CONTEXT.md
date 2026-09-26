@@ -190,7 +190,7 @@ schema for real (sequenced after Phase 170) and does not attempt to resolve todo
 - `.planning/ROADMAP.md` § Phase 145 — current roadmap entry, including the
   2026-08-06 currency re-check (todo 167 still open, `fx` group live, Phase 170
   concurrent)
-- `.planning/todos/pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
+- `.planning/todos/deferred/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
   — the open equity-side falsifier question this phase's contract must stay
   agnostic to (D-02)
 - `.planning/todos/completed/111-stratification-classification.md` — closed

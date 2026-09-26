@@ -234,7 +234,7 @@ A consumer never builds before the substrate it reads. The substrate itself shou
 - `.planning/research/2026-07-02-v3-bottomup-audit.md` — companion review; finding 9 (two divergent redundancy implementations, one orphaned) informs the effective-N precision note above
 - `services/forward_return_writer.py` — sole canonical writer of `forward_returns` (gradient horizons, `return_type='executable_open_to_open'`); the substrate reads it, never writes it
 - ROADMAP.md Phase 149/150 — live tracker for this substrate (former todo `021-analog-engine.md`
-  closed 2026-07-13, superseded duplicate); `.planning/todos/deferred/017-non-parametric-hypothesis-backtester.md` — still-gated backlog entry
+  closed 2026-07-13, superseded duplicate); `.planning/todos/completed/017-non-parametric-hypothesis-backtester.md` — still-gated backlog entry
 - `docs/foundation/principles.md` — the "one model, one book" invariant this doc's rescope is a
   direct application of (promoted 2026-07-03 from `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
 - `docs/research/intel-12-stratification-dimension.md` — hard sequencing prerequisite; regime labels this substrate hard-filters on

@@ -735,7 +735,7 @@ outcome as required for this task to succeed.
 ### Task 5: File the equity follow-up todo
 
 **Files:**
-- Create: `.planning/todos/pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
+- Create: `.planning/todos/deferred/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
 
 - [ ] **Step 1: Write the todo**
 
@@ -808,7 +808,7 @@ description matching the todo's title, following the existing entries' format ex
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .planning/todos/pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md .planning/todos/PRIORITIES.md
+git add .planning/todos/deferred/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md .planning/todos/PRIORITIES.md
 git commit -m "docs(167): file equity cross-sectional-vs-symbol-hmm untested-default follow-up"
 ```
 

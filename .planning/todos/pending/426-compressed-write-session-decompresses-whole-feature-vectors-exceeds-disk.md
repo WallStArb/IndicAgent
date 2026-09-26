@@ -46,3 +46,7 @@ decompressing: the compressed chunks' `before_compression_total_bytes` must leav
 Live check: feature_vectors refused (527 GB needed, 454 GB free, 98 GB reserve);
 feature_ic_scores passes. Step 2 (per-chunk writes) is still open and still blocks 421/411 and
 the orchestrator's regime steps, which now fail loudly instead of filling the disk.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Status: step 1 (headroom guard, migration 362) landed; native-DML write mode (5c7ecd7c9, `decompress=False`) now serves INSERT/UPSERT writers, and `backfill_feature_factory` uses it. Step 2 remains for row-level UPDATE writers (`regime_writer` and the ops scripts), which still need decompress-all and are refused. It gates the 248 refit. On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.

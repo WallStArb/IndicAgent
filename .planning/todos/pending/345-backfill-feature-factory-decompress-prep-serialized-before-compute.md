@@ -51,3 +51,7 @@ Real risk to accept mid-`/simplify` rather than a scoped, tested follow-up.
   _make_worker_pool(...) as pool): for result in pool.map(...):` block
 - `services/_batch_utils.py` -- `compressed_hypertable_write_session` (the expensive entry-phase
   sequence this fix would overlap with compute)
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-scoped: the decompress/GUC-prep cost is gone for this writer (`decompress=False`, todo 426). What remains is `pool.map` head-of-line blocking; `submit()` + `as_completed()`.

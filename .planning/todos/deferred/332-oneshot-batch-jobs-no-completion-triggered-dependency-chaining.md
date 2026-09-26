@@ -128,3 +128,7 @@ without `ml-orchestrator` having run same-week) -- no such requirement is eviden
 
 **4/5. Accelerate/automate only after 1-3**, and only once the stages are back in active use.
 Revisit this todo when re-enabling any of the disabled timers above, not before.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+First real use: todo 411's automation (feature refresh chained after the nightly OHLCV run completes).

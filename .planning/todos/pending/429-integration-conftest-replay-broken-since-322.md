@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-09-25
 source: phase 183 plan 02 (research_run ledger integration test)
 ---
@@ -32,3 +32,7 @@ the partly rebuilt test DB by hand and running with `--noconftest`.
 The baseline is regenerated from current production and `_BASELINE_MIGRATION_CUTOFF` bumped
 (the fix the conftest docstring prescribes), and `pytest tests/integration -m integration`
 reaches the tests again.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Absorbed todos 413 and 338 (`completed/413-...`, `completed/338-...`): all three are the integration conftest failing to rebuild `indicagent_test` (migration 322's CVR FK, 328 before 329). 338's point stands as a step here: generalize the reference-table seed rather than patching one table per migration.

@@ -107,3 +107,7 @@ and 375 applied. IBKR accepts the ISLAND, ARCA, NYSE, AMEX and BATS routing code
    recompute (never under a live ic_engine run).
 4. Check the September finding that the head-timestamp lookup failed with "Query failed" for
    112 of 273 active names: likely the same mechanism.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Absorbed todo 302 (`completed/302-ibkr-pre-listing-void-query-cancelled-not-fast-skipped.md`): 'Error 162: query cancelled' in a pre-listing void is not fast-skipped and falls into the 3-attempt retry storm (~195 s per chunk). Same Error 162 handling this todo and phase 185 are rewriting.

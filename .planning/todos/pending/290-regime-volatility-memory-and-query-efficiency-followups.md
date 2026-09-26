@@ -49,3 +49,7 @@ paths that deserve dedicated review rather than a same-session bolt-on right aft
   phase's own `/simplify` pass; this todo is the remaining items)
 - `src/config/vocabulary_drift.py` — `run_drift_audit`'s per-namespace query loop
 - `scripts/ops/corpus/ops_regime_null_out_and_verify.py` — `_ColumnFamily`
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-tiered P2 -> P1: the 248 refit is exactly the full `--refit` whose transient memory this bounds. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

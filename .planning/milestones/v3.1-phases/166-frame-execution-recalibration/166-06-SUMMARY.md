@@ -22,7 +22,7 @@ provides:
   - "gate166_baseline / gate166_scalar gate_evaluations rows -- the completed empirical comparison (D-01/D-03)"
   - "14 calibrated alpha.frame.stop_atr_mult.<regime>.<tf>/target_r_multiple.<regime>.<tf> APR keys (7 cells), written live by EnsembleICEngine against the champion population"
   - docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md -- the phase's verdict doc
-  - .planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md -- consolidated Part 2 deferral (D-06)
+  - .planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md -- consolidated Part 2 deferral (D-06)
   - .planning/todos/completed/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md -- closed, cross-referenced to this plan's Arm 3 resume path
 affects: []
 
@@ -36,7 +36,7 @@ tech-stack:
 key-files:
   created:
     - docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md
-    - .planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md
+    - .planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md
   modified:
     - .planning/todos/completed/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md
 
@@ -89,7 +89,7 @@ Each task was committed atomically:
 ## Files Created/Modified
 
 - `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` - The phase's verdict doc: baseline/scalar arm results, structural arm halt, arm-comparison table, Part 2 deferral statement, recommendation.
-- `.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md` - Consolidated Part 2 deferral todo (SMC/swing/fib/anchored-VWAP), naming all three dependency phases.
+- `.planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md` - Consolidated Part 2 deferral todo (SMC/swing/fib/anchored-VWAP), naming all three dependency phases.
 - `.planning/todos/completed/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md` - Moved from `deferred/`, resolution note cross-references the verdict doc's Arm 3 section.
 
 **DB/config state changes (no repo files, all via ConfigService with audited config_history entries):**
@@ -190,7 +190,7 @@ todo 129, todos 172/173).
 ## Self-Check: PASSED
 
 Verified on disk: `docs/plans/archive/2026-07-23-phase166-frame-recalibration-verdict.md` (FOUND),
-`.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md` (FOUND),
+`.planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md` (FOUND),
 `.planning/todos/completed/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md` (FOUND),
 `.planning/todos/deferred/163-frame-geometry-sr-aware-stops-once-phase-163-lands.md` (correctly
 ABSENT). All 4 commits (`e3ab5c4c`, `c665c7bb`, `4d4b1196`, `9ee1352c`) verified present via

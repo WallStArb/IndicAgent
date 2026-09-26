@@ -150,7 +150,7 @@ this project requires to treat a result as evidence. There is also a real, unres
 operationalization gap already flagged for the *better-validated* existing non-linear thesis
 (`nonlinear_interaction_combiner`) — retraining cadence, model storage/versioning
 (`ensemble_trainer.py` has no story for a serialized model of any kind, see
-[todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md)) —
+[todo 238](../../.planning/todos/completed/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md)) —
 and this candidate would face the identical gap with a strictly weaker starting evidence base.
 Not worth scoping ahead of clearing that queue. Revisit only if `nonlinear_interaction_combiner`
 itself is confirmed valuable enough in production to justify the model-infrastructure
@@ -166,5 +166,5 @@ same infrastructure rather than a standalone build.
 - `docs/research/data-edge-source-thesis.md` — `nonlinear_interaction_combiner` section (the
   existing, better-validated non-linear Signal-Extraction thesis this candidate would need to
   beat, not just supplement)
-- [todo 238](../../.planning/todos/pending/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md) —
+- [todo 238](../../.planning/todos/completed/238-nonlinear-interaction-combiner-ranked-cross-sectional-relative-value-pre-registration.md) —
   the model-infrastructure gap any future non-linear thesis (this one included) will hit

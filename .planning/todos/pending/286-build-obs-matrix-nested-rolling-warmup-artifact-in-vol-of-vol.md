@@ -64,3 +64,7 @@ not rediscover it or "restore parity" from the volatility builder in the wrong d
 - `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-REVIEWS.md` (Antigravity, concern 1)
 - `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-03-PLAN.md` Task 2
 - `services/regime_writer.py::_rolling`, `::_build_obs_matrix`
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

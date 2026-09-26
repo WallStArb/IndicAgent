@@ -31,3 +31,7 @@ parameter and could affect trend-vintage labeling too.
   rates and root cause
 - `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/evidence/172-05-relabel-coverage.json`
   — per-cell coverage data
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Absorbed todo 427 (`completed/427-regime-volatility-1d-mostly-null-one-segment-per-symbol.md`): 1d regime_volatility on <=31% of rows for every symbol (SPY only 2010-11), same finding. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

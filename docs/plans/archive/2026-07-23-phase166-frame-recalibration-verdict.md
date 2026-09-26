@@ -213,7 +213,7 @@ compounding into deeper realized drawdown), not a coverage artifact.
 The broader SMC / swing-fib / anchored-VWAP structural toolkit -- the user's original "look at
 what good ideas/logic could be reused/resurfaced/reimagined from v2 trade lifecycle/tradeframer
 and applied to v3" request (D-06) -- was evaluated and DELIBERATELY DEFERRED to Part 2
-([todo 175](../../.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)),
+([todo 175](../../.planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)),
 not silently dropped: RESEARCH.md's exhaustive live-schema check found every feature column the
 full v2.x toolkit needs (SMC order blocks/liquidity/BOS-CHoCH, swing/fib, anchored VWAP) is 100%
 absent from v3's live `feature_vectors`, requiring Phases 164 (not planned) and 165 (researched,
@@ -256,7 +256,7 @@ is complete for the two arms that could be scored this session.
   directly follows on from
 - `docs/plans/SHADOW-REVIEW.md` -- the frozen five criteria
 - `docs/plans/OOS-EVAL-PROTOCOL.md` -- run-once cadence, data-starvation-is-diagnostic rule
-- [todo 175](../../.planning/todos/pending/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)
+- [todo 175](../../.planning/todos/completed/175-structural-candidate-part2-smc-swing-fib-anchored-vwap.md)
   -- consolidated Part 2 deferral (SMC/swing/fib/anchored-VWAP), filed from this record
 - [todo 173](../../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md) --
   the pre-existing `ensemble_alpha` 1h/1d OOS coverage gap both scored arms inherit unchanged

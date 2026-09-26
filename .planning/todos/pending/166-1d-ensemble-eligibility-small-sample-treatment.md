@@ -45,3 +45,7 @@ plan, not a same-session follow-on to todo 164.
 - `docs/superpowers/specs/2026-07-21-regime-stratified-promotion-and-per-timeframe-eligibility-design.md`
   -- design doc that split this out of todo 164
 - Live numbers above from direct queries against `feature_ic_scores`, 2026-07-21
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.

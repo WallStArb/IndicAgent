@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P3
 filed: 2026-07-12
 source: todo 026 P2a, split out after verifying it's the one item in 026 with no
   fork and no fix landed anywhere else
@@ -58,3 +58,7 @@ delta on a few symbols before rolling out corpus-wide.
 - `.planning/todos/deferred/036-regime-model-integrity-monitor.md` — proposed runtime
   monitor that would consume a seed-stability score, once one exists
 - `services/regime_writer.py:513-547` — current single-seed fit + convergence-retry code
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Fold into the 248 refit: decide `alpha.hmm.n_restarts` before the refit (measure log-likelihood and label agreement on a few symbols), not after.

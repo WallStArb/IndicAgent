@@ -34,7 +34,7 @@ key-files:
     - docs/foundation/apr-calibration-backlog.md
     - CLAUDE.md
     - .planning/todos/PRIORITIES.md
-    - .planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md
+    - .planning/todos/deferred/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md
   renamed:
     - .planning/todos/pending/125-tag-calibrator-discovery-oos-gate-not-enforced.md -> .planning/todos/completed/125-tag-calibrator-discovery-oos-gate-not-enforced.md
     - .planning/todos/pending/126-instrument-tags-valid-to-no-consumer-contract.md -> .planning/todos/completed/126-instrument-tags-valid-to-no-consumer-contract.md
@@ -98,7 +98,7 @@ worktree) -- symlinked to the main repo's `.venv` so `pytest` could run.
 - `.planning/todos/completed/125-tag-calibrator-discovery-oos-gate-not-enforced.md` (renamed from pending/) - resolution section appended
 - `.planning/todos/completed/126-instrument-tags-valid-to-no-consumer-contract.md` (renamed from pending/) - resolution section appended, stale-path correction recorded
 - `.planning/todos/PRIORITIES.md` - 125/126 rows removed, 380's row rewritten
-- `.planning/todos/pending/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md` - `## Phase 175 status (2026-09-18)` section appended
+- `.planning/todos/deferred/380-itr-materiality-filtered-empirical-tags-and-eq-prefix-naming-collision.md` - `## Phase 175 status (2026-09-18)` section appended
 
 ## Decisions Made
 

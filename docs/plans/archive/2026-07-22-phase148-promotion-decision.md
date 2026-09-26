@@ -160,7 +160,7 @@ numbers.
 
 A related order-sensitivity symptom (not fixed here, tracked separately) surfaced in the
 regime-stratified companion's cluster-mean array construction -- see below and
-[todo 172](../../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md).
+[todo 172](../../.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md).
 
 ### Regime-stratified companion (D-07, mandatory -- pooled verdict never stands alone)
 
@@ -198,7 +198,7 @@ being insertion-order-dependent (Python dict iteration order feeds a fixed-seed
 aggregate `c2_regime_stratified_passes` verdict, so it did not affect Gate 2's result -- the two
 cells that DO count (`mid_bull` long/short) matched exactly across every run in this
 investigation. Filed as
-[todo 172](../../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
+[todo 172](../../.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md)
 for a broader sweep of path-dependent statistics elsewhere in the codebase, not blocking this
 gate.
 
@@ -264,7 +264,7 @@ above), not to fix a failing frame.
   sections 6-7 -- the champion's original pooled/regime-stratified measurement, cited per D-06
 - `docs/plans/SHADOW-REVIEW.md` -- the frozen five criteria
 - `docs/plans/OOS-EVAL-PROTOCOL.md` -- run-once cadence, data-starvation-is-diagnostic rule
-- [todo 172](../../.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md) --
+- [todo 172](../../.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md) --
   path-dependent statistics sweep, filed from this record's c4 investigation
 - [todo 173](../../.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md) --
   `ensemble_alpha` 1h/1d OOS coverage gap, filed from this record's Gate 1 coverage limitation

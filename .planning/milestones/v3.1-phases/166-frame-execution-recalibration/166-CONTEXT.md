@@ -193,7 +193,7 @@ demonstrably wins over the scalar baseline.
 ### Folded todos (full text)
 - `.planning/todos/pending/088-hold-max-bars-censoring-not-tracked.md`
 - `.planning/todos/pending/096-frame-hold-horizon-vs-feature-lookahead-mismatch.md`
-- `.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md`
+- `.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md`
 - `.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md`
 
 ### Project principles (Renaissance rigor lens)

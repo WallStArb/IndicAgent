@@ -60,3 +60,7 @@ See plan doc for full design, implementation notes, and table schema.
 
 - Todo 028 (IC engine improvements) is a sibling -- fix the IC foundation first, then extend it
 - PnL attribution (long-term) requires v3.0 alpha emission live and 90+ days of trade_frames
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.

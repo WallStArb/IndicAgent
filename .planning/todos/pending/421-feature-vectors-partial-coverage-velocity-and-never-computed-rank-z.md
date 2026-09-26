@@ -36,3 +36,7 @@ universe, so a new column can sit at 4% coverage for weeks while its IC looks li
 3. Add a coverage integrity check (per active feature, per tf: populated symbols / universe,
    APR threshold, integrity_monitor fact) and have ic_engine refuse, or flag, cells for a
    feature below it.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Status 2026-09-26: 1d velocity populated for 232/233 symbols; intraday still 9-10 symbols (sampled 2025-06). `rank_z` still never computed. On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.

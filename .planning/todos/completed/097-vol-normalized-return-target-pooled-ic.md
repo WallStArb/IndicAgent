@@ -46,7 +46,7 @@ different gates. L3-1 is unblocked today and directly sharpens the exact `ic_ci_
 `ic_ci_upper` mechanism Phase 143.1 is already correcting (Fisher-z CI, sign-symmetric
 eligibility) in the same corpus re-run — same reasoning that keeps 077's L3-2 (gated on Phase
 145's betas) and L3-4 (diagnostic-only) deferred as-is. Folded into Phase 143.1 as Component F;
-see `.planning/todos/deferred/077-outcome-target-refinements-vol-normalized-residual-overnight.md`
+see `.planning/todos/completed/077-outcome-target-refinements-vol-normalized-residual-overnight.md`
 for L3-2/L3-4, which remain separately deferred.
 
 **Source:** `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §6 (L3-1).

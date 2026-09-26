@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P2
+priority: P1
 filed: 2026-08-03
 source: todo 026's P4a decision gate ("validate the practical impact first"), open since
   2026-06-28 and never tested until today -- retired out of 026 into its own todo because 026 is
@@ -236,3 +236,7 @@ does not yet have real per-tf values:
 - Only `feature_vectors.regime` (per-symbol HMM axis, written by `regime_writer.py`) is affected.
   `market_regimes`/`regime_group` (cross-sectional axis, causal expanding-rank construction) is a
   separate, unaffected mechanism -- see CLAUDE.md's Dual Regime System note.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-tiered P2 -> P1. Regime and HMM columns are feature inputs to books (todo 435), and a lookahead-contaminated stored column passes the S3 causality probe, so this is on the feature path. Owner's standing directive: deploy regardless of Gate 4. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path. Also decide `alpha.hmm.n_restarts` (108) and `n_iter` (226) before the refit.

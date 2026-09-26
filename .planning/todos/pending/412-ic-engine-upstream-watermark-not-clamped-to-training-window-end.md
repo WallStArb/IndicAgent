@@ -45,3 +45,7 @@ only), not at module top, to keep ~300 MB out of every forkserver worker.
 
 Close after: the next full recompute completes, `--dry-run-validity` reports 0 invalid cells,
 the 411 catch-up adds post-window bars, and `--dry-run-validity` still reports 0 invalid.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.

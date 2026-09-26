@@ -32,7 +32,7 @@ key-files:
   created:
     - production/migrations/289_cross_asset_spread_beta_atomics.sql
     - src/intelligence/features/cross_asset_series.py
-    - .planning/todos/pending/258-v3-cross-asset-kafka-route-dead-code.md
+    - .planning/todos/deferred/258-v3-cross-asset-kafka-route-dead-code.md
   modified:
     - src/intelligence/schemas.py
     - src/intelligence/feature_factory.py
@@ -107,7 +107,7 @@ _No separate plan-metadata commit -- this is a parallel worktree execution; SUMM
 - `tests/unit/test_feature_factory.py` - `_make_config` +7 fields, 4 `update_cross_asset` call sites extended to 6-bar-list signature, 2 new tests (tip/hyg/lqd finiteness, sb_corr bounded/extremes via incremental calls), field-count assertion 270->277
 - `tests/unit/services/test_backfill_feature_factory.py` - `_make_config`/`_make_zero_vector` +7 fields each, `_build_cross_asset_series`/`_reference_cross_asset_series` extended to 6-bar-list + `CrossAssetRecord` return type, new `TestBuildSymbolBetaSeries` class (SPY/TLT None special-cases, non-proxy finite betas), new TIP/HYG/LQD partial-coverage test, `test_cross_asset_from_dict_not_cache` updated to construct `CrossAssetRecord`
 - 15 other test files (`test_canary_predictors.py`, `pipeline_helpers.py`, `test_feature_vector_writer.py`, `test_feature_vector_writer_column_mapping.py`, `test_feature_factory_p7.py`, `test_feature_factory_batch_parity.py`, 9 SMC/structure/volume-profile test files) - added the 7 new `FeatureFactoryConfig`/`FeatureVector` kwargs, fixed hardcoded field-count assertions
-- `.planning/todos/pending/258-v3-cross-asset-kafka-route-dead-code.md` (new) - the residual P3 dead-code question
+- `.planning/todos/deferred/258-v3-cross-asset-kafka-route-dead-code.md` (new) - the residual P3 dead-code question
 - `.planning/todos/PRIORITIES.md` - new row for todo 258
 
 ## Task 4: Live-Path Contamination Measurement (verbatim)
@@ -131,7 +131,7 @@ _No separate plan-metadata commit -- this is a parallel worktree execution; SUMM
 
 **Consequence for plan 151-09**, stated plainly rather than left implicit: 151-09's Task 2 (as currently written in `151-09-PLAN.md`) assumes `vix_z`/`flight_quality`/`yield_slope_z` are STILL broken on the live path and proposes building an entirely new `build_cross_asset_series`-based live loader (`_load_cross_asset_series`, `_cross_asset_by_date`, a fresh once-per-UTC-day refresh mechanism) from scratch. That premise is false for the 3 legacy fields as of 2026-07-31. **151-09 needs re-scoping before it executes** -- most likely narrowed to extending the ALREADY-LIVE `CrossAssetState`/`_cross_asset_state_for_bar()` mechanism with this plan's 7 new fields, rather than replacing a mechanism that already works. This plan does not re-scope 151-09 (out of this plan's task boundaries) -- flagging it here, in `.planning/todos/pending/258-...md`, and will need to be read before 151-09 is next picked up.
 
-**Part B -- residual dead-code todo filed:** `.planning/todos/pending/258-v3-cross-asset-kafka-route-dead-code.md` (P3, area `intelligence`), documenting the still-genuinely-dead `services/cross_asset_analyzer.py` -> `topic_cross_asset` -> `CacheManager.update_cross_asset()` route (unrelated fields, `es_nq_spread_z`/`corr_z`/`active_pair`, unit `inactive`), the same-named-but-unrelated hazard this creates against `FeatureCache.update_cross_asset()`, cites todo 158 (same bug class) and todo 159 (adjacent warm-up precedent) by number, and poses the open v2.x-revival question rather than answering it unilaterally. `.planning/todos/PRIORITIES.md` updated in the same commit.
+**Part B -- residual dead-code todo filed:** `.planning/todos/deferred/258-v3-cross-asset-kafka-route-dead-code.md` (P3, area `intelligence`), documenting the still-genuinely-dead `services/cross_asset_analyzer.py` -> `topic_cross_asset` -> `CacheManager.update_cross_asset()` route (unrelated fields, `es_nq_spread_z`/`corr_z`/`active_pair`, unit `inactive`), the same-named-but-unrelated hazard this creates against `FeatureCache.update_cross_asset()`, cites todo 158 (same bug class) and todo 159 (adjacent warm-up precedent) by number, and poses the open v2.x-revival question rather than answering it unilaterally. `.planning/todos/PRIORITIES.md` updated in the same commit.
 
 ## Decisions Made
 
@@ -217,7 +217,7 @@ None beyond what the plan's own `<threat_model>` already covers (T-151-06 throug
 
 - FOUND: `production/migrations/289_cross_asset_spread_beta_atomics.sql`
 - FOUND: `src/intelligence/features/cross_asset_series.py`
-- FOUND: `.planning/todos/pending/258-v3-cross-asset-kafka-route-dead-code.md`
+- FOUND: `.planning/todos/deferred/258-v3-cross-asset-kafka-route-dead-code.md`
 - FOUND: commit `302a47cd` (Tasks 1+2)
 - FOUND: commit `85d74202` (Task 3)
 - FOUND: commit `6a0ab475` (Task 4)

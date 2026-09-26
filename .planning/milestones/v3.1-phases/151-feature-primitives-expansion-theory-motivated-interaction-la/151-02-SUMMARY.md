@@ -27,7 +27,7 @@ tech-stack:
 key-files:
   created:
     - production/migrations/286_cluster_regime_conditioned.sql
-    - .planning/todos/pending/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md
+    - .planning/todos/completed/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md
   modified:
     - services/ic_engine.py
     - tests/unit/test_ic_engine_clustering.py
@@ -84,7 +84,7 @@ completed: 2026-08-05
 - `tests/unit/test_ic_engine_clustering.py` - 4 new tests on `_build_regime_passes` + the behavioral `_cluster_features` regime-sensitivity proof
 - `tests/unit/test_ic_engine_fingerprint.py` - 4 new tests on `_symbol_expected_cells`' widened gate
 - `tests/unit/test_ic_engine_compute_split.py` - updated `_compute_symbol_tf` signature contract
-- `.planning/todos/pending/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md` - new todo documenting the concurrent-session blocker discovered during verification
+- `.planning/todos/completed/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md` - new todo documenting the concurrent-session blocker discovered during verification
 
 ## Decisions Made
 
@@ -123,7 +123,7 @@ The plan's suggested "3 equity symbols and TLT" scope needed symbols with real p
 
 ### 3. External blocker: concurrent Phase 170 session desyncs `feature_registry`/`concept_registry` row counts
 
-Mid-verification, `services/ic_engine.py`'s `main()` startup gates (feature_registry row-count check and a separate `concept_registry(domain='feature')` drift check, both comparing live DB rows against `len(dataclasses.fields(FeatureVector))=249` in this worktree's checked-out code) began failing with a live count of 259/261 respectively. Root-caused to Phase 170 (feature_registry -> Concept Registry migration), running in a separate concurrent GSD session against the SAME shared production database, having landed migrations that add registry rows ahead of what this worktree's branch (not yet merged with Phase 170's) expects. Confirmed non-transient by monitoring the row count for several minutes with zero movement -- this will not resolve within a single session; it resolves only once Phase 170 merges to `main`. Filed as **todo 257** (`.planning/todos/pending/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md`) since it blocks ALL per-symbol `ic_engine.py` runs from any unmerged worktree, not just this one.
+Mid-verification, `services/ic_engine.py`'s `main()` startup gates (feature_registry row-count check and a separate `concept_registry(domain='feature')` drift check, both comparing live DB rows against `len(dataclasses.fields(FeatureVector))=249` in this worktree's checked-out code) began failing with a live count of 259/261 respectively. Root-caused to Phase 170 (feature_registry -> Concept Registry migration), running in a separate concurrent GSD session against the SAME shared production database, having landed migrations that add registry rows ahead of what this worktree's branch (not yet merged with Phase 170's) expects. Confirmed non-transient by monitoring the row count for several minutes with zero movement -- this will not resolve within a single session; it resolves only once Phase 170 merges to `main`. Filed as **todo 257** (`.planning/todos/completed/257-feature-registry-worktree-branch-skew-blocks-ic-engine-runs.md`) since it blocks ALL per-symbol `ic_engine.py` runs from any unmerged worktree, not just this one.
 
 **This blocker struck mid-experiment**, after I had already deleted SPY/QQQ/ARKK's `symbol_hmm` rows at tf=1h (12,948 rows + 3 fingerprint rows) to observe a clean 0→>0 transition isolating `cluster_regime_conditioned`'s effect from `dual_write_symbol_hmm` (temporarily flipped false for the `equity` group). With the CLI path blocked, I restored the data by calling `_compute_symbol_tf`/`_write_symbol_results` directly (bypassing only the two unrelated registry gates, which live in `main()`, not in the compute/write functions) with the exact same RNG derivation (`_derive_worker_rng_seed`) and inputs a real worker would use. **Verified byte-identical restoration**: post-restoration corpus-wide `regime_scope` aggregate snapshot (count + md5 of `cluster_id` string_agg) matches the pre-deletion snapshot exactly on all three scopes. `alpha.regime.groups` config was also restored to its exact original value (content-diff clean, version counter incremented transparently through `config_history`).
 

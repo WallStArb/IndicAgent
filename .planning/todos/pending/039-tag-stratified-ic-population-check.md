@@ -78,3 +78,7 @@ it's a coin flip), and any tag outside the enabled equity/rates groups (commodit
 of scope until those regime groups are enabled. Still gated on running 029's effective-breadth
 metric on at least the 3 largest of these 5 before trusting the resulting IC as real rather than
 lucky — sequence after 029, not before.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.

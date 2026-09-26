@@ -95,3 +95,7 @@ pre-committed gate's outcome after seeing the result).
   result)
 - `.planning/milestones/v3.1-phases/143.1-measurement-and-eligibility-integrity-fisher-z-ci-bootstrap-/143.1-01-SUMMARY.md`
 - `scripts/ops/alpha/ops_ic_null_calibration.py --ci-method bootstrap`
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.

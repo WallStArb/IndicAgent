@@ -57,3 +57,7 @@ compute-underflow finding, worth checking together rather than assuming unrelate
 - Precedent: `completed/168-seven-symbols-zero-per-symbol-hmm-regime-labels.md`
 - Possibly related: `pending/340-ihf-5m-feature-compute-zero-row-positive-input-error.md` (BIL's
   separate compute-underflow finding, same session)
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Absorbed todo 362 (`completed/362-bil-5m-zero-regime-volatility-labels.md`): BIL/5m has zero regime_volatility labels despite 165,500 feature rows; same near-flat-price symbol class. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

@@ -5,7 +5,7 @@
 correctly, unavoidably gated — verified live, not just asserted. One (L5-1) has a real,
 currently-idle blocker worth raising — see "Recommendation" below.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-07 — not a Fable dispatch. Consolidates
-and supersedes `.planning/todos/pending/080-ensemble-combination-e-candidates-queue.md` (filed
+and supersedes `.planning/todos/completed/080-ensemble-combination-e-candidates-queue.md` (filed
 2026-07-08, sourced from `docs/research/fable-2026-07-07-renaissance-layer-refinements.md` §8),
 which had accumulated substantial research-backlog content in a `pending/` todo file — a
 mismatch with that folder's own stated scope ("small, single-session, run-it-now items",

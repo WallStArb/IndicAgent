@@ -184,7 +184,7 @@ that implements D-10 (see below).
 ### Todos (full detail, read before planning)
 - `.planning/todos/pending/371-ic-engine-cross-sectional-cell-size-guard-post-materialization-ooms-at-universe-scale.md`
 - `.planning/todos/pending/274-live-tradeable-vs-corpus-universe-flag.md`
-- `.planning/todos/pending/282-instrument-metadata-not-backfilled-for-universe-expansion.md`
+- `.planning/todos/completed/282-instrument-metadata-not-backfilled-for-universe-expansion.md`
 - `.planning/todos/pending/376-survivorship-bias-active-only-universe-no-owner.md`
 - `.planning/todos/pending/377-futures-backfill-needs-continuous-contract-construction-not-just-gateway.md`
   (context only — futures stay out of scope)

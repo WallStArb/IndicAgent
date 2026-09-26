@@ -50,3 +50,7 @@ currently costs. Worth doing with dedicated test coverage in its own pass, not a
 - `services/regime_writer.py` — the three duplicated function pairs listed above
 - `services/regime_writer.py::_run_symbol_worker` / the pack site (~line 2450) / unpack site
   (~line 2083) — worker-args tuple
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Optional before the 248 refit; not required for it.

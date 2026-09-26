@@ -74,3 +74,7 @@ their effect on `feature_ic_scores`.
 - `docs/research/data-edge-source-thesis.md` — data quality as edge context
 - `docs/plans/methodology-change-ledger.md` — any exclusion rule added as a result of this
   hunt is a methodology change and gets a ledger entry
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.

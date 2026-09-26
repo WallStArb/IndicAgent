@@ -24,8 +24,12 @@ feature treats them as listed at their move too.
    history is split-adjusted at fetch time, so after a split the nightly job appends bars at the
    new scale beside stored bars at the old scale. Nothing detects the seam. Unchecked candidates:
    MRNA +177% on 2026-08-19, ALMS -57% on 2026-09-01.
+5. **Bad bars in stored history (todos 052, 155, 347; linked here in the 2026-09-26 backlog
+   triage).** An adversarial data-error hunt, the price-sanity historical backlog (the
+   `close=0` Flash Crash bar class), and the partial index that leaves the price-sanity scan
+   unusable. Candidates for the same validation pass as D3 and the split-seam audit.
 
-Underneath all four is one design gap: `market_data_ohlcv` mixes what a source said with what we
+Underneath the first four is one design gap: `market_data_ohlcv` mixes what a source said with what we
 believe. Each fetch writes straight into the table the research reads (ON CONFLICT DO NOTHING),
 so no record says which source, route or fetch produced a bar, a correction overwrites nothing
 and records nothing, and a better rule for choosing a bar needs a re-fetch.

@@ -142,7 +142,7 @@ two full `ic_engine` passes over the 231-symbol universe.
 - `.planning/todos/pending/229-regime-writer-hmm-retry-logic-structurally-unreachable.md`
 - `.planning/todos/pending/226-regime-writer-n-iter-convergence-headroom-check.md`
 - `.planning/todos/pending/108-hmm-multi-seed-restart-best-likelihood.md`
-- `.planning/todos/pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
+- `.planning/todos/deferred/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md`
 - `.planning/todos/pending/248-hmm-full-history-fit-regime-label-instability-gate4-pilot.md` —
   the original todo this phase implements
 

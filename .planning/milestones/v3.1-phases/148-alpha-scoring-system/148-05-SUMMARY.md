@@ -37,7 +37,7 @@ tech-stack:
 key-files:
   created:
     - docs/plans/archive/2026-07-22-phase148-promotion-decision.md
-    - .planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md
+    - .planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md
     - .planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md
   modified:
     - scripts/analysis/score03_gate2_execution_eval.py
@@ -135,7 +135,7 @@ commits, all attributable to Task 1/2's own execution):
   load-bearing given the aggregation fix)
 - `.planning/gate_look_log.jsonl` (modified) -- 2 entries appended (Gate 1, Gate 2), each with
   a pre-run integrity snapshot
-- `.planning/todos/pending/172-path-dependent-frame-statistics-order-sensitivity-sweep.md` (new)
+- `.planning/todos/completed/172-path-dependent-frame-statistics-order-sensitivity-sweep.md` (new)
 - `.planning/todos/pending/173-ensemble-alpha-1h-1d-oos-scoring-gap.md` (new)
 - `.planning/todos/PRIORITIES.md` (modified) -- 2 new P2 entries
 

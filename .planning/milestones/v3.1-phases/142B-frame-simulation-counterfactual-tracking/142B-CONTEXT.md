@@ -139,8 +139,8 @@ memory — don't re-derive the numbers here.
   `alpha.quant.cost_hurdle.*` inputs D-02's net reporting column consumes.
 - `.planning/todos/pending/011-alpha-events-is-shadow-column.md` — related but separate scope,
   gated on Phase 142A (complete); not part of this phase.
-- `.planning/todos/pending/078-frame-outcome-labels-second-outcome-definition.md` and
-  `.planning/todos/pending/082-simulation-validation-lenses-post-142b.md` — both explicitly
+- `.planning/todos/completed/078-frame-outcome-labels-second-outcome-definition.md` and
+  `.planning/todos/completed/082-simulation-validation-lenses-post-142b.md` — both explicitly
   hard-blocked on this phase shipping and explicitly state 142B's design should NOT change to
   accommodate them. Confirmed out of scope, not re-raised.
 

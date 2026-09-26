@@ -43,3 +43,7 @@ relabel — only `hmm_vol_churn` needs to change; `regime_volatility`/`hmm_vol_p
   writeup
 - `.planning/milestones/v3.1-phases/172-hmm-regime-volatility-only-redesign/172-05-SUMMARY.md` — the relabel run
   this todo's blast radius traces back to
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.

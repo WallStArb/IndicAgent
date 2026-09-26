@@ -26,7 +26,7 @@ tech-stack:
 
 key-files:
   created:
-    - .planning/todos/pending/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md
+    - .planning/todos/deferred/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md
     - .planning/todos/pending/262-orphaned-cross-asset-role-symbols-apr-key.md
   modified:
     - src/intelligence/features/cross_asset_series.py
@@ -280,7 +280,7 @@ None beyond what the plan's own `<threat_model>` already covers. T-151-17 (0.0-p
 
 - FOUND: `src/intelligence/features/cross_asset_series.py` (build_cross_asset_series/build_symbol_beta_series present)
 - FOUND: `services/feature_vector_pipeline.py` (_load_cross_asset_series/_cross_asset_record_for_date present)
-- FOUND: `.planning/todos/pending/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md`
+- FOUND: `.planning/todos/deferred/261-deploy-grain-corrected-cross-asset-mechanism-once-ingestion-resumes.md`
 - FOUND: `.planning/todos/pending/262-orphaned-cross-asset-role-symbols-apr-key.md`
 - FOUND: commit `4e860ba8` (Task 1)
 - FOUND: commit `561c1db9` (Task 2)

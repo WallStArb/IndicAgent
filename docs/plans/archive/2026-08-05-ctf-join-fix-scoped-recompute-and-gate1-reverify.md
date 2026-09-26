@@ -114,7 +114,7 @@ correction). Step 2's surgical UPDATE triggers neither: same bar count, same max
 different values underneath. Left alone, `ic_engine` will classify every `ctf_momentum` cell as
 still "valid" forever — not just until its next scheduled run, indefinitely — and
 `feature_ic_scores` stays frozen on leaked values with nothing to ever flag it stale again. This
-directly matters for [todo 256](../../.planning/todos/pending/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md):
+directly matters for [todo 256](../../.planning/todos/completed/256-ctf-columns-no-explicit-ensemble-exclusion-pending-join-fix-recompute.md):
 its "currently excluded from ensemble eligibility" finding was checked against these same stale
 rows and needs to be re-verified against real ones, not assumed to hold.
 

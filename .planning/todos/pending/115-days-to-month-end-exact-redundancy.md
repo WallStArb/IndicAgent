@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P3
+priority: P2
 filed: 2026-07-13
 source: Fable review of todo 104 (calendar/OPEX primitives), `docs/research/signal-temporal-atomic-primitives.md`
 ---
@@ -34,3 +34,7 @@ migration rather than running standalone.
 
 `docs/research/signal-temporal-atomic-primitives.md`, "Redundancy finding: remove
 `days_to_month_end`" section, full derivation.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Held, not closed: under the research methods plan (todo 436) per-feature IC is one discovery method (ic_engine proposes family members, the IC table disclosed, the choice recorded as outcome-informed). This todo serves that method. It is no longer an admission gate; E15 admission is by pre-registration.

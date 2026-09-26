@@ -706,7 +706,7 @@ walk rather than the ceiling coincidentally being correct.
 
 ## References
 
-- `.planning/todos/pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
+- `.planning/todos/completed/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md`
   — the proposal this document stress-tests; §1.2 disagrees with its Step-3 selection method
 - `.planning/todos/completed/146-lookahead-grid-per-tf-recalibration.md` — the per-tf bar-count
   grid this would supersede

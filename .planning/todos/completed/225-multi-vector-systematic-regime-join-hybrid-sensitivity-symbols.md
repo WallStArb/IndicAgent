@@ -187,7 +187,7 @@ production writes. Re-derivable from this section's methodology description if n
 - `.planning/todos/pending/224-commodity-fx-regime-group-reenablement-decision-todo-041.md` --
   sibling todo; `fx`'s zero-collision enablement stands independently; `commodity_energy`/
   `commodity_metals` enablement should wait on evidence from this todo, not a precedence guess
-- `.planning/todos/pending/186-ic-math-cross-sectional-block-bootstrap-gap.md` -- reviewed and
+- `.planning/todos/completed/186-ic-math-cross-sectional-block-bootstrap-gap.md` -- reviewed and
   confirmed NOT a blocker for this todo (this is inherently per-symbol, not cross-
   sectional/pooled)
 - `.planning/todos/pending/218-bil-thin-cell-per-symbol-ic-instability.md` -- the live,

@@ -42,7 +42,7 @@ Fixed per the recommended plan below, with one scope adjustment:
    3 files), not just the one this todo knew about. Renumbering already-applied migrations at
    that scale is a materially different risk profile than todo 095's original 3-doc-correction
    scope — deliberately NOT attempted inline. Filed as its own scoped follow-up:
-   [todo 101](../pending/101-migration-duplicate-number-sweep.md).
+   [todo 101](../completed/101-migration-duplicate-number-sweep.md).
 
 # 095 — `db/migrations/` vs `production/migrations/` split: stale docs, real number collisions,
 likely-broken fresh install

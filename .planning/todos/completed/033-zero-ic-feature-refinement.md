@@ -7,7 +7,7 @@
 **Correction (2026-07-01):** `momentum_rank_z`, `volume_rank_z`, `volatility_rank_z` are NOT
 zero-IC — they are `NULL` for every row, never computed. Cross-reference updated 2026-07-12: the
 todo that implements them was originally 013, deleted 2026-07-09 when merged into
-`.planning/todos/deferred/073-cross-sectional-relative-value-feature-family.md`. Not this todo's
+`.planning/todos/completed/073-cross-sectional-relative-value-feature-family.md`. Not this todo's
 scope; re-add here only if IC comes back at/near zero on real (non-null) data once 073 ships.
 
 **Remaining 4 features (`poc_dist_atr`, `va_position`, `sr_support_dist`, `sr_resist_dist`) —

@@ -12,7 +12,7 @@ source: live diagnostic during todo 092's corpus recompute — 100% single-core 
 
 Independently re-diagnosed (same evidence: 24-core box at load-avg 1.5, one thread pinned
 90%+, the 15m `high_bear` cell alone measured at 2h08m serial) during a live equity-scoped
-`ic_engine.py --symbols <49 equity symbols>` run (the same run [167](../pending/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md)
+`ic_engine.py --symbols <49 equity symbols>` run (the same run [167](../deferred/167-equity-cross-sectional-vs-symbol-hmm-never-falsifier-tested.md)
 needs). Fixed via `ConfigService.set()` (not a migration — this repo's config write path):
 `alpha.ic.cross_sectional_bootstrap_threads.{15m,1h,1d}` raised from `1` to `8`, changed_by
 `brandon`, reason cites this todo's measurement. `.1d`/`.1h` raised alongside `.15m` rather

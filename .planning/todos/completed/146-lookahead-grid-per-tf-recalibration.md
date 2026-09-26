@@ -16,7 +16,7 @@ Nothing left in this todo's own scope. The one genuinely new question the charac
 surfaced (whether decay-walk-on-pooled-median-IC is even the right method for `hold_max_bars`
 selection, given IC rises alongside CI width rather than decaying within any tested horizon) is
 not a loose end — it's now explicitly owned by
-[208](../pending/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md),
+[208](../completed/208-intraday-same-session-forward-return-gate-inconsistent-with-trade-construction.md),
 which was updated same-day to absorb it rather than letting it fall through the cracks.
 
 # `alpha.ic.lookahead.{fast,mid,slow,extended}` is one uniform bar-count grid across

@@ -83,3 +83,7 @@ TimescaleDB cost traps to avoid re-discovering empirically.
   primitives to reuse, not reimplement
 - `/etc/systemd/system/indicagent-bar-auditor.service` -- `WatchdogSec=60`, the constraint
   that rules out simply raising the daemon's own batch size
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.

@@ -54,3 +54,7 @@ Plan:
   tf must match on the new bars. Long-memory features (EMAs, expanding ranks, swing anchors, HMM
   forward filters, long z-scores) that don't converge within W get persisted state or stay on
   full recompute. Without this check a short warmup leaves a silent seam at the gap boundary.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Status 2026-09-26: `feature_vectors` 1d current to 2026-09-24; 5m/15m/1h stop at 2026-09-18. On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.

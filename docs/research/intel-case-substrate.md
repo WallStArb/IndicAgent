@@ -231,7 +231,7 @@ A consumer never builds before the substrate it reads. The substrate itself shou
 - `docs/plans/archive/2026-06-20-analogengine-design.md` — original v3.0 System 2 design doc; its AlphaEngine sections were already marked superseded in the doc itself, and its CaseSubstrate sections (which the doc's header still calls canonical) are now consolidated and rescoped here; this doc supersedes that claim
 - `.planning/research/2026-07-02-v3-bottomup-audit.md` — companion review; finding 9 (two divergent redundancy implementations, one orphaned) informs the effective-N precision note above
 - `services/forward_return_writer.py` — sole canonical writer of `forward_returns` (gradient horizons, `return_type='executable_open_to_open'`); the substrate reads it, never writes it
-- `.planning/todos/deferred/021-analog-engine.md`, `.planning/todos/deferred/017-non-parametric-hypothesis-backtester.md` — gated backlog entries
+- `.planning/todos/deferred/021-analog-engine.md`, `.planning/todos/completed/017-non-parametric-hypothesis-backtester.md` — gated backlog entries
 - `docs/foundation/principles.md` — the "one model, one book" invariant this doc's rescope is a
   direct application of (promoted 2026-07-03 from `docs/research/archive/intel-11-dual-system-discrete-vs-portfolio.md`)
 - `docs/research/intel-12-stratification-dimension.md` — hard sequencing prerequisite; regime labels this substrate hard-filters on

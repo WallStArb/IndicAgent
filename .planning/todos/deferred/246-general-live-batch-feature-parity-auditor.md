@@ -59,3 +59,7 @@ A single, general daemon (shaped like the existing `*_auditor.py` services) that
 - [todo 221](../completed/221-live-vix-z-flight-quality-yield-slope-z-permanently-zero.md),
   [todo 241](../completed/241-ctf-momentum-live-batch-compute-divergence.md) -- the two precedent incidents
 - `project_ingestion_intentionally_paused` (memory) -- why this is deferred, not pending
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Now the parent of the live-streaming bucket deferred in triage (366, 177, 261, 264, 265, 344, 258, 263). 177 is a named case of live/batch divergence.

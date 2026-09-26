@@ -83,3 +83,7 @@ compressed chunks.
   verifying the original zero-scan-index audit
 - [155](155-price-sanity-status-historical-backfill.md) -- the backlog-clear-time
   estimate this index mismatch may partly explain
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.

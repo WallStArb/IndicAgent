@@ -35,3 +35,7 @@ is withdrawn: the forward span is reserved for one confirmation test of a frozen
 standalone reversal look would spend it. Daily form: symbols added since the 09-13 screen, or
 phase 180 onboarding. Intraday form: a disclosed re-specification on seen data, pre-declaring a
 one-bar skip variant. Either is a family member entering the book, not a standalone verdict.
+
+## Triage 2026-09-26 (backlog review with the owner)
+
+Re-scoped: from a standalone reversal pre-registration to family 4's spec (ledger section 1 row 4), with the in-sample disclosure (2026-09-13 screen) and one-bar skip variants the ledger row requires. Relation to family 9 declared.

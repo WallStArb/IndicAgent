@@ -6,7 +6,7 @@ reconciliation pass) — todo 030 no longer exists as a file and did not, in the
 three" hypotheses as this doc originally assumed. It closed narrowly scoped to cost-hurdle
 calibration (`alpha.quant.cost_hurdle.*`, via Phase 141.1), which isn't one of the 3 hypotheses
 below. **Hypothesis 2** (emission thresholds) has a related but separate, still-**open** todo:
-[065](../../.planning/todos/pending/065-emission-layer-calibration-proposals.md). **Hypotheses 1
+[065](../../.planning/todos/completed/065-emission-layer-calibration-proposals.md). **Hypotheses 1
 and 3** (gap-observation contamination, IC-decay monitoring cadence) have no current tracking
 pointer at all — status unverified, re-check against current `ic_engine.py`/`ensemble_ic_engine.py`
 before treating either as resolved or still-open.
