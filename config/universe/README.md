@@ -59,3 +59,20 @@ wrong in two ways:
 
 The script was deleted the same day. Drawn names are now onboarded as drawn and the research
 panel's coverage rules handle short histories. Todo 434 onboards the 70.
+
+## ETF batch (second manifest)
+
+`expansion_etfs_2026_09_26.csv`: 44 ETFs approved the same day, onboarded 1d-only at about
+12:10 UTC. 43 went in; XWEB (SPDR S&P Internet) did not qualify on IBKR and was not written.
+
+| Cohort | Rows | Contents |
+|---|---|---|
+| `etf_industry` | 15 (14 onboarded) | SPDR S&P Select Industry funds (XAR, XES, XHE, XHS, XME, XPH, XSD, XSW, KBE, KIE, KCE; XWEB rejected) plus IHI, SLX, GDXJ |
+| `etf_country_em` | 12 | EIDO, THD, EPOL, TUR, EZA, ECH, EPU, ARGT, KSA, VNM, EPHE, EWM |
+| `etf_commodity` | 10 | USO, USL, UNG, UNL, CPER, PALL, CORN, WEAT, SOYB, GSG |
+| `etf_fixed_income` | 7 | MBB, BKLN, ANGL, SJNK, VCLT, BNDX, BWX |
+
+Migration 372 added the fixed-income nodes these needed (FI.SECURITIZED, FI.INTL,
+FI.CREDIT.LOANS) and the `fi_mbs` and `fi_intl` exposure tags. Migration 373 paired the
+commodity curve funds (USO/USL, UNG/UNL). IGOV was left out as a near-duplicate of BWX; BNDX
+and BWX are not paired because BNDX also holds corporate bonds.
