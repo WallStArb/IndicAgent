@@ -7,8 +7,12 @@ open. Stresses follow null_battery's conventions (Student t4 noise, static per-(
 means, a common factor with name loadings, volatility clustering, late listings, one late name,
 trading from 252 sessions), plus a time-of-day market mean per leg, common to every name. The
 measured means (187-name members' universe, 2010-2025, in units of each leg's idiosyncratic sd)
-are overnight +0.0588, first 15 minutes -0.0263, rest of session +0.0127; gating cells use twice
-those, as null_battery's S1 cell does.
+are overnight +0.0588, first 15 minutes -0.0263, rest of session +0.0127. The static per-(leg,
+name) means, measured the same way (per-name mean over the cross-sectionally demeaned leg sd,
+2010+, sampling variance removed), are 0.0442, 0.0448 and 0.0169, split-half correlations 0.18,
+0.36 and 0.19. Gating cells use twice the measured sizes, as null_battery does; cells at 0.3
+document the limit (static means times volatility clustering inflate the tail, and S1's beta
+error times a large time-of-day mean is credited) and are diagnostics.
 
 An S1 scenario builds a synthetic 15m source panel whose session legs are exactly the drawn
 legs (bar 1 opens at bar 0's close, so the target equals the rest leg) and sends it through the
@@ -46,6 +50,7 @@ MEMBERS = (
     ("gap_fade_z", f2.gap_fade_z, {"window_sessions": 60}, 61),
 )
 MEASURED_LEG_MEANS = (0.0588, -0.0263, 0.0127)  # overnight, first 15m, rest (idio sd units)
+MEASURED_STATIC_SD = (0.0442, 0.0448, 0.0169)  # static per-(leg, name) mean sd, same units
 _WARMUP_SESSIONS = 252
 _COVERAGE_FLOOR = 20
 _VOL_WINDOW_SESSIONS = 20
@@ -60,7 +65,7 @@ class LegsScenario:
     names: int = 60
     leg_means: tuple[float, float, float] = (0.0, 0.0, 0.0)
     t4_noise: bool = False
-    static_cell_sd: float = 0.0  # per-(leg, name) mean
+    static_cell_sd: tuple[float, float, float] = (0.0, 0.0, 0.0)  # per-(leg, name) mean sd
     factor_sd: float = 0.0  # common factor per (session, leg), loadings uniform on [0.5, 1.5]
     vol_clustering: bool = False
     late_fraction: float = 0.0
@@ -83,8 +88,8 @@ def _legs(sc: LegsScenario, rng: np.random.Generator) -> np.ndarray:
             log_vol[s] = 0.97 * log_vol[s - 1] + shocks[s]
         u *= np.exp(log_vol)[:, None, None]
     u = u + np.asarray(sc.leg_means)[None, :, None]
-    if sc.static_cell_sd:
-        u = u + sc.static_cell_sd * rng.standard_normal((LEGS, m))
+    if any(sc.static_cell_sd):
+        u = u + np.asarray(sc.static_cell_sd)[:, None] * rng.standard_normal((LEGS, m))
     if sc.factor_sd:
         loading = rng.uniform(0.5, 1.5, m)
         u = u + sc.factor_sd * rng.standard_normal((s_n, LEGS, 1)) * loading
@@ -194,30 +199,28 @@ def simulate(sc: LegsScenario, seed: int) -> dict[str, tuple[float, float]]:
 
 
 def scenarios() -> tuple[LegsScenario, ...]:
-    """Gating cells at twice the measured leg means, plus 's1_leg_stress' (diagnostic): every
-    leg's time-of-day mean at 0.3, the documented a^2 var(beta_hat) limit in family 2's shape."""
-    twice = tuple(2 * a for a in MEASURED_LEG_MEANS)
-    stress = dict(
-        t4_noise=True,
-        static_cell_sd=0.3,
-        factor_sd=0.5,
-        vol_clustering=True,
-        late_fraction=0.4,
-        late_name=True,
+    """Gating cells at twice the measured leg means and static sizes; diagnostics at 0.3."""
+    means = tuple(2 * a for a in MEASURED_LEG_MEANS)
+    static = tuple(2 * v for v in MEASURED_STATIC_SD)
+    other = dict(
+        t4_noise=True, factor_sd=0.5, vol_clustering=True, late_fraction=0.4, late_name=True
     )
+    at_03 = (0.3, 0.3, 0.3)
     return (
-        LegsScenario("legs_gaussian", leg_means=twice),
-        LegsScenario("legs_static_means", leg_means=twice, static_cell_sd=0.3),
-        LegsScenario("legs_late_listings", leg_means=twice, late_fraction=0.4, late_name=True),
-        LegsScenario("legs_hostile", leg_means=twice, **stress),
-        # legs_hostile without static cell means: separates that cause (long-memory members carry
-        # largely static weights) the way null_battery's isolation cells do for family 1.
+        LegsScenario("legs_gaussian", leg_means=means),
+        LegsScenario("legs_static_means", leg_means=means, static_cell_sd=static),
+        LegsScenario("legs_late_listings", leg_means=means, late_fraction=0.4, late_name=True),
+        LegsScenario("legs_hostile", leg_means=means, static_cell_sd=static, **other),
+        LegsScenario("legs_hostile_no_static", leg_means=means, **other),
+        LegsScenario("legs_s1_hostile", leg_means=means, static_cell_sd=static, s1=True, **other),
         LegsScenario(
-            "legs_hostile_no_static", leg_means=twice, **{**stress, "static_cell_sd": 0.0}
+            "legs_static_vol_stress", leg_means=means, static_cell_sd=at_03, vol_clustering=True
         ),
-        LegsScenario("legs_s1_hostile", leg_means=twice, s1=True, **stress),
-        LegsScenario("legs_s1_leg_stress", leg_means=(0.3, 0.3, 0.3), s1=True),
+        LegsScenario("legs_hostile_stress", leg_means=means, static_cell_sd=at_03, **other),
+        LegsScenario("legs_s1_leg_stress", leg_means=at_03, s1=True),
     )
 
 
-DIAGNOSTIC_CELLS = frozenset({"legs_s1_leg_stress"})
+DIAGNOSTIC_CELLS = frozenset(
+    {"legs_static_vol_stress", "legs_hostile_stress", "legs_s1_leg_stress"}
+)
