@@ -1064,9 +1064,9 @@ class IBKRProvider:
         if not self._ib:
             return False
         try:
+            ibkr_meta = instrument.provider_meta.get("ibkr", {})
             if instrument.asset_class == AssetClass.FUTURES:
                 if not ibkr_symbol:
-                    ibkr_meta = instrument.provider_meta.get("ibkr", {})
                     ibkr_symbol = ibkr_meta.get("symbol") or instrument.base or instrument.symbol
                     trading_class = (
                         trading_class
@@ -1085,8 +1085,10 @@ class IBKRProvider:
             elif instrument.asset_class == AssetClass.CRYPTO:
                 contract = Contract(secType="CRYPTO", symbol=instrument.base, currency="USD")
             elif instrument.asset_class == AssetClass.EQUITY:
+                # A share class IBKR spells with a space (BRK.B -> "BRK B") carries it in
+                # provider_meta.ibkr.symbol, so the internal symbol stays space-free.
                 contract = Stock(
-                    symbol=instrument.symbol,
+                    symbol=ibkr_symbol or ibkr_meta.get("symbol") or instrument.symbol,
                     exchange=instrument.exchange or "SMART",
                     currency="USD",
                 )

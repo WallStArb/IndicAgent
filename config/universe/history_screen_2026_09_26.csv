@@ -1,0 +1,196 @@
+symbol,history_before_2016_09_26,evidence
+ACRS,pass,no IBKR error in first screen run log
+AIR,pass,no IBKR error in first screen run log
+ALRM,pass,no IBKR error in first screen run log
+AMPH,pass,no IBKR error in first screen run log
+ASTE,pass,no IBKR error in first screen run log
+ASYS,pass,no IBKR error in first screen run log
+BELFA,pass,no IBKR error in first screen run log
+BH,pass,no IBKR error in first screen run log
+BKD,pass,no IBKR error in first screen run log
+BOX,pass,no IBKR error in first screen run log
+CFFN,pass,no IBKR error in first screen run log
+CMCO,pass,no IBKR error in first screen run log
+CPS,pass,no IBKR error in first screen run log
+CSIQ,pass,no IBKR error in first screen run log
+CUBI,pass,no IBKR error in first screen run log
+DCH,pass,no IBKR error in first screen run log
+ENOV,pass,no IBKR error in first screen run log
+ENTA,pass,no IBKR error in first screen run log
+FBIZ,pass,no IBKR error in first screen run log
+FCEL,pass,no IBKR error in first screen run log
+FLO,pass,no IBKR error in first screen run log
+FRME,pass,no IBKR error in first screen run log
+FRST,pass,no IBKR error in first screen run log
+GEF,pass,no IBKR error in first screen run log
+GLNG,pass,no IBKR error in first screen run log
+GPI,pass,no IBKR error in first screen run log
+GSBC,pass,no IBKR error in first screen run log
+HCKT,pass,no IBKR error in first screen run log
+HNRG,pass,no IBKR error in first screen run log
+HSTM,pass,no IBKR error in first screen run log
+IBP,pass,no IBKR error in first screen run log
+IDR,pass,no IBKR error in first screen run log
+INGN,pass,no IBKR error in first screen run log
+JMSB,pass,no IBKR error in first screen run log
+JOUT,pass,no IBKR error in first screen run log
+KMT,pass,no IBKR error in first screen run log
+KN,pass,no IBKR error in first screen run log
+LCUT,pass,no IBKR error in first screen run log
+LXP,pass,no IBKR error in first screen run log
+MVBF,pass,no IBKR error in first screen run log
+OEC,pass,no IBKR error in first screen run log
+OTTR,pass,no IBKR error in first screen run log
+PMTS,pass,no IBKR error in first screen run log
+PTGX,pass,no IBKR error in first screen run log
+RAIL,pass,no IBKR error in first screen run log
+RBCAA,pass,no IBKR error in first screen run log
+RCAT,pass,no IBKR error in first screen run log
+RCMT,pass,no IBKR error in first screen run log
+REX,pass,no IBKR error in first screen run log
+SLAB,pass,no IBKR error in first screen run log
+STBA,pass,no IBKR error in first screen run log
+TG,pass,no IBKR error in first screen run log
+TPB,pass,no IBKR error in first screen run log
+UHT,pass,no IBKR error in first screen run log
+UNF,pass,no IBKR error in first screen run log
+USAU,pass,no IBKR error in first screen run log
+UUUU,pass,no IBKR error in first screen run log
+VATE,pass,no IBKR error in first screen run log
+VISN,pass,no IBKR error in first screen run log
+WEYS,pass,no IBKR error in first screen run log
+WSFS,pass,no IBKR error in first screen run log
+WT,pass,no IBKR error in first screen run log
+YORW,pass,no IBKR error in first screen run log
+GYRE,fail,daily bar probe
+XZO,fail,daily bar probe
+APMD,fail,daily bar probe
+FBRT,fail,daily bar probe
+AKTS,fail,daily bar probe
+FSBC,fail,daily bar probe
+VOR,fail,daily bar probe
+DLO,fail,daily bar probe
+BRBR,fail,daily bar probe
+PAYO,fail,daily bar probe
+NESR,fail,daily bar probe
+ACVA,fail,daily bar probe
+SEZL,fail,daily bar probe
+BAND,fail,daily bar probe
+IIPR,fail,daily bar probe
+RDW,fail,daily bar probe
+PENG,fail,daily bar probe
+RLAY,fail,daily bar probe
+CGON,fail,daily bar probe
+SRRK,fail,daily bar probe
+KRUS,fail,daily bar probe
+OFLX,pass,daily bar probe
+FLGT,fail,daily bar probe
+CBAN,pass,daily bar probe
+UHAL,pass,daily bar probe
+CAL,pass,daily bar probe
+CYRX,pass,daily bar probe
+NXRT,pass,daily bar probe
+ONIT,pass,daily bar probe
+PAR,pass,daily bar probe
+KURA,pass,daily bar probe
+MPB,pass,daily bar probe
+WSBF,pass,daily bar probe
+PUMP,fail,daily bar probe
+PRSU,pass,daily bar probe
+ECVT,fail,daily bar probe
+CCBG,pass,daily bar probe
+PLOW,pass,daily bar probe
+MGTX,fail,daily bar probe
+MBWM,pass,daily bar probe
+TRST,pass,daily bar probe
+BRSL,pass,daily bar probe
+STUB,fail,daily bar probe
+AZTA,fail,daily bar probe
+OCUL,pass,daily bar probe
+DHC,pass,daily bar probe
+NUVB,fail,daily bar probe
+OMCL,pass,daily bar probe
+NWBI,pass,daily bar probe
+ATRO,pass,daily bar probe
+LASR,fail,daily bar probe
+CRVL,pass,daily bar probe
+PAGS,fail,daily bar probe
+LOAR,fail,daily bar probe
+CWT,pass,daily bar probe
+NRIX,fail,daily bar probe
+POWI,pass,daily bar probe
+POST,pass,daily bar probe
+IRT,pass,daily bar probe
+OLED,pass,daily bar probe
+BWIN,fail,daily bar probe
+CVBF,pass,daily bar probe
+PARR,pass,daily bar probe
+CXW,pass,daily bar probe
+OUT,pass,daily bar probe
+CRC,fail,daily bar probe
+REA,fail,daily bar probe
+PBFS,fail,daily bar probe
+ARTV,fail,daily bar probe
+EPSN,fail,daily bar probe
+BOC,fail,daily bar probe
+IBEX,fail,daily bar probe
+GENB,fail,daily bar probe
+FMAO,fail,daily bar probe
+SVRA,fail,daily bar probe
+ANRO,fail,daily bar probe
+CDRE,fail,daily bar probe
+CMPR,fail,daily bar probe
+VOYG,fail,daily bar probe
+SGHC,fail,daily bar probe
+INSP,fail,daily bar probe
+OSW,fail,daily bar probe
+PLMR,fail,daily bar probe
+SDRL,fail,daily bar probe
+ADPT,fail,daily bar probe
+LQDA,fail,daily bar probe
+CMDB,fail,daily bar probe
+ULH,pass,daily bar probe
+LMNR,pass,daily bar probe
+RES,pass,daily bar probe
+BOW,fail,daily bar probe
+GOOD,pass,daily bar probe
+MOV,pass,daily bar probe
+EBF,pass,daily bar probe
+MAMA,pass,daily bar probe
+SAFE,pass,daily bar probe
+CBC,fail,daily bar probe
+BCML,pass,daily bar probe
+SBGI,pass,daily bar probe
+PFBC,pass,daily bar probe
+PWP,fail,daily bar probe
+NEXT,fail,daily bar probe
+MUX,pass,daily bar probe
+APPS,pass,daily bar probe
+AGL,fail,daily bar probe
+XERS,fail,daily bar probe
+COUR,fail,daily bar probe
+BZH,pass,daily bar probe
+VSTS,fail,daily bar probe
+SCSC,pass,daily bar probe
+MBX,fail,daily bar probe
+SFL,pass,daily bar probe
+CNXC,fail,daily bar probe
+SAFT,pass,daily bar probe
+MZTI,pass,daily bar probe
+NBTB,pass,daily bar probe
+MFP,fail,daily bar probe
+EFSC,pass,daily bar probe
+MCY,pass,daily bar probe
+BLBD,pass,daily bar probe
+PATK,pass,daily bar probe
+AAP,pass,daily bar probe
+CLBK,fail,daily bar probe
+DORM,pass,daily bar probe
+HOG,pass,daily bar probe
+ACMR,fail,daily bar probe
+KBH,pass,daily bar probe
+SHC,fail,daily bar probe
+PAG,pass,daily bar probe
+OGS,pass,daily bar probe
+NVST,fail,daily bar probe
+MYRG,pass,daily bar probe

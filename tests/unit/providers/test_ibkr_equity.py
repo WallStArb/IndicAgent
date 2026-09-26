@@ -50,6 +50,31 @@ class TestIBKREquityQualification:
             contract_arg = call_args[0][0]
             assert contract_arg.secType == "STK"
 
+    @pytest.mark.asyncio
+    async def test_qualify_equity_uses_provider_meta_ibkr_symbol(self):
+        from src.providers.ibkr import IBKRProvider
+
+        provider = IBKRProvider.__new__(IBKRProvider)
+        provider.logger = MagicMock()
+        provider._qualified_contracts = {}
+        provider._local_to_canonical = {}
+
+        instrument = Instrument(
+            symbol="BRK.B",
+            asset_class=AssetClass.EQUITY,
+            exchange="SMART",
+            session_id="nyse",
+            provider_meta={"ibkr": {"symbol": "BRK B"}},
+        )
+        mock_details = MagicMock()
+        mock_details.contract = MagicMock(secType="STK", symbol="BRK B", localSymbol="BRK B")
+
+        with patch.object(provider, "_ib", create=True) as mock_ib:
+            mock_ib.reqContractDetailsAsync = AsyncMock(return_value=[mock_details])
+            assert await provider.qualify_instrument(instrument) is True
+            assert mock_ib.reqContractDetailsAsync.call_args[0][0].symbol == "BRK B"
+        assert "BRK.B" in provider._qualified_contracts
+
 
 class TestIBKRUseRTH:
     """IBKR must pass useRTH=True for equity historical bars."""

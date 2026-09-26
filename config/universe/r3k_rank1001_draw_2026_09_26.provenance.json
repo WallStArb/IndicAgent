@@ -1,0 +1,15 @@
+{
+  "holdings_file": "../indicagent-universe/config/universe/iwv_holdings_2026_09_14.csv",
+  "holdings_sha256": "f143e656387a1628578a268dcdf6c81947df6fbe6ba14113bb5a24820b038f44",
+  "min_price": 5.0,
+  "skip_top": 1000,
+  "n_population": 1397,
+  "stratified_sample_random_state": 42,
+  "cap_bucket_count": 10,
+  "r2k_sample_size": 100,
+  "n_excluded": 295,
+  "exclude_set_sha256": "6e8ae36cd496768b807a7e2361280b75a7677d92da6fdd5c9525092455aacda3",
+  "n_drawn": 100,
+  "replacements": {},
+  "also_exclude": null
+}
