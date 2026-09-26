@@ -33,15 +33,14 @@ draws from IWM holdings (the Russell 2000 itself); the other draws from IWV hold
 Deviations from a clean stratified sample:
 
 - The draws overlap. ALRM, FRME, OTTR, STBA and UNF appear in both, because each draw
-  excluded only symbols already in `instruments`, not the other draw. The manifest labels
-  all five `r2k_draw_iwm`, so the rank-1001 cohort shows 65 rows although 70 of its drawn
-  names are onboarded.
-- Names that failed the history screen were dropped, not replaced within their cap bucket
-  (the S&P 500 fill took their place in the batch). The failures cluster in young-listing
-  buckets, so the onboarded small caps lean toward long-listed firms more than the
-  stratification intends. That comes on top of the current-membership survivorship bias
-  (todo 376). The draw script's in-bucket replacement option was never used for the final
-  draws (`replacements: {}`) and has since been removed.
+  excluded only symbols already in `instruments`, not the other draw. The manifests label
+  all five `r2k_draw_iwm`, so the rank-1001 cohort shows 95 rows although all 100 of its drawn
+  names are held.
+- Names that failed the history screen were left out of the first manifest and onboarded the
+  same day once the screen was deleted (below), so every drawn name is now held and the cap
+  strata match the draw. Survivorship remains: the draws sample current members only (todo
+  376). The draw script's in-bucket replacement option was never used for the final draws
+  (`replacements: {}`) and has since been removed.
 - The provenance JSON files came from an earlier revision of the draw script. They carry
   the key `r2k_sample_size` (now `sample_size`), and their `holdings_file` paths are
   relative to a sibling worktree. They are kept as generated.
@@ -58,7 +57,10 @@ wrong in two ways:
   names that changed venue after 2016 also failed.
 
 The script was deleted the same day. Drawn names are now onboarded as drawn and the research
-panel's coverage rules handle short histories. Todo 434 onboards the 70.
+panel's coverage rules handle short histories. The 70 were onboarded the same day from
+`expansion_smallcaps_2026_09_26.csv` (todo 434), in their original cohorts (40 `r2k_draw_iwm`,
+30 `r2k_draw_iwv_rank1001`) with the classifications the other 125 drawn names received. All
+195 names both draws produced are now in `instruments`.
 
 ## ETF batch (second manifest)
 
