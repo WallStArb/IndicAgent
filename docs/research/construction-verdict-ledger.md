@@ -25,13 +25,14 @@ UCR recipe book holds them; it then becomes a report rendered from `concept_regi
 
 ## 1. Active queue
 
-Family designs are in `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. No
-family has a real-data number yet: the first run waits for phase 183 (spec runner, ledger
-writer, combiner, book test), so no number exists outside a recorded run.
+Family designs are in `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. Only
+family 1 has real-data numbers, all member evidence (a book test was refused before any
+real-data statistic); every number comes from a recorded `research_run` row, never from
+outside one.
 
 | # | Family | Status | Blocked on |
 |---|---|---|---|
-| 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **REGISTERED** 2026-09-25, `docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md` | Phase 183; family 1 build items R1 (dollar-neutral construction) and R2 (session-aggregated scoring). R3 (per-slot market beta) shipped c73cb8307 |
+| 1 | Intraday same-slot periodicity (Heston, Korajczyk, Sadka 2010), members P1-P4 | **EVIDENCE RECORDED; BOOK V1 REFUSED** 2026-09-25. Member evidence, run group `5a564f09` (spec `b828c285`, code `531da089d`): HAC timing t 13.53 (lag1), 18.32 (mean5), 18.56 (mean20), 18.41 (mean40); gross Sharpe 3.81 to 5.28; about 26x gross turnover per session, so 1 bp per side costs about 65% a year against about 4.7% gross (diagnostic only). The E16 statistic these used is biased toward zero for own-history members (methodology-change-ledger E17, migration 377 annotation): the detection stands, the magnitudes are understated. Book v1 (run `ba36e5b7`, group `a683f4a5`) refused, underpowered at IC 0.002 (0 of 51), uncharged; the refusal came from E16's bias, not from the data's resolution (todo 432). A known intraday anomaly found at the expected sign and horizon: the research layer's first real-data positive control | E17's gating decision (owner), then attempts 1a (family 1 single-family book, equal weight) and 1c (pod book with family 2), todo 442. Promotion needs positive net expectation (E18), which this construction's turnover rules out as built |
 | 1b | Residual first-half-hour to last-half-hour (split out of family 1 as P5) | Design in section 4 of the architecture doc | Pre-registration. Must disclose `retail_immediacy_provision`'s 2026-08-07 finding (intraday momentum present in every group), which was seen on this data; and the corpus `power_hour` pooled IC (section 5), a pending member |
 | 2 | Overnight versus intraday return decomposition (Lou, Polk, Skouras 2019; Berkman et al. 2012 for the same-day gap) | Registered 2026-09-25: `docs/plans/2026-09-25-family2-overnight-intraday-prereg.md`. Six members on one signal row (09:45, first 15m bar's close) targeting the rest of the session: intraday persistence 20/60, overnight-to-intraday 20/60, gap fade, scaled gap fade. Members' universe US-session equities (187 names). Gap members disclosed as seen-data re-specifications (section 5 look); low-liquidity gap fade kept as a diagnostic, not a member. Overnight persistence (overnight target) not tested here | Build B1 (session-legs panel, per-leg S1), B2 (family 2 power plant), B3 (universe filter); then the book run (one of M = 30) |
 | 3 | ETF-to-constituent and cross-asset lead-lag, 5m to 1h | Design only; same idea as the Edge Source Thesis's never-run `cross_asset_lead_lag` | Pre-registration |

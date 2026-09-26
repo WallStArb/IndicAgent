@@ -5,6 +5,7 @@
 **Governing rules:** `docs/plans/2026-09-24-evidence-framework.md` version 4
 (methodology-change-ledger E15).
 **Status:** REGISTERED 2026-09-25 after the AGY review (section 8). No real-data number exists.
+First real-data run recorded 2026-09-25: research_run group 5a564f09 (evidence, completed), a683f4a5 (book v1, refused, uncharged); outcome in `docs/research/construction-verdict-ledger.md` section 1.
 The first real-data run waits for phase 183 (runner, ledger, combiner, book test) and for the
 three build requirements in section 9. No real-data number for any member exists. The first
 real-data run waits for phase 183's runner and ledger; the runner's machine spec must
