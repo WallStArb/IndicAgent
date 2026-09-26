@@ -17,6 +17,19 @@ progress:
 
 ## Strategic Plan (read this first)
 
+**Universe and daily data, 2026-09-26.** Active universe 273 -> 862, all `compute_eligible_1d`
+(1d-only; 233 still carry the intraday stack): 546 names onboarded and promoted (368 S&P 500,
+125 seeded small caps, 53 ETFs and Dow fills) plus 43 ETFs (industry, EM country, commodity,
+fixed income) awaiting their 1d backfill. Lineage: `config/universe/README.md`. The 70 small
+caps the deleted history screen dropped are todo 434. IBKR SMART history starts at a stock's
+last listing-venue move (todo 433, P0), in 1d and intraday alike, and `ohlcv_empty_history`
+recorded those years as verified empty: every daily and intraday verdict on moved names is
+affected until 185 lands. Phase 185 (daily data foundation, IBKR-only, accepted) owns the fix;
+survivorship is decided as forward-only from IBKR (185 D8) plus bounding past verdicts (185
+D0). The 433 branch (`fix/433-venue-move-history`, worktree `../indicagent-433`) holds
+verify-only venue recovery, migrations 374/375, a per-timeframe rate limit, one request per 1d
+name and automatic `fetch_complete`; it is reviewed before merge, then 374/375 are applied.
+
 **v3.4 Edge Proof, 2026-09-24.** 179: harness S0-S4 on main
 (`scripts/analysis/sleeve_walk_forward/`); V2 (6.0% false-pass), V3 (81% power at excess 0.85)
 and V4b (D7 null) PASS; V4 found a fidelity gap (todo 418) that blocks the freeze. N_tested for
@@ -37,8 +50,8 @@ before recommending a new candidate, don't re-derive the track record from memor
 fixed during the 2026-09-13 review — verdict unaffected, but treat every number in
 this program's record as provisional until independently re-derived, not cited).
 Survivorship bias (100% of the 231-symbol universe is `is_active=true`, zero delisted
-names) is the one genuinely unresolved integrity gap — no owner, flag it before citing
-any IC number here as a hard ceiling.
+names) is unresolved for past data; phase 185 owns it (forward-only fix, past verdicts
+bounded), so flag it before citing any IC number here as a hard ceiling.
 
 **Universe expansion — consolidated state 2026-09-23 (Phase 174 closed 2026-09-16; gates and
 diagnostic run 2026-09-17 through 2026-09-22; next-step chain at the end of this list):**
@@ -233,7 +246,7 @@ the Phase Summary table above, and the full planning/execution record for any CO
 in its own `.planning/milestones/v3.1-phases/<N>-*/` directory (archived at milestone close 2026-09-02; future phases create fresh dirs under `.planning/phases/`) and `docs/foundation/`/`docs/research/` docs, not
 duplicated here. Currently open/not-yet-planned phases, compressed to current status only:
 
-- **Phase 185** (Daily data foundation): added and accepted 2026-09-26, not planned. IBKR-only (no new data sources). Spec `docs/plans/2026-09-26-daily-data-foundation.md`; first step is merging the todo 433 branch (verify-only venue recovery, migration 374) after the running 1d backfill.
+- **Phase 185** (Daily data foundation): added and accepted 2026-09-26, not planned. IBKR-only (no new data sources). Spec `docs/plans/2026-09-26-daily-data-foundation.md`. First step: merge the todo 433 branch (verify-only venue recovery, migrations 374 and 375, per-timeframe rate limit set from the 1d rate probe), then re-run the 1d backfill for every name to build the moved-name inventory.
 - **Phase 183** (Research layer: runner, ledger, combiner, book test): plans 01-09 and 11 executed 2026-09-25 (runner, research_run ledger + migration 366, specs, R1/R2, ridge, E16 book test and power, family 1 members and specs). E16 adopted and built (9152597eb). Plan 10 in progress: family 1 real evidence run launched 2026-09-25 18:49 EDT (spec b828c285, commit 531da089d); book_v1 screen test next, then outcome docs. Follow-ups: todo 429, todo 430 step 4 (SignalSource rename).
 - **Phase 182** (Security classification hierarchy, todo 384): COMPLETE 2026-09-25. 7/7 plans, migrations 364/365/367/368 live, 295 instruments classified, verification passed (182-VERIFICATION.md). Follow-ups: todo 431 and 182 deferred-items.md.
 - **Phase 169** (Symbol State Query Layer): design doc only, `docs/research/intel-symbol-state-query-layer.md`. Not planned. Needs its own live-verification refresh before planning (flagged stale 2026-08-21 -- its "What Exists" section's row/symbol counts predate the universe expansion to 231 symbols).
