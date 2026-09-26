@@ -69,7 +69,7 @@ def curtail(
 
 @dataclasses.dataclass(frozen=True)
 class PowerProblem:
-    synth: Any  # synthetic.SyntheticSpec
+    plant: Any  # synthetic.Plant, from the family's module
     plant_coef: float
     finite_mask: np.ndarray  # the real residual bar returns' availability
     target_mask: np.ndarray | None  # the real residual target's availability
@@ -91,11 +91,10 @@ def run_replicate(problem: PowerProblem, seed: int) -> ReplicateOutcome:
     from src.intelligence.research.book import book_timing
     from src.intelligence.research.evaluate import trade_mask
     from src.intelligence.research.portfolio import trailing_vol
-    from src.intelligence.research.synthetic import _member_stack, generate_residual_panel
+    from src.intelligence.research.synthetic import _member_stack
 
-    bps = problem.synth.bars_per_session
-    resid, target = generate_residual_panel(
-        problem.synth,
+    bps = problem.plant.bars_per_session
+    resid, target = problem.plant.generate(
         problem.finite_mask,
         plant_coef=problem.plant_coef,
         seed=seed,

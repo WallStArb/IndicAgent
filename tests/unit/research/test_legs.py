@@ -8,6 +8,7 @@ import pytest
 from src.intelligence.research import legs
 from src.intelligence.research.factors import FactorSpec
 from src.intelligence.research.panel import Panel, bar_returns
+from src.intelligence.research.panel import select_symbols as panel_select_symbols
 
 
 def _source(n_sessions: int = 3, bps: int = 4, m: int = 2, seed: int = 0) -> Panel:
@@ -109,11 +110,11 @@ def test_missing_mid_session_bar_keeps_the_legs():
 
 def test_select_symbols_keeps_panel_order_and_ignores_absent_names():
     src = _source(m=3)
-    sub = legs.select_symbols(src, ["s2", "s0", "zz"])
+    sub = panel_select_symbols(src, ["s2", "s0", "zz"])
     assert sub.symbols == ("s0", "s2")
     np.testing.assert_array_equal(sub.close, src.close[:, [0, 2]])
     with pytest.raises(ValueError):
-        legs.select_symbols(src, ["zz"])
+        panel_select_symbols(src, ["zz"])
 
 
 def test_intraday_source_required():

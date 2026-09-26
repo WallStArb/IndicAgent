@@ -127,16 +127,6 @@ def test_transform_probe_catches_a_lookahead(monkeypatch):
         legs.transform_causality_probe(src, rows, seed=0)
 
 
-def test_book_with_a_transformed_family_is_refused_before_the_ledger(tmp_path):
-    from src.intelligence.research.runner import RunRefused, run_book
-
-    fam = _load(tmp_path, _spec_text())
-    fake_book = type("L", (), {"model": object.__new__(runner_mod.BookSpec), "families": [fam]})
-    ctx = RunContext(root=tmp_path, budget=BudgetConfig("test", 1, 0.05))
-    with pytest.raises(RunRefused, match="B2"):
-        asyncio.run(run_book(fake_book, ctx, mode="real"))
-
-
 def test_family1_spec_hash_unchanged_by_the_new_optional_fields():
     root = Path(__file__).resolve().parents[3]
     loaded = load_spec_from_file(

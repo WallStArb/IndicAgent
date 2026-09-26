@@ -158,6 +158,33 @@ async def universe_symbols(dsn: str, dimension: str) -> list[str]:
     return [r["symbol"] for r in rows]
 
 
+# Family 2's members' universe rule (docs/plans/2026-09-25-family2-overnight-intraday-
+# prereg.md section 2, B3): current level-1 node EQ, no current
+# international exposure tag. Pinned SQL, never built from caller text.
+_US_SESSION_EQUITY_SQL = """
+SELECT ic.symbol
+FROM instrument_classification ic
+JOIN classification_node n ON n.scheme = ic.scheme AND n.code = ic.code
+WHERE ic.scheme = 'indicagent_v1' AND ic.valid_to IS NULL AND n.path[1] = 'EQ'
+  AND NOT EXISTS (
+    SELECT 1 FROM instrument_tags t
+    WHERE t.symbol = ic.symbol AND t.valid_to IS NULL
+      AND t.tag IN ('intl_developed', 'intl_em')
+  )
+ORDER BY ic.symbol
+"""
+
+
+async def us_session_equity_symbols(dsn: str) -> list[str]:
+    """The members' universe rule's names, sorted (B3)."""
+    pool = await read_only_pool(dsn)
+    try:
+        rows = await pool.fetch(_US_SESSION_EQUITY_SQL)
+    finally:
+        await pool.close()
+    return [r["symbol"] for r in rows]
+
+
 async def build_panel(
     dsn: str,
     out_dir: Path,

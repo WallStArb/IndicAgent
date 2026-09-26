@@ -27,6 +27,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import importlib
 import math
 import sys
 from collections.abc import Awaitable, Callable
@@ -36,7 +37,15 @@ from typing import Literal, Protocol
 
 import numpy as np
 
-from src.intelligence.research import guards, legs, power, provenance, snapshot, store, synthetic
+from src.intelligence.research import (
+    guards,
+    power,
+    provenance,
+    snapshot,
+    store,
+    synthetic,
+    transforms,
+)
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.book import book_memory_rows, book_timing
 from src.intelligence.research.combiner import RidgeSpec
@@ -51,10 +60,10 @@ from src.intelligence.research.evidence import (
     evidence_record,
     turnover_per_session,
 )
-from src.intelligence.research.factors import VINTAGE_1, FactorSpec, residual_returns
+from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families.common import declared_memory_rows
 from src.intelligence.research.ledger import Identity, LedgerRefusal, RunRequest
-from src.intelligence.research.panel import Panel, bar_returns, forward_returns, fwd_span
+from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import (
     rank_vol_neutral_returns,
     rank_vol_neutral_weights,
@@ -68,6 +77,7 @@ from src.intelligence.research.spec import (
     resolve_member,
 )
 from src.intelligence.research.timing import timing_test
+from src.intelligence.research.transforms import PanelTransform
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
 
@@ -123,36 +133,19 @@ class Residuals:
     fwd: np.ndarray  # S1 residual forward target [n, m]
 
 
-def s1_bar(panel: Panel, factor_spec: FactorSpec) -> np.ndarray:
-    """S1 residual bar returns, the members' input. A session-legs panel (its manifest says so)
-    runs S1 per leg (legs.py)."""
-    if _is_legs(panel):
-        return legs.leg_residuals(panel, factor_spec)
-    return residual_returns(
-        bar_returns(panel), bars_per_session=panel.bars_per_session, spec=factor_spec
-    ).residual
-
-
-def s1_target(panel: Panel, horizon: int, factor_spec: FactorSpec) -> np.ndarray:
-    """S1 residual forward target: enter at the next open, exit `horizon` bars later or at the
-    session close. A session-legs panel's is its row-1 session series (legs.py)."""
-    if _is_legs(panel):
-        if horizon != 1:
-            raise ValueError(f"a session-legs panel's target is horizon 1, got {horizon}")
-        return legs.target_residuals(panel, factor_spec)
-    raw = forward_returns(panel.open, horizon, panel.session, closes=panel.close)
-    return residual_returns(
-        raw, bars_per_session=panel.bars_per_session, horizon=horizon, spec=factor_spec
-    ).residual
-
-
-def compute_residuals(panel: Panel, *, horizon: int, factor_spec: FactorSpec) -> Residuals:
-    """S1 twice: residual bar returns (the members' input) and the residual forward target."""
-    return Residuals(bar=s1_bar(panel, factor_spec), fwd=s1_target(panel, horizon, factor_spec))
-
-
-def _is_legs(panel: Panel) -> bool:
-    return panel.manifest.get("transform") == legs.TRANSFORM
+def compute_residuals(
+    panel: Panel,
+    *,
+    horizon: int,
+    factor_spec: FactorSpec,
+    transform: PanelTransform = transforms.IDENTITY,
+) -> Residuals:
+    """S1 twice, as the panel's transform defines it: residual bar returns (the members' input)
+    and the residual forward target."""
+    return Residuals(
+        bar=transform.s1_bar(panel, factor_spec),
+        fwd=transform.s1_target(panel, horizon, factor_spec),
+    )
 
 
 def _member_fn(spec: FamilySpec, member, bars_per_session: int):
@@ -183,14 +176,10 @@ def _sub_panel(panel: Panel, sessions: int) -> Panel:
     )
 
 
-def _probe_rows(panel: Panel, g) -> np.ndarray:
-    """guards.probe_rows, plus on a session-legs panel one row 0 and one row 1 (the signal row)
-    of the middle session, so a lookahead at the rows family 2 reads is always probed."""
+def _probe_rows(panel: Panel, g, transform: PanelTransform) -> np.ndarray:
+    """guards.probe_rows plus the rows the transform says S3 must always probe."""
     rows = guards.probe_rows(panel, n_random=g.n_random, seed=g.seed, max_rows=g.max_rows)
-    if _is_legs(panel):
-        mid = panel.n_sessions // 2 * legs.LEGS
-        rows = np.unique(np.concatenate([rows, [mid, mid + legs.SIGNAL_LEG]]))
-    return rows
+    return np.unique(np.concatenate([rows, transform.extra_probe_rows(panel)]))
 
 
 def real_guards(
@@ -200,6 +189,7 @@ def real_guards(
     residuals: Residuals,
     *,
     factor_spec: FactorSpec,
+    transform: PanelTransform = transforms.IDENTITY,
     source_probe: Panel | None = None,
 ) -> dict:
     """S3 split per D-25; raises guards.GuardFailure. Returns the integrity reports (for
@@ -208,7 +198,7 @@ def real_guards(
     bps, n = panel.bars_per_session, len(panel.timestamps)
     g = spec.guards
     reports = {name: guards.integrity(panel, alpha) for name, alpha in members.items()}
-    rows = _probe_rows(panel, g)
+    rows = _probe_rows(panel, g, transform)
     reach = {}
     for m in spec.members:
         fn = _member_fn(spec, m, bps)
@@ -221,14 +211,16 @@ def real_guards(
     sub = _sub_panel(panel, g.s1_probe_sessions)
     h = spec.horizon
 
-    bar_fn = functools.partial(s1_bar, factor_spec=factor_spec)
+    bar_fn = functools.partial(transform.s1_bar, factor_spec=factor_spec)
 
     def target_fn(p: Panel) -> np.ndarray:
-        return s1_target(p, h, factor_spec)
+        return transform.s1_target(p, h, factor_spec)
 
-    sub_rows = _probe_rows(sub, g)
-    if source_probe is not None:
-        legs.transform_causality_probe(source_probe, sub_rows, seed=g.seed)
+    sub_rows = _probe_rows(sub, g, transform)
+    if transform.probe is not None:
+        if source_probe is None:
+            raise ValueError(f"transform {transform.name!r} needs its source sub-panel to probe")
+        transform.probe(source_probe, sub_rows, g.seed)
     guards.causality_probe(bar_fn, sub, sub_rows, seed=g.seed)
     guards.causality_probe(target_fn, sub, sub_rows, seed=g.seed, reach=fwd_span(h))
     s1_declared = (factor_spec.window_sessions + factor_spec.refit_sessions) * bps
@@ -322,7 +314,7 @@ def _prepare_panel(
     pins one (B3), then transformed when it names a transform (B1). Returns it with the source
     sub-panel the transform's causality probe runs on (None without a transform)."""
     if symbols is not None:
-        source = legs.select_symbols(source, symbols)
+        source = panel_mod.select_symbols(source, symbols)
         digest = hashlib.sha256("\n".join(source.symbols).encode()).hexdigest()
         source = dataclasses.replace(
             source,
@@ -333,10 +325,9 @@ def _prepare_panel(
                 "members_universe_size": len(source.symbols),
             },
         )
-    if spec.panel.transform is None:
-        return source, None
-    probe = _sub_panel(source, spec.guards.s1_probe_sessions)
-    return legs.session_legs(source, source_hash=source_hash), probe
+    transform = transforms.resolve(spec.panel.transform)
+    probe = None if transform.probe is None else _sub_panel(source, spec.guards.s1_probe_sessions)
+    return transform.apply(source, source_hash), probe
 
 
 async def _analysis_panel(
@@ -371,7 +362,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
         raise ValueError(f"snapshot does not match the spec: {wrong}")
     symbols = None
     if spec.panel.members_universe == "us_session_equity":
-        symbols = await legs.us_session_equity_symbols(ctx.dsn)
+        symbols = await snapshot.us_session_equity_symbols(ctx.dsn)
     panel, source_probe = _prepare_panel(spec, panel, source_hash=digest, symbols=symbols)
     return panel, digest, source_probe
 
@@ -486,12 +477,21 @@ async def run_family(
             spec, ctx, real=real, panel=panel
         )
         factor_spec = FACTOR_SPECS[spec.factor_spec]
+        transform = transforms.resolve(spec.panel.transform)
         bps = panel.bars_per_session
-        residuals = compute_residuals(panel, horizon=spec.horizon, factor_spec=factor_spec)
+        residuals = compute_residuals(
+            panel, horizon=spec.horizon, factor_spec=factor_spec, transform=transform
+        )
         members = compute_members(spec, residuals.bar, bars_per_session=bps)
         try:
             checked = real_guards(
-                panel, spec, members, residuals, factor_spec=factor_spec, source_probe=source_probe
+                panel,
+                spec,
+                members,
+                residuals,
+                factor_spec=factor_spec,
+                transform=transform,
+                source_probe=source_probe,
             )
         except guards.GuardFailure as error:
             await finish_all("guard_failed", {"stage": "S3", "error": str(error)})
@@ -588,8 +588,42 @@ def book_identities(loaded: LoadedSpec) -> list[Identity]:
     return ids
 
 
+def family_module(spec: FamilySpec):
+    """The one module a family's members live in; it also owns the family's power plant."""
+    modules = {m.signal.rsplit(".", 1)[0] for m in spec.members}
+    if len(modules) != 1:
+        raise RunRefused(f"family {spec.family}: members span modules {sorted(modules)}")
+    return importlib.import_module(modules.pop())
+
+
+def check_family_plant(families: list[FamilySpec], power_spec):
+    """Every refusal the book's plant can raise without real data, run before the ledger so a
+    misconfigured book is never charged: one family (a book over several would need one plant
+    planting all of them, which no family module defines yet), members in one module that
+    defines `validate_plant` and `make_plant`, and the module's own static checks against the
+    book's power settings. Returns the module."""
+    if len(families) != 1:
+        raise RunRefused(f"no power plant spans {len(families)} families")
+    fam = families[0]
+    module = family_module(fam)
+    for name in ("validate_plant", "make_plant"):
+        if not callable(getattr(module, name, None)):
+            raise RunRefused(f"{module.__name__} defines no {name}")
+    try:
+        module.validate_plant(power_spec, fam.panel.analysis_bars_per_session)
+    except ValueError as error:
+        raise RunRefused(f"{module.__name__}: {error}") from error
+    return module
+
+
+def family_plant(families: list[FamilySpec], power_spec, residuals: Residuals, bps: int):
+    """The book's synthetic plant, from its family's `make_plant` and the real residuals."""
+    return check_family_plant(families, power_spec).make_plant(power_spec, residuals, bps)
+
+
 def _power_problem(
     book: BookSpec,
+    families,
     panel: Panel,
     residuals: Residuals,
     bar: float,
@@ -604,16 +638,11 @@ def _power_problem(
     exists to prevent. The masks carry availability only, no return values."""
     p = book.power
     bps = panel.bars_per_session
-    synth = synthetic.SyntheticSpec(
-        bars_per_session=bps,
-        participation_ratio=p.participation_ratio,
-        n_common_factors=p.n_common_factors,
-        plant_lags_sessions=p.plant_lags_sessions,
-    )
+    plant_gen = family_plant(families, p, residuals, bps)
     finite_mask = np.isfinite(residuals.bar)
     target_mask = np.isfinite(residuals.fwd)
     plant = synthetic.calibrate_plant(
-        synth,
+        plant_gen,
         finite_mask,
         members=members,
         coverage_floor=book.construction.coverage_floor,
@@ -626,7 +655,7 @@ def _power_problem(
     c = book.construction
     window = c.vol_window_sessions * bps
     problem = power.PowerProblem(
-        synth=synth,
+        plant=plant_gen,
         plant_coef=plant.plant_coef,
         finite_mask=finite_mask,
         target_mask=target_mask,
@@ -662,9 +691,7 @@ async def run_book(
         raise ValueError("power_replicates overrides the spec in synthetic mode only")
     families = [f.model for f in loaded.families]
     fam0 = families[0]
-    if any(f.panel.transform is not None for f in families):
-        # Before the ledger, so the refusal is never charged. Family 2's plant is B2.
-        raise RunRefused("book power for a transformed panel is not built yet (family 2 B2)")
+    check_family_plant(families, book.power)  # before the ledger: a refusal is never charged
     subject = f"book.{book.book}"
     run_id = None
     code_commit = None
@@ -712,7 +739,10 @@ async def run_book(
         factor_spec = FACTOR_SPECS[fam0.factor_spec]
         bps, n = panel.bars_per_session, len(panel.timestamps)
         _log("S1 residuals")
-        residuals = compute_residuals(panel, horizon=fam0.horizon, factor_spec=factor_spec)
+        transform = transforms.resolve(fam0.panel.transform)
+        residuals = compute_residuals(
+            panel, horizon=fam0.horizon, factor_spec=factor_spec, transform=transform
+        )
         _log("S2 members")
         columns, members, memories, slot_histories = [], [], [], []
         for fam in families:
@@ -725,6 +755,7 @@ async def run_book(
                     fam_members,
                     residuals,
                     factor_spec=factor_spec,
+                    transform=transform,
                     source_probe=source_probe,
                 )
             except guards.GuardFailure as error:
@@ -753,7 +784,7 @@ async def run_book(
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
         problem, plant = _power_problem(
-            book, panel, residuals, bar, members, ridge, max(slot_histories)
+            book, families, panel, residuals, bar, members, ridge, max(slot_histories)
         )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(

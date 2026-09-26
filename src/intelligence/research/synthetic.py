@@ -9,15 +9,12 @@ check that S1 passes such a plant nearly unchanged.
   random orthonormal m x k basis and s set by loading_scale_for_pr, so its participation ratio
   equals the pinned breadth (60, from step 0). Independent residuals would overstate power
   about twofold.
-- Plant (HKS shape). u[d, j, i] = e[d, j, i] + c * mean_{l=1..L} u[d - l, j, i]: flat
-  persistence of a name's own slot-j residual over the last L sessions, cross-sectionally
-  demeaned per slot. It lives at the slot level, so members built from bars see exactly what
-  was planted. Each slot splits into its two bars with an independent split whose bars sum to
-  the slot return.
+- Plants. Each family owns its generator (the `Plant` protocol below), in its own module next
+  to its members: family 1's HKS same-slot plant is `families.intraday_periodicity.SameSlotPlant`.
+  This module holds only what every plant shares.
 - Effect size (D-19). The planted strength c is calibrated so the per-slot cross-sectional rank
   IC of the best linear combination of the members against the target equals the
   pre-declared IC (0.002 for family 1).
-- Scale. Idiosyncratic slot variance is 1: ranks, R1 weights and Sharpe ratios are scale free.
 - The finite mask carries no return information; passing the real panel's mask
   (np.isfinite(panel.close)) makes coverage realistic.
 """
@@ -27,22 +24,32 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Callable, Sequence
+from typing import Protocol
 
 import numpy as np
 
-from src.intelligence.research.families.intraday_periodicity import SLOT_BARS
 from src.intelligence.research.panel import Panel
 from src.intelligence.research.portfolio import average_ranks
+from src.intelligence.statistics.correlation import pairwise_corr
+from src.intelligence.statistics.correlation import participation_ratio as statistics_pr
 
-_BAR_SPLIT_SD = 0.5  # sd of the within-slot split, in units of the slot's idiosyncratic sd
 
+class Plant(Protocol):
+    """A family's synthetic generator (it lives in the family's module, next to its members):
+    residual-space bar returns with the family's effect planted at strength plant_coef, and the
+    matching target. `finite_mask` carries the real residuals' availability only;
+    `target_mask`, when given, the real target's."""
 
-@dataclasses.dataclass(frozen=True)
-class SyntheticSpec:
     bars_per_session: int
-    participation_ratio: float
-    n_common_factors: int
-    plant_lags_sessions: int
+
+    def generate(
+        self,
+        finite_mask: np.ndarray,
+        *,
+        plant_coef: float,
+        seed: int,
+        target_mask: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]: ...
 
 
 def loading_scale_for_pr(n_names: int, n_factors: int, participation_ratio: float) -> float:
@@ -67,62 +74,30 @@ def loading_scale_for_pr(n_names: int, n_factors: int, participation_ratio: floa
     return min(xs) - 1.0
 
 
-def _slot_residuals(
-    spec: SyntheticSpec, n_sessions: int, n_names: int, plant_coef: float, rng
-) -> np.ndarray:
-    """u [S, J, m]: demeaned slot residuals with the planted same-slot persistence."""
-    j_n, m, k, lags = (
-        spec.bars_per_session // SLOT_BARS,
-        n_names,
-        spec.n_common_factors,
-        spec.plant_lags_sessions,
-    )
-    scale = loading_scale_for_pr(m, k, spec.participation_ratio)
-    q = np.linalg.qr(rng.standard_normal((m, k)))[0] if k else np.zeros((m, 0))
-    u = np.empty((n_sessions, j_n, m))
-    window = np.zeros((lags, j_n, m))  # ring buffer of the last `lags` sessions
-    running = np.zeros((j_n, m))
-    for d in range(n_sessions):
-        e = rng.standard_normal((j_n, m)) + math.sqrt(scale) * rng.standard_normal((j_n, k)) @ q.T
-        e -= e.mean(axis=1, keepdims=True)
-        u[d] = e + plant_coef * running / lags
-        slot = d % lags
-        running += u[d] - window[slot]
-        window[slot] = u[d]
-    return u
+def factor_basis(rng: np.random.Generator, n_names: int, n_factors: int) -> np.ndarray:
+    """Q [m, k]: a seeded random orthonormal basis for the common part of the residuals."""
+    if n_factors == 0:
+        return np.zeros((n_names, 0))
+    return np.linalg.qr(rng.standard_normal((n_names, n_factors)))[0]
 
 
-def generate_residual_panel(
-    spec: SyntheticSpec,
-    finite_mask: np.ndarray,
-    *,
-    plant_coef: float,
-    seed: int,
-    target_mask: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """(resid_bar [n, m], target [n, m]): bar residuals whose slot pairs sum to u, and the
-    target u[d, j] at slot j's placement row (the bar before the slot), NaN elsewhere and
-    wherever a bar of the slot is masked. `target_mask`, when given, also blanks the target
-    wherever the real residual target is missing, so replicates see the real test's pattern."""
-    bps = spec.bars_per_session
-    n, m = finite_mask.shape
-    n_sessions, j_n = n // bps, bps // SLOT_BARS
-    rng = np.random.default_rng(seed)
-    u = _slot_residuals(spec, n_sessions, m, plant_coef, rng)
-    first = u / SLOT_BARS + _BAR_SPLIT_SD * rng.standard_normal(u.shape)
-    bars = np.stack([first, u - first], axis=2)  # [S, J, 2, m]
-    resid_bar = bars.reshape(n, m)
-    resid_bar[~finite_mask] = np.nan
+def breadth_noise(rng: np.random.Generator, n_rows: int, q: np.ndarray, scale: float) -> np.ndarray:
+    """[n_rows, m] cross-sections with covariance I + scale Q Q', demeaned per row (D-20)."""
+    m, k = q.shape
+    e = rng.standard_normal((n_rows, m)) + math.sqrt(scale) * rng.standard_normal((n_rows, k)) @ q.T
+    return e - e.mean(axis=1, keepdims=True)
 
-    slot_ok = finite_mask.reshape(n_sessions, j_n, SLOT_BARS, m).all(axis=2)
-    rows = (np.arange(n_sessions)[:, None] * bps + SLOT_BARS * np.arange(j_n)[None, :] - 1).ravel()
-    values = np.where(slot_ok, u, np.nan).reshape(-1, m)
-    keep = rows >= 0
-    target = np.full((n, m), np.nan)
-    target[rows[keep]] = values[keep]
-    if target_mask is not None:
-        target[~target_mask] = np.nan
-    return resid_bar, target
+
+def participation_ratio(
+    x: np.ndarray, *, min_coverage: float = 0.8, min_overlap: int = 100
+) -> float:
+    """Step 0's breadth of a residual panel x [T, m]: names with at least min_coverage finite
+    rows, their pairwise-complete correlation (pairs need min_overlap common rows), and its
+    participation ratio (docs/research/measurement-residual-breadth.md)."""
+    keep = np.isfinite(x).mean(axis=0) >= min_coverage
+    if keep.sum() < 2:
+        raise ValueError(f"{keep.sum()} name(s) meet the coverage rule; breadth needs 2")
+    return statistics_pr(pairwise_corr(x[:, keep], min_overlap))
 
 
 def _row_spearman(a: np.ndarray, b: np.ndarray, floor: int) -> np.ndarray:
@@ -189,7 +164,7 @@ class CalibratedPlant:
 
 
 def calibrate_plant(
-    spec: SyntheticSpec,
+    plant: Plant,
     finite_mask: np.ndarray,
     *,
     members: Sequence[tuple[Callable, dict]],
@@ -208,16 +183,16 @@ def calibrate_plant(
     def ics(coef: float) -> np.ndarray:
         out = []
         for s in seeds:
-            resid, target = generate_residual_panel(
-                spec, finite_mask, plant_coef=coef, seed=s, target_mask=target_mask
+            resid, target = plant.generate(
+                finite_mask, plant_coef=coef, seed=s, target_mask=target_mask
             )
-            stack = _member_stack(resid, members, spec.bars_per_session, coverage_floor)
+            stack = _member_stack(resid, members, plant.bars_per_session, coverage_floor)
             out.append(
                 combo_rank_ic(
                     stack,
                     target,
                     coverage_floor=coverage_floor,
-                    bars_per_session=spec.bars_per_session,
+                    bars_per_session=plant.bars_per_session,
                 )
             )
         return np.array(out)
@@ -251,7 +226,7 @@ def calibrate_plant(
 
 
 def synthetic_price_panel(
-    spec: SyntheticSpec,
+    plant: Plant,
     *,
     n_sessions: int,
     n_names: int,
@@ -264,12 +239,10 @@ def synthetic_price_panel(
     """A price panel whose bar returns are market + group + the residual-space panel (scaled
     to idio_sd), for the S1 fidelity check and synthetic CLI runs. Sessions are weekdays from
     `start`, bars 15 minutes apart from 14:30 UTC; volume is positive wherever close is finite."""
-    bps = spec.bars_per_session
+    bps = plant.bars_per_session
     n = n_sessions * bps
     rng = np.random.default_rng(seed + 1_000_003)
-    resid, _ = generate_residual_panel(
-        spec, np.ones((n, n_names), dtype=bool), plant_coef=plant_coef, seed=seed
-    )
+    resid, _ = plant.generate(np.ones((n, n_names), dtype=bool), plant_coef=plant_coef, seed=seed)
     groups = np.arange(n_names) % 5
     r = (
         rng.normal(0, 0.002, n)[:, None] * rng.uniform(0.5, 1.5, n_names)

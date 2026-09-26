@@ -31,3 +31,13 @@ def pairwise_corr(x: np.ndarray, min_overlap: int = 0) -> np.ndarray:
     corr[overlap < min_overlap] = 0.0
     np.fill_diagonal(corr, 1.0)
     return corr
+
+
+def participation_ratio(corr: np.ndarray) -> float:
+    """Effective number of independent bets of a correlation matrix: (sum of eigenvalues)^2 /
+    (sum of squared eigenvalues), eigenvalues clipped at 0 (a pairwise-complete matrix need not
+    be positive semidefinite). Step 0's breadth measure
+    (scripts/analysis/effective_breadth_diagnostic.py, docs/research/measurement-residual-
+    breadth.md)."""
+    eig = np.clip(np.linalg.eigvalsh(corr), 0.0, None)
+    return float(eig.sum() ** 2 / (eig**2).sum())

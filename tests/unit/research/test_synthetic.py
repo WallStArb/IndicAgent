@@ -7,23 +7,21 @@ import numpy as np
 import pytest
 
 from src.intelligence.research.factors import FactorSpec, residual_returns
-from src.intelligence.research.families.intraday_periodicity import same_slot_mean
+from src.intelligence.research.families.intraday_periodicity import SameSlotPlant, same_slot_mean
 from src.intelligence.research.guards import integrity
 from src.intelligence.research.panel import bar_returns
 from src.intelligence.research.synthetic import (
-    SyntheticSpec,
     _member_stack,
     calibrate_plant,
     combo_rank_ic,
-    generate_residual_panel,
     loading_scale_for_pr,
     synthetic_price_panel,
 )
 
-SPEC26 = SyntheticSpec(
+SPEC26 = SameSlotPlant(
     bars_per_session=26, participation_ratio=60.0, n_common_factors=10, plant_lags_sessions=40
 )
-SMALL = SyntheticSpec(
+SMALL = SameSlotPlant(
     bars_per_session=6, participation_ratio=8.0, n_common_factors=5, plant_lags_sessions=5
 )
 MEMBERS = tuple((same_slot_mean, {"window_sessions": w}) for w in (1, 5, 20, 40))
@@ -47,11 +45,11 @@ def test_unattainable_participation_ratio_raises():
 
 
 def test_sample_participation_ratio_near_target():
-    spec = SyntheticSpec(
+    spec = SameSlotPlant(
         bars_per_session=26, participation_ratio=60.0, n_common_factors=10, plant_lags_sessions=40
     )
     mask = np.ones((2400 * 26 // 26 * 26, 233), dtype=bool)[: 60_008 // 26 * 26]
-    resid, _ = generate_residual_panel(spec, mask, plant_coef=0.0, seed=0)
+    resid, _ = spec.generate(mask, plant_coef=0.0, seed=0)
     slots = resid.reshape(-1, 2, 233).sum(axis=1)
     lam = np.linalg.eigvalsh(np.corrcoef(slots, rowvar=False))
     assert lam.sum() ** 2 / (lam**2).sum() == pytest.approx(60.0, abs=5.0)
@@ -61,7 +59,7 @@ def test_bars_slots_and_target_are_consistent():
     n_sessions, m = 12, 8
     mask = np.ones((n_sessions * 6, m), dtype=bool)
     mask[7, 2] = False  # session 1, bar 1 -> slot 0 of session 1 masked for name 2
-    resid, target = generate_residual_panel(SMALL, mask, plant_coef=0.3, seed=1)
+    resid, target = SMALL.generate(mask, plant_coef=0.3, seed=1)
     assert np.isnan(resid[~mask]).all() and np.isfinite(resid[mask]).all()
     slot = resid.reshape(n_sessions, 3, 2, m).sum(axis=2)
     for d in range(n_sessions):
@@ -82,15 +80,15 @@ def test_bars_slots_and_target_are_consistent():
 
 def test_determinism():
     mask = np.ones((60, 10), dtype=bool)
-    a = generate_residual_panel(SMALL, mask, plant_coef=0.2, seed=5)
-    b = generate_residual_panel(SMALL, mask, plant_coef=0.2, seed=5)
+    a = SMALL.generate(mask, plant_coef=0.2, seed=5)
+    b = SMALL.generate(mask, plant_coef=0.2, seed=5)
     for x, y in zip(a, b):
         np.testing.assert_array_equal(x, y)
 
 
 def _ic(coef, seed, sessions=200, m=60):
     mask = np.ones((sessions * 26, m), dtype=bool)
-    resid, target = generate_residual_panel(SPEC26, mask, plant_coef=coef, seed=seed)
+    resid, target = SPEC26.generate(mask, plant_coef=coef, seed=seed)
     stack = _member_stack(resid, MEMBERS, 26, 20)
     return combo_rank_ic(stack, target, coverage_floor=20, bars_per_session=26)
 
@@ -120,7 +118,7 @@ def test_calibrate_plant_hits_target():
 
 
 def test_synthetic_price_panel_residualizes_and_passes_integrity():
-    spec = SyntheticSpec(
+    spec = SameSlotPlant(
         bars_per_session=4, participation_ratio=20.0, n_common_factors=5, plant_lags_sessions=5
     )
     panel = synthetic_price_panel(
@@ -152,10 +150,8 @@ def test_target_mask_blanks_the_target_only():
     mask = np.ones((60, 12), dtype=bool)
     target_mask = np.ones((60, 12), dtype=bool)
     target_mask[:30] = False
-    resid_a, target_a = generate_residual_panel(SMALL, mask, plant_coef=0.2, seed=3)
-    resid_b, target_b = generate_residual_panel(
-        SMALL, mask, plant_coef=0.2, seed=3, target_mask=target_mask
-    )
+    resid_a, target_a = SMALL.generate(mask, plant_coef=0.2, seed=3)
+    resid_b, target_b = SMALL.generate(mask, plant_coef=0.2, seed=3, target_mask=target_mask)
     np.testing.assert_array_equal(resid_a, resid_b)
     assert np.isnan(target_b[:30]).all()
     np.testing.assert_array_equal(target_a[30:], target_b[30:])

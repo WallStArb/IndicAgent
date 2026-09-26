@@ -26,6 +26,7 @@ from services._batch_utils import make_worker_pool  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.research import panel as panel_mod  # noqa: E402
+from src.intelligence.research.families.intraday_periodicity import SameSlotPlant  # noqa: E402
 from src.intelligence.research.ledger import PostgresLedger  # noqa: E402
 from src.intelligence.research.provenance import repo_root  # noqa: E402
 from src.intelligence.research.runner import (  # noqa: E402
@@ -41,7 +42,6 @@ from src.intelligence.research.spec import (  # noqa: E402
     load_spec_from_head,
 )
 from src.intelligence.research.synthetic import (  # noqa: E402
-    SyntheticSpec,
     synthetic_price_panel,
 )
 
@@ -94,7 +94,7 @@ def _synthetic_panel(args: argparse.Namespace, loaded):
         return panel_mod.load(Path(args.panel))
     fam = loaded.families[0].model if loaded.families else loaded.model
     power = getattr(loaded.model, "power", None)
-    synth = SyntheticSpec(
+    synth = SameSlotPlant(
         bars_per_session=fam.panel.bars_per_session,
         participation_ratio=power.participation_ratio if power else 60.0,
         n_common_factors=power.n_common_factors if power else 10,

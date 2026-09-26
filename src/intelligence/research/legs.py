@@ -21,7 +21,7 @@ market, group and principal-component loadings (prereg section 2). The target, t
 session return entered at bar 1's open, is residualized as its own session series with loadings
 from strictly earlier sessions and placed on row 1; rows 0 and 2 carry no target.
 
-Compute-only numpy with no I/O except `us_session_equity_symbols`.
+Compute-only numpy with no I/O.
 """
 
 from __future__ import annotations
@@ -36,21 +36,6 @@ from src.intelligence.research.panel import Panel, bar_returns, forward_returns
 LEGS = 3  # overnight, first bar, rest of session: the transform's definition (APR-exempt)
 SIGNAL_LEG = 1  # members' alpha row and the target row
 TRANSFORM = "session_legs"
-
-# The members' universe rule (prereg section 2, B3): current level-1 node EQ, no current
-# international exposure tag. Pinned SQL, never built from caller text.
-_US_SESSION_EQUITY_SQL = """
-SELECT ic.symbol
-FROM instrument_classification ic
-JOIN classification_node n ON n.scheme = ic.scheme AND n.code = ic.code
-WHERE ic.scheme = 'indicagent_v1' AND ic.valid_to IS NULL AND n.path[1] = 'EQ'
-  AND NOT EXISTS (
-    SELECT 1 FROM instrument_tags t
-    WHERE t.symbol = ic.symbol AND t.valid_to IS NULL
-      AND t.tag IN ('intl_developed', 'intl_em')
-  )
-ORDER BY ic.symbol
-"""
 
 
 def _final_rows(close: np.ndarray, bars_per_session: int) -> np.ndarray:
@@ -112,36 +97,6 @@ def session_legs(source: Panel, *, source_hash: str | None = None) -> Panel:
         volume=legs_v.reshape(n_s * LEGS, m),
         manifest=manifest,
     )
-
-
-def select_symbols(panel: Panel, symbols: list[str]) -> Panel:
-    """The panel restricted to `symbols` present in it, in the panel's order. A requested symbol
-    the panel lacks is not an error (the rule is S0 symbols intersected with the rule's names)."""
-    keep = [j for j, s in enumerate(panel.symbols) if s in set(symbols)]
-    if not keep:
-        raise ValueError("the members' universe shares no symbol with the panel")
-    idx = np.asarray(keep)
-    return dataclasses.replace(
-        panel,
-        symbols=tuple(panel.symbols[j] for j in keep),
-        open=np.asarray(panel.open)[:, idx],
-        close=np.asarray(panel.close)[:, idx],
-        volume=np.asarray(panel.volume)[:, idx],
-        sectors=tuple(panel.sectors[j] for j in keep) if panel.sectors else (),
-        valid=np.isfinite(np.asarray(panel.close)[:, idx]).any(axis=1),
-    )
-
-
-async def us_session_equity_symbols(dsn: str) -> list[str]:
-    """The members' universe rule's names, sorted (B3)."""
-    from src.intelligence.research.snapshot import read_only_pool  # noqa: PLC0415
-
-    pool = await read_only_pool(dsn)
-    try:
-        rows = await pool.fetch(_US_SESSION_EQUITY_SQL)
-    finally:
-        await pool.close()
-    return [r["symbol"] for r in rows]
 
 
 def _interleave(per_leg: list[np.ndarray]) -> np.ndarray:

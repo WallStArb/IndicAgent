@@ -202,3 +202,21 @@ def bar_returns(panel: Panel) -> np.ndarray:
                 np.where(panel.open[first] > 0, panel.open[first], np.nan)
             )
     return out
+
+
+def select_symbols(panel: Panel, symbols: list[str]) -> Panel:
+    """The panel restricted to `symbols` present in it, in the panel's order. A requested symbol
+    the panel lacks is not an error (the rule is S0 symbols intersected with the rule's names)."""
+    keep = [j for j, s in enumerate(panel.symbols) if s in set(symbols)]
+    if not keep:
+        raise ValueError("the members' universe shares no symbol with the panel")
+    idx = np.asarray(keep)
+    return dataclasses.replace(
+        panel,
+        symbols=tuple(panel.symbols[j] for j in keep),
+        open=np.asarray(panel.open)[:, idx],
+        close=np.asarray(panel.close)[:, idx],
+        volume=np.asarray(panel.volume)[:, idx],
+        sectors=tuple(panel.sectors[j] for j in keep) if panel.sectors else (),
+        valid=np.isfinite(np.asarray(panel.close)[:, idx]).any(axis=1),
+    )

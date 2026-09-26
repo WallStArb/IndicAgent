@@ -12,7 +12,7 @@ import pytest
 from src.intelligence.research.book import book_timing
 from src.intelligence.research.combiner import RidgeSpec
 from src.intelligence.research.evaluate import trade_mask
-from src.intelligence.research.families.intraday_periodicity import same_slot_mean
+from src.intelligence.research.families.intraday_periodicity import SameSlotPlant, same_slot_mean
 from src.intelligence.research.portfolio import trailing_vol
 from src.intelligence.research.power import (
     PowerProblem,
@@ -23,10 +23,8 @@ from src.intelligence.research.power import (
 )
 from src.intelligence.research.spec import ResearchEvaluationConfig
 from src.intelligence.research.synthetic import (
-    SyntheticSpec,
     _member_stack,
     combo_rank_ic,
-    generate_residual_panel,
     synthetic_price_panel,
 )
 
@@ -65,7 +63,7 @@ def test_curtail_raises_when_undecided():
 
 
 BPS = 4
-SYN = SyntheticSpec(
+SYN = SameSlotPlant(
     bars_per_session=BPS, participation_ratio=10.0, n_common_factors=3, plant_lags_sessions=5
 )
 CFG = ResearchEvaluationConfig(
@@ -91,7 +89,7 @@ def _problem(plant, sessions=400, m=30, bar=0.05):
     )
     dates = days + np.tile(np.arange(BPS), sessions) * np.timedelta64(15, "m")
     return PowerProblem(
-        synth=SYN,
+        plant=SYN,
         plant_coef=plant,
         finite_mask=np.ones((n, m), dtype=bool),
         target_mask=None,
@@ -112,7 +110,7 @@ def _problem(plant, sessions=400, m=30, bar=0.05):
 def test_replicate_is_the_real_statistic_on_a_planted_panel():
     problem = _problem(0.3)
     out = run_replicate(problem, 11)
-    resid, target = generate_residual_panel(SYN, problem.finite_mask, plant_coef=0.3, seed=11)
+    resid, target = SYN.generate(problem.finite_mask, plant_coef=0.3, seed=11)
     stack = _member_stack(resid, MEMBERS2, BPS, 20)
     vol = trailing_vol(resid, window_rows=20 * BPS, min_finite=10 * BPS)
     trade = trade_mask(problem.dates, CFG) & problem.valid
@@ -174,7 +172,7 @@ def test_s1_passes_the_plant_nearly_unchanged():
     from src.intelligence.research.factors import VINTAGE_1, residual_returns
     from src.intelligence.research.panel import bar_returns
 
-    spec = SyntheticSpec(
+    spec = SameSlotPlant(
         bars_per_session=BPS, participation_ratio=20.0, n_common_factors=5, plant_lags_sessions=5
     )
     panel = synthetic_price_panel(
@@ -186,9 +184,7 @@ def test_s1_passes_the_plant_nearly_unchanged():
         start="2010-01-04",
         missing_fraction=0.0,
     )
-    direct, target = generate_residual_panel(
-        spec, np.ones(panel.close.shape, dtype=bool), plant_coef=0.6, seed=4
-    )
+    direct, target = spec.generate(np.ones(panel.close.shape, dtype=bool), plant_coef=0.6, seed=4)
     via_s1 = residual_returns(bar_returns(panel), bars_per_session=BPS, spec=VINTAGE_1).residual
     rows = np.isfinite(via_s1).any(axis=1)
     members = ((same_slot_mean, {"window_sessions": 1}), (same_slot_mean, {"window_sessions": 5}))
