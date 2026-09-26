@@ -380,7 +380,8 @@ class FeatureVectorPipeline(BaseDaemon):
                     "high": float(r["high"]),
                     "low": float(r["low"]),
                     "close": float(r["close"]),
-                    "volume": float(r["volume"]),
+                    # NULL on former-venue bars (migration 374); unused by the series.
+                    "volume": float(r["volume"]) if r["volume"] is not None else float("nan"),
                 }
                 for r in rows
             ]

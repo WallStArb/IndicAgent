@@ -1598,6 +1598,10 @@ def main() -> None:
                                     on_chunk=_persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,
                                 )
+                                # A chunk that failed every retry does not raise; the
+                                # window is incomplete all the same.
+                                if getattr(provider, "last_fetch_failed_chunks", 0):
+                                    tf_window_failed = True
                                 bar_dicts = [
                                     {
                                         "timestamp": b.timestamp,

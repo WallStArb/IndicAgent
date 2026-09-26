@@ -634,6 +634,9 @@ class IBKRProvider:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._qualified_contracts: dict[str, object] = {}
         self._local_to_canonical: dict[str, str] = {}  # IBKR localSymbol -> instrument.symbol
+        # SMART chunks of the last fetch_historical_bars call that failed every retry: the
+        # call still returns what it got, so a caller deciding "complete" must check this.
+        self.last_fetch_failed_chunks = 0
 
     async def connect(self) -> bool:
         """Connect to TWS/Gateway. Returns True on success."""
@@ -737,6 +740,7 @@ class IBKRProvider:
         # "no data" callbacks must populate _no_data_req_ids while chunks are in flight.
         # NOTE: not re-entrant — do not call concurrently on the same IBKRProvider instance.
         self._ib.errorEvent += _on_ib_error
+        self.last_fetch_failed_chunks = 0
         try:
             return await self._fetch_historical_bars_impl(
                 symbol=symbol,
@@ -841,7 +845,16 @@ class IBKRProvider:
                 contract, end=end, source_tag=source_tag, on_chunk=on_chunk
             )
             all_bars.extend(smart_bars)
-            if sec_type == "STK" and timeframe in _VENUE_FALLBACK_TIMEFRAMES:
+            # Only the oldest window of a backfill can be pre-history (the caller passes
+            # on_empty_history for it alone), and only a definitive SMART answer (bars, or a
+            # confirmed "no data") says where SMART's history begins; after an ambiguous
+            # failure SMART is asked again next run instead.
+            if (
+                sec_type == "STK"
+                and timeframe in _VENUE_FALLBACK_TIMEFRAMES
+                and on_empty_history is not None
+                and (smart_bars or empty is not None)
+            ):
                 venue_bars, empty = await self._fetch_pre_move_history(
                     contract, walk, start=start, end=end, smart_bars=smart_bars, smart_empty=empty
                 )
@@ -977,6 +990,8 @@ class IBKRProvider:
                     await asyncio.sleep(backoff)
                     await _hist_limiter_for(timeframe).acquire()
             else:
+                if source_tag != SOURCE_IBKR_VENUE:
+                    self.last_fetch_failed_chunks += 1
                 logger.error(
                     "ibkr.hist_chunk_failed_all_retries",
                     extra={
@@ -1068,8 +1083,9 @@ class IBKRProvider:
         close. Venue bars count that venue's trades only (SOURCE_IBKR_VENUE).
 
         Returns (venue bars, empty-history span). Venue bars are returned only when
-        _VENUE_FALLBACK_STORE_BARS is set; in verify-only mode they still block the span. The span is SMART's only when every venue
-        also answered a definitive "no data"; any venue that failed ambiguously leaves the
+        _VENUE_FALLBACK_STORE_BARS is set; in verify-only mode they still block the span. The
+        span is reported only when every venue also answered a definitive "no data", with
+        their confirmations added to SMART's; any venue that failed ambiguously leaves the
         head unverified (None), so it is asked again next run instead of recorded empty.
         """
         head_end = min(b.timestamp for b in smart_bars) - timedelta(days=1) if smart_bars else end
@@ -1079,6 +1095,7 @@ class IBKRProvider:
         best: list[OHLCVBar] = []
         best_venue = ""
         verified_empty = True
+        venue_empties: list[EmptyHistory] = []
         for venue in _VENUE_FALLBACK_EXCHANGES:
             if _VENUE_ALIASES.get(venue, venue) == current:
                 continue
@@ -1089,6 +1106,8 @@ class IBKRProvider:
             )
             if not bars and venue_empty is None:
                 verified_empty = False
+            if venue_empty is not None:
+                venue_empties.append(venue_empty)
             if sum(b.volume for b in bars) > sum(b.volume for b in best):
                 best, best_venue = bars, venue
         if best:
@@ -1098,8 +1117,8 @@ class IBKRProvider:
                     "symbol": getattr(contract, "symbol", ""),
                     "venue": best_venue,
                     "n_bars": len(best),
-                    "first": best[0].timestamp.isoformat(),
-                    "last": best[-1].timestamp.isoformat(),
+                    "first": min(b.timestamp for b in best).isoformat(),
+                    "last": max(b.timestamp for b in best).isoformat(),
                     "stored": _VENUE_FALLBACK_STORE_BARS,
                 },
             )
@@ -1112,7 +1131,18 @@ class IBKRProvider:
                 extra={"symbol": getattr(contract, "symbol", ""), "head_end": head_end.isoformat()},
             )
             return [], None
-        return [], smart_empty
+        # Every venue answered a definitive "no data": each is an independent confirmation,
+        # so they count toward the recording threshold with SMART's own. The span is the one
+        # every venue verified.
+        if not venue_empties:
+            return [], smart_empty
+        return [], EmptyHistory(
+            verified_from=max(e.verified_from for e in venue_empties),
+            empty_through=min(e.empty_through for e in venue_empties),
+            n_confirming_chunks=sum(e.n_confirming_chunks for e in venue_empties)
+            + (smart_empty.n_confirming_chunks if smart_empty is not None else 0),
+            reached_request_start=all(e.reached_request_start for e in venue_empties),
+        )
 
     async def get_head_timestamp(self, symbol: str) -> tuple[datetime | None, str | None]:
         """IBKR's earliest-data timestamp for a qualified symbol: (head, None) or (None, error).

@@ -234,3 +234,12 @@ def test_probe_rows_cover_month_ends_listing_edges_and_half_days():
     assert 11 in rows  # 2020-01-31, last bar: a month end
     assert 17 in rows  # half day's last traded bar
     assert {0, 6, n - 1} <= rows  # listing edges
+
+
+def test_integrity_rejects_unknown_volume_after_known_volume():
+    """Former-venue bars precede a symbol's consolidated ones; a NaN volume in the middle of a
+    series is not that, and still fails."""
+    panel = _panel()
+    panel.volume[60, 0] = np.nan
+    with pytest.raises(GuardFailure, match="no positive volume"):
+        integrity(panel, np.zeros(panel.close.shape))

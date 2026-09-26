@@ -262,10 +262,16 @@ async def _phase2_rate_limit_test(
             break
         if await provider.qualify_instrument(instrument):
             qualified.append(instrument)
+    if not qualified:
+        raise RuntimeError("no probe symbol qualified; is the gateway logged in?")
     if len(qualified) < max(ceilings):
         print(f"  only {len(qualified)} symbols qualified; requests will repeat symbols")
 
     saved_overrides = dict(ibkr._IBKR_HIST_RATE_LIMIT_BY_TF)
+    # One fetch must be one request: former-venue recovery would add venue requests for any
+    # probe symbol with less than a year of SMART history.
+    saved_venue_tfs = ibkr._VENUE_FALLBACK_TIMEFRAMES
+    ibkr._VENUE_FALLBACK_TIMEFRAMES = set()
     results: list[dict] = []
     try:
         for i, ceiling in enumerate(sorted(ceilings)):
@@ -306,6 +312,7 @@ async def _phase2_rate_limit_test(
                 print("  throttling observed; higher ceilings not tested")
                 break
     finally:
+        ibkr._VENUE_FALLBACK_TIMEFRAMES = saved_venue_tfs
         ibkr._IBKR_HIST_RATE_LIMIT_BY_TF.clear()
         ibkr._IBKR_HIST_RATE_LIMIT_BY_TF.update(saved_overrides)
         ibkr._tf_rate_limiters.pop(timeframe, None)

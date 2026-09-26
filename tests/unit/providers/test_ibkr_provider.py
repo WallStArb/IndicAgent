@@ -603,6 +603,7 @@ class TestPreMoveHistory:
         assert bars == []
         (report,) = reports
         assert report.empty_through == self.END
+        assert report.n_confirming_chunks == 5  # SMART's answer plus four venues' answers
         assert set(asked) == {"SMART", "NYSE", "ARCA", "AMEX", "BATS"}
 
     @pytest.mark.asyncio
@@ -633,3 +634,11 @@ class TestPreMoveHistory:
         assert bars == [] and persisted == []
         assert reports == []  # SMART alone said "no data"; NYSE has history, so not empty
         assert "NYSE" in asked
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_smart_failure_asks_no_venue(self, provider, mock_ib):
+        """A SMART walk that timed out says nothing about where history starts."""
+        bars, _, reports, asked = await self._fetch(provider, mock_ib, {"SMART": "timeout"})
+        assert bars == [] and reports == []
+        assert asked == ["SMART"]
+        assert provider.last_fetch_failed_chunks == 1

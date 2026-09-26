@@ -274,8 +274,12 @@ def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
     if volume_checked:
         # NaN volume is unknown, not zero: market_data_ohlcv_tradeable reports NULL volume
         # on former-venue bars (migration 374, todo 433), whose prices are official but
-        # whose volume is one venue's. A zero or negative volume still fails.
-        bad = close_ok & (panel.volume <= 0)
+        # whose volume is one venue's. Those bars only ever precede a symbol's first
+        # consolidated bar, so unknown volume passes only as a leading run per symbol; a
+        # zero or negative volume, or a NaN after the first finite one, still fails.
+        vol_finite = np.isfinite(panel.volume)
+        seen_finite = np.maximum.accumulate(vol_finite, axis=0)
+        bad = close_ok & ((panel.volume <= 0) | (~vol_finite & seen_finite))
         if bad.any():
             raise GuardFailure(
                 f"{int(bad.sum())} bars with a close but no positive volume: the panel did not "
