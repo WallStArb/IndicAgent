@@ -28,16 +28,39 @@ Checked on the first 87 names backfilled; re-run the check once the backfill fin
 
 - The research panel treats these names as late listings, so they drop out of every
   window before the move. This is coverage loss, not wrong prices.
-- The history screen (`universe_expansion_history_screen.py`) would fail such a name as
-  having no history before its cutoff, which biases small-cap draws against names that
-  changed venue.
+- The 2026-09-26 history screen (since deleted) failed such names as having no history,
+  which biased the small-cap draws against names that changed venue (todo 434).
 - Unknown how many of the 273 older names have the same gap.
+
+## Probe results (2026-09-26)
+
+The history exists. It is a routing limit of IBKR's history service, not missing data:
+
+- SMART-routed TRADES requests serve history only from the current primary listing. A
+  2-year window before the move returns "HMDS query returned no data" for UAL (2015-16),
+  ADI (2009-10) and XEL (2014-15), with the same conId throughout (ADI is conId 4157).
+  Pinning `primaryExchange=NYSE` on a SMART contract does not help; ADJUSTED_LAST has the
+  same floor.
+- The same contract routed to the old venue (`Stock(sym, "NYSE", "USD")`) returns the full
+  window: 504 daily bars for ADI 2009-10 and for UAL 2015-16.
+- Venue-routed bars count that venue's trades only. JPM, June 2025, SMART vs NYSE: closes
+  identical (the primary's closing auction is the official close), NYSE volume 38-54% of
+  consolidated, varying daily. Opens should match for the same reason; highs and lows can be
+  slightly narrower.
+- A full-depth 1d request on a moved name returns the post-move span plus Error 162 "Query
+  failed". The backfill log's "Query failed" lines are a first-pass inventory of moved names
+  (2026-09-26 run: ADP, ADI, XEL, UAL, IEI, CAR, plus CHTR and MATX, which are genuine
+  late listings).
 
 ## Next
 
-1. List every active equity whose first 1d bar is later than its known trading start.
-   Needs a listing-date source, or the head timestamp as a weak proxy.
-2. Test whether IBKR serves the earlier history through another contract route, e.g. a
-   request pinned to the old `primaryExchange`, or the old conId if IBKR keeps it.
-3. If no route exists, record the truncation per symbol so panels can tell "listed late"
-   apart from "venue moved".
+1. Inventory: every active equity with a "Query failed" 1d fetch, or a first SMART bar
+   later than its trading start. Record the old venue per name (NYSE, ARCA for ETFs, AMEX).
+2. Backfill the pre-move span through the old venue under a distinct `source` tag, so it is
+   never mistaken for consolidated data.
+3. Volume across the seam: venue-only volume understates consolidated volume by a varying
+   factor, so volume and dollar-volume features must not read it as consolidated. Either
+   store pre-move volume as NULL with prices intact, or keep it and exclude those rows from
+   volume features by source tag. Decide before step 2 writes anything.
+4. Check the September finding that the head-timestamp lookup failed with "Query failed" for
+   112 of 273 active names: likely the same mechanism.

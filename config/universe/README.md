@@ -46,11 +46,16 @@ Deviations from a clean stratified sample:
   the key `r2k_sample_size` (now `sample_size`), and their `holdings_file` paths are
   relative to a sibling worktree. They are kept as generated.
 
-## History screen
+## History screen (deleted)
 
-`history_screen_2026_09_26.csv` records whether each drawn name had an IBKR daily bar in
-the two weeks before 2016-09-26: 125 pass and 70 fail. That run predates the screen's
-control fetch. For 14 of the 70, the probe exhausted its retries on IBKR pacing errors,
-so their FAIL is not evidence of missing history: VOR, PAYO, ACVA, RDW, SGHC, SDRL (IWM
-draw) and NUVB, CMDB, PWP, AGL, VSTS, CNXC, MFP, CLBK (rank-1001 draw). They are due for a
-re-screen, and any that pass get onboarded into their original cohort.
+`history_screen_2026_09_26.csv` records the screen that dropped drawn names with no IBKR
+daily bar in the two weeks before 2016-09-26: 125 passed and 70 failed. The screen was
+wrong in two ways:
+
+- 14 of the failures were probes that exhausted their retries on IBKR pacing, not evidence
+  of missing history.
+- A SMART-routed probe finds no bar before a name's last listing-venue move (todo 433), so
+  names that changed venue after 2016 also failed.
+
+The script was deleted the same day. Drawn names are now onboarded as drawn and the research
+panel's coverage rules handle short histories. Todo 434 onboards the 70.
