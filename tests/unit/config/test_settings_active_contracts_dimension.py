@@ -664,17 +664,49 @@ def test_sector_unclassified_when_no_current_assignment():
     assert [i.sector for i in result] == ["indicagent_v1:unclassified"]
 
 
-def test_fallback_constructor_path_applies_classification_rule():
-    """contract_details that Instrument(**cd) rejects (no symbol key) takes the explicit
-    fallback constructor, which fills symbol from the row; the same sector rule must
-    apply there."""
-    classified = _nf_row("AAA", "Financials")
-    del classified[2]["symbol"]
-    unclassified = _nf_row("BBB", None)
-    del unclassified[2]["symbol"]
-    result, _ = _run_backfill([classified, unclassified])
-    by_symbol = {i.symbol: i.sector for i in result}
-    assert by_symbol == {"AAA": "Financials", "BBB": "indicagent_v1:unclassified"}
+def test_row_columns_supply_symbol_and_base_when_contract_details_omits_them():
+    """26 live ETF rows (BIL, AGG, RSP, ...) carry a minimal contract_details with no
+    symbol/base/tick_size/point_value/provider_meta/expiry. The instruments columns are
+    authoritative for symbol/base and the model defaults fill the rest; the classification
+    sector rule applies unchanged."""
+    minimal = {
+        "name": "minimal",
+        "asset_class": "equity",
+        "exchange": "SMART",
+        "session_id": "nyse",
+        "currency": "USD",
+        "provider": "ibkr",
+    }
+    rows = [("AAA", "AAA", dict(minimal), "Financials"), ("BBB", "BBB", dict(minimal), None)]
+    result, _ = _run_backfill(rows)
+    assert {i.symbol: (i.base, i.sector, i.session_id) for i in result} == {
+        "AAA": ("AAA", "Financials", "nyse"),
+        "BBB": ("BBB", "indicagent_v1:unclassified", "nyse"),
+    }
+    assert all(i.tick_size == 0.0 and i.point_value == 0.0 for i in result)
+
+
+def test_contract_details_values_override_row_columns():
+    """Where contract_details carries symbol/base it wins over the row columns, matching
+    the pre-existing precedence."""
+    _, _, cd, _ = _nf_row("EURUSD")
+    cd["base"] = "EUR"
+    result, _ = _run_backfill([("ROWSYM", "ROWBASE", cd, None)])
+    assert [(i.symbol, i.base) for i in result] == [("EURUSD", "EUR")]
+
+
+def test_malformed_row_raises_instead_of_serving_stale_cache():
+    """A row that fails Instrument validation is a data defect, not an unavailable DB: it
+    raises even when a warm cache exists, and is never guessed around."""
+    from pydantic import ValidationError
+
+    _run_backfill([_nf_row("SMH")])
+    with settings_mod._settings_lock:
+        settings_mod._active_contracts_last_refresh["backfill"] = float("-inf")
+    bad = _nf_row("BAD")
+    bad[2]["session_id"] = "equity_rth"
+    with pytest.raises(ValidationError, match="equity_rth"):
+        _run_backfill([bad])
 
 
 def test_non_futures_and_template_queries_select_the_classification_fragment():
@@ -688,3 +720,25 @@ def test_non_futures_and_template_queries_select_the_classification_fragment():
     assert fragment in non_futures_sql
     # The dimension clause itself is unchanged (case 10 pins the clause strings).
     assert settings_mod._ACTIVE_CONTRACTS_DIMENSION_CLAUSES["backfill"] in non_futures_sql
+
+
+@pytest.mark.parametrize("key", ["session_id", "asset_class"])
+def test_row_missing_a_key_without_safe_default_raises(key):
+    """The model defaults (futures_24_5, FUTURES) would mislabel an equity row, so a row
+    missing session_id or asset_class raises rather than inheriting them."""
+    row = _nf_row("SMH")
+    del row[2][key]
+    with pytest.raises(ValueError, match=key):
+        _run_backfill([row])
+
+
+def test_malformed_futures_template_raises_only_when_referenced():
+    """The template query is not dimension-scoped: a malformed template no requested
+    contract references is ignored, one that is referenced raises."""
+    from pydantic import ValidationError
+
+    bad = {"symbol": "ES", "asset_class": "futures", "session_id": "bogus"}
+    template = ("ES", "ES", bad, None)
+    assert settings_mod._index_futures_templates([template], []) == ({}, {})
+    with pytest.raises(ValidationError, match="bogus"):
+        settings_mod._index_futures_templates([template], [("ESZ6", "ES", "CME")])

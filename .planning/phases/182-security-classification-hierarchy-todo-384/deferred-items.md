@@ -22,6 +22,10 @@ Out-of-scope discoveries logged by plan executors; not fixed in the plan that fo
   fails the whole reload. `get_active_contracts`'s fallback constructor has the same shape with
   `"equity_rth"`. Both live in paths whose rows normally carry `session_id`; the cache_manager
   path is the archived v2.x pipeline. Not fixed here (unrelated to sector).
+  **Resolved 2026-09-25:** both builders, plus `_index_futures_templates`' silent skip, now go
+  through `settings.instrument_from_instruments_row`, which takes symbol/base from the row
+  columns (26 live ETF rows carry a minimal contract_details) and raises on a row missing
+  session_id/asset_class or failing validation, instead of guessing or serving the stale cache.
 
 ## From plan 07 (2026-09-25)
 

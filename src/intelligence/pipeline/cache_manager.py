@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 import asyncpg
 import structlog
 
-from src.config.classification_service import current_level_name_sql, label_or_unclassified
+from src.config.classification_service import current_level_name_sql
 from src.monitoring.ks_drift_monitor import DRIFT_PENALTIES
 from src.observability.metrics import gauge
 
@@ -73,36 +73,17 @@ def _load_cis_kalman_params() -> dict[str, dict[str, float]]:
 
 
 def _instrument_from_row(row: dict) -> Any:
-    """Build an Instrument from an instruments table row (asyncpg dict).
+    """Build an Instrument from an instruments table row (asyncpg dict) via the shared
+    instrument_from_instruments_row, which owns the precedence and strictness rules.
 
-    asyncpg returns JSONB columns as plain dicts — no json.loads() needed.
-    For FX instruments the DB primary key is the base currency (e.g. USD),
-    but contract_details.symbol holds the full pair (e.g. USDJPY), so we
-    prefer the contract_details value.
-
-    sector is the row's `classification_sector` column (the level-2 node name of the
-    symbol's current indicagent_v1 assignment, selected by _reload_instruments_cache), or
-    "indicagent_v1:unclassified" when it is NULL (Phase 182 D-08/D-10). A missing column
-    raises KeyError.
-    contract_details' flat sector string is historical only and never read.
+    `classification_sector` is indexed, not .get(): a query that forgot the column must
+    crash with KeyError, not label every instrument unclassified. A NULL value (no current
+    assignment) is the real "indicagent_v1:unclassified" stratum (Phase 182 D-08/D-10).
     """
-    from src.core.models import Instrument  # noqa: PLC0415 — avoids circular import
+    from src.config.settings import instrument_from_instruments_row  # noqa: PLC0415
 
-    cd: dict = row["contract_details"] or {}
-    return Instrument(
-        symbol=cd.get("symbol") or row["symbol"],
-        base=row.get("base", ""),
-        name=cd.get("name", ""),
-        asset_class=cd.get("asset_class", "equity"),
-        exchange=cd.get("exchange", ""),
-        # Indexed, not .get(): a query that forgot the column must crash, not label every
-        # instrument unclassified. A NULL value (no current assignment) is the real stratum.
-        sector=label_or_unclassified(row["classification_sector"]),
-        tick_size=float(cd.get("tick_size") or 0),
-        point_value=float(cd.get("point_value") or 0),
-        session_id=cd.get("session_id", "equity_regular"),
-        provider_meta=cd.get("provider_meta") or {},
-        expiry=cd.get("expiry", ""),
+    return instrument_from_instruments_row(
+        row["symbol"], row.get("base"), row["contract_details"], row["classification_sector"]
     )
 
 

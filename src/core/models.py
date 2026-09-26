@@ -265,11 +265,11 @@ class Instrument(BaseModel):
     asset_class: AssetClass = AssetClass.FUTURES
     exchange: str = ""
     sector: str = ""
-    tick_size: float = 0
+    tick_size: float = 0.0
     # Futures-specific — empty/zero for equities and crypto
     base: str = ""
     expiry: str = ""
-    point_value: float = 0
+    point_value: float = 0.0
     # Escape hatch for provider-specific metadata
     provider_meta: dict = {}
     session_id: str = "futures_24_5"

@@ -528,32 +528,53 @@ def _futures_template_sql() -> str:
     )
 
 
-def _index_futures_templates(
-    tmpl_rows: list[tuple],
-) -> tuple[dict[str, Instrument], dict[str, Instrument]]:
-    """Parse futures-template rows into (config_by_base, config_by_symbol).
+def instrument_from_instruments_row(
+    symbol: str, base: str | None, contract_details: dict | str | None, sector: str | None
+) -> Instrument:
+    """Build an Instrument from an `instruments` row: its symbol/base columns, its
+    contract_details jsonb and its indicagent_v1 classification sector (level-2 node name,
+    NULL when unclassified; Phase 182 D-10).
 
-    Each template's sector is its indicagent_v1 classification (row[3]) or the explicit
-    unclassified label, never contract_details' flat sector string (Phase 182 D-10).
-    Rows whose contract_details cannot build an Instrument are skipped.
+    contract_details overrides the symbol/base columns where it carries them (an FX row's
+    symbol is the full pair) and supplies every other field, with the model's defaults for
+    any it omits. session_id and asset_class have no safe default, so a row missing either
+    raises, as does NULL contract_details or anything Instrument rejects: a malformed row
+    is a data defect to fix, never a value to guess. contract_details' flat sector string
+    is historical only and is never read.
     """
     import json as _json
 
     from src.config.classification_service import label_or_unclassified
 
+    cd = _json.loads(contract_details) if isinstance(contract_details, str) else contract_details
+    if cd is None:
+        raise ValueError(f"instruments row {symbol!r} has NULL contract_details")
+    missing = [key for key in ("session_id", "asset_class") if key not in cd]
+    if missing:
+        raise ValueError(f"instruments row {symbol!r} contract_details lacks {missing}")
+    return Instrument(
+        **{"symbol": symbol, "base": base or "", **cd, "sector": label_or_unclassified(sector)}
+    )
+
+
+def _index_futures_templates(
+    tmpl_rows: list[tuple], contract_rows: list[tuple]
+) -> tuple[dict[str, Instrument], dict[str, Instrument]]:
+    """Parse futures-template rows (symbol, base, contract_details, sector) into
+    (config_by_base, config_by_symbol), indexing only the templates a contract row
+    (symbol, base_symbol, ...) can look up. The template query is not dimension-scoped,
+    so a malformed template outside that scope must not fail the call; one inside it
+    raises."""
+    referenced = {name for row in contract_rows for name in row[:2]}
     config_by_base: dict[str, Instrument] = {}
     config_by_symbol: dict[str, Instrument] = {}
     for tmpl_row in tmpl_rows:
-        cd = _json.loads(tmpl_row[2]) if isinstance(tmpl_row[2], str) else tmpl_row[2]
-        if cd is None:
+        if tmpl_row[0] not in referenced and tmpl_row[1] not in referenced:
             continue
-        try:
-            inst = Instrument(**{**cd, "sector": label_or_unclassified(tmpl_row[3])})
-            config_by_symbol[inst.symbol] = inst
-            if inst.base:
-                config_by_base[inst.base] = inst
-        except Exception:
-            pass
+        inst = instrument_from_instruments_row(*tmpl_row)
+        config_by_symbol[inst.symbol] = inst
+        if inst.base:
+            config_by_base[inst.base] = inst
     return config_by_base, config_by_symbol
 
 
@@ -594,10 +615,10 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
     one dimension is never returned to a caller asking for another.
     Fallback on DB error: returns last valid cache for the requested dimension, or empty
     list if that dimension's cache is cold. Never substitutes another dimension's cache.
+    A row that fails Instrument validation raises; it is never guessed around or
+    served from the stale cache.
     Settings.contracts does not exist and is never consulted.
     """
-    import json as _json
-
     global _active_contracts_cache, _active_contracts_last_refresh  # noqa: PLW0603
 
     if dimension not in _ACTIVE_CONTRACTS_DIMENSION_CLAUSES:
@@ -614,13 +635,10 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
             return _active_contracts_cache[dimension]
     # Lock released here — DB query runs without holding the lock (Pitfall 2)
 
+    from src.config.classification_service import current_level_name_sql
+
     try:
         import psycopg
-
-        from src.config.classification_service import (
-            current_level_name_sql,
-            label_or_unclassified,
-        )
 
         non_futures_clause = _ACTIVE_CONTRACTS_DIMENSION_CLAUSES[dimension]
 
@@ -659,47 +677,6 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
                 )
                 nf_rows = cur.fetchall()
 
-        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows)
-
-        # Build DB-sourced futures Instruments
-        db_instruments: list[Instrument] = [
-            _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
-        ]
-
-        non_futures: list[Instrument] = []
-        for row in nf_rows:
-            cd = _json.loads(row[2]) if isinstance(row[2], str) else row[2]
-            if cd is None:
-                continue
-            sector = label_or_unclassified(row[3])
-            try:
-                non_futures.append(Instrument(**{**cd, "sector": sector}))
-            except Exception:
-                # Fallback: build with available columns if contract_details is partial
-                non_futures.append(
-                    Instrument(
-                        symbol=cd.get("symbol") or row[0],
-                        base=cd.get("base") or row[1] or "",
-                        name=cd.get("name", ""),
-                        asset_class=cd.get("asset_class", "equity"),
-                        exchange=cd.get("exchange", ""),
-                        sector=sector,
-                        tick_size=cd.get("tick_size", 0),
-                        point_value=cd.get("point_value", 0),
-                        session_id=cd.get("session_id", "equity_rth"),
-                        provider_meta=cd.get("provider_meta", {}),
-                        expiry=cd.get("expiry", ""),
-                    )
-                )
-
-        result = db_instruments + non_futures
-
-        # Write cache under lock (atomic write), keyed by dimension
-        with _settings_lock:
-            _active_contracts_cache[dimension] = result
-            _active_contracts_last_refresh[dimension] = now
-        return result
-
     except Exception as error:
         import structlog as _structlog
 
@@ -719,6 +696,22 @@ def get_active_contracts(settings: Settings | None = None, *, dimension: str) ->
             dimension=dimension,
         )
         return []
+
+    # Built outside the try: a malformed row is a data defect, not an unavailable DB, so it
+    # raises instead of being served the stale cache.
+    config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows, rows)
+    db_instruments: list[Instrument] = [
+        _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows
+    ]
+    non_futures = [instrument_from_instruments_row(*row) for row in nf_rows]
+
+    result = db_instruments + non_futures
+
+    # Write cache under lock (atomic write), keyed by dimension
+    with _settings_lock:
+        _active_contracts_cache[dimension] = result
+        _active_contracts_last_refresh[dimension] = now
+    return result
 
 
 def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrument]:
@@ -745,7 +738,7 @@ def get_all_futures_contracts(settings: Settings | None = None) -> list[Instrume
                 )
                 rows = cur.fetchall()
 
-        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows)
+        config_by_base, config_by_symbol = _index_futures_templates(tmpl_rows, rows)
 
         return [
             _build_instrument_from_db_row(row, config_by_base, config_by_symbol) for row in rows

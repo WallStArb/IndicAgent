@@ -438,6 +438,16 @@ def test_instrument_from_row_missing_sector_column_raises():
         _instrument_from_row(_smh_row())
 
 
+def test_instrument_from_row_missing_session_id_raises():
+    """No guessed session: the old default named a session absent from SESSION_REGISTRY."""
+    from src.intelligence.pipeline.cache_manager import _instrument_from_row
+
+    row = _smh_row(classification_sector=None)
+    del row["contract_details"]["session_id"]
+    with pytest.raises(ValueError, match="session_id"):
+        _instrument_from_row(row)
+
+
 @pytest.mark.asyncio
 async def test_reload_instruments_cache_selects_classification_sector():
     from src.config.classification_service import current_level_name_sql
