@@ -49,16 +49,22 @@ _BARS_SQL = (
     "ORDER BY timestamp"
 )
 
-# Dividends (todo 428, migration 376): Yahoo's coverage span decides known vs unknown; events
-# come from the reconciled view. single_source: one source reports the event and the other does
-# not, whether or not the other examined that date (an unverified event either way).
+# Dividends (todo 428, migrations 376 and 379): Yahoo's coverage span decides known vs unknown;
+# events come from the reconciled view as both sources' facts, resolved by
+# dividends.resolve_event (agreement, dispute, one source).
 _DIV_COVERAGE_SQL = (
     "SELECT symbol, covered_from, covered_to FROM dividend_event_coverage "
     "WHERE source = 'yahoo' AND symbol = ANY($1)"
 )
+# The writer's dispute parameters (dividends.DisputeRule), read once per snapshot and recorded in
+# its manifest, so research applies the writer's definition and a snapshot stays reproducible.
+_DISPUTE_RULE_SQL = (
+    "SELECT config_key, config_value FROM config_state WHERE config_key IN "
+    "('threshold.dividend_event.source_yield_rel_tolerance', "
+    "'threshold.dividend_event.noise_margin')"
+)
 _DIV_EVENTS_SQL = (
-    "SELECT symbol, ex_date, dividend_yield, "
-    "(yahoo_yield IS NULL) <> (ibkr_yield IS NULL) AS single_source "
+    "SELECT symbol, ex_date, yahoo_yield, ibkr_yield, ibkr_prev_close "
     "FROM dividend_events_reconciled WHERE symbol = ANY($1) AND ex_date >= $2 AND ex_date < $3"
 )
 
@@ -255,8 +261,19 @@ async def build_panel(
                 r["symbol"]: (r["covered_from"], r["covered_to"])
                 for r in await pool.fetch(_DIV_COVERAGE_SQL, requested)
             }
+            rule_values = dict(await pool.fetch(_DISPUTE_RULE_SQL))
+            if len(rule_values) != 2:
+                raise ValueError(
+                    f"dividend dispute parameters missing from config_state: {rule_values}"
+                )
+            rule = dividends_mod.DisputeRule(
+                rel_tolerance=float(
+                    rule_values["threshold.dividend_event.source_yield_rel_tolerance"]
+                ),
+                noise_margin=float(rule_values["threshold.dividend_event.noise_margin"]),
+            )
             events = [
-                (r["symbol"], r["ex_date"], r["dividend_yield"], r["single_source"])
+                (r["symbol"], r["ex_date"], r["yahoo_yield"], r["ibkr_yield"], r["ibkr_prev_close"])
                 for r in await pool.fetch(_DIV_EVENTS_SQL, requested, lo.date(), hi.date())
             ]
     finally:
@@ -278,12 +295,13 @@ async def build_panel(
     extra = None
     if dividends:
         extra = dividends_mod.dividend_grid(
-            session_dates(grid), grid.symbols, coverage, events
+            session_dates(grid), grid.symbols, coverage, events, rule
         ).arrays()
         manifest["dividends"] = {
             "source": "dividend_events_reconciled",
             "coverage_source": "yahoo",
             "events": len(events),
+            "dispute_rule": dataclasses.asdict(rule),
         }
     grid = dataclasses.replace(grid, manifest=manifest)
     return panel_mod.save(grid, Path(out_dir), extra)

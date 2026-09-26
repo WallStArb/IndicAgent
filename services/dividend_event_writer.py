@@ -56,11 +56,21 @@ from services._batch_utils import load_apr_dict_async
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base_batch import BaseBatch
 from src.core.models import AssetClass
+from src.intelligence.research.dividends import DisputeRule, ibkr_rounding_bound
+from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import yahoo
 from src.providers.ibkr import HIST_RATE_LIMIT_KEYS, IBKRProvider, apply_hist_rate_limit_config
 
 _JOB = "dividend-event-writer"
+# Per-run reconciliation outcomes, labeled {sources, outcome} only: never per symbol (cardinality),
+# and the per-symbol detail stays in the log.
+_OUTCOME_TOTAL = counter(
+    "dividend_event_outcome_total",
+    "dividend_event_writer per-run outcome counts: events derived, downward and unstable IBKR "
+    "steps rejected, re-derived yields that moved, cross-source yield disagreements beyond "
+    "rounding, holes in either source, failed symbols. Never labeled by symbol.",
+)
 SOURCE_IBKR = "ibkr_adjusted_last_ratio"
 SOURCE_YAHOO = "yahoo"
 _CLI_SOURCES = {"ibkr": SOURCE_IBKR, "yahoo": SOURCE_YAHOO}
@@ -179,9 +189,9 @@ def derive_ibkr_events(
             n_unstable += 1
             continue
         amount = closes[i - 1] * (1.0 - ratios[i - 1] / ratios[i])
-        # Each derivation's amount carries up to 0.01 / ratio of rounding, and a later fetch
-        # sees this ex-date at an equal or smaller ratio, so twice the bound covers both.
-        tolerance = noise_margin * 2 * (2 * _HALF_TICK) / (ratios[i - 1] * closes[i - 1])
+        # A later fetch sees this ex-date at an equal or smaller ratio, so the bound at this
+        # ratio covers both derivations.
+        tolerance = ibkr_rounding_bound(closes[i - 1] * ratios[i - 1], noise_margin)
         events.append(DividendEvent(days[i], amount, closes[i - 1], tolerance))
     return Derivation(events, days[1 + k], days[-1 - k], n_down, n_unstable)
 
@@ -237,9 +247,11 @@ def reconcile(
     ibkr_span: tuple[date, date] | None,
     yahoo_span: tuple[date, date] | None,
     match_days: int,
-    yield_rel_tolerance: float,
+    rule: DisputeRule,
+    ibkr_prev_close: dict[date, float],
 ) -> Reconciliation:
-    """Compare two sources' stored events (ex_date -> yield) for one symbol. Pure."""
+    """Compare two sources' stored events (ex_date -> yield) for one symbol. Pure. A yield
+    disagreement is rule.disagree, the same predicate the research reader applies."""
 
     def inside(d: date, span: tuple[date, date] | None) -> bool:
         return span is not None and span[0] <= d <= span[1]
@@ -251,7 +263,7 @@ def reconcile(
     disagreements = sorted(
         d
         for d in ibkr.keys() & yahoo_events.keys()
-        if abs(ibkr[d] - yahoo_events[d]) > yield_rel_tolerance * yahoo_events[d]
+        if rule.disagree(yahoo_events[d], ibkr[d], ibkr_prev_close[d])
     )
     return Reconciliation(
         near_misses=near,
@@ -349,7 +361,9 @@ class DividendEventWriter(BaseBatch):
                         moved = 0
                         for source, derivation in derivations.items():
                             moved += await self._write(conn, symbol, source, derivation)
-                        rec = await self._reconcile(conn, symbol, match_days, rel_tol)
+                        rec = await self._reconcile(
+                            conn, symbol, match_days, DisputeRule(rel_tol, margin)
+                        )
                         if rec.near_misses:
                             raise _SymbolFailure(
                                 "one dividend on two dates (ibkr, yahoo): "
@@ -393,6 +407,9 @@ class DividendEventWriter(BaseBatch):
             years=years,
             **totals,
         )
+        sources = ",".join(self._sources)
+        for outcome, n in {**totals, "failed": len(failed)}.items():
+            _OUTCOME_TOTAL.add(n, {"sources": sources, "outcome": outcome})
         if failed:
             raise RuntimeError(f"dividend_event_writer: {len(failed)} failures: {failed}")
 
@@ -501,15 +518,18 @@ class DividendEventWriter(BaseBatch):
 
     @staticmethod
     async def _reconcile(
-        conn: asyncpg.Connection, symbol: str, match_days: int, rel_tol: float
+        conn: asyncpg.Connection, symbol: str, match_days: int, rule: DisputeRule
     ) -> Reconciliation:
         events: dict[str, dict[date, float]] = {SOURCE_IBKR: {}, SOURCE_YAHOO: {}}
+        ibkr_prev_close: dict[date, float] = {}
         for r in await conn.fetch(
-            "SELECT source, ex_date, amount / prev_close AS y FROM dividend_events "
+            "SELECT source, ex_date, amount / prev_close AS y, prev_close FROM dividend_events "
             "WHERE symbol = $1",
             symbol,
         ):
             events[r["source"]][r["ex_date"]] = r["y"]
+            if r["source"] == SOURCE_IBKR:
+                ibkr_prev_close[r["ex_date"]] = r["prev_close"]
         spans = {
             r["source"]: (r["covered_from"], r["covered_to"])
             for r in await conn.fetch(
@@ -524,7 +544,8 @@ class DividendEventWriter(BaseBatch):
             spans.get(SOURCE_IBKR),
             spans.get(SOURCE_YAHOO),
             match_days,
-            rel_tol,
+            rule,
+            ibkr_prev_close,
         )
 
 

@@ -20,9 +20,11 @@ from services.dividend_event_writer import (
     reconcile,
     vanished_ex_dates,
 )
+from src.intelligence.research.dividends import DisputeRule
 
 MARGIN = 1.25
 STABLE = 3
+RULE = DisputeRule(rel_tolerance=0.1, noise_margin=MARGIN)
 
 
 def _series(closes, dividends):
@@ -145,10 +147,13 @@ def test_rederived_yield_is_split_invariant():
 
 
 D = date(2012, 10, 1)
+_PC = {D: 1000.0}  # a high prior close: the rounding bound is negligible, the relative one rules
 
 
 def test_reconcile_flags_one_dividend_on_two_dates():
-    rec = reconcile({D: 0.005}, {D + timedelta(1): 0.005}, (D, D), (D, D + timedelta(9)), 5, 0.1)
+    rec = reconcile(
+        {D: 0.005}, {D + timedelta(1): 0.005}, (D, D), (D, D + timedelta(9)), 5, RULE, _PC
+    )
     assert rec.near_misses == [(D, D + timedelta(1))]
     assert rec.ibkr_holes == [] and rec.yahoo_holes == []
 
@@ -156,15 +161,15 @@ def test_reconcile_flags_one_dividend_on_two_dates():
 def test_reconcile_holes_count_only_inside_the_other_sources_span():
     later = D + timedelta(31)
     span = (D, later)
-    rec = reconcile({D: 0.005}, {later: 0.005}, span, span, 5, 0.1)
+    rec = reconcile({D: 0.005}, {later: 0.005}, span, span, 5, RULE, _PC)
     assert rec.near_misses == [] and rec.ibkr_holes == [later] and rec.yahoo_holes == [D]
-    rec = reconcile({}, {later: 0.005}, (D, D), span, 5, 0.1)
+    rec = reconcile({}, {later: 0.005}, (D, D), span, 5, RULE, _PC)
     assert rec.ibkr_holes == []  # IBKR never examined that date
 
 
 def test_reconcile_yield_disagreement_is_relative():
-    assert reconcile({D: 0.0052}, {D: 0.005}, None, None, 5, 0.1).yield_disagreements == []
-    assert reconcile({D: 0.0060}, {D: 0.005}, None, None, 5, 0.1).yield_disagreements == [D]
+    assert reconcile({D: 0.0052}, {D: 0.005}, None, None, 5, RULE, _PC).yield_disagreements == []
+    assert reconcile({D: 0.0060}, {D: 0.005}, None, None, 5, RULE, _PC).yield_disagreements == [D]
 
 
 def test_join_refuses_a_day_missing_from_one_series():
@@ -213,3 +218,14 @@ def test_weekly_payer_is_still_detected():
     assert [e.ex_date for e in d.events] == [
         date(2010, 1, 4) + timedelta(days=i) for i in dividends
     ]
+
+
+def test_a_disagreement_inside_ibkr_rounding_is_not_reported():
+    """MRVL: a $0.06 dividend on a $15 close. IBKR's cent rounding alone moves the implied
+    yield by up to about 17%, so a 15% gap is noise; a gap beyond both bounds is reported."""
+    yahoo_y = 0.06 / 15.0
+    pc = {D: 15.0}
+    assert not reconcile(
+        {D: yahoo_y * 1.15}, {D: yahoo_y}, None, None, 5, RULE, pc
+    ).yield_disagreements
+    assert reconcile({D: yahoo_y * 1.6}, {D: yahoo_y}, None, None, 5, RULE, pc).yield_disagreements

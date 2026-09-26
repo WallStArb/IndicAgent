@@ -76,17 +76,69 @@ class DividendGrid:
         )
 
 
+def ibkr_rounding_bound(prev_close: float, noise_margin: float = 1.0) -> float:
+    """The yield error an IBKR-derived dividend can carry from ADJUSTED_LAST's cent rounding,
+    doubled to cover two closes: noise_margin * 0.02 / prev_close. The one definition, shared
+    with services/dividend_event_writer.py. With the adjusted prior close (prev_close * ratio) it
+    is exact; with the stored prev_close it understates the bound for old events, never
+    overstates it."""
+    return noise_margin * 0.02 / prev_close
+
+
+@dataclasses.dataclass(frozen=True)
+class DisputeRule:
+    """When two sources' yields for one ex-date disagree: beyond both a relative tolerance and
+    IBKR's rounding bound. The writer's reconciliation and the research reader share it, with
+    the writer's APR values (threshold.dividend_event.source_yield_rel_tolerance and
+    .noise_margin), which S0 records in the snapshot manifest."""
+
+    rel_tolerance: float
+    noise_margin: float
+
+    def disagree(self, yahoo_yield: float, ibkr_yield: float, ibkr_prev_close: float) -> bool:
+        return abs(ibkr_yield - yahoo_yield) > max(
+            self.rel_tolerance * yahoo_yield,
+            ibkr_rounding_bound(ibkr_prev_close, self.noise_margin),
+        )
+
+
+def resolve_event(
+    yahoo_yield: float | None,
+    ibkr_yield: float | None,
+    ibkr_prev_close: float | None,
+    rule: DisputeRule,
+) -> tuple[float, float]:
+    """(yield to apply, unconfirmed yield) for one ex-date. Pure.
+
+    - Both sources, agreeing under `rule`: Yahoo's declared amount, confirmed (0).
+    - Both, disputed (a part-stock special such as WY 2010: Yahoo 63%, IBKR 24%): IBKR's yield,
+      which by construction reconciles the IBKR bars we store, and unconfirmed at the larger of
+      the two, so the spec's suspect_yield decides whether the symbol splits.
+    - One source: its yield, unconfirmed at that yield.
+    """
+    if yahoo_yield is not None and ibkr_yield is not None:
+        if not rule.disagree(yahoo_yield, ibkr_yield, ibkr_prev_close):
+            return yahoo_yield, 0.0
+        return ibkr_yield, max(ibkr_yield, yahoo_yield)
+    y = yahoo_yield if yahoo_yield is not None else ibkr_yield
+    if y is None:
+        raise ValueError("an event needs at least one source's yield")
+    return y, y
+
+
 def dividend_grid(
     sessions: np.ndarray,
     symbols: tuple[str, ...],
     coverage: dict[str, tuple[date, date]],
-    events: Iterable[tuple[str, date, float, bool]],
+    events: Iterable[tuple[str, date, float | None, float | None, float | None]],
+    rule: DisputeRule,
 ) -> DividendGrid:
     """Pure: per-session dividend facts from Yahoo coverage spans and reconciled events
-    (symbol, ex_date, yield, single_source). An ex-date that is not a session (a holiday) lands
-    on the next session, where the price drop shows; one outside the panel's sessions is
-    ignored. Two events on one session compound; the unconfirmed yield keeps the largest
-    single-source event of the session, not the compound."""
+    (symbol, ex_date, yahoo_yield, ibkr_yield, ibkr_prev_close), each resolved by
+    resolve_event. An ex-date that is not a session (a holiday) lands on the next session, where
+    the price drop shows; one outside the panel's sessions is ignored. Two events on one session
+    share one prior close, so the drop is y1 + y2 and their yields add; the unconfirmed yield
+    keeps the largest event's, not the sum."""
     n_s, m = len(sessions), len(symbols)
     col = {s: j for j, s in enumerate(symbols)}
     div_yield = np.zeros((n_s, m))
@@ -97,14 +149,14 @@ def dividend_grid(
             covered[:, col[sym]] = (sessions >= np.datetime64(lo, "D")) & (
                 sessions <= np.datetime64(hi, "D")
             )
-    for sym, ex_date, y, single_source in events:
+    for sym, ex_date, yahoo_y, ibkr_y, ibkr_pc in events:
         ex = np.datetime64(ex_date, "D")
         if sym not in col or not sessions[0] <= ex <= sessions[-1]:
             continue
+        y, u = resolve_event(yahoo_y, ibkr_y, ibkr_pc, rule)
         k, j = int(np.searchsorted(sessions, ex, side="left")), col[sym]
-        div_yield[k, j] = (1.0 + div_yield[k, j]) * (1.0 + y) - 1.0
-        if single_source:
-            unconfirmed[k, j] = max(unconfirmed[k, j], y)
+        div_yield[k, j] += y
+        unconfirmed[k, j] = max(unconfirmed[k, j], u)
     return DividendGrid(symbols, div_yield, unconfirmed, covered)
 
 

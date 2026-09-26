@@ -15,6 +15,7 @@ from src.intelligence.research.spec import parse_spec_text
 from tests.unit.research.test_spec import FAMILY, _hash
 
 SUSPECT = 0.10
+RULE = dividends.DisputeRule(rel_tolerance=0.10, noise_margin=1.25)
 
 
 def _grid(symbols, n_sessions, yields=None, events=(), single=(), uncovered=()):
@@ -54,14 +55,15 @@ def test_grid_maps_ex_dates_to_sessions():
         ("A", "B"),
         {"A": (date(2024, 1, 3), date(2024, 1, 5))},
         [
-            ("A", date(2024, 1, 4), 0.01, False),  # a holiday: shows on the next session
-            ("A", date(2024, 1, 5), 0.02, True),  # same session: compounds
-            ("A", date(2023, 12, 29), 0.5, False),  # before the panel
-            ("A", date(2024, 1, 8), 0.5, False),  # after it
-            ("Z", date(2024, 1, 3), 0.5, False),  # not a panel symbol
+            ("A", date(2024, 1, 4), 0.01, 0.01, 100.0),  # a holiday: shows on the next session
+            ("A", date(2024, 1, 5), 0.02, None, None),  # same session, Yahoo only: compounds
+            ("A", date(2023, 12, 29), 0.5, 0.5, 10.0),  # before the panel
+            ("A", date(2024, 1, 8), 0.5, 0.5, 10.0),  # after it
+            ("Z", date(2024, 1, 3), 0.5, 0.5, 10.0),  # not a panel symbol
         ],
+        RULE,
     )
-    assert grid.div_yield[:, 0] == pytest.approx([0, 0, 1.01 * 1.02 - 1])
+    assert grid.div_yield[:, 0] == pytest.approx([0, 0, 0.03])  # one prior close: yields add
     assert grid.div_unconfirmed_yield[:, 0].tolist() == [0, 0, 0.02]  # per event, not compound
     assert grid.div_covered[:, 0].tolist() == [False, True, True]
     assert not grid.div_covered[:, 1].any()  # B has no coverage row: unknown everywhere
@@ -188,17 +190,18 @@ def test_suspect_is_judged_per_event_and_a_yield_of_one_always_splits():
         raw.symbols,
         cover,
         [
-            ("s0", date(2024, 1, 5), 0.02, True),  # small, unconfirmed
-            ("s0", date(2024, 1, 5), 0.30, False),  # large, confirmed, same session
-            ("s1", date(2024, 1, 5), 1.0, False),  # confirmed but no finite factor
+            ("s0", date(2024, 1, 5), 0.02, None, None),  # small, unconfirmed
+            ("s0", date(2024, 1, 5), 0.30, 0.30, 50.0),  # large, confirmed, same session
+            ("s1", date(2024, 1, 5), 1.0, 1.0, 50.0),  # confirmed but no finite factor
         ],
+        RULE,
     )
     out = dividends.total_return(raw, grid, SUSPECT)
     assert out.symbols == ("s0", "s1", "s1~1", "s2")
     fwd = forward_returns(out.open)
     # s0's session (index 4) compounds both events and applies them: the small unconfirmed one
     # does not taint the confirmed special.
-    assert fwd[2, 0] == pytest.approx(-np.log(1 - (1.02 * 1.30 - 1)), rel=1e-12)
+    assert fwd[2, 0] == pytest.approx(-np.log(1 - 0.32), rel=1e-12)
 
 
 def test_a_real_snapshot_in_synthetic_mode_is_refused_under_a_total_return_spec():
@@ -280,3 +283,33 @@ def test_total_return_is_hashed_only_when_set():
     assert parse_spec_text(with_tr).panel.total_return.suspect_yield == 0.1
     assert _hash(with_tr) != _hash(FAMILY)
     assert parse_spec_text(FAMILY).panel.total_return is None
+
+
+@pytest.mark.parametrize(
+    ("yahoo", "ibkr", "close", "expected"),
+    [
+        (0.004, 0.0041, 15.0, (0.004, 0.0)),  # agree within rounding (0.02 / 15): Yahoo, confirmed
+        (0.150, 0.1485, 100.0, (0.150, 0.0)),  # code review: 1% apart on $100 is vendor noise
+        (0.6316, 0.2360, 40.0, (0.2360, 0.6316)),  # WY 2010: disputed, IBKR applied, unconfirmed
+        (0.01, None, None, (0.01, 0.01)),  # Yahoo only
+        (None, 0.01, 30.0, (0.01, 0.01)),  # IBKR only (a Yahoo hole)
+    ],
+)
+def test_resolve_event(yahoo, ibkr, close, expected):
+    assert dividends.resolve_event(yahoo, ibkr, close, RULE) == pytest.approx(expected)
+
+
+def test_a_disputed_large_special_splits_and_a_disputed_small_one_uses_ibkr():
+    n = 10
+    raw = daily_panel(np.full((n, 2), 40.0), opens=np.full((n, 2), 40.0))
+    sessions = np.datetime64("2024-01-01") + np.arange(n)
+    cover = {s: (date(2024, 1, 1), date(2024, 1, 10)) for s in raw.symbols}
+    events = [
+        ("s0", date(2024, 1, 5), 0.6316, 0.2360, 40.0),  # WY-like: above suspect_yield
+        ("s1", date(2024, 1, 5), 0.0441, 0.0036, 40.0),  # GLNG-like: disputed, below it
+    ]
+    out = dividends.total_return(
+        raw, dividends.dividend_grid(sessions, raw.symbols, cover, events, RULE), SUSPECT
+    )
+    assert out.symbols == ("s0", "s0~1", "s1")
+    assert forward_returns(out.open)[2, 2] == pytest.approx(-np.log1p(-0.0036))

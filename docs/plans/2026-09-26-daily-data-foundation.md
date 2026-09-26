@@ -221,9 +221,22 @@ the same treatment once verify-only covers intraday.
   - **Pacing.** A 25-year daily request is two TRADES chunks and hit IBKR soft pacing (retry
     backoff); a 20-year window is one request per series.
   - ADJUSTED_LAST starts at the last venue move, so moved names get IBKR dividends only after it.
-  The interim IBKR writer (`services/dividend_event_writer.py --sources ibkr`) has no timer; D5
-  replaces it. Validate on known dividends (JPM, KO, XLU quarterly) before research uses IBKR
-  rows alone.
+  - **Value disputes.** 606 of 42,926 two-source events disagree beyond IBKR's rounding bound
+    (0.02 / prior close). The large ones are part-stock specials (WY 2010: Yahoo 63%, IBKR 24%;
+    CXW 2013, IRM 2012, UDR 2008): Yahoo records the whole distribution, while IBKR's factor is
+    the one that reconciles IBKR's own TRADES series, which is what we store. The reader already
+    resolves this (`research/dividends.resolve_event`, migration 379; the writer's APR values,
+    recorded in each snapshot): agreement uses Yahoo,
+    a dispute applies IBKR's yield and counts as unconfirmed, so the spec's suspect_yield splits
+    the symbol when the dispute is large.
+  The interim IBKR writer (`services/dividend_event_writer.py --sources ibkr`) has no timer. D5
+  replaces only its I/O: read ADJUSTED_LAST and TRADES from D1 instead of fetching them, and reuse
+  the tested pure functions unchanged (`join_adjustment_pairs`, `derive_ibkr_events` with the
+  lockstep rule, `reconcile`, and `research/dividends.DisputeRule`, the one dispute predicate the
+  writer and the research reader share). Validate on known
+  dividends (JPM, KO, XLU quarterly) before research uses IBKR rows alone. D7's daily audit should
+  also watch dividend freshness (Yahoo coverage end against the last session), since a timer that
+  stops running raises no failure alert.
 - **Audit the existing corpus** for split seams (MRNA and ALMS above first). This part needs
   neither D1 nor D2 and runs early: 195 of the 932 names are small caps, where splits and
   reverse splits are common, and every one the nightly job crosses today leaves a seam. The
