@@ -146,7 +146,12 @@ revisions propagate through content-digest keys; one D8 capture job absorbs todo
 attempts 3, 3b and 4 wait on the minimum data bar (seam audit, scrubbing pass, moved names,
 total returns, survivorship bound). D2a reuses the existing price-sanity classifier as one scrubbing
 rule; D2a and D7 are the price-integrity layer (no existing service checks historical price
-correctness).
+correctness). Order: the D8 capture job first (it loses data every day it is missing), then the
+1d re-run for the 384 late-starting names, the D3 study, the seam audit and the D2a pass, none of
+which needs D1. D2a's known-answer set includes the 2026-09-26 1d dry run (45 unflagged corrupt
+bars; the classifier's cross-symbol corroboration clears Flash Crash stub prints). D8 also
+closes the onboarding SOP's first and last gaps (`docs/foundation/instrument-onboarding-sop.md`:
+the delisting guard, scheduled holdings snapshots) and D2a its second (scrubbing in the chain).
 **Requirements**: TBD
 **Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
 recompute, never under a live ic_engine run (Phase 178's worktree).
@@ -176,7 +181,9 @@ key as the unused PK), primary keys on every surviving table, and a measured `sh
 per-origin modules behind one kernel registry, the shrunk ic_engine written fresh beside the old
 one to parity, one `COPY`-based bulk-load primitive in `_batch_utils` (absorbs todos 301, 343,
 352), the batch feature path as the rebuild writer, `regime_writer` walk-forward only (290, 291),
-lifecycle as data-quality checks; delete `scripts/analysis/` after summary cards and helper
+lifecycle as data-quality checks; before the rebuild is specified, decide its timeframe set: 5m
+holds about 69% of `feature_vectors` rows and no active family reads 5m features, so run the
+5m-over-15m incremental IC test at matched horizons first (design section 14.2); delete `scripts/analysis/` after summary cards and helper
 promotion; consumer checks for `context_writer` (unit active) and
 `cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
 ensemble rehearsal.

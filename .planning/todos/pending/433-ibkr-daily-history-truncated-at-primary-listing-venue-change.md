@@ -95,7 +95,8 @@ and 375 applied. IBKR accepts the ISLAND, ARCA, NYSE, AMEX and BATS routing code
 
 ## Next
 
-1. Re-run the 1d backfill for every active name once the 113-name backfill is promoted. Its
+1. Re-run the 1d backfill for the 384 names whose first 1d bar is after the window start
+   (2026-09-26 count; 547 start in October 2006 and cannot be truncated inside the window). Its
    `ibkr.hist_venue_fallback_recovered` and "Query failed" lines are the moved-name inventory
    (D6), and it re-verifies 1d empty history under the new rule.
 2. D3 validation study: on at least 30 names whose listing venue is known today (NYSE, Nasdaq,

@@ -246,15 +246,15 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 1. **Delisting record and guard** (185 D8, first in its order). Until it exists, never
    soft-delete a name through the API (`DELETE /instruments/{symbol}` sets `is_active = false`).
 2. **Scrubbing in the chain** (185 D2a). Stage 8's scan is a dry run and a person decides.
-3. **Classification mapping has no tool.** Stage 3's IBKR-industry-to-node mapping was manual.
+3. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
    would make stage 3 a command.
 4. **Second writer.** `universe_expansion_stratified_sourcing.py` and
    `universe_expansion_pilot_draw.py` still carry a `--commit` path that writes instruments
    directly (todo 431). Do not use it.
-5. **`spread_leg` pairs need a migration.** A manifest column naming the pair partner would
+5. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
    remove the hand-written migration.
-6. **No orchestrator.** Stages 5-10 are separate commands. Once the next batch has run cleanly
+6. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
    through this SOP, one resumable command (`universe_onboard.py --manifest ...`) that runs
    stages 5-9 in order, stops at every hold, and writes the verify report is the automation
    step. Build it from the scripts above; do not reimplement them.

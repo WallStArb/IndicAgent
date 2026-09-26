@@ -297,8 +297,9 @@ are re-evaluated on the extended data rather than reset.
 0. D0 labels, in parallel with everything below.
 1. The D8 capture job (delisting record and guard, holdings snapshots, borrow snapshots): small,
    and every day without it loses data that cannot be recovered.
-2. The 1d re-run for every name under the merged verify-only rule (moved-name inventory, empty
-   history re-verified), the D3 validation study, the D5 corpus seam audit, and the D2a historical
+2. The 1d re-run under the merged verify-only rule (moved-name inventory, empty history
+   re-verified) for the 384 names whose first 1d bar is after the request window's start (the
+   other 547 start in October 2006, so nothing before a move is missing from the window), the D3 validation study, the D5 corpus seam audit, and the D2a historical
    scrubbing pass with its known-answer validation. None needs D1. Together they clear the minimum
    data bar for daily attempts.
 3. D1 observation store, then D3 rebased on it.

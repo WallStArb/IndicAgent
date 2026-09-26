@@ -50,11 +50,13 @@ bullets with current facts.
   stage: the D8 capture job (delisting, holdings, borrow snapshots). Daily attempts 3, 3b and 4
   wait on its minimum data bar. Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
+  Its `feature_vectors` rebuild needs the 5m timeframe decision first (design section 14.2).
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`). Borrow snapshots (438) now start with phase 185's D8 capture job.
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
-  `feature_vectors`. Lineage `config/universe/README.md`.
+  `feature_vectors`. Lineage `config/universe/README.md`; process
+  `docs/foundation/instrument-onboarding-sop.md` (tooling gaps: todos 431, 444).
 - **Data freshness:** features and regimes stale since 2026-08-10 (todo 411, now replaced by the
   phase 186 rebuild); live IBKR streaming down; nightly batch backfill refreshes OHLCV only.
   Check `max(timestamp)` before citing freshness.
