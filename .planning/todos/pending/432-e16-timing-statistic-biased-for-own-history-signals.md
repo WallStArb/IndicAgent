@@ -105,3 +105,19 @@ shifts (returns at s paired with weights from s + k, k >= L + 1, no wraparound);
   shifts.
 - Fail: the parametric per-attempt calibration stage returns to the table.
 - Mixed (holds at measured sizes, fails at 0.3): recorded as mixed, not rounded to a pass.
+
+### Addendum before the result (2026-09-26 19:37, results log still empty; peer review by the family 2 session)
+
+Forward shifts are not independent draws: neighbouring k give nearly the same weight path, so
+the effective draw count is about (sessions - L) / tau, with tau the member's persistence. At
+real length that is about 90 for family 1's mean40 member and about 60 for family 2's 60-session
+members, too few to resolve p < 0.00167 however the experiment turns out (the MTF design's D6
+wall, and the reason E16 left the shift null for the HAC t). This experiment's shift range gives
+about 11 effective draws for mean40, so it is weak even at 0.05 and 0.01. The conditional step
+above ("real-length check with > 600 shifts") was wrong: 600 shifts are not 600 draws.
+
+Consequences, fixed now: a pass cannot make the forward-shift p the screen-bar decision. At most
+it bears on the 0.05 forward confirmation for books whose tau leaves enough effective draws
+((sessions - L) / tau >= 200, a floor stated here). A fail or mixed result leaves the
+measured-size route (gating at twice the measured stress sizes, measured by the runner and
+recorded, not constants) as the path, with the 0.3 cells as documented limits.
