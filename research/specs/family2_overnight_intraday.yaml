@@ -16,6 +16,7 @@ panel:  # the S0 source panel is family 1's; the members see its session-legs tr
   end_exclusive: "2025-12-24"
   transform: session_legs  # prereg 2, B1
   members_universe: us_session_equity  # prereg 2, B3: EQ minus intl_* exposure tags
+  total_return: {suspect_yield: 0.10}  # prereg 2 and 7: total-return prices (todo 428)
 members:  # prereg 3; declared memory = (slot history + 252 + 21 sessions) x 3 rows
   - name: intraday_persistence_20
     signal: src.intelligence.research.families.overnight_intraday.intraday_persistence

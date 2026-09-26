@@ -8,6 +8,10 @@ decision statistic (`docs/plans/methodology-change-ledger.md` E16).
 number for any member exists. The first real-data run waits for build requirements B1 to B3
 (section 9); the runner's machine spec must reproduce every value pinned here, and a mismatch is
 a methodology change.
+**Amended 2026-09-26, before any real-data run:** prices are total-return (`panel.total_return`,
+suspect yield 0.10; sections 2 and 7), now that todo 428 has landed. The spec hash changes; no
+`research_run` row existed for family 2. The E17 battery's measured static and time-of-day
+sizes are re-measured on the total-return panel before the run.
 
 ## 1. Hypothesis and mechanism
 
@@ -37,9 +41,20 @@ failed here.
 
 - **Source panel:** family 1's (`research/specs/family1_intraday_periodicity.yaml`): 15m bars
   from `market_data_ohlcv_tradeable`, compute_eligible universe, 26 bars per session, start
-  2006-01-01, end-exclusive at `alpha.validation.oos_start` (2025-12-24). The same S0 snapshot
-  (`panel_81fa9178ca4ad603`) is reused if its content hash still verifies. Opens and closes are
-  the first and last trades inside 15m bars, not auction prints.
+  2006-01-01, end-exclusive at `alpha.validation.oos_start` (2025-12-24). The S0 snapshot is
+  captured with its dividend grid (a new snapshot hash; the bar arrays are the bytes of family
+  1's `panel_81fa9178ca4ad603`). Opens and closes are the first and last trades inside 15m bars,
+  not auction prints.
+- **Total-return prices (amended 2026-09-26):** after the members' universe filter and before
+  the session-legs transform, opens and closes are converted to total-return prices
+  (`research/dividends.total_return`, `panel.total_return: {suspect_yield: 0.10}`). Each
+  ex-date's overnight leg then carries `-ln(1 - y)`, so O5 and O6 no longer read a dividend as a
+  negative gap; returns inside a session are unchanged. A yield above 0.10 that only one source
+  reports, or whose amount the sources dispute, splits the symbol (`<sym>~<k>`) instead of being
+  applied. Measured 2026-09-26 on the 187 names: Yahoo covers every one through 2025-12-23;
+  coverage starts 1 to 18 days after the first 15m bar for 34 recent listings, inside the
+  members' declared memory, so no scored cell is lost; 9,474 ex-dates fall in the scored span,
+  and 1 single-source event above 0.10 splits a symbol.
 - **Members' universe (B3):** the S0 snapshot's symbols, intersected with names whose current
   `indicagent_v1` level-1 node is `EQ`, minus names carrying a current (`valid_to IS NULL`)
   `intl_developed` or `intl_em` exposure tag in `instrument_tags` (13 country ETFs, whose
@@ -195,13 +210,14 @@ the S7 combiner uses complete cases only.
 
 ## 7. Known risks, stated before the run
 
-- **Dividends (todo 428):** prices are not total-return. An equity's quarterly ex-dividend session
-  opens lower by the dividend, which O5 and O6 read as a negative gap and fade (go long). The
-  documented ex-day behaviour (price drops by less than the dividend, some intraday recovery)
-  could then show up as fade P&L that is a dividend effect, not the clientele mechanism: a
-  possible false positive, not only noise. The EQ universe removes the monthly payers (bond
-  funds); the remaining exposure is quarterly. No dividend calendar exists to exclude ex-dates;
-  the risk is bounded only after todo 428.
+- **Dividends (todo 428, resolved by the 2026-09-26 amendment):** on price-only data an
+  equity's quarterly ex-dividend session opens lower by the dividend, which O5 and O6 would read
+  as a negative gap and fade (go long). The documented ex-day behaviour (price drops by less than
+  the dividend, some intraday recovery) could then show up as fade P&L that is a dividend effect,
+  not the clientele mechanism: a possible false positive, not only noise. Total-return prices
+  (section 2) remove the drop at the root; the residual ex-day effect (the price falling by less
+  than the dividend) remains and is disclosed. The EQ universe removes the monthly payers (bond
+  funds); the remaining exposure is quarterly.
 - **24-hour drivers inside the equity universe:** three ADRs with a home-market listing (TSM,
   ASML, BHP) whose home session falls inside the US overnight; crypto proxies (COIN, MARA, MSTR,
   RIOT) tied to a market that trades around the clock; and commodity-linked equities (GDX, NEM,
