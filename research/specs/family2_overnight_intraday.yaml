@@ -54,6 +54,7 @@ construction:  # prereg 4, R1 as built
   vol_window_sessions: 20  # prereg 4: 20 sessions of legs-panel residuals, all three rows
   vol_min_finite_fraction: 0.5
 scoring:
+  timing_statistic: e17  # methodology-change-ledger E17 (adopted 2026-09-26)
   session_scoring: true  # prereg 4, R2: one P&L per session, 252 per year
   trading_start: "2010-01-04"  # prereg 2: scored span 2010-01-04 through 2025-12-23
   sub_periods:  # reported, not voted on
