@@ -15,10 +15,13 @@ Source "yahoo": declared cash dividends by ex-date with the split-adjusted close
 Source "ibkr_adjusted_last_ratio": IBKR's ADJUSTED_LAST close is the TRADES close times a
 cumulative dividend factor; with r_t = adjusted_t / close_t, an ex-date t steps the ratio by
 r_t / r_{t-1} = 1 / (1 - amount / close_{t-1}). ADJUSTED_LAST is quoted to the cent, so with no
-dividend r moves by at most 0.005/close_t + 0.005/close_{t-1}. A step counts only if it exceeds
-that bound times threshold.dividend_event.noise_margin AND still holds the next day; a one-day
-excursion (transient) and a downward step are counted, never stored. The newest row waits for
-the next run, so coverage ends one day short.
+dividend r moves by at most 0.005/close_t + 0.005/close_{t-1} when both series use the same
+close. They do not always: in parts of IBKR's early history the two series use different
+closing prices and the ratio wanders far beyond rounding (NVR 2004: 0.3% a day). So a step
+counts only if it exceeds the bound times threshold.dividend_event.noise_margin AND the ratio is
+flat within the bound for threshold.dividend_event.stable_sessions rows on each side, which
+shows the series in lockstep. Unstable steps and downward steps are counted, never stored. The
+newest rows wait for the next run, so coverage ends stable_sessions rows short.
 
 Every source writes first-derivation-wins (IBKR re-bases its ratio with every new dividend, so
 re-derived amounts differ by rounding); a re-derived yield outside the source's tolerance is
@@ -87,7 +90,7 @@ class Derivation:
     covered_from: date  # first and last ex-date examined
     covered_to: date
     n_downward_steps: int = 0
-    n_transient_steps: int = 0
+    n_unstable_steps: int = 0
 
 
 def _positive(x: float) -> bool:
@@ -136,39 +139,51 @@ def _bound(close_a: float, close_b: float, margin: float) -> float:
 
 
 def derive_ibkr_events(
-    pairs: Sequence[tuple[date, float, float]], noise_margin: float
+    pairs: Sequence[tuple[date, float, float]], noise_margin: float, stable_sessions: int
 ) -> Derivation:
     """Dividend events from (day, TRADES close, ADJUSTED_LAST close) rows sorted by day.
 
-    Pure. Raises ValueError on fewer than 3 rows or a non-positive price (skipping the row
-    would attribute a dividend inside the gap to the wrong day).
+    Pure. A step counts only if the two series are in lockstep around it: the ratio holds
+    within the rounding bound for `stable_sessions` rows before the step and after it. Where
+    IBKR's two series use different closing prices (measured: NVR 2004, ratio wandering 0.3% a
+    day, up to 150x the bound) no step is stable and none becomes an event. Raises ValueError on
+    too few rows or a non-positive price (skipping the row would attribute a dividend inside the
+    gap to the wrong day).
     """
-    if len(pairs) < 3:
+    k = stable_sessions
+    if len(pairs) < 2 * k + 2:
         raise ValueError("too few daily rows")
     if not all(_positive(c) and _positive(a) for _, c, a in pairs):
         raise ValueError("non-finite or non-positive close in adjustment pairs")
     days = [d for d, _, _ in pairs]
     closes = [c for _, c, _ in pairs]
     ratios = [a / c for _, c, a in pairs]
+
+    def flat(anchor: int, rows: range) -> bool:
+        return all(
+            abs(ratios[r] - ratios[anchor]) <= _bound(closes[r], closes[anchor], noise_margin)
+            for r in rows
+        )
+
     events: list[DividendEvent] = []
-    n_down = n_transient = 0
-    # Row 0 has no prior day and the last row has no next day to confirm a step.
-    for i in range(1, len(pairs) - 1):
+    n_down = n_unstable = 0
+    # A step at i needs k rows before i - 1 and k rows after i to show the series in lockstep.
+    for i in range(1 + k, len(pairs) - k):
         step = ratios[i] - ratios[i - 1]
         if abs(step) <= _bound(closes[i], closes[i - 1], noise_margin):
             continue
         if step < 0:
             n_down += 1
             continue
-        if ratios[i + 1] - ratios[i - 1] <= _bound(closes[i + 1], closes[i - 1], noise_margin):
-            n_transient += 1
+        if not (flat(i - 1, range(i - 1 - k, i - 1)) and flat(i, range(i + 1, i + 1 + k))):
+            n_unstable += 1
             continue
         amount = closes[i - 1] * (1.0 - ratios[i - 1] / ratios[i])
         # Each derivation's amount carries up to 0.01 / ratio of rounding, and a later fetch
         # sees this ex-date at an equal or smaller ratio, so twice the bound covers both.
         tolerance = noise_margin * 2 * (2 * _HALF_TICK) / (ratios[i - 1] * closes[i - 1])
         events.append(DividendEvent(days[i], amount, closes[i - 1], tolerance))
-    return Derivation(events, days[1], days[-2], n_down, n_transient)
+    return Derivation(events, days[1 + k], days[-1 - k], n_down, n_unstable)
 
 
 def derive_yahoo_events(rows: Sequence[tuple[date, float, float]]) -> Derivation:
@@ -280,6 +295,7 @@ class DividendEventWriter(BaseBatch):
             )
         apply_hist_rate_limit_config({k: apr[k] for k in HIST_RATE_LIMIT_KEYS if k in apr})
         margin = float(_cfg(apr, "threshold.dividend_event.noise_margin", 1.25))
+        stable = int(_cfg(apr, "threshold.dividend_event.stable_sessions", 3))
         match_days = int(_cfg(apr, "threshold.dividend_event.ex_date_match_days", 5))
         rel_tol = float(_cfg(apr, "threshold.dividend_event.source_yield_rel_tolerance", 0.10))
         years = self._years or int(_cfg(apr, "infra.dividend_event.lookback_years", 1))
@@ -305,7 +321,7 @@ class DividendEventWriter(BaseBatch):
             (
                 "events",
                 "downward",
-                "transient",
+                "unstable",
                 "rederived_moved",
                 "yield_disagreements",
                 "ibkr_holes",
@@ -320,7 +336,7 @@ class DividendEventWriter(BaseBatch):
                 for source in self._sources:
                     try:
                         derivations[source] = await self._derive(
-                            provider, instrument, source, years, margin
+                            provider, instrument, source, years, margin, stable
                         )
                     except _SymbolFailure as error:
                         failed.append(f"{symbol}/{source}: {error}")
@@ -345,13 +361,13 @@ class DividendEventWriter(BaseBatch):
                 for derivation in derivations.values():
                     totals["events"] += len(derivation.events)
                     totals["downward"] += derivation.n_downward_steps
-                    totals["transient"] += derivation.n_transient_steps
-                    if derivation.n_downward_steps or derivation.n_transient_steps:
+                    totals["unstable"] += derivation.n_unstable_steps
+                    if derivation.n_downward_steps or derivation.n_unstable_steps:
                         self.logger.warning(
                             "dividend_event_writer.rejected_steps",
                             symbol=symbol,
                             downward=derivation.n_downward_steps,
-                            transient=derivation.n_transient_steps,
+                            unstable=derivation.n_unstable_steps,
                         )
                 totals["rederived_moved"] += moved
                 totals["yield_disagreements"] += len(rec.yield_disagreements)
@@ -382,7 +398,12 @@ class DividendEventWriter(BaseBatch):
 
     @staticmethod
     async def _derive(
-        provider: IBKRProvider | None, instrument, source: str, years: int, margin: float
+        provider: IBKRProvider | None,
+        instrument,
+        source: str,
+        years: int,
+        margin: float,
+        stable: int,
     ) -> Derivation:
         """Fetch one source for one symbol and derive its events; raises _SymbolFailure."""
         symbol = instrument.symbol
@@ -409,7 +430,7 @@ class DividendEventWriter(BaseBatch):
             raise _SymbolFailure(error)
         closes = {bar.timestamp.date(): bar.close for bar in trades}
         try:
-            return derive_ibkr_events(join_adjustment_pairs(closes, adjusted), margin)
+            return derive_ibkr_events(join_adjustment_pairs(closes, adjusted), margin, stable)
         except ValueError as invalid:
             raise _SymbolFailure(str(invalid)) from invalid
 

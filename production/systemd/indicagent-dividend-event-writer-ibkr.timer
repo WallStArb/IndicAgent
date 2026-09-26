@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly IBKR dividend cross-check -- Sunday 12:00 UTC (no nightly backfill competing for IBKR pacing)
+
+[Timer]
+OnCalendar=Sun *-*-* 12:00:00 UTC
+Persistent=true
+Unit=indicagent-dividend-event-writer@ibkr.service
+
+[Install]
+WantedBy=timers.target

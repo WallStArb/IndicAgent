@@ -87,3 +87,26 @@ session-legs transform:
 Remaining: chain `dividend_event_writer.py --sources yahoo` into the nightly job (new ex-dates
 daily; IBKR cross-check weekly). The first full IBKR pass hits IBKR soft pacing on 25-year
 daily requests (pacing errors, retry backoff); a 20-year window is one request per series.
+
+## Update 2026-09-26: IBKR false events fixed; nightly and weekly timers live (part 3 of 3)
+
+The first full IBKR pass derived hundreds of false events on names that paid nothing then (NVR,
+AXON, MRVL, EQIX in 2004): in parts of IBKR's early history ADJUSTED_LAST and TRADES use
+different closing prices, so the ratio wanders 0.3% a day, up to 150x the rounding bound, and
+the "no false events" claim above only held where the two series share a close. A step now
+counts only if the ratio is flat within the bound for `threshold.dividend_event.stable_sessions`
+(3) rows on each side (migration 378). All IBKR rows were deleted and re-derived with a 20-year
+window (one request per series; 25 years needed two and hit IBKR soft pacing). Known answers
+after the fix: NVR and AXON derive nothing, HYG keeps Yahoo's November 2012 hole, SPY and TLT
+match Yahoo exactly.
+
+Scheduling (`production/systemd/indicagent-dividend-event-writer@.service`, one template, source
+as the instance): `-yahoo.timer` daily 06:30 UTC (about 5 minutes, full history) and
+`-ibkr.timer` Sunday 12:00 UTC (cross-check, window `infra.dividend_event.lookback_years`).
+Both enabled 2026-09-26; the Yahoo instance ran once through systemd, result success.
+
+Diagnostic note: the reconciliation's "yield disagreement above 10%" count is dominated by IBKR's
+one-cent rounding on small dividends (a $0.06 dividend carries about 17% relative rounding), not
+by data errors. It is diagnostic only.
+
+All three parts done; close once the full IBKR re-derivation finishes without failures.

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Yahoo dividend events -- 06:30 UTC (after the 02:00 UTC OHLCV backfill; independent of it)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 UTC
+Persistent=true
+Unit=indicagent-dividend-event-writer@yahoo.service
+
+[Install]
+WantedBy=timers.target

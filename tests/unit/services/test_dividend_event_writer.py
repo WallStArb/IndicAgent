@@ -22,6 +22,7 @@ from services.dividend_event_writer import (
 )
 
 MARGIN = 1.25
+STABLE = 3
 
 
 def _series(closes, dividends):
@@ -45,13 +46,13 @@ def _walk(n, start_price, seed):
 def test_quarterly_dividends_recovered_within_rounding():
     closes = _walk(400, 470.0, seed=1)
     dividends = {60: 1.91, 123: 1.60, 186: 1.76, 249: 1.74, 312: 1.97}
-    d = derive_ibkr_events(_series(closes, dividends), MARGIN)
+    d = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
     assert [e.ex_date for e in d.events] == [
         date(2010, 1, 4) + timedelta(days=i) for i in dividends
     ]
     for e, amount in zip(d.events, dividends.values(), strict=True):
         assert abs(e.dividend_yield - amount / e.prev_close) <= e.yield_tolerance
-    assert (d.n_downward_steps, d.n_transient_steps) == (0, 0)
+    assert (d.n_downward_steps, d.n_unstable_steps) == (0, 0)
 
 
 @pytest.mark.parametrize("seed", range(20))
@@ -60,14 +61,14 @@ def test_rounding_alone_never_produces_an_event(seed, price):
     # A deep cumulative factor (0.3) makes the adjusted prices small, the hardest case.
     closes = _walk(1500, price, seed)
     series = [(d, c, round(c * 0.3, 2)) for d, c, _ in _series(closes, {})]
-    d = derive_ibkr_events(series, 1.0)
-    assert d.events == [] and d.n_downward_steps == 0 and d.n_transient_steps == 0
+    d = derive_ibkr_events(series, 1.0, STABLE)
+    assert d.events == [] and d.n_downward_steps == 0 and d.n_unstable_steps == 0
 
 
 def test_monthly_high_yield_payer_fully_recovered():
     closes = _walk(2000, 75.0, seed=7)
     dividends = {i: 0.38 for i in range(21, 1990, 21)}
-    d = derive_ibkr_events(_series(closes, dividends), MARGIN)
+    d = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
     assert len(d.events) == len(dividends)
     assert all(abs(e.dividend_yield - 0.38 / e.prev_close) <= e.yield_tolerance for e in d.events)
 
@@ -76,34 +77,34 @@ def test_downward_step_is_an_anomaly_not_a_dividend():
     closes = _walk(50, 100.0, seed=3)
     series = _series(closes, {})
     series = series[:25] + [(day, c, round(a * 0.99, 2)) for day, c, a in series[25:]]
-    d = derive_ibkr_events(series, MARGIN)
+    d = derive_ibkr_events(series, MARGIN, STABLE)
     assert d.events == [] and d.n_downward_steps == 1
 
 
-def test_one_day_excursion_is_transient():
+def test_one_day_excursion_is_unstable():
     closes = _walk(50, 100.0, seed=4)
     series = _series(closes, {})
     day, c, a = series[25]
     series[25] = (day, c, round(a * 1.01, 2))
-    d = derive_ibkr_events(series, MARGIN)
-    assert d.events == [] and d.n_transient_steps == 1 and d.n_downward_steps == 1
+    d = derive_ibkr_events(series, MARGIN, STABLE)
+    assert d.events == [] and d.n_unstable_steps == 1 and d.n_downward_steps == 1
 
 
 def test_newest_step_waits_for_the_next_run():
     closes = _walk(30, 100.0, seed=5)
     series = _series(closes, {29: 1.0})
-    d = derive_ibkr_events(series, MARGIN)
+    d = derive_ibkr_events(series, MARGIN, STABLE)
     assert d.events == []
-    assert (d.covered_from, d.covered_to) == (series[1][0], series[-2][0])
+    assert (d.covered_from, d.covered_to) == (series[1 + STABLE][0], series[-1 - STABLE][0])
 
 
 def test_short_and_invalid_input():
     with pytest.raises(ValueError, match="too few"):
-        derive_ibkr_events([], MARGIN)
+        derive_ibkr_events([], MARGIN, STABLE)
     with pytest.raises(ValueError, match="too few"):
         derive_yahoo_events([(date(2020, 1, 1), 10.0, 0.0)])
     with pytest.raises(ValueError, match="non-positive"):
-        derive_ibkr_events([(date(2020, 1, 1), 0.0, 1.0)] * 3, MARGIN)
+        derive_ibkr_events([(date(2020, 1, 1), 0.0, 1.0)] * 10, MARGIN, STABLE)
     nan = float("nan")
     with pytest.raises(ValueError, match="unusable close"):
         derive_yahoo_events([(date(2020, 1, 1), 10.0, 0.0), (date(2020, 1, 2), nan, 0.2)])
@@ -189,3 +190,26 @@ def test_yahoo_tolerance_absorbs_split_rerounding():
     # A 10:1 split re-scales and re-rounds: 0.52 on 41.37 becomes 0.052 on 4.14 (cents).
     event = derive_yahoo_events([(D, 41.40, 0.0), (D + timedelta(1), 41.37, 0.52)]).events[0]
     assert abs(0.052 / 4.14 - event.dividend_yield) <= event.yield_tolerance
+
+
+@pytest.mark.parametrize("seed", range(10))
+def test_series_on_different_closes_produce_no_events(seed):
+    """NVR 2004: IBKR's two series used different closing prices, so the ratio wandered about
+    0.3% a day, up to 150x the rounding bound. No step is stable; none may become a dividend."""
+    rng = np.random.default_rng(seed)
+    closes = _walk(500, 450.0, seed)
+    other = closes * (1 + rng.uniform(-0.003, 0.003, len(closes)))
+    series = [
+        (d, c, round(float(a), 2)) for (d, c, _), a in zip(_series(closes, {}), other, strict=True)
+    ]
+    d = derive_ibkr_events(series, MARGIN, STABLE)
+    assert d.events == [] and d.n_unstable_steps > 0
+
+
+def test_weekly_payer_is_still_detected():
+    closes = _walk(300, 25.0, seed=11)
+    dividends = {i: 0.05 for i in range(10, 290, 5)}
+    d = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
+    assert [e.ex_date for e in d.events] == [
+        date(2010, 1, 4) + timedelta(days=i) for i in dividends
+    ]
