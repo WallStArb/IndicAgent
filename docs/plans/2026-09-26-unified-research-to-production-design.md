@@ -741,7 +741,10 @@ Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once 
   `alpha_publisher`/ensemble parts of 352 and 228, 393 (folded into section 9).
 - Folded under `ic_proposal` and `in_fold_selection`: 191, 038, 099, 039, 115.
 - Folded into the deletion work: 355.
-- Kept: 412; the refresh chain (426, 290, 248, 411, 421); 390 before `illiq` enters a family.
+- Folded into phase 186 (aligned 2026-09-26 with 14.2 and 14.7): 411 and 426 step 2 (the
+  rebuild replaces the in-place refresh chain), 412 (the bar content digest replaces the
+  watermark), 334 (closed: gap flags move to D2a bar flags). Kept as rebuild inputs: 290, 248,
+  421; 390 before `illiq` enters a family.
 
 ### 14.5 Database hygiene (best-practices audit, 2026-09-26)
 

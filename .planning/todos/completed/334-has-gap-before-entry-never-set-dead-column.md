@@ -107,3 +107,9 @@ by future writer runs get the real computed value.
 the retroactive-backfill follow-up above is real, scoped, un-started work. Revisit
 when planning that backfill (or when it becomes blocking for
 `ops_cost_hurdle_calibration.py`'s Step 3 actually being run for the first time).
+
+## Closed 2026-09-26 as moot
+
+The unified design's UD-25 (section 14.7, items 3 and 5) deletes `forward_return_writer` and the
+`forward_returns` table in phase 186, and moves gap and suspect flags to the bars as D2a
+scrubbing flags (phase 185), which every reader sees. Nothing is left to set this column on.
