@@ -3086,7 +3086,12 @@ data-quality gates; database hygiene from the 2026-09-26 best-practices audit (d
 14.5): new writers (shrunk ic_engine, the `feature_vectors` rebuild) load with `COPY` in chunk
 order instead of row-at-a-time inserts, drop the duplicate `market_regimes` index (387 MB, same
 key as the unused PK), primary keys on every surviving table, and a measured `shared_buffers` and
-`work_mem` review under the performance-investigation SOP; consumer checks for `context_writer` (unit active) and
+`work_mem` review under the performance-investigation SOP; refactor map items 1-6 (design section 14.6): `feature_factory` split into
+per-origin modules behind one kernel registry, the shrunk ic_engine written fresh beside the old
+one to parity, one `COPY`-based bulk-load primitive in `_batch_utils` (absorbs todos 301, 343,
+352), the batch feature path as the rebuild writer, `regime_writer` walk-forward only (290, 291),
+lifecycle as data-quality checks; delete `scripts/analysis/` after summary cards and helper
+promotion; consumer checks for `context_writer` (unit active) and
 `cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
 ensemble rehearsal.
 **Requirements**: TBD
@@ -3110,7 +3115,8 @@ grammar support; contribution accounting with accounting groups; YAML DAG manife
 package renames with todo 430 step 4; one database login role per writer with write grants only
 on its own tables and read-only roles for readers, generated from the DAG manifest, so
 `single_writer` is enforced by the database (services connect as the `postgres` superuser today);
-indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
+refactor map items 7-8 (design section 14.6): `service_auditor` and the orchestrator read the DAG
+manifest, research package split behind the three protocols; indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
 `research_run.concept_id`, `instrument_classification.scheme` lack them today).
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,

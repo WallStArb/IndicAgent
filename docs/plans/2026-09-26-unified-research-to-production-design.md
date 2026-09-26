@@ -70,6 +70,7 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 | UD-20 | Forward span per book: feature and ctf-like books confirm only on data after their freeze (2026-08-08 at the earliest); price-only families 1 and 2 keep 2025-12-24, disclosed | 7.3 |
 | UD-21 | Review resolutions (Fable, 19 findings) | 20 |
 | UD-22 | Preconception-free discovery: `generated_family`, a registered grammar that enumerates candidate predictors from primitives, selected and weighted only inside training folds | 6.1 |
+| UD-24 | Refactor map: refactor only surviving code the design touches, parity-checked; delete the rest (14.6) | 14.6 |
 | UD-23 | Accounting groups inside large families: by feature origin (primary) and by in-fold correlation cluster (beside it); for reading contributions only | 13 |
 
 ## 3. Target pipeline
@@ -743,6 +744,40 @@ for SSD.
 | `shared_buffers` 3 GB on a 29 GB host; `work_mem` 8 MB | Measure, then tune (about 25% for `shared_buffers`; `work_mem` per batch session) | Phase 186 |
 | Every service connects as the `postgres` superuser | One role per writer with grants only on its own tables, read-only roles for readers, generated from the DAG manifest: `single_writer` enforced by the database | Phase 187 |
 | Foreign keys without indexes | Indexed in the clean UCR schema | Phase 187 |
+
+### 14.6 Refactor map
+
+Refactor only code that survives and that this design already touches; delete the rest; leave
+the v2.x tree (archived under the dual intelligence-path decision), `src/providers/ibkr.py`
+(phase 185) and the dormant streaming daemons alone. Sizes measured 2026-09-26.
+
+| # | Code (lines) | Refactor | Phase |
+|---|---|---|---|
+| 1 | `src/intelligence/feature_factory.py` (8,733) | One module per feature origin (price dynamics, volume and flow, SMC, VP/SR, calendar, macro, regime) behind one kernel registry: declared inputs, memory and dtype, pure `compute(inputs up to t)`. The entry point the rebuild, the `temporal_integrity` audit, the forward runner and 184's kernel table all need; the module split is also the feature-origin accounting grouping (UD-23) | 186, before the rebuild |
+| 2 | `services/ic_engine.py` (6,755) | Not refactored: the shrunk engine is written fresh as three small pure jobs (proposer, term structure, monitoring) over `ic_math.py` plus one writer, run beside the old engine to parity on pooled cells, then the old engine is deleted (strangler) | 186 |
+| 3 | `services/_batch_utils.py` (1,369) | One bulk-load primitive: `COPY` in chunk order, compress each chunk when complete, provenance batch record, content-digest idempotency key; every writer uses it. Absorbs todos 301, 343 and 352 and the audit's row-at-a-time finding | 186 |
+| 4 | `services/backfill_feature_factory.py` (1,815), `feature_vector_persistence.py` (927) | The single batch feature path (the rebuild writer) on #1 and #3. The dormant `feature_vector_pipeline.py` (1,749) only imports the same kernel registry | 186 |
+| 5 | `services/regime_writer.py` (2,640) | Walk-forward as the only mode (full-history path deleted once todo 248 deploys); todo 290's memory and query fixes; todo 291's duplication. Fixed once, before the rebuild consumes its columns | 186 |
+| 6 | `services/feature_lifecycle.py` (924), `ConceptRegistryService` | Lifecycle shrinks to data-quality checks; the registry service is rebuilt on the clean UCR schema | 186, 187 |
+| 7 | `services/service_auditor.py` (891), `ops_corpus_pipeline_run.sh` | Both read the DAG manifest; `_DAG_ORDER` deleted | 187 |
+| 8 | Research package (`runner.py` 934, `portfolio.py`, `signals.py`) | The three protocols; construction arms become rules; `runner.py` split into spec loading, execution and recording; renames with todo 430. Waits for phase 183 plan 10 | 187 |
+
+**Delete, not refactor:** the old chain (`ensemble_trainer`, `ensemble_ic_engine`,
+`alpha_frame_writer`, `counterfactual_tracker`, `alpha_publisher`, about 5,500 lines);
+`cross_sectional_spread_tracker.py` (1,942) if R1 covers it; `scripts/analysis/` (71 scripts,
+26.8k lines) once summary cards exist, after promoting reusable helpers (`_date_panel.py`, the
+cost-band helpers) into the research package. Git history keeps every deleted file.
+
+**Rules for every refactor.**
+
+1. Parity before and after: a refactor commit changes no output (byte-identical float32 on a
+   feature sample, identical IC on pooled cells); behavior changes are separate commits.
+2. No edits to modules `ic_engine` imports while a corpus run is live or resumable.
+3. APR migrate-as-you-go applies to touched code.
+4. Refactor behind tests; add tests first where a module has none.
+
+Net effect: the three largest modules become small single-purpose modules and about 34k lines of
+dead chain and analysis scripts go, roughly a third of the live codebase.
 
 ## 15. Vocabulary
 
