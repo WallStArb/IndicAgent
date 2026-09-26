@@ -19,6 +19,9 @@ discloses that look.
 **Maintenance:** change a row's status in the same commit as the work that changes it. Add a
 section 4 row when a pre-E15-style standalone verdict is recorded (none are expected now).
 
+**Interim source (2026-09-26):** this file is the home for ideas and verdicts until todo 436's
+UCR recipe book holds them; it then becomes a report rendered from `concept_registry`.
+
 ## 1. Active queue
 
 Family designs are in `docs/plans/2026-09-25-alpha-research-architecture.md` section 4. No
