@@ -2,7 +2,7 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-26, at Brandon's request ("write the phase proposal with
 vendor shortlist; we can't add new data sources yet").
-**Status:** accepted 2026-09-26 (all four decisions at the end). Roadmap entry pending.
+**Status:** accepted 2026-09-26 (all four decisions at the end); roadmap Phase 185.
 
 ## Why now
 
