@@ -2,6 +2,8 @@
 
 Author: Claude Opus 5.5 (session 2026-09-26)
 
+Process: `docs/foundation/instrument-onboarding-sop.md`. Each batch gets an entry here (stage 10).
+
 546 equity instruments onboarded at 1d only on 2026-09-26 04:04 UTC, all with
 `compute_eligible_1d = false` until their 1d backfill lands and
 `universe_expansion_promote_compute_eligible.py --dimension compute_1d` promotes them.

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.56.0
+Version: 5.56.1
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -59,7 +59,7 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 - **`market_data_ohlcv` reads for compute/measurement:** use `market_data_ohlcv_tradeable` (a view, `WHERE volume > 0`), not the raw table — `market_data_ohlcv` is a continuous calendar grid containing synthetic-fill and IBKR flat-carry-forward placeholder bars (~82% of intraday rows). Raw-table access outside this needs a `tests/unit/test_market_data_ohlcv_boundary.py` allow-list entry with a reason; CI fails otherwise.
 - **Historical backfill:** `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py` (default `--client-id 40`; provider uses 35; IDs must stay ≤ `_MAX_CLIENT_ID=50` in `ibkr.py`).
 - **IBKR history starts at a stock's last listing-venue move:** SMART-routed requests (1d and intraday) serve nothing before it (AMD 2015, PEP 2017, TLT 2016); the same contract routed to the old venue (`NYSE`, `ARCA`, `ISLAND`=Nasdaq, `AMEX`, `BATS`) serves it with venue-only volume. Error 162 "Query failed" marks it. `ohlcv_empty_history` rows written before todo 433's fix may be false. Todo 433, phase 185.
-- **Onboarding instruments:** manifest CSV -> `scripts/infrastructure/universe_expansion_onboard_manifest.py` (dry run, then `--commit`) -> backfill `--dimension backfill --timeframes 1d --symbols <list>` -> `backfill_status.fetch_complete` (automatic once the todo 433 branch merges; before that, set it from verified tradeable rows) -> `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit`. A `spread_leg` tag needs its reciprocal pair written in a migration (the manifest cannot express one). Lineage: `config/universe/README.md`.
+- **Onboarding instruments:** follow `docs/foundation/instrument-onboarding-sop.md` (source -> select -> classify -> manifest -> `universe_expansion_onboard_manifest.py` -> 1d backfill -> verify -> promote -> README). Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name (185 D8).
 - **Running from a git worktree:** `Settings` reads the `.env` beside its own source tree, so symlink it (`ln -s /home/bg/dev/indicagent/.env <worktree>/.env`); worktrees have no `.venv`, so commit with `PATH=/home/bg/dev/indicagent/.venv/bin:$PATH` or the pre-commit hook blocks on missing ruff/black.
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
