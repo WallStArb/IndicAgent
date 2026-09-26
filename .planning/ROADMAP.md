@@ -116,8 +116,8 @@ record that feeds nothing; B5 the fixed smoothing menu (half-lives 5, 21, 63 ses
 E16 book test holds size on synthetic persistent predictors (autocorrelation time measured in
 E15 step 0); B7 `repro_frozen.py` bit-identical after each item.
 **Requirements**: TBD
-**Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session). Dividend
-history (todo 428) gates confirmation of daily books with price-level members, not this phase.
+**Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session). Daily books
+with price-level members declare `panel.total_return` (todo 428, closed 2026-09-26).
 **Plans:** 0 plans
 
 Plans:
@@ -134,10 +134,11 @@ observation store (every route and request type); D2 derived 1d bars written to
 `market_data_ohlcv` by the derivation alone; D3 venue-move recovery for 1d and intraday (todo
 433), stored only after a listing-venue validation study passes; D4 empty history recorded only
 when every route answers "no data"; D5 splits detected from re-fetch overlaps and dividends from
-ADJUSTED_LAST against TRADES, point in time; D6 listing-venue history; D7 daily reconciliation of
+ADJUSTED_LAST against TRADES, point in time, as the independent check on Yahoo's dividends; D6 listing-venue history; D7 daily reconciliation of
 SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday; D8
 forward-only survivorship (keep every name, record delistings, dated index-membership snapshots).
-IBKR-only: no new data sources (owner, 2026-09-26); the vendor stage stays gated. Revision 2
+IBKR-only: no new data sources (owner, 2026-09-26), except Yahoo's dividend history kept as
+reference data (todo 428); the vendor stage stays gated. Revision 2
 (2026-09-26, aligned with the unified design): D0 becomes data-quality labels on every attempt
 (old verdicts are summary cards, not re-run); D2a scrubbing inside the derivation (flag, never
 delete; rules validated on known answers; one historical batch pass folding todos 155, 347, 052);

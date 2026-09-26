@@ -9,8 +9,8 @@ User=bg
 WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
-# %i is the source: yahoo (daily, full history, about 5 minutes) or ibkr (weekly cross-check,
-# window infra.dividend_event.lookback_years, paced by the IBKR historical rate limit).
+# %i is the source. Timer: -yahoo.timer (daily, full history, about 5 minutes). The ibkr instance
+# has no timer: phase 185 D5 replaces it (docs/plans/2026-09-26-daily-data-foundation.md).
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/dividend_event_writer.py --sources %i
 
 [Install]

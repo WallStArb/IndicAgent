@@ -23,7 +23,12 @@ feature treats them as listed at their move too.
    same contract to the former venue serves those years (ADI 2009-10, UAL 2015-16).
 2. **Survivors only (todo 376).** IBKR does not serve delisted names, so every panel and every
    small-cap draw holds only firms alive today.
-3. **No dividends (todo 428).** Daily targets are price returns, not total returns.
+3. **Dividends are Yahoo-only in practice (todo 428, closed 2026-09-26).** `dividend_events`
+   (migration 376) holds Yahoo's declared dividends for all 932 active equities, refreshed daily
+   (`indicagent-dividend-event-writer@yahoo`), and research specs opt into total-return prices
+   with `panel.total_return`. The IBKR route in D5 is the second, independent source still to
+   build: without it Yahoo's own holes are invisible (HYG's November 2012 distribution is missing
+   there).
 4. **No corporate-action handling.** No table records splits or dividends. IBKR's TRADES
    history is split-adjusted at fetch time, so after a split the nightly job appends bars at the
    new scale beside stored bars at the old scale. Nothing detects the seam. Unchecked candidates:
@@ -54,7 +59,9 @@ and records nothing, and a better rule for choosing a bar needs a re-fetch.
 
 ## Constraint: no new data sources yet
 
-Owner decision 2026-09-26. Stages D1-D7 below use IBKR only. They are built source-agnostic, so
+Owner decision 2026-09-26. Stages D1-D7 below use IBKR only. One exception, also 2026-09-26:
+Yahoo's dividend history stays as reference data for `dividend_events` (decision 8); it is never
+a price source. The stages are built source-agnostic, so
 a vendor later becomes one more source in the observation store rather than a rebuild. Stage V
 holds the vendor shortlist until the constraint lifts.
 
@@ -191,11 +198,32 @@ the same treatment once verify-only covers intraday.
 - **Splits.** Each nightly fetch overlaps the last N stored days. A constant price ratio across
   the overlap is a split (or a reverse split): record it in a new `corporate_action` table with
   the inferring observations, and let D2 re-derive the history on one scale.
-- **Dividends from IBKR.** ADJUSTED_LAST history is adjusted for splits and dividends. Stored
-  beside TRADES in D1, the ratio of the two series implies each ex-date and its factor. This is an
-  IBKR-only route to total returns (todo 428), to be validated against known dividends (JPM, KO,
-  XLU quarterly) before research uses it. ADJUSTED_LAST also starts at the last venue move, so
-  moved names get total returns only after their move until a vendor fills the rest.
+- **Dividends from IBKR, as the second source.** ADJUSTED_LAST history is adjusted for splits
+  and dividends. Stored beside TRADES in D1, the ratio of the two series implies each ex-date and
+  its amount; D5 derives those from the stored observations, so every event is reproducible from
+  the raw store. It writes `dividend_events` with `source = 'ibkr_adjusted_last_ratio'` beside
+  Yahoo's rows (migration 376 already carries the source column, per-source coverage and the
+  reconciled view). What the interim live-fetch writer (todo 428) measured, 2026-09-26:
+  - **Holes.** IBKR's adjustment record misses SPY's 2001-2005 dividends and its December 2006
+    and 2007 ones, and five HYG months. A missing adjustment cannot be seen from IBKR's data
+    alone.
+  - **Lockstep.** The rounding bound (0.005 on each adjusted close) only holds where both series
+    use the same close. In parts of IBKR's early history they do not (NVR 2004: the ratio wanders
+    0.3% a day, up to 150 times the bound), and the first pass derived hundreds of false events
+    on names that paid nothing (NVR, AXON, MRVL, EQIX in 2004). A step counts only if the ratio
+    stays within the bound for `threshold.dividend_event.stable_sessions` (3) rows on each side
+    (migration 378). After that rule: NVR and AXON derive nothing, SPY and TLT match Yahoo
+    exactly, HYG recovers Yahoo's November 2012 hole.
+  - **Date disagreements.** 26 dividends on 18 names are reported by both sources 1 to 5 days
+    apart, in both directions, 2006 to 2025. Keeping both rows would double count, so the writer
+    rolls the symbol back. D5 needs a rule here (a disputed-date record that marks the spanning
+    returns unknown is the conservative one); the interim writer has none.
+  - **Pacing.** A 25-year daily request is two TRADES chunks and hit IBKR soft pacing (retry
+    backoff); a 20-year window is one request per series.
+  - ADJUSTED_LAST starts at the last venue move, so moved names get IBKR dividends only after it.
+  The interim IBKR writer (`services/dividend_event_writer.py --sources ibkr`) has no timer; D5
+  replaces it. Validate on known dividends (JPM, KO, XLU quarterly) before research uses IBKR
+  rows alone.
 - **Audit the existing corpus** for split seams (MRNA and ALMS above first). This part needs
   neither D1 nor D2 and runs early: 195 of the 932 names are small caps, where splits and
   reverse splits are common, and every one the nightly job crosses today leaves a seam. The
@@ -327,3 +355,6 @@ intraday and live data.
    version.
 6. The D8 capture job absorbs todo 438's borrow snapshots.
 7. Daily attempts 3, 3b and 4 wait on the minimum data bar above.
+8. Yahoo's dividend history stays as reference data (todo 428, 2026-09-26): it is the only
+   complete dividend record available and total-return research depends on it. It is not a price
+   source; D5's IBKR route is its independent check.

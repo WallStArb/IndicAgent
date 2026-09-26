@@ -110,3 +110,18 @@ one-cent rounding on small dividends (a $0.06 dividend carries about 17% relativ
 by data errors. It is diagnostic only.
 
 All three parts done; close once the full IBKR re-derivation finishes without failures.
+
+## Closed 2026-09-26
+
+Done-when met: dividend history stored (migration 376, 73,940 Yahoo events over all 932 active
+equities, refreshed daily by `indicagent-dividend-event-writer@yahoo.timer`); S0 emits
+total-return prices for any spec that declares `panel.total_return` (b0db4c323); the family 9
+guard passes (`tests/unit/research/test_dividends.py`).
+
+Owner decision 2026-09-26: Yahoo's dividend history stays as reference data, an exception to
+phase 185's no-new-sources rule (its decision 8). The IBKR cross-check moves to phase 185 D5,
+which derives it from D1's stored observations instead of live fetches; the weekly IBKR timer
+was disabled and removed. D5's section records what this todo measured: IBKR's holes, the
+lockstep rule (migration 378), 26 ex-date disagreements on 18 names that need a disputed-date
+rule, and the 20-year pacing window. The last full IBKR pass covered 912 of 932 names; 18 rolled
+back on date disagreements, CLBK has no IBKR history (todo 434), CBC has a bad IBKR price row.
