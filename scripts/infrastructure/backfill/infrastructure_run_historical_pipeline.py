@@ -507,6 +507,29 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
         print(f"  (APR retry-config lookup failed, using hardcoded defaults: {error})")
 
 
+_MARK_FETCH_COMPLETE_SQL = """
+INSERT INTO backfill_status (symbol, tf, fetch_complete, status)
+SELECT %(symbol)s, %(tf)s, true, 'pending'
+WHERE EXISTS (
+    SELECT 1 FROM market_data_ohlcv_tradeable WHERE symbol = %(symbol)s AND timeframe = %(tf)s
+)
+ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true
+"""
+
+
+def mark_fetch_complete(conn: Any, symbol: str, tf: str) -> None:
+    """Record that `symbol`/`tf` fetched without error and has tradeable bars.
+
+    The eligibility promotion predicates (COMPUTE_READY_1D_PREDICATE_SQL and its sibling)
+    require backfill_status.fetch_complete; this script used to leave it false, so each
+    onboarding batch set it by hand (phase 174 plans 10 and 15, the 2026-09-26 expansion). The
+    EXISTS guard keeps a clean fetch that stored nothing from counting as complete. Only ever
+    sets the flag, never clears it; status (the compute checkpoint) is left alone.
+    """
+    with conn.cursor() as cur:
+        cur.execute(_MARK_FETCH_COMPLETE_SQL, {"symbol": symbol, "tf": tf})
+
+
 def _fetch_start(end_dt: datetime, fetch_days: int) -> datetime:
     """Start of a fetch_days-deep window: fetch_days calendar dates including end_dt's, from
     midnight UTC. end_dt minus fetch_days floored to midnight would span fetch_days + 1 dates,
@@ -1634,6 +1657,8 @@ def main() -> None:
                                 )
                         if tf_window_failed:
                             fetched_tfs.discard(tf)
+                        else:
+                            mark_fetch_complete(db_conn, instrument.symbol, tf)
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.

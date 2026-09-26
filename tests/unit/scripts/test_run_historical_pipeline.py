@@ -900,3 +900,19 @@ def test_fetch_start_makes_a_full_depth_1d_window_one_request():
         n_chunks += 1
         chunk_end = chunk_start - timedelta(days=1)
     assert n_chunks == 1
+
+
+def test_mark_fetch_complete_is_guarded_by_tradeable_bars():
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _MARK_FETCH_COMPLETE_SQL,
+        mark_fetch_complete,
+    )
+
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    mark_fetch_complete(conn, "XYZ", "1d")
+    sql, params = cur.execute.call_args.args
+    assert sql is _MARK_FETCH_COMPLETE_SQL
+    assert params == {"symbol": "XYZ", "tf": "1d"}
+    assert "WHERE EXISTS" in sql and "market_data_ohlcv_tradeable" in sql
+    assert "fetch_complete = true" in sql and "status =" not in sql.split("DO UPDATE")[1]
