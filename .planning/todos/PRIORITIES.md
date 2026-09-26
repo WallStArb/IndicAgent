@@ -49,13 +49,14 @@ close-or-park), target under 60 pending.
 | 178 Recompute throughput bundle | 399, 385 (prange layout); the rest of the bundle closed 2026-09-24 |
 | 179 Cross-asset sleeve walk-forward verdict | 393, 390 (408/409/410/418 closed 2026-09-24; V4 PASS; pre-registration: `docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md`) |
 | 180 Cross-asset breadth expansion | 380 (tags into peer grouping, if 179/180 need it); 384 closed 2026-09-25 by phase 182 (indicagent_v1 classification, migrations 364/365) |
-| 183 Research layer (plans 01-09, 11 done; 10 running) | 430 step 4 (SignalSource to Predictor rename, after 183-10's runs); 429 (integration conftest, so the ledger's DB tests run through the normal path) |
+| 183 Research layer (plans 01-09, 11 done; 10 ran: family 1 evidence done, book_v1 refused) | 432 (E16 statistic bias, blocks book tests); 430 step 4 (SignalSource to Predictor rename, after 183-10's runs); 429 (integration conftest, so the ledger's DB tests run through the normal path) |
 | 181 Construction track (active, parallel with 179) | 423 (short-term reversal pre-registration, next verdict); cross-TF divergence after it. TSMOM (422), H-A and H-B verdicted FAIL 2026-09-24 |
 
 ## P0 — Fix soon (integrity/correctness gaps already surfaced)
 
 | Todo | Why now |
 |---|---|
+| [432](pending/432-e16-timing-statistic-biased-for-own-history-signals.md) | New 2026-09-25, book_v1 refusal diagnosis. E16's timing statistic is biased under H0 for own-history signals (mean40 H0 t about -2.6) and gives the book 0 power at IC 0.002, so every book test is refused and the book's H0 sd reaches 1.6. Candidate fix (memory-lagged cell mean, 60-session floor, no weight demean) is calibrated in synthetic. Blocks all book tests; owner adopts as an E16 amendment. |
 | [395](pending/395-nightly-backfill-fails-3-nights-weekly-ibkr-weekly-2fa-unattended.md) | **Re-tiered P1->P0 2026-09-24 (v3.4 phase 177): a silent weekly 3-day data gap plus an alert route that reaches nobody is a live integrity gap.** New 2026-09-23, found during post-power-outage recovery. Nightly backfill failed Mon-Wed of both of the last two weeks (IBKR connect timeout) after the weekly IBKR logout left the gateway waiting on an unattended 2FA tap; ~3-day OHLCV gap every week. Nobody saw it because `OneshotJobFailed` routes to a no-op Alertmanager receiver (since 2026-08-15). Fix the receiver first, then a gateway-auth probe and backfill retry. |
 
 ## P1 — High value, quick, fully unblocked
