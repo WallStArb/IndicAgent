@@ -947,6 +947,33 @@ when this was found.
   members, pinned only after about 100 further synthetic replicates confirm the phase 183
   finding that the 252-session walk-forward ridge costs about half the t at IC 0.002; the ridge
   becomes a later, separately counted book version.
-- **Built by:** the phase 183 session (owner of `timing.py`). Todo 432.
+- **Built by:** the phase 183 session (owner of `timing.py`). Todo 432. Statistic 33ca32107;
+  equal-weight combiner 5f3de6ca1; family 1 records annotated by migration 377 (condition 4).
+- **H0 battery (condition 2), 2026-09-26, OWNER DECISION PENDING on the gating criterion.**
+  `src/intelligence/research/null_battery.py`, driver `scripts/research/e17_null_battery.py`,
+  1,000 simulations per cell, size judged against the 99% binomial bound at each level.
+  - First run, every stress at 0.3 of the slot sd: bias fixed (mean t within 0.1 of 0 in every
+    cell and arm), but the combined cell's tail was oversized (book 94, 37 and 11 rejections at
+    0.05, 0.01, 0.00167). Isolated to static per-cell means with volatility clustering (sd of
+    t 1.27; each alone about 0.97): a long-memory member's weight is then largely static, and a
+    static weight times the slowly decaying error in fbar_L is long-memory P&L the HAC misses.
+    Neither a 4x or 16x HAC lag nor a 252-session floor repairs it.
+  - Measured on family 1's panel: static per-(slot, name) means have a true sd of about 0.019
+    of the idiosyncratic slot sd (split-half correlation 0.21), the per-slot market mean an rms
+    of 0.0096, both far below 0.3. Family 2 (measured by its session): static per-(leg, name)
+    0.044, 0.045, 0.017; time-of-day means 0.059, -0.026, 0.013.
+  - Second run, gating cells at twice the measured sizes (0.3 cells kept as non-gating
+    diagnostics): size holds in the combined cell (sd of t 1.00) and in the S1-in-the-loop cell
+    (sd of t 0.97 to 1.03). Three of 135 cell-level checks exceed the bound; fresh-seed reruns
+    (2,000 each) show no slot-effect mechanism (0.1 is clean), and the residual excess at
+    0.00167 (about 1.4 times nominal on 1,250-session panels, present in the pure Gaussian cell)
+    falls to about 1.1 times at the real length of 4,000 sessions. Family 2's second run: size
+    holds at 0.01 and 0.00167; its combined cell runs about 7 to 8 percent at 0.05.
+  - Documented limits (diagnostic cells): large static cell means with volatility clustering
+    (above); and, scored on S1 residual targets, credit for S1's per-slot beta error times the
+    time-of-day market mean, of order a^2 var(beta_hat) (book mean t 3.16 at a = 0.3; negligible
+    at the measured sizes).
+  - The criterion was moved to measured sizes after the 0.3 failure was seen: a forking-paths
+    risk in the methodology itself, so it is the owner's decision, not the builder's.
 - **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
   Family 1's member evidence exists and stays as recorded, annotated per condition (4).

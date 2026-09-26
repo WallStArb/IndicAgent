@@ -1,5 +1,6 @@
 ---
 status: pending
+update: 2026-09-26 built as E17; H0 battery run; owner decision pending on gating criterion
 priority: P0
 filed: 2026-09-25
 source: book_v1 refusal diagnosis (phase 183 plan 10)
@@ -80,3 +81,10 @@ H0 mean and sd of the statistic with and without static tilts, and a late-listin
    touching `timing.py`: family plants out of `synthetic.py` (dependency inversion: it imports
    family 1's `SLOT_BARS`), a spec-resolved panel-transform seam replacing the `_is_legs`
    branches, and family 2's power plant (B2). Family 2's evidence run waits for this todo.
+
+## Status 2026-09-26
+
+Adopted as E17 (acc54358d) and built (33ca32107, 5f3de6ca1, 6702215b4). H0 battery results
+and the one open owner decision (gate at twice the measured stress sizes, with the 0.3 cells as
+documented-limit diagnostics) are recorded in the E17 ledger entry. Close this todo when the
+owner decides and, if accepted, when family 1's re-score spec and book_v2 are pre-registered.
