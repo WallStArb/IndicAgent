@@ -880,3 +880,23 @@ class TestLoadIbkrVenueFallbackConfig:
                 ibkr._VENUE_FALLBACK_MIN_GAP_DAYS,
                 ibkr._VENUE_FALLBACK_STORE_BARS,
             ) = saved
+
+
+def test_fetch_start_makes_a_full_depth_1d_window_one_request():
+    """A 7300-day 1d window must walk in one 7300-day chunk; it used to leave one extra date
+    for a second request (todo 433 follow-up, 2026-09-26)."""
+    from datetime import UTC, datetime, timedelta
+
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        _fetch_start,
+    )
+
+    end = datetime(2026, 9, 26, 11, 5, tzinfo=UTC)
+    start = _fetch_start(end, 7300)
+    assert start == datetime(2006, 10, 2, tzinfo=UTC)
+    chunk_days, n_chunks, chunk_end = 7300, 0, end
+    while chunk_end > start:  # the provider walk's chunk arithmetic
+        chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
+        n_chunks += 1
+        chunk_end = chunk_start - timedelta(days=1)
+    assert n_chunks == 1

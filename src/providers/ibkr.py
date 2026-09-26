@@ -137,6 +137,21 @@ _MAX_CHUNK_DAYS: dict[str, int] = {
 _IBKR_HIST_RATE_LIMIT = 55  # conservative: hard limit is 60; 5-slot buffer absorbs jitter
 _IBKR_HIST_WINDOW_S = 600.0  # 10-minute sliding window (IBKR's documented period)
 
+# Per-timeframe overrides of _IBKR_HIST_RATE_LIMIT, each with its own sliding window. IBKR's
+# documented hard pacing rules (60 requests per 10 minutes and the rest) bind bars of 30 seconds
+# or less; for bars of a minute or more IBKR lifted the hard limit and applies only a soft,
+# load-balancing slowdown (TWS API "Historical Data Limitations", checked 2026-09-26). A timeframe
+# listed here is paced at its own measured rate (scripts/infrastructure/backfill/
+# infrastructure_ibkr_chunk_and_rate_limit_probe.py --rate-ceilings); an unlisted one shares the
+# default window. Head-timestamp lookups always use the default. APR-overridable
+# (infra.ibkr.rate_limit_max_requests_by_tf, migration 375); empty is the fallback default.
+_IBKR_HIST_RATE_LIMIT_BY_TF: dict[str, int] = {}
+
+# Error 162 "Query failed" answers a full-depth request on a stock whose history IBKR serves only
+# from its current listing venue (todo 433); it is neither "no data" nor throttling. Throttling
+# (pacing violations, cancelled queries) is counted so the rate-limit probe can measure pushback.
+_hist_throttle_count = 0
+
 # Defense-in-depth outer timeout on reqHistoricalDataAsync, in addition to ib_async's
 # own internal `timeout=60` default on that call. [rca_analysis] Live 2026-07-05 backfill
 # runs hung for 25+ minutes with near-zero CPU and no "reqHistoricalData: Timeout for..."
@@ -215,7 +230,8 @@ _VENUE_ALIASES = {"ISLAND": "NASDAQ"}
 class _SlidingWindowRateLimiter:
     """Pre-emptive rate limiter for IBKR historical data chunk requests.
 
-    Reads _IBKR_HIST_RATE_LIMIT/_IBKR_HIST_WINDOW_S fresh on every acquire() call
+    Reads its limit (_IBKR_HIST_RATE_LIMIT_BY_TF for its timeframe, else _IBKR_HIST_RATE_LIMIT)
+    and _IBKR_HIST_WINDOW_S fresh on every acquire() call
     rather than caching them at construction time -- same "mutate the module
     constant in place, read fresh at each call site" pattern as _MAX_CHUNK_DAYS
     above. This is what lets the backfill script's APR overlay
@@ -224,15 +240,17 @@ class _SlidingWindowRateLimiter:
     overlay could possibly run.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, timeframe: str | None = None) -> None:
         self._ts: deque[float] = deque()
+        self._timeframe = timeframe
 
     async def acquire(self) -> None:
         """Block until a request slot is available, then record the request timestamp."""
+        limit = _IBKR_HIST_RATE_LIMIT_BY_TF.get(self._timeframe or "", _IBKR_HIST_RATE_LIMIT)
         now = time.monotonic()
         while self._ts and now - self._ts[0] > _IBKR_HIST_WINDOW_S:
             self._ts.popleft()
-        if len(self._ts) >= _IBKR_HIST_RATE_LIMIT:
+        if len(self._ts) >= limit:
             wait = _IBKR_HIST_WINDOW_S - (now - self._ts[0]) + 1.0
             if wait > 0:
                 logger.info(
@@ -244,6 +262,15 @@ class _SlidingWindowRateLimiter:
 
 
 _hist_rate_limiter = _SlidingWindowRateLimiter()
+_tf_rate_limiters: dict[str, _SlidingWindowRateLimiter] = {}
+
+
+def _hist_limiter_for(timeframe: str) -> _SlidingWindowRateLimiter:
+    """The timeframe's own limiter when it has a rate override, else the shared default."""
+    if timeframe not in _IBKR_HIST_RATE_LIMIT_BY_TF:
+        return _hist_rate_limiter
+    return _tf_rate_limiters.setdefault(timeframe, _SlidingWindowRateLimiter(timeframe))
+
 
 # reqIds where Error 162 carried "no data".
 # Written by _on_ib_error (ib_async thread), consumed+cleared by _fetch_historical_bars_impl
@@ -292,17 +319,21 @@ def _on_ib_error(reqId: int, errorCode: int, errorString: str, contract) -> None
             extra={"reqId": reqId, "errorString": errorString},
         )
     elif errorCode == 162:
-        # 162 covers both a definitive "HMDS query returned no data" and throttling
-        # cancellations ("API historical data query cancelled"); only the former is a
-        # statement about what history exists. Distinct event names keep the two
-        # separable in logs (both were logged as hist_pacing_error).
-        no_data = "no data" in errorString.lower()
-        if no_data:
+        # 162 carries three different answers: a definitive "HMDS query returned no data" (a
+        # statement about what history exists), "Query failed" (history before the current
+        # listing venue, todo 433) and throttling ("pacing violation", "query cancelled").
+        # Distinct event names keep them separable in logs.
+        text = errorString.lower()
+        if "no data" in text:
             _no_data_req_ids.add(reqId)
-        logger.warning(
-            "ibkr.hist_no_data" if no_data else "ibkr.hist_pacing_error",
-            extra={"reqId": reqId, "errorString": errorString},
-        )
+            event = "ibkr.hist_no_data"
+        elif "query failed" in text:
+            event = "ibkr.hist_query_failed"
+        else:
+            global _hist_throttle_count
+            _hist_throttle_count += 1
+            event = "ibkr.hist_pacing_error"
+        logger.warning(event, extra={"reqId": reqId, "errorString": errorString})
     elif errorCode >= 2100 and errorCode < 2200:
         logger.warning(
             "ibkr.ib_warning",
@@ -860,7 +891,7 @@ class IBKRProvider:
             # a minimum 10s/chunk even when the rolling window had full headroom
             # (removed 2026-07-02; the limiter alone has cleanly handled every fetch
             # since it was added, no Error 162 regressions observed).
-            await _hist_rate_limiter.acquire()
+            await _hist_limiter_for(timeframe).acquire()
 
             chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
             chunk_delta = chunk_end - chunk_start
@@ -944,7 +975,7 @@ class IBKRProvider:
                         },
                     )
                     await asyncio.sleep(backoff)
-                    await _hist_rate_limiter.acquire()
+                    await _hist_limiter_for(timeframe).acquire()
             else:
                 logger.error(
                     "ibkr.hist_chunk_failed_all_retries",

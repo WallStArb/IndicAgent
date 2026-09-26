@@ -48,6 +48,8 @@ Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200
 
 Rate limit: `infra.ibkr.rate_limit_max_requests` = 58 (tested clean to 62, IBKR's own documented hard ceiling is 60 — 58 retains a real margin, not the tested edge).
 
+Per-timeframe limits: `infra.ibkr.rate_limit_max_requests_by_tf` (migration 375, JSON, seeded `{}`) gives a timeframe its own limit and sliding window. IBKR's hard pacing rules bind bars of 30 seconds or less; bars of a minute or more get only a soft slowdown (checked 2026-09-26), so 1d can run above 60 once measured with the probe's `--rate-ceilings`. Head-timestamp lookups stay on the shared limit, and the backfill skips them when every fetched timeframe is a single request (1d). A full-depth 1d window is one request since 2026-09-26 (it was two: an off-by-one date).
+
 `fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365). **Also note:** any `chunk_days.*` value must be an exact multiple of 365 once it crosses the 365-day threshold — otherwise `math.ceil()` rounds the actual IBKR request up past the configured value and the chunking loop's stride desyncs from the real returned window (see 15m above).
 
 ### Adding New Contracts

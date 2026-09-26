@@ -445,15 +445,39 @@ def test_error_162_log_label_separates_no_data_from_throttling():
     """Both used to log as hist_pacing_error, which made a no-data answer look like
     throttling (the ODFL 2006-2024 window)."""
     ibkr_module._no_data_req_ids.clear()
+    throttles = ibkr_module._hist_throttle_count
     with patch.object(ibkr_module.logger, "warning") as warn:
         ibkr_module._on_ib_error(1, 162, "HMDS query returned no data: X@SMART Trades", None)
         ibkr_module._on_ib_error(2, 162, "API historical data query cancelled: 2", None)
+        ibkr_module._on_ib_error(
+            3, 162, "Historical Market Data Service error message:Query failed", None
+        )
     assert [c.args[0] for c in warn.call_args_list] == [
         "ibkr.hist_no_data",
         "ibkr.hist_pacing_error",
+        "ibkr.hist_query_failed",  # the venue-move marker (todo 433), not throttling
     ]
     assert ibkr_module._no_data_req_ids == {1}
+    assert ibkr_module._hist_throttle_count == throttles + 1
     ibkr_module._no_data_req_ids.clear()
+
+
+@pytest.mark.asyncio
+async def test_timeframe_rate_override_gets_its_own_window():
+    with (
+        patch.object(ibkr_module, "_IBKR_HIST_RATE_LIMIT_BY_TF", {"1d": 3}),
+        patch.object(ibkr_module, "_IBKR_HIST_RATE_LIMIT", 1),
+        patch.object(ibkr_module, "_tf_rate_limiters", {}),
+        patch.object(ibkr_module.asyncio, "sleep", AsyncMock()) as sleep,
+    ):
+        daily = ibkr_module._hist_limiter_for("1d")
+        assert daily is ibkr_module._hist_limiter_for("1d")
+        assert ibkr_module._hist_limiter_for("5m") is ibkr_module._hist_rate_limiter
+        for _ in range(3):
+            await daily.acquire()
+        sleep.assert_not_called()  # 3 fit the 1d override although the default is 1
+        await daily.acquire()
+        sleep.assert_called_once()
 
 
 class TestGetHeadTimestamp:

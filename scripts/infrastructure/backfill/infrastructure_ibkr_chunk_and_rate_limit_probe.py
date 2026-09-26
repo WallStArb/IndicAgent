@@ -9,12 +9,12 @@ zero-row symbols already queued for backfill (todo 259) -- a successful test IS 
 progress, a failed one writes nothing (fetch_historical_bars only returns bars on success;
 store_bars is a no-op on an empty list).
 
-Deliberately conservative: Phase 2 tests UP TO IBKR's own documented 60 req/10min ceiling
-(plus a small 2-request margin check), not an open-ended search past it. Reason: the retry
-backoff on a genuine pacing violation is 65s/130s (_RETRY_BACKOFF_BASE_S/_RETRY_COUNT) and the
-consequences of repeated violations on this account are undocumented -- hunting for the true
-maximum past the vendor's own stated number isn't worth the unknown downside for a capped
-~9-16% throughput upside.
+Phase 2 measures one timeframe's rate ceiling (--rate-timeframe, --rate-ceilings). IBKR's
+documented hard pacing rules (60 requests per 10 minutes) bind bars of 30 seconds or less; for bars
+of a minute or more the hard limit was lifted and only a soft, load-balancing slowdown applies
+(checked 2026-09-26). So 1d can be tested above 60, ascending, stopping at the first ceiling that
+draws any throttling, and reading latency for the soft slowdown. The 2026-08-06 run tested only up
+to 62 because the 60 rule was then assumed to bind every bar size.
 
 This script does NOT modify production APR config (`config_state`) -- it patches the
 in-process module constants for the duration of this one run only, and prints a
@@ -22,7 +22,8 @@ recommendation at the end. Applying any discovered headroom to production is a s
 deliberate step.
 
 Usage: .venv/bin/python scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py
-       [--only 15m,4h] [--skip-rate-limit]
+       [--only 15m,4h] [--skip-chunks] [--skip-rate-limit]
+       [--rate-timeframe 1d] [--rate-ceilings 90,120,180] [--cooldown-s 620]
 
 --only restricts Phase 1 to the given comma-separated timeframes (still one bounded tier
 each, edit _CHUNK_TEST_TIERS to change the tier itself) -- for targeted follow-up escalation
@@ -44,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
 from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
+    _load_ibkr_rate_limit_config,
     connect_db,
     store_bars,
 )
@@ -100,8 +102,6 @@ _CHUNK_TEST_TIERS = {
     #  tier; 4h is less dense than 1h so should tolerate at least as much
     "1d": 7300,  # vs 364d default -- full 20yr single-shot attempt (run 2: confirmed clean)
 }
-
-_RATE_LIMIT_TEST_CEILING = 62  # IBKR's documented 60 + a 2-request margin check, not beyond
 
 
 def _bars_to_dicts(bars: list) -> list[dict]:
@@ -231,64 +231,85 @@ async def _phase1_chunk_size_test(
     return results
 
 
-async def _phase2_rate_limit_test(provider: IBKRProvider, settings: Settings, conn) -> dict:
-    """Widen _IBKR_HIST_RATE_LIMIT to _RATE_LIMIT_TEST_CEILING and fire cheap 1d-bar requests
-    for real zero-row symbols (default chunk size) until _RATE_LIMIT_TEST_CEILING requests
-    have been made or a genuine (non-'no data') pacing error is observed."""
-    print("\n=== PHASE 2: rate-limit ceiling test ===")
-    original_limit = ibkr._IBKR_HIST_RATE_LIMIT
-    ibkr._IBKR_HIST_RATE_LIMIT = _RATE_LIMIT_TEST_CEILING
-    print(f"Rate limit widened: {original_limit} -> {_RATE_LIMIT_TEST_CEILING} req/10min")
+async def _phase2_rate_limit_test(
+    provider: IBKRProvider,
+    settings: Settings,
+    *,
+    timeframe: str,
+    ceilings: list[int],
+    cooldown_s: float,
+) -> list[dict]:
+    """Measure IBKR's pushback at each requests-per-window ceiling for one timeframe.
 
-    # 1d bars are the cheapest/fastest request type -- lets us cross the window count quickly
-    # without burning excessive real IBKR bandwidth on data we don't need at this depth.
-    n_symbols_needed = _RATE_LIMIT_TEST_CEILING + 5  # small buffer if some fail/skip
-    symbols = await _pick_probe_symbols(settings, n_symbols_needed, timeframe="1d")
+    For each ceiling (ascending) the timeframe gets its own limit of that ceiling
+    (ibkr._IBKR_HIST_RATE_LIMIT_BY_TF), then `ceiling` one-year requests fire across distinct
+    active symbols as fast as that limit allows. Pushback is read two ways: Error 162 throttling
+    counted by ibkr._hist_throttle_count (fetch_historical_bars retries a throttled chunk and
+    returns [] rather than raising, so exceptions alone cannot see it), and request latency,
+    which is how IBKR's soft load-balancing slowdown for bars of a minute or more shows up.
+    Stops at the first ceiling with any throttling. Waits cooldown_s between ceilings so each
+    starts with an empty IBKR window. Nothing is stored and no APR value changes.
+    """
+    print(f"\n=== PHASE 2: rate-limit ceilings for {timeframe}: {ceilings} ===")
+    contracts = [
+        c
+        for c in get_active_contracts(settings, dimension="backfill")
+        if c.asset_class.value == "equity"
+    ]
+    qualified = []
+    for instrument in contracts:
+        if len(qualified) >= max(ceilings):
+            break
+        if await provider.qualify_instrument(instrument):
+            qualified.append(instrument)
+    if len(qualified) < max(ceilings):
+        print(f"  only {len(qualified)} symbols qualified; requests will repeat symbols")
 
-    now = datetime.now(UTC)
-    total_requests = 0
-    genuine_violation = None
-    n_ok = 0
-    start_time = time.monotonic()
-
+    saved_overrides = dict(ibkr._IBKR_HIST_RATE_LIMIT_BY_TF)
+    results: list[dict] = []
     try:
-        for instrument in symbols:
-            if total_requests >= _RATE_LIMIT_TEST_CEILING:
-                break
-            try:
-                qualified = await provider.qualify_instrument(instrument)
-                if not qualified:
-                    continue
+        for i, ceiling in enumerate(sorted(ceilings)):
+            if i:
+                print(f"  cooldown {cooldown_s:.0f}s so the next ceiling starts on an empty window")
+                await asyncio.sleep(cooldown_s)
+            ibkr._IBKR_HIST_RATE_LIMIT_BY_TF[timeframe] = ceiling
+            ibkr._tf_rate_limiters.pop(timeframe, None)
+            throttles_before = ibkr._hist_throttle_count
+            latencies: list[float] = []
+            n_empty = 0
+            now = datetime.now(UTC)
+            started = time.monotonic()
+            for k in range(ceiling):
+                instrument = qualified[k % len(qualified)]
+                t0 = time.monotonic()
                 bars = await provider.fetch_historical_bars(
                     symbol=instrument.symbol,
-                    timeframe="1d",
-                    start=now - timedelta(days=364),  # single chunk at default 1d chunk_days
+                    timeframe=timeframe,
+                    start=now - timedelta(days=364),
                     end=now,
                 )
-                total_requests += 1
-                if bars:
-                    n_ok += 1
-                    store_bars(conn, _bars_to_dicts(bars), instrument.symbol, "1d")
-            except Exception as exc:  # noqa: BLE001 -- probe script, report and continue
-                msg = str(exc)
-                total_requests += 1
-                if "no data" not in msg.lower():
-                    genuine_violation = f"{instrument.symbol}: {msg}"
-                    print(f"    GENUINE PACING SIGNAL at request #{total_requests}: {msg}")
-                    break
+                latencies.append(time.monotonic() - t0)
+                n_empty += not bars
+            latencies.sort()
+            result = {
+                "ceiling": ceiling,
+                "requests": ceiling,
+                "elapsed_s": round(time.monotonic() - started, 1),
+                "throttled": ibkr._hist_throttle_count - throttles_before,
+                "empty": n_empty,
+                "latency_median_s": round(latencies[len(latencies) // 2], 2),
+                "latency_p90_s": round(latencies[int(len(latencies) * 0.9)], 2),
+            }
+            results.append(result)
+            print(f"  {result}")
+            if result["throttled"]:
+                print("  throttling observed; higher ceilings not tested")
+                break
     finally:
-        ibkr._IBKR_HIST_RATE_LIMIT = original_limit
-        print(f"Rate limit restored: {_RATE_LIMIT_TEST_CEILING} -> {original_limit} req/10min")
-
-    elapsed = time.monotonic() - start_time
-    return {
-        "requests_made": total_requests,
-        "successes": n_ok,
-        "elapsed_s": round(elapsed, 1),
-        "genuine_violation": genuine_violation,
-        "reached_ceiling_clean": genuine_violation is None
-        and total_requests >= _RATE_LIMIT_TEST_CEILING,
-    }
+        ibkr._IBKR_HIST_RATE_LIMIT_BY_TF.clear()
+        ibkr._IBKR_HIST_RATE_LIMIT_BY_TF.update(saved_overrides)
+        ibkr._tf_rate_limiters.pop(timeframe, None)
+    return results
 
 
 async def main() -> None:
@@ -298,6 +319,21 @@ async def main() -> None:
     )
     parser.add_argument(
         "--skip-rate-limit", action="store_true", help="Skip Phase 2 (rate-limit ceiling test)"
+    )
+    parser.add_argument("--skip-chunks", action="store_true", help="Skip Phase 1 (chunk-size test)")
+    parser.add_argument(
+        "--rate-timeframe", default="1d", help="Timeframe whose rate limit Phase 2 measures"
+    )
+    parser.add_argument(
+        "--rate-ceilings",
+        default="60",
+        help="Comma-separated requests-per-window ceilings for Phase 2, tested ascending",
+    )
+    parser.add_argument(
+        "--cooldown-s",
+        type=float,
+        default=620.0,
+        help="Seconds between Phase 2 ceilings (IBKR's window is 600s)",
     )
     args = parser.parse_args()
 
@@ -312,16 +348,27 @@ async def main() -> None:
         host=settings.ib_host, port=settings.ib_port, client_id=_PROBE_CLIENT_ID
     )
 
+    _load_ibkr_rate_limit_config(settings)
     connected = await provider.connect()
     if not connected:
         print("FAILED to connect to IBKR Gateway -- aborting probe.")
         return
 
     try:
-        chunk_results = await _phase1_chunk_size_test(provider, settings, conn, tiers)
+        chunk_results = (
+            {}
+            if args.skip_chunks
+            else await _phase1_chunk_size_test(provider, settings, conn, tiers)
+        )
         rate_results = None
         if not args.skip_rate_limit:
-            rate_results = await _phase2_rate_limit_test(provider, settings, conn)
+            rate_results = await _phase2_rate_limit_test(
+                provider,
+                settings,
+                timeframe=args.rate_timeframe,
+                ceilings=[int(c) for c in args.rate_ceilings.split(",") if c.strip()],
+                cooldown_s=args.cooldown_s,
+            )
     finally:
         await provider.disconnect()
         conn.close()
@@ -344,22 +391,19 @@ async def main() -> None:
         print("\n  Rate limit test skipped (--skip-rate-limit).")
         return
 
-    print(
-        f"\n  Rate limit: tested up to {_RATE_LIMIT_TEST_CEILING} req/10min -- "
-        f"{rate_results['requests_made']} requests made, {rate_results['successes']} succeeded"
-    )
-    if rate_results["genuine_violation"]:
-        print(f"  GENUINE PACING VIOLATION observed: {rate_results['genuine_violation']}")
-        print("  Recommendation: current default (55) may already be at/near the real ceiling.")
-    elif rate_results["reached_ceiling_clean"]:
-        print(f"  No violations through {_RATE_LIMIT_TEST_CEILING} requests.")
+    clean = [r for r in rate_results if not r["throttled"]]
+    print(f"\n  Rate limit ({args.rate_timeframe}):")
+    for r in rate_results:
+        print(f"    {r}")
+    if clean:
+        best = max(r["ceiling"] for r in clean)
         print(
-            f"  Recommendation: infra.ibkr.rate_limit_max_requests could safely move toward "
-            f"{_RATE_LIMIT_TEST_CEILING - 2} (small margin retained), ~"
-            f"{round((_RATE_LIMIT_TEST_CEILING - 2) / 55 * 100 - 100)}% more throughput per window."
+            f"  Highest clean ceiling: {best} per window. Before setting "
+            f"infra.ibkr.rate_limit_max_requests_by_tf, check latency did not climb with the "
+            f"ceiling (IBKR's soft slowdown) and keep a margin below {best}."
         )
     else:
-        print("  Test did not reach the ceiling (ran out of probe symbols) -- inconclusive.")
+        print("  Throttled at the lowest ceiling tested: keep the shared limit.")
 
     print(
         "\nNo production config was changed by this script. Review before applying any "

@@ -22,8 +22,9 @@ Second bug fixed 2026-09-22 (todo 382): the 2026-09-16 fix above was necessary b
 sufficient -- it left a `LIMIT batch_size` (default 20) on *candidate selection* itself,
 which throttles the wrong resource. `detect_gaps()` is a near-zero-cost no-op on any
 symbol that's already current; the actual rate-limited resource is IBKR historical-fetch
-volume (`_hist_rate_limiter` in `src/providers/ibkr.py`, a hard 55 req/10min self-paced
-sliding window), not "number of symbols examined per night." With 233 compute-eligible
+volume (`_hist_limiter_for()` in `src/providers/ibkr.py`: a self-paced sliding window at
+`infra.ibkr.rate_limit_max_requests`, or per timeframe where
+`infra.ibkr.rate_limit_max_requests_by_tf` sets one), not "number of symbols examined per night." With 233 compute-eligible
 symbols and batch_size=20, the design mathematically guaranteed a permanent ~12-day
 (`ceil(233/20)`) staleness sawtooth once caught up, by construction, regardless of how many
 more nights passed -- verified live 2026-09-18: 151/233 symbols (65%) frozen at the original

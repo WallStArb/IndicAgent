@@ -507,6 +507,16 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
         print(f"  (APR retry-config lookup failed, using hardcoded defaults: {error})")
 
 
+def _fetch_start(end_dt: datetime, fetch_days: int) -> datetime:
+    """Start of a fetch_days-deep window: fetch_days calendar dates including end_dt's, from
+    midnight UTC. end_dt minus fetch_days floored to midnight would span fetch_days + 1 dates,
+    and where the depth equals the chunk size (1d: 7300 and 7300) the backward walk spent a
+    second request on that one extra date, doubling 1d requests."""
+    return (end_dt - timedelta(days=fetch_days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+
 def _load_ibkr_venue_fallback_config(settings: Settings) -> None:
     """Overlay the APR-configured former-venue recovery parameters (migration 374, todo 433)
     onto ibkr._VENUE_FALLBACK_EXCHANGES / _VENUE_FALLBACK_TIMEFRAMES /
@@ -558,7 +568,8 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
                     "SELECT config_key, config_value FROM config_state "
                     "WHERE config_key IN ("
                     "'infra.ibkr.rate_limit_max_requests', "
-                    "'infra.ibkr.rate_limit_window_sec')"
+                    "'infra.ibkr.rate_limit_window_sec', "
+                    "'infra.ibkr.rate_limit_max_requests_by_tf')"
                 )
                 rows = dict(cur.fetchall())
         finally:
@@ -567,6 +578,11 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
             ibkr._IBKR_HIST_RATE_LIMIT = int(rows["infra.ibkr.rate_limit_max_requests"])
         if "infra.ibkr.rate_limit_window_sec" in rows:
             ibkr._IBKR_HIST_WINDOW_S = float(rows["infra.ibkr.rate_limit_window_sec"])
+        if "infra.ibkr.rate_limit_max_requests_by_tf" in rows:
+            ibkr._IBKR_HIST_RATE_LIMIT_BY_TF = {
+                tf: int(n)
+                for tf, n in json.loads(rows["infra.ibkr.rate_limit_max_requests_by_tf"]).items()
+            }
     except Exception as error:
         print(f"  (APR rate-limit lookup failed, using hardcoded defaults: {error})")
 
@@ -1390,8 +1406,21 @@ def main() -> None:
                         for t in fetch_tfs
                     )
                     first_bar = first_bars.get(instrument.symbol)
+                    # A floor saves requests only when some timeframe needs more than one
+                    # chunk. Where every timeframe is one request (1d: 20 years in one), the
+                    # lookup would cost a request and save none.
+                    single_request = all(
+                        (
+                            min(tf_fetch_config[t][0], args.days)
+                            if args.days
+                            else tf_fetch_config[t][0]
+                        )
+                        <= ibkr._MAX_CHUNK_DAYS.get(t, 0)
+                        for t in fetch_tfs
+                    )
                     if (
                         not is_futures
+                        and not single_request
                         and head_ts is None
                         and (first_bar is None or first_bar > end_dt - timedelta(days=deepest_days))
                     ):
@@ -1414,9 +1443,7 @@ def main() -> None:
                         if args.days:
                             fetch_days = min(fetch_days, args.days)
 
-                        start_dt = (end_dt - timedelta(days=fetch_days)).replace(
-                            hour=0, minute=0, second=0, microsecond=0
-                        )
+                        start_dt = _fetch_start(end_dt, fetch_days)
                         # Snapped to midnight UTC: the head is the first trade's time (e.g.
                         # 13:30), while a 1d bar is stamped 00:00 and an intraday bucket may
                         # start before it -- clamping to the raw head would skip the listing
