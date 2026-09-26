@@ -31,7 +31,8 @@ bullets with current facts.
   in parallel with the build: E17 H0 battery -> attempts 1a-1c (todo 442); first-cut cost model
   (437); price-only daily families and `generated_family` on the 931 names (441, 423, 440). Build:
   186 (delete, drop, rebuild `feature_vectors`, refactor items 1-6) -> 187 (research core) -> 184
-  -> feature books -> 188 (forward runner, capital tier).
+  -> feature books -> 188 (forward runner, capital tier). 185's derived 15m and 1h grid (D2b,
+  todo 446) lands before 186's rebuild; 184 builds on that grid and 186's kernel registry (UD-25).
 - **Evidence rules:** E15 (book as the unit), E16 and E17 (timing statistic), E18 (counting,
   selection, promotion, per-book span). Until phase 187 lands, the phase 183 runner's M = 30
   accounting stays in force for any book test.
@@ -53,7 +54,8 @@ bullets with current facts.
   wait on its minimum data bar. Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
   Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
-  14.2).
+  14.2) and 185's derived grid (todo 446). The fresh ic_engine computes targets with
+  `panel.forward_returns`; the `forward_returns` table is dropped after parity (UD-25, design 14.7).
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
@@ -106,7 +108,8 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 ## Key decisions (load-bearing)
 
 - `HMM_RANDOM_STATE = 42`: changing it invalidates every regime-derived output.
-- Executable returns only: `forward_returns.return_type = 'executable_open_to_open'`.
+- Executable returns only, open to open: `panel.forward_returns` is the one target definition
+  (UD-25); the `forward_returns` table is legacy until phase 186 drops it, and new code never reads it.
 - `ON CONFLICT` for partial indexes on TimescaleDB: column list plus WHERE clause, not
   `ON CONSTRAINT`.
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
