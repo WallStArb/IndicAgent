@@ -10,6 +10,18 @@ source: adversarial council review of the personal-scale edge determination prog
 
 # Survivorship bias: 100% of the trading universe is `is_active=true`, zero delisted names
 
+## Current disposition (2026-09-26)
+
+Answered for data sources: IBKR serves no delisted names, and no vendor may be added for now
+(owner, 2026-09-26). Owned by phase 185: D0 bounds every attempt's exposure (survivorship label
+plus a delisting-return sensitivity for daily cross-sectional books), D8 stops it going forward
+(every onboarded name kept, delistings recorded, holdings snapshotted on a schedule, a guard
+against deactivating a name with stored bars). The 2026-09-26 expansion (932 names, all alive
+today) carries it and discloses it in `config/universe/README.md`; the onboarding SOP
+(`docs/foundation/instrument-onboarding-sop.md`, rule 6) forbids deactivating a dead name. The
+retroactive fix needs 185's gated vendor stage (Norgate Platinum recommended). Close when D8 is
+live and D0's label is on every attempt.
+
 ## What
 
 Every symbol in the corpus (231 active names, plus 22 registered-but-never-backfilled

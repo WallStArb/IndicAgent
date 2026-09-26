@@ -50,7 +50,8 @@ bullets with current facts.
   stage: the D8 capture job (delisting, holdings, borrow snapshots). Daily attempts 3, 3b and 4
   wait on its minimum data bar. Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
-  Its `feature_vectors` rebuild needs the 5m timeframe decision first (design section 14.2).
+  Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
+  14.2).
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`). Borrow snapshots (438) now start with phase 185's D8 capture job.
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).

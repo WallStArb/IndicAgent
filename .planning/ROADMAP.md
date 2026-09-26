@@ -183,7 +183,7 @@ one to parity, one `COPY`-based bulk-load primitive in `_batch_utils` (absorbs t
 352), the batch feature path as the rebuild writer, `regime_writer` walk-forward only (290, 291),
 lifecycle as data-quality checks; before the rebuild is specified, decide its timeframe set: 5m
 holds about 69% of `feature_vectors` rows and no active family reads 5m features, so run the
-5m-over-15m incremental IC test at matched horizons first (design section 14.2); delete `scripts/analysis/` after summary cards and helper
+5m-over-15m incremental IC test at matched horizons first (todo 445, design section 14.2); delete `scripts/analysis/` after summary cards and helper
 promotion; consumer checks for `context_writer` (unit active) and
 `cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
 ensemble rehearsal.

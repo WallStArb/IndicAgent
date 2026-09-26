@@ -701,7 +701,7 @@ in-place refresh chain (426 step 2, 411) with one build.
 features (families 1 and 2 run on the 15m grid); ledger family 3 (sector ETF leads constituents)
 is written "5m or 15m". The 2026-09-13 per-timeframe cost check found 5m signal real but economic
 only at about half-day holds, a horizon 15m also covers. Untested: whether 5m features add IC
-over 15m at matched horizons. Run that test first; if they add nothing, the rebuild covers 15m,
+over 15m at matched horizons. Run that test first (todo 445); if they add nothing, the rebuild covers 15m,
 1h and 1d, and raw 5m bars keep ingesting either way (raw data is permanent, features are cache).
 
 **Safeguards.**
