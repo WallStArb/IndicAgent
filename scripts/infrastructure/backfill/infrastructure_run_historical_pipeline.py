@@ -511,23 +511,25 @@ _MARK_FETCH_COMPLETE_SQL = """
 INSERT INTO backfill_status (symbol, tf, fetch_complete, status)
 SELECT %(symbol)s, %(tf)s, true, 'pending'
 WHERE EXISTS (
-    SELECT 1 FROM market_data_ohlcv_tradeable WHERE symbol = %(symbol)s AND timeframe = %(tf)s
+    SELECT 1 FROM market_data_ohlcv_tradeable
+    WHERE symbol = %(symbol)s AND timeframe = %(tf)s AND timestamp >= %(since)s
 )
 ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true
 """
 
 
-def mark_fetch_complete(conn: Any, symbol: str, tf: str) -> None:
+def mark_fetch_complete(conn: Any, symbol: str, tf: str, since: datetime) -> None:
     """Record that `symbol`/`tf` fetched without error and has tradeable bars.
 
     The eligibility promotion predicates (COMPUTE_READY_1D_PREDICATE_SQL and its sibling)
     require backfill_status.fetch_complete; this script used to leave it false, so each
     onboarding batch set it by hand (phase 174 plans 10 and 15, the 2026-09-26 expansion). The
-    EXISTS guard keeps a clean fetch that stored nothing from counting as complete. Only ever
-    sets the flag, never clears it; status (the compute checkpoint) is left alone.
+    EXISTS guard keeps a clean fetch that stored nothing from counting as complete; bounding it
+    to the fetched window (`since`) lets TimescaleDB skip every older chunk. Only ever sets the
+    flag, never clears it; status (the compute checkpoint) is left alone.
     """
     with conn.cursor() as cur:
-        cur.execute(_MARK_FETCH_COMPLETE_SQL, {"symbol": symbol, "tf": tf})
+        cur.execute(_MARK_FETCH_COMPLETE_SQL, {"symbol": symbol, "tf": tf, "since": since})
 
 
 def _fetch_start(end_dt: datetime, fetch_days: int) -> datetime:
@@ -1420,26 +1422,21 @@ def main() -> None:
                     # history reaches years further back.
                     is_futures = instrument.asset_class == AssetClass.FUTURES
                     head_ts = None if is_futures else fresh_heads.get(instrument.symbol)
-                    deepest_days = max(
-                        (
+                    depth_days = {
+                        t: (
                             min(tf_fetch_config[t][0], args.days)
                             if args.days
                             else tf_fetch_config[t][0]
                         )
                         for t in fetch_tfs
-                    )
+                    }
+                    deepest_days = max(depth_days.values())
                     first_bar = first_bars.get(instrument.symbol)
                     # A floor saves requests only when some timeframe needs more than one
                     # chunk. Where every timeframe is one request (1d: 20 years in one), the
                     # lookup would cost a request and save none.
                     single_request = all(
-                        (
-                            min(tf_fetch_config[t][0], args.days)
-                            if args.days
-                            else tf_fetch_config[t][0]
-                        )
-                        <= ibkr._MAX_CHUNK_DAYS.get(t, 0)
-                        for t in fetch_tfs
+                        depth_days[t] <= ibkr._MAX_CHUNK_DAYS.get(t, 0) for t in fetch_tfs
                     )
                     if (
                         not is_futures
@@ -1658,7 +1655,7 @@ def main() -> None:
                         if tf_window_failed:
                             fetched_tfs.discard(tf)
                         else:
-                            mark_fetch_complete(db_conn, instrument.symbol, tf)
+                            mark_fetch_complete(db_conn, instrument.symbol, tf, start_dt)
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.

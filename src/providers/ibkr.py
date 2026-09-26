@@ -1105,7 +1105,14 @@ class IBKRProvider:
             )
             # Either way the head is not empty: history exists on a former venue.
             return (best if _VENUE_FALLBACK_STORE_BARS else []), None
-        return [], smart_empty if verified_empty else None
+        if not verified_empty:
+            # Asked again next run; a symbol logging this every run is stuck, not recovering.
+            logger.warning(
+                "ibkr.hist_venue_fallback_unverified",
+                extra={"symbol": getattr(contract, "symbol", ""), "head_end": head_end.isoformat()},
+            )
+            return [], None
+        return [], smart_empty
 
     async def get_head_timestamp(self, symbol: str) -> tuple[datetime | None, str | None]:
         """IBKR's earliest-data timestamp for a qualified symbol: (head, None) or (None, error).
