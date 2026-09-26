@@ -50,3 +50,7 @@ the orchestrator's regime steps, which now fail loudly instead of filling the di
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Status: step 1 (headroom guard, migration 362) landed; native-DML write mode (5c7ecd7c9, `decompress=False`) now serves INSERT/UPSERT writers, and `backfill_feature_factory` uses it. Step 2 remains for row-level UPDATE writers (`regime_writer` and the ops scripts), which still need decompress-all and are refused. It gates the 248 refit. On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.
+
+## Rebuild instead of refresh (2026-09-26)
+
+The adopted unified design's amendment (section 14.2) replaces the in-place refresh of `feature_vectors` with a rebuild: a new append-only table written in time order, each chunk compressed when complete, provenance from the first row, then a drift report, a name swap and a drop of the old table (phase 186). This todo's in-place write-session guard is still needed for any remaining in-place writer, but step 2 (per-chunk in-place writes for the refresh) is likely unnecessary; re-check scope when phase 186 is planned.

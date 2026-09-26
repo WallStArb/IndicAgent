@@ -64,7 +64,7 @@ Owner-approved 2026-09-26. Section numbers point to the detail.
 | UD-14 | ic_engine shrinks to proposer, IC term structure and member monitoring; feature lifecycle moves from IC gates to data-quality gates | 11 |
 | UD-15 | Eight named invariants, each with a check; five bias guards | 12 |
 | UD-16 | Contribution accounting, full list, two-level attribution | 13 |
-| UD-17 | Delete the old chain; fence (not drop) its tables; re-scope dependent phases and todos | 14 |
+| UD-17 | Delete the old chain; summarize then drop its tables (amended 2026-09-26: raw data permanent, derived data is cache, conclusions are records); re-scope dependent phases and todos | 14 |
 | UD-18 | Vocabulary: rename only misleading or colliding names; retired and new terms; todo 430 enforces | 15 |
 | UD-19 | Build order: price-only daily families on the 931 names and single-family books run first while the feature infrastructure is built; then delete, data path, research core, features into books, forward, capital | 16 |
 | UD-20 | Forward span per book: feature and ctf-like books confirm only on data after their freeze (2026-08-08 at the earliest); price-only families 1 and 2 keep 2025-12-24, disclosed | 7.3 |
@@ -487,9 +487,17 @@ P&L from names outside a liquidity floor (market cap, ADV).
 3. **Attempts.** `research_run` is the attempt table. It gains `recipe_hash`, `informed_by`
    (the attempt whose result prompted this one), and typed headline columns: decision statistic,
    gross Sharpe, mean return, turnover, effective N, span, and the section 13 headline numbers.
-   Full series are stored for the selection test and the decay alarm. The 18 legacy verdicts import as
-   `kind = 'legacy_verdict'` rows with their pre-registration path, null hashes, flagged not
-   reproducible, never re-scored.
+   Full series are stored for the selection test and the decay alarm.
+   **Built clean, not migrated wholesale** (amendment 2026-09-26). The new schema carries over only
+   live concepts (features that exist after the `feature_vectors` rebuild, families 1 and 2 and
+   their members) and live attempts (the phase 183 `research_run` rows). Every old verdict and dead
+   process becomes a **summary card**: a `kind = 'legacy_verdict'` attempt with the idea, recipe
+   pointer (spec or pre-registration path, git commit), result numbers, known defects, spans
+   looked at, and why it is closed or reopened; flagged not reproducible from stored rows, never
+   re-scored. About 20-25 cards: the 18 ledger verdicts plus the old ensemble chain (Phase 148
+   gates, gate166, the `ctf_momentum` gates, phase 179). Dropped, not migrated: the 5
+   `ensemble_strategy` rows, the IC-gate `concept_evaluation` rows, genesis-seed transitions and
+   `concept_gate` counters, all belonging to the removed lifecycle.
 4. **Two axes.** `status` keeps its meaning, the production lifecycle, changed only by
    `ConceptRegistryService`. The research stage (idea -> specified -> registered -> tested ->
    refused, frozen or confirmed) is derived by a view from recipes and attempts, never stored, so
@@ -657,23 +665,46 @@ primitives; deleted if R1 covers it); `services/context_writer.py`, whose unit
 check before any decision; whether `feature_lifecycle` reads `alpha_ensemble_ic` beyond the
 removed gates.
 
-### 14.2 Fence, do not drop
+### 14.2 Summarize, then drop (amended 2026-09-26)
 
-`ensemble_weights`, `ensemble_alpha` (3.4 GB), `alpha_ensemble_ic`, `alpha_events` (65.6M rows,
-5.6 GB, last bar 2026-08-11), `alpha_frames`, `context_features`, and the old-grid rows of
-`feature_ic_scores` (0.7 GB): about 9.7 GB of a 914 GB disk with 496 GB free. They are the
-evidence behind frozen verdicts, cannot be regenerated once the code is deleted and
-`feature_vectors` is refreshed, and deleting them simplifies nothing that freezing does not.
+Rule: **raw data is permanent, derived data is cache, conclusions are records.** Market data
+(bars, dividends, IBKR raw observations) is the only thing that cannot be regenerated and is kept
+forever; it is what "never drop data that could contain signal" protects. Anything computed by
+code can be rebuilt from git history plus raw data; once the process that made it is dead, the
+cache has no reader. What was learned lives on as summary cards in UCR (10.2 item 3). This
+replaces the earlier keep-and-fence decision.
 
-The risk is misuse, not space:
+Measured 2026-09-26 (database 174 GB):
 
-1. a migration adds BEFORE INSERT, UPDATE and DELETE triggers that raise, so a stray writer fails
-   loudly (the SCH 367/368 pattern). REVOKE would do nothing: every service connects as
-   `postgres`, a superuser, which privileges do not bind;
-2. a table comment: frozen by todo 436, old ensemble layer, not current output;
-3. a CI read boundary test (copying `tests/unit/test_market_data_ohlcv_boundary.py`): readers
-   must be on an allow-list with a reason; frozen-verdict scripts are listed, nothing new
-   without justification.
+| Data | Size | Decision |
+|---|---|---|
+| `market_data_ohlcv`, `dividend_events`, IBKR raw observations (phase 185) | 10 GB | Keep forever |
+| `alpha_events`, `ensemble_alpha`, `ensemble_weights`, `alpha_ensemble_ic`, `alpha_frames`, `context_features` | 9.7 GB | Summarize, then drop |
+| `feature_ic_scores_history` | 38 GB, uncompressed | Drop: an archive of superseded IC rows on each fingerprint invalidation; no decision reads it and the grid it archives is deleted |
+| `feature_ic_scores` | 0.7 GB | Keep (live: proposal, term structure, monitoring). Old-grid rows go with the ic_engine shrink; current rows stay until the shrunk engine writes fresh ones on rebuilt features |
+| `forward_returns` | 14 GB | Keep (live, rebuildable) |
+| `feature_vectors` | 89 GB (491 GB uncompressed) | Live input: replaced by a rebuild (below), old table dropped only after the rebuild is validated |
+| `.planning/gate_look_log.jsonl` | small | Keep: the forward-span contamination record is a conclusion, not a cache |
+
+**`feature_vectors` rebuild, not refresh.** The first feature book needs a full recompute under
+provenance batches anyway (12.1). Updating the compressed table in place is the pattern behind the
+2026-08-13 disk-full incident and todos 149, 161 and 426 (426: decompression would need 491 GB
+against 414 GB free). Instead: a new table written append-only in time order, each chunk
+compressed when complete, provenance from the first row, and a cleaner schema (never-computed
+columns such as todo 421's rank_z features and exact duplicates such as todo 115 removed); a
+sampled drift report against the old table; swap names; drop the old table. This replaces the
+in-place refresh chain (426 step 2, 411) with one build.
+
+**Safeguards.**
+
+1. Summary cards are written and checked before anything is dropped.
+2. Every drop is a migration committed in the same breath as it is applied, after a repo-wide
+   consumer grep.
+3. Nothing is dropped while another session's run reads it.
+4. Performance-investigation SOP for every operation on a compressed hypertable.
+
+Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once the rebuilt
+`feature_vectors` lands.
 
 ### 14.3 Re-scope
 
@@ -724,7 +755,7 @@ Legacy entries kept with a pointer to the replacement, banned in new code and do
 `construction rule`, `horizon rule`, `frozen book`, `forward runner`, `champion`/`challenger`
 (reused, now for books), `recipe`, `recipe version`, `attempt`, `research stage`,
 `selection test`, `decay alarm`, `contribution` (attribution vs marginal), `state variable`,
-`regime disclosure`, `provenance batch`, `fenced table`.
+`regime disclosure`, `provenance batch`, `summary card`.
 
 ### 15.4 Names in code
 
@@ -745,7 +776,7 @@ infrastructure (owner directive, alpha first).
 |---|---|---|
 | Now | First-cut cost model (IBKR commission, Abdi-Ranaldo spread, validated on a quoted overlap); borrow snapshot capture; `oos_start` write-once; 185 D8 holdings snapshots | nothing |
 | Alpha, continuous | 183-10 and E17's H0 battery (with ridge and kappa cells) -> attempts 1a-1c; attempt 2 with the first-cut cost model; attempts 3-4 (price-only daily families on the 931 names, sector lead-lag) | running; S1 residual target on 931 names |
-| A: delete | Remove the old chain; fence its tables; shrink ic_engine; feature lifecycle to data-quality gates; close moot todos | Phase 183 not touching those modules; no live or resumable ic_engine run (the import rule) |
+| A: delete | Remove the old chain; summarize then drop its tables and `feature_ic_scores_history`; shrink ic_engine; feature lifecycle to data-quality gates; close moot todos | Phase 183 not touching those modules; no live or resumable ic_engine run (the import rule) |
 | B: data path | 426 -> 290 -> 248 -> 411 (+412, 421); `temporal_integrity`, `no_fill`, `point_in_time` audits; phase 185 | A's ic_engine shrink (smaller recompute) |
 | C: research core | UCR recipe book and migration; StepM selection and E18; `ConstructionRule`, pod books and horizon rule; missing-member combining rule; contribution accounting; DAG manifest; vocabulary renames with 430 | 183-10 finished |
 | D: features into books | Full feature recompute under provenance batches; 435 S0 wiring; revised 184 (B3 alignment) -> attempts 5-8 | B, C |
@@ -763,7 +794,7 @@ full recompute -> 435. Freezing a book early matters: a forward span only accrue
 | Principle | Answer in this design |
 |---|---|
 | Data quality over model complexity | Data path and three integrity audits precede any new combiner (16, 12.1) |
-| Never drop data that could contain signal | No per-feature admission gate; feature status by data quality, not IC; ideas never deleted; old tables fenced, not dropped (11, 10, 14.2) |
+| Never drop data that could contain signal | No per-feature admission gate; feature status by data quality, not IC; raw market data kept forever; ideas never deleted, dead-process output kept as summary cards (11, 10, 14.2) |
 | Earn capital through proof; resist overfitting | Everything a person saw on the vintage counted; StepM over all of it; promotion only with positive net expectation; one confirmation on a span no one looked at; contributions never edit a tested book (7, 13) |
 | Segment by regime | Disclosure on every book, one conditioning variant through continuous states, never gating thin cells (5.2) |
 | Shadow mode first | Every book in the selection set in sealed forward shadow before capital (7.3) |
@@ -771,7 +802,7 @@ full recompute -> 435. Freezing a book early matters: a forward span only accrue
 | Automate manual tasks | DAG manifest replaces two hand-kept orders; generated ledger replaces a hand-edited one; nightly audits (3.2, 10.2, 12.1) |
 | Empirical over theoretical | Combiners and constructions compete on the same test (4, 6) |
 | Deterministic DAG, one writer, compute separate from persistence | Manifest-checked; `BookTracker` vs `BookPositionWriter`; kernels pure (3, 12) |
-| No silent wrong answers | Fenced tables fail loud; write-once span boundary; audits fail loud; expected findings stated first (12, 14.2) |
+| No silent wrong answers | Dead tables dropped, not left queryable; write-once span boundary; audits fail loud; expected findings stated first (12, 14.2) |
 
 ## 18. Deferred ideas
 

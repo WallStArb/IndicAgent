@@ -1827,10 +1827,12 @@ content digest, symbol x tf x time range); the lineage record and the idempotenc
 
 ---
 
-### `fenced table`
+### `summary card`
 
-A table with no writer, kept as evidence: raising write triggers, a frozen comment and a CI read
-allow-list. The old ensemble chain's tables are fenced, not dropped. **Banned:** (none)
+A UCR `legacy_verdict` attempt that records what an old verdict or dead process tried and found:
+idea, recipe pointer (spec path, git commit), result numbers, known defects, spans looked at, and
+why it is closed or reopened. Written before the derived data behind it is dropped (raw data is
+permanent, derived data is cache, conclusions are records). **Banned:** (none)
 **Status:** design (phase 186)
 
 ---

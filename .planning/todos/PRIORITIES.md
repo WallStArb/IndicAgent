@@ -47,7 +47,7 @@ with named gates.
 
 | Track | Order |
 |---|---|
-| Features into books | 426 step 2 -> 290 -> 248 regime refit bundle (286, 292, 289, 341, 420) -> 411 refresh (with 412, 421, 339) -> 435 S0 wiring -> first feature family. 390 before `illiq` enters any family |
+| Features into books | Phase 186: summarize and drop dead-process tables, then rebuild `feature_vectors` as a new append-only table with provenance (replaces the in-place refresh; design 14.2, amended 2026-09-26), with 290 -> 248 regime refit bundle (286, 292, 289, 341, 420), 412, 421, 339 folded into the build -> 435 S0 wiring -> first feature family. 390 before `illiq` enters any family |
 | Research method | 436 ADOPTED 2026-09-26 (E18; phases 186-188). Alpha track first: 432 (E17) -> 442 (attempts 1a-1c) ; 437 cost model -> attempt 2; 441 + 423 + 440 (price-only daily and generated families on the 931 names); then 187 research core; 430 step 4 rename; 429 integration suite |
 | Data | 433 and phase 185 (with 428, 376, and the 052/155/347 data-quality bundle); 395 (weekly 2FA gap) and 387 (freshness) keep the nightly input honest; 431 |
 

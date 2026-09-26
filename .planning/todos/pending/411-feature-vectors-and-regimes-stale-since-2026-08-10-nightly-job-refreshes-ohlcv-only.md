@@ -58,3 +58,7 @@ Plan:
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Status 2026-09-26: `feature_vectors` 1d current to 2026-09-24; 5m/15m/1h stop at 2026-09-18. On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.
+
+## Rebuild instead of refresh (2026-09-26)
+
+The adopted unified design's amendment (section 14.2) replaces the in-place refresh of `feature_vectors` with a rebuild: a new append-only table written in time order, each chunk compressed when complete, provenance from the first row, then a drift report, a name swap and a drop of the old table (phase 186). The one-time catch-up becomes the rebuild itself; the nightly automation after 412 still applies to the rebuilt table.

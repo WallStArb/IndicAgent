@@ -72,4 +72,4 @@ Re-scoped: retire `context_writer` (`indicagent-ctx-writer.service`, running 202
 
 ## Unified design adopted 2026-09-26
 
-Folded into phase 186 (adopted unified design, todo 436, section 14): `context_features` is fenced, and the `context_features` writer goes with the old-chain deletion after a consumer check.
+Folded into phase 186 (adopted unified design, todo 436, section 14): `context_features` is summarized then dropped (design section 14.2, amended 2026-09-26), and its writer goes with the old-chain deletion after a consumer check.

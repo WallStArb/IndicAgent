@@ -50,7 +50,7 @@ current position only; PRIORITIES.md tiers todos; this list names the phases in 
 | 7 | 183 Research layer: runner, ledger, combiner, book test | Architecture steps 4-6 (`docs/plans/2026-09-25-alpha-research-architecture.md`): spec-as-pre-registration runner, S6 ledger writer with the vintage budget, S7 walk-forward ridge combiner, S8 book test. Every real-data number goes through it, so none has to be re-run or back-recorded | Not planned; steps 1-3 (panel, S1, S3 guards) on main 2026-09-25 |
 | 8 | 184 Multi-timeframe research inputs | One clock and one target per book; predictors from other timeframes enter through one causal alignment node; corpus features read from `feature_vectors` (revised by todo 435; the draft's recompute-instead-of-read D5 was never approved); 15m and 1h built from 5m; B3 alignment is a prerequisite for feature books. Unblocks families 9 and 10 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`) | Not planned; waits on 183 |
 | 9 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; venue-move history (todo 433, P0) recovered after validation; splits and dividends point in time; daily reconciliation of IBKR's independent views; verdicts carry measured data-quality labels. IBKR-only (owner, 2026-09-26). Spec: `docs/plans/2026-09-26-daily-data-foundation.md` | Accepted 2026-09-26; parallel with research. 433 branch (verify-only) ready to merge after the running backfill |
-| 10 | 186 Old ensemble chain retirement and ic_engine re-scope | Track A of the unified design: delete the old chain, fence its tables with raising triggers, shrink ic_engine to proposer + term structure + monitoring, feature lifecycle on data-quality gates | Not planned; waits on no live or resumable ic_engine run |
+| 10 | 186 Old ensemble chain retirement and ic_engine re-scope | Track A of the unified design: delete the old chain, summarize then drop its tables (174 GB to about 60 GB), rebuild `feature_vectors`, shrink ic_engine to proposer + term structure + monitoring, feature lifecycle on data-quality gates | Not planned; waits on no live or resumable ic_engine run |
 | 11 | 187 Research core: recipe book, selection, construction | Track C: UCR recipe book, StepM selection (E18), `ConstructionRule`, pod books, costed horizon rule, missing-member rule, contribution accounting, `generated_family` grammar support, DAG manifest, vocabulary renames | Not planned; waits on 183 plan 10 |
 | 12 | 188 Forward runner and capital tier | Track E: `BookTracker`/`BookPositionWriter`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
 
@@ -3076,9 +3076,11 @@ Plans:
 `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted 2026-09-26, sections 11
 and 14): delete `ensemble_trainer`, `ensemble_ic_engine`, `alpha_frame_writer`,
 `counterfactual_tracker`, the old-chain ops scripts, the phase 179 harness plumbing and the
-orchestrator steps after `feature_lifecycle`; fence `ensemble_weights`, `ensemble_alpha`,
-`alpha_ensemble_ic`, `alpha_events`, `alpha_frames` and `context_features` with raising triggers,
-table comments and a CI read allow-list; shrink ic_engine to the proposer, IC term structure and
+orchestrator steps after `feature_lifecycle`; write summary cards for every old verdict and
+dead process, then drop `ensemble_weights`, `ensemble_alpha`, `alpha_ensemble_ic`, `alpha_events`,
+`alpha_frames`, `context_features` and `feature_ic_scores_history` (design section 14.2, amended
+2026-09-26: raw data permanent, derived data is cache, conclusions are records); rebuild
+`feature_vectors` as a new append-only table with provenance instead of refreshing it in place; shrink ic_engine to the proposer, IC term structure and
 member monitoring, purging IC targets that cross `oos_start`; move feature lifecycle to
 data-quality gates; consumer checks for `context_writer` (unit active) and
 `cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
