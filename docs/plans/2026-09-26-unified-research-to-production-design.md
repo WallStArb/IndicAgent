@@ -465,7 +465,7 @@ capital), which matters most for the 195 small caps.
 
 A market-neutral book that shorts unborrowable names is not the object that will trade. Borrow
 history cannot be bought from IBKR, so: a daily borrow snapshot for the full universe starts now
-(same pattern as 185 D8's holdings snapshots), and every book test discloses the share of short
+(todo 438; a standalone daily job since 185 D8 was descoped), and every book test discloses the share of short
 P&L from names outside a liquidity floor (market cap, ADV).
 
 ## 10. UCR as the recipe book
@@ -554,7 +554,7 @@ that would drop data that could contain signal.
 | `determinism` | Any output reproduces bit-exactly from (input snapshot hash, code key, recipe or spec hash) | `scripts/analysis/sleeve_walk_forward/repro_frozen.py` generalized into one tool, lands with the first frozen book |
 | `single_writer` | One writer per table, one direction, no cycles | DAG manifest (3.2) plus a CI scan of SQL write statements; enforced by the database through per-writer roles and grants generated from the manifest (14.5) |
 | `no_fill` | Missing is NaN; warmup masked by declared memory; no placeholder reaches compute | S0 warmup mask and coverage floor (435) now; writers emit NULL during warmup at the next planned recompute |
-| `point_in_time` | Universe, classification, tags and parameters read as of t | APR values: the value pinned at the book's freeze, and every stored row records which values computed it (via `lineage`). "APR as of a 2012 bar" is not meaningful: `config_history` starts 2026-06-13 and 255 of 847 keys have no history row. ITR tags and universe flags as of t (universe via 185 D8); equity breadth made point in time |
+| `point_in_time` | Universe, classification, tags and parameters read as of t | APR values: the value pinned at the book's freeze, and every stored row records which values computed it (via `lineage`). "APR as of a 2012 bar" is not meaningful: `config_history` starts 2026-06-13 and 255 of 847 keys have no history row. ITR tags and universe flags as of t (current flags; 185 D8's forward capture was descoped 2026-09-26); equity breadth made point in time |
 | `lineage` | Every output traces to its recipe and run | Research rows carry a run id; bulk tables get a provenance batch record (writer, per-kernel code key, APR snapshot, input content digest, symbol x tf x time range), no per-row column on compressed hypertables (the 768 GB disk-full class). The same record is the idempotency key (3.3) |
 | `asset_agnostic` | Asset class is data, not a code branch | CI scan for asset-class branches in compute paths |
 | `pure_compute` | Pure functions over arrays; state only at the edges | Enforced by `temporal_integrity`: its audit needs a pure `compute(inputs up to t)` entry point per writer, so an impure writer cannot be audited and fails |
@@ -593,7 +593,7 @@ quality first); `single_writer` and `asset_agnostic` are cheap CI checks, landin
 |---|---|
 | Uncounted backtests | Research reads of `feature_vectors` and of bar panels (targets are computed from them, UD-25) go through the runner (exploration mode included), which records every attempt. A CI boundary test (the `market_data_ohlcv` pattern) fences committed code that bypasses it; the 63 existing scripts go on an allow-list with reasons. Ad hoc queries cannot be fenced; the forward span remains the backstop |
 | Forward-span leakage | `snapshot.py` already refuses `end_exclusive` past `alpha.validation.oos_start`. That key becomes write-once (DB trigger refusing updates), so one config write cannot silently reopen the span |
-| Survivorship | The 932-name universe is today's S&P 500 plus names alive today, and both research universes read current state (`snapshot.py` reads `valid_to IS NULL` tags and classification; `universe_symbols` reads current flags). Every attempt states its universe as of t and carries phase 185 D0's survivorship bound; daily cross-sectional books also report a delisting-return sensitivity (a fixed delisting return applied at a Shumway-style hazard), since reversal books are the most exposed; books on long-lived ETFs are disclosed separately. 185 D8 (keep every name, record delistings) must be live before a forward span starts |
+| Survivorship | The 932-name universe is today's S&P 500 plus names alive today, and both research universes read current state (`snapshot.py` reads `valid_to IS NULL` tags and classification; `universe_symbols` reads current flags). Every attempt states its universe as of t and carries phase 185 D0's survivorship bound; daily cross-sectional books also report a delisting-return sensitivity (a fixed delisting return applied at a Shumway-style hazard), since reversal books are the most exposed; books on long-lived ETFs are disclosed separately. 185 D8 was descoped (owner, 2026-09-26); instead the forward runner (phase 188) books a held name that stops trading at a delisting return rather than dropping it |
 | Parameter hindsight | A structured APR provenance column; values tuned on outcomes (`[rca_analysis]`, `ml_learned`, anything tuned on IC or returns) are disclosed for every book that uses them. `[conventional]` values are not hindsight |
 | Second implementation | The forward runner executes the same S0-S7 code on new rows and reads nightly batch features only. Positions for overlapping rows are bit-identical between research and forward (parity test); 184 B2's kernel parity test covers features |
 | Forward runner edge cases | Forward mode is the only sanctioned read past `oos_start`, keyed to a frozen book id. It fails loudly when a member's coverage falls below its in-sample band or a member stops being computed. Emitted `book_position` rows are append-only; a later recompute that differs raises a data-revision alarm instead of overwriting |
@@ -901,14 +901,14 @@ infrastructure (owner directive, alpha first).
 
 | Track | Work | Waits on |
 |---|---|---|
-| Now | First-cut cost model (IBKR commission, Abdi-Ranaldo spread, validated on a quoted overlap); borrow snapshot capture; `oos_start` write-once; 185 D8 holdings snapshots | nothing |
+| Now | First-cut cost model (IBKR commission, Abdi-Ranaldo spread, validated on a quoted overlap); borrow snapshot capture (438); `oos_start` write-once | nothing |
 | Alpha, continuous | 183-10 and E17's H0 battery (with ridge and kappa cells) -> attempts 1a-1c; attempt 2 with the first-cut cost model; attempts 3-4 (price-only daily families on the 931 names, sector lead-lag) | running; S1 residual target on 931 names |
 | A: delete | Remove the old chain; summarize then drop its tables and `feature_ic_scores_history`; shrink ic_engine; feature lifecycle to data-quality gates; close moot todos | Phase 183 not touching those modules; no live or resumable ic_engine run (the import rule) |
 | B: data path | 426 -> 290 -> 248 -> 411 (+412, 421); `temporal_integrity`, `no_fill`, `point_in_time` audits; phase 185, including the derived 15m and 1h grid (UD-25, todo 446) before the feature rebuild | A's ic_engine shrink (smaller recompute) |
 | C: research core | UCR recipe book and migration; StepM selection and E18; `ConstructionRule`, pod books and horizon rule; missing-member combining rule; contribution accounting; DAG manifest; vocabulary renames with 430 | 183-10 finished |
 | D: features into books | Full feature recompute under provenance batches; 435 S0 wiring; revised 184 (B3 alignment) -> attempts 5-8 | B, C |
 | E: forward | `BookTracker` and sealed shadow for every book in the selection set; full cost model; attempt 9; 156-157 re-scoped | A candidate from the alpha track or D |
-| F: capital | Promotion by net expectation, forward confirmation on the book's own span, capital ramp; 158; 159 | E; 185 D8 live before the span |
+| F: capital | Promotion by net expectation, forward confirmation on the book's own span, capital ramp; 158; 159 | E; borrow snapshots (438) running before the span |
 
 After adoption, A, C and E become new roadmap phases (about 186-188); B maps onto existing todos
 and phase 185; D is 435 plus revised 184; F keeps 158-159, re-scoped. Critical path: attempts 1-4

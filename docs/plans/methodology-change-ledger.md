@@ -949,7 +949,8 @@ when this was found.
   becomes a later, separately counted book version.
 - **Built by:** the phase 183 session (owner of `timing.py`). Todo 432. Statistic 33ca32107;
   equal-weight combiner 5f3de6ca1; family 1 records annotated by migration 377 (condition 4).
-- **H0 battery (condition 2), 2026-09-26, OWNER DECISION PENDING on the gating criterion.**
+- **H0 battery (condition 2), 2026-09-26. Gating criterion DECIDED by the owner 2026-09-26:
+  option C, the measured-size gate plus a per-family guard (below).**
   `src/intelligence/research/null_battery.py`, driver `scripts/research/e17_null_battery.py`,
   1,000 simulations per cell, size judged against the 99% binomial bound at each level.
   - First run, every stress at 0.3 of the slot sd: bias fixed (mean t within 0.1 of 0 in every
@@ -975,6 +976,14 @@ when this was found.
     at the measured sizes).
   - The criterion was moved to measured sizes after the 0.3 failure was seen: a forking-paths
     risk in the methodology itself, so it is the owner's decision, not the builder's.
+  - **Owner decision (2026-09-26): C.** The gating cells stay at twice the measured sizes, and the
+    gate becomes a checked precondition instead of an assumption: before a family's first real
+    run, its own static per-(slot or leg, name) mean sd and time-of-day mean sizes are measured
+    on its panel, by the same method as above, and the run is refused (like the power refusal) if
+    any exceeds the gated size. A family above the gate needs a battery at its own measured sizes
+    first. The measurement is recorded in the family's evidence. Rejected: A (the gate unguarded,
+    silently oversized for a family with larger static effects) and B (keep 0.3: no known repair,
+    every book test blocked). Build: todo 447 (phase 183 lane).
 - **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
   Family 1's member evidence exists and stays as recorded, annotated per condition (4).
 

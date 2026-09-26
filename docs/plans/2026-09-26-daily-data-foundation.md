@@ -281,33 +281,18 @@ A daily audit, chained after the nightly backfill, reports into `integrity_monit
 
 Thresholds live in APR.
 
-### D8. Survivorship, going forward
+### D8. Survivorship, going forward (descoped, owner 2026-09-26)
 
-IBKR cannot fill the past, but the future can stop being survivor-only. Both parts lose data
-for every day they are not running, so they come first in the order below:
-- Keep every onboarded name forever, and record a delisting (date, last bar, reason if known)
-  when IBKR stops qualifying it. The panel from today onward then includes the names that later
-  die. The research snapshot selects its universe from the current `instruments` flags
-  (`src/intelligence/research/snapshot.py::universe_symbols`), and the obvious operator response
-  to a dead name, the API's soft delete (`is_active = false`), would drop its whole history from
-  every later snapshot. So a delisting is its own record, the eligibility flags stay true, the
-  nightly backfill stops asking for the name, and a guard refuses deactivating a name that has
-  stored bars without a delisting row.
-- Store every holdings snapshot we already download (IWM, IWV, IVV) as dated, point-in-time
-  index membership, on a schedule rather than when a draw needs one. It starts accumulating
-  now, and seeded draws can later sample membership as of a date. Unverified lead: iShares'
-  holdings export takes an `asOfDate` parameter on its `.ajax` endpoint, which sits behind a
-  bot challenge from plain HTTP clients (the `latest-holdings.csv` path ignores the parameter,
-  checked 2026-09-26). If a browser session can fetch past dates, IWM's own history gives
-  point-in-time Russell 2000 membership back to the fund's inception without a vendor, which
-  bounds survivorship exposure for D0 even though IBKR still cannot serve the dead names' bars.
+Not built. Forward capture of delistings and dated index-holdings snapshots was proposed here;
+the owner descoped it: few names in this universe stop existing in any given period, and the
+past cannot be fixed from IBKR (that needs Stage V). D0 still bounds each verdict's
+survivorship exposure. The daily short-borrow snapshot (todo 438) is not survivorship work and
+stands on its own (unified design 9.3).
 
-**One capture job.** The delisting check, the holdings snapshots and the daily short-borrow
-snapshot (todo 438, unified design 9.3) are the same pattern: live-only data lost for every day it
-is not recorded. They run as one daily capture job with one writer and a completion metric, so a
-missed day is heard.
-
-The retroactive fix needs Stage V.
+Consequence to keep in mind: a name that does delist must not be soft-deleted
+(`is_active = false`), because the research snapshot selects its universe from the current
+`instruments` flags and would drop the name's whole history. Leave its flags alone; the nightly
+backfill finds nothing new for it.
 
 ## Research during the phase
 
@@ -323,8 +308,7 @@ are re-evaluated on the extended data rather than reset.
 ## Order
 
 0. D0 labels, in parallel with everything below.
-1. The D8 capture job (delisting record and guard, holdings snapshots, borrow snapshots): small,
-   and every day without it loses data that cannot be recovered.
+1. (D8 descoped 2026-09-26; borrow snapshots are todo 438, outside this phase.)
 2. The 1d re-run under the merged verify-only rule (moved-name inventory, empty history
    re-verified) for the 384 names whose first 1d bar is after the request window's start (the
    other 547 start in October 2006, so nothing before a move is missing from the window), the D3 validation study, the D5 corpus seam audit, and the D2a historical
@@ -382,8 +366,11 @@ intraday and live data.
    verdicts; D2a scrubbing is part of the derivation, flag-never-delete, rules validated on known
    answers; revisions propagate through content-digest keys and every snapshot records the rule
    version.
-6. The D8 capture job absorbs todo 438's borrow snapshots.
+6. Superseded by decision 9: D8 is descoped, and todo 438's borrow snapshots stand alone.
 7. Daily attempts 3, 3b and 4 wait on the minimum data bar above.
 8. Yahoo's dividend history stays as reference data (todo 428, 2026-09-26): it is the only
    complete dividend record available and total-return research depends on it. It is not a price
    source; D5's IBKR route is its independent check.
+9. D8 (forward survivorship capture: delisting record, holdings snapshots) is descoped (owner,
+   2026-09-26): few delistings in this universe going forward, and the past cannot be fixed from
+   IBKR. D0 still bounds survivorship exposure.

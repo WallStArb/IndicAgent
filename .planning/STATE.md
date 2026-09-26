@@ -46,14 +46,14 @@ bullets with current facts.
 - **Phase 185:** accepted, spec revision 2 (2026-09-26), not planned. It is now the
   price-integrity layer: D2a scrubbing (flag, never delete; rules validated on known answers; one
   historical batch pass) and D7 reconciliation. No existing service checks historical price
-  correctness (3.86M daily bars never price-sanity classified; 253 unexplained >50% moves). First
-  stage: the D8 capture job (delisting, holdings, borrow snapshots). Daily attempts 3, 3b and 4
+  correctness (3.86M daily bars never price-sanity classified; 253 unexplained >50% moves). D8
+  (forward survivorship capture) was descoped by the owner 2026-09-26. Daily attempts 3, 3b and 4
   wait on its minimum data bar. Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
   Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
   14.2).
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
-  (write-once `oos_start`). Borrow snapshots (438) now start with phase 185's D8 capture job.
+  (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
@@ -70,9 +70,9 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 
 | Lane | Start with | Owner and boundary |
 |---|---|---|
-| Research (phase 183) | Plan 10, E17 battery, then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
+| Research (phase 183) | Plan 10, todo 447 (E17 per-family guard), then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
-| Quick data and infra | Todos 443, 439; 438 via phase 185's D8 capture job (loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
+| Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
 | Phase 185 | `/gsd-plan-phase 185` (`docs/plans/2026-09-26-daily-data-foundation.md`) | Owns `src/providers/ibkr.py` changes and todo 433 |
 
@@ -81,10 +81,8 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 
 ## Decisions waiting on the owner
 
-- **E17 H0 battery gating criterion** (commit 4a58f0b60, methodology-change-ledger E17): the
-  builder moved the gating cells from 0.3 of the slot sd (tail oversized) to twice the measured
-  sizes (size holds; family 2's combined cell about 7-8% at 0.05) after seeing the failure, so the
-  owner decides. Gates every book test, including attempts 1a-1c.
+- None open. E17's gating criterion was decided 2026-09-26 (option C: measured-size gate plus a
+  per-family static-size guard, todo 447; methodology-change-ledger E17).
 
 ## Open items that are not verdicts
 
@@ -93,8 +91,9 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 - Todo 372 (`Panel.sync_shift_null_p`): finding 1 fixed, lacks independent review; finding 2
   (`volume_z` diurnal detrending) untouched.
 - N1 nonlinear combiner: structurally inconclusive; don't cite as pass or fail.
-- Survivorship: every universe reads current state; phase 185 D0 bounds past verdicts and D8 fixes
-  it forward.
+- Survivorship: every universe reads current state; phase 185 D0 bounds past verdicts. Forward
+  capture (D8) was descoped by the owner 2026-09-26: few names in this universe delist, and the
+  past cannot be fixed from IBKR.
 
 ## Process pointers
 

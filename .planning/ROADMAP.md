@@ -44,7 +44,7 @@ current position only; PRIORITIES.md tiers todos.
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | Plans 01-09, 11 done; plan 10 (real runs) in progress, other session |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time; D8 capture job. IBKR-only. Clears the data bar for daily attempts | Accepted 2026-09-26, not planned |
+| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Accepted 2026-09-26, not planned |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Not planned; no live ic_engine run |
 | 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on 183 plan 10 |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
@@ -128,7 +128,7 @@ Plans:
 ### Phase 185: Daily data foundation
 
 **Goal:** Every daily bar research reads traces to raw IBKR observations and a versioned
-derivation rule, and no data defect reaches a verdict unmeasured. Build stages D0-D8 of
+derivation rule, and no data defect reaches a verdict unmeasured. Build stages D0-D7 of
 `docs/plans/2026-09-26-daily-data-foundation.md` (accepted 2026-09-26): D0 bound each verdict's
 exposure to venue truncation, missing dividends and survivorship; D1 an append-only 1d
 observation store (every route and request type); D2 derived 1d bars written to
@@ -136,23 +136,22 @@ observation store (every route and request type); D2 derived 1d bars written to
 433), stored only after a listing-venue validation study passes; D4 empty history recorded only
 when every route answers "no data"; D5 splits detected from re-fetch overlaps and dividends from
 ADJUSTED_LAST against TRADES, point in time, as the independent check on Yahoo's dividends; D6 listing-venue history; D7 daily reconciliation of
-SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday; D8
-forward-only survivorship (keep every name, record delistings, dated index-membership snapshots).
+SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday. D8 (forward
+survivorship capture) was descoped by the owner 2026-09-26.
 IBKR-only: no new data sources (owner, 2026-09-26), except Yahoo's dividend history kept as
 reference data (todo 428); the vendor stage stays gated. Revision 2
 (2026-09-26, aligned with the unified design): D0 becomes data-quality labels on every attempt
 (old verdicts are summary cards, not re-run); D2a scrubbing inside the derivation (flag, never
 delete; rules validated on known answers; one historical batch pass folding todos 155, 347, 052);
-revisions propagate through content-digest keys; one D8 capture job absorbs todo 438; daily
+revisions propagate through content-digest keys; daily
 attempts 3, 3b and 4 wait on the minimum data bar (seam audit, scrubbing pass, moved names,
 total returns, survivorship bound). D2a reuses the existing price-sanity classifier as one scrubbing
 rule; D2a and D7 are the price-integrity layer (no existing service checks historical price
-correctness). Order: the D8 capture job first (it loses data every day it is missing), then the
+correctness). Order: the
 1d re-run for the 384 late-starting names, the D3 study, the seam audit and the D2a pass, none of
 which needs D1. D2a's known-answer set includes the 2026-09-26 1d dry run (45 unflagged corrupt
-bars; the classifier's cross-symbol corroboration clears Flash Crash stub prints). D8 also
-closes the onboarding SOP's first and last gaps (`docs/foundation/instrument-onboarding-sop.md`:
-the delisting guard, scheduled holdings snapshots) and D2a its second (scrubbing in the chain).
+bars; the classifier's cross-symbol corroboration clears Flash Crash stub prints). D2a closes the onboarding
+SOP's second gap (scrubbing in the chain).
 UD-25 (unified design 14.7, todo 446): D2 also derives 15m and 1h bars from 5m on
 session-anchored edges (stored 1h drops the 09:30-10:00 half hour on 39 names, SPY included),
 landing before phase 186's `feature_vectors` rebuild; D2a takes over `forward_return_writer`'s
@@ -242,8 +241,8 @@ set, append-only positions with revision alarms, positions parity with research;
 (impact, borrow constraint, capacity curve, implementation shortfall); `portfolio_state`, sizing
 and risk limits (re-scoped phases 156-157); challenger protocol with a paired test.
 **Requirements**: TBD
-**Depends on:** a candidate book in the selection set; phase 185 D8 live before any forward span
-starts.
+**Depends on:** a candidate book in the selection set; todo 438's borrow snapshots running before
+any forward span starts.
 **Plans:** 0 plans
 
 Plans:

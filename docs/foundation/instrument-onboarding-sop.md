@@ -35,8 +35,8 @@ test can find. Six rules follow from that.
 5. **Gates count ground truth.** Promotion requires both the bookkeeping (`fetch_complete`) and a
    count of real bars in `market_data_ohlcv_tradeable`. A log line saying "0 fetch errors" is not
    evidence: CLBK passed the fetch with no error and zero bars, and only the promote gate held it.
-6. **Nothing leaves.** A name is never deleted or deactivated. A delisting is its own record
-   (phase 185 D8). Research selects its universe from current `instruments` flags
+6. **Nothing leaves.** A name is never deleted or deactivated, even after it stops trading; its
+   bars simply stop. Research selects its universe from current `instruments` flags
    (`snapshot.py::universe_symbols`), so deactivating a dead name would erase it from every later
    panel and bring survivorship bias back.
 
@@ -46,7 +46,8 @@ State them in the README entry for the batch; research discloses them through ph
 
 - **Survivorship.** Sources are current index holdings, so every batch holds only names alive on
   the selection date, and their history back to 2006 is history of survivors (todo 376). IBKR
-  serves no delisted names. Forward from onboarding, D8 keeps the dead ones.
+  serves no delisted names. Forward capture of delistings (185 D8) was descoped by the owner
+  2026-09-26: few names in this universe delist, and rule 6 keeps any that do in the panels.
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
   A moved name looks like a late listing until 185 D3 recovers the earlier years.
 - **Unscrubbed prints.** Bars arrive unscrubbed. The 1d dry run on 2026-09-26 found 45 corrupt
@@ -240,15 +241,15 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 | Selection biased by data availability | Rule 1; no screens on history | Stages 2, 8 |
 | Venue-truncated history read as a late listing | Head check plus fetch log; 185 D3 | Stage 8 |
 | Corrupt prints reach research | Dry-run scan; 185 D2a flags | Stage 8 |
-| Dead name deactivated, history erased from panels | Rule 6; 185 D8 delisting record and guard | After onboarding |
+| Dead name deactivated, history erased from panels | Rule 6 (no automated guard; 185 D8 descoped) | After onboarding |
 | Two draws overlap | Exclude every draw of the batch | Stage 2 |
 | Two manual backfills share a client ID | Check running processes; pick a free ID | Stage 7 |
 | Onboarding run crosses UTC midnight | Refused loudly by migration 368's same-day guard; rerun | Stage 6 |
 
 ## Gaps, in the order they matter
 
-1. **Delisting record and guard** (185 D8, first in its order). Until it exists, never
-   soft-delete a name through the API (`DELETE /instruments/{symbol}` sets `is_active = false`).
+1. **No delisting guard** (185 D8 descoped 2026-09-26). Never soft-delete a name through the API
+   (`DELETE /instruments/{symbol}` sets `is_active = false`); rule 6 is the only protection.
 2. **Scrubbing in the chain** (185 D2a). Stage 8's scan is a dry run and a person decides.
 3. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
@@ -262,5 +263,6 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
    through this SOP, one resumable command (`universe_onboard.py --manifest ...`) that runs
    stages 5-9 in order, stops at every hold, and writes the verify report is the automation
    step. Build it from the scripts above; do not reimplement them.
-7. **Point-in-time membership.** Holdings snapshots are downloaded when a draw needs one. 185 D8
-   stores them on a schedule, so later draws can sample membership as of a date.
+7. **Point-in-time membership.** Holdings snapshots are downloaded when a draw needs one, and
+   kept in `config/universe/` with their date. Scheduled snapshots (185 D8) were descoped
+   2026-09-26.
