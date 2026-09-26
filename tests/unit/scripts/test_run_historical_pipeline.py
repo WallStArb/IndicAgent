@@ -836,3 +836,43 @@ def test_partial_stack_dimension_with_explicit_timeframes_is_accepted():
 def test_compute_dimension_keeps_default_timeframes():
     mock_gac = _run_main_with_argv(["--symbols", "X"])
     assert mock_gac.call_args.kwargs == {"dimension": "compute"}
+
+
+class TestLoadIbkrVenueFallbackConfig:
+    """todo 433: _load_ibkr_venue_fallback_config() overlays infra.ibkr.venue_fallback.*
+    (migration 374) onto ibkr's module-level constants in place."""
+
+    def test_overlays_keys_and_restores(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _load_ibkr_venue_fallback_config,
+        )
+        from src.providers import ibkr
+
+        saved = (
+            ibkr._VENUE_FALLBACK_EXCHANGES,
+            ibkr._VENUE_FALLBACK_TIMEFRAMES,
+            ibkr._VENUE_FALLBACK_MIN_GAP_DAYS,
+        )
+        try:
+            mock_conn = MagicMock()
+            mock_cursor = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+            mock_cursor.fetchall.return_value = [
+                ("infra.ibkr.venue_fallback.exchanges", '["NYSE", "ARCA"]'),
+                ("infra.ibkr.venue_fallback.timeframes", '["1d", "1h"]'),
+                ("infra.ibkr.venue_fallback.min_gap_days", "10"),
+            ]
+            with patch(
+                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                return_value=mock_conn,
+            ):
+                _load_ibkr_venue_fallback_config(MagicMock())
+            assert ibkr._VENUE_FALLBACK_EXCHANGES == ["NYSE", "ARCA"]
+            assert ibkr._VENUE_FALLBACK_TIMEFRAMES == {"1d", "1h"}
+            assert ibkr._VENUE_FALLBACK_MIN_GAP_DAYS == 10
+        finally:
+            (
+                ibkr._VENUE_FALLBACK_EXCHANGES,
+                ibkr._VENUE_FALLBACK_TIMEFRAMES,
+                ibkr._VENUE_FALLBACK_MIN_GAP_DAYS,
+            ) = saved

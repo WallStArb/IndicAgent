@@ -272,7 +272,10 @@ def integrity(panel: Panel, alpha: np.ndarray) -> IntegrityReport:
         )
     volume_checked = bool(np.isfinite(panel.volume[close_ok]).any())
     if volume_checked:
-        bad = close_ok & ~(panel.volume > 0)
+        # NaN volume is unknown, not zero: market_data_ohlcv_tradeable reports NULL volume
+        # on former-venue bars (migration 374, todo 433), whose prices are official but
+        # whose volume is one venue's. A zero or negative volume still fails.
+        bad = close_ok & (panel.volume <= 0)
         if bad.any():
             raise GuardFailure(
                 f"{int(bad.sum())} bars with a close but no positive volume: the panel did not "

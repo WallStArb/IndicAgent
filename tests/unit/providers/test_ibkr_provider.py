@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -488,3 +488,109 @@ class TestGetHeadTimestamp:
         provider._ib = mock_ib
         head, error = await provider.get_head_timestamp("NOPE")
         assert head is None and error
+
+
+class TestPreMoveHistory:
+    """1d fetches of a stock recover history from before a listing-venue move (todo 433):
+    the SMART walk's uncovered head is asked of every candidate venue, and the venue with
+    the most volume is kept under SOURCE_IBKR_VENUE."""
+
+    START = datetime(2010, 1, 1, tzinfo=UTC)
+    END = datetime(2026, 1, 30, tzinfo=UTC)
+
+    @staticmethod
+    def _bars(first, n, volume):
+        out = []
+        for i in range(n):
+            bar = MagicMock()
+            bar.date = first.replace(tzinfo=UTC) + timedelta(days=i)
+            bar.open, bar.high, bar.low, bar.close, bar.volume = 1.0, 1.0, 1.0, 1.0, volume
+            out.append(bar)
+        return out
+
+    async def _fetch(self, provider, mock_ib, answers, *, timeframe="1d", primary="NASDAQ"):
+        """answers: routed exchange -> list of bars | 'no_data' | 'timeout'."""
+        from ib_async import BarDataList, Stock
+
+        ibkr_module._no_data_req_ids.clear()
+        asked: list[str] = []
+        req = {"n": 0}
+
+        async def fake_req(contract, **kwargs):
+            asked.append(contract.exchange)
+            answer = answers.get(contract.exchange, "no_data")
+            if answer == "timeout":
+                raise TimeoutError
+            if answer == "no_data":
+                req["n"] += 1
+                result = BarDataList()
+                result.reqId = 92000 + req["n"]
+                ibkr_module._no_data_req_ids.add(result.reqId)
+                return result
+            return answer
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        contract = Stock("XYZ", "SMART", "USD", primaryExchange=primary)
+        contract.secType = "STK"
+        provider._qualified_contracts["XYZ"] = contract
+        reports, persisted = [], []
+
+        async def on_chunk(bars):
+            persisted.extend(bars)
+
+        with patch.object(ibkr_module, "_RETRY_COUNT", 1):
+            bars = await provider.fetch_historical_bars(
+                "XYZ",
+                timeframe,
+                self.START,
+                self.END,
+                on_chunk=on_chunk,
+                on_empty_history=reports.append,
+            )
+        ibkr_module._no_data_req_ids.clear()
+        return bars, persisted, reports, asked
+
+    @pytest.mark.asyncio
+    async def test_keeps_highest_volume_venue_for_the_head(self, provider, mock_ib):
+        from src.core.bar_normalizer import SOURCE_IBKR_VENUE
+
+        smart = self._bars(datetime(2018, 9, 10), 5, 1000)
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        arca = self._bars(datetime(2012, 1, 3), 4, 50)
+        bars, persisted, reports, asked = await self._fetch(
+            provider, mock_ib, {"SMART": smart, "NYSE": nyse, "ARCA": arca}
+        )
+        venue = [b for b in bars if b.source == SOURCE_IBKR_VENUE]
+        assert len(venue) == 4 and all(b.volume == 400 for b in venue)
+        assert [b for b in persisted if b.source == SOURCE_IBKR_VENUE] == venue
+        assert reports == []
+        assert "ISLAND" not in asked  # the current primary is never asked as a former venue
+        assert bars == sorted(bars, key=lambda b: b.timestamp)
+
+    @pytest.mark.asyncio
+    async def test_head_empty_everywhere_is_recorded(self, provider, mock_ib):
+        bars, _, reports, asked = await self._fetch(provider, mock_ib, {})
+        assert bars == []
+        (report,) = reports
+        assert report.empty_through == self.END
+        assert set(asked) == {"SMART", "NYSE", "ARCA", "AMEX", "BATS"}
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_venue_answer_leaves_the_head_unverified(self, provider, mock_ib):
+        bars, _, reports, _ = await self._fetch(provider, mock_ib, {"ARCA": "timeout"})
+        assert bars == []
+        assert reports == []
+
+    @pytest.mark.asyncio
+    async def test_history_starting_at_request_start_asks_no_venue(self, provider, mock_ib):
+        smart = self._bars(datetime(2010, 1, 4), 5, 1000)
+        _, _, _, asked = await self._fetch(provider, mock_ib, {"SMART": smart})
+        assert asked == ["SMART"]
+
+    @pytest.mark.asyncio
+    async def test_intraday_timeframes_are_not_recovered(self, provider, mock_ib):
+        smart = self._bars(datetime(2026, 1, 29), 1, 1000)
+        with patch.object(ibkr_module, "_MAX_CHUNK_DAYS", {"1h": 7300}):
+            _, _, _, asked = await self._fetch(provider, mock_ib, {"SMART": smart}, timeframe="1h")
+        assert set(asked) == {"SMART"}

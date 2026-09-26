@@ -8,6 +8,8 @@ with the DataProvider protocol — no ib_async imports outside this file.
 from __future__ import annotations
 
 import asyncio
+import copy
+import functools
 import logging
 import math
 import os
@@ -39,6 +41,7 @@ from src.core.bar_normalizer import (  # noqa: E402
     SOURCE_IBKR_GENERIC,
     SOURCE_IBKR_NAMED,
     SOURCE_IBKR_OFFICIAL,
+    SOURCE_IBKR_VENUE,
 )
 from src.core.models import AssetClass, Instrument  # noqa: E402
 
@@ -192,6 +195,17 @@ _NO_DATA_CONFIRMATION_CHUNKS = 2
 # infra.ibkr.retry_backoff_base_s, migration 235).
 _RETRY_COUNT = 3
 _RETRY_BACKOFF_BASE_S = 65
+
+# Former-venue history recovery (todo 433, _fetch_pre_move_history). IBKR routing codes of
+# the venues a stock or ETF may have been listed on before a move; ISLAND is Nasdaq's
+# routing code (a contract's primaryExchange reads NASDAQ). Only the timeframes listed are
+# recovered, and only when the SMART history starts at least _VENUE_FALLBACK_MIN_GAP_DAYS
+# after the requested start. APR-overridable the same way as the constants above
+# (infra.ibkr.venue_fallback.*, migration 374); these are the fallback defaults.
+_VENUE_FALLBACK_EXCHANGES: list[str] = ["NYSE", "ARCA", "ISLAND", "AMEX", "BATS"]
+_VENUE_FALLBACK_TIMEFRAMES: set[str] = {"1d"}
+_VENUE_FALLBACK_MIN_GAP_DAYS = 7
+_VENUE_ALIASES = {"ISLAND": "NASDAQ"}
 
 
 class _SlidingWindowRateLimiter:
@@ -780,184 +794,280 @@ class IBKRProvider:
             if on_chunk and continuous_bars:
                 await on_chunk(continuous_bars)
         else:
-            chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
-            chunk_end = end
-            consecutive_no_data_chunks = 0
-            # Span of the current run of consecutive definitive-no-data chunks.
-            no_data_run_end: datetime | None = None
-            no_data_run_start: datetime | None = None
-
-            # Chunk backward from end→start so recent (high-value) bars are stored
-            # first. A mid-run disconnect still leaves useful data. The no-data early
-            # exit also fires as soon as we pass the instrument's launch date rather
-            # than burning through years of empty pre-launch chunks going forward.
-            while chunk_end > start:
-                # Pre-emptive rate limit: sleep if approaching IBKR's 60 req/10min ceiling.
-                # This is the sole throttle — a flat 10s courtesy sleep used to run before
-                # this on every chunk, stacking on top of the adaptive limiter and forcing
-                # a minimum 10s/chunk even when the rolling window had full headroom
-                # (removed 2026-07-02; the limiter alone has cleanly handled every fetch
-                # since it was added, no Error 162 regressions observed).
-                await _hist_rate_limiter.acquire()
-
-                chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
-                chunk_delta = chunk_end - chunk_start
-                window_seconds = int(chunk_delta.total_seconds())
-                if window_seconds < 86400:
-                    duration_str = f"{max(120, window_seconds + 60)} S"
-                else:
-                    duration_str = _days_to_duration_str(max(1, chunk_delta.days + 1))
-
-                # Retry (infra.ibkr.retry_count, default 3) with exponential backoff
-                # (infra.ibkr.retry_backoff_base_s, default 65) on an empty result.
-                # reqId-based matching (not snapshot-diff — see migration 199 / F3
-                # 2026-07-05): BarDataList carries .reqId, so a no-data Error 162 can be
-                # attributed to exactly the request that caused it. Our own outer
-                # asyncio.wait_for timeout below cancels the coroutine before it returns
-                # a BarDataList, so we never get a reqId for THAT attempt — treated as a
-                # plain retryable failure, never as a no-data signal (the alternative,
-                # snapshot-diffing the global _no_data_req_ids set, could misattribute a
-                # late 162 callback for an abandoned request to an unrelated later chunk).
-                ib_bars: list = []
-                hit_definitive_no_data = False
-                for attempt in range(_RETRY_COUNT):
-                    outer_timed_out = False
-                    try:
-                        result = await asyncio.wait_for(
-                            self._ib.reqHistoricalDataAsync(
-                                contract,
-                                endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
-                                durationStr=duration_str,
-                                barSizeSetting=_TF_TO_IB[timeframe],
-                                whatToShow=what_to_show,
-                                useRTH=use_rth,
-                                formatDate=1,
-                            ),
-                            timeout=_HIST_REQUEST_TIMEOUT_SEC,
-                        )
-                    except TimeoutError:
-                        logger.error(
-                            "ibkr.hist_request_outer_timeout",
-                            extra={
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "chunk_end": chunk_end.isoformat(),
-                                "attempt": attempt + 1,
-                            },
-                        )
-                        result = None
-                        outer_timed_out = True
-                    if result:
-                        ib_bars = result
-                        break
-
-                    # Yield so any late Error 162 callback for this reqId can fire.
-                    await asyncio.sleep(0)
-                    req_id = getattr(result, "reqId", None) if result is not None else None
-                    if not outer_timed_out and req_id in _no_data_req_ids:
-                        _no_data_req_ids.discard(req_id)
-                        logger.warning(
-                            "ibkr.hist_no_data_skip",
-                            extra={
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "chunk_end": chunk_end.isoformat(),
-                                "reqId": req_id,
-                            },
-                        )
-                        hit_definitive_no_data = True
-                        break  # Definitive "no data" — don't retry
-
-                    if attempt < _RETRY_COUNT - 1:
-                        backoff = _RETRY_BACKOFF_BASE_S * (2**attempt)  # 65s then 130s (defaults)
-                        logger.warning(
-                            "ibkr.hist_chunk_retry",
-                            extra={
-                                "symbol": symbol,
-                                "timeframe": timeframe,
-                                "chunk_end": chunk_end.isoformat(),
-                                "attempt": attempt + 1,
-                                "backoff_s": backoff,
-                                "outer_timed_out": outer_timed_out,
-                            },
-                        )
-                        await asyncio.sleep(backoff)
-                        await _hist_rate_limiter.acquire()
-                else:
-                    logger.error(
-                        "ibkr.hist_chunk_failed_all_retries",
-                        extra={
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "chunk_start": chunk_start.isoformat(),
-                            "chunk_end": chunk_end.isoformat(),
-                        },
-                    )
-
-                chunk_bars: list[OHLCVBar] = []
-                for bar in ib_bars or []:
-                    bar_ts = (
-                        bar.date
-                        if isinstance(bar.date, datetime)
-                        else datetime.fromisoformat(str(bar.date))
-                    )
-                    if bar_ts.tzinfo is None:
-                        bar_ts = bar_ts.replace(tzinfo=UTC)
-                    chunk_bars.append(
-                        OHLCVBar(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            timestamp=bar_ts,
-                            open=float(bar.open),
-                            high=float(bar.high),
-                            low=float(bar.low),
-                            close=float(bar.close),
-                            volume=int(bar.volume),
-                            source=source_tag,
-                        )
-                    )
-                all_bars.extend(chunk_bars)
-                if on_chunk and chunk_bars:
-                    await on_chunk(chunk_bars)
-
-                if hit_definitive_no_data:
-                    consecutive_no_data_chunks += 1
-                    if consecutive_no_data_chunks == 1:
-                        no_data_run_end = chunk_end
-                    no_data_run_start = chunk_start
-                    if consecutive_no_data_chunks >= _NO_DATA_CONFIRMATION_CHUNKS:
-                        # N consecutive fully-empty chunks while walking backward is strong
-                        # evidence we've passed the instrument's launch date — a single
-                        # empty chunk is not (see _NO_DATA_CONFIRMATION_CHUNKS, todo 049).
-                        # Stop here instead of burning rate-limit budget on years of
-                        # known-empty requests (this was previously walking the full
-                        # requested depth regardless of actual listing date; see todo
-                        # 042-adjacent finding 2026-07-02).
-                        break
-                else:
-                    consecutive_no_data_chunks = 0
-
-                chunk_end = chunk_start - timedelta(days=1)
-
-            # The walk ended (threshold stop or reached `start`) inside a run of definitive
-            # no-data chunks: everything it asked about at the old end is empty per IBKR.
-            if (
-                on_empty_history is not None
-                and consecutive_no_data_chunks > 0
-                and no_data_run_start is not None
-                and no_data_run_end is not None
-            ):
-                on_empty_history(
-                    EmptyHistory(
-                        verified_from=no_data_run_start,
-                        empty_through=no_data_run_end,
-                        n_confirming_chunks=consecutive_no_data_chunks,
-                        reached_request_start=no_data_run_start <= start,
-                    )
+            walk = functools.partial(
+                self._walk_history,
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            )
+            smart_bars, empty = await walk(
+                contract, end=end, source_tag=source_tag, on_chunk=on_chunk
+            )
+            all_bars.extend(smart_bars)
+            if sec_type == "STK" and timeframe in _VENUE_FALLBACK_TIMEFRAMES:
+                venue_bars, empty = await self._fetch_pre_move_history(
+                    contract, walk, start=start, end=end, smart_bars=smart_bars, smart_empty=empty
                 )
+                all_bars.extend(venue_bars)
+                if on_chunk and venue_bars:
+                    await on_chunk(venue_bars)
+            if on_empty_history is not None and empty is not None:
+                on_empty_history(empty)
 
         all_bars.sort(key=lambda b: b.timestamp)
         return all_bars
+
+    async def _walk_history(
+        self,
+        contract: Contract,
+        *,
+        symbol: str,
+        timeframe: str,
+        start: datetime,
+        end: datetime,
+        what_to_show: str,
+        use_rth: bool,
+        source_tag: str,
+        on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None,
+    ) -> tuple[list[OHLCVBar], EmptyHistory | None]:
+        """Walk `contract`'s history backward from `end` to `start` in chunks.
+
+        Returns the bars and, when the walk ended inside a run of IBKR's definitive "no
+        data" answers, the span that run covers (None otherwise).
+        """
+        walk_bars: list[OHLCVBar] = []
+        chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
+        chunk_end = end
+        consecutive_no_data_chunks = 0
+        # Span of the current run of consecutive definitive-no-data chunks.
+        no_data_run_end: datetime | None = None
+        no_data_run_start: datetime | None = None
+
+        # Chunk backward from end→start so recent (high-value) bars are stored
+        # first. A mid-run disconnect still leaves useful data. The no-data early
+        # exit also fires as soon as we pass the instrument's launch date rather
+        # than burning through years of empty pre-launch chunks going forward.
+        while chunk_end > start:
+            # Pre-emptive rate limit: sleep if approaching IBKR's 60 req/10min ceiling.
+            # This is the sole throttle — a flat 10s courtesy sleep used to run before
+            # this on every chunk, stacking on top of the adaptive limiter and forcing
+            # a minimum 10s/chunk even when the rolling window had full headroom
+            # (removed 2026-07-02; the limiter alone has cleanly handled every fetch
+            # since it was added, no Error 162 regressions observed).
+            await _hist_rate_limiter.acquire()
+
+            chunk_start = max(chunk_end - timedelta(days=chunk_days - 1), start)
+            chunk_delta = chunk_end - chunk_start
+            window_seconds = int(chunk_delta.total_seconds())
+            if window_seconds < 86400:
+                duration_str = f"{max(120, window_seconds + 60)} S"
+            else:
+                duration_str = _days_to_duration_str(max(1, chunk_delta.days + 1))
+
+            # Retry (infra.ibkr.retry_count, default 3) with exponential backoff
+            # (infra.ibkr.retry_backoff_base_s, default 65) on an empty result.
+            # reqId-based matching (not snapshot-diff — see migration 199 / F3
+            # 2026-07-05): BarDataList carries .reqId, so a no-data Error 162 can be
+            # attributed to exactly the request that caused it. Our own outer
+            # asyncio.wait_for timeout below cancels the coroutine before it returns
+            # a BarDataList, so we never get a reqId for THAT attempt — treated as a
+            # plain retryable failure, never as a no-data signal (the alternative,
+            # snapshot-diffing the global _no_data_req_ids set, could misattribute a
+            # late 162 callback for an abandoned request to an unrelated later chunk).
+            ib_bars: list = []
+            hit_definitive_no_data = False
+            for attempt in range(_RETRY_COUNT):
+                outer_timed_out = False
+                try:
+                    result = await asyncio.wait_for(
+                        self._ib.reqHistoricalDataAsync(
+                            contract,
+                            endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                            durationStr=duration_str,
+                            barSizeSetting=_TF_TO_IB[timeframe],
+                            whatToShow=what_to_show,
+                            useRTH=use_rth,
+                            formatDate=1,
+                        ),
+                        timeout=_HIST_REQUEST_TIMEOUT_SEC,
+                    )
+                except TimeoutError:
+                    logger.error(
+                        "ibkr.hist_request_outer_timeout",
+                        extra={
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "chunk_end": chunk_end.isoformat(),
+                            "attempt": attempt + 1,
+                        },
+                    )
+                    result = None
+                    outer_timed_out = True
+                if result:
+                    ib_bars = result
+                    break
+
+                # Yield so any late Error 162 callback for this reqId can fire.
+                await asyncio.sleep(0)
+                req_id = getattr(result, "reqId", None) if result is not None else None
+                if not outer_timed_out and req_id in _no_data_req_ids:
+                    _no_data_req_ids.discard(req_id)
+                    logger.warning(
+                        "ibkr.hist_no_data_skip",
+                        extra={
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "chunk_end": chunk_end.isoformat(),
+                            "reqId": req_id,
+                        },
+                    )
+                    hit_definitive_no_data = True
+                    break  # Definitive "no data" — don't retry
+
+                if attempt < _RETRY_COUNT - 1:
+                    backoff = _RETRY_BACKOFF_BASE_S * (2**attempt)  # 65s then 130s (defaults)
+                    logger.warning(
+                        "ibkr.hist_chunk_retry",
+                        extra={
+                            "symbol": symbol,
+                            "timeframe": timeframe,
+                            "chunk_end": chunk_end.isoformat(),
+                            "attempt": attempt + 1,
+                            "backoff_s": backoff,
+                            "outer_timed_out": outer_timed_out,
+                        },
+                    )
+                    await asyncio.sleep(backoff)
+                    await _hist_rate_limiter.acquire()
+            else:
+                logger.error(
+                    "ibkr.hist_chunk_failed_all_retries",
+                    extra={
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "chunk_start": chunk_start.isoformat(),
+                        "chunk_end": chunk_end.isoformat(),
+                    },
+                )
+
+            chunk_bars: list[OHLCVBar] = []
+            for bar in ib_bars or []:
+                bar_ts = (
+                    bar.date
+                    if isinstance(bar.date, datetime)
+                    else datetime.fromisoformat(str(bar.date))
+                )
+                if bar_ts.tzinfo is None:
+                    bar_ts = bar_ts.replace(tzinfo=UTC)
+                chunk_bars.append(
+                    OHLCVBar(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        timestamp=bar_ts,
+                        open=float(bar.open),
+                        high=float(bar.high),
+                        low=float(bar.low),
+                        close=float(bar.close),
+                        volume=int(bar.volume),
+                        source=source_tag,
+                    )
+                )
+            walk_bars.extend(chunk_bars)
+            if on_chunk and chunk_bars:
+                await on_chunk(chunk_bars)
+
+            if hit_definitive_no_data:
+                consecutive_no_data_chunks += 1
+                if consecutive_no_data_chunks == 1:
+                    no_data_run_end = chunk_end
+                no_data_run_start = chunk_start
+                if consecutive_no_data_chunks >= _NO_DATA_CONFIRMATION_CHUNKS:
+                    # N consecutive fully-empty chunks while walking backward is strong
+                    # evidence we've passed the instrument's launch date — a single
+                    # empty chunk is not (see _NO_DATA_CONFIRMATION_CHUNKS, todo 049).
+                    # Stop here instead of burning rate-limit budget on years of
+                    # known-empty requests (this was previously walking the full
+                    # requested depth regardless of actual listing date; see todo
+                    # 042-adjacent finding 2026-07-02).
+                    break
+            else:
+                consecutive_no_data_chunks = 0
+
+            chunk_end = chunk_start - timedelta(days=1)
+
+        # The walk ended (threshold stop or reached `start`) inside a run of definitive
+        # no-data chunks: everything it asked about at the old end is empty per IBKR.
+        if (
+            consecutive_no_data_chunks > 0
+            and no_data_run_start is not None
+            and no_data_run_end is not None
+        ):
+            return walk_bars, EmptyHistory(
+                verified_from=no_data_run_start,
+                empty_through=no_data_run_end,
+                n_confirming_chunks=consecutive_no_data_chunks,
+                reached_request_start=no_data_run_start <= start,
+            )
+        return walk_bars, None
+
+    async def _fetch_pre_move_history(
+        self,
+        contract: Contract,
+        walk: Callable[..., Awaitable[tuple[list[OHLCVBar], EmptyHistory | None]]],
+        *,
+        start: datetime,
+        end: datetime,
+        smart_bars: list[OHLCVBar],
+        smart_empty: EmptyHistory | None,
+    ) -> tuple[list[OHLCVBar], EmptyHistory | None]:
+        """Recover history from before a stock's last primary-listing venue move (todo 433).
+
+        A SMART-routed request serves history only from the current primary listing on, so
+        a name that moved (ADI NYSE to Nasdaq 2012, UAL 2018) looks listed at the move. The
+        same contract routed to its former venue serves the earlier years. When the SMART
+        walk starts later than `start`, the uncovered head is requested from every candidate
+        venue and the one with the most volume is kept: every venue prints trades in names
+        it does not list, and only the listing venue's auctions give the official open and
+        close. Venue bars count that venue's trades only (SOURCE_IBKR_VENUE).
+
+        Returns (venue bars, empty-history span). The span is SMART's only when every venue
+        also answered a definitive "no data"; any venue that failed ambiguously leaves the
+        head unverified (None), so it is asked again next run instead of recorded empty.
+        """
+        head_end = min(b.timestamp for b in smart_bars) - timedelta(days=1) if smart_bars else end
+        if head_end - start < timedelta(days=_VENUE_FALLBACK_MIN_GAP_DAYS):
+            return [], smart_empty
+        current = getattr(contract, "primaryExchange", "")
+        best: list[OHLCVBar] = []
+        best_venue = ""
+        verified_empty = True
+        for venue in _VENUE_FALLBACK_EXCHANGES:
+            if _VENUE_ALIASES.get(venue, venue) == current:
+                continue
+            venue_contract = copy.copy(contract)
+            venue_contract.exchange = venue
+            bars, venue_empty = await walk(
+                venue_contract, end=head_end, source_tag=SOURCE_IBKR_VENUE, on_chunk=None
+            )
+            if not bars and venue_empty is None:
+                verified_empty = False
+            if sum(b.volume for b in bars) > sum(b.volume for b in best):
+                best, best_venue = bars, venue
+        if best:
+            logger.warning(
+                "ibkr.hist_venue_fallback_recovered",
+                extra={
+                    "symbol": getattr(contract, "symbol", ""),
+                    "venue": best_venue,
+                    "n_bars": len(best),
+                    "first": best[0].timestamp.isoformat(),
+                    "last": best[-1].timestamp.isoformat(),
+                },
+            )
+            return best, None
+        return [], smart_empty if verified_empty else None
 
     async def get_head_timestamp(self, symbol: str) -> tuple[datetime | None, str | None]:
         """IBKR's earliest-data timestamp for a qualified symbol: (head, None) or (None, error).

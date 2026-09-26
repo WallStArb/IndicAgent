@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -504,6 +505,38 @@ def _load_ibkr_retry_config(settings: Settings) -> None:
             ibkr._NO_DATA_CONFIRMATION_CHUNKS = int(rows["infra.ibkr.no_data_confirmation_chunks"])
     except Exception as error:
         print(f"  (APR retry-config lookup failed, using hardcoded defaults: {error})")
+
+
+def _load_ibkr_venue_fallback_config(settings: Settings) -> None:
+    """Overlay the APR-configured former-venue recovery parameters (migration 374, todo 433)
+    onto ibkr._VENUE_FALLBACK_EXCHANGES / _VENUE_FALLBACK_TIMEFRAMES /
+    _VENUE_FALLBACK_MIN_GAP_DAYS in place. Same fallback contract as the loaders above --
+    falls back to the hardcoded defaults if the APR keys aren't present or the DB is
+    unreachable.
+    """
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key LIKE 'infra.ibkr.venue_fallback.%'"
+                )
+                rows = dict(cur.fetchall())
+        finally:
+            conn.close()
+        if "infra.ibkr.venue_fallback.exchanges" in rows:
+            ibkr._VENUE_FALLBACK_EXCHANGES = list(
+                json.loads(rows["infra.ibkr.venue_fallback.exchanges"])
+            )
+        if "infra.ibkr.venue_fallback.timeframes" in rows:
+            ibkr._VENUE_FALLBACK_TIMEFRAMES = set(
+                json.loads(rows["infra.ibkr.venue_fallback.timeframes"])
+            )
+        if "infra.ibkr.venue_fallback.min_gap_days" in rows:
+            ibkr._VENUE_FALLBACK_MIN_GAP_DAYS = int(rows["infra.ibkr.venue_fallback.min_gap_days"])
+    except Exception as error:
+        print(f"  (APR venue-fallback lookup failed, using hardcoded defaults: {error})")
 
 
 def _load_ibkr_rate_limit_config(settings: Settings) -> None:
@@ -1220,6 +1253,7 @@ def main() -> None:
     _load_ibkr_chunk_days_config(settings)
     _load_ibkr_hist_timeout_config(settings)
     _load_ibkr_retry_config(settings)
+    _load_ibkr_venue_fallback_config(settings)
     _load_ibkr_rate_limit_config(settings)
     _load_ohlcv_insert_batch_size_config(settings)
     _load_gap_cluster_max_days_config(settings)

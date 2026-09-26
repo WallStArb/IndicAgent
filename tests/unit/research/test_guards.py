@@ -119,6 +119,19 @@ def test_integrity_passes_and_reports_coverage():
     assert (report.coverage[20:] == 1).all()
 
 
+def test_integrity_rejects_zero_volume_bar_with_close():
+    panel = _panel()
+    panel.volume[40, 0] = 0.0
+    with pytest.raises(GuardFailure, match="no positive volume"):
+        integrity(panel, np.zeros(panel.close.shape))
+
+
+def test_integrity_accepts_unknown_volume_on_former_venue_bars():
+    panel = _panel()
+    panel.volume[:30, 1] = np.nan  # tradeable view: NULL volume on ibkr_venue bars
+    assert integrity(panel, np.zeros(panel.close.shape)).volume_checked
+
+
 def test_integrity_rejects_filled_alpha_on_missing_close():
     panel = _panel()
     panel.close[50, 1] = np.nan

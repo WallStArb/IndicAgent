@@ -24,6 +24,10 @@ SOURCE_IBKR_SEED = "ibkr_seed"  # Historical seed bar from DB backfill (BarMessa
 SOURCE_HTF_DERIVED = "htf_derived"  # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
 SOURCE_DERIVED_1M = "derived_1m"  # Aggregated from 1m bars in DB (market_data_ohlcv)
 SOURCE_SYNTHETIC_FILL = "synthetic_fill"  # Flat fill for canonical grid gaps
+# IBKR bars routed to a former primary listing venue, for the span before a venue move
+# (todo 433): official open and close, but that venue's volume only, not consolidated.
+# market_data_ohlcv_tradeable reports their volume as NULL (migration 374).
+SOURCE_IBKR_VENUE = "ibkr_venue"
 SOURCE_UNKNOWN = "unknown"  # Source missing from payload (provider-agnostic fallback)
 
 # Minutes per timeframe
