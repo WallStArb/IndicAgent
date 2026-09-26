@@ -31,3 +31,20 @@ Build, in the phase 183 runner (owner: the phase 183 lane):
   one below it (unit tests).
 - Family 1's and family 2's measurements are recorded and pass.
 - The gate values come from the battery's recorded configuration, not a second hand-typed copy.
+
+## Requirements added 2026-09-26 (phase 183 session, from the family 2 session's review)
+
+- Measure on the panel the run scores: the output of `runner._analysis_panel` (after the
+  members' universe filter, `panel.total_return`, and any transform such as session legs), never
+  the S0 source panel.
+- Split segments (`<sym>~<k>`) count as separate names, as the run sees them.
+- Measured on residual returns or on raw cross-sectionally demeaned returns: pick the one the
+  battery's gated sizes were measured on (raw, cross-sectionally demeaned slot or leg returns,
+  2010 onward) and record which.
+- Gate values are read from the battery's recorded configuration
+  (`null_battery.MEASURED_*`-derived gating cells), never a second hand-typed copy; the
+  `MEASURED_*` constants become the recorded outputs of this measurement for the families they
+  came from.
+- Unit test with a `total_return` spec where the measurement differs from price-only.
+- Refusal is uncharged and recorded like the power refusal, with the measured sizes in the
+  evidence record.
