@@ -60,7 +60,8 @@ The script was deleted the same day. Drawn names are now onboarded as drawn and 
 panel's coverage rules handle short histories. The 70 were onboarded the same day from
 `expansion_smallcaps_2026_09_26.csv` (todo 434), in their original cohorts (40 `r2k_draw_iwm`,
 30 `r2k_draw_iwv_rank1001`) with the classifications the other 125 drawn names received. All
-195 names both draws produced are now in `instruments`.
+195 names both draws produced are now in `instruments`. CLBK is held out of `compute_eligible_1d`: IBKR
+serves no daily history for its current conId (902968711), so it has no bars.
 
 ## ETF batch (second manifest)
 

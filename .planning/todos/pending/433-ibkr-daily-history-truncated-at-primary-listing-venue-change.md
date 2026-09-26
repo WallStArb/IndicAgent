@@ -87,21 +87,23 @@ record.
 
 ## Status
 
-Branch `fix/433-venue-move-history` (worktree `../indicagent-433`), not merged: verify-only
-recovery, migration 374, research guard change, tests. Before merging: confirm IBKR accepts the
-ISLAND, AMEX and BATS routing codes; apply 374 only after every 1d backfill in flight has
-finished.
+Verify-only fix merged 2026-09-26 (0d225b312): former-venue recovery that logs
+(`ibkr.hist_venue_fallback_recovered`) and stores nothing (`infra.ibkr.venue_fallback.store_bars`
+false), automatic `fetch_complete`, per-timeframe rate limit (`{"1d": 200}`). Migrations 374
+(tradeable view NULLs venue volume; 1d `ohlcv_empty_history` rows deleted for re-verification)
+and 375 applied. IBKR accepts the ISLAND, ARCA, NYSE, AMEX and BATS routing codes.
 
 ## Next
 
-1. Merge the branch as above, apply migration 374, re-run the 1d backfill for all names. The
-   verify-only log (`ibkr.hist_venue_fallback_recovered`) plus the "Query failed" lines give the
-   moved-name inventory (D6).
+1. Re-run the 1d backfill for every active name once the 113-name backfill is promoted. Its
+   `ibkr.hist_venue_fallback_recovered` and "Query failed" lines are the moved-name inventory
+   (D6), and it re-verifies 1d empty history under the new rule.
 2. D3 validation study: on at least 30 names whose listing venue is known today (NYSE, Nasdaq,
    NYSE Arca), check that the listing venue has the most volume and that only its closes match
    SMART's. Pass: set `store_bars` true and re-backfill the moved names; check closes chain
    across each move date. Fail: venue bars stay unstored.
-3. Intraday: extend verify-only to intraday timeframes, then recovery after the study covers
-   intraday bars, through a planned corpus recompute (never under a live ic_engine run).
+3. Intraday: extend verify-only to intraday timeframes (72 of 88 empty-history rows per
+   timeframe), then recovery after the study covers intraday bars, through a planned corpus
+   recompute (never under a live ic_engine run).
 4. Check the September finding that the head-timestamp lookup failed with "Query failed" for
    112 of 273 active names: likely the same mechanism.

@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-26
 source: 2026-09-26 universe expansion code review
@@ -30,3 +30,10 @@ onboarded as drawn, and the research panel's own coverage rules handle short his
    `universe_expansion_onboard_manifest.py`, backfill 1d, promote.
 2. Update `config/universe/README.md`: the draws are then onboarded in full, apart from any
    name IBKR cannot qualify.
+
+## Closed 2026-09-26
+
+All 70 onboarded (a5a46d60f), 1d-backfilled with the 43-ETF batch (421,296 bars, 0 fetch
+errors) and promoted to `compute_eligible_1d`, except CLBK: IBKR answers "No historical market
+data" for its current conId (902968711), so it holds zero bars and stays unpromoted. Every drawn
+name is in `instruments`; `config/universe/README.md` records CLBK.

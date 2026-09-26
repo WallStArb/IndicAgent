@@ -17,18 +17,17 @@ progress:
 
 ## Strategic Plan (read this first)
 
-**Universe and daily data, 2026-09-26.** Active universe 273 -> 862, all `compute_eligible_1d`
-(1d-only; 233 still carry the intraday stack): 546 names onboarded and promoted (368 S&P 500,
-125 seeded small caps, 53 ETFs and Dow fills) plus 43 ETFs (industry, EM country, commodity,
-fixed income) awaiting their 1d backfill. Lineage: `config/universe/README.md`. The 70 small
-caps the deleted history screen dropped are todo 434. IBKR SMART history starts at a stock's
-last listing-venue move (todo 433, P0), in 1d and intraday alike, and `ohlcv_empty_history`
-recorded those years as verified empty: every daily and intraday verdict on moved names is
-affected until 185 lands. Phase 185 (daily data foundation, IBKR-only, accepted) owns the fix;
-survivorship is decided as forward-only from IBKR (185 D8) plus bounding past verdicts (185
-D0). The 433 branch (`fix/433-venue-move-history`, worktree `../indicagent-433`) holds
-verify-only venue recovery, migrations 374/375, a per-timeframe rate limit, one request per 1d
-name and automatic `fetch_complete`; it is reviewed before merge, then 374/375 are applied.
+**Universe and daily data, 2026-09-26.** Active universe 273 -> 932 (659 names onboarded
+at 1d: 368 S&P 500, all 195 seeded small caps, 96 ETFs and Dow fills). 931 are
+`compute_eligible_1d`; CLBK has no IBKR daily history. 233 still carry the intraday stack.
+Lineage: `config/universe/README.md`. IBKR SMART history starts at a stock's last
+listing-venue move (todo 433, P0), in 1d and intraday alike: every daily and intraday verdict on
+moved names is affected until phase 185 lands. The verify-only fix is merged (0d225b312,
+migrations 374/375). Phase 185 (daily data foundation, IBKR-only, accepted, not planned) owns
+the rest; its first stage is D8 (delisting record and guard, scheduled holdings snapshots),
+then the all-name 1d re-run, the D3 venue study and the split-seam audit, none of which needs
+the observation store. Survivorship is forward-only from IBKR (185 D8) plus bounding past
+verdicts (185 D0).
 
 **v3.4 Edge Proof, 2026-09-24.** 179: harness S0-S4 on main
 (`scripts/analysis/sleeve_walk_forward/`); V2 (6.0% false-pass), V3 (81% power at excess 0.85)
@@ -246,7 +245,7 @@ the Phase Summary table above, and the full planning/execution record for any CO
 in its own `.planning/milestones/v3.1-phases/<N>-*/` directory (archived at milestone close 2026-09-02; future phases create fresh dirs under `.planning/phases/`) and `docs/foundation/`/`docs/research/` docs, not
 duplicated here. Currently open/not-yet-planned phases, compressed to current status only:
 
-- **Phase 185** (Daily data foundation): added and accepted 2026-09-26, not planned. IBKR-only (no new data sources). Spec `docs/plans/2026-09-26-daily-data-foundation.md`. First step: merge the todo 433 branch (verify-only venue recovery, migrations 374 and 375, per-timeframe rate limit set from the 1d rate probe), then re-run the 1d backfill for every name to build the moved-name inventory.
+- **Phase 185** (Daily data foundation): added and accepted 2026-09-26, not planned. IBKR-only (no new data sources). Spec `docs/plans/2026-09-26-daily-data-foundation.md`. D4's rule shipped verify-only (0d225b312). Next: D8 delisting record and guard plus scheduled holdings snapshots, then the 1d re-run for every name (moved-name inventory), the D3 validation study and the split-seam audit.
 - **Phase 183** (Research layer: runner, ledger, combiner, book test): plans 01-09 and 11 executed 2026-09-25 (runner, research_run ledger + migration 366, specs, R1/R2, ridge, E16 book test and power, family 1 members and specs). E16 adopted and built (9152597eb). Plan 10 in progress: family 1 real evidence run launched 2026-09-25 18:49 EDT (spec b828c285, commit 531da089d); book_v1 screen test next, then outcome docs. Follow-ups: todo 429, todo 430 step 4 (SignalSource rename).
 - **Phase 182** (Security classification hierarchy, todo 384): COMPLETE 2026-09-25. 7/7 plans, migrations 364/365/367/368 live, 295 instruments classified, verification passed (182-VERIFICATION.md). Follow-ups: todo 431 and 182 deferred-items.md.
 - **Phase 169** (Symbol State Query Layer): design doc only, `docs/research/intel-symbol-state-query-layer.md`. Not planned. Needs its own live-verification refresh before planning (flagged stale 2026-08-21 -- its "What Exists" section's row/symbol counts predate the universe expansion to 231 symbols).

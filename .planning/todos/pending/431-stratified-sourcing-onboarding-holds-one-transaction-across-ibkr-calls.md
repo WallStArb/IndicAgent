@@ -22,6 +22,10 @@ and calls `onboard_instrument()` per symbol inside it, each making an IBKR quali
 
 ## Fix
 
-Qualify every symbol first, outside any transaction, and abort the run if the rejection rate
-spikes (a gateway problem, not a real rejection). Then open one short write transaction for the
-qualified set. Keep per-symbol savepoints so one bad row does not sink the batch.
+`universe_expansion_onboard_manifest.py` already does this (qualify every row outside any
+transaction with a gateway probe before and after, then one short write transaction) and is
+the documented onboarding path (CLAUDE.md, `config/universe/README.md`); it onboarded all 659
+names on 2026-09-26. The remaining defect is the second writer: delete `_run_commit` and the
+`--commit` path from `universe_expansion_stratified_sourcing.py` and from
+`universe_expansion_pilot_draw.py`, which imports it, so draw scripts only draw and write a
+manifest. Keep the sampling helpers `universe_expansion_holdings_draw.py` imports.

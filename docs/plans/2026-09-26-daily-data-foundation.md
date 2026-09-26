@@ -76,8 +76,8 @@ Each verdict carries the result as a data-quality label in the construction-verd
 An append-only `ohlcv_observation` table for 1d: symbol, bar date, open, high, low, close,
 volume, plus `source` (ibkr), `route` (SMART, a venue code), `what_to_show` (TRADES,
 ADJUSTED_LAST), `fetched_at` and a request id. Every IBKR answer lands here first, including the
-venues and routes not chosen. Size at 819 names: about 4M rows per route over 20 years, so
-roughly 10-15M rows with the routes below, small next to the intraday tables.
+venues and routes not chosen. Size at 932 names: about 4.5M rows per route over 20 years, so
+roughly 12-18M rows with the routes below, small next to the intraday tables.
 
 ### D2. Canonical daily bar
 
@@ -89,12 +89,13 @@ rule version and the observations it came from.
 
 ### D3. Venue-move recovery (todo 433), rebased on D1 (1d and intraday)
 
-Branch `fix/433-venue-move-history` (a905709b4) already asks every former-venue candidate and
-keeps the one with the most volume. Rebased on D1 it stores every venue's answer and leaves the
+The 433 fix (merged 0d225b312) already asks every former-venue candidate and keeps the one
+with the most volume. Rebased on D1 it stores every venue's answer and leaves the
 choice to D2. Before D2 uses venue bars, a validation study on names whose listing venue is known
 today (at least 30 across NYSE, Nasdaq and NYSE Arca) must show two things: the listing venue
 has the most volume on nearly every day, and only its closes match SMART's. If either fails,
-venue bars stay stored and unused. Venue volume stays NULL in the tradeable view either way
+venue bars stay stored and unused. The study fetches its own SMART and venue bars for recent
+years, so it does not wait for D1; only storing the recovered history does. Venue volume stays NULL in the tradeable view either way
 (owner decision 2026-09-26).
 
 Intraday uses the same routing. Volume matters more there (participation, dollar volume,
@@ -106,8 +107,8 @@ under a live or resumable ic_engine run.
 ### D4. Empty history as a derived fact
 
 A span is recorded empty only when every route answered a definitive "no data", with the
-answers kept in D1. The rule ships ahead of D1 in the 433 branch in verify-only mode (owner
-decision 2026-09-26): former venues are asked, history found there blocks the empty record and
+answers kept in D1. The rule shipped ahead of D1 on 2026-09-26 (0d225b312, migrations 374 and
+375 applied) in verify-only mode (owner decision 2026-09-26): former venues are asked, history found there blocks the empty record and
 is logged for the D6 inventory, and no venue bar is stored until D3's study passes
 (`infra.ibkr.venue_fallback.store_bars`, false). Migration 374 also deletes the existing 1d
 `ohlcv_empty_history` rows for re-verification. The intraday rows (72 of 88 per timeframe) need
@@ -123,7 +124,12 @@ the same treatment once verify-only covers intraday.
   IBKR-only route to total returns (todo 428), to be validated against known dividends (JPM, KO,
   XLU quarterly) before research uses it. ADJUSTED_LAST also starts at the last venue move, so
   moved names get total returns only after their move until a vendor fills the rest.
-- **Audit the existing corpus** for split seams (MRNA and ALMS above first).
+- **Audit the existing corpus** for split seams (MRNA and ALMS above first). This part needs
+  neither D1 nor D2 and runs early: 195 of the 932 names are small caps, where splits and
+  reverse splits are common, and every one the nightly job crosses today leaves a seam. The
+  audit compares each name's stored closes with a fresh TRADES fetch over the same span; a
+  constant ratio over a date range is a seam, recorded in `corporate_action` once that table
+  exists.
 
 ### D6. Listing-venue history
 
@@ -149,13 +155,24 @@ Thresholds live in APR.
 
 ### D8. Survivorship, going forward
 
-IBKR cannot fill the past, but the future can stop being survivor-only:
+IBKR cannot fill the past, but the future can stop being survivor-only. Both parts lose data
+for every day they are not running, so they come first in the order below:
 - Keep every onboarded name forever, and record a delisting (date, last bar, reason if known)
   when IBKR stops qualifying it. The panel from today onward then includes the names that later
-  die.
+  die. The research snapshot selects its universe from the current `instruments` flags
+  (`src/intelligence/research/snapshot.py::universe_symbols`), and the obvious operator response
+  to a dead name, the API's soft delete (`is_active = false`), would drop its whole history from
+  every later snapshot. So a delisting is its own record, the eligibility flags stay true, the
+  nightly backfill stops asking for the name, and a guard refuses deactivating a name that has
+  stored bars without a delisting row.
 - Store every holdings snapshot we already download (IWM, IWV, IVV) as dated, point-in-time
-  index membership. It starts accumulating now, and seeded draws can later sample membership as
-  of a date.
+  index membership, on a schedule rather than when a draw needs one. It starts accumulating
+  now, and seeded draws can later sample membership as of a date. Unverified lead: iShares'
+  holdings export takes an `asOfDate` parameter on its `.ajax` endpoint, which sits behind a
+  bot challenge from plain HTTP clients (the `latest-holdings.csv` path ignores the parameter,
+  checked 2026-09-26). If a browser session can fetch past dates, IWM's own history gives
+  point-in-time Russell 2000 membership back to the fund's inception without a vendor, which
+  bounds survivorship exposure for D0 even though IBKR still cannot serve the dead names' bars.
 
 The retroactive fix needs Stage V.
 
@@ -168,12 +185,15 @@ on the canonical bars, and the ledger records whether each verdict moved.
 ## Order
 
 0. D0 damage measurement, in parallel with everything below.
-1. D4's rule via the 433 branch (verify-only), then the D1 observation store.
-2. D3 rebased on D1, then the validation study.
-3. D2 canonical derivation, then the 433 re-backfill through it.
-4. D5 splits, the ADJUSTED_LAST dividend study, the corpus seam audit.
-5. D7 audits.
-6. D6 and D8.
+1. D8's delisting record and guard, and scheduled holdings snapshots: small, and every day
+   without them loses data that cannot be recovered.
+2. The 1d re-run for every name under the merged verify-only rule (moved-name inventory, empty
+   history re-verified), the D3 validation study, and the D5 corpus seam audit. None needs D1.
+3. D1 observation store, then D3 rebased on it.
+4. D2 canonical derivation, then the moved names re-backfilled through it (if the study passed).
+5. D5 split detection on the nightly overlap and the ADJUSTED_LAST dividend study.
+6. D7 audits.
+7. D6.
 
 ## Success criteria
 
