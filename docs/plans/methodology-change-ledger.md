@@ -912,3 +912,41 @@ when this was found.
   `docs/plans/2026-09-25-multi-timeframe-horizon-design.md`.
 - **Pre-registered?** No real-data number exists for any book; family 1's evidence runs have not
   started. The change is decided on simulations only.
+
+### E17: 2026-09-26 (ADOPTED 2026-09-26 by the owner, with conditions): the timing statistic scores weights against a memory-lagged cell mean
+
+- **Observed first** (todo 432, phase 183 session, book_v1 refusal diagnosis): E16's series
+  `sum (w - wbar)(r - fbar)` is biased under H0 for members built from their own cell's recent
+  target returns, because the causal expanding mean `fbar` contains the returns that built `w`
+  (a Nickell-type bias). Real power harness: mean40 member H0 mean t -2.5 to -2.7; book_v1's 0/51
+  power refusal was produced by the statistic, not by the data's resolution.
+- **Independently checked** (this entry's author, `scripts/analysis/e16_null_size/
+  own_history_bias_check.py`, 40 simulations per row, t4 noise, trailing-40 own-history member,
+  3,000 sessions, 100 names): E16 as built, H0 mean t -0.37 with full histories and -1.37 when 40%
+  of names list late (-1.10 with static per-name means); the adopted form -0.20, -0.19 and -0.01.
+  The bias scales with how short a cell's history is when it is scored, which is why the real
+  panel (late listings, missing bars, 13 slots) shows about -2.6.
+- **Adopted statistic:** `T_s = sum over (bar, name) of w * (r - fbar_L)`, no weight demean, where
+  `fbar_L` is the cell's mean target over sessions older than the signal's declared memory L, and
+  a cell contributes only once `fbar_L` has at least 60 sessions of history. Under H0, `w` (built
+  from the last L sessions) and `fbar_L` share no inputs, and `fbar_L` still removes a static cell
+  mean. L for a member is its `slot_history_sessions`; for a book, the largest over its members.
+- **Conditions of adoption:** (1) one implementation, `timing_series(..., memory_sessions=L)`,
+  used by evidence records, book tests and power replicates alike, with L read from the spec and
+  recorded in every evidence record; (2) before any real run uses it, an H0 battery of at least
+  1,000 simulations per cell with late listings, static per-cell means, t4 noise, per-slot effects
+  and a late-listing name, plus at least one cell with S1 in the loop (synthetic prices through
+  `residual_returns`, whose 252-session loadings couple residuals across sessions, weakly and
+  unmeasured); size must hold at 0.05, 0.01 and 0.00167 as in E16; (3) what it credits is stated:
+  a signal that tracks slowly varying expected returns counts as predictability (both the E16 and
+  E17 forms score it; the independent check's drifting-mean cells), a static exposure does not;
+  (4) family 1's evidence records (spec b828c285, computed under E16 as built) are annotated as
+  biased toward zero; the detection stands.
+- **Also decided (owner, 2026-09-26):** the next book versions (family 1 book_v2, family 2's first
+  book) default to a fixed, pre-registration-signed equal-weight combination of standardized
+  members, pinned only after about 100 further synthetic replicates confirm the phase 183
+  finding that the 252-session walk-forward ridge costs about half the t at IC 0.002; the ridge
+  becomes a later, separately counted book version.
+- **Built by:** the phase 183 session (owner of `timing.py`). Todo 432.
+- **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
+  Family 1's member evidence exists and stays as recorded, annotated per condition (4).

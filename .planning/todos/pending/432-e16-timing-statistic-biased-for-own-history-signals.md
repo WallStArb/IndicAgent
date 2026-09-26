@@ -65,3 +65,18 @@ share no inputs, and `fbar_L` still removes a static cell mean.
 Scripts and logs: `logs/phase183/e16_diag/power_diag{,2..6}.py` and `.log` in worktree
 `../indicagent-183-02` (local, gitignored). Implementation must add these checks as tests:
 H0 mean and sd of the statistic with and without static tilts, and a late-listing name.
+
+## Owner decisions (2026-09-26)
+
+1. Adopted as methodology-change-ledger E17, with conditions: one `timing_series(...,
+   memory_sessions=L)` for evidence, book and power; an H0 battery (at least 1,000 simulations per
+   cell, late listings, static cell means, t4, per-slot effects, one cell with S1 in the loop)
+   must hold size before any real run uses it; family 1's evidence records annotated as biased
+   toward zero. Independent check: `scripts/analysis/e16_null_size/own_history_bias_check.py`
+   (late listings take E16's H0 mean t from -0.37 to -1.37; the fix stays near 0).
+2. Combiner: next book versions default to a fixed prereg-signed equal weight of standardized
+   members, pinned after about 100 more replicates confirm it beats the ridge.
+3. Built by the phase 183 session (owns `timing.py`). The indicagent-63 line builds, without
+   touching `timing.py`: family plants out of `synthetic.py` (dependency inversion: it imports
+   family 1's `SLOT_BARS`), a spec-resolved panel-transform seam replacing the `_is_legs`
+   branches, and family 2's power plant (B2). Family 2's evidence run waits for this todo.
