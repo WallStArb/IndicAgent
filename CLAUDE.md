@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.56.1
+Version: 5.57.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project — not a production system. Architectural decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. When giving advice, apply the same rigor you would to a system built to last — do not hedge around operational risk that doesn't apply.
@@ -8,14 +8,14 @@ Version: 5.56.1
 **Principles:** Instrument everything · shadow mode first · data quality over model complexity · never drop data that could contain signal · earn capital through proof (count every look at the vintage, select with StepM, promote only with positive net expectation, confirm once on each book's own unsearched forward span; `docs/plans/2026-09-24-evidence-framework.md` and `docs/plans/2026-09-26-unified-research-to-production-design.md`, E15-E18) · segment by regime · automate manual tasks · empirical over theoretical · resist overfitting. Full doc: `docs/foundation/principles.md`.
 **Design mindset:** Think as a council of senior engineers at Renaissance Technologies. Data integrity is paramount. Ruthlessly eliminate complexity. Silent wrong answers are worse than loud crashes. Deterministic DAG topology — every node does one thing, data flows one direction, no cycles. SoC: compute ≠ persistence ≠ transport. Async-first. Before committing to a design: (1) survives 10x volume? (2) what fails silently or introduces hidden bias? (3) does the DAG still hold? (4) what manual step does this eliminate?
 **5-Step mandate (Musk):** Make requirements less dumb → delete → simplify → accelerate → automate. Run in order. Don't optimize what should be deleted. Don't accelerate in the wrong direction. Don't automate what isn't proven. Full doc: `docs/foundation/musk-5-step-process.md`.
-**Naming:** Concept name (`snake_case`) derives all layer names — `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/`, `src/observability/` = Ring 0 portable infrastructure (no domain vocab, no imports from `services/`); `src/intelligence/` = Ring 1 domain; `services/` = Ring 2 daemons. Topics: dots only, via `stream_keys.py`. Full spec: `docs/foundation/naming-system.md`.
-**Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`.
+**Naming:** Concept name (`snake_case`) derives all layer names: `signal_tracker` → `SignalTracker`, `indicagent-signal-tracker.service`, `topic_signal_tracker()`, `signal_trackers` table. **Ring rule:** `src/core/`, `src/observability/` = Ring 0 portable infrastructure (no domain vocab, no imports from `services/`); `src/intelligence/` = Ring 1 domain; `services/` = Ring 2 daemons. Topics: dots only, via `stream_keys.py`. Suffix taxonomy (`Tracker`/`Writer`/`Auditor`...), `Base*` prefix, `Agent` retired, and the eight surfaces (classes, files, topics, DB tables and columns, variables, routes, functions, constants): `docs/foundation/naming-system.md`.
+**Glossary:** Every domain term has exactly one definition. Check before naming new concepts; glossary wins over existing code on collision. Full spec: `docs/foundation/glossary.md`. Retired terms (`AlphaEngine`, `ensemble alpha`, `alpha score`, `sleeve`, ...; unified design section 15) are banned in new code and docs; the pre-commit glossary check fails on new hits (todo 430).
 **Doc locations:** `docs/foundation/` canonical home. `docs/` root is index only. `docs/research/` docs can go filename-stable (edited in place, no longer re-dated on rewrite) — check for a stale `YYYY-MM-DD-<name>.md` fork of an undated doc before citing or editing either.
-**Before archiving anything in `docs/plans/`/`docs/research/`**: `grep -rl <filename>` first — this project's archive dirs (259 files combined) are actively maintained already; the obvious-looking-stale candidates are usually still cross-referenced by live docs, not orphaned.
+**Before archiving anything in `docs/plans/`/`docs/research/`**: `grep -rl <filename>` first; stale-looking docs are usually still cross-referenced by live ones.
 **Gotchas:** `docs/reference/gotchas.md` — rare pitfalls moved out of per-turn context.
-**Performance investigations:** Before touching a batch job that mutates millions of rows against a TimescaleDB hypertable and runs far slower than expected, follow `docs/foundation/performance-investigation-sop.md` — measure (`pg_stat_activity.wait_event`, `iostat -x 1`, `EXPLAIN ANALYZE`) before theorizing, never trust a read-only test for a write-path question, and check chunk count/compression status as first-class suspects. Two independent incidents (todos 149, 161) hit the same shape of bug two weeks apart; don't make it three.
-**Compressed-hypertable column type changes:** Any migration doing decompress→`ALTER COLUMN TYPE`→recompress on a compressed hypertable MUST end with a bare `VACUUM <table>;` after the recompress step — `compress_chunk()` does not synchronously reclaim the decompressed heap pages `decompress_chunk()` populated earlier, and TimescaleDB's internal chunk tables are not reliably picked up by autovacuum. Full pattern + copy-paste template: `docs/foundation/timescaledb-compressed-column-migration.md`. Migrations 201, 202, and 312 all omitted this step; 312 turned it into a 768GB disk-full incident (2026-08-13) before all three were fixed retroactively. **Now CI-enforced** (`tests/unit/test_compressed_hypertable_migration_vacuum_check.py`, todo 305): a new migration missing this step fails the build.
-**Planning system:** `.planning/PLANNING-SYSTEM.md` — how IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/ flow into each other. Current phase/progress: `.planning/STATE.md`. Todo prioritization (single source of truth for `pending/`): `.planning/todos/PRIORITIES.md` — a new todo filed without a table row (or a stale link to a moved/renamed one) is **now CI-enforced** (`tests/unit/test_todo_priorities_link_integrity.py`, filed after this drift class was caught by manual audit 5 times, most consequentially todo 335 sitting untracked for 2 days while actively corrupting a live corpus run).
+**Performance investigations:** Before touching a batch job that mutates millions of rows against a TimescaleDB hypertable and runs far slower than expected, follow `docs/foundation/performance-investigation-sop.md`; measure (`pg_stat_activity.wait_event`, `iostat -x 1`, `EXPLAIN ANALYZE`) before theorizing, never trust a read-only test for a write-path question, and check chunk count/compression status as first-class suspects (todos 149, 161).
+**Compressed-hypertable column type changes:** a migration doing decompress→`ALTER COLUMN TYPE`→recompress MUST end with a bare `VACUUM <table>;` (`compress_chunk()` does not reclaim the decompressed heap pages, and autovacuum misses internal chunk tables; migration 312's omission became a 768 GB disk-full incident). CI-enforced (`tests/unit/test_compressed_hypertable_migration_vacuum_check.py`). Template: `docs/foundation/timescaledb-compressed-column-migration.md`.
+**Planning system:** `.planning/PLANNING-SYSTEM.md`: how IDEAS.md → docs/ideas/ → docs/plans/ → todos/pending/ → ROADMAP.md → phases/ flow into each other. Current phase/progress: `.planning/STATE.md`. Todo prioritization (single source of truth for `pending/`): `.planning/todos/PRIORITIES.md`; every pending todo needs a table row and every link must resolve (CI-enforced, `tests/unit/test_todo_priorities_link_integrity.py`).
 **Adding a phase:** `gsd-sdk query phase.add` numbers from `.planning/phases/` directories, not ROADMAP.md; check `grep -n "### Phase" .planning/ROADMAP.md | tail` first and add by hand on a collision.
 **Live phase-execution state:** ROADMAP.md plan checkboxes plus `NN-SUMMARY.md` presence in the phase dir are the granular truth; STATE.md phase entries lag (todo 383 sync bug) — check `git log --oneline` before citing a phase as not-yet-executed.
 **STATE.md Strategic Plan edits:** replace stale bullets with plain corrected facts — don't stack `CORRECTED <date>` narrative blocks (the section's own header calls it a staleness trap).
@@ -32,21 +32,14 @@ Version: 5.56.1
 7. git push origin main
 ```
 
-**GSD-orchestrated phases (`/gsd-execute-phase`) enforce step 1 automatically** via a
-`code_simplifier_gate` in `execute-phase.md` (added 2026-07-13 after Phases 142B, 143.1, and
-144 all landed on `main` with this step silently skipped — GSD's own workflow never called it;
-CLAUDE.md's SOP text only reached the loop when a human-driven session ran it manually). For
-any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manually before
-`/review`.
+`/gsd-execute-phase` runs step 1 itself (`code_simplifier_gate`); any other work invokes `/simplify` manually before `/review`.
 
 **Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md` for full reference.
 
 ## Architecture
 
-**Layers (v3.0):** Feature Factory (replaces I1-I4) · I5-I7 archived · I8 AI (Ollama; effective model `nemotron-3-nano:4b` set by `OLLAMA_MODEL` in `.env` — the `settings.py` code default `gemma4:e4b` is NOT pulled locally, so a missing `.env` entry breaks all LLM calls). **I8 is target-state, not confirmed-running:** `BaseAIWorker`/`alpha_swarm`/`narrative_swarm` have had zero commits since the v3.0 rebuild started 2026-06-20, and both `indicagent-alpha-swarm`/`indicagent-narrative-compute` are `disabled`/`inactive` — dormant-pending-design, not archived like I1-I7. Check `systemctl status` + `git log` before citing this stack as live. Detail: `src/intelligence/CLAUDE.md`'s top banner.
-**Pipeline (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `indicagent-intelligence-pipeline.service` is `failed`; `ExecStart` points at a deleted file. Do not restart this unit expecting it to work. Full architecture: `src/intelligence/CLAUDE.md`.
+**Archived and dormant (no live consumer):** the v2.x I1-I7 pipeline and typed bus (`IntelligenceEvent`, `intelligence_features`; units `failed`/`inactive`, do not restart expecting them to work) and the I8 AI stack (`BaseAIWorker`, Ollama swarms, `disabled`). Check `systemctl status` + `git log` before citing any of it as live. Details, rules and the Ollama `.env` model gotcha: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.5, adopted 2026-09-26; `docs/plans/2026-09-26-unified-research-to-production-design.md`, E18):** `ingest (IBKR -> market_data_ohlcv) -> feature (feature_vectors, market_regimes) -> measure (ic_engine: proposer, IC term structure, member monitoring) -> research (S0 panel -> S1 target -> S2 families -> S3 guards -> S7 combiner -> construction rule -> S8 book test; S6 ledger is the sole writer of research_run) -> frozen book -> forward runner (BookTracker/BookPositionWriter, sealed shadow) -> capital`. The old chain (`ensemble_trainer` -> `EnsembleICEngine` -> `alpha_publisher` -> `alpha_events`, plus `alpha_frame_writer`/`counterfactual_tracker`) still exists on disk until phase 186 deletes it; build nothing new on it.
-**Typed Bus (v2.x — ARCHIVED, no live consumer as of 2026-07-02):** `IntelligenceEvent` (`src/intelligence/schemas.py`) — tiered JSONB (i1/i2/i3/i4/i5/smc/i6), persisted to `intelligence_features` by `feature_writer`. `indicagent-feature-writer.service` is `inactive (dead)`.
 
 **Service DAG:** canonical registry is `_DAG_ORDER` in `services/service_auditor.py`. Live state: `systemctl list-units --all | grep indicagent`. Monitoring: Grafana `:3001`.
 **ML batch services** (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`, `roll-batch`): `inactive (dead)` between runs is correct.
@@ -65,20 +58,12 @@ any work NOT driven through `/gsd-execute-phase`, still invoke `/simplify` manua
 - `src/core/stream_keys.py` — all stream/topic key construction
 - `src/core/database_manager.py` — PostgreSQL/TimescaleDB with connection pooling
 - `src/core/service_utils.py` — `setup_service_logging()`, `min_bars_for_tf()`, `format_iso_ts()`, `parse_iso_ts()`
-- `src/core/ai/` — AI agent infrastructure (`BaseAIWorker`, `Evaluator`, `AgentOutput`, `WorkerContext`, `IAIAgent`). `SignalContext` in `src/intelligence/ai/context.py`. `BaseGroupCoordinator` in `src/intelligence/ai/group_coordinator.py`.
-- `src/intelligence/schemas.py` — canonical typed bus schemas
 - `src/config/settings.py` — `Settings`, `get_active_contracts()`, `Instrument` definitions
 - `src/providers/ibkr.py` — all ib_async logic (no imports outside this file)
-- **Narrative service (dormant, see Architecture note above):** `services/narrative_swarm.py` (`NarrativeSwarm`) → `indicagent-narrative-compute`. Worker: `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`.
 
 ## Data Flow
 
-```
-Hot:  IBKR TWS → Redpanda Streams → Services              (sub-ms)
-Warm: Streams → indicator/analysis/signal pipeline        (<10ms)
-Cold: BarWriter + FeatureVectorWriter → TimescaleDB (batch, async)
-```
-**Real-time pipeline never touches the database directly.**
+Streaming (dormant while the IBKR live feed is down): IBKR → Redpanda → services in memory; `BarWriter`/`FeatureVectorWriter` persist in batch. **The real-time path never touches the database directly.** Today's data arrives by nightly batch backfill.
 
 ### TimescaleDB Tables
 
@@ -135,6 +120,11 @@ Lifecycle `candidate -> shadow_only -> active -> deprecated` for research artifa
 
 Entire I1-I7 tier has no live consumer. Full architecture, tier lists, shadow governance, AI agent authoring: `src/intelligence/CLAUDE.md`.
 
+## Research Invariants (unified design section 12, E15-E18)
+
+`temporal_integrity` (a read for t sees only facts knowable by t, by availability time) · `determinism` (bit-exact from snapshot hash + code key + spec hash) · `single_writer` (one writer per table, one direction) · `no_fill` (missing is NaN, warmup masked by declared memory, no placeholders reach compute) · `point_in_time` (universe, classification, tags, APR as of t) · `lineage` (every output traces to its recipe and run) · `asset_agnostic` (asset class is data, not a code branch) · `pure_compute` (pure functions over arrays, state at the edges).
+**Data:** raw market data is permanent; derived data is cache (rebuildable, dropped only after its summary card is written); conclusions are records. **Evidence:** every backtest goes through the research runner and is counted; `alpha.validation.oos_start` is write-once; costs never enter a test statistic, but promotion needs positive net expectation.
+
 ## DAG Invariants
 
 Non-negotiable. Any violation is wrong regardless of whether it works locally.
@@ -153,45 +143,34 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **Executable returns only (Invariant 1)**: IC measurement MUST use `forward_returns.return_type = 'executable_open_to_open'`. The correct formula is `ln(open[T+N+1] / open[T+1])` — market-on-open entry, market-on-open exit. Theoretical `ln(close[T+N] / close[T])` captures overnight gaps that cannot be traded and overstates IC. All `forward_returns` queries in `ic_engine.py` must filter `WHERE return_type = 'executable_open_to_open'`. The table is legacy (UD-25, design 14.7): `panel.forward_returns` is the one target definition, phase 186 drops the table, and new code computes targets with the kernel, never reads the table.
 - **Parallel dicts → dataclass**: 3+ `dict[str, X]` attributes keyed by same ID → consolidate into `dict[str, MyState]` with `_state(key)` factory. Pattern: `SignalTracker._signal_states`.
 - **ProcessPoolExecutor workers are compute-only**: workers must return serializable results (rows, dicts) to the main process. All DB writes go through a single serial connection in main. Never open a write connection or call execute_batch/conn.commit() for writes from a worker subprocess — concurrent writers on the same TimescaleDB hypertable cause index-page deadlocks. (Fixed in regime_writer; pattern applies to all batch services: ic_engine, backfill_feature_factory, etc.)
-- **Killing a ProcessPoolExecutor-based service's main process orphans its workers**: `kill <main_pid>` does not reap forkserver worker subprocesses — they survive, still holding DB connections/still writing. Always follow with `ps aux | grep <script.py> | awk '{print $2}' | xargs kill` and confirm zero remain before restarting. Then check `pg_stat_activity` for a backend still running the killed process's query (state `active`, wait `ClientWrite`) and `pg_terminate_backend()` it: it keeps its chunk locks, and the restarted run's writes block behind it until a statement timeout (Phase 178 resume, 2026-09-24).
+- **Killing a ProcessPoolExecutor-based service's main process orphans its workers**: `kill <main_pid>` does not reap forkserver worker subprocesses; they survive, still holding DB connections/still writing. Always follow with `ps -eo pid,cmd | awk '/<script.py>/ && !/awk/ {print $1}' | xargs kill` and confirm zero remain before restarting (never `pkill -f`/`pgrep -f` a pattern in your own command line: it kills the invoking shell, exit 144). Then check `pg_stat_activity` for a backend still running the killed process's query (state `active`, wait `ClientWrite`) and `pg_terminate_backend()` it: it keeps its chunk locks, and the restarted run's writes block behind it until a statement timeout (Phase 178 resume, 2026-09-24).
 - **Never edit a module ic_engine imports while a corpus run is live or resumable**: `code_content_key` hashes every first-party module ic_engine loads, so one edit discards every completed cell. Kill-and-resume with the same command is safe and skips cells whose fingerprints are already written; kill by PID and terminate any leftover ic_engine backend first (rule above).
-- **Never log per-row inside a loop over the full corpus** (millions of rows on `--backfill`): a `logger.warning()` per occurrence floods the log file and adds real per-row overhead on a hot path. Accumulate a local counter and report once per partition/run instead — same shape whether the loop runs in-process or inside a `ProcessPoolExecutor` worker (worker accumulates and returns the count; main process sums and logs once). Pattern: `ic_engine.py`'s `n_skipped`. (Fixed in alpha_frame_writer.py/counterfactual_tracker.py, Phase 142B code review.)
-- **Never materialize a wide (`SELECT tbl.*`) full-corpus DataFrame**: a 200+-column × millions-of-rows fetch costs another full-width copy on *every* subsequent pandas op (concat, reorder, column extraction) — patching one OOM (chunked fetch, `del df`) just moves the kill to the next line, confirmed the hard way on `feature_vectors` (todo 234). Build the matrix directly from asyncpg rows instead, never materializing the wide frame — pattern already in `ensemble_trainer.py` and `scripts/analysis/_nonlinear_interaction_combiner_shared.py`'s `fetch_training_matrix`.
-- **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
+- **Never log per-row inside a loop over the full corpus** (millions of rows on `--backfill`): a `logger.warning()` per occurrence floods the log file and adds real per-row overhead on a hot path. Accumulate a counter and log once per partition or run (a worker returns its count; main sums and logs). Pattern: `ic_engine.py`'s `n_skipped`.
+- **Never materialize a wide (`SELECT tbl.*`) full-corpus DataFrame**: a 200+-column × millions-of-rows fetch costs another full-width copy on *every* subsequent pandas op (concat, reorder, column extraction); patching one OOM (chunked fetch, `del df`) just moves the kill to the next line, confirmed the hard way on `feature_vectors` (todo 234). Build the matrix directly from asyncpg rows (pattern: `scripts/analysis/_nonlinear_interaction_combiner_shared.py`'s `fetch_training_matrix`).
 - **Dormant AI stack (`BaseAIWorker`, `BaseGroupCoordinator`, Ollama, `llm_calls`):** its invariants live in `src/intelligence/CLAUDE.md` ("Dormant AI stack rules"); read them before touching that code.
 - **Kafka is transport, not state store.** Hot state → local file checkpoint. Bar history → TimescaleDB.
 - **Timestamp serialization**: use `format_iso_ts(dt)` from `service_utils.py`. Never inline `.isoformat().replace("+00:00", "Z")`.
 - **`get_active_contracts()`** is a module-level function in `settings.py`. Call as `get_active_contracts(settings)`, not `settings.get_active_contracts()`.
 - **asyncpg**: JSONB → `dict` (no `json.loads()`/`json.dumps()`), but ONLY on a pooled connection from `BaseBatch`'s `create_pool()`, which registers the codec. A bare `asyncpg.connect()` (e.g. a read-only reporting/evaluation branch) has no codec; jsonb columns come back as raw JSON text. Call `src.core.database_manager._setup_codecs(conn)` explicitly on any bare connection that reads jsonb. Timestamps → `datetime`. UUIDs → `str()` before Kafka.
 - **asyncpg dtype casting**: derive column types from `conn.prepare(sql).get_attributes()` (schema), never from inferring dtype off fetched row data — a column that's all-NULL in an early chunk (e.g. a late-backfilled feature, Phase 164/165) silently mistypes if inferred from data, and a downstream `dtype.kind in "fc"` filter then drops it from training with no error.
-- **structlog `event` kwarg collision**: Never pass `event=<value>` — use `signal=`, `payload=`, `data=` instead.
 - **Service registry**: when adding a service, update `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `service_auditor.py`; seed its lag threshold as an `alert.lag.*` APR key (loaded by `_load_lag_thresholds()`, hot-reloaded via Kafka) — do not hardcode it.
-- **`INDICAGENT_ENV` consistency**: Mixed env prefixes → services subscribe to different topics → zero data flow.
 - **Settings**: use `src/config/Settings`. Never `os.environ` directly.
 - **Metrics**: `src/observability/metrics.py` (direct OTel SDK — `prometheus_client` fully removed). Counters → `.add(1, attrs)`, histograms → `.record(val, attrs)`, up-down gauges → `.add(delta, attrs)`, point gauges → `.set(value, attrs)`. Never import `prometheus_client`.
 - **Spans**: `observed_span(name, attributes={...})` from `src/observability/spans.py` — auto-records ERROR on raise. Use `ATTR_*` constants from same module.
-- **`BaseWriter._parse_payload` return contract**: `None` → DLQ whole payload. `[]` → all-invalid (no DLQ). Only return `None` for truly unparseable payloads.
 - **`bulk_update_by_key`'s `col_types` is load-bearing for correctness, not just DDL**: any column declared `"real"` gets float32-range-clamped before write (`services/_batch_utils.py::_clamp_to_real_range`) — a caller whose `col_types` still says `"double precision"` for a column a migration later narrowed to `real` silently loses that protection and can hit a Postgres "value out of range" write failure (todo 312). Keep `col_types` in sync with the live schema, always.
 - **Exception variable name is `error`** — `except X as error:`, not `exc`.
 - **File/class renames require test sweep:** `grep -r "OldName" tests/` — test imports break at pytest collection, not lint.
 - **`git add` with multiple pathspecs aborts entirely if ANY path doesn't match** (e.g. staging the pre-rename side of an already-`pending/`→`completed/`-moved todo file) — none of the valid paths get staged either, not just the bad one. Stage an already-renamed path alone (`git add -- <new_path>`; git auto-detects the rename) before batching it with others. Related: `git mv` carries the previously-staged blob under the new name — content edits made before the move stay unstaged and the commit records a 100%-similarity rename (todo 274's closure note needed a follow-up commit for exactly this); re-`git add` the new path after `git mv`.
 - **A migration applied live via `psql -f` has no forcing function to get committed** — unlike code, its effect is already active in the DB even if the file never lands in git. Commit it in the same breath as applying it, not "later."
-- **`BaseWriter.__init__` requires `name: str`** (non-optional): when removing `name=` from any writer, also update `BaseWriter.__init__` to accept `name: str | None = None`.
-- **Oneshot `_agent.py` exceptions:** `services/feature_validation_agent.py`, `services/hmm_training_agent.py`, `services/ml_training_agent.py`, `services/ml_signal_training_agent.py` — `_agent` suffix intentionally preserved.
-- **API health router prefix is `/health`** not `/api/health`. Routes: `/health/system`, `/health/database`, etc.
-- **`agent_last_message_timestamp_seconds` label key is `agent_id`** — use `r["metric"].get("agent_id")` when querying from Prometheus.
 - **Research changes keep frozen verdicts bit-identical:** after any edit under `src/intelligence/research/` or `src/intelligence/statistics/`, run `.venv/bin/python scripts/analysis/sleeve_walk_forward/repro_frozen.py <scratch_dir> --logs /home/bg/dev/indicagent/logs` (from a worktree); it must report bit-identical. Moves before phase 186 deletes that directory (todo 448).
 - **New optional research-spec fields go in `spec.py`'s `_OPTIONAL_*_FIELDS`** (dropped from the canonical form when unset), or every recorded spec hash moves and the ledger's run records stop matching their specs.
 - **Validating a test statistic:** check the H0 mean and sd of t and rejection counts against a binomial bound at each level, never one-sided p ranges alone (E16's bias hid behind p 0.28-0.77). Commit the pass criterion before the result exists.
 - **Shift nulls have (sessions - L) / tau effective draws,** not one per shift: a persistent signal (tau 40-60) gets about 60-90 and cannot resolve p < 0.00167, however many shifts are run.
 - **Ad hoc multiprocess scripts:** build the pool with `make_worker_pool(n, blas_threads_per_worker=1)` or export `OMP_NUM_THREADS=1`; a bare pool spawns 24 BLAS threads per numpy worker.
-- **Never `pkill -f` / `pgrep -f` a pattern that appears in your own command line** (it matches and kills the invoking shell, exit 144); select PIDs with `ps -eo pid,cmd | awk '/pat/ && !/awk/'`.
 
 **Services**
 - **Logging**: `structlog` → `logs/<snake_case_class_name>.log` via `setup_service_logging("logs/<name>.log")`. NOT journald.
 - **Service logs rotate daily (~00:3x UTC)**: an empty/short current `.log` doesn't mean the process died — check `.log.1`/`.log.N.gz` for activity before today.
-- **`PERSISTENCE_BATCH_LATENCY` label key is `agent_id`** — not `agent=`.
-- **`feature_vector_pipeline` subscribes to:** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 - **Tests**: `tests/unit/`, `tests/integration/`. Unit tests must be CI-clean.
 
 ## OTel Health Contract
@@ -201,12 +180,11 @@ Every `BaseDaemon` subclass auto-inherits 5 mandatory OTel signals (D-26, non-ne
 
 ## Infrastructure
 
-- **Server:** `192.168.68.60` — Claude Code runs ON this machine; never SSH. DHCP-assigned (router reassigns on lease expiry — was `.53` until the 2026-09-23 power outage; `.53` is now another device). Runtime configs are all `localhost`, so only docs/bookmarks break on a change; a router DHCP reservation would pin it.
+- **Server:** `192.168.68.60` (DHCP; was `.53` before 2026-09-23). Claude Code runs ON this machine; never SSH. Runtime configs use `localhost`.
 - **IBKR Gateway:** Docker (`ib-gateway` container), bound to `127.0.0.1:7497`. All ib_async in `src/providers/ibkr.py` only. VIX=`"VX"`, client IDs 35+.
 - **Redpanda**: Kafka-compatible. Topics: dots, via `stream_keys.py`. Retention: minimal (transport, not storage).
 - **Contracts**: always `get_active_contracts()` — never hardcode. Restart daemons on futures expiry.
-- **Roll flow:** `roll-batch` (`scripts/ops/roll/ops_roll_batch.py`) — promotes front-month in `contract_metadata`, broadcasts via Kafka. Documented as nightly 8pm, but **`indicagent-roll-batch.timer` itself is confirmed disabled** (re-checked 2026-08-31) — verify with `systemctl list-timers | grep indicagent` before assuming this runs on schedule. Not all timers are disabled project-wide as of that date, though: `indicagent-nightly-backfill.timer` (daily 01:00 EDT) and `indicagent-regime-coverage-auditor.timer` (daily 02:00 EDT) are both `enabled` and firing on schedule — check per-unit, don't assume the whole fleet is dormant.
+- **Timers:** check per unit with `systemctl list-timers | grep indicagent`; some fire (nightly backfill 01:00 EDT, regime coverage auditor 02:00 EDT), others are disabled (`indicagent-roll-batch.timer`: `scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`).
 - **Docker**: `cd production && docker compose up -d` after `docker-compose.yml` changes. All services have `logging: max-size/max-file` caps — do not remove them (TimescaleDB grew a 29GB log without them).
-- **Ollama:** Docker (`ollama/ollama:rocm`). `docker exec ollama ollama <cmd>`. Kill `alpha_swarm` + `narrative_compute` before swapping models.
 
 > Sudo, INDICAGENT_ENV debug, more: `docs/operations/operations-infrastructure.md`

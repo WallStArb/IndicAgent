@@ -1,6 +1,6 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.15
+**Version:** 2.16
 **Status:** current
 **Last Updated:** 2026-09-04 (coherence/dedup pass: renamed `## BaseWriterAgent` heading to `## BaseWriter` — matches the live class name, `Agent` is a retired mechanism-word suffix per naming-system.md; scoped `## I7 Plugin Feature Access` as `(v2.x, archived — no live consumer as of 2026-07-02)` to match CLAUDE.md's Architecture note, since the code it describes still exists in the tree but isn't running; cross-checked remaining sections against CLAUDE.md's Key Rules gotcha-shaped bullets — no contradictions found)
 
@@ -39,6 +39,7 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 - **`KafkaProducerClient.publish()` kwarg is `msg=`** — not `value=`. Wrong kwarg silently fails at flush.
 - **Topic naming**: dots only (not colons). Always via `src/core/stream_keys.py`.
 - **`INDICAGENT_ENV` consistency**: mixed env prefixes → services subscribe to different topics → zero data flow.
+- **`feature_vector_pipeline` subscribes to** `topic_market_bars` (1m) AND `topic_market_bars_htf` (HTF).
 
 ## structlog
 
@@ -46,7 +47,8 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 
 ## BaseWriter
 
-- **`_parse_payload` return contract**: `None` triggers `_maybe_route_to_dlq` on the whole payload. For per-signal validation failures return `[]` (all-invalid) not `None`, to prevent double-DLQ. Reserve `None` for truly empty/unparseable payloads. (Matches CLAUDE.md's Key Rules statement of the same contract — this section is the extended note, not a second source of truth.)
+- **`_parse_payload` return contract**: `None` triggers `_maybe_route_to_dlq` on the whole payload. For per-signal validation failures return `[]` (all-invalid) not `None`, to prevent double-DLQ. Reserve `None` for truly empty/unparseable payloads. (Moved from CLAUDE.md 2026-09-26; this is now the single statement.)
+- **`BaseWriter.__init__` requires `name: str`** (non-optional): when removing `name=` from any writer, also update `BaseWriter.__init__` to accept `name: str | None = None`.
 
 ## CircuitBreaker
 
@@ -89,6 +91,9 @@ the `--from-step` value alone.
 ## Observability / Metrics
 
 - **Two-tier OTel metric pattern**: `src/observability/metrics.py` is for shared/cross-cutting metrics (shadow promotion stats, persistence latency, circuit breaker state). Service-local counters (`_COMPUTE_CYCLES`, `_BARS_WRITTEN`, etc.) belong inline in the service file using `_xxx_meter = _otel_metrics.get_meter("indicagent")`. Do not add service-local counters to `metrics.py`; do not mix both patterns in the same file.
+- **Label keys:** `agent_last_message_timestamp_seconds` and `PERSISTENCE_BATCH_LATENCY` use `agent_id` (query with `r["metric"].get("agent_id")`), not `agent`; `agent_crash_total` is the exception and uses `agent`.
+- **API health router prefix is `/health`**, not `/api/health` (`/health/system`, `/health/database`, ...).
+- **Oneshot `_agent.py` names kept on purpose:** `services/feature_validation_agent.py`, `hmm_training_agent.py`, `ml_training_agent.py`, `ml_signal_training_agent.py`.
 
 ## Systemd
 

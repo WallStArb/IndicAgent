@@ -119,6 +119,8 @@ All live in `src/intelligence/trading/`:
 
 ## Dormant AI stack rules (moved from root CLAUDE.md 2026-09-26)
 
+- **File map (moved from root CLAUDE.md 2026-09-26):** AI infrastructure in `src/core/ai/` (`BaseAIWorker`, `Evaluator`, `AgentOutput`, `WorkerContext`, `IAIAgent`); `SignalContext` in `src/intelligence/ai/context.py`; `BaseGroupCoordinator` in `src/intelligence/ai/group_coordinator.py`; narrative service `services/narrative_swarm.py` (`NarrativeSwarm`, unit `indicagent-narrative-compute`), worker `NarrativeSynthesizer` in `src/intelligence/ai/narrative/narrative_agent.py`. Archived typed bus: `IntelligenceEvent` (`src/intelligence/schemas.py`), persisted to `intelligence_features` by `feature_writer` (`indicagent-feature-writer.service`, inactive).
+- **Ollama operations:** Docker (`ollama/ollama:rocm`), `docker exec ollama ollama <cmd>`; stop `alpha_swarm` and `narrative_compute` before swapping models. The effective model is `OLLAMA_MODEL` in `.env` (`nemotron-3-nano:4b`); `settings.py`'s code default `gemma4:e4b` is not pulled locally, so a missing `.env` entry breaks every LLM call.
 - **AI agent rules below (`BaseGroupCoordinator`, `BaseAIWorker`, Ollama, swarm confidence) describe dormant-stack code** — real invariants worth maintaining if this code is touched, not currently-running production behavior. See Architecture note above.
 - **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
 - **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly.
