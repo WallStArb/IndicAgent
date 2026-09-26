@@ -2,7 +2,11 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-26, at Brandon's request ("write the phase proposal with
 vendor shortlist; we can't add new data sources yet").
-**Status:** accepted 2026-09-26 (all four decisions at the end); roadmap Phase 185.
+**Status:** accepted 2026-09-26 (all four decisions at the end); roadmap Phase 185. **Revision 2
+(2026-09-26):** aligned with the adopted unified design (`docs/plans/2026-09-26-unified-research-to-production-design.md`, E18): D0 re-aimed at
+attempts, an explicit scrubbing stage (D2a), revision propagation, the minimum data bar for daily
+attempts, intraday labels, one snapshot capture job, and the design's write mechanics. Decisions
+5-7 at the end.
 
 ## Why now
 
@@ -61,19 +65,21 @@ placeholders) keeps its current table; the raw-store pattern extends there once 
 itself at 1d. Two parts do reach intraday now: D3's venue-move inventory and recovery, and D7's
 check of daily bars against aggregated intraday bars.
 
-### D0. Measure the damage (runs in parallel from day one)
+### D0. Data-quality labels on attempts (runs in parallel from day one)
 
-A verdict is not evidence until its data defects have been bounded. For each verdict the project
-relies on:
-- **Venue moves:** rerun it with moved names excluded before their move. If it survives, the
-  defect did not matter for it.
-- **Dividends:** re-score the ETF families, the most exposed (bond, utility and REIT funds earn
-  much of their return as dividends), on approximate total returns from ADJUSTED_LAST.
-- **Survivorship:** it cannot be fixed without delisted data, but it can be bounded. Apply a
-  haircut of the size the literature reports (roughly 1-2% a year in small caps, less in large
-  caps) and report whether the verdict survives it.
+Revision 2: old verdicts become UCR summary cards and are never re-scored (unified design 10.2), so
+D0 no longer re-runs them. Instead every research attempt carries typed data-quality labels,
+recorded with the attempt:
+- **Venue truncation:** the share of the attempt's (name, session) cells on names whose history
+  starts at a venue move, daily and intraday alike (families 1 and 2 run on intraday panels that
+  the same truncation cuts).
+- **Dividends:** whether targets are total returns (todo 428's opt-in) and the share of cells
+  without dividend coverage.
+- **Survivorship bound:** a literature haircut (roughly 1-2% a year in small caps, less in large
+  caps) and the delisting-return sensitivity of design section 12.2, reported beside the statistic.
+- **Scrub flags:** the share of cells on bars D2a flagged.
 
-Each verdict carries the result as a data-quality label in the construction-verdict ledger.
+Reruns happen only for ideas that are reopened, on canonical bars.
 
 ### D1. Raw observation store
 
@@ -91,6 +97,38 @@ A deterministic, versioned rule derives the 1d rows research reads from D1 and w
 separate. Changing the rule is a recompute, not a re-fetch, and each canonical row carries the
 rule version and the observations it came from.
 
+**Revisions propagate.** D2 rule changes, D3 recovery and D5 split re-derivation all revise past
+bars. The derivation writes through the unified design's provenance batches keyed by an input
+content digest per (symbol, tf, range) (design 3.3), so downstream writers (the `feature_vectors`
+rebuild, forward returns) recompute only the affected cells. Every research snapshot records the
+D2 rule version it read, so a frozen book's inputs are pinned and a revision is visible, never
+silent. D1's writer and D2's derivation are separate database roles (design 14.5) and load with
+`COPY`.
+
+### D2a. Scrubbing (validation between raw and canonical)
+
+Measured 2026-09-26 on the 3.86M tradeable 1d bars: OHLC invariants hold (0 violations), 3 bars
+have non-positive prices, every bar's `price_sanity_status` is NULL (never classified; 15 rows are
+`confirmed_corrupt`; `BarAuditor` is inactive), and 253 daily moves exceed 50% and 1,901 exceed
+25% with no examination. Scrubbing is a stage of the D2 derivation, not a side audit:
+
+1. **Rules**, each an APR-parameterized pure function over D1 observations: OHLC invariants,
+   non-positive or zero prices, jumps beyond a volatility-scaled threshold with no recorded
+   corporate action, repeated stale prints, volume outliers, disagreement between IBKR's views
+   (D7).
+2. **Flag, never delete.** Each canonical bar carries a quality flag and the rule that set it. Raw
+   observations are permanent. S0 excludes flagged bars by default (quarantine), and the attempt's
+   labels (D0) report how many it touched.
+3. **Validate every rule on known answers first:** known splits and reverse splits, known
+   corporate events (mergers, spin-offs), the 15 confirmed-corrupt rows, and hand-checked real
+   extreme moves, so a rule neither misses seams nor quarantines real returns.
+4. **One historical pass as a batch job** over all 1d history (minutes, not the 4.1 years todo 155
+   estimated through the live auditor's cadence), then the same rules on every nightly derivation.
+   Folds in todos 155 (historical price sanity), 347 (the unusable price-sanity index) and 052
+   (the adversarial error hunt, as rule 3's known-answer set plus a search for new classes).
+5. **Intraday** gets the same rules once they have proven themselves at 1d.
+
+
 ### D3. Venue-move recovery (todo 433), rebased on D1 (1d and intraday)
 
 The 433 fix (merged 0d225b312) already asks every former-venue candidate and keeps the one
@@ -105,8 +143,10 @@ years, so it does not wait for D1; only storing the recovered history does. Venu
 Intraday uses the same routing. Volume matters more there (participation, dollar volume,
 illiquidity), so recovered intraday bars get the same NULL-volume treatment, and no intraday
 feature reads them until the validation study covers intraday bars too. Recovered intraday
-history changes `feature_vectors` inputs, so it goes in through a planned corpus recompute, never
-under a live or resumable ic_engine run.
+history changes `feature_vectors` inputs, so it goes in through the content-digest keys: only the
+affected names and ranges recompute after phase 186's `feature_vectors` rebuild, with no second
+full rebuild, and never under a live or resumable ic_engine run. The rebuild does not wait for D3,
+and D3 does not wait for the rebuild.
 
 ### D4. Empty history as a derived fact
 
@@ -178,21 +218,33 @@ for every day they are not running, so they come first in the order below:
   point-in-time Russell 2000 membership back to the fund's inception without a vendor, which
   bounds survivorship exposure for D0 even though IBKR still cannot serve the dead names' bars.
 
+**One capture job.** The delisting check, the holdings snapshots and the daily short-borrow
+snapshot (todo 438, unified design 9.3) are the same pattern: live-only data lost for every day it
+is not recorded. They run as one daily capture job with one writer and a completion metric, so a
+missed day is heard.
+
 The retroactive fix needs Stage V.
 
 ## Research during the phase
 
-Alpha work continues in parallel (ALPHA FIRST, 2026-09-24). Every daily-panel verdict is tagged
-with the data vintage and the defects above. When D2-D5 land, the verdicts that matter are rerun
-on the canonical bars, and the ledger records whether each verdict moved.
+Alpha work continues in parallel (ALPHA FIRST, 2026-09-24). Every attempt carries D0's labels.
+
+**Minimum data bar for daily attempts.** The price-only daily families on the 931 names (unified
+design attempts 3, 3b and 4) run only after: the D5 split-seam audit and the D2a historical
+scrubbing pass (flagged bars quarantined); moved names flagged, and excluded before their move
+unless D3 recovered them; total-return targets (todo 428's opt-in); and the survivorship bound.
+When D2-D5 land, reopened ideas are re-evaluated on canonical bars, and under E18 prior attempts
+are re-evaluated on the extended data rather than reset.
 
 ## Order
 
-0. D0 damage measurement, in parallel with everything below.
-1. D8's delisting record and guard, and scheduled holdings snapshots: small, and every day
-   without them loses data that cannot be recovered.
+0. D0 labels, in parallel with everything below.
+1. The D8 capture job (delisting record and guard, holdings snapshots, borrow snapshots): small,
+   and every day without it loses data that cannot be recovered.
 2. The 1d re-run for every name under the merged verify-only rule (moved-name inventory, empty
-   history re-verified), the D3 validation study, and the D5 corpus seam audit. None needs D1.
+   history re-verified), the D3 validation study, the D5 corpus seam audit, and the D2a historical
+   scrubbing pass with its known-answer validation. None needs D1. Together they clear the minimum
+   data bar for daily attempts.
 3. D1 observation store, then D3 rebased on it.
 4. D2 canonical derivation, then the moved names re-backfilled through it (if the study passed).
 5. D5 split detection on the nightly overlap and the ADJUSTED_LAST dividend study.
@@ -201,14 +253,18 @@ on the canonical bars, and the ledger records whether each verdict moved.
 
 ## Success criteria
 
-- Every 1d bar research reads traces to the observations and rule version that produced it.
+- Every 1d bar research reads traces to the observations and rule version that produced it, and
+  every research snapshot records that rule version.
+- Every 1d bar carries a scrub flag from validated rules; flagged bars are quarantined, never
+  deleted.
+- Every attempt carries D0's data-quality labels.
 - No `ohlcv_empty_history` row exists that every route has not confirmed.
 - Moved names' closes chain across the move date with no jump beyond normal daily moves, or the
   seam is explained by a recorded action.
 - Split seams in the corpus: found, recorded, and re-derived, with an audit that catches the next
   one within a day.
 - The dividend route is validated on known ex-dates or reported as unusable.
-- The daily-panel verdicts that matter are rerun and their movement recorded.
+- Reopened ideas are re-evaluated on canonical bars and their movement recorded.
 
 ## Stage V (gated): a second source
 
@@ -237,3 +293,9 @@ intraday and live data.
 3. The 433 branch ships D4's rule now in verify-only mode; venue bars are stored only after
    D3's validation study passes.
 4. Stage V stays closed: no new data sources for now.
+5. Revision 2 (2026-09-26, with the unified design): D0 labels attempts instead of re-running old
+   verdicts; D2a scrubbing is part of the derivation, flag-never-delete, rules validated on known
+   answers; revisions propagate through content-digest keys and every snapshot records the rule
+   version.
+6. The D8 capture job absorbs todo 438's borrow snapshots.
+7. Daily attempts 3, 3b and 4 wait on the minimum data bar above.

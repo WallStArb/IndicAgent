@@ -44,7 +44,7 @@ current position only; PRIORITIES.md tiers todos.
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | Plans 01-09, 11 done; plan 10 (real runs) in progress, other session |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; venue-move recovery (433); splits and dividends point in time; D8 forward survivorship. IBKR-only | Accepted 2026-09-26, not planned |
+| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time; D8 capture job. IBKR-only. Clears the data bar for daily attempts | Accepted 2026-09-26, not planned |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Not planned; no live ic_engine run |
 | 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on 183 plan 10 |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
@@ -137,7 +137,13 @@ when every route answers "no data"; D5 splits detected from re-fetch overlaps an
 ADJUSTED_LAST against TRADES, point in time; D6 listing-venue history; D7 daily reconciliation of
 SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday; D8
 forward-only survivorship (keep every name, record delistings, dated index-membership snapshots).
-IBKR-only: no new data sources (owner, 2026-09-26); the vendor stage stays gated.
+IBKR-only: no new data sources (owner, 2026-09-26); the vendor stage stays gated. Revision 2
+(2026-09-26, aligned with the unified design): D0 becomes data-quality labels on every attempt
+(old verdicts are summary cards, not re-run); D2a scrubbing inside the derivation (flag, never
+delete; rules validated on known answers; one historical batch pass folding todos 155, 347, 052);
+revisions propagate through content-digest keys; one D8 capture job absorbs todo 438; daily
+attempts 3, 3b and 4 wait on the minimum data bar (seam audit, scrubbing pass, moved names,
+total returns, survivorship bound).
 **Requirements**: TBD
 **Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
 recompute, never under a live ic_engine run (Phase 178's worktree).
