@@ -81,6 +81,10 @@ survivorship-selected by construction, and a failure of any of that is heard.
 - Todo 376: decide the survivorship sourcing method (delisted and closed ETFs/names with
   point-in-time membership) before phase 180 onboards anything. For the ETF sleeve the concrete
   question is closed/merged ETFs in each asset-class bucket.
+  Decided 2026-09-26 (owner): no new data sources for now, so survivorship is fixed going
+  forward only, by phase 185 D8 (keep every onboarded name, record delistings, dated
+  index-membership snapshots from the holdings files), and bounded for past verdicts by 185 D0.
+  The retroactive fix waits on 185's gated vendor stage.
 - Confirm the 2026-09-24 backfill rerun and 2026-09-25 nightly: exit status, stale-symbol
   counts, `ohlcv_empty_history` growth.
 - Backlog triage: every pending todo gets one of on-path (named in a v3.4 phase), keep

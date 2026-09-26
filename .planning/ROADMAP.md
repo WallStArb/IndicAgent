@@ -29,12 +29,12 @@
 - 📋 **v3.15 Conditioning & Identity Foundation** — **Phases 144, 145, 146** (moved into this milestone 2026-07-03 — see `docs/research/fable-2026-07-03-roadmap-reconciliation.md` F1; previously miscategorized under "v3.3 Foundational Hardening," physically *after* Phases 149-151 despite being their hard prerequisite). Unifies the two live regime systems — per-symbol HMM `regime_writer.py` and cross-sectional `equity_regime_model.py`/Phase 144 — behind one `StratificationDimension` contract, governed via Concept Registry's `regime_model`/`hmm_variant` domains; idea doc: `docs/research/stratification-dimension-unification.md`; originally proposed 2026-07-02 in `docs/research/fable-2026-07-02-v3-topdown-architecture.md` §3, §7, D5/D8. **Hard prerequisite for Phase 149** (intel-13: PrecedentEngine's retrieval hard-filters on regime labels; building the embedding substrate on known-suspect strata bakes the bias into stored vectors — see Phase 149's Depends-on below). Explicitly does not block or change Phase 142B.1, which only consumes existing regime labels as an opaque stratification key. Batches together in one `ic_engine` re-run per topdown D5: Phase 144 + todo 026 P2b/P2c/P3 + todo 041 (tag taxonomy) + intel-12's first substitution test. Build trigger: todo 026's Step 1 regime-IC separation gate — **already run 2026-07-02, result asset-class-dependent** (SPY separates cleanly, TLT doesn't) — the pre-committed fallback for weak-separation asset classes (topdown Open Q4) needs an operator call at this milestone's planning, before the substitution test runs.
 - 📋 **v3.2 Signal Diversification — PrecedentEngine + Feature Expansion** — Phases 149-151 (planned; hard-gated on v3.1 OOS IC > 0 at 95% CI AND v3.15 complete for Phase 149; Renaissance: more diverse weak signals, not stronger strong ones. **Framing correction complete** (was pending, closed 2026-07-09) — the milestone goal text and Phase 150 no longer describe this as an "independent System 2"; both were rewritten against `docs/research/intel-precedent-engine.md` per todo 055, and the concept itself was renamed from "AnalogEngine" to "PrecedentEngine" the same day — "analog" collided with this codebase's dense signal-processing vocabulary, see `docs/foundation/naming-system.md`'s plain-role-noun table)
 - 📋 **v4.0 Execution Layer** — **Phases 156-159** (numbered 2026-07-12 from a production-readiness review, was "Phases TBD"; **restructured same day** to split out Portfolio State as its own foundational phase after catching a gap — this milestone's own design is portfolio-level, not per-security, and had no persisted entity for portfolio state to live in: 156 Portfolio State Foundation, 157 Position Sizing & Risk Management, 158 Live Execution Layer + broker resilience, 159 Cost Calibration Feedback Loop + Execution Scoring) (planned; hard-gated on v3.2 complete (Phase 155 is independently-gated, not blocking — ETF Universe Expansion removed as a phase 2026-07-04, already done — see below) + `alpha_events` schema frozen; consumes alpha_events, never modifies signal weights)
-- 🔄 **v3.4 Edge Proof** - Phases 177-184 (set 2026-09-24; active; 182 and 183 added 2026-09-25, 184 added 2026-09-25). Data floor, recompute throughput, a weight-level walk-forward verdict on the cross-asset sleeve and a parallel construction track (the two alpha-generation tracks), cross-asset breadth. Plan: `docs/plans/2026-09-24-edge-proof-program.md`.
+- 🔄 **v3.4 Edge Proof** - Phases 177-185 (set 2026-09-24; active; 182 and 183 added 2026-09-25, 184 added 2026-09-25, 185 added 2026-09-26). Data floor, recompute throughput, a weight-level walk-forward verdict on the cross-asset sleeve and a parallel construction track (the two alpha-generation tracks), cross-asset breadth. Plan: `docs/plans/2026-09-24-edge-proof-program.md`.
 - 📋 **v4.1 IC Governance + Drift Monitoring** — Phases 152, 153 (**149B corrected 2026-07-03 — no longer a standalone phase; merged into Phase 143**, see Phase 143's header). Regime-conditioned distribution drift + ensemble health gates; replaces DataIntegrityMonitor + SystemHealthMonitor + PredictiveDecayDetector; see `docs/research/measurement-governance-monitor.md` (current design, supersedes `docs/plans/archive/2026-06-27-health-guardian-design.md`). Per topdown D12, **Phases 152 and 153 are schedulable opportunistically any time after Phase 141** — the "v4.1" label is thematic grouping, not a sequencing gate. Phase 152 depends only on `feature_vectors` (exists today); Phase 153 depends on Phase 142A's `alpha_ensemble_ic` (exists, populated — though see the EIC-04 verdict log in Phase 142A's section before treating 142A as fully proven). Do not let either jump ahead of Phase 142B/143 or 148, which carry present-tense value the backlog matrix rates higher.
 
 ## Planned Phases — Priority Order
 
-**Active milestone: v3.4 Edge Proof (phases 177-184), set 2026-09-24.** Ordering and rationale:
+**Active milestone: v3.4 Edge Proof (phases 177-185), set 2026-09-24.** Ordering and rationale:
 `docs/plans/2026-09-24-edge-proof-program.md`, the single owner of sequence. STATE.md records
 current position only; PRIORITIES.md tiers todos; this list names the phases in order.
 
@@ -48,6 +48,7 @@ current position only; PRIORITIES.md tiers todos; this list names the phases in 
 | 6 | 182 Security classification hierarchy (todo 384) | Dated, tiered classification of every instrument (asset class > sector > industry group > industry): stratification, peer groups, reporting. Off the research critical path (S1 uses causal price clusters) | Complete 2026-09-25 |
 | 7 | 183 Research layer: runner, ledger, combiner, book test | Architecture steps 4-6 (`docs/plans/2026-09-25-alpha-research-architecture.md`): spec-as-pre-registration runner, S6 ledger writer with the vintage budget, S7 walk-forward ridge combiner, S8 book test. Every real-data number goes through it, so none has to be re-run or back-recorded | Not planned; steps 1-3 (panel, S1, S3 guards) on main 2026-09-25 |
 | 8 | 184 Multi-timeframe research inputs | One clock and one target per book; predictors from other timeframes enter through one causal alignment node; corpus features recomputed from `feature_factory` kernels (never read from `feature_vectors`); 15m and 1h built from 5m. Unblocks families 9 and 10 (`docs/plans/2026-09-25-multi-timeframe-horizon-design.md`) | Not planned; waits on 183 |
+| 9 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; venue-move history (todo 433, P0) recovered after validation; splits and dividends point in time; daily reconciliation of IBKR's independent views; verdicts carry measured data-quality labels. IBKR-only (owner, 2026-09-26). Spec: `docs/plans/2026-09-26-daily-data-foundation.md` | Accepted 2026-09-26; parallel with research. 433 branch (verify-only) ready to merge after the running backfill |
 
 177, 178 and 179 run in parallel (IBKR/alerting, ic_engine, an in-memory analysis harness).
 179 does not wait on 178: its walk-forward never touches the production IC or weight tables.
@@ -3024,6 +3025,29 @@ history (todo 428) gates confirmation of daily books with price-level members, n
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 184 to break down)
+
+### Phase 185: Daily data foundation
+
+**Goal:** Every daily bar research reads traces to raw IBKR observations and a versioned
+derivation rule, and no data defect reaches a verdict unmeasured. Build stages D0-D8 of
+`docs/plans/2026-09-26-daily-data-foundation.md` (accepted 2026-09-26): D0 bound each verdict's
+exposure to venue truncation, missing dividends and survivorship; D1 an append-only 1d
+observation store (every route and request type); D2 derived 1d bars written to
+`market_data_ohlcv` by the derivation alone; D3 venue-move recovery for 1d and intraday (todo
+433), stored only after a listing-venue validation study passes; D4 empty history recorded only
+when every route answers "no data"; D5 splits detected from re-fetch overlaps and dividends from
+ADJUSTED_LAST against TRADES, point in time; D6 listing-venue history; D7 daily reconciliation of
+SMART against venue, TRADES against ADJUSTED_LAST, daily against aggregated intraday; D8
+forward-only survivorship (keep every name, record delistings, dated index-membership snapshots).
+IBKR-only: no new data sources (owner, 2026-09-26); the vendor stage stays gated.
+**Requirements**: TBD
+**Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
+recompute, never under a live ic_engine run (Phase 178's worktree).
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 185 to break down)
 
 ---
 
