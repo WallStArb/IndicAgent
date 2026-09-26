@@ -88,3 +88,20 @@ Adopted as E17 (acc54358d) and built (33ca32107, 5f3de6ca1, 6702215b4). H0 batte
 and the one open owner decision (gate at twice the measured stress sizes, with the 0.3 cells as
 documented-limit diagnostics) are recorded in the E17 ledger entry. Close this todo when the
 owner decides and, if accepted, when family 1's re-score spec and book_v2 are pre-registered.
+
+## Pre-registered criterion: forward-shift calibration (written before its result, 2026-09-26)
+
+Experiment: E17 t for the mean40 member on 400 null panels per cell (null_battery panels:
+hostile at 0.3, static_vol at 0.3, hostile at measured sizes), each also scored on 199 forward
+shifts (returns at s paired with weights from s + k, k >= L + 1, no wraparound); shift p =
+(1 + #{t_k >= t_0}) / 200.
+
+- Valid only if the Student-t p reproduces the known failure in both 0.3 cells (rejections
+  above the 99% binomial bound at 0.05 or 0.01); otherwise the experiment cannot detect the
+  problem and says nothing.
+- Pass: shift-calibrated rejections within the 99% binomial bound at 0.05 (<= 29/400) and 0.01
+  (<= 9/400) in all three cells. Then draft the amendment "the decision p is the forward-shift
+  p of the E17 t" for the owner, conditional on a real-length check at 0.00167 with > 600
+  shifts.
+- Fail: the parametric per-attempt calibration stage returns to the table.
+- Mixed (holds at measured sizes, fails at 0.3): recorded as mixed, not rounded to a pass.
