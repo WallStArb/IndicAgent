@@ -38,6 +38,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from src.intelligence.research import (
+    dividends,
     guards,
     power,
     provenance,
@@ -111,6 +112,7 @@ async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
         start=spec.panel.start,
         end_exclusive=spec.panel.end_exclusive,
         manifest_extra={"universe": spec.panel.universe},
+        dividends=spec.panel.total_return is not None,
     )
 
 
@@ -308,10 +310,16 @@ def _check_spec_tree(loaded: LoadedSpec) -> None:
 
 
 def _prepare_panel(
-    spec: FamilySpec, source: Panel, *, source_hash: str | None, symbols: list[str] | None
+    spec: FamilySpec,
+    source: Panel,
+    *,
+    source_hash: str | None,
+    symbols: list[str] | None,
+    grid: dividends.DividendGrid | None = None,
 ) -> tuple[Panel, Panel | None]:
     """The analysis panel from the S0 source: narrowed to the members' universe when the spec
-    pins one (B3), then transformed when it names a transform (B1). Returns it with the source
+    pins one (B3), converted to total-return prices when it declares total_return (todo 428),
+    then transformed when it names a transform (B1). Returns it with the source
     sub-panel the transform's causality probe runs on (None without a transform)."""
     if symbols is not None:
         source = panel_mod.select_symbols(source, symbols)
@@ -325,6 +333,12 @@ def _prepare_panel(
                 "members_universe_size": len(source.symbols),
             },
         )
+    # After the universe filter (it matches database symbols; total_return renames split
+    # segments `<symbol>~<k>`) and before the transform (legs read the corrected prices).
+    if spec.panel.total_return is not None:
+        if grid is None:
+            raise ValueError("a total_return spec needs a snapshot captured with dividends")
+        source = dividends.total_return(source, grid, spec.panel.total_return.suspect_yield)
     transform = transforms.resolve(spec.panel.transform)
     probe = None if transform.probe is None else _sub_panel(source, spec.guards.s1_probe_sessions)
     return transform.apply(source, source_hash), probe
@@ -338,7 +352,15 @@ async def _analysis_panel(
     there is no database)."""
     if real:
         return await _load_panel(spec, ctx)
-    prepared, source_probe = _prepare_panel(spec, panel, source_hash=None, symbols=None)
+    # Generated synthetic panels carry no dividends: the identity grid keeps total_return a no-op.
+    # A real S0 snapshot passed here arrives without its grid, so it is refused, never run on
+    # unadjusted prices under a total-return spec.
+    grid = None
+    if spec.panel.total_return is not None:
+        if panel.manifest.get("source") == snapshot.PRICE_SOURCE:
+            raise ValueError("a total_return spec on a real snapshot runs in real mode")
+        grid = dividends.no_dividends(panel)
+    prepared, source_probe = _prepare_panel(spec, panel, source_hash=None, symbols=None, grid=grid)
     return prepared, None, source_probe
 
 
@@ -349,6 +371,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
         path = await build(ctx.dsn, ctx.snapshot_dir, spec)
     digest = store.verify(path)
     panel = panel_mod.load(path)
+    grid = dividends.load_grid(path)
     manifest = panel.manifest
     expected = {
         "tf": (panel.tf, spec.panel.tf),
@@ -356,6 +379,7 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
         "start": (manifest.get("start"), spec.panel.start),
         "end_exclusive": (manifest.get("end_exclusive"), spec.panel.end_exclusive),
         "universe": (manifest.get("universe"), spec.panel.universe),
+        "dividends": (grid is not None, spec.panel.total_return is not None),
     }
     wrong = {k: v for k, v in expected.items() if v[0] != v[1]}
     if wrong:
@@ -363,7 +387,9 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
     symbols = None
     if spec.panel.members_universe == "us_session_equity":
         symbols = await snapshot.us_session_equity_symbols(ctx.dsn)
-    panel, source_probe = _prepare_panel(spec, panel, source_hash=digest, symbols=symbols)
+    panel, source_probe = _prepare_panel(
+        spec, panel, source_hash=digest, symbols=symbols, grid=grid
+    )
     return panel, digest, source_probe
 
 

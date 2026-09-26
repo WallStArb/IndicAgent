@@ -58,6 +58,14 @@ IsoDate = Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}$")]
 Identifier = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")]
 
 
+class TotalReturnSpec(BaseModel):
+    """Total-return prices (todo 428, dividends.total_return). suspect_yield: an event above
+    this yield that only one source reports is not applied; the symbol splits there instead."""
+
+    model_config = _STRICT
+    suspect_yield: float = Field(gt=0, lt=1)
+
+
 class PanelSpec(BaseModel):
     model_config = _STRICT
     universe: Literal["compute_eligible", "compute_eligible_1d", "live_tradeable"]
@@ -70,6 +78,8 @@ class PanelSpec(BaseModel):
     # members_universe: a pinned rule narrowing the S0 symbols (legs.us_session_equity_symbols).
     transform: Literal["session_legs"] | None = None
     members_universe: Literal["us_session_equity"] | None = None
+    # todo 428. Optional, absent from every earlier spec, so their hashes are unchanged.
+    total_return: TotalReturnSpec | None = None
 
     @model_validator(mode="after")
     def _transform_needs_intraday(self) -> PanelSpec:
@@ -346,7 +356,7 @@ def _sha(text: str) -> str:
 
 # PanelSpec fields added after specs were run: left out of the canonical form while unset, so
 # every spec written before them keeps its recorded hash (family 1, book_v1).
-_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe")
+_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe", "total_return")
 # The same for scoring and the combiner: specs run under E16 keep their hashes.
 _OPTIONAL_SCORING_FIELDS = ("timing_statistic",)
 _OPTIONAL_COMBINER_FIELDS = (

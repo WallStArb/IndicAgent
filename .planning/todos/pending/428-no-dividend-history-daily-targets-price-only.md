@@ -61,13 +61,29 @@ Reader surface: `dividend_events_reconciled` (per-source yields plus a default Y
 `dividend_yield`) and `dividend_event_coverage` (outside Yahoo's span: unknown, never zero). Use
 `amount / prev_close` only; amounts are in the split units of the day they were derived.
 
-Remaining for done-when:
-1. S0 emits total-return-adjusted opens and closes from the reconciled view, marks a return
-   unknown when it spans a date outside Yahoo coverage or an event the spec treats as suspect
-   (113 Yahoo events exceed a 10% yield: mostly spin-offs recorded as dividends, and at least one
-   vendor error, VATE 2020-05-14 at 129%), and the guard test (a synthetic high-yield name with
-   no alpha produces no family 9 signal). This touches phase 183's panel: coordinate with that
-   session, which is building family 2 on the same panel.
-2. Chain `dividend_event_writer.py --sources yahoo` into the nightly job so new ex-dates arrive
-   daily; the IBKR cross-check can run weekly (a full universe pass is about 1.6h at the 1d
-   rate limit).
+Remaining for done-when (updated below): the S0 consumer and the nightly chain.
+
+## Update 2026-09-26: S0 total-return prices (part 2 of 3)
+
+A spec opts in with `panel.total_return: {suspect_yield: <x>}` (optional, left out of the
+canonical form when unset: family 1 and book_v1 keep their hashes). S0 then captures a
+per-session dividend grid into the content-hashed snapshot, and the runner applies
+`research/dividends.py::total_return` after the members-universe filter and before the
+session-legs transform:
+
+- Prices are multiplied by F(s) = product of 1 / (1 - y) over ex-dates up to s (the CRSP and
+  IBKR convention; a price drop of exactly the dividend is a zero return). F is constant within
+  a session and reads only past ex-dates, so intraday targets are unchanged and nothing looks
+  ahead; daily targets, daily bar returns, family 2's overnight leg and price levels are all
+  corrected at the root.
+- Outside Yahoo coverage prices are NaN. An event above suspect_yield that one source alone
+  reports, or a session yield of 1 or more, splits the symbol into `<symbol>~<k>` from that
+  ex-date (no return or window spans it; nothing earlier moves). Live: MO splits at 2007-04-02
+  (Kraft) and 2008-03-31 (Philip Morris International).
+- Family 9 guard: `tests/unit/research/test_dividends.py` shows a price-level feature on the
+  corrected panel equals the feature of the zero-alpha total-return walk for high-yield names.
+- Snapshots without dividends are byte-identical; repro_frozen is bit-identical.
+
+Remaining: chain `dividend_event_writer.py --sources yahoo` into the nightly job (new ex-dates
+daily; IBKR cross-check weekly). The first full IBKR pass hits IBKR soft pacing on 25-year
+daily requests (pacing errors, retry backoff); a 20-year window is one request per series.

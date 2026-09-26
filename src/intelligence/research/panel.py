@@ -157,11 +157,14 @@ def fwd_span(horizon: int = 1) -> int:
     return 1 + horizon
 
 
-def save(panel: Panel, out_dir: Path) -> Path:
+def save(panel: Panel, out_dir: Path, extra: dict[str, np.ndarray] | None = None) -> Path:
+    """`extra` arrays (S0's dividend grid) are written into the same content-hashed directory;
+    without them the bytes are exactly those of earlier snapshots. load() ignores them."""
     arrays = {
         "timestamps": panel.timestamps,
         "valid": panel.valid,
         **{name: getattr(panel, name) for name in _PRICE_FIELDS},
+        **(extra or {}),
     }
     meta = {
         "tf": panel.tf,

@@ -24,6 +24,7 @@ import pandas as pd
 
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
+from src.intelligence.research import dividends as dividends_mod
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.panel import Panel
 
@@ -35,6 +36,8 @@ _MINUTES_PER_DAY = 1440
 # least this share of sessions (a majority), which excludes stray pre- and post-market bars.
 _SLOT_MIN_SESSION_SHARE = 0.5
 
+PRICE_SOURCE = "market_data_ohlcv_tradeable"  # the manifest's "source" on every real snapshot
+
 _OOS_START_SQL = (
     "SELECT config_value::timestamptz FROM config_state "
     "WHERE config_key = 'alpha.validation.oos_start'"
@@ -44,6 +47,19 @@ _BARS_SQL = (
     "SELECT timestamp, open, close, volume FROM market_data_ohlcv_tradeable "
     "WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4 "
     "ORDER BY timestamp"
+)
+
+# Dividends (todo 428, migration 376): Yahoo's coverage span decides known vs unknown; events
+# come from the reconciled view. single_source: one source reports the event and the other does
+# not, whether or not the other examined that date (an unverified event either way).
+_DIV_COVERAGE_SQL = (
+    "SELECT symbol, covered_from, covered_to FROM dividend_event_coverage "
+    "WHERE source = 'yahoo' AND symbol = ANY($1)"
+)
+_DIV_EVENTS_SQL = (
+    "SELECT symbol, ex_date, dividend_yield, "
+    "(yahoo_yield IS NULL) <> (ibkr_yield IS NULL) AS single_source "
+    "FROM dividend_events_reconciled WHERE symbol = ANY($1) AND ex_date >= $2 AND ex_date < $3"
 )
 
 # instruments' universe eligibility columns (migration 337). universe_symbols accepts only these,
@@ -132,6 +148,15 @@ def build_grid(bars: Bars, tf: str) -> Panel:
     )
 
 
+def session_dates(panel: Panel) -> np.ndarray:
+    """datetime64[D] [S], each session's exchange-local date (the dates build_grid keyed on)."""
+    first = panel.timestamps[:: panel.bars_per_session]
+    if panel.bars_per_session == 1:
+        return np.asarray(first).astype("datetime64[D]")
+    local = pd.DatetimeIndex(first).tz_localize(UTC).tz_convert(_EXCHANGE_TZ)
+    return local.normalize().tz_localize(None).values.astype("datetime64[D]")
+
+
 def _utc(dt: datetime) -> datetime:
     """A naive bound is UTC; an explicit offset is kept."""
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
@@ -194,9 +219,12 @@ async def build_panel(
     start: str,
     end_exclusive: str,
     manifest_extra: dict | None = None,
+    dividends: bool = False,
 ) -> Path:
     """Fetch, grid, and write a content-hashed panel directory; returns its path.
-    `manifest_extra` (for example the universe dimension) is merged into the manifest."""
+    `manifest_extra` (for example the universe dimension) is merged into the manifest.
+    `dividends` also captures the per-session dividend grid a total-return spec needs, so the
+    snapshot hash covers the dividend facts the run used."""
     lo, hi = (_utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
     pool = await read_only_pool(dsn)
     try:
@@ -219,15 +247,25 @@ async def build_panel(
                 np.array(v, dtype=float),
             )
 
-        fetched = await asyncio.gather(*(fetch(s) for s in sorted(symbols)))
-        known = {r["symbol"] for r in await pool.fetch(_KNOWN_SQL, sorted(symbols))}
+        requested = sorted(symbols)
+        fetched = await asyncio.gather(*(fetch(s) for s in requested))
+        known = {r["symbol"] for r in await pool.fetch(_KNOWN_SQL, requested)}
+        if dividends:
+            coverage = {
+                r["symbol"]: (r["covered_from"], r["covered_to"])
+                for r in await pool.fetch(_DIV_COVERAGE_SQL, requested)
+            }
+            events = [
+                (r["symbol"], r["ex_date"], r["dividend_yield"], r["single_source"])
+                for r in await pool.fetch(_DIV_EVENTS_SQL, requested, lo.date(), hi.date())
+            ]
     finally:
         await pool.close()
     empty = [s for s, b in fetched if b is None]
     grid = build_grid({s: b for s, b in fetched if b is not None}, tf)
     manifest = {
         **grid.manifest,
-        "source": "market_data_ohlcv_tradeable",
+        "source": PRICE_SOURCE,
         "start": start,
         "end_exclusive": end_exclusive,
         "oos_start": oos.isoformat(),
@@ -237,5 +275,15 @@ async def build_panel(
     missing = [s for s in grid.symbols if s not in known]
     if missing:
         raise ValueError(f"symbols not in instruments: {missing[:5]}")
+    extra = None
+    if dividends:
+        extra = dividends_mod.dividend_grid(
+            session_dates(grid), grid.symbols, coverage, events
+        ).arrays()
+        manifest["dividends"] = {
+            "source": "dividend_events_reconciled",
+            "coverage_source": "yahoo",
+            "events": len(events),
+        }
     grid = dataclasses.replace(grid, manifest=manifest)
-    return panel_mod.save(grid, Path(out_dir))
+    return panel_mod.save(grid, Path(out_dir), extra)
