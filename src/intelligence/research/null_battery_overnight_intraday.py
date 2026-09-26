@@ -210,6 +210,11 @@ def scenarios() -> tuple[LegsScenario, ...]:
         LegsScenario("legs_static_means", leg_means=twice, static_cell_sd=0.3),
         LegsScenario("legs_late_listings", leg_means=twice, late_fraction=0.4, late_name=True),
         LegsScenario("legs_hostile", leg_means=twice, **stress),
+        # legs_hostile without static cell means: separates that cause (long-memory members carry
+        # largely static weights) the way null_battery's isolation cells do for family 1.
+        LegsScenario(
+            "legs_hostile_no_static", leg_means=twice, **{**stress, "static_cell_sd": 0.0}
+        ),
         LegsScenario("legs_s1_hostile", leg_means=twice, s1=True, **stress),
         LegsScenario("legs_s1_leg_stress", leg_means=(0.3, 0.3, 0.3), s1=True),
     )
