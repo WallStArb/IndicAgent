@@ -2,7 +2,7 @@
 
 **Version:** 2.9
 **Status:** current
-**Last Updated:** 2026-08-13
+**Last Updated:** 2026-09-26
 
 ---
 
@@ -17,6 +17,7 @@ The `intelligence/` folder is the gold standard — four files, each a distinct 
 ## Working on the platform?
 
 **→ [CLAUDE.md](../CLAUDE.md)** — Primary reference: architecture, commands, conventions, gotchas
+**→ [Unified research-to-production design](plans/2026-09-26-unified-research-to-production-design.md)**: the governing design (adopted 2026-09-26, E18)
 **→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 **→ [Ideas](ideas/)** — Research and strategy docs (living workspace)
 **→ [AI Ideas Index](ideas/ai-index.md)** — Standardized AI / ML / agentic idea cluster
@@ -42,7 +43,7 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 | `instrument-data-model.md` | Base entity model for symbols — `instruments`/`instrument_metadata`/`instrument_annotations`/`instrument_tags`, how ITR and CVR attach on top |
 | `instrument-tag-registry.md` | ITR full specification — instrument classification/exposure tags, TagCalibrator |
 | `controlled-vocabulary-registry.md` | CVR full specification — symbolic taxonomies, VocabularyService, drift auditor |
-| `unified-concept-registry.md` | UCR full specification — evidence-gated recipe lifecycle, 9 invariants, ConceptRegistryService (feature-domain migration in progress, see Phase 170) |
+| `unified-concept-registry.md` | UCR full specification: recipe lifecycle, ConceptRegistryService; redesign as the recipe book adopted 2026-09-26 (phase 187) |
 | `model-selection-principle.md` | Occam's Razor applied to model selection |
 | `ship-or-sink-rules.md` | AI coding tool discipline — Ship or Sink rules |
 

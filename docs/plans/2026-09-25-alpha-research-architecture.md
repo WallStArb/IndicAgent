@@ -6,6 +6,7 @@ alpha ... design this like Renaissance would").
 **Parents:** `docs/plans/2026-09-24-edge-proof-program.md` (sequence),
 `docs/plans/2026-09-24-evidence-framework.md` (draft 3, evidence records, per-vintage budget).
 **Status:** ADOPTED 2026-09-25 (draft 2 plus the owner-decision edits of section 9), together
+**Extended 2026-09-26** by `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted, E18), which places this research layer inside one pipeline from data to capital and adds construction rules, pod books, the recipe book and the selection test. Where the two differ, the unified design governs.
 with evidence framework version 4 (methodology-change-ledger E15). The framework owns the
 rules; this doc owns the build.
 

@@ -7,6 +7,7 @@ would").
 draft 3 and `docs/plans/2026-09-25-alpha-research-architecture.md` draft 1 (2026-09-25),
 section 11. Codex review not obtained (quota exhausted until 2026-10-15).
 **Status:** ADOPTED 2026-09-25, methodology-change-ledger entry E15. Governs every verdict
+**Amended 2026-09-26 by methodology-change-ledger E18** (`docs/plans/2026-09-26-unified-research-to-production-design.md` section 7): the hard M = 30 budget is replaced by counting every look and Romano-Wolf StepM selection; promotion needs positive net expectation; the forward span is per book. The rest of this framework stands.
 produced after adoption; no frozen verdict is re-scored (section 9). The build plan that
 implements it is `docs/plans/2026-09-25-alpha-research-architecture.md`.
 

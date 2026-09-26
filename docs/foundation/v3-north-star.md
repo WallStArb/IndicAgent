@@ -2,6 +2,7 @@
 
 **Version:** 1.3
 **Status:** Canonical for the North Star philosophy (blockquote below) — see 2026-08-06 note on
+**Note 2026-09-26:** the many-weak-signals principle stands. The AlphaEngine combination and emission machinery described below (IC-weighted ensemble, admission gates, `alpha_events`) is superseded by `docs/plans/2026-09-26-unified-research-to-production-design.md` (adopted, E18): the book is the unit, admission has no per-feature gate, and the old chain is deleted in phase 186.
 the PrecedentEngine mechanics sections
 **Last Updated:** 2026-09-04 (second accuracy pass, same day: verified live system state via
 `systemctl`, DB schema (`\d alpha_events`, `\d feature_vectors`, `\d+ signal_ledger`), and code

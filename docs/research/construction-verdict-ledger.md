@@ -1,6 +1,7 @@
 # Research ledger: every alpha idea and where it stands
 
 **Status:** current, filename-stable (edited in place). Last full reconciliation 2026-09-25.
+**Interim (2026-09-26):** under the adopted unified design this file becomes a report generated from the UCR recipe book (phase 187, design section 10). Until then it stays hand-edited and remains the sole verdict source. New results count under E18 (every look at the vintage recorded).
 **Purpose:** the one list of alpha research. Section 1 is what is queued or running, section 2
 what is reopened, section 3 what was never tested, section 4 the frozen verdict record. It
 replaces the idea rows of the deleted `docs/research/catalog.md` and the alpha bullets of

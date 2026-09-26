@@ -7,6 +7,7 @@ agent (AGY and Codex were both out of quota); 13 findings, dispositions in secti
 **Parents:** `docs/plans/2026-09-25-alpha-research-architecture.md` (S0 to S8),
 `docs/plans/2026-09-24-evidence-framework.md` (E15 rules).
 **Status:** proposed, revision 2 (D6 updated 2026-09-25 for the adopted E16). Build items in section 7 are a follow-on phase after 183 (183 was
+**Revision pending (2026-09-26, todos 435 and 436):** D5 (recompute instead of reading `feature_vectors`) is withdrawn; S0 reads the rebuilt `feature_vectors`. B3 alignment is a prerequisite for feature books. B4's IC term structure is disclosure only, not the source of the partial-adjustment rate (unified design section 4.4).
 planned, 10 plans, before this revision and does not include them). D6 needs an owner
 decision (a methodology change to E15's refusal rule).
 

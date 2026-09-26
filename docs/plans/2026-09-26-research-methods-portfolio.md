@@ -2,7 +2,7 @@
 
 **Author:** Claude (Opus 5.5), 2026-09-26, from the backlog triage with Brandon ("we want to refine
 and optimize our strategy or have multiple methods we can use").
-**Status:** WORKING INPUT, not for separate adoption. Owner direction 2026-09-26: fold into the unified
+**Status:** ABSORBED 2026-09-26 into `docs/plans/2026-09-26-unified-research-to-production-design.md` section 6 (adopted, E18), which supersedes this doc where they differ (named methods, the `ic_proposal` split, `generated_family`, no screen cap). Kept as the working input it was. Originally: WORKING INPUT, not for separate adoption. Owner direction 2026-09-26: fold into the unified
 research-to-production design (todo 436) as its methods section.
 **Parents:** `docs/plans/2026-09-24-evidence-framework.md` (E15, adopted),
 `docs/plans/2026-09-25-alpha-research-architecture.md` (adopted). Input to todo 436; the methods depend on todo 435.
