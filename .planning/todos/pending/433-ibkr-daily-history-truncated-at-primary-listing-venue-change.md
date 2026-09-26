@@ -1,6 +1,6 @@
 ---
 status: pending
-priority: P1
+priority: P0
 filed: 2026-09-26
 source: 2026-09-26 universe expansion 1d backfill
 ---
