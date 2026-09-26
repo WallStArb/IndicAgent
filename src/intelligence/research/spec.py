@@ -42,7 +42,14 @@ from typing import Annotated, Any, Literal
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 MEMBER_PREFIX = "src.intelligence.research.families."
 
@@ -55,9 +62,29 @@ class PanelSpec(BaseModel):
     model_config = _STRICT
     universe: Literal["compute_eligible", "compute_eligible_1d", "live_tradeable"]
     tf: str
-    bars_per_session: int = Field(ge=1)
+    bars_per_session: int = Field(ge=1)  # the S0 source panel's
     start: IsoDate
     end_exclusive: IsoDate
+    # Family 2 (B1, B3). Optional and absent from family 1's spec, so its hash is unchanged.
+    # transform: the analysis panel derived from the S0 panel (legs.py).
+    # members_universe: a pinned rule narrowing the S0 symbols (legs.us_session_equity_symbols).
+    transform: Literal["session_legs"] | None = None
+    members_universe: Literal["us_session_equity"] | None = None
+
+    @model_validator(mode="after")
+    def _transform_needs_intraday(self) -> PanelSpec:
+        if self.transform is not None and self.bars_per_session < 2:
+            raise ValueError(f"transform {self.transform!r} needs an intraday source panel")
+        return self
+
+    @property
+    def analysis_bars_per_session(self) -> int:
+        """Rows per session of the panel members and S1 see (after any transform)."""
+        if self.transform == "session_legs":
+            from src.intelligence.research.legs import LEGS  # noqa: PLC0415
+
+            return LEGS
+        return self.bars_per_session
 
 
 class MemberSpec(BaseModel):
@@ -298,11 +325,24 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+# PanelSpec fields added after specs were run: left out of the canonical form while unset, so
+# every spec written before them keeps its recorded hash (family 1, book_v1).
+_OPTIONAL_PANEL_FIELDS = ("transform", "members_universe")
+
+
+def _family_dump(model: FamilySpec) -> dict:
+    data = model.model_dump(mode="json")
+    for key in _OPTIONAL_PANEL_FIELDS:
+        if data["panel"][key] is None:
+            del data["panel"][key]
+    return data
+
+
 def _build(
     path: str, model: FamilySpec | BookSpec, blob_sha: str | None, families: tuple[LoadedSpec, ...]
 ) -> LoadedSpec:
     if isinstance(model, FamilySpec):
-        canonical = canonical_json(model.model_dump(mode="json"))
+        canonical = canonical_json(_family_dump(model))
     else:
         _check_book(model, families)
         canonical = canonical_json(

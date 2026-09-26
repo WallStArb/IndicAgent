@@ -61,8 +61,10 @@ failed here.
 
   The final bar is the one `panel.forward_returns`' close exit uses: the session's last row
   with any close, so half days end early. A name with no close on that bar has NaN final close,
-  never an earlier one. Any missing input price makes that row's prices NaN. Rows 1 and 2 need
-  only bar 0, bar 1 and the final bar, so a name missing a mid-session bar keeps its legs.
+  never an earlier one. Prices are not paired within a row (amended 2026-09-25, section 8): each
+  leg's return needs exactly the prices in its formula above, and the target needs bar 1's open
+  and the final close, so a missing price removes only what reads it. Rows 1 and 2 need only
+  bar 0, bar 1 and the final bar, so a name missing a mid-session bar keeps its legs.
   Volume: row 0 takes bar 0's, row 1 bar 0's, row 2 the sum of bars 1 through the final bar.
   Weekend and holiday overnights (up to about 65 hours) are row 0s like any other.
 - **Residual returns, per leg:** S1 vintage 1 as merged at run time, run separately on each leg
@@ -249,6 +251,13 @@ conflicted with keeping 24-hour-driven equities, and BNTX is not a home-listed A
 restated on asset class and those names disclosed. (LOW) transform causality probe mapping,
 pooled volatility, stale breadth figure, the unrunnable combined book, weekend overnights and a
 spec field for the transform; all addressed.
+
+**Amendment, 2026-09-25, before any real-data number** (found by the code review of the B1
+build). Section 2 said a row missing either of its prices is NaN in both. Because a leg's return
+reads the previous row's close, that rule made a missing previous close erase the first-15-minute
+return and a missing bar 0 open erase the rest-of-session return, contradicting the table's own
+formulas and dropping names from every member. Corrected to: no pairing; each return and the
+target read exactly the prices in their formulas. No member, target or test changes meaning.
 
 ## 9. Build requirements before the first real-data run
 

@@ -115,8 +115,7 @@ BOOK = textwrap.dedent("""
 
 
 def _hash(text):
-    model = parse_spec_text(text)
-    return spec_mod._sha(canonical_json(model.model_dump(mode="json")))
+    return spec_mod._sha(canonical_json(spec_mod._family_dump(parse_spec_text(text))))
 
 
 def test_formatting_and_comments_do_not_change_the_hash():

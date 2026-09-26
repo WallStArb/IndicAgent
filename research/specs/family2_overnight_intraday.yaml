@@ -1,0 +1,82 @@
+# Family 2: overnight versus intraday return decomposition. Pre-registration:
+# docs/plans/2026-09-25-family2-overnight-intraday-prereg.md (sections 2-5).
+# This file is the machine form of that pre-registration. Editing any value after a real run is
+# a new spec hash, a new recorded run and, per the prereg, a methodology change.
+# Dates are quoted and floats carry a decimal point: the loader is strict (spec.py).
+kind: family
+family: overnight_intraday
+prior_source: docs/plans/2026-09-25-family2-overnight-intraday-prereg.md
+horizon: 1  # prereg 4: row 1 signal, enter at bar 1's open, exit at the session's final close
+factor_spec: vintage_1  # prereg 2: S1 vintage 1 as merged, run per leg
+panel:  # the S0 source panel is family 1's; the members see its session-legs transform
+  universe: compute_eligible
+  tf: "15m"
+  bars_per_session: 26  # the 15m source; the legs panel has 3 rows per session
+  start: "2006-01-01"
+  end_exclusive: "2025-12-24"
+  transform: session_legs  # prereg 2, B1
+  members_universe: us_session_equity  # prereg 2, B3: EQ minus intl_* exposure tags
+members:  # prereg 3; declared memory = (slot history + 252 + 21 sessions) x 3 rows
+  - name: intraday_persistence_20
+    signal: src.intelligence.research.families.overnight_intraday.intraday_persistence
+    params: {window_sessions: 20}
+    slot_history_sessions: 20
+    declared_memory_rows: 879
+  - name: intraday_persistence_60
+    signal: src.intelligence.research.families.overnight_intraday.intraday_persistence
+    params: {window_sessions: 60}
+    slot_history_sessions: 60
+    declared_memory_rows: 999
+  - name: overnight_to_intraday_20
+    signal: src.intelligence.research.families.overnight_intraday.overnight_to_intraday
+    params: {window_sessions: 20}
+    slot_history_sessions: 21
+    declared_memory_rows: 882
+  - name: overnight_to_intraday_60
+    signal: src.intelligence.research.families.overnight_intraday.overnight_to_intraday
+    params: {window_sessions: 60}
+    slot_history_sessions: 61
+    declared_memory_rows: 1002
+  - name: gap_fade
+    signal: src.intelligence.research.families.overnight_intraday.gap_fade
+    params: {}
+    slot_history_sessions: 1
+    declared_memory_rows: 822
+  - name: gap_fade_z
+    signal: src.intelligence.research.families.overnight_intraday.gap_fade_z
+    params: {window_sessions: 60}
+    slot_history_sessions: 61
+    declared_memory_rows: 1002
+construction:  # prereg 4, R1 as built
+  name: rank_vol_neutral
+  direction: 1  # member signs are applied inside each member (prereg 3)
+  coverage_floor: 20  # prereg 3 (family 1's)
+  vol_window_sessions: 20  # prereg 4: 20 sessions of legs-panel residuals, all three rows
+  vol_min_finite_fraction: 0.5
+scoring:
+  session_scoring: true  # prereg 4, R2: one P&L per session, 252 per year
+  trading_start: "2010-01-04"  # prereg 2: scored span 2010-01-04 through 2025-12-23
+  sub_periods:  # reported, not voted on
+    - ["2010-01-04", "2014-12-31"]
+    - ["2015-01-01", "2019-12-31"]
+    - ["2020-01-01", "2025-12-23"]
+  min_shift: 63  # sessions; phase 179's value, not pinned by the prereg
+  bootstrap_mean_block: 21
+  bootstrap_reps: 2000
+  seed: 183
+  # The six below only feed evaluate()'s covariance plan, which R1 ignores; pinned because
+  # evaluate() always builds the plan.
+  warmup_sessions: 252
+  calibration_refit_sessions: 21
+  coverage_fraction: 0.95
+  ridge_epsilon_fraction: 0.10
+  mv_condition_max: 1000.0
+  ic_shrinkage_k: 100.0
+guards:  # probe sizes bound the S3 cost on the full panel (D-25)
+  seed: 183
+  n_random: 4
+  max_rows: 12
+  s1_probe_sessions: 330
+costs:  # diagnostics only, never a gate: large-cap and ETF half-spread range, per side
+  bps_low: 1.0
+  bps_high: 5.0
