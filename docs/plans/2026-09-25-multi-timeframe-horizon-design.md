@@ -175,7 +175,8 @@ under E16, subject to the survivorship and dividend conditions in D8.
 6. The book test holds size on synthetic AR(1) predictors across autocorrelation times, at the
    screen bar (the E16 simulations, rerun on the built S8).
 7. A synthetic high-yield name with zero alpha and a steady ex-dividend drop produces no family 9
-   book edge after dividend adjustment (needs todo 428).
+   book edge after dividend adjustment (built: `tests/unit/research/test_dividends.py::`
+   `test_family9_guard_a_high_yield_name_with_no_alpha_shows_no_price_level_signal`).
 8. `repro_frozen.py` stays bit-identical after every build item: new Panel fields default to
    absent, and no existing path reads them.
 
@@ -184,11 +185,15 @@ under E16, subject to the survivorship and dividend conditions in D8.
 - **Survivorship.** Slow reversal and 52-week anchoring are the constructions most inflated by a
   present-day universe (delisted losers are missing). The book containing family 9 does not go to
   confirmation without a survivorship bound (todo 376).
-- **Dividends (todo 428).** No dividend history exists, and equities are fetched split-adjusted
-  but not dividend-adjusted. Ex-dividend drops sit in every daily open-to-open target and in every
-  price-level feature, which can manufacture family 9's signal on high-yield names and biases
-  family 2's overnight leg. The intraday book is immune (its targets never cross a session).
-  Daily-clock books with price-level members do not go to confirmation until 428 lands.
+- **Dividends (todo 428, closed 2026-09-26).** Equities are fetched split-adjusted but not
+  dividend-adjusted, so on price-only panels ex-dividend drops sit in every daily open-to-open
+  target and every price-level feature, which can manufacture family 9's signal on high-yield
+  names and bias family 2's overnight leg. The intraday book is immune (its targets never cross a
+  session). `dividend_events` now holds Yahoo's daily history (an owner-approved exception to
+  IBKR-only; the IBKR route is phase 185 D5), and a spec opts into total-return prices with
+  `panel.total_return` (`research/dividends.total_return`), applied to panel prices so
+  `panel.forward_returns` picks it up with no second target path. A daily-clock book with
+  price-level members goes to confirmation only if its spec declares `total_return`.
 
 ## 4. The DAG
 
@@ -248,8 +253,8 @@ node that sees two clocks.
 | B6 | Rerun the E16 size check (slot fixed effects, persistent predictors) on the built S8 with aligned and registry predictors; D7 guard 6 | 183 (E16 built) |
 | B7 | `repro_frozen.py` bit-identical after each item (D7 guard 8) | each |
 
-D7 guard 4 belongs to phase 185's derivation. Dividend history (todo 428, D7 guard 7) gates
-confirmation of daily books with price-level members, not the screen.
+D7 guard 4 belongs to phase 185's derivation. Daily books with price-level members declare
+`panel.total_return` (todo 428, closed 2026-09-26; D7 guard 7 built).
 
 ## 8. What would change this design
 
