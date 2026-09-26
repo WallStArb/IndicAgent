@@ -744,6 +744,7 @@ for SSD.
 | `shared_buffers` 3 GB on a 29 GB host; `work_mem` 8 MB | Measure, then tune (about 25% for `shared_buffers`; `work_mem` per batch session) | Phase 186 |
 | Every service connects as the `postgres` superuser | One role per writer with grants only on its own tables, read-only roles for readers, generated from the DAG manifest: `single_writer` enforced by the database | Phase 187 |
 | Foreign keys without indexes | Indexed in the clean UCR schema | Phase 187 |
+| Integrity services: most check archived v2.x tables and are disabled; none checks historical price correctness; `regime_coverage_auditor` fails every night on 5 known symbols | Auditor inventory in the DAG manifest (live with an owner and an action, or archived); price integrity is phase 185 D2a/D7; todo 341 resolves the nightly alarm | Phases 185, 187; todo 341 |
 
 ### 14.6 Refactor map
 

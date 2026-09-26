@@ -61,3 +61,12 @@ compute-underflow finding, worth checking together rather than assuming unrelate
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Absorbed todo 362 (`completed/362-bil-5m-zero-regime-volatility-labels.md`): BIL/5m has zero regime_volatility labels despite 165,500 feature rows; same near-flat-price symbol class. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.
+
+## Nightly alarm fatigue (2026-09-26)
+
+`indicagent-regime-coverage-auditor` exits non-zero every night on the same 5 symbols (BIL, EMLC,
+ETHA, IBIT, VIXY; 7 failures since 2026-09-20), so the unit shows `failed` daily and nobody acts on
+it. An alarm that fires every day hides the next real gap. Resolve it one of two ways: fix the
+labels for these symbols (with the phase 186 regime work), or register them as known exceptions
+with an expiry date in APR so the auditor goes red only on new gaps. Until then the alarm carries
+no information.

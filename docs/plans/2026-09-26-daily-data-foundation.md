@@ -127,6 +127,19 @@ have non-positive prices, every bar's `price_sanity_status` is NULL (never class
    Folds in todos 155 (historical price sanity), 347 (the unusable price-sanity index) and 052
    (the adversarial error hunt, as rule 3's known-answer set plus a search for new classes).
 5. **Intraday** gets the same rules once they have proven themselves at 1d.
+6. **Reuse, don't rewrite.** The existing price-sanity classifier
+   (`src/intelligence/statistics/price_sanity.py`, `classify_candidate_bar`) becomes one D2a rule.
+   It has never classified history because it only runs inside `bar_auditor`, a streaming-era
+   daemon that is disabled; D2a runs it as a batch rule over the derivation instead.
+
+D2a and D7 are the project's price-integrity layer. The existing integrity services check other
+things (inventory 2026-09-26): the v2.x auditors (`data_quality_auditor`, `feature_parity_auditor`,
+`signal_auditor`, `shadow_auditor`, `signal_probe_auditor`, `signal_replay_auditor`,
+`shadow_validator`, `confidence_calibration_monitor`, `feature_validation_agent`) check archived
+v2.x tables and are disabled; `bar_auditor` (gap detection plus price sanity) is disabled;
+`regime_coverage_auditor` checks regime labels; `compression_auditor` checks storage; the
+vocabulary drift and classification coverage audits check codes. None checks historical price
+correctness.
 
 
 ### D3. Venue-move recovery (todo 433), rebased on D1 (1d and intraday)

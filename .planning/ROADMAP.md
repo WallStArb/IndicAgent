@@ -143,7 +143,9 @@ IBKR-only: no new data sources (owner, 2026-09-26); the vendor stage stays gated
 delete; rules validated on known answers; one historical batch pass folding todos 155, 347, 052);
 revisions propagate through content-digest keys; one D8 capture job absorbs todo 438; daily
 attempts 3, 3b and 4 wait on the minimum data bar (seam audit, scrubbing pass, moved names,
-total returns, survivorship bound).
+total returns, survivorship bound). D2a reuses the existing price-sanity classifier as one scrubbing
+rule; D2a and D7 are the price-integrity layer (no existing service checks historical price
+correctness).
 **Requirements**: TBD
 **Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
 recompute, never under a live ic_engine run (Phase 178's worktree).
@@ -199,7 +201,9 @@ package renames with todo 430 step 4; one database login role per writer with wr
 on its own tables and read-only roles for readers, generated from the DAG manifest, so
 `single_writer` is enforced by the database (services connect as the `postgres` superuser today);
 refactor map items 7-8 (design section 14.6): `service_auditor` and the orchestrator read the DAG
-manifest, research package split behind the three protocols; indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
+manifest, research package split behind the three protocols; an auditor inventory in the DAG manifest (each auditor either live with an owner and an action,
+or archived: the v2.x auditors are archived under the dual intelligence-path decision, and
+`bar_auditor`'s gap detection returns only with streaming); indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
 `research_run.concept_id`, `instrument_classification.scheme` lack them today).
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
