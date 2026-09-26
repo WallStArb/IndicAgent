@@ -52,12 +52,28 @@ The history exists. It is a routing limit of IBKR's history service, not missing
   (2026-09-26 run: ADP, ADI, XEL, UAL, IEI, CAR, plus CHTR and MATX, which are genuine
   late listings).
 
+## The empty-history check recorded these gaps as fact
+
+`ohlcv_empty_history` (migrations 354/355, shipped 2026-09-24) holds 18 1d rows whose empty
+range ends after 2008, written 2026-09-25 with `n_confirming_chunks = 2`. Most match
+known venue moves: AMD to 2014-12-31, CSX to 2015-12-21, PEP to 2017-12-19, MAR to
+2013-10-18, SLM to 2011-12-09, TLT to 2016-02-02, IEF/SHY/PFF to 2017-08-02, MCHI to
+2016-02-03. Others are genuine late listings (GEV) and need no change. The nightly backfill
+now skips these ranges, so they are never retried. The same holds for 72 of the 88 rows per
+intraday timeframe, though intraday depth is also capped by IBKR's own limits.
+
+The check cannot tell "nothing traded" from "nothing on this route": a SMART request
+returning no data twice is not verification. The 2026-09-26 backfill of the 546 new names
+will add rows the same way (ADI, ADP, XEL, UAL, IEI, CAR at least).
+
 ## Next
 
 1. Inventory: every active equity with a "Query failed" 1d fetch, or a first SMART bar
    later than its trading start. Record the old venue per name (NYSE, ARCA for ETFs, AMEX).
 2. Backfill the pre-move span through the old venue under a distinct `source` tag, so it is
-   never mistaken for consolidated data.
+   never mistaken for consolidated data, and delete the false `ohlcv_empty_history` rows.
+   Change the empty-history check to try old-venue routing before recording a range as
+   empty.
 3. Volume across the seam: venue-only volume understates consolidated volume by a varying
    factor, so volume and dollar-volume features must not read it as consolidated. Either
    store pre-move volume as NULL with prices intact, or keep it and exclude those rows from
