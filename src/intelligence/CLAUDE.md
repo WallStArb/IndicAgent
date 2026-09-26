@@ -104,3 +104,25 @@ All live in `src/intelligence/trading/`:
 - **Aggregator `active` must come from `all_ranked`**: `_build_all_ranked()` copies signal dicts so raw signals never get `adjusted_rank`. Derive `active` from `all_ranked`, not from the raw `signals` list — otherwise `perf_weights` silently have no effect on winner selection.
 
 **After plugin changes (v2.x, archived):** Restart `indicagent-intelligence-pipeline` (unified I1-I7). Canonical service registry: `_DAG_ORDER` in `services/service_auditor.py`.
+
+## Archived tables (moved from root CLAUDE.md 2026-09-26)
+
+- `intelligence_features` (v2.x — ARCHIVED, no live consumer as of 2026-07-02) — full feature vectors per bar. Column name: `ts` (not `feature_ts`)
+- **Signal Ledger Architecture (SLA, Phase 128+) (v2.x — ARCHIVED, no live consumer as of 2026-07-02):**
+  - `signal_events` — detection layer: one row per I7 plugin fire. Fields: `raw_confidence` (ICC), `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. Primary time: `ts`.
+  - `trade_frames` — hypothesis layer: one row per entry_type per signal. Fields: `counterfactual_pnl_r` (CFL, always populated). ML trains on this.
+  - `trade_executions` — execution layer: one row per live trade. Fields: `actual_pnl_r`, `actual_fill_price`, `exit_reason`.
+  - `signal_ledger` — JOIN view (renamed from signal_ledger_full in Phase 130). Provides backward-compat query surface joining signal_events + trade_frames + trade_executions. Legacy monolith and signal_outcomes dropped in Phase 130.
+- `llm_calls` — full LLM audit log; outcome back-filled by `llm_writer`
+- `setup_performance` — per-setup rolling 30d stats; drives `perf_multiplier`; `sample_size >= 30` gate
+- **Volume Profile**: `poc_price`/`vah`/`val` = session VP (1m/5m); `poc_price_rolling`/`vah_rolling`/`val_rolling` = rolling VP (15m/1h)
+
+## Dormant AI stack rules (moved from root CLAUDE.md 2026-09-26)
+
+- **AI agent rules below (`BaseGroupCoordinator`, `BaseAIWorker`, Ollama, swarm confidence) describe dormant-stack code** — real invariants worth maintaining if this code is touched, not currently-running production behavior. See Architecture note above.
+- **`BaseGroupCoordinator` agent construction**: agents needing `self._llm_chain` must be constructed in `_setup()` after `super()._setup()` — `_llm_chain` is `None` in `__init__`.
+- **AI agents MUST use `self._llm_generate(context, ...)`** — never call `self._llm.generate()` directly.
+- **`prompt_version` class attribute** on every `BaseAIWorker` subclass — set from agent's `ACTIVE_VERSION` constant.
+- **`llm_calls` composite PK: `(call_id, called_at)`** — ON CONFLICT must use both columns.
+- **Ollama JSON enforcement (nemotron-3-nano:4b):** system message MUST start with `"OUTPUT ONLY RAW JSON. NO PROSE. NO EXPLANATION. NO PREAMBLE."` Add `"Begin your response with { and end with }."` at end of user prompt.
+- **Swarm raw signal confidence**: `calibrated_confidence` is null in Kafka payloads. Gate on `raw_signal.get("confidence")` or `raw_signal.get("pre_quality_confidence")`.

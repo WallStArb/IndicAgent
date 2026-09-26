@@ -51,9 +51,11 @@ Rate limit: `infra.ibkr.rate_limit_max_requests` = 58 (tested clean to 62, IBKR'
 `fetch_historical_bars`'s duration-string construction (`"N D"` under 365 days, `"N Y"` over) lives in one shared helper, `_days_to_duration_str()` — both the continuous-contract and regular chunked branches call it. Don't reintroduce a second copy of this logic in either branch; that duplication is exactly how a real bug shipped once (the chunked branch's copy silently didn't exist for years since every prior chunk_days default happened to stay under 365). **Also note:** any `chunk_days.*` value must be an exact multiple of 365 once it crosses the 365-day threshold — otherwise `math.ceil()` rounds the actual IBKR request up past the configured value and the chunking loop's stride desyncs from the real returned window (see 15m above).
 
 ### Adding New Contracts
-1. INSERT into `instruments` with `contract_details` JSONB and the right scope flags (`compute_eligible_1d` for 1d-only cohorts; `compute_eligible` only once all four timeframes are backfilled)
-2. The nightly backfill picks it up by scope (full stack for `compute`, a 1d-only leg for `compute_1d`)
-3. Backfill historical data: see root CLAUDE.md "Historical backfill" command — no service restart needed for this step (live ingestion is paused; `indicagent-ibkr-provider` restart only matters once/if that resumes, and only after the 80-subscription gap above is resolved)
+1. Onboard through `onboard_instrument()` via `scripts/infrastructure/universe_expansion_onboard_manifest.py` (manifest CSV; dry run qualifies on IBKR, `--commit` writes). Never INSERT directly: onboarding requires a classification and tags, and insert paths never grant eligibility (migration 352).
+2. Backfill: `infrastructure_run_historical_pipeline.py --dimension backfill --timeframes 1d --symbols <list>`. The nightly job skips names that are not yet eligible.
+3. Promote: `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit` (needs `backfill_status.fetch_complete`; see root CLAUDE.md onboarding line).
+
+**Listing-venue moves (todo 433):** SMART history starts at a stock's last primary-venue move. The same conId routed to `NYSE`/`ARCA`/`ISLAND`/`AMEX`/`BATS` serves earlier years with venue-only volume; only the listing venue's closes are official (it carries the most volume). Error 162 "Query failed" is the marker, logged as `ibkr.hist_query_failed`.
 
 ### Bar Delivery Latency
 
