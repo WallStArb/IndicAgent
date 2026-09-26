@@ -976,6 +976,13 @@ when this was found.
     at the measured sizes).
   - The criterion was moved to measured sizes after the 0.3 failure was seen: a forking-paths
     risk in the methodology itself, so it is the owner's decision, not the builder's.
+  - Alternatives tested and rejected before the decision (todo 432): a longer HAC lag (4x,
+    16x) or a 252-session floor does not repair the 0.3 tail; a forward-shift null (returns at s
+    against weights from s + k, k >= L + 1, no wraparound; criterion pre-registered in 432026a0f
+    before the result) is more anti-conservative than the Student-t reference in every cell
+    (0.3 hostile 10.0% and 3.7% at 0.05 and 0.01 against 9.5% and 3.0%; measured sizes 7.2% and
+    2.2% against 6.0% and 1.5%; 400 panels each), and its effective draw count, about
+    (sessions - L) / tau, cannot resolve 0.00167 for persistent members.
   - **Owner decision (2026-09-26): C.** The gating cells stay at twice the measured sizes, and the
     gate becomes a checked precondition instead of an assumption: before a family's first real
     run, its own static per-(slot or leg, name) mean sd and time-of-day mean sizes are measured

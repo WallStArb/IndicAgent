@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+completed: 2026-09-26
 update: 2026-09-26 built as E17; H0 battery run; owner decision pending on gating criterion
 priority: P0
 filed: 2026-09-25
@@ -121,3 +122,21 @@ it bears on the 0.05 forward confirmation for books whose tau leaves enough effe
 ((sessions - L) / tau >= 200, a floor stated here). A fail or mixed result leaves the
 measured-size route (gating at twice the measured stress sizes, measured by the runner and
 recorded, not constants) as the path, with the 0.3 cells as documented limits.
+
+### Result (2026-09-26 19:39), judged by the criterion above
+
+| cell (400 panels) | Student 0.05 | Student 0.01 | shift 0.05 | shift 0.01 |
+|---|---|---|---|---|
+| hostile at 0.3 | 9.5% (38) | 3.0% (12) | 10.0% (40) | 3.7% (15) |
+| static x vol at 0.3 | 9.0% (36) | 2.5% (10) | 11.5% (46) | 3.5% (14) |
+| hostile at measured sizes | 6.0% (24) | 1.5% (6) | 7.2% (29) | 2.2% (9) |
+
+Valid (Student reproduces the 0.3 failure). Outcome: mixed, and the shift p is more
+anti-conservative than Student in every cell. The forward-shift route is rejected; the
+measured-size route stands for the owner's decision (E17 ledger entry).
+
+## Closed 2026-09-26
+
+Owner decided E17's gating criterion (option C, 1783731c1): measured-size gating as a checked
+precondition, built under todo 447. The statistic, battery, combiner and family 1 annotation are
+on main; attempts continue under todo 442; dependencies for phases 186 and 187 under todo 448.
