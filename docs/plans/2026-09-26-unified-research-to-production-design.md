@@ -543,7 +543,7 @@ that would drop data that could contain signal.
 |---|---|---|
 | `temporal_integrity` | Every stored fact records or derives when it became knowable; every read for t sees only facts known by t | Stored-table audit: for sampled (symbol, t), recompute the writer's output on inputs truncated at t and compare with the stored row (about 1k points a night). Details below the table. CI on fixture panels; nightly after the refresh on the corpus, to an audit table, failing loud. Covers `feature_vectors`, regime columns, `market_regimes`, factor loadings, IC |
 | `determinism` | Any output reproduces bit-exactly from (input snapshot hash, code key, recipe or spec hash) | `scripts/analysis/sleeve_walk_forward/repro_frozen.py` generalized into one tool, lands with the first frozen book |
-| `single_writer` | One writer per table, one direction, no cycles | DAG manifest (3.2) plus a CI scan of SQL write statements |
+| `single_writer` | One writer per table, one direction, no cycles | DAG manifest (3.2) plus a CI scan of SQL write statements; enforced by the database through per-writer roles and grants generated from the manifest (14.5) |
 | `no_fill` | Missing is NaN; warmup masked by declared memory; no placeholder reaches compute | S0 warmup mask and coverage floor (435) now; writers emit NULL during warmup at the next planned recompute |
 | `point_in_time` | Universe, classification, tags and parameters read as of t | APR values: the value pinned at the book's freeze, and every stored row records which values computed it (via `lineage`). "APR as of a 2012 bar" is not meaningful: `config_history` starts 2026-06-13 and 255 of 847 keys have no history row. ITR tags and universe flags as of t (universe via 185 D8); equity breadth made point in time |
 | `lineage` | Every output traces to its recipe and run | Research rows carry a run id; bulk tables get a provenance batch record (writer, per-kernel code key, APR snapshot, input content digest, symbol x tf x time range), no per-row column on compressed hypertables (the 768 GB disk-full class). The same record is the idempotency key (3.3) |
@@ -725,6 +725,24 @@ Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once 
 - Folded under `ic_proposal` and `in_fold_selection`: 191, 038, 099, 039, 115.
 - Folded into the deletion work: 355.
 - Kept: 412; the refresh chain (426, 290, 248, 411, 421); 390 before `illiq` enters a family.
+
+### 14.5 Database hygiene (best-practices audit, 2026-09-26)
+
+Read-only audit of the live database against the Postgres best-practices rules. Checked clean: no
+timestamp-without-time-zone columns, no `json` columns, no uppercase identifiers, no significant
+dead tuples, 4 of 200 connections in use, `pg_stat_statements` installed, `random_page_cost` tuned
+for SSD.
+
+| Finding | Action | Where |
+|---|---|---|
+| `postgres-exporter`'s per-table scrape over every chunk table is the top consumer by total time (305 min in 3 days) | Exclude chunk tables or slow those collectors | Todo 443 |
+| `idle_in_transaction_session_timeout` is 1 hour | 5-10 minutes | Todo 443 |
+| Row-at-a-time inserts (`ensemble_alpha` 107M calls, `alpha_events` 66M, `feature_ic_scores` 18M) | New writers load with `COPY` in chunk order | Phase 186 |
+| Duplicate 400 MB indexes on `market_regimes` (PK unused) and on `construction_spreads` | Drop the non-PK duplicate | Phase 186 |
+| 11 tables without a primary key, mostly v2.x or monitoring | Dropped in the dead-table sweep or given a PK | Phase 186 |
+| `shared_buffers` 3 GB on a 29 GB host; `work_mem` 8 MB | Measure, then tune (about 25% for `shared_buffers`; `work_mem` per batch session) | Phase 186 |
+| Every service connects as the `postgres` superuser | One role per writer with grants only on its own tables, read-only roles for readers, generated from the DAG manifest: `single_writer` enforced by the database | Phase 187 |
+| Foreign keys without indexes | Indexed in the clean UCR schema | Phase 187 |
 
 ## 15. Vocabulary
 

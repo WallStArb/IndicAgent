@@ -64,6 +64,7 @@ with named gates.
 
 | Todo | Why now |
 |---|---|
+| [443](pending/443-postgres-exporter-chunk-scrape-cost-and-idle-in-transaction-timeout.md) | New 2026-09-26, Postgres best-practices audit. The exporter's per-table scrape over every chunk table is the top database consumer (305 min in 3 days); idle-in-transaction timeout is 1 hour (orphaned workers block writers). Two config changes, measured before and after. |
 | [442](pending/442-attempt1-single-family-and-pod-books-e17-memory-rule.md) | New 2026-09-26, adopted unified design (436). `spec.py` refuses a book mixing families 1 and 2 (different panel and horizon): run them as single-family books plus a pod book; E17's L must add combiner and partial-adjustment reach, with H0 battery cells, before fitted combiners run. Phase 183 session owns the files. |
 | [437](pending/437-first-cut-cost-model-commission-and-spread.md) | New 2026-09-26, adopted unified design (436), E18. Promotion needs positive net expectation and kappa comes from costs; today only flat bps bands exist (393 folded in). Commission plus validated Abdi-Ranaldo spread, as distributions. Family 1 turns over ~26x per session. |
 | [441](pending/441-price-only-daily-families-931-names-prereg.md) | New 2026-09-26, adopted unified design (436), attempts 3-4. Shortest path to a tradeable verdict: residual and industry momentum and sector lead-lag on the 931 names, no feature pipeline needed; with 423. |

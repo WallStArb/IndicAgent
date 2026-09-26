@@ -3082,7 +3082,11 @@ dead process, then drop `ensemble_weights`, `ensemble_alpha`, `alpha_ensemble_ic
 2026-09-26: raw data permanent, derived data is cache, conclusions are records); rebuild
 `feature_vectors` as a new append-only table with provenance instead of refreshing it in place; shrink ic_engine to the proposer, IC term structure and
 member monitoring, purging IC targets that cross `oos_start`; move feature lifecycle to
-data-quality gates; consumer checks for `context_writer` (unit active) and
+data-quality gates; database hygiene from the 2026-09-26 best-practices audit (design section
+14.5): new writers (shrunk ic_engine, the `feature_vectors` rebuild) load with `COPY` in chunk
+order instead of row-at-a-time inserts, drop the duplicate `market_regimes` index (387 MB, same
+key as the unused PK), primary keys on every surviving table, and a measured `shared_buffers` and
+`work_mem` review under the performance-investigation SOP; consumer checks for `context_writer` (unit active) and
 `cross_sectional_spread_tracker`; finish phase 170's `feature_registry` retirement without the
 ensemble rehearsal.
 **Requirements**: TBD
@@ -3103,7 +3107,11 @@ derived research stage, legacy verdict import, generated ledger); runner `explor
 Romano-Wolf StepM selection (E18); `ConstructionRule` protocol, pod books, costed horizon rule,
 the missing-member combining rule, in-fold signs, calendar-anchored refits; `generated_family`
 grammar support; contribution accounting with accounting groups; YAML DAG manifest; research
-package renames with todo 430 step 4.
+package renames with todo 430 step 4; one database login role per writer with write grants only
+on its own tables and read-only roles for readers, generated from the DAG manifest, so
+`single_writer` is enforced by the database (services connect as the `postgres` superuser today);
+indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
+`research_run.concept_id`, `instrument_classification.scheme` lack them today).
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
 the phase 183 runner's M = 30 accounting stays in force.
