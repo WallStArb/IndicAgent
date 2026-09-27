@@ -31,12 +31,12 @@ and stops with a clear message if one is live or resumable.
 | 186-12 | feature_factory split part 1: price dynamics, volume and flow, calendar, macro kernels | 2 | 186-08 | D-25, D-26, D-01, R-11 |
 | 186-17 | Postgres `shared_buffers` and `work_mem` tuning with restart (operator gate) | 2 | 186-05 | D-38, R-12 |
 | 186-13 | Regime as a walk-forward-only registry kernel; verify todo 248 state; todos 290, 291 | 3 | 186-12 | D-29, R-10, D-01 |
-| 186-14 | Fresh IC writer: scope in the unique key, bulk-load writes, content-digest revision detection, per-kernel code key | 3 | 186-06, 186-10, 186-11 | D-20, D-23, D-24, D-17, D-01 |
+| 186-14 | Fresh IC writer: new feature_ic_scores_v2 table with one clock, bulk-load writes, content-digest revision detection, per-kernel code key | 3 | 186-06, 186-10, 186-11 | D-20, D-23, D-24, D-17, D-01 |
 | 186-15 | feature_factory split part 2: SMC, VP/SR, injected cross-asset/factor/CTF kernels; pipeline imports the registry | 4 | 186-12, 186-13 | D-25, D-28, D-01 |
 | 186-16 | Delete `scripts/analysis/` except the sleeve `config.py` import closure | 3 | 186-01, 186-02, 186-03, 186-04 | D-12, D-11, D-03, D-08, D-13 |
 | 186-18 | Regime bundle todos 286, 289, 292, 341, 420 | 4 | 186-13 | D-29, D-01 |
 | 186-19 | Old-chain code deletion part 1: services, ensemble submodules, spread tracker, gate_math, tests, auditor entries | 4 | 186-03, 186-09, 186-11, 186-14, 186-16 | D-09, R-04, D-07, D-08, D-13, D-01 |
-| 186-20 | Parity harness replaying stored cell masks, then the `oos_start` purge and old-grid row delete | 4 | 186-14 | D-21, R-06, D-19, R-07, D-15, D-16 |
+| 186-20 | Parity harness replaying stored cell masks plus the writer-path parity cell; the legacy table stays untouched | 4 | 186-14 | D-21, R-06, D-15 |
 | 186-29 | Delete the rest of `scripts/analysis/sleeve_walk_forward/` (gated on research-lane release) | 4 | 186-16 | D-03, D-11, D-02 |
 | 186-21 | Old-chain deletion part 2: ops scripts, orchestrator steps, manifest verifier names, APR keys | 5 | 186-19 | D-10, D-09, D-08 |
 | 186-24 | New `feature_vectors` table schema: DDL, chunk interval, dropped columns verified by count | 5 | 186-15, 186-18 | D-34, D-37, D-16 |
@@ -45,7 +45,7 @@ and stops with a clear message if one is live or resumable.
 | 186-23 | One-change deletion of old ic_engine, `forward_return_writer`, `forward_returns`, lookahead keys (gated on 185 D-14) | 7 | 186-16, 186-20, 186-21, 186-22 | D-22, D-01, D-08 |
 | 186-26 | Rebuild: precondition checker, pilot chunk, disk guard, launch the full resumable run (gated) | 8 | 186-07, 186-22, 186-23, 186-25 | D-32, D-32a, R-09, D-33, R-13 |
 | 186-27 | Rebuild close-out: sampled drift report, name swap, drop the old table | 9 | 186-26 | D-34, D-06, D-16 |
-| 186-28 | Fresh ic_engine on rebuilt features replaces the pooled `feature_ic_scores` rows | 10 | 186-27 | D-35, R-07 |
+| 186-28 | Fresh ic_engine on rebuilt features writes feature_ic_scores_v2; legacy feature_ic_scores dropped whole | 10 | 186-27 | D-35, R-07, D-19, D-16 |
 
 Plan count: 29. Rows are ordered by wave; plan IDs are stable identifiers, not execution order.
 
@@ -58,13 +58,15 @@ sources", Claude's discretion on detail), a README for the schema, and
 `recipe_commit` that exists in git, every cited path exists at that commit or HEAD, and a
 `DROP_TABLES` constant fully covered by the union of card `tables`). `DROP_TABLES` = the D-14 list
 plus `ctx_events`, `ctx_snapshots`, `construction_spreads`, `alpha_strategy_scores`,
-`forward_returns` and the old `feature_vectors`. Writes the non-ledger cards: phase 142A ensemble
+`forward_returns`, the old `feature_vectors` and the legacy `feature_ic_scores`. Writes the
+non-ledger cards: phase 142A ensemble
 IC (EIC-04/05), phase 142B frames and FRAME-04, phase 148 SCORE-01..03 (`alpha_strategy_scores`),
 gate166 recalibration, `gate1_signal` and the unnamed 2026-07-23 look, `ctf_momentum` decile
 long-short gates 1-2 and the ctf_join_v2 re-verification (records the decile spec for the spread
 tracker, covers `construction_spreads`), EM-CAL emission threshold, the ensemble champion
 (`ensemble_weights` run_2025122405150000), and one `dead_cache` card each for `context_features`,
-`feature_ic_scores_history`, the ctx tables, `forward_returns` and the old `feature_vectors`.
+`feature_ic_scores_history`, the ctx tables, `forward_returns`, the old `feature_vectors` and the
+legacy `feature_ic_scores`.
 Numbers are copied from existing tables, reports and `.planning/gate_look_log.jsonl`, never
 re-scored (D-05). Must not touch code, tables or the ledger rows owned by 186-02. No gate.
 
@@ -192,8 +194,10 @@ regime_writer's UPDATE path or loosen the todo 426 guard. D-01 gate.
 
 **186-14 Fresh IC writer.** One writer (e.g. `services/ic_measure.py`, registered in
 `_DAG_ORDER`/`_AGENT_ID_TO_UNIT` with an `alert.lag.*` APR key) that runs the 186-10 jobs and writes
-`feature_ic_scores` through `bulk_load()`. Migration adds scope to the uniqueness key explicitly
-(todo 391) without breaking stored rows. Revision detection is a bar content digest per (symbol,
+the new `feature_ic_scores_v2` table through `bulk_load()`. The migration creates
+`feature_ic_scores_v2` with `regime_scope` in the PK from creation (todo 391) and one clock
+(`training_window_end` = the latest target exit bar); the legacy table is never written. Revision
+detection is a bar content digest per (symbol,
 tf, range) replacing the `forward_returns.computed_at` watermark (absorbs todo 412); the code key is
 per kernel, not ic_engine's all-imports key (D-23). Must not delete or edit the old
 `services/ic_engine.py` (strangler). D-01 gate.
@@ -240,11 +244,12 @@ features x 4 tf x in-session horizons x 3 regime labels) that rebuilds each stor
 observation set (label bars, peer symbols, (bar_ts, symbol) order, stride) and computes point IC
 with the 186-10 IC function twice: table targets must reproduce stored `ic_value` to float
 tolerance; kernel targets' differences are attributed to gap rows and end-of-window NaNs with
-counts; 1h horizons 20/60 excluded with a count (R-06). Commits the parity report. Then, in this
-order: the D-19 purge of rows whose target window ends at or after `oos_start` (todo 439 IC part)
-and the delete of the ~9.3M `is_pooled = false` rows (R-07), both under the SOP on the compressed
-hypertable with a trailing `VACUUM` where the vacuum rule applies. Pooled rows stay. No gate beyond
-no ic_engine run.
+counts; 1h horizons 20/60 excluded with a count (R-06). Commits the parity report, including the
+writer-path parity cell section (one frozen stored pooled cell recomputed through ic_measure's
+production assembly and compared with the harness replay; a difference beyond tolerance stops the
+phase before 186-23 can run). Nothing is deleted in this plan: the legacy `feature_ic_scores` table
+stays untouched (D-15) until 186-28 drops it whole; D-19, R-07 and D-16 are discharged by that drop.
+No gate beyond no ic_engine run.
 
 **186-29 Sleeve directory removal (gated).** Gate task: the research lane has released (STATE.md
 lane table) or the five research tests no longer import `scripts.analysis.sleeve_walk_forward`;
@@ -299,6 +304,7 @@ failure: coverage query per (symbol, tf) against the expected span for all 931
 `compute_eligible_1d` names with `ohlcv_empty_history` spans listed (todo 449's 5m backfill complete,
 read-only, R-13), phase 185 D2b derived 15m/1h grid landed and tested, todo 445 decision recorded
 (186-07) setting the timeframe and name set, 186-06/15/18/25 landed, drops landed (186-22, 186-23).
+Runs the todo 420 orphan-delete rerun (when 186-18 deferred it with J > 0) before the launch.
 Then a measured pilot chunk: wall-clock, compressed size, largest uncompressed chunk working set,
 DB load against the other lanes; the R-09 disk guard (projected compressed size plus largest
 chunk working set plus stated margin against free disk) must pass; state the expected wall-clock.
@@ -310,9 +316,10 @@ drift report new vs old table (stated sample, per-column exact/ulp/NaN diffs, ex
 swap, drop the old `feature_vectors` (card from 186-01), `VACUUM` where the rule applies, re-enable
 the compression policy, record disk. Closes todos 411 and 426 step 2.
 
-**186-28 Fresh IC on rebuilt features.** Runs the 186-14 writer on the rebuilt table, replaces the
-current pooled `feature_ic_scores` rows (POOLED and per-symbol `_pooled`, R-07) with fresh rows,
-verifies no row has a target end at or after `oos_start`, and records counts. Gate: 186-27 landed.
+**186-28 Fresh IC on rebuilt features.** Runs the 186-14 writer on the rebuilt table into
+`feature_ic_scores_v2`, verifies no row has a target end at or after `oos_start`, records counts,
+and drops the legacy `feature_ic_scores` whole (R-07, D-19) once the 186-01 card covers it. Gate:
+186-27 landed.
 
 ## Resume notes (2026-09-27, orchestrator)
 
@@ -324,8 +331,8 @@ Names fixed by written plans, which later plans must use:
 - Provenance table `provenance_batch` (186-06, not `lineage_batch`); API `bulk_load()`, `BulkLoadSpec`, `completed_provenance_batch()`, `bulk_load(replace_where=)`, `kernel_code_key()`, `bar_content_digests()` in `services/_batch_utils.py`, synchronous psycopg (async callers use `asyncio.to_thread`).
 - Determinism tool `scripts/research/determinism/` (186-03); promoted helpers `scripts/research/date_panel.py`, `cost_hurdle.py`, `feature_matrix.py`, `scripts/infrastructure/instrument_compute_eligibility_audit.py` (186-04).
 - Kernel registry `src/intelligence/features/registry.py`, `kernels/` (auto-discovered `KERNELS` tuples), `path_dependent`, `memory_atol`, `acausal_control`, `compute_kernels()`, `UNOWNED_COLUMNS` in `registry.py` (186-08, 186-12, 186-15). 186-15 depends on 186-13 (same files).
-- Fresh IC package `src/intelligence/measure/`; writer `services/ic_measure.py`, oneshot `indicagent-ic-measure`; `feature_ic_scores` PK gains `regime_scope`; new rows' `training_window_end` is the latest target exit bar (186-10, 186-14).
-- 186-18 task 3 cleans `market_regimes` orphans only after 186-20's parity summary is on main when a changed row joins `feature_vectors`.
+- Fresh IC table `feature_ic_scores_v2` (186-14): `regime_scope` in the PK from creation, `training_window_end` = the latest target exit bar (one clock); the legacy `feature_ic_scores` table is untouched until 186-28 drops it whole. Fresh IC package `src/intelligence/measure/`; writer `services/ic_measure.py`, oneshot `indicagent-ic-measure` (186-10, 186-14).
+- 186-18 task 3 defers the market_regimes orphan-delete rerun to 186-26 task 1 (after 186-20's parity is on main, before the rebuild launch).
 - 186-19 leaves for 186-21: ops scripts importing `services.ensemble_ic_engine` (`ops_ensemble_ablation.py`, `ops_oos_gate1_signal_eval.py`), orchestrator steps 7-8, and APR keys left by 186-09 and 186-16. Delete APR keys per key after a grep, never by LIKE (live readers exist, e.g. `alpha.ensemble.mv_condition_max`, `alpha.ic.shrinkage_k`, `alpha.ic.canary_rng_seed`).
 - Todos filed during planning: 449 (5m/15m/1h backfill, running in another session; the rebuild gates on 5m only), 450 (P0 intraday macro lookahead, fixed in 186-12 task 3), 451 (suspected HMM segment-gate lookahead, 186-13 task 2).
 - Migration numbers are chosen by the executor at run time (`NNN` in plans).

@@ -42,7 +42,9 @@ Fold into the phase 186 rebuild's regime inputs: `market_regimes` orphan rows ar
 ## Deferred rerun owner (2026-09-27, plan-phase)
 
 Plan 186-18 task 3 fixes the orphan mechanism but defers the actual orphan-delete rerun
-(`cross_sectional_regime_model --accept-orphan-delete`) until 186-20's parity summary is on main
-whenever the changed-row join count J > 0. The rerun is owned by the 186-28 executor, run after
-the feature_vectors swap makes the join count cheap; this todo closes only after that rerun
-lands, not when 186-18 merges.
+(`cross_sectional_regime_model --accept-orphan-delete`) whenever the changed-row join count
+J > 0. The rerun is owned by the 186-26 executor (task 1's conditional step): it runs after
+186-20's parity report is on main (guaranteed by the 186-26 <- 186-23 <- 186-20 dependency
+chain) and before the rebuild launch (the rebuild consumes regime inputs; waiting for the
+feature_vectors swap would be too late). This todo closes only after that rerun lands, not
+when 186-18 merges.
