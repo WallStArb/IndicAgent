@@ -73,7 +73,7 @@ A source reference (`sources` entries and `results[].source`) is one of:
 
 - A git-tracked repo path, optionally suffixed `#anchor` (for example
   `docs/research/measurement-alpha-emission.md#verdict`)
-- `db:<table>` — a stored database row; the SQL lives in the prose with its run date
+- `db:<table>` - a stored database row; the SQL lives in the prose with its run date
 - `gate_look_log:<gate_id>` or `gate_look_log:<run_ts>` for gate looks whose log line has no
   `gate_id` key; resolved against `.planning/gate_look_log.jsonl` by the lint
 
