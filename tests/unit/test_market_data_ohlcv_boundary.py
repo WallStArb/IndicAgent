@@ -55,13 +55,6 @@ _ALLOW_LIST: dict[str, str] = {
         "whose history is placeholder-heavy, skewing the ranking -- same reasoning as the "
         "infrastructure_ibkr_chunk_and_rate_limit_probe.py entry below."
     ),
-    "scripts/infrastructure/backfill/infrastructure_client43_progress_sample.sh": (
-        "TEMPORARY: ad-hoc tracker script for the client-43 universe expansion backfill "
-        "(delete both this entry and the script once the run finishes, see the script's own "
-        "docstring). Counts DISTINCT timeframe per symbol; needs the full calendar grid for "
-        "the same reason as the ibkr probe above -- a placeholder-only row still means IBKR "
-        "has touched that (symbol, timeframe)."
-    ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "PERMANENT + PENDING mix, resolved 2026-07-31 (todo 124): the min(timestamp) gap-"
         "reorder query migrated to the tradeable view (behaviorally identical either way --\n"
@@ -108,12 +101,6 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x "
         "Signal Ledger Architecture code, same bucket as "
         "signal_probe_auditor.py/signal_replay_auditor.py already on this allow-list."
-    ),
-    "scripts/infrastructure/backfill/infrastructure_backfill_progress_check.sh": (
-        "PERMANENT: Backfill progress monitor -- COUNT(*) GROUP BY timeframe against the full "
-        "calendar grid is the intended behavior (tracking calendar completeness, not "
-        "tradeable-bar count), same rationale as the already-allow-listed "
-        "ops_pipeline_status.py."
     ),
     "scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh": (
         "PERMANENT: Re-seeds backfill_status bookkeeping from the full calendar grid after a "
