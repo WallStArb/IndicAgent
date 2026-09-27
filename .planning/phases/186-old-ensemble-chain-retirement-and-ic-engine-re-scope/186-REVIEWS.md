@@ -167,6 +167,53 @@ The 29 plans will deliver the phase goal if executed as their task text is writt
 - **Research lane.** No plan other than `186-29` edits `src/intelligence/research/` or the five HarnessConfig tests. `186-29` is wave 4, depends only on `186-16`, and is not on the rebuild's dependency path, so a held lane does not block the rebuild.
 - **185 boundary.** `186-26` reads 185's D2b marker and does not start IBKR jobs (R-13). `186-23` reads 185 D-14 and does not implement it.
 
+### Council pass (data integrity, one clock, one statistic)
+
+Applied after the consistency pass, against `docs/foundation/principles.md`: one direction of flow, one meaning per column, failures loud, complexity deleted before it is optimized. The consistency pass found no HIGH. This pass does. The plans are executable. Two designs will write a silent wrong answer if left as specified.
+
+#### What already matches the standard
+
+Raw bars stay. Derived tables are cache and are dropped only after a card. The research package is not edited while another lane owns it. The rebuild compresses per chunk and does not decompress `feature_vectors` in place (the failure mode of todo 426). The causality probe in `186-08` fails a kernel that normalizes over its full input, and once `186-12` registers kernels that test is no longer an empty parameter set. Those are the right instincts. Do not reopen the drops.
+
+#### Defect 1 — one column, two clocks
+
+`186-14` states the choice in prose: fresh rows store `training_window_end` as the latest target exit, always before `oos_start`; legacy rows store the same column as the window bound, and every one of the 10,616,092 live rows sits exactly on `oos_start`. Both populations share `feature_ic_scores` from `186-14` until `186-28`, which is after the rebuild and the name swap.
+
+`training_window_end` is the hypertable time column. A reader who filters `training_window_end < oos_start` sees only the fresh scope. A reader who filters `>= oos_start` sees only the legacy scope, whose targets touch the forward span. `feature_lifecycle` and any ad hoc IC query that does not also filter `regime_scope` mixes or drops a population with no error. The integration test in `186-14` even seeds a legacy row and asserts it survives a fresh write. That is coexistence by design.
+
+The phase already has the pattern that removes this: `feature_vectors_v2`, write, prove, swap, drop. Fresh IC rows belong in a new table with one clock. The legacy table stays untouched until `186-28` deletes it. `replace_where` against a mixed table, and a write session that decompresses the legacy population in order to append a different population, both go away. `186-20`'s must-have hazard (purge predicate wider than its SQL) is the same defect showing up as an instruction bug.
+
+#### Defect 2 — parity certifies a function the writer does not run
+
+`186-20` replays stored cell masks through the IC function, once with table targets and once with kernel targets. That is the right test of the rank statistic. It is not a test of `services/ic_measure.py`.
+
+The writer, in `186-14`, builds S0 panels with `end_exclusive = oos_start`, stacks symbol chunks, aligns features, and chooses stride from APR. The parity harness feeds the stored observation set. R-06 is explicit that no stored cell has an exact kernel counterpart, so nothing in the plan requires those two assemblies to match. The `186-14` integration test checks that a hand-built predictive column gets a positive IC on 8 symbols. A sign check is not parity.
+
+`186-23` then deletes the old engine and `forward_returns`. `186-27` drops the old feature table. `186-28` is the first time the production assembly writes the numbers anyone will read. If chunk stacking or `align_features` shifts a target by one bar, the result is a clean table of the wrong statistic, and the artifact that could have caught it has already been dropped. Raw bars can rebuild features. They cannot tell you the new IC matches the old one.
+
+The missing gate is small: one frozen cell, production path only (`build_target_panels` -> `align_features` -> the same IC function the harness uses), compared to the harness output on that cell, committed before `186-23`. Same function, two callers, one expected number. If they differ, stop.
+
+#### Defect 3 — provenance records two recipes for one row
+
+D-24 says a rerun of the same key is a no-op. `186-14` case 3 expects a changed bar to replace the data rows and leave **two** `completed` provenance rows for the unit. Both keys claim the current rows. A later resume that recomputes the old digest finds the old key completed and skips, leaving the new rows in place under the old recipe. Lineage is the invariant that makes a result auditable. A log of attempts is not the identity of the stored batch. On replace, the previous key has to stop meaning "these rows." Mark it superseded in the same transaction as the delete-and-COPY, or the record is a lie.
+
+#### Complexity to delete, not tune
+
+`186-25` fetches from series start for every calendar-year unit because the kernel set contains path-dependent kernels. Declared memory was built in `186-08` so a unit can fetch its warmup and nothing else. One expanding kernel, if any exists, should be named and either given an explicit expanding memory or removed. Three hundred columns should not recompute twenty years because one of them might need to. The `186-26` pilot will measure that cost and then treat it as a property of the machine. It is a property of the decision.
+
+`replace_where` on the append-only primitive exists to edit a mixed table in place. Defect 1 removes the need. An append-only `COPY` whose conflict is loud is the whole primitive.
+
+The sync `asyncio.run` around `build_target_panels` is not the defect. This is a batch job whose contract is a deterministic `COPY`. Making it async would add a second runtime for the same numbers.
+
+#### What Simons would require before execution
+
+1. Fresh IC writes a new table. One meaning of `training_window_end`. Legacy rows are not neighbors of fresh rows.
+2. One committed cell where the writer path and the parity harness agree, before any drop.
+3. A replaced batch has one completed provenance row.
+4. Rebuild warmup is `max(declared memory)` over the registry actually used, measured, not "from the first bar."
+
+None of these add a stage. They delete a coexistence protocol, a second statistic, and a full-history refetch. The rest of the phase can run as written.
+
 ---
 
 ## R3 Review — Claude Opus (fresh context)
