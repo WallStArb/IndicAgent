@@ -209,3 +209,28 @@ def test_split_segments_are_measured_as_separate_names():
     split = dividends.total_return(p, grid, suspect_yield=0.1)
     assert "S0~1" in split.symbols
     assert _measure(split).names == m + 1
+
+
+def test_unmeasurable_family_is_refused_not_failed(repo, tmp_path):  # noqa: F811
+    """Fewer names than the coverage floor: no cross-section to measure. The run must end
+    refused (uncharged), not failed (charged)."""
+    from src.intelligence.research import panel as panel_mod
+
+    saved = panel_mod.save(_static_panel(0.0, m=10), tmp_path)
+    ledger = FakeLedger()
+    loaded = load_spec_from_head(repo, SPEC_PATH)
+    out = asyncio.run(run_family(loaded, _ctx(repo, ledger, saved, []), mode="real"))
+    assert ledger.calls[3:] == [("finish_run", "refused")] * 2
+    assert "not measurable" in out["lag1"]["evidence"]["refusal"]
+
+
+def test_a_broken_battery_is_not_reported_as_missing(repo, monkeypatch):  # noqa: F811
+    """An AttributeError inside a battery's gate is a bug to surface, not "no battery"."""
+
+    def broken():
+        raise AttributeError("typo in a gating-cell lambda")
+
+    monkeypatch.setattr(nb1, "static_gate", broken)
+    loaded = load_spec_from_head(repo, SPEC_PATH)
+    with pytest.raises(AttributeError, match="typo"):
+        runner_mod.static_gate(loaded.model)

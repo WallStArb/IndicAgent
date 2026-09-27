@@ -452,23 +452,32 @@ def static_gate(spec: FamilySpec) -> static_sizes.StaticGate:
     """The H0 battery gate for a family's module, before the ledger: a family no battery
     covers is refused without real data, never charged (E17 option C)."""
     module = family_module(spec)
-    try:
-        return static_sizes.gate_for(module)
-    except AttributeError:
+    if not hasattr(module, "NULL_BATTERY"):
         raise RunRefused(
             f"family {spec.family}: no E17 H0 battery covers {module.__name__}; one at the "
             "family's measured static sizes must pass first (methodology-change-ledger E17)"
-        ) from None
+        )
+    return static_sizes.gate_for(module)
 
 
 def static_precondition(spec: FamilySpec, panel: Panel, gate: static_sizes.StaticGate) -> dict:
-    """The family's measured static sizes against its battery's gate, on the analysis panel."""
-    sizes = static_sizes.measure(
-        panel,
-        cell_rows=gate.cell_rows,
-        trading_start=spec.scoring.trading_start,
-        coverage_floor=spec.construction.coverage_floor,
-    )
+    """The family's measured static sizes against its battery's gate, on the analysis panel.
+    A panel the sizes cannot be measured on fails the precondition: it is refused like one
+    above the gate, never left to fail (a charged status) or to pass unchecked."""
+    try:
+        sizes = static_sizes.measure(
+            panel,
+            cell_rows=gate.cell_rows,
+            trading_start=spec.scoring.trading_start,
+            coverage_floor=spec.construction.coverage_floor,
+        )
+    except ValueError as error:
+        return {
+            "method": static_sizes.METHOD,
+            "battery": gate.battery,
+            "passes": False,
+            "exceeds": [f"not measurable: {error}"],
+        }
     return static_sizes.record(sizes, gate)
 
 
@@ -476,7 +485,7 @@ def _static_refusal(family: str, block: dict) -> dict:
     return {
         "stage": "refusal",
         "refusal": (
-            f"family {family} exceeds the E17 battery's gated static sizes: "
+            f"family {family} fails the E17 static-size precondition: "
             + "; ".join(block["exceeds"])
             + f". It needs a battery at its own measured sizes first ({block['battery']})"
         ),

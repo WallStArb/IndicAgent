@@ -79,8 +79,8 @@ class StaticSizes:
 
 
 def gate_for(family_module) -> StaticGate:
-    """The gate of the battery a family module names in NULL_BATTERY; AttributeError when it
-    names none (option C: such a family needs a battery at its own sizes first)."""
+    """The gate of the battery a family module names in NULL_BATTERY (the runner refuses a
+    module that names none: option C needs a battery at the family's own sizes first)."""
     return importlib.import_module(family_module.NULL_BATTERY).static_gate()
 
 
