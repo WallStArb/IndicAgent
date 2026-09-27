@@ -164,29 +164,58 @@ Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream 
 
 Plans:
 
+**Wave 1**
+
 - [ ] 185-01-PLAN.md - known-answer fixtures, test scaffolding, write-rate and role measurements (wave 1)
 - [ ] 185-02-PLAN.md - D1 observation store, roles, COPY writer (wave 1)
 - [ ] 185-03-PLAN.md - provider request records and venue observations (wave 1)
 - [ ] 185-04-PLAN.md - bar_quality_flag, quarantine view, scrub APR, batch helper (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 185-05-PLAN.md - D2a pure scrub rules on known answers (wave 2)
 - [ ] 185-06-PLAN.md - session grid aggregation and bar content digest (wave 2)
 - [ ] 185-07-PLAN.md - seams, splits, disputed dates, D3 study pre-registration (wave 2)
 - [ ] 185-08-PLAN.md - D0 label arithmetic and survivorship APR (wave 2)
 - [ ] 185-09-PLAN.md - D1 capture in the backfill; IBKR history-stream lease replacing the nightly skip; chain cut-over (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
 - [ ] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
-- [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)
 - [ ] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
 - [ ] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)
 - [ ] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 185-16-PLAN.md - D-28 data bar check, D0 read helper, S0 hand-off (wave 5)
 - [ ] 185-17-PLAN.md - D2 1d derivation rule and stage, dry run (wave 5)
-- [ ] 185-18-PLAN.md - D2 sole 1d writer and historical apply (wave 6)
-- [ ] 185-19-PLAN.md - D3 rebase and D4 from recorded answers, 1d (wave 7)
-- [ ] 185-20-PLAN.md - intraday verify-only, empty history, gated recovery (wave 8)
 - [ ] 185-21-PLAN.md - D5 IBKR dividend route from D1, date disputes (wave 5)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 185-18-PLAN.md - D2 sole 1d writer and historical apply (wave 6)
+
+**Wave 7** *(blocked on Wave 6 completion)*
+
+- [ ] 185-19-PLAN.md - D3 rebase and D4 from recorded answers, 1d (wave 7)
+
+**Wave 8** *(blocked on Wave 7 completion)*
+
+- [ ] 185-20-PLAN.md - intraday verify-only, empty history, gated recovery (wave 8)
 - [ ] 185-22-PLAN.md - D5 nightly overlap split detection (wave 8)
+
+**Wave 9** *(blocked on Wave 8 completion)*
+
 - [ ] 185-23-PLAN.md - D7 nightly reconciliation audit (wave 9)
+
+**Wave 10** *(blocked on Wave 9 completion)*
+
 - [ ] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 10)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope

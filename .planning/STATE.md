@@ -3,14 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-stopped_at: "todo 447 done 2026-09-27; owner paused research attempts until the build lands (185, 186); next phase 183 verification, then build"
-last_updated: "2026-09-26T21:00:00.000Z"
+last_updated: "2026-09-27T12:37:45.737Z"
 progress:
   total_phases: 6
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 54
+  completed_plans: 11
+  percent: 17
 ---
 
 # Project State
@@ -27,6 +26,7 @@ bullets with current facts.
   statistic but promotion needs positive net expectation; every look at the vintage is counted and
   selection is by Romano-Wolf StepM; each book gets its own forward span (feature books never
   before 2026-08-08, after 7 recorded holdout looks); raw data is permanent, derived data is cache.
+
 - **Milestone v3.5 Unified Research Pipeline, phases 183-188** (ROADMAP.md). Build first (owner,
   2026-09-27): session time goes to building, and research attempts (1a-1c, todo 442; the cost
   model 437; daily families 441, 423, 440) are paused until 185 and 186 land. This replaces
@@ -35,9 +35,11 @@ bullets with current facts.
   186 (delete, drop, rebuild `feature_vectors`, refactor items 1-6) -> 187 (research core) -> 184
   -> feature books -> 188 (forward runner, capital tier). 185's derived 15m and 1h grid (D2b,
   todo 446) lands before 186's rebuild; 184 builds on that grid and 186's kernel registry (UD-25).
+
 - **Evidence rules:** E15 (book as the unit), E16 and E17 (timing statistic), E18 (counting,
   selection, promotion, per-book span). Until phase 187 lands, the phase 183 runner's M = 30
   accounting stays in force for any book test.
+
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR. Check it before recommending a candidate.
 
@@ -48,6 +50,7 @@ bullets with current facts.
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
+
 - **Phase 185:** planned 2026-09-27: 24 plans in 10 waves, aligned the same day with todo
   449's single-stream finding (`d2c02b387`: one IBKR history-stream lease, CONTEXT D-29 to D-31).
   The plan-checker pass has not run yet (usage limit); run it, then `/gsd-execute-phase 185`.
@@ -56,22 +59,27 @@ bullets with current facts.
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
   11-12) is in place by wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete;
   D7 reconciliation). Owns todo 433 (P0).
+
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
   Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
   14.2) and 185's derived grid (todo 446). The fresh ic_engine computes targets with
   `panel.forward_returns`; the `forward_returns` table is dropped after parity (UD-25, design 14.7).
+
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
+
 - **Intraday backfill (todo 449, running since 2026-09-27):** one IBKR stream via
   `logs/backfill_ops/intraday_chain.sh`: 15m+1h for the 698 names first (client 46), then 5m
   (client 40, about two weeks). Parallel lanes do not add throughput. The nightly 1d backfill
   skips while it runs. Phase 186's rebuild gates on the 5m part.
   Until plan 185-09 lands, the nightly skips every night the chain runs (1d bars go stale);
   185-09's lease replaces that skip and restarts the chain's pipeline process onto it.
+
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
   `docs/foundation/instrument-onboarding-sop.md` (tooling gaps: todos 431, 444).
+
 - **Data freshness:** features and regimes stale since 2026-08-10 (todo 411, now replaced by the
   phase 186 rebuild); live IBKR streaming down; nightly batch backfill refreshes OHLCV only.
   Check `max(timestamp)` before citing freshness.
@@ -102,8 +110,10 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 
 - Todo 248 (HMM per-symbol lookahead): walk-forward fix built, not deployed; deploy with the
   phase 186 rebuild. HMM columns stay out of every family until then.
+
 - Todo 372 (`Panel.sync_shift_null_p`): finding 1 fixed, lacks independent review; finding 2
   (`volume_z` diurnal detrending) untouched.
+
 - N1 nonlinear combiner: structurally inconclusive; don't cite as pass or fail.
 - Survivorship: every universe reads current state; phase 185 D0 bounds past verdicts. Forward
   capture (D8) was descoped by the owner 2026-09-26: few names in this universe delist, and the
@@ -120,7 +130,9 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 - `HMM_RANDOM_STATE = 42`: changing it invalidates every regime-derived output.
 - Executable returns only, open to open: `panel.forward_returns` is the one target definition
   (UD-25); the `forward_returns` table is legacy until phase 186 drops it, and new code never reads it.
+
 - `ON CONFLICT` for partial indexes on TimescaleDB: column list plus WHERE clause, not
   `ON CONSTRAINT`.
+
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").
