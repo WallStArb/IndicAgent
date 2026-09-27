@@ -169,6 +169,56 @@ The 29 plans will deliver the phase goal if executed as their task text is writt
 
 ---
 
-<!-- R3..R6 sections appended below as each reviewer completes; consensus summary written after all six. -->
+## R3 Review — Claude Opus (fresh context)
+
+**Plans:** 186-08, 186-12, 186-13, 186-15, 186-18 (kernel-registry track)
+
+### Summary
+
+This is an unusually well-evidenced plan set. I verified dozens of factual claims against the repo and database and almost all were exactly right: every line-number claim I checked (feature_factory 8733 lines, `FeatureFactoryConfig` :424, `compute_batch` :7347, `_momentum_z_series_full` :2154, `_canary_acausal_placebo` :1959 reading `closes[i+1]/[i+2]`, regime_writer 2640 lines with the full-history `_compute_symbol_tf` at :1568 and dispatch at :2173, `_ColumnFamily` :110, `_cross_asset_record_for_date` :401/:1550, cross_asset_series `bisect_right` :161) matched. The config_history claim (walk_forward.enabled=true, 2026-08-12, "todo 248", user-approved) is verbatim in the DB, and the 186-18 "live APR today" block matches `config_state` exactly. The todo 420 weekend-orphan count (1,223,265) matches a live read-only count exactly. The 186-12 same-day macro lookahead is real at feature_factory.py:7734/7758 with cross_asset_series.py:161, and todo 450 describes precisely what task 3 fixes, at the right place. The byte-identical parity design is genuinely hermetic (inputs AND outputs frozen in npz; the parity test never reads the DB), would catch 1-ulp float32 drift (canonicalized little-endian digests + `array_equal(equal_nan=True)`), and every plan requires a recorded mutation check proving the test bites. Failure paths (behavior change = own commit; golden regeneration = further separate commit with a changed-column whitelist and stop-on-unexpected-diff) are consistently defined. Live-run check: no ic_engine/backfill_feature_factory/regime_writer process is running; the todo 449 IBKR lane IS live, and no plan starts an IBKR job or writes the DB.
+
+### Strengths
+
+- Parity fixtures pin both inputs and outputs, so later plans recompute offline; capture runs twice and refuses nondeterminism (186-08 task 3b).
+- Commit taxonomy is rigorous: code-only moves leave fixtures untouched (asserted via `git show --stat` and `git log` acceptance criteria); behavior fixes are separate with RED tests recorded before the fix.
+- 186-13 verifies todo 248 from three independent sources before touching planning docs, and STATE.md edits follow the "plain replacement, no CORRECTED block" rule. This matters: todo 292's blast-radius section still claims `walk_forward.enabled = false` (written 2026-08-09, nine days stale), so the verify-first task is load-bearing, not ceremony.
+- 186-18 task 3 step 4 encodes the outline's binding ordering note exactly (cleanup runs only if J=0 or 186-20-SUMMARY.md exists on main; otherwise defers with todo 420 left pending), and never recomputes regime into the current `feature_vectors`; the todo 426 guard is explicitly untouched and the writer is never run against the DB.
+- DAG invariants hold: the pipeline's D-28 change is a startup validation + shared lookup rule only, no self-persistence; sweep workers are compute-only with bars fetched in main; worker-args become a NamedTuple (todo 291 item 4).
+- 186-15's CTF availability tests are written before the move against the unchanged code, with a real-data perturbation variant, and an explicit no-fix/fix branch; the documented CTF-vs-macro availability asymmetry is correctly left alone.
+- None handling (`_guard`'s None vs non-finite distinction) is traced per column rather than hand-waved.
+
+### Concerns
+
+- **MEDIUM — Todo 450 is never referenced in 186-12's body, and todo 451 never in 186-13's**, yet the outline binds both ("450 ... fixed in 186-12 task 3"; "451 ... 186-13 task 2") and each todo names the plan in its Fix section. Neither plan closes, moves, or appends to the todo; 186-12's caveat trace says "file a todo" with no pointer to the existing one, inviting a duplicate P0. Evidence: `grep 450 .planning/phases/.../186-12-PLAN.md` (no hit); todo files exist in `pending/`. Failure mode: fixed P0/P1 todos sit open in `pending/` after the fixes land, and the todo-file linkage the phase relies on goes stale.
+- **MEDIUM — Deferred `market_regimes` cleanup ownership is inconsistent.** Todo 420's "Deferred rerun owner (2026-09-27)" says the rerun is "owned by the 186-28 executor, run after the feature_vectors swap"; 186-18's deferral message says "rerun ... after 186-20 merges". Nothing in the outline's 186-20 or 186-28 scope paragraphs mentions running `cross_sectional_regime_model --accept-orphan-delete`. Failure mode: the orphan delete (1.22M rows) falls between two plans that each believe the other owns it. The todo stays pending so it is not lost, but the executor instructions contradict.
+- **MEDIUM — Dead-import window for `scripts/analysis/` pilots.** 18 files there reference regime_writer and at least two import from it (`hmm_walk_forward_seed_stability_pilot.py:49`, `hmm_n_restarts_walk_forward_comparison_pilot.py:67`) functions 186-13 (wave 3) deletes, while 186-16 (also wave 3, deps only on 01-04) deletes the directory. The outline's stated ordering intent is "scripts/analysis is deleted before the old-chain services so its scripts never sit on dead imports"; 186-13 breaks that intent within its own wave. Mitigated (nothing live imports them; 186-13 records them as superseded), but wave-3 execution order is unspecified.
+- **MEDIUM — Gate breadth vs the live todo 449 IBKR lane.** All five gates check `ps aux` for ic_engine/backfill/regime_writer/rebuild and STATE.md's lane table; none checks or even records the IBKR backfill lane except 186-08's passive "record whether IBKR writers were active during capture". Risk is bounded — every DB access in these plans is read-only against `market_data_ohlcv_tradeable` and no plan opens an IBKR client — but 186-18 task 2's sweep (up to ~931 symbols x 4 tf x 3 schedules x 2 families, estimated up to 3 h) runs unbounded CPU/IO against the same host and TimescaleDB while the backfill lane writes and wave-4 plans (186-15, 186-19, 186-20) execute concurrently. No plan states cross-plan CPU contention as a consideration for that sweep.
+- **LOW — Stale wave text:** 186-13's context says "186-15 (wave 3)"; 186-15's objective says "the outline row puts this plan in wave 3"; the outline table says wave 4 (matching both frontmatters). Depends_on makes real order unambiguous, but an executor reading prose could parallelize 13 and 15, which both edit feature_factory/backfill/tests.
+- **LOW — 186-08 task 3's "1m coverage is 2026-03-23 to 2026-06-23" is stale:** live max is 2026-09-26 (`SELECT max(timestamp) ... timeframe='1m'`). The chosen windows (ending before 2026-06-20) remain inside coverage, so no execution impact.
+- **LOW — 186-08 does not state explicitly that `real_inputs.npz` must also store the cross-asset helper series (SHY/TIP/HYG/LQD 1d)** the real-case reference rebuilds `cross_asset_by_date` from; "stored ... 1d bars" is ambiguous between DB and npz. If it means DB, the parity test is not hermetic and later plans' parity silently depends on live table state.
+- **LOW — 186-13 has no branch for todo 451's "if the RED tests do not fail, close as not a bug" case;** task 2 assumes the RED tests fail (the source reading strongly suggests they will, and 451 itself marks it "not yet proven").
+
+### Suggestions
+
+- Add one line each to 186-12 task 3 and 186-13 task 2: after the fix commit, append a dated note to todos 450/451 (and PRIORITIES.md if disposition changes), rather than leaving their lifecycle to nobody.
+- Reconcile the 420 rerun owner: either 186-18's deferral message should name the 186-28 executor and the post-swap timing (matching the todo), or 186-28's plan should be amended; today they disagree.
+- State in 186-08 task 3a that `real_inputs.npz` includes the six cross-asset 1d helper series per case so the test never touches the DB.
+- Add to 186-18 task 2 step 4: record that the todo 449 IBKR lane is live during the sweep and cap `--workers` with a stated headroom, so the sweep cannot starve the nightly lanes.
+- Fix the two stale wave mentions (186-13 context, 186-15 objective) to "wave 4".
+
+### Risk assessment
+
+LOW-to-MEDIUM. The plans' factual grounding is the best I have measured in this phase: every checkable claim I tested was true, the parity/probe/golden machinery is real and provably bites, and the dangerous operations (regime UPDATE path, corpus recompute, market_regimes cleanup) are correctly gated or deferred. Residual risk is confined to todo-lifecycle bookkeeping (450/451), the 420 rerun ownership gap, and wave-3/4 execution-order prose — all rework-class, none data-loss or silent-wrong-answer class.
+
+### Cross-plan checks
+
+- Binding names match the outline everywhere I checked: `registry.py`, auto-discovered `KERNELS`, `path_dependent`/`memory_atol`/`acausal_control`/`compute_kernels()` (186-08/12/13/15 progressively, each extending with defaulted fields so prior tests stay green), `UNOWNED_COLUMNS` placed in `registry.py` by 186-15 task 3 as the outline states, `ExternalInput` `symbol` (control.py) and `tf` (regime.py) declared once with the duplicate-name refusal.
+- Fixture handoff is coherent: 186-12 regenerates `kernel_parity/` (commit C) and 186-15 consumes "as regenerated by 186-12"; 186-13's acceptance asserts `kernel_parity/` untouched; `regime_kernel/` has its own directory and regeneration chain with 186-18 preserving 186-13's records in a list.
+- Wave/dependency graph is consistent with the outline (08→12→13→{15,18}); 186-15's stated dependency reason for 186-13 (the `tf` external, shared files) is real.
+- 186-18's interfaces block restates 186-13's planned names and explicitly instructs "where they differ from this plan, follow the merged code" — the right posture given `_build_obs_matrix`'s signature claim I did not independently confirm post-move.
+- The 286→186-26 handoff is honest: stored-column defects (obs warmup artifact, stale churn, intraday macro lookahead, label-mask lookahead) are recorded as known defects on the old-table card / todos rather than recomputed in place, matching the todo triage and the rebuild design.
+
+<!-- R4..R6 sections appended below as each reviewer completes; consensus summary written after all six. -->
+
 
 
