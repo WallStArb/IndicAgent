@@ -314,4 +314,18 @@ the compression policy, record disk. Closes todos 411 and 426 step 2.
 current pooled `feature_ic_scores` rows (POOLED and per-symbol `_pooled`, R-07) with fresh rows,
 verifies no row has a target end at or after `oos_start`, and records counts. Gate: 186-27 landed.
 
+## Resume notes (2026-09-27, orchestrator)
+
+Plans 01-19 are written and committed. Remaining: 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, in that order, one planner at a time (parallel planners hit the session limit three times). Resume with `/gsd-plan-phase 186 --chunked`; it skips plans already on disk. Then run the plan checker over all 29.
+
+Names fixed by written plans, which later plans must use:
+- Provenance table `provenance_batch` (186-06, not `lineage_batch`); API `bulk_load()`, `BulkLoadSpec`, `completed_provenance_batch()`, `bulk_load(replace_where=)`, `kernel_code_key()`, `bar_content_digests()` in `services/_batch_utils.py`, synchronous psycopg (async callers use `asyncio.to_thread`).
+- Determinism tool `scripts/research/determinism/` (186-03); promoted helpers `scripts/research/date_panel.py`, `cost_hurdle.py`, `feature_matrix.py`, `scripts/infrastructure/instrument_compute_eligibility_audit.py` (186-04).
+- Kernel registry `src/intelligence/features/registry.py`, `kernels/` (auto-discovered `KERNELS` tuples), `path_dependent`, `memory_atol`, `acausal_control`, `compute_kernels()`, `UNOWNED_COLUMNS` in `registry.py` (186-08, 186-12, 186-15). 186-15 depends on 186-13 (same files).
+- Fresh IC package `src/intelligence/measure/`; writer `services/ic_measure.py`, oneshot `indicagent-ic-measure`; `feature_ic_scores` PK gains `regime_scope`; new rows' `training_window_end` is the latest target exit bar (186-10, 186-14).
+- 186-18 task 3 cleans `market_regimes` orphans only after 186-20's parity summary is on main when a changed row joins `feature_vectors`.
+- 186-19 leaves for 186-21: ops scripts importing `services.ensemble_ic_engine` (`ops_ensemble_ablation.py`, `ops_oos_gate1_signal_eval.py`), orchestrator steps 7-8, and APR keys left by 186-09 and 186-16. Delete APR keys per key after a grep, never by LIKE (live readers exist, e.g. `alpha.ensemble.mv_condition_max`, `alpha.ic.shrinkage_k`, `alpha.ic.canary_rng_seed`).
+- Todos filed during planning: 449 (5m/15m/1h backfill, running in another session; the rebuild gates on 5m only), 450 (P0 intraday macro lookahead, fixed in 186-12 task 3), 451 (suspected HMM segment-gate lookahead, 186-13 task 2).
+- Migration numbers are chosen by the executor at run time (`NNN` in plans).
+
 ## OUTLINE COMPLETE
