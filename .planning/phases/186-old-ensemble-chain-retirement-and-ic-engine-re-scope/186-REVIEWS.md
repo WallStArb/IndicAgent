@@ -1,9 +1,9 @@
 ---
 phase: 186
-reviewers: [claude-opus-r1, claude-opus-r2, claude-opus-r3, claude-opus-r4, claude-opus-r5, claude-opus-r6]
+reviewers: [claude-opus-r1, claude-opus-r2, grok-4.7-high-owner-run, claude-opus-r3, claude-opus-r4, claude-opus-r5, claude-opus-r6]
 reviewed_at: 2026-09-27T15:11:55Z
 plans_reviewed: [186-01-PLAN.md, 186-02-PLAN.md, 186-03-PLAN.md, 186-04-PLAN.md, 186-05-PLAN.md, 186-06-PLAN.md, 186-07-PLAN.md, 186-08-PLAN.md, 186-09-PLAN.md, 186-10-PLAN.md, 186-11-PLAN.md, 186-12-PLAN.md, 186-13-PLAN.md, 186-14-PLAN.md, 186-15-PLAN.md, 186-16-PLAN.md, 186-17-PLAN.md, 186-18-PLAN.md, 186-19-PLAN.md, 186-20-PLAN.md, 186-21-PLAN.md, 186-22-PLAN.md, 186-23-PLAN.md, 186-24-PLAN.md, 186-25-PLAN.md, 186-26-PLAN.md, 186-27-PLAN.md, 186-28-PLAN.md, 186-29-PLAN.md]
-external_reviewers: unavailable — `agy` quota-blocked until ~2026-10-01, `codex` until ~2026-10-15 (probed 2026-09-25, not re-probed per memory); substitute: six fresh-context Claude Opus agents, one plan group each, same prompt
+external_reviewers: `agy` quota-blocked until ~2026-10-01, `codex` until ~2026-10-15 (probed 2026-09-25, not re-probed per memory); substitutes: an owner-run Grok 4.7 (high) review over all 29 plans (section below, source file 186-REVIEW-GROK.md) plus six fresh-context Claude Opus agents, one plan group each, shared prompt
 ---
 
 # Cross-AI Plan Review — Phase 186
@@ -13,6 +13,7 @@ each plan group was reviewed instead by a fresh-context Claude Opus agent with r
 shared adversarial prompt (`R1`..`R6`). All 29 plans were covered; group assignments:
 
 - R1: 186-01, 186-02, 186-16, 186-29 (summary cards; scripts/analysis deletion)
+- Grok (owner-run): all 29 plans, goal-backward contract-level read (section after R2)
 - R2: 186-03, 186-04, 186-05, 186-06, 186-07, 186-17 (determinism tool, helper promotion, db hygiene, bulk-load primitive, todo 445, Postgres tuning)
 - R3: 186-08, 186-12, 186-13, 186-15, 186-18 (kernel registry, feature_factory splits, regime kernel + bundle)
 - R4: 186-09, 186-10, 186-14, 186-20, 186-28 (lifecycle shrink, fresh IC jobs/writer, parity + purge, fresh IC on rebuild)
@@ -117,5 +118,57 @@ This is an unusually well-evidenced plan set. Every repo and database claim I ch
 - 05's post-run no-PK acceptance (exactly `ctx_events, feature_ic_scores_history, market_data_ohlcv`) is consistent with 186-11 (wave 2) and 186-22 (wave 6) landing later.
 - Concurrent-edit friction: 186-06 and 186-07 both edit PRIORITIES.md (including the same build-lane row text) in wave 1; the link-integrity test is the backstop, but the second merger should expect a conflict there.
 
+## Owner-run external review — Grok 4.7 (high)
+
+**Plans:** all 29 (contract level; load-bearing plans 06, 10, 14, 20, 23, 25, 26, 27, 28, 29 task-audited). Source: `186-REVIEW-GROK.md` (verbatim below).
+
+> This session had already seen the R1 section and most of R2 in `186-REVIEWS.md` before this review. R3-R6 were not read. Findings below were re-checked against the plan files.
+
+### Summary
+
+The 29 plans will deliver the phase goal if executed as their task text is written: summary cards before drops, the old chain deleted after consumer greps, a fresh IC engine beside the old one with parity before any purge, and a gated append-only `feature_vectors` rebuild that refuses to start until 185's derived grid, the todo 445 decision, the drops, and bar coverage are actually present. Locked decisions D-01 through D-38 and resolutions R-01 through R-13 each appear in at least one plan's `requirements`. Deferred work (phase 187 UCR / `book_memory()`, phase 188 forward runner, nightly temporal-integrity jobs, todo 443) is not pulled in. The dependency graph is acyclic and every wave number is one past the latest dependency wave. No finding here invalidates a plan. The residual risk is an executor following a must-have sentence instead of the SQL next to it, and schedule coupling that can hold the rebuild behind work it does not computationally need.
+
+### Strengths
+
+- D-02 is operational, not a slogan. Plans that touch code assert `git diff --stat` empty on `src/intelligence/research/`. The one sanctioned edit is `186-29`, and it stops unless STATE.md shows the research lane released or the five tests have already dropped the sleeve import.
+- Strangler order is real. `186-10` is pure and does not enter `ic_engine`'s import closure. `186-14` writes through the new engine and leaves `services/ic_engine.py` byte-unchanged. `186-20` commits the parity report before any delete. `186-23` refuses to delete `forward_return_writer` until that report is on main and phase 185 D-14 has moved the bar flags.
+- D-19 is closed by the end of the phase, not by a silent keep. `186-20` deletes only `NOT is_pooled` rows. `186-28` requires the whole-table count of `training_window_end >= oos_start` to be 0 after the legacy-scope delete, and the delete script refuses when fresh rows are absent.
+- `186-14` does not assume `replace_where` already exists. `186-06` never mentions it (append-only). `186-14` adds the keyword, requires the existing bulk-load tests to pass unchanged when it is omitted, and uses it for atomic unit replacement.
+- Rebuild gates match D-32 / R-09 / R-13. `186-26` launches nothing until `186-25`'s checker passes, reads coverage instead of starting an IBKR job, and will not run while a rebuild it does not own is live. Drops (`186-22`, `186-23`) are dependencies, so the ~61 GB lands before the multiday write.
+- `186-27` states the drift sample and the 5% unexplained-diff stop before any measurement, and it refuses to swap a run that is still resumable.
+
+### Concerns
+
+- **MEDIUM — `186-20` must-have overstates the purge predicate.** The must-have says the D-19 purge is rows whose target window ends at or after `oos_start`. The task SQL is `DELETE ... WHERE NOT is_pooled AND training_window_end >= oos_start`, and the same plan records that every stored row, pooled included, has `training_window_end` equal to `oos_start` (10,616,092 rows). An executor who "corrects" the SQL to match the must-have parenthetical deletes the 1,301,353 pooled rows that `186-23` still expects to find and that `186-28` is supposed to replace. The action text, the dry-run, and threat T-186-20-02 already forbid that. The must-have sentence is the hazard.
+- **MEDIUM — migration numbers 380+ are claimed by phase 185 and by several wave-1 plans here.** `186-05`, `186-06`, and `186-09` all describe the next migration as 380 if nothing has landed since 379. Phase 185's plans already name 380 through 392. Each 186 plan says to re-check `ls production/migrations` at write time, which is the right rule, and it is still a check-then-apply race across parallel worktrees and the 185 session. Failure mode is a duplicate number and a CI break, not a bad drop.
+- **MEDIUM — `186-26` wall-clock is easy to mis-scale.** `186-25` pins path-dependent kernels to a fetch from series start for every calendar-year unit. A pilot of an early year therefore understates a 2024 unit, and multiplying "seconds per unit-year" by the unit count double-counts history that every unit recomputes. The plan re-measures at runtime and is resumable, so this does not threaten correctness. It does threaten the "expected wall-clock" the operator will use to decide whether to launch.
+- **MEDIUM — the rebuild waits on `186-23`, which waits on phase 185 D-14.** D-32's precondition is the derived 15m/1h grid, todo 445, coverage, and disk after the drops. D-14 (bar flags off `forward_return_writer`) is a precondition of the deletion, and `186-26` depends on that deletion. That is coherent for the 14 GB `forward_returns` drop (R-09) and it is also a schedule coupling: a stalled 185 D-14 holds the rebuild even after D2b has landed. The stop is safe. It should be explicit in `186-26`'s blocked message so it is not treated as a checker bug.
+- **LOW — `186-06` versus the outline's `bulk_load(replace_where=)`.** The outline lists `replace_where` as part of the bulk-load binding name. `186-06` implements append-only COPY and says PK conflicts are loud. `186-14` is where the keyword is added. An executor of `186-06` who treats the outline as the contract could build the option early and fight `186-14`'s tests. The plan text of `186-14` is the one to follow.
+- **LOW — `186-20` calls the non-pooled delete "the D-19 purge" while D-19's pooled half waits for `186-28`.** The split is disclosed in the task (todo 439 stays open; pooled rows are replaced later). The phase still delivers D-19, at plan 28, not at plan 20.
+
+### Suggestions
+
+- In `186-20`, change the must-have to the predicate that is actually executed: non-pooled rows with `training_window_end >= oos_start`, pooled rows untouched, whole-table D-19 closed in `186-28`.
+- In `186-05`, `186-06`, and `186-09`, one sentence: phase 185 may already have consumed 380-392; take the next free number after the file exists and again immediately before `psql -f`.
+- In `186-26` Task 1, name the blocked reasons separately (449 coverage, 185 D2b marker, 185 D-14 via `186-23`, disk guard) and pick the pilot unit-year explicitly (one early year and one late year) before extrapolating.
+- In `186-06`'s context block, one line: `replace_where` is `186-14`'s extension; do not add it here.
+
+### Risk assessment
+
+**LOW-to-MEDIUM. No HIGH.** Nothing in the plans, executed as the task text is written, drops a kept table, edits the research package while the lane owns it, or starts the rebuild on a partial bar history. The irreversible steps (IC shrink, `forward_returns` drop, `feature_vectors` swap) each have a prior committed artifact and a refuse-and-stop gate. The MEDIUM items are misread predicates and scheduling, and each has a one-line fix.
+
+### Cross-plan checks
+
+- **Coverage.** Every D-01..D-38 and R-01..R-13 is in some plan's `requirements`. Deferred ideas from CONTEXT are absent from those fields.
+- **Waves.** `depends_on` edges match the outline. Wave assignment is `max(dependency wave) + 1` for all 29. Plan numbers are not wave order (`186-17` is wave 2, `186-12` is wave 2, `186-29` is wave 4); the outline says IDs are stable and not execution order.
+- **Card before drop.** `186-01` / `186-02` precede `186-11`, `186-16`, `186-22`, `186-23`, and `186-27`. `DROP_TABLES` in `186-01` names the D-14 tables plus `ctx_events`, `ctx_snapshots`, `construction_spreads`, `alpha_strategy_scores`, `forward_returns`, and `feature_vectors`.
+- **Parity before purge before delete.** `186-20` Task 2 commits the report; Task 3 refuses without it. `186-23` refuses without that report and without 185 D-14. `186-28` refuses to delete legacy scopes until fresh rows and completed provenance exist.
+- **`replace_where` handoff.** Absent from `186-06`. Specified, tested, and consumed in `186-14`. `186-25` and `186-28` call the landed signature.
+- **Research lane.** No plan other than `186-29` edits `src/intelligence/research/` or the five HarnessConfig tests. `186-29` is wave 4, depends only on `186-16`, and is not on the rebuild's dependency path, so a held lane does not block the rebuild.
+- **185 boundary.** `186-26` reads 185's D2b marker and does not start IBKR jobs (R-13). `186-23` reads 185 D-14 and does not implement it.
+
+---
+
 <!-- R3..R6 sections appended below as each reviewer completes; consensus summary written after all six. -->
+
 
