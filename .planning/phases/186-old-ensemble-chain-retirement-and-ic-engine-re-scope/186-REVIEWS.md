@@ -434,7 +434,7 @@ Six independent reviewers (five fresh-context Claude Opus agents partitioned acr
 - All six reviewers rated the plans' evidence quality unusually high: every load-bearing live claim re-verified by at least one reviewer held (row counts, schemas, line numbers, job ids apart from the two named errors, APR keys, greps).
 - Post-amendment residual risk after the R6 fix pass: **LOW-MEDIUM**, concentrated in schedule coupling (todo 449 through ~mid-Oct gating the rebuild's coverage gate; 185 D-14 gating 186-23) rather than computation.
 
-### Disposition of remaining findings (R6, applied after this summary)
+### Disposition of remaining findings (R6, applied in c6026d4b7)
 
 - **R6 HIGH (per-unit `compress_before` vs shared 1-year chunks):** must-fix before 186-25 executes; chunk-completion-keyed compression in 186-25/26 + threat + 186-24's interfaces note.
 - **R6 MEDIUMs:** spool-dir lifetime owned by main; declared-memory denomination test for cross-tf/macro kernels (186-15/186-25); 186-26 states the expected stop-and-rerun at the coverage gate until todo 449 completes.
@@ -448,7 +448,7 @@ Six independent reviewers (five fresh-context Claude Opus agents partitioned acr
 - R4's pg_stat_activity breadth MEDIUM in 186-14: the cross-table contention path is lock-mediated and covered by the migration window; noted in the plan, no edit.
 - Council's "sync `asyncio.run` around panel builds" was explicitly not a defect; no change.
 
-The phase is ready to execute after the R6 fix pass lands.
+The R6 fix pass landed (c6026d4b7); the phase is ready to execute.
 
 
 
