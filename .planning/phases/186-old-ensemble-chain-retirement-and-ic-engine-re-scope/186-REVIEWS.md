@@ -363,7 +363,93 @@ This is an unusually well-evidenced plan set. I verified the load-bearing claims
 - Verified the only real importers 186-19 leaves for 186-21 are `ops_ensemble_ablation.py:85` and `ops_oos_gate1_signal_eval.py:63`; `ops_ic_shrinkage.py:75` imports the surviving `ensemble.shrinkage`, not a deleted module, so 186-19's "only two importers" acceptance holds.
 - 186-19's `resolve_per_tf` "caller: ensemble_trainer only" is false on today's main (`sleeve_walk_forward/refit.py:37`) but becomes true once 186-16 deletes refit.py and its tests (verified in 186-16-PLAN's delete list); acceptable given the plan's re-grep-at-run-time caveat.
 
-<!-- R6 section appended below when it completes; consensus summary written after. -->
+## R6 Review — Claude Opus (fresh context, desk-standard lens)
+
+**Plans:** 186-24, 186-25, 186-26, 186-27 (rebuild track)
+
+### Summary
+
+The rebuild track is unusually well-evidenced: the dropped-column proofs, live facts, and line-number claims in all four plans check out against the live DB and repo (I re-ran them; see Cross-plan checks). The unit/provenance resume design, the stated-before-measuring drift sample, and the completion gate are the right shape. One genuine design flaw sits at the center of 186-25/186-26: per-unit `compress_before` on 1-year hypertable chunks that many units share will trip `bulk_load`'s compressed-chunk refusal on the second unit of every (tf, year) group, killing the multiday run almost immediately. That must be resolved before 186-25 is executed. The remaining findings are execution-ambiguity and honesty-of-gating issues, not silent-wrong-answer risks in the rebuild math itself.
+
+### Strengths
+
+- Counted evidence before DDL: 186-24 proves each dropped column never-computed (I verified: all six non-null counts are 0 on 108,646,010 rows) and `regime_label_source` is the single constant `filtered` (verified). Mismatch paths stop the plan instead of dropping a contradicted column.
+- 186-27 states the drift sample (symbols, 2024 window, float32 semantics, 5% attribution bar) before measuring, and commits the report before the drop; unexplained diff classes stop the swap. This is the correct answer to "last chance to explain before the old bytes are gone."
+- Resume semantics are pinned by test: provenance-keyed units, atomic data+provenance commit in `bulk_load`, kill-and-resume proven once in 186-26 with skip counts equal to pre-kill completions.
+- The freeze discipline chain (186-26 records sha/log in STATE.md; 186-27's gate proves completion, which is what lifts the freeze) is coherent and both plans say which side of the freeze their edits are on.
+- The warmup rule is honest about the expanding-memory case: series_start fetch is allowed only for a named kernel, and 186-26 Task 2 adapts the pilot to one early + one late year if it fires.
+
+### Concerns
+
+- **HIGH — per-unit `compress_before` collides with shared 1-year chunks.** Units are (symbol chunk ~25 names, tf, calendar year); a hypertable chunk is one year across *all* symbols and tfs. 186-25 Task 2 step 4 passes `compress_before=range_end` per completed unit, and 186-24/186-25 both state `bulk_load` "refuses on ... an already-compressed chunk in range" (186-06-PLAN.md:30, :317: "any chunk with `is_compressed` overlapping the range refuses"). The first unit completing in a (tf, year) compresses the shared chunk; every subsequent unit (the other ~37 symbol chunks at 931/25, plus resume and kill-and-resume traffic) gets `BulkLoadRefused`. Failure mode: the multiday run fails at the second unit of the first year group; worse, a partial kill-and-resume could leave a chunk compressed with most of its units unloaded, and the resume then cannot write into it at all without a decompress path the plans explicitly do not have. Fix: compress per *chunk* when its last unit completes (main process consults provenance for unit-completeness of the (tf, year) group), or drop `compress_before` from the writer and compress in a chunk-completion pass. 186-26's launch shape and T-186-25-05 inherit this and need the same amendment.
+- **MEDIUM — spool files deleted before the main process reads them.** 186-25 Task 2 step 3 puts spools "under a `tempfile.TemporaryDirectory` created per worker invocation" and then *returns* the spool paths across IPC. A literal implementation deletes the directory when the worker returns; main then has paths to nothing, or the executor is left to invent a different lifetime. Specify: spool dir per group owned by the main process (workers write into a main-supplied path), cleaned after the group's units load.
+- **MEDIUM — warmup bound assumes declared memory is denominated in the unit's tf bars.** `unit_fetch_start` converts `effective_memory_bars` via `TF_SECONDS[tf]`. The post-186-15 externals are cross-tf (`ctf_series_by_close` from HTF closes), daily-asof macro, and rolling betas on daily bars. If any kernel declares memory in *source*-tf bars (1d) while consumed at 15m/1h, the fetch under-warms and the first bars of every unit get values computed from truncated history — unmasked, silently, into the permanent rebuilt table. 186-25's summary-only "named or removed" check does not catch a *mis-denominated* declared memory. Add a 186-15/186-25 test asserting each cross-tf/macro kernel's declared memory is expressed in the consuming tf's bars, and have `unit_fetch_start` take the registry's own conversion.
+- **MEDIUM — todo 449 dependency is enforced but not stated as a schedule reality.** The rebuild's coverage gate (all 931 names at decided tfs) cannot pass for 15m/1h on the ~698 names until 449 finishes (~mid-Oct). 186-26 quotes the D-32 owner rule but never says "this plan stops and must be re-run after 449 completes"; an executor could read a coverage-gate stop as a phase failure rather than the designed wait. State it, and note that bars arriving after launch (late 449 stragglers) leave completed units stale — the feature path has no content-digest re-detection (that exists only in the 186-14 IC writer).
+- **LOW — 186-24's `numeric_columns` union contradicts the schema.** 186-24 claims `feature_columns() ∪ UNOWNED_COLUMNS` equals the 311 numeric columns while also placing `regime_rolling` in UNOWNED_COLUMNS; `regime_rolling` is `text` (verified live). The union is therefore 312 entries and Task 1's `len == 311` assert trips — loud, and the plan prescribes reconciliation, but the interfaces state two incompatible facts an executor must arbitrate.
+- **LOW — hard-coded 310 vs conditional keep paths.** If the `bar_close_ts` derivation proof mismatches, the plan keeps the column and the count becomes 311, but Task 1/3 asserts pin `expected_column_count == 310`. The "keep it" branch cannot pass the plan's own verification.
+- **LOW — 186-27 Task 2 verify contradicts its own repoint scope.** `grep -c "feature_vectors_v2" services/backfill_feature_factory.py | grep -qx 0` will fail on the 186-25 module docstring ("single rebuild writer for feature_vectors_v2") unless Task 2 also edits that docstring, which it only specifies for `feature_vector_persistence.py`. Restrict the grep to non-comment lines or add the docstring edit.
+- **LOW — 186-26 pilot uniformity claim breaks for 1d.** 1d runs as one full-history range per chunk (no calendar-year units), so "per-unit cost is uniform across calendar years" and the pilot's "first completed calendar-year unit at each decided tf" do not apply to 1d; the wall-clock arithmetic should measure the actual 1d unit.
+- **LOW — "the 426 reserve the module names"** (186-26 Task 2 step 4) is a dangling reference to a constant that only exists after 186-25 lands; name the parameter exactly.
+
+### Suggestions
+
+- Fix the compression sequencing in 186-25 Task 2 (behavior block and step 4), 186-24's interfaces note to 186-27 ("all rebuilt chunks are already compressed"), T-186-25-05, and 186-26's launch shape in one pass: chunk compression keyed on group completion, not unit completion.
+- Add an explicit 186-26 gate/honesty block: "expected to stop at the coverage gate until todo 449 completes; re-run the plan afterwards."
+- In 186-25, make `check_no_live_run`'s STATE.md lane-table read specific (ic_engine corpus run or rebuild), since the 449 lane is legitimately live — current wording is specific enough, keep it that way during amendment.
+- Consider recording in the 186-26 evidence JSON the per-(tf, year) chunk completion checklist the writer uses for compression, so 186-27 can verify "all chunks compressed" without re-deriving.
+
+### Risk assessment
+
+**MEDIUM-HIGH as written, LOW after the compression-sequencing fix.** Everything else I probed held up under live verification, and the failure modes the plans worry about (premature launch, silent drift, premature close-out) are gated loudly. But the HIGH is on the critical path of the most expensive run in the phase and would surface only after the gates pass, mid-run.
+
+### Cross-plan checks (verified live or against outline)
+
+- Verified live: `feature_vectors` 322 columns / 108,646,010 rows; all six never-computed columns 0 non-null; `regime_label_source` single value `filtered`; 86 chunks; `policy_compression` `compress_after = 6 mons`; `regime_rolling text`, `days_to_month_end real`; latest migration 379 (186-24's "380 expected" correct); `backfill_feature_factory.py` 1,815 lines and every cited line number (1035, 1326, 1451, 1603, 797, 813, 234-256) matches; free disk 494 GB vs the stated 499 GB (moving target, re-measured at run time, acceptable).
+- Verified live: `bulk_load`/`BulkLoadSpec`/`rebuild_preconditions.py`/`ic_measure.py`/`registry.py` do not exist yet — consistent with waves 1-4 unexecuted; 186-24/25 precondition checks ("SUMMARY exists on main") correctly refuse until then.
+- Names match the outline's binding set everywhere: `provenance_batch`, `bulk_load()`, `completed_provenance_batch`, `bar_content_digests`, `feature_ic_scores_v2`, `services/ic_measure.py`, `src/intelligence/features/registry.py`, `UNOWNED_COLUMNS`.
+- (d) from my tasking: 186-28 is correctly gated on 186-27 (`depends_on: [186-27]`; stops unless `186-27-SUMMARY.md` + passing drift verdict exist), and 186-27 Task 3 writes the explicit handoff. Sequencing is sound: the fresh IC run cannot start before the swap.
+- 186-27 Task 1 step 1b's `infra.bar_derivation.intraday_recovery_unlocked` / `rebuild_state_table` names and JSON shape exactly match 185-20-PLAN.md:55/:72 (which I read; neither key exists in `config_state` yet, as expected pre-185-20). The 185-20 refusal counts non-completed rows across both target names, matching 186-27's post-swap mapping.
+- Todo 420 ownership in 186-26 Task 1 step 5 is correctly conditioned (186-18 deferral with J > 0) and correctly ordered after 186-20's parity lands on main via the 186-26 → 186-23 → 186-20 dependency chain.
+- 186-25 `check_drops_landed`'s 12-table list matches the 186-22/186-23/186-11 drop scopes; 186-26 Task 1's "nine 186-22 tables" plus `forward_returns` is the same set. No gate circularity found: the disk-guard inputs come from the pilot, which comes after the checker, and the checker defers the disk check to the caller as 186-26 assumes.
+- One arithmetic reconciliation for the record: 310 new columns = 3 keys + 2 regime text + (311 old numerics − 6 dropped numerics; `regime_rolling` is text and is one of the 11 non-numeric). The plans' "322 minus 12" phrasing lands on the same number, but the executor should use the recomputed formula as the plans instruct.
+
+---
+
+## Consensus summary
+
+Six independent reviewers (five fresh-context Claude Opus agents partitioned across all 29 plans, plus the owner-run Grok 4.7 consistency and council passes), each blind to the others' findings, plus integration commits applying the accepted findings to the plans as they landed. Every HIGH and the council's four required changes has a fix either already committed or specified below. Reviewer-by-reviewer raw text above is authoritative; this section records convergence and disposition.
+
+### Independent convergences (multiple reviewers, no coordination)
+
+1. **One column, two clocks in `feature_ic_scores`** — Grok council defect 1 (design rejection) and R4's verification that all 10,616,092 legacy rows sit exactly on oos_start while fresh rows would sit before it. *Fixed:* `feature_ic_scores_v2` created by 186-14 with one clock; legacy table untouched until 186-28's whole-table drop; the coexistence protocol, the D-19 purge, and `replace_where`-into-a-mixed-table are all deleted (commit 54188a155).
+2. **The production writer path was never proven** — council defect 2 (parity certified a function the writer does not run) and R4's MEDIUM (no comparison of replaced numbers before the old ones are gone). *Fixed:* 186-20 Task 3's writer-path parity cell (production assembly vs harness on one frozen cell, committed before 186-23 can delete anything), plus 186-28 Task 2's fresh-vs-legacy matched-key disclosure before the legacy drop (54188a155, 9a7a6ea59).
+3. **Migration-number race** — R2 MEDIUM and Grok consistency MEDIUM (phase 185 names 380-392; 186-05/06/09 all said "380 next"). *Fixed:* next-free-number + re-check-before-apply + rename-on-collision sentences in all three plans (0cffde0ae).
+4. **Todo 420 market_regimes orphan rerun had no owner** — R3 MEDIUM and R4 HIGH (three documents, three attributions). *Fixed:* 186-26 Task 1 step 5 owns the conditional rerun (after 186-20's parity, before the rebuild consumes regime inputs — earlier than the todo's "after the swap", which R4 showed was too late); todo, 186-18 deferral message, and outline aligned (54188a155).
+5. **Undeclared phase-185 dependencies** — R4 HIGH (185-11's `bar_content_digest_current` gate in 186-14) and R6's verification that 186-27's 185-20 handoff names check out. *Fixed where broken:* the 185-11 existence gate; 186-27's 185-20 coupling was already sound.
+6. **Factual errors in live-state claims** — R5 HIGH (186-22's compression job ids; job 1071 is `feature_ic_scores`'s) and R6 LOW (186-24's 311-vs-312 union arithmetic). The first is fixed (abb4a2de8); the second is in the R6 fix pass below.
+
+### Desk-standard verdicts
+
+- The Grok council's standard (one definition per number, one data-flow direction, no silent two-population mix) was adopted as the review lens for R4-R6 after the council pass. R4-R6, reviewing post-amendment text, found no further two-population or silent-fallback designs; R5's one silent-fallback residue (the corpus verifier's lookahead mirror) and R6's one silent-under-warm path (mis-denominated cross-tf memory) are dispositioned below.
+- All six reviewers rated the plans' evidence quality unusually high: every load-bearing live claim re-verified by at least one reviewer held (row counts, schemas, line numbers, job ids apart from the two named errors, APR keys, greps).
+- Post-amendment residual risk after the R6 fix pass: **LOW-MEDIUM**, concentrated in schedule coupling (todo 449 through ~mid-Oct gating the rebuild's coverage gate; 185 D-14 gating 186-23) rather than computation.
+
+### Disposition of remaining findings (R6, applied after this summary)
+
+- **R6 HIGH (per-unit `compress_before` vs shared 1-year chunks):** must-fix before 186-25 executes; chunk-completion-keyed compression in 186-25/26 + threat + 186-24's interfaces note.
+- **R6 MEDIUMs:** spool-dir lifetime owned by main; declared-memory denomination test for cross-tf/macro kernels (186-15/186-25); 186-26 states the expected stop-and-rerun at the coverage gate until todo 449 completes.
+- **R6 LOWs:** 186-24 union arithmetic and the 310-vs-keep-branch verify; 186-27's grep scope; 186-26's 1d pilot arithmetic and the dangling "426" reference.
+- **R5 items already applied:** abb4a2de8 (see R5 section).
+- **R1-R4 items already applied:** 0cffde0ae, 54188a155, 9a7a6ea59 (see respective sections).
+
+### Not accepted (with reasons)
+
+- R1's MEDIUM on 186-16 gate 3 hardcoding 186-04's module names: moot — 186-04 pins the exact names and the outline marks them binding.
+- R4's pg_stat_activity breadth MEDIUM in 186-14: the cross-table contention path is lock-mediated and covered by the migration window; noted in the plan, no edit.
+- Council's "sync `asyncio.run` around panel builds" was explicitly not a defect; no change.
+
+The phase is ready to execute after the R6 fix pass lands.
+
 
 
 
