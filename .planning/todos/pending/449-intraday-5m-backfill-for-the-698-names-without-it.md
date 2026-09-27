@@ -21,6 +21,8 @@ cost little: IBKR chunks are 730 days (15m) and 1095 days (1h) against 150 days 
 
 Status 2026-09-27: IBKR serves one heavy history stream at a time; 4 parallel 5m lanes (plus 3 15m/1h lanes) produced no more throughput than one and mostly timed out (5m done for 4 names in 6 hours). Now one stream: `logs/backfill_ops/intraday_chain.sh` runs 15m+1h for all 698 names first (client 46, `logs/backfill_ops/intraday_htf/`), then 5m (client 40, `logs/backfill_ops/intraday_5m/solo_*`). 15m/1h go first because the strategy families read them and they need about a third of 5m's requests. Solo 5m rate was about 2 minutes per year of history, so 5m is roughly two weeks. The nightly 1d backfill skips while any backfill runs. The phase 186 rebuild gates on the 5m part only, since it reads derived 15m/1h.
 
+The chain, both lane scripts, the original `backfill_retry_loop.sh` (their pattern source) and the two symbol lists are force-added to git (2026-09-27); everything else under `logs/` stays ignored. Never edit or move a lane script while its loop runs (bash reads scripts incrementally). Todo 452 (deferred) tracks the end-of-campaign tooling cleanup.
+
 ## Constraints
 
 - Follow `docs/foundation/instrument-onboarding-sop.md` (backfill, verify, promote

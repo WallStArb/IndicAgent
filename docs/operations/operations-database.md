@@ -102,6 +102,15 @@ SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
 
 ## Backfill and Gap-Fill
 
+> **Active campaign (transient; remove when todo 449 closes):** since 2026-09-27 a single
+> IBKR history stream is running the todo 449 intraday backfill (15m+1h then 5m for 698
+> names, expected through mid-October 2026). Orchestration lives in
+> `logs/backfill_ops/intraday_chain.sh` (force-added to git; the rest of `logs/` is
+> ignored). Before starting any manual fetch below, check for a running delegate first:
+> `pgrep -af infrastructure_run_historical_pipeline.py`. The nightly self-guards
+> (`skipped_concurrent_run`); a manual run does not. Concurrent history streams measured
+> no added throughput (todo 449, 2026-09-27) and contend for the same pacing budget.
+
 ### Full pipeline reset (reset_pipeline_data.py)
 
 Wipes all intelligence-derived tables and re-runs full fetch + replay. Use when signal logic, stop/target geometry, or lifecycle logic changes substantially enough that historical P&L is no longer trustworthy.
