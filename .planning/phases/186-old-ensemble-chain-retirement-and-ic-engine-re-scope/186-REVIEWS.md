@@ -315,7 +315,56 @@ MEDIUM. The track's statistics and deletion paths are unusually well pinned (str
 - 186-20's parity inputs all verified derivable: label-to-group uniqueness holds live (0 multi-group labels), `forward_returns` columns (`return_fast/mid/slow/extended`, `complete_*`, `has_gap_before_entry`, `return_type`) exist, the `alpha.ic.lookahead.<tf>.<scale>` keys exist today and are unique per tf for the stored lookaheads, and `alpha.regime.groups` (peer routing) exists and is not in 186-21's deletion list.
 - 186-10's `align_features` placement ambiguity is the only binding-name-adjacent drift I found; pin it to `measure.ic.align_features` as 186-14 and 186-20 already assume.
 
-<!-- R5..R6 sections appended below as each reviewer completes; consensus summary written after all six. -->
+## R5 Review — Claude Opus (fresh context, desk-standard lens)
+
+**Plans:** 186-11, 186-19, 186-21, 186-22, 186-23 (old-chain retirement track)
+
+### Summary
+
+This is an unusually well-evidenced plan set. I verified the load-bearing claims live and almost all were exact: ctx tables 0 rows with jobs 1040/1049 and `alert.lag.ctx-writer`=500; `service_auditor.py` old-chain hits exactly at lines 112-116/210-214 with no `_AGENT_ID_TO_UNIT` entries; `ensemble/__init__.py` eager imports and `weighting.py:24-26` submodule imports (R-04); `metrics.py`/`stream_keys.py`/`base_batch.py`/`_batch_utils.py` all confirmed inside `services.ic_engine`'s import closure by importing it; orchestrator banner `Step %d/8` with steps 6-8 and the WEIGHT_EPOCH block; monitor's `/6` mismatch; verifier Check 6 and recovery branches; `REQUIRED_STEPS = ["ic_engine", "ensemble_trainer", "alpha_publisher"]`; APR keeps at `tag_calibrator.py:1254`, `ic_engine.py:839-841`, `feature_factory.py:749`; exactly 20 `alpha.ic.lookahead.*` keys; `feature_ic_scores` = 10,616,092 rows; the four 186-23 ops scripts do read `forward_returns` (via `JOIN`, which the plan's "real SQL hit" rule covers). The one clear factual error is in 186-22's TimescaleDB job-id claims, plus a vacuous gate, a session-specific path baked into 186-19's verify, and two post-drop surfaces no plan owns.
+
+### Strengths
+
+- Guarded drop migrations (in-transaction reader guards, no `IF EXISTS`/`CASCADE`), applied-then-committed-in-the-same-commit, per-key APR deletes never LIKE, keeps re-counted post-apply — the desk standard is met nearly everywhere.
+- D-01 gates checked against the live environment: none of the five plans' `ps aux` patterns match the running todo 449 lane (`infrastructure_run_historical_pipeline.py --client-id 46` verified live), the `pg_stat_activity` guards use table-name ILIKE patterns that lane never emits, and no plan starts IBKR work. No false stops, no contention.
+- R-04 is handled with real proof obligations (sys.modules check, byte-unchanged diff on `weights.py`/`covariance.py`, post-merge three-line bit-identity run, revert-before-push on failure).
+- 186-23 honestly documents the strangler window where old ic_engine becomes non-runnable between 186-22 and 186-23, and gates the whole deletion on the committed 186-20 parity report including the writer-path cell and 185 D-14.
+- Hand-off chain 19→21→22→23 is explicit and I found no name mismatches against the outline's binding names.
+
+### Concerns
+
+- **HIGH — 186-22 (must_haves truth, interfaces, Task 3 verify): the compression job-id claim is factually wrong.** The plan asserts jobs "1067-1072" cover the six old-chain hypertables and names "alpha_ensemble_ic (1071)". Live: `SELECT job_id, proc_name, hypertable_name FROM timescaledb_information.jobs` shows **1071 = policy_compression on `feature_ic_scores`** (a D-15-protected table 186-28 drops later), and **`alpha_ensemble_ic` has no compression job at all** (0 chunks). Old-chain jobs are 1067, 1068, 1069, 1070, 1072 (+retention 1073). An executor running the Task 3 verification as parenthesized ("job_id IN (1067-1072, 1073) is 0") gets a spurious failure on job 1071, and the wrong resolution — concluding `feature_ic_scores`' job should have been removed — points at the one survivor table this track must not touch. Task 1's run-time re-record mitigates but does not excuse the must-have.
+- **MEDIUM — 186-23 (Task 1 APR classification vs must_haves): `alpha.ic.lookahead.*` has a surviving runtime reader the plan never dispositions.** `src/observability/corpus_manifest_verifier.py:86,126` builds and reads `alpha.ic.lookahead.{tf}.{scale}` from `config_state` at runtime (verified). The plan's own KEEP rule ("a runtime reader in a surviving module") therefore classifies all 20 keys KEEP, contradicting the must-have that all 20 retire. Retirement is numerically safe today (the verifier's hardcoded mirror equals the APR values, verified bytewise) but the change permanently converts a documented "falls back when keys are absent" path into the only path — a silent fallback in a Ring 0 module, exactly the pattern this phase is deleting. The D-08 prefix grep will surface the file; the plan gives the executor no disposition for it.
+- **MEDIUM — 186-22 (Task 1 verify): a gate that cannot fail.** The automated verify runs bare `psql -U postgres -h localhost ...` with no `PGPASSWORD`; on this host that fails with `fe_sendauth` (no `~/.pgpass`, verified), producing empty output, so `test -z "$(...)"` passes vacuously even with a live reader session. Every other psql in the set sets `PGPASSWORD`; this one is the reader-safety gate.
+- **MEDIUM — 186-19 (Task 3 verify): session-specific scratchpath hardcoded.** The automated verify ends `grep -c "bit-identical" /tmp/claude-1000/-home-bg-dev-indicagent/2fd043db-74e6-4e8a-9d9c-c278f1f8b1bf/scratchpad/repro_186_19.log`. That UUID is one session's scratchpad; any other executor fails the critical post-merge bit-identity proof as written, or is tempted to satisfy the literal path.
+- **MEDIUM — 186-22/186-23 (cross-plan gap): `infrastructure_truncate_derived_tables.sh:74` (`TRUNCATE forward_returns;`) has no owner after 186-23.** 186-22 edits the script but deliberately leaves the `forward_returns` line (correct at its wave); 186-23's `files_modified` does not include the script, so after the drop the documented recovery/reset script dies mid-run on a missing table. Loud, but it violates the phase's own "nothing live points at dropped tables" end state and D-22's "every script reading the table".
+- **MEDIUM — 186-22 (Task 3 step 1): the migration guard omits the row-count-stability and compression-job-running guards that 186-PATTERNS.md (lines 212-214) prescribes for 186 drop migrations and that 186-11 includes.** All writers are deleted and gated, so the probability is low, but the cheap guard is what converts "rows appeared since the card was written" from a silent destruction into a loud refusal.
+- **LOW — 186-23 (Task 1 gate 4): hardcodes `feature_ic_scores` count `10,616,092` as the dependency check.** Verified exact today; brittle to any legitimate intervening purge. Equality against the just-recorded count would carry the same protection without the stale-literal risk.
+- **LOW — 186-23 (interfaces): `ops_lookahead_horizon_response.py` is pre-listed as a forward_returns table reader but shows no live SQL** (only docstring mentions plus `from services.ic_engine import ...` at line 120). It dies either way via the importer rule; the mislabel just muddies the D-08 record.
+- **LOW — 186-19 (Task 3): invokes "ALPHA FIRST" when waiting out a research run.** The owner replaced alpha-first with build-first; the behavior (wait, never stop the run) is right, the label is stale.
+
+### Suggestions
+
+- 186-22: correct the job-id text to "recorded at run time; measured 2026-09-27: 1067/1068/1069/1070/1072 + retention 1073; `alpha_ensemble_ic` currently has none; job 1071 is `feature_ic_scores`' and must survive the migration"; add the row-count guards from the pattern doc.
+- 186-22: add `PGPASSWORD=postgres` to the Task 1 verify.
+- 186-19: replace the hardcoded scratchpath with "the executor's scratchpad dir; record the resolved path in the summary".
+- 186-23: add an explicit disposition for `corpus_manifest_verifier.py`'s lookahead read (reword its fallback comment to state the keys were retired and the mirror is now the source); add the truncate script's `forward_returns` line to its own deletion scope; state that `lookahead_by_scale_from_apr`/`lookaheads_for_tf` in `_batch_utils` go dead here while `LOOKAHEAD_FALLBACKS_BY_TF` stays (`ops_oos_holdout_eval.py:381` uses it); add "feature_lifecycle has zero `lookahead` hits" to gate 4 (it holds only because 186-09 removes the import at `feature_lifecycle.py:64,112` — verified present today).
+- 186-22: make the Task 3 verify's `git log --grep` match the migration filename only, not any commit mentioning "186-22".
+
+### Risk assessment
+
+**MEDIUM.** No unmitigated data-loss path: every drop is guarded, loud, and gated on cards plus dependency proofs, and the D-01 discipline is real (verified against the live backfill lane). But one drop plan's must-haves carry a false DB-state claim that points a spurious failure at a protected table, one safety gate is vacuous as written, the flagship deletion plan (186-23) has an unresolved reader contradiction on the keys it retires, and two post-drop surfaces are currently unowned. All are fixable in a doc pass; none should ride into execution as written.
+
+### Cross-plan checks
+
+- Wave/dependency gates verified coherent: 186-19 gates on 186-11's `service_auditor` cleanup and 186-14's `indicagent-ic-measure` registration (both currently absent/present as expected pre-execution); 186-21 gates on 186-19's deleted services; 186-22 gates on 186-21's keeps-count-4; 186-23 gates on 186-22's NULL `to_regclass` probes and the amended 186-20 writer-path parity cell. No circularity.
+- Hand-offs match: `cluster_regime_conditioned` (KEEP in 186-21 → retire in 186-23), `REQUIRED_STEPS = ["ic_engine"]` (set 186-21 → held 186-22 → repointed 186-23), `feature_ic_scores` untouched until 186-28 (probed non-NULL in both 186-22 and 186-23). todo 420's orphan rerun is correctly absent from my plans (186-26 Task 1 owns it, per the outline resume note).
+- Binding names consistent: `feature_ic_scores_v2`, `services/ic_measure.py`, `indicagent-ic-measure`, `scripts/research/determinism/repro_frozen.py` all used exactly as the outline fixes them.
+- Verified the only real importers 186-19 leaves for 186-21 are `ops_ensemble_ablation.py:85` and `ops_oos_gate1_signal_eval.py:63`; `ops_ic_shrinkage.py:75` imports the surviving `ensemble.shrinkage`, not a deleted module, so 186-19's "only two importers" acceptance holds.
+- 186-19's `resolve_per_tf` "caller: ensemble_trainer only" is false on today's main (`sleeve_walk_forward/refit.py:37`) but becomes true once 186-16 deletes refit.py and its tests (verified in 186-16-PLAN's delete list); acceptable given the plan's re-grep-at-run-time caveat.
+
+<!-- R6 section appended below when it completes; consensus summary written after. -->
+
 
 
 
