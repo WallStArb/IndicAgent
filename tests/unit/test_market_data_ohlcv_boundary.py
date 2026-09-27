@@ -107,6 +107,10 @@ _ALLOW_LIST: dict[str, str] = {
         "truncate -- intentionally wants the complete grid (including placeholder bars) to "
         "correctly mark what calendar coverage has been backfilled, not just tradeable bars."
     ),
+    "scripts/ops/bars/ops_export_known_answer_fixtures.py": (
+        "PERMANENT: exports price_sanity_status rows, including confirmed_corrupt ones the "
+        "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"
+    ),
 }
 
 
