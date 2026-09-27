@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-stopped_at: "todo 447 done 2026-09-27 (E17 static-size guard; families 1 and 2 pass); next phase 183 verification, then todo 442"
+stopped_at: "todo 447 done 2026-09-27; owner paused research attempts until the build lands (185, 186); next phase 183 verification, then build"
 last_updated: "2026-09-26T21:00:00.000Z"
 progress:
   total_phases: 6
@@ -27,9 +27,11 @@ bullets with current facts.
   statistic but promotion needs positive net expectation; every look at the vintage is counted and
   selection is by Romano-Wolf StepM; each book gets its own forward span (feature books never
   before 2026-08-08, after 7 recorded holdout looks); raw data is permanent, derived data is cache.
-- **Milestone v3.5 Unified Research Pipeline, phases 183-188** (ROADMAP.md). Alpha track first,
-  in parallel with the build: E17 H0 battery -> attempts 1a-1c (todo 442); first-cut cost model
-  (437); price-only daily families and `generated_family` on the 931 names (441, 423, 440). Build:
+- **Milestone v3.5 Unified Research Pipeline, phases 183-188** (ROADMAP.md). Build first (owner,
+  2026-09-27): session time goes to building, and research attempts (1a-1c, todo 442; the cost
+  model 437; daily families 441, 423, 440) are paused until 185 and 186 land. This replaces
+  design section 16's "attempts run in parallel with the build". The tooling for them is ready
+  (E17 and its static-size precondition, 447). Build:
   186 (delete, drop, rebuild `feature_vectors`, refactor items 1-6) -> 187 (research core) -> 184
   -> feature books -> 188 (forward runner, capital tier). 185's derived 15m and 1h grid (D2b,
   todo 446) lands before 186's rebuild; 184 builds on that grid and 186's kernel registry (UD-25).
@@ -78,7 +80,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 
 | Lane | Start with | Owner and boundary |
 |---|---|---|
-| Research (phase 183) | Phase 183 verification, then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
+| Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
