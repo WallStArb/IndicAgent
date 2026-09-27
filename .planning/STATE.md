@@ -58,6 +58,10 @@ bullets with current facts.
   `panel.forward_returns`; the `forward_returns` table is dropped after parity (UD-25, design 14.7).
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
+- **Intraday backfill (todo 449, running since 2026-09-27):** one IBKR stream via
+  `logs/backfill_ops/intraday_chain.sh`: 15m+1h for the 698 names first (client 46), then 5m
+  (client 40, about two weeks). Parallel lanes do not add throughput. The nightly 1d backfill
+  skips while it runs. Phase 186's rebuild gates on the 5m part.
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
