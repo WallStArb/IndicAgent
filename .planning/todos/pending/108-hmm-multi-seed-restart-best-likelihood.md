@@ -28,8 +28,8 @@ different seed would find, and there is currently no way to know whether that's 
 No seed-stability check exists either (the related, but distinct, todo 034 secondary
 finding): nothing compares label agreement or log-likelihood spread across multiple seeds
 to flag a fit as brittle. Note: that specific check is scoped separately, bundled into
-todo 026's gated P4a work (rolling refit) and into deferred todo 036's proposed
-`RegimeModelIntegrityMonitor` — this todo is narrower, just the fit-time
+todo 026's gated P4a work (rolling refit) and into todo 036's proposed
+`RegimeModelIntegrityMonitor` (closed 2026-09-27, superseded; seed-stability folded here) — this todo is narrower, just the fit-time
 restart-and-keep-best mechanism itself.
 
 ## Proposed scope
@@ -55,8 +55,8 @@ delta on a few symbols before rolling out corpus-wide.
   this todo's source
 - `.planning/todos/completed/034-hmm-walk-forward-refit.md` — where the seed-stability
   check idea originated (folded into 026, not the same item as this todo)
-- `.planning/todos/deferred/036-regime-model-integrity-monitor.md` — proposed runtime
-  monitor that would consume a seed-stability score, once one exists
+- `.planning/todos/completed/036-regime-model-integrity-monitor.md` — proposed runtime
+  monitor that would consume a seed-stability score; closed 2026-09-27 (superseded, phase 188 owns monitoring)
 - `services/regime_writer.py:513-547` — current single-seed fit + convergence-retry code
 
 ## Triage 2026-09-26 (backlog review with the owner)

@@ -37,15 +37,15 @@ Phase numbers are stable IDs.
 ## Active milestone: v3.5 Unified Research Pipeline
 
 Sequence and rationale: `docs/plans/2026-09-26-unified-research-to-production-design.md` section 16
-(the single owner of sequence). Research attempts run in parallel with the build and never queue
-behind infrastructure; the alpha track (todos 442, 437, 441, 423, 440) runs first. STATE.md holds
-current position only; PRIORITIES.md tiers todos.
+(the single owner of sequence), superseded on one point by the owner 2026-09-27: build first.
+Research attempts (todos 442, 437, 441, 423, 440) are paused until 185 and 186 land, and session
+time goes to the build. STATE.md holds current position only; PRIORITIES.md tiers todos.
 
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition built (todo 447, 2026-09-27); attempts (442) continue in this lane |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Planned 2026-09-27: 24 plans, 10 waves; plan-checker pass pending |
-| 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Not planned; no live ic_engine run |
+| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Planned 2026-09-27: 24 plans in 10 waves; plan-checker passed (`959ec85ea`); ready to execute |
+| 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Planned 2026-09-27: 29 plans written; plan-checker pass in progress (186 session); no live ic_engine run |
 | 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on family 2's evidence run (183 plan 10 done) |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing (re-scoped 156-157) | Not planned; waits on a candidate book |
@@ -253,11 +253,12 @@ ensemble rehearsal.
 **Depends on:** no live or resumable ic_engine run (import rule); phase 183 not touching these
 modules; the `feature_vectors` rebuild step also on phase 185's derived 15m and 1h grid (UD-25)
 and todo 445's timeframe decision.
-**Plans:** 0 plans
+**Plans:** 29 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 186 to break down)
+- [ ] Plans 186-01 through 186-29 written 2026-09-27 (`09776c12c`); waves and dependencies in
+  `186-PLAN-OUTLINE.md`; per-plan checkboxes pending the 186 session's close-out
 
 ### Phase 187: Research core: recipe book, selection, construction
 

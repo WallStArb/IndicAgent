@@ -14,6 +14,19 @@
 
 # 036 — Regime Model Integrity Monitor (gap in IntegrityMonitor coverage)
 
+## Closed 2026-09-27 (superseded; gate can never open)
+
+The gate was the IntegrityMonitor shared infra (Phase 152). Phase 152 is superseded
+(ROADMAP.md Parked: per-member monitoring and the decay alarm live in phase 188), and the
+`integrity_monitor` table itself was never created (migration 204 stayed planned). Nothing to
+revive and nothing to reuse.
+
+The substance is absorbed by the adopted unified design (2026-09-26): item 1 (causal-boundary
+assertion on HMM refits) is covered by phase 186's walk-forward-only `regime_writer` (todo 248
+bundle) and plan 186-13's RED-test proof of the segment-gate lookahead (todo 451); item 2
+(seed-stability) is folded into todo 108's refit decisions, itself folded into the 248 refit;
+the monitoring blind spot closes with phase 188's per-member monitoring and decay alarm.
+
 ## Problem
 
 Reviewed the full v3.1-v4.1 roadmap plus `docs/plans/2026-06-27-health-guardian-design.md`

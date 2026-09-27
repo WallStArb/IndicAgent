@@ -43,7 +43,7 @@ bullets with current facts.
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
   from UCR. Check it before recommending a candidate.
 
-## Current position (2026-09-26)
+## Current position (2026-09-27)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26), phase verification
   pending. Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
@@ -53,17 +53,21 @@ bullets with current facts.
 
 - **Phase 185:** planned 2026-09-27: 24 plans in 10 waves, aligned the same day with todo
   449's single-stream finding (`d2c02b387`: one IBKR history-stream lease, CONTEXT D-29 to D-31).
-  The plan-checker pass has not run yet (usage limit); run it, then `/gsd-execute-phase 185`.
+  Plan-checker pass passed 2026-09-27 after one revision (`959ec85ea`: plan 13 rebased to wave 3,
+  running concurrent with the campaigns under the priority lease). Ready to execute:
+  `/gsd-execute-phase 185`.
   Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
   the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
   11-12) is in place by wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete;
   D7 reconciliation). Owns todo 433 (P0).
 
-- **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
-  Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
-  14.2) and 185's derived grid (todo 446). The fresh ic_engine computes targets with
-  `panel.forward_returns`; the `forward_returns` table is dropped after parity (UD-25, design 14.7).
+- **Phase 186:** planned 2026-09-27: all 29 plans written (`09776c12c`); the 186 session is
+  running its plan-checker/verification pass. Its `feature_vectors` rebuild needs the 5m
+  timeframe decision first (todo 445, design section 14.2) and 185's derived grid (todo 446).
+  The fresh ic_engine computes targets with `panel.forward_returns`; the `forward_returns`
+  table is dropped after parity (UD-25, design 14.7). Phases 187-188: not planned; 187 waits
+  on family 2's evidence run and the research lane's release.
 
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
@@ -95,8 +99,8 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
-| Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
-| Phase 185 | Plan-checker pass on the 24 plans, then `/gsd-execute-phase 185` | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 186 | Plan-checker/verification of the 29 written plans (186 session), then `/gsd-execute-phase 186` | No edits to modules ic_engine imports while a corpus run is live or resumable |
+| Phase 185 | `/gsd-execute-phase 185` (24 plans checker-passed 2026-09-27) | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).

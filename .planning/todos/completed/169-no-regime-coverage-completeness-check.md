@@ -40,7 +40,7 @@ the gap is real, not just unbuilt:
   regime as a conditioning variable to avoid false alerts across regime transitions. A
   symbol with 100% NULL regime never trips a distribution check because there's no
   distribution to compare against; it's just silently absent.
-- The deferred todo [036](../deferred/036-regime-model-integrity-monitor.md)
+- The deferred todo [036](../completed/036-regime-model-integrity-monitor.md)
   (RegimeModelIntegrityMonitor) checks a *different* failure mode: whether the HMM refit
   respects the causal boundary and whether the chosen seed is stable. It assumes a symbol
   HAS labels and checks whether they were computed correctly -- it does not check whether a
@@ -79,7 +79,7 @@ redesign.
 
 - [168](168-seven-symbols-zero-per-symbol-hmm-regime-labels.md) -- the specific data gap
   this monitor would have caught years earlier
-- [036](../deferred/036-regime-model-integrity-monitor.md) -- adjacent monitor, different
+- [036](../completed/036-regime-model-integrity-monitor.md) -- adjacent monitor, different
   failure mode (causal-fit correctness, not coverage completeness), read in full before
   filing this as separate
 - `services/regime_writer.py` -- the writer whose silent gap this monitor would detect
