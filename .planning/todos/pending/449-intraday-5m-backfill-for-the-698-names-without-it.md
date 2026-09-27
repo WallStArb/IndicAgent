@@ -19,9 +19,7 @@ readers see from 5m on session-anchored edges (todo 446); the fetched IBKR 15m a
 raw observations and are the independent check on that derivation (185-12 parity check). They
 cost little: IBKR chunks are 730 days (15m) and 1095 days (1h) against 150 days for 5m.
 
-Running since 2026-09-27: 5m lanes on clients 40-43 (`logs/backfill_ops/intraday_5m/`), 15m+1h
-lanes on clients 46-48 (`logs/backfill_ops/intraday_htf/`, `intraday_htf_lane.sh`). The phase 186
-rebuild gates on the 5m part only, since it reads derived 15m/1h.
+Status 2026-09-27: IBKR serves one heavy history stream at a time; 4 parallel 5m lanes (plus 3 15m/1h lanes) produced no more throughput than one and mostly timed out (5m done for 4 names in 6 hours). Now one stream: `logs/backfill_ops/intraday_chain.sh` runs 15m+1h for all 698 names first (client 46, `logs/backfill_ops/intraday_htf/`), then 5m (client 40, `logs/backfill_ops/intraday_5m/solo_*`). 15m/1h go first because the strategy families read them and they need about a third of 5m's requests. Solo 5m rate was about 2 minutes per year of history, so 5m is roughly two weeks. The nightly 1d backfill skips while any backfill runs. The phase 186 rebuild gates on the 5m part only, since it reads derived 15m/1h.
 
 ## Constraints
 
