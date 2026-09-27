@@ -316,7 +316,9 @@ verifies no row has a target end at or after `oos_start`, and records counts. Ga
 
 ## Resume notes (2026-09-27, orchestrator)
 
-Plans 01-19 are written and committed. Remaining: 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, in that order, one planner at a time (parallel planners hit the session limit three times). Resume with `/gsd-plan-phase 186 --chunked`; it skips plans already on disk. Then run the plan checker over all 29.
+All 29 plans are written and committed (01-19 in the first chunked run; 20-29 resumed 2026-09-27,
+one planner at a time after parallel planners hit the session limit three times). The names below
+stay binding for execution. Next step: the plan checker over all 29.
 
 Names fixed by written plans, which later plans must use:
 - Provenance table `provenance_batch` (186-06, not `lineage_batch`); API `bulk_load()`, `BulkLoadSpec`, `completed_provenance_batch()`, `bulk_load(replace_where=)`, `kernel_code_key()`, `bar_content_digests()` in `services/_batch_utils.py`, synchronous psycopg (async callers use `asyncio.to_thread`).
