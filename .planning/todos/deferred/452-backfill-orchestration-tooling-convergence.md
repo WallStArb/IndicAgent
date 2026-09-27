@@ -32,14 +32,16 @@ with the sleeve-directory deletion (todo 448), not to this cleanup.
 
 1. Factor the shared watchdog/retry skeleton (now two copies:
    `intraday_htf_lane.sh`, `intraday_5m_lane.sh`; the original `backfill_retry_loop.sh`
-   is kept as the pattern source) into one sourced lib while editing the lanes for the
-   185-09 stream lease, so the copies cannot diverge further.
+   is kept as the pattern source) into one sourced lib, at a cutover stop when the lane
+   loop is down (the 185-09 lease restart and 185-12's restart are natural moments; the
+   pipeline CLI's `--lease-tier` defaults to bulk, so the lane scripts need no flag edit
+   for the lease).
 2. Decide the wrappers' permanent home (stay force-added under `logs/backfill_ops/` vs a
    move to `scripts/ops/backfill/`); a move is safe only with no lane running. At that
    point `backfill_retry_loop.sh` can also be deleted (its content lives in git history).
 
 ## Gate
 
-Blocked until the todo 449 chain completes (~mid-October 2026) and phase 185 plan 09's
-lease cutover lands (it edits the same lane scripts). Never edit or move a lane script
-while its loop runs: bash reads scripts incrementally.
+Blocked until no lane loop is running: the todo 449 chain completes ~mid-October 2026,
+and the 185-09/185-12 cutover stops are earlier safe moments. Never edit or move a lane
+script while its loop runs: bash reads scripts incrementally.
