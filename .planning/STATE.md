@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-27T15:13:28.439Z"
+last_updated: "2026-09-27T15:50:57.870Z"
 progress:
   total_phases: 6
   completed_phases: 1
@@ -54,8 +54,10 @@ bullets with current facts.
 - **Phase 185:** planned 2026-09-27: 24 plans in 10 waves, aligned the same day with todo
   449's single-stream finding (`d2c02b387`: one IBKR history-stream lease, CONTEXT D-29 to D-31).
   Plan-checker pass passed 2026-09-27 after one revision (`959ec85ea`: plan 13 rebased to wave 3,
-  running concurrent with the campaigns under the priority lease). Ready to execute:
-  `/gsd-execute-phase 185`.
+  running concurrent with the campaigns under the priority lease). Grok 4.7 external review folded
+  2026-09-27 (`c2cc7c811`, `185-REVIEW-GROK.md`: 185-12 cut-over discipline, 185-16 D-04 hand-off
+  scope, 185-10 scrub-input reader fence). Executing since 2026-09-27: plan 185-01 task 1
+  committed (`1ef8941c6`); task 2 resumes after the 5-hour quota reset (01:14 UTC 2026-09-28).
   Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
   the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
