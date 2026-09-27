@@ -38,3 +38,7 @@ Status 2026-09-27: IBKR serves one heavy history stream at a time; 4 parallel 5m
 5m, 15m and 1h coverage per name matches its expected span (first available bar to today), provider-empty
 spans are recorded in `ohlcv_empty_history`, and the names are promoted per the SOP. The coverage
 query and its output are recorded here.
+
+## Stream lease (2026-09-27)
+
+Phase 185 plan 09 adds one IBKR history-stream lease (185 CONTEXT D-29) and restarts this chain's pipeline process onto it: the chain runs at bulk tier and yields at each (symbol, tf) unit to the nightly and to 185's campaigns, and the nightly stops skipping while it runs. Plan 12 restarts it again so its 15m/1h writes go to the raw archive. The chain keeps clients 46 and 40.

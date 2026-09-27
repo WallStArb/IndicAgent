@@ -37,3 +37,7 @@ Derive 15m and 1h from 5m on session-anchored edges in the data layer (phase 185
 derivation stage), write them as the only 15m and 1h bars, and rebuild 1h features on them in
 phase 186. Measure first: whether other timeframes or years carry the same placeholder pattern,
 and whether the 39 share a fetch path (client, exchange routing, request type).
+
+## Planned (2026-09-27)
+
+Phase 185 plans 06 (session grid and digest), 11 (writer, raw archive, single-writer CI) and 12 (live rewrite, IBKR 15m/1h kept as raw observations with a parity check, the 42-name 09:30 refetch).

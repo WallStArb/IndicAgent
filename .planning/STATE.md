@@ -48,12 +48,14 @@ bullets with current facts.
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
-- **Phase 185:** planned 2026-09-27: 24 plans in 10 waves (`af3bfc0e3`), CONTEXT from the
-  accepted spec, RESEARCH, PATTERNS, VALIDATION. The plan-checker pass did not complete (usage
-  limit): run it before executing (`/gsd-plan-phase 185 --skip-research`, choose "View existing"
-  or run the checker only). Plans 10, 14, 15 and 16 clear the minimum data bar for daily attempts
-  3, 3b and 4 by wave 5; D2b (plans 11-12) is in place by wave 4 for 186. It is the
-  price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation). Owns todo 433 (P0).
+- **Phase 185:** planned 2026-09-27: 24 plans in 10 waves, aligned the same day with todo
+  449's single-stream finding (`d2c02b387`: one IBKR history-stream lease, CONTEXT D-29 to D-31).
+  The plan-checker pass has not run yet (usage limit); run it, then `/gsd-execute-phase 185`.
+  Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
+  the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
+  14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
+  11-12) is in place by wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete;
+  D7 reconciliation). Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
   Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
   14.2) and 185's derived grid (todo 446). The fresh ic_engine computes targets with
@@ -64,6 +66,8 @@ bullets with current facts.
   `logs/backfill_ops/intraday_chain.sh`: 15m+1h for the 698 names first (client 46), then 5m
   (client 40, about two weeks). Parallel lanes do not add throughput. The nightly 1d backfill
   skips while it runs. Phase 186's rebuild gates on the 5m part.
+  Until plan 185-09 lands, the nightly skips every night the chain runs (1d bars go stale);
+  185-09's lease replaces that skip and restarts the chain's pipeline process onto it.
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
@@ -81,7 +85,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Lane | Start with | Owner and boundary |
 |---|---|---|
 | Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
-| Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
+| Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
 | Phase 185 | Plan-checker pass on the 24 plans, then `/gsd-execute-phase 185` | Owns `src/providers/ibkr.py` changes and todo 433 |

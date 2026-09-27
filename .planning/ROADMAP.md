@@ -44,7 +44,7 @@ current position only; PRIORITIES.md tiers todos.
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition built (todo 447, 2026-09-27); attempts (442) continue in this lane |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Accepted 2026-09-26, not planned |
+| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Planned 2026-09-27: 24 plans, 10 waves; plan-checker pass pending |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Not planned; no live ic_engine run |
 | 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on family 2's evidence run (183 plan 10 done) |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
@@ -157,8 +157,9 @@ session-anchored edges (stored 1h drops the 09:30-10:00 half hour on 39 names, S
 landing before phase 186's `feature_vectors` rebuild; D2a takes over `forward_return_writer`'s
 suspect, corroboration and gap flags as flags on bars.
 **Requirements**: TBD
-**Depends on:** none to start. D3's intraday recovery goes in through a planned corpus
-recompute, never under a live ic_engine run (Phase 178's worktree).
+**Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
+through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
+Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
 **Plans:** 24 plans
 
 Plans:
@@ -171,7 +172,7 @@ Plans:
 - [ ] 185-06-PLAN.md - session grid aggregation and bar content digest (wave 2)
 - [ ] 185-07-PLAN.md - seams, splits, disputed dates, D3 study pre-registration (wave 2)
 - [ ] 185-08-PLAN.md - D0 label arithmetic and survivorship APR (wave 2)
-- [ ] 185-09-PLAN.md - D1 capture in the backfill; campaign preflight (wave 2)
+- [ ] 185-09-PLAN.md - D1 capture in the backfill; IBKR history-stream lease replacing the nightly skip; chain cut-over (wave 2)
 - [ ] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
 - [ ] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
 - [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)

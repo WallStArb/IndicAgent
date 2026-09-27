@@ -112,3 +112,7 @@ and 375 applied. IBKR accepts the ISLAND, ARCA, NYSE, AMEX and BATS routing code
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Absorbed todo 302 (`completed/302-ibkr-pre-listing-void-query-cancelled-not-fast-skipped.md`): 'Error 162: query cancelled' in a pre-listing void is not fast-skipped and falls into the 3-attempt retry storm (~195 s per chunk). Same Error 162 handling this todo and phase 185 are rewriting.
+
+## Planned (2026-09-27)
+
+Phase 185 plans 03 and 09 (capture every route in D1), 14 (1d head re-run for the 381 late names, client 49), 13 (listing-venue study), 19 (D3 rebased on D1, D4 from recorded answers) and 20 (intraday verify-only; intraday recovery stored only after phase 186's rebuild).
