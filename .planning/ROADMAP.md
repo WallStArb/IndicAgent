@@ -259,6 +259,8 @@ Plans:
 
 - [ ] Plans 186-01 through 186-29 written 2026-09-27 (`09776c12c`); waves and dependencies in
   `186-PLAN-OUTLINE.md`; per-plan checkboxes pending the 186 session's close-out
+- [x] 186-01 summary cards: card schema, card lint with drop-table coverage, 8 legacy_verdict
+  cards, 6 dead_cache cards; lint green, merged 2026-09-27 (`42fb59427`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
