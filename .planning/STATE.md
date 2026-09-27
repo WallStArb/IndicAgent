@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-27T20:55:56.745Z"
+last_updated: "2026-09-27T23:19:31.767Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 11
+  completed_plans: 12
   percent: 17
 ---
 
@@ -56,10 +56,11 @@ bullets with current facts.
   Plan-checker pass passed 2026-09-27 after one revision (`959ec85ea`: plan 13 rebased to wave 3,
   running concurrent with the campaigns under the priority lease). Grok 4.7 external review folded
   2026-09-27 (`c2cc7c811`, `185-REVIEW-GROK.md`: 185-12 cut-over discipline, 185-16 D-04 hand-off
-  scope, 185-10 scrub-input reader fence). Executing since 2026-09-27: plan 185-01 complete
-  (task 1 `1ef8941c6`, task 2 measurements `757e4f04b`; NOLOGIN roles can DML compressed chunks,
-  DELETE+reinsert chosen for plan 12, upsert for plan 17). Wave 1 continues with 185-02/03/04
-  after the quota reset (01:14 UTC 2026-09-28).
+  scope, 185-10 scrub-input reader fence). Executing since 2026-09-27: plans 185-01 (measurements `757e4f04b`) and 185-02 (D1 store,
+  migration 380, COPY writers `f3d584789`/`1e3477de6`) complete; the tests/integration/ rebuild
+  was repaired along the way (`c19bcb545`, baseline bump 2026-09-27; it had been broken since
+  migration 322). Wave 1 continues with 185-03/04 after the quota reset (01:14 UTC
+  2026-09-28).
   Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
   the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
