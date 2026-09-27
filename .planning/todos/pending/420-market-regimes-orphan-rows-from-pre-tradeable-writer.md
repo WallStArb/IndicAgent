@@ -38,3 +38,11 @@ Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit 
 ## Unified design note (2026-09-26)
 
 Fold into the phase 186 rebuild's regime inputs: `market_regimes` orphan rows are removed before the rebuild consumes regime columns.
+
+## Deferred rerun owner (2026-09-27, plan-phase)
+
+Plan 186-18 task 3 fixes the orphan mechanism but defers the actual orphan-delete rerun
+(`cross_sectional_regime_model --accept-orphan-delete`) until 186-20's parity summary is on main
+whenever the changed-row join count J > 0. The rerun is owned by the 186-28 executor, run after
+the feature_vectors swap makes the join count cheap; this todo closes only after that rerun
+lands, not when 186-18 merges.

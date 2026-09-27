@@ -23,3 +23,12 @@ source: adopted unified design (todo 436), sections 11 and 12.2; Fable review it
 
 The trigger is live and tested, the IC bound excludes targets crossing `oos_start`, and the looks
 are disclosed.
+
+## Phase 186 ownership note (2026-09-27, plan-phase)
+
+Part 2 (the IC purge) is owned by phase 186: plan 186-20 purges rows whose target window ends at
+or after `oos_start` and 186-28 keeps the whole-table bound at zero after the fresh run. Parts 1
+(the write-once trigger migration on `alpha.validation.oos_start`) and 3 (disclosure of the 7
+forward-span looks) are deliberately NOT owned by phase 186 (checker-confirmed 2026-09-27); this
+todo stays pending after 186 lands and needs a named owner - an early phase 187 plan is the
+natural home for the trigger migration.

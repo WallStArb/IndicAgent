@@ -828,18 +828,24 @@ docs/research/summary-cards/*.md
 
 ## Open questions
 
-1. **D-33 path for todo 445.** Runner cannot do it; recommend a counted script in
-   `scripts/research/` now (option b). Needs coordinator confirmation since it changes D-33's wording.
-2. **5m features at 931 names.** Infeasible under the 4x guard (1.35 TB); either the guard becomes
-   per chunk or 5m features stay at 233 names if todo 445 keeps 5m.
-3. **Which feature_ic_scores rows are "pooled" under D-15.** Recommend keeping POOLED
-   (330k) and per-symbol `_pooled` (971k) rows until D-35, deleting the 9.3M `is_pooled = false` rows.
-4. **Todo 248 status.** Flag on since 2026-08-12; confirm and correct STATE.md and memory.
-5. **The running 1h/15m backfill of the 698 names.** Not what todo 449 asks for (5m only); the
-   coordinator should confirm its owner and purpose.
-6. **market_regimes future.** After the shrink its readers are `cross_sectional_regime_model`
-   (writer), `vocabulary_drift`, `feature_lifecycle` (IC paths removed); it may become a feature
-   source (todo 435). Keep the table, drop the duplicate index.
+All six were resolved during discuss-phase (R-01..R-13 in CONTEXT.md) and are closed by the
+written plans; markers below record the resolution.
+
+1. **D-33 path for todo 445.** (RESOLVED, R-08) A committed counted script in `scripts/research/`
+   (option b), plan 186-07; no research-runner edit, no external gate.
+2. **5m features at 931 names.** (RESOLVED, R-09 + 186-07) 5m stays at 233 names unless the
+   186-07 decision says otherwise; the disk guard is R-09, enforced by the 186-26 precondition
+   checker on measured pilot numbers.
+3. **Which feature_ic_scores rows are "pooled" under D-15.** (RESOLVED, R-07) 186-20 deletes the
+   ~9.3M `is_pooled = false` rows; POOLED and per-symbol `_pooled` rows stay until 186-28
+   replaces them (D-35).
+4. **Todo 248 status.** (RESOLVED, R-10) 186-13 task 1 verifies the real flag state against
+   `config_history` and corrects STATE.md and the memory entry.
+5. **The running 1h/15m backfill of the 698 names.** (RESOLVED, observational) Became todo 449
+   (filed during planning, running in its own session); 186-26 gates on its 5m completeness
+   read-only (R-13) and phase 185 D2b owns the derived grid.
+6. **market_regimes future.** (RESOLVED) Keep the table, drop the duplicate index (D-36, 186-05);
+   the feature-source question stays with todo 435, untouched by phase 186.
 
 ## Recommended plan decomposition
 

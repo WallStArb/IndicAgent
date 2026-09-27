@@ -2,7 +2,7 @@
 phase: 186
 slug: old-ensemble-chain-retirement-and-ic-engine-re-scope
 status: draft
-nyquist_compliant: false
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-09-27
 ---
@@ -73,11 +73,15 @@ with the old engine), `tests/unit/_source_grep_helpers.py`.
 
 ## Validation sign-off
 
-- [ ] All tasks have an automated verify or a Wave 0 dependency
-- [ ] No 3 consecutive tasks without an automated verify
-- [ ] Wave 0 covers every missing reference
-- [ ] No watch-mode flags
-- [ ] Feedback latency under 60 s
-- [ ] `nyquist_compliant: true` set in front matter
+- [x] All tasks have an automated verify or a Wave 0 dependency
+- [x] No 3 consecutive tasks without an automated verify
+- [x] Wave 0 covers every missing reference
+- [x] No watch-mode flags
+- [x] Feedback latency under 60 s (quick runs: touched tests + `--co` per task commit; the
+      full-suite and 30-min bit-identity verifies are per-wave/per-plan gates per the sampling
+      design, accepted by the plan checker 2026-09-27)
+- [x] `nyquist_compliant: true` set in front matter
 
-**Approval:** pending
+**Approval:** passed — gsd-plan-checker VERIFICATION PASSED over all 29 plans 2026-09-27
+(0 blockers, 6 warnings, all warning fixes applied or dispositioned). `wave_0_complete` stays
+false until the Wave 0 test files land during execution.

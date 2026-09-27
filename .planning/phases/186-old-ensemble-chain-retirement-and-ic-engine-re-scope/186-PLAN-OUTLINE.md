@@ -32,7 +32,7 @@ and stops with a clear message if one is live or resumable.
 | 186-17 | Postgres `shared_buffers` and `work_mem` tuning with restart (operator gate) | 2 | 186-05 | D-38, R-12 |
 | 186-13 | Regime as a walk-forward-only registry kernel; verify todo 248 state; todos 290, 291 | 3 | 186-12 | D-29, R-10, D-01 |
 | 186-14 | Fresh IC writer: scope in the unique key, bulk-load writes, content-digest revision detection, per-kernel code key | 3 | 186-06, 186-10, 186-11 | D-20, D-23, D-24, D-17, D-01 |
-| 186-15 | feature_factory split part 2: SMC, VP/SR, injected cross-asset/factor/CTF kernels; pipeline imports the registry | 3 | 186-12 | D-25, D-28, D-01 |
+| 186-15 | feature_factory split part 2: SMC, VP/SR, injected cross-asset/factor/CTF kernels; pipeline imports the registry | 4 | 186-12, 186-13 | D-25, D-28, D-01 |
 | 186-16 | Delete `scripts/analysis/` except the sleeve `config.py` import closure | 3 | 186-01, 186-02, 186-03, 186-04 | D-12, D-11, D-03, D-08, D-13 |
 | 186-18 | Regime bundle todos 286, 289, 292, 341, 420 | 4 | 186-13 | D-29, D-01 |
 | 186-19 | Old-chain code deletion part 1: services, ensemble submodules, spread tracker, gate_math, tests, auditor entries | 4 | 186-03, 186-09, 186-11, 186-14, 186-16 | D-09, R-04, D-07, D-08, D-13, D-01 |
