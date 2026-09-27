@@ -14,8 +14,14 @@ names. 1d history exists for all 931; 5m does not exist for the other 698. The p
 `feature_vectors` rebuild covers all 931 names and cannot start until this backfill is complete
 (186-CONTEXT D-32).
 
-Only 5m needs fetching: phase 185 D2b derives 15m and 1h from 5m on session-anchored edges
-(todo 446), so stored IBKR 15m and 1h are raw observations only.
+Fetch 5m, 15m and 1h (owner decision, 2026-09-27). Phase 185 D2b still derives the 15m and 1h
+readers see from 5m on session-anchored edges (todo 446); the fetched IBKR 15m and 1h are kept as
+raw observations and are the independent check on that derivation (185-12 parity check). They
+cost little: IBKR chunks are 730 days (15m) and 1095 days (1h) against 150 days for 5m.
+
+Running since 2026-09-27: 5m lanes on clients 40-43 (`logs/backfill_ops/intraday_5m/`), 15m+1h
+lanes on clients 46-48 (`logs/backfill_ops/intraday_htf/`, `intraday_htf_lane.sh`). The phase 186
+rebuild gates on the 5m part only, since it reads derived 15m/1h.
 
 ## Constraints
 
@@ -31,6 +37,6 @@ Only 5m needs fetching: phase 185 D2b derives 15m and 1h from 5m on session-anch
 
 ## Done when
 
-5m coverage per name matches its expected span (first available bar to today), provider-empty
+5m, 15m and 1h coverage per name matches its expected span (first available bar to today), provider-empty
 spans are recorded in `ohlcv_empty_history`, and the names are promoted per the SOP. The coverage
 query and its output are recorded here.
