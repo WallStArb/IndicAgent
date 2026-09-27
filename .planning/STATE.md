@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-stopped_at: "phase 183 plans complete 2026-09-26 (verification pending); E17 decided option C, todo 447 next in the research lane"
+stopped_at: "todo 447 done 2026-09-27 (E17 static-size guard; families 1 and 2 pass); next phase 183 verification, then todo 442"
 last_updated: "2026-09-26T21:00:00.000Z"
 progress:
   total_phases: 6
@@ -44,8 +44,8 @@ bullets with current facts.
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26), phase verification
   pending. Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
-  built and its gating decided (option C: todo 447 is the per-family precondition); family 2
-  registered, its evidence run waits on 447.
+  built and its gating decided (option C); its per-family static-size guard is in the runner
+  (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
 - **Phase 185:** accepted, spec revision 2 (2026-09-26), not planned. It is now the
   price-integrity layer: D2a scrubbing (flag, never delete; rules validated on known answers; one
   historical batch pass) and D7 reconciliation. No existing service checks historical price
@@ -74,7 +74,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 
 | Lane | Start with | Owner and boundary |
 |---|---|---|
-| Research (phase 183) | Todo 447 (E17 per-family guard), then todo 442; phase 183 verification | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
+| Research (phase 183) | Phase 183 verification, then todo 442 | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
@@ -86,7 +86,7 @@ Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers fro
 ## Decisions waiting on the owner
 
 - None open. E17's gating criterion was decided 2026-09-26 (option C: measured-size gate plus a
-  per-family static-size guard, todo 447; methodology-change-ledger E17).
+  per-family static-size guard, built under todo 447; methodology-change-ledger E17).
 
 ## Open items that are not verdicts
 

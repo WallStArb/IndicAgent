@@ -9,10 +9,11 @@ trading from 252 sessions), plus a time-of-day market mean per leg, common to ev
 measured means (187-name members' universe, 2010-2025, in units of each leg's idiosyncratic sd)
 are overnight +0.0588, first 15 minutes -0.0263, rest of session +0.0127. The static per-(leg,
 name) means, measured the same way (per-name mean over the cross-sectionally demeaned leg sd,
-2010+, sampling variance removed), are 0.0442, 0.0448 and 0.0169, split-half correlations 0.18,
-0.36 and 0.19. Gating cells use twice the measured sizes, as null_battery does; cells at 0.3
-document the limit (static means times volatility clustering inflate the tail, and S1's beta
-error times a large time-of-day mean is credited) and are diagnostics.
+2010+, sampling variance removed; static_sizes.measure), are 0.0442, 0.0448 and 0.0169,
+split-half correlations 0.18, 0.36 and 0.19. Gating cells use twice the measured sizes, as
+null_battery does; cells at 0.3 document the limit (static means times volatility clustering
+inflate the tail, and S1's beta error times a large time-of-day mean is credited) and are
+diagnostics.
 
 An S1 scenario builds a synthetic 15m source panel whose session legs are exactly the drawn
 legs (bar 1 opens at bar 0's close, so the target equals the rest leg) and sends it through the
@@ -32,6 +33,7 @@ import warnings
 
 import numpy as np
 
+from src.intelligence.research import static_sizes
 from src.intelligence.research.families import overnight_intraday as f2
 from src.intelligence.research.legs import LEGS, SIGNAL_LEG
 from src.intelligence.research.null_battery import listing_mask
@@ -51,6 +53,11 @@ MEMBERS = (
 )
 MEASURED_LEG_MEANS = (0.0588, -0.0263, 0.0127)  # overnight, first 15m, rest (idio sd units)
 MEASURED_STATIC_SD = (0.0442, 0.0448, 0.0169)  # static per-(leg, name) mean sd, same units
+# These are the sizes the battery ran at; changing them changes the gate and needs a rerun.
+# static_sizes.measure on the spec's own panel (total return, 189 names, 2010-2025, snapshot
+# 67a17ee8, 2026-09-27) gives static 0.0544, 0.0492, 0.0158 and time-of-day means 0.0529,
+# -0.0208, 0.0103 (net of noise 0.0516, 0.0201, 0): inside the gate. Recorded in every family 2
+# evidence record by the runner.
 _WARMUP_SESSIONS = 252
 _COVERAGE_FLOOR = 20
 _VOL_WINDOW_SESSIONS = 20
@@ -224,3 +231,16 @@ def scenarios() -> tuple[LegsScenario, ...]:
 DIAGNOSTIC_CELLS = frozenset(
     {"legs_static_vol_stress", "legs_hostile_stress", "legs_s1_leg_stress"}
 )
+
+
+def static_gate() -> static_sizes.StaticGate:
+    """The sizes every gating cell holds at, per leg: static sd, and the time-of-day mean in
+    absolute value (each leg's mean is fixed, not drawn)."""
+    return static_sizes.gate_from_cells(
+        __name__,
+        1,
+        scenarios(),
+        DIAGNOSTIC_CELLS,
+        static=lambda c: c.static_cell_sd,
+        time_of_day=lambda c: tuple(abs(a) for a in c.leg_means),
+    )

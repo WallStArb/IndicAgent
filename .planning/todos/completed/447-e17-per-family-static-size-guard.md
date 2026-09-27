@@ -48,3 +48,25 @@ Build, in the phase 183 runner (owner: the phase 183 lane):
 - Unit test with a `total_return` spec where the measurement differs from price-only.
 - Refusal is uncharged and recorded like the power refusal, with the measured sizes in the
   evidence record.
+
+## Closed 2026-09-27
+
+Built: `src/intelligence/research/static_sizes.py` (measurement, gate, exceedances, record),
+`static_gate()` in each battery module (elementwise max over the gating cells, so the gate is
+never typed twice), and the runner check in `run_family` and `run_book` after S0 and before S1.
+A family module with no battery is refused before the ledger; a family above the gate ends
+`refused` (uncharged) with its sizes; a pass records them in every evidence record (schema v4).
+Driver for a pre-run look: `scripts/research/static_sizes.py --spec <spec>`.
+Tests: `tests/unit/research/test_static_sizes.py` (planted above the gate refused, null passes,
+real-mode refusal recorded and uncharged, total_return legs differ from price-only, split
+segments counted as names).
+
+Method: raw cross-sectionally demeaned cell returns, 2010 on; reproduces family 1's recorded
+0.019 / 0.21 / 0.0096. One deviation, recorded in the ledger: the time-of-day size is gated net
+of sampling noise (the raw rms is mostly noise and refused null test panels).
+
+Measured (logs/phase183/static_sizes/): family 1 pooled static 0.0191 (gate 0.038), time of
+day 0.0036 net (gate 0.0192); family 2 total-return legs, 189 names: static 0.054, 0.049,
+0.016 (gates 0.088, 0.090, 0.034), time of day 0.052, 0.020, 0 (gates 0.118, 0.053, 0.025).
+Both pass. The `MEASURED_*` constants stay as the sizes the batteries ran at; each module's
+comment records the measurement.

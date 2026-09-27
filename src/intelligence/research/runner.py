@@ -9,7 +9,8 @@ Real mode, in order (D-02, D-03):
 2. The ledger writes one `started` row per member (and the identity rows), before any data is
    read. From here every outcome is recorded; a crash leaves the rows started, which counts.
 3. S0 snapshot (content hash verified), S1 residual bar returns and residual forward target,
-   S2 members, S3 guards (real-data split, D-25), the shift-floor refusal (evidence runs are
+   the E17 static-size precondition (todo 447: a family above its H0 battery's gated sizes is
+   refused, uncharged), S2 members, S3 guards (real-data split, D-25), the shift-floor refusal (evidence runs are
    never refused on power, D-21), S5 per member with R1 and R2, the evidence record, and the
    terminal update.
 
@@ -43,6 +44,7 @@ from src.intelligence.research import (
     power,
     provenance,
     snapshot,
+    static_sizes,
     store,
     synthetic,
     transforms,
@@ -446,6 +448,42 @@ def _shift_diagnostic(
     return res, len(shifts)
 
 
+def static_gate(spec: FamilySpec) -> static_sizes.StaticGate:
+    """The H0 battery gate for a family's module, before the ledger: a family no battery
+    covers is refused without real data, never charged (E17 option C)."""
+    module = family_module(spec)
+    try:
+        return static_sizes.gate_for(module)
+    except AttributeError:
+        raise RunRefused(
+            f"family {spec.family}: no E17 H0 battery covers {module.__name__}; one at the "
+            "family's measured static sizes must pass first (methodology-change-ledger E17)"
+        ) from None
+
+
+def static_precondition(spec: FamilySpec, panel: Panel, gate: static_sizes.StaticGate) -> dict:
+    """The family's measured static sizes against its battery's gate, on the analysis panel."""
+    sizes = static_sizes.measure(
+        panel,
+        cell_rows=gate.cell_rows,
+        trading_start=spec.scoring.trading_start,
+        coverage_floor=spec.construction.coverage_floor,
+    )
+    return static_sizes.record(sizes, gate)
+
+
+def _static_refusal(family: str, block: dict) -> dict:
+    return {
+        "stage": "refusal",
+        "refusal": (
+            f"family {family} exceeds the E17 battery's gated static sizes: "
+            + "; ".join(block["exceeds"])
+            + f". It needs a battery at its own measured sizes first ({block['battery']})"
+        ),
+        "static_sizes": {family: block},
+    }
+
+
 async def run_family(
     loaded: LoadedSpec,
     ctx: RunContext,
@@ -457,6 +495,7 @@ async def run_family(
     if not isinstance(spec, FamilySpec):
         raise TypeError("run_family needs a family spec")
     real = mode == "real"
+    gate = static_gate(spec)
     run_ids: dict[str, str | None] = {m.name: None for m in spec.members}
     code_commit = None
     if real:
@@ -502,6 +541,10 @@ async def run_family(
         panel, snapshot_hash, source_probe = await _analysis_panel(
             spec, ctx, real=real, panel=panel
         )
+        static_block = static_precondition(spec, panel, gate)
+        if not static_block["passes"]:
+            await finish_all("refused", _static_refusal(spec.family, static_block))
+            return results
         factor_spec = FACTOR_SPECS[spec.factor_spec]
         transform = transforms.resolve(spec.panel.transform)
         bps = panel.bars_per_session
@@ -570,6 +613,7 @@ async def run_family(
                 subject=f"member.{spec.family}.{m.name}",
                 n_shifts=n_shifts,
                 power=None,
+                static_sizes={spec.family: static_block},
                 coverage=coverage_summary(checked["reports"][m.name], alpha, trade),
                 turnover=turnover_per_session(weights, has_position, trade, bps),
                 costs=spec.costs,
@@ -732,6 +776,7 @@ async def run_book(
     families = [f.model for f in loaded.families]
     fam0 = families[0]
     check_family_plant(families, book.power)  # before the ledger: a refusal is never charged
+    gates = {fam.family: static_gate(fam) for fam in families}
     subject = f"book.{book.book}"
     run_id = None
     code_commit = None
@@ -776,6 +821,12 @@ async def run_book(
         panel, snapshot_hash, source_probe = await _analysis_panel(
             fam0, ctx, real=real, panel=panel
         )
+        _log("E17 static-size precondition")
+        static_blocks = {}
+        for fam in families:
+            block = static_blocks[fam.family] = static_precondition(fam, panel, gates[fam.family])
+            if not block["passes"]:
+                return await finish("refused", _static_refusal(fam.family, block))
         factor_spec = FACTOR_SPECS[fam0.factor_spec]
         bps, n = panel.bars_per_session, len(panel.timestamps)
         _log("S1 residuals")
@@ -898,6 +949,7 @@ async def run_book(
             subject=subject,
             n_shifts=n_shifts,
             power=power_record,
+            static_sizes=static_blocks,
             coverage=coverage_summary(
                 guards.integrity(panel, booked.combined), booked.combined, trade
             ),

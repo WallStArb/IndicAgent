@@ -133,6 +133,8 @@ def gap_fade_z(
 # 0's method on this universe's residual target before the check.
 # ---------------------------------------------------------------------------------------------
 
+# The E17 H0 battery that gates this family (runner.static_gate); a name, since it imports us.
+NULL_BATTERY = "src.intelligence.research.null_battery_overnight_intraday"
 PLANT_WINDOW_SESSIONS = 20  # prereg B2: O1 and O3 at their 20-session windows (APR-exempt)
 
 

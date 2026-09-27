@@ -21,6 +21,7 @@ import warnings
 
 import numpy as np
 
+from src.intelligence.research import static_sizes
 from src.intelligence.research.families.intraday_periodicity import SLOT_BARS, same_slot_mean
 from src.intelligence.research.panel import Panel
 from src.intelligence.research.portfolio import rank_vol_neutral_weights, trailing_vol
@@ -190,9 +191,12 @@ def simulate(sc: NullScenario, seed: int) -> dict[str, tuple[float, float]]:
 
 
 # Stress sizes measured on family 1's panel (2010-2025, 13 half-hour slots, idiosyncratic slot
-# sd units): the per-slot market mean has rms 0.0096; static per-(slot, name) means have a true
-# sd of about 0.019 net of sampling noise (split-half correlation 0.21). Gating cells use twice
-# the measured sizes; the 0.3 cells are diagnostics that document where E17 breaks.
+# sd units) by static_sizes.measure: the per-slot market mean has rms 0.0096; static per-(slot,
+# name) means have a true sd of about 0.019 net of sampling noise (split-half correlation 0.21).
+# Gating cells use twice the measured sizes; the 0.3 cells are diagnostics that document where
+# E17 breaks. static_gate() derives the runner's precondition from the gating cells.
+# static_sizes.measure on family 1's snapshot (81fa9178, 233 names, 2010-2025) reproduces them:
+# static 0.0191, split-half 0.215, time-of-day rms 0.0096 raw (0.0036 net of sampling noise).
 MEASURED_SLOT_EFFECT_SD = 0.0096
 MEASURED_STATIC_CELL_SD = 0.019
 
@@ -239,3 +243,16 @@ def scenarios() -> tuple[NullScenario, ...]:
 
 
 DIAGNOSTIC_CELLS = frozenset({"static_vol_stress", "hostile_stress", "s1_slot_stress"})
+
+
+def static_gate() -> static_sizes.StaticGate:
+    """The sizes every gating cell holds at: one static sd and one time-of-day sd drawn for
+    every slot, so both gate pooled values."""
+    return static_sizes.gate_from_cells(
+        __name__,
+        SLOT_BARS,
+        scenarios(),
+        DIAGNOSTIC_CELLS,
+        static=lambda c: (c.static_cell_sd,),
+        time_of_day=lambda c: (c.slot_effect_sd,),
+    )

@@ -26,7 +26,7 @@ from src.intelligence.research.ledger import jsonable
 from src.intelligence.research.spec import CostSpec
 from src.intelligence.research.timing import TimingResult
 
-SCHEMA = "research_evidence_v3"  # v3: E17 decision statistic (v2: E16), shift null diagnostic
+SCHEMA = "research_evidence_v4"  # v4: E17 static-size precondition; v3: E17 statistic; v2: E16
 _BPS = 1e-4  # one basis point
 
 
@@ -94,6 +94,7 @@ def evidence_record(
     subject: str,
     n_shifts: int,
     power: dict | None,
+    static_sizes: dict,
     coverage: dict,
     turnover: float,
     costs: CostSpec,
@@ -124,6 +125,7 @@ def evidence_record(
         },
         "shift_null": _shift_null(shift_null, n_shifts, sub_periods),
         "power": power,
+        "static_sizes": static_sizes,
         "coverage": coverage,
         "turnover_per_session": turnover,
         "cost_band": {

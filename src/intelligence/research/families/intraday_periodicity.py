@@ -31,6 +31,8 @@ from src.intelligence.research.synthetic import factor_basis, loading_scale_for_
 
 # Bars per half-hour slot on the 15m grid: the member's definition, not a tunable (APR-exempt).
 SLOT_BARS = 2
+# The E17 H0 battery that gates this family (runner.static_gate); a name, since it imports us.
+NULL_BATTERY = "src.intelligence.research.null_battery"
 
 
 def slot_returns(resid_bar_returns: np.ndarray, *, bars_per_session: int) -> np.ndarray:

@@ -991,6 +991,26 @@ when this was found.
     first. The measurement is recorded in the family's evidence. Rejected: A (the gate unguarded,
     silently oversized for a family with larger static effects) and B (keep 0.3: no known repair,
     every book test blocked). Build: todo 447 (phase 183 lane).
+  - **Guard built 2026-09-27 (todo 447):** `src/intelligence/research/static_sizes.py`, called
+    by `run_family` and `run_book` after S0 and before S1. It measures on the analysis panel
+    (after the members' universe, total return and any transform; split segments are separate
+    names) with raw cross-sectionally demeaned cell returns from `trading_start`, the method
+    that reproduces family 1's recorded 0.019, 0.21 and 0.0096. A refusal is recorded
+    `refused` (uncharged) with the sizes; a pass puts them in every evidence record (schema
+    v4). The gate is the elementwise max over each battery's gating cells, read from the
+    battery module; a family module with no battery is refused before the ledger. One
+    deviation from "the same method": the time-of-day size is gated net of sampling noise,
+    sqrt(mean^2 - se^2), the correction the static sd already had. The raw value is recorded
+    beside it. It is mostly noise (family 1: raw rms 0.0096 with per-slot se 0.005 to 0.011,
+    net 0.0036), and it refused null test panels with no time-of-day effect. The gates stay as
+    derived from the raw values, so this only loosens a measure that noise had inflated.
+  - **Measured and passing (2026-09-27):** family 1 (snapshot 81fa9178) pooled static 0.0191
+    against 0.038, time of day 0.0036 net against 0.0192; family 2 on its total-return legs
+    panel (snapshot 67a17ee8, 189 names) static 0.054, 0.049, 0.016 against 0.088, 0.090, 0.034,
+    time of day 0.052, 0.020, 0 against 0.118, 0.053, 0.025. Family 2's overnight static is
+    above its session's price-only 0.044 but at 62 percent of the gate. Family 1's gate is
+    pooled because its battery draws one sd for every slot; per slot, the open and close slots
+    measure 0.043 and 0.034, the rest 0 to 0.024.
 - **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
   Family 1's member evidence exists and stays as recorded, annotated per condition (4).
 
