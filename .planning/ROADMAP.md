@@ -176,7 +176,7 @@ Plans:
 - [ ] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
 - [ ] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
 - [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)
-- [ ] 185-13-PLAN.md - D3 venue validation study and verdict (wave 5)
+- [ ] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
 - [ ] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
 - [ ] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
 - [ ] 185-16-PLAN.md - D-28 data bar check, D0 read helper, S0 hand-off (wave 5)
