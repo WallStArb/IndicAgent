@@ -64,16 +64,27 @@ _TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _TEST_DB_NAME = "indicagent_test"
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
-_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18.sql"
-_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-07-18_hypertables.sql"
-_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-07-18.sql"
-_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-07-18.sql"
+_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-09-27.sql"
+_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-09-27_hypertables.sql"
+_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-09-27.sql"
+_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-09-27.sql"
+_SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-09-27.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already
 # reflected in the pinned schema dump. Bump this (and regenerate the baseline files)
 # periodically, or whenever this drifts far enough to be annoying.
-_BASELINE_MIGRATION_CUTOFF = 234
+#
+# 2026-09-27: bumped 234 -> 380 (baseline, hypertables, instruments and tag_vocabulary
+# seeds regenerated from production; controlled_vocabulary seed added same day, see
+# _apply_baseline). Trigger: the whole tests/integration/ suite had been failing the
+# session rebuild since migration 322 - the schema-only baseline drops pre-cutoff data
+# rows (controlled_vocabulary codes) and later migrations' DML depends on live data
+# added by scripts after the seed date (371's instrument_tags for names onboarded
+# after 2026-07-18, e.g. VIXY), so the replay chain broke in three places by
+# 2026-09-27. Also fixed in the same pass: migration 328's INSERT needed the domain
+# CHECK widened in 329 (numbered after it), duplicated idempotently into 328.
+_BASELINE_MIGRATION_CUTOFF = 380
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
 
@@ -160,6 +171,17 @@ def _apply_baseline() -> None:
     # `mid_cycle`) fails the whole session-scoped rebuild fixture with an
     # instrument_tags_tag_fkey violation before a single integration test can run.
     _run_psql_file(_SEED_TAG_VOCABULARY_SQL)
+    # Third table in the same class, todo 329-era: controlled_vocabulary,
+    # vocabulary_group and vocabulary_group_member are seeded as data by pre-cutoff
+    # migrations (231/233/234), so the schema-only baseline leaves them empty, and
+    # post-cutoff DML referencing vocabulary codes (322's timeframe group members)
+    # fails the rebuild with an FK violation before any integration test can run.
+    # Discovered 2026-09-27 running phase 185 plan 02's D1 integration test; the
+    # whole tests/integration/ suite had been broken at migration 322 since it
+    # landed. Every post-cutoff vocabulary INSERT (307/317/322) carries ON CONFLICT
+    # DO NOTHING (migration 233's pattern), so seeding the full current snapshot is
+    # safe -- those migrations' own inserts simply no-op on replay.
+    _run_psql_file(_SEED_CONTROLLED_VOCABULARY_SQL)
 
 
 def _replay_post_baseline_migrations() -> None:

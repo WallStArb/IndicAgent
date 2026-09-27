@@ -3,6 +3,18 @@
 -- docs/plans/2026-09-02-personal-scale-edge-determination-plan.md).
 -- KILLED ON PAPER against the 0b personal hurdle. Not a compressed hypertable;
 -- no VACUUM step applies.
+--
+-- Replay-order fix (added 2026-09-27, phase 185 plan 02): this INSERT needs the
+-- domain CHECK widened to include 'construction', which migration 329 does -- but
+-- 329's file number sorts after this one, so a clean from-baseline replay (the
+-- integration suite's rebuild) hits the un-widened constraint here. The live DB
+-- never noticed because 329's widening was applied first out of band. The widening
+-- is duplicated below, idempotently; 329 re-applies the identical constraint, a
+-- no-op.
+
+ALTER TABLE concept_registry DROP CONSTRAINT IF EXISTS concept_registry_domain_check;
+ALTER TABLE concept_registry ADD CONSTRAINT concept_registry_domain_check
+    CHECK (domain = ANY (ARRAY['feature'::text, 'ensemble_strategy'::text, 'construction'::text]));
 
 INSERT INTO concept_registry (domain, name, description, status, enabled, metadata)
 VALUES (
