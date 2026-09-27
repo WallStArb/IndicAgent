@@ -25,7 +25,9 @@ Version: 5.57.0
 ```
 1. /simplify                # clean up changed code (invoke automatically)
 2. /review                  # peer code review
-3. pytest tests/unit/ -q    # must be green
+3. pytest tests/unit/ -q    # must be green (code changes; for docs/planning-only diffs,
+                            # run the test that consumes the files, e.g.
+                            # test_todo_priorities_link_integrity.py for .planning/ edits)
 4. commit on feature branch
 5. git checkout main && git merge --ff-only <branch>
 6. git branch -d <branch> && git worktree prune
