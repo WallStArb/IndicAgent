@@ -62,8 +62,10 @@ bullets with current facts.
   11-12) is in place by wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete;
   D7 reconciliation). Owns todo 433 (P0).
 
-- **Phase 186:** planned 2026-09-27: all 29 plans written (`09776c12c`); the 186 session is
-  running its plan-checker/verification pass. Its `feature_vectors` rebuild needs the 5m
+- **Phase 186:** planned 2026-09-27: all 29 plans written (`09776c12c`); the 185↔186
+  cross-review (`c35fa9dd3`) amended 186-14/25/27 and 186-CONTEXT (digest composition from
+  185-11, 185-20's unlock keys, the fetch-stage allow-list, the D-19 disambiguation), so the
+  plan-checker pass validates the amended set. Its `feature_vectors` rebuild needs the 5m
   timeframe decision first (todo 445, design section 14.2) and 185's derived grid (todo 446).
   The fresh ic_engine computes targets with `panel.forward_returns`; the `forward_returns`
   table is dropped after parity (UD-25, design 14.7). Phases 187-188: not planned; 187 waits
