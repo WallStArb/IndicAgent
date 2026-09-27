@@ -46,12 +46,12 @@ bullets with current facts.
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
-- **Phase 185:** accepted, spec revision 2 (2026-09-26), not planned. It is now the
-  price-integrity layer: D2a scrubbing (flag, never delete; rules validated on known answers; one
-  historical batch pass) and D7 reconciliation. No existing service checks historical price
-  correctness (3.86M daily bars never price-sanity classified; 253 unexplained >50% moves). D8
-  (forward survivorship capture) was descoped by the owner 2026-09-26. Daily attempts 3, 3b and 4
-  wait on its minimum data bar. Owns todo 433 (P0).
+- **Phase 185:** planned 2026-09-27: 24 plans in 10 waves (`af3bfc0e3`), CONTEXT from the
+  accepted spec, RESEARCH, PATTERNS, VALIDATION. The plan-checker pass did not complete (usage
+  limit): run it before executing (`/gsd-plan-phase 185 --skip-research`, choose "View existing"
+  or run the checker only). Plans 10, 14, 15 and 16 clear the minimum data bar for daily attempts
+  3, 3b and 4 by wave 5; D2b (plans 11-12) is in place by wave 4 for 186. It is the
+  price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation). Owns todo 433 (P0).
 - **Phases 186-188:** added 2026-09-26, not planned. Next planning step: `/gsd-plan-phase 186`.
   Its `feature_vectors` rebuild needs the 5m timeframe decision first (todo 445, design section
   14.2) and 185's derived grid (todo 446). The fresh ic_engine computes targets with
@@ -82,7 +82,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-plan-phase 186` (design sections 11, 14.2, 14.5, 14.6 are its spec) | No edits to modules ic_engine imports while a corpus run is live or resumable |
-| Phase 185 | `/gsd-plan-phase 185` (`docs/plans/2026-09-26-daily-data-foundation.md`) | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 185 | Plan-checker pass on the 24 plans, then `/gsd-execute-phase 185` | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184, 186-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
