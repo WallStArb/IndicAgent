@@ -205,8 +205,8 @@ async def _phase1_chunk_size_test(
                     start=now - timedelta(days=wide_days),
                     end=now,
                 )
-        except Exception as exc:  # noqa: BLE001 -- probe script, report and continue
-            error_text = f"{type(exc).__name__}: {exc}"
+        except Exception as error:  # noqa: BLE001 -- probe script, report and continue
+            error_text = f"{type(error).__name__}: {error}"
         finally:
             ibkr._MAX_CHUNK_DAYS[tf] = original  # restore immediately regardless of outcome
 

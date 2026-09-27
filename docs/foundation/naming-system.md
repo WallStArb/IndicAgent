@@ -694,6 +694,8 @@ Long-running or periodic operational scripts that are part of the deployed syste
 | `<verb>_<concept>.py` | `run_historical_pipeline.py`, `lifecycle_replay.py` |
 | `<concept>_<verb>.sh` | `db_setup.sh`, `ensure_topics.sh` |
 
+Subdirectories add their own prefix on top of the pattern (`scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py`, `scripts/debug/replay/debug_lifecycle_replay.py`) — the directory name, not the filename, carries the layer.
+
 One-off scripts used during a phase (data migrations, schema repairs, investigation queries) are deleted when the phase closes. They are not committed unless they are part of a repeatable production operation. If already committed and the job is done, delete on next cleanup pass.
 
 `scripts/infrastructure/archive/` is prohibited. Delete, don't archive.
