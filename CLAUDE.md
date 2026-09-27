@@ -22,19 +22,25 @@ Version: 5.57.0
 
 ## Done-Coding SOP
 
+Gate by diff class; the push is the only publishing boundary. Commit directly on main
+(branch switching moves HEAD for every concurrent session in this shared checkout; the
+branch dance is a hazard there, not isolation — when another session's WIP is dirty,
+isolate with the detached-HEAD scratch worktree in `docs/reference/gotchas.md`).
+
 ```
-1. /simplify                # clean up changed code (invoke automatically)
-2. /review                  # peer code review
-3. pytest tests/unit/ -q    # must be green (code changes; for docs/planning-only diffs,
-                            # run the test that consumes the files, e.g.
-                            # test_todo_priorities_link_integrity.py for .planning/ edits)
-4. commit on feature branch
-5. git checkout main && git merge --ff-only <branch>
-6. git branch -d <branch> && git worktree prune
-7. git push origin main
+1. Gate by diff class (decide up front):
+   - docs/planning only: the test that consumes the files (e.g.
+     test_todo_priorities_link_integrity.py for .planning/), then commit
+   - small code change (single area, no schema or src/intelligence/research|statistics
+     files): targeted tests for the touched area, then commit
+   - substantive code: /simplify -> /review -> pytest tests/unit/ -q, then commit
+     (+ scripts/analysis/sleeve_walk_forward/repro_frozen.py bit-identical for
+     src/intelligence/research/ or statistics/ edits)
+2. Commit on main (pre-commit's 9 checks always run)
+3. git push origin main; CI is the backstop
 ```
 
-`/gsd-execute-phase` runs step 1 itself (`code_simplifier_gate`); any other work invokes `/simplify` manually before `/review`.
+`/gsd-execute-phase` runs its own simplify gate (`code_simplifier_gate`); any other substantive work invokes `/simplify` before `/review`.
 
 **Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md` for full reference.
 
