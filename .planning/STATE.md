@@ -59,8 +59,9 @@ bullets with current facts.
   scope, 185-10 scrub-input reader fence). Executing since 2026-09-27: plans 185-01 (measurements `757e4f04b`) and 185-02 (D1 store,
   migration 380, COPY writers `f3d584789`/`1e3477de6`) complete; the tests/integration/ rebuild
   was repaired along the way (`c19bcb545`, baseline bump 2026-09-27; it had been broken since
-  migration 322). Wave 1 continues with 185-03/04 after the quota reset (01:14 UTC
-  2026-09-28).
+  migration 322). Wave 1 continues with 185-03/04 inline in the orchestrator session
+  (owner-directed 2026-09-27; hardening `5a576dc0a` on top of 02: sinks refuse naive
+  bar timestamps).
   Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
   the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
