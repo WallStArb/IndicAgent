@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-28T01:05:57.902Z"
+last_updated: "2026-09-28T06:18:41.068Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 15
+  completed_plans: 23
   percent: 17
 ---
 
@@ -76,8 +76,9 @@ bullets with current facts.
   plan-checker pass validates the amended set. The six-reviewer cross-AI review (R1-R6 plus the
   owner-run Grok council) closed 2026-09-27 with all HIGHs integrated (`186-REVIEWS.md`,
   through `91a6cf7c4`). Executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential): 186-01 and 186-03 done (2/29; 186-03's determinism tool merged `c3ce3a9d7`,
-bit-identical on the frozen phase 179/181 books with the shim module blocked); the
+  sequential): 186-01, 186-03 and 186-04 done (3/29; 186-03's determinism tool merged
+`c3ce3a9d7`, bit-identical on the frozen phase 179/181 books with the shim module blocked;
+186-04's helper promotion merged `70b68f4b9`, full suite green on merged main); the
 `feature_vectors` rebuild needs the 5m
   timeframe decision first (todo 445, design section 14.2) and 185's derived grid (todo 446).
   The fresh ic_engine computes targets with `panel.forward_returns`; the `forward_returns`
@@ -114,7 +115,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | The phase 183 session owns `src/intelligence/research/` until plan 10 and family 2 finish; nobody else edits it |
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
-| Phase 186 | `/gsd-execute-phase 186` running (coordinator indicagent-f3 since 2026-09-28, relayed from e7): 186-01 and 186-03 done (2/29); 186-04 executing (worktree `/home/bg/dev/indicagent-186-04`, branch `phase186-04-helper-promotion`); then 05-10 and waves 2-10, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
+| Phase 186 | `/gsd-execute-phase 186` running (coordinator indicagent-f3 since 2026-09-28, relayed from e7): 186-01, 186-03 and 186-04 done (3/29); 186-05 executing (worktree `/home/bg/dev/indicagent-wt/186-05`, branch `gsd/186-05-db-hygiene`; migrations renumber from the live tail, 185 consumes 380-392); then 06-10 and waves 2-10, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
 | Phase 185 | `/gsd-execute-phase 185` (24 plans checker-passed 2026-09-27) | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
