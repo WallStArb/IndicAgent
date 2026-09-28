@@ -168,7 +168,7 @@ Plans:
 
 - [x] 185-01-PLAN.md - known-answer fixtures, test scaffolding, write-rate and role measurements (wave 1)
 - [x] 185-02-PLAN.md - D1 observation store, roles, COPY writer (wave 1)
-- [ ] 185-03-PLAN.md - provider request records and venue observations (wave 1)
+- [x] 185-03-PLAN.md - provider request records and venue observations (wave 1)
 - [ ] 185-04-PLAN.md - bar_quality_flag, quarantine view, scrub APR, batch helper (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
