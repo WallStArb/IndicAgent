@@ -1,8 +1,8 @@
-"""Shared date-indexed panel (scripts/analysis/_date_panel.py)."""
+"""Shared date-indexed panel (scripts/research/date_panel.py)."""
 
 import numpy as np
 
-from scripts.analysis._date_panel import Panel, spearman
+from scripts.research.date_panel import Panel, spearman
 
 
 def test_spearman_drops_non_finite_pairs():
