@@ -20,7 +20,10 @@
 -- terminal. Identity columns are immutable once written.
 --
 -- Sole writer: services/_batch_utils.py bulk_load (enforced by
--- tests/unit/test_provenance_batch_sole_writer.py).
+-- tests/unit/test_provenance_batch_sole_writer.py). No migration or service may
+-- INSERT INTO provenance_batch, UPDATE provenance_batch or
+-- DELETE FROM provenance_batch; the guard triggers below enforce the same rule in
+-- the database.
 --
 -- Volume: one row per load unit (tens per rebuild partition), not per row and not per chunk
 -- (design 12.1: no per-row provenance column).
