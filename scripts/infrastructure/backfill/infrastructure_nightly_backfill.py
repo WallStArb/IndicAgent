@@ -209,7 +209,10 @@ def _run_delegate(symbols: list[str], extra_args: tuple[str, ...]) -> int:
 
 def _finish(status: str, message: str, returncode: int = 0) -> int:
     """Log, print, emit job_completed_total, flush OTel, and return the process exit code."""
-    _logger.info(f"nightly_backfill.{status}")
+    if status == "success":
+        _logger.info(f"nightly_backfill.{status}")
+    else:
+        _logger.error(f"nightly_backfill.{status}")
     print(message)
     JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
     flush_and_shutdown_metrics()

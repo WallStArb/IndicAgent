@@ -9,9 +9,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
 from scripts.infrastructure.backfill import infrastructure_nightly_backfill
 from scripts.infrastructure.backfill.infrastructure_nightly_backfill import (
+    _finish,
     _select_stalest,
 )
 
@@ -131,3 +133,27 @@ class TestMainDispatch:
         rc, mock_delegate = self._run_main([["AAA"], []], [0])
         assert rc == 0
         assert mock_delegate.call_count == 1
+
+
+class TestFinishLogLevel:
+    """todo 395 item 4: a failed run must log at error, not info, so a
+    log-based check (or a future alert) can see it without a human first
+    reading the nightly's stdout."""
+
+    def _finish_events(self, status: str) -> list[dict]:
+        with (
+            patch.object(infrastructure_nightly_backfill, "flush_and_shutdown_metrics"),
+            patch.object(infrastructure_nightly_backfill, "JOB_COMPLETED_TOTAL"),
+            capture_logs() as cap_logs,
+        ):
+            _finish(status, f"message for {status}")
+        return cap_logs
+
+    def test_success_logs_at_info(self):
+        events = self._finish_events("success")
+        assert events == [{"event": "nightly_backfill.success", "log_level": "info"}]
+
+    @pytest.mark.parametrize("status", ["failed", "failed_lease_timeout"])
+    def test_non_success_logs_at_error(self, status):
+        events = self._finish_events(status)
+        assert events == [{"event": f"nightly_backfill.{status}", "log_level": "error"}]
