@@ -46,11 +46,29 @@ Pre-stated design and decision rule (fixed before any run; D-18, R-08):
   the rebuild covers 15m, 1h and 1d; raw 5m bars keep ingesting either way.
 
     .venv/bin/python scripts/research/todo445_5m_incremental_ic.py <out.json>
-        [--start 2016-01-01] [--block-size 8] [--symbol-chunk 40] [--workers 6]
-        [--no-record] [--features name,name] [--symbols-limit N]
+        [--start 2016-01-01] [--block-size 32] [--workers 6] [--no-record]
+        [--features name,name] [--symbols-limit N]
 
 --features and --symbols-limit are debug-only: they must be recorded in the output
 and refuse to combine with recording (--no-record required alongside either).
+
+Fetch is a block of --block-size feature columns, one timeframe, streamed via a
+single server-side cursor straight into their destination arrays
+(fetch_feature_columns) -- never a materialized row list, at any block size.
+Three earlier designs conflated two separate questions and got the first one
+wrong: an exact-timestamp array bind hit Postgres's 1GB per-value buffer limit;
+a whole-block Record list (pool.fetch()) measured 10-19GB RSS for one block of
+the real ~283-feature run; a single-column stream fixed the memory question but
+was too slow to finish a 48-feature smoke test in 10 minutes (per-row Python
+dict-lookup overhead, not memory). Streaming makes "how is a query's result
+consumed" a structurally safe non-question at any block size -- peak memory
+from a query is one cursor prefetch batch, never the full result. --block-size
+is now purely a throughput knob on top of that (N columns cost exactly N x 2
+timeframes x ~58MB, a fixed, predictable number), safe to raise or lower
+freely. Compute is sequential numpy, not a ProcessPoolExecutor: the fetch stage
+(I/O-bound) dominates wall-clock, not compute, and pickling large rank arrays
+across a process boundary would be its own version of the same mistake.
+--workers is accepted for interface stability but currently unused.
 """
 
 from __future__ import annotations
@@ -71,7 +89,6 @@ from scipy.stats import norm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from services._batch_utils import make_worker_pool  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.research import panel as panel_mod  # noqa: E402
 from src.intelligence.research.snapshot import (  # noqa: E402
@@ -133,15 +150,32 @@ _ALIGN_CHECK_SQL = (
     "SELECT bar_close_ts - bar_ts AS gap FROM feature_vectors "
     "WHERE tf = '5m' ORDER BY bar_ts LIMIT 1000"
 )
-# Range, not an exact-timestamp array: a ~65k-element bar_ts = ANY($array) bind
-# hit PostgreSQL's per-value 1GB buffer limit during a smoke run (asyncpg
-# ProgramLimitExceededError, independent of row count -- reproduced down to a
-# 20-symbol, 2-column block). Exact-grid matching still happens client-side in
-# _scatter_block via ts_index, so narrowing to a range changes no result.
-_FEATURE_BLOCK_SQL_TEMPLATE = (
-    "SELECT symbol, bar_ts, {cols} FROM feature_vectors "
+# A block of feature columns, one timeframe, streamed. Three earlier designs
+# failed on two DIFFERENT axes that got conflated:
+#   (1) HOW a query's result is consumed: pool.fetch() materializes every
+#       matching row as a Python Record object before returning -- first an
+#       exact-timestamp array bind (hit Postgres's per-value 1GB buffer
+#       limit), then a whole-block Record list (measured 10-19GB RSS for one
+#       block of the real feature count). Fixed unconditionally by streaming:
+#       personal_cost_hurdle_by_tf.py's _fetch_ranks already does this for the
+#       same problem shape ("far too many to fetchall" per its own
+#       docstring), and fetch_feature_columns below follows the same idiom --
+#       `async for row in conn.cursor(...)` inside a transaction never holds
+#       more than one prefetch batch, regardless of how many rows match.
+#   (2) HOW MANY columns' destination arrays are held at once: a single-column
+#       stream (block=1) fixed (1) but was too slow to finish even a 48-
+#       feature smoke test in 10 minutes -- per-row Python dict-lookup
+#       overhead, not memory, was the cost. This axis is now a plain,
+#       precisely predictable throughput knob with NO safety implication at
+#       any value: N columns cost exactly N x 2 timeframes x ~58MB
+#       ([65234, 233] float32), a fixed number with no hidden multiplier,
+#       because (1) already guarantees no intermediate result is ever
+#       materialized. --block-size tunes throughput only.
+_FEATURE_COLUMNS_SQL_TEMPLATE = (
+    "SELECT bar_ts, symbol, {cols} FROM feature_vectors "
     "WHERE tf = $1 AND symbol = ANY($2) AND bar_ts >= $3 AND bar_ts < $4"
 )
+_CURSOR_PREFETCH = 5000
 
 
 # ---------------------------------------------------------------------------
@@ -377,70 +411,44 @@ async def build_target_panel(dsn: str, out_dir: Path, start: str) -> tuple[panel
     return panel_mod.load(path), oos_start.isoformat()
 
 
-async def read_feature_block(
-    pool: asyncpg.Pool,
-    tf: str,
-    symbols: list[str],
-    columns: list[str],
-    lo: datetime,
-    hi: datetime,
-) -> list[asyncpg.Record]:
-    """One block: a chunk of feature columns for a chunk of symbols, over
-    [lo, hi). Never a wide SELECT of every column. hi is min(the range's own
-    end, oos_start) -- the caller enforces that cap before calling this."""
-    cols_sql = ", ".join(columns)
-    sql = _FEATURE_BLOCK_SQL_TEMPLATE.format(cols=cols_sql)
-    return await pool.fetch(sql, tf, symbols, lo, hi)
-
-
 def _chunk(seq: list, size: int) -> list[list]:
     return [seq[i : i + size] for i in range(0, len(seq), size)]
 
 
-def _scatter_block(
-    rows: list[asyncpg.Record],
-    columns: list[str],
-    symbols: list[str],
-    ts_index: dict[datetime, int],
-    out: dict[str, np.ndarray],
-) -> None:
-    sym_idx = {s: j for j, s in enumerate(symbols)}
-    for row in rows:
-        t = ts_index.get(row["bar_ts"])
-        j = sym_idx.get(row["symbol"])
-        if t is None or j is None:
-            continue
-        for col in columns:
-            val = row[col]
-            if val is not None:
-                out[col][t, j] = val
-
-
-async def fetch_feature_arrays(
-    dsn: str,
+async def fetch_feature_columns(
+    conn: asyncpg.Connection,
     tf: str,
     columns: list[str],
     symbols: list[str],
     timestamps: list[datetime],
+    ts_index: dict[datetime, int],
     oos_start: datetime,
-    block_size: int,
-    symbol_chunk: int,
 ) -> dict[str, np.ndarray]:
-    """Per feature (all symbol chunks filled), a preallocated float32 [n, m] array,
-    scattered straight from asyncpg records -- never a wide select-every-column
-    DataFrame."""
+    """A block of feature columns, one timeframe: one preallocated float32
+    [n, m] array per column, filled by streaming a SINGLE server-side cursor
+    row by row -- never a materialized Record list, regardless of block size
+    (see the module comment above _FEATURE_COLUMNS_SQL_TEMPLATE). Peak memory
+    is exactly len(columns) destination arrays plus one _CURSOR_PREFETCH
+    batch, a fixed and precisely predictable cost. Caller must hold `conn`
+    inside a single connection for the run (a server-side cursor needs a
+    transaction, which read_only_pool's autocommit connections don't provide
+    directly)."""
     n, m = len(timestamps), len(symbols)
     out = {col: np.full((n, m), np.nan, dtype=np.float32) for col in columns}
-    ts_index = {t: i for i, t in enumerate(timestamps)}
+    sym_idx = {s: j for j, s in enumerate(symbols)}
     lo, hi = min(timestamps), min(max(timestamps) + timedelta(minutes=1), oos_start)
-    pool = await read_only_pool(dsn)
-    try:
-        for col_chunk in _chunk(columns, block_size):
-            for sym_chunk in _chunk(symbols, symbol_chunk):
-                rows = await read_feature_block(pool, tf, sym_chunk, col_chunk, lo, hi)
-                _scatter_block(rows, col_chunk, sym_chunk, ts_index, out)
-    finally:
-        await pool.close()
+    cols_sql = ", ".join(columns)
+    sql = _FEATURE_COLUMNS_SQL_TEMPLATE.format(cols=cols_sql)
+    async with conn.transaction():
+        async for row in conn.cursor(sql, tf, symbols, lo, hi, prefetch=_CURSOR_PREFETCH):
+            t = ts_index.get(row["bar_ts"])
+            j = sym_idx.get(row["symbol"])
+            if t is None or j is None:
+                continue
+            for col in columns:
+                val = row[col]
+                if val is not None:
+                    out[col][t, j] = val
     return out
 
 
@@ -545,20 +553,8 @@ async def _run(args: argparse.Namespace) -> dict:
         for t in aligned_5m_bar_ts(panel.timestamps)
     ]
     oos_start_dt = datetime.fromisoformat(oos_start)
-
-    arrays_15m = await fetch_feature_arrays(
-        dsn, "15m", columns, list(symbols), ts_utc, oos_start_dt, args.block_size, args.symbol_chunk
-    )
-    arrays_5m = await fetch_feature_arrays(
-        dsn,
-        "5m",
-        columns,
-        list(symbols),
-        aligned_5m,
-        oos_start_dt,
-        args.block_size,
-        args.symbol_chunk,
-    )
+    ts_index_15m = {t: i for i, t in enumerate(ts_utc)}
+    ts_index_5m = {t: i for i, t in enumerate(aligned_5m)}
 
     opens = panel.open[:, sym_idx]
     session = panel.session
@@ -568,32 +564,59 @@ async def _run(args: argparse.Namespace) -> dict:
     targets = build_targets(opens, session, horizons)
     y_ranks_by_h = {h: ranks_by_row(targets[h]) for h in horizons}
 
-    identical_across_tf = []
+    # Streamed, in blocks of args.block_size columns (fetch_feature_columns):
+    # streaming makes memory safety unconditional (no materialized result at
+    # any block size); block size is a pure throughput knob on top of that,
+    # since a single-column stream measured too slow to finish a 48-feature
+    # smoke test in 10 minutes (per-row Python dict-lookup overhead, not
+    # memory). Compute stays sequential -- no ProcessPoolExecutor: a worker
+    # task would need to pickle a pair of [65234, 233] float64 rank arrays
+    # (~121MB each) across a process boundary, and the fetch stage (I/O-bound)
+    # dominates wall-clock, not compute, so parallelizing compute buys little
+    # while adding a real memory-copy cost. --workers is accepted but unused;
+    # kept for CLI stability if this is revisited.
+    identical_across_tf: list[str] = []
     tested_cells: list[dict] = []
-    task_args = []
-    for col in columns:
-        x5_raw = arrays_5m[col][:, sym_idx]
-        x15_raw = arrays_15m[col][:, sym_idx]
-        x5_ranks = ranks_by_row(x5_raw)
-        x15_ranks = ranks_by_row(x15_raw)
-        both_finite = np.isfinite(x5_ranks) & np.isfinite(x15_ranks)
-        if both_finite.sum() > 0:
-            agree = np.isclose(x5_ranks, x15_ranks, atol=1e-9)[both_finite].mean()
-        else:
-            agree = 0.0
-        if agree > _IDENTICAL_ACROSS_TF_SHARE:
-            identical_across_tf.append(col)
-            continue
-        for h in horizons:
-            task_args.append(
-                (col, h, x5_ranks, x15_ranks, y_ranks_by_h[h], session, bars_per_year, x5_ranks)
-            )
-
-    if args.workers and args.workers > 1 and len(task_args) > 1:
-        with make_worker_pool(args.workers, blas_threads_per_worker=1) as pool:
-            tested_cells = list(pool.map(_compute_cell, task_args))
-    else:
-        tested_cells = [_compute_cell(a) for a in task_args]
+    fetch_pool = await read_only_pool(dsn)
+    try:
+        async with fetch_pool.acquire() as conn:
+            for col_block in _chunk(columns, args.block_size):
+                arrays_5m = await fetch_feature_columns(
+                    conn, "5m", col_block, list(symbols), aligned_5m, ts_index_5m, oos_start_dt
+                )
+                arrays_15m = await fetch_feature_columns(
+                    conn, "15m", col_block, list(symbols), ts_utc, ts_index_15m, oos_start_dt
+                )
+                for col in col_block:
+                    x5_ranks = ranks_by_row(arrays_5m[col])
+                    x15_ranks = ranks_by_row(arrays_15m[col])
+                    both_finite = np.isfinite(x5_ranks) & np.isfinite(x15_ranks)
+                    agree = (
+                        np.isclose(x5_ranks, x15_ranks, atol=1e-9)[both_finite].mean()
+                        if both_finite.sum() > 0
+                        else 0.0
+                    )
+                    if agree > _IDENTICAL_ACROSS_TF_SHARE:
+                        identical_across_tf.append(col)
+                        continue
+                    for h in horizons:
+                        tested_cells.append(
+                            _compute_cell(
+                                (
+                                    col,
+                                    h,
+                                    x5_ranks,
+                                    x15_ranks,
+                                    y_ranks_by_h[h],
+                                    session,
+                                    bars_per_year,
+                                    x5_ranks,
+                                )
+                            )
+                        )
+                del arrays_15m, arrays_5m
+    finally:
+        await fetch_pool.close()
 
     p_values = [c["partial_p"] for c in tested_cells]
     if p_values:
@@ -685,8 +708,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out")
     parser.add_argument("--start", default=_DEFAULT_START)
-    parser.add_argument("--block-size", type=int, default=8)
-    parser.add_argument("--symbol-chunk", type=int, default=40)
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=32,
+        help="feature columns per streamed cursor query; throughput only, no memory-safety effect at any value",
+    )
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--no-record", action="store_true")
     parser.add_argument("--features", default=None, help="debug: comma-separated feature names")
@@ -706,7 +733,7 @@ def main() -> int:
 
     if not args.no_record:
         sql_hashes = {
-            "feature_block": _sha256_of(_FEATURE_BLOCK_SQL_TEMPLATE),
+            "feature_columns": _sha256_of(_FEATURE_COLUMNS_SQL_TEMPLATE),
             "align_check": _sha256_of(_ALIGN_CHECK_SQL),
         }
         _write_look_log(result, sql_hashes)
