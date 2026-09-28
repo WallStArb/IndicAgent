@@ -113,7 +113,8 @@ class TestLoadLeaseWaitMinutes:
     def test_reads_the_apr_key(self):
         conn, cursor = self._conn("90")
         assert nightly._load_lease_wait_minutes(conn) == 90
-        assert "infra.ibkr_history_lease.nightly_wait_minutes" in cursor.execute.call_args[0][0]
+        assert "config_state" in cursor.execute.call_args[0][0]
+        assert cursor.execute.call_args[0][1] == ("infra.ibkr_history_lease.nightly_wait_minutes",)
 
     def test_falls_back_to_the_seed_when_absent(self):
         conn, _cursor = self._conn(None)

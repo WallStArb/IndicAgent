@@ -34,8 +34,16 @@ staliest first, and `fetch_historical_bars()`'s own pre-emptive rate limiter is 
 actually bounds how much gets done in one run -- it sleeps (never aborts) when approaching
 the 55/10min ceiling, so a bad night with a real backlog naturally spends the budget on
 fewer symbols before running long, and a normal night covers everyone because most symbols
-cost ~0 real requests. `_is_another_backfill_running()` below already guards against
-overlapping runs regardless of how long any single night's run takes.
+cost ~0 real requests.
+
+Concurrency, fixed 2026-09-28 (phase 185 plan 09, D-29): the old pgrep skip is gone.
+Overlapping runs are serialized by the ibkr_history_stream lease instead: every leg runs
+the delegate at `--lease-tier priority` with a wait bound from APR
+(infra.ibkr_history_lease.nightly_wait_minutes), so a long bulk backfill can no longer
+silently cost the daily bars a night -- the nightly waits, and a leg that waits past its
+bound fails loudly: status failed_lease_timeout, an integrity fact
+(nightly_lease_timeout), and a nonzero exit. Delegate exit code 3 (EXIT_LEASE_TIMEOUT in
+infrastructure_run_historical_pipeline.py) is that signal.
 
 Ranking heuristic note: _select_stalest's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
@@ -63,9 +71,11 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
+    EXIT_LEASE_TIMEOUT,
     connect_db,
 )
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
+from src.core.integrity_monitor import emit_integrity_fact_sync  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
@@ -75,22 +85,48 @@ _logger = structlog.get_logger(__name__)
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
+_NIGHTLY_LEASE_WAIT_KEY = "infra.ibkr_history_lease.nightly_wait_minutes"
+_NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES = 60  # migration 380 APR seed
 
 
-def _is_another_backfill_running() -> bool:
-    """True if any infrastructure_run_historical_pipeline.py process is already active.
+def _load_lease_wait_minutes(conn: psycopg.Connection) -> int:
+    """How long a nightly leg may wait on the ibkr_history_stream lease before
+    failing (D-29), from APR. The fallback is the migration 380 seed."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT config_value FROM config_state WHERE config_key = %s",
+                (_NIGHTLY_LEASE_WAIT_KEY,),
+            )
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(float(row[0]))
+    except Exception as error:
+        _logger.warning("nightly_backfill.lease_wait_lookup_failed", error=str(error))
+    return _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES
 
-    Avoids two backfill processes contending for the same IBKR rate-limit budget and
-    potentially double-fetching the same symbols -- a real risk this session already
-    hit once with an unrelated one-off sprint still in flight.
-    """
-    result = subprocess.run(
-        ["pgrep", "-f", _DELEGATE_SCRIPT.name],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return bool(result.stdout.strip())
+
+def _emit_lease_timeout_fact(leg_name: str, settings: Settings) -> None:
+    """One integrity fact per lease-timed-out leg. Never raises (the helper it
+    calls guards); a leg that waited its whole bound and still did not get the
+    stream is exactly the silent-staleness failure this plan exists to end."""
+    try:
+        conn = connect_db(settings)
+        try:
+            emit_integrity_fact_sync(
+                conn,
+                "nightly_backfill",
+                f"leg:{leg_name}",
+                "nightly_lease_timeout",
+                1.0,
+                0.0,
+                False,
+                None,
+            )
+        finally:
+            conn.close()
+    except Exception as error:  # noqa: BLE001 - the fact is observability, never fatal
+        _logger.warning("nightly_backfill.lease_timeout_fact_failed", error=str(error))
 
 
 class _Leg(NamedTuple):
@@ -184,15 +220,10 @@ def main() -> int:
     setup_service_logging("logs/infrastructure_nightly_backfill.log")
     settings = Settings()
 
-    if _is_another_backfill_running():
-        return _finish(
-            "skipped_concurrent_run",
-            "Another historical-backfill process is already running -- skipping tonight.",
-        )
-
     conn = connect_db(settings)
     try:
         batches = [(leg, _select_stalest(conn, leg)) for leg in _LEGS]
+        lease_wait_minutes = _load_lease_wait_minutes(conn)
     finally:
         conn.close()
 
@@ -202,7 +233,12 @@ def main() -> int:
             "No active instruments found -- nothing to do tonight.",
         )
 
+    # D-29: legs take the ibkr_history_stream lease at priority tier and wait on
+    # it (bounded by APR) instead of the nightly skipping when a backfill runs.
+    lease_args = ("--lease-tier", "priority", "--lease-wait-minutes", str(lease_wait_minutes))
+
     returncodes: list[int] = []
+    lease_timeout_legs: list[str] = []
     for leg, symbols in batches:
         if not symbols:
             continue
@@ -210,13 +246,23 @@ def main() -> int:
         _logger.info(
             "nightly_backfill.batch_selected", leg=leg.name, symbols=symbols, n_symbols=len(symbols)
         )
-        returncodes.append(_run_delegate(symbols, leg.delegate_args))
+        returncode = _run_delegate(symbols, leg.delegate_args + lease_args)
+        returncodes.append(returncode)
+        if returncode == EXIT_LEASE_TIMEOUT:
+            lease_timeout_legs.append(leg.name)
+            _emit_lease_timeout_fact(leg.name, settings)
 
     returncode = next((rc for rc in returncodes if rc != 0), 0)
-    status = "success" if returncode == 0 else "failed"
+    if lease_timeout_legs:
+        status = "failed_lease_timeout"
+    else:
+        status = "success" if returncode == 0 else "failed"
+    message = f"Nightly backfill delegate(s) finished: returncodes={returncodes}"
+    if lease_timeout_legs:
+        message += f" (lease timeout in leg(s): {', '.join(lease_timeout_legs)})"
     return _finish(
         status,
-        f"Nightly backfill delegate(s) finished: returncodes={returncodes}",
+        message,
         returncode=returncode,
     )
 

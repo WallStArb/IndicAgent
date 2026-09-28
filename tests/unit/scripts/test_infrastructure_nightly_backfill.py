@@ -1,6 +1,8 @@
 """Unit tests for infrastructure_nightly_backfill's candidate-selection and
-collision-guard logic — the only two non-trivial pure-ish pieces; gap accounting itself
-stays in infrastructure_run_historical_pipeline.py and isn't re-tested here."""
+dispatch logic — the non-trivial pure-ish pieces; gap accounting itself
+stays in infrastructure_run_historical_pipeline.py and isn't re-tested here.
+Lease behavior (priority tier, wait bound, failed_lease_timeout mapping) is
+covered by test_nightly_lease.py."""
 
 from __future__ import annotations
 
@@ -10,21 +12,8 @@ import pytest
 
 from scripts.infrastructure.backfill import infrastructure_nightly_backfill
 from scripts.infrastructure.backfill.infrastructure_nightly_backfill import (
-    _is_another_backfill_running,
     _select_stalest,
 )
-
-
-class TestIsAnotherBackfillRunning:
-    def test_true_when_pgrep_finds_a_pid(self):
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="123456\n")
-            assert _is_another_backfill_running() is True
-
-    def test_false_when_pgrep_finds_nothing(self):
-        with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(stdout="")
-            assert _is_another_backfill_running() is False
 
 
 class _FakeCursor:
@@ -110,10 +99,11 @@ class TestMainDispatch:
         with (
             patch.object(mod, "setup_service_logging"),
             patch.object(mod, "Settings"),
-            patch.object(mod, "_is_another_backfill_running", return_value=False),
             patch.object(mod, "connect_db"),
             patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
+            patch.object(mod, "_load_lease_wait_minutes", return_value=60),
             patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
+            patch.object(mod, "emit_integrity_fact_sync"),
             patch.object(mod, "flush_and_shutdown_metrics"),
             patch.object(mod, "JOB_COMPLETED_TOTAL"),
         ):
@@ -123,9 +113,13 @@ class TestMainDispatch:
     def test_each_leg_dispatches_with_its_own_args(self):
         rc, mock_delegate = self._run_main([["AAA"], ["PIL1", "PIL2"]], [0, 0])
         assert rc == 0
+        lease_args = ("--lease-tier", "priority", "--lease-wait-minutes", "60")
         assert [c.args for c in mock_delegate.call_args_list] == [
-            (["AAA"], ()),
-            (["PIL1", "PIL2"], ("--dimension", "compute_1d", "--timeframes", "1d")),
+            (["AAA"], lease_args),
+            (
+                ["PIL1", "PIL2"],
+                ("--dimension", "compute_1d", "--timeframes", "1d") + lease_args,
+            ),
         ]
 
     @pytest.mark.parametrize(("returncodes", "expected"), [([0, 3], 3), ([2, 0], 2)])
