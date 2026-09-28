@@ -10,7 +10,7 @@ raises.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import psycopg
@@ -272,6 +272,50 @@ def test_observation_rows_carry_uuid_and_utc_bar_date():
     assert observation_row[0] == uuid.UUID(request_id)
     assert observation_row[3] == date(2024, 1, 2)  # bar_date from the 00:00 UTC stamp
     assert observation_row[2] == "1d"
+
+
+def test_naive_bar_timestamp_raises_before_any_sql():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="unit-test")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    naive_bar = OHLCVBar(
+        symbol="SPY",
+        timeframe="1d",
+        timestamp=datetime(2024, 1, 2, 0, 0),  # naive: astimezone would assume local
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=1_000,
+        source="ibkr",
+    )
+    sink.on_request(record)
+    with pytest.raises(ValueError, match="tz-aware UTC"):
+        sink.on_observation(record, [naive_bar])
+    assert conn.statements == [] and conn.copies == []
+
+
+def test_bar_date_is_the_utc_date_for_non_utc_aware_stamps():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="unit-test")
+    request_id = str(uuid.uuid4())
+    record = _record(new_fetch_run_id(), request_id)
+    # 2024-01-02 20:00 America/New_York (UTC-5) is 2024-01-03 01:00 UTC.
+    evening_bar = OHLCVBar(
+        symbol="SPY",
+        timeframe="1d",
+        timestamp=datetime(2024, 1, 2, 20, 0, tzinfo=timezone(timedelta(hours=-5))),
+        open=100.0,
+        high=101.0,
+        low=99.0,
+        close=100.5,
+        volume=1_000,
+        source="ibkr",
+    )
+    sink.on_request(record)
+    sink.on_observation(record, [evening_bar])
+    sink.flush()
+    assert conn.copies[1][1][0][3] == date(2024, 1, 3)
 
 
 def test_sync_sink_auto_flushes_at_max_buffer_rows():

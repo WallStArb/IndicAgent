@@ -127,7 +127,14 @@ def _observation_rows(
                     f"non-finite {field} {value!r} on bar {bar.timestamp!r} of request "
                     f"{record.request_id}; D1 stores raw answers, not placeholders"
                 )
-        # 1d bars are stamped 00:00 UTC in this repo; bar_date is that UTC date.
+        # bar_date is the UTC date of the bar. A naive timestamp would make
+        # astimezone() assume local time and silently shift bar_date a day, and
+        # D1 rows are permanent (no UPDATE exists), so refuse it loudly.
+        if bar.timestamp.tzinfo is None:
+            raise ValueError(
+                f"naive timestamp {bar.timestamp!r} on request {record.request_id}; "
+                f"D1 bar_date requires tz-aware UTC stamps"
+            )
         bar_date = bar.timestamp.astimezone(UTC).date()
         rows.append(
             (
