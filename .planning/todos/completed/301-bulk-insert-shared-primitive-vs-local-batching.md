@@ -74,3 +74,17 @@ Then point `store_bars()`, `forward_return_writer.py`, and `backfill_feature_fac
 ## Refactor map (2026-09-26)
 
 Folded into refactor map item 3 of the adopted unified design (section 14.6), scoped into phase 186: one `COPY`-based bulk-load primitive in `_batch_utils` that every writer uses.
+
+## Closed 2026-09-28 (phase 186 plan 06)
+
+Delivered as `bulk_load()` in `services/_batch_utils.py` (commit `98bdcc466`, migration
+386): COPY in time order with provenance-batch idempotency, not executemany or manual
+VALUES. Call-site dispositions:
+
+- `services/forward_return_writer.py` and the `ic_engine.py` executemany comment:
+  deleted by 186-23 (the old chain's deletion pass), not converted.
+- `backfill_feature_factory.py`'s feature write moves to `bulk_load` in 186-25 (the
+  rebuild writer).
+- `store_bars()` and `_STORE_OHLCV_SQL` write `market_data_ohlcv`, which phase 185's
+  price-integrity layer owns (185-02's D1 COPY observation writer); that layer, not
+  this primitive, is their destination. Not converted here.

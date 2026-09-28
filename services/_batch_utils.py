@@ -23,6 +23,7 @@ import numpy as np
 import psycopg
 import psycopg.sql as pg_sql
 import structlog
+from psycopg.types.json import Jsonb
 
 from src.config.config_service import ConfigService
 from src.core.real_column_range import REAL_MAX_MAGNITUDE, REAL_MIN_MAGNITUDE, clamp_to_real_range
@@ -259,7 +260,10 @@ _CHUNKS_TO_COMPRESS_SQL = (
 # %%I escaping, same reason as _DECOMPRESS_ALL_COMPRESSED_CHUNKS_SQL above: psycopg's
 # client-side placeholder scanner rejects a single '%I' inside a parameterized statement.
 _COMPRESS_ONE_CHUNK_SQL = (
-    "SELECT compress_chunk(format('%%I.%%I', %s, %s)::regclass, if_not_compressed => true)"
+    # ::text pins format()'s overload: with untyped parameters Postgres cannot choose
+    # among format(text), format(text, text), ... and fails with IndeterminateDatatype.
+    "SELECT compress_chunk(format('%%I.%%I', %s::text, %s::text)::regclass, "
+    "if_not_compressed => true)"
 )
 
 _BULK_LOAD_HEX_32_64_RE = re.compile(r"^[0-9a-f]{32,64}$")
@@ -474,7 +478,7 @@ def _bulk_load_locked(
                     spec.symbols_hash,
                     spec.code_key,
                     spec.apr_hash,
-                    dict(spec.apr_snapshot),
+                    Jsonb(dict(spec.apr_snapshot)),
                     spec.input_digest,
                 ),
             )
