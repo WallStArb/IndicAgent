@@ -17,7 +17,9 @@
 -- partial-indexed side table is strictly cheaper):
 --   S0 1d: Execution Time: 705.333 ms
 --   SPY 5m: Execution Time: 65.808 ms
--- After-apply numbers appended below in the same edit series (task 2).
+-- After-apply 2026-09-27 (live table, 67 quarantine rows):
+--   S0 1d: Execution Time: 1056.452 ms (+1.3% vs baseline; within the 20% gate)
+--   SPY 5m: Execution Time: 8.044 ms (faster than baseline)
 --
 -- Not a compressed-hypertable column change: no decompress_chunk anywhere; the
 -- legacy status copy is a read over compressed chunks and an INSERT into a plain
