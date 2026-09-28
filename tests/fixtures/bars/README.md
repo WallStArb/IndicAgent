@@ -25,6 +25,14 @@ Every `market_data_ohlcv` row with a non-null `price_sanity_status` at capture t
 confirmed_corrupt 67 (1d 15, 15m 19, 5m 20, 1h 13), ambiguous 16, plausible 484.
 This is the source set plan 04 migrates into `bar_quality_flag` (the 67 rows).
 
+`prev_close`/`next_open` columns (added 2026-09-27, plan 05): each row's nearest
+traded bars around it in the tradeable view, empty at a series boundary, so the
+known-answer tests can rebuild the three-bar window the original classification saw
+without a database. Known disagreement recorded in plan 05: FXY 1d 2008-09-24 carries
+a legacy `confirmed_corrupt` status but re-classifies PLAUSIBLE at the current 10.0
+magnitude threshold (max_ratio 9.94); it stays quarantined through the
+`legacy_price_sanity_status` flag migration 381 copied in plan 04.
+
 ## seam_candidates_mrna_alms.csv
 
 MRNA and ALMS 1d bars from 2026-07-01 through the latest stored date (118 rows), the

@@ -163,3 +163,85 @@ def load_dry_run_report(section: str) -> list[dict]:
     if not rows:
         raise ValueError(f"section {section} has no rows in {_FIXTURE_REPORT}")
     return rows
+
+
+# The migration-381 APR seeds plus the reused alpha.quant.*/alpha.forward_returns.*
+# keys, exactly as they live in config_state (plan 05's known-answer tests build
+# ScrubParams from this mirror; the values are pinned by plan 04's migration).
+_SEEDED_APR: dict[str, object] = {
+    "threshold.bar_scrub.jump_sigma": 8.0,
+    "threshold.bar_scrub.jump_vol_window": 60,
+    "threshold.bar_scrub.stale_run_min": 5,
+    "threshold.bar_scrub.volume_outlier_mad": 10.0,
+    "threshold.bar_scrub.volume_window": 60,
+    "threshold.bar_scrub.corroboration_max_clearable_ratio": 2.5,
+    "threshold.bar_scrub.view_disagreement_rel": 0.02,
+    "threshold.bar_scrub.quarantine_rules": (
+        '["ohlc_invariant","non_positive_price","price_sanity",'
+        '"split_seam","legacy_price_sanity_status"]'
+    ),
+    "infra.bar_scrub.symbol_batch": 50,
+    "alpha.quant.price_sanity.magnitude_threshold": 10.0,
+    "alpha.quant.price_sanity.neighbor_agreement_threshold": 2.0,
+    "alpha.quant.cross_symbol_corroboration.min_symbols": 4,
+    "alpha.quant.cross_symbol_corroboration.window_minutes": 60,
+    "alpha.quant.max_abs_return.1d": 0.50,
+    "alpha.quant.max_abs_return.5m": 0.25,
+    "alpha.forward_returns.gap_multiplier": 3,
+    "alpha.forward_returns.gap_max_seconds": 14400,
+}
+
+
+def seeded_apr() -> dict[str, object]:
+    """Copy of the seeded APR mirror (mutations by a test stay local)."""
+    return dict(_SEEDED_APR)
+
+
+def three_bar_window(row: dict, *, step_seconds: int = 86_400) -> tuple[dict[str, np.ndarray], int]:
+    """Rebuild a report/CSV row as a three-bar window plus its middle index.
+
+    The previous bar is a flat bar whose close is the row's prev_close, the next bar
+    a flat bar whose open is the row's next_open; either neighbor is omitted when the
+    row reports it as None/empty (series boundary). Returns (arrays, middle_index)
+    where arrays is keyed by the SymbolBars field names (ts_seconds/open/high/low/
+    close/volume). Neighbor volume is a token positive print: no volume- or
+    window-based rule can fire on a three-bar window, so only the neighbor prices
+    are load-bearing here.
+    """
+    ts = int(datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp())
+    stamps: list[int] = []
+    opens: list[float] = []
+    highs: list[float] = []
+    lows: list[float] = []
+    closes: list[float] = []
+    volumes: list[float] = []
+
+    def _flat(price: float, stamp: int) -> None:
+        stamps.append(stamp)
+        opens.append(price)
+        highs.append(price)
+        lows.append(price)
+        closes.append(price)
+        volumes.append(1.0)
+
+    prev_close = row.get("prev_close")
+    next_open = row.get("next_open")
+    if prev_close is not None and prev_close != "":
+        _flat(float(prev_close), ts - step_seconds)
+    middle = len(stamps)
+    stamps.append(ts)
+    opens.append(float(row["open"]))
+    highs.append(float(row["high"]))
+    lows.append(float(row["low"]))
+    closes.append(float(row["close"]))
+    volumes.append(float(row["volume"]) if row.get("volume") is not None else 0.0)
+    if next_open is not None and next_open != "":
+        _flat(float(next_open), ts + step_seconds)
+    return {
+        "ts_seconds": np.array(stamps, dtype=np.int64),
+        "open": np.array(opens, dtype=np.float64),
+        "high": np.array(highs, dtype=np.float64),
+        "low": np.array(lows, dtype=np.float64),
+        "close": np.array(closes, dtype=np.float64),
+        "volume": np.array(volumes, dtype=np.float64),
+    }, middle

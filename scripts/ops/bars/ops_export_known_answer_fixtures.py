@@ -6,9 +6,12 @@ in the repo, not in a session's scratchpad. This script captures those answers o
 the live database into CSV fixtures that pure-rule tests read without a database:
 
 1. price_sanity_status_rows.csv -- every market_data_ohlcv row with a non-null
-   price_sanity_status, all timeframes. Raw-table read is required here: the
-   tradeable view hides confirmed_corrupt rows, which are exactly the ones the
-   fixture exists to preserve (plan 04 migrates these rows into bar_quality_flag).
+   price_sanity_status, all timeframes, plus each row's live prev_close/next_open
+   neighbors (nearest traded bars around it in the tradeable view; empty at a series
+   boundary). Raw-table read is required here: the tradeable view hides
+   confirmed_corrupt rows, which are exactly the ones the fixture exists to preserve
+   (plan 04 migrates these rows into bar_quality_flag). Plan 05's known-answer tests
+   rebuild each row's three-bar window from the neighbor columns.
 2. seam_candidates_mrna_alms.csv -- MRNA and ALMS 1d bars from 2026-07-01 through
    the latest stored date (D-24's first split-seam candidates).
 3. spy_5m_2025_11_28_half_day.csv -- SPY 5m bars on the 2025-11-28 early close
@@ -71,12 +74,25 @@ def _is_timestamp(desc) -> bool:
 
 
 def export_status_rows(conn: psycopg.Connection, path: Path) -> int:
-    """Every non-null price_sanity_status row from the RAW table (all timeframes)."""
-    sql = f"""
-        SELECT {_COLS}
-        FROM market_data_ohlcv
-        WHERE price_sanity_status IS NOT NULL
-        ORDER BY timestamp, symbol, timeframe
+    """Every non-null price_sanity_status row from the RAW table (all timeframes),
+    with prev_close/next_open taken from the nearest traded bars in the tradeable
+    view (the same neighbor semantics the dry-run classifier and bar_auditor use).
+    NULL when the row sits at a series boundary.
+    """
+    sql = """
+        SELECT h.timestamp, h.symbol, h.timeframe, h.open, h.high, h.low, h.close,
+               h.volume, h.source, h.base, h.price_sanity_status,
+               (SELECT p.close FROM market_data_ohlcv_tradeable p
+                 WHERE p.symbol = h.symbol AND p.timeframe = h.timeframe
+                   AND p.timestamp < h.timestamp
+                 ORDER BY p.timestamp DESC LIMIT 1) AS prev_close,
+               (SELECT nx.open FROM market_data_ohlcv_tradeable nx
+                 WHERE nx.symbol = h.symbol AND nx.timeframe = h.timeframe
+                   AND nx.timestamp > h.timestamp
+                 ORDER BY nx.timestamp ASC LIMIT 1) AS next_open
+        FROM market_data_ohlcv h
+        WHERE h.price_sanity_status IS NOT NULL
+        ORDER BY h.timestamp, h.symbol, h.timeframe
     """
     with conn.cursor() as cur:
         cur.execute(sql)
