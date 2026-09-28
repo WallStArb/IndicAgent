@@ -274,6 +274,11 @@ Plans:
   `drift_monitor` dropped, `market_data_ohlcv` recorded unique-index equivalent, A1 confirmed),
   D-38 baseline JSON + read-only script committed; work_mem drift cause proven (container
   predates the 64MB compose edit, never recreated); merged 2026-09-28 (`a6dd8ea98`)
+- [x] 186-06 bulk-load primitive: `bulk_load()` in `services/_batch_utils.py` (COPY in time
+  order, provenance-batch idempotency via the batch_key PK, live-schema float32 clamp,
+  compression-policy and compressed-chunk refusals, per-chunk `compress_chunk` with the PK
+  kept); migration 386 creates `provenance_batch` (guard/no-delete/no-truncate triggers,
+  `infra.bulk_load.*` APR keys); todos 301/343/352 closed; merged 2026-09-28 (`843a645b9`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
