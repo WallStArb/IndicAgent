@@ -261,6 +261,10 @@ Plans:
   `186-PLAN-OUTLINE.md`; per-plan checkboxes pending the 186 session's close-out
 - [x] 186-01 summary cards: card schema, card lint with drop-table coverage, 8 legacy_verdict
   cards, 6 dead_cache cards; lint green, merged 2026-09-27 (`42fb59427`)
+- [x] 186-03 determinism tool promotion: `repro_frozen` promoted to
+  `scripts/research/determinism/` (remapping unpickler, no old-chain imports), bit-identical on
+  phase 179 S3 and phase 181 S2/S3 with the shim module blocked; todo 448 item 1 noted; merged
+  2026-09-28 (`c3ce3a9d7`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
