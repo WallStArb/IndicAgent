@@ -17,11 +17,14 @@ import os
 import signal
 import threading
 import time
+import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
+
+import structlog
 
 # Python 3.14 removed implicit event loop creation. eventkit (ib_async dependency,
 # published as aeventkit but still imported as `eventkit`) calls asyncio.get_event_loop()
@@ -64,9 +67,10 @@ from src.observability.metrics import (  # noqa: E402
     IBKR_ERROR_326_TOTAL,
     PROVIDER_BARS_DROPPED_TOTAL,
 )
-from src.providers.base import EmptyHistory, OHLCVBar, Tick  # noqa: E402
+from src.providers.base import EmptyHistory, OHLCVBar, RequestRecord, Tick  # noqa: E402
 
 logger = logging.getLogger(__name__)
+slog = structlog.get_logger(__name__)
 
 # Pre-labeled drop counters for ib_async → asyncio bridge. Incrementing
 # from the ib_async thread is safe (prometheus_client Counters are thread-safe).
@@ -594,6 +598,58 @@ def _normalize_ib_bar_ts(raw_date) -> datetime:
     return ts
 
 
+def _safe_request_callback(callback, *args) -> None:
+    """Run a caller's sync request callback (D-05). A lost D1 row must be loud,
+    never silent: log the failure, then re-raise into the fetch."""
+    if callback is None:
+        return
+    try:
+        callback(*args)
+    except Exception as error:
+        slog.error("ibkr.request_callback_failed", error=f"{type(error).__name__}: {error}")
+        raise
+
+
+def _request_record(
+    *,
+    fetch_run_id: str | None,
+    symbol: str,
+    timeframe: str,
+    route: str,
+    what_to_show: str,
+    primary_exchange: str | None,
+    window_start: datetime | None,
+    window_end: datetime,
+    ib_req_id: int | None,
+    outcome: str,
+    n_bars: int,
+    error_text: str | None = None,
+    client_id: int | None = None,
+    requested_at: datetime,
+    answered_at: datetime,
+) -> RequestRecord:
+    """One RequestRecord per historical request, at its outcome point (D-05, D-20)."""
+    return RequestRecord(
+        request_id=str(uuid.uuid4()),
+        fetch_run_id=fetch_run_id or str(uuid.uuid4()),
+        symbol=symbol,
+        timeframe=timeframe,
+        route=route,
+        what_to_show=what_to_show,
+        primary_exchange=primary_exchange,
+        window_start=window_start,
+        window_end=window_end,
+        ib_req_id=ib_req_id,
+        outcome=outcome,
+        error_code=None,
+        error_text=error_text,
+        n_bars=n_bars,
+        client_id=client_id,
+        requested_at=requested_at,
+        answered_at=answered_at,
+    )
+
+
 def _is_circuit_breaker_open() -> bool:
     """Check if IBKR circuit breaker is OPEN."""
     state = _ibkr_circuit_breaker.plugin_states["ibkr:connection"].state
@@ -728,6 +784,10 @@ class IBKRProvider:
         continuous: bool = False,
         on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
         on_empty_history: Callable[[EmptyHistory], None] | None = None,
+        on_request: Callable[[RequestRecord], None] | None = None,
+        on_observation: Callable[[RequestRecord, list[OHLCVBar]], None] | None = None,
+        fetch_run_id: str | None = None,
+        route: str | None = None,
     ) -> list[OHLCVBar]:
         """Fetch historical OHLCV bars from IBKR.
 
@@ -753,12 +813,32 @@ class IBKRProvider:
                 had no true per-chunk heartbeat to observe. Callers that pass this
                 get truthful incremental progress; ibkr.py stays DB-ignorant
                 (DAG invariant 3) since the callback itself is the caller's.
+            on_request: Optional sync callback receiving one RequestRecord per
+                historical request this fetch makes (every SMART chunk, every
+                venue-routed request, every back-from-now request), at each
+                outcome point: bars, no_data, timeout or failed (D-05, D-20).
+            on_observation: Optional sync callback receiving (record, bars) for
+                every request that answered bars, SMART and venue alike — venue
+                bars are reported even when infra.ibkr.venue_fallback.store_bars
+                is false, so verify-only runs stop discarding the moved-name
+                inventory (D-16). Bars here are the parsed OHLCVBar list.
+            fetch_run_id: Shared run id across every record this fetch emits; a
+                fresh uuid4 per call when omitted and a callback is given. Pass
+                one explicitly to pair requests across calls (e.g. TRADES and
+                ADJUSTED_LAST in one D5 run).
+            route: Route the whole request to one venue exchange code ("NYSE",
+                "ARCA", "ISLAND", "AMEX", "BATS") instead of the SMART walk: no
+                fallback walk, records carry that route. Used by the D3 study
+                and the intraday verify-only work.
         """
         if timeframe not in _TF_TO_IB:
             raise ValueError(f"Unsupported timeframe '{timeframe}'. Valid: {list(_TF_TO_IB)}")
 
         if not self._ib:
             raise RuntimeError("Not connected. Call connect() first.")
+
+        if fetch_run_id is None and (on_request is not None or on_observation is not None):
+            fetch_run_id = str(uuid.uuid4())
 
         # _try_connect (nested inside connect_ibkr) unregisters _on_ib_error in its
         # finally block, so re-register here for the duration of the fetch — Error 162
@@ -775,6 +855,10 @@ class IBKRProvider:
                 continuous=continuous,
                 on_chunk=on_chunk,
                 on_empty_history=on_empty_history,
+                on_request=on_request,
+                on_observation=on_observation,
+                fetch_run_id=fetch_run_id,
+                route=route,
             )
         finally:
             self._ib.errorEvent -= _on_ib_error
@@ -788,6 +872,10 @@ class IBKRProvider:
         continuous: bool = False,
         on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None = None,
         on_empty_history: Callable[[EmptyHistory], None] | None = None,
+        on_request: Callable[[RequestRecord], None] | None = None,
+        on_observation: Callable[[RequestRecord, list[OHLCVBar]], None] | None = None,
+        fetch_run_id: str | None = None,
+        route: str | None = None,
     ) -> list[OHLCVBar]:
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
@@ -818,8 +906,15 @@ class IBKRProvider:
             # ContFuture + ADJUSTED_LAST: IBKR prohibits setting endDateTime.
             # Fetch in a single request from now backwards by total duration.
             total_days = max(1, (end - start).days + 1)
-            ib_bars = await self._request_back_from_now(
-                contract, symbol, timeframe, what_to_show, _days_to_duration_str(total_days), False
+            ib_bars, cont_record = await self._request_back_from_now(
+                contract,
+                symbol,
+                timeframe,
+                what_to_show,
+                _days_to_duration_str(total_days),
+                False,
+                on_request=on_request,
+                fetch_run_id=fetch_run_id,
             )
             continuous_bars: list[OHLCVBar] = []
             for bar in ib_bars or []:
@@ -840,6 +935,8 @@ class IBKRProvider:
             all_bars.extend(continuous_bars)
             if on_chunk and continuous_bars:
                 await on_chunk(continuous_bars)
+            if cont_record is not None and on_observation is not None and continuous_bars:
+                _safe_request_callback(on_observation, cont_record, continuous_bars)
         else:
             walk = functools.partial(
                 self._walk_history,
@@ -848,9 +945,29 @@ class IBKRProvider:
                 start=start,
                 what_to_show=what_to_show,
                 use_rth=use_rth,
+                on_request=on_request,
+                on_observation=on_observation,
+                fetch_run_id=fetch_run_id,
             )
+            if route and route != "SMART":
+                # Venue-routed request (D3 study plan 13, intraday verify-only plan 20):
+                # the whole walk goes to that venue, no SMART request, no fallback walk.
+                routed = copy.copy(contract)
+                routed.exchange = route
+                routed_bars, empty = await walk(
+                    routed,
+                    end=end,
+                    source_tag=SOURCE_IBKR_VENUE,
+                    on_chunk=on_chunk,
+                    route=route,
+                )
+                all_bars.extend(routed_bars)
+                if on_empty_history is not None and empty is not None:
+                    on_empty_history(empty)
+                all_bars.sort(key=lambda b: b.timestamp)
+                return all_bars
             smart_bars, empty = await walk(
-                contract, end=end, source_tag=source_tag, on_chunk=on_chunk
+                contract, end=end, source_tag=source_tag, on_chunk=on_chunk, route="SMART"
             )
             all_bars.extend(smart_bars)
             # Only the oldest window of a backfill can be pre-history (the caller passes
@@ -887,11 +1004,18 @@ class IBKRProvider:
         use_rth: bool,
         source_tag: str,
         on_chunk: Callable[[list[OHLCVBar]], Awaitable[None]] | None,
+        route: str = "SMART",
+        on_request: Callable[[RequestRecord], None] | None = None,
+        on_observation: Callable[[RequestRecord, list[OHLCVBar]], None] | None = None,
+        fetch_run_id: str | None = None,
     ) -> tuple[list[OHLCVBar], EmptyHistory | None]:
         """Walk `contract`'s history backward from `end` to `start` in chunks.
 
         Returns the bars and, when the walk ended inside a run of IBKR's definitive "no
-        data" answers, the span that run covers (None otherwise).
+        data" answers, the span that run covers (None otherwise). With on_request /
+        on_observation given, reports one RequestRecord per chunk request at its
+        outcome point, and every answered chunk's bars to on_observation (D-05).
+        `route` is the routing of THIS walk: "SMART" or the venue exchange code.
         """
         walk_bars: list[OHLCVBar] = []
         chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
@@ -934,6 +1058,13 @@ class IBKRProvider:
             # late 162 callback for an abandoned request to an unrelated later chunk).
             ib_bars: list = []
             hit_definitive_no_data = False
+            # Per-request outcome tracking for the D-05 record (set at each outcome
+            # point of the retry loop; emitted once, after the loop).
+            outcome: str | None = None
+            outcome_req_id: int | None = None
+            outcome_error_text: str | None = None
+            last_error: Exception | None = None
+            requested_at = datetime.now(UTC)
             for attempt in range(_RETRY_COUNT):
                 outer_timed_out = False
                 try:
@@ -961,8 +1092,16 @@ class IBKRProvider:
                     )
                     result = None
                     outer_timed_out = True
+                except Exception as error:
+                    # Gateway error: retryable like a timeout, and recorded as the
+                    # request's failure text if retries exhaust (D-05) instead of
+                    # tearing down the whole walk.
+                    last_error = error
+                    result = None
                 if result:
                     ib_bars = result
+                    outcome = "bars"
+                    outcome_req_id = getattr(result, "reqId", None)
                     break
 
                 # Yield so any late Error 162 callback for this reqId can fire.
@@ -980,6 +1119,8 @@ class IBKRProvider:
                         },
                     )
                     hit_definitive_no_data = True
+                    outcome = "no_data"
+                    outcome_req_id = req_id
                     break  # Definitive "no data" — don't retry
 
                 if attempt < _RETRY_COUNT - 1:
@@ -1009,6 +1150,36 @@ class IBKRProvider:
                         "chunk_end": chunk_end.isoformat(),
                     },
                 )
+                outcome = "timeout" if outer_timed_out else "failed"
+                if last_error is not None:
+                    outcome_error_text = f"{type(last_error).__name__}: {last_error}"
+
+            # One record per request, emitted once at its outcome point (D-05). Built
+            # whenever either callback is present; on_observation reuses this record
+            # for the parsed bars below. fetch_run_id comes from the public entry
+            # (shared across every request the fetch makes).
+            record: RequestRecord | None = None
+            if outcome is not None and (on_request is not None or on_observation is not None):
+                if not fetch_run_id:
+                    fetch_run_id = str(uuid.uuid4())
+                record = _request_record(
+                    fetch_run_id=fetch_run_id,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    route=route,
+                    what_to_show=what_to_show,
+                    primary_exchange=getattr(contract, "primaryExchange", "") or None,
+                    window_start=chunk_start,
+                    window_end=chunk_end,
+                    ib_req_id=outcome_req_id,
+                    outcome=outcome,
+                    n_bars=len(ib_bars),
+                    error_text=outcome_error_text,
+                    client_id=self._client_id,
+                    requested_at=requested_at,
+                    answered_at=datetime.now(UTC),
+                )
+                _safe_request_callback(on_request, record)
 
             chunk_bars: list[OHLCVBar] = []
             for bar in ib_bars or []:
@@ -1035,6 +1206,8 @@ class IBKRProvider:
             walk_bars.extend(chunk_bars)
             if on_chunk and chunk_bars:
                 await on_chunk(chunk_bars)
+            if record is not None and on_observation is not None and chunk_bars:
+                _safe_request_callback(on_observation, record, chunk_bars)
 
             if hit_definitive_no_data:
                 consecutive_no_data_chunks += 1
@@ -1110,7 +1283,11 @@ class IBKRProvider:
             venue_contract = copy.copy(contract)
             venue_contract.exchange = venue
             bars, venue_empty = await walk(
-                venue_contract, end=head_end, source_tag=SOURCE_IBKR_VENUE, on_chunk=None
+                venue_contract,
+                end=head_end,
+                source_tag=SOURCE_IBKR_VENUE,
+                on_chunk=None,
+                route=venue,
             )
             if not bars and venue_empty is None:
                 verified_empty = False
@@ -1119,16 +1296,14 @@ class IBKRProvider:
             if sum(b.volume for b in bars) > sum(b.volume for b in best):
                 best, best_venue = bars, venue
         if best:
-            logger.warning(
+            slog.warning(
                 "ibkr.hist_venue_fallback_recovered",
-                extra={
-                    "symbol": getattr(contract, "symbol", ""),
-                    "venue": best_venue,
-                    "n_bars": len(best),
-                    "first": min(b.timestamp for b in best).isoformat(),
-                    "last": max(b.timestamp for b in best).isoformat(),
-                    "stored": _VENUE_FALLBACK_STORE_BARS,
-                },
+                symbol=getattr(contract, "symbol", ""),
+                venue=best_venue,
+                first=min(b.timestamp for b in best).isoformat(),
+                last=max(b.timestamp for b in best).isoformat(),
+                n_bars=len(best),
+                stored=_VENUE_FALLBACK_STORE_BARS,
             )
             # Either way the head is not empty: history exists on a former venue.
             return (best if _VENUE_FALLBACK_STORE_BARS else []), None
@@ -1182,12 +1357,28 @@ class IBKRProvider:
         return (head if head.tzinfo else head.replace(tzinfo=UTC)), None
 
     async def _request_back_from_now(
-        self, contract, symbol: str, timeframe: str, what_to_show: str, duration: str, rth: bool
-    ) -> list:
+        self,
+        contract,
+        symbol: str,
+        timeframe: str,
+        what_to_show: str,
+        duration: str,
+        rth: bool,
+        *,
+        on_request: Callable[[RequestRecord], None] | None = None,
+        fetch_run_id: str | None = None,
+    ) -> tuple[list, RequestRecord | None]:
         """One historical request ending now (endDateTime empty, which ADJUSTED_LAST requires),
-        bounded by _HIST_REQUEST_TIMEOUT_SEC; [] on timeout. Pacing is the caller's."""
+        bounded by _HIST_REQUEST_TIMEOUT_SEC; [] on timeout. Pacing is the caller's.
+
+        Returns (bars, record): the record is built when on_request is given or a
+        fetch_run_id is passed (public entries generate one whenever either callback
+        is present), so on_observation-only callers still get it back to pair with
+        their parsed bars. The caller owns emitting on_observation."""
+        requested_at = datetime.now(UTC)
+        timed_out = False
         try:
-            return (
+            result = (
                 await asyncio.wait_for(
                     self._ib.reqHistoricalDataAsync(
                         contract,
@@ -1207,24 +1398,80 @@ class IBKRProvider:
                 "ibkr.hist_request_outer_timeout",
                 extra={"symbol": symbol, "timeframe": timeframe, "what_to_show": what_to_show},
             )
-            return []
+            result = []
+            timed_out = True
+        record = None
+        if on_request is not None or fetch_run_id is not None:
+            record = _request_record(
+                fetch_run_id=fetch_run_id,
+                symbol=symbol,
+                timeframe=timeframe,
+                route=getattr(contract, "exchange", None) or "SMART",
+                what_to_show=what_to_show,
+                primary_exchange=getattr(contract, "primaryExchange", "") or None,
+                window_start=None,
+                window_end=datetime.now(UTC),
+                ib_req_id=None if timed_out else getattr(result, "reqId", None),
+                outcome="timeout" if timed_out else ("bars" if result else "no_data"),
+                n_bars=len(result),
+                client_id=self._client_id,
+                requested_at=requested_at,
+                answered_at=datetime.now(UTC),
+            )
+            _safe_request_callback(on_request, record)
+        return result, record
 
     async def fetch_adjusted_daily_closes(
-        self, symbol: str, years: int
+        self,
+        symbol: str,
+        years: int,
+        *,
+        on_request: Callable[[RequestRecord], None] | None = None,
+        on_observation: Callable[[RequestRecord, list[OHLCVBar]], None] | None = None,
+        fetch_run_id: str | None = None,
+        what_to_show: str = "ADJUSTED_LAST",
     ) -> tuple[dict[date, float], str | None]:
         """ADJUSTED_LAST daily closes (split- and dividend-adjusted, RTH) for a qualified equity
         over the last `years` years: ({day: close}, None) or ({}, error). The unadjusted series
         is fetch_historical_bars(timeframe="1d"). IBKR re-bases this series on every new
-        dividend, so it is only meaningful next to TRADES closes fetched in the same run."""
+        dividend, so it is only meaningful next to TRADES closes fetched in the same run —
+        what_to_show="TRADES" makes the same back-from-now request for TRADES so D5 can pair
+        both series on one fetch_run_id. on_request reports the request (D-05) and
+        on_observation receives the full OHLCV bars the API returned, not only closes."""
         contract = self._qualified_contracts.get(symbol)
         if not contract or not self._ib:
             return {}, "not qualified or not connected"
+        if fetch_run_id is None and (on_request is not None or on_observation is not None):
+            fetch_run_id = str(uuid.uuid4())
         await _hist_limiter_for("1d").acquire()
-        bars = await self._request_back_from_now(
-            contract, symbol, "1d", "ADJUSTED_LAST", f"{years} Y", True
+        bars, record = await self._request_back_from_now(
+            contract,
+            symbol,
+            "1d",
+            what_to_show,
+            f"{years} Y",
+            True,
+            on_request=on_request,
+            fetch_run_id=fetch_run_id,
         )
+        if record is not None and on_observation is not None and bars:
+            full_bars = [
+                OHLCVBar(
+                    symbol=symbol,
+                    timeframe="1d",
+                    timestamp=_normalize_ib_bar_ts(b.date),
+                    open=float(b.open),
+                    high=float(b.high),
+                    low=float(b.low),
+                    close=float(b.close),
+                    volume=int(b.volume),
+                    source=SOURCE_IBKR_NAMED,
+                )
+                for b in bars
+            ]
+            _safe_request_callback(on_observation, record, full_bars)
         if not bars:
-            return {}, "ADJUSTED_LAST returned no bars"
+            return {}, f"{what_to_show} returned no bars"
         return {_normalize_ib_bar_ts(b.date).date(): float(b.close) for b in bars}, None
 
     async def fetch_contract_classification(self, symbol: str) -> ContractClassification | None:

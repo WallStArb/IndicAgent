@@ -676,6 +676,8 @@ class TestRequestRecord:
         smart_sequence=None,
         raise_on=(),
         with_empty_history=True,
+        start=None,
+        end=None,
     ):
         """Like TestPreMoveHistory._fetch, but collects on_request records and
         on_observation pairs. answers: routed exchange -> bars | "no_data" |
@@ -688,6 +690,10 @@ class TestRequestRecord:
         req = {"n": 0}
 
         def _tag(result):
+            # Bar answers arrive as plain lists here; reqId needs BarDataList
+            # (a list subclass that takes attributes).
+            if not isinstance(result, BarDataList):
+                result = BarDataList(result)
             req["n"] += 1
             result.reqId = 92000 + req["n"]
             return result
@@ -731,8 +737,8 @@ class TestRequestRecord:
             bars = await provider.fetch_historical_bars(
                 "XYZ",
                 timeframe,
-                self.START,
-                self.END,
+                start if start is not None else self.START,
+                end if end is not None else self.END,
                 on_chunk=on_chunk,
                 on_empty_history=reports.append if with_empty_history else None,
                 on_request=records.append,
@@ -754,6 +760,8 @@ class TestRequestRecord:
                 smart_sequence=[first, second],
                 fetch_run_id="run-42",
                 with_empty_history=False,
+                start=datetime(2024, 1, 6, tzinfo=UTC),
+                end=datetime(2024, 1, 25, tzinfo=UTC),
             )
         assert asked == ["SMART", "SMART"]
         assert [r.n_bars for r in records] == [3, 5]
