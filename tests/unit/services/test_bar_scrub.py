@@ -117,7 +117,9 @@ class FakeConn:
     async def fetch(self, sql: str, *args: object) -> list[tuple]:
         self.fetch_calls.append((sql, tuple(args)))
         if "config_state" in sql:
-            return list(self.apr_rows)
+            # asyncpg Records are mapping-shaped; load_apr_dict_async indexes by
+            # column name while the library's own reads are positional.
+            return [{"config_key": key, "config_value": value} for key, value in self.apr_rows]
         if "DISTINCT symbol" in sql:
             return [(symbol,) for symbol in sorted(self.bars)]
         symbol = str(args[0])
@@ -186,7 +188,7 @@ def test_ten_x_high_on_two_symbols_stays_quarantined() -> None:
     assert counts["price_sanity"] == 2
     rows = _inserted_flags(conn, "price_sanity")
     assert len(rows) == 2
-    assert {row[0] for row in rows} == {_SPIKE_DAY}
+    assert {row[2] for row in rows} == {_SPIKE_DAY}
     assert all(row[6] is True for row in rows)  # quarantine column
 
 
@@ -236,7 +238,9 @@ def test_intraday_default_rules_are_d14_ports_only() -> None:
     open jump and the 2h gap flag, while the 12x high prints no price_sanity."""
     conn = FakeConn({"AAA": _five_min_bars()}, _apr_rows())
     counts = _run_scrub(conn, tf="5m")
-    assert counts == {"return_magnitude": 1, "gap_before_next": 1}
+    # two return_magnitude entries: the jump-up bar and the revert-down bar
+    # (both open-to-open returns are suspect, the writer's semantics)
+    assert counts == {"return_magnitude": 2, "gap_before_next": 1}
     assert _inserted_flags(conn, "price_sanity") == []
     jump_rows = _inserted_flags(conn, "return_magnitude")
     assert all(row[6] is False for row in jump_rows)
@@ -245,7 +249,7 @@ def test_intraday_default_rules_are_d14_ports_only() -> None:
 def test_explicit_rule_subset_runs_only_that_rule() -> None:
     conn = FakeConn({"BBB": _stale_run_bars()}, _apr_rows())
     counts = _run_scrub(conn, rules=frozenset({"price_sanity"}))
-    assert counts["stale_print"] == 0
+    assert set(counts) == {"price_sanity"}
     assert _inserted_flags(conn, "stale_print") == []
 
 
@@ -310,7 +314,7 @@ def test_write_flags_delete_then_insert_under_writer_role() -> None:
     assert kinds[0] == "<begin>"
     assert kinds[1].strip() == "SET LOCAL ROLE bar_derivation_writer"
     assert kinds[-1] == "<commit>"
-    deletes = [sql for sql in kinds if sql.startswith("DELETE FROM bar_quality_flag")]
+    deletes = [sql for sql in kinds if sql.strip().startswith("DELETE FROM bar_quality_flag")]
     assert len(deletes) == 1
     insert_sql, insert_args = conn.executemany_calls[0]
     assert "INSERT INTO bar_quality_flag" in insert_sql
@@ -335,7 +339,9 @@ def test_write_flags_prune_stale_deletes_other_rules_except_legacy() -> None:
                 prune_stale=True,
             )
         )
-    deletes = [sql for sql, _ in conn.statements if sql.startswith("DELETE FROM bar_quality_flag")]
+    deletes = [
+        sql for sql, _ in conn.statements if sql.strip().startswith("DELETE FROM bar_quality_flag")
+    ]
     assert len(deletes) == 2
     assert "rule = ANY($3::text[])" in deletes[0]
     assert "rule <> ALL($3::text[])" in deletes[1]
