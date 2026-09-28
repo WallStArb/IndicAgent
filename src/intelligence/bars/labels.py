@@ -205,6 +205,17 @@ class SurvivorshipBound:
     sensitivity: float | None
 
 
+def _per_name_delisting_impact(rule: SurvivorshipRule, exchange_of: Sequence[str]) -> np.ndarray:
+    """Signed per-name expected per-session return change from a delisting:
+    daily hazard x delisting return, one entry per name in exchange_of order.
+    """
+    impacts = []
+    for code in exchange_of:
+        bucket = _exchange_bucket(code)
+        impacts.append(rule.daily_hazard(bucket) * rule.delisting_return(bucket))
+    return np.array(impacts)
+
+
 def delisting_sensitivity(
     weights: np.ndarray, exchange_of: Sequence[str], rule: SurvivorshipRule
 ) -> float:
@@ -228,14 +239,7 @@ def delisting_sensitivity(
         )
     if not np.isfinite(w).all():
         raise ValueError("weights must be finite")
-    per_name = np.array(
-        [
-            rule.daily_hazard(_exchange_bucket(code))
-            * rule.delisting_return(_exchange_bucket(code))
-            for code in exchange_of
-        ]
-    )
-    per_session = w @ per_name
+    per_session = w @ _per_name_delisting_impact(rule, exchange_of)
     return float(per_session.mean() * rule.trading_days_per_year)
 
 
@@ -271,16 +275,10 @@ def survivorship_bound(
         raise ValueError("weights require exchange_of")
     sensitivity = delisting_sensitivity(weights, exchange_of, rule)
     w = np.asarray(weights, dtype=float)
-    per_name_abs = np.array(
-        [
-            abs(
-                rule.daily_hazard(_exchange_bucket(code))
-                * rule.delisting_return(_exchange_bucket(code))
-            )
-            for code in exchange_of
-        ]
+    gross_drag = float(
+        (np.abs(w) @ np.abs(_per_name_delisting_impact(rule, exchange_of))).mean()
+        * rule.trading_days_per_year
     )
-    gross_drag = float((np.abs(w) @ per_name_abs).mean() * rule.trading_days_per_year)
     return SurvivorshipBound(
         haircut_annual=float(haircut),
         expected_delisting_drag_annual=gross_drag,
