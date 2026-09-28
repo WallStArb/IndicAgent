@@ -63,7 +63,8 @@ _TRUNCATE_TABLES: list[tuple[str, str]] = [
     ("signal_transform_log", "per-signal multiplier transform audit trail"),
     ("signal_lineage", "signal lifecycle events keyed by signal_id"),
     # --- drift detection (trained on signal outcomes) ---
-    ("drift_monitor", "KS / CUSUM drift checks derived from signal outcomes"),
+    # drift_monitor dropped 2026-09-28 (migration 385, phase 186 D-37): empty, no
+    # writer or reader anywhere in code beyond this list entry.
     ("drift_state", "current per-symbol drift severity derived from signals"),
     # --- shadow / calibration (derived from signal outcomes) ---
     ("shadow_transition_log", "shadow promotion/demotion history"),

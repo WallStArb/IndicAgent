@@ -1,0 +1,42 @@
+-- Migration 384: drop the duplicate market_regimes index (D-36, phase 186 plan 05)
+--
+-- market_regimes (plain table, relkind 'r', ~5.35M rows, 1806 MB total) carried two
+-- btree indexes over the identical column list (regime_group, tf, ts):
+--
+--   market_regimes_pkey               UNIQUE, 400 MB, idx_scan 0
+--   market_regimes_regime_group_tf_ts plain,  387 MB, idx_scan 31,851,965
+--
+-- The second index was created as market_regimes_equity_tf_ts by migration 171 and
+-- renamed by migration 222. It has been serving every read while the PK sat unused;
+-- the two are interchangeable for the planner, so the duplicate is pure write
+-- overhead (one extra btree maintained per regime write) plus ~387 MB of disk.
+--
+-- Plan proof (recorded 2026-09-28, equity/5m/low_bull = 554,177 rows, the largest
+-- cell; training_window_end 2025-12-24 05:15:00+00). Before: the watermark query
+-- (ic_engine.py ~1207) and the full group/tf fetch (~6216) planned on the duplicate
+-- index (459.0 ms / 266.4 ms); the DISTINCT-ts subquery (~4554) and the ordered
+-- regime-timestamp prefetch (~4832) planned as parallel seq scans (312.4 ms /
+-- 221.0 ms), regime_label being in neither index. Inside BEGIN; DROP INDEX
+-- market_regimes_regime_group_tf_ts; EXPLAIN ...; ROLLBACK: the first two switched
+-- to Index Scan using market_regimes_pkey (663.7 ms, 1.45x the original, within the
+-- 2x gate; 228.2 ms, faster than original) and the seq-scan pair kept identical
+-- plans (244.9 ms / 173.4 ms). No query fell to a worse plan.
+--
+-- Precondition gate passed immediately before the apply: no ic_engine /
+-- regime_writer / backfill_feature_factory / cross_sectional_regime /
+-- feature_lifecycle process in ps aux; no lock on market_regimes in pg_locks; no
+-- idle-in-transaction session in the indicagent DB.
+--
+-- construction_spreads_name_tf_idx (the other duplicate D-36 names) is NOT dropped
+-- here: 186-22 drops the whole construction_spreads table, making that drop moot.
+--
+-- No BEGIN/COMMIT in this file: DROP INDEX CONCURRENTLY cannot run inside a
+-- transaction block, and it must be CONCURRENTLY because batch lanes read this
+-- table (migration 193's restriction was about hypertables -- CONCURRENTLY on
+-- hypertables -- and market_regimes is a plain table, so it does not apply; the
+-- integration conftest replays this file with psql -f in autocommit, where
+-- CONCURRENTLY IF EXISTS replays cleanly and is a no-op after the first run).
+--
+-- Run with: PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -v ON_ERROR_STOP=1 -f production/migrations/384_market_regimes_duplicate_index_drop.sql
+
+DROP INDEX CONCURRENTLY IF EXISTS market_regimes_regime_group_tf_ts;
