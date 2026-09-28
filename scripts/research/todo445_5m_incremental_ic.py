@@ -60,6 +60,7 @@ import asyncio
 import json
 import sys
 import time
+import warnings
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -132,9 +133,14 @@ _ALIGN_CHECK_SQL = (
     "SELECT bar_close_ts - bar_ts AS gap FROM feature_vectors "
     "WHERE tf = '5m' ORDER BY bar_ts LIMIT 1000"
 )
+# Range, not an exact-timestamp array: a ~65k-element bar_ts = ANY($array) bind
+# hit PostgreSQL's per-value 1GB buffer limit during a smoke run (asyncpg
+# ProgramLimitExceededError, independent of row count -- reproduced down to a
+# 20-symbol, 2-column block). Exact-grid matching still happens client-side in
+# _scatter_block via ts_index, so narrowing to a range changes no result.
 _FEATURE_BLOCK_SQL_TEMPLATE = (
     "SELECT symbol, bar_ts, {cols} FROM feature_vectors "
-    "WHERE tf = $1 AND symbol = ANY($2) AND bar_ts = ANY($3) AND bar_ts < $4"
+    "WHERE tf = $1 AND symbol = ANY($2) AND bar_ts >= $3 AND bar_ts < $4"
 )
 
 
@@ -201,7 +207,15 @@ def partial_rank_ic_per_bar(
     x15m = np.where(finite, x15, np.nan)
     ym = np.where(finite, y, np.nan)
 
-    with np.errstate(invalid="ignore", divide="ignore"):
+    with (
+        np.errstate(invalid="ignore", divide="ignore"),
+        warnings.catch_warnings(),
+    ):
+        # An all-excluded bar (every name masked by `finite`) is an expected,
+        # already-handled case (valid_bars masks it out below), not a bug --
+        # silence numpy's "Mean of empty slice" for it rather than let a
+        # hundreds-of-features real run flood stderr with it per bar.
+        warnings.simplefilter("ignore", category=RuntimeWarning)
         mean15 = np.nanmean(x15m, axis=1, keepdims=True)
         var15 = np.nanmean((x15m - mean15) ** 2, axis=1, keepdims=True)
 
@@ -368,14 +382,15 @@ async def read_feature_block(
     tf: str,
     symbols: list[str],
     columns: list[str],
-    timestamps: list[datetime],
-    oos_start: datetime,
+    lo: datetime,
+    hi: datetime,
 ) -> list[asyncpg.Record]:
-    """One block: a chunk of feature columns for a chunk of symbols, at an exact set
-    of timestamps. Never a wide SELECT of every column."""
+    """One block: a chunk of feature columns for a chunk of symbols, over
+    [lo, hi). Never a wide SELECT of every column. hi is min(the range's own
+    end, oos_start) -- the caller enforces that cap before calling this."""
     cols_sql = ", ".join(columns)
     sql = _FEATURE_BLOCK_SQL_TEMPLATE.format(cols=cols_sql)
-    return await pool.fetch(sql, tf, symbols, timestamps, oos_start)
+    return await pool.fetch(sql, tf, symbols, lo, hi)
 
 
 def _chunk(seq: list, size: int) -> list[list]:
@@ -417,13 +432,12 @@ async def fetch_feature_arrays(
     n, m = len(timestamps), len(symbols)
     out = {col: np.full((n, m), np.nan, dtype=np.float32) for col in columns}
     ts_index = {t: i for i, t in enumerate(timestamps)}
+    lo, hi = min(timestamps), min(max(timestamps) + timedelta(minutes=1), oos_start)
     pool = await read_only_pool(dsn)
     try:
         for col_chunk in _chunk(columns, block_size):
             for sym_chunk in _chunk(symbols, symbol_chunk):
-                rows = await read_feature_block(
-                    pool, tf, sym_chunk, col_chunk, timestamps, oos_start
-                )
+                rows = await read_feature_block(pool, tf, sym_chunk, col_chunk, lo, hi)
                 _scatter_block(rows, col_chunk, sym_chunk, ts_index, out)
     finally:
         await pool.close()
@@ -435,23 +449,22 @@ async def fetch_feature_arrays(
 # ---------------------------------------------------------------------------
 
 
+def _plain_ic_series(x: np.ndarray, y: np.ndarray, min_names: int) -> np.ndarray:
+    """[n]: per-bar plain cross-sectional IC of x on y, NaN for a bar with fewer
+    than min_names names finite in x (both 1-D outputs -- no keepdims broadcast
+    against _row_ic's [n] result, which produced a silent [n, n] blow-up here
+    once)."""
+    counts = np.isfinite(x).sum(axis=1)
+    return np.where(counts >= min_names, _row_ic(x, y), np.nan)
+
+
 def _compute_cell(args: tuple) -> dict:
     feature, horizon, x5_ranks, x15_ranks, y_ranks, session, bars_per_year, x5_raw_ranks = args
     plain_5m_mean, plain_5m_t, plain_5m_p, _ = session_hac_t(
-        np.where(
-            np.isfinite(x5_ranks).sum(axis=1, keepdims=True) >= _MIN_NAMES_PER_BAR,
-            _row_ic(x5_ranks, y_ranks),
-            np.nan,
-        ),
-        session,
+        _plain_ic_series(x5_ranks, y_ranks, _MIN_NAMES_PER_BAR), session
     )
     plain_15m_mean, plain_15m_t, plain_15m_p, _ = session_hac_t(
-        np.where(
-            np.isfinite(x15_ranks).sum(axis=1, keepdims=True) >= _MIN_NAMES_PER_BAR,
-            _row_ic(x15_ranks, y_ranks),
-            np.nan,
-        ),
-        session,
+        _plain_ic_series(x15_ranks, y_ranks, _MIN_NAMES_PER_BAR), session
     )
     partial_ic_bar = partial_rank_ic_per_bar(x5_ranks, x15_ranks, y_ranks)
     partial_mean, partial_t, partial_p, n_sessions = session_hac_t(partial_ic_bar, session)
@@ -472,8 +485,14 @@ def _compute_cell(args: tuple) -> dict:
 
 
 def _row_ic(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Per-bar plain cross-sectional Pearson IC between two rank arrays."""
-    with np.errstate(invalid="ignore", divide="ignore"):
+    """Per-bar plain cross-sectional Pearson IC between two rank arrays. Callers
+    mask an all-NaN row's result via _plain_ic_series's min_names count, same
+    expected-empty-slice case as partial_rank_ic_per_bar."""
+    with (
+        np.errstate(invalid="ignore", divide="ignore"),
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("ignore", category=RuntimeWarning)
         mean_x = np.nanmean(x, axis=1, keepdims=True)
         mean_y = np.nanmean(y, axis=1, keepdims=True)
         cov = np.nanmean((x - mean_x) * (y - mean_y), axis=1)
