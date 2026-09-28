@@ -20,6 +20,15 @@ Cross-symbol corroboration must not clear a print beyond the magnitude threshold
 exceeds threshold.bar_scrub.corroboration_max_clearable_ratio, so the 2010-05-06
 Flash Crash stub prints and EWW 2006-11-07 stay CONFIRMED_CORRUPT.
 
+The D-14 ports (return_magnitude, gap_before_next) reproduce forward_return_writer's
+formulas as bar rules before phase 186 deletes that writer: return_magnitude flags
+bar i for |ln(open[i+1]/open[i])| beyond the tf ceiling (the writer's return_fast at
+T = i-1), and gap_before_next flags bar i when the next traded bar is more than
+gap_multiplier x tf_seconds and less than gap_max_seconds away (the writer's
+has_gap_before_entry). view_disagreement is exported standalone rather than wired
+into run_rules because it needs the adjusted-close view alongside the trades view
+(plan 12's derivation and plan 17's daily pass call it with both series).
+
 RULE_VERSION must be bumped on any behavior change: every bar_quality_flag row
 written from these rules carries it (plan 04's schema).
 """
@@ -32,6 +41,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 
 from src.intelligence.statistics.price_sanity import (
     CandidateVerdict,
@@ -163,7 +173,7 @@ def _as_float(value: object) -> float:
 
 
 def _as_int(value: object) -> int:
-    """Coerce an APR value to int via float ('60.0' text form stays exact)."""
+    """Coerce an APR value to int via float (text forms with a decimal stay exact)."""
     return int(float(value))
 
 
@@ -282,16 +292,323 @@ def is_quarantine(flag: BarFlag, params: ScrubParams) -> bool:
     return flag.rule in params.quarantine_rules
 
 
+_OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
+
+
+def ohlc_invariant(bars: SymbolBars) -> list[BarFlag]:
+    """high >= max(open, close), low <= min(open, close) and high >= low, per bar."""
+    high_below_body = bars.high < np.maximum(bars.open, bars.close)
+    low_above_body = bars.low > np.minimum(bars.open, bars.close)
+    high_below_low = bars.high < bars.low
+    any_violation = high_below_body | low_above_body | high_below_low
+    flags: list[BarFlag] = []
+    for i in np.flatnonzero(any_violation):
+        violations: list[str] = []
+        fields: list[str] = []
+        if high_below_body[i]:
+            violations.append("high_below_body")
+            fields.append("high")
+        if low_above_body[i]:
+            violations.append("low_above_body")
+            fields.append("low")
+        if high_below_low[i]:
+            violations.append("high_below_low")
+            for name in ("high", "low"):
+                if name not in fields:
+                    fields.append(name)
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="ohlc_invariant",
+                fields=tuple(fields),
+                detail={"violations": violations},
+            )
+        )
+    return flags
+
+
+def non_positive_price(bars: SymbolBars) -> list[BarFlag]:
+    """Any OHLCV field at or below zero, with the offending fields named."""
+    arrays = {
+        "open": bars.open,
+        "high": bars.high,
+        "low": bars.low,
+        "close": bars.close,
+        "volume": bars.volume,
+    }
+    mask = np.zeros(bars.close.size, dtype=bool)
+    for arr in arrays.values():
+        mask |= arr <= 0  # NaN fails this comparison, so missing stays unflagged
+    flags: list[BarFlag] = []
+    for i in np.flatnonzero(mask):
+        fields = tuple(name for name in _OHLCV_FIELDS if arrays[name][i] <= 0)
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="non_positive_price",
+                fields=fields,
+                detail={"values": {name: float(arrays[name][i]) for name in fields}},
+            )
+        )
+    return flags
+
+
+def vol_scaled_jump(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """|ln(c[i]/c[i-1])| > jump_sigma x rolling sigma of the prior returns.
+
+    The sigma window (jump_vol_window returns, excluding bar i's own) must be full
+    before anything can flag, so short series and series warmups are never judged.
+    Bars with a recorded corporate action are never flagged (a split is a price
+    scale, not a print). Informational by default (D-08/D-09).
+    """
+    n = bars.close.size
+    w = int(params.jump_vol_window)
+    flags: list[BarFlag] = []
+    if n < 2 or w < 1:
+        return flags
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r = np.diff(np.log(bars.close))  # r[j] is the return entering bar j + 1
+        # Bar i's own return is r[i - 1]; its sigma window is the w returns before
+        # that, r[i - 1 - w : i - 1], which needs i - 1 - w >= 0.
+        if n <= w + 1:
+            return flags
+        wins = sliding_window_view(r, w)  # wins[j] = r[j : j + w]
+        idx = np.arange(w + 1, n)
+        sigma = wins[idx - 1 - w].std(axis=1)
+        own = np.abs(r[idx - 1])
+        ratio = own / sigma
+        hit = idx[np.isfinite(ratio) & (sigma > 0) & (ratio > params.jump_sigma)]
+    for i in hit:
+        if int(i) in bars.corporate_action_indices:
+            continue
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="vol_scaled_jump",
+                fields=("close",),
+                detail={
+                    "abs_log_return": float(np.abs(r[i - 1])),
+                    "sigma": float(sigma[i - w - 1]),
+                    "z": float(ratio[i - w - 1]),
+                },
+            )
+        )
+    return flags
+
+
+def stale_print(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """Runs of at least stale_run_min consecutive identical-OHLC bars, volume > 0.
+
+    Run-length encoded in numpy (the one permitted scan): bar i extends a run when
+    its OHLC equals the previous bar's. Every bar of a qualifying run is flagged.
+    Zero-volume flat bars are the known synthetic calendar fill, not a stale print,
+    so a run containing one is never flagged. Informational by default.
+    """
+    n = bars.close.size
+    run_min = int(params.stale_run_min)
+    if n == 0:
+        return []
+    same = np.zeros(n, dtype=bool)
+    if n > 1:
+        same[1:] = (
+            (bars.open[1:] == bars.open[:-1])
+            & (bars.high[1:] == bars.high[:-1])
+            & (bars.low[1:] == bars.low[:-1])
+            & (bars.close[1:] == bars.close[:-1])
+        )
+    block_start = ~same  # bar 0 always starts a block
+    block_id = np.cumsum(block_start) - 1  # 0-based ordinal, indexes starts/lengths
+    starts = np.flatnonzero(block_start)
+    lengths = np.diff(np.append(starts, n))
+    block_volume_ok = np.minimum.reduceat(bars.volume > 0, starts)
+    qualifying = np.flatnonzero((lengths >= run_min) & block_volume_ok)
+    flags: list[BarFlag] = []
+    for i in np.flatnonzero(np.isin(block_id, qualifying)):
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="stale_print",
+                fields=("open", "high", "low", "close"),
+                detail={"run_length": int(lengths[block_id[i]])},
+            )
+        )
+    return flags
+
+
+def volume_outlier(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """Robust z of log volume over the trailing window: |log v - median| / (1.4826 x MAD).
+
+    The 1.4826 constant rescales MAD to a normal standard deviation (a mathematical
+    constant, APR-exempt). A window with zero MAD (constant volume) carries no
+    dispersion to judge and never flags; the trailing window includes the current
+    bar. Informational by default.
+    """
+    n = bars.volume.size
+    w = int(params.volume_window)
+    flags: list[BarFlag] = []
+    if w < 1 or n < w:
+        return flags
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_vol = np.log(np.where(bars.volume > 0, bars.volume, np.nan))
+        wins = sliding_window_view(log_vol, w)  # wins[j] covers bars j .. j + w - 1
+        med = np.median(wins, axis=1)
+        mad = np.median(np.abs(wins - med[:, None]), axis=1)
+        own = log_vol[w - 1 :]
+        robust = np.abs(own - med) / (1.4826 * mad)
+        hit = (
+            np.flatnonzero(np.isfinite(robust) & (mad > 0) & (robust > params.volume_outlier_mad))
+            + w
+            - 1
+        )
+    for i in hit:
+        flags.append(
+            BarFlag(
+                index=int(i),
+                rule="volume_outlier",
+                fields=("volume",),
+                detail={
+                    "robust_z": float(robust[i - w + 1]),
+                    "median_log_volume": float(med[i - w + 1]),
+                },
+            )
+        )
+    return flags
+
+
+def view_disagreement(
+    trades_close: np.ndarray,
+    adjusted_close: np.ndarray,
+    explained: frozenset[int],
+    *,
+    rel: float,
+) -> list[BarFlag]:
+    """A day whose adjusted/trades ratio step exceeds rel and is not explained.
+
+    D7/IBKR view disagreement as a standalone rule: it needs the ADJUSTED_LAST
+    series alongside the TRADES series, so plan 12's derivation and plan 17's daily
+    pass call it directly rather than through run_rules (SymbolBars carries one
+    view). explained holds bar positions with a recorded corporate action or
+    dividend; index is the first bar of the new ratio regime.
+    """
+    trades = np.asarray(trades_close, dtype=np.float64)
+    adjusted = np.asarray(adjusted_close, dtype=np.float64)
+    if trades.shape != adjusted.shape:
+        raise ValueError(f"view_disagreement: shape mismatch {trades.shape} vs {adjusted.shape}")
+    n = trades.size
+    flags: list[BarFlag] = []
+    if n < 2:
+        return flags
+    with np.errstate(divide="ignore", invalid="ignore"):
+        valid = (trades > 0) & (adjusted > 0)
+        ratio = np.where(valid, adjusted / trades, np.nan)
+        step = np.abs(ratio[1:] / ratio[:-1] - 1)
+    for j in np.flatnonzero(np.isfinite(step) & (step > rel)):
+        i = int(j) + 1
+        if i in explained:
+            continue
+        flags.append(
+            BarFlag(
+                index=i,
+                rule="view_disagreement",
+                fields=("close",),
+                detail={
+                    "ratio_step": float(step[j]),
+                    "prev_ratio": float(ratio[j]),
+                    "ratio": float(ratio[i]),
+                },
+            )
+        )
+    return flags
+
+
+def return_magnitude(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """D-14 port of return_*_suspect: |ln(open[i+1]/open[i])| beyond the tf ceiling.
+
+    forward_return_writer flagged |ln(open[T+2]/open[T+1])| at bar T; the bar rule
+    attributes the same return to the entry bar (T + 1 = i). The ceiling is the
+    tf's 1-bar APR baseline scaled by sqrt(lookahead), lookahead 1 here. The last
+    bar has no next open and is never flagged. Informational by default.
+    """
+    n = bars.open.size
+    flags: list[BarFlag] = []
+    if n < 2:
+        return flags
+    ceiling = params.max_abs_return * math.sqrt(1)
+    cur = bars.open[:-1]
+    nxt = bars.open[1:]
+    safe = (cur > 0) & (nxt > 0)
+    ratio = np.ones(n - 1)
+    ratio[safe] = nxt[safe] / cur[safe]
+    r = np.log(ratio)
+    for j in np.flatnonzero(safe & (np.abs(r) > ceiling)):
+        flags.append(
+            BarFlag(
+                index=int(j),
+                rule="return_magnitude",
+                fields=("open",),
+                detail={
+                    "abs_log_return": float(np.abs(r[j])),
+                    "ceiling": float(ceiling),
+                },
+            )
+        )
+    return flags
+
+
+def gap_before_next(bars: SymbolBars, params: ScrubParams) -> list[BarFlag]:
+    """D-14 port of has_gap_before_entry: a trading gap before the next stored bar.
+
+    Flags bar i when ts[i+1] - ts[i] is more than gap_multiplier x tf_seconds and
+    less than gap_max_seconds (the floor guards 1-bar noise, the ceiling excludes
+    known overnight/weekend calendar structure). At 1d the floor alone is
+    3 x 86400 s > 14400 s, so the rule can never fire. Informational.
+    """
+    ts = bars.ts_seconds
+    n = ts.size
+    flags: list[BarFlag] = []
+    if n < 2:
+        return flags
+    tf_seconds = _tf_seconds(bars.tf)
+    gaps = ts[1:] - ts[:-1]
+    hit = np.flatnonzero(
+        (gaps > params.gap_multiplier * tf_seconds) & (gaps < params.gap_max_seconds)
+    )
+    for j in hit:
+        flags.append(
+            BarFlag(
+                index=int(j),
+                rule="gap_before_next",
+                fields=("timestamp",),
+                detail={"gap_seconds": int(gaps[j]), "tf_seconds": int(tf_seconds)},
+            )
+        )
+    return flags
+
+
 def run_rules(bars: SymbolBars, params: ScrubParams) -> ScrubResult:
     """Run every single-symbol D2a rule over one symbol's bars.
 
     Cross-symbol corroboration is deliberately NOT applied here (see price_sanity):
     the caller collects price_sanity_candidates across symbols, then applies
     count_corroborating + corroborated_verdict before writing flags.
+    view_disagreement is equally cross-view, not cross-symbol only -- it needs the
+    adjusted-close series and is called separately by the derivation stages.
     """
+    per_rule: dict[str, list[BarFlag]] = {
+        "ohlc_invariant": ohlc_invariant(bars),
+        "non_positive_price": non_positive_price(bars),
+        "vol_scaled_jump": vol_scaled_jump(bars, params),
+        "stale_print": stale_print(bars, params),
+        "volume_outlier": volume_outlier(bars, params),
+        "return_magnitude": return_magnitude(bars, params),
+        "gap_before_next": gap_before_next(bars, params),
+    }
     ps_flags, candidates = price_sanity(bars, params)
-    flags = list(ps_flags)
+    flags: list[BarFlag] = list(ps_flags)
     counts = {"price_sanity": len(ps_flags)}
+    for rule, rule_flags in per_rule.items():
+        flags.extend(rule_flags)
+        counts[rule] = len(rule_flags)
     return ScrubResult(
         flags=tuple(flags),
         counts=counts,

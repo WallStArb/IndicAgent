@@ -123,8 +123,10 @@ def test_from_apr_accepts_config_state_text_values():
 
 def test_ohlc_invariant_flags_each_violation_kind_with_offending_fields():
     bars = _series(_walk(12, seed=1))
-    bars.high[3] = min(bars.open[3], bars.close[3]) - 1.0  # high below body
-    bars.low[5] = max(bars.open[5], bars.close[5]) + 1.0  # low above body
+    # high below the body but still above low: only the high field offends
+    bars.high[3] = (min(bars.open[3], bars.close[3]) + bars.low[3]) / 2
+    # low above the body but still below high: only the low field offends
+    bars.low[5] = (max(bars.open[5], bars.close[5]) + bars.high[5]) / 2
     bars.high[7] = bars.low[7] - 1.0  # high below low (also below body)
     flags = ohlc_invariant(bars)
     by_index = {f.index: f for f in flags}
@@ -164,7 +166,7 @@ def test_vol_scaled_jump_flags_unexplained_level_shift_only_at_the_seam():
     seam = 60
     closes[seam:] = closes[seam:] * 3.0  # unexplained 3x jump, persistent
     unexplained = _series(closes)
-    jumps = vol_scaled_jump(unexplained, _params(jump_vol_window=20))
+    jumps = vol_scaled_jump(unexplained, _params(**{"threshold.bar_scrub.jump_vol_window": 20}))
     seam_flags = [f for f in jumps if f.index == seam]
     assert len(seam_flags) == 1
     assert seam_flags[0].rule == "vol_scaled_jump"
@@ -172,7 +174,9 @@ def test_vol_scaled_jump_flags_unexplained_level_shift_only_at_the_seam():
 
     explained = _series(closes, corporate_action_indices=frozenset({seam}))
     assert [
-        f for f in vol_scaled_jump(explained, _params(jump_vol_window=20)) if f.index == seam
+        f
+        for f in vol_scaled_jump(explained, _params(**{"threshold.bar_scrub.jump_vol_window": 20}))
+        if f.index == seam
     ] == []
 
 
@@ -226,7 +230,7 @@ def test_volume_outlier_flags_wild_volume_not_flat_windows():
     bars = _series(closes)
     bars.volume[:] = 1_000_000.0 * np.exp(rng.normal(0.0, 0.3, n))
     bars.volume[50] = 1e13
-    flags = volume_outlier(bars, _params(volume_window=30))
+    flags = volume_outlier(bars, _params(**{"threshold.bar_scrub.volume_window": 30}))
     assert [f.index for f in flags] == [50]
     assert flags[0].detail["robust_z"] > 10.0
     assert not is_quarantine(flags[0], _params())
@@ -235,7 +239,7 @@ def test_volume_outlier_flags_wild_volume_not_flat_windows():
 def test_volume_outlier_skips_zero_mad_windows():
     bars = _series(_walk(40, seed=9), volume=5.0)  # constant volume: MAD 0
     bars.volume[20] = 9.9
-    assert volume_outlier(bars, _params(volume_window=20)) == []
+    assert volume_outlier(bars, _params(**{"threshold.bar_scrub.volume_window": 20})) == []
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +367,7 @@ def test_synthetic_split_with_recorded_action_raises_no_jump_and_no_quarantine()
     closes = _walk(120, seed=14)
     seam = 60
     closes[seam:] = closes[seam:] / 2.0  # 2:1 split
-    params = _params(jump_vol_window=20)
+    params = _params(**{"threshold.bar_scrub.jump_vol_window": 20})
     recorded = _series(closes, corporate_action_indices=frozenset({seam}))
     result = run_rules(recorded, params)
     assert [f for f in result.flags if f.rule == "vol_scaled_jump" and f.index == seam] == []

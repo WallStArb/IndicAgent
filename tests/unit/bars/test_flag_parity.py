@@ -77,8 +77,9 @@ def test_return_magnitude_matches_return_fast_suspect_formula():
             and abs(float(np.log(opens[t + 2] / opens[t + 1]))) > ceiling
         }
         assert rule_flagged == sql_suspect, tf
-        # the injected breaks are flagged at both ceilings
-        assert 40 in rule_flagged and 80 in rule_flagged, tf
+        # the injected breaks are flagged at both ceilings: the ratio between
+        # bars 39/40 (and 79/80) is the break, attributed to the earlier bar
+        assert 39 in rule_flagged and 79 in rule_flagged, tf
 
 
 def test_gap_before_next_matches_has_gap_before_entry_formula():
