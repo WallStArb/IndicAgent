@@ -239,6 +239,13 @@ class ObservationSink:
     def pending(self) -> int:
         return self._buffer.pending()
 
+    def reconnect(self, conn: Any) -> None:
+        """Swap in a fresh connection, keeping the buffered rows. The only
+        buffer-preserving recovery when the old connection died mid-run (a new
+        sink would drop unflushed rows); the caller supplies the replacement
+        because the sink owns no connection factory."""
+        self._conn = conn
+
     def flush(self) -> tuple[int, int]:
         requests, observations = self._buffer.take_rows()
         if not requests and not observations:

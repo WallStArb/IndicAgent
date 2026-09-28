@@ -345,7 +345,7 @@ def test_capture_and_checkpoint_wiring(driven_main):
         if call["timeframe"] == "1d":
             assert call["on_observation"] is not None
         else:
-            assert call["on_observation"] is None
+            assert call.get("on_observation") is None
 
     # Sink saw both requests and both observation deliveries per 1d fetch, plus
     # one request per intraday fetch, and flushed once per symbol.

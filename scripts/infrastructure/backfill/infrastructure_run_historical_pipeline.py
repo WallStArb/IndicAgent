@@ -6,6 +6,16 @@ Fetches multi-timeframe OHLCV from IBKR to market_data_ohlcv.
 Run for initial system bootstrap or gap-filling.
 Requires IBKR Gateway available; uses named contracts (HTF uses continuous).
 
+Every IBKR historical request this process makes holds the ibkr_history_stream
+lease first (D-29, phase 185 plan 09): acquired before the first request,
+checkpointed after every completed (symbol, timeframe) unit, released at exit.
+Bulk tier (the default) yields to any waiter at unit boundaries; priority tier
+(the nightly, phase 185 campaigns) yields only to another priority waiter.
+
+Exit codes: 0 success; 1 fetch errors/partial run; 3 could not get the lease
+within its wait bound (EXIT_LEASE_TIMEOUT -- the nightly maps this to
+failed_lease_timeout).
+
 The I1-I7 intelligence-replay stage (populating the archived signal_events/
 trade_frames/intelligence_features tables) was removed 2026-07-08 — confirmed
 dead (0 rows, all writer services inactive) via two independent investigations.
@@ -40,6 +50,7 @@ sys.path.insert(0, str(project_root))
 
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
+from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
     MONTH_CODE_TO_NUM,
@@ -55,6 +66,7 @@ from src.core.bar_normalizer import (
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
+from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
@@ -80,6 +92,18 @@ _DEFAULT_TIMEFRAMES = "1d,1h,15m,5m,1m"
 _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeline's fetches
 # Dimensions whose members may be deliberately scoped below the full timeframe stack.
 _DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES = frozenset({"backfill", "compute_1d"})
+
+# D-29: the single IBKR history stream. Lives beside its consumers, not in
+# src/core/ (Ring 0 carries no domain vocabulary).
+IBKR_HISTORY_LEASE = "ibkr_history_stream"
+# Distinct exit code for "could not get the lease in time" so the nightly can
+# map it to failed_lease_timeout (documented in both module docstrings).
+EXIT_LEASE_TIMEOUT = 3
+_OBSERVATION_CALLER = "historical-pipeline"
+_LEASE_APR_KEY = "infra.ibkr_history_lease.priority_wait_minutes"
+_OBSERVATION_BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
+_OBSERVATION_BATCH_ROWS_FALLBACK = 50_000  # migration 380 APR seed
+_LEASE_PRIORITY_MINUTES_FALLBACK = 240.0  # migration 380 APR seed
 
 
 def _parse_contract_symbol(symbol: str) -> tuple[str, str, int] | None:
@@ -602,6 +626,106 @@ def _load_ibkr_rate_limit_config(settings: Settings) -> None:
         ibkr.apply_hist_rate_limit_config(rows)
     except Exception as error:
         print(f"  (APR rate-limit lookup failed, using hardcoded defaults: {error})")
+
+
+def _load_lease_apr_minutes(settings: Settings) -> float:
+    """APR infra.ibkr_history_lease.priority_wait_minutes, with the migration 380
+    seed as the fallback when the DB is unreachable (same contract as the loaders
+    above)."""
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state WHERE config_key = %s",
+                    (_LEASE_APR_KEY,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[0] is not None:
+            return float(row[0])
+    except Exception as error:
+        print(f"  (APR lease-wait lookup failed, using default: {error})")
+    return _LEASE_PRIORITY_MINUTES_FALLBACK
+
+
+def _lease_wait_seconds(settings: Settings, args: argparse.Namespace) -> float | None:
+    """Acquire timeout for the history lease. An explicit --lease-wait-minutes
+    wins (the nightly passes its own bound); otherwise priority defaults to the
+    APR seed and bulk waits unbounded (a bulk holder re-queues forever by
+    design; it has nowhere else to go)."""
+    if args.lease_wait_minutes is not None:
+        return args.lease_wait_minutes * 60.0
+    if args.lease_tier == "priority":
+        return _load_lease_apr_minutes(settings) * 60.0
+    return None
+
+
+def _acquire_history_lease(settings: Settings, args: argparse.Namespace) -> ResourceLease:
+    """Take the ibkr_history_stream lease before the first IBKR request (D-29).
+
+    The process that talks to IBKR holds the lease, never an orchestrating
+    parent. On timeout the lease connection is closed and LeaseTimeout
+    propagates (main maps it to EXIT_LEASE_TIMEOUT).
+    """
+    lease = ResourceLease(
+        settings.database_url,
+        IBKR_HISTORY_LEASE,
+        tier=Tier(args.lease_tier),
+        holder=f"{_OBSERVATION_CALLER}:{args.client_id}",
+    )
+    try:
+        lease.acquire(_lease_wait_seconds(settings, args))
+    except LeaseTimeout:
+        lease.close()
+        raise
+    return lease
+
+
+def _load_observation_batch_rows(settings: Settings) -> int:
+    """APR infra.ohlcv_observation.copy_batch_rows (migration 380 seed as the
+    fallback), same overlay contract as the loaders above."""
+    try:
+        conn = connect_db(settings)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT config_value FROM config_state WHERE config_key = %s",
+                    (_OBSERVATION_BATCH_ROWS_KEY,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if row and row[0] is not None:
+            return int(row[0])
+    except Exception as error:
+        print(f"  (APR observation batch-rows lookup failed, using default: {error})")
+    return _OBSERVATION_BATCH_ROWS_FALLBACK
+
+
+def _capture_kwargs(tf: str, sink: Any, fetch_run_id: str) -> dict[str, Any]:
+    """Provider fetch kwargs for D1 capture (D-05/D-16/D-20): every timeframe
+    reports its requests; only 1d delivers observations, because D1 stores 1d
+    bars only -- intraday answers live on as request outcomes for D4 to
+    re-verify from."""
+    kwargs: dict[str, Any] = {"on_request": sink.on_request, "fetch_run_id": fetch_run_id}
+    if tf == "1d":
+        kwargs = dict(kwargs, on_observation=sink.on_observation)
+    return kwargs
+
+
+def _flush_capture(sink: Any, settings: Settings) -> tuple[int, int]:
+    """Flush the D1 sink, reconnecting its dedicated connection once if it died.
+
+    A flush failure raises (the symbol fails loudly): D-05 rows are raw answers
+    that must never be dropped silently.
+    """
+    try:
+        return sink.flush()
+    except psycopg.OperationalError:
+        sink.reconnect(connect_db(settings))
+        return sink.flush()
 
 
 def _reorder_contracts_by_gap(
@@ -1193,6 +1317,28 @@ def main() -> None:
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
+        "--lease-tier",
+        choices=("bulk", "priority"),
+        default="bulk",
+        help=(
+            "ibkr_history_stream lease tier (D-29). bulk (the default, the todo 449 "
+            "chain and manual fetches) yields to any waiter at (symbol, tf) unit "
+            "boundaries; priority (the nightly, phase 185 campaigns) yields only to "
+            "another priority waiter."
+        ),
+    )
+    parser.add_argument(
+        "--lease-wait-minutes",
+        type=float,
+        default=None,
+        help=(
+            "Bound the initial lease acquire at this many minutes (the nightly passes "
+            "infra.ibkr_history_lease.nightly_wait_minutes). Default: unbounded for "
+            "bulk, the APR priority_wait_minutes seed for priority. Exit code "
+            f"{EXIT_LEASE_TIMEOUT} on timeout."
+        ),
+    )
+    parser.add_argument(
         "--dimension",
         default="compute",
         choices=("backfill", "compute", "compute_1d", "live"),
@@ -1324,6 +1470,40 @@ def main() -> None:
     n_head_floored = 0
     n_empty_history_skipped = 0
 
+    def _finish(status: str, message: str, exit_code: int | None) -> None:
+        print(message)
+        JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": status})
+        db_conn.close()
+        flush_and_shutdown_metrics()
+        if exit_code is not None:
+            sys.exit(exit_code)
+
+    # D-29: one IBKR history stream per account. This process (the one that
+    # talks to IBKR, never an orchestrating parent) holds the lease before its
+    # first request and checkpoints it after every completed (symbol, tf) unit.
+    try:
+        lease = _acquire_history_lease(settings, args)
+    except LeaseTimeout as error:
+        _finish(
+            "failed_lease_timeout",
+            f"Backfill FAILED — could not acquire the {IBKR_HISTORY_LEASE} lease "
+            f"within its wait bound: {error}",
+            EXIT_LEASE_TIMEOUT,
+        )
+        return
+
+    # D-05/D-16 capture: one fetch_run_id per invocation, one dedicated
+    # connection for D1 so a capture failure never leaves a half-committed
+    # market_data_ohlcv write behind it.
+    fetch_run_id = new_fetch_run_id()
+    sink_conn = connect_db(settings)
+    sink = ObservationSink(
+        sink_conn,
+        caller=_OBSERVATION_CALLER,
+        max_buffer_rows=_load_observation_batch_rows(settings),
+    )
+    print(f"  fetch_run_id: {fetch_run_id} (lease tier {args.lease_tier})")
+
     async def _run_fetch_stage() -> tuple[int, int, list[str]]:
         nonlocal db_conn, n_head_floored, n_empty_history_skipped
         provider = IBKRProvider(
@@ -1402,6 +1582,7 @@ def main() -> None:
                                 db_conn=db_conn,
                             )
                             total_bars += bars
+                            lease.checkpoint()
                         continue  # Skip the standard continuous fetch loop
 
                     # Head floor (migration 355): nothing exists before the provider's
@@ -1500,6 +1681,7 @@ def main() -> None:
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
                             fetched_tfs.add(tf)
+                            lease.checkpoint()
                             continue
 
                         # Cluster nearby gap ranges into fetch windows instead of one
@@ -1589,6 +1771,7 @@ def main() -> None:
                                     continuous=use_cont,
                                     on_chunk=_persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,
+                                    **_capture_kwargs(tf, sink, fetch_run_id),
                                 )
                                 # A chunk that failed every retry does not raise; the
                                 # window is incomplete all the same.
@@ -1652,6 +1835,7 @@ def main() -> None:
                             fetched_tfs.discard(tf)
                         else:
                             mark_fetch_complete(db_conn, instrument.symbol, tf, start_dt)
+                        lease.checkpoint()
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.
@@ -1721,6 +1905,22 @@ def main() -> None:
                     # which is inferior in both depth and price series to the direct fetch.
                     # Gaps in IBKR 4h data are handled by the gap detection + refetch path.
 
+                    # D1 flush once per symbol after its fetches return (D-05): a
+                    # failure raises, the symbol fails loudly rather than dropping
+                    # raw answers. One structlog line per symbol with the counts.
+                    n_requests, n_observations = _flush_capture(sink, settings)
+                    _logger.info(
+                        "historical_pipeline.d1_captured",
+                        symbol=instrument.symbol,
+                        n_requests=n_requests,
+                        n_observations=n_observations,
+                    )
+                    if n_requests or n_observations:
+                        print(
+                            f"  {instrument.symbol}: D1 capture {n_requests} request(s), "
+                            f"{n_observations} observation(s)"
+                        )
+
                 except Exception as e:
                     fetch_errors += 1
                     print(f"  {instrument.symbol}: error — {e}")
@@ -1738,52 +1938,68 @@ def main() -> None:
             await provider.disconnect()
         return total_bars, fetch_errors, skipped_symbols
 
-    def _finish(status: str, message: str, exit_code: int | None) -> None:
-        print(message)
-        JOB_COMPLETED_TOTAL.add(1, {"job": "historical-backfill", "status": status})
-        db_conn.close()
-        flush_and_shutdown_metrics()
-        if exit_code is not None:
-            sys.exit(exit_code)
+    try:
+        total_bars, fetch_errors, skipped_symbols = asyncio.run(_run_fetch_stage())
+        if total_bars == -1:
+            # IBKR connect failed before any fetch was attempted. A bare `return` here
+            # exits 0 (main() is called plainly, not via sys.exit(main())) -- the nightly
+            # wrapper and backfill_retry_loop.sh both read that as success even though
+            # zero bars were fetched. Found 2026-08-10: the nightly timer fired at
+            # 02:00 UTC, still inside the ~4-4.5hr post-restart IBKR outage window, and
+            # got logged as "nightly_backfill.success".
+            _finish("failed", "Backfill FAILED — could not connect to IBKR. See error above.", 1)
+            return
 
-    total_bars, fetch_errors, skipped_symbols = asyncio.run(_run_fetch_stage())
-    if total_bars == -1:
-        # IBKR connect failed before any fetch was attempted. A bare `return` here
-        # exits 0 (main() is called plainly, not via sys.exit(main())) -- the nightly
-        # wrapper and backfill_retry_loop.sh both read that as success even though
-        # zero bars were fetched. Found 2026-08-10: the nightly timer fired at
-        # 02:00 UTC, still inside the ~4-4.5hr post-restart IBKR outage window, and
-        # got logged as "nightly_backfill.success".
-        _finish("failed", "Backfill FAILED — could not connect to IBKR. See error above.", 1)
-        return
-
-    n_requested = len(contracts)
-    n_skipped = len(skipped_symbols)
-    print(f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n")
-    print(
-        f"  Provider head floor applied to {n_head_floored} symbol/tf(s); provider-verified "
-        f"empty history skipped for {n_empty_history_skipped}\n"
-    )
-    if skipped_symbols:
+        n_requested = len(contracts)
+        n_skipped = len(skipped_symbols)
         print(
-            f"{n_skipped}/{n_requested} symbols skipped outright "
-            f"(IBKR reconnect or qualify failure): {skipped_symbols}\n"
+            f"\nStage 1 complete: {total_bars:,} total bars stored, {fetch_errors} fetch error(s)\n"
         )
-    # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete." when
-    # real fetch errors occurred — that string is exactly what backfill_retry_loop.sh
-    # greps for to decide the run was clean. A nonzero exit here makes the retry loop
-    # correctly treat this as incomplete and try again, instead of declaring victory
-    # over silent holes.
-    if fetch_errors > 0:
+        print(
+            f"  Provider head floor applied to {n_head_floored} symbol/tf(s); provider-verified "
+            f"empty history skipped for {n_empty_history_skipped}\n"
+        )
+        if skipped_symbols:
+            print(
+                f"{n_skipped}/{n_requested} symbols skipped outright "
+                f"(IBKR reconnect or qualify failure): {skipped_symbols}\n"
+            )
+        # [rca_analysis 2026-07-05, F5] Don't silently print "Backfill complete." when
+        # real fetch errors occurred — that string is exactly what backfill_retry_loop.sh
+        # greps for to decide the run was clean. A nonzero exit here makes the retry loop
+        # correctly treat this as incomplete and try again, instead of declaring victory
+        # over silent holes.
+        if fetch_errors > 0:
+            _finish(
+                "partial",
+                f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
+                "not declaring complete. See error lines above.",
+                1,
+            )
+            return
+
+        _finish("success", "\nBackfill complete.", None)
+    except LeaseTimeout as error:
+        # A checkpoint re-acquire (yielding to a waiter) can also time out.
         _finish(
-            "partial",
-            f"Backfill FINISHED WITH {fetch_errors} FETCH ERROR(S) — "
-            "not declaring complete. See error lines above.",
-            1,
+            "failed_lease_timeout",
+            f"Backfill FAILED — lost the {IBKR_HISTORY_LEASE} lease and could not "
+            f"re-acquire it within its wait bound: {error}",
+            EXIT_LEASE_TIMEOUT,
         )
         return
-
-    _finish("success", "\nBackfill complete.", None)
+    finally:
+        # Best effort: a symbol that died mid-fetch may have left buffered rows.
+        # Flushes are otherwise exactly once per symbol (D-05); this one only
+        # fires when pending rows exist.
+        if sink.pending():
+            try:
+                _flush_capture(sink, settings)
+            except Exception as error:  # noqa: BLE001 - never mask the primary failure
+                print(f"  (final D1 flush failed: {error})")
+        lease.release()
+        lease.close()
+        sink_conn.close()
 
 
 if __name__ == "__main__":
