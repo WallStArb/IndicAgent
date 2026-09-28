@@ -14,6 +14,10 @@ source: phase 183 session council review of the unified design against the resea
    and is the bit-identity check every research change runs, and the seed of the design's
    `determinism` tool (12.1). Promote it (and what it imports from that directory) into the
    research package or a tools module first; the deletion plan must list it.
+
+   Progress: 2026-09-28, phase 186-03: promoted to
+   `scripts/research/determinism/repro_frozen.py`; bit-identical on phase 179 S3 and phase 181
+   S2/S3 (commit dc1985fc1); the sleeve directory deletion (186-16, 186-29) no longer blocks it.
 2. **One source for E17 memory.** Phase 186's kernel registry declares each feature's memory.
    For feature members, that declared memory is `PredictorSource.memory`; with
    `Combiner.training_rows` (exists) and a `HorizonRule.reach` (kappa weight below 1e-3), one
