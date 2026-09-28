@@ -55,7 +55,9 @@ case "$CHECK" in
         # research/ is the research DAG library (panels, specs, ledger, statistics), not
         # plugin code: like statistics/, its classes are data and computation types that the
         # plugin suffix taxonomy does not describe (Panel, RidgeSpec, PostgresLedger).
-        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*) continue ;;
+        # bars/ (phase 185) is the same kind of pure Ring 1 library (ScrubParams,
+        # SymbolBars, BarFlag), not plugin code.
+        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
       FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
