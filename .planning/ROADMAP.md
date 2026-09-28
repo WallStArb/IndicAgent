@@ -265,6 +265,10 @@ Plans:
   `scripts/research/determinism/` (remapping unpickler, no old-chain imports), bit-identical on
   phase 179 S3 and phase 181 S2/S3 with the shim module blocked; todo 448 item 1 noted; merged
   2026-09-28 (`c3ce3a9d7`)
+- [x] 186-04 helper promotion: compute-eligibility audit to scripts/infrastructure (onboarding
+  promote step and APR test repointed), date panel + pre-registered cost band + two-pass
+  feature-matrix fetch to scripts/research/ (forward_returns join dropped, caller-supplied keep
+  mask); 186-16's scripts/analysis deletion unblocked; merged 2026-09-28 (`70b68f4b9`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
