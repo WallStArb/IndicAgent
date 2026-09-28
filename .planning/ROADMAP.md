@@ -269,6 +269,11 @@ Plans:
   promote step and APR test repointed), date panel + pre-registered cost band + two-pass
   feature-matrix fetch to scripts/research/ (forward_returns join dropped, caller-supplied keep
   mask); 186-16's scripts/analysis deletion unblocked; merged 2026-09-28 (`70b68f4b9`)
+- [x] 186-05 database hygiene: duplicate `market_regimes` index dropped (migrations 384-385;
+  EXPLAIN-proofed on the PK), PK inventory for all 11 no-PK tables (7 PKs added,
+  `drift_monitor` dropped, `market_data_ohlcv` recorded unique-index equivalent, A1 confirmed),
+  D-38 baseline JSON + read-only script committed; work_mem drift cause proven (container
+  predates the 64MB compose edit, never recreated); merged 2026-09-28 (`a6dd8ea98`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
