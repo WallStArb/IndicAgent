@@ -13,8 +13,8 @@ literal dict, never from argv text reaching SQL (same structural pattern Plan 06
 `_ACTIVE_CONTRACTS_DIMENSION_CLAUSES`): a caller-supplied string indexes into
 `_DIMENSION_CONFIG`, which is the only place either the column name or the predicate SQL is
 named. Both predicates are imported verbatim from
-`scripts.analysis.instrument_compute_eligibility_audit` -- never retyped -- because both
-halves of each predicate (the `backfill_status` bookkeeping count AND the
+`scripts.infrastructure.instrument_compute_eligibility_audit` -- never retyped -- because
+both halves of each predicate (the `backfill_status` bookkeeping count AND the
 `market_data_ohlcv_tradeable` ground-truth count) are counted aggregates, and a hand-written
 `EXISTS (...)` would silently degrade to "at least one timeframe complete."
 """
@@ -31,12 +31,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import psycopg  # noqa: E402
 import structlog  # noqa: E402
 
-from scripts.analysis.instrument_compute_eligibility_audit import (  # noqa: E402
+from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
+from scripts.infrastructure.instrument_compute_eligibility_audit import (  # noqa: E402
     COMPUTE_READY_1D_PREDICATE_SQL,
     COMPUTE_READY_PREDICATE_SQL,
     load_compute_timeframes,
 )
-from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
@@ -59,7 +59,7 @@ class _DimensionConfig(NamedTuple):
 # column name from argv directly. `compute` binds COMPUTE_READY_PREDICATE_SQL's
 # %(timeframes)s placeholder to the APR compute stack (feature.factory.target_timeframes);
 # `compute_1d`'s predicate has '1d' baked in as a literal (see
-# instrument_compute_eligibility_audit.py) and needs no binding.
+# scripts/infrastructure/instrument_compute_eligibility_audit.py) and needs no binding.
 _DIMENSION_CONFIG: dict[str, _DimensionConfig] = {
     "compute": _DimensionConfig(
         column="compute_eligible",

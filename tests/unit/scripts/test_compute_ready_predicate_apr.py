@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.analysis.instrument_compute_eligibility_audit import (
+from scripts.infrastructure.instrument_compute_eligibility_audit import (
     COMPUTE_READY_PREDICATE_SQL,
     load_compute_timeframes,
 )
