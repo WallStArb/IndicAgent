@@ -71,10 +71,6 @@ def _walk(n: int, seed: int, sigma: float = 0.01) -> np.ndarray:
     return np.round(100.0 * np.exp(np.cumsum(rng.normal(0.0, sigma, n))), 2)
 
 
-def _flags(result, rule: str) -> list[int]:
-    return sorted(f.index for f in result.flags if f.rule == rule)
-
-
 # ---------------------------------------------------------------------------
 # from_apr
 # ---------------------------------------------------------------------------
