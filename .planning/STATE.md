@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-28T00:49:26.887Z"
+last_updated: "2026-09-28T01:05:57.902Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 14
+  completed_plans: 15
   percent: 17
 ---
 
@@ -59,9 +59,11 @@ bullets with current facts.
   scope, 185-10 scrub-input reader fence). Executing since 2026-09-27: plans 185-01 (measurements `757e4f04b`) and 185-02 (D1 store,
   migration 380, COPY writers `f3d584789`/`1e3477de6`) complete; the tests/integration/ rebuild
   was repaired along the way (`c19bcb545`, baseline bump 2026-09-27; it had been broken since
-  migration 322). Wave 1 continues with 185-03/04 inline in the orchestrator session
-  (owner-directed 2026-09-27; hardening `5a576dc0a` on top of 02: sinks refuse naive
-  bar timestamps).
+  migration 322). Wave 1 executed inline in the orchestrator session (owner-directed
+  2026-09-27; hardening `5a576dc0a` on top of 02: sinks refuse naive bar timestamps):
+  185-03 (RequestRecord + callbacks `05516a18c`/`567badfad`) and 185-04 (migration 381
+  applied live, quarantine anti-join, bar_derivation_batch helper `52a697f73`..`fab80260c`)
+  complete; wave gate pending.
   Plan 09 builds the lease and cuts the running todo 449 chain over to it, so the chain yields to
   the nightly and to 185's fetch campaigns (clients 47-49) at every (symbol, tf) unit. Plans 10,
   14, 15 and 16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans
