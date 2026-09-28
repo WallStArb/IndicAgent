@@ -46,15 +46,16 @@ _ALLOW_LIST: dict[str, str] = {
         "and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "TEMPORARY (1d, 15m, 1h): the historical backfill still writes provider bars at "
-        "every timeframe directly; plan 18's backfill rework restricts it to the raw "
-        "ingestion lane. PERMANENT (5m, 1m): 5m and 1m remain raw provider observations "
-        "under the unified design -- the derivation never rewrites them (D-15)."
+        "TEMPORARY (1d): the historical backfill still writes provider 1d bars directly; "
+        "retired by plan 18's backfill rework. TEMPORARY (15m, 1h): provider bars at "
+        "derived timeframes; retired at plan 12's grid cutover. PERMANENT (5m, 1m): raw "
+        "provider observations the derivation never rewrites (D-15)."
     ),
     "services/backfill_feature_factory.py": (
         "TEMPORARY (1d, 15m, 1h): feature-factory backfill writes provider bars at "
-        "derived timeframes; retired by plan 18's backfill rework. PERMANENT (5m, 1m): "
-        "raw provider observations the derivation never rewrites (D-15)."
+        "these timeframes; retired by plan 18's backfill rework. PERMANENT (5m, 1m): "
+        "its --fetch-only stage survives the phase 186 rebuild per 186-06/186-25; only "
+        "the raw 5m/1m fetch remains, and the derivation never rewrites those (D-15)."
     ),
     "services/bar_writer.py": (
         "TEMPORARY: the streaming-path bar writer persists provider bars for the live "
