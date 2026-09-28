@@ -118,18 +118,16 @@ def evaluate_name(
     max_volume_days = 0
     for day, smart in smart_close.items():
         listing_bar = listing_bars.get(day)
-        if _valid_volume(listing_bar[1] if listing_bar is not None else None):
-            loudest_other = max(
-                (
-                    bar[1]
-                    for route, series in venue_bars.items()
-                    if route != venue
-                    for bar in (series.get(day),)
-                    if bar is not None and _valid_volume(bar[1])
-                ),
-                default=0.0,
-            )
-            if listing_bar is not None and listing_bar[1] > loudest_other:
+        listing_volume = listing_bar[1] if listing_bar is not None else None
+        if _valid_volume(listing_volume):
+            other_volumes = [
+                bar[1]
+                for route, series in venue_bars.items()
+                if route != venue
+                for bar in (series.get(day),)
+                if bar is not None and _valid_volume(bar[1])
+            ]
+            if listing_volume > max(other_volumes, default=0.0):
                 max_volume_days += 1
         for route, series in venue_bars.items():
             bar = series.get(day)
