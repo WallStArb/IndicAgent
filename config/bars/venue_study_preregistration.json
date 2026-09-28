@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "registered_at": "2026-09-28T02:17:04Z",
+  "rationale": "Pre-registered before any study data was fetched or seen: every threshold below was fixed from the D-17 decision text alone, so the study cannot be tuned to its own results. D-17's 'the listing venue has the most volume on nearly every day' is read as at least 95 percent of the name's days, and 'only its closes match SMART's' as at least 98 percent of days for the listing venue while every other venue matches on at most half the days; each criterion needs 90 percent of the selected names to pass. Close match tolerance is one cent absolute or five basis points of the SMART close, whichever is larger, sized to IBKR's cent-rounded closes rather than to any observed disagreement. The study plan (185 phase, plan 13) refuses to fetch if this file's last commit postdates the first study request.",
+  "selection": {
+    "listing_venues": ["NYSE", "ISLAND", "ARCA"],
+    "per_venue_names": 12,
+    "min_names": 30,
+    "min_per_venue": 8,
+    "eligibility": "equity, compute_eligible_1d, first 1d bar on or before 2006-11-01 (not a moved name), primaryExchange from IBKR contract qualification equals the venue",
+    "seed": 185017,
+    "order": "sha256(seed||symbol) ascending"
+  },
+  "windows": {
+    "daily_sessions": 504,
+    "intraday_5m_sessions": 20
+  },
+  "routes": ["SMART", "NYSE", "ARCA", "ISLAND", "AMEX", "BATS"],
+  "criterion_a": {
+    "listing_max_volume_share_per_name": 0.95,
+    "share_of_names_passing": 0.9
+  },
+  "criterion_b": {
+    "close_tolerance_abs": 0.01,
+    "close_tolerance_rel": 0.0005,
+    "listing_match_share_per_name": 0.98,
+    "non_listing_match_share_max": 0.5,
+    "share_of_names_passing": 0.9
+  },
+  "verdict": "passed = criterion_a_pass and criterion_b_pass, judged separately for 1d and 5m",
+  "effect": "1d pass sets infra.bar_derivation.venue_bars_1d true; 5m pass sets infra.bar_derivation.venue_bars_intraday true; failure leaves venue bars stored and unused (D-17)"
+}
