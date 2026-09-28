@@ -106,6 +106,21 @@ def test_compare_settings_reports_absent_key_as_unknown():
     assert [e["status"] for e in entries] == ["unknown"]
 
 
+def test_compare_settings_interprets_bare_compose_number_in_native_unit():
+    # wal_buffers=8192 in a compose command means 8192 x 8kB (Postgres -c
+    # semantics), so it matches a running setting of ("8192", "8kB").
+    running = {
+        "wal_buffers": {
+            "setting": "8192",
+            "unit": "8kB",
+            "source": "command line",
+            "sourcefile": None,
+        }
+    }
+    entries = compare_settings({"wal_buffers": "8192"}, running)
+    assert [e["status"] for e in entries] == ["match"]
+
+
 def test_normalize_setting_bytes_returns_none_for_non_memory():
     assert normalize_setting_bytes("200", "") is None  # max_connections
     assert normalize_setting_bytes("posix", "") is None  # dynamic_shared_memory_type

@@ -178,6 +178,16 @@ def compare_settings(
             continue
         compose_bytes = normalize_setting_bytes(compose_value, "")
         running_bytes = normalize_setting_bytes(row["setting"], row["unit"])
+        if compose_bytes is None and running_bytes is not None:
+            # Postgres -c semantics: a bare number in the config takes the
+            # setting's native unit (wal_buffers=8192 means 8192 x 8kB).
+            try:
+                bare = float(compose_value)
+                factor = _UNIT_FACTORS.get(row["unit"] or "")
+                if factor and bare == int(bare):
+                    compose_bytes = int(bare) * factor
+            except (TypeError, ValueError):
+                pass
         if compose_bytes is not None and running_bytes is not None:
             equal = compose_bytes == running_bytes
             running_display = _format_bytes(running_bytes)
@@ -201,11 +211,14 @@ def compare_settings(
     return entries
 
 
-def _fetch_settings(cur) -> dict[str, dict[str, Any]]:
+def _fetch_settings(cur, names: set[str]) -> dict[str, dict[str, Any]]:
+    # Fetch the tracked settings plus every compose -c key, so a compose-tracked
+    # setting is only reported "unknown" when it is genuinely absent from
+    # pg_settings (e.g. a typo'd compose key), never because the fetch skipped it.
     cur.execute(
         "SELECT name, setting, unit, source, sourcefile, pending_restart "
         "FROM pg_settings WHERE name = ANY(%s) ORDER BY name",
-        (list(_TRACKED_SETTINGS),),
+        (sorted(names),),
     )
     return {
         row[0]: {
@@ -334,9 +347,11 @@ def main() -> None:
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     compose = parse_compose_command_settings(args.compose)
 
+    fetch_names = set(_TRACKED_SETTINGS) | {k for k in compose if not k.startswith("__")}
+
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
-            pg_settings = _fetch_settings(cur)
+            pg_settings = _fetch_settings(cur, fetch_names)
             role_db = _fetch_role_database_settings(cur)
             database = _fetch_database_stats(cur)
             top_temp = _fetch_top_temp_statements(cur, args.top)
