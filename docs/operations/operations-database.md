@@ -54,6 +54,46 @@ TimescaleDB operations: tables, migrations, backfill, compression, backup, and a
 
 ---
 
+## Primary key inventory (D-37, phase 186)
+
+Rule: **every new table carries a primary key**. On hypertables the PK must include
+the time (partition) column; Timescale 2.27.1 cannot convert an existing index into
+a constraint on a hypertable (`ADD CONSTRAINT ... USING INDEX` errors with
+"hypertables do not support adding a constraint using an existing index"), so a
+declared PK has to be planned at table creation, not retrofitted cheaply. A UNIQUE
+index over all-NOT-NULL columns including the time column is functionally
+equivalent (dedup, `ON CONFLICT` resolution) and is the one standing exception:
+
+- `market_data_ohlcv` — `market_data_ohlcv_pkey_idx` UNIQUE ("timestamp", symbol,
+  timeframe), all columns NOT NULL, includes the partition column. Declared the
+  recorded PK-equivalent exception (design 14.5, migration 193's verified-working
+  form; converting the 674M-row compressed hypertable is not worth a second
+  full-size blocking rebuild).
+
+Inventory taken 2026-09-28 (migration 385): every public table then lacking a PK,
+and its disposition.
+
+| Table | Disposition |
+|---|---|
+| `ctx_events` | Dropped by 186-11 (owner of the writer) |
+| `feature_ic_scores_history` | Dropped by 186-22 (old chain) |
+| `market_data_ohlcv` | Kept: unique-index PK equivalent (exception above) |
+| `dlq_events` | `PRIMARY KEY (id, routed_at)`; `dlq_events_dedup_idx` remains the `ON CONFLICT` target |
+| `integrity_monitor` | `PRIMARY KEY (id, evaluated_at)`; expression unique index remains the `ON CONFLICT` target |
+| `drift_monitor` | Dropped (migration 385): empty, no code writer or reader |
+| `alpha_multiplier_shadow` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
+| `service_health_events` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
+| `signal_lineage` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
+| `signal_transform_log` | `id` IDENTITY + `PRIMARY KEY (id, ts)` |
+| `transform_graduation` | `PRIMARY KEY (transform_id, transform_version, segment_key)` replacing the former unique constraint |
+
+Adding a column with a default (the identity `id`) cannot break writers because
+every INSERT into these tables names its columns (verified by grep before the
+migration). A surrogate `(id, time)` PK is unique by construction: the sequence
+makes `id` distinct even for identical logical rows.
+
+---
+
 ## Connection
 
 ```bash
@@ -130,7 +170,7 @@ python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --c
 python scripts/infrastructure/backfill/infrastructure_reset_pipeline_data.py --confirm --workers 8
 ```
 
-**Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_monitor`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. Shadow registry enrollment kept; eval stats reset.
+**Tables wiped** (bar data preserved): `intelligence_features`, `signal_ledger`, `signal_outcomes`, `signal_lineage`, `signal_transform_log`, `signal_metrics*`, `signal_ai_enrichment`, `macro_features`, `llm_calls`, `llm_model_scores`, `setup_performance`, `swarm_agent_weights`, `cis_weights`, `tod_multipliers`, `confidence_calibration`, `calibration_curves`, `drift_state`, `pattern_reliability`, `transform_graduation`, `ml_discovery_runs`, `memory_*`. (`drift_monitor` was dropped 2026-09-28, migration 385 — empty, no code writer.) Shadow registry enrollment kept; eval stats reset.
 
 ### Lifecycle replay (lifecycle_replay.py)
 
