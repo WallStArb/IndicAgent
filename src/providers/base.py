@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -182,6 +182,37 @@ class EmptyHistory:
     empty_through: datetime
     n_confirming_chunks: int
     reached_request_start: bool
+
+
+@dataclass(frozen=True)
+class RequestRecord:
+    """One provider historical-data request and how it was answered (phase 185 D-05).
+
+    The capture half of D1: the provider reports every request it makes (SMART walk
+    chunks, venue-routed requests, back-from-now requests) through on_request, and
+    every bar any route answers through on_observation, without touching a database.
+    Fields mirror one ohlcv_request row except caller and source, which are sink-level
+    facts the campaign supplies. Route is "SMART" or the venue exchange code the
+    request was routed to; ib_req_id is IBKR's reqId when the answer carried one.
+    """
+
+    request_id: str
+    fetch_run_id: str
+    symbol: str
+    timeframe: str
+    route: str
+    what_to_show: str
+    primary_exchange: str | None
+    window_start: datetime | None
+    window_end: datetime
+    ib_req_id: int | None
+    outcome: Literal["bars", "no_data", "timeout", "failed"]
+    error_code: int | None
+    error_text: str | None
+    n_bars: int
+    client_id: int | None
+    requested_at: datetime
+    answered_at: datetime
 
 
 class SubscriptionLimitError(Exception):

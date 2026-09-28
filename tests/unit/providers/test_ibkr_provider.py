@@ -642,3 +642,251 @@ class TestPreMoveHistory:
         assert bars == [] and reports == []
         assert asked == ["SMART"]
         assert provider.last_fetch_failed_chunks == 1
+
+
+class TestRequestRecord:
+    """Plan 185-03: every IBKR historical request reports exactly one RequestRecord
+    through on_request, and every bar any route answers reaches on_observation, so
+    verify-only venue walks stop discarding the moved-name inventory (D-05, D-16)."""
+
+    START = datetime(2010, 1, 1, tzinfo=UTC)
+    END = datetime(2026, 1, 30, tzinfo=UTC)
+
+    @staticmethod
+    def _bars(first, n, volume=1000):
+        out = []
+        for i in range(n):
+            bar = MagicMock()
+            bar.date = first.replace(tzinfo=UTC) + timedelta(days=i)
+            bar.open, bar.high, bar.low, bar.close, bar.volume = 1.0, 1.0, 1.0, 1.0, volume
+            out.append(bar)
+        return out
+
+    async def _fetch_records(
+        self,
+        provider,
+        mock_ib,
+        answers,
+        *,
+        timeframe="1d",
+        primary="",
+        store=True,
+        route=None,
+        fetch_run_id=None,
+        smart_sequence=None,
+        raise_on=(),
+        with_empty_history=True,
+    ):
+        """Like TestPreMoveHistory._fetch, but collects on_request records and
+        on_observation pairs. answers: routed exchange -> bars | "no_data" |
+        "timeout"; smart_sequence (when given) pops per SMART call instead;
+        raise_on: exchanges whose every call raises RuntimeError."""
+        from ib_async import BarDataList, Stock
+
+        ibkr_module._no_data_req_ids.clear()
+        asked: list[str] = []
+        req = {"n": 0}
+
+        def _tag(result):
+            req["n"] += 1
+            result.reqId = 92000 + req["n"]
+            return result
+
+        async def fake_req(contract, **kwargs):
+            asked.append(contract.exchange)
+            if contract.exchange in raise_on:
+                raise RuntimeError("boom from gateway")
+            if contract.exchange == "SMART" and smart_sequence is not None:
+                return _tag(smart_sequence.pop(0))
+            answer = answers.get(contract.exchange, "no_data")
+            if answer == "timeout":
+                raise TimeoutError
+            if answer == "no_data":
+                result = BarDataList()
+                _tag(result)
+                ibkr_module._no_data_req_ids.add(result.reqId)
+                return result
+            return _tag(answer)
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        contract = Stock("XYZ", "SMART", "USD", primaryExchange=primary)
+        contract.secType = "STK"
+        provider._qualified_contracts["XYZ"] = contract
+        records, observations, persisted, reports = [], [], [], []
+
+        async def on_chunk(bars):
+            persisted.extend(bars)
+
+        kwargs = {}
+        if route is not None:
+            kwargs["route"] = route
+        if fetch_run_id is not None:
+            kwargs["fetch_run_id"] = fetch_run_id
+        with (
+            patch.object(ibkr_module, "_RETRY_COUNT", 1),
+            patch.object(ibkr_module, "_RETRY_BACKOFF_BASE_S", 0),
+            patch.object(ibkr_module, "_VENUE_FALLBACK_STORE_BARS", store),
+        ):
+            bars = await provider.fetch_historical_bars(
+                "XYZ",
+                timeframe,
+                self.START,
+                self.END,
+                on_chunk=on_chunk,
+                on_empty_history=reports.append if with_empty_history else None,
+                on_request=records.append,
+                on_observation=lambda record, obs: observations.append((record, list(obs))),
+                **kwargs,
+            )
+        ibkr_module._no_data_req_ids.clear()
+        return records, observations, bars, asked, persisted, reports
+
+    @pytest.mark.asyncio
+    async def test_request_record_one_per_smart_chunk(self, provider, mock_ib):
+        first = self._bars(datetime(2024, 1, 16, tzinfo=UTC), 3)
+        second = self._bars(datetime(2024, 1, 6, tzinfo=UTC), 5)
+        with patch.object(ibkr_module, "_MAX_CHUNK_DAYS", {"1d": 10}):
+            records, _, bars, asked, _, _ = await self._fetch_records(
+                provider,
+                mock_ib,
+                {},
+                smart_sequence=[first, second],
+                fetch_run_id="run-42",
+                with_empty_history=False,
+            )
+        assert asked == ["SMART", "SMART"]
+        assert [r.n_bars for r in records] == [3, 5]
+        assert all(r.route == "SMART" and r.outcome == "bars" for r in records)
+        assert all(r.timeframe == "1d" and r.symbol == "XYZ" for r in records)
+        assert all(r.what_to_show == "TRADES" for r in records)
+        assert {r.fetch_run_id for r in records} == {"run-42"}
+        assert records[0].window_end == datetime(2024, 1, 25, tzinfo=UTC)
+        assert len(bars) == 8
+
+    @pytest.mark.asyncio
+    async def test_request_record_one_per_venue(self, provider, mock_ib):
+        smart = self._bars(datetime(2018, 9, 10), 5, 1000)
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        records, observations, _, asked, _, _ = await self._fetch_records(
+            provider,
+            mock_ib,
+            {"SMART": smart, "NYSE": nyse, "ARCA": "no_data", "ISLAND": "timeout"},
+            fetch_run_id="run-7",
+        )
+        assert set(asked) == {"SMART", "NYSE", "ARCA", "ISLAND", "AMEX", "BATS"}
+        assert len(records) == len(set(asked))  # exactly one record per request
+        by_route = {r.route: r for r in records}
+        assert by_route["SMART"].outcome == "bars" and by_route["SMART"].n_bars == 5
+        assert by_route["NYSE"].outcome == "bars" and by_route["NYSE"].n_bars == 4
+        assert by_route["ARCA"].outcome == "no_data" and by_route["ARCA"].n_bars == 0
+        assert by_route["ARCA"].ib_req_id is not None
+        assert by_route["ISLAND"].outcome == "timeout"
+        assert by_route["AMEX"].outcome == "no_data" and by_route["BATS"].outcome == "no_data"
+        assert {r.fetch_run_id for r in records} == {"run-7"}
+        observed_routes = {record.route for record, _ in observations}
+        assert {"SMART", "NYSE"} <= observed_routes  # every bars outcome is observed
+
+    @pytest.mark.asyncio
+    async def test_request_record_venue_bars_reach_on_observation_when_store_false(
+        self, provider, mock_ib
+    ):
+        from src.core.bar_normalizer import SOURCE_IBKR_VENUE
+
+        smart = self._bars(datetime(2018, 9, 10), 5, 1000)
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        records, observations, bars, _, persisted, _ = await self._fetch_records(
+            provider, mock_ib, {"SMART": smart, "NYSE": nyse}, store=False
+        )
+        nyse_obs = [obs for record, obs in observations if record.route == "NYSE"]
+        assert len(nyse_obs) == 1 and len(nyse_obs[0]) == 4  # captured despite the discard
+        assert all(b.source != SOURCE_IBKR_VENUE for b in bars)  # not returned
+        assert all(b.source != SOURCE_IBKR_VENUE for b in persisted)  # not persisted
+        assert any(r.route == "NYSE" and r.outcome == "bars" for r in records)
+        assert len(records) == 6  # SMART + five venues, one record each
+
+    @pytest.mark.asyncio
+    async def test_request_record_failed_after_retries(self, provider, mock_ib):
+        with patch.object(ibkr_module, "_RETRY_COUNT", 2):
+            records, _, bars, asked, _, _ = await self._fetch_records(
+                provider, mock_ib, {}, raise_on=("SMART",), with_empty_history=False
+            )
+        assert asked == ["SMART"]
+        (record,) = records
+        assert record.outcome == "failed"
+        assert "RuntimeError" in (record.error_text or "") and "boom" in (record.error_text or "")
+        assert record.n_bars == 0 and record.route == "SMART"
+        assert bars == []
+        assert provider.last_fetch_failed_chunks == 1
+
+    @pytest.mark.asyncio
+    async def test_request_record_adjusted_last_and_trades_pair(self, provider, mock_ib):
+        from ib_async import Stock
+
+        answer = self._bars(datetime(2024, 1, 2), 2)
+        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=answer)
+        provider._ib = mock_ib
+        contract = Stock("XYZ", "SMART", "USD", primaryExchange="NASDAQ")
+        contract.secType = "STK"
+        provider._qualified_contracts["XYZ"] = contract
+        records = []
+        closes_a, err_a = await provider.fetch_adjusted_daily_closes(
+            "XYZ", 2, on_request=records.append, fetch_run_id="run-adj"
+        )
+        closes_t, err_t = await provider.fetch_adjusted_daily_closes(
+            "XYZ", 2, on_request=records.append, fetch_run_id="run-adj", what_to_show="TRADES"
+        )
+        assert err_a is None and err_t is None and closes_a and closes_t
+        assert [r.what_to_show for r in records] == ["ADJUSTED_LAST", "TRADES"]
+        assert {r.fetch_run_id for r in records} == {"run-adj"}
+        assert all(r.outcome == "bars" and r.timeframe == "1d" for r in records)
+
+    @pytest.mark.asyncio
+    async def test_request_record_explicit_route(self, provider, mock_ib):
+        from src.core.bar_normalizer import SOURCE_IBKR_VENUE
+
+        arca = self._bars(datetime(2012, 1, 3), 4, 400)
+        records, observations, bars, asked, _, _ = await self._fetch_records(
+            provider, mock_ib, {"ARCA": arca}, route="ARCA", primary="NASDAQ"
+        )
+        assert asked == ["ARCA"]  # venue-routed: no SMART request, no fallback walk
+        assert records and all(r.route == "ARCA" and r.outcome == "bars" for r in records)
+        assert all(b.source == SOURCE_IBKR_VENUE for b in bars)
+        assert [record.route for record, _ in observations] == ["ARCA"]
+
+    @pytest.mark.asyncio
+    async def test_request_record_no_callbacks_unchanged(self, provider, mock_ib):
+        """With no callbacks the fetch behaves exactly as before (truth 3)."""
+        smart = self._bars(datetime(2010, 1, 4), 5, 1000)
+        from ib_async import Stock
+
+        ibkr_module._no_data_req_ids.clear()
+        asked: list[str] = []
+
+        async def fake_req(contract, **kwargs):
+            asked.append(contract.exchange)
+            return smart
+
+        mock_ib.reqHistoricalDataAsync = AsyncMock(side_effect=fake_req)
+        provider._ib = mock_ib
+        contract = Stock("XYZ", "SMART", "USD", primaryExchange="NASDAQ")
+        contract.secType = "STK"
+        provider._qualified_contracts["XYZ"] = contract
+        persisted, reports = [], []
+
+        async def on_chunk(bars):
+            persisted.extend(bars)
+
+        with patch.object(ibkr_module, "_RETRY_COUNT", 1):
+            bars = await provider.fetch_historical_bars(
+                "XYZ",
+                "1d",
+                self.START,
+                self.END,
+                on_chunk=on_chunk,
+                on_empty_history=reports.append,
+            )
+        ibkr_module._no_data_req_ids.clear()
+        assert len(bars) == 5 and persisted == bars
+        assert reports == []
+        assert asked == ["SMART"]  # history covers the request start; no venue walk
