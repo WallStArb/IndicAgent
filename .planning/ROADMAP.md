@@ -181,7 +181,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
+- [x] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
 - [ ] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
 - [ ] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
 - [ ] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
