@@ -28,3 +28,11 @@ The `alpha_publisher` instance of the duplicated chunk-flush pattern goes away w
 ## Refactor map (2026-09-26)
 
 Folded into refactor map item 3 of the adopted unified design (section 14.6), scoped into phase 186: the duplicated chunk-accumulate-flush pattern is replaced by the single bulk-load primitive.
+
+## Closed 2026-09-28 (phase 186 plan 06)
+
+`bulk_load()` streams rows by COPY without materializing the iterable (commit
+`98bdcc466`): accumulate-and-flush no longer exists for new writers, so no
+`chunked_executemany` helper is needed. Call-site dispositions: the `alpha_publisher`,
+`alpha_frame_writer` and `counterfactual_tracker` instances are deleted in 186-19 with
+the rest of the old ensemble chain; no live instance is converted.

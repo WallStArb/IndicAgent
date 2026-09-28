@@ -59,3 +59,15 @@ fixing it, not the urgency to rush it now.
 ## Refactor map (2026-09-26)
 
 Folded into refactor map item 3 of the adopted unified design (section 14.6), scoped into phase 186: the shared write-isolation helper becomes part of the single bulk-load primitive.
+
+## Closed 2026-09-28 (phase 186 plan 06)
+
+The per-unit failure isolation now lives in `bulk_load()` (commit `98bdcc466`): on any
+failure the data transaction rolls back, the provenance row is marked failed with the
+error text in its own commit, the original exception re-raises, and the next run with
+the same identity takes the row over (attempts incremented). Call-site dispositions:
+
+- `backfill_feature_factory.py`'s per-cell loop is replaced in 186-25 when its feature
+  write moves onto `bulk_load`.
+- `regime_writer.py`'s two inline copies go with the regime-as-kernel change
+  (186-13/186-18, R-10), not converted here.
