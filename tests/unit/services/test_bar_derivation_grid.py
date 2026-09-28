@@ -24,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
-from structlog.testing import capture_logs
 
 from services.bar_derivation import BarDerivation
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
@@ -69,9 +68,19 @@ def _fixture_arrays(rows: list[tuple], drop: frozenset[int] = frozenset()):
     )
 
 
-def _expected_month_digests(rows: list[tuple], drop: frozenset[int] = frozenset()):
-    """(range_start -> digest, range_start -> n_rows) computed directly from the fixture."""
+def _expected_month_digests(
+    rows: list[tuple],
+    drop: frozenset[int] = frozenset(),
+    rules: dict[int, tuple[str, ...]] | None = None,
+):
+    """(range_start -> digest, range_start -> n_rows) computed directly from the fixture.
+
+    ``rules`` maps fixture index -> that bar's informational flag rules, mirroring
+    the digest input contract: values plus flag state of the kept bars.
+    """
+    rules = rules or {}
     ts, o, h, lo, c, v, _ = _fixture_arrays(rows, drop)
+    kept_rules = [rules.get(i, ()) for i in range(len(rows)) if i not in drop]
     out: dict[datetime, tuple[str, int]] = {}
     for start, end in month_ranges(ts):
         mask = (ts >= int(start.timestamp())) & (ts < int(end.timestamp()))
@@ -82,7 +91,7 @@ def _expected_month_digests(rows: list[tuple], drop: frozenset[int] = frozenset(
             lo[mask],
             c[mask],
             v[mask],
-            [() for _ in range(int(mask.sum()))],
+            [kept_rules[i] for i in np.flatnonzero(mask)],
         )
         out[start] = (digest, int(mask.sum()))
     return out
@@ -128,11 +137,29 @@ class FakeConn:
         if "DISTINCT symbol" in sql:
             return [(symbol,) for symbol in sorted(self.bars)]
         if "market_data_ohlcv_tradeable" in sql:
-            return list(self.bars[str(args[0])])
+            # asyncpg Records are mapping-shaped; the implementation reads by name.
+            return [
+                {
+                    "timestamp": r[0],
+                    "open": r[1],
+                    "high": r[2],
+                    "low": r[3],
+                    "close": r[4],
+                    "volume": r[5],
+                    "base": r[6],
+                }
+                for r in self.bars[str(args[0])]
+            ]
         if "bar_quality_flag" in sql:
-            return list(self.flags.get(str(args[0]), []))
+            return [
+                {"timestamp": t, "rule": rule, "quarantine": q}
+                for t, rule, q in self.flags.get(str(args[0]), [])
+            ]
         if "bar_content_digest_current" in sql:
-            return list(self.current_digests.get(str(args[0]), []))
+            return [
+                {"range_start": start, "digest": digest}
+                for start, digest in self.current_digests.get(str(args[0]), [])
+            ]
         raise AssertionError(f"unexpected fetch: {sql}")
 
     async def fetchrow(self, sql: str, *args: object) -> object:
@@ -157,7 +184,7 @@ class FakeConn:
     async def execute(self, sql: str, *args: object) -> str:
         self.calls.append(("execute", sql))
         self.statements.append((sql, tuple(args)))
-        if sql.startswith("DELETE FROM market_data_ohlcv"):
+        if sql.lstrip().startswith("DELETE FROM market_data_ohlcv"):
             return "DELETE 7"
         return "INSERT 0 5"
 
@@ -186,7 +213,8 @@ class FakePool:
         return self._Acquire(self.conn)
 
 
-def _run(conn: FakeConn, **overrides: object) -> None:
+def _run(conn: FakeConn, **overrides: object) -> dict[str, int]:
+    """Run the grid stage against the fake pool; returns the outcome totals."""
     writer = BarDerivation(
         "postgresql://unused",
         stage="grid",
@@ -195,7 +223,7 @@ def _run(conn: FakeConn, **overrides: object) -> None:
         apply=overrides.pop("apply", True),
         exclude_symbols_file=overrides.pop("exclude_symbols_file", None),
     )
-    asyncio.run(writer.execute(FakePool(conn)))
+    return asyncio.run(writer.execute(FakePool(conn)))
 
 
 def _derived_rows(conn: FakeConn, table: str) -> list[tuple]:
@@ -213,17 +241,12 @@ def _first_index(conn: FakeConn, marker: str, kind: str = "execute") -> int:
     raise AssertionError(f"no {kind} call containing {marker!r}")
 
 
-def _done_totals(records: list[dict]) -> dict[str, int]:
-    events = [r for r in records if r["event"] == "bar_derivation.done"]
-    assert events, "no bar_derivation.done event"
-    return events[0]
-
-
 def test_full_session_derives_grid_in_transaction_order():
-    conn = FakeConn(bars={"SPY": _five_minute_fixture()})
-    with capture_logs() as records:
-        _run(conn)
-    totals = _done_totals(records)
+    fixture = _five_minute_fixture()
+    conn = FakeConn(
+        bars={"SPY": fixture}, flags={"SPY": [(fixture[5][0], "gap_before_next", False)]}
+    )
+    totals = _run(conn)
     assert totals["derived"] == 1 and totals["failed"] == 0
 
     rows_15m = [r for r in _derived_rows(conn, "market_data_ohlcv") if r[2] == "15m"]
@@ -236,16 +259,16 @@ def test_full_session_derives_grid_in_transaction_order():
     # (15:30-16:00 ET, six constituents) from fixture bars 72-77.
     first = rows_15m[0]
     assert first[0] == _SESSION_OPEN
-    assert first[1] == 100.0
-    assert first[2] == pytest.approx(100.0 + 0.05 * 2 + 0.02)
-    assert first[3] == pytest.approx(100.0 - 0.02)
-    assert first[4] == pytest.approx(100.0 + 0.05 * 2 + 0.01)
-    assert first[5] == 1000 + 1001 + 1002
+    assert first[3] == 100.0
+    assert first[4] == pytest.approx(100.0 + 0.05 * 2 + 0.02)
+    assert first[5] == pytest.approx(100.0 - 0.02)
+    assert first[6] == pytest.approx(100.0 + 0.05 * 2 + 0.01)
+    assert first[7] == 1000 + 1001 + 1002
     last_1h = rows_1h[-1]
     assert last_1h[0] == _SESSION_OPEN + timedelta(hours=6)
-    assert last_1h[5] == sum(1000 + i for i in range(72, 78))
+    assert last_1h[7] == sum(1000 + i for i in range(72, 78))
     # D-15 identity: per-day derived 1h volume sums equal the 5m volume sum.
-    assert sum(r[5] for r in rows_1h) == sum(r[5] for r in _five_minute_fixture())
+    assert sum(r[7] for r in rows_1h) == sum(r[5] for r in _five_minute_fixture())
 
     # Transaction order: role, archive INSERT ... SELECT, checksum fetchrow,
     # segment DELETE, derived write, flags, digest rows.
@@ -261,18 +284,18 @@ def test_full_session_derives_grid_in_transaction_order():
     archive_sql = next(
         sql
         for sql, _ in conn.statements
-        if sql.startswith("INSERT INTO ohlcv_intraday_raw_archive")
+        if sql.lstrip().startswith("INSERT INTO ohlcv_intraday_raw_archive")
     )
     assert "source <> 'synthetic_fill'" in archive_sql
     delete_args = next(
-        a for sql, a in conn.statements if sql.startswith("DELETE FROM market_data_ohlcv")
+        a for sql, a in conn.statements if sql.lstrip().startswith("DELETE FROM market_data_ohlcv")
     )
-    assert delete_args[1] == ("15m", "1h")
+    assert list(delete_args[1]) == ["15m", "1h"]
 
     # Digest rows: one per (tf, month) for 5m, 15m and 1h, rule version beside.
     digest_rows = _derived_rows(conn, "bar_content_digest")
     by_tf = {tf: [r for r in digest_rows if r[1] == tf] for tf in ("5m", "15m", "1h")}
-    expected_5m = _expected_month_digests(_five_minute_fixture())
+    expected_5m = _expected_month_digests(_five_minute_fixture(), rules={5: ("gap_before_next",)})
     for tf, n_expected in (("5m", 78), ("15m", 26), ("1h", 7)):
         assert len(by_tf[tf]) == 1
         row = by_tf[tf][0]
@@ -285,7 +308,9 @@ def test_full_session_derives_grid_in_transaction_order():
     # Batch provenance opened and closed (stage grid, rule version recorded).
     opened = [sql for k, sql in conn.calls if k == "fetchval" and "bar_derivation_batch" in sql]
     assert opened and "INSERT INTO bar_derivation_batch" in opened[0]
-    closed = [sql for sql, _ in conn.statements if sql.startswith("UPDATE bar_derivation_batch")]
+    closed = [
+        sql for sql, _ in conn.statements if sql.lstrip().startswith("UPDATE bar_derivation_batch")
+    ]
     assert closed
 
 
@@ -301,20 +326,18 @@ def test_checksum_mismatch_rolls_back_symbol():
             "archived_volume_sum": 5000,
         },
     )
-    with capture_logs() as records, pytest.raises(RuntimeError, match="1 symbol failure"):
+    with pytest.raises(RuntimeError, match="1 symbol failure"):
         _run(conn)
-    totals = _done_totals(records)
-    assert totals["failed"] == 1
     # The segment DELETE never ran: nothing leaves market_data_ohlcv unverified.
-    assert not any(sql.startswith("DELETE FROM market_data_ohlcv") for sql, _ in conn.statements)
+    assert not any(
+        sql.lstrip().startswith("DELETE FROM market_data_ohlcv") for sql, _ in conn.statements
+    )
     assert not _derived_rows(conn, "market_data_ohlcv")
 
 
 def test_symbol_without_5m_is_skipped_without_statements():
     conn = FakeConn(bars={"SPY": _five_minute_fixture(), "NOFIVE": []})
-    with capture_logs() as records:
-        _run(conn, symbols=["SPY", "NOFIVE"])
-    totals = _done_totals(records)
+    totals = _run(conn, symbols=["SPY", "NOFIVE"])
     assert totals["no_5m"] == 1 and totals["derived"] == 1
     assert not any("NOFIVE" in str(a) for _, a in conn.statements)
     assert not any(
@@ -328,12 +351,10 @@ def test_changed_only_skips_symbol_whose_5m_digests_are_current():
         symbol: [(start, digest) for start, (digest, _n) in expected.items()] for symbol in ("SPY",)
     }
     conn = FakeConn(bars={"SPY": _five_minute_fixture()}, current_digests=current)
-    with capture_logs() as records:
-        _run(conn, changed_only=True)
-    totals = _done_totals(records)
+    totals = _run(conn, changed_only=True)
     assert totals["unchanged"] == 1 and totals["derived"] == 0
     assert not any(
-        sql.startswith(("INSERT INTO ohlcv", "DELETE FROM market_data"))
+        sql.lstrip().startswith(("INSERT INTO ohlcv", "DELETE FROM market_data"))
         for sql, _ in conn.statements
     )
 
@@ -342,17 +363,13 @@ def test_changed_only_processes_symbol_when_digest_differs():
     expected = _expected_month_digests(_five_minute_fixture())
     stale = [(start, "0" * 64) for start, _ in expected.items()]
     conn = FakeConn(bars={"SPY": _five_minute_fixture()}, current_digests={"SPY": stale})
-    with capture_logs() as records:
-        _run(conn, changed_only=True)
-    assert _done_totals(records)["derived"] == 1
+    assert _run(conn, changed_only=True)["derived"] == 1
     assert _derived_rows(conn, "market_data_ohlcv")
 
 
 def test_dry_run_issues_no_write_statements():
     conn = FakeConn(bars={"SPY": _five_minute_fixture()})
-    with capture_logs() as records:
-        _run(conn, apply=False)
-    totals = _done_totals(records)
+    totals = _run(conn, apply=False)
     assert totals["derived"] == 1 and totals["derived_rows"] == 33
     assert not conn.statements, conn.statements
     assert not conn.executemany_calls
@@ -364,11 +381,9 @@ def test_excluded_lane_symbol_is_skipped(tmp_path):
     lane_file = tmp_path / "lanes.txt"
     lane_file.write_text("# lane guard\nSPY\n")
     conn = FakeConn(bars={"SPY": _five_minute_fixture(), "QQQ": _five_minute_fixture()})
-    with capture_logs() as records:
-        _run(conn, exclude_symbols_file=str(lane_file))
-    totals = _done_totals(records)
+    totals = _run(conn, exclude_symbols_file=str(lane_file))
     assert totals["excluded_lane"] == 1 and totals["derived"] == 1
-    written = {r[0] for r in _derived_rows(conn, "market_data_ohlcv")}
+    written = {r[1] for r in _derived_rows(conn, "market_data_ohlcv")}
     assert written == {"QQQ"}
 
 
@@ -381,9 +396,7 @@ def test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes():
         ]
     }
     conn = FakeConn(bars={"SPY": fixture}, flags=flags)
-    with capture_logs() as records:
-        _run(conn)
-    assert _done_totals(records)["derived"] == 1
+    assert _run(conn)["derived"] == 1
 
     # Quarantined bar 40 is excluded from aggregation: bucket 13 (bars 39-41)
     # aggregates only bars 39 and 41, so its high misses bar 40's value.
@@ -391,8 +404,8 @@ def test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes():
         (r for r in _derived_rows(conn, "market_data_ohlcv") if r[2] == "15m"), key=lambda r: r[0]
     )
     bucket_13 = rows_15m[13]
-    assert bucket_13[2] == pytest.approx(fixture[41][2])  # high = bar 41's high, bar 40's skipped
-    assert bucket_13[5] == fixture[39][5] + fixture[41][5]
+    assert bucket_13[4] == pytest.approx(fixture[41][2])  # high = bar 41's high, bar 40's skipped
+    assert bucket_13[7] == fixture[39][5] + fixture[41][5]
 
     # Constituent flags: one 15m row (bucket 0 contains flagged bar 1) and one
     # 1h row (bucket 0 spans bars 0-11); the quarantined bar contributes nothing.
@@ -410,6 +423,8 @@ def test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes():
     expected = _expected_month_digests(
         fixture,
         drop=frozenset({40}),
+        rules={1: ("gap_before_next",)},
     )
     digest_5m = next(r for r in _derived_rows(conn, "bar_content_digest") if r[1] == "5m")
     assert digest_5m[7] == 77
+    assert digest_5m[4] == expected[datetime(2024, 6, 1, tzinfo=UTC)][0]

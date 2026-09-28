@@ -111,6 +111,14 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: exports price_sanity_status rows, including confirmed_corrupt ones the "
         "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"
     ),
+    "services/bar_derivation.py": (
+        "PERMANENT: the derivation archives and replaces stored 15m/1h rows and later "
+        "writes canonical 1d; it must address the raw table (D-06, D-15). The archive "
+        "INSERT ... SELECT, the archive checksum verify and the segment DELETE all "
+        "operate on exactly the stored segment being replaced, placeholders included -- "
+        "the tradeable view's WHERE volume > 0 filter would hide the placeholder rows "
+        "the DELETE must remove and skew the checksums."
+    ),
 }
 
 

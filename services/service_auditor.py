@@ -114,6 +114,10 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ensemble-ic-engine": 8,  # Phase 142A oneshot; alpha_events -> alpha_ensemble_ic; inactive between IC pipeline runs is correct
     "indicagent-alpha-frame-writer": 8,  # Phase 142B oneshot; alpha_events -> alpha_frames; inactive between frame-writer runs is correct
     "indicagent-counterfactual-tracker": 8,  # Phase 142B oneshot; alpha_frames geometry + exit scoring; inactive between tracker runs is correct
+    # Phase 185 D2b derived grid (plan 11): tradeable 5m -> derived 15m/1h + digests.
+    # Oneshot with no timer yet: plan 12 runs the universe rewrite and chains it
+    # from the nightly backfill (D-31); inactive between runs is correct.
+    "indicagent-bar-derivation": 8,  # Phase 185 oneshot; archive-verify-delete-insert per symbol
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
     "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
@@ -212,6 +216,9 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ensemble-ic-engine",  # Phase 142A oneshot; Type=oneshot; inactive between weekly IC runs is correct
         "indicagent-alpha-frame-writer",  # Phase 142B oneshot; Type=oneshot; inactive between frame-writer runs is correct
         "indicagent-counterfactual-tracker",  # Phase 142B oneshot; Type=oneshot; inactive between tracker runs is correct
+        # Phase 185 D2b derived grid (plan 11): no timer yet, plan 12 chains it
+        # from the nightly backfill (D-31); inactive between runs is correct.
+        "indicagent-bar-derivation",  # Type=oneshot; inactive between runs is correct
     }
 )
 
