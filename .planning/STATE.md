@@ -90,10 +90,10 @@ resume with 186-07); the `feature_vectors` rebuild needs the 5m
 
 - **Intraday backfill (todo 449, running since 2026-09-27):** one IBKR stream via
   `logs/backfill_ops/intraday_chain.sh`: 15m+1h for the 698 names first (client 46), then 5m
-  (client 40, about two weeks). Parallel lanes do not add throughput. The nightly 1d backfill
-  skips while it runs. Phase 186's rebuild gates on the 5m part.
-  Until plan 185-09 lands, the nightly skips every night the chain runs (1d bars go stale);
-  185-09's lease replaces that skip and restarts the chain's pipeline process onto it.
+  (client 40, about two weeks). Parallel lanes do not add throughput. The chain yields to the
+  nightly 1d backfill and to phase 185 campaigns through the `ibkr_history_stream` lease (plan
+  185-09, D-29; its pipeline process has held the lease since 2026-09-28 08:10 EDT).
+  Phase 186's rebuild gates on the 5m part.
 
 - **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and

@@ -146,10 +146,13 @@ SELECT version FROM schema_migrations ORDER BY applied_at DESC LIMIT 1;
 > IBKR history stream is running the todo 449 intraday backfill (15m+1h then 5m for 698
 > names, expected through mid-October 2026). Orchestration lives in
 > `logs/backfill_ops/intraday_chain.sh` (force-added to git; the rest of `logs/` is
-> ignored). Before starting any manual fetch below, check for a running delegate first:
-> `pgrep -af infrastructure_run_historical_pipeline.py`. The nightly self-guards
-> (`skipped_concurrent_run`); a manual run does not. Concurrent history streams measured
-> no added throughput (todo 449, 2026-09-27) and contend for the same pacing budget.
+> ignored). The stream is shared through the `ibkr_history_stream` lease (plan 185-09,
+> D-29): the chain holds it at bulk tier and yields at (symbol, tf) unit boundaries, the
+> nightly backfill runs at priority tier and waits for it instead of skipping, and a manual
+> fetch takes the lease at bulk tier instead of contending. Holders show in `pg_stat_activity`
+> as `application_name` `lease:ibkr_history_stream:<tier>:<holder>`. Concurrent history
+> streams measured no added throughput (todo 449, 2026-09-27) and contend for the same
+> pacing budget.
 
 ### Full pipeline reset (reset_pipeline_data.py)
 

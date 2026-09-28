@@ -177,7 +177,7 @@ Plans:
 - [x] 185-06-PLAN.md - session grid aggregation and bar content digest (wave 2)
 - [x] 185-07-PLAN.md - seams, splits, disputed dates, D3 study pre-registration (wave 2)
 - [x] 185-08-PLAN.md - D0 label arithmetic and survivorship APR (wave 2)
-- [ ] 185-09-PLAN.md - D1 capture in the backfill; IBKR history-stream lease replacing the nightly skip; chain cut-over (wave 2)
+- [x] 185-09-PLAN.md - D1 capture in the backfill; IBKR history-stream lease replacing the nightly skip; chain cut-over (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
