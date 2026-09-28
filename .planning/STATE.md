@@ -76,10 +76,10 @@ bullets with current facts.
   plan-checker pass validates the amended set. The six-reviewer cross-AI review (R1-R6 plus the
   owner-run Grok council) closed 2026-09-27 with all HIGHs integrated (`186-REVIEWS.md`,
   through `91a6cf7c4`). Executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential): 186-01, 186-03 and 186-04 done (3/29; 186-03's determinism tool merged
-`c3ce3a9d7`, bit-identical on the frozen phase 179/181 books with the shim module blocked;
-186-04's helper promotion merged `70b68f4b9`, full suite green on merged main); the
-`feature_vectors` rebuild needs the 5m
+  sequential): 186-01/03/04/05/06 done (5/29; determinism tool bit-identical on the frozen
+books, helper promotion, migrations 384-385 db hygiene, migration 386 provenance_batch plus the
+append-only bulk_load primitive with todos 301/343/352 closed; clean stop 2026-09-28 ~07:25 EDT,
+resume with 186-07); the `feature_vectors` rebuild needs the 5m
   timeframe decision first (todo 445, design section 14.2) and 185's derived grid (todo 446).
   The fresh ic_engine computes targets with `panel.forward_returns`; the `forward_returns`
   table is dropped after parity (UD-25, design 14.7). Phases 187-188: not planned; 187 waits
@@ -116,7 +116,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186` running (coordinator indicagent-f3 since 2026-09-28, relayed from e7): 186-01/03/04/05 done (4/29; 186-05: migrations 384-385 applied and committed in-breath — duplicate index dropped, PK inventory, drift_monitor dropped, A1 probe failed as predicted, work_mem drift root-caused to a stale container, 186-17 carries the recreate recommendation); 186-01/03/04/05/06 done (5/29; 186-06: migration 386 provenance_batch + bulk_load primitive, todos 301/343/352 closed, integration 7/7); next 186-07, wave 1 continues 07-10 then waves 2-10, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | `/gsd-execute-phase 185` (24 plans checker-passed 2026-09-27) | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 185 | `/gsd-execute-phase 185` executing since 2026-09-27 (10/24 done: 01-08, 10, 11) | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
