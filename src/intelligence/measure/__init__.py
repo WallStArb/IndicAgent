@@ -3,8 +3,8 @@
 Contract (phase 186 D-17, D-18, D-19, D-02):
 
 - Pure functions over `src.intelligence.statistics.ic_math` and the research kernel. No database
-  write, no ConfigService or APR read (the 186-14 writer loads APR and passes values in through
-  `MeasureParams`), no module-global mutable state.
+  write, no APR or config-service read (the 186-14 writer loads the parameters and passes them
+  in through `MeasureParams`), no module-global mutable state.
 - Every target comes from `src.intelligence.research.panel.forward_returns` on S0 panels built
   with `end_exclusive = alpha.validation.oos_start`.
 - Regime-stratified IC exists only for `regime_volatility` (disclosure).
