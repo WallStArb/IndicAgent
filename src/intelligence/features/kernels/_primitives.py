@@ -6,8 +6,15 @@ import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+from scipy import stats
+
+from src.intelligence.features.registry import Kernel
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+# Default divide-by-zero guard of the kernels' eps arguments, and the std below which a z-score is 0.
+EPS = 1e-10
+STD_FLOOR = 1e-8
 
 # A Wilder recursion (ATR, RSI) forgets its seed geometrically: after `WILDER_MEMORY_HALF_LIVES *
 # period` bars the seed weight is (1 - 1/period) ** (40 * period) < exp(-40), about 4e-18, below
@@ -99,7 +106,7 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
 
     Uses cumulative sums — O(n) total.
-    Returns 0.0 where fewer than 2 samples or std < 1e-8.
+    Returns 0.0 where fewer than 2 samples or std < STD_FLOOR.
     """
     n = len(arr)
     out = np.zeros(n, dtype=float)
@@ -115,7 +122,7 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
         mean = s / eff_w
         var = max(s2 / eff_w - mean * mean, 0.0)
         std = math.sqrt(var)
-        out[i] = (arr[i] - mean) / std if std > 1e-8 else 0.0
+        out[i] = (arr[i] - mean) / std if std > STD_FLOOR else 0.0
     return out
 
 
@@ -174,36 +181,30 @@ def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
-def _sliding_rolling_max(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == max(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
+def _sliding_rolling(arr: np.ndarray, window: int, reduce) -> np.ndarray:
+    """result[i] == reduce(arr[max(0, i-window+1):i+1]) for every i, with reduce np.max or np.min.
+    O(n) calls, vectorized over the saturated region via sliding_window_view."""
     n = len(arr)
     out = np.empty(n, dtype=float)
     if n == 0:
         return out
     expand_n = min(window - 1, n)
     for i in range(expand_n):
-        out[i] = np.max(arr[: i + 1])
+        out[i] = reduce(arr[: i + 1])
     if n >= window:
         windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.max(windows, axis=1)
+        out[window - 1 :] = reduce(windows, axis=1)
     return out
+
+
+def _sliding_rolling_max(arr: np.ndarray, window: int) -> np.ndarray:
+    """result[i] == max(arr[max(0, i-window+1):i+1]) for every i."""
+    return _sliding_rolling(arr, window, np.max)
 
 
 def _sliding_rolling_min(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == min(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
-    n = len(arr)
-    out = np.empty(n, dtype=float)
-    if n == 0:
-        return out
-    expand_n = min(window - 1, n)
-    for i in range(expand_n):
-        out[i] = np.min(arr[: i + 1])
-    if n >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.min(windows, axis=1)
-    return out
+    """result[i] == min(arr[max(0, i-window+1):i+1]) for every i."""
+    return _sliding_rolling(arr, window, np.min)
 
 
 def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> bool:
@@ -255,7 +256,7 @@ def _zscore_last(series: np.ndarray, window: int) -> float:
         return 0.0
     window_data = series[-window:]
     std = float(window_data.std())
-    if std < 1e-8:
+    if std < STD_FLOOR:
         return 0.0
     return float((float(series[-1]) - float(window_data.mean())) / std)
 
@@ -263,17 +264,9 @@ def _zscore_last(series: np.ndarray, window: int) -> float:
 def _percentile_rank(hist: np.ndarray, current: float) -> float:
     """Percentile rank of `current` within `hist` (inclusive, "weak" semantics).
 
-    Uses scipy.stats.percentileofscore when available; falls back to a manual
-    rank computation if scipy is not importable (T-142.5-02-02 mitigation).
-    Bounded [0, 1].
+    scipy.stats.percentileofscore, bounded [0, 1].
     """
-    try:
-        from scipy import stats  # noqa: PLC0415
-
-        pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
-    except ImportError:
-        rank = float(np.sum(hist <= current))
-        pct = rank / len(hist)
+    pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
     return float(np.clip(pct, 0.0, 1.0))
 
 
@@ -313,3 +306,15 @@ def _kurtosis(arr: np.ndarray) -> float:
         return 0.0
     result = float(np.mean(((arr - mean) / std) ** 4) - 3.0)
     return result if math.isfinite(result) else 0.0
+
+
+def _k(name, outputs, inputs, memory, compute, **kw) -> Kernel:
+    """Kernel with its outputs and inputs normalized to tuples."""
+    return Kernel(
+        name=name,
+        outputs=tuple(outputs),
+        inputs=tuple(inputs),
+        memory=memory,
+        compute=compute,
+        **kw,
+    )

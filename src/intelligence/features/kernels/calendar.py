@@ -39,62 +39,68 @@ def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
     return max(0.0, min(1.0, frac))
 
 
+def _cyc(value: float, period: float) -> tuple[float, float]:
+    """(sin, cos) of the angle 2*pi*value/period, evaluated in that operand order."""
+    angle = 2.0 * math.pi * value / period
+    return math.sin(angle), math.cos(angle)
+
+
 def _hour_of_day_sin(bar_ts: datetime) -> float:
     """Circular hour-of-day encoding: sin(2*pi*(hour + minute/60)/24)."""
     hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.sin(2.0 * math.pi * hour / 24.0)
+    return _cyc(hour, 24.0)[0]
 
 
 def _hour_of_day_cos(bar_ts: datetime) -> float:
     """Circular hour-of-day encoding: cos(2*pi*(hour + minute/60)/24)."""
     hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.cos(2.0 * math.pi * hour / 24.0)
+    return _cyc(hour, 24.0)[1]
 
 
 def _week_of_month_sin(bar_ts: datetime) -> float:
     """Circular week-of-month encoding: sin(2*pi*week/5). week = (day-1)//7 + 1."""
     week = (bar_ts.day - 1) // 7 + 1
-    return math.sin(2.0 * math.pi * week / 5.0)
+    return _cyc(week, 5.0)[0]
 
 
 def _week_of_month_cos(bar_ts: datetime) -> float:
     """Circular week-of-month encoding: cos(2*pi*week/5). week = (day-1)//7 + 1."""
     week = (bar_ts.day - 1) // 7 + 1
-    return math.cos(2.0 * math.pi * week / 5.0)
+    return _cyc(week, 5.0)[1]
 
 
 def _day_of_month_sin(bar_ts: datetime) -> float:
     """Circular day-of-month encoding: sin(2*pi*day/31)."""
-    return math.sin(2.0 * math.pi * bar_ts.day / 31.0)
+    return _cyc(bar_ts.day, 31.0)[0]
 
 
 def _day_of_month_cos(bar_ts: datetime) -> float:
     """Circular day-of-month encoding: cos(2*pi*day/31)."""
-    return math.cos(2.0 * math.pi * bar_ts.day / 31.0)
+    return _cyc(bar_ts.day, 31.0)[1]
 
 
 def _week_of_year_sin(bar_ts: datetime) -> float:
     """Circular week-of-year encoding: sin(2*pi*isocalendar_week/52)."""
     _, week, _ = bar_ts.isocalendar()
-    return math.sin(2.0 * math.pi * week / 52.0)
+    return _cyc(week, 52.0)[0]
 
 
 def _week_of_year_cos(bar_ts: datetime) -> float:
     """Circular week-of-year encoding: cos(2*pi*isocalendar_week/52)."""
     _, week, _ = bar_ts.isocalendar()
-    return math.cos(2.0 * math.pi * week / 52.0)
+    return _cyc(week, 52.0)[1]
 
 
 def _month_sin(bar_ts: datetime) -> float:
     """Circular month-of-year encoding: sin(2*pi*month/12). NEW pair — only
     _month_position (linear) existed before this plan."""
-    return math.sin(2.0 * math.pi * bar_ts.month / 12.0)
+    return _cyc(bar_ts.month, 12.0)[0]
 
 
 def _month_cos(bar_ts: datetime) -> float:
     """Circular month-of-year encoding: cos(2*pi*month/12). NEW pair — only
     _month_position (linear) existed before this plan."""
-    return math.cos(2.0 * math.pi * bar_ts.month / 12.0)
+    return _cyc(bar_ts.month, 12.0)[1]
 
 
 def _in_ny_session(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
@@ -118,8 +124,7 @@ def _dow_encoding(bar_ts: datetime) -> tuple[float, float]:
     weekday() returns 0=Monday, 4=Friday. Weekends treated as Friday.
     """
     weekday = min(bar_ts.weekday(), 4)
-    angle = 2.0 * math.pi * weekday / 5.0
-    return math.sin(angle), math.cos(angle)
+    return _cyc(weekday, 5.0)
 
 
 def _month_position(bar_ts: datetime) -> float:
@@ -180,8 +185,7 @@ def _quarter_cycle_encoding(bar_ts: datetime) -> tuple[float, float]:
     within-quarter position (Phase 151 Plan 01, todo 104).
     """
     qp = _quarter_position(bar_ts)
-    angle = 2.0 * math.pi * qp
-    return math.sin(angle), math.cos(angle)
+    return _cyc(qp, 1.0)
 
 
 def _tdom_encoding(bar_ts: datetime) -> tuple[float, float]:
@@ -202,8 +206,7 @@ def _tdom_encoding(bar_ts: datetime) -> tuple[float, float]:
     w = sum(1 for d in range(1, days_in_month + 1) if (first_weekday + d - 1) % 7 < 5)
     if w <= 0:
         return 0.0, 0.0
-    angle = 2.0 * math.pi * t / w
-    return math.sin(angle), math.cos(angle)
+    return _cyc(t, w)
 
 
 def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
@@ -212,8 +215,7 @@ def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
     Constant at 1h/1d by construction (minute is always 0 for hourly/daily
     bars) -- expected and correct, not a bug (Phase 151 Plan 01, todo 104).
     """
-    angle = 2.0 * math.pi * bar_ts.minute / 60.0
-    return math.sin(angle), math.cos(angle)
+    return _cyc(bar_ts.minute, 60.0)
 
 
 def _opex_flag(bar_ts: datetime) -> float:

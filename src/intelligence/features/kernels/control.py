@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.core.rng import hash_key_to_int
-from src.intelligence.features.kernels._primitives import ts_ns_to_datetimes
+from src.intelligence.features.kernels._primitives import EPS, ts_ns_to_datetimes
 from src.intelligence.features.registry import ExternalInput, Kernel
 
 if TYPE_CHECKING:
@@ -73,7 +73,7 @@ def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> floa
     return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
 
 
-def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> float:
+def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = EPS) -> float:
     """Deliberate look-ahead leak (positive control): pairs bar i with the
     close-to-close return realized from bars i+1 -> i+2 (the ret_lag_1 shape,
     forward-shifted). Against the executable open-to-open labels it is fully

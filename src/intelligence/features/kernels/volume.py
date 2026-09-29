@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.intelligence.features.kernels._primitives import (
+    EPS,
     _fixed_window_zscore_series,
     _is_valid_atr,
+    _k,
     _pearson_acf1,
     _percentile_rank,
     _rolling_std_series,
@@ -76,7 +78,7 @@ def _cmf(
     return float(np.sum(mfv)) / vol_sum if vol_sum > 1e-10 else 0.0
 
 
-def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
+def _vol_acceleration(volumes: np.ndarray, eps: float = EPS) -> float:
     """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
 
     Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
@@ -98,7 +100,7 @@ def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float
 
 
 def _vol_range_ratio(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> float:
     """Volume per unit of price range, normalized against its own trailing average.
 
@@ -118,7 +120,7 @@ def _vol_range_ratio(
 
 
 def _vol_trend_ratio(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
+    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = EPS
 ) -> float:
     """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
 
@@ -138,7 +140,7 @@ def _up_vol_ratio(
     opens: np.ndarray,
     closes: np.ndarray,
     window: int,
-    eps: float = 1e-10,
+    eps: float = EPS,
 ) -> float:
     """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
 
@@ -202,7 +204,7 @@ def _mfi(
     closes: np.ndarray,
     volumes: np.ndarray,
     window: int,
-    eps: float = 1e-10,
+    eps: float = EPS,
 ) -> float:
     """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
 
@@ -348,7 +350,7 @@ def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
     return result
 
 
-def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = 1e-10) -> np.ndarray:
+def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _vol_acceleration at bar i. Index 0 padded with 1.0."""
     n = len(volumes)
     result = np.ones(n, dtype=float)
@@ -369,7 +371,7 @@ def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: i
 
 
 def _vol_range_ratio_series_full(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum."""
     n = len(volumes)
@@ -389,7 +391,7 @@ def _vol_range_ratio_series_full(
 
 
 def _vol_trend_ratio_series_full(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
+    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _vol_trend_ratio at bar i. O(n) via cumsum."""
     n = len(volumes)
@@ -412,7 +414,7 @@ def _up_vol_ratio_series_full(
     opens: np.ndarray,
     closes: np.ndarray,
     window: int,
-    eps: float = 1e-10,
+    eps: float = EPS,
 ) -> np.ndarray:
     """result[i] == streaming _up_vol_ratio at bar i. O(n) via cumsum."""
     n = len(volumes)
@@ -475,7 +477,7 @@ def _mfi_series_full(
     closes: np.ndarray,
     volumes: np.ndarray,
     window: int,
-    eps: float = 1e-10,
+    eps: float = EPS,
 ) -> np.ndarray:
     """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
     fixed per bar regardless of window; only the rolling sums need cumsum).
@@ -521,7 +523,7 @@ def _price_vol_corr_series_full(
     closes: np.ndarray,
     volumes: np.ndarray,
     window: int,
-    eps: float = 1e-10,
+    eps: float = EPS,
     abs_rets: np.ndarray | None = None,
 ) -> np.ndarray:
     """Rolling Pearson correlation between |log return| and volume over the
@@ -562,17 +564,6 @@ def _price_vol_corr_series_full(
 # Kernels. Same conventions as kernels/price.py: series kernels call the moved bodies unchanged,
 # declared memory is the sum of the window arguments along the body's chain.
 # ---------------------------------------------------------------------------
-
-
-def _k(name, outputs, inputs, memory, compute, **kw) -> Kernel:
-    return Kernel(
-        name=name,
-        outputs=tuple(outputs),
-        inputs=tuple(inputs),
-        memory=memory,
-        compute=compute,
-        **kw,
-    )
 
 
 def _velocity_kernel(source: str, window: str) -> Kernel:

@@ -10,10 +10,12 @@ import numpy as np
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.kernels._primitives import (
+    EPS,
     _atr_series_full,
     _fixed_window_zscore_series,
     _is_valid_atr,
     _is_valid_atr_series,
+    _k,
     _kurtosis,
     _pearson_acf1,
     _percentile_rank,
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
     pass
 
 
-def _bar_close_pos(high: float, low: float, close: float, eps: float = 1e-10) -> float:
+def _bar_close_pos(high: float, low: float, close: float, eps: float = EPS) -> float:
     """Intra-bar conviction: close position within high-low range.
 
     Formula: (close - low) / (high - low + eps)
@@ -50,7 +52,7 @@ def _range_position(
     close: float,
     highs: np.ndarray,
     lows: np.ndarray,
-    eps: float = 1e-10,
+    eps: float = EPS,
 ) -> float:
     """Close position within N-bar high-low range.
 
@@ -78,7 +80,7 @@ def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
 
 
 def _body_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+    open_price: float, high: float, low: float, close: float, eps: float = EPS
 ) -> float:
     """Bar body ratio: (C - O) / (H - L). Bounded [-1, 1]. Returns 0.0 on degenerate bar (H == L)."""
     hl = high - low
@@ -88,7 +90,7 @@ def _body_ratio(
 
 
 def _upper_wick_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+    open_price: float, high: float, low: float, close: float, eps: float = EPS
 ) -> float:
     """Upper wick ratio: (H - max(O, C)) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
     hl = high - low
@@ -98,7 +100,7 @@ def _upper_wick_ratio(
 
 
 def _lower_wick_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
+    open_price: float, high: float, low: float, close: float, eps: float = EPS
 ) -> float:
     """Lower wick ratio: (min(O, C) - L) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
     hl = high - low
@@ -124,13 +126,13 @@ def _close_vs_open_direction(open_price: float, close: float) -> float:
     return math.copysign(1.0, diff)
 
 
-def _overnight_gap(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
+def _overnight_gap(open_price: float, prev_close: float, eps: float = EPS) -> float:
     """Overnight gap return: (O - prev_C) / prev_C. Unbounded. Returns 0.0 when prev_C < eps."""
     return (open_price - prev_close) / prev_close if prev_close > eps else 0.0
 
 
 def _overnight_gap_series_full(
-    opens: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+    opens: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
     """Raw overnight_gap value per bar index i (i >= 1); index 0 padded with 0.0.
 
@@ -146,9 +148,7 @@ def _overnight_gap_series_full(
     return np.concatenate([[0.0], raw_gaps])
 
 
-def _overnight_gap_z(
-    opens: np.ndarray, closes: np.ndarray, window: int, eps: float = 1e-10
-) -> float:
+def _overnight_gap_z(opens: np.ndarray, closes: np.ndarray, window: int, eps: float = EPS) -> float:
     """Z-score of overnight_gap over a trailing window of bars (streaming path).
 
     Builds the full overnight_gap series then z-scores the last value against the
@@ -178,7 +178,7 @@ def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: 
 
 
 def _range_efficiency(
-    close: float, prev_close: float, high: float, low: float, eps: float = 1e-10
+    close: float, prev_close: float, high: float, low: float, eps: float = EPS
 ) -> float:
     """Range efficiency: abs(C - prev_C) / (H - L). Bounded [0, 1]. Returns 0.0 on degenerate bar."""
     hl = high - low
@@ -187,51 +187,51 @@ def _range_efficiency(
     return min(abs(close - prev_close) / hl, 1.0)
 
 
-def _ret_lag_k(closes: np.ndarray, k: int, eps: float = 1e-10) -> float:
+def _ret_lag_k(closes: np.ndarray, k: int, eps: float = EPS) -> float:
     """Shared implementation: log(C_t / C_{t-k}). Returns 0.0 when history < k + 1."""
     if len(closes) < k + 1:
         return 0.0
     return float(np.log(max(float(closes[-1]), eps) / max(float(closes[-(k + 1)]), eps)))
 
 
-def _ret_lag_1(closes: np.ndarray, eps: float = 1e-10) -> float:
+def _ret_lag_1(closes: np.ndarray, eps: float = EPS) -> float:
     """1-bar lagged log return: log(C_t / C_{t-1}). Definitional — no APR key."""
     return _ret_lag_k(closes, 1, eps)
 
 
-def _ret_lag_2(closes: np.ndarray, eps: float = 1e-10) -> float:
+def _ret_lag_2(closes: np.ndarray, eps: float = EPS) -> float:
     """2-bar lagged log return: log(C_t / C_{t-2}). Definitional — no APR key."""
     return _ret_lag_k(closes, 2, eps)
 
 
-def _ret_lag_3(closes: np.ndarray, eps: float = 1e-10) -> float:
+def _ret_lag_3(closes: np.ndarray, eps: float = EPS) -> float:
     """3-bar lagged log return: log(C_t / C_{t-3}). Definitional — no APR key."""
     return _ret_lag_k(closes, 3, eps)
 
 
-def _ret_lag_fast(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+def _ret_lag_fast(closes: np.ndarray, window: int, eps: float = EPS) -> float:
     """Gradient fast-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.fast"""
     return _ret_lag_k(closes, window, eps)
 
 
-def _ret_lag_mid(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+def _ret_lag_mid(closes: np.ndarray, window: int, eps: float = EPS) -> float:
     """Gradient mid-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.mid"""
     return _ret_lag_k(closes, window, eps)
 
 
-def _ret_lag_slow(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
+def _ret_lag_slow(closes: np.ndarray, window: int, eps: float = EPS) -> float:
     """Gradient slow-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.slow"""
     return _ret_lag_k(closes, window, eps)
 
 
-def _open_ret(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
+def _open_ret(open_price: float, prev_close: float, eps: float = EPS) -> float:
     """Overnight component of return: log(O_t / prev_C). Returns 0.0 when prev_C < eps."""
     if prev_close < eps:
         return 0.0
     return float(np.log(max(open_price, eps) / prev_close))
 
 
-def _intraday_ret(close: float, open_price: float, eps: float = 1e-10) -> float:
+def _intraday_ret(close: float, open_price: float, eps: float = EPS) -> float:
     """Intraday component of return: log(C_t / O_t). Returns 0.0 when O_t < eps."""
     if open_price < eps:
         return 0.0
@@ -243,7 +243,7 @@ def _open_vs_intraday(open_ret: float, intraday_ret: float) -> float:
     return open_ret - intraday_ret
 
 
-def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = EPS) -> float:
     """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
 
     Unbounded non-negative. Returns 0.0 when close is near zero.
@@ -253,7 +253,7 @@ def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1
     return (float(np.max(highs)) - float(np.min(lows))) / close
 
 
-def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
+def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = EPS) -> float:
     """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
 
     Returns 0.5 (neutral) on a degenerate range (H_N == L_N).
@@ -277,7 +277,7 @@ def _price_percentile(close: float, closes: np.ndarray) -> float:
     return _percentile_rank(closes, close)
 
 
-def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
+def _efficiency_ratio(closes: np.ndarray, eps: float = EPS) -> float:
     """Kaufman efficiency ratio: |C_t - C_{t-N}| / sum(|C_i - C_{i-1}|) over the window.
 
     Bounded [0, 1] (0 = pure chop, 1 = perfectly linear trend). Returns 0.0 for
@@ -314,7 +314,7 @@ def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
     return float(np.dot(x, y) / denom)
 
 
-def _updown_ratio(rets: np.ndarray, eps: float = 1e-10) -> float:
+def _updown_ratio(rets: np.ndarray, eps: float = EPS) -> float:
     """count(up bars) / count(down bars) over the given return window.
 
     Returns 1.0 (neutral) when there are zero down bars — including an empty
@@ -364,7 +364,7 @@ def _realized_var_ratio(closes: np.ndarray, fast_window: int, slow_window: int) 
     return var_fast / var_slow if var_slow > 1e-14 else 1.0
 
 
-def _range_to_close(high: float, low: float, close: float, eps: float = 1e-10) -> float:
+def _range_to_close(high: float, low: float, close: float, eps: float = EPS) -> float:
     """Rolling range as a fraction of price: (H - L) / C. Unbounded non-negative.
     Returns 0.0 when close is near zero.
     """
@@ -372,7 +372,7 @@ def _range_to_close(high: float, low: float, close: float, eps: float = 1e-10) -
 
 
 def _true_range_pct(
-    high: float, low: float, prev_close: float, close: float, eps: float = 1e-10
+    high: float, low: float, prev_close: float, close: float, eps: float = EPS
 ) -> float:
     """True range as a fraction of price: TR / C, where
     TR = max(H-L, |H-prev_C|, |L-prev_C|). Unbounded non-negative.
@@ -409,7 +409,7 @@ def _variance_ratio(closes: np.ndarray, n: int) -> float:
     return var_n / (n * var_1)
 
 
-def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = 1e-10) -> float:
+def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = EPS) -> float:
     """Ratio of up-bar return std to down-bar return std within the window:
     std(ret | ret > 0) / std(ret | ret < 0). Returns 1.0 (neutral) when
     fewer than 2 up or 2 down observations exist in the window.
@@ -423,7 +423,7 @@ def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = 1e-10) -> float:
     return std_up / std_down if std_down > eps else 1.0
 
 
-def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
+def _bb_pct_b(closes_window: np.ndarray, eps: float = EPS) -> float:
     """Bollinger %B: (C - lower_band) / (upper_band - lower_band), where the
     bands are SMA +/- 2*std over the window. Returns 0.5 (neutral) on a
     degenerate (near-zero-std) band.
@@ -457,7 +457,7 @@ def _up_vol_body_diff(up_vol_ratio: float, body_ratio: float) -> float:
     return up_vol_ratio - body_ratio
 
 
-def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
+def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = EPS) -> float:
     """ret_vol_ratio_fast = ret_lag_fast / atr_z. Pure ratio of Plan 01's
     ret_lag_fast and baseline atr_z -- no new window. Returns 0.0 when
     abs(atr_z) < eps (epsilon guard; degenerate near-zero volatility
@@ -766,7 +766,7 @@ def _dist_from_low_series_full(
 
 
 def _range_pct_series_full(
-    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _range_pct at bar i."""
     rolling_high = _sliding_rolling_max(highs, window)
@@ -778,7 +778,7 @@ def _range_pct_series_full(
 
 
 def _stoch_k_series_full(
-    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _stoch_k at bar i. 0.5 on degenerate range."""
     rolling_high = _sliding_rolling_max(highs, window)
@@ -805,9 +805,7 @@ def _price_percentile_series_full(closes: np.ndarray, window: int) -> np.ndarray
     return result
 
 
-def _efficiency_ratio_series_full(
-    closes: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
+def _efficiency_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _efficiency_ratio at bar i. O(n) via cumsum of |diffs|."""
     n = len(closes)
     result = np.zeros(n, dtype=float)
@@ -895,7 +893,7 @@ def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = Fals
     return result
 
 
-def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
+def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _updown_ratio over the trailing `window` returns
     ending at bar i. O(n) via cumulative up/down bar counts.
     """
@@ -988,7 +986,7 @@ def _realized_var_ratio_series_full(
 
 
 def _range_to_close_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _range_to_close at bar i. Fully vectorized O(n)."""
     c = closes.astype(float)
@@ -998,7 +996,7 @@ def _range_to_close_series_full(
 
 
 def _true_range_pct_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
+    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == streaming _true_range_pct at bar i. Fully vectorized O(n).
     Index 0 padded with 0.0 (no prev close available).
@@ -1099,7 +1097,7 @@ def _vol_asymmetry_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
     return np.concatenate([[0.0], z])
 
 
-def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
+def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = EPS) -> np.ndarray:
     """result[i] == streaming _bb_pct_b over the trailing (expanding until
     saturated) `window` bars ending at bar i. O(n) via cumsum of price and
     squared price.
@@ -1142,7 +1140,7 @@ def _hv_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 
 
 def _hv_ratio_series_full(
-    closes: np.ndarray, hv_fast_window: int, ratio_window: int, eps: float = 1e-10
+    closes: np.ndarray, hv_fast_window: int, ratio_window: int, eps: float = EPS
 ) -> np.ndarray:
     """hv_fast / rolling_mean(hv_fast series, ratio_window). result[i] ==
     streaming hv_ratio at bar i. O(n) via cumsum of the HV series.
@@ -1254,7 +1252,7 @@ def _vol_velocity_z_series_full(series: np.ndarray, window: int) -> np.ndarray:
 
 
 def _intraday_noise_ratio_series_full(
-    closes: np.ndarray, session_bars: int, eps: float = 1e-10
+    closes: np.ndarray, session_bars: int, eps: float = EPS
 ) -> np.ndarray:
     """result[i] == the intraday noise ratio (sum(|log_ret|) / |net log_ret|)
     over the trailing `session_bars` bars ending at bar i. O(n) via cumsum of
@@ -1284,19 +1282,6 @@ def _intraday_noise_ratio_series_full(
 # in the 186-12 summary). Cumsum-based rolling statistics and Wilder recursions differ from a
 # sliced recompute in the last bits, which is what `memory_atol` covers where it is non-zero.
 # ---------------------------------------------------------------------------
-
-_EPS = 1e-10
-
-
-def _k(name, outputs, inputs, memory, compute, **kw) -> Kernel:
-    return Kernel(
-        name=name,
-        outputs=tuple(outputs),
-        inputs=tuple(inputs),
-        memory=memory,
-        compute=compute,
-        **kw,
-    )
 
 
 def _fast_mid_slow(template: str) -> tuple[tuple[str, str], ...]:
@@ -1679,7 +1664,7 @@ def _compute_vol_velocity_diffs(x, config):
 
 
 def _compute_abs_log_ret(x, config):
-    log_ret = np.abs(np.diff(np.log(np.maximum(x["close"].astype(float), _EPS))))
+    log_ret = np.abs(np.diff(np.log(np.maximum(x["close"].astype(float), EPS))))
     return {"_abs_log_ret": np.concatenate([[0.0], log_ret])}
 
 
