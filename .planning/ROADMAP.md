@@ -279,6 +279,11 @@ Plans:
   compression-policy and compressed-chunk refusals, per-chunk `compress_chunk` with the PK
   kept); migration 386 creates `provenance_batch` (guard/no-delete/no-truncate triggers,
   `infra.bulk_load.*` APR keys); todos 301/343/352 closed; merged 2026-09-28 (`843a645b9`)
+- [x] 186-07 todo445 5m-over-15m incremental IC: committed counted-look script
+  (`scripts/research/todo445_5m_incremental_ic.py`, server-side-cursor streaming DB fetch after
+  two live memory incidents); decision keep_5m, rebuild timeframes 15m/1h/1d/5m, 5m name set
+  ret_autocorr_1 and sweep_detected at the 233 compute_eligible names; todo 445 closed; merged
+  2026-09-28 (`0b4edf3a7`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
