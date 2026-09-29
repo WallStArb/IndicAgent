@@ -15,7 +15,6 @@ import services.feature_lifecycle as fl
 from services.feature_lifecycle import (
     Evaluation,
     LifecycleConfig,
-    LifecycleGate,
     build_tf_query,
     derive_feature_transition,
     evidence_key,
@@ -28,7 +27,7 @@ _W2 = datetime(2025, 12, 24, 5, 15, tzinfo=UTC)
 _W3 = datetime(2026, 6, 24, 5, 15, tzinfo=UTC)
 _T0 = datetime(2026, 9, 1, tzinfo=UTC)
 
-_GATE = LifecycleGate(demotion_min_consecutive=2, recovery_min_passes=1)
+_GATE = LifecycleConfig(0.95, 90, demotion_min_consecutive=2, recovery_min_passes=1)
 
 
 def _eval(window, passed, *, status="active", at=None) -> Evaluation:

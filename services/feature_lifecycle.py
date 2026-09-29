@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import functools
 import hashlib
 import json
 import sys
@@ -82,7 +83,7 @@ _GOVERNED_STATUSES = ("active", "shadow_only")
 # tunable.
 _MAX_FEATURES_PER_QUERY = 800
 
-_FLOAT_TYPES = {"real": "real", "double precision": "double precision"}
+_FLOAT_TYPES = ("real", "double precision")
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +167,6 @@ class Evaluation:
 
 
 @dataclass(frozen=True)
-class LifecycleGate:
-    demotion_min_consecutive: int
-    recovery_min_passes: int
-
-
-@dataclass(frozen=True)
 class Transition:
     to_status: str
     reason: str
@@ -203,7 +198,7 @@ def derive_feature_transition(
     current_status: str,
     status_since: datetime | None,
     evaluations: Iterable[Evaluation],
-    gate: LifecycleGate,
+    config: LifecycleConfig,
 ) -> Transition | None:
     """Pure: the transition the ledger calls for, or None.
 
@@ -227,11 +222,11 @@ def derive_feature_transition(
         return None
     if current_status == "active":
         fails = _trailing_run(windows, passed=False)
-        if fails >= gate.demotion_min_consecutive:
+        if fails >= config.demotion_min_consecutive:
             return Transition("shadow_only", "data_quality_fail", windows[-1], fails)
         return None
     passes = _trailing_run(windows, passed=True)
-    if passes >= gate.recovery_min_passes:
+    if passes >= config.recovery_min_passes:
         return Transition("active", "data_quality_restored", windows[-1], passes)
     return None
 
@@ -251,8 +246,8 @@ def build_tf_query(columns: Sequence[str], known_columns: dict[str, str]) -> str
     for i, name in enumerate(columns):
         col = quote_feature_column(name, known_columns)
         parts.append(f"count({col}) AS c{i}")
-        float_type = _FLOAT_TYPES.get(known_columns[name])
-        if float_type is None:
+        float_type = known_columns[name]
+        if float_type not in _FLOAT_TYPES:
             parts.append(f"0::bigint AS x{i}")
         else:
             parts.append(
@@ -305,7 +300,7 @@ _UPSERT_EVALUATION_SQL = """
 # window keys but measured something else, so they are never evidence here.
 _LOAD_EVALUATIONS_SQL = """
     SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
-           evaluated_at, statistic, detail
+           evaluated_at, statistic
     FROM concept_evaluation
     WHERE domain = $1
       AND detail ? 'per_tf'
@@ -345,6 +340,23 @@ class WindowPlan:
     n_tfs: int
     rows: list[LedgerRow]
     transitions: list[PlannedTransition]
+
+    @functools.cached_property
+    def failures(self) -> list[tuple[LedgerRow, list[tuple[str, float | None, str]]]]:
+        """Each failed row with its failing (tf, coverage, check) entries, computed once."""
+        return [(r, _failing_tfs(r)) for r in self.rows if not r.verdict.passed]
+
+
+def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
+    """(tf, coverage, check) for each failing (feature, tf); a not_computed feature is
+    one entry at tf 'all'."""
+    if "not_computed" in row.verdict.failures:
+        return [("all", 0.0, "not_computed")]
+    return [
+        (q.tf, q.symbol_coverage, row.verdict.per_tf[q.tf])
+        for q in row.per_tf
+        if row.verdict.per_tf.get(q.tf) in ("coverage", "non_finite")
+    ]
 
 
 class FeatureLifecycle(BaseBatch):
@@ -388,7 +400,7 @@ class FeatureLifecycle(BaseBatch):
                 dry_run=self._dry_run,
                 n_tfs=plan.n_tfs,
                 n_evaluated=len(plan.rows),
-                n_failed=sum(1 for r in plan.rows if not r.evaluation.passed),
+                n_failed=len(plan.failures),
                 n_transitions=n_applied,
                 failures=self._failure_counts(plan),
             )
@@ -444,13 +456,11 @@ class FeatureLifecycle(BaseBatch):
                     guard_status=r["guard_status"],
                     evaluated_at=r["evaluated_at"],
                     statistic=r["statistic"],
-                    detail=r["detail"],
                 )
             )
         for row in rows:
             evaluations[row.concept_id].append(row.evaluation)
 
-        gate = LifecycleGate(config.demotion_min_consecutive, config.recovery_min_passes)
         transitions = []
         for name in governed:
             concept = concepts[name]
@@ -458,7 +468,7 @@ class FeatureLifecycle(BaseBatch):
                 concept["status"],
                 concept["status_since"],
                 evaluations.get(concept["concept_id"], []),
-                gate,
+                config,
             )
             if transition is not None:
                 transitions.append(PlannedTransition(name, concept["status"], transition))
@@ -514,12 +524,9 @@ class FeatureLifecycle(BaseBatch):
     ) -> int:
         """Persist a plan: quality facts, ledger rows, transitions, metrics. Returns the
         number of transitions applied."""
-        n_failed = 0
-        for r in plan.rows:
-            if r.verdict.passed:
-                continue
-            n_failed += 1
-            for tf, coverage, check in self._failing_tfs(r):
+        n_failed = len(plan.failures)
+        for r, failing in plan.failures:
+            for tf, coverage, check in failing:
                 FEATURE_QUALITY_FAILURES.add(1, {"tf": tf, "check": check})
                 await emit_integrity_fact_async(
                     conn,
@@ -586,27 +593,13 @@ class FeatureLifecycle(BaseBatch):
                 FEATURE_LIFECYCLE_TRANSITIONS.add(1, {"to_status": t.to_status, "reason": t.reason})
         return n_applied
 
-    @classmethod
-    def _failure_counts(cls, plan: WindowPlan) -> dict[str, int]:
+    @staticmethod
+    def _failure_counts(plan: WindowPlan) -> dict[str, int]:
         counts: dict[str, int] = defaultdict(int)
-        for r in plan.rows:
-            if r.verdict.passed:
-                continue
-            for tf, _, check in cls._failing_tfs(r):
+        for _, failing in plan.failures:
+            for tf, _, check in failing:
                 counts[f"{check}|tf={tf}"] += 1
         return dict(sorted(counts.items()))
-
-    @staticmethod
-    def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
-        """(tf, coverage, check) for each failing (feature, tf); a not_computed feature is
-        one entry at tf 'all'."""
-        if "not_computed" in row.verdict.failures:
-            return [("all", 0.0, "not_computed")]
-        return [
-            (q.tf, q.symbol_coverage, row.verdict.per_tf[q.tf])
-            for q in row.per_tf
-            if row.verdict.per_tf.get(q.tf) in ("coverage", "non_finite")
-        ]
 
 
 if __name__ == "__main__":
