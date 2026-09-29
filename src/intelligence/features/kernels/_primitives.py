@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 import math
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def ts_ns_to_datetimes(ts: np.ndarray) -> list[datetime]:
+    """int64 UTC nanoseconds to aware datetimes by integer arithmetic (never float seconds)."""
+    return [_EPOCH + timedelta(microseconds=int(ns) // 1000) for ns in ts]
 
 
 def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:

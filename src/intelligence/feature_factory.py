@@ -27,69 +27,79 @@ argument. Zero inline magic numbers in primitive bodies.
 from __future__ import annotations
 
 import bisect
-import calendar
 import dataclasses
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
 import structlog
 
-from src.core.rng import hash_key_to_int
 from src.intelligence.feature_cache import (
     FeatureCache,
     _compute_session_value_area,
     _compute_session_vp_profile,
 )
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
-from src.intelligence.features.kernels._primitives import (
-    _atr_series_full as _atr_series_full,
+from src.intelligence.features.kernels._primitives import (  # noqa: F401  re-exported for tests and scripts
+    _atr_series_full,
+    _atr_wilder,
+    _fixed_window_zscore_series,
+    _is_valid_atr,
+    _is_valid_atr_series,
+    _kurtosis,
+    _pearson_acf1,
+    _percentile_rank,
+    _rolling_mean_series,
+    _rolling_std_series,
+    _rolling_zscore_series,
+    _skewness,
+    _sliding_rolling_max,
+    _sliding_rolling_min,
+    _zscore_last,
 )
-from src.intelligence.features.kernels._primitives import (
-    _atr_wilder as _atr_wilder,
+from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-exported for tests and scripts
+    _QUARTER_LENGTH_DAYS,
+    _day_of_month_cos,
+    _day_of_month_sin,
+    _days_since_quarter_end,
+    _days_to_month_end_fraction,
+    _dow_encoding,
+    _earnings_season_flag,
+    _hour_of_day_cos,
+    _hour_of_day_sin,
+    _in_london_kz,
+    _in_ny_session,
+    _in_overlap,
+    _minute_of_hour_encoding,
+    _month_cos,
+    _month_position,
+    _month_sin,
+    _opening_range,
+    _opex_flag,
+    _power_hour,
+    _quad_witching_flag,
+    _quarter_cycle_encoding,
+    _quarter_position,
+    _session_time_pos,
+    _tdom_encoding,
+    _week_of_month_cos,
+    _week_of_month_sin,
+    _week_of_year_cos,
+    _week_of_year_sin,
 )
-from src.intelligence.features.kernels._primitives import (
-    _fixed_window_zscore_series as _fixed_window_zscore_series,
+from src.intelligence.features.kernels.control import (  # noqa: F401  re-exported for tests and scripts
+    _CANARY_CONSTANT_VALUE,
+    _CANARY_NEAR_CONSTANT_EPSILON,
+    _canary_acausal_placebo,
+    _canary_near_constant,
+    _canary_noise_gaussian,
+    _canary_noise_uniform,
+    _canary_sub_seed,
 )
-from src.intelligence.features.kernels._primitives import (
-    _is_valid_atr as _is_valid_atr,
-)
-from src.intelligence.features.kernels._primitives import (
-    _is_valid_atr_series as _is_valid_atr_series,
-)
-from src.intelligence.features.kernels._primitives import (
-    _kurtosis as _kurtosis,
-)
-from src.intelligence.features.kernels._primitives import (
-    _pearson_acf1 as _pearson_acf1,
-)
-from src.intelligence.features.kernels._primitives import (
-    _percentile_rank as _percentile_rank,
-)
-from src.intelligence.features.kernels._primitives import (
-    _rolling_mean_series as _rolling_mean_series,
-)
-from src.intelligence.features.kernels._primitives import (
-    _rolling_std_series as _rolling_std_series,
-)
-from src.intelligence.features.kernels._primitives import (
-    _rolling_zscore_series as _rolling_zscore_series,
-)
-from src.intelligence.features.kernels._primitives import (
-    _skewness as _skewness,
-)
-from src.intelligence.features.kernels._primitives import (
-    _sliding_rolling_max as _sliding_rolling_max,
-)
-from src.intelligence.features.kernels._primitives import (
-    _sliding_rolling_min as _sliding_rolling_min,
-)
-from src.intelligence.features.kernels._primitives import (
-    _zscore_last as _zscore_last,
-)
+from src.intelligence.features.registry import compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import clamp, find_peaks, find_troughs, safe_corr
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
@@ -101,8 +111,6 @@ from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 # Bump on any algorithm change; IC engine filters by version to avoid mixing IC estimates.
 FEATURE_FACTORY_VERSION: str = "1.0.0"
 
-# Calendar constant: average days per quarter (365.25 / 4). Not a tunable — fixed by definition.
-_QUARTER_LENGTH_DAYS: float = 91.25
 
 # Module logger for _guard_counted's observability tripwire report ONLY
 # (Phase 151 Plan 06) -- this is the sole logging call site in this module;
@@ -1221,88 +1229,12 @@ def _open_vs_intraday(open_ret: float, intraday_ret: float) -> float:
     return open_ret - intraday_ret
 
 
-def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """Continuous [0, 1] position within the NY regular session for bar_ts's date.
-
-    Formula: clamp((total_minutes - start_minutes) / (end_minutes - start_minutes), 0.0, 1.0).
-    0.0 before/at session open, 1.0 at/after session close. Pure timestamp arithmetic — no
-    OHLCV. Deviation from source spec (discrete bar_index/total_session_bars) documented in
-    142.5-01-PLAN.md: continuous fraction is TF-independent (session bar count varies by TF).
-    """
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
-    end_minutes = config.ny_session_end_utc_hour * 60
-    session_length = end_minutes - start_minutes
-    if session_length <= 0:
-        return 0.0
-    frac = (total_minutes - start_minutes) / session_length
-    return max(0.0, min(1.0, frac))
-
-
 # ---------------------------------------------------------------------------
 # Renaissance Primitives — Temporal Coordinates (Phase 142.5 Plan 02)
 # ---------------------------------------------------------------------------
 # Pure timestamp arithmetic — no state, no OHLCV, no APR keys. Sin/cos encodings
 # preserve circular distance (e.g. 23:00 is 1 hour from 00:00, not 23 hours).
 # All bounded [-1, 1] by construction (math.sin/math.cos range).
-
-
-def _hour_of_day_sin(bar_ts: datetime) -> float:
-    """Circular hour-of-day encoding: sin(2*pi*(hour + minute/60)/24)."""
-    hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.sin(2.0 * math.pi * hour / 24.0)
-
-
-def _hour_of_day_cos(bar_ts: datetime) -> float:
-    """Circular hour-of-day encoding: cos(2*pi*(hour + minute/60)/24)."""
-    hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.cos(2.0 * math.pi * hour / 24.0)
-
-
-def _week_of_month_sin(bar_ts: datetime) -> float:
-    """Circular week-of-month encoding: sin(2*pi*week/5). week = (day-1)//7 + 1."""
-    week = (bar_ts.day - 1) // 7 + 1
-    return math.sin(2.0 * math.pi * week / 5.0)
-
-
-def _week_of_month_cos(bar_ts: datetime) -> float:
-    """Circular week-of-month encoding: cos(2*pi*week/5). week = (day-1)//7 + 1."""
-    week = (bar_ts.day - 1) // 7 + 1
-    return math.cos(2.0 * math.pi * week / 5.0)
-
-
-def _day_of_month_sin(bar_ts: datetime) -> float:
-    """Circular day-of-month encoding: sin(2*pi*day/31)."""
-    return math.sin(2.0 * math.pi * bar_ts.day / 31.0)
-
-
-def _day_of_month_cos(bar_ts: datetime) -> float:
-    """Circular day-of-month encoding: cos(2*pi*day/31)."""
-    return math.cos(2.0 * math.pi * bar_ts.day / 31.0)
-
-
-def _week_of_year_sin(bar_ts: datetime) -> float:
-    """Circular week-of-year encoding: sin(2*pi*isocalendar_week/52)."""
-    _, week, _ = bar_ts.isocalendar()
-    return math.sin(2.0 * math.pi * week / 52.0)
-
-
-def _week_of_year_cos(bar_ts: datetime) -> float:
-    """Circular week-of-year encoding: cos(2*pi*isocalendar_week/52)."""
-    _, week, _ = bar_ts.isocalendar()
-    return math.cos(2.0 * math.pi * week / 52.0)
-
-
-def _month_sin(bar_ts: datetime) -> float:
-    """Circular month-of-year encoding: sin(2*pi*month/12). NEW pair — only
-    _month_position (linear) existed before this plan."""
-    return math.sin(2.0 * math.pi * bar_ts.month / 12.0)
-
-
-def _month_cos(bar_ts: datetime) -> float:
-    """Circular month-of-year encoding: cos(2*pi*month/12). NEW pair — only
-    _month_position (linear) existed before this plan."""
-    return math.cos(2.0 * math.pi * bar_ts.month / 12.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1776,140 +1708,10 @@ def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
 # scripts/ops/alpha/ops_canary_integrity_assert.py is the loud,
 # expectation-aware assertion that enforces this at corpus-run time.
 
-_CANARY_CONSTANT_VALUE: float = 1.0
-_CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
-
-
-def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int) -> int:
-    """Deterministic per-(symbol, bar) sub-seed derived from symbol + bar_ts +
-    the APR base seed + a per-canary offset.
-
-    2026-07-29 fix (todo 203): previously omitted `symbol` entirely -- every
-    symbol received the IDENTICAL "random" draw at a given bar_ts, confirmed
-    live in feature_vectors (bit-identical canary_noise_gaussian/uniform/
-    near_constant across every pooled symbol at the same timestamp). Any
-    cross-sectional measurement pooling multiple symbols (this project's own
-    ic_engine.py _compute_cross_sectional_tf, or an ad hoc diagnostic doing the
-    same) saw severe pseudo-replication as a result -- the true independent
-    draw count per bar_ts was 1, not n_symbols, defeating these negative
-    controls' entire purpose.
-
-    The symbol component uses hash_key_to_int (src/core/rng.py) -- the shared
-    Ring-0 primitive also used by ic_engine.py's _derive_worker_rng_seed(cell_key,
-    bootstrap_seed) (extracted 2026-07-29 /simplify pass after this function
-    independently re-derived the same MD5-hash-to-int idiom) -- stable across
-    processes/interpreter versions (PYTHONHASHSEED-independent), required for
-    ProcessPoolExecutor workers and the "same bar inputs + seed -> same value"
-    determinism contract. The bar_ts/offset arithmetic component is unchanged from
-    the original (still pure arithmetic, no hash() there either).
-    """
-    ts_int = int(bar_ts.timestamp() * 1000)
-    symbol_hash = hash_key_to_int(symbol)
-    return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
-
-
-def _canary_noise_gaussian(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Gaussian noise, N(0, 1) (offset=0). Negative control: must never
-    carry IC."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=0))
-    return float(rng.standard_normal())
-
-
-def _canary_noise_uniform(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Uniform[0, 1) noise (offset=1), independently seeded from the
-    Gaussian canary. Two distributionally-distinct RNG sources both agreeing
-    they are null is stronger pipeline-integrity evidence than one alone."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=1))
-    return float(rng.uniform(0.0, 1.0))
-
-
-def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """_CANARY_CONSTANT_VALUE plus tiny deterministic epsilon noise
-    (offset=2) -- verifies degenerate near-zero-variance input handling
-    without being bit-identical to the pure constant canary."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=2))
-    return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
-
-
-def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> float:
-    """Deliberate look-ahead leak (positive control): pairs bar i with the
-    close-to-close return realized from bars i+1 -> i+2 (the ret_lag_1 shape,
-    forward-shifted). Against the executable open-to-open labels it is fully
-    contained only in lookahead h >= 2 (open[i+1] -> open[i+h+1]); the h = 1
-    label shares just the overnight gap close[i+1] -> open[i+2], so its IC
-    peaks at h = 2 (1d pooled: ~0.32 at h=1, ~0.64 at h=2) and a small h = 1
-    cell can miss significance. Detection checks gate on the containing
-    lookahead (phase 179 V5). Falls back to 0.0 when the future bars don't exist yet (end of
-    the batch series, or the live single-bar compute() path, which by
-    definition has no future data -- see FeatureFactory.compute() docstring).
-    """
-    if i + 2 >= len(closes) or closes[i + 1] <= eps or closes[i + 2] <= eps:
-        return 0.0
-    return float(math.log(closes[i + 2] / closes[i + 1]))
-
 
 # ---------------------------------------------------------------------------
 # Calendar primitive functions
 # ---------------------------------------------------------------------------
-
-
-def _in_ny_session(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is within NY RTH, else 0.0."""
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
-    end_minutes = config.ny_session_end_utc_hour * 60
-    return 1.0 if start_minutes <= total_minutes < end_minutes else 0.0
-
-
-def _in_overlap(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in London-NY overlap, else 0.0."""
-    return (
-        1.0 if config.overlap_start_utc_hour <= bar_ts.hour < config.overlap_end_utc_hour else 0.0
-    )
-
-
-def _dow_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic weekday encoding: (sin(2*pi*weekday/5), cos(2*pi*weekday/5)).
-
-    weekday() returns 0=Monday, 4=Friday. Weekends treated as Friday.
-    """
-    weekday = min(bar_ts.weekday(), 4)
-    angle = 2.0 * math.pi * weekday / 5.0
-    return math.sin(angle), math.cos(angle)
-
-
-def _month_position(bar_ts: datetime) -> float:
-    """day_of_month / days_in_month: position within the month in (0, 1]."""
-    days = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-    return bar_ts.day / days
-
-
-def _in_london_kz(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in the London killzone, else 0.0."""
-    return (
-        1.0
-        if config.london_kz_start_utc_hour <= bar_ts.hour < config.london_kz_end_utc_hour
-        else 0.0
-    )
-
-
-def _power_hour(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in power hour, else 0.0."""
-    return (
-        1.0
-        if config.power_hour_start_utc_hour <= bar_ts.hour < config.power_hour_end_utc_hour
-        else 0.0
-    )
-
-
-def _opening_range(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in the first 30 min of NY session, else 0.0."""
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    return (
-        1.0
-        if config.opening_range_start_minute <= total_minutes < config.opening_range_end_minute
-        else 0.0
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -3116,136 +2918,6 @@ def _price_vol_corr_series_full(
 # ---------------------------------------------------------------------------
 
 
-def _quarter_position(bar_ts: datetime) -> float:
-    """Position within the quarter: 0.0 at quarter start, approaching 1.0 at end.
-
-    Formula: (month_in_quarter * 30 + day) / QUARTER_LENGTH_DAYS
-    """
-    month_in_q = (bar_ts.month - 1) % 3
-    day_in_q = month_in_q * 30 + bar_ts.day
-    return min(1.0, day_in_q / _QUARTER_LENGTH_DAYS)
-
-
-def _days_to_month_end_fraction(bar_ts: datetime) -> float:
-    """Fraction of month remaining: 0.0 at month end, approaching 1.0 at start."""
-    days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-    days_remaining = days_in_month - bar_ts.day
-    return days_remaining / days_in_month
-
-
-def _quarter_cycle_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """First circular harmonic of _quarter_position(): (sin(2*pi*qp), cos(2*pi*qp)).
-
-    Reuses _quarter_position() directly rather than recomputing the
-    within-quarter position (Phase 151 Plan 01, todo 104).
-    """
-    qp = _quarter_position(bar_ts)
-    angle = 2.0 * math.pi * qp
-    return math.sin(angle), math.cos(angle)
-
-
-def _tdom_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic trading-day-of-month encoding: (sin(2*pi*t/W), cos(2*pi*t/W)).
-
-    t = count of Mon-Fri weekdays from the 1st of the month through
-    bar_ts.date() inclusive. W = total Mon-Fri weekday count in that
-    calendar month. Closed-form weekday arithmetic; deliberately ignores
-    market holidays (Phase 151 Plan 01, todo 104 -- source doc rejects a
-    nonstationary holiday table). Guard W <= 0 -> (0.0, 0.0).
-    """
-    year, month = bar_ts.year, bar_ts.month
-    days_in_month = calendar.monthrange(year, month)[1]
-    first_weekday = calendar.weekday(year, month, 1)  # 0=Monday
-    # Weekday count in [1, day] inclusive: number of days in that range whose
-    # (first_weekday + offset) % 7 < 5 (Mon-Fri).
-    t = sum(1 for d in range(1, bar_ts.day + 1) if (first_weekday + d - 1) % 7 < 5)
-    w = sum(1 for d in range(1, days_in_month + 1) if (first_weekday + d - 1) % 7 < 5)
-    if w <= 0:
-        return 0.0, 0.0
-    angle = 2.0 * math.pi * t / w
-    return math.sin(angle), math.cos(angle)
-
-
-def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic minute-of-hour encoding: (sin(2*pi*minute/60), cos(2*pi*minute/60)).
-
-    Constant at 1h/1d by construction (minute is always 0 for hourly/daily
-    bars) -- expected and correct, not a bug (Phase 151 Plan 01, todo 104).
-    """
-    angle = 2.0 * math.pi * bar_ts.minute / 60.0
-    return math.sin(angle), math.cos(angle)
-
-
-def _opex_flag(bar_ts: datetime) -> float:
-    """1.0 iff bar_ts falls on the monthly options-expiration Friday, else 0.0.
-
-    Formula (Phase 151 Plan 05, todos 066/104): dow == Friday (weekday() == 4)
-    AND week_of_month == 3, where week_of_month = (day - 1) // 7 + 1. Matches
-    docs/research/signal-temporal-atomic-primitives.md's prescribed formula
-    literally. Deliberately no market-holiday table -- the source doc rejects
-    one as nonstationary institutional data (same rationale as _tdom_encoding
-    above).
-    """
-    week_of_month = (bar_ts.day - 1) // 7 + 1
-    return 1.0 if (bar_ts.weekday() == 4 and week_of_month == 3) else 0.0
-
-
-def _quad_witching_flag(bar_ts: datetime) -> float:
-    """1.0 iff bar_ts is a quarterly quad-witching Friday, else 0.0.
-
-    Formula: _opex_flag(bar_ts) == 1.0 AND bar_ts.month % 3 == 0 (quarter-end
-    month). Calls _opex_flag directly rather than restating its condition
-    (Phase 151 Plan 05).
-    """
-    return 1.0 if (_opex_flag(bar_ts) == 1.0 and bar_ts.month % 3 == 0) else 0.0
-
-
-def _days_since_quarter_end(bar_ts: datetime) -> float:
-    """Raw calendar days since the most recent quarter end (Mar 31, Jun 30,
-    Sep 30, Dec 31), including the prior year's Dec 31 for January dates.
-
-    Formula (Phase 176 Plan 03, todo 353): find the latest quarter-end date
-    on or before bar_ts.date(), return the day-count difference as a float.
-    True calendar-day counting via bar_ts.date() arithmetic only -- deliberately
-    does NOT reuse _QUARTER_LENGTH_DAYS (91.25), which encodes
-    _quarter_position's 30-day-per-month approximation; conflating the two
-    would make this field exactly collinear with quarter_position instead of
-    the measured 0.935 correlation.
-    """
-    d = bar_ts.date()
-    candidates = [
-        date(year, month, day)
-        for year in (d.year, d.year - 1)
-        for month, day in ((3, 31), (6, 30), (9, 30), (12, 31))
-    ]
-    most_recent_quarter_end = max(c for c in candidates if c <= d)
-    return float((d - most_recent_quarter_end).days)
-
-
-def _earnings_season_flag(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 iff bar_ts falls within [config.earnings_season_start_days,
-    config.earnings_season_end_days] calendar days after the most recent
-    quarter end, else 0.0. Both boundaries inclusive.
-
-    Formula (Phase 176 Plan 03, todo 353): calls _days_since_quarter_end(bar_ts)
-    directly rather than restating the quarter-end arithmetic (reuse
-    discipline, mirrors _quad_witching_flag calling _opex_flag). Window
-    boundaries (feature.earnings_season.start_days,
-    feature.earnings_season.end_days) come from D-04's corrected
-    re-verification: 1.90x in-season/off-season ratio, Welch p=5.05e-05, 67%
-    of symbols (155/233) -- the todo's original superseded figures (a much
-    larger ratio, a much smaller p-value, and a higher symbol percentage from
-    an earlier flawed window) must not be cited. Market-wide calendar proxy
-    only, no per-company earnings-date table by design (same
-    nonstationary-institutional-data rejection rationale as _opex_flag's
-    no-market-holiday-table decision).
-    """
-    days = _days_since_quarter_end(bar_ts)
-    return (
-        1.0 if config.earnings_season_start_days <= days <= config.earnings_season_end_days else 0.0
-    )
-
-
 # ---------------------------------------------------------------------------
 # _PrecomputedSeries — bundled series arrays for a bar window
 # ---------------------------------------------------------------------------
@@ -3604,6 +3276,50 @@ def _precompute_series(
         ),
         abs_ret_autocorr_1=_ret_autocorr_series_full(closes, 1, use_abs=True),
     )
+
+
+# Columns compute_batch reads from registry kernels instead of calling helpers inline.
+_DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
+    *(
+        "in_ny_session in_london_kz in_overlap power_hour opening_range session_time_pos "
+        "dow_sin dow_cos month_position quarter_position days_to_month_end quarter_cycle_sin "
+        "quarter_cycle_cos tdom_sin tdom_cos minute_of_hour_sin minute_of_hour_cos "
+        "hour_of_day_sin hour_of_day_cos week_of_month_sin week_of_month_cos day_of_month_sin "
+        "day_of_month_cos week_of_year_sin week_of_year_cos month_sin month_cos opex_flag "
+        "quad_witching_flag earnings_season_flag days_since_quarter_end canary_noise_gaussian "
+        "canary_noise_uniform canary_near_constant canary_constant canary_acausal_placebo"
+    ).split(),
+)
+
+_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=UTC)
+
+
+def _bar_ts_ns(bar_ts: datetime) -> int:
+    """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
+    if bar_ts.tzinfo is None:
+        bar_ts = bar_ts.replace(tzinfo=UTC)
+    return (bar_ts - _EPOCH_UTC) // timedelta(microseconds=1) * 1000
+
+
+def _batch_kernel_inputs(
+    bars: list[dict],
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    symbol: str,
+) -> dict[str, np.ndarray]:
+    """Bar arrays plus the per-row `symbol` external input for compute_kernels."""
+    return {
+        "ts": np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64),
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": volumes,
+        "symbol": np.array([symbol] * len(bars), dtype=object),
+    }
 
 
 def _guard(v: float | None, fallback: float = 0.0) -> float | None:
@@ -7174,6 +6890,15 @@ class FeatureFactory:
         volumes = np.array([b["volume"] for b in bars], dtype=float)
 
         s = _precompute_series(opens, highs, lows, closes, volumes, config)
+        # Registry kernels (D-25) compute every delegated column once for the whole batch; the
+        # loop below reads row i. The registry is looked up here, never at import, so kernel
+        # origins cannot create an import cycle with this module.
+        k = compute_kernels(
+            default_registry(),
+            _batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
+            config,
+            outputs=list(_DELEGATED_KERNEL_OUTPUTS),
+        )
 
         # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
         MIN_WINDOW = max(
@@ -7527,19 +7252,24 @@ class FeatureFactory:
                 rate_beta_z_val = None if symbol == "TLT" else cache.rate_beta_z
 
             # Calendar primitives
-            in_ny_session_val = _in_ny_session(bar_ts, config)
-            in_london_kz_val = _in_london_kz(bar_ts, config)
-            in_overlap_val = _in_overlap(bar_ts, config)
-            power_hour_val = _power_hour(bar_ts, config)
-            opening_range_val = _opening_range(bar_ts, config)
+            in_ny_session_val = float(k["in_ny_session"][i])
+            in_london_kz_val = float(k["in_london_kz"][i])
+            in_overlap_val = float(k["in_overlap"][i])
+            power_hour_val = float(k["power_hour"][i])
+            opening_range_val = float(k["opening_range"][i])
+            # Cache-backed: the registered above_wk_vwap kernel replays the same math, but
+            # reading it here would change results for a caller passing a pre-warmed cache;
+            # 186-25 retires the cache-driven batch loop.
             above_wk_vwap_val = cache.above_wk_vwap
-            dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
-            month_position_val = _month_position(bar_ts)
-            quarter_position_val = _quarter_position(bar_ts)
-            days_to_month_end_val = _days_to_month_end_fraction(bar_ts)
-            quarter_cycle_sin_val, quarter_cycle_cos_val = _quarter_cycle_encoding(bar_ts)
-            tdom_sin_val, tdom_cos_val = _tdom_encoding(bar_ts)
-            minute_of_hour_sin_val, minute_of_hour_cos_val = _minute_of_hour_encoding(bar_ts)
+            dow_sin_val, dow_cos_val = float(k["dow_sin"][i]), float(k["dow_cos"][i])
+            month_position_val = float(k["month_position"][i])
+            quarter_position_val = float(k["quarter_position"][i])
+            days_to_month_end_val = float(k["days_to_month_end"][i])
+            quarter_cycle_sin_val = float(k["quarter_cycle_sin"][i])
+            quarter_cycle_cos_val = float(k["quarter_cycle_cos"][i])
+            tdom_sin_val, tdom_cos_val = float(k["tdom_sin"][i]), float(k["tdom_cos"][i])
+            minute_of_hour_sin_val = float(k["minute_of_hour_sin"][i])
+            minute_of_hour_cos_val = float(k["minute_of_hour_cos"][i])
 
             # CTF: from pre-built causal dict (batch) or cache (live). ctf_by_ts
             # values are CtfValues NamedTuples (Phase 151 Plan 05 extended this
@@ -7597,10 +7327,10 @@ class FeatureFactory:
                 ret_div_1h_1d_val = ret_lag_1_val - _htf_last_log_ret_val
             else:
                 ret_div_1h_1d_val = None
-            opex_flag_val = _opex_flag(bar_ts)
-            quad_witching_flag_val = _quad_witching_flag(bar_ts)
-            earnings_season_flag_val = _earnings_season_flag(bar_ts, config)
-            days_since_quarter_end_val = _days_since_quarter_end(bar_ts)
+            opex_flag_val = float(k["opex_flag"][i])
+            quad_witching_flag_val = float(k["quad_witching_flag"][i])
+            earnings_season_flag_val = float(k["earnings_season_flag"][i])
+            days_since_quarter_end_val = float(k["days_since_quarter_end"][i])
 
             ret_lag_2_val = _ret_lag_2(closes[: i + 1])
             ret_lag_3_val = _ret_lag_3(closes[: i + 1])
@@ -7610,21 +7340,21 @@ class FeatureFactory:
             open_ret_val = _open_ret(open_, prev_close_)
             intraday_ret_val = _intraday_ret(close_, open_)
             open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
-            session_time_pos_val = _session_time_pos(bar_ts, config)
+            session_time_pos_val = float(k["session_time_pos"][i])
 
-            # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates
-            # are O(1) per bar (pure bar_ts arithmetic). Volume structure reads
-            # the precomputed series (O(n) total, not per-bar O(n x window)).
-            hour_of_day_sin_val = _hour_of_day_sin(bar_ts)
-            hour_of_day_cos_val = _hour_of_day_cos(bar_ts)
-            week_of_month_sin_val = _week_of_month_sin(bar_ts)
-            week_of_month_cos_val = _week_of_month_cos(bar_ts)
-            day_of_month_sin_val = _day_of_month_sin(bar_ts)
-            day_of_month_cos_val = _day_of_month_cos(bar_ts)
-            week_of_year_sin_val = _week_of_year_sin(bar_ts)
-            week_of_year_cos_val = _week_of_year_cos(bar_ts)
-            month_sin_val = _month_sin(bar_ts)
-            month_cos_val = _month_cos(bar_ts)
+            # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates come from the
+            # calendar kernels. Volume structure reads the precomputed series (O(n) total,
+            # not per-bar O(n x window)).
+            hour_of_day_sin_val = float(k["hour_of_day_sin"][i])
+            hour_of_day_cos_val = float(k["hour_of_day_cos"][i])
+            week_of_month_sin_val = float(k["week_of_month_sin"][i])
+            week_of_month_cos_val = float(k["week_of_month_cos"][i])
+            day_of_month_sin_val = float(k["day_of_month_sin"][i])
+            day_of_month_cos_val = float(k["day_of_month_cos"][i])
+            week_of_year_sin_val = float(k["week_of_year_sin"][i])
+            week_of_year_cos_val = float(k["week_of_year_cos"][i])
+            month_sin_val = float(k["month_sin"][i])
+            month_cos_val = float(k["month_cos"][i])
             vol_acceleration_val = (
                 float(s.vol_acceleration[i]) if i < len(s.vol_acceleration) else 1.0
             )
@@ -7881,12 +7611,10 @@ class FeatureFactory:
             # passed by the caller (backfill), so the acausal placebo can
             # genuinely reference bars i+1/i+2 -- the deliberate look-ahead
             # leak this canary exists to calibrate.
-            canary_noise_gaussian_val = _canary_noise_gaussian(
-                bar_ts, symbol, config.canary_rng_seed
-            )
-            canary_noise_uniform_val = _canary_noise_uniform(bar_ts, symbol, config.canary_rng_seed)
-            canary_near_constant_val = _canary_near_constant(bar_ts, symbol, config.canary_rng_seed)
-            canary_acausal_placebo_val = _canary_acausal_placebo(closes, i)
+            canary_noise_gaussian_val = float(k["canary_noise_gaussian"][i])
+            canary_noise_uniform_val = float(k["canary_noise_uniform"][i])
+            canary_near_constant_val = float(k["canary_near_constant"][i])
+            canary_acausal_placebo_val = float(k["canary_acausal_placebo"][i])
 
             # Build FeatureVector
             fv = _build_feature_vector(
@@ -7936,8 +7664,8 @@ class FeatureFactory:
                 dow_sin=dow_sin_val,
                 dow_cos=dow_cos_val,
                 month_position=month_position_val,
-                quarter_position=_quarter_position(bar_ts),
-                days_to_month_end=_days_to_month_end_fraction(bar_ts),
+                quarter_position=quarter_position_val,
+                days_to_month_end=days_to_month_end_val,
                 quarter_cycle_sin=quarter_cycle_sin_val,
                 quarter_cycle_cos=quarter_cycle_cos_val,
                 tdom_sin=tdom_sin_val,
@@ -8087,7 +7815,7 @@ class FeatureFactory:
                 efficiency_volume_product=efficiency_volume_product_val,
                 canary_noise_gaussian=canary_noise_gaussian_val,
                 canary_noise_uniform=canary_noise_uniform_val,
-                canary_constant=_CANARY_CONSTANT_VALUE,
+                canary_constant=float(k["canary_constant"][i]),
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
             )

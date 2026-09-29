@@ -528,10 +528,16 @@ class TestRegimePrimitives:
         scanning, not carved out by line number, so this stays correct as
         the file grows around it.
         """
+        # 186-12: the feature computation now lives in feature_factory.py plus the kernel
+        # modules under features/kernels/ (the canary placebo moved to control.py).
         factory_path = _REPO_ROOT / "src" / "intelligence" / "feature_factory.py"
-        source = factory_path.read_text()
-
-        source_without_canary, n_stripped = _source_without_acausal_canary(source)
+        kernel_paths = sorted((factory_path.parent / "features" / "kernels").glob("*.py"))
+        source_without_canary = ""
+        n_stripped = 0
+        for path in (factory_path, *kernel_paths):
+            stripped, count = _source_without_acausal_canary(path.read_text())
+            source_without_canary += stripped
+            n_stripped += count
         assert n_stripped == 1, (
             "_canary_acausal_placebo() not found where expected -- this test's "
             "structural exclusion depends on it existing; update the test if the "

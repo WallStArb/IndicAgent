@@ -12,7 +12,12 @@ from src.intelligence.features.causality_probe import (
     memory_check,
     probe_registry,
 )
-from src.intelligence.features.registry import Kernel, KernelRegistry
+from src.intelligence.features.registry import (
+    Kernel,
+    KernelRegistry,
+    compute_kernels,
+    default_registry,
+)
 
 N = 400
 ROWS = np.array([50, 120, 250, 399])
@@ -200,3 +205,28 @@ def test_probe_registry_fails_when_acausal_control_is_not_detected():
     )
     with pytest.raises(CausalityViolation, match="cannot detect lookahead"):
         probe_registry(KernelRegistry.from_kernels([blind]), INPUTS, CFG, ROWS)
+
+
+@pytest.fixture(scope="module")
+def _registered_case():
+    from tests.unit.intelligence.kernel_parity_reference import synthetic_inputs
+
+    inputs, config = synthetic_inputs()
+    available = {**inputs, "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object)}
+    available.update(compute_kernels(default_registry(), available, config))
+    return available, config
+
+
+@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
+def test_registered_kernels_are_causal(kernel, _registered_case):
+    available, config = _registered_case
+    rows = np.array([120, 250, 400, 498])
+    if kernel.acausal_control:
+        with pytest.raises(CausalityViolation):
+            causality_probe(kernel, available, config, rows)
+        return
+    causality_probe(kernel, available, config, rows)
+    if kernel.path_dependent:
+        assert kernel.path_dependent_reason  # memory_check is skipped: no finite memory exists
+        return
+    memory_check(kernel, available, config, rows)
