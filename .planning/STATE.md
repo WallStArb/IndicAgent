@@ -50,6 +50,9 @@ bullets with current facts.
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
+  Family 1 exploration 2026-09-29 (iterations 1-4, in-sample, outside the runner): the edge sits at the
+  opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
+  next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
 - **Phase 185:** 24 plans in 10 waves; 11 done (01-11), wave 2 complete with 185-09 (the
   `ibkr_history_stream` lease, D1 capture in the backfill, the nightly waiting instead of skipping).

@@ -96,3 +96,27 @@ imbalances. An auction fill crosses no spread, and the opening slot's E is still
 11:00, so an opening-auction-to-closing-auction hold would pay no half-spread on either leg. That
 is a new question outside this grid; it needs its own criteria before its curve is read, and a
 check that the stored open and close are the official auction prices.
+
+## Reporting: gross monthly returns, 2020 to 2025 (not a test)
+
+Requested for an outside description of the strategy. `scripts/research/family1_monthly_returns.py`,
+201 non-`compute_eligible` names (the slots were chosen on the 233, not these), open plus close
+slots, `same_slot_mean20`, one-slot hold, entry and exit at the runner's prices, gross of all cost,
+in-sample. Percent of capital deployed per slot, summed over sessions.
+
+| Year | keep 0.1 | keep 0.05 |
+|---|---|---|
+| 2020 | 30.5% | 29.7% |
+| 2021 | 22.1% | 29.8% |
+| 2022 | 12.4% | 14.2% |
+| 2023 | 13.7% | 19.6% |
+| 2024 | 10.3% | 11.3% |
+| 2025 | 27.4% | 47.2% |
+
+Average month 1.62% (keep 0.1) and 2.11% (0.05); up months 59 and 60 of 72; worst month -1.55% and
+-4.13%; gross Sharpe 3.9 and 3.4. March 2020 is 13.4% (0.1) and 13.6% (0.05), April 2025 5.6% and
+9.7%: the book earns most when volatility spikes. On the 233 names over 2024 to 2025, keep 0.05 was
+worse than keep 0.1 on both return and Sharpe (4.0 against 4.6 bp per session, Sharpe 2.5 against
+4.5), so the ordering of the two keeps is not stable across name sets. At the measured half-spreads
+every year is negative net (iteration 3 and the table above). The 233-name months for 2024 to 2025
+were computed with the 15m runner prices and are in the script's JSON output (git-ignored scratch).
