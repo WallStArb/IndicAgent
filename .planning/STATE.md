@@ -59,7 +59,7 @@ bullets with current facts.
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 6 done (01, 03, 04, 05, 06, 07); resume with 186-08.
+  sequential, one executor at a time). 7 done (01, 03, 04, 05, 06, 07, 08); resume with 186-09.
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
   rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
   `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
