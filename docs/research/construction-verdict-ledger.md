@@ -123,6 +123,21 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 
 ## 5. Supporting measurements (not verdicts, but load-bearing context)
 
+- **5m features, incremental IC over 15m, 2026-09-28 (disclosure for the phase 186 rebuild).**
+  Todo 445: does a 5m-computed feature carry cross-sectional information the same feature's 15m
+  value does not, at matched clock horizons, net of the personal cost hurdle? Ran as a committed
+  script (R-08: the phase 183 runner has no exploration mode), one counted look
+  (`scripts/research/todo445_5m_incremental_ic.py`, `gate_look_log.jsonl` run_ts
+  2026-09-28T20:25:04Z). 233 `compute_eligible` names, 2016-01-01 to `oos_start`, 240 features
+  tested at 2 horizons (about 2.5 hours and half a session): 176 of 480 (feature, horizon) cells
+  BH-significant at q=0.05 (94 at the shorter horizon, 83 at the longer), but only 2 features
+  cleared the cost hurdle at every grid point: `ret_autocorr_1` (t 2.65-2.72, partial rank IC
+  0.003-0.0035) and `sweep_detected` (t 2.60-2.75, partial rank IC 0.002-0.0025), both horizons.
+  Decision: keep 5m in the rebuild, scoped to these two features at the 233 names that already
+  have 5m data. This is a scoping measurement, not a verdict: phase 187 imports it as an
+  exploration attempt (R-08), and the other 174 BH-significant cells that failed the cost hurdle
+  are not evidence against those features, just too small (or too high-turnover) to trade alone
+  at this personal cost model.
 - **Corpus feature IC by timeframe and horizon, 2026-09-25 (disclosure for families 1b, 9, 10).**
   Read from `feature_ic_scores` (`regime_scope = 'pooled'`, raw IC, vintage 1) while scoping feature
   families. The largest pooled ICs are one mechanism: price position within its recent range, 1d
