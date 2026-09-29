@@ -303,6 +303,12 @@ Plans:
 - [x] 186-11 ctx-writer retirement: `indicagent-ctx-writer` uninstalled, `context_writer`, `topic_ctx_snapshot`
   and dead `FeatureRepository` deleted, `ctx_events` and `ctx_snapshots` dropped by migration 388,
   unit deny-listed in the registry-integrity test; merged 2026-09-29 (`79a59913a`)
+- [x] 186-12 feature_factory split, first four origins: 117 registry kernels for price, volume, calendar,
+  control and macro (D-25, D-26), `compute_batch` and `_precompute_series` read them through
+  `compute_kernels`, byte-identical against the 186-08 golden; the probe found two lookaheads, fixed
+  with their own golden regenerations: intraday macro records now align as-of the daily close (todo
+  450 closed) and `gap_z` no longer reads the next bar's open (todo 461 filed); merged 2026-09-29
+  (`10967cd67`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
