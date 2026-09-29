@@ -25,7 +25,7 @@ from src.intelligence.features.causality_probe import (
     probe_registry,
 )
 from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
-from src.intelligence.features.registry import KernelRegistry, compute_kernels, default_registry
+from src.intelligence.features.registry import compute_kernels, default_registry
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 MANIFEST = ref.load_manifest()
@@ -318,14 +318,6 @@ def test_compute_batch_calls_no_delegated_helper():
     assert called == []
 
 
-# Kernels the probe proves acausal on today's code, moved unchanged by the code-only commits and
-# fixed in their own behavior commits. Each entry is asserted to still FAIL the probe, so the
-# fix commit must delete its entry (the probe is the regression test for the fix).
-KNOWN_ACAUSAL: dict[str, str] = {
-    "gap_z": "_gap_z_series_full assigns the z-score of bar i+1's gap to row i (off by one)",
-}
-
-
 @lru_cache(maxsize=2)
 def _probe_case(config_key: str):
     config = ref.build_config(MANIFEST[config_key])
@@ -338,7 +330,7 @@ def _probe_case(config_key: str):
 @pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
 def test_probe_and_memory_check_per_kernel(kernel, config_key):
     available, config = _probe_case(config_key)
-    if kernel.acausal_control or kernel.name in KNOWN_ACAUSAL:
+    if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
             causality_probe(kernel, available, config, PROBE_ROWS)
         return
@@ -352,22 +344,40 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
-    """probe_registry over the whole registry, minus kernels listed as known acausal."""
     config = ref.build_config(MANIFEST[config_key])
-    known = [name for name in KNOWN_ACAUSAL]
-    registry = default_registry()
-    kept = (
-        KernelRegistry.from_kernels(
-            [k for k in registry.kernels if k.name not in known], registry.external_inputs
+    statuses = probe_registry(default_registry(), synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
+    expected = {
+        kernel.name: (
+            "acausal_control_detected"
+            if kernel.name in ACAUSAL_CONTROLS
+            else "path_dependent_skipped_memory" if kernel.name in PATH_DEPENDENT else "ok"
         )
-        if not known
-        else None
-    )
-    if kept is None:
-        pytest.skip("known acausal kernels are covered per kernel above")
-    statuses = probe_registry(kept, synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
-    assert set(statuses.values()) <= {
-        "ok",
-        "path_dependent_skipped_memory",
-        "acausal_control_detected",
+        for kernel in default_registry().kernels
     }
+    assert statuses == expected
+
+
+def _gap_z(config, opens_override=None, n=400):
+    inputs = synthetic_bars(n)
+    if opens_override is not None:
+        inputs["open"] = opens_override(inputs["open"].copy())
+    return compute_kernels(default_registry(), inputs, config, outputs=["gap_z"])["gap_z"]
+
+
+def test_gap_z_row_ignores_the_next_bars_open():
+    """RED before the fix: row 300 moved when bar 301's open changed (off-by-one alignment)."""
+    config = ref.build_config(MANIFEST["synthetic_config"])
+
+    def bump(opens):
+        opens[301] *= 1.02
+        return opens
+
+    base, alt = _gap_z(config), _gap_z(config, bump)
+    assert base[300] == alt[300]
+    assert base[301] != alt[301]  # the bar whose open changed does read it
+
+
+def test_gap_z_last_row_is_computed():
+    """The old alignment left the final row at 0.0 in every batch (and in every live call)."""
+    config = ref.build_config(MANIFEST["synthetic_config"])
+    assert _gap_z(config)[-1] != 0.0

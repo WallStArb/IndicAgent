@@ -230,10 +230,8 @@ def _registered_case():
 @pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
 def test_registered_kernels_are_causal(kernel, _registered_case):
     available, config = _registered_case
-    from tests.unit.intelligence.test_feature_kernels import KNOWN_ACAUSAL
-
     rows = np.array([120, 250, 400, 498])
-    if kernel.acausal_control or kernel.name in KNOWN_ACAUSAL:
+    if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
             causality_probe(kernel, available, config, rows)
         return

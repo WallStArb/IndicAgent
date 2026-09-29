@@ -672,10 +672,13 @@ def _gap_z_series_full(
         )
         # Z-score the gap series
         gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
-        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values
+        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values.
+        # gap_z_core[m] scores the gap at bar m + 1 (index 0 is the leading pad), so bar k takes
+        # gap_z_core[k - 1]. Writing gap_z_core[k] to bar k read bar k + 1's open into row k
+        # (one-bar lookahead) and left the last row at 0.0 (186-12).
         result = np.zeros(n, dtype=float)
         if len(gap_z_core) > 2:
-            result[2 : 2 + len(gap_z_core) - 2] = gap_z_core[2:]
+            result[2:] = gap_z_core[1:]
 
     return result
 
