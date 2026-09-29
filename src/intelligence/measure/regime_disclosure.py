@@ -10,7 +10,7 @@ import numpy as np
 
 from src.intelligence.measure.ic import IcCell, observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
-from src.intelligence.measure.targets import TargetStack
+from src.intelligence.measure.targets import TargetStack, stride
 
 
 def _labelled(labels: np.ndarray) -> np.ndarray:
@@ -46,10 +46,9 @@ def regime_volatility_disclosure(
     n, m = stack.targets.shape
     if regime_volatility.shape != (n, m):
         raise ValueError(f"regime_volatility {regime_volatility.shape} != stack grid {(n, m)}")
-    valid = np.broadcast_to(stack.valid[:, None], (n, m))
+    valid = stack.valid_grid()
     labelled = _labelled(regime_volatility)
     n_unlabelled = int((valid & ~labelled).sum())
-    stride = max(params.min_stride, stack.horizon)
     cells: dict[str, IcCell] = {}
     present = np.unique(regime_volatility[valid & labelled].astype(str))
     as_text = regime_volatility.astype(str)
@@ -57,6 +56,6 @@ def regime_volatility_disclosure(
         mask = valid & labelled & (as_text == label)
         X, y = observation_rows(features, stack.targets, mask)
         cells[str(label)] = pooled_rank_ic(
-            X, y, stride=stride, params=params, feature_names=feature_names
+            X, y, stride=stride(stack, params), params=params, feature_names=feature_names
         )
     return cells, n_unlabelled

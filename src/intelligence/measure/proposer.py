@@ -8,7 +8,7 @@ import numpy as np
 
 from src.intelligence.measure.ic import IcCell, observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
-from src.intelligence.measure.targets import TargetStack
+from src.intelligence.measure.targets import TargetStack, stride
 from src.intelligence.statistics.ic_math import apply_bh_fdr
 
 
@@ -34,12 +34,11 @@ def propose(
     n, m = stack.targets.shape
     if features.shape[:2] != (n, m):
         raise ValueError(f"features {features.shape[:2]} do not match the stack grid {(n, m)}")
-    row_mask = np.broadcast_to(stack.valid[:, None], (n, m))
-    X, y = observation_rows(features, stack.targets, row_mask)
+    X, y = observation_rows(features, stack.targets, stack.valid_grid())
     cell = pooled_rank_ic(
         X,
         y,
-        stride=max(params.min_stride, stack.horizon),
+        stride=stride(stack, params),
         params=params,
         feature_names=feature_names,
     )

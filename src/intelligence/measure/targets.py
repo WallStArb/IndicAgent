@@ -52,12 +52,21 @@ class TargetStack:
     valid: np.ndarray  # [n] bool, some chunk traded the slot
     end_exclusive: np.datetime64
 
+    def valid_grid(self) -> np.ndarray:
+        """[n, m] bool view of `valid` broadcast across symbols."""
+        return np.broadcast_to(self.valid[:, None], self.targets.shape)
+
     def max_target_end(self) -> np.datetime64 | None:
         """Timestamp of the exit-open row of the latest finite target (row t + 1 + horizon)."""
         finite_rows = np.flatnonzero(np.isfinite(self.targets).any(axis=1))
         if finite_rows.size == 0:
             return None
         return self.timestamps[int(finite_rows[-1]) + 1 + self.horizon]
+
+
+def stride(stack: TargetStack, params: MeasureParams) -> int:
+    """Row stride of a pooled cell at this stack's horizon: max(params.min_stride, horizon)."""
+    return max(params.min_stride, stack.horizon)
 
 
 def stack_targets(

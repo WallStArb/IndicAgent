@@ -47,8 +47,8 @@ def term_structure(
     has_any = np.isfinite(ic).any(axis=1)
     peak = np.where(has_any, np.asarray(horizons)[best], 0)
     return TermStructure(
-        features=tuple(feature_names),
-        horizons=tuple(horizons),
+        features=feature_names,
+        horizons=horizons,
         ic=ic,
         n_obs=n_obs,
         p_value=p_value,

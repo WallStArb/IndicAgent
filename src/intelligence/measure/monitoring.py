@@ -11,7 +11,7 @@ import numpy as np
 
 from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
-from src.intelligence.measure.targets import TargetStack
+from src.intelligence.measure.targets import TargetStack, stride
 from src.intelligence.statistics.ic_math import _hac_sharpe_nd
 
 
@@ -39,14 +39,14 @@ def member_ic_over_time(
         raise ValueError(f"feature {feature.shape} does not match the stack grid {(n, m)}")
     per_window = params.monitor_window_sessions
     n_sessions = int(stack.session[-1]) + 1 if n else 0
-    stride = max(params.min_stride, stack.horizon)
+    valid_grid = stack.valid_grid()
     starts, counts, ics, nobs = [], [], [], []
     for first in range(0, n_sessions, per_window):
         last = min(first + per_window, n_sessions)
         rows = np.flatnonzero((stack.session >= first) & (stack.session < last))
-        mask = np.broadcast_to(stack.valid[rows][:, None], (len(rows), m))
+        mask = valid_grid[rows]
         X, y = observation_rows(feature[rows][:, :, None], stack.targets[rows], mask)
-        cell = pooled_rank_ic(X, y, stride=stride, params=params)
+        cell = pooled_rank_ic(X, y, stride=stride(stack, params), params=params)
         starts.append(stack.timestamps[rows[0]])
         counts.append(last - first)
         ics.append(float(cell.ic[0]))
