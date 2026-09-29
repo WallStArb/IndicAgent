@@ -67,3 +67,51 @@ edit.
 Todo 449 (intraday backfill), todo 453 (pipelined persistence), todo 124 (tradeable view), todo
 433 and phase 185 (backfill and `ohlcv_empty_history`), phase 186 (deletes the legacy
 `forward_returns` table; check whether it also touches this).
+
+## Findings, steps 1 and 2 (2026-09-29)
+
+Step 2, the late-real-bar hazard, is confirmed and measured, not just possible.
+
+- Both writers (`store_bars` in the historical pipeline, `services/bar_writer.py`) insert with
+  `ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING`, so a stored placeholder is never
+  replaced by a real bar.
+- MSFT 15m, 2024-08-06 12:45 to 15:45 ET: 12 consecutive regular-session slots are
+  `synthetic_fill` with volume 0, while SPY has real bars for the same slots. In the same window
+  MSFT 5m has 36 real bars (2.81M shares) and 1h has 3 real bars (3.90M shares). MSFT traded; the
+  15m table says it did not.
+- Scale, 2024 only, 15m: 35,454 placeholder rows across 100 symbols have real 5m volume in the
+  same slot (3.86B shares hidden). Only names with 5m history are counted, so the true count is
+  higher. For SPY, AAPL, QQQ the regular-session 15m placeholders (283 each) match holidays and
+  half days, so liquid names are mostly clean; the damage sits in the mid and small names.
+- Cause of the MSFT gap is not established (missed fetch then fill, versus a provider hole). The
+  design makes either permanent.
+
+Step 1, consumer audit (source: `_ALLOW_LIST` in `tests/unit/test_market_data_ohlcv_boundary.py`
+plus greps). Raw-table readers that depend on the placeholders and must change with the ledger:
+
+- `infrastructure_run_historical_pipeline.py`: `_detect_gaps` treats a prior synthetic fill as
+  "already handled" so closed weekend and holiday slots are not re-requested from IBKR. This is
+  the coverage bookkeeping the ledger replaces. It is also why the hazard above is silent.
+- `services/bar_auditor.py`: counts all rows including placeholders to find calendar gaps. Needs
+  the ledger plus a session calendar for the same answer.
+- `scripts/ops/pipeline/ops_pipeline_status.py`: wants the full grid, gaps are the signal.
+- `infrastructure_truncate_derived_tables.sh`: re-seeds `backfill_status` from the full grid
+  after a truncate. Re-seed from the ledger instead.
+- `infrastructure_nightly_backfill.py` (`_select_stalest`): ranks by latest raw bar, proxy only.
+- `infrastructure_ibkr_chunk_and_rate_limit_probe.py`: "has any row" check, needs the ledger.
+- `services/bar_derivation.py`: archives and deletes stored 15m/1h segments, placeholders
+  included. It already excludes `synthetic_fill` from what it archives; the delete and checksum
+  logic must be re-checked once no placeholders exist.
+- Display surface `src/api/routes/market_data.py`: needs a decision (session-calendar grid at
+  read time, or show real bars only).
+- Dead v2.x code (`signal_replay_auditor`, `signal_probe_auditor`, `debug_batch_agent_memory`):
+  no action.
+
+Also call `normalize_bars`: `services/backfill_feature_factory.py`, `services/bar_aggregator.py`,
+`src/providers/ibkr.py`, `src/providers/ibkr_adapter.py`, `src/intelligence/services/bar_history_seeder.py`,
+`src/core/schemas/bar_message.py`. Not yet read; the streaming ones (aggregator, adapter, seeder)
+may need fills for a live series and are the open question for step 4.
+
+Remaining: read those normalizer callers, then steps 3 to 6. Steps 5 and 6 should wait on the
+gap-detection replacement, because removing the fill without the ledger makes `_detect_gaps`
+re-request every closed slot forever.
