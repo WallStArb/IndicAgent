@@ -36,7 +36,6 @@ def _eval(window, passed, *, status="active", at=None) -> Evaluation:
         evaluated_status=status,
         passed=passed,
         n_observations=1000,
-        guard_status="ok",
         evaluated_at=at or _T0,
     )
 
@@ -64,8 +63,42 @@ def test_config_reads_only_the_four_feature_keys():
         "feature.lifecycle.demotion_min_consecutive",
         "feature.lifecycle.lookback_days",
         "feature.lifecycle.recovery_min_passes",
+        "infra.feature_lifecycle.max_concurrent_tfs",
     ]
-    assert config == LifecycleConfig(0.95, 90, 2, 1)
+    assert config == LifecycleConfig(0.95, 90, 2, 1, max_concurrent_tfs=3)
+
+
+def test_the_concurrency_knob_is_not_part_of_the_rule_fingerprint():
+    """An infra knob cannot move a verdict; tuning it must not re-evaluate every window."""
+    assert "max_concurrent_tfs" not in LifecycleConfig(0.95, 90, 2, 1).rule_fingerprint()
+
+
+@pytest.mark.asyncio
+async def test_execute_loads_the_infra_pattern_beside_the_feature_patterns(monkeypatch):
+    seen = {}
+
+    async def fake_load(conn, extra_like_patterns=None):
+        seen["patterns"] = extra_like_patterns
+        return {}
+
+    class _Acquire:
+        async def __aenter__(self_inner):
+            return object()
+
+        async def __aexit__(self_inner, *exc):
+            return False
+
+    class _Pool:
+        def acquire(self):
+            return _Acquire()
+
+    async def no_plan(self, conn, config):
+        return None
+
+    monkeypatch.setattr(fl, "load_apr_dict_async", fake_load)
+    monkeypatch.setattr(fl.FeatureLifecycle, "_plan", no_plan)
+    await _node().execute(_Pool())
+    assert "infra.feature_lifecycle.%" in seen["patterns"]
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +198,20 @@ class TestEvidenceKey:
     def test_changed_rule_changes_key(self):
         rule = LifecycleConfig(0.9, 90, 2, 1).rule_fingerprint()
         assert evidence_key("active", _RULE, _ROWS) != evidence_key("active", rule, _ROWS)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_evidence_raises_instead_of_stringifying(self, bad):
+        rows = [{"tf": "1d", "symbol_coverage": bad, "n_non_finite": 0}]
+        with pytest.raises(ValueError):
+            evidence_key("active", _RULE, rows)
+
+    def test_key_is_sha256_of_the_spec_canonical_json(self):
+        import hashlib
+
+        from src.intelligence.research.spec import canonical_json
+
+        payload = canonical_json({"status": "active", "rule": _RULE, "per_tf": _ROWS})
+        assert evidence_key("active", _RULE, _ROWS) == hashlib.sha256(payload.encode()).hexdigest()
 
     def test_changed_status_changes_key(self):
         assert evidence_key("active", _RULE, _ROWS) != evidence_key("shadow_only", _RULE, _ROWS)
@@ -291,7 +338,6 @@ async def test_plan_passes_a_covered_finite_feature():
     conn = _fake([_concept("good", "active")], {"1d": _symbols(10, 10)})
     plan = await _plan(conn)
     assert [r.evaluation.passed for r in plan.rows] == [True]
-    assert plan.rows[0].evaluation.guard_status == "ok"
     assert plan.transitions == []
 
 
@@ -302,7 +348,9 @@ async def test_plan_missing_column_is_not_computed():
     row = plan.rows[0]
     assert not row.evaluation.passed
     assert row.verdict.failures == ("not_computed",)
-    assert row.evaluation.detail["column_missing"] is True
+    assert "column_missing" not in row.evaluation.detail
+    assert row.per_tf == () and row.n_cells == 0
+    assert row.evaluation.detail["per_tf"] == []
 
 
 @pytest.mark.asyncio
@@ -317,7 +365,6 @@ async def test_plan_low_coverage_fails_and_demotes_after_two_windows():
                 "evaluated_status": "active",
                 "passed": False,
                 "n_observations": 100,
-                "guard_status": "ok",
                 "evaluated_at": _T0,
                 "statistic": 0.1,
                 "detail": {"per_tf": []},
@@ -395,6 +442,24 @@ async def test_non_finite_fact_carries_the_non_finite_count_not_a_passing_covera
     agg = {"1d": [{"symbol": "S0", "n_rows": 10, "good": (10, 1)}]}
     facts = await _emitted_facts(monkeypatch, agg)
     assert facts == [("good|tf=1d", "n_non_finite", 1.0, 0.0, False)]
+
+
+@pytest.mark.asyncio
+async def test_not_computed_is_one_whole_feature_fact_without_a_sentinel_tf(monkeypatch):
+    facts = []
+
+    async def capture(conn, batch):
+        facts.extend((f[1], f[2], f[3], f[4], f[5]) for f in batch)
+
+    monkeypatch.setattr(fl, "emit_integrity_facts_async", capture)
+    conn = _fake([_concept("ghost", "active")], {"1d": _symbols(10, 10)})
+    config = LifecycleConfig(0.95, 90, 2, 1)
+    plan = await _plan(conn, config)
+    await _node(dry_run=False)._apply(conn, plan, config)
+    assert [f for f in facts if f[0] is not None] == [
+        ("ghost", "symbol_coverage", 0.0, 0.95, False)
+    ]
+    assert fl.FeatureLifecycle._failure_counts(plan) == {"not_computed": 1}
 
 
 @pytest.mark.asyncio
@@ -501,7 +566,11 @@ def test_module_reads_no_old_chain_table_or_key(needle):
 
 
 def test_evaluation_load_reads_only_rows_this_rule_wrote():
-    assert "detail ? 'per_tf'" in fl._LOAD_EVALUATIONS_SQL
+    for sql in (fl._LOAD_EVALUATIONS_SQL, fl._LOAD_CONCEPT_EVALUATIONS_SQL):
+        assert "evidence_kind = 'data_quality'" in sql
+        assert "per_tf" not in sql
+    assert "evidence_kind" in fl._UPSERT_EVALUATION_SQL
+    assert "guard_status" not in fl._UPSERT_EVALUATION_SQL
 
 
 def test_ledger_upsert_refreshes_recency_on_identical_evidence():
@@ -527,7 +596,6 @@ def _ledger_row(concept_id, window, passed, status, at):
         "evaluated_status": status,
         "passed": passed,
         "n_observations": 1000,
-        "guard_status": "ok",
         "evaluated_at": at,
         "statistic": 0.9,
     }
@@ -623,7 +691,6 @@ async def test_trailing_window_read_derives_the_whole_ledger_transitions(demotio
                 r["evaluated_status"],
                 r["passed"],
                 r["n_observations"],
-                r["guard_status"],
                 r["evaluated_at"],
                 r["statistic"],
             )
@@ -677,8 +744,8 @@ async def test_tfs_are_measured_concurrently_over_a_pool_and_in_order():
 
     node = _node()
     node._pool = _Pool()
-    over_pool = await node._plan(conn, LifecycleConfig(0.95, 90, 2, 1))
+    over_pool = await node._plan(conn, LifecycleConfig(0.95, 90, 2, 1, max_concurrent_tfs=2))
     sequential = await _plan(conn)
-    assert peak["max"] <= fl._MAX_CONCURRENT_TFS
+    assert peak["max"] <= 2
     assert [q.tf for q in over_pool.rows[0].per_tf] == ["1d", "1h", "5m"]
     assert over_pool.rows[0].evidence_key == sequential.rows[0].evidence_key

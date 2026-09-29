@@ -35,7 +35,6 @@ import asyncio
 import dataclasses
 import functools
 import hashlib
-import json
 import sys
 import time
 from collections import defaultdict
@@ -60,6 +59,7 @@ from src.intelligence.concept_registry_service import (  # noqa: E402
     ConceptRegistryService,
     TransitionResult,
 )
+from src.intelligence.research.spec import canonical_json  # noqa: E402
 from src.intelligence.statistics.feature_coverage import (  # noqa: E402
     FeatureTfQuality,
     QualityVerdict,
@@ -85,10 +85,9 @@ _MAX_FEATURES_PER_QUERY = 800
 
 _FLOAT_TYPES = ("real", "double precision")
 
-# Timeframes measured at once. Each holds one pool connection for its aggregate queries, which
-# scan the feature_vectors hypertable; BaseBatch's pool has ten. An infra.* APR candidate: a
-# key needs a migration, which this change does not add.
-_MAX_CONCURRENT_TFS = 3
+# concept_evaluation.evidence_kind of the rows this rule writes; the IC-era rows carry
+# 'feature_ic' and are never evidence here.
+_EVIDENCE_KIND = "data_quality"
 
 
 # ---------------------------------------------------------------------------
@@ -98,12 +97,16 @@ _MAX_CONCURRENT_TFS = 3
 
 @dataclass(frozen=True)
 class LifecycleConfig:
-    """APR snapshot: the four feature.* keys seeded by migration 387."""
+    """APR snapshot: the four feature.* keys seeded by migration 387 and the infra key
+    seeded by migration 389."""
 
     coverage_floor: float
     lookback_days: int
     demotion_min_consecutive: int
     recovery_min_passes: int
+    # Timeframes measured at once; each holds one pool connection for aggregate queries over
+    # the feature_vectors hypertable (BaseBatch's pool has ten). Cannot move a verdict.
+    max_concurrent_tfs: int = 3
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> LifecycleConfig:
@@ -114,13 +117,18 @@ class LifecycleConfig:
                 _cfg(cfg, "feature.lifecycle.demotion_min_consecutive", 2)
             ),
             recovery_min_passes=int(_cfg(cfg, "feature.lifecycle.recovery_min_passes", 1)),
+            max_concurrent_tfs=int(_cfg(cfg, "infra.feature_lifecycle.max_concurrent_tfs", 3)),
         )
 
     def rule_fingerprint(self) -> dict[str, Any]:
-        """Every config field, so any rule change re-evaluates a window instead of colliding
-        with its old row. Over-inclusive on purpose: a field that cannot move a verdict
-        only adds a row with the same verdict, never a missed re-evaluation."""
-        return dataclasses.asdict(self)
+        """Every decision-rule field, so any rule change re-evaluates a window instead of
+        colliding with its old row. Over-inclusive on purpose: a field that cannot move a
+        verdict only adds a row with the same verdict, never a missed re-evaluation. The infra
+        concurrency knob is not a rule field: it cannot move a verdict, and tuning it must not
+        re-evaluate every window."""
+        rule = dataclasses.asdict(self)
+        del rule["max_concurrent_tfs"]
+        return rule
 
 
 # ---------------------------------------------------------------------------
@@ -150,10 +158,16 @@ def feature_evidence(
 
 def evidence_key(status: str, rule: dict[str, Any], per_tf_rows: list[dict[str, Any]]) -> str:
     """sha256 over everything a verdict read: the evaluated status, the decision-rule
-    parameters and the canonical sorted per-tf statistics."""
-    payload = json.dumps(
-        {"status": status, "rule": rule, "per_tf": per_tf_rows}, sort_keys=True, default=str
-    )
+    parameters and the canonical sorted per-tf statistics, serialized by the research spec's
+    canonical_json (fixed separators, allow_nan=False), so a non-finite statistic raises
+    instead of hashing as a string.
+
+    Versioning rule: this serialization defines the key. Any change to it (or to the payload
+    fields) that could give an old row's evidence a different key must be accompanied by a
+    version field in the payload, so old and new keys never collide. No data_quality row
+    existed when canonical_json was adopted (migration 389 counted zero), so none is needed
+    yet."""
+    payload = canonical_json({"status": status, "rule": rule, "per_tf": per_tf_rows})
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -165,7 +179,6 @@ class Evaluation:
     evaluated_status: str
     passed: bool
     n_observations: int
-    guard_status: str
     evaluated_at: datetime
     statistic: float | None = None
     detail: dict[str, Any] | None = None
@@ -304,14 +317,14 @@ _TFS_SQL = """
 _UPSERT_EVALUATION_SQL = """
     INSERT INTO concept_evaluation
         (concept_id, domain, window_end, evidence_key, evaluated_status, passed, statistic,
-         n_cells, n_observations, guard_status, detail, evaluated_at, run_ref)
+         n_cells, n_observations, evidence_kind, detail, evaluated_at, run_ref)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     ON CONFLICT (concept_id, window_end, evidence_key)
     DO UPDATE SET evaluated_at = EXCLUDED.evaluated_at, run_ref = EXCLUDED.run_ref
 """
 
-# Only rows this rule wrote (detail carries per_tf): the IC-era rows share the table and the
-# window keys but measured something else, so they are never evidence here.
+# Only rows this rule wrote (evidence_kind): the IC-era rows share the table and the window
+# keys but measured something else, so they are never evidence here.
 #
 # Derivation reads, per governed concept, the evaluations made under its current status since it
 # entered it (derive_feature_transition's own filter), the latest of each window, and only the
@@ -322,12 +335,12 @@ _LOAD_EVALUATIONS_SQL = """
     WITH latest AS (
         SELECT DISTINCT ON (e.concept_id, e.window_end)
                e.concept_id, e.window_end, e.evaluated_status, e.passed, e.n_observations,
-               e.guard_status, e.evaluated_at, e.statistic
+               e.evaluated_at, e.statistic
         FROM concept_evaluation e
         JOIN unnest($2::uuid[], $3::text[], $4::timestamptz[])
              AS g(concept_id, status, status_since) ON g.concept_id = e.concept_id
         WHERE e.domain = $1
-          AND e.detail ? 'per_tf'
+          AND e.evidence_kind = 'data_quality'
           AND e.evaluated_status = g.status
           AND (g.status_since IS NULL OR e.evaluated_at >= g.status_since)
         ORDER BY e.concept_id, e.window_end, e.evaluated_at DESC
@@ -336,7 +349,7 @@ _LOAD_EVALUATIONS_SQL = """
                row_number() OVER (PARTITION BY concept_id ORDER BY window_end DESC) AS recency
         FROM latest
     )
-    SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
+    SELECT concept_id, window_end, evaluated_status, passed, n_observations,
            evaluated_at, statistic
     FROM ranked
     WHERE recency <= $5
@@ -345,12 +358,12 @@ _LOAD_EVALUATIONS_SQL = """
 # One concept's whole history, for a transition whose streak may reach past the trailing windows
 # above (its n_windows is the full streak length).
 _LOAD_CONCEPT_EVALUATIONS_SQL = """
-    SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
+    SELECT concept_id, window_end, evaluated_status, passed, n_observations,
            evaluated_at, statistic
     FROM concept_evaluation
     WHERE domain = $1
       AND concept_id = $2
-      AND detail ? 'per_tf'
+      AND evidence_kind = 'data_quality'
 """
 
 
@@ -367,7 +380,7 @@ class LedgerRow:
     name: str
     evidence_key: str
     evaluation: Evaluation
-    n_cells: int
+    n_cells: int  # tfs the verdict read: 0 for a concept with no feature_vectors column
     per_tf: tuple[FeatureTfQuality, ...]
     verdict: QualityVerdict
 
@@ -389,16 +402,16 @@ class WindowPlan:
     transitions: list[PlannedTransition]
 
     @functools.cached_property
-    def failures(self) -> list[tuple[LedgerRow, list[tuple[str, float | None, str]]]]:
+    def failures(self) -> list[tuple[LedgerRow, list[tuple[str | None, float | None, str]]]]:
         """Each failed row with its failing (tf, coverage, check) entries, computed once."""
         return [(r, _failing_tfs(r)) for r in self.rows if not r.verdict.passed]
 
 
-def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
-    """(tf, coverage, check) for each failing (feature, tf); a not_computed feature is
-    one entry at tf 'all'."""
+def _failing_tfs(row: LedgerRow) -> list[tuple[str | None, float | None, str]]:
+    """(tf, coverage, check) for each failing (feature, tf); a not_computed feature (no value
+    at any tf, or no column) is one whole-feature entry with tf None."""
     if "not_computed" in row.verdict.failures:
-        return [("all", 0.0, "not_computed")]
+        return [(None, 0.0, "not_computed")]
     return [
         (q.tf, q.symbol_coverage, row.verdict.per_tf[q.tf])
         for q in row.per_tf
@@ -407,7 +420,7 @@ def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
 
 
 def _quality_fact(
-    row: LedgerRow, tf: str, coverage: float | None, check: str, coverage_floor: float
+    row: LedgerRow, tf: str | None, coverage: float | None, check: str, coverage_floor: float
 ) -> tuple[str, float | None, float]:
     """(metric_name, value, threshold) for a failing check, so a failing fact never carries
     a value that satisfies its own threshold (a non_finite failure at full coverage reads
@@ -424,7 +437,6 @@ def _evaluation_from_row(r: Any) -> Evaluation:
         evaluated_status=r["evaluated_status"],
         passed=r["passed"],
         n_observations=r["n_observations"],
-        guard_status=r["guard_status"],
         evaluated_at=r["evaluated_at"],
         statistic=r["statistic"],
     )
@@ -432,7 +444,7 @@ def _evaluation_from_row(r: Any) -> Evaluation:
 
 class FeatureLifecycle(BaseBatch):
     job_name = "feature-lifecycle"
-    compute_version = "2.0.0"
+    compute_version = "2.1.0"
 
     def __init__(self, db_dsn: str, training_window_end: datetime, dry_run: bool = False) -> None:
         super().__init__(db_dsn)
@@ -447,7 +459,12 @@ class FeatureLifecycle(BaseBatch):
         async with pool.acquire() as conn:
             config = LifecycleConfig.from_apr(
                 await load_apr_dict_async(
-                    conn, extra_like_patterns=["feature.coverage.%", "feature.lifecycle.%"]
+                    conn,
+                    extra_like_patterns=[
+                        "feature.coverage.%",
+                        "feature.lifecycle.%",
+                        "infra.feature_lifecycle.%",
+                    ],
                 )
             )
             plan = await self._plan(conn, config)
@@ -497,7 +514,7 @@ class FeatureLifecycle(BaseBatch):
 
         per_feature: dict[str, list[FeatureTfQuality]] = defaultdict(list)
         for qualities in await self._measure_tfs(
-            conn, tfs, computable, known_columns, span_start, span_end
+            conn, tfs, computable, known_columns, span_start, span_end, config.max_concurrent_tfs
         ):
             for name in computable:
                 per_feature[name].append(qualities[name])
@@ -561,11 +578,12 @@ class FeatureLifecycle(BaseBatch):
         known_columns: dict[str, str],
         span_start: datetime,
         span_end: datetime,
+        max_concurrent_tfs: int,
     ) -> list[dict[str, FeatureTfQuality]]:
         """Per tf (in `tfs` order), each computable feature's quality. Over a pool the tfs are
-        measured concurrently, at most _MAX_CONCURRENT_TFS at a time, each on its own
+        measured concurrently, at most max_concurrent_tfs at a time, each on its own
         connection; without one (a caller that holds only `conn`) they run in turn on it."""
-        gate = asyncio.Semaphore(_MAX_CONCURRENT_TFS)
+        gate = asyncio.Semaphore(max_concurrent_tfs)
 
         async def measure(tf: str) -> dict[str, FeatureTfQuality]:
             async with gate:
@@ -657,8 +675,6 @@ class FeatureLifecycle(BaseBatch):
             per_tf = tuple(per_feature.get(name, ()))
             verdict = feature_quality_verdict(per_tf, config.coverage_floor)
             per_tf_rows, detail = feature_evidence(per_tf, verdict)
-            if not per_tf:
-                detail["column_missing"] = True
             rows.append(
                 LedgerRow(
                     concept_id=concept["concept_id"],
@@ -669,13 +685,11 @@ class FeatureLifecycle(BaseBatch):
                         evaluated_status=concept["status"],
                         passed=verdict.passed,
                         n_observations=sum(q.n_rows for q in per_tf),
-                        # the regime-shift guard is gone; 'ok' satisfies migration 357's CHECK
-                        guard_status="ok",
                         evaluated_at=now,
                         statistic=verdict.statistic,
                         detail=detail,
                     ),
-                    n_cells=len(tfs),
+                    n_cells=len(per_tf),
                     per_tf=per_tf,
                     verdict=verdict,
                 )
@@ -693,11 +707,13 @@ class FeatureLifecycle(BaseBatch):
         facts = []
         for r, failing in plan.failures:
             for tf, coverage, check in failing:
-                FEATURE_QUALITY_FAILURES.add(1, {"tf": tf, "check": check})
+                FEATURE_QUALITY_FAILURES.add(
+                    1, {"check": check} if tf is None else {"tf": tf, "check": check}
+                )
                 facts.append(
                     (
                         "feature_quality",
-                        f"{r.name}|tf={tf}",
+                        r.name if tf is None else f"{r.name}|tf={tf}",
                         *_quality_fact(r, tf, coverage, check, config.coverage_floor),
                         False,
                         self._window,
@@ -729,7 +745,7 @@ class FeatureLifecycle(BaseBatch):
                     r.evaluation.statistic,
                     r.n_cells,
                     r.evaluation.n_observations,
-                    r.evaluation.guard_status,
+                    _EVIDENCE_KIND,
                     r.evaluation.detail,
                     r.evaluation.evaluated_at,
                     run_ref,
@@ -765,7 +781,7 @@ class FeatureLifecycle(BaseBatch):
         counts: dict[str, int] = defaultdict(int)
         for _, failing in plan.failures:
             for tf, _, check in failing:
-                counts[f"{check}|tf={tf}"] += 1
+                counts[check if tf is None else f"{check}|tf={tf}"] += 1
         return dict(sorted(counts.items()))
 
 
