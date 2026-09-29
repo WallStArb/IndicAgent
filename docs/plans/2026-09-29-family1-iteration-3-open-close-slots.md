@@ -6,6 +6,10 @@ Author: Brandon, Claude. Informed by: `docs/plans/2026-09-29-family1-iteration-2
 Status: exploration. Outside the runner, no `research_run` rows, no verdict. Criteria below are
 set before any number for questions 2 and 3 exists.
 
+Cost is a promotion gate (E18), not a discovery gate. Questions 1 and 2 are the edge results and
+stand on their own; questions 3 and 4 measure what it would cost to capture the edge and decide only
+whether the slot subset is a standalone-book candidate, not whether the edge exists.
+
 ## Disclosed prior look (seen data)
 
 A per-slot split of `same_slot_mean5` on the 233-name panel, in-sample before `oos_start`, at

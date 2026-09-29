@@ -54,3 +54,26 @@ across books is not credited, so E understates the gain from stacking.
 Bands, partial adjustment, conviction gating and cost-aware weights need a construction rule the
 runner does not have (phase 187 `ConstructionRule`; todo 442 item 2 requires the E17 H0 battery to
 cover partial adjustment first). Those are iterations 2 and later.
+
+## Result (2026-09-29)
+
+All four variants recorded (run groups: h2 `48b7a104`, h4 `3492bf3f`, h8 `c962934b`, h26 `684a5aa7`),
+in-sample before `oos_start`, E17 statistic, gross. E in bp per unit traded (turnover 25.9 units per
+session at every horizon); Sharpe annualized; t is the HAC timing t.
+
+| Member | h2 E / Sharpe / t | h4 | h8 | h26 |
+|---|---|---|---|---|
+| lag1 | 0.070 / 3.7 / 13.3 | 0.059 / 2.4 / 9.0 | 0.050 / 1.6 / 5.8 | 0.012 / 0.30 / 1.1 |
+| mean5 | 0.100 / 5.2 / 18.2 | 0.087 / 3.6 / 12.7 | 0.065 / 2.2 / 7.6 | 0.020 / 0.54 / 1.9 |
+| mean20 | 0.097 / 5.3 / 18.7 | 0.088 / 3.8 / 13.5 | 0.076 / 2.6 / 9.2 | 0.033 / 0.89 / 3.2 |
+| mean40 | 0.085 / 4.7 / 18.2 | 0.075 / 3.2 / 11.9 | 0.061 / 2.1 / 7.5 | 0.016 / 0.43 / 1.5 |
+
+Against the criteria: E is below 0.14 bp for every member at every horizon (maximum 0.100), so a
+longer hold does not raise edge per unit traded, and the next step was conviction gating
+(iteration 2). The stated expectation held: the effect is slot-local and E falls with horizon, to
+about a fifth of the h2 value by the close. Gross P&L per session also falls (mean20: 2.52, 2.29,
+1.96, 0.84 bp) while the exposure stacked by overlapping books rises about horizon / 2 times, so
+Sharpe roughly halves by h8. The runner counts each slot book as opened once, and overlap netting
+across books is not credited (see Readout), so turnover per session is unchanged across horizons.
+Follow-on: iterations 2 and 3 (`docs/plans/2026-09-29-family1-iteration-2-conviction-gating.md`,
+`docs/plans/2026-09-29-family1-iteration-3-open-close-slots.md`).
