@@ -12,7 +12,7 @@ from src.intelligence.features.causality_probe import (
     memory_check,
     probe_registry,
 )
-from src.intelligence.features.registry import Kernel, KernelRegistry, default_registry
+from src.intelligence.features.registry import Kernel, KernelRegistry
 
 N = 400
 ROWS = np.array([50, 120, 250, 399])
@@ -134,17 +134,69 @@ def test_memory_underdeclared_raises():
 
 
 def test_probe_registry_empty_and_chain():
-    assert probe_registry(default_registry(), INPUTS, CFG, ROWS) == {}
     a = Kernel("a", ("a",), ("close",), lambda c: 4, lambda x, c: {"a": _trail(x["close"], 5)})
     b = Kernel("b", ("b",), ("a",), lambda c: 2, lambda x, c: {"b": _trail(x["a"], 3)})
     reg = KernelRegistry.from_kernels([b, a])
-    assert probe_registry(reg, INPUTS, CFG, ROWS) == {"a": 4, "b": 2}
+    assert probe_registry(reg, INPUTS, CFG, ROWS) == {"a": "ok", "b": "ok"}
 
 
-@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
-def test_registered_kernels_are_causal(kernel):  # empty until 186-12
-    from tests.unit.intelligence.kernel_parity_reference import synthetic_inputs
+def test_memory_atol_tolerates_last_bit_but_zero_is_exact():
+    def jitter(x):
+        out = x.astype(np.float64).copy()
+        if len(x) == N:
+            out = out + 1e-3  # a full-length pass differs from a windowed one in the last bits
+        return out
 
-    inputs, config = synthetic_inputs()
-    causality_probe(kernel, inputs, config, ROWS)
-    memory_check(kernel, inputs, config, ROWS)
+    exact = _kernel(jitter)
+    with pytest.raises(MemoryViolation):
+        memory_check(exact, INPUTS, CFG, ROWS)
+    loose = Kernel(
+        "k",
+        ("out",),
+        ("close",),
+        lambda c: 0,
+        lambda x, c: {"out": jitter(x["close"])},
+        memory_atol=1e-2,
+    )
+    assert memory_check(loose, INPUTS, CFG, ROWS) == 0
+
+
+def test_probe_registry_reports_path_dependent_and_acausal_control():
+    def anchored(x):  # depends on the first row: no finite memory
+        return x - x[0]
+
+    a = Kernel(
+        "a",
+        ("a",),
+        ("close",),
+        lambda c: 0,
+        lambda x, c: {"a": anchored(x["close"])},
+        path_dependent=True,
+        path_dependent_reason="anchored at first close",
+    )
+    ctl = Kernel(
+        "ctl",
+        ("ctl",),
+        ("close",),
+        lambda c: 0,
+        lambda x, c: {"ctl": _centered(x["close"])},
+        acausal_control=True,
+    )
+    reg = KernelRegistry.from_kernels([a, ctl])
+    assert probe_registry(reg, INPUTS, CFG, ROWS) == {
+        "a": "path_dependent_skipped_memory",
+        "ctl": "acausal_control_detected",
+    }
+
+
+def test_probe_registry_fails_when_acausal_control_is_not_detected():
+    blind = Kernel(
+        "blind",
+        ("blind",),
+        ("close",),
+        lambda c: 0,
+        lambda x, c: {"blind": x["close"]},
+        acausal_control=True,
+    )
+    with pytest.raises(CausalityViolation, match="cannot detect lookahead"):
+        probe_registry(KernelRegistry.from_kernels([blind]), INPUTS, CFG, ROWS)

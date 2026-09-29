@@ -55,12 +55,20 @@ def _run(kernel: Kernel, inputs: Mapping[str, np.ndarray], config: object, lo: i
     return result
 
 
-def _first_difference(a: np.ndarray, b: np.ndarray, ulp: int) -> tuple[int, object, object] | None:
-    """First differing row (axis 0) between equal-shaped arrays, or None."""
+def _first_difference(
+    a: np.ndarray, b: np.ndarray, ulp: int, atol: float = 0.0
+) -> tuple[int, object, object] | None:
+    """First differing row (axis 0) between equal-shaped arrays, or None.
+
+    `atol` is an absolute tolerance (memory_check only; the causality probe stays exact).
+    """
     nan_a, nan_b = np.isnan(a), np.isnan(b)
     bad = nan_a != nan_b
     both = ~nan_a & ~nan_b
-    if ulp == 0:
+    if atol > 0.0:
+        with np.errstate(invalid="ignore"):
+            bad |= both & ~(np.abs(a.astype(np.float64) - b.astype(np.float64)) <= atol)
+    elif ulp == 0:
         bad |= both & (a != b)
     else:
         a64, b64 = a.astype(np.float64), b.astype(np.float64)
@@ -107,6 +115,7 @@ def memory_check(
     ulp: int = 0,
 ) -> int:
     memory = int(kernel.memory(config))  # type: ignore[arg-type]
+    atol = float(kernel.memory_atol)
     n = _n_rows(kernel, inputs)
     full = _run(kernel, inputs, config, 0, n)
     for t in (int(r) for r in np.sort(np.asarray(rows))):
@@ -114,14 +123,19 @@ def memory_check(
             continue
         window = _run(kernel, inputs, config, t - memory, t + 1)
         for name in kernel.outputs:
-            diff = _first_difference(full[name][t : t + 1], window[name][-1:], ulp)
+            diff = _first_difference(full[name][t : t + 1], window[name][-1:], ulp, atol)
             if diff is not None:
                 raise MemoryViolation(
                     f"kernel {kernel.name!r} output {name!r} at row {t} needs more than the "
                     f"declared memory {memory} (full={diff[1]!r}, windowed={diff[2]!r}, "
-                    f"ulp={ulp})"
+                    f"ulp={ulp}, atol={atol})"
                 )
     return memory
+
+
+STATUS_OK = "ok"
+STATUS_PATH_DEPENDENT = "path_dependent_skipped_memory"
+STATUS_ACAUSAL_CONTROL = "acausal_control_detected"
 
 
 def probe_registry(
@@ -131,13 +145,36 @@ def probe_registry(
     rows: np.ndarray,
     *,
     ulp: int = 0,
-) -> dict[str, int]:
-    """Run both checks over every kernel in topological order; return name -> memory."""
+) -> dict[str, str]:
+    """Run the checks over every kernel in topological order; return name -> status.
+
+    `inputs` carries the bar fields and every external input the registry declares. A causal
+    kernel gets the causality probe and the memory check (`ok`). A path-dependent kernel gets
+    the causality probe only (`path_dependent_skipped_memory`): no finite memory reproduces it.
+    An acausal control must fail the causality probe (`acausal_control_detected`); a control
+    the probe does not catch raises CausalityViolation, because that means the probe is blind.
+    Downstream kernels read upstream outputs at the dtype they were computed in.
+    """
     available = dict(inputs)
-    checked: dict[str, int] = {}
+    statuses: dict[str, str] = {}
     for kernel in registry.topological_order():
-        causality_probe(kernel, available, config, rows, ulp=ulp)
-        checked[kernel.name] = memory_check(kernel, available, config, rows, ulp=ulp)
-        n = _n_rows(kernel, available)
-        available.update(_run(kernel, available, config, 0, n))
-    return checked
+        if kernel.acausal_control:
+            try:
+                causality_probe(kernel, available, config, rows, ulp=ulp)
+            except CausalityViolation:
+                statuses[kernel.name] = STATUS_ACAUSAL_CONTROL
+            else:
+                raise CausalityViolation(
+                    f"acausal control {kernel.name!r} passed the causality probe: the probe "
+                    "cannot detect lookahead"
+                )
+        else:
+            causality_probe(kernel, available, config, rows, ulp=ulp)
+            if kernel.path_dependent:
+                statuses[kernel.name] = STATUS_PATH_DEPENDENT
+            else:
+                memory_check(kernel, available, config, rows, ulp=ulp)
+                statuses[kernel.name] = STATUS_OK
+        native = kernel.compute({name: available[name] for name in kernel.inputs}, config)  # type: ignore[arg-type]
+        available.update({name: np.asarray(native[name]) for name in kernel.outputs})
+    return statuses

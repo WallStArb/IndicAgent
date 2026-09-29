@@ -11,9 +11,11 @@ import numpy as np
 import pytest
 
 from src.intelligence.features.registry import (
+    ExternalInput,
     Kernel,
     KernelRegistry,
     KernelRegistryError,
+    compute_kernels,
     discover_kernels,
     feature_memory_bars,
 )
@@ -86,8 +88,9 @@ def test_kernel_is_frozen():
         _k("a").name = "b"  # type: ignore[misc]
 
 
-def test_default_package_is_empty():
-    assert discover_kernels().kernels == ()
+def test_default_package_discovers_origins():
+    origins = {k.origin for k in discover_kernels().kernels}
+    assert origins <= {"calendar", "control", "macro", "price", "volume"}
 
 
 _KERNEL_SRC = textwrap.dedent("""
@@ -138,3 +141,104 @@ def test_discovery_rejects_non_kernel(tmp_path, monkeypatch):
             discover_kernels(name)
     finally:
         _cleanup(name)
+
+
+# --- 186-12 extensions: external inputs, runner, path-dependent memory --------------------
+
+
+def _sym(name="symbol"):
+    return ExternalInput(name, np.dtype(object), "constant per series")
+
+
+def _ext_kernel(name="e", ext="symbol"):
+    return Kernel(
+        name=name,
+        outputs=(name,),
+        inputs=("close", ext),
+        memory=lambda c: 0,
+        compute=lambda x, c: {name: x["close"] * 2.0},
+    )
+
+
+def test_external_input_resolves_and_runs():
+    reg = KernelRegistry.from_kernels([_ext_kernel()], [_sym()])
+    out = compute_kernels(
+        reg, {"close": np.arange(4.0), "symbol": np.array(["A"] * 4, dtype=object)}, CFG
+    )
+    assert list(out["e"]) == [0.0, 2.0, 4.0, 6.0]
+
+
+def test_undeclared_external_input_raises():
+    with pytest.raises(KernelRegistryError, match="not a bar field, a declared external"):
+        KernelRegistry.from_kernels([_ext_kernel()])
+
+
+def test_duplicate_external_raises():
+    with pytest.raises(KernelRegistryError, match="duplicate external"):
+        KernelRegistry.from_kernels([_ext_kernel()], [_sym(), _sym()])
+
+
+def test_external_equal_to_output_raises():
+    with pytest.raises(KernelRegistryError, match="equals the output"):
+        KernelRegistry.from_kernels([_k("symbol")], [_sym()])
+
+
+def test_discovery_rejects_duplicate_external_across_modules(tmp_path, monkeypatch):
+    ext = "from src.intelligence.features.registry import ExternalInput\nimport numpy as np\n"
+    ext += "EXTERNAL_INPUTS = (ExternalInput('symbol', np.dtype(object), 'x'),)\n"
+    name = _make_pkg(tmp_path, monkeypatch, "tmp_kernels_ext", {"one": ext, "two": ext})
+    try:
+        with pytest.raises(KernelRegistryError, match="duplicate external"):
+            discover_kernels(name)
+    finally:
+        _cleanup(name)
+
+
+def test_compute_kernels_chain_only_requested_and_upstream():
+    calls = []
+
+    def mk(name, inputs):
+        def fn(x, c):
+            calls.append(name)
+            return {name: x[inputs[0]] + 1.0}
+
+        return Kernel(name, (name,), tuple(inputs), lambda c: 0, fn)
+
+    reg = KernelRegistry.from_kernels([mk("a", ["close"]), mk("b", ["a"]), mk("z", ["close"])])
+    out = compute_kernels(reg, {"close": np.zeros(3)}, CFG, outputs=["b"])
+    assert calls == ["a", "b"]
+    assert set(out) == {"a", "b"}
+    assert list(out["b"]) == [2.0, 2.0, 2.0]
+
+
+def test_compute_kernels_missing_input_names_it():
+    reg = KernelRegistry.from_kernels([_ext_kernel()], [_sym()])
+    with pytest.raises(KernelRegistryError, match="'symbol'"):
+        compute_kernels(reg, {"close": np.zeros(3)}, CFG)
+
+
+def test_compute_kernels_wrong_length_raises():
+    bad = Kernel("bad", ("bad",), ("close",), lambda c: 0, lambda x, c: {"bad": x["close"][:-1]})
+    reg = KernelRegistry.from_kernels([bad])
+    with pytest.raises(KernelRegistryError, match="rows"):
+        compute_kernels(reg, {"close": np.zeros(5)}, CFG)
+
+
+def test_feature_columns_excludes_intermediates():
+    reg = KernelRegistry.from_kernels([_k("a", outputs=("_tmp", "col"))])
+    assert reg.outputs() == ("_tmp", "col")
+    assert reg.feature_columns() == ("col",)
+
+
+def test_path_dependent_needs_reason_and_refuses_memory():
+    with pytest.raises(KernelRegistryError, match="path_dependent_reason"):
+        KernelRegistry.from_kernels([_k("a", path_dependent=True)])
+    reg = KernelRegistry.from_kernels(
+        [
+            _k("a", path_dependent=True, path_dependent_reason="anchored at first close"),
+            _k("b", inputs=("a",)),
+        ]
+    )
+    assert reg.is_path_dependent("a") and reg.is_path_dependent("b")
+    with pytest.raises(KernelRegistryError, match="anchored at first close"):
+        feature_memory_bars("b", CFG, reg)

@@ -45,6 +45,51 @@ from src.intelligence.feature_cache import (
     _compute_session_vp_profile,
 )
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
+from src.intelligence.features.kernels._primitives import (
+    _atr_series_full as _atr_series_full,
+)
+from src.intelligence.features.kernels._primitives import (
+    _atr_wilder as _atr_wilder,
+)
+from src.intelligence.features.kernels._primitives import (
+    _fixed_window_zscore_series as _fixed_window_zscore_series,
+)
+from src.intelligence.features.kernels._primitives import (
+    _is_valid_atr as _is_valid_atr,
+)
+from src.intelligence.features.kernels._primitives import (
+    _is_valid_atr_series as _is_valid_atr_series,
+)
+from src.intelligence.features.kernels._primitives import (
+    _kurtosis as _kurtosis,
+)
+from src.intelligence.features.kernels._primitives import (
+    _pearson_acf1 as _pearson_acf1,
+)
+from src.intelligence.features.kernels._primitives import (
+    _percentile_rank as _percentile_rank,
+)
+from src.intelligence.features.kernels._primitives import (
+    _rolling_mean_series as _rolling_mean_series,
+)
+from src.intelligence.features.kernels._primitives import (
+    _rolling_std_series as _rolling_std_series,
+)
+from src.intelligence.features.kernels._primitives import (
+    _rolling_zscore_series as _rolling_zscore_series,
+)
+from src.intelligence.features.kernels._primitives import (
+    _skewness as _skewness,
+)
+from src.intelligence.features.kernels._primitives import (
+    _sliding_rolling_max as _sliding_rolling_max,
+)
+from src.intelligence.features.kernels._primitives import (
+    _sliding_rolling_min as _sliding_rolling_min,
+)
+from src.intelligence.features.kernels._primitives import (
+    _zscore_last as _zscore_last,
+)
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import clamp, find_peaks, find_troughs, safe_corr
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
@@ -969,101 +1014,6 @@ def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
     return vol_short / vol_long if vol_long > 1e-10 else 1.0
 
 
-def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data.
-
-    Reference implementation — used in tests only.
-    """
-    n = len(closes)
-    if n < period + 1:
-        return 0.0
-    high = highs[1:]
-    low = lows[1:]
-    prev_close = closes[:-1]
-    tr = np.maximum(
-        high - low,
-        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
-    )
-    # Wilder: alpha = 1/period; use ewm equivalent
-    alpha = 1.0 / period
-    atr = float(tr[0])
-    for val in tr[1:]:
-        atr = alpha * float(val) + (1.0 - alpha) * atr
-    return atr
-
-
-def _atr_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int
-) -> np.ndarray:
-    """Full Wilder ATR series in O(n). result[j] = ATR after bar index j+1.
-    Length = len(closes) - 1. Returns empty array when len(closes) < 2.
-
-    Matches _atr_wilder semantics exactly: result[j] = 0.0 when j+2 < period+1
-    (insufficient bars). Non-zero values begin at j = period-1.
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(0, dtype=float)
-    tr = np.maximum(
-        highs[1:] - lows[1:],
-        np.maximum(np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1])),
-    )
-    alpha = 1.0 / max(period, 1)
-    atr = np.zeros(len(tr), dtype=float)
-    # _atr_wilder requires n >= period+1, i.e. len(tr) >= period.
-    # The EWM always seeds from tr[0] and accumulates forward. We zero out positions
-    # where _atr_wilder would return 0.0 (j < period-1), but carry the EWM state
-    # forward so position j = period-1 onward is numerically identical to _atr_wilder.
-    if len(tr) < period:
-        return atr  # all zeros — no valid position exists
-    running = float(tr[0])
-    for k in range(1, len(tr)):
-        running = alpha * float(tr[k]) + (1.0 - alpha) * running
-        if k >= period - 1:
-            atr[k] = running
-    return atr
-
-
-def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Rolling z-score series matching _zscore_last semantics.
-
-    At position i, scores arr[i] against arr[max(0, i-window+1):i+1] using the
-    effective window min(window, i+1) — the series expands until it saturates at
-    `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
-
-    Uses cumulative sums — O(n) total.
-    Returns 0.0 where fewer than 2 samples or std < 1e-8.
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n < 2 or window < 2:
-        return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(1, n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w  # first index included (0-based)
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        std = math.sqrt(var)
-        out[i] = (arr[i] - mean) / std if std > 1e-8 else 0.0
-    return out
-
-
-def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Rolling z-score series matching streaming `_zscore_last(arr, window)`.
-
-    `_rolling_zscore_series` expands the window until it saturates; the streaming
-    `_zscore_last` instead returns 0.0 until `window` samples exist. This forces
-    that fixed-window cold-start by zeroing the first `window - 1` positions.
-    """
-    z = _rolling_zscore_series(arr, window)
-    z[: window - 1] = 0.0
-    return z
-
-
 def _cmf(
     highs: np.ndarray,
     lows: np.ndarray,
@@ -1362,23 +1312,6 @@ def _month_cos(bar_ts: datetime) -> float:
 # see _*_series_full below for the O(n) batch/backfill precompute path.
 
 
-def _percentile_rank(hist: np.ndarray, current: float) -> float:
-    """Percentile rank of `current` within `hist` (inclusive, "weak" semantics).
-
-    Uses scipy.stats.percentileofscore when available; falls back to a manual
-    rank computation if scipy is not importable (T-142.5-02-02 mitigation).
-    Bounded [0, 1].
-    """
-    try:
-        from scipy import stats  # noqa: PLC0415
-
-        pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
-    except ImportError:
-        rank = float(np.sum(hist <= current))
-        pct = rank / len(hist)
-    return float(np.clip(pct, 0.0, 1.0))
-
-
 def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
     """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
 
@@ -1486,49 +1419,6 @@ def _vol_persistence(volumes: np.ndarray, window: int) -> float:
         return 0.0
     hist = volumes[-w:].astype(float)
     return _pearson_acf1(hist)
-
-
-def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Trailing rolling std series (expanding until `window` bars, then fixed window).
-
-    O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
-    _vol_std_z_series_full (batch).
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        out[i] = math.sqrt(var)
-    return out
-
-
-def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Trailing rolling mean series (expanding until `window` bars, then fixed window).
-
-    O(n) via cumulative sums. Shared building block for the Parkinson/Garman-Klass
-    alternative volatility estimators (Phase 142.5 Plan 04), which smooth their
-    per-bar variance proxy over `window` bars before z-scoring.
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        out[i] = s / eff_w
-    return out
 
 
 def _vol_std_z(volumes: np.ndarray, window: int) -> float:
@@ -1656,21 +1546,6 @@ def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
 #
 # Statistical moments and streak/win-rate structure of the return series.
 # ---------------------------------------------------------------------------
-
-
-def _kurtosis(arr: np.ndarray) -> float:
-    """Pearson excess kurtosis: mean(((x-mean)/std)**4) - 3.0.
-
-    Returns 0.0 for degenerate input (fewer than 4 samples or std < 1e-10).
-    """
-    if len(arr) < 4:
-        return 0.0
-    mean = arr.mean()
-    std = arr.std()
-    if std < 1e-10:
-        return 0.0
-    result = float(np.mean(((arr - mean) / std) ** 4) - 3.0)
-    return result if math.isfinite(result) else 0.0
 
 
 def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
@@ -2101,47 +1976,9 @@ def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _skewness(arr: np.ndarray) -> float:
-    if len(arr) < 3:
-        return 0.0
-    mean = arr.mean()
-    std = arr.std()
-    if std < 1e-10:
-        return 0.0
-    result = float(np.mean(((arr - mean) / std) ** 3))
-    return result if math.isfinite(result) else 0.0
-
-
-def _pearson_acf1(arr: np.ndarray) -> float:
-    """Pearson lag-1 autocorrelation. Returns 0.0 if std < 1e-10 or len < 2."""
-    if len(arr) < 2:
-        return 0.0
-    x = arr[:-1] - arr[:-1].mean()
-    y = arr[1:] - arr[1:].mean()
-    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(x, y) / denom)
-
-
 # ---------------------------------------------------------------------------
 # Batch z-score helper (stateless: computes from arrays, no deque accumulation)
 # ---------------------------------------------------------------------------
-
-
-def _zscore_last(series: np.ndarray, window: int) -> float:
-    """Z-score of the last element relative to the trailing window.
-
-    Stateless: takes full array, uses last `window` elements for mean/std,
-    scores the final element. Returns 0.0 on cold start or near-zero std.
-    """
-    if len(series) < window:
-        return 0.0
-    window_data = series[-window:]
-    std = float(window_data.std())
-    if std < 1e-8:
-        return 0.0
-    return float((float(series[-1]) - float(window_data.mean())) / std)
 
 
 # ---------------------------------------------------------------------------
@@ -2596,38 +2433,6 @@ def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> 
 # initial `window - 1` expanding-window bars. Avoids the O(n x window)
 # per-bar-call cost of invoking the streaming primitives directly in a loop.
 # ---------------------------------------------------------------------------
-
-
-def _sliding_rolling_max(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == max(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
-    n = len(arr)
-    out = np.empty(n, dtype=float)
-    if n == 0:
-        return out
-    expand_n = min(window - 1, n)
-    for i in range(expand_n):
-        out[i] = np.max(arr[: i + 1])
-    if n >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.max(windows, axis=1)
-    return out
-
-
-def _sliding_rolling_min(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == min(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
-    n = len(arr)
-    out = np.empty(n, dtype=float)
-    if n == 0:
-        return out
-    expand_n = min(window - 1, n)
-    for i in range(expand_n):
-        out[i] = np.min(arr[: i + 1])
-    if n >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.min(windows, axis=1)
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -4821,45 +4626,6 @@ def _compute_fib_zones(
 # ---------------------------------------------------------------------------
 # Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
 # ---------------------------------------------------------------------------
-
-
-def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> bool:
-    """Shared guard for the ATR-normalized distance features consolidated onto
-    it by todo 237 (session VP, S/R, swing/trend structure, fibonacci zones,
-    session levels, all 6 SMC compute functions) and todo 266 (`_informed_flow`,
-    `_range_vs_atr`): True iff atr_val is finite, strictly positive, AND at
-    least min_atr_pct of close_ -- safe to divide a price distance by without
-    exploding.
-
-    A bare `atr_val > 0` check (this function's pre-todo-237 form) passes a
-    legitimately-positive but numerically-tiny ATR -- e.g. BIL (an
-    ultra-short-duration T-bill ETF) during a genuinely flat period -- and
-    `(level - close_) / atr_val` then blows up to an implausible magnitude
-    (confirmed live: weekly_r1_dist_atr up to 96,512) with no separate check
-    ever catching it. min_atr_pct (feature.atr_normalization.min_atr_pct) is
-    relative to close_, not an absolute floor, so it holds across instruments
-    at any price scale.
-
-    See `_is_valid_atr_series` for the vectorized form used by `_series_full`
-    batch functions.
-    """
-    return (
-        atr_val is not None
-        and math.isfinite(atr_val)
-        and atr_val > 0
-        and atr_val >= min_atr_pct * abs(close_)
-    )
-
-
-def _is_valid_atr_series(
-    atr_padded: np.ndarray, closes: np.ndarray, min_atr_pct: float
-) -> np.ndarray:
-    """Vectorized form of `_is_valid_atr` (todo 268): result[i] is True iff
-    atr_padded[i] is finite, strictly positive, AND at least min_atr_pct of
-    abs(closes[i]) -- same relative floor, applied element-wise across a full
-    `_series_full` batch array instead of one scalar per call.
-    """
-    return np.isfinite(atr_padded) & (atr_padded > 0) & (atr_padded >= min_atr_pct * np.abs(closes))
 
 
 def _dist_to_midpoint(close_: float, boundary_a: float, boundary_b: float) -> float:
