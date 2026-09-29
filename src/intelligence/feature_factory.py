@@ -27,26 +27,193 @@ argument. Zero inline magic numbers in primitive bodies.
 from __future__ import annotations
 
 import bisect
-import calendar
 import dataclasses
 import math
-from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
 import structlog
 
-from src.core.rng import hash_key_to_int
 from src.intelligence.feature_cache import (
     FeatureCache,
     _compute_session_value_area,
     _compute_session_vp_profile,
 )
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
+from src.intelligence.features.kernels._primitives import (  # noqa: F401  re-exported for tests and scripts
+    _atr_series_full,
+    _atr_wilder,
+    _fixed_window_zscore_series,
+    _is_valid_atr,
+    _is_valid_atr_series,
+    _kurtosis,
+    _pearson_acf1,
+    _percentile_rank,
+    _rolling_mean_series,
+    _rolling_std_series,
+    _rolling_zscore_series,
+    _skewness,
+    _sliding_rolling_max,
+    _sliding_rolling_min,
+    _zscore_last,
+)
+from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-exported for tests and scripts
+    _QUARTER_LENGTH_DAYS,
+    _day_of_month_cos,
+    _day_of_month_sin,
+    _days_since_quarter_end,
+    _days_to_month_end_fraction,
+    _dow_encoding,
+    _earnings_season_flag,
+    _hour_of_day_cos,
+    _hour_of_day_sin,
+    _in_london_kz,
+    _in_ny_session,
+    _in_overlap,
+    _minute_of_hour_encoding,
+    _month_cos,
+    _month_position,
+    _month_sin,
+    _opening_range,
+    _opex_flag,
+    _power_hour,
+    _quad_witching_flag,
+    _quarter_cycle_encoding,
+    _quarter_position,
+    _session_time_pos,
+    _tdom_encoding,
+    _week_of_month_cos,
+    _week_of_month_sin,
+    _week_of_year_cos,
+    _week_of_year_sin,
+)
+from src.intelligence.features.kernels.control import (  # noqa: F401  re-exported for tests and scripts
+    _CANARY_CONSTANT_VALUE,
+    _CANARY_NEAR_CONSTANT_EPSILON,
+    _canary_acausal_placebo,
+    _canary_near_constant,
+    _canary_noise_gaussian,
+    _canary_noise_uniform,
+    _canary_sub_seed,
+)
+from src.intelligence.features.kernels.macro import align_daily_asof
+from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported for tests and scripts
+    _aroon_osc,
+    _bar_close_pos,
+    _bars_since_event_series_full,
+    _bars_since_rolling_extreme_series_full,
+    _bb_pct_b,
+    _bb_pct_b_series_full,
+    _body_ratio,
+    _cci,
+    _close_vs_open_direction,
+    _dist_from_high_series_full,
+    _dist_from_low_series_full,
+    _efficiency_ratio,
+    _efficiency_ratio_series_full,
+    _gap_z_series_full,
+    _garman_klass_vol_z_series_full,
+    _high_52w_dist_series_full,
+    _high_low_corr_series_full,
+    _hv_ratio_series_full,
+    _hv_z_series_full,
+    _intraday_noise_ratio_series_full,
+    _intraday_ret,
+    _lower_wick_ratio,
+    _momentum_reversal_z_series_full,
+    _momentum_z_series_full,
+    _open_ret,
+    _open_vs_intraday,
+    _overnight_gap,
+    _overnight_gap_series_full,
+    _overnight_gap_z,
+    _overnight_gap_z_series_full,
+    _parkinson_vol_z_series_full,
+    _price_percentile,
+    _price_percentile_series_full,
+    _product,
+    _range_efficiency,
+    _range_pct,
+    _range_pct_series_full,
+    _range_position,
+    _range_to_close,
+    _range_to_close_series_full,
+    _range_vs_atr,
+    _realized_var_ratio,
+    _realized_var_ratio_series_full,
+    _ret_acf1_z_series_full,
+    _ret_autocorr,
+    _ret_autocorr_series_full,
+    _ret_kurtosis_z_series_full,
+    _ret_lag_1,
+    _ret_lag_2,
+    _ret_lag_3,
+    _ret_lag_fast,
+    _ret_lag_k,
+    _ret_lag_mid,
+    _ret_lag_slow,
+    _ret_skew_z_series_full,
+    _ret_vol_ratio,
+    _rsi,
+    _rsi_series_full,
+    _rsi_wilder,
+    _stoch_k,
+    _stoch_k_series_full,
+    _streak_length,
+    _streak_length_series_full,
+    _streak_z_series_full,
+    _true_range_pct,
+    _true_range_pct_series_full,
+    _up_vol_body_diff,
+    _updown_ratio,
+    _updown_ratio_series_full,
+    _upper_wick_ratio,
+    _variance_ratio,
+    _variance_ratio_series_full,
+    _vol_asymmetry_ratio,
+    _vol_asymmetry_z_series_full,
+    _vol_of_vol_series_full,
+    _vol_ratio,
+    _vol_velocity_z_series_full,
+    _yang_zhang_vol_z_series_full,
+)
+from src.intelligence.features.kernels.volume import (  # noqa: F401  re-exported for tests and scripts
+    _amihud_illiq_z_series_full,
+    _cmf,
+    _cvd_slope_z_series_full,
+    _dollar_vol_z,
+    _dollar_vol_z_series_full,
+    _informed_flow,
+    _mfi,
+    _mfi_series_full,
+    _obv_z,
+    _obv_z_series_full,
+    _ofi_z_series_full,
+    _price_vol_corr_series_full,
+    _rel_volume,
+    _rel_volume_series_full,
+    _up_vol_ratio,
+    _up_vol_ratio_series_full,
+    _vol_acceleration,
+    _vol_acceleration_series_full,
+    _vol_percentile,
+    _vol_percentile_series_full,
+    _vol_persistence,
+    _vol_persistence_series_full,
+    _vol_range_ratio,
+    _vol_range_ratio_series_full,
+    _vol_std_z,
+    _vol_std_z_series_full,
+    _vol_trend_ratio,
+    _vol_trend_ratio_series_full,
+    _volume_z_series_full,
+    _vwap_dev_sigma_series_full,
+)
+from src.intelligence.features.registry import compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
-from src.intelligence.utils import clamp, find_peaks, find_troughs, safe_corr
+from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 # ---------------------------------------------------------------------------
@@ -56,8 +223,6 @@ from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 # Bump on any algorithm change; IC engine filters by version to avoid mixing IC estimates.
 FEATURE_FACTORY_VERSION: str = "1.0.0"
 
-# Calendar constant: average days per quarter (365.25 / 4). Not a tunable — fixed by definition.
-_QUARTER_LENGTH_DAYS: float = 91.25
 
 # Module logger for _guard_counted's observability tripwire report ONLY
 # (Phase 151 Plan 06) -- this is the sole logging call site in this module;
@@ -895,2550 +1060,10 @@ def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[st
 
 
 # ---------------------------------------------------------------------------
-# Rolling z-score helper (module-level, used across primitives)
+# Feature computation lives in the kernel registry (D-25): src/intelligence/features/kernels/
+# holds the price, volume, calendar, control and macro kernels. The helpers they use are
+# re-exported above for callers that import them from this module.
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Bar-level primitive functions
-# ---------------------------------------------------------------------------
-
-
-def _bar_close_pos(high: float, low: float, close: float, eps: float = 1e-10) -> float:
-    """Intra-bar conviction: close position within high-low range.
-
-    Formula: (close - low) / (high - low + eps)
-    Returns 0.5 when high == low (epsilon guard; degenerate doji bar).
-    """
-    hl = high - low
-    if hl < eps:
-        return 0.5
-    return (close - low) / hl
-
-
-def _range_position(
-    close: float,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    eps: float = 1e-10,
-) -> float:
-    """Close position within N-bar high-low range.
-
-    Formula: (close - min(low_N)) / (max(high_N) - min(low_N))
-    Returns 0.5 on degenerate range.
-    """
-    range_low = float(np.min(lows))
-    range_high = float(np.max(highs))
-    rng = range_high - range_low
-    return (close - range_low) / (rng + eps)
-
-
-def _rel_volume(volume: float, vol_history: deque, window: int) -> float:
-    """Relative volume: volume / mean(volume over window).
-
-    Returns 1.0 on cold start (neutral).
-    """
-    vol_history.append(volume)
-    if len(vol_history) < 2:
-        return 1.0
-    arr = np.array(list(vol_history)[-window:])
-    mean_vol = float(arr.mean())
-    return volume / mean_vol if mean_vol > 1e-10 else 1.0
-
-
-def _informed_flow(open_price: float, close: float, atr: float, min_atr_pct: float) -> float:
-    """Directional informed flow proxy: (close - open) / ATR.
-
-    Returns 0.0 when atr is invalid per `_is_valid_atr` (todo 266: routed through
-    the same relative floor as the 12 sibling ATR-ratio features, todo 237).
-    """
-    return (close - open_price) / atr if _is_valid_atr(atr, close, min_atr_pct) else 0.0
-
-
-def _vol_ratio(closes: np.ndarray, short_bars: int, long_bars: int) -> float:
-    """Realized volatility ratio: std(short) / std(long).
-
-    Returns 1.0 on cold start or degenerate std.
-    """
-    if len(closes) < long_bars + 1:
-        return 1.0
-    long_returns = np.diff(np.log(np.maximum(closes[-(long_bars + 1) :], 1e-10)))
-    short_returns = long_returns[-short_bars:]
-    vol_short = float(np.std(short_returns))
-    vol_long = float(np.std(long_returns))
-    return vol_short / vol_long if vol_long > 1e-10 else 1.0
-
-
-def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data.
-
-    Reference implementation — used in tests only.
-    """
-    n = len(closes)
-    if n < period + 1:
-        return 0.0
-    high = highs[1:]
-    low = lows[1:]
-    prev_close = closes[:-1]
-    tr = np.maximum(
-        high - low,
-        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
-    )
-    # Wilder: alpha = 1/period; use ewm equivalent
-    alpha = 1.0 / period
-    atr = float(tr[0])
-    for val in tr[1:]:
-        atr = alpha * float(val) + (1.0 - alpha) * atr
-    return atr
-
-
-def _atr_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int
-) -> np.ndarray:
-    """Full Wilder ATR series in O(n). result[j] = ATR after bar index j+1.
-    Length = len(closes) - 1. Returns empty array when len(closes) < 2.
-
-    Matches _atr_wilder semantics exactly: result[j] = 0.0 when j+2 < period+1
-    (insufficient bars). Non-zero values begin at j = period-1.
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(0, dtype=float)
-    tr = np.maximum(
-        highs[1:] - lows[1:],
-        np.maximum(np.abs(highs[1:] - closes[:-1]), np.abs(lows[1:] - closes[:-1])),
-    )
-    alpha = 1.0 / max(period, 1)
-    atr = np.zeros(len(tr), dtype=float)
-    # _atr_wilder requires n >= period+1, i.e. len(tr) >= period.
-    # The EWM always seeds from tr[0] and accumulates forward. We zero out positions
-    # where _atr_wilder would return 0.0 (j < period-1), but carry the EWM state
-    # forward so position j = period-1 onward is numerically identical to _atr_wilder.
-    if len(tr) < period:
-        return atr  # all zeros — no valid position exists
-    running = float(tr[0])
-    for k in range(1, len(tr)):
-        running = alpha * float(tr[k]) + (1.0 - alpha) * running
-        if k >= period - 1:
-            atr[k] = running
-    return atr
-
-
-def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Rolling z-score series matching _zscore_last semantics.
-
-    At position i, scores arr[i] against arr[max(0, i-window+1):i+1] using the
-    effective window min(window, i+1) — the series expands until it saturates at
-    `window` elements. This matches _zscore_last(arr[:i+1], min(window, i+1)).
-
-    Uses cumulative sums — O(n) total.
-    Returns 0.0 where fewer than 2 samples or std < 1e-8.
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n < 2 or window < 2:
-        return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(1, n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w  # first index included (0-based)
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        std = math.sqrt(var)
-        out[i] = (arr[i] - mean) / std if std > 1e-8 else 0.0
-    return out
-
-
-def _fixed_window_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Rolling z-score series matching streaming `_zscore_last(arr, window)`.
-
-    `_rolling_zscore_series` expands the window until it saturates; the streaming
-    `_zscore_last` instead returns 0.0 until `window` samples exist. This forces
-    that fixed-window cold-start by zeroing the first `window - 1` positions.
-    """
-    z = _rolling_zscore_series(arr, window)
-    z[: window - 1] = 0.0
-    return z
-
-
-def _cmf(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    period: int,
-) -> float:
-    """Chaikin Money Flow over period. Returns 0.0 on insufficient data.
-
-    CMF = sum(MFV, period) / sum(volume, period)
-    MFV = volume * (2*close - high - low) / (high - low)
-    """
-    if len(closes) < period:
-        return 0.0
-    h = highs[-period:]
-    lo = lows[-period:]
-    c = closes[-period:]
-    v = volumes[-period:]
-    hl_range = h - lo
-    safe_range = np.where(hl_range > 0, hl_range, 1.0)
-    mfm = np.where(hl_range > 0, (2.0 * c - h - lo) / safe_range, 0.0)
-    mfv = mfm * v
-    vol_sum = float(np.sum(v))
-    return float(np.sum(mfv)) / vol_sum if vol_sum > 1e-10 else 0.0
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Bar Anatomy Ratios (Phase 142.5 Plan 01)
-# ---------------------------------------------------------------------------
-
-
-def _body_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
-) -> float:
-    """Bar body ratio: (C - O) / (H - L). Bounded [-1, 1]. Returns 0.0 on degenerate bar (H == L)."""
-    hl = high - low
-    if hl < eps:
-        return 0.0
-    return (close - open_price) / hl
-
-
-def _upper_wick_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
-) -> float:
-    """Upper wick ratio: (H - max(O, C)) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
-    hl = high - low
-    if hl < eps:
-        return 0.5
-    return (high - max(open_price, close)) / hl
-
-
-def _lower_wick_ratio(
-    open_price: float, high: float, low: float, close: float, eps: float = 1e-10
-) -> float:
-    """Lower wick ratio: (min(O, C) - L) / (H - L). Bounded [0, 1]. Returns 0.5 on degenerate bar."""
-    hl = high - low
-    if hl < eps:
-        return 0.5
-    return (min(open_price, close) - low) / hl
-
-
-def _range_vs_atr(high: float, low: float, atr: float, close_: float, min_atr_pct: float) -> float:
-    """Bar range relative to ATR: (H - L) / ATR_N. Unbounded positive.
-
-    Returns 0.0 when atr is invalid per `_is_valid_atr` (todo 266: routed through
-    the same relative floor as the 12 sibling ATR-ratio features, todo 237).
-    """
-    return (high - low) / atr if _is_valid_atr(atr, close_, min_atr_pct) else 0.0
-
-
-def _close_vs_open_direction(open_price: float, close: float) -> float:
-    """Directional sign of the bar: sign(C - O). Categorical {-1.0, 0.0, 1.0}."""
-    diff = close - open_price
-    if diff == 0.0:
-        return 0.0
-    return math.copysign(1.0, diff)
-
-
-def _overnight_gap(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
-    """Overnight gap return: (O - prev_C) / prev_C. Unbounded. Returns 0.0 when prev_C < eps."""
-    return (open_price - prev_close) / prev_close if prev_close > eps else 0.0
-
-
-def _overnight_gap_series_full(
-    opens: np.ndarray, closes: np.ndarray, eps: float = 1e-10
-) -> np.ndarray:
-    """Raw overnight_gap value per bar index i (i >= 1); index 0 padded with 0.0.
-
-    result[i] == streaming _overnight_gap(opens[i], closes[i-1]) for i >= 1.
-    Batch precompute helper — used only to feed _overnight_gap_z_series_full below;
-    the raw per-bar overnight_gap value itself is O(1) via _overnight_gap() directly.
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    prev_closes = closes[:-1]
-    raw_gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
-    return np.concatenate([[0.0], raw_gaps])
-
-
-def _overnight_gap_z(
-    opens: np.ndarray, closes: np.ndarray, window: int, eps: float = 1e-10
-) -> float:
-    """Z-score of overnight_gap over a trailing window of bars (streaming path).
-
-    Builds the full overnight_gap series then z-scores the last value against the
-    trailing `window`, matching _zscore_last semantics. Returns 0.0 on insufficient
-    history (fewer than `window` gap observations).
-    """
-    if len(closes) < 2:
-        return 0.0
-    prev_closes = closes[:-1]
-    gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
-    return _zscore_last(gaps, window)
-
-
-def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
-    """Z-scored overnight_gap series (batch path). result[i] == streaming
-    _overnight_gap_z(opens[:i+1], closes[:i+1], window) for i >= 1.
-
-    O(n) total — required because _overnight_gap_z rebuilds the full gap array per
-    call; looping compute_batch() calling the streaming version would be O(n^2).
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    raw_gaps = _overnight_gap_series_full(opens, closes)[1:]  # index j == gap at bar j+1
-    z = _fixed_window_zscore_series(raw_gaps, window)
-    return np.concatenate([[0.0], z])  # index i == z-score at bar i (i >= 1)
-
-
-def _range_efficiency(
-    close: float, prev_close: float, high: float, low: float, eps: float = 1e-10
-) -> float:
-    """Range efficiency: abs(C - prev_C) / (H - L). Bounded [0, 1]. Returns 0.0 on degenerate bar."""
-    hl = high - low
-    if hl < eps:
-        return 0.0
-    return min(abs(close - prev_close) / hl, 1.0)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Lagged Return Series (Phase 142.5 Plan 01)
-# ---------------------------------------------------------------------------
-
-
-def _ret_lag_k(closes: np.ndarray, k: int, eps: float = 1e-10) -> float:
-    """Shared implementation: log(C_t / C_{t-k}). Returns 0.0 when history < k + 1."""
-    if len(closes) < k + 1:
-        return 0.0
-    return float(np.log(max(float(closes[-1]), eps) / max(float(closes[-(k + 1)]), eps)))
-
-
-def _ret_lag_1(closes: np.ndarray, eps: float = 1e-10) -> float:
-    """1-bar lagged log return: log(C_t / C_{t-1}). Definitional — no APR key."""
-    return _ret_lag_k(closes, 1, eps)
-
-
-def _ret_lag_2(closes: np.ndarray, eps: float = 1e-10) -> float:
-    """2-bar lagged log return: log(C_t / C_{t-2}). Definitional — no APR key."""
-    return _ret_lag_k(closes, 2, eps)
-
-
-def _ret_lag_3(closes: np.ndarray, eps: float = 1e-10) -> float:
-    """3-bar lagged log return: log(C_t / C_{t-3}). Definitional — no APR key."""
-    return _ret_lag_k(closes, 3, eps)
-
-
-def _ret_lag_fast(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
-    """Gradient fast-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.fast"""
-    return _ret_lag_k(closes, window, eps)
-
-
-def _ret_lag_mid(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
-    """Gradient mid-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.mid"""
-    return _ret_lag_k(closes, window, eps)
-
-
-def _ret_lag_slow(closes: np.ndarray, window: int, eps: float = 1e-10) -> float:
-    """Gradient slow-scale lagged log return: log(C_t / C_{t-window}). APR: feature.ret_lag.slow"""
-    return _ret_lag_k(closes, window, eps)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Open-to-Close Split (Phase 142.5 Plan 01)
-# ---------------------------------------------------------------------------
-
-
-def _open_ret(open_price: float, prev_close: float, eps: float = 1e-10) -> float:
-    """Overnight component of return: log(O_t / prev_C). Returns 0.0 when prev_C < eps."""
-    if prev_close < eps:
-        return 0.0
-    return float(np.log(max(open_price, eps) / prev_close))
-
-
-def _intraday_ret(close: float, open_price: float, eps: float = 1e-10) -> float:
-    """Intraday component of return: log(C_t / O_t). Returns 0.0 when O_t < eps."""
-    if open_price < eps:
-        return 0.0
-    return float(np.log(max(close, eps) / open_price))
-
-
-def _open_vs_intraday(open_ret: float, intraday_ret: float) -> float:
-    """Overnight-vs-intraday return decomposition gap: open_ret - intraday_ret."""
-    return open_ret - intraday_ret
-
-
-def _session_time_pos(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """Continuous [0, 1] position within the NY regular session for bar_ts's date.
-
-    Formula: clamp((total_minutes - start_minutes) / (end_minutes - start_minutes), 0.0, 1.0).
-    0.0 before/at session open, 1.0 at/after session close. Pure timestamp arithmetic — no
-    OHLCV. Deviation from source spec (discrete bar_index/total_session_bars) documented in
-    142.5-01-PLAN.md: continuous fraction is TF-independent (session bar count varies by TF).
-    """
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
-    end_minutes = config.ny_session_end_utc_hour * 60
-    session_length = end_minutes - start_minutes
-    if session_length <= 0:
-        return 0.0
-    frac = (total_minutes - start_minutes) / session_length
-    return max(0.0, min(1.0, frac))
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Temporal Coordinates (Phase 142.5 Plan 02)
-# ---------------------------------------------------------------------------
-# Pure timestamp arithmetic — no state, no OHLCV, no APR keys. Sin/cos encodings
-# preserve circular distance (e.g. 23:00 is 1 hour from 00:00, not 23 hours).
-# All bounded [-1, 1] by construction (math.sin/math.cos range).
-
-
-def _hour_of_day_sin(bar_ts: datetime) -> float:
-    """Circular hour-of-day encoding: sin(2*pi*(hour + minute/60)/24)."""
-    hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.sin(2.0 * math.pi * hour / 24.0)
-
-
-def _hour_of_day_cos(bar_ts: datetime) -> float:
-    """Circular hour-of-day encoding: cos(2*pi*(hour + minute/60)/24)."""
-    hour = bar_ts.hour + bar_ts.minute / 60.0
-    return math.cos(2.0 * math.pi * hour / 24.0)
-
-
-def _week_of_month_sin(bar_ts: datetime) -> float:
-    """Circular week-of-month encoding: sin(2*pi*week/5). week = (day-1)//7 + 1."""
-    week = (bar_ts.day - 1) // 7 + 1
-    return math.sin(2.0 * math.pi * week / 5.0)
-
-
-def _week_of_month_cos(bar_ts: datetime) -> float:
-    """Circular week-of-month encoding: cos(2*pi*week/5). week = (day-1)//7 + 1."""
-    week = (bar_ts.day - 1) // 7 + 1
-    return math.cos(2.0 * math.pi * week / 5.0)
-
-
-def _day_of_month_sin(bar_ts: datetime) -> float:
-    """Circular day-of-month encoding: sin(2*pi*day/31)."""
-    return math.sin(2.0 * math.pi * bar_ts.day / 31.0)
-
-
-def _day_of_month_cos(bar_ts: datetime) -> float:
-    """Circular day-of-month encoding: cos(2*pi*day/31)."""
-    return math.cos(2.0 * math.pi * bar_ts.day / 31.0)
-
-
-def _week_of_year_sin(bar_ts: datetime) -> float:
-    """Circular week-of-year encoding: sin(2*pi*isocalendar_week/52)."""
-    _, week, _ = bar_ts.isocalendar()
-    return math.sin(2.0 * math.pi * week / 52.0)
-
-
-def _week_of_year_cos(bar_ts: datetime) -> float:
-    """Circular week-of-year encoding: cos(2*pi*isocalendar_week/52)."""
-    _, week, _ = bar_ts.isocalendar()
-    return math.cos(2.0 * math.pi * week / 52.0)
-
-
-def _month_sin(bar_ts: datetime) -> float:
-    """Circular month-of-year encoding: sin(2*pi*month/12). NEW pair — only
-    _month_position (linear) existed before this plan."""
-    return math.sin(2.0 * math.pi * bar_ts.month / 12.0)
-
-
-def _month_cos(bar_ts: datetime) -> float:
-    """Circular month-of-year encoding: cos(2*pi*month/12). NEW pair — only
-    _month_position (linear) existed before this plan."""
-    return math.cos(2.0 * math.pi * bar_ts.month / 12.0)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Volume Structure (Phase 142.5 Plan 02)
-# ---------------------------------------------------------------------------
-# Beyond simple z-scores of volume level. Streaming (per-bar) implementations —
-# see _*_series_full below for the O(n) batch/backfill precompute path.
-
-
-def _percentile_rank(hist: np.ndarray, current: float) -> float:
-    """Percentile rank of `current` within `hist` (inclusive, "weak" semantics).
-
-    Uses scipy.stats.percentileofscore when available; falls back to a manual
-    rank computation if scipy is not importable (T-142.5-02-02 mitigation).
-    Bounded [0, 1].
-    """
-    try:
-        from scipy import stats  # noqa: PLC0415
-
-        pct = stats.percentileofscore(hist, current, kind="weak") / 100.0
-    except ImportError:
-        rank = float(np.sum(hist <= current))
-        pct = rank / len(hist)
-    return float(np.clip(pct, 0.0, 1.0))
-
-
-def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
-    """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
-
-    Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
-    """
-    if len(volumes) < 2:
-        return 1.0
-    prev = float(volumes[-2])
-    if prev < eps:
-        return 1.0
-    return float(volumes[-1]) / prev
-
-
-def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float:
-    """Z-score of dollar volume (V * C) over the trailing window. Returns 0.0 on cold start."""
-    if len(volumes) < 2:
-        return 0.0
-    dollar_vol = volumes.astype(float) * closes.astype(float)
-    return _zscore_last(dollar_vol, window)
-
-
-def _vol_range_ratio(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> float:
-    """Volume per unit of price range, normalized against its own trailing average.
-
-    raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
-    Unbounded positive. Returns 0.0 on a degenerate current bar (H == L) or cold start.
-    """
-    n = len(volumes)
-    if n < 1:
-        return 0.0
-    ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
-    w = min(window, n)
-    mean_raw = float(np.mean(raw[-w:]))
-    if mean_raw < eps:
-        return 0.0
-    return float(raw[-1]) / mean_raw
-
-
-def _vol_trend_ratio(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
-) -> float:
-    """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
-
-    Returns 1.0 (neutral) on cold start (fewer than slow_window bars).
-    """
-    n = len(volumes)
-    if n < slow_window:
-        return 1.0
-    v = volumes.astype(float)
-    ma_fast = float(np.mean(v[-fast_window:]))
-    ma_slow = float(np.mean(v[-slow_window:]))
-    return ma_fast / ma_slow if ma_slow > eps else 1.0
-
-
-def _up_vol_ratio(
-    volumes: np.ndarray,
-    opens: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> float:
-    """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
-
-    Bounded [0, 1]. Returns 0.5 (neutral) on cold start or near-zero total volume.
-    Shared implementation for up_vol_ratio_fast/slow (different window arguments).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 1:
-        return 0.5
-    v = volumes[-w:].astype(float)
-    o = opens[-w:].astype(float)
-    c = closes[-w:].astype(float)
-    total = float(np.sum(v))
-    if total < eps:
-        return 0.5
-    up_vol = float(np.sum(np.where(c > o, v, 0.0)))
-    return up_vol / total
-
-
-def _vol_percentile(volumes: np.ndarray, window: int) -> float:
-    """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
-
-    Returns 0.5 (neutral) on cold start (fewer than 2 bars in the window).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return 0.5
-    hist = volumes[-w:].astype(float)
-    return _percentile_rank(hist, float(hist[-1]))
-
-
-def _vol_persistence(volumes: np.ndarray, window: int) -> float:
-    """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
-
-    Returns 0.0 on cold start (fewer than 2 bars in the window). Reuses _pearson_acf1.
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return 0.0
-    hist = volumes[-w:].astype(float)
-    return _pearson_acf1(hist)
-
-
-def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Trailing rolling std series (expanding until `window` bars, then fixed window).
-
-    O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
-    _vol_std_z_series_full (batch).
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        out[i] = math.sqrt(var)
-    return out
-
-
-def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
-    """Trailing rolling mean series (expanding until `window` bars, then fixed window).
-
-    O(n) via cumulative sums. Shared building block for the Parkinson/Garman-Klass
-    alternative volatility estimators (Phase 142.5 Plan 04), which smooth their
-    per-bar variance proxy over `window` bars before z-scoring.
-    """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        out[i] = s / eff_w
-    return out
-
-
-def _vol_std_z(volumes: np.ndarray, window: int) -> float:
-    """Z-score of rolling std(V) over the trailing window (single-window design:
-    the same `window` both computes the rolling std series and z-scores its last
-    value). Returns 0.0 on cold start.
-    """
-    if len(volumes) < 2:
-        return 0.0
-    std_series = _rolling_std_series(volumes.astype(float), window)
-    return _zscore_last(std_series, window)
-
-
-def _mfi(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> float:
-    """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
-
-    tp = (H + L + C) / 3. Bounded [0, 100]. Returns 50.0 (neutral) on cold start
-    or near-zero total money flow. Shared implementation for mfi_fast/slow.
-    """
-    n = len(closes)
-    w = min(window, n - 1) if n >= 2 else 0
-    if w < 1:
-        return 50.0
-    tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
-        -(w + 1) :
-    ].astype(float)
-    tp_full = tp_full / 3.0
-    v_full = volumes[-(w + 1) :].astype(float)
-    tp = tp_full[1:]
-    prev_tp = tp_full[:-1]
-    v = v_full[1:]
-    money_flow = tp * v
-    total = float(np.sum(money_flow))
-    if total < eps:
-        return 50.0
-    rising_flow = float(np.sum(money_flow[tp > prev_tp]))
-    return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
-
-
-def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
-    """Z-score of On-Balance Volume (cumulative +V on up bars, -V on down bars).
-
-    Returns 0.0 on cold start (fewer than 2 bars).
-    """
-    n = len(closes)
-    if n < 2:
-        return 0.0
-    diffs = np.diff(closes.astype(float))
-    signed_vol = np.where(
-        diffs > 0,
-        volumes[1:].astype(float),
-        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
-    )
-    obv = np.cumsum(signed_vol)
-    return _zscore_last(obv, window)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Breakout Distance (Phase 142.5 Plan 05)
-#
-# Price structure primitives with no theory: raw distance from recent extremes,
-# range position, and trend-purity — the IC engine evaluates whether any of
-# these carry signal. No S/R zone semantics, no chart-pattern logic.
-# ---------------------------------------------------------------------------
-
-
-def _range_pct(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
-    """Rolling range as a fraction of price: (rolling_high_N - rolling_low_N) / C.
-
-    Unbounded non-negative. Returns 0.0 when close is near zero.
-    """
-    if close < eps:
-        return 0.0
-    return (float(np.max(highs)) - float(np.min(lows))) / close
-
-
-def _stoch_k(close: float, highs: np.ndarray, lows: np.ndarray, eps: float = 1e-10) -> float:
-    """Stochastic %K: (C - L_N) / (H_N - L_N). Bounded [0, 1].
-
-    Returns 0.5 (neutral) on a degenerate range (H_N == L_N).
-    """
-    rolling_high = float(np.max(highs))
-    rolling_low = float(np.min(lows))
-    rng = rolling_high - rolling_low
-    if rng < eps:
-        return 0.5
-    return (close - rolling_low) / rng
-
-
-def _price_percentile(close: float, closes: np.ndarray) -> float:
-    """Rolling percentile rank of the current close within its trailing window.
-
-    Bounded [0, 1]. Returns 0.5 (neutral) on cold start (fewer than 2 bars).
-    Reuses _percentile_rank (scipy percentileofscore with manual fallback).
-    """
-    if len(closes) < 2:
-        return 0.5
-    return _percentile_rank(closes, close)
-
-
-def _efficiency_ratio(closes: np.ndarray, eps: float = 1e-10) -> float:
-    """Kaufman efficiency ratio: |C_t - C_{t-N}| / sum(|C_i - C_{i-1}|) over the window.
-
-    Bounded [0, 1] (0 = pure chop, 1 = perfectly linear trend). Returns 0.0 for
-    fewer than 2 bars or a degenerate (zero-movement) window.
-    """
-    if len(closes) < 2:
-        return 0.0
-    net = abs(float(closes[-1]) - float(closes[0]))
-    total = float(np.sum(np.abs(np.diff(closes))))
-    if total < eps:
-        return 0.0
-    return float(np.clip(net / total, 0.0, 1.0))
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Return Distribution (Phase 142.5 Plan 03)
-#
-# Statistical moments and streak/win-rate structure of the return series.
-# ---------------------------------------------------------------------------
-
-
-def _kurtosis(arr: np.ndarray) -> float:
-    """Pearson excess kurtosis: mean(((x-mean)/std)**4) - 3.0.
-
-    Returns 0.0 for degenerate input (fewer than 4 samples or std < 1e-10).
-    """
-    if len(arr) < 4:
-        return 0.0
-    mean = arr.mean()
-    std = arr.std()
-    if std < 1e-10:
-        return 0.0
-    result = float(np.mean(((arr - mean) / std) ** 4) - 3.0)
-    return result if math.isfinite(result) else 0.0
-
-
-def _ret_autocorr(closes: np.ndarray, lag: int) -> float:
-    """Lag-k Pearson autocorrelation of log returns, computed over ALL
-    available return history (expanding window, not a rolling APR window).
-
-    The lag itself is a definitional constant (1 or 5), matching the
-    ret_lag_1/2/3 convention of fixed-lag primitives with no tunable window
-    (source spec: "Number (definitional)"). Bounded [-1, 1] by construction.
-    Returns 0.0 when fewer than lag + 2 return observations exist.
-    """
-    if len(closes) < lag + 3:
-        return 0.0
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    if len(log_rets) < lag + 2:
-        return 0.0
-    x = log_rets[:-lag] - log_rets[:-lag].mean()
-    y = log_rets[lag:] - log_rets[lag:].mean()
-    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(x, y) / denom)
-
-
-def _updown_ratio(rets: np.ndarray, eps: float = 1e-10) -> float:
-    """count(up bars) / count(down bars) over the given return window.
-
-    Returns 1.0 (neutral) when there are zero down bars — including an empty
-    window — rather than an unbounded/undefined ratio.
-    """
-    up = int(np.sum(rets > eps))
-    down = int(np.sum(rets < -eps))
-    return float(up) / down if down > 0 else 1.0
-
-
-def _streak_length(signs: np.ndarray) -> float:
-    """Current signed directional streak length ending at the last element:
-    positive for an up-streak, negative for a down-streak, magnitude = number
-    of consecutive same-sign observations. Returns 0.0 for empty input or a
-    zero-return final bar (streak reset).
-    """
-    if len(signs) == 0:
-        return 0.0
-    last_sign = signs[-1]
-    if last_sign == 0:
-        return 0.0
-    streak = 0
-    for s in signs[::-1]:
-        if s == last_sign:
-            streak += 1
-        else:
-            break
-    return float(streak) if last_sign > 0 else -float(streak)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Realized Variance / Volatility (Phase 142.5 Plan 03)
-#
-# Second-moment structure beyond ATR: aggregated-return variance ratios
-# (Lo-MacKinlay VR), close-to-close historical volatility, Bollinger %B band
-# position, H/L correlation, and up/down volatility asymmetry.
-# ---------------------------------------------------------------------------
-
-
-def _realized_var_ratio(closes: np.ndarray, fast_window: int, slow_window: int) -> float:
-    """Ratio of realized return variance across two window scales:
-    var(ret, fast) / var(ret, slow). Uses expanding windows
-    (min(window, available)) for consistency with the batch series
-    precompute. Returns 1.0 (neutral) on insufficient history in either
-    window or near-zero slow-window variance.
-    """
-    if len(closes) < 2:
-        return 1.0
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    w_slow = min(slow_window, len(log_rets))
-    w_fast = min(fast_window, len(log_rets))
-    if w_slow < 2 or w_fast < 2:
-        return 1.0
-    var_slow = float(np.var(log_rets[-w_slow:]))
-    var_fast = float(np.var(log_rets[-w_fast:]))
-    return var_fast / var_slow if var_slow > 1e-14 else 1.0
-
-
-def _range_to_close(high: float, low: float, close: float, eps: float = 1e-10) -> float:
-    """Rolling range as a fraction of price: (H - L) / C. Unbounded non-negative.
-    Returns 0.0 when close is near zero.
-    """
-    return (high - low) / close if close > eps else 0.0
-
-
-def _true_range_pct(
-    high: float, low: float, prev_close: float, close: float, eps: float = 1e-10
-) -> float:
-    """True range as a fraction of price: TR / C, where
-    TR = max(H-L, |H-prev_C|, |L-prev_C|). Unbounded non-negative.
-    Returns 0.0 when close is near zero.
-    """
-    if close < eps:
-        return 0.0
-    tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-    return tr / close
-
-
-def _variance_ratio(closes: np.ndarray, n: int) -> float:
-    """Lo-MacKinlay variance ratio: Var(N-period return) / (N * Var(1-period
-    return)), using overlapping N-period sums computed over ALL available
-    return history (the classic full-sample VR specification-test estimator
-    — no separate sample-window APR key). Under a random walk, VR -> 1.0.
-    Returns 1.0 (random-walk neutral) when insufficient history exists for
-    either variance estimate.
-    """
-    if len(closes) < 2 or n < 1:
-        return 1.0
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    m = len(log_rets)
-    if m < n + 1:
-        return 1.0
-    var_1 = float(np.var(log_rets))
-    if var_1 < 1e-14:
-        return 1.0
-    cs = np.concatenate([[0.0], np.cumsum(log_rets)])
-    agg = cs[n:] - cs[:-n]
-    if len(agg) < 2:
-        return 1.0
-    var_n = float(np.var(agg))
-    return var_n / (n * var_1)
-
-
-def _vol_asymmetry_ratio(rets_window: np.ndarray, eps: float = 1e-10) -> float:
-    """Ratio of up-bar return std to down-bar return std within the window:
-    std(ret | ret > 0) / std(ret | ret < 0). Returns 1.0 (neutral) when
-    fewer than 2 up or 2 down observations exist in the window.
-    """
-    up = rets_window[rets_window > eps]
-    down = rets_window[rets_window < -eps]
-    if len(up) < 2 or len(down) < 2:
-        return 1.0
-    std_up = float(np.std(up))
-    std_down = float(np.std(down))
-    return std_up / std_down if std_down > eps else 1.0
-
-
-def _bb_pct_b(closes_window: np.ndarray, eps: float = 1e-10) -> float:
-    """Bollinger %B: (C - lower_band) / (upper_band - lower_band), where the
-    bands are SMA +/- 2*std over the window. Returns 0.5 (neutral) on a
-    degenerate (near-zero-std) band.
-    """
-    if len(closes_window) < 2:
-        return 0.5
-    mean = float(np.mean(closes_window))
-    std = float(np.std(closes_window))
-    if std < eps:
-        return 0.5
-    upper = mean + 2.0 * std
-    lower = mean - 2.0 * std
-    c = float(closes_window[-1])
-    return (c - lower) / (upper - lower)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Alternative Volatility Estimators (Phase 142.5 Plan 04)
-#
-# Parkinson/Garman-Klass/Yang-Zhang all extract more information from a single
-# bar's OHLC than a close-only estimator (ATR/HV), and volatility dynamics
-# (first derivatives of those z-scores) capture panic onset vs stabilization.
-# All of these are computed only by the vectorized _series_full
-# implementations further below (single source of truth read by both
-# compute() and compute_batch()) — there are no standalone scalar wrappers
-# here since nothing outside this module calls them individually.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Price-Volume Interactions (Phase 142.5 Plan 05.5)
-#
-# 8 deterministic combinations (product, ratio, or rolling correlation) of two
-# already-computed parent primitives from earlier in the same compute() pass.
-# No new market theory embedded -- closes the gap flagged by three
-# independent reviews (antigravity review H5 == VERIFICATION.md BLOCKER #1 ==
-# internal-Claude H1): the migration, APR seeds, and integration-test
-# assertion already referenced these fields with no plan computing them.
-# Six are O(1) scalar combinators reusing parent scalar values with zero
-# extra window; only the 2 rolling correlations (price_vol_corr_fast/slow)
-# need a new APR window. See docs/research/signal-renaissance-primitives-ohlcv.md
-# (Interaction Primitives section).
-# ---------------------------------------------------------------------------
-
-
-def _product(a: float, b: float) -> float:
-    """Pure product of two already-computed parent scalars -- no new window.
-    Shared by vol_body_product, ret_vol_product_fast, range_vol_product, and
-    vol_skew_product (all four were byte-identical `a * b` bodies). Unbounded,
-    symmetric around 0.
-    """
-    return a * b
-
-
-def _up_vol_body_diff(up_vol_ratio: float, body_ratio: float) -> float:
-    """up_vol_body_diff = up_vol_ratio_fast - body_ratio. Pure difference of
-    Plan 02's up_vol_ratio_fast (bounded [0,1]) and Plan 01's body_ratio
-    (bounded [-1,1]) -- no new window. Approximately bounded [-1, 1].
-    """
-    return up_vol_ratio - body_ratio
-
-
-def _ret_vol_ratio(ret_lag: float, atr_z: float, eps: float = 1e-10) -> float:
-    """ret_vol_ratio_fast = ret_lag_fast / atr_z. Pure ratio of Plan 01's
-    ret_lag_fast and baseline atr_z -- no new window. Returns 0.0 when
-    abs(atr_z) < eps (epsilon guard; degenerate near-zero volatility
-    z-score). Unbounded, symmetric around 0.
-    """
-    if abs(atr_z) < eps:
-        return 0.0
-    return ret_lag / atr_z
-
-
-# ---------------------------------------------------------------------------
-# Canary / Control Predictor primitive functions (Phase 143.1 Plan 02, todo 068)
-# ---------------------------------------------------------------------------
-# Genuine FeatureVector fields (not measurement-time-only diagnostics) so
-# concept_registry (domain='feature')'s row-count/name-set alignment gates stay
-# satisfied (ic_engine.py/ensemble_trainer.py's alignment checks enforce
-# len(rows) == len(FeatureVector fields) plus exact name-set equality, Phase
-# 170 Plan 06/07). Negative controls (noise, constant,
-# near-constant) must never clear an IC significance gate; the acausal
-# placebo (positive control) must clear one spectacularly, proving this
-# pipeline can detect look-ahead leakage when it is actually present.
-# scripts/ops/alpha/ops_canary_integrity_assert.py is the loud,
-# expectation-aware assertion that enforces this at corpus-run time.
-
-_CANARY_CONSTANT_VALUE: float = 1.0
-_CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
-
-
-def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int) -> int:
-    """Deterministic per-(symbol, bar) sub-seed derived from symbol + bar_ts +
-    the APR base seed + a per-canary offset.
-
-    2026-07-29 fix (todo 203): previously omitted `symbol` entirely -- every
-    symbol received the IDENTICAL "random" draw at a given bar_ts, confirmed
-    live in feature_vectors (bit-identical canary_noise_gaussian/uniform/
-    near_constant across every pooled symbol at the same timestamp). Any
-    cross-sectional measurement pooling multiple symbols (this project's own
-    ic_engine.py _compute_cross_sectional_tf, or an ad hoc diagnostic doing the
-    same) saw severe pseudo-replication as a result -- the true independent
-    draw count per bar_ts was 1, not n_symbols, defeating these negative
-    controls' entire purpose.
-
-    The symbol component uses hash_key_to_int (src/core/rng.py) -- the shared
-    Ring-0 primitive also used by ic_engine.py's _derive_worker_rng_seed(cell_key,
-    bootstrap_seed) (extracted 2026-07-29 /simplify pass after this function
-    independently re-derived the same MD5-hash-to-int idiom) -- stable across
-    processes/interpreter versions (PYTHONHASHSEED-independent), required for
-    ProcessPoolExecutor workers and the "same bar inputs + seed -> same value"
-    determinism contract. The bar_ts/offset arithmetic component is unchanged from
-    the original (still pure arithmetic, no hash() there either).
-    """
-    ts_int = int(bar_ts.timestamp() * 1000)
-    symbol_hash = hash_key_to_int(symbol)
-    return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
-
-
-def _canary_noise_gaussian(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Gaussian noise, N(0, 1) (offset=0). Negative control: must never
-    carry IC."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=0))
-    return float(rng.standard_normal())
-
-
-def _canary_noise_uniform(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """Pure Uniform[0, 1) noise (offset=1), independently seeded from the
-    Gaussian canary. Two distributionally-distinct RNG sources both agreeing
-    they are null is stronger pipeline-integrity evidence than one alone."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=1))
-    return float(rng.uniform(0.0, 1.0))
-
-
-def _canary_near_constant(bar_ts: datetime, symbol: str, base_seed: int) -> float:
-    """_CANARY_CONSTANT_VALUE plus tiny deterministic epsilon noise
-    (offset=2) -- verifies degenerate near-zero-variance input handling
-    without being bit-identical to the pure constant canary."""
-    rng = np.random.default_rng(_canary_sub_seed(bar_ts, symbol, base_seed, offset=2))
-    return _CANARY_CONSTANT_VALUE + _CANARY_NEAR_CONSTANT_EPSILON * float(rng.standard_normal())
-
-
-def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = 1e-10) -> float:
-    """Deliberate look-ahead leak (positive control): pairs bar i with the
-    close-to-close return realized from bars i+1 -> i+2 (the ret_lag_1 shape,
-    forward-shifted). Against the executable open-to-open labels it is fully
-    contained only in lookahead h >= 2 (open[i+1] -> open[i+h+1]); the h = 1
-    label shares just the overnight gap close[i+1] -> open[i+2], so its IC
-    peaks at h = 2 (1d pooled: ~0.32 at h=1, ~0.64 at h=2) and a small h = 1
-    cell can miss significance. Detection checks gate on the containing
-    lookahead (phase 179 V5). Falls back to 0.0 when the future bars don't exist yet (end of
-    the batch series, or the live single-bar compute() path, which by
-    definition has no future data -- see FeatureFactory.compute() docstring).
-    """
-    if i + 2 >= len(closes) or closes[i + 1] <= eps or closes[i + 2] <= eps:
-        return 0.0
-    return float(math.log(closes[i + 2] / closes[i + 1]))
-
-
-# ---------------------------------------------------------------------------
-# Calendar primitive functions
-# ---------------------------------------------------------------------------
-
-
-def _in_ny_session(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is within NY RTH, else 0.0."""
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    start_minutes = config.ny_session_start_utc_hour * 60 + config.ny_session_start_utc_minute
-    end_minutes = config.ny_session_end_utc_hour * 60
-    return 1.0 if start_minutes <= total_minutes < end_minutes else 0.0
-
-
-def _in_overlap(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in London-NY overlap, else 0.0."""
-    return (
-        1.0 if config.overlap_start_utc_hour <= bar_ts.hour < config.overlap_end_utc_hour else 0.0
-    )
-
-
-def _dow_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic weekday encoding: (sin(2*pi*weekday/5), cos(2*pi*weekday/5)).
-
-    weekday() returns 0=Monday, 4=Friday. Weekends treated as Friday.
-    """
-    weekday = min(bar_ts.weekday(), 4)
-    angle = 2.0 * math.pi * weekday / 5.0
-    return math.sin(angle), math.cos(angle)
-
-
-def _month_position(bar_ts: datetime) -> float:
-    """day_of_month / days_in_month: position within the month in (0, 1]."""
-    days = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-    return bar_ts.day / days
-
-
-def _in_london_kz(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in the London killzone, else 0.0."""
-    return (
-        1.0
-        if config.london_kz_start_utc_hour <= bar_ts.hour < config.london_kz_end_utc_hour
-        else 0.0
-    )
-
-
-def _power_hour(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in power hour, else 0.0."""
-    return (
-        1.0
-        if config.power_hour_start_utc_hour <= bar_ts.hour < config.power_hour_end_utc_hour
-        else 0.0
-    )
-
-
-def _opening_range(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 if bar_ts is in the first 30 min of NY session, else 0.0."""
-    total_minutes = bar_ts.hour * 60 + bar_ts.minute
-    return (
-        1.0
-        if config.opening_range_start_minute <= total_minutes < config.opening_range_end_minute
-        else 0.0
-    )
-
-
-# ---------------------------------------------------------------------------
-# Oscillator helpers (stateless, array-based)
-# ---------------------------------------------------------------------------
-
-
-def _rsi(closes: np.ndarray, period: int) -> float:
-    """Wilder's RSI. Returns 50.0 on cold start. Result clamped to [0.0, 100.0]."""
-    if len(closes) < period + 1:
-        return 50.0
-    deltas = np.diff(closes.astype(float))
-    return _rsi_wilder(
-        np.where(deltas > 0, deltas, 0.0), np.where(deltas < 0, -deltas, 0.0), period
-    )
-
-
-def _rsi_wilder(gains: np.ndarray, losses: np.ndarray, period: int) -> float:
-    """Wilder smoothing from pre-split gains/losses arrays."""
-    alpha = 1.0 / period
-    avg_gain = float(np.mean(gains[:period]))
-    avg_loss = float(np.mean(losses[:period]))
-    for i in range(period, len(gains)):
-        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
-        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
-    if avg_loss < 1e-10:
-        return 100.0 if avg_gain > 0 else 50.0
-    rs = avg_gain / avg_loss
-    return float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-
-
-def _cci(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """Commodity Channel Index: (typical - SMA_typical) / (0.015 * MAD).
-
-    Returns 0.0 when MAD < 1e-10 or insufficient bars.
-    Unbounded — typically in [-200, +200] but can exceed in extreme moves.
-    """
-    if len(closes) < period:
-        return 0.0
-    typical = (highs[-period:] + lows[-period:] + closes[-period:]) / 3.0
-    sma = float(np.mean(typical))
-    mad = float(np.mean(np.abs(typical - sma)))
-    if mad < 1e-10:
-        return 0.0
-    return float((float(typical[-1]) - sma) / (0.015 * mad))
-
-
-def _aroon_osc(highs: np.ndarray, lows: np.ndarray, period: int) -> float:
-    """Aroon Oscillator = (aroon_up - aroon_down) / 100, range [-1.0, 1.0].
-
-    Returns 0.0 when insufficient bars (< period + 1).
-    """
-    if len(highs) < period + 1:
-        return 0.0
-    window_h = highs[-(period + 1) :]
-    window_l = lows[-(period + 1) :]
-    aroon_up = int(np.argmax(window_h)) / period * 100.0
-    aroon_down = int(np.argmin(window_l)) / period * 100.0
-    return float(np.clip((aroon_up - aroon_down) / 100.0, -1.0, 1.0))
-
-
-# ---------------------------------------------------------------------------
-# Statistical / liquidity helpers (stateless, array-based)
-# ---------------------------------------------------------------------------
-
-
-def _skewness(arr: np.ndarray) -> float:
-    if len(arr) < 3:
-        return 0.0
-    mean = arr.mean()
-    std = arr.std()
-    if std < 1e-10:
-        return 0.0
-    result = float(np.mean(((arr - mean) / std) ** 3))
-    return result if math.isfinite(result) else 0.0
-
-
-def _pearson_acf1(arr: np.ndarray) -> float:
-    """Pearson lag-1 autocorrelation. Returns 0.0 if std < 1e-10 or len < 2."""
-    if len(arr) < 2:
-        return 0.0
-    x = arr[:-1] - arr[:-1].mean()
-    y = arr[1:] - arr[1:].mean()
-    denom = float(np.sqrt(np.dot(x, x) * np.dot(y, y)))
-    if denom < 1e-10:
-        return 0.0
-    return float(np.dot(x, y) / denom)
-
-
-# ---------------------------------------------------------------------------
-# Batch z-score helper (stateless: computes from arrays, no deque accumulation)
-# ---------------------------------------------------------------------------
-
-
-def _zscore_last(series: np.ndarray, window: int) -> float:
-    """Z-score of the last element relative to the trailing window.
-
-    Stateless: takes full array, uses last `window` elements for mean/std,
-    scores the final element. Returns 0.0 on cold start or near-zero std.
-    """
-    if len(series) < window:
-        return 0.0
-    window_data = series[-window:]
-    std = float(window_data.std())
-    if std < 1e-8:
-        return 0.0
-    return float((float(series[-1]) - float(window_data.mean())) / std)
-
-
-# ---------------------------------------------------------------------------
-# Batch series functions — O(n) total, backfill compute stage only.
-# result[i] matches FeatureFactory.compute(bars[:i+1], ...) for the named feature.
-# The streaming per-bar functions above are untouched — live pipeline uses them.
-# ---------------------------------------------------------------------------
-
-
-def _momentum_z_series_full(closes: np.ndarray, window: int, zscore_window: int) -> np.ndarray:
-    """Log-return velocity series, z-scored. result[i] == streaming momentum_z at bar i.
-    Returns zeros for i < window (cold start matches streaming's 0.0).
-    """
-    n = len(closes)
-    if n <= window:
-        return np.zeros(n, dtype=float)
-    log_returns = np.log(np.maximum(closes[window:], 1e-10) / np.maximum(closes[:-window], 1e-10))
-    z = _fixed_window_zscore_series(log_returns, zscore_window)
-    return np.concatenate([np.zeros(window, dtype=float), z])
-
-
-def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> np.ndarray:
-    """1-bar log-return z-scored series. result[i] == streaming momentum_reversal_z at bar i."""
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    z = _rolling_zscore_series(log_rets, zscore_window)
-    return np.concatenate([[0.0], z])
-
-
-def _volume_z_series_full(volumes: np.ndarray, zscore_window: int) -> np.ndarray:
-    """Volume z-score series. result[i] == streaming volume_z at bar i."""
-    return _fixed_window_zscore_series(volumes.astype(float), zscore_window)
-
-
-def _ofi_z_series_full(
-    closes: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    volumes: np.ndarray,
-    zscore_window: int,
-) -> np.ndarray:
-    """OFI z-score series. result[i] == streaming ofi_z at bar i."""
-    ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
-    return _fixed_window_zscore_series(ofi_raw.astype(float), zscore_window)
-
-
-def _cvd_slope_z_series_full(
-    closes: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    volumes: np.ndarray,
-    slope_bars: int,
-    zscore_window: int,
-) -> np.ndarray:
-    """CVD slope z-score series. result[i] == streaming cvd_slope_z at bar i.
-    Returns zeros for i < slope_bars (cold start: len(cum_cvd) <= slope_bars).
-    """
-    n = len(closes)
-    if n <= slope_bars:
-        return np.zeros(n, dtype=float)
-    cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
-    cum_cvd = np.cumsum(cvd_raw.astype(float))
-    slope_vals = (cum_cvd[slope_bars:] - cum_cvd[: n - slope_bars]) / slope_bars
-    z = _fixed_window_zscore_series(slope_vals, zscore_window)
-    return np.concatenate([np.zeros(slope_bars, dtype=float), z])
-
-
-def _rsi_series_full(closes: np.ndarray, period: int) -> np.ndarray:
-    """Wilder RSI for every bar in O(n). result[i] == streaming RSI at bar i.
-    Returns 50.0 for i <= period (cold start matches streaming's fallback).
-    Single forward Wilder pass — numerically identical to _rsi_wilder at every bar.
-    """
-    n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
-    if n < period + 1:
-        return result
-    deltas = np.diff(closes.astype(float))
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    alpha = 1.0 / period
-    avg_gain = float(np.mean(gains[:period]))
-    avg_loss = float(np.mean(losses[:period]))
-    # Write bar `period` from the SMA seed (matches streaming _rsi_wilder with exactly period deltas)
-    if avg_loss < 1e-10:
-        result[period] = 100.0 if avg_gain > 0 else 50.0
-    else:
-        rs = avg_gain / avg_loss
-        result[period] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-    for i in range(period, len(gains)):
-        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
-        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
-        if avg_loss < 1e-10:
-            result[i + 1] = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rs = avg_gain / avg_loss
-            result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-    return result
-
-
-def _ret_skew_z_series_full(closes: np.ndarray, skew_window: int, zscore_window: int) -> np.ndarray:
-    """Rolling return skewness z-score series. result[i] == streaming ret_skew_z at bar i.
-    O(n × skew_window) total — called once, vs O(n² × skew_window) previously.
-    Returns zeros for i < skew_window (cold start).
-    """
-    n = len(closes)
-    if n < skew_window + 3:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    # skew_vals[k] = skewness(log_rets[k : k+skew_window]) for k=0..n-1-skew_window
-    skew_vals = np.array(
-        [_skewness(log_rets[k : k + skew_window]) for k in range(len(log_rets) - skew_window + 1)],
-        dtype=float,
-    )
-    z = _fixed_window_zscore_series(skew_vals, zscore_window)
-    # result[skew_window + k] = z[k], prepend skew_window zeros for cold-start bars
-    return np.concatenate([np.zeros(skew_window, dtype=float), z])
-
-
-def _ret_acf1_z_series_full(closes: np.ndarray, acf_window: int, zscore_window: int) -> np.ndarray:
-    """Rolling lag-1 autocorrelation z-score series. result[i] == streaming ret_acf1_z at bar i.
-    O(n × acf_window) total. Returns zeros for i < acf_window (cold start).
-    """
-    n = len(closes)
-    if n < acf_window + 2:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    acf_vals = np.array(
-        [
-            _pearson_acf1(log_rets[k : k + acf_window])
-            for k in range(len(log_rets) - acf_window + 1)
-        ],
-        dtype=float,
-    )
-    z = _fixed_window_zscore_series(acf_vals, zscore_window)
-    return np.concatenate([np.zeros(acf_window, dtype=float), z])
-
-
-def _amihud_illiq_z_series_full(
-    closes: np.ndarray, volumes: np.ndarray, zscore_window: int
-) -> np.ndarray:
-    """Amihud illiquidity z-score series. result[i] == streaming amihud_illiq_z at bar i.
-    Prepends 0.0 at index 0 (cold start — streaming returns 0.0 when len(closes) < 2).
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
-    dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
-    illiq = log_rets_abs / dollar_vols
-    z = _fixed_window_zscore_series(illiq, zscore_window)
-    return np.concatenate([[0.0], z])
-
-
-def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """Distance from rolling-max series. result[i] == streaming high_52w_dist at bar i.
-    O(n × window) — called once vs per-bar (not per-bar O(n^2) total).
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    for b in range(1, n):
-        w = min(window, b + 1)
-        rolling_max = float(np.max(closes[b + 1 - w : b + 1]))
-        if rolling_max >= 1e-10:
-            result[b] = (float(closes[b]) - rolling_max) / rolling_max
-    return result
-
-
-def _vwap_dev_sigma_series_full(
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-) -> np.ndarray:
-    """VWAP deviation in sigma series. result[i] == streaming vwap_dev_sigma at bar i.
-    Uses running VWAP (cumsum) + running std (Welford via cumsums) — O(n) total.
-    Parity tolerance 1e-6 due to cumulative floating-point accumulation vs np.std.
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    typical = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
-    cum_tp_vol = np.cumsum(typical * volumes.astype(float))
-    cum_vol = np.cumsum(volumes.astype(float))
-    vwap_arr = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, typical)
-    dev = closes.astype(float) - vwap_arr
-    cum_dev = np.cumsum(dev)
-    cum_dev_sq = np.cumsum(dev * dev)
-    counts = np.arange(1, n + 1, dtype=float)
-    mean_dev = cum_dev / counts
-    var = np.maximum(cum_dev_sq / counts - mean_dev * mean_dev, 0.0)
-    std_arr = np.sqrt(var)
-    mask = std_arr > 1e-10
-    result[mask] = (closes.astype(float)[mask] - vwap_arr[mask]) / std_arr[mask]
-    return result
-
-
-def _gap_z_series_full(
-    opens: np.ndarray,
-    closes: np.ndarray,
-    atr_raw: np.ndarray,
-    atr_valid: np.ndarray,
-    zscore_window: int,
-) -> np.ndarray:
-    """Gap-z series: ATR-normalized open gap, rolling z-scored.
-
-    `atr_raw`/`atr_valid` are the shared ATR series/validity mask already
-    computed once in `_precompute_series` (todo 269 -- previously this
-    function recomputed its own `_atr_series_full(highs, lows, closes,
-    period)`, a redundant second computation of the exact same array since
-    both used `config.adx_period`; now the same array is threaded through,
-    matching the pattern `_dist_from_high_series_full`/`_dist_from_low_series_full`
-    already use). `atr_valid` is aligned index-for-index with `atr_padded`/
-    `closes`, so `atr_for_gap[k] == atr_padded[k+1]` and the matching slice
-    is `atr_valid[1:1+gap_high]`.
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-
-    # ATR series (length = n-1)
-    atr_core = atr_raw
-
-    # For gap computation, we need ATR at position j to normalize gap[j+1]
-    # gap[j+1] = (open[j+1] - close[j]) / ATR[j]
-    # atr_core has length n-1, where atr_core[k] = ATR after bar index k+1
-    # So atr_for_gap[k] = ATR for gap at position k+1
-    atr_for_gap = atr_core[:-1] if len(atr_core) >= 2 else atr_core
-
-    # Compute gap_raw: (open[i] - close[i-1]) / ATR[i-1]
-    # opens[2:] corresponds to gap at positions 2..n-1
-    # closes[1:-1] corresponds to close at positions 1..n-2
-    if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
-        gap_high = min(len(opens) - 2, len(atr_for_gap))
-        gap_atr_valid = atr_valid[1 : 1 + gap_high]
-        gap_raw = (opens[2 : 2 + gap_high] - closes[1 : 1 + gap_high]) / np.where(
-            gap_atr_valid, atr_for_gap[:gap_high], 1.0
-        )
-        # Z-score the gap series
-        gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
-        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values
-        result = np.zeros(n, dtype=float)
-        if len(gap_z_core) > 2:
-            result[2 : 2 + len(gap_z_core) - 2] = gap_z_core[2:]
-
-    return result
-
-
-def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """Relative volume series. result[i] == streaming rel_volume at bar i.
-    Uses cumulative sum for O(n) rolling mean.
-    """
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    cs = np.cumsum(volumes.astype(float))
-    for b in range(n):
-        eff_w = min(window, b + 1)
-        start = b + 1 - eff_w
-        total = cs[b] - (cs[start - 1] if start > 0 else 0.0)
-        mean_v = total / eff_w
-        result[b] = float(volumes[b]) / mean_v if mean_v > 1e-10 else 1.0
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Volume Structure batch series (Phase 142.5 Plan 02)
-# result[i] matches the streaming per-bar helper above at bar i. O(n) except
-# vol_percentile/vol_persistence which are O(n x window) (same cost class as
-# the pre-existing ret_skew_z_series_full / ret_acf1_z_series_full).
-# ---------------------------------------------------------------------------
-
-
-def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = 1e-10) -> np.ndarray:
-    """result[i] == streaming _vol_acceleration at bar i. Index 0 padded with 1.0."""
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    if n < 2:
-        return result
-    v = volumes.astype(float)
-    prev = v[:-1]
-    curr = v[1:]
-    safe_prev = np.where(prev > eps, prev, 1.0)
-    result[1:] = np.where(prev > eps, curr / safe_prev, 1.0)
-    return result
-
-
-def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _dollar_vol_z at bar i."""
-    dollar_vol = volumes.astype(float) * closes.astype(float)
-    return _fixed_window_zscore_series(dollar_vol, window)
-
-
-def _vol_range_ratio_series_full(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.zeros(n, dtype=float)
-    if n < 1:
-        return result
-    ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
-    cs = np.cumsum(raw)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        mean_raw = s / w
-        result[i] = raw[i] / mean_raw if mean_raw > eps else 0.0
-    return result
-
-
-def _vol_trend_ratio_series_full(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _vol_trend_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    v = volumes.astype(float)
-    cs = np.cumsum(v)
-    for i in range(n):
-        if i + 1 < slow_window:
-            continue
-        sum_f = cs[i] - (cs[i - fast_window] if i - fast_window >= 0 else 0.0)
-        sum_s = cs[i] - (cs[i - slow_window] if i - slow_window >= 0 else 0.0)
-        ma_f = sum_f / fast_window
-        ma_s = sum_s / slow_window
-        result[i] = ma_f / ma_s if ma_s > eps else 1.0
-    return result
-
-
-def _up_vol_ratio_series_full(
-    volumes: np.ndarray,
-    opens: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> np.ndarray:
-    """result[i] == streaming _up_vol_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.full(n, 0.5, dtype=float)
-    v = volumes.astype(float)
-    up_v = np.where(closes.astype(float) > opens.astype(float), v, 0.0)
-    cs_total = np.cumsum(v)
-    cs_up = np.cumsum(up_v)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
-        up = cs_up[i] - (cs_up[start - 1] if start > 0 else 0.0)
-        if total > eps:
-            result[i] = up / total
-    return result
-
-
-def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_percentile at bar i. O(n x window)."""
-    n = len(volumes)
-    result = np.full(n, 0.5, dtype=float)
-    if n < 2:
-        return result
-    vols = volumes.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        hist = vols[i + 1 - w : i + 1]
-        result[i] = _percentile_rank(hist, float(hist[-1]))
-    return result
-
-
-def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_persistence at bar i. O(n x window)."""
-    n = len(volumes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    vols = volumes.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        hist = vols[i + 1 - w : i + 1]
-        result[i] = _pearson_acf1(hist)
-    return result
-
-
-def _vol_std_z_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_std_z at bar i. O(n) total."""
-    std_series = _rolling_std_series(volumes.astype(float), window)
-    return _fixed_window_zscore_series(std_series, window)
-
-
-def _mfi_series_full(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> np.ndarray:
-    """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
-    fixed per bar regardless of window; only the rolling sums need cumsum).
-    """
-    n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
-    if n < 2:
-        return result
-    tp = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
-    money_flow = tp * volumes.astype(float)
-    rising = np.zeros(n, dtype=bool)
-    rising[1:] = tp[1:] > tp[:-1]
-    rising_flow = np.where(rising, money_flow, 0.0)
-    cs_total = np.cumsum(money_flow)
-    cs_rising = np.cumsum(rising_flow)
-    for i in range(1, n):
-        w = min(window, i)
-        start = i - w + 1
-        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
-        rise = cs_rising[i] - (cs_rising[start - 1] if start > 0 else 0.0)
-        if total > eps:
-            result[i] = float(np.clip(100.0 * rise / total, 0.0, 100.0))
-    return result
-
-
-def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _obv_z at bar i. Index 0 padded with 0.0 (cold start)."""
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    diffs = np.diff(closes.astype(float))
-    signed_vol = np.where(
-        diffs > 0,
-        volumes[1:].astype(float),
-        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
-    )
-    obv = np.cumsum(signed_vol)
-    z = _fixed_window_zscore_series(obv, window)
-    return np.concatenate([[0.0], z])
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Breakout Distance batch precompute (Phase 142.5 Plan 05)
-#
-# Rolling max/min via np.lib.stride_tricks.sliding_window_view: a single
-# vectorized numpy call over the saturated region (no Python-level per-bar
-# loop for the O(n x window) work), plus a small Python loop only for the
-# initial `window - 1` expanding-window bars. Avoids the O(n x window)
-# per-bar-call cost of invoking the streaming primitives directly in a loop.
-# ---------------------------------------------------------------------------
-
-
-def _sliding_rolling_max(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == max(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
-    n = len(arr)
-    out = np.empty(n, dtype=float)
-    if n == 0:
-        return out
-    expand_n = min(window - 1, n)
-    for i in range(expand_n):
-        out[i] = np.max(arr[: i + 1])
-    if n >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.max(windows, axis=1)
-    return out
-
-
-def _sliding_rolling_min(arr: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == min(arr[max(0, i-window+1):i+1]) for every i. O(n) calls,
-    vectorized over the saturated region via sliding_window_view."""
-    n = len(arr)
-    out = np.empty(n, dtype=float)
-    if n == 0:
-        return out
-    expand_n = min(window - 1, n)
-    for i in range(expand_n):
-        out[i] = np.min(arr[: i + 1])
-    if n >= window:
-        windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-        out[window - 1 :] = np.min(windows, axis=1)
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Recency / Statistical Atomics (Phase 151 Plan 03, todo 180)
-#
-# Event-recency axis: bars_since_* are BOUNDED rolling-window statistics in
-# [0, window-1] -- the binding design constraint from todo 180's Fable review
-# (151-RESEARCH.md Pattern 1). An expanding "bars since all-time high" is a
-# different, non-stationary statistic and is explicitly rejected; do not
-# reuse _ret_autocorr_series_full's expanding-window shape here.
-# ---------------------------------------------------------------------------
-
-
-def _bars_since_rolling_extreme_series_full(
-    values: np.ndarray, window: int, mode: str
-) -> np.ndarray:
-    """result[i] == bars elapsed since the maximum (mode="max") or minimum
-    (mode="min") of values[max(0, i-window+1):i+1] was last attained, as a
-    float in [0, window-1]. result[i] == 0.0 means the extreme is the current
-    bar. O(n) total via a monotonic deque of indices (each index enters and
-    leaves the deque at most once); on ties, the most recent occurrence is
-    treated as the current extreme.
-    """
-    n = len(values)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    dq: deque[int] = deque()
-    for i in range(n):
-        v = values[i]
-        if mode == "max":
-            while dq and values[dq[-1]] <= v:
-                dq.pop()
-        else:  # "min"
-            while dq and values[dq[-1]] >= v:
-                dq.pop()
-        dq.append(i)
-        while dq[0] <= i - window:
-            dq.popleft()
-        out[i] = float(i - dq[0])
-    return out
-
-
-def _bars_since_event_series_full(events: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == bars elapsed since the most recent True in
-    events[max(0, i-window+1):i+1], as a float in [0, window-1].
-    result[i] == 0.0 means events[i] is True. When no event occurred inside
-    the trailing window, saturates to float(window-1) -- NOT 0.0 (which would
-    falsely assert "an event just happened") and NOT NaN. O(n) total via a
-    deque of True-event indices (each index enters and leaves at most once).
-    """
-    n = len(events)
-    out = np.full(n, float(window - 1), dtype=float)
-    if n == 0:
-        return out
-    dq: deque[int] = deque()
-    for i in range(n):
-        if events[i]:
-            dq.append(i)
-        while dq and dq[0] <= i - window:
-            dq.popleft()
-        out[i] = float(i - dq[-1]) if dq else float(window - 1)
-    return out
-
-
-def _dist_from_high_series_full(
-    closes: np.ndarray,
-    highs: np.ndarray,
-    atr_padded: np.ndarray,
-    atr_valid: np.ndarray,
-    window: int,
-) -> np.ndarray:
-    """result[i] == streaming distance from the rolling high, ATR-normalized,
-    at bar i. `atr_valid` is the precomputed `_is_valid_atr_series` mask
-    (todo 268: hoisted by the caller and shared across all 4
-    dist_from_high/low_fast/slow calls rather than recomputed per call)."""
-    rolling_high = _sliding_rolling_max(highs, window)
-    safe_atr = np.where(atr_valid, atr_padded, 1.0)
-    raw = (rolling_high - closes.astype(float)) / safe_atr
-    return np.where(atr_valid, raw, 0.0)
-
-
-def _dist_from_low_series_full(
-    closes: np.ndarray, lows: np.ndarray, atr_padded: np.ndarray, atr_valid: np.ndarray, window: int
-) -> np.ndarray:
-    """result[i] == streaming distance from the rolling low, ATR-normalized,
-    at bar i. `atr_valid` is the precomputed `_is_valid_atr_series` mask
-    (todo 268: hoisted by the caller and shared across all 4
-    dist_from_high/low_fast/slow calls rather than recomputed per call)."""
-    rolling_low = _sliding_rolling_min(lows, window)
-    safe_atr = np.where(atr_valid, atr_padded, 1.0)
-    raw = (closes.astype(float) - rolling_low) / safe_atr
-    return np.where(atr_valid, raw, 0.0)
-
-
-def _range_pct_series_full(
-    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _range_pct at bar i."""
-    rolling_high = _sliding_rolling_max(highs, window)
-    rolling_low = _sliding_rolling_min(lows, window)
-    c = closes.astype(float)
-    safe_c = np.where(c > eps, c, 1.0)
-    raw = (rolling_high - rolling_low) / safe_c
-    return np.where(c > eps, raw, 0.0)
-
-
-def _stoch_k_series_full(
-    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _stoch_k at bar i. 0.5 on degenerate range."""
-    rolling_high = _sliding_rolling_max(highs, window)
-    rolling_low = _sliding_rolling_min(lows, window)
-    rng = rolling_high - rolling_low
-    safe_rng = np.where(rng > eps, rng, 1.0)
-    raw = (closes.astype(float) - rolling_low) / safe_rng
-    return np.where(rng > eps, raw, 0.5)
-
-
-def _price_percentile_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _price_percentile at bar i. O(n x window)."""
-    n = len(closes)
-    result = np.full(n, 0.5, dtype=float)
-    if n < 2:
-        return result
-    c = closes.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        hist = c[i + 1 - w : i + 1]
-        result[i] = _percentile_rank(hist, float(hist[-1]))
-    return result
-
-
-def _efficiency_ratio_series_full(
-    closes: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _efficiency_ratio at bar i. O(n) via cumsum of |diffs|."""
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    c = closes.astype(float)
-    diffs = np.abs(np.diff(c))
-    cs_padded = np.concatenate([[0.0], np.cumsum(diffs)])  # cs_padded[i] = sum(|diffs[0:i]|)
-    for i in range(n):
-        w = min(window, i)
-        if w < 1:
-            continue
-        start = i - w
-        net = abs(c[i] - c[start])
-        total = cs_padded[i] - cs_padded[start]
-        result[i] = net / total if total > eps else 0.0
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Return Distribution batch precompute (Phase 142.5 Plan 03)
-# result[i] matches the corresponding value function above at bar i.
-# ---------------------------------------------------------------------------
-
-
-def _ret_kurtosis_z_series_full(
-    closes: np.ndarray, kurt_window: int, zscore_window: int
-) -> np.ndarray:
-    """Rolling return-kurtosis z-score series. result[i] == z-score of
-    kurtosis(log_rets[i-kurt_window+1:i+1]) against a trailing zscore_window
-    of kurtosis values. O(n x kurt_window) total — same cost class as the
-    pre-existing _ret_skew_z_series_full. Returns zeros for i < kurt_window
-    (cold start).
-    """
-    n = len(closes)
-    if n < kurt_window + 3:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    kurt_vals = np.array(
-        [_kurtosis(log_rets[k : k + kurt_window]) for k in range(len(log_rets) - kurt_window + 1)],
-        dtype=float,
-    )
-    z = _fixed_window_zscore_series(kurt_vals, zscore_window)
-    return np.concatenate([np.zeros(kurt_window, dtype=float), z])
-
-
-def _ret_autocorr_series_full(closes: np.ndarray, lag: int, use_abs: bool = False) -> np.ndarray:
-    """Expanding-window lag-k Pearson autocorrelation of log returns, computed
-    over ALL available history up to each bar. result[i] == streaming
-    _ret_autocorr(closes[:i+1], lag). O(n) total via incremental running sums
-    (one new pair added per bar, no window to re-sum).
-
-    use_abs=True (Phase 151 Plan 03, todo 180): computes the identical
-    construction over |log returns| instead of signed log returns --
-    volatility-clustering (return-MAGNITUDE autocorrelation) rather than the
-    directional autocorrelation the default (use_abs=False) callers
-    (ret_autocorr_1/ret_autocorr_5) measure. Existing use_abs=False callers
-    are byte-identical to the pre-refactor behavior.
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    if use_abs:
-        log_rets = np.abs(log_rets)
-    m = len(log_rets)
-    if m < lag + 2:
-        return result
-    sum_x = sum_y = sum_x2 = sum_y2 = sum_xy = 0.0
-    count = 0
-    for j in range(m):
-        if j >= lag:
-            x = float(log_rets[j - lag])
-            y = float(log_rets[j])
-            sum_x += x
-            sum_y += y
-            sum_x2 += x * x
-            sum_y2 += y * y
-            sum_xy += x * y
-            count += 1
-        if count >= 2:
-            mean_x = sum_x / count
-            mean_y = sum_y / count
-            var_x = sum_x2 / count - mean_x * mean_x
-            var_y = sum_y2 / count - mean_y * mean_y
-            denom = math.sqrt(max(var_x, 0.0) * max(var_y, 0.0))
-            if denom > 1e-10:
-                cov = sum_xy / count - mean_x * mean_y
-                result[j + 1] = cov / denom
-    return result
-
-
-def _updown_ratio_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
-    """result[i] == streaming _updown_ratio over the trailing `window` returns
-    ending at bar i. O(n) via cumulative up/down bar counts.
-    """
-    n = len(closes)
-    result = np.ones(n, dtype=float)
-    if n < 2:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    up_flags = (log_rets > eps).astype(float)
-    down_flags = (log_rets < -eps).astype(float)
-    cs_up = np.concatenate([[0.0], np.cumsum(up_flags)])
-    cs_down = np.concatenate([[0.0], np.cumsum(down_flags)])
-    m = len(log_rets)
-    for j in range(m):
-        w = min(window, j + 1)
-        start = j + 1 - w
-        up_count = cs_up[j + 1] - cs_up[start]
-        down_count = cs_down[j + 1] - cs_down[start]
-        result[j + 1] = up_count / down_count if down_count > 0 else 1.0
-    return result
-
-
-def _streak_length_series_full(closes: np.ndarray) -> np.ndarray:
-    """Full signed streak-length series. O(n) single forward pass (does NOT
-    call _streak_length per bar — that would be O(n^2); this maintains the
-    running streak incrementally instead). result[i] is the streak ending at
-    bar i (i >= 1); index 0 padded with 0.0.
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    signs = np.sign(log_rets)
-    current = 0.0
-    for j in range(len(signs)):
-        s = float(signs[j])
-        if s == 0.0:
-            current = 0.0
-        elif current != 0.0 and math.copysign(1.0, current) == s:
-            current += s
-        else:
-            current = s
-        result[j + 1] = current
-    return result
-
-
-def _streak_z_series_full(closes: np.ndarray, streak_window: int) -> np.ndarray:
-    """z-score of the signed streak-length series over a trailing window.
-    result[i] == streaming streak_z at bar i.
-    """
-    streak_series = _streak_length_series_full(closes)
-    return _fixed_window_zscore_series(streak_series, streak_window)
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Realized Variance / Volatility batch precompute
-# (Phase 142.5 Plan 03)
-# ---------------------------------------------------------------------------
-
-
-def _realized_var_ratio_series_full(
-    closes: np.ndarray, fast_window: int, slow_window: int
-) -> np.ndarray:
-    """result[i] == streaming _realized_var_ratio(closes[:i+1], fast_window,
-    slow_window). O(n) via cumsum of returns and squared returns.
-    """
-    n = len(closes)
-    result = np.ones(n, dtype=float)
-    if n < 2:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    m = len(log_rets)
-    cs = np.cumsum(log_rets)
-    cs2 = np.cumsum(log_rets * log_rets)
-    for j in range(m):
-        bar_idx = j + 1
-        w_slow = min(slow_window, j + 1)
-        w_fast = min(fast_window, j + 1)
-        if w_slow < 2 or w_fast < 2:
-            continue
-        start_slow = j + 1 - w_slow
-        s_slow = cs[j] - (cs[start_slow - 1] if start_slow > 0 else 0.0)
-        s2_slow = cs2[j] - (cs2[start_slow - 1] if start_slow > 0 else 0.0)
-        mean_slow = s_slow / w_slow
-        var_slow = s2_slow / w_slow - mean_slow * mean_slow
-        if var_slow < 1e-14:
-            continue
-        start_fast = j + 1 - w_fast
-        s_fast = cs[j] - (cs[start_fast - 1] if start_fast > 0 else 0.0)
-        s2_fast = cs2[j] - (cs2[start_fast - 1] if start_fast > 0 else 0.0)
-        mean_fast = s_fast / w_fast
-        var_fast = s2_fast / w_fast - mean_fast * mean_fast
-        result[bar_idx] = var_fast / var_slow
-    return result
-
-
-def _range_to_close_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _range_to_close at bar i. Fully vectorized O(n)."""
-    c = closes.astype(float)
-    safe_c = np.where(c > eps, c, 1.0)
-    raw = (highs.astype(float) - lows.astype(float)) / safe_c
-    return np.where(c > eps, raw, 0.0)
-
-
-def _true_range_pct_series_full(
-    highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _true_range_pct at bar i. Fully vectorized O(n).
-    Index 0 padded with 0.0 (no prev close available).
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    h = highs[1:].astype(float)
-    lo = lows[1:].astype(float)
-    prev_c = closes[:-1].astype(float)
-    tr = np.maximum(h - lo, np.maximum(np.abs(h - prev_c), np.abs(lo - prev_c)))
-    c = closes[1:].astype(float)
-    safe_c = np.where(c > eps, c, 1.0)
-    raw = np.where(c > eps, tr / safe_c, 0.0)
-    result[1:] = raw
-    return result
-
-
-def _vol_of_vol_series_full(atr_z: np.ndarray, window: int) -> np.ndarray:
-    """z-score of rolling std(atr_z) over `window` (single window used for
-    both the std computation and the z-score, matching the vol_std_z
-    double-duty convention). result[i] == streaming vol_of_vol at bar i.
-    """
-    std_series = _rolling_std_series(atr_z.astype(float), window)
-    return _fixed_window_zscore_series(std_series, window)
-
-
-def _high_low_corr_series_full(highs: np.ndarray, lows: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming safe_corr(H, L) over the trailing (expanding
-    until saturated) `window` bars ending at bar i. O(n x window).
-    """
-    n = len(highs)
-    result = np.zeros(n, dtype=float)
-    h = highs.astype(float)
-    lo = lows.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        result[i] = safe_corr(h[start : i + 1], lo[start : i + 1])
-    return result
-
-
-def _variance_ratio_series_full(closes: np.ndarray, n_window: int) -> np.ndarray:
-    """result[i] == streaming _variance_ratio(closes[:i+1], n_window). O(n)
-    via prefix sums of the 1-period return series and its N-period
-    overlapping aggregate (both expanding over ALL available history, no
-    bounded rolling sample — matches the full-sample Lo-MacKinlay estimator).
-    """
-    total = len(closes)
-    result = np.ones(total, dtype=float)
-    if total < 2 or n_window < 1:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    m = len(log_rets)
-    if m < n_window + 1:
-        return result
-    cs1 = np.cumsum(log_rets)
-    cs1_sq = np.cumsum(log_rets * log_rets)
-    cs_pad = np.concatenate([[0.0], cs1])
-    agg = cs_pad[n_window:] - cs_pad[:-n_window]  # length m - n_window + 1
-    cs_agg = np.cumsum(agg)
-    cs_agg_sq = np.cumsum(agg * agg)
-
-    for j in range(m):
-        cnt1 = j + 1
-        if cnt1 < 2:
-            continue
-        mean1 = cs1[j] / cnt1
-        var1 = cs1_sq[j] / cnt1 - mean1 * mean1
-        if var1 < 1e-14:
-            continue
-        agg_upper = j - n_window + 1
-        if agg_upper < 1:
-            continue
-        cnt_agg = agg_upper + 1
-        mean_agg = cs_agg[agg_upper] / cnt_agg
-        var_agg = cs_agg_sq[agg_upper] / cnt_agg - mean_agg * mean_agg
-        result[j + 1] = var_agg / (n_window * var1)
-    return result
-
-
-def _vol_asymmetry_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """z-score of the up/down volatility-asymmetry ratio series over `window`
-    (single window used for both the ratio computation and the z-score,
-    matching the vol_std_z double-duty convention). O(n x window).
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    m = len(log_rets)
-    ratio_vals = np.ones(m, dtype=float)
-    for j in range(m):
-        w = min(window, j + 1)
-        ratio_vals[j] = _vol_asymmetry_ratio(log_rets[j + 1 - w : j + 1])
-    z = _fixed_window_zscore_series(ratio_vals, window)
-    return np.concatenate([[0.0], z])
-
-
-def _bb_pct_b_series_full(closes: np.ndarray, window: int, eps: float = 1e-10) -> np.ndarray:
-    """result[i] == streaming _bb_pct_b over the trailing (expanding until
-    saturated) `window` bars ending at bar i. O(n) via cumsum of price and
-    squared price.
-    """
-    n = len(closes)
-    result = np.full(n, 0.5, dtype=float)
-    if n < 2:
-        return result
-    c = closes.astype(float)
-    cs = np.cumsum(c)
-    cs2 = np.cumsum(c * c)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / w
-        var = max(s2 / w - mean * mean, 0.0)
-        std = math.sqrt(var)
-        if std < eps:
-            continue
-        upper = mean + 2.0 * std
-        lower = mean - 2.0 * std
-        result[i] = (c[i] - lower) / (upper - lower)
-    return result
-
-
-def _hv_z_series_full(closes: np.ndarray, window: int) -> np.ndarray:
-    """z-score of rolling std(log returns) over `window` (single window used
-    for both the HV computation and the z-score, matching the vol_std_z
-    double-duty convention). result[i] == streaming hv_z at bar i.
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    hv_series = _rolling_std_series(log_rets.astype(float), window)
-    z = _fixed_window_zscore_series(hv_series, window)
-    return np.concatenate([[0.0], z])
-
-
-def _hv_ratio_series_full(
-    closes: np.ndarray, hv_fast_window: int, ratio_window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """hv_fast / rolling_mean(hv_fast series, ratio_window). result[i] ==
-    streaming hv_ratio at bar i. O(n) via cumsum of the HV series.
-    """
-    n = len(closes)
-    result = np.ones(n, dtype=float)
-    if n < 2:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    hv_series = _rolling_std_series(log_rets.astype(float), hv_fast_window)
-    m = len(hv_series)
-    cs = np.cumsum(hv_series)
-    for j in range(m):
-        w = min(ratio_window, j + 1)
-        start = j + 1 - w
-        s = cs[j] - (cs[start - 1] if start > 0 else 0.0)
-        mean_hv = s / w
-        result[j + 1] = hv_series[j] / mean_hv if mean_hv > eps else 1.0
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Alternative Volatility + Volatility Dynamics batch
-# precompute (Phase 142.5 Plan 04)
-# result[i] matches the corresponding streaming value function above at bar i.
-# ---------------------------------------------------------------------------
-
-
-def _parkinson_vol_z_series_full(
-    highs: np.ndarray, lows: np.ndarray, window: int, zscore_window: int
-) -> np.ndarray:
-    """z-score of the rolling-averaged Parkinson variance proxy. `window`
-    smooths the per-bar ln(H/L)^2/(4*ln(2)) term via a rolling mean;
-    `zscore_window` normalizes the smoothed series against its own trailing
-    history. Fully vectorized O(n) via boolean masking + cumsum.
-    """
-    n = len(highs)
-    terms = np.zeros(n, dtype=float)
-    h = highs.astype(float)
-    lo = lows.astype(float)
-    valid = (h > lo) & (lo > 1e-10)
-    terms[valid] = (np.log(h[valid] / lo[valid]) ** 2) / (4.0 * math.log(2.0))
-    smoothed = _rolling_mean_series(terms, window)
-    return _fixed_window_zscore_series(smoothed, zscore_window)
-
-
-def _garman_klass_vol_z_series_full(
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    zscore_window: int,
-) -> np.ndarray:
-    """z-score of the rolling-averaged Garman-Klass variance proxy. `window`
-    smooths the per-bar GK term via a rolling mean; `zscore_window`
-    normalizes the smoothed series. Fully vectorized O(n) via boolean
-    masking + cumsum.
-    """
-    n = len(closes)
-    terms = np.zeros(n, dtype=float)
-    o = opens.astype(float)
-    h = highs.astype(float)
-    lo = lows.astype(float)
-    c = closes.astype(float)
-    valid = (h > lo) & (lo > 1e-10) & (o > 1e-10) & (c > 1e-10)
-    hl_term = 0.5 * (np.log(h[valid] / lo[valid]) ** 2)
-    co_term = (2.0 * math.log(2.0) - 1.0) * (np.log(c[valid] / o[valid]) ** 2)
-    terms[valid] = hl_term - co_term
-    smoothed = _rolling_mean_series(terms, window)
-    return _fixed_window_zscore_series(smoothed, zscore_window)
-
-
-def _yang_zhang_vol_z_series_full(
-    opens: np.ndarray, closes: np.ndarray, window: int, zscore_window: int
-) -> np.ndarray:
-    """z-score of the rolling Yang-Zhang variance estimator (var(overnight) +
-    k*var(open-to-close), k ~= 0.34, definitional). O(n) via the same
-    cumsum-based rolling-variance building block _rolling_std_series already
-    provides (var = std^2) -- both series share its expanding-until-window
-    trailing semantics, so this is an exact, not approximate, replacement
-    for a naive per-bar np.var(window_slice) loop.
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    o = opens.astype(float)
-    c = closes.astype(float)
-    prev_c = np.concatenate([[c[0]], c[:-1]])  # prev_close[0] undefined -> neutral (zero gap)
-    overnight = np.log(np.maximum(o, 1e-10) / np.maximum(prev_c, 1e-10))
-    o2c = np.log(np.maximum(c, 1e-10) / np.maximum(o, 1e-10))
-    k = 0.34
-    var_overnight = _rolling_std_series(overnight, window) ** 2
-    var_o2c = _rolling_std_series(o2c, window) ** 2
-    yz = var_overnight + k * var_o2c
-    return _fixed_window_zscore_series(yz, zscore_window)
-
-
-def _vol_velocity_z_series_full(series: np.ndarray, window: int) -> np.ndarray:
-    """z-score of the rolling velocity (first difference) of `series` over
-    `window`. result[i] == streaming velocity-of-series at bar i. Fully
-    vectorized O(n).
-
-    Generic over the input array (Phase 151 Plan 01 Task 2): originally
-    written for atr_z (-> vol_velocity_z) but the same construction is
-    reused byte-identically for momentum_z_fast/mid/slow (->
-    momentum_z_velocity_fast/mid/slow) and vwap_dev_sigma (->
-    vwap_dev_sigma_velocity).
-    """
-    n = len(series)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    velocity = np.diff(series.astype(float))
-    padded = np.concatenate([[0.0], velocity])
-    return _fixed_window_zscore_series(padded, window)
-
-
-def _intraday_noise_ratio_series_full(
-    closes: np.ndarray, session_bars: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == the intraday noise ratio (sum(|log_ret|) / |net log_ret|)
-    over the trailing `session_bars` bars ending at bar i. O(n) via cumsum of
-    |log_ret| and log_ret over a fixed `session_bars` window. Stays 0.0 until
-    i >= session_bars (insufficient-history guard); 1.0 when net progress is
-    at or near zero (no dominant direction).
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < session_bars + 1:
-        return result
-    log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
-    cs_abs = np.concatenate([[0.0], np.cumsum(np.abs(log_rets))])
-    cs_net = np.concatenate([[0.0], np.cumsum(log_rets)])
-    for idx in range(session_bars, n):
-        start = idx - session_bars
-        sum_abs = cs_abs[idx] - cs_abs[start]
-        net = cs_net[idx] - cs_net[start]
-        result[idx] = sum_abs / abs(net) if abs(net) > eps else 1.0
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Renaissance Primitives — Price-Volume Interactions batch precompute
-# (Phase 142.5 Plan 05.5)
-# result[i] matches the streaming rolling Pearson correlation between
-# |log return| and volume over the trailing `window` bars ending at bar i.
-# The 6 window-free scalar combinators need no series_full function -- they
-# are O(1) per bar, computed inline in compute()/compute_batch() from
-# already-available parent scalars.
-# ---------------------------------------------------------------------------
-
-
-def _price_vol_corr_series_full(
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-    abs_rets: np.ndarray | None = None,
-) -> np.ndarray:
-    """Rolling Pearson correlation between |log return| and volume over the
-    trailing `window` bars ending at bar i, for every i. O(n x window) --
-    same cost class as the pre-existing _high_low_corr_series_full; kept
-    intentionally consistent with that established rolling-correlation
-    pattern rather than introducing a one-off O(n) prefix-sum variant that
-    would diverge from it. Degeneracy handling (near-zero variance in either
-    slice -> 0.0) delegates to `safe_corr()`, the same shared helper
-    _high_low_corr_series_full already uses.
-
-    `abs_rets` may be passed in precomputed (the fast/slow calls in
-    `_precompute_series` share one `abs_rets` array rather than each
-    recomputing it from `closes`); if omitted it's derived here. Either way
-    it's an O(n) pass, and the loop only slices bounded `window`-sized chunks
-    of abs_rets/volumes per bar, so the per-bar cost is O(window), not O(i).
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    if abs_rets is None:
-        abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
-    vols = volumes.astype(float)
-    for i in range(n):
-        if i < window:
-            continue
-        start = i - window
-        rets_w = abs_rets[start:i]
-        vol_w = vols[start + 1 : i + 1]
-        if len(rets_w) < 2:
-            continue
-        result[i] = safe_corr(rets_w, vol_w)
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Calendar helpers (shared by compute() and compute_batch())
-# ---------------------------------------------------------------------------
-
-
-def _quarter_position(bar_ts: datetime) -> float:
-    """Position within the quarter: 0.0 at quarter start, approaching 1.0 at end.
-
-    Formula: (month_in_quarter * 30 + day) / QUARTER_LENGTH_DAYS
-    """
-    month_in_q = (bar_ts.month - 1) % 3
-    day_in_q = month_in_q * 30 + bar_ts.day
-    return min(1.0, day_in_q / _QUARTER_LENGTH_DAYS)
-
-
-def _days_to_month_end_fraction(bar_ts: datetime) -> float:
-    """Fraction of month remaining: 0.0 at month end, approaching 1.0 at start."""
-    days_in_month = calendar.monthrange(bar_ts.year, bar_ts.month)[1]
-    days_remaining = days_in_month - bar_ts.day
-    return days_remaining / days_in_month
-
-
-def _quarter_cycle_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """First circular harmonic of _quarter_position(): (sin(2*pi*qp), cos(2*pi*qp)).
-
-    Reuses _quarter_position() directly rather than recomputing the
-    within-quarter position (Phase 151 Plan 01, todo 104).
-    """
-    qp = _quarter_position(bar_ts)
-    angle = 2.0 * math.pi * qp
-    return math.sin(angle), math.cos(angle)
-
-
-def _tdom_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic trading-day-of-month encoding: (sin(2*pi*t/W), cos(2*pi*t/W)).
-
-    t = count of Mon-Fri weekdays from the 1st of the month through
-    bar_ts.date() inclusive. W = total Mon-Fri weekday count in that
-    calendar month. Closed-form weekday arithmetic; deliberately ignores
-    market holidays (Phase 151 Plan 01, todo 104 -- source doc rejects a
-    nonstationary holiday table). Guard W <= 0 -> (0.0, 0.0).
-    """
-    year, month = bar_ts.year, bar_ts.month
-    days_in_month = calendar.monthrange(year, month)[1]
-    first_weekday = calendar.weekday(year, month, 1)  # 0=Monday
-    # Weekday count in [1, day] inclusive: number of days in that range whose
-    # (first_weekday + offset) % 7 < 5 (Mon-Fri).
-    t = sum(1 for d in range(1, bar_ts.day + 1) if (first_weekday + d - 1) % 7 < 5)
-    w = sum(1 for d in range(1, days_in_month + 1) if (first_weekday + d - 1) % 7 < 5)
-    if w <= 0:
-        return 0.0, 0.0
-    angle = 2.0 * math.pi * t / w
-    return math.sin(angle), math.cos(angle)
-
-
-def _minute_of_hour_encoding(bar_ts: datetime) -> tuple[float, float]:
-    """Cyclic minute-of-hour encoding: (sin(2*pi*minute/60), cos(2*pi*minute/60)).
-
-    Constant at 1h/1d by construction (minute is always 0 for hourly/daily
-    bars) -- expected and correct, not a bug (Phase 151 Plan 01, todo 104).
-    """
-    angle = 2.0 * math.pi * bar_ts.minute / 60.0
-    return math.sin(angle), math.cos(angle)
-
-
-def _opex_flag(bar_ts: datetime) -> float:
-    """1.0 iff bar_ts falls on the monthly options-expiration Friday, else 0.0.
-
-    Formula (Phase 151 Plan 05, todos 066/104): dow == Friday (weekday() == 4)
-    AND week_of_month == 3, where week_of_month = (day - 1) // 7 + 1. Matches
-    docs/research/signal-temporal-atomic-primitives.md's prescribed formula
-    literally. Deliberately no market-holiday table -- the source doc rejects
-    one as nonstationary institutional data (same rationale as _tdom_encoding
-    above).
-    """
-    week_of_month = (bar_ts.day - 1) // 7 + 1
-    return 1.0 if (bar_ts.weekday() == 4 and week_of_month == 3) else 0.0
-
-
-def _quad_witching_flag(bar_ts: datetime) -> float:
-    """1.0 iff bar_ts is a quarterly quad-witching Friday, else 0.0.
-
-    Formula: _opex_flag(bar_ts) == 1.0 AND bar_ts.month % 3 == 0 (quarter-end
-    month). Calls _opex_flag directly rather than restating its condition
-    (Phase 151 Plan 05).
-    """
-    return 1.0 if (_opex_flag(bar_ts) == 1.0 and bar_ts.month % 3 == 0) else 0.0
-
-
-def _days_since_quarter_end(bar_ts: datetime) -> float:
-    """Raw calendar days since the most recent quarter end (Mar 31, Jun 30,
-    Sep 30, Dec 31), including the prior year's Dec 31 for January dates.
-
-    Formula (Phase 176 Plan 03, todo 353): find the latest quarter-end date
-    on or before bar_ts.date(), return the day-count difference as a float.
-    True calendar-day counting via bar_ts.date() arithmetic only -- deliberately
-    does NOT reuse _QUARTER_LENGTH_DAYS (91.25), which encodes
-    _quarter_position's 30-day-per-month approximation; conflating the two
-    would make this field exactly collinear with quarter_position instead of
-    the measured 0.935 correlation.
-    """
-    d = bar_ts.date()
-    candidates = [
-        date(year, month, day)
-        for year in (d.year, d.year - 1)
-        for month, day in ((3, 31), (6, 30), (9, 30), (12, 31))
-    ]
-    most_recent_quarter_end = max(c for c in candidates if c <= d)
-    return float((d - most_recent_quarter_end).days)
-
-
-def _earnings_season_flag(bar_ts: datetime, config: FeatureFactoryConfig) -> float:
-    """1.0 iff bar_ts falls within [config.earnings_season_start_days,
-    config.earnings_season_end_days] calendar days after the most recent
-    quarter end, else 0.0. Both boundaries inclusive.
-
-    Formula (Phase 176 Plan 03, todo 353): calls _days_since_quarter_end(bar_ts)
-    directly rather than restating the quarter-end arithmetic (reuse
-    discipline, mirrors _quad_witching_flag calling _opex_flag). Window
-    boundaries (feature.earnings_season.start_days,
-    feature.earnings_season.end_days) come from D-04's corrected
-    re-verification: 1.90x in-season/off-season ratio, Welch p=5.05e-05, 67%
-    of symbols (155/233) -- the todo's original superseded figures (a much
-    larger ratio, a much smaller p-value, and a higher symbol percentage from
-    an earlier flawed window) must not be cited. Market-wide calendar proxy
-    only, no per-company earnings-date table by design (same
-    nonstationary-institutional-data rejection rationale as _opex_flag's
-    no-market-holiday-table decision).
-    """
-    days = _days_since_quarter_end(bar_ts)
-    return (
-        1.0 if config.earnings_season_start_days <= days <= config.earnings_season_end_days else 0.0
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -3555,6 +1180,20 @@ class _PrecomputedSeries:
     abs_ret_autocorr_1: np.ndarray
 
 
+# Every _PrecomputedSeries field except atr_raw is a registry output of the same name; atr_raw is
+# the padded ATR intermediate without its leading pad row.
+_SERIES_FIELDS: tuple[str, ...] = tuple(
+    f.name for f in dataclasses.fields(_PrecomputedSeries) if f.name != "atr_raw"
+)
+_SERIES_KERNEL_OUTPUTS: tuple[str, ...] = (*_SERIES_FIELDS, "_atr_raw_padded")
+
+
+def _series_from_kernel_outputs(out: dict[str, np.ndarray]) -> _PrecomputedSeries:
+    return _PrecomputedSeries(
+        atr_raw=out["_atr_raw_padded"][1:], **{name: out[name] for name in _SERIES_FIELDS}
+    )
+
+
 def _precompute_series(
     opens: np.ndarray,
     highs: np.ndarray,
@@ -3563,242 +1202,136 @@ def _precompute_series(
     volumes: np.ndarray,
     config: FeatureFactoryConfig,
 ) -> _PrecomputedSeries:
-    """Call every _*_series_full helper once and bundle results.
+    """Bundle every series array for a bar window from the registry's kernels.
 
-    Both compute() and compute_batch() delegate here so the series calls
-    are never duplicated.
+    compute() delegates here; compute_batch runs the same kernels in one call together with its
+    scalar columns, so the series formulas have exactly one implementation.
     """
-    atr_raw = _atr_series_full(highs, lows, closes, config.adx_period)
-    atr_padded = np.concatenate([[0.0], atr_raw])
-    # Shared once across all 4 dist_from_high/low_fast/slow calls below (todo
-    # 268) rather than each independently recomputing the same mask.
-    atr_valid = _is_valid_atr_series(atr_padded, closes, config.atr_normalization_min_pct)
-    atr_z = _rolling_zscore_series(atr_padded, config.momentum_zscore_window)
-    # Shared once for both price_vol_corr_fast/slow below (same |log return|
-    # series either window correlates against volume) rather than each
-    # recomputing it from closes.
-    price_vol_abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
+    out = compute_kernels(
+        default_registry(),
+        {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volumes},
+        config,
+        outputs=list(_SERIES_KERNEL_OUTPUTS),
+    )
+    return _series_from_kernel_outputs(out)
 
-    # Captured as locals (Phase 151 Plan 01 Task 2) so the velocity primitives
-    # below can reuse them without recomputation -- _vol_velocity_z_series_full
-    # needs the already-computed z-score arrays, not a recomputation from closes.
-    momentum_z_fast_arr = _momentum_z_series_full(
-        closes, config.momentum_window_fast, config.momentum_zscore_window
-    )
-    momentum_z_mid_arr = _momentum_z_series_full(
-        closes, config.momentum_window_mid, config.momentum_zscore_window
-    )
-    momentum_z_slow_arr = _momentum_z_series_full(
-        closes, config.momentum_window_slow, config.momentum_zscore_window
-    )
-    vwap_dev_sigma_arr = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
 
-    # Captured as locals (todo 320) so the Velocity Primitives Extension
-    # calls below can reuse them without recomputation -- same reuse
-    # discipline as momentum_z_*_arr/vwap_dev_sigma_arr above.
-    rsi_fast_arr = _rsi_series_full(closes, config.rsi_fast_period)
-    rsi_mid_arr = _rsi_series_full(closes, config.rsi_mid_period)
-    rsi_slow_arr = _rsi_series_full(closes, config.rsi_slow_period)
-    ofi_z_arr = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
-    cvd_slope_z_arr = _cvd_slope_z_series_full(
-        closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
-    )
-    volume_z_arr = _volume_z_series_full(volumes, config.volume_zscore_window)
+# Columns compute_batch reads from registry kernels instead of calling helpers inline.
+_DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
+    *(
+        "in_ny_session in_london_kz in_overlap power_hour opening_range session_time_pos "
+        "dow_sin dow_cos month_position quarter_position days_to_month_end quarter_cycle_sin "
+        "quarter_cycle_cos tdom_sin tdom_cos minute_of_hour_sin minute_of_hour_cos "
+        "hour_of_day_sin hour_of_day_cos week_of_month_sin week_of_month_cos day_of_month_sin "
+        "day_of_month_cos week_of_year_sin week_of_year_cos month_sin month_cos opex_flag "
+        "quad_witching_flag earnings_season_flag days_since_quarter_end canary_noise_gaussian "
+        "canary_noise_uniform canary_near_constant canary_constant canary_acausal_placebo "
+        "bar_close_pos body_ratio upper_wick_ratio lower_wick_ratio close_vs_open_direction "
+        "range_vs_atr overnight_gap range_efficiency open_ret intraday_ret open_vs_intraday "
+        "ret_lag_1 ret_lag_2 ret_lag_3 ret_lag_fast ret_lag_mid ret_lag_slow range_position "
+        "vol_ratio cci_fast cci_mid cci_slow aroon_fast aroon_slow ret_vol_ratio_fast "
+        "parkinson_vol_velocity garman_klass_vol_velocity yang_zhang_vol_velocity "
+        "momentum_vol_regime_product quarter_momentum_product variance_ratio_momentum_product "
+        "informed_flow cmf ofi_div vol_body_product ret_vol_product_fast range_vol_product "
+        "up_vol_body_diff vol_skew_product breakout_volume_product illiquidity_momentum_product "
+        "efficiency_volume_product vix_z flight_quality yield_slope_z tip_tlt_ret_z hyg_lqd_ret_z "
+        "sb_corr_fast sb_corr_slow sb_corr_z equity_beta_z rate_beta_z "
+        "yield_slope_momentum_product vix_reversion_product"
+    ).split(),
+)
 
-    # Captured as a local (Phase 151 Plan 03) so the vol-spike event
-    # indicators below can reuse it without recomputation -- same reuse
-    # discipline as momentum_z_*_arr/vwap_dev_sigma_arr above.
-    rel_volume_arr = _rel_volume_series_full(volumes, config.volume_zscore_window)
+_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=UTC)
 
-    # Recency / Statistical Atomics (Phase 151 Plan 03, todo 180). The 4
-    # bars_since_extreme_move_*/bars_since_vol_spike_* series need an event
-    # indicator built first: abs_log_ret (zero-padded to length n, matching
-    # atr_padded's convention) for the extreme-move family, rel_volume_arr
-    # (already computed above) for the vol-spike family.
-    abs_log_ret_padded = np.concatenate(
-        [[0.0], np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))]
-    )
-    extreme_move_sigma_fast = _rolling_std_series(abs_log_ret_padded, config.dist_window_fast)
-    extreme_move_sigma_slow = _rolling_std_series(abs_log_ret_padded, config.dist_window_slow)
-    extreme_move_event_fast = abs_log_ret_padded > (
-        config.extreme_move_sigma_threshold * extreme_move_sigma_fast
-    )
-    extreme_move_event_slow = abs_log_ret_padded > (
-        config.extreme_move_sigma_threshold * extreme_move_sigma_slow
-    )
-    vol_spike_event_fast = rel_volume_arr > config.vol_spike_threshold
-    vol_spike_event_slow = rel_volume_arr > config.vol_spike_threshold
 
-    return _PrecomputedSeries(
-        atr_raw=atr_raw,
-        atr_z=atr_z,
-        gap_z=_gap_z_series_full(opens, closes, atr_raw, atr_valid, config.momentum_zscore_window),
-        rel_volume=rel_volume_arr,
-        ofi_z=ofi_z_arr,
-        cvd_slope_z=cvd_slope_z_arr,
-        volume_z=volume_z_arr,
-        momentum_z_fast=momentum_z_fast_arr,
-        momentum_z_mid=momentum_z_mid_arr,
-        momentum_z_slow=momentum_z_slow_arr,
-        momentum_reversal_z=_momentum_reversal_z_series_full(closes, config.momentum_zscore_window),
-        vwap_dev_sigma=vwap_dev_sigma_arr,
-        rsi_fast=rsi_fast_arr,
-        rsi_mid=rsi_mid_arr,
-        rsi_slow=rsi_slow_arr,
-        amihud_illiq_z=_amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
-        high_52w_dist=_high_52w_dist_series_full(closes, config.high_52w_window),
-        ret_skew_z=_ret_skew_z_series_full(
-            closes, config.ret_skew_window, config.ret_skew_zscore_window
-        ),
-        ret_acf1_z=_ret_acf1_z_series_full(
-            closes, config.ret_acf_window, config.ret_acf_zscore_window
-        ),
-        overnight_gap_z=_overnight_gap_z_series_full(opens, closes, config.overnight_gap_window),
-        vol_acceleration=_vol_acceleration_series_full(volumes),
-        dollar_vol_z=_dollar_vol_z_series_full(volumes, closes, config.dollar_vol_window),
-        vol_range_ratio=_vol_range_ratio_series_full(
-            volumes, highs, lows, config.vol_range_ratio_window
-        ),
-        vol_trend_ratio=_vol_trend_ratio_series_full(
-            volumes, config.vol_trend_fast, config.vol_trend_slow
-        ),
-        up_vol_ratio_fast=_up_vol_ratio_series_full(
-            volumes, opens, closes, config.up_vol_ratio_fast
-        ),
-        up_vol_ratio_slow=_up_vol_ratio_series_full(
-            volumes, opens, closes, config.up_vol_ratio_slow
-        ),
-        vol_percentile=_vol_percentile_series_full(volumes, config.vol_percentile_window),
-        vol_persistence=_vol_persistence_series_full(volumes, config.vol_persistence_window),
-        vol_std_z=_vol_std_z_series_full(volumes, config.vol_std_window),
-        mfi_fast=_mfi_series_full(highs, lows, closes, volumes, config.mfi_fast),
-        mfi_slow=_mfi_series_full(highs, lows, closes, volumes, config.mfi_slow),
-        obv_z=_obv_z_series_full(closes, volumes, config.obv_window),
-        dist_from_high_fast=_dist_from_high_series_full(
-            closes, highs, atr_padded, atr_valid, config.dist_window_fast
-        ),
-        dist_from_high_slow=_dist_from_high_series_full(
-            closes, highs, atr_padded, atr_valid, config.dist_window_slow
-        ),
-        dist_from_low_fast=_dist_from_low_series_full(
-            closes, lows, atr_padded, atr_valid, config.dist_window_fast
-        ),
-        dist_from_low_slow=_dist_from_low_series_full(
-            closes, lows, atr_padded, atr_valid, config.dist_window_slow
-        ),
-        range_pct_fast=_range_pct_series_full(closes, highs, lows, config.range_window_fast),
-        range_pct_slow=_range_pct_series_full(closes, highs, lows, config.range_window_slow),
-        stoch_k_fast=_stoch_k_series_full(closes, highs, lows, config.stoch_window_fast),
-        stoch_k_slow=_stoch_k_series_full(closes, highs, lows, config.stoch_window_slow),
-        price_percentile_fast=_price_percentile_series_full(closes, config.percentile_window_fast),
-        price_percentile_slow=_price_percentile_series_full(closes, config.percentile_window_slow),
-        efficiency_ratio_fast=_efficiency_ratio_series_full(closes, config.efficiency_window_fast),
-        efficiency_ratio_slow=_efficiency_ratio_series_full(closes, config.efficiency_window_slow),
-        ret_kurtosis_z_fast=_ret_kurtosis_z_series_full(
-            closes, config.ret_kurtosis_fast, config.ret_kurtosis_zscore_window
-        ),
-        ret_kurtosis_z_slow=_ret_kurtosis_z_series_full(
-            closes, config.ret_kurtosis_slow, config.ret_kurtosis_zscore_window
-        ),
-        ret_autocorr_1=_ret_autocorr_series_full(closes, 1),
-        ret_autocorr_5=_ret_autocorr_series_full(closes, 5),
-        updown_ratio_fast=_updown_ratio_series_full(closes, config.updown_ratio_fast),
-        updown_ratio_slow=_updown_ratio_series_full(closes, config.updown_ratio_slow),
-        streak_z=_streak_z_series_full(closes, config.streak_window),
-        realized_var_ratio_fast=_realized_var_ratio_series_full(
-            closes, config.realized_var_fast, config.realized_var_slow
-        ),
-        realized_var_ratio_slow=_realized_var_ratio_series_full(
-            closes, config.realized_var_fast, config.realized_var_slow
-        ),
-        range_to_close=_range_to_close_series_full(highs, lows, closes),
-        true_range_pct=_true_range_pct_series_full(highs, lows, closes),
-        vol_of_vol=_vol_of_vol_series_full(atr_z, config.vol_of_vol_window),
-        high_low_corr=_high_low_corr_series_full(highs, lows, config.high_low_corr_window),
-        variance_ratio_fast=_variance_ratio_series_full(closes, config.variance_ratio_fast),
-        variance_ratio_slow=_variance_ratio_series_full(closes, config.variance_ratio_slow),
-        vol_asymmetry_z=_vol_asymmetry_z_series_full(closes, config.vol_asymmetry_window),
-        bb_pct_b_fast=_bb_pct_b_series_full(closes, config.bb_pct_b_fast),
-        bb_pct_b_slow=_bb_pct_b_series_full(closes, config.bb_pct_b_slow),
-        hv_z_fast=_hv_z_series_full(closes, config.hv_fast),
-        hv_z_slow=_hv_z_series_full(closes, config.hv_slow),
-        hv_ratio=_hv_ratio_series_full(closes, config.hv_fast, config.hv_ratio_window),
-        parkinson_vol_z=_parkinson_vol_z_series_full(
-            highs, lows, config.parkinson_vol_window, config.parkinson_vol_zscore_window
-        ),
-        garman_klass_vol_z=_garman_klass_vol_z_series_full(
-            opens,
-            highs,
-            lows,
-            closes,
-            config.garman_klass_vol_window,
-            config.garman_klass_vol_zscore_window,
-        ),
-        yang_zhang_vol_z=_yang_zhang_vol_z_series_full(
-            opens, closes, config.yang_zhang_vol_window, config.yang_zhang_vol_zscore_window
-        ),
-        vol_velocity_z=_vol_velocity_z_series_full(atr_z, config.vol_velocity_window),
-        intraday_noise_ratio=_intraday_noise_ratio_series_full(
-            closes, config.intraday_noise_window
-        ),
-        price_vol_corr_fast=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_fast, abs_rets=price_vol_abs_rets
-        ),
-        price_vol_corr_slow=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_slow, abs_rets=price_vol_abs_rets
-        ),
-        momentum_z_velocity_fast=_vol_velocity_z_series_full(
-            momentum_z_fast_arr, config.momentum_velocity_window
-        ),
-        momentum_z_velocity_mid=_vol_velocity_z_series_full(
-            momentum_z_mid_arr, config.momentum_velocity_window
-        ),
-        momentum_z_velocity_slow=_vol_velocity_z_series_full(
-            momentum_z_slow_arr, config.momentum_velocity_window
-        ),
-        vwap_dev_sigma_velocity=_vol_velocity_z_series_full(
-            vwap_dev_sigma_arr, config.vwap_velocity_window
-        ),
-        rsi_velocity_fast=_vol_velocity_z_series_full(rsi_fast_arr, config.rsi_velocity_window),
-        rsi_velocity_mid=_vol_velocity_z_series_full(rsi_mid_arr, config.rsi_velocity_window),
-        rsi_velocity_slow=_vol_velocity_z_series_full(rsi_slow_arr, config.rsi_velocity_window),
-        ofi_z_velocity=_vol_velocity_z_series_full(ofi_z_arr, config.ofi_velocity_window),
-        cvd_slope_z_velocity=_vol_velocity_z_series_full(
-            cvd_slope_z_arr, config.cvd_velocity_window
-        ),
-        volume_z_velocity=_vol_velocity_z_series_full(volume_z_arr, config.volume_velocity_window),
-        bars_since_high_fast=_bars_since_rolling_extreme_series_full(
-            highs, config.dist_window_fast, "max"
-        ),
-        bars_since_high_slow=_bars_since_rolling_extreme_series_full(
-            highs, config.dist_window_slow, "max"
-        ),
-        bars_since_low_fast=_bars_since_rolling_extreme_series_full(
-            lows, config.dist_window_fast, "min"
-        ),
-        bars_since_low_slow=_bars_since_rolling_extreme_series_full(
-            lows, config.dist_window_slow, "min"
-        ),
-        bars_since_52w_high=_bars_since_rolling_extreme_series_full(
-            highs, config.high_52w_window, "max"
-        ),
-        bars_since_52w_low=_bars_since_rolling_extreme_series_full(
-            lows, config.high_52w_window, "min"
-        ),
-        bars_since_extreme_move_fast=_bars_since_event_series_full(
-            extreme_move_event_fast, config.dist_window_fast
-        ),
-        bars_since_extreme_move_slow=_bars_since_event_series_full(
-            extreme_move_event_slow, config.dist_window_slow
-        ),
-        bars_since_vol_spike_fast=_bars_since_event_series_full(
-            vol_spike_event_fast, config.dist_window_fast
-        ),
-        bars_since_vol_spike_slow=_bars_since_event_series_full(
-            vol_spike_event_slow, config.dist_window_slow
-        ),
-        abs_ret_autocorr_1=_ret_autocorr_series_full(closes, 1, use_abs=True),
+def _bar_ts_ns(bar_ts: datetime) -> int:
+    """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
+    if bar_ts.tzinfo is None:
+        bar_ts = bar_ts.replace(tzinfo=UTC)
+    return (bar_ts - _EPOCH_UTC) // timedelta(microseconds=1) * 1000
+
+
+def _batch_kernel_inputs(
+    bars: list[dict],
+    opens: np.ndarray,
+    highs: np.ndarray,
+    lows: np.ndarray,
+    closes: np.ndarray,
+    volumes: np.ndarray,
+    symbol: str,
+) -> dict[str, np.ndarray]:
+    """Bar arrays plus the per-row `symbol` external input for compute_kernels."""
+    return {
+        "ts": np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64),
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": volumes,
+        "symbol": np.array([symbol] * len(bars), dtype=object),
+    }
+
+
+_MACRO_RECORD_FIELDS: tuple[str, ...] = (
+    "vix_z",
+    "flight_quality",
+    "yield_slope_z",
+    "tip_tlt_ret_z",
+    "hyg_lqd_ret_z",
+    "sb_corr_fast",
+    "sb_corr_slow",
+    "sb_corr_z",
+)
+
+
+def _none_if_nan(value: float) -> float | None:
+    """A beta the caller could not supply is None in the record and NaN on the kernel grid."""
+    return None if math.isnan(value) else float(value)
+
+
+def _macro_kernel_inputs(
+    bars: list[dict],
+    symbol: str,
+    tf: str,
+    cache: FeatureCache,
+    cross_asset_by_date: dict | None,
+    beta_by_date: dict | None,
+) -> dict[str, np.ndarray]:
+    """The ten `ext_*` macro inputs on the row grid (None becomes NaN).
+
+    Batch path: the daily records are aligned as-of the row's bar end with `align_daily_asof`
+    (a record dated d is available from the 16:00 ET close of d, so an intraday row on d reads
+    d - 1; 1d rows read their own date). A row with no available record reads the default:
+    0.0 for the cross-asset fields, None for the betas. Live path (cross_asset_by_date and
+    beta_by_date None): the cache's values broadcast, with equity_beta_z None for SPY and
+    rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
+    already-closed daily values.
+    """
+    n = len(bars)
+    row_ns = np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
+    out: dict[str, np.ndarray] = {}
+    if cross_asset_by_date is not None:
+        dates = sorted(cross_asset_by_date)
+        records = align_daily_asof(
+            row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], CrossAssetRecord()
+        )
+        for name in _MACRO_RECORD_FIELDS:
+            out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
+    else:
+        for name in _MACRO_RECORD_FIELDS:
+            out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
+    if beta_by_date is not None:
+        dates = sorted(beta_by_date)
+        pairs = align_daily_asof(row_ns, tf, dates, [beta_by_date[d] for d in dates], (None, None))
+        equity = [p[0] for p in pairs]
+        rate = [p[1] for p in pairs]
+    else:
+        equity = [None if symbol == "SPY" else cache.equity_beta_z] * n
+        rate = [None if symbol == "TLT" else cache.rate_beta_z] * n
+    out["ext_equity_beta_z"] = np.array(
+        [np.nan if v is None else v for v in equity], dtype=np.float64
     )
+    out["ext_rate_beta_z"] = np.array([np.nan if v is None else v for v in rate], dtype=np.float64)
+    return out
 
 
 def _guard(v: float | None, fallback: float = 0.0) -> float | None:
@@ -4821,45 +2354,6 @@ def _compute_fib_zones(
 # ---------------------------------------------------------------------------
 # Smart Money Concepts — Order Blocks + Breaker/Mitigation (Phase 164 Plan 02)
 # ---------------------------------------------------------------------------
-
-
-def _is_valid_atr(atr_val: float | None, close_: float, min_atr_pct: float) -> bool:
-    """Shared guard for the ATR-normalized distance features consolidated onto
-    it by todo 237 (session VP, S/R, swing/trend structure, fibonacci zones,
-    session levels, all 6 SMC compute functions) and todo 266 (`_informed_flow`,
-    `_range_vs_atr`): True iff atr_val is finite, strictly positive, AND at
-    least min_atr_pct of close_ -- safe to divide a price distance by without
-    exploding.
-
-    A bare `atr_val > 0` check (this function's pre-todo-237 form) passes a
-    legitimately-positive but numerically-tiny ATR -- e.g. BIL (an
-    ultra-short-duration T-bill ETF) during a genuinely flat period -- and
-    `(level - close_) / atr_val` then blows up to an implausible magnitude
-    (confirmed live: weekly_r1_dist_atr up to 96,512) with no separate check
-    ever catching it. min_atr_pct (feature.atr_normalization.min_atr_pct) is
-    relative to close_, not an absolute floor, so it holds across instruments
-    at any price scale.
-
-    See `_is_valid_atr_series` for the vectorized form used by `_series_full`
-    batch functions.
-    """
-    return (
-        atr_val is not None
-        and math.isfinite(atr_val)
-        and atr_val > 0
-        and atr_val >= min_atr_pct * abs(close_)
-    )
-
-
-def _is_valid_atr_series(
-    atr_padded: np.ndarray, closes: np.ndarray, min_atr_pct: float
-) -> np.ndarray:
-    """Vectorized form of `_is_valid_atr` (todo 268): result[i] is True iff
-    atr_padded[i] is finite, strictly positive, AND at least min_atr_pct of
-    abs(closes[i]) -- same relative floor, applied element-wise across a full
-    `_series_full` batch array instead of one scalar per call.
-    """
-    return np.isfinite(atr_padded) & (atr_padded > 0) & (atr_padded >= min_atr_pct * np.abs(closes))
 
 
 def _dist_to_midpoint(close_: float, boundary_a: float, boundary_b: float) -> float:
@@ -7407,21 +4901,26 @@ class FeatureFactory:
         closes = np.array([b["close"] for b in bars], dtype=float)
         volumes = np.array([b["volume"] for b in bars], dtype=float)
 
-        s = _precompute_series(opens, highs, lows, closes, volumes, config)
-
-        # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
-        MIN_WINDOW = max(
-            config.cci_slow_period,
-            config.aroon_slow_period,
-            config.vol_long_bars,
-            config.cmf_period,
+        # Registry kernels (D-25) compute every series and delegated column once for the whole
+        # batch; the loop below reads row i. The registry is looked up here, never at import,
+        # so kernel origins cannot create an import cycle with this module.
+        k = compute_kernels(
+            default_registry(),
+            {
+                **_batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
+                **_macro_kernel_inputs(bars, symbol, tf, cache, cross_asset_by_date, beta_by_date),
+            },
+            config,
+            outputs=list(dict.fromkeys((*_SERIES_KERNEL_OUTPUTS, *_DELEGATED_KERNEL_OUTPUTS))),
         )
+        s = _series_from_kernel_outputs(k)
+
         results: list[tuple[datetime, FeatureVector]] = []
 
         for i in range(1, len(bars)):
             # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
-            # default 500) so HMM gets sufficient history. MIN_WINDOW (APR-derived, default 40) is only for
-            # bounded per-bar features (CCI, Aroon, etc.) below.
+            # default 500) so HMM gets sufficient history. The bounded per-bar features (CCI,
+            # Aroon, etc.) are registry kernels.
             if i % config.regime_cache_refresh_bars == 0:
                 regime_window_start = max(0, i - config.hurst_window)
                 cache.refresh_regime(bars[regime_window_start : i + 1], config)
@@ -7465,19 +4964,6 @@ class FeatureFactory:
                 cache.advance_bar(bar_ts, high_, low_, close_, vol_)
                 continue
 
-            # Build bounded window for non-series features. Sliced from the arrays
-            # already built once at the top of this function -- same source data,
-            # same indices, no re-extraction from the bar dicts (todo: perf pass
-            # 2026-07-27, found via cProfile: this was rebuilding 5 numpy arrays
-            # from scratch via Python list comprehension on every single bar).
-            window_start = max(0, i - MIN_WINDOW)
-            window_len = i + 1 - window_start
-            w_opens = opens[window_start : i + 1]
-            w_highs = highs[window_start : i + 1]
-            w_lows = lows[window_start : i + 1]
-            w_closes = closes[window_start : i + 1]
-            w_volumes = volumes[window_start : i + 1]
-
             # Series-backed features (index into precomputed series)
             atr_val = float(s.atr_raw[i - 1]) if i - 1 < len(s.atr_raw) else 0.0
             atr_z_val = float(s.atr_z[i]) if i < len(s.atr_z) else 0.0
@@ -7502,18 +4988,12 @@ class FeatureFactory:
             ret_acf1_z_val = float(s.ret_acf1_z[i]) if i < len(s.ret_acf1_z) else 0.0
 
             # Non-series features (compute on bounded window)
-            bar_close_pos_val = _bar_close_pos(high_, low_, close_)
+            bar_close_pos_val = float(k["bar_close_pos"][i])
+            range_position_val = float(k["range_position"][i])
 
-            range_bars = min(config.momentum_window_mid, window_len)
-            range_position_val = _range_position(
-                close_, w_highs[-range_bars:], w_lows[-range_bars:]
-            )
-
-            informed_flow_val = _informed_flow(
-                open_, close_, atr_val, config.atr_normalization_min_pct
-            )
-            vol_ratio_val = _vol_ratio(w_closes, config.vol_short_bars, config.vol_long_bars)
-            cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
+            informed_flow_val = float(k["informed_flow"][i])
+            vol_ratio_val = float(k["vol_ratio"][i])
+            cmf_val = float(k["cmf"][i])
 
             # Session-level VP (Phase 163 Plan 02): tf=='1d' keeps neutral
             # defaults (a single daily bar has no intraday distribution); else
@@ -7716,64 +5196,55 @@ class FeatureFactory:
             adx_val = cache.adx
 
             # Oscillators (non-series)
-            cci_fast_val = _cci(w_highs, w_lows, w_closes, config.cci_fast_period)
-            cci_mid_val = _cci(w_highs, w_lows, w_closes, config.cci_mid_period)
-            cci_slow_val = _cci(w_highs, w_lows, w_closes, config.cci_slow_period)
+            cci_fast_val = float(k["cci_fast"][i])
+            cci_mid_val = float(k["cci_mid"][i])
+            cci_slow_val = float(k["cci_slow"][i])
 
-            aroon_fast_val = _aroon_osc(w_highs, w_lows, config.aroon_fast_period)
-            aroon_slow_val = _aroon_osc(w_highs, w_lows, config.aroon_slow_period)
+            aroon_fast_val = float(k["aroon_fast"][i])
+            aroon_slow_val = float(k["aroon_slow"][i])
 
             # OFI divergence
-            ofi_div_val = ofi_z_val - momentum_z_fast_val
+            ofi_div_val = float(k["ofi_div"][i])
 
             # Cross-asset: from pre-built causal dict (batch) or cache (live).
             # CrossAssetRecord is a NamedTuple (Phase 151 Plan 04) -- keyword
             # attribute access below, never positional unpack, so field order
             # can never silently matter as this payload grows.
-            if cross_asset_by_date is not None:
-                _ca = cross_asset_by_date.get(bar_ts.date(), CrossAssetRecord())
-                vix_z_val = _ca.vix_z
-                flight_quality_val = _ca.flight_quality
-                yield_slope_z_val = _ca.yield_slope_z
-                tip_tlt_ret_z_val = _ca.tip_tlt_ret_z
-                hyg_lqd_ret_z_val = _ca.hyg_lqd_ret_z
-                sb_corr_fast_val = _ca.sb_corr_fast
-                sb_corr_slow_val = _ca.sb_corr_slow
-                sb_corr_z_val = _ca.sb_corr_z
-            else:
-                vix_z_val = cache.vix_z
-                flight_quality_val = cache.flight_quality
-                yield_slope_z_val = cache.yield_slope_z
-                tip_tlt_ret_z_val = cache.tip_tlt_ret_z
-                hyg_lqd_ret_z_val = cache.hyg_lqd_ret_z
-                sb_corr_fast_val = cache.sb_corr_fast
-                sb_corr_slow_val = cache.sb_corr_slow
-                sb_corr_z_val = cache.sb_corr_z
+            vix_z_val = float(k["vix_z"][i])
+            flight_quality_val = float(k["flight_quality"][i])
+            yield_slope_z_val = float(k["yield_slope_z"][i])
+            tip_tlt_ret_z_val = float(k["tip_tlt_ret_z"][i])
+            hyg_lqd_ret_z_val = float(k["hyg_lqd_ret_z"][i])
+            sb_corr_fast_val = float(k["sb_corr_fast"][i])
+            sb_corr_slow_val = float(k["sb_corr_slow"][i])
+            sb_corr_z_val = float(k["sb_corr_z"][i])
 
             # Factor betas (Phase 151 Plan 04, per-symbol): from pre-built
             # beta_by_date dict (batch) or cache (live). Independent of the
             # cross_asset_by_date branch above -- beta_by_date is symbol-
             # specific, cross_asset_by_date is symbol-independent.
-            if beta_by_date is not None:
-                equity_beta_z_val, rate_beta_z_val = beta_by_date.get(bar_ts.date(), (None, None))
-            else:
-                equity_beta_z_val = None if symbol == "SPY" else cache.equity_beta_z
-                rate_beta_z_val = None if symbol == "TLT" else cache.rate_beta_z
+            equity_beta_z_val = _none_if_nan(k["equity_beta_z"][i])
+            rate_beta_z_val = _none_if_nan(k["rate_beta_z"][i])
 
             # Calendar primitives
-            in_ny_session_val = _in_ny_session(bar_ts, config)
-            in_london_kz_val = _in_london_kz(bar_ts, config)
-            in_overlap_val = _in_overlap(bar_ts, config)
-            power_hour_val = _power_hour(bar_ts, config)
-            opening_range_val = _opening_range(bar_ts, config)
+            in_ny_session_val = float(k["in_ny_session"][i])
+            in_london_kz_val = float(k["in_london_kz"][i])
+            in_overlap_val = float(k["in_overlap"][i])
+            power_hour_val = float(k["power_hour"][i])
+            opening_range_val = float(k["opening_range"][i])
+            # Cache-backed: the registered above_wk_vwap kernel replays the same math, but
+            # reading it here would change results for a caller passing a pre-warmed cache;
+            # 186-25 retires the cache-driven batch loop.
             above_wk_vwap_val = cache.above_wk_vwap
-            dow_sin_val, dow_cos_val = _dow_encoding(bar_ts)
-            month_position_val = _month_position(bar_ts)
-            quarter_position_val = _quarter_position(bar_ts)
-            days_to_month_end_val = _days_to_month_end_fraction(bar_ts)
-            quarter_cycle_sin_val, quarter_cycle_cos_val = _quarter_cycle_encoding(bar_ts)
-            tdom_sin_val, tdom_cos_val = _tdom_encoding(bar_ts)
-            minute_of_hour_sin_val, minute_of_hour_cos_val = _minute_of_hour_encoding(bar_ts)
+            dow_sin_val, dow_cos_val = float(k["dow_sin"][i]), float(k["dow_cos"][i])
+            month_position_val = float(k["month_position"][i])
+            quarter_position_val = float(k["quarter_position"][i])
+            days_to_month_end_val = float(k["days_to_month_end"][i])
+            quarter_cycle_sin_val = float(k["quarter_cycle_sin"][i])
+            quarter_cycle_cos_val = float(k["quarter_cycle_cos"][i])
+            tdom_sin_val, tdom_cos_val = float(k["tdom_sin"][i]), float(k["tdom_cos"][i])
+            minute_of_hour_sin_val = float(k["minute_of_hour_sin"][i])
+            minute_of_hour_cos_val = float(k["minute_of_hour_cos"][i])
 
             # CTF: from pre-built causal dict (batch) or cache (live). ctf_by_ts
             # values are CtfValues NamedTuples (Phase 151 Plan 05 extended this
@@ -7797,20 +5268,17 @@ class FeatureFactory:
 
             # Renaissance Primitives (Phase 142.5 Plan 01). ret_lag_* index the full
             # `closes` array (view slice closes[:i+1], O(1)) rather than the bounded
-            # w_closes window, since ret_lag_slow's APR window can exceed MIN_WINDOW.
+            # w_closes window, since ret_lag_slow's APR window can exceed the bounded window.
             # overnight_gap_z reads the precomputed series (O(n) total, not O(n^2)).
-            prev_close_ = float(closes[i - 1])
-            body_ratio_val = _body_ratio(open_, high_, low_, close_)
-            upper_wick_ratio_val = _upper_wick_ratio(open_, high_, low_, close_)
-            lower_wick_ratio_val = _lower_wick_ratio(open_, high_, low_, close_)
-            range_vs_atr_val = _range_vs_atr(
-                high_, low_, atr_val, close_, config.atr_normalization_min_pct
-            )
-            close_vs_open_direction_val = _close_vs_open_direction(open_, close_)
-            overnight_gap_val = _overnight_gap(open_, prev_close_)
+            body_ratio_val = float(k["body_ratio"][i])
+            upper_wick_ratio_val = float(k["upper_wick_ratio"][i])
+            lower_wick_ratio_val = float(k["lower_wick_ratio"][i])
+            range_vs_atr_val = float(k["range_vs_atr"][i])
+            close_vs_open_direction_val = float(k["close_vs_open_direction"][i])
+            overnight_gap_val = float(k["overnight_gap"][i])
             overnight_gap_z_val = float(s.overnight_gap_z[i]) if i < len(s.overnight_gap_z) else 0.0
-            range_efficiency_val = _range_efficiency(close_, prev_close_, high_, low_)
-            ret_lag_1_val = _ret_lag_1(closes[: i + 1])
+            range_efficiency_val = float(k["range_efficiency"][i])
+            ret_lag_1_val = float(k["ret_lag_1"][i])
 
             # Named Interaction Primitives cross-TF divergences (Phase 151 Plan
             # 05, todos 066/104). Each is timeframe-pinned to the LOWER tf of
@@ -7831,34 +5299,34 @@ class FeatureFactory:
                 ret_div_1h_1d_val = ret_lag_1_val - _htf_last_log_ret_val
             else:
                 ret_div_1h_1d_val = None
-            opex_flag_val = _opex_flag(bar_ts)
-            quad_witching_flag_val = _quad_witching_flag(bar_ts)
-            earnings_season_flag_val = _earnings_season_flag(bar_ts, config)
-            days_since_quarter_end_val = _days_since_quarter_end(bar_ts)
+            opex_flag_val = float(k["opex_flag"][i])
+            quad_witching_flag_val = float(k["quad_witching_flag"][i])
+            earnings_season_flag_val = float(k["earnings_season_flag"][i])
+            days_since_quarter_end_val = float(k["days_since_quarter_end"][i])
 
-            ret_lag_2_val = _ret_lag_2(closes[: i + 1])
-            ret_lag_3_val = _ret_lag_3(closes[: i + 1])
-            ret_lag_fast_val = _ret_lag_fast(closes[: i + 1], config.ret_lag_fast)
-            ret_lag_mid_val = _ret_lag_mid(closes[: i + 1], config.ret_lag_mid)
-            ret_lag_slow_val = _ret_lag_slow(closes[: i + 1], config.ret_lag_slow)
-            open_ret_val = _open_ret(open_, prev_close_)
-            intraday_ret_val = _intraday_ret(close_, open_)
-            open_vs_intraday_val = _open_vs_intraday(open_ret_val, intraday_ret_val)
-            session_time_pos_val = _session_time_pos(bar_ts, config)
+            ret_lag_2_val = float(k["ret_lag_2"][i])
+            ret_lag_3_val = float(k["ret_lag_3"][i])
+            ret_lag_fast_val = float(k["ret_lag_fast"][i])
+            ret_lag_mid_val = float(k["ret_lag_mid"][i])
+            ret_lag_slow_val = float(k["ret_lag_slow"][i])
+            open_ret_val = float(k["open_ret"][i])
+            intraday_ret_val = float(k["intraday_ret"][i])
+            open_vs_intraday_val = float(k["open_vs_intraday"][i])
+            session_time_pos_val = float(k["session_time_pos"][i])
 
-            # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates
-            # are O(1) per bar (pure bar_ts arithmetic). Volume structure reads
-            # the precomputed series (O(n) total, not per-bar O(n x window)).
-            hour_of_day_sin_val = _hour_of_day_sin(bar_ts)
-            hour_of_day_cos_val = _hour_of_day_cos(bar_ts)
-            week_of_month_sin_val = _week_of_month_sin(bar_ts)
-            week_of_month_cos_val = _week_of_month_cos(bar_ts)
-            day_of_month_sin_val = _day_of_month_sin(bar_ts)
-            day_of_month_cos_val = _day_of_month_cos(bar_ts)
-            week_of_year_sin_val = _week_of_year_sin(bar_ts)
-            week_of_year_cos_val = _week_of_year_cos(bar_ts)
-            month_sin_val = _month_sin(bar_ts)
-            month_cos_val = _month_cos(bar_ts)
+            # Renaissance Primitives (Phase 142.5 Plan 02). Temporal coordinates come from the
+            # calendar kernels. Volume structure reads the precomputed series (O(n) total,
+            # not per-bar O(n x window)).
+            hour_of_day_sin_val = float(k["hour_of_day_sin"][i])
+            hour_of_day_cos_val = float(k["hour_of_day_cos"][i])
+            week_of_month_sin_val = float(k["week_of_month_sin"][i])
+            week_of_month_cos_val = float(k["week_of_month_cos"][i])
+            day_of_month_sin_val = float(k["day_of_month_sin"][i])
+            day_of_month_cos_val = float(k["day_of_month_cos"][i])
+            week_of_year_sin_val = float(k["week_of_year_sin"][i])
+            week_of_year_cos_val = float(k["week_of_year_cos"][i])
+            month_sin_val = float(k["month_sin"][i])
+            month_cos_val = float(k["month_cos"][i])
             vol_acceleration_val = (
                 float(s.vol_acceleration[i]) if i < len(s.vol_acceleration) else 1.0
             )
@@ -7964,21 +5432,9 @@ class FeatureFactory:
             yang_zhang_vol_z_val = (
                 float(s.yang_zhang_vol_z[i]) if i < len(s.yang_zhang_vol_z) else 0.0
             )
-            parkinson_vol_velocity_val = (
-                float(s.parkinson_vol_z[i] - s.parkinson_vol_z[i - 1])
-                if i >= 1 and i < len(s.parkinson_vol_z)
-                else 0.0
-            )
-            garman_klass_vol_velocity_val = (
-                float(s.garman_klass_vol_z[i] - s.garman_klass_vol_z[i - 1])
-                if i >= 1 and i < len(s.garman_klass_vol_z)
-                else 0.0
-            )
-            yang_zhang_vol_velocity_val = (
-                float(s.yang_zhang_vol_z[i] - s.yang_zhang_vol_z[i - 1])
-                if i >= 1 and i < len(s.yang_zhang_vol_z)
-                else 0.0
-            )
+            parkinson_vol_velocity_val = float(k["parkinson_vol_velocity"][i])
+            garman_klass_vol_velocity_val = float(k["garman_klass_vol_velocity"][i])
+            yang_zhang_vol_velocity_val = float(k["yang_zhang_vol_velocity"][i])
             vol_velocity_z_val = float(s.vol_velocity_z[i]) if i < len(s.vol_velocity_z) else 0.0
             intraday_noise_ratio_val = (
                 float(s.intraday_noise_ratio[i]) if i < len(s.intraday_noise_ratio) else 1.0
@@ -8081,12 +5537,12 @@ class FeatureFactory:
             # computed scalar locals (O(1) per bar); the 2 rolling
             # correlations read the precomputed series (O(n) total, not
             # per-bar O(n x window)), guaranteeing exact parity with compute().
-            vol_body_product_val = _product(body_ratio_val, volume_z_val)
-            ret_vol_product_fast_val = _product(ret_lag_fast_val, volume_z_val)
-            range_vol_product_val = _product(range_vs_atr_val, volume_z_val)
-            up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
-            ret_vol_ratio_fast_val = _ret_vol_ratio(ret_lag_fast_val, atr_z_val)
-            vol_skew_product_val = _product(ret_skew_z_val, volume_z_val)
+            vol_body_product_val = float(k["vol_body_product"][i])
+            ret_vol_product_fast_val = float(k["ret_vol_product_fast"][i])
+            range_vol_product_val = float(k["range_vol_product"][i])
+            up_vol_body_diff_val = float(k["up_vol_body_diff"][i])
+            ret_vol_ratio_fast_val = float(k["ret_vol_ratio_fast"][i])
+            vol_skew_product_val = float(k["vol_skew_product"][i])
             price_vol_corr_fast_val = (
                 float(s.price_vol_corr_fast[i]) if i < len(s.price_vol_corr_fast) else 0.0
             )
@@ -8099,28 +5555,26 @@ class FeatureFactory:
             # (all 13 distinct parents bound earlier in this loop iteration),
             # same reuse-not-recompute discipline as the Price-Volume
             # Interactions block immediately above.
-            momentum_vol_regime_product_val = momentum_z_fast_val * hv_ratio_val
+            momentum_vol_regime_product_val = float(k["momentum_vol_regime_product"][i])
             momentum_trend_product_val = momentum_z_fast_val * adx_val
-            breakout_volume_product_val = dist_from_high_fast_val * volume_z_val
+            breakout_volume_product_val = float(k["breakout_volume_product"][i])
             reversion_hurst_product_val = momentum_reversal_z_val * hurst_val
-            quarter_momentum_product_val = quarter_position_val * momentum_z_fast_val
-            variance_ratio_momentum_product_val = variance_ratio_fast_val * momentum_z_fast_val
-            illiquidity_momentum_product_val = amihud_illiq_z_val * momentum_z_fast_val
-            yield_slope_momentum_product_val = yield_slope_z_val * momentum_z_fast_val
-            vix_reversion_product_val = vix_z_val * momentum_reversal_z_val
-            efficiency_volume_product_val = efficiency_ratio_fast_val * volume_z_val
+            quarter_momentum_product_val = float(k["quarter_momentum_product"][i])
+            variance_ratio_momentum_product_val = float(k["variance_ratio_momentum_product"][i])
+            illiquidity_momentum_product_val = float(k["illiquidity_momentum_product"][i])
+            yield_slope_momentum_product_val = float(k["yield_slope_momentum_product"][i])
+            vix_reversion_product_val = float(k["vix_reversion_product"][i])
+            efficiency_volume_product_val = float(k["efficiency_volume_product"][i])
 
             # Canary / Control Predictors (Phase 143.1 Plan 02). Unlike the
             # live compute() path, `closes` here is the full-history array
             # passed by the caller (backfill), so the acausal placebo can
             # genuinely reference bars i+1/i+2 -- the deliberate look-ahead
             # leak this canary exists to calibrate.
-            canary_noise_gaussian_val = _canary_noise_gaussian(
-                bar_ts, symbol, config.canary_rng_seed
-            )
-            canary_noise_uniform_val = _canary_noise_uniform(bar_ts, symbol, config.canary_rng_seed)
-            canary_near_constant_val = _canary_near_constant(bar_ts, symbol, config.canary_rng_seed)
-            canary_acausal_placebo_val = _canary_acausal_placebo(closes, i)
+            canary_noise_gaussian_val = float(k["canary_noise_gaussian"][i])
+            canary_noise_uniform_val = float(k["canary_noise_uniform"][i])
+            canary_near_constant_val = float(k["canary_near_constant"][i])
+            canary_acausal_placebo_val = float(k["canary_acausal_placebo"][i])
 
             # Build FeatureVector
             fv = _build_feature_vector(
@@ -8170,8 +5624,8 @@ class FeatureFactory:
                 dow_sin=dow_sin_val,
                 dow_cos=dow_cos_val,
                 month_position=month_position_val,
-                quarter_position=_quarter_position(bar_ts),
-                days_to_month_end=_days_to_month_end_fraction(bar_ts),
+                quarter_position=quarter_position_val,
+                days_to_month_end=days_to_month_end_val,
                 quarter_cycle_sin=quarter_cycle_sin_val,
                 quarter_cycle_cos=quarter_cycle_cos_val,
                 tdom_sin=tdom_sin_val,
@@ -8321,7 +5775,7 @@ class FeatureFactory:
                 efficiency_volume_product=efficiency_volume_product_val,
                 canary_noise_gaussian=canary_noise_gaussian_val,
                 canary_noise_uniform=canary_noise_uniform_val,
-                canary_constant=_CANARY_CONSTANT_VALUE,
+                canary_constant=float(k["canary_constant"][i]),
                 canary_near_constant=canary_near_constant_val,
                 canary_acausal_placebo=canary_acausal_placebo_val,
             )

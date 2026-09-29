@@ -13,6 +13,8 @@ results: []
 known_defects:
   - 75.1M of its 108.6M rows are 5m, the timeframe no active family reads (TF-stack economics, todo 445); the rebuild re-decides the timeframe stack instead of copying it.
   - Its column set includes v2.x raw-price fields later shown to be invalid feature columns; the rebuild does not carry them forward.
+  - The intraday macro columns (vix_z, flight_quality, yield_slope_z, tip_tlt_ret_z, hyg_lqd_ret_z, sb_corr_fast, sb_corr_slow, sb_corr_z, equity_beta_z, rate_beta_z and the two macro products) read the same day's 16:00 ET close on 5m, 15m and 1h rows (todo 450, fixed in 186-12).
+  - gap_z at bar T was built from bar T+1's open on every timeframe and was 0.0 on the last row of every batch (todo 461, fixed in 186-12).
 spans_looked_at: []
 forward_span_looks: 0
 tables: [feature_vectors]
@@ -43,8 +45,10 @@ one lands with 186-27 before the drop.
 
 ## Known defects
 
-5m-heavy composition with no active consumer; carries invalid v2.x raw-price columns; its
-size drove the 768 GB disk-full incident class of risk on schema changes.
+5m-heavy composition with no active consumer; carries invalid v2.x raw-price columns; the
+intraday macro columns and `gap_z` carry lookahead (todos 450 and 461, fixed in code by plan
+186-12, stored rows corrected by the rebuild); its size drove the 768 GB disk-full incident class
+of risk on schema changes.
 
 ## Why closed
 

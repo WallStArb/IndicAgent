@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+closed: 2026-09-29
 priority: P0
 filed: 2026-09-27
 source: phase 186 planning (plan 186-12), confirmed from source 2026-09-27
@@ -36,3 +37,23 @@ change only these columns on intraday cases. Stored `feature_vectors` rows are c
 phase 186 rebuild; until then, no research may read these columns at intraday timeframes.
 Plan 186-15 checks the same class in `ctf_by_ts` (higher-timeframe bar starts looked up with
 `bisect_right`).
+
+## Closure (2026-09-29, plan 186-12)
+
+Fixed in code. `align_daily_asof` (`src/intelligence/features/kernels/macro.py`) gives each row the
+latest daily record whose 16:00 ET close is at or before the row's bar end; `compute_batch` uses it
+for both the cross-asset and the beta records. A failing test came first (vix_z at 10:00 ET on d
+moved from 0.973 to 4.170 when d's SPY close changed), and the golden fixture was regenerated in its
+own commit: only the ten macro columns and the two macro products changed, only on the 5m, 15m and
+1h cases; every 1d case and every other column stayed bit-identical.
+
+Dependents traced (read only, 2026-09-29): `docs/research/construction-verdict-ledger.md`, every
+card under `docs/research/summary-cards/`, `scripts/research/` and `src/intelligence/research/`
+hold no verdict, family or card that reads these twelve columns at an intraday timeframe. The
+defect is recorded under known defects on the `cache-feature-vectors-v1` card. Stored
+`feature_vectors` rows are corrected by the phase 186 rebuild (186-26); until it lands, no research
+may read these columns at intraday timeframes.
+
+Handoff to plan 186-15: `ctf_by_ts` is looked up with `bisect_right(ctf_ts_list, bar_ts) - 1` on
+higher-timeframe bar keys. If those keys are higher-timeframe bar starts, an intraday row reads an
+unfinished higher-timeframe bar. Prove it with a failing test when the CTF kernels move.

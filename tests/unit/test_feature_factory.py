@@ -528,10 +528,16 @@ class TestRegimePrimitives:
         scanning, not carved out by line number, so this stays correct as
         the file grows around it.
         """
+        # 186-12: the feature computation now lives in feature_factory.py plus the kernel
+        # modules under features/kernels/ (the canary placebo moved to control.py).
         factory_path = _REPO_ROOT / "src" / "intelligence" / "feature_factory.py"
-        source = factory_path.read_text()
-
-        source_without_canary, n_stripped = _source_without_acausal_canary(source)
+        kernel_paths = sorted((factory_path.parent / "features" / "kernels").glob("*.py"))
+        source_without_canary = ""
+        n_stripped = 0
+        for path in (factory_path, *kernel_paths):
+            stripped, count = _source_without_acausal_canary(path.read_text())
+            source_without_canary += stripped
+            n_stripped += count
         assert n_stripped == 1, (
             "_canary_acausal_placebo() not found where expected -- this test's "
             "structural exclusion depends on it existing; update the test if the "
@@ -1686,11 +1692,13 @@ class TestGapZAtrFloor:
             opens, closes, atr_raw, atr_valid_unfloored, zscore_window=3
         )
 
-        # Position 3's gap_raw is (91.80-91.70)/atr: unguarded uses the tiny
+        # 186-12: row k holds the score of the gap AT bar k (it used to hold the gap at bar k+1,
+        # a one-bar lookahead), so the gaps below land one row later than they used to.
+        # The gap at bar 4 is (91.80-91.70)/atr[3]: unguarded uses the tiny
         # 0.0002 ATR (explosive ratio 500), floored substitutes the fallback
         # 1.0 denominator (bounded ratio 0.10) -- the z-scored series must
-        # diverge at this position.
-        assert result_floored[3] != pytest.approx(result_unfloored[3])
-        # Position 2's gap_raw uses tr=1.0, valid under both old and new
-        # guards -- the floor must not touch it.
-        assert result_floored[2] == pytest.approx(result_unfloored[2])
+        # diverge at row 4.
+        assert result_floored[4] != pytest.approx(result_unfloored[4])
+        # The gap at bar 3 uses tr=1.0 (atr[2]), valid under both old and new
+        # guards -- the floor must not touch row 3.
+        assert result_floored[3] == pytest.approx(result_unfloored[3])

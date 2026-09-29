@@ -89,6 +89,9 @@ case "$CHECK" in
       [ -z "$file" ] && continue
       case "$file" in
         src/intelligence/ai/*|src/intelligence/swarm/*) continue ;;
+        # kernels/_primitives.py (186-12): the leading underscore keeps discover_kernels() from
+        # importing the shared helper module as a kernel origin (plan-pinned name).
+        src/intelligence/features/kernels/_primitives.py) continue ;;
       esac
       filename=$(basename "$file")
       echo "$filename" | grep -qE '^([a-z][a-z0-9_]*|__init__|conftest|TEMPLATE_agent|TEMPLATE)\.py$' || \

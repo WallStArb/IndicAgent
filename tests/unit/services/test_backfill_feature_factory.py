@@ -1519,14 +1519,20 @@ class TestBuildCrossAssetSeries:
 
 class TestComputeBatchExternalInjection:
     def test_cross_asset_from_dict_not_cache(self) -> None:
-        """When cross_asset_by_date supplied, FeatureVector uses dict values not cache zeros."""
+        """When cross_asset_by_date supplied, FeatureVector uses dict values not cache zeros.
+
+        186-12: the record is aligned as-of the row's bar end (a daily record is available from the
+        16:00 ET close of its date), so it is keyed on the day before the bars. Keyed on the bars'
+        own date it would not reach any intraday row before that day's close (same-day lookahead
+        fix).
+        """
         config = _make_config()
         cache = FeatureCache()  # vix_z=0.0, flight_quality=0.0, yield_slope_z=0.0
 
         bars = _make_bars(60)
-        bar_date = bars[-1]["ts"].date()
+        record_date = bars[-1]["ts"].date() - timedelta(days=1)
         cross_asset = {
-            bar_date: CrossAssetRecord(vix_z=1.23, flight_quality=0.45, yield_slope_z=-0.67)
+            record_date: CrossAssetRecord(vix_z=1.23, flight_quality=0.45, yield_slope_z=-0.67)
         }
 
         results = FeatureFactory.compute_batch(
