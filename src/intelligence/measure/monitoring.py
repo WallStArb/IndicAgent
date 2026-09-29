@@ -12,7 +12,6 @@ import numpy as np
 from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
-from src.intelligence.statistics.ic_math import _hac_sharpe_nd
 
 
 @dataclasses.dataclass(frozen=True)
@@ -26,6 +25,34 @@ class MemberIcSeries:
     ic_sharpe: float  # mean / population std across windows
     ic_sharpe_hac: float  # Newey-West Bartlett, ic_math._hac_sharpe_nd
     partial_tail_sessions: int  # sessions in a trailing short window, 0 if none
+
+
+def _hac_sharpe_gapped(ic: np.ndarray, max_lag: int) -> float:
+    """Newey-West Bartlett IC Sharpe over a time-indexed window series that may hold NaN.
+
+    ic_math._hac_sharpe_nd assumes adjacent rows are adjacent windows; dropping NaN windows
+    first would pair windows that are not lag-k apart. Mean and variance use the finite
+    windows; the lag-k autocovariance averages demeaned products over the pairs (t, t + k)
+    that are both finite in the original series (none: rho_k = 0). Identical to
+    _hac_sharpe_nd on a series without NaN."""
+    ok = np.isfinite(ic)
+    finite = ic[ok]
+    n = finite.size
+    mean = finite.mean()
+    var0 = ((finite - mean) ** 2).mean()
+    inflation = 1.0
+    if max_lag > 0 and n >= max_lag + 2:
+        demeaned = np.where(ok, ic - mean, 0.0)
+        for k in range(1, max_lag + 1):
+            pair = ok[k:] & ok[:-k]
+            if not pair.any():
+                continue
+            gamma_k = (demeaned[k:][pair] * demeaned[:-k][pair]).mean()
+            rho_k = gamma_k / var0 if var0 > 1e-12 else 0.0
+            inflation += 2.0 * (1.0 - k / (max_lag + 1)) * rho_k
+        inflation = max(inflation, 1.0)  # can't be more precise than i.i.d.
+    hac_std = np.sqrt(var0 * inflation)
+    return float(mean / hac_std) if hac_std > 1e-10 else 0.0
 
 
 def member_ic_over_time(
@@ -57,7 +84,7 @@ def member_ic_over_time(
         mean = float(finite.mean())
         sd = float(finite.std())
         sharpe = mean / sd if sd > 1e-10 else 0.0
-        hac = float(_hac_sharpe_nd(finite[:, None], params.hac_max_lag)[0])
+        hac = _hac_sharpe_gapped(ic, params.hac_max_lag)
     else:
         mean = sharpe = hac = float("nan")
     tail = counts[-1] if counts and counts[-1] < per_window else 0

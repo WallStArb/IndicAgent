@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
 from src.intelligence.measure.monitoring import member_ic_over_time
@@ -42,3 +43,26 @@ def test_trailing_partial_window_is_reported_not_merged(symbols, params):
     series = member_ic_over_time(_member(stack, 99), "m", stack, params)
     assert series.n_sessions.tolist() == [10, 10, 10, 10, 5]
     assert series.partial_tail_sessions == 5
+
+
+def test_hac_sharpe_pairs_autocovariance_only_across_adjacent_windows():
+    """ic = [.1, .2, nan, .3, .4], max_lag 1. Finite mean .25, population variance .0125.
+    Lag-1 pairs finite in the original series: (0,1) and (3,4), each demeaned product
+    .0075, so gamma1 = .0075, rho1 = .6, inflation = 1 + 2 * .5 * .6 = 1.6 and
+    sharpe = .25 / sqrt(.0125 * 1.6). Dropping the NaN first also pairs (.2, .3), two
+    windows apart, and gives 1.936 instead."""
+    from src.intelligence.measure.monitoring import _hac_sharpe_gapped
+
+    ic = np.array([0.1, 0.2, np.nan, 0.3, 0.4])
+    assert _hac_sharpe_gapped(ic, 1) == pytest.approx(0.25 / np.sqrt(0.02), rel=1e-12)
+
+
+def test_hac_sharpe_is_bit_identical_to_ic_math_without_gaps():
+    from src.intelligence.measure.monitoring import _hac_sharpe_gapped
+    from src.intelligence.statistics.ic_math import _hac_sharpe_nd
+
+    rng = np.random.default_rng(3)
+    ic = np.cumsum(rng.normal(0.0, 0.02, 40)) * 0.1 + 0.03
+    for lag in (0, 1, 4, 12, 60):
+        expected = float(_hac_sharpe_nd(ic[:, None], lag)[0])
+        assert _hac_sharpe_gapped(ic, lag) == expected
