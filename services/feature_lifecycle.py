@@ -590,7 +590,9 @@ class FeatureLifecycle(BaseBatch):
     def _failure_counts(cls, plan: WindowPlan) -> dict[str, int]:
         counts: dict[str, int] = defaultdict(int)
         for r in plan.rows:
-            for tf, _, check in cls._failing_tfs(r) if not r.verdict.passed else ():
+            if r.verdict.passed:
+                continue
+            for tf, _, check in cls._failing_tfs(r):
                 counts[f"{check}|tf={tf}"] += 1
         return dict(sorted(counts.items()))
 

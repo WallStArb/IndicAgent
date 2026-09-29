@@ -13,7 +13,6 @@ Pure functions over counts: no DB, no config loading. The floor is an argument.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -91,6 +90,4 @@ def feature_quality_verdict(
             codes[q.tf] = "ok"
     failures = tuple(f for f in ("non_finite", "coverage") if f in codes.values())
     statistic = min(q.symbol_coverage for q in populated if q.symbol_coverage is not None)
-    if math.isnan(statistic):
-        raise ValueError("symbol_coverage is NaN")
     return QualityVerdict(not failures, failures, statistic, codes)
