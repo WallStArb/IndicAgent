@@ -29,7 +29,6 @@ from __future__ import annotations
 import bisect
 import dataclasses
 import math
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -179,9 +178,41 @@ from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported
     _vol_velocity_z_series_full,
     _yang_zhang_vol_z_series_full,
 )
+from src.intelligence.features.kernels.volume import (  # noqa: F401  re-exported for tests and scripts
+    _amihud_illiq_z_series_full,
+    _cmf,
+    _cvd_slope_z_series_full,
+    _dollar_vol_z,
+    _dollar_vol_z_series_full,
+    _informed_flow,
+    _mfi,
+    _mfi_series_full,
+    _obv_z,
+    _obv_z_series_full,
+    _ofi_z_series_full,
+    _price_vol_corr_series_full,
+    _rel_volume,
+    _rel_volume_series_full,
+    _up_vol_ratio,
+    _up_vol_ratio_series_full,
+    _vol_acceleration,
+    _vol_acceleration_series_full,
+    _vol_percentile,
+    _vol_percentile_series_full,
+    _vol_persistence,
+    _vol_persistence_series_full,
+    _vol_range_ratio,
+    _vol_range_ratio_series_full,
+    _vol_std_z,
+    _vol_std_z_series_full,
+    _vol_trend_ratio,
+    _vol_trend_ratio_series_full,
+    _volume_z_series_full,
+    _vwap_dev_sigma_series_full,
+)
 from src.intelligence.features.registry import compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
-from src.intelligence.utils import clamp, find_peaks, find_troughs, safe_corr
+from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
 # ---------------------------------------------------------------------------
@@ -1037,54 +1068,6 @@ def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[st
 # ---------------------------------------------------------------------------
 
 
-def _rel_volume(volume: float, vol_history: deque, window: int) -> float:
-    """Relative volume: volume / mean(volume over window).
-
-    Returns 1.0 on cold start (neutral).
-    """
-    vol_history.append(volume)
-    if len(vol_history) < 2:
-        return 1.0
-    arr = np.array(list(vol_history)[-window:])
-    mean_vol = float(arr.mean())
-    return volume / mean_vol if mean_vol > 1e-10 else 1.0
-
-
-def _informed_flow(open_price: float, close: float, atr: float, min_atr_pct: float) -> float:
-    """Directional informed flow proxy: (close - open) / ATR.
-
-    Returns 0.0 when atr is invalid per `_is_valid_atr` (todo 266: routed through
-    the same relative floor as the 12 sibling ATR-ratio features, todo 237).
-    """
-    return (close - open_price) / atr if _is_valid_atr(atr, close, min_atr_pct) else 0.0
-
-
-def _cmf(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    period: int,
-) -> float:
-    """Chaikin Money Flow over period. Returns 0.0 on insufficient data.
-
-    CMF = sum(MFV, period) / sum(volume, period)
-    MFV = volume * (2*close - high - low) / (high - low)
-    """
-    if len(closes) < period:
-        return 0.0
-    h = highs[-period:]
-    lo = lows[-period:]
-    c = closes[-period:]
-    v = volumes[-period:]
-    hl_range = h - lo
-    safe_range = np.where(hl_range > 0, hl_range, 1.0)
-    mfm = np.where(hl_range > 0, (2.0 * c - h - lo) / safe_range, 0.0)
-    mfv = mfm * v
-    vol_sum = float(np.sum(v))
-    return float(np.sum(mfv)) / vol_sum if vol_sum > 1e-10 else 0.0
-
-
 # ---------------------------------------------------------------------------
 # Renaissance Primitives — Bar Anatomy Ratios (Phase 142.5 Plan 01)
 # ---------------------------------------------------------------------------
@@ -1113,177 +1096,6 @@ def _cmf(
 # ---------------------------------------------------------------------------
 # Beyond simple z-scores of volume level. Streaming (per-bar) implementations —
 # see _*_series_full below for the O(n) batch/backfill precompute path.
-
-
-def _vol_acceleration(volumes: np.ndarray, eps: float = 1e-10) -> float:
-    """Volume surge relative to prior bar: V_t / V_{t-1}. Unbounded positive.
-
-    Returns 1.0 (neutral) on insufficient history or near-zero prior volume.
-    """
-    if len(volumes) < 2:
-        return 1.0
-    prev = float(volumes[-2])
-    if prev < eps:
-        return 1.0
-    return float(volumes[-1]) / prev
-
-
-def _dollar_vol_z(volumes: np.ndarray, closes: np.ndarray, window: int) -> float:
-    """Z-score of dollar volume (V * C) over the trailing window. Returns 0.0 on cold start."""
-    if len(volumes) < 2:
-        return 0.0
-    dollar_vol = volumes.astype(float) * closes.astype(float)
-    return _zscore_last(dollar_vol, window)
-
-
-def _vol_range_ratio(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> float:
-    """Volume per unit of price range, normalized against its own trailing average.
-
-    raw_t = V_t / (H_t - L_t); result = raw_t / mean(raw, trailing window).
-    Unbounded positive. Returns 0.0 on a degenerate current bar (H == L) or cold start.
-    """
-    n = len(volumes)
-    if n < 1:
-        return 0.0
-    ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
-    w = min(window, n)
-    mean_raw = float(np.mean(raw[-w:]))
-    if mean_raw < eps:
-        return 0.0
-    return float(raw[-1]) / mean_raw
-
-
-def _vol_trend_ratio(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
-) -> float:
-    """Volume participation trend: vol_MA_fast / vol_MA_slow. Unbounded positive.
-
-    Returns 1.0 (neutral) on cold start (fewer than slow_window bars).
-    """
-    n = len(volumes)
-    if n < slow_window:
-        return 1.0
-    v = volumes.astype(float)
-    ma_fast = float(np.mean(v[-fast_window:]))
-    ma_slow = float(np.mean(v[-slow_window:]))
-    return ma_fast / ma_slow if ma_slow > eps else 1.0
-
-
-def _up_vol_ratio(
-    volumes: np.ndarray,
-    opens: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> float:
-    """Fraction of volume occurring on up bars: sum(V | C > O) / sum(V) over window.
-
-    Bounded [0, 1]. Returns 0.5 (neutral) on cold start or near-zero total volume.
-    Shared implementation for up_vol_ratio_fast/slow (different window arguments).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 1:
-        return 0.5
-    v = volumes[-w:].astype(float)
-    o = opens[-w:].astype(float)
-    c = closes[-w:].astype(float)
-    total = float(np.sum(v))
-    if total < eps:
-        return 0.5
-    up_vol = float(np.sum(np.where(c > o, v, 0.0)))
-    return up_vol / total
-
-
-def _vol_percentile(volumes: np.ndarray, window: int) -> float:
-    """Rolling percentile rank of V_t over the trailing window. Bounded [0, 1].
-
-    Returns 0.5 (neutral) on cold start (fewer than 2 bars in the window).
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return 0.5
-    hist = volumes[-w:].astype(float)
-    return _percentile_rank(hist, float(hist[-1]))
-
-
-def _vol_persistence(volumes: np.ndarray, window: int) -> float:
-    """Lag-1 autocorrelation of volume over the trailing window. Bounded [-1, 1].
-
-    Returns 0.0 on cold start (fewer than 2 bars in the window). Reuses _pearson_acf1.
-    """
-    n = len(volumes)
-    w = min(window, n)
-    if w < 2:
-        return 0.0
-    hist = volumes[-w:].astype(float)
-    return _pearson_acf1(hist)
-
-
-def _vol_std_z(volumes: np.ndarray, window: int) -> float:
-    """Z-score of rolling std(V) over the trailing window (single-window design:
-    the same `window` both computes the rolling std series and z-scores its last
-    value). Returns 0.0 on cold start.
-    """
-    if len(volumes) < 2:
-        return 0.0
-    std_series = _rolling_std_series(volumes.astype(float), window)
-    return _zscore_last(std_series, window)
-
-
-def _mfi(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> float:
-    """Money Flow Index: 100 * sum(tp*V | tp rising) / sum(tp*V) over window.
-
-    tp = (H + L + C) / 3. Bounded [0, 100]. Returns 50.0 (neutral) on cold start
-    or near-zero total money flow. Shared implementation for mfi_fast/slow.
-    """
-    n = len(closes)
-    w = min(window, n - 1) if n >= 2 else 0
-    if w < 1:
-        return 50.0
-    tp_full = (highs[-(w + 1) :].astype(float) + lows[-(w + 1) :].astype(float)) + closes[
-        -(w + 1) :
-    ].astype(float)
-    tp_full = tp_full / 3.0
-    v_full = volumes[-(w + 1) :].astype(float)
-    tp = tp_full[1:]
-    prev_tp = tp_full[:-1]
-    v = v_full[1:]
-    money_flow = tp * v
-    total = float(np.sum(money_flow))
-    if total < eps:
-        return 50.0
-    rising_flow = float(np.sum(money_flow[tp > prev_tp]))
-    return float(np.clip(100.0 * rising_flow / total, 0.0, 100.0))
-
-
-def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
-    """Z-score of On-Balance Volume (cumulative +V on up bars, -V on down bars).
-
-    Returns 0.0 on cold start (fewer than 2 bars).
-    """
-    n = len(closes)
-    if n < 2:
-        return 0.0
-    diffs = np.diff(closes.astype(float))
-    signed_vol = np.where(
-        diffs > 0,
-        volumes[1:].astype(float),
-        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
-    )
-    obv = np.cumsum(signed_vol)
-    return _zscore_last(obv, window)
 
 
 # ---------------------------------------------------------------------------
@@ -1382,282 +1194,12 @@ def _obv_z(closes: np.ndarray, volumes: np.ndarray, window: int) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _volume_z_series_full(volumes: np.ndarray, zscore_window: int) -> np.ndarray:
-    """Volume z-score series. result[i] == streaming volume_z at bar i."""
-    return _fixed_window_zscore_series(volumes.astype(float), zscore_window)
-
-
-def _ofi_z_series_full(
-    closes: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    volumes: np.ndarray,
-    zscore_window: int,
-) -> np.ndarray:
-    """OFI z-score series. result[i] == streaming ofi_z at bar i."""
-    ofi_raw = (closes - lows) / (highs - lows + 1e-10) * volumes
-    return _fixed_window_zscore_series(ofi_raw.astype(float), zscore_window)
-
-
-def _cvd_slope_z_series_full(
-    closes: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    volumes: np.ndarray,
-    slope_bars: int,
-    zscore_window: int,
-) -> np.ndarray:
-    """CVD slope z-score series. result[i] == streaming cvd_slope_z at bar i.
-    Returns zeros for i < slope_bars (cold start: len(cum_cvd) <= slope_bars).
-    """
-    n = len(closes)
-    if n <= slope_bars:
-        return np.zeros(n, dtype=float)
-    cvd_raw = (2.0 * closes - highs - lows) / (highs - lows + 1e-10) * volumes
-    cum_cvd = np.cumsum(cvd_raw.astype(float))
-    slope_vals = (cum_cvd[slope_bars:] - cum_cvd[: n - slope_bars]) / slope_bars
-    z = _fixed_window_zscore_series(slope_vals, zscore_window)
-    return np.concatenate([np.zeros(slope_bars, dtype=float), z])
-
-
-def _amihud_illiq_z_series_full(
-    closes: np.ndarray, volumes: np.ndarray, zscore_window: int
-) -> np.ndarray:
-    """Amihud illiquidity z-score series. result[i] == streaming amihud_illiq_z at bar i.
-    Prepends 0.0 at index 0 (cold start — streaming returns 0.0 when len(closes) < 2).
-    """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    log_rets_abs = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
-    dollar_vols = closes[1:].astype(float) * np.maximum(volumes[1:].astype(float), 1.0)
-    illiq = log_rets_abs / dollar_vols
-    z = _fixed_window_zscore_series(illiq, zscore_window)
-    return np.concatenate([[0.0], z])
-
-
-def _vwap_dev_sigma_series_full(
-    opens: np.ndarray,
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-) -> np.ndarray:
-    """VWAP deviation in sigma series. result[i] == streaming vwap_dev_sigma at bar i.
-    Uses running VWAP (cumsum) + running std (Welford via cumsums) — O(n) total.
-    Parity tolerance 1e-6 due to cumulative floating-point accumulation vs np.std.
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    typical = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
-    cum_tp_vol = np.cumsum(typical * volumes.astype(float))
-    cum_vol = np.cumsum(volumes.astype(float))
-    vwap_arr = np.where(cum_vol > 1e-10, cum_tp_vol / cum_vol, typical)
-    dev = closes.astype(float) - vwap_arr
-    cum_dev = np.cumsum(dev)
-    cum_dev_sq = np.cumsum(dev * dev)
-    counts = np.arange(1, n + 1, dtype=float)
-    mean_dev = cum_dev / counts
-    var = np.maximum(cum_dev_sq / counts - mean_dev * mean_dev, 0.0)
-    std_arr = np.sqrt(var)
-    mask = std_arr > 1e-10
-    result[mask] = (closes.astype(float)[mask] - vwap_arr[mask]) / std_arr[mask]
-    return result
-
-
-def _rel_volume_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """Relative volume series. result[i] == streaming rel_volume at bar i.
-    Uses cumulative sum for O(n) rolling mean.
-    """
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    cs = np.cumsum(volumes.astype(float))
-    for b in range(n):
-        eff_w = min(window, b + 1)
-        start = b + 1 - eff_w
-        total = cs[b] - (cs[start - 1] if start > 0 else 0.0)
-        mean_v = total / eff_w
-        result[b] = float(volumes[b]) / mean_v if mean_v > 1e-10 else 1.0
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Renaissance Primitives — Volume Structure batch series (Phase 142.5 Plan 02)
 # result[i] matches the streaming per-bar helper above at bar i. O(n) except
 # vol_percentile/vol_persistence which are O(n x window) (same cost class as
 # the pre-existing ret_skew_z_series_full / ret_acf1_z_series_full).
 # ---------------------------------------------------------------------------
-
-
-def _vol_acceleration_series_full(volumes: np.ndarray, eps: float = 1e-10) -> np.ndarray:
-    """result[i] == streaming _vol_acceleration at bar i. Index 0 padded with 1.0."""
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    if n < 2:
-        return result
-    v = volumes.astype(float)
-    prev = v[:-1]
-    curr = v[1:]
-    safe_prev = np.where(prev > eps, prev, 1.0)
-    result[1:] = np.where(prev > eps, curr / safe_prev, 1.0)
-    return result
-
-
-def _dollar_vol_z_series_full(volumes: np.ndarray, closes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _dollar_vol_z at bar i."""
-    dollar_vol = volumes.astype(float) * closes.astype(float)
-    return _fixed_window_zscore_series(dollar_vol, window)
-
-
-def _vol_range_ratio_series_full(
-    volumes: np.ndarray, highs: np.ndarray, lows: np.ndarray, window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _vol_range_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.zeros(n, dtype=float)
-    if n < 1:
-        return result
-    ranges = highs.astype(float) - lows.astype(float)
-    raw = np.where(ranges > eps, volumes.astype(float) / np.where(ranges > eps, ranges, 1.0), 0.0)
-    cs = np.cumsum(raw)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        mean_raw = s / w
-        result[i] = raw[i] / mean_raw if mean_raw > eps else 0.0
-    return result
-
-
-def _vol_trend_ratio_series_full(
-    volumes: np.ndarray, fast_window: int, slow_window: int, eps: float = 1e-10
-) -> np.ndarray:
-    """result[i] == streaming _vol_trend_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.ones(n, dtype=float)
-    v = volumes.astype(float)
-    cs = np.cumsum(v)
-    for i in range(n):
-        if i + 1 < slow_window:
-            continue
-        sum_f = cs[i] - (cs[i - fast_window] if i - fast_window >= 0 else 0.0)
-        sum_s = cs[i] - (cs[i - slow_window] if i - slow_window >= 0 else 0.0)
-        ma_f = sum_f / fast_window
-        ma_s = sum_s / slow_window
-        result[i] = ma_f / ma_s if ma_s > eps else 1.0
-    return result
-
-
-def _up_vol_ratio_series_full(
-    volumes: np.ndarray,
-    opens: np.ndarray,
-    closes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> np.ndarray:
-    """result[i] == streaming _up_vol_ratio at bar i. O(n) via cumsum."""
-    n = len(volumes)
-    result = np.full(n, 0.5, dtype=float)
-    v = volumes.astype(float)
-    up_v = np.where(closes.astype(float) > opens.astype(float), v, 0.0)
-    cs_total = np.cumsum(v)
-    cs_up = np.cumsum(up_v)
-    for i in range(n):
-        w = min(window, i + 1)
-        start = i + 1 - w
-        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
-        up = cs_up[i] - (cs_up[start - 1] if start > 0 else 0.0)
-        if total > eps:
-            result[i] = up / total
-    return result
-
-
-def _vol_percentile_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_percentile at bar i. O(n x window)."""
-    n = len(volumes)
-    result = np.full(n, 0.5, dtype=float)
-    if n < 2:
-        return result
-    vols = volumes.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        hist = vols[i + 1 - w : i + 1]
-        result[i] = _percentile_rank(hist, float(hist[-1]))
-    return result
-
-
-def _vol_persistence_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_persistence at bar i. O(n x window)."""
-    n = len(volumes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    vols = volumes.astype(float)
-    for i in range(n):
-        w = min(window, i + 1)
-        if w < 2:
-            continue
-        hist = vols[i + 1 - w : i + 1]
-        result[i] = _pearson_acf1(hist)
-    return result
-
-
-def _vol_std_z_series_full(volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _vol_std_z at bar i. O(n) total."""
-    std_series = _rolling_std_series(volumes.astype(float), window)
-    return _fixed_window_zscore_series(std_series, window)
-
-
-def _mfi_series_full(
-    highs: np.ndarray,
-    lows: np.ndarray,
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-) -> np.ndarray:
-    """result[i] == streaming _mfi at bar i. O(n) via cumsum (rising-flag is
-    fixed per bar regardless of window; only the rolling sums need cumsum).
-    """
-    n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
-    if n < 2:
-        return result
-    tp = (highs.astype(float) + lows.astype(float) + closes.astype(float)) / 3.0
-    money_flow = tp * volumes.astype(float)
-    rising = np.zeros(n, dtype=bool)
-    rising[1:] = tp[1:] > tp[:-1]
-    rising_flow = np.where(rising, money_flow, 0.0)
-    cs_total = np.cumsum(money_flow)
-    cs_rising = np.cumsum(rising_flow)
-    for i in range(1, n):
-        w = min(window, i)
-        start = i - w + 1
-        total = cs_total[i] - (cs_total[start - 1] if start > 0 else 0.0)
-        rise = cs_rising[i] - (cs_rising[start - 1] if start > 0 else 0.0)
-        if total > eps:
-            result[i] = float(np.clip(100.0 * rise / total, 0.0, 100.0))
-    return result
-
-
-def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> np.ndarray:
-    """result[i] == streaming _obv_z at bar i. Index 0 padded with 0.0 (cold start)."""
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    diffs = np.diff(closes.astype(float))
-    signed_vol = np.where(
-        diffs > 0,
-        volumes[1:].astype(float),
-        np.where(diffs < 0, -volumes[1:].astype(float), 0.0),
-    )
-    obv = np.cumsum(signed_vol)
-    z = _fixed_window_zscore_series(obv, window)
-    return np.concatenate([[0.0], z])
 
 
 # ---------------------------------------------------------------------------
@@ -1710,47 +1252,6 @@ def _obv_z_series_full(closes: np.ndarray, volumes: np.ndarray, window: int) -> 
 # are O(1) per bar, computed inline in compute()/compute_batch() from
 # already-available parent scalars.
 # ---------------------------------------------------------------------------
-
-
-def _price_vol_corr_series_full(
-    closes: np.ndarray,
-    volumes: np.ndarray,
-    window: int,
-    eps: float = 1e-10,
-    abs_rets: np.ndarray | None = None,
-) -> np.ndarray:
-    """Rolling Pearson correlation between |log return| and volume over the
-    trailing `window` bars ending at bar i, for every i. O(n x window) --
-    same cost class as the pre-existing _high_low_corr_series_full; kept
-    intentionally consistent with that established rolling-correlation
-    pattern rather than introducing a one-off O(n) prefix-sum variant that
-    would diverge from it. Degeneracy handling (near-zero variance in either
-    slice -> 0.0) delegates to `safe_corr()`, the same shared helper
-    _high_low_corr_series_full already uses.
-
-    `abs_rets` may be passed in precomputed (the fast/slow calls in
-    `_precompute_series` share one `abs_rets` array rather than each
-    recomputing it from `closes`); if omitted it's derived here. Either way
-    it's an O(n) pass, and the loop only slices bounded `window`-sized chunks
-    of abs_rets/volumes per bar, so the per-bar cost is O(window), not O(i).
-    """
-    n = len(closes)
-    result = np.zeros(n, dtype=float)
-    if n < 2:
-        return result
-    if abs_rets is None:
-        abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), eps))))
-    vols = volumes.astype(float)
-    for i in range(n):
-        if i < window:
-            continue
-        start = i - window
-        rets_w = abs_rets[start:i]
-        vol_w = vols[start + 1 : i + 1]
-        if len(rets_w) < 2:
-            continue
-        result[i] = safe_corr(rets_w, vol_w)
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1872,11 +1373,18 @@ class _PrecomputedSeries:
     abs_ret_autocorr_1: np.ndarray
 
 
-# Price-origin series read from registry kernels (D-25). Volume-origin series move in the next
-# commit; until then `_precompute_series` computes them inline below.
-_PRICE_SERIES_FIELDS: tuple[str, ...] = tuple(
-    """atr_z gap_z momentum_z_fast momentum_z_mid momentum_z_slow momentum_reversal_z rsi_fast rsi_mid rsi_slow high_52w_dist ret_skew_z ret_acf1_z overnight_gap_z dist_from_high_fast dist_from_high_slow dist_from_low_fast dist_from_low_slow range_pct_fast range_pct_slow stoch_k_fast stoch_k_slow price_percentile_fast price_percentile_slow efficiency_ratio_fast efficiency_ratio_slow ret_kurtosis_z_fast ret_kurtosis_z_slow ret_autocorr_1 ret_autocorr_5 updown_ratio_fast updown_ratio_slow streak_z realized_var_ratio_fast realized_var_ratio_slow range_to_close true_range_pct vol_of_vol high_low_corr variance_ratio_fast variance_ratio_slow vol_asymmetry_z bb_pct_b_fast bb_pct_b_slow hv_z_fast hv_z_slow hv_ratio parkinson_vol_z garman_klass_vol_z yang_zhang_vol_z vol_velocity_z intraday_noise_ratio momentum_z_velocity_fast momentum_z_velocity_mid momentum_z_velocity_slow rsi_velocity_fast rsi_velocity_mid rsi_velocity_slow bars_since_high_fast bars_since_high_slow bars_since_low_fast bars_since_low_slow bars_since_52w_high bars_since_52w_low bars_since_extreme_move_fast bars_since_extreme_move_slow abs_ret_autocorr_1""".split()
+# Every _PrecomputedSeries field except atr_raw is a registry output of the same name; atr_raw is
+# the padded ATR intermediate without its leading pad row.
+_SERIES_FIELDS: tuple[str, ...] = tuple(
+    f.name for f in dataclasses.fields(_PrecomputedSeries) if f.name != "atr_raw"
 )
+_SERIES_KERNEL_OUTPUTS: tuple[str, ...] = (*_SERIES_FIELDS, "_atr_raw_padded")
+
+
+def _series_from_kernel_outputs(out: dict[str, np.ndarray]) -> _PrecomputedSeries:
+    return _PrecomputedSeries(
+        atr_raw=out["_atr_raw_padded"][1:], **{name: out[name] for name in _SERIES_FIELDS}
+    )
 
 
 def _precompute_series(
@@ -1887,142 +1395,18 @@ def _precompute_series(
     volumes: np.ndarray,
     config: FeatureFactoryConfig,
 ) -> _PrecomputedSeries:
-    """Bundle every series array for a bar window.
+    """Bundle every series array for a bar window from the registry's kernels.
 
-    Both compute() and compute_batch() delegate here so the series calls are never duplicated.
+    compute() delegates here; compute_batch runs the same kernels in one call together with its
+    scalar columns, so the series formulas have exactly one implementation.
     """
-    price = compute_kernels(
+    out = compute_kernels(
         default_registry(),
         {"open": opens, "high": highs, "low": lows, "close": closes, "volume": volumes},
         config,
-        outputs=[*_PRICE_SERIES_FIELDS, "_atr_raw_padded"],
+        outputs=list(_SERIES_KERNEL_OUTPUTS),
     )
-    vwap_dev_sigma_arr = _vwap_dev_sigma_series_full(opens, highs, lows, closes, volumes)
-    ofi_z_arr = _ofi_z_series_full(closes, highs, lows, volumes, config.ofi_zscore_window)
-    cvd_slope_z_arr = _cvd_slope_z_series_full(
-        closes, highs, lows, volumes, config.cvd_slope_bars, config.ofi_zscore_window
-    )
-    volume_z_arr = _volume_z_series_full(volumes, config.volume_zscore_window)
-    rel_volume_arr = _rel_volume_series_full(volumes, config.volume_zscore_window)
-    vol_spike_event_fast = rel_volume_arr > config.vol_spike_threshold
-    vol_spike_event_slow = rel_volume_arr > config.vol_spike_threshold
-    price_vol_abs_rets = np.abs(np.diff(np.log(np.maximum(closes.astype(float), 1e-10))))
-
-    return _PrecomputedSeries(
-        atr_raw=price["_atr_raw_padded"][1:],
-        atr_z=price["atr_z"],
-        gap_z=price["gap_z"],
-        momentum_z_fast=price["momentum_z_fast"],
-        momentum_z_mid=price["momentum_z_mid"],
-        momentum_z_slow=price["momentum_z_slow"],
-        momentum_reversal_z=price["momentum_reversal_z"],
-        rsi_fast=price["rsi_fast"],
-        rsi_mid=price["rsi_mid"],
-        rsi_slow=price["rsi_slow"],
-        high_52w_dist=price["high_52w_dist"],
-        ret_skew_z=price["ret_skew_z"],
-        ret_acf1_z=price["ret_acf1_z"],
-        overnight_gap_z=price["overnight_gap_z"],
-        dist_from_high_fast=price["dist_from_high_fast"],
-        dist_from_high_slow=price["dist_from_high_slow"],
-        dist_from_low_fast=price["dist_from_low_fast"],
-        dist_from_low_slow=price["dist_from_low_slow"],
-        range_pct_fast=price["range_pct_fast"],
-        range_pct_slow=price["range_pct_slow"],
-        stoch_k_fast=price["stoch_k_fast"],
-        stoch_k_slow=price["stoch_k_slow"],
-        price_percentile_fast=price["price_percentile_fast"],
-        price_percentile_slow=price["price_percentile_slow"],
-        efficiency_ratio_fast=price["efficiency_ratio_fast"],
-        efficiency_ratio_slow=price["efficiency_ratio_slow"],
-        ret_kurtosis_z_fast=price["ret_kurtosis_z_fast"],
-        ret_kurtosis_z_slow=price["ret_kurtosis_z_slow"],
-        ret_autocorr_1=price["ret_autocorr_1"],
-        ret_autocorr_5=price["ret_autocorr_5"],
-        updown_ratio_fast=price["updown_ratio_fast"],
-        updown_ratio_slow=price["updown_ratio_slow"],
-        streak_z=price["streak_z"],
-        realized_var_ratio_fast=price["realized_var_ratio_fast"],
-        realized_var_ratio_slow=price["realized_var_ratio_slow"],
-        range_to_close=price["range_to_close"],
-        true_range_pct=price["true_range_pct"],
-        vol_of_vol=price["vol_of_vol"],
-        high_low_corr=price["high_low_corr"],
-        variance_ratio_fast=price["variance_ratio_fast"],
-        variance_ratio_slow=price["variance_ratio_slow"],
-        vol_asymmetry_z=price["vol_asymmetry_z"],
-        bb_pct_b_fast=price["bb_pct_b_fast"],
-        bb_pct_b_slow=price["bb_pct_b_slow"],
-        hv_z_fast=price["hv_z_fast"],
-        hv_z_slow=price["hv_z_slow"],
-        hv_ratio=price["hv_ratio"],
-        parkinson_vol_z=price["parkinson_vol_z"],
-        garman_klass_vol_z=price["garman_klass_vol_z"],
-        yang_zhang_vol_z=price["yang_zhang_vol_z"],
-        vol_velocity_z=price["vol_velocity_z"],
-        intraday_noise_ratio=price["intraday_noise_ratio"],
-        momentum_z_velocity_fast=price["momentum_z_velocity_fast"],
-        momentum_z_velocity_mid=price["momentum_z_velocity_mid"],
-        momentum_z_velocity_slow=price["momentum_z_velocity_slow"],
-        rsi_velocity_fast=price["rsi_velocity_fast"],
-        rsi_velocity_mid=price["rsi_velocity_mid"],
-        rsi_velocity_slow=price["rsi_velocity_slow"],
-        bars_since_high_fast=price["bars_since_high_fast"],
-        bars_since_high_slow=price["bars_since_high_slow"],
-        bars_since_low_fast=price["bars_since_low_fast"],
-        bars_since_low_slow=price["bars_since_low_slow"],
-        bars_since_52w_high=price["bars_since_52w_high"],
-        bars_since_52w_low=price["bars_since_52w_low"],
-        bars_since_extreme_move_fast=price["bars_since_extreme_move_fast"],
-        bars_since_extreme_move_slow=price["bars_since_extreme_move_slow"],
-        abs_ret_autocorr_1=price["abs_ret_autocorr_1"],
-        rel_volume=rel_volume_arr,
-        ofi_z=ofi_z_arr,
-        cvd_slope_z=cvd_slope_z_arr,
-        volume_z=volume_z_arr,
-        vwap_dev_sigma=vwap_dev_sigma_arr,
-        amihud_illiq_z=_amihud_illiq_z_series_full(closes, volumes, config.amihud_zscore_window),
-        vol_acceleration=_vol_acceleration_series_full(volumes),
-        dollar_vol_z=_dollar_vol_z_series_full(volumes, closes, config.dollar_vol_window),
-        vol_range_ratio=_vol_range_ratio_series_full(
-            volumes, highs, lows, config.vol_range_ratio_window
-        ),
-        vol_trend_ratio=_vol_trend_ratio_series_full(
-            volumes, config.vol_trend_fast, config.vol_trend_slow
-        ),
-        up_vol_ratio_fast=_up_vol_ratio_series_full(
-            volumes, opens, closes, config.up_vol_ratio_fast
-        ),
-        up_vol_ratio_slow=_up_vol_ratio_series_full(
-            volumes, opens, closes, config.up_vol_ratio_slow
-        ),
-        vol_percentile=_vol_percentile_series_full(volumes, config.vol_percentile_window),
-        vol_persistence=_vol_persistence_series_full(volumes, config.vol_persistence_window),
-        vol_std_z=_vol_std_z_series_full(volumes, config.vol_std_window),
-        mfi_fast=_mfi_series_full(highs, lows, closes, volumes, config.mfi_fast),
-        mfi_slow=_mfi_series_full(highs, lows, closes, volumes, config.mfi_slow),
-        obv_z=_obv_z_series_full(closes, volumes, config.obv_window),
-        price_vol_corr_fast=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_fast, abs_rets=price_vol_abs_rets
-        ),
-        price_vol_corr_slow=_price_vol_corr_series_full(
-            closes, volumes, config.price_vol_corr_slow, abs_rets=price_vol_abs_rets
-        ),
-        vwap_dev_sigma_velocity=_vol_velocity_z_series_full(
-            vwap_dev_sigma_arr, config.vwap_velocity_window
-        ),
-        ofi_z_velocity=_vol_velocity_z_series_full(ofi_z_arr, config.ofi_velocity_window),
-        cvd_slope_z_velocity=_vol_velocity_z_series_full(
-            cvd_slope_z_arr, config.cvd_velocity_window
-        ),
-        volume_z_velocity=_vol_velocity_z_series_full(volume_z_arr, config.volume_velocity_window),
-        bars_since_vol_spike_fast=_bars_since_event_series_full(
-            vol_spike_event_fast, config.dist_window_fast
-        ),
-        bars_since_vol_spike_slow=_bars_since_event_series_full(
-            vol_spike_event_slow, config.dist_window_slow
-        ),
-    )
+    return _series_from_kernel_outputs(out)
 
 
 # Columns compute_batch reads from registry kernels instead of calling helpers inline.
@@ -2040,7 +1424,10 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
         "ret_lag_1 ret_lag_2 ret_lag_3 ret_lag_fast ret_lag_mid ret_lag_slow range_position "
         "vol_ratio cci_fast cci_mid cci_slow aroon_fast aroon_slow ret_vol_ratio_fast "
         "parkinson_vol_velocity garman_klass_vol_velocity yang_zhang_vol_velocity "
-        "momentum_vol_regime_product quarter_momentum_product variance_ratio_momentum_product"
+        "momentum_vol_regime_product quarter_momentum_product variance_ratio_momentum_product "
+        "informed_flow cmf ofi_div vol_body_product ret_vol_product_fast range_vol_product "
+        "up_vol_body_diff vol_skew_product breakout_volume_product illiquidity_momentum_product "
+        "efficiency_volume_product"
     ).split(),
 )
 
@@ -5642,30 +5029,23 @@ class FeatureFactory:
         closes = np.array([b["close"] for b in bars], dtype=float)
         volumes = np.array([b["volume"] for b in bars], dtype=float)
 
-        s = _precompute_series(opens, highs, lows, closes, volumes, config)
-        # Registry kernels (D-25) compute every delegated column once for the whole batch; the
-        # loop below reads row i. The registry is looked up here, never at import, so kernel
-        # origins cannot create an import cycle with this module.
+        # Registry kernels (D-25) compute every series and delegated column once for the whole
+        # batch; the loop below reads row i. The registry is looked up here, never at import,
+        # so kernel origins cannot create an import cycle with this module.
         k = compute_kernels(
             default_registry(),
             _batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
             config,
-            outputs=list(_DELEGATED_KERNEL_OUTPUTS),
+            outputs=list(dict.fromkeys((*_SERIES_KERNEL_OUTPUTS, *_DELEGATED_KERNEL_OUTPUTS))),
         )
+        s = _series_from_kernel_outputs(k)
 
-        # MIN_WINDOW for non-series features (cci_slow=40, aroon_slow=26, vol_ratio=21, cmf=20, range_position=20)
-        MIN_WINDOW = max(
-            config.cci_slow_period,
-            config.aroon_slow_period,
-            config.vol_long_bars,
-            config.cmf_period,
-        )
         results: list[tuple[datetime, FeatureVector]] = []
 
         for i in range(1, len(bars)):
             # Periodically refresh regime — use hurst_window (APR: feature.hurst.window,
-            # default 500) so HMM gets sufficient history. MIN_WINDOW (APR-derived, default 40) is only for
-            # bounded per-bar features (CCI, Aroon, etc.) below.
+            # default 500) so HMM gets sufficient history. The bounded per-bar features (CCI,
+            # Aroon, etc.) are registry kernels.
             if i % config.regime_cache_refresh_bars == 0:
                 regime_window_start = max(0, i - config.hurst_window)
                 cache.refresh_regime(bars[regime_window_start : i + 1], config)
@@ -5709,19 +5089,6 @@ class FeatureFactory:
                 cache.advance_bar(bar_ts, high_, low_, close_, vol_)
                 continue
 
-            # Build bounded window for non-series features. Sliced from the arrays
-            # already built once at the top of this function -- same source data,
-            # same indices, no re-extraction from the bar dicts (todo: perf pass
-            # 2026-07-27, found via cProfile: this was rebuilding 5 numpy arrays
-            # from scratch via Python list comprehension on every single bar).
-            window_start = max(0, i - MIN_WINDOW)
-            window_len = i + 1 - window_start
-            w_opens = opens[window_start : i + 1]
-            w_highs = highs[window_start : i + 1]
-            w_lows = lows[window_start : i + 1]
-            w_closes = closes[window_start : i + 1]
-            w_volumes = volumes[window_start : i + 1]
-
             # Series-backed features (index into precomputed series)
             atr_val = float(s.atr_raw[i - 1]) if i - 1 < len(s.atr_raw) else 0.0
             atr_z_val = float(s.atr_z[i]) if i < len(s.atr_z) else 0.0
@@ -5749,11 +5116,9 @@ class FeatureFactory:
             bar_close_pos_val = float(k["bar_close_pos"][i])
             range_position_val = float(k["range_position"][i])
 
-            informed_flow_val = _informed_flow(
-                open_, close_, atr_val, config.atr_normalization_min_pct
-            )
+            informed_flow_val = float(k["informed_flow"][i])
             vol_ratio_val = float(k["vol_ratio"][i])
-            cmf_val = _cmf(w_highs, w_lows, w_closes, w_volumes, config.cmf_period)
+            cmf_val = float(k["cmf"][i])
 
             # Session-level VP (Phase 163 Plan 02): tf=='1d' keeps neutral
             # defaults (a single daily bar has no intraday distribution); else
@@ -5964,7 +5329,7 @@ class FeatureFactory:
             aroon_slow_val = float(k["aroon_slow"][i])
 
             # OFI divergence
-            ofi_div_val = ofi_z_val - momentum_z_fast_val
+            ofi_div_val = float(k["ofi_div"][i])
 
             # Cross-asset: from pre-built causal dict (batch) or cache (live).
             # CrossAssetRecord is a NamedTuple (Phase 151 Plan 04) -- keyword
@@ -6042,7 +5407,7 @@ class FeatureFactory:
 
             # Renaissance Primitives (Phase 142.5 Plan 01). ret_lag_* index the full
             # `closes` array (view slice closes[:i+1], O(1)) rather than the bounded
-            # w_closes window, since ret_lag_slow's APR window can exceed MIN_WINDOW.
+            # w_closes window, since ret_lag_slow's APR window can exceed the bounded window.
             # overnight_gap_z reads the precomputed series (O(n) total, not O(n^2)).
             body_ratio_val = float(k["body_ratio"][i])
             upper_wick_ratio_val = float(k["upper_wick_ratio"][i])
@@ -6311,12 +5676,12 @@ class FeatureFactory:
             # computed scalar locals (O(1) per bar); the 2 rolling
             # correlations read the precomputed series (O(n) total, not
             # per-bar O(n x window)), guaranteeing exact parity with compute().
-            vol_body_product_val = _product(body_ratio_val, volume_z_val)
-            ret_vol_product_fast_val = _product(ret_lag_fast_val, volume_z_val)
-            range_vol_product_val = _product(range_vs_atr_val, volume_z_val)
-            up_vol_body_diff_val = _up_vol_body_diff(up_vol_ratio_fast_val, body_ratio_val)
+            vol_body_product_val = float(k["vol_body_product"][i])
+            ret_vol_product_fast_val = float(k["ret_vol_product_fast"][i])
+            range_vol_product_val = float(k["range_vol_product"][i])
+            up_vol_body_diff_val = float(k["up_vol_body_diff"][i])
             ret_vol_ratio_fast_val = float(k["ret_vol_ratio_fast"][i])
-            vol_skew_product_val = _product(ret_skew_z_val, volume_z_val)
+            vol_skew_product_val = float(k["vol_skew_product"][i])
             price_vol_corr_fast_val = (
                 float(s.price_vol_corr_fast[i]) if i < len(s.price_vol_corr_fast) else 0.0
             )
@@ -6331,14 +5696,14 @@ class FeatureFactory:
             # Interactions block immediately above.
             momentum_vol_regime_product_val = float(k["momentum_vol_regime_product"][i])
             momentum_trend_product_val = momentum_z_fast_val * adx_val
-            breakout_volume_product_val = dist_from_high_fast_val * volume_z_val
+            breakout_volume_product_val = float(k["breakout_volume_product"][i])
             reversion_hurst_product_val = momentum_reversal_z_val * hurst_val
             quarter_momentum_product_val = float(k["quarter_momentum_product"][i])
             variance_ratio_momentum_product_val = float(k["variance_ratio_momentum_product"][i])
-            illiquidity_momentum_product_val = amihud_illiq_z_val * momentum_z_fast_val
+            illiquidity_momentum_product_val = float(k["illiquidity_momentum_product"][i])
             yield_slope_momentum_product_val = yield_slope_z_val * momentum_z_fast_val
             vix_reversion_product_val = vix_z_val * momentum_reversal_z_val
-            efficiency_volume_product_val = efficiency_ratio_fast_val * volume_z_val
+            efficiency_volume_product_val = float(k["efficiency_volume_product"][i])
 
             # Canary / Control Predictors (Phase 143.1 Plan 02). Unlike the
             # live compute() path, `closes` here is the full-history array
