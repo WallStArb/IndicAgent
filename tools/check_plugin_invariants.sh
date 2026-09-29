@@ -61,6 +61,10 @@ case "$CHECK" in
         # contract (Kernel, CausalityViolation), named by the plan's D-25/D-27 interface, not
         # plugin classes.
         src/intelligence/features/registry.py|src/intelligence/features/causality_probe.py) continue ;;
+        # measure/ (186-10) is the pure IC measurement library (IcCell, TargetStack,
+        # MeasureParams, TermStructure), the names the plan pins for the 186-14 writer and the
+        # 186-20 parity harness; data and computation types, not plugin classes.
+        src/intelligence/measure/*) continue ;;
         src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
