@@ -314,3 +314,19 @@ real are CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV and EMR. C
   below 50%); 2021 and 2022 have one name below 50% each. So the defect is concentrated in recent
   years and a small set of names, not spread across the corpus. Only the 240 names with 5m are
   measurable. Redesign: `docs/plans/2026-09-29-intraday-bar-store-redesign.md`.
+
+## Reuse correction (2026-09-29, after the architecture review)
+
+Two earlier steps in this todo are already covered by phase 185 and are not new work:
+
+- Deleting 15m and 1h placeholders and repairing the 13 names is `BarDerivation --apply`
+  (`services/bar_derivation.py`, live rewrite is plan 185-12): it archives the stored rows,
+  verifies checksums, deletes the segment (placeholders included) and writes derived rows with
+  digests in one transaction per symbol.
+- 15m/1h gap detection on IBKR's own RTH grid and a parity check of fetched versus derived bars
+  are in 185-12.
+
+What is new here is 5m and 1m (185 never touches them), the answered-window plan, atomic
+request-and-bars persistence, coverage-aware derivation flags, and the completeness audit. All of
+it, with the DAG, is in `docs/plans/2026-09-29-intraday-bar-store-redesign.md`. 185-12 edits the
+same pipeline file as `--real-bars-only`, so plan 185-12 against the current file.

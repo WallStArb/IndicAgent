@@ -1,102 +1,174 @@
 # Intraday bar store redesign
 
 **Author:** Claude (Sonnet 5.5), 2026-09-29, at Brandon's request ("seems like that needs a
-redesign"), after the todo 462 measurements.
-**Status:** proposed. Amends phase 185 (D-15, plans 185-12, 185-20, 185-23); todo 462 is the
-working record.
-**Informed by:** `docs/plans/2026-09-26-daily-data-foundation.md` (D1, D2b, D-15),
+redesign", then the Renaissance, SoC, DAG and reuse brief), after the todo 462 measurements.
+**Status:** proposed. A delta on phase 185, not a parallel design: most of the target already
+exists in D-15, `BarDerivation` and plan 185-12. This doc names what 185 leaves open and what
+must change so the pieces compose. Working record: todo 462.
+**Informed by:** `docs/plans/2026-09-26-daily-data-foundation.md`,
+`.planning/phases/185-daily-data-foundation/185-12-PLAN.md`, `services/bar_derivation.py`,
 `.planning/todos/pending/462-stop-storing-synthetic-fill-bars-record-coverage-instead.md`.
 
-## What is wrong
+## What is wrong (measured 2026-09-29)
 
 The backfill pads `market_data_ohlcv` with flat placeholder bars for every calendar-grid slot the
-provider did not return, and treats a stored placeholder as proof the slot was handled. Measured
-2026-09-29:
+provider did not return, and treats a stored placeholder as proof the slot was handled.
 
-- 81% to 83% of intraday rows are placeholders (1m, 5m, 15m, 1h); 33% of 1d rows.
-- A placeholder is never replaced by a real bar (`ON CONFLICT DO NOTHING`), and gap detection
-  counts it as present, so a missing bar becomes a permanent, unflagged hole.
-- 155,022 15m slots hold real 5m volume while the 15m row is a placeholder (about 18.7B shares).
-  Concentrated, not uniform: 15m real coverage of 5m-active slots is 99.6% to 100.0% for 2007 to
-  2023, then 97.7% (2024), 94.5% (2025) and 98.4% (2026). Thirteen names (CCJ, COP, CRM, CTVA,
-  CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV, EMR) have every 2025 slot as a placeholder, and the
-  hole is in `feature_vectors`: CCJ has 3,875 15m rows in 2024 and none in 2025.
-- The fill's 1h grid (`:00` slots) disagrees with the provider's (a 09:30 half-hour bar, then
-  hourly), so 1h carries a second, structural defect.
+- 81% to 83% of intraday rows (1m, 5m, 15m, 1h) and 33% of 1d rows are placeholders.
+- A placeholder is never replaced (`ON CONFLICT DO NOTHING`) and gap detection counts it as
+  present, so a missing bar becomes a permanent, unflagged hole.
+- 155,022 15m slots hold real 5m volume behind a placeholder (about 18.7B shares). Real-15m share
+  of 5m-active slots: 99.6% to 100.0% for 2007 to 2023, then 97.7% (2024), 94.5% (2025), 98.4%
+  (2026). Thirteen names (CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV, EMR) have
+  every 2025 slot as a placeholder, and the hole is in `feature_vectors`. Only the 240 names with
+  5m are measurable.
+- The fill's `:00` 1h grid disagrees with the provider's (09:30 half-hour bar, then hourly).
 
-The 458 names without 5m history cannot be measured this way; assume the same mechanism.
+## Principles
 
-## First principles
+1. A stored bar is an assertion about the market: store only what the provider observed.
+2. Absence is typed and lives outside the bar table: not asked, asked and empty, market closed,
+   provider hole. "Asked and empty" is signal (no trade in the slot); a hole is a defect. The
+   placeholder erased the difference.
+3. Redundancy is error detection: independent measurements of one quantity reconcile, and a
+   mismatch alarms; first write wins is never the resolver.
+4. Canonical bars are a pure function of raw observations under a versioned rule; one writer per
+   table. A rule that cannot emit a placeholder makes the defect impossible.
+5. Holes do not propagate up the DAG. A derived bar built over an unanswered constituent is flagged
+   or withheld, never emitted as complete.
+6. Completeness is measured and exported per (symbol, timeframe, year), not assumed from row
+   counts.
 
-1. A stored bar is an assertion about the market. Store only what the provider observed.
-2. Absence is typed and lives outside the bar table: not asked, asked and empty, market closed
-   (session calendar), provider hole.
-3. Redundancy is error detection. Independent measurements of one quantity must reconcile, and a
-   mismatch raises an alarm; it is never resolved by first write wins.
-4. One writer per table, and canonical bars are a pure function of raw observations under a
-   versioned rule. A rule that cannot emit a placeholder makes the defect impossible.
-5. Completeness is a measured, exported property of every (symbol, timeframe, year), not an
-   assumption from row counts.
+## What 185 already decides (reuse, do not rebuild)
 
-## Target design
-
-| Layer | Content | Writer |
+| Need | Existing component | State |
 |---|---|---|
-| Requests | every provider request, window, outcome (`ohlcv_request`, live since 185-09) | the fetch |
-| Raw intraday | the provider's bars for 5m (and the sampled 15m/1h), real only, never padded | the fetch |
-| Canonical intraday | 5m as observed; 15m and 1h derived from 5m on session-anchored edges (D-15, `session_grid`) | the derivation (185-11/12) |
-| Coverage | union of answered request windows | read from `ohlcv_request`, no new table |
-| Checks | 15m and 1h fetched versus derived; intraday versus 1d volume; masked-slot count | the daily audit (185-23) |
-| Completeness | per (symbol, tf, year) share of expected session slots holding a real bar | audit, exported to Grafana and read as a D0 label |
+| Every request with window and outcome | `ohlcv_request` via `ObservationSink` (append-only COPY, restricted role) | live since 185-09 |
+| Raw answers kept | `ohlcv_observation` (1d), `ohlcv_intraday_raw_archive` (15m/1h) | tables live |
+| 15m/1h from 5m on session-anchored edges | `BarDerivation(BaseBatch)`: archive, checksum-verify, delete segment (placeholders included), write derived rows, digests, constituent flags, one transaction per symbol, dry run by default | built (185-11), live rewrite is 185-12 |
+| Session grid, digest, sessions | `src/intelligence/bars/` (`session_grid`, `digest`, `sessions`) | built |
+| Parity of fetched vs derived bars | 185-12 (owner decision 2026-09-27) | planned |
+| IBKR RTH grid for 15m/1h gap detection | 185-12 | planned |
+| Single-writer and lease guards | `test_market_data_ohlcv_writer_boundary`, `ibkr_history_stream` lease | 185-12 / live |
 
-Decisions this fixes:
+Consequence: for 15m and 1h the placeholder deletion and the 13-name repair are `BarDerivation
+--apply` (185-12), not new code. The HTF lane running now writes 15m/1h under pre-plan-12 code and
+is cut over by 185-12.
 
-- 5m is the one intraday fetch that feeds research. 15m and 1h are derived, never padded.
-- The HTF lane already running (15m, 1h) is kept as a reconciliation corpus for its names, not
-  extended. It is cheap next to 5m: observed request windows are up to 729 days at 15m and 1h,
-  against up to 88 days at 5m, roughly 17 requests per name against 80 or more.
-- The 5m lane stays paused until `--real-bars-only` is smoke tested, then runs with it (built,
-  todo 462).
-- 1d is out of this redesign; it stays on D2. The placeholder path for 1d goes with D2's writer.
+## What 185 leaves open (this doc's scope)
 
-## What it deletes
+1. 5m, 1m and 1d placeholders. 185 keeps the 1d fill (plan 23 still allows `synthetic_fill` in
+   1d) and never touches 5m or 1m (1m not sized). 5m alone holds about 362M placeholder rows for
+   the 240 names, three times the roughly 121M at 15m that 185-12 removes. 5m is the canonical
+   intraday input; its fill is the one that must go first.
+2. 5m gap detection depends on placeholders. Without an answered-window ledger a thin name's empty
+   slots are re-requested every run.
+3. Holes propagate. `BarDerivation` aggregates whatever 5m constituents exist; it does not ask
+   whether the missing ones were answered-empty or unfetched.
+4. Request record and bars persist in separate transactions, which is why the interim coverage
+   check needs a raw-table `EXISTS` corroboration (a failed insert can leave a window that looks
+   covered).
+5. "Missing" has several definitions: `detect_gaps` in the pipeline, the gap logic in `bar_auditor`,
+   and the placeholder presence both lean on. There is no shared one.
+6. No completeness metric; the 13-name hole was found by an ad hoc query.
 
-`normalize_bars` in the backfill store path and its one-time normalization mode; gap inference
-from the presence of a row; placeholder counting in `bar_auditor`; the `:00` fill grid for 1h; the
-tradeable view's `volume > 0` as a stand-in for "real" (a `source` predicate replaces it once no
-placeholders remain). Nothing is added as a new table.
+## Target DAG
 
-## Migration order (each step gated, none skipped)
+```
+provider (IBKR, one stream, lease)
+   |  async fetch: transport only
+   v
+[fetch] --request+bars, ONE transaction--> [persist: writer]
+                                              |-- ohlcv_request (coverage)
+                                              '-- 5m bars, real only (raw = canonical at 5m)
+[plan]  pure: expected slots - stored - answered windows - empty ranges = windows to ask
+   ^ reads coverage; shared by fetch and audit (one definition of "missing")
 
-1. `--real-bars-only` and answered-window gap detection (done, default off).
-2. Smoke test one 5m symbol; resume the 5m lane with the flag.
-3. Coverage seeding at (symbol, tf, day) from real bars only, so a session day with no real bar is
-   uncovered and gets asked again. Coverage before 2026-09-28 is otherwise absent.
-4. Derive 15m and 1h from 5m for the 240 names with 5m (D-15), starting with the 13 names and the
-   2024 to 2026 holes; compare against the fetched bars and record the disagreement rate.
-5. Digest check: the `bar_content_digest` of real rows is identical before and after, per symbol
-   and timeframe.
-6. Delete `source = 'synthetic_fill'` rows (compressed hypertable: decompress, delete, recompress,
-   bare `VACUUM`, the CI-enforced pattern).
-7. Remove the fill from the backfill code and the auditor; switch the tradeable view.
-8. Phase 186's `feature_vectors` rebuild reads the derived bars. It must not run over stored
-   15m/1h that still contain placeholders (185-12 already gates it; this makes the reason
-   concrete).
+5m real bars --> [derive: BarDerivation] --> 15m/1h derived + flags + digests
+                                              (withheld or flagged when a constituent slot is unanswered)
+raw 15m/1h fetch --> archive --> [parity audit vs derived]
+
+all of the above --> [audit: reconcile, completeness] --> report, alarms, D0 labels (writes nothing else)
+derived + 5m --> feature rebuild (186) --> research
+```
+
+One direction, no cycles, each node one job. Compute is pure (`plan`, `aggregate_session_grid`,
+`bar_content_digest`); persistence is a writer; transport is the fetch; the audit reads and
+reports.
+
+## Design changes
+
+1. **Atomic request and bars.** The persist node writes an answered request record and that
+   request's bars in one transaction, reusing the `ObservationSink` shape (buffer, COPY, restricted
+   role). Coverage is then true by construction, the interim raw-table `EXISTS` corroboration and
+   its allow-list entry are deleted, and the fetch and persist stages decouple.
+2. **One pure `plan` function**, in Ring 1 next to `sessions.py` (for example
+   `src/intelligence/bars/gap_plan.py`): expected slots, stored timestamps, answered windows and
+   empty ranges in, windows to ask out. The pipeline and `bar_auditor` both call it, so the
+   fetcher's plan and the auditor's alarm cannot disagree: a finished run must leave the plan
+   empty, and that is a testable invariant. The interim `AnsweredWindows` moves there; only the
+   SQL loader stays in the script layer.
+3. **Coverage-aware derivation.** `BarDerivation` marks a derived bar `partial_constituents` (the
+   existing `bar_quality_flag` mechanism) when a constituent 5m slot lies in an unanswered window,
+   and the tradeable view and the S0 panel treat that as NaN. Holes stop at the derivation edge.
+4. **Completeness as a first-class output.** The daily audit (185-23) computes, per (symbol,
+   timeframe, year), the share of expected session slots that are real or answered-empty, exports it
+   to Prometheus and Grafana, and feeds it to the D0 data-quality labels on research attempts.
+   Threshold in APR.
+5. **Typed absence feeds research.** Answered-empty slots are a real observation (no trade). The
+   panel reads them as a liquidity fact, distinct from NaN holes, instead of losing both to a
+   placeholder or a dropped row.
+6. **Kill the fill at 5m and 1m** (`--real-bars-only`, built), then delete the rows in a
+   compressed-hypertable migration (decompress, delete, recompress, bare `VACUUM`), after a digest
+   check that the real rows are unchanged. 1d follows D2.
+7. **Async where it pays.** Fetch is one stream by lease, so parallel fetch is not the lever.
+   Pipeline persistence behind a bounded queue so the fetch never waits on a write (todo 453
+   already scopes this; it composes with change 1). The nightly derivation stays a per-symbol
+   oneshot batch.
+
+## Biases and edge cases guarded
+
+- A complete-case filter that drops names with holes selects toward liquid names, because thin
+  names have legitimately empty slots. Coverage separates answered-empty from unfetched so thin
+  names are not dropped as incomplete.
+- Zero-volume as the definition of a placeholder (`volume > 0` in the tradeable view) is a proxy;
+  once no placeholders remain the predicate is `source`, not volume.
+- Half-days, DST days and the 09:30 half-hour bar are handled by the existing session grid; the
+  `plan` function uses it, not the on-the-hour UTC slots.
+- Derived versus fetched disagreement is recorded, never resolved silently.
+- Any research verdict on 15m or 1h that included the affected names and years is listed in the
+  research ledger with its sample loss.
+
+## Order
+
+1. Done: `--real-bars-only`, answered-window gap detection (default off).
+2. Smoke test one 5m symbol; resume the 5m lane with the flag (paused now).
+3. Extract `plan`; move the answered-window type; persist request and bars atomically (removes the
+   `EXISTS` check).
+4. 185-12 as planned, rebased over the pipeline changes above (it edits the same fetch loop).
+5. Coverage-aware derivation flag; completeness audit in 185-23.
+6. 5m and 1m placeholder deletion after the digest check; then the 1d fill with D2.
+
+## Conflicts and sequencing
+
+- 185-12 and the interim flag both edit `infrastructure_run_historical_pipeline.py`. 185-12 must
+  be planned against the current file, and after it lands 15m/1h fetches go to the archive, so the
+  flag then matters only for 5m and 1m.
+- The 5m lane restarts only with the flag, and the HTF chain must not be edited while its loop runs.
+- Phase 186's rebuild waits on 185-12 (already its precondition); this doc gives the measured reason.
 
 ## Success criteria
 
-- Zero `synthetic_fill` rows in `market_data_ohlcv` outside 1d, and no code path that writes one.
-- Completeness at or above the measured 2007 to 2023 level (99.6% or better) for every 5m-active
-  name and year, or a typed reason for each shortfall.
-- The 13 names' 2025 15m and 1h rebuilt from 5m, and `feature_vectors` for them complete.
-- A daily audit alarms on a coarse placeholder or hole over real finer-timeframe volume.
-- Research verdicts on 15m and 1h that touched the affected names and years are listed in the
-  research ledger with their sample loss.
+- No `synthetic_fill` rows in `market_data_ohlcv` outside 1d, and no code path writes one there.
+- Completeness at or above the 2007 to 2023 level (99.6%) for every 5m-active name and year, or a
+  typed reason for each shortfall.
+- The fetcher's plan is empty after a clean run and the auditor agrees, tested.
+- The 13 names' 15m and 1h are rebuilt and `feature_vectors` for them is complete.
+- A daily alarm fires on a coarse hole or placeholder over real finer-timeframe volume.
 
 ## Open questions
 
-- Whether 5m-derived 1h agrees with the provider's 1h at the 09:30 half-hour edge; measure before
-  the derived 1h replaces it (D-15 says it does).
+- Whether 5m-derived 1h agrees with the provider's 1h at the 09:30 half-hour edge (185-12's parity
+  check answers it).
 - How coverage seeding treats a session day where a thin name legitimately did not trade.
-- Whether the measured 2024 to 2026 concentration comes from one backfill event; the lane logs for
-  the affected names may say.
+- Whether the 2024 to 2026 concentration traces to one backfill event.
