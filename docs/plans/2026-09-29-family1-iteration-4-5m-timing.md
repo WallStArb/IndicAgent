@@ -51,6 +51,48 @@ names as the 15m sample, half-spread at each bar's open.
   net E ends the standalone slot book at any timing and leaves todo 458 (overlay) as the route.
 - Counted as one look on the 233-name set. No other timing grid is read.
 
-## Result
+## Result (2026-09-29)
 
-Pending.
+Reconciliation passed: the 5m path matches the raw 15m return on the same rows in every cell
+(opening, mean5 keep 0.5: 1.176 against 1.183 bp per session; closing 15:30 to close: 0.584
+against 0.591), and the residual-target rows reproduce iteration 3 (opening keep 0.5 mean5 1.44
+bp, E 0.72). Raw returns run slightly below the residual target at the open (1.18 against 1.44
+bp). Output: the script's JSON (git-ignored scratch); 5m spreads: 39 names, 30 sessions to
+2026-09-29, `docs/research/family1-spread-sample-5m-2026-09-29.csv`.
+
+Where the P&L accrues (E17, bp per session and E per unit traded):
+
+- Opening slot: all of it by 09:35. The 09:35 value is 101% to 109% of the 10:00 value in every
+  member and keep; the path is flat to 10:00 and gives back about a fifth just after 10:00. At
+  keep 0.1 (mean of the two members) E is 1.42 at 10:00, 1.17 at 10:15, 1.09 at 10:30, 1.01 at
+  11:00.
+- Closing slot: 59% to 69% of the 15:30-to-close P&L arrives after 15:50, and about 38% in the last
+  bar including the closing print.
+
+Rules as set:
+
+| Opening exit | E | half of median half-spread | net |
+|---|---|---|---|
+| 10:00 | 1.42 | 1.93 | -0.51 |
+| 10:15 | 1.17 | 1.51 | -0.35 |
+| 10:30 | 1.09 | 1.51 | -0.42 |
+| 11:00 | 1.01 | 1.21 | **-0.20** (chosen) |
+
+| Closing entry | E to close | half of median half-spread | net |
+|---|---|---|---|
+| 15:30 | 0.61 | 0.87 | -0.26 |
+| 15:40 | 0.52 | 0.74 | **-0.22** (chosen) |
+| 15:45 | 0.48 | 0.73 | -0.25 |
+| 15:50 | 0.39 | 0.82 | -0.43 |
+
+- Front-loading is above one half at the open (about 100%), so the opening edge depends on the
+  backtest's 09:30 price being a price one can trade at, which is unverified.
+- Net E is negative at the chosen timing in both slots, so by the rule set in advance the
+  standalone slot book ends at any timing on this grid, and todo 458 (overlay) stays the route.
+
+Reading (not a rule outcome): the edge sits at the two auction prints, a move away from the
+opening print and a move into the closing print, consistent with recurring per-name auction
+imbalances. An auction fill crosses no spread, and the opening slot's E is still about 1.0 at
+11:00, so an opening-auction-to-closing-auction hold would pay no half-spread on either leg. That
+is a new question outside this grid; it needs its own criteria before its curve is read, and a
+check that the stored open and close are the official auction prices.
