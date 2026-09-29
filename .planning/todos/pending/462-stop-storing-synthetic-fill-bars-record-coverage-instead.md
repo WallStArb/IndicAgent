@@ -229,3 +229,38 @@ the pipeline that skips the fill store, passed only by `intraday_5m_lane.sh` (no
 safe to edit; do not touch `intraday_chain.sh` or the HTF lane script while their loops run),
 and `detect_gaps` subtracting `ohlcv_request` windows with outcome `bars` or `no_data`. The
 default stays the old behaviour, so the running HTF loop is unchanged.
+
+## Interim built (2026-09-29): `--real-bars-only` and answered-request coverage
+
+Landed for the 5m lane, default off so the running HTF loop is unchanged:
+
+- `scripts/infrastructure/backfill/_request_coverage.py`: `load_answered_windows()` reads
+  `ohlcv_request` (SMART, TRADES, outcome `bars` or `no_data`) into merged windows;
+  `AnsweredWindows.covers()` tests a whole bar slot.
+- `detect_gaps(..., answered=)` drops covered slots; the pipeline's `--real-bars-only` skips
+  `normalize_bars` and turns coverage on for 5m, 15m and 1h on equities. 1d and other asset
+  classes stay on the placeholder path.
+- Correction to the design above: `detect_gaps` already uses session slots (04:00 to 20:00 ET,
+  holidays excluded), so closed hours were never gaps. What the placeholders hid was session
+  slots a thin name simply did not trade in; without a ledger those are re-requested every run.
+  The stored fill itself (`normalize_bars`) is 24x7, not session-aware.
+- `ohlcv_request.window_*` is not the range of the returned bars: IBKR durations round up to
+  whole days, so a short window's answer holds bars from before `window_start`. A `count >=
+  n_bars` corroboration failed on 195 of 400 requests for that reason; the shipped check is
+  "at least one stored row in the window". On live data 2,720 of 3,000 15m and 1h answers pass;
+  the 280 that do not are all windows under 1.5 days (recent gap fills), which are simply
+  re-requested.
+- Gate: targeted and full `tests/unit/` pass; ruff and black clean. `/simplify` and `/review`
+  were not run because they act on the shared checkout, which holds the phase 186 session's
+  uncommitted files; the diff was reviewed by hand instead. Run both before the follow-on work.
+
+Not done: the historical seeding (coverage before 2026-09-28 is absent from `ohlcv_request`),
+the 15m-versus-5m repair, the reconciliation check, and the placeholder-delete migration. The
+all-years mismatch measurement is in
+`/tmp/claude-1000/-home-bg-dev-indicagent/c9b4a667-5f8e-4a01-9a9a-c600d9f38b64/scratchpad/mismatch_results.tsv`
+(a scratch path, copy the result into this todo when it finishes).
+
+The 5m lane is paused by `logs/backfill_ops/PAUSE_5M` (checked in `intraday_5m_lane.sh`). To
+resume: pass `--real-bars-only` in the lane script, run one symbol as a smoke test, confirm no
+`synthetic_fill` rows for it and that its `ohlcv_request` windows cover the run, then delete
+the marker.

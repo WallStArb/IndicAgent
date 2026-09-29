@@ -224,6 +224,8 @@ def driven_main(monkeypatch, capsys):
         FakeSink.instances = []
         FakeProvider.instances = []
         marked: list[tuple[str, str]] = []
+        normalized: list[tuple[str, str]] = []
+        gap_calls: list[tuple[str, str, object]] = []
         mod = pipeline
 
         def _fake_acquire(settings, args):
@@ -272,12 +274,20 @@ def driven_main(monkeypatch, capsys):
         monkeypatch.setattr(
             mod,
             "detect_gaps",
-            lambda conn, symbol, tf, start, end, **k: [
-                (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC))
-            ],
+            lambda conn, symbol, tf, start, end, **k: (
+                gap_calls.append((symbol, tf, k.get("answered")))
+                or [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC))]
+            ),
+        )
+        monkeypatch.setattr(
+            mod, "load_answered_windows", lambda conn, symbol, tf: ("answered", symbol, tf)
         )
         monkeypatch.setattr(mod, "cluster_gap_ranges", lambda gaps, max_gap_days: list(gaps))
-        monkeypatch.setattr(mod, "normalize_bars", lambda bars, **k: list(bars))
+        monkeypatch.setattr(
+            mod,
+            "normalize_bars",
+            lambda bars, **k: (normalized.append((k["symbol"], k["timeframe"])), list(bars))[1],
+        )
         monkeypatch.setattr(
             mod, "store_bars", lambda conn, bars, symbol, tf, actual_symbol=None: len(bars)
         )
@@ -315,6 +325,8 @@ def driven_main(monkeypatch, capsys):
             provider=FakeProvider.instances[0] if FakeProvider.instances else None,
             acquire_seen=_fake_acquire.seen,
             marked=marked,
+            normalized=normalized,
+            gap_calls=gap_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
         )
@@ -363,6 +375,27 @@ def test_capture_and_checkpoint_wiring(driven_main):
         ("CCC", "15m"),
         ("CCC", "1d"),
     ]
+
+
+def test_default_keeps_the_placeholder_path(driven_main):
+    result = driven_main(_BASE_ARGS)
+    assert sorted(result.normalized) == [
+        (symbol, tf) for symbol in ("AAA", "BBB", "CCC") for tf in ("15m", "1d")
+    ]
+    assert all(answered is None for _, _, answered in result.gap_calls)
+
+
+def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
+    result = driven_main([*_BASE_ARGS, "--real-bars-only"])
+    assert result.exit_code is None
+    # 15m is stored as the provider returned it; 1d still goes through the fill (phase 185 D2).
+    assert sorted(result.normalized) == [("AAA", "1d"), ("BBB", "1d"), ("CCC", "1d")]
+    answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
+    for symbol in ("AAA", "BBB", "CCC"):
+        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
+        assert answered[(symbol, "1d")] is None
+    # Every (symbol, tf) still completes: the store path reports the real bars it wrote.
+    assert len(result.marked) == 6
 
 
 def test_priority_tier_flag_reaches_the_lease(driven_main):
