@@ -439,7 +439,7 @@ Every gate below was run on main `a64af3d1a96b3f7ed16a0be95f507fcc30e592be` with
 | Item | Value |
 |---|---|
 | Code commit (harness + every reused production module) | `a64af3d1a` |
-| S0 snapshot | `logs/phase179/official/snapshot_97719acbf3dd7ee3` (content hash in the name, reproduced by a second build from main) |
+| S0 snapshot | `snapshot_97719acbf3dd7ee3` (content hash in the name, reproduced by a second build from main). The snapshot directory (`logs/phase179/official/`, 1.4 GB, untracked) was deleted 2026-09-29; the hash and the frozen `rerun_e14` stage payloads remain the identity record. |
 | APR snapshot | 830 keys from the snapshot's `meta.json`, sha256 of the sorted JSON `13b36ae4934357da` |
 | Excluded-feature list | `scripts/analysis/sleeve_walk_forward/excluded_features.json`, sha256 `868852dc16426ab2`: exclude tier = 3 fitted-HMM columns, `amihud_illiq_z` and `illiquidity_momentum_product` (todo 390), `earnings_season_flag`, `days_since_quarter_end`, the 6 velocity features (todo 421); control tier = the 5 canaries. Deprecated-feature decision: moot (12.1) |
 | S1 (the refits the run uses) | `s1_347f0d6a08139c88.pkl`: 15 refits in 24.5 min on 4 workers under load (one refit alone: 83 s) |
