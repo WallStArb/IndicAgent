@@ -115,3 +115,44 @@ may need fills for a live series and are the open question for step 4.
 Remaining: read those normalizer callers, then steps 3 to 6. Steps 5 and 6 should wait on the
 gap-detection replacement, because removing the fill without the ledger makes `_detect_gaps`
 re-request every closed slot forever.
+
+## Step 3 design: the coverage ledger (2026-09-29)
+
+Decision: a DB table, a new one. `backfill_status` is one row per (symbol, tf) with a
+`fetch_complete` flag, so it cannot say which windows were fetched. `ohlcv_empty_history` records
+only the leading empty range before a provider's first bar. Neither answers "was this window
+fetched, and did it return anything", which is what `_detect_gaps` currently infers from the
+presence of placeholder rows.
+
+Why DB and not a file: the coverage row must commit in the same transaction as the bars of the
+chunk it describes (a coverage row without its bars is a silent loss; bars without a row are only
+a re-fetch); the auditor, the backfill lanes and the nightly all read it; concurrent lanes would
+race on a file. Size is tiny (one row per fetched chunk, merged when adjacent), so not a
+hypertable, no compression, no VACUUM concern.
+
+Shape, named per the naming system as `ohlcv_fetch_coverage` (confirm against
+`docs/foundation/naming-system.md` before the migration):
+
+- key: `(symbol, timeframe, provider, window_start)`; columns `window_end`, `n_real_bars`,
+  `outcome` (`ok` | `empty` | `error`), `fetched_at`, `provenance` (`fetch` | `seeded`).
+- `window_end` is exclusive; adjacent `ok` and `empty` windows for the same key are merged by the
+  writer.
+- an `empty` window (fetched, provider returned nothing) is what stops closed weekends, holidays
+  and pre-listing ranges from being re-requested; it replaces the placeholder-as-bookkeeping role.
+  It is a window, not a slot, so no session calendar is needed for gap detection.
+- gap detection = requested range minus the union of `ok` and `empty` windows. `error` windows
+  are never subtracted.
+- single writer: the historical pipeline's store path, one connection in main (workers stay
+  compute-only). The chunk persist and its coverage row go in one transaction.
+
+Seeding (the open part). Seeding coverage from existing rows would legitimize the bad windows
+(the MSFT 2024-08-06 hole is inside a stored run). Recommended: seed at (symbol, tf, day)
+granularity from real bars only, `provenance='seeded'`, and treat a session day with no real bar
+as uncovered so it is re-fetched. Separately, repair the known masked 15m slots (35,454 in 2024
+alone) by deriving 15m from real 5m where 5m exists, using the `bar_derivation` path, and
+re-fetching the rest; the 5m-against-15m mismatch is the detector. Decide whether seeding needs
+the session calendar (`src/` has none for this yet; check before assuming).
+
+Steps 4 to 6 change accordingly: read-time grid only for the API route and any streaming
+consumer step 1 shows needs it; stop calling `normalize_bars()` in backfill only after the
+ledger drives `_detect_gaps`; the delete migration runs last and ends with a bare `VACUUM`.
