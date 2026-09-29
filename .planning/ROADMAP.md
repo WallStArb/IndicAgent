@@ -300,6 +300,9 @@ Plans:
 - [x] 186-10 measure package: proposer, IC term structure, monitoring and `regime_volatility`
   disclosure as pure functions over `ic_math`, targets from `panel.forward_returns` on chunked S0
   panels ending at `oos_start` (D-17, D-18, D-19); merged 2026-09-29 (`78edf26e5`)
+- [x] 186-11 ctx-writer retirement: `indicagent-ctx-writer` uninstalled, `context_writer`, `topic_ctx_snapshot`
+  and dead `FeatureRepository` deleted, `ctx_events` and `ctx_snapshots` dropped by migration 388,
+  unit deny-listed in the registry-integrity test; merged 2026-09-29 (`79a59913a`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
