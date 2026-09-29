@@ -677,7 +677,7 @@ def _gap_z_series_full(
         # gap_z_core[k - 1]. Writing gap_z_core[k] to bar k read bar k + 1's open into row k
         # (one-bar lookahead) and left the last row at 0.0 (186-12).
         result = np.zeros(n, dtype=float)
-        if len(gap_z_core) > 2:
+        if len(gap_z_core) >= 2:
             result[2:] = gap_z_core[1:]
 
     return result

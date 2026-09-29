@@ -381,3 +381,31 @@ def test_gap_z_last_row_is_computed():
     """The old alignment left the final row at 0.0 in every batch (and in every live call)."""
     config = ref.build_config(MANIFEST["synthetic_config"])
     assert _gap_z(config)[-1] != 0.0
+
+
+def _short_gap_z(n):
+    from src.intelligence.features.kernels.price import _gap_z_series_full
+
+    opens = np.array([100.0, 101.0, 103.0, 102.0])[:n]
+    closes = np.array([100.5, 101.5, 102.0, 102.5])[:n]
+    atr_raw = np.full(n - 1, 2.0)
+    atr_valid = np.ones(n, dtype=bool)
+    return _gap_z_series_full(opens, closes, atr_raw, atr_valid, 20), opens, closes
+
+
+def test_gap_z_three_bars_scores_bar_two_gap():
+    """gap at bar 2 = (103 - 101.5) / 2 = 0.75; z against [0, 0.75] (mean .375, sd .375)
+    is exactly +1. It was 0.0 before the guard admitted len == 2."""
+    out, _, _ = _short_gap_z(3)
+    assert out[:2].tolist() == [0.0, 0.0]
+    assert out[2] == pytest.approx(1.0)
+
+
+def test_gap_z_four_bars_scores_each_gap_against_its_trailing_window():
+    out, opens, closes = _short_gap_z(4)
+    g = [(opens[2] - closes[1]) / 2.0, (opens[3] - closes[2]) / 2.0]  # 0.75, 0.0
+    series = np.array([0.0, g[0], g[1]])
+    expected_bar3 = (series[2] - series[:3].mean()) / series[:3].std()
+    assert out[2] == pytest.approx(1.0)
+    assert out[3] == pytest.approx(expected_bar3)
+    assert np.isfinite(out).all()
