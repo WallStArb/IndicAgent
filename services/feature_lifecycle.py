@@ -1,40 +1,28 @@
 #!/usr/bin/env python3
 """Feature Lifecycle -- oneshot that governs concept_registry (domain='feature') status from
-persisted IC evidence (todo 402).
+data quality (phase 186 plan 09, D-30; design 11).
 
 DAG position:
 
-    ic_engine -> feature_ic_scores -> feature_lifecycle -> concept_evaluation,
-                                                           concept_registry -> ensemble_trainer
+    feature_vectors -> feature_lifecycle -> concept_evaluation, concept_registry
 
-Reads only persisted rows, so any training window can be re-evaluated without an IC
-recompute, and a change to lifecycle logic never moves ic_engine's code_content_key.
-Design: docs/plans/2026-09-24-feature-lifecycle-evidence-ledger-design.md.
+A governed feature (status active or shadow_only) is computed, valid and covered:
 
-One run evaluates one training window:
+1. computed: at least one non-NULL value at some tf over the span;
+2. valid: no NaN or infinite value at any tf;
+3. covered: at each tf where it is populated, the share of symbols (with rows at that tf)
+   carrying a value reaches feature.coverage.min_symbol_fraction.
 
-1. Load the window's POOLED cells at each tf's mid lookahead, joined to the champion
-   ensemble weights pinned in APR (alpha.ensemble.weight_version). Those weights come from
-   an earlier ensemble_trainer run, an input artifact rather than this run's output, so
-   each run's DAG stays acyclic; the feedback is a time-lagged recurrence.
-2. Flag material failures per cell: a failing cell (CI on its own side includes zero, or
-   fails FDR) whose standing weight times its nearest CI bound exceeds
-   alpha.decay.materiality_threshold.
-3. Regime-shift guard, stratified per (tf, regime_group) over active concepts' cells. A
-   stratum holds only against its own calibrated history (todo 407: no level-based rail;
-   `uncalibrated` strata never hold). The window's verdict is 'hold_high' if any stratum
-   holds. History counts one observation per earlier window, never the current window.
-4. One concept_evaluation row per evaluated feature: active concepts are judged on the
-   material-fail fraction, shadow_only concepts on the FDR pass fraction. The primary key
-   (concept, window, evidence_key) makes a rerun on identical evidence a no-op.
-5. Derive each concept's status from the ledger with derive_feature_transition (pure) and
-   apply any transition through ConceptRegistryService.record_transition.
+The span is [window_end - lookback_days, window_end). The statistic is defined once in
+src/intelligence/statistics/feature_coverage.py. Weak standalone IC never changes status
+(design 11, E15: data that could contain signal stays computed).
 
-The decision rules are the ones the retired ic_engine post-run hook used (todo 144 guard,
-todo 323 demotion hysteresis, Component E sign awareness). What changed is how evidence is
-counted: streaks run over distinct windows, so recomputing a window's IC after a code
-change never counts as new evidence, and a window evaluated before a feature existed is
-evaluated again once it does.
+One run evaluates one window and writes one concept_evaluation row per governed feature;
+the primary key (concept, window, evidence_key) makes a rerun on identical evidence a
+no-op. Status is derived from the ledger with derive_feature_transition (pure) and applied
+through ConceptRegistryService.record_transition: active -> shadow_only after
+demotion_min_consecutive failing windows (data_quality_fail), shadow_only -> active after
+recovery_min_passes passing windows (data_quality_restored).
 
 Usage:
     python services/feature_lifecycle.py --training-window-end 2025-12-24T05:15:00+00:00
@@ -48,10 +36,11 @@ import dataclasses
 import hashlib
 import json
 import sys
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -61,27 +50,39 @@ import structlog
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
-from services._batch_utils import load_apr_dict_async, lookahead_by_scale_from_apr  # noqa: E402
+from services._batch_utils import load_apr_dict_async  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
 from src.core.integrity_monitor import emit_integrity_fact_async  # noqa: E402
-from src.core.service_utils import parse_iso_ts, parse_training_window_end  # noqa: E402
+from src.core.service_utils import parse_training_window_end  # noqa: E402
 from src.intelligence.concept_registry_service import (  # noqa: E402
     ConceptRegistryService,
     TransitionResult,
 )
-from src.intelligence.statistics.ic_math import evaluate_guard_fraction  # noqa: E402
-from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
+from src.intelligence.statistics.feature_coverage import (  # noqa: E402
+    FeatureTfQuality,
+    QualityVerdict,
+    SymbolCounts,
+    feature_quality_verdict,
+    feature_tf_quality,
+)
 from src.observability.metrics import (  # noqa: E402
-    ALPHA_DECAY_CELLS_FLAGGED,
-    ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL,
-    IC_ENGINE_LAST_RUN_AGE_DAYS,
+    FEATURE_LIFECYCLE_TRANSITIONS,
+    FEATURE_QUALITY_FAILURES,
 )
 from src.observability.otel import OTelInitError, init_otel_providers  # noqa: E402
 
 _logger = structlog.get_logger()
 
 _DOMAIN = "feature"
+_GOVERNED_STATUSES = ("active", "shadow_only")
+
+# Postgres caps a SELECT target list at 1664 entries; each feature takes two aggregates
+# (populated count, non-finite count) plus symbol and total rows. An engine limit, not a
+# tunable.
+_MAX_FEATURES_PER_QUERY = 800
+
+_FLOAT_TYPES = {"real": "real", "double precision": "double precision"}
 
 
 # ---------------------------------------------------------------------------
@@ -91,39 +92,22 @@ _DOMAIN = "feature"
 
 @dataclass(frozen=True)
 class LifecycleConfig:
-    """APR snapshot. Keys are the ones ic_engine's retired hook read, unchanged."""
+    """APR snapshot: the four feature.* keys seeded by migration 387."""
 
-    lookahead_mid: dict[str, int]
-    materiality_threshold: float
-    guard_band_z: float
-    guard_min_cells: int
-    guard_min_history: int
-    guard_history_window: int
-    recovery_min_observations: int
-    recovery_min_passes: int
+    coverage_floor: float
+    lookback_days: int
     demotion_min_consecutive: int
-    meta_fdr_min_fraction: float
-    staleness_alert_days: int
-    weight_version: str
-    sign_symmetric: bool
+    recovery_min_passes: int
 
     @classmethod
     def from_apr(cls, cfg: dict[str, Any]) -> LifecycleConfig:
-        lookaheads = lookahead_by_scale_from_apr(lambda key, default: int(_cfg(cfg, key, default)))
         return cls(
-            lookahead_mid=lookaheads["mid"],
-            materiality_threshold=_cfg(cfg, "alpha.decay.materiality_threshold", 0.005),
-            guard_band_z=_cfg(cfg, "alpha.decay.guard_band_z", 3.0),
-            guard_min_cells=_cfg(cfg, "alpha.decay.guard_min_cells", 100),
-            guard_min_history=_cfg(cfg, "alpha.decay.guard_min_history", 8),
-            guard_history_window=_cfg(cfg, "alpha.decay.guard_history_window", 20),
-            recovery_min_observations=_cfg(cfg, "alpha.decay.recovery_min_observations", 2000),
-            recovery_min_passes=_cfg(cfg, "alpha.decay.recovery_min_passes", 2),
-            demotion_min_consecutive=_cfg(cfg, "alpha.decay.demotion_min_consecutive", 2),
-            meta_fdr_min_fraction=_cfg(cfg, "alpha.ensemble.meta_fdr_min_fraction", 0.50),
-            staleness_alert_days=_cfg(cfg, "alpha.ic.staleness_alert_days", 5),
-            weight_version=_cfg(cfg, "alpha.ensemble.weight_version", "v1"),
-            sign_symmetric=_cfg(cfg, "alpha.ensemble.sign_symmetric", False),
+            coverage_floor=float(_cfg(cfg, "feature.coverage.min_symbol_fraction", 0.95)),
+            lookback_days=int(_cfg(cfg, "feature.lifecycle.lookback_days", 90)),
+            demotion_min_consecutive=int(
+                _cfg(cfg, "feature.lifecycle.demotion_min_consecutive", 2)
+            ),
+            recovery_min_passes=int(_cfg(cfg, "feature.lifecycle.recovery_min_passes", 1)),
         )
 
     def rule_fingerprint(self) -> dict[str, Any]:
@@ -138,186 +122,31 @@ class LifecycleConfig:
 # ---------------------------------------------------------------------------
 
 
-def flag_cell(cell: dict[str, Any], config: LifecycleConfig) -> None:
-    """Set _failed, _material_fail and _signed_margin on one cell in place.
-
-    Sign-aware under config.sign_symmetric (Component E, todo 094): a cell fails only if
-    its CI on its OWN side includes zero, or it fails FDR -- the unconditional
-    `ic_ci_lower <= 0` predicate is always true for a contrarian (ic_sign=-1) and would
-    demote every one of them. _signed_margin is the distance from zero on the cell's own
-    side, so one min() ranks a feature's mixed-sign cells consistently.
-    """
-    lower, upper, sign = cell["ic_ci_lower"], cell["ic_ci_upper"], cell["ic_sign"]
-    if config.sign_symmetric:
-        failed = (
-            (sign == 1 and lower is not None and lower <= 0)
-            or (sign == -1 and upper is not None and upper >= 0)
-            or not cell["passes_fdr"]
-        )
-        nearest_bound = lower if sign == 1 else upper
-        signed_margin = sign * nearest_bound if nearest_bound is not None else None
-    else:
-        failed = (lower is not None and lower <= 0) or not cell["passes_fdr"]
-        nearest_bound = lower
-        signed_margin = lower
-    cell["_failed"] = failed
-    cell["_material_fail"] = failed and (
-        cell["standing_weight"] * abs(nearest_bound or 0.0) > config.materiality_threshold
-    )
-    cell["_signed_margin"] = signed_margin
-
-
-def guard_cells(cells: Iterable[dict[str, Any]], status_by_feature: dict[str, str]) -> list[dict]:
-    """Cells the regime-shift guard evaluates: active concepts only, and never the
-    earnings-season measurement scope (Phase 176 Plan 04, T-176-04-03) -- a calendar
-    stratum has no market_regimes row by construction and would raise a permanent false
-    regime_label_unmapped warning. Keyed on the regime_scope value, not label strings."""
-    return [
-        c
-        for c in cells
-        if status_by_feature.get(c["feature_name"]) == "active"
-        and c["regime_scope"] != "earnings_season"
+def feature_evidence(
+    per_tf: Sequence[FeatureTfQuality], verdict: QualityVerdict
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The sorted per-tf statistics a verdict read, and the ledger detail built from them."""
+    rows = [
+        {
+            "tf": q.tf,
+            "n_symbols_with_rows": q.n_symbols_with_rows,
+            "n_symbols_populated": q.n_symbols_populated,
+            "symbol_coverage": q.symbol_coverage,
+            "non_null_share": q.non_null_share,
+            "n_rows": q.n_rows,
+            "n_non_finite": q.n_non_finite,
+            "check": verdict.per_tf.get(q.tf),
+        }
+        for q in sorted(per_tf, key=lambda q: q.tf)
     ]
+    return rows, {"failures": list(verdict.failures), "per_tf": rows}
 
 
-@dataclass(frozen=True)
-class StratumGuard:
-    status: str  # ok / hold_high / alert_low / insufficient_cells / uncalibrated
-    band_lo: float | None
-    band_hi: float | None
-    n_history: int
-
-
-def stratum_guard(
-    fail_fraction: float, n_cells: int, history: Sequence[float], config: LifecycleConfig
-) -> StratumGuard:
-    """One (tf, regime_group) stratum's regime-shift verdict (todo 407).
-
-    A dislocation is a CHANGE, so a stratum is judged only against its own history:
-    the empirical band (median +/- band_z robust sigma of its earlier windows). Until a
-    stratum has guard_min_history earlier windows it is `uncalibrated`: recorded as
-    calibration history, never hold-authoritative. There is deliberately no level-based
-    rail. The fail fraction is dominated by statistical power (a few-instrument
-    cross-asset slice fails ~99% of cells in a normal window, equity ~95%), so a fixed
-    ceiling reads low power as dislocation. Without calibration a single bad window is
-    still covered by demotion hysteresis (demotion_min_consecutive windows)."""
-    if n_cells < config.guard_min_cells:
-        return StratumGuard("insufficient_cells", None, None, len(history))
-    if len(history) < config.guard_min_history:
-        return StratumGuard("uncalibrated", None, None, len(history))
-    # rails at [0, 1] are no constraint: the band is the stratum's own history alone. A
-    # zero-spread history returns the full [0, 1] band, i.e. no claim either way.
-    verdict = evaluate_guard_fraction(
-        fail_fraction,
-        n_cells,
-        history,
-        min_cells=config.guard_min_cells,
-        min_history=config.guard_min_history,
-        band_z=config.guard_band_z,
-        rail_lo=0.0,
-        rail_hi=1.0,
-    )
-    return StratumGuard(verdict.status, verdict.band_lo, verdict.band_hi, verdict.n_history)
-
-
-def window_guard_status(stratum_statuses: Sequence[str]) -> str:
-    """Collapse per-stratum verdicts to the window's: any hold holds the whole window
-    (one dislocated market/horizon is reason to distrust every decision from it).
-    Strata that make no claim (insufficient_cells, uncalibrated) never hold."""
-    if "hold_high" in stratum_statuses:
-        return "hold_high"
-    if "alert_low" in stratum_statuses:
-        return "alert_low"
-    if "ok" in stratum_statuses:
-        return "ok"
-    if "uncalibrated" in stratum_statuses:
-        return "uncalibrated"
-    return "insufficient_cells"
-
-
-@dataclass(frozen=True)
-class Verdict:
-    passed: bool
-    statistic: float
-    n_cells: int
-    n_observations: int
-    detail: dict[str, Any]
-
-
-def feature_verdict(status: str, cells: list[dict], config: LifecycleConfig) -> Verdict | None:
-    """One feature's verdict for one window, or None for a status the lifecycle does not
-    govern (candidate, deprecated).
-
-    active: passes while the material-fail fraction stays below 1 - meta_fdr_min_fraction.
-    shadow_only: passes when the FDR pass fraction reaches meta_fdr_min_fraction.
-    Cells arrive already flagged by flag_cell.
-    """
-    if not cells:
-        return None
-    n_observations = sum(c["n_independent"] or 0 for c in cells)
-    if status == "active":
-        n_material = sum(1 for c in cells if c["_material_fail"])
-        demote_fraction = n_material / len(cells)
-        worst = min(
-            cells,
-            key=lambda c: c["_signed_margin"] if c["_signed_margin"] is not None else 0.0,
-        )
-        # Report the bound that decided "worst": ic_ci_upper for a contrarian under the flag.
-        worst_bound = (
-            worst["ic_ci_upper"]
-            if config.sign_symmetric and worst["ic_sign"] == -1
-            else worst["ic_ci_lower"]
-        )
-        return Verdict(
-            passed=demote_fraction < 1.0 - config.meta_fdr_min_fraction,
-            statistic=demote_fraction,
-            n_cells=len(cells),
-            n_observations=n_observations,
-            detail={
-                "n_material": n_material,
-                "worst_tf": worst["tf"],
-                "worst_regime": worst["regime"],
-                "worst_ic_sharpe_hac": worst["ic_sharpe_hac"],
-                "worst_ci_bound": worst_bound,
-            },
-        )
-    if status == "shadow_only":
-        pass_fraction = sum(1 for c in cells if c["passes_fdr"]) / len(cells)
-        return Verdict(
-            passed=pass_fraction >= config.meta_fdr_min_fraction,
-            statistic=pass_fraction,
-            n_cells=len(cells),
-            n_observations=n_observations,
-            detail={},
-        )
-    return None
-
-
-_EVIDENCE_CELL_FIELDS = (
-    "tf",
-    "regime",
-    "regime_scope",
-    "lookahead_bars",
-    "ic_ci_lower",
-    "ic_ci_upper",
-    "ic_sign",
-    "passes_fdr",
-    "n_independent",
-    "ic_sharpe_hac",
-    "standing_weight",
-)
-
-
-def evidence_key(status: str, guard_status: str, cells: list[dict], rule: dict[str, Any]) -> str:
-    """sha256 over everything a verdict read: the evaluated status, the window's guard
-    verdict, the decision-rule parameters and the canonical sorted cell rows."""
-    rows = sorted(
-        [c[f] for f in _EVIDENCE_CELL_FIELDS] for c in cells
-    )  # tf/regime/scope/lookahead lead each row, so the sort is total
+def evidence_key(status: str, rule: dict[str, Any], per_tf_rows: list[dict[str, Any]]) -> str:
+    """sha256 over everything a verdict read: the evaluated status, the decision-rule
+    parameters and the canonical sorted per-tf statistics."""
     payload = json.dumps(
-        {"status": status, "guard": guard_status, "rule": rule, "cells": rows},
-        sort_keys=True,
-        default=str,
+        {"status": status, "rule": rule, "per_tf": per_tf_rows}, sort_keys=True, default=str
     )
     return hashlib.sha256(payload.encode()).hexdigest()
 
@@ -340,7 +169,6 @@ class Evaluation:
 class LifecycleGate:
     demotion_min_consecutive: int
     recovery_min_passes: int
-    recovery_min_observations: int
 
 
 @dataclass(frozen=True)
@@ -349,7 +177,6 @@ class Transition:
     reason: str
     evidence: Evaluation
     n_windows: int
-    n_observations: int
 
 
 def latest_per_window(evaluations: Iterable[Evaluation]) -> list[Evaluation]:
@@ -381,15 +208,13 @@ def derive_feature_transition(
     """Pure: the transition the ledger calls for, or None.
 
     Evidence counted: evaluations made under the current status since the concept entered
-    it (a transition resets the evidence bar in both directions -- todo 323 and Fable N1),
-    latest per window, held windows excluded (a regime-shift hold is not evidence either
-    way). Streaks are trailing runs over those windows ordered by window_end.
+    it (a transition resets the evidence bar in both directions), latest per window.
+    Streaks are trailing runs over those windows ordered by window_end.
 
     active -> shadow_only: the trailing failing streak reaches demotion_min_consecutive.
-    shadow_only -> active: the trailing passing streak reaches recovery_min_passes AND the
-    observations summed over the counted windows reach recovery_min_observations.
+    shadow_only -> active: the trailing passing streak reaches recovery_min_passes.
     """
-    if current_status not in ("active", "shadow_only"):
+    if current_status not in _GOVERNED_STATUSES:
         return None
     relevant = [
         e
@@ -397,69 +222,57 @@ def derive_feature_transition(
         if e.evaluated_status == current_status
         and (status_since is None or e.evaluated_at >= status_since)
     ]
-    windows = [w for w in latest_per_window(relevant) if w.guard_status != "hold_high"]
+    windows = latest_per_window(relevant)
     if not windows:
         return None
-    n_observations = sum(w.n_observations for w in windows)
     if current_status == "active":
         fails = _trailing_run(windows, passed=False)
         if fails >= gate.demotion_min_consecutive:
-            return Transition(
-                "shadow_only", "demotion_performance", windows[-1], fails, n_observations
-            )
+            return Transition("shadow_only", "data_quality_fail", windows[-1], fails)
         return None
     passes = _trailing_run(windows, passed=True)
-    if passes >= gate.recovery_min_passes and n_observations >= gate.recovery_min_observations:
-        return Transition("active", "promotion", windows[-1], passes, n_observations)
+    if passes >= gate.recovery_min_passes:
+        return Transition("active", "data_quality_restored", windows[-1], passes)
     return None
 
 
-def staleness(
-    prior_run: datetime | None, this_run: datetime | None, alert_days: int
-) -> tuple[int, bool]:
-    """Gap in days between the previous IC run and this one, and whether it exceeds
-    alpha.ic.staleness_alert_days (LIFECYCLE-05). Alert-only: never triggers a recompute.
-    Detects a too-long gap retroactively, at the next run. (0, False) when either end is
-    unknown (first run, missing manifest)."""
-    if prior_run is None or this_run is None:
-        return 0, False
-    age_days = (this_run - prior_run).days
-    return age_days, age_days > alert_days
+def quote_feature_column(name: str, known_columns: dict[str, str]) -> str:
+    """A double-quoted identifier for a column that information_schema reported; anything
+    else raises, so no concept name ever reaches SQL unchecked."""
+    if name not in known_columns:
+        raise ValueError(f"{name!r} is not a feature_vectors column")
+    return '"' + name.replace('"', '""') + '"'
+
+
+def build_tf_query(columns: Sequence[str], known_columns: dict[str, str]) -> str:
+    """One aggregate query for one tf: per symbol, the total rows and, per feature column,
+    the populated count (cN) and the NaN or infinite count (xN, float columns only)."""
+    parts = ["symbol", "count(*) AS n_rows"]
+    for i, name in enumerate(columns):
+        col = quote_feature_column(name, known_columns)
+        parts.append(f"count({col}) AS c{i}")
+        float_type = _FLOAT_TYPES.get(known_columns[name])
+        if float_type is None:
+            parts.append(f"0::bigint AS x{i}")
+        else:
+            parts.append(
+                f"count(*) FILTER (WHERE {col} IN "
+                f"('NaN'::{float_type}, 'Infinity'::{float_type}, '-Infinity'::{float_type})) "
+                f"AS x{i}"
+            )
+    return (
+        f"SELECT {', '.join(parts)} FROM feature_vectors "
+        "WHERE tf = $1 AND bar_ts >= $2 AND bar_ts < $3 AND symbol IS NOT NULL GROUP BY symbol"
+    )
 
 
 # ---------------------------------------------------------------------------
 # SQL
 # ---------------------------------------------------------------------------
 
-# Pinned to each tf's mid lookahead in SQL ($3/$4 are parallel tf / lookahead arrays),
-# so one (feature, tf, regime) yields exactly one cell. Earnings-season rows are
-# measurement-only (Phase 176: no lifecycle decision from them) and, being untracked by
-# ic_cell_fingerprints, can be stale relative to the current code, so they never enter.
-_CELLS_SQL = """
-    SELECT fis.feature_name, fis.tf, fis.regime, fis.regime_scope, fis.lookahead_bars,
-           fis.ic_ci_lower, fis.ic_ci_upper, fis.ic_sign, fis.passes_fdr,
-           fis.n_independent, fis.ic_sharpe_hac,
-           COALESCE(ew.weight, 0.0) AS standing_weight
-    FROM feature_ic_scores fis
-    JOIN unnest($3::text[], $4::int[]) AS mid(tf, lookahead_bars)
-      ON mid.tf = fis.tf AND mid.lookahead_bars = fis.lookahead_bars
-    LEFT JOIN ensemble_weights ew
-           ON ew.symbol = 'UNIVERSE'
-          AND ew.tf = fis.tf
-          AND ew.regime = fis.regime
-          AND ew.feature_name = fis.feature_name
-          AND ew.weight_version = $1
-    WHERE fis.symbol = 'POOLED'
-      AND fis.is_pooled = true
-      AND fis.regime != '_pooled'
-      AND fis.regime_scope <> 'earnings_season'
-      AND fis.training_window_end = $2
-"""
-
-# JOIN concept_gate: excludes migration 284's gate-less tombstone rows, the same
-# population ic_engine's alignment gate and _watermark_concept_registry use.
+# JOIN concept_gate: excludes migration 284's gate-less tombstone rows.
 _CONCEPTS_SQL = """
-    SELECT r.concept_id, r.name, r.status, g.min_demotion_consecutive,
+    SELECT r.concept_id, r.name, r.status,
            (SELECT max(t.triggered_at) FROM concept_transition_log t
              WHERE t.concept_id = r.concept_id AND t.to_status = r.status) AS status_since
     FROM concept_registry r
@@ -467,26 +280,14 @@ _CONCEPTS_SQL = """
     WHERE r.domain = $1
 """
 
-# Calibration history for every stratum in one pass: one observation per EARLIER window
-# (its latest fact), so replaying a window neither double-counts it nor lets it
-# calibrate against later windows.
-_GUARD_HISTORY_SQL = """
-    SELECT subject, metric_value FROM (
-        SELECT subject, metric_value,
-               row_number() OVER (PARTITION BY subject ORDER BY training_window_end DESC) AS rn
-        FROM (
-            SELECT DISTINCT ON (subject, training_window_end)
-                   subject, training_window_end, metric_value
-            FROM integrity_monitor
-            WHERE monitor_type = 'ic_lifecycle'
-              AND metric_name = 'guard_fail_fraction'
-              AND subject = ANY($1::text[])
-              AND training_window_end < $2
-            ORDER BY subject, training_window_end, evaluated_at DESC
-        ) per_window
-    ) ranked
-    WHERE rn <= $3
-    ORDER BY subject, rn
+_COLUMNS_SQL = """
+    SELECT column_name, data_type FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'feature_vectors'
+"""
+
+_TFS_SQL = """
+    SELECT DISTINCT tf FROM feature_vectors
+    WHERE bar_ts >= $1 AND bar_ts < $2 AND tf IS NOT NULL
 """
 
 # Re-seeing identical evidence refreshes evaluated_at, so it becomes the latest row for
@@ -500,15 +301,14 @@ _UPSERT_EVALUATION_SQL = """
     DO UPDATE SET evaluated_at = EXCLUDED.evaluated_at, run_ref = EXCLUDED.run_ref
 """
 
-_PRIOR_EVALUATION_SQL = """
-    SELECT max(evaluated_at) FROM concept_evaluation WHERE domain = $1 AND evaluated_at < $2
-"""
-
+# Only rows this rule wrote (detail carries per_tf): the IC-era rows share the table and the
+# window keys but measured something else, so they are never evidence here.
 _LOAD_EVALUATIONS_SQL = """
     SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
            evaluated_at, statistic, detail
     FROM concept_evaluation
     WHERE domain = $1
+      AND detail ? 'per_tf'
 """
 
 
@@ -526,6 +326,8 @@ class LedgerRow:
     evidence_key: str
     evaluation: Evaluation
     n_cells: int
+    per_tf: tuple[FeatureTfQuality, ...]
+    verdict: QualityVerdict
 
 
 @dataclass(frozen=True)
@@ -540,16 +342,14 @@ class WindowPlan:
     """Everything one window's evaluation decides, computed without writing anything.
     A dry run stops at the plan; a real run persists it with _apply."""
 
-    cells: list[dict]
-    guard_facts: list[tuple[str, float, float, bool]]  # subject, fraction, bound, passed
-    guard_status: str
+    n_tfs: int
     rows: list[LedgerRow]
     transitions: list[PlannedTransition]
 
 
 class FeatureLifecycle(BaseBatch):
     job_name = "feature-lifecycle"
-    compute_version = "1.0.0"
+    compute_version = "2.0.0"
 
     def __init__(self, db_dsn: str, training_window_end: datetime, dry_run: bool = False) -> None:
         super().__init__(db_dsn)
@@ -565,11 +365,9 @@ class FeatureLifecycle(BaseBatch):
             config = LifecycleConfig.from_apr(await load_apr_dict_async(conn))
             plan = await self._plan(conn, config)
             if plan is None:
-                # No POOLED cells for this window (per-symbol-only run, equity model off).
-                # Nothing is written, so a later run with cells evaluates it normally.
-                self.logger.info(
-                    "feature_lifecycle.no_cells", training_window_end=str(self._window)
-                )
+                # No feature_vectors rows in the span: nothing is measured or written, so a
+                # later run with data evaluates the window normally.
+                self.logger.info("feature_lifecycle.no_data", training_window_end=str(self._window))
                 return
             if self._dry_run:
                 for p in plan.transitions:
@@ -588,38 +386,50 @@ class FeatureLifecycle(BaseBatch):
                 "feature_lifecycle.window_evaluated",
                 training_window_end=str(self._window),
                 dry_run=self._dry_run,
-                n_cells=len(plan.cells),
-                n_material=sum(1 for c in plan.cells if c["_material_fail"]),
-                guard_status=plan.guard_status,
+                n_tfs=plan.n_tfs,
                 n_evaluated=len(plan.rows),
                 n_failed=sum(1 for r in plan.rows if not r.evaluation.passed),
                 n_transitions=n_applied,
+                failures=self._failure_counts(plan),
             )
 
     # -- plan (reads only) ----------------------------------------------------
 
     async def _plan(self, conn: asyncpg.Connection, config: LifecycleConfig) -> WindowPlan | None:
-        tfs = sorted(config.lookahead_mid)
-        cells = [
-            dict(r)
-            for r in await conn.fetch(
-                _CELLS_SQL,
-                config.weight_version,
-                self._window,
-                tfs,
-                [config.lookahead_mid[tf] for tf in tfs],
-            )
-        ]
-        if not cells:
+        span_end = self._window
+        span_start = span_end - timedelta(days=config.lookback_days)
+        tfs = sorted(r["tf"] for r in await conn.fetch(_TFS_SQL, span_start, span_end))
+        if not tfs:
             return None
-        for cell in cells:
-            flag_cell(cell, config)
 
         concepts = {r["name"]: dict(r) for r in await conn.fetch(_CONCEPTS_SQL, _DOMAIN)}
-        guard_facts, guard_status = await self._plan_guard(
-            conn, cells, {n: c["status"] for n, c in concepts.items()}, config
-        )
-        rows = self._plan_rows(cells, concepts, guard_status, config)
+        governed = sorted(n for n, c in concepts.items() if c["status"] in _GOVERNED_STATUSES)
+        # dtype from the schema, never inferred from rows
+        known_columns = {r["column_name"]: r["data_type"] for r in await conn.fetch(_COLUMNS_SQL)}
+        computable = [n for n in governed if n in known_columns]
+
+        per_feature: dict[str, list[FeatureTfQuality]] = defaultdict(list)
+        for tf in tfs:
+            started = time.monotonic()
+            counts: dict[str, list[SymbolCounts]] = defaultdict(list)
+            for start in range(0, len(computable), _MAX_FEATURES_PER_QUERY):
+                chunk = computable[start : start + _MAX_FEATURES_PER_QUERY]
+                sql = build_tf_query(chunk, known_columns)
+                for row in await conn.fetch(sql, tf, span_start, span_end):
+                    for i, name in enumerate(chunk):
+                        counts[name].append(
+                            SymbolCounts(row["symbol"], row["n_rows"], row[f"c{i}"], row[f"x{i}"])
+                        )
+            for name in computable:
+                per_feature[name].append(feature_tf_quality(name, tf, counts[name]))
+            self.logger.info(
+                "feature_lifecycle.tf_measured",
+                tf=tf,
+                n_features=len(computable),
+                seconds=round(time.monotonic() - started, 2),
+            )
+
+        rows = self._plan_rows(governed, concepts, per_feature, tfs, config)
 
         # Derive over the whole ledger plus this window's rows (the newest evaluations),
         # so a replay of any window takes effect.
@@ -640,18 +450,10 @@ class FeatureLifecycle(BaseBatch):
         for row in rows:
             evaluations[row.concept_id].append(row.evaluation)
 
+        gate = LifecycleGate(config.demotion_min_consecutive, config.recovery_min_passes)
         transitions = []
-        for name, concept in sorted(concepts.items()):
-            # A non-NULL concept_gate.min_demotion_consecutive overrides the APR default.
-            gate = LifecycleGate(
-                demotion_min_consecutive=(
-                    concept["min_demotion_consecutive"]
-                    if concept["min_demotion_consecutive"] is not None
-                    else config.demotion_min_consecutive
-                ),
-                recovery_min_passes=config.recovery_min_passes,
-                recovery_min_observations=config.recovery_min_observations,
-            )
+        for name in governed:
+            concept = concepts[name]
             transition = derive_feature_transition(
                 concept["status"],
                 concept["status_since"],
@@ -660,122 +462,47 @@ class FeatureLifecycle(BaseBatch):
             )
             if transition is not None:
                 transitions.append(PlannedTransition(name, concept["status"], transition))
-        return WindowPlan(cells, guard_facts, guard_status, rows, transitions)
-
-    async def _plan_guard(
-        self,
-        conn: asyncpg.Connection,
-        cells: list[dict],
-        status_by_feature: dict[str, str],
-        config: LifecycleConfig,
-    ) -> tuple[list[tuple[str, float, float, bool]], str]:
-        """Stratified per (tf, regime_group), self-calibrating, two-sided (todo 144).
-        Returns one guard_fail_fraction fact per stratum -- the calibration history --
-        and the window-level verdict."""
-        active_cells = guard_cells(cells, status_by_feature)
-        if not active_cells:
-            return [], window_guard_status([])
-        rows = await conn.fetch("SELECT DISTINCT regime_group, regime_label FROM market_regimes")
-        group_by_label = {r["regime_label"]: r["regime_group"] for r in rows}
-
-        strata: dict[str, list[dict]] = defaultdict(list)
-        for cell in active_cells:
-            group = group_by_label.get(cell["regime"], "_unmapped")
-            strata[f"tf={cell['tf']}|group={group}"].append(cell)
-        n_unmapped = sum(len(v) for k, v in strata.items() if k.endswith("|group=_unmapped"))
-        if n_unmapped:
-            # A regime label market_regimes does not know is a data-contract violation
-            # (stale/renamed label), surfaced whether or not its stratum trips the guard.
-            self.logger.warning(
-                "feature_lifecycle.regime_label_unmapped",
-                n_cells=n_unmapped,
-                training_window_end=str(self._window),
-            )
-
-        history: dict[str, list[float]] = defaultdict(list)
-        for r in await conn.fetch(
-            _GUARD_HISTORY_SQL, list(strata), self._window, config.guard_history_window
-        ):
-            history[r["subject"]].append(r["metric_value"])
-
-        facts, statuses = [], []
-        for subject, stratum in sorted(strata.items()):
-            fail_fraction = sum(1 for c in stratum if c["_failed"]) / len(stratum)
-            verdict = stratum_guard(fail_fraction, len(stratum), history[subject], config)
-            statuses.append(verdict.status)
-            # threshold_value: whichever band bound is nearer (the one a small drift
-            # violates next), NULL when the stratum makes no claim; passed is false only
-            # for the two tails.
-            nearer_bound = (
-                None
-                if verdict.band_hi is None
-                else (
-                    verdict.band_hi
-                    if abs(fail_fraction - verdict.band_hi) <= abs(fail_fraction - verdict.band_lo)
-                    else verdict.band_lo
-                )
-            )
-            facts.append(
-                (
-                    subject,
-                    fail_fraction,
-                    nearer_bound,
-                    verdict.status not in ("hold_high", "alert_low"),
-                )
-            )
-            if verdict.status in ("hold_high", "alert_low"):
-                self.logger.warning(
-                    (
-                        "feature_lifecycle.regime_shift_hold"
-                        if verdict.status == "hold_high"
-                        else "feature_lifecycle.guard_suspicious_pass_rate"
-                    ),
-                    subject=subject,
-                    fraction=fail_fraction,
-                    band_lo=verdict.band_lo,
-                    band_hi=verdict.band_hi,
-                    n_history=verdict.n_history,
-                    training_window_end=str(self._window),
-                )
-        return facts, window_guard_status(statuses)
+        return WindowPlan(len(tfs), rows, transitions)
 
     def _plan_rows(
         self,
-        cells: list[dict],
+        governed: Sequence[str],
         concepts: dict[str, dict],
-        guard_status: str,
+        per_feature: dict[str, list[FeatureTfQuality]],
+        tfs: Sequence[str],
         config: LifecycleConfig,
     ) -> list[LedgerRow]:
-        """One ledger row per governed feature."""
-        cells_by_feature: dict[str, list[dict]] = defaultdict(list)
-        for cell in cells:
-            cells_by_feature[cell["feature_name"]].append(cell)
+        """One ledger row per governed feature; a concept with no feature_vectors column has
+        no per-tf results and so fails not_computed."""
         rule = config.rule_fingerprint()
         now = datetime.now(UTC)
         rows = []
-        for name, feature_cells in sorted(cells_by_feature.items()):
-            concept = concepts.get(name)
-            if concept is None:
-                continue
-            verdict = feature_verdict(concept["status"], feature_cells, config)
-            if verdict is None:
-                continue
+        for name in governed:
+            concept = concepts[name]
+            per_tf = tuple(per_feature.get(name, ()))
+            verdict = feature_quality_verdict(per_tf, config.coverage_floor)
+            per_tf_rows, detail = feature_evidence(per_tf, verdict)
+            if not per_tf:
+                detail["column_missing"] = True
             rows.append(
                 LedgerRow(
                     concept_id=concept["concept_id"],
                     name=name,
-                    evidence_key=evidence_key(concept["status"], guard_status, feature_cells, rule),
+                    evidence_key=evidence_key(concept["status"], rule, per_tf_rows),
                     evaluation=Evaluation(
                         window_end=self._window,
                         evaluated_status=concept["status"],
                         passed=verdict.passed,
-                        n_observations=verdict.n_observations,
-                        guard_status=guard_status,
+                        n_observations=sum(q.n_rows for q in per_tf),
+                        # the regime-shift guard is gone; 'ok' satisfies migration 357's CHECK
+                        guard_status="ok",
                         evaluated_at=now,
                         statistic=verdict.statistic,
-                        detail=verdict.detail,
+                        detail=detail,
                     ),
-                    n_cells=verdict.n_cells,
+                    n_cells=len(tfs),
+                    per_tf=per_tf,
+                    verdict=verdict,
                 )
             )
         return rows
@@ -785,38 +512,33 @@ class FeatureLifecycle(BaseBatch):
     async def _apply(
         self, conn: asyncpg.Connection, plan: WindowPlan, config: LifecycleConfig
     ) -> int:
-        """Persist a plan: guard facts, the decay fact, ledger rows, transitions, metrics.
-        Returns the number of transitions applied."""
-        await self._emit_staleness(conn, config)
-        for cell in plan.cells:
-            if cell["_material_fail"]:
-                ALPHA_DECAY_CELLS_FLAGGED.add(
-                    1,
-                    {
-                        "feature_name": cell["feature_name"],
-                        "tf": cell["tf"],
-                        "regime": cell["regime"],
-                    },
+        """Persist a plan: quality facts, ledger rows, transitions, metrics. Returns the
+        number of transitions applied."""
+        n_failed = 0
+        for r in plan.rows:
+            if r.verdict.passed:
+                continue
+            n_failed += 1
+            for tf, coverage, check in self._failing_tfs(r):
+                FEATURE_QUALITY_FAILURES.add(1, {"tf": tf, "check": check})
+                await emit_integrity_fact_async(
+                    conn,
+                    "feature_quality",
+                    f"{r.name}|tf={tf}",
+                    "symbol_coverage",
+                    coverage,
+                    config.coverage_floor,
+                    False,
+                    self._window,
                 )
-        for subject, fraction, bound, passed in plan.guard_facts:
-            await emit_integrity_fact_async(
-                conn,
-                "ic_lifecycle",
-                subject,
-                "guard_fail_fraction",
-                fraction,
-                bound,
-                passed,
-                self._window,
-            )
         await emit_integrity_fact_async(
             conn,
-            "ic_lifecycle",
+            "feature_quality",
             None,
-            "decay_cells_flagged",
-            float(sum(1 for c in plan.cells if c["_material_fail"])),
-            config.materiality_threshold,
-            True,
+            "n_features_failed",
+            float(n_failed),
+            0.0,
+            n_failed == 0,
             self._window,
         )
         run_ref = f"feature_lifecycle:{datetime.now(UTC).isoformat()}"
@@ -846,7 +568,6 @@ class FeatureLifecycle(BaseBatch):
         n_applied = 0
         for p in plan.transitions:
             t = p.transition
-            detail = t.evidence.detail or {}
             result = await registry.record_transition(
                 conn,
                 domain=_DOMAIN,
@@ -854,52 +575,46 @@ class FeatureLifecycle(BaseBatch):
                 from_status=p.from_status,
                 to_status=t.to_status,
                 reason=t.reason,
-                gate_metric=detail.get("worst_ic_sharpe_hac", t.evidence.statistic),
-                gate_n=float(t.n_observations),
-                ci_lower=detail.get("worst_ci_bound"),
+                gate_metric=t.evidence.statistic,
+                gate_n=float(t.evidence.n_observations),
                 corpus_build_ref=str(t.evidence.window_end),
-                # Promotion is earned by the FDR pass fraction over counted windows --
-                # the executed multiplicity correction the L-6 guard asks callers to attest.
-                fdr_passed=True if t.to_status == "active" else None,
+                fdr_passed=None,
                 notes=f"{t.n_windows} consecutive windows (feature_lifecycle)",
             )
             if result is TransitionResult.APPLIED:
                 n_applied += 1
-                ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL.add(1, {"feature_name": p.name})
+                FEATURE_LIFECYCLE_TRANSITIONS.add(1, {"to_status": t.to_status, "reason": t.reason})
         return n_applied
 
-    async def _emit_staleness(self, conn: asyncpg.Connection, config: LifecycleConfig) -> None:
-        """The ic_engine manifest holds only the latest run, which in the pipeline is the
-        run just finished. The previous run is found in the ledger instead: the newest
-        evaluation stamped before this IC run completed."""
-        try:
-            ts = CorpusManifest.read(CorpusManifest.DEFAULT_MANIFEST_DIR, "ic_engine").get(
-                "timestamp"
-            )
-        except FileNotFoundError:
-            ts = None
-        this_run = parse_iso_ts(ts)
-        prior_run = (
-            await conn.fetchval(_PRIOR_EVALUATION_SQL, _DOMAIN, this_run) if this_run else None
-        )
-        age_days, alert = staleness(prior_run, this_run, config.staleness_alert_days)
-        IC_ENGINE_LAST_RUN_AGE_DAYS.set(age_days)
-        if alert:
-            self.logger.warning(
-                "feature_lifecycle.ic_gap_exceeded",
-                gap_days=age_days,
-                threshold=config.staleness_alert_days,
-            )
+    @classmethod
+    def _failure_counts(cls, plan: WindowPlan) -> dict[str, int]:
+        counts: dict[str, int] = defaultdict(int)
+        for r in plan.rows:
+            for tf, _, check in cls._failing_tfs(r) if not r.verdict.passed else ():
+                counts[f"{check}|tf={tf}"] += 1
+        return dict(sorted(counts.items()))
+
+    @staticmethod
+    def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
+        """(tf, coverage, check) for each failing (feature, tf); a not_computed feature is
+        one entry at tf 'all'."""
+        if "not_computed" in row.verdict.failures:
+            return [("all", 0.0, "not_computed")]
+        return [
+            (q.tf, q.symbol_coverage, row.verdict.per_tf[q.tf])
+            for q in row.per_tf
+            if row.verdict.per_tf.get(q.tf) in ("coverage", "non_finite")
+        ]
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Feature Lifecycle -- ledger-derived feature governance"
+        description="Feature Lifecycle -- data-quality feature governance"
     )
     parser.add_argument(
         "--training-window-end",
         required=True,
-        help="Training window to evaluate; same value ic_engine ran with (ISO-8601, UTC).",
+        help="Window to evaluate; the span ends here (ISO-8601, UTC).",
     )
     parser.add_argument(
         "--dry-run",

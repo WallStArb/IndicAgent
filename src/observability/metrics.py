@@ -1256,25 +1256,16 @@ COUNTERFACTUAL_TRACKER_IC_ROW_AGE_SECONDS = _meter.create_gauge(
 )
 
 # ---------------------------------------------------------------------------
-# Feature lifecycle (LIFECYCLE-03/04/05), emitted by services/feature_lifecycle.py
+# Feature lifecycle (data quality, 186-09), emitted by services/feature_lifecycle.py
 # ---------------------------------------------------------------------------
 
-ALPHA_DECAY_CELLS_FLAGGED = counter(
-    "alpha_decay_cells_flagged",
-    "Count of (feature, tf, regime) cells this run whose material-fail condition "
-    "(standing_weight x |ic_ci_lower| > alpha.decay.materiality_threshold, AND failed) "
-    "was true. Incremented per material-fail cell by the feature_lifecycle node.",
+FEATURE_QUALITY_FAILURES = counter(
+    "feature_quality_failures_total",
+    "Count of failing (feature, tf) data-quality checks per real feature_lifecycle run. "
+    "Attribute check is coverage, non_finite or not_computed. Zero on a dry run.",
 )
-ALPHA_DECAY_ENSEMBLE_REBUILD_TOTAL = counter(
-    "alpha_decay_ensemble_rebuild_total",
-    "Count of real concept_registry (domain='feature') transitions "
-    "(active->shadow_only demotion, shadow_only->active promotion) written by "
-    "the feature_lifecycle node. Zero on a dry run.",
-)
-IC_ENGINE_LAST_RUN_AGE_DAYS = point_gauge(
-    "ic_engine_last_run_age_days",
-    "Days between the previous ic_engine run and the latest one, set once per "
-    "feature_lifecycle run (the previous run is the newest concept_evaluation row stamped "
-    "before the latest ic_engine manifest). Diagnostic only (Fable N6) -- detects a "
-    "too-long gap retroactively, never triggers a recompute. 0 when either end is unknown.",
+FEATURE_LIFECYCLE_TRANSITIONS = counter(
+    "feature_lifecycle_transitions_total",
+    "Count of concept_registry (domain='feature') transitions written by the "
+    "feature_lifecycle node, by to_status and reason. Zero on a dry run.",
 )

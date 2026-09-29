@@ -24,11 +24,14 @@ import structlog
 
 _logger = structlog.get_logger()
 
-# Automated transition reasons (the feature_lifecycle node). 'operator_override' is the
-# only path to 'deprecated' (ops_concept_registry_override.py).
-_AUTOMATED_REASONS = frozenset({"promotion", "demotion_performance"})
+# Automated transition reasons (the feature_lifecycle node writes data_quality_fail and
+# data_quality_restored, migration 387). 'operator_override' is the only path to
+# 'deprecated' (ops_concept_registry_override.py).
+_AUTOMATED_REASONS = frozenset(
+    {"promotion", "demotion_performance", "data_quality_fail", "data_quality_restored"}
+)
 
-# concept_transition_log.trigger_reason's full CHECK vocabulary (migration 225).
+# concept_transition_log.trigger_reason's full CHECK vocabulary (migrations 225, 387).
 # Validated in Python before any write so a typo'd reason surfaces as a ValueError
 # with the offending value named, not an opaque Postgres CHECK violation raised
 # mid-transaction.
@@ -43,6 +46,8 @@ _VALID_TRANSITION_REASONS = frozenset(
         "candidate_timeout",
         "implementation_change",
         "genesis_seed",
+        "data_quality_fail",
+        "data_quality_restored",
     }
 )
 
@@ -577,7 +582,15 @@ class ConceptRegistryService:
                 raise ConceptNotFoundError(
                     f"no concept_registry+concept_gate row for {domain}/{name}"
                 )
-            if to_status == "active" and target["fdr_required"] and fdr_passed is not True:
+            # data_quality_restored is exempt: feature status is data quality (design 11), not
+            # a statistical selection, and selection multiplicity is counted in research
+            # (E15-E17), so an FDR attestation would be false.
+            if (
+                to_status == "active"
+                and reason != "data_quality_restored"
+                and target["fdr_required"]
+                and fdr_passed is not True
+            ):
                 _logger.warning(
                     "concept_registry.promotion_blocked_fdr_unverified",
                     domain=domain,

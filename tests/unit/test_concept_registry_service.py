@@ -675,3 +675,28 @@ async def test_operator_override_may_deprecate():
     conn = _FakeConn(row=_TARGET)
     result = await _transition(conn, to_status="deprecated", reason="operator_override")
     assert result is TransitionResult.APPLIED
+
+
+@pytest.mark.asyncio
+async def test_record_transition_accepts_data_quality_reasons():
+    conn = _FakeConn(row=_TARGET)
+    demoted = await _transition(conn, reason="data_quality_fail")
+    assert demoted is TransitionResult.APPLIED
+
+
+@pytest.mark.asyncio
+async def test_data_quality_restored_is_exempt_from_the_fdr_guard():
+    conn = _FakeConn(row=_TARGET)
+    applied = await _transition(
+        conn, from_status="shadow_only", to_status="active", reason="data_quality_restored"
+    )
+    assert applied is TransitionResult.APPLIED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["data_quality_fail", "data_quality_restored"])
+async def test_data_quality_reasons_cannot_deprecate(reason):
+    conn = _FakeConn(row=_TARGET)
+    with pytest.raises(ValueError):
+        await _transition(conn, to_status="deprecated", reason=reason)
+    assert conn.executed == []
