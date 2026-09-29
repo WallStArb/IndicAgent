@@ -41,3 +41,33 @@ no cell is picked after the fact.
 - Expectation, stated in advance: for a rank-linear signal with a weak per-name edge, extremes
   carry somewhat more alpha per unit weight, so E rises modestly with concentration. It falls
   again at very small `keep` from noise and fewer names.
+
+## Result (2026-09-29)
+
+Script check passed first: (keep 0.5, slots 1.0) gave mean5 E 0.100 bp, t 18.18 and mean20 E 0.097 bp,
+t 18.74, matching the runner. All 30 cells were read; grid output in
+`logs/research/family1_iter2_grid.json` (git-ignored). Horizon 2, in-sample.
+
+E in bp per unit traded, slots 1.0 (every slot traded):
+
+| keep | mean5 E | mean20 E | mean5 Sharpe | turnover |
+|---|---|---|---|---|
+| 0.5 | 0.100 | 0.097 | 5.2 | 25.9 |
+| 0.3 | 0.129 | 0.127 | 5.0 | 25.9 |
+| 0.2 | 0.159 | 0.159 | 4.5 | 25.9 |
+| 0.1 | 0.210 | 0.201 | 3.8 | 25.9 |
+| 0.05 | 0.253 | 0.248 | 2.9 | 25.9 |
+
+- Dose-response: E rises steadily as `keep` falls and is positive in all three sub-periods in every
+  cell. The criterion for a real effect holds.
+- Size: the best cells are 0.25 bp, above the 0.14 bp line and below the 0.35 bp build bar. The only
+  cell at 0.35 is a single sub-period, which the criteria say not to read.
+- Slot gate: trading the top quarter of slots cuts turnover from 26 to 7 per session but leaves E
+  about unchanged (mean5 slightly lower, mean20 slightly higher) and lowers Sharpe (mean5 5.2 to
+  2.5). It reduces trade count without improving each trade.
+- Cost: 0.25 bp per unit traded is about a third of the 0.7 bp half-spread assumption, so the book
+  still loses money at zero commission.
+- Sharpe falls with `keep` because breadth shrinks to about 11 names per side at keep 0.05.
+
+Conclusion: concentration raises edge per unit traded modestly, as expected in advance, and does not
+close the gap to cost. Not built as a `ConstructionRule`. Nothing here is a verdict.
