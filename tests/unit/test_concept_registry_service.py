@@ -694,6 +694,21 @@ async def test_data_quality_restored_is_exempt_from_the_fdr_guard():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("domain", ["signal", "recipe", "plugin"])
+async def test_data_quality_restored_exemption_is_feature_domain_only(domain):
+    conn = _FakeConn(row=_TARGET)
+    result = await _transition(
+        conn,
+        domain=domain,
+        from_status="shadow_only",
+        to_status="active",
+        reason="data_quality_restored",
+    )
+    assert result is TransitionResult.FDR_BLOCKED
+    assert conn.executed == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("reason", ["data_quality_fail", "data_quality_restored"])
 async def test_data_quality_reasons_cannot_deprecate(reason):
     conn = _FakeConn(row=_TARGET)

@@ -199,6 +199,8 @@ def derive_feature_transition(
     status_since: datetime | None,
     evaluations: Iterable[Evaluation],
     config: LifecycleConfig,
+    *,
+    last_transition_reason: str | None = None,
 ) -> Transition | None:
     """Pure: the transition the ledger calls for, or None.
 
@@ -207,7 +209,10 @@ def derive_feature_transition(
     Streaks are trailing runs over those windows ordered by window_end.
 
     active -> shadow_only: the trailing failing streak reaches demotion_min_consecutive.
-    shadow_only -> active: the trailing passing streak reaches recovery_min_passes.
+    shadow_only -> active: the trailing passing streak reaches recovery_min_passes, and only
+    when the concept's most recent transition was this node's data_quality_fail demotion. A
+    feature that is shadow_only for any other reason (seeded pending validation, performance
+    demotion, operator decision) is never promoted by data quality, however good its coverage.
     """
     if current_status not in _GOVERNED_STATUSES:
         return None
@@ -224,6 +229,8 @@ def derive_feature_transition(
         fails = _trailing_run(windows, passed=False)
         if fails >= config.demotion_min_consecutive:
             return Transition("shadow_only", "data_quality_fail", windows[-1], fails)
+        return None
+    if last_transition_reason != "data_quality_fail":
         return None
     passes = _trailing_run(windows, passed=True)
     if passes >= config.recovery_min_passes:
@@ -269,7 +276,10 @@ def build_tf_query(columns: Sequence[str], known_columns: dict[str, str]) -> str
 _CONCEPTS_SQL = """
     SELECT r.concept_id, r.name, r.status,
            (SELECT max(t.triggered_at) FROM concept_transition_log t
-             WHERE t.concept_id = r.concept_id AND t.to_status = r.status) AS status_since
+             WHERE t.concept_id = r.concept_id AND t.to_status = r.status) AS status_since,
+           (SELECT t.trigger_reason FROM concept_transition_log t
+             WHERE t.concept_id = r.concept_id
+             ORDER BY t.triggered_at DESC LIMIT 1) AS last_transition_reason
     FROM concept_registry r
     JOIN concept_gate g USING (concept_id)
     WHERE r.domain = $1
@@ -473,6 +483,7 @@ class FeatureLifecycle(BaseBatch):
                 concept["status_since"],
                 evaluations.get(concept["concept_id"], []),
                 config,
+                last_transition_reason=concept["last_transition_reason"],
             )
             if transition is not None:
                 transitions.append(PlannedTransition(name, concept["status"], transition))

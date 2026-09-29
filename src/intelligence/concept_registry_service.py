@@ -582,12 +582,13 @@ class ConceptRegistryService:
                 raise ConceptNotFoundError(
                     f"no concept_registry+concept_gate row for {domain}/{name}"
                 )
-            # data_quality_restored is exempt: feature status is data quality (design 11), not
-            # a statistical selection, and selection multiplicity is counted in research
-            # (E15-E17), so an FDR attestation would be false.
+            # data_quality_restored is exempt for feature concepts only: feature status is
+            # data quality (design 11), not a statistical selection, and selection
+            # multiplicity is counted in research (E15-E17), so an FDR attestation would be
+            # false. Any other domain passing that reason is still fail-closed.
             if (
                 to_status == "active"
-                and reason != "data_quality_restored"
+                and not (reason == "data_quality_restored" and domain == "feature")
                 and target["fdr_required"]
                 and fdr_passed is not True
             ):

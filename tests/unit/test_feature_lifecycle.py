@@ -82,11 +82,29 @@ class TestDerivation:
         assert t.to_status == "shadow_only" and t.reason == "data_quality_fail"
         assert t.n_windows == 2 and t.evidence.window_end == _W2
 
-    def test_passing_window_restores_shadow_only(self):
+    def test_passing_window_restores_a_data_quality_demotion(self):
         t = derive_feature_transition(
-            "shadow_only", None, [_eval(_W1, True, status="shadow_only")], _GATE
+            "shadow_only",
+            None,
+            [_eval(_W1, True, status="shadow_only")],
+            _GATE,
+            last_transition_reason="data_quality_fail",
         )
         assert t.to_status == "active" and t.reason == "data_quality_restored"
+
+    @pytest.mark.parametrize(
+        "last_reason", [None, "demotion_performance", "operator_override", "promotion"]
+    )
+    def test_shadow_only_for_another_reason_is_never_restored(self, last_reason):
+        """Seeded pending validation (no log row), a performance demotion or an operator
+        decision is not a data-quality verdict; perfect coverage never promotes it."""
+        evals = [_eval(_W1, True, status="shadow_only"), _eval(_W2, True, status="shadow_only")]
+        assert (
+            derive_feature_transition(
+                "shadow_only", None, evals, _GATE, last_transition_reason=last_reason
+            )
+            is None
+        )
 
     def test_failing_window_does_not_restore(self):
         evals = [_eval(_W1, False, status="shadow_only")]
@@ -238,8 +256,14 @@ class _FakeConn:
         return None
 
 
-def _concept(name, status, cid=None):
-    return {"concept_id": cid or f"id-{name}", "name": name, "status": status, "status_since": None}
+def _concept(name, status, cid=None, last_reason=None):
+    return {
+        "concept_id": cid or f"id-{name}",
+        "name": name,
+        "status": status,
+        "status_since": None,
+        "last_transition_reason": last_reason,
+    }
 
 
 def _node(dry_run=True) -> fl.FeatureLifecycle:
@@ -304,6 +328,26 @@ async def test_plan_low_coverage_fails_and_demotes_after_two_windows():
     assert not plan.rows[0].evaluation.passed
     assert [(t.name, t.transition.reason) for t in plan.transitions] == [
         ("good", "data_quality_fail")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_plan_seeded_shadow_only_feature_stays_shadow_only_at_full_coverage():
+    conn = _fake([_concept("good", "shadow_only")], {"1d": _symbols(10, 10)})
+    plan = await _plan(conn)
+    assert plan.rows[0].evaluation.passed
+    assert plan.transitions == []
+
+
+@pytest.mark.asyncio
+async def test_plan_restores_after_a_data_quality_demotion():
+    conn = _fake(
+        [_concept("good", "shadow_only", last_reason="data_quality_fail")],
+        {"1d": _symbols(10, 10)},
+    )
+    plan = await _plan(conn)
+    assert [(t.name, t.transition.reason) for t in plan.transitions] == [
+        ("good", "data_quality_restored")
     ]
 
 
