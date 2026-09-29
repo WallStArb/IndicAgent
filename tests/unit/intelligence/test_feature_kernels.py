@@ -275,7 +275,7 @@ def _synthetic_case():
         **inputs,
         "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
-        **_macro_kernel_inputs(bars, "SPY", "5m", FeatureCache(), None, None),
+        **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
     }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)

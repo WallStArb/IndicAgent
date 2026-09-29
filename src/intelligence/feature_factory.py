@@ -30,7 +30,7 @@ import bisect
 import dataclasses
 import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -45,22 +45,13 @@ from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.features.kernels._primitives import (  # noqa: F401  re-exported for tests and scripts
     _atr_series_full,
     _atr_wilder,
-    _fixed_window_zscore_series,
     _is_valid_atr,
     _is_valid_atr_series,
-    _kurtosis,
     _pearson_acf1,
-    _percentile_rank,
-    _rolling_mean_series,
-    _rolling_std_series,
     _rolling_zscore_series,
     _skewness,
-    _sliding_rolling_max,
-    _sliding_rolling_min,
-    _zscore_last,
 )
 from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-exported for tests and scripts
-    _QUARTER_LENGTH_DAYS,
     _day_of_month_cos,
     _day_of_month_sin,
     _days_since_quarter_end,
@@ -91,35 +82,25 @@ from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-expor
 )
 from src.intelligence.features.kernels.control import (  # noqa: F401  re-exported for tests and scripts
     _CANARY_CONSTANT_VALUE,
-    _CANARY_NEAR_CONSTANT_EPSILON,
     _canary_acausal_placebo,
     _canary_near_constant,
     _canary_noise_gaussian,
     _canary_noise_uniform,
     _canary_sub_seed,
 )
-from src.intelligence.features.kernels.macro import align_daily_asof
+from src.intelligence.features.kernels.macro import RECORD_COLUMNS, align_daily_asof, bar_ts_ns
 from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported for tests and scripts
     _aroon_osc,
     _bar_close_pos,
     _bars_since_event_series_full,
     _bars_since_rolling_extreme_series_full,
-    _bb_pct_b,
-    _bb_pct_b_series_full,
     _body_ratio,
     _cci,
     _close_vs_open_direction,
     _dist_from_high_series_full,
     _dist_from_low_series_full,
-    _efficiency_ratio,
-    _efficiency_ratio_series_full,
     _gap_z_series_full,
-    _garman_klass_vol_z_series_full,
     _high_52w_dist_series_full,
-    _high_low_corr_series_full,
-    _hv_ratio_series_full,
-    _hv_z_series_full,
-    _intraday_noise_ratio_series_full,
     _intraday_ret,
     _lower_wick_ratio,
     _momentum_reversal_z_series_full,
@@ -127,87 +108,36 @@ from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported
     _open_ret,
     _open_vs_intraday,
     _overnight_gap,
-    _overnight_gap_series_full,
     _overnight_gap_z,
-    _overnight_gap_z_series_full,
-    _parkinson_vol_z_series_full,
-    _price_percentile,
-    _price_percentile_series_full,
     _product,
     _range_efficiency,
-    _range_pct,
-    _range_pct_series_full,
     _range_position,
-    _range_to_close,
-    _range_to_close_series_full,
     _range_vs_atr,
-    _realized_var_ratio,
-    _realized_var_ratio_series_full,
     _ret_acf1_z_series_full,
-    _ret_autocorr,
     _ret_autocorr_series_full,
-    _ret_kurtosis_z_series_full,
     _ret_lag_1,
     _ret_lag_2,
     _ret_lag_3,
     _ret_lag_fast,
-    _ret_lag_k,
     _ret_lag_mid,
     _ret_lag_slow,
     _ret_skew_z_series_full,
     _ret_vol_ratio,
     _rsi,
     _rsi_series_full,
-    _rsi_wilder,
-    _stoch_k,
-    _stoch_k_series_full,
-    _streak_length,
-    _streak_length_series_full,
-    _streak_z_series_full,
-    _true_range_pct,
-    _true_range_pct_series_full,
     _up_vol_body_diff,
-    _updown_ratio,
-    _updown_ratio_series_full,
     _upper_wick_ratio,
-    _variance_ratio,
-    _variance_ratio_series_full,
-    _vol_asymmetry_ratio,
-    _vol_asymmetry_z_series_full,
-    _vol_of_vol_series_full,
     _vol_ratio,
     _vol_velocity_z_series_full,
-    _yang_zhang_vol_z_series_full,
 )
 from src.intelligence.features.kernels.volume import (  # noqa: F401  re-exported for tests and scripts
     _amihud_illiq_z_series_full,
     _cmf,
     _cvd_slope_z_series_full,
-    _dollar_vol_z,
-    _dollar_vol_z_series_full,
     _informed_flow,
-    _mfi,
-    _mfi_series_full,
-    _obv_z,
-    _obv_z_series_full,
     _ofi_z_series_full,
     _price_vol_corr_series_full,
-    _rel_volume,
     _rel_volume_series_full,
-    _up_vol_ratio,
-    _up_vol_ratio_series_full,
-    _vol_acceleration,
-    _vol_acceleration_series_full,
-    _vol_percentile,
-    _vol_percentile_series_full,
-    _vol_persistence,
-    _vol_persistence_series_full,
-    _vol_range_ratio,
-    _vol_range_ratio_series_full,
-    _vol_std_z,
-    _vol_std_z_series_full,
-    _vol_trend_ratio,
-    _vol_trend_ratio_series_full,
     _volume_z_series_full,
     _vwap_dev_sigma_series_full,
 )
@@ -1217,8 +1147,8 @@ def _precompute_series(
 
 
 # Columns compute_batch reads from registry kernels instead of calling helpers inline.
-_DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
-    *(
+_DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = tuple(
+    (
         "in_ny_session in_london_kz in_overlap power_hour opening_range session_time_pos "
         "dow_sin dow_cos month_position quarter_position days_to_month_end quarter_cycle_sin "
         "quarter_cycle_cos tdom_sin tdom_cos minute_of_hour_sin minute_of_hour_cos "
@@ -1237,21 +1167,12 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
         "efficiency_volume_product vix_z flight_quality yield_slope_z tip_tlt_ret_z hyg_lqd_ret_z "
         "sb_corr_fast sb_corr_slow sb_corr_z equity_beta_z rate_beta_z "
         "yield_slope_momentum_product vix_reversion_product"
-    ).split(),
+    ).split()
 )
-
-_EPOCH_UTC = datetime(1970, 1, 1, tzinfo=UTC)
-
-
-def _bar_ts_ns(bar_ts: datetime) -> int:
-    """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
-    if bar_ts.tzinfo is None:
-        bar_ts = bar_ts.replace(tzinfo=UTC)
-    return (bar_ts - _EPOCH_UTC) // timedelta(microseconds=1) * 1000
 
 
 def _batch_kernel_inputs(
-    bars: list[dict],
+    row_ns: np.ndarray,
     opens: np.ndarray,
     highs: np.ndarray,
     lows: np.ndarray,
@@ -1261,26 +1182,14 @@ def _batch_kernel_inputs(
 ) -> dict[str, np.ndarray]:
     """Bar arrays plus the per-row `symbol` external input for compute_kernels."""
     return {
-        "ts": np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64),
+        "ts": row_ns,
         "open": opens,
         "high": highs,
         "low": lows,
         "close": closes,
         "volume": volumes,
-        "symbol": np.array([symbol] * len(bars), dtype=object),
+        "symbol": np.array([symbol] * len(row_ns), dtype=object),
     }
-
-
-_MACRO_RECORD_FIELDS: tuple[str, ...] = (
-    "vix_z",
-    "flight_quality",
-    "yield_slope_z",
-    "tip_tlt_ret_z",
-    "hyg_lqd_ret_z",
-    "sb_corr_fast",
-    "sb_corr_slow",
-    "sb_corr_z",
-)
 
 
 def _none_if_nan(value: float) -> float | None:
@@ -1289,7 +1198,7 @@ def _none_if_nan(value: float) -> float | None:
 
 
 def _macro_kernel_inputs(
-    bars: list[dict],
+    row_ns: np.ndarray,
     symbol: str,
     tf: str,
     cache: FeatureCache,
@@ -1306,18 +1215,17 @@ def _macro_kernel_inputs(
     rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
     already-closed daily values.
     """
-    n = len(bars)
-    row_ns = np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
+    n = len(row_ns)
     out: dict[str, np.ndarray] = {}
     if cross_asset_by_date is not None:
         dates = sorted(cross_asset_by_date)
         records = align_daily_asof(
             row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], CrossAssetRecord()
         )
-        for name in _MACRO_RECORD_FIELDS:
+        for name in RECORD_COLUMNS:
             out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
     else:
-        for name in _MACRO_RECORD_FIELDS:
+        for name in RECORD_COLUMNS:
             out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
     if beta_by_date is not None:
         dates = sorted(beta_by_date)
@@ -4904,11 +4812,14 @@ class FeatureFactory:
         # Registry kernels (D-25) compute every series and delegated column once for the whole
         # batch; the loop below reads row i. The registry is looked up here, never at import,
         # so kernel origins cannot create an import cycle with this module.
+        row_ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
         k = compute_kernels(
             default_registry(),
             {
-                **_batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
-                **_macro_kernel_inputs(bars, symbol, tf, cache, cross_asset_by_date, beta_by_date),
+                **_batch_kernel_inputs(row_ns, opens, highs, lows, closes, volumes, symbol),
+                **_macro_kernel_inputs(
+                    row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
+                ),
             },
             config,
             outputs=list(dict.fromkeys((*_SERIES_KERNEL_OUTPUTS, *_DELEGATED_KERNEL_OUTPUTS))),

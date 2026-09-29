@@ -43,6 +43,9 @@ MACRO_COLUMNS: tuple[str, ...] = (
     "rate_beta_z",
 )
 
+# The eight columns a daily cross-asset record carries; the two betas arrive as a separate pair.
+RECORD_COLUMNS: tuple[str, ...] = MACRO_COLUMNS[:8]
+
 EXTERNAL_INPUTS = tuple(
     ExternalInput(f"ext_{name}", np.dtype(np.float64), _ALIGNMENT) for name in MACRO_COLUMNS
 )
@@ -61,6 +64,13 @@ def _bar_end_offset_seconds(tf: str) -> int:
         return TF_DURATIONS[tf]
     except KeyError:
         raise ValueError(f"unknown timeframe {tf!r}; known: 1m, {sorted(TF_DURATIONS)}") from None
+
+
+def bar_ts_ns(bar_ts: datetime) -> int:
+    """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
+    if bar_ts.tzinfo is None:
+        bar_ts = bar_ts.replace(tzinfo=UTC)
+    return (bar_ts - _EPOCH) // timedelta(microseconds=1) * 1000
 
 
 def _daily_close_ns(day: date) -> int:
