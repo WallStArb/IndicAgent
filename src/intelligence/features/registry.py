@@ -16,7 +16,7 @@ import functools
 import importlib
 import pkgutil
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -49,7 +49,6 @@ class Kernel:
     memory: Callable[[FeatureFactoryConfig], int]
     compute: Callable[[Mapping[str, np.ndarray], FeatureFactoryConfig], Mapping[str, np.ndarray]]
     dtype: np.dtype = dataclasses.field(default_factory=lambda: np.dtype(np.float32))
-    cross_sectional: bool = False
     origin: str = ""
     module: str = ""
     # The output at row t depends on where the series starts (a refresh cadence counted from
@@ -96,6 +95,17 @@ def _check_memory(kernel: Kernel, config: FeatureFactoryConfig) -> int:
 class KernelRegistry:
     kernels: tuple[Kernel, ...]
     external_inputs: tuple[ExternalInput, ...] = ()
+    # Lookup and plan caches, filled by `from_kernels` (the registry is immutable afterwards).
+    _by_name: dict[str, Kernel] = field(init=False, repr=False, compare=False, default_factory=dict)
+    _by_output: dict[str, Kernel] = field(
+        init=False, repr=False, compare=False, default_factory=dict
+    )
+    _upstream_cache: dict[str, list[Kernel]] = field(
+        init=False, repr=False, compare=False, default_factory=dict
+    )
+    _plans: dict[tuple[str, ...] | None, tuple[Kernel, ...]] = field(
+        init=False, repr=False, compare=False, default_factory=dict
+    )
 
     @classmethod
     def from_kernels(
@@ -146,62 +156,76 @@ class KernelRegistry:
                         "external input or another kernel's output"
                     )
         registry = cls(kernels=kernels, external_inputs=external_inputs)
-        registry._check_acyclic()
+        registry._by_name.update(by_name)
+        registry._by_output.update(by_output)
+        registry.topological_order()  # raises on an input cycle and caches the full order
         return registry
 
     def _external_names(self) -> frozenset[str]:
         return frozenset(external.name for external in self.external_inputs)
 
     def _upstream(self, kernel: Kernel) -> list[Kernel]:
-        seen: dict[str, Kernel] = {}
-        external = self._external_names()
-        for name in kernel.inputs:
-            if name not in BAR_FIELDS and name not in external:
-                producer = self.by_output(name)
-                seen[producer.name] = producer
-        return [seen[key] for key in sorted(seen)]
-
-    def _check_acyclic(self) -> None:
-        state: dict[str, int] = {}  # 1 = visiting, 2 = done
-
-        def visit(kernel: Kernel, path: tuple[str, ...]) -> None:
-            if state.get(kernel.name) == 2:
-                return
-            if state.get(kernel.name) == 1:
-                raise KernelRegistryError("input cycle: " + " -> ".join((*path, kernel.name)))
-            state[kernel.name] = 1
-            for up in self._upstream(kernel):
-                visit(up, (*path, kernel.name))
-            state[kernel.name] = 2
-
-        for kernel in sorted(self.kernels, key=lambda k: k.name):
-            visit(kernel, ())
+        cached = self._upstream_cache.get(kernel.name)
+        if cached is None:
+            seen: dict[str, Kernel] = {}
+            external = self._external_names()
+            for name in kernel.inputs:
+                if name not in BAR_FIELDS and name not in external:
+                    producer = self.by_output(name)
+                    seen[producer.name] = producer
+            cached = self._upstream_cache[kernel.name] = [seen[key] for key in sorted(seen)]
+        return cached
 
     def by_name(self, name: str) -> Kernel:
-        for kernel in self.kernels:
-            if kernel.name == name:
-                return kernel
-        raise KernelRegistryError(f"unknown kernel {name!r}")
+        try:
+            return self._by_name[name]
+        except KeyError:
+            raise KernelRegistryError(f"unknown kernel {name!r}") from None
 
     def by_output(self, output: str) -> Kernel:
-        for kernel in self.kernels:
-            if output in kernel.outputs:
-                return kernel
-        raise KernelRegistryError(f"unknown feature output {output!r}")
+        try:
+            return self._by_output[output]
+        except KeyError:
+            raise KernelRegistryError(f"unknown feature output {output!r}") from None
 
-    def topological_order(self) -> tuple[Kernel, ...]:
+    def _walk(self, roots: list[Kernel]) -> dict[str, Kernel]:
+        """Depth-first post-order from `roots`: each kernel after its upstream. Raises on a cycle."""
         done: dict[str, Kernel] = {}
+        visiting: set[str] = set()
 
-        def visit(kernel: Kernel) -> None:
+        def visit(kernel: Kernel, path: tuple[str, ...]) -> None:
             if kernel.name in done:
                 return
+            if kernel.name in visiting:
+                raise KernelRegistryError("input cycle: " + " -> ".join((*path, kernel.name)))
+            visiting.add(kernel.name)
             for up in self._upstream(kernel):
-                visit(up)
+                visit(up, (*path, kernel.name))
+            visiting.discard(kernel.name)
             done[kernel.name] = kernel
 
-        for kernel in sorted(self.kernels, key=lambda k: k.name):
-            visit(kernel)
-        return tuple(done.values())
+        for root in roots:
+            visit(root, ())
+        return done
+
+    def topological_order(
+        self, outputs: list[str] | tuple[str, ...] | None = None
+    ) -> tuple[Kernel, ...]:
+        """Kernels upstream first, ties by name. With `outputs`, only the kernels producing them
+        and their upstream, in the same relative order. Memoized per `tuple(outputs)`."""
+        key = None if outputs is None else tuple(outputs)
+        plan = self._plans.get(key)
+        if plan is not None:
+            return plan
+        full = self._plans.get(None)
+        if full is None:
+            full = tuple(self._walk(sorted(self.kernels, key=lambda k: k.name)).values())
+            self._plans[None] = full
+        if key is None:
+            return full
+        needed = self._walk([self.by_output(output) for output in key])
+        plan = self._plans[key] = tuple(k for k in full if k.name in needed)
+        return plan
 
     def _path_dependent_source(self, kernel: Kernel) -> Kernel | None:
         """The kernel (itself or the first upstream) declared path dependent, else None."""
@@ -234,20 +258,6 @@ class KernelRegistry:
     def feature_columns(self) -> tuple[str, ...]:
         """Outputs that are feature columns; a leading underscore marks an intermediate."""
         return tuple(o for o in self.outputs() if not o.startswith("_"))
-
-    def _closure(self, outputs: list[str] | tuple[str, ...]) -> set[str]:
-        needed: set[str] = set()
-
-        def visit(kernel: Kernel) -> None:
-            if kernel.name in needed:
-                return
-            needed.add(kernel.name)
-            for up in self._upstream(kernel):
-                visit(up)
-
-        for output in outputs:
-            visit(self.by_output(output))
-        return needed
 
 
 def discover_kernels(package: str = _DEFAULT_PACKAGE) -> KernelRegistry:
@@ -302,11 +312,7 @@ def compute_kernels(
     dtype the kernel computed in (float64 for the moved feature_factory kernels); the kernel's
     declared `dtype` is the persistence dtype, applied by the writer and by the probe.
     """
-    if outputs is None:
-        selected = {kernel.name for kernel in registry.kernels}
-    else:
-        selected = registry._closure(outputs)
-    order = [kernel for kernel in registry.topological_order() if kernel.name in selected]
+    order = registry.topological_order(outputs)
     external = registry._external_names()
     produced = {o for kernel in order for o in kernel.outputs}
     for kernel in order:

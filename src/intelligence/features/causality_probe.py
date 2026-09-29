@@ -3,8 +3,8 @@
 The probe is truncation: for each probed row t, cut every declared input to rows [: t + 1]
 along axis 0, recompute, and require rows 0..t of the truncated output to equal the full
 output's rows 0..t in the kernel's dtype (float32 by default). Comparing all t + 1 rows, not
-only row t, is what catches full-sample normalization. For cross-sectional kernels the
-`[row, symbol]` arrays are cut on axis 0, which truncates every symbol at once.
+only row t, is what catches full-sample normalization. Arrays are cut on axis 0, so a
+`[row, symbol]` array truncates every symbol at once.
 
 This does not wrap `research/guards.causality_probe_array`: that function replaces future
 rows with NaN or rescaled values instead of truncating, so it misses kernels that depend on

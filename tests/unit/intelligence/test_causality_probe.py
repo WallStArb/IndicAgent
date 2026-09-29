@@ -33,14 +33,13 @@ def _trail(x, w):
     return out
 
 
-def _kernel(fn, memory=0, cross=False, inputs=("close",)):
+def _kernel(fn, memory=0, inputs=("close",)):
     return Kernel(
         name="k",
         outputs=("out",),
         inputs=inputs,
         memory=lambda c: memory,
         compute=lambda x, c: {"out": fn(x["close"])},
-        cross_sectional=cross,
     )
 
 
@@ -82,9 +81,9 @@ def _rank_next_row(x):
 
 
 def test_cross_sectional_rank_passes_and_next_row_raises():
-    causality_probe(_kernel(_rank, cross=True), _panel(), CFG, ROWS)
+    causality_probe(_kernel(_rank), _panel(), CFG, ROWS)
     with pytest.raises(CausalityViolation):
-        causality_probe(_kernel(_rank_next_row, cross=True), _panel(), CFG, ROWS)
+        causality_probe(_kernel(_rank_next_row), _panel(), CFG, ROWS)
 
 
 def test_truncation_cuts_every_symbol():
@@ -94,7 +93,7 @@ def test_truncation_cuts_every_symbol():
         seen.append(x.shape)
         return np.zeros(x.shape)
 
-    causality_probe(_kernel(spy, cross=True), _panel(), CFG, np.array([10]))
+    causality_probe(_kernel(spy), _panel(), CFG, np.array([10]))
     assert (11, 6) in seen
 
 
