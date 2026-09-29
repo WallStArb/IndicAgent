@@ -357,6 +357,30 @@ def build_targets(
     return {h: panel_mod.forward_returns(opens, horizon=h, session=session) for h in horizons}
 
 
+def bh_fdr_excluding_nan(p_values: list[float], alpha: float) -> tuple[list[bool], list[float]]:
+    """Benjamini-Hochberg FDR over only the finite entries of p_values; a NaN
+    entry (an untestable cell -- session_hac_t returned NaN for too few
+    sessions) is excluded from the family, never fed into the correction, and
+    always comes back (reject=False, p_corrected=NaN). Mixing NaN into
+    statsmodels' multipletests corrupts every returned corrected p-value to
+    NaN, not just the NaN entries' own -- confirmed on the live 186-07 run:
+    14 of 480 cells had NaN partial_p, and the raw apply_bh_fdr call returned
+    NaN p_corrected for all 480, though a corrected re-run excluding those 14
+    changed only 1 of the other 466 reject decisions (not a property to rely
+    on -- the fix is to never mix NaN into the family, not to hope it's
+    harmless)."""
+    finite_idx = [i for i, p in enumerate(p_values) if p is not None and np.isfinite(p)]
+    reject_out = [False] * len(p_values)
+    p_corr_out = [float("nan")] * len(p_values)
+    if finite_idx:
+        finite_p = [p_values[i] for i in finite_idx]
+        reject, p_corr = apply_bh_fdr(finite_p, alpha)
+        for j, i in enumerate(finite_idx):
+            reject_out[i] = bool(reject[j])
+            p_corr_out[i] = float(p_corr[j])
+    return reject_out, p_corr_out
+
+
 def decide(cells: list[dict]) -> tuple[str, list[str]]:
     """cells: dicts with 'feature', 'bh_reject' (bool), 'cost_clears' (bool). keep_5m
     with the sorted, de-duplicated set of features that have at least one cell both
@@ -390,7 +414,16 @@ async def check_5m_alignment(pool: asyncpg.Pool) -> None:
         )
 
 
-async def build_target_panel(dsn: str, out_dir: Path, start: str) -> tuple[panel_mod.Panel, str]:
+async def build_target_panel(
+    dsn: str, out_dir: Path, start: str
+) -> tuple[panel_mod.Panel, str, str]:
+    """Returns (panel, oos_start_iso, panel_hash). panel_hash is the content-
+    hashed directory's name (build_panel/store.write's naming, "<prefix>_
+    <sha256[:16]>") -- the plan's key_links call this "the panel directory
+    name (content hash)"; it belongs in the result JSON so the run traces
+    back to the exact snapshot it read (D-15 lineage), and was dropped
+    silently in the first cut of this function (caught closing todo 445, not
+    by a test -- see 186-07-SUMMARY.md)."""
     pool = await read_only_pool(dsn)
     try:
         oos_start = await pool.fetchval(_OOS_START_SQL)
@@ -408,7 +441,7 @@ async def build_target_panel(dsn: str, out_dir: Path, start: str) -> tuple[panel
         end_exclusive=oos_start.isoformat(),
         manifest_extra={"universe_dimension": "compute_eligible"},
     )
-    return panel_mod.load(path), oos_start.isoformat()
+    return panel_mod.load(path), oos_start.isoformat(), path.name
 
 
 def _chunk(seq: list, size: int) -> list[list]:
@@ -524,7 +557,7 @@ async def _run(args: argparse.Namespace) -> dict:
     out_dir = Path("logs/todo445/panels")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    panel, oos_start = await build_target_panel(dsn, out_dir, args.start)
+    panel, oos_start, panel_hash = await build_target_panel(dsn, out_dir, args.start)
     assert_within_oos_start(panel.manifest)
     if args.symbols_limit:
         symbols = panel.symbols[: args.symbols_limit]
@@ -619,10 +652,7 @@ async def _run(args: argparse.Namespace) -> dict:
         await fetch_pool.close()
 
     p_values = [c["partial_p"] for c in tested_cells]
-    if p_values:
-        reject, p_corrected = apply_bh_fdr(p_values, _BH_ALPHA)
-    else:
-        reject, p_corrected = np.array([], dtype=bool), np.array([], dtype=float)
+    reject, p_corrected = bh_fdr_excluding_nan(p_values, _BH_ALPHA)
 
     cost_cells = []
     for cell, bh_reject, p_corr in zip(tested_cells, reject, p_corrected):
@@ -648,6 +678,7 @@ async def _run(args: argparse.Namespace) -> dict:
         "run_ts": datetime.now(UTC).isoformat(),
         "window": {"start": args.start, "end_exclusive": oos_start},
         "oos_start": oos_start,
+        "panel_hash": panel_hash,
         "panel_manifest": panel.manifest,
         "universe": "compute_eligible",
         "symbol_count": len(symbols),
@@ -690,7 +721,7 @@ def _write_look_log(result: dict, sql_hashes: dict) -> None:
             "apr_values_used": result["design_constants"],
             "input_population_row_count": result["symbol_count"],
             "fetch_sql_sha256": sql_hashes,
-            "panel_hash": result["panel_manifest"].get("dropped_off_grid_bars"),
+            "panel_hash": result["panel_hash"],
             "window": result["window"],
             "n_features_tested": result["n_features_tested"],
         },

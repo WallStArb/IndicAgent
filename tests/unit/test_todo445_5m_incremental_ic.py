@@ -153,6 +153,34 @@ class TestIcMin:
         assert out == pytest.approx(expected, rel=1e-9)
 
 
+class TestBhFdrExcludingNan:
+    def test_nan_entries_excluded_from_family_never_reject_never_corrupt_others(self):
+        # Mixing NaN into statsmodels' multipletests directly corrupts every
+        # p_corrected to NaN (confirmed live on the 186-07 run, 14/480 NaN
+        # cells). This must exclude the NaN entries from the family entirely.
+        p_values = [0.001, 0.5, float("nan"), 0.02, 0.8, float("nan"), 0.006]
+        reject, p_corr = mod.bh_fdr_excluding_nan(p_values, alpha=0.05)
+        assert reject[2] is False and reject[5] is False
+        assert np.isnan(p_corr[2]) and np.isnan(p_corr[5])
+        # The finite entries must have real, non-NaN corrected p-values.
+        finite_positions = [0, 1, 3, 4, 6]
+        for i in finite_positions:
+            assert not np.isnan(p_corr[i]), f"index {i} corrupted by the NaN entries"
+        # The three smallest real p-values (0.001, 0.02, 0.006) should reject.
+        assert reject[0] is True and reject[3] is True and reject[6] is True
+        assert reject[1] is False and reject[4] is False
+
+    def test_all_nan_returns_all_false_no_crash(self):
+        reject, p_corr = mod.bh_fdr_excluding_nan([float("nan"), float("nan")], alpha=0.05)
+        assert reject == [False, False]
+        assert all(np.isnan(p) for p in p_corr)
+
+    def test_empty_returns_empty(self):
+        reject, p_corr = mod.bh_fdr_excluding_nan([], alpha=0.05)
+        assert reject == []
+        assert p_corr == []
+
+
 class TestDecide:
     def test_empty_cells_is_drop_5m(self):
         decision, names = mod.decide([])
