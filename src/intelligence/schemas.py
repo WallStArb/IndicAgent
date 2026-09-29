@@ -1532,7 +1532,7 @@ class FeatureVector:
     # Theory-Motivated Interactions (10, Phase 151 Plan 06). 10 curated
     # compound features, each a SINGLE operation (product) on two numeric
     # tier-0 columns, each carrying a one-sentence finance-theory hypothesis
-    # (feature_registry.formula_short). Non-nullable floats: every parent is
+    # (concept_registry.description). Non-nullable floats: every parent is
     # always computed (defaulting to 0.0 at cold start), so the product is
     # always defined. hv_ratio/adx/hurst/variance_ratio_fast/vix_z/
     # yield_slope_z are the numeric tier-0 proxies substituting for the

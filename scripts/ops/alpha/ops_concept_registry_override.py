@@ -5,7 +5,7 @@ transitions (todo 117; Phase 170 Plan 07 repoint from this script's predecessor,
 git-renamed to this filename).
 
 `ConceptRegistryService.record_transition` guards that automated transitions
-(`promotion`/`demotion_performance`, both driven by `services/feature_lifecycle.py`)
+(`data_quality_fail`/`data_quality_restored`, both driven by `services/feature_lifecycle.py`)
 may never target `deprecated` -- deprecated is operator-only. This script is the only
 sanctioned path to that transition: it reads the concept's current status, calls
 record_transition with reason='operator_override' (a CHECK-permitted

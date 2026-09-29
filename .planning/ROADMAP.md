@@ -64,7 +64,7 @@ One line each; full detail in `.planning/milestones/v3.4-ROADMAP.md`.
 - **158, 159** Live execution and fill-calibrated costs: interface only until a book passes forward confirmation.
 - **168** Cost-hurdle-adjusted spread construction: blocked (no live construction left to refine).
 - **169** Symbol state query layer: design only; needs a live-verification refresh before planning.
-- **170 plans 07-08** `feature_registry` retirement: finished inside phase 186.
+- **170 plans 07-08** `feature_registry` retirement: migration 311 finished it on 2026-08-10; phase 186 plan 09 removed the residue (the parity verifier script and stale references).
 
 ## Phases
 

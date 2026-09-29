@@ -2,7 +2,7 @@
 
 Author: Claude Opus 5.5, 2026-09-24
 
-Status: design, not yet implemented. Lands inside the post-176 ic_engine bundle (todos 389,
+Status: superseded for decision rules by design 11 (data-quality status, phase 186-09); the concept_evaluation ledger mechanics stay. Original status: design, not yet implemented. Lands inside the post-176 ic_engine bundle (todos 389,
 399, 401, 402, 403), because moving the lifecycle hook out of `services/ic_engine.py` moves
 `code_content_key` and that bundle already pays for a full recompute.
 

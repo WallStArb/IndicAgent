@@ -727,7 +727,7 @@ Expected result: about 174 GB to about 60 GB after the drops, about 100 GB once 
 
 | Item | New scope |
 |---|---|
-| Phase 170, plans 07-08 | Gate (`alpha_ensemble_ic` rows) never clears; rewritten to finish the `feature_registry` retirement without an ensemble rehearsal, since feature status is data-quality based |
+| Phase 170, plans 07-08 | Gate (`alpha_ensemble_ic` rows) never clears; superseded: migration 311 already dropped `feature_registry` (2026-08-10), and phase 186 plan 09 removed the residue; feature status is data-quality based |
 | Phases 156-157 | `portfolio_state` and sizing on top of construction and the forward runner |
 | Phases 158-159 | Interface only, then fill-calibrated costs, after a book passes confirmation |
 | Phases 149-150, todo 275, glossary `PrecedentEngine` | Precedent predictors enter as family members, not "weighted by AlphaEngine's ensemble" |
