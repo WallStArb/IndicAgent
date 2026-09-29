@@ -15,7 +15,7 @@ import math
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import _atr_series_full
+from src.intelligence.features.kernels._primitives import _atr_series_full
 from tests.unit.intelligence.helpers import _atr_wilder
 
 
@@ -182,7 +182,7 @@ class TestMinuteOfHourEncoding:
     def test_minute_0(self) -> None:
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _minute_of_hour_encoding
+        from src.intelligence.features.kernels.calendar import _minute_of_hour_encoding
 
         sin_val, cos_val = _minute_of_hour_encoding(datetime(2026, 3, 15, 14, 0, tzinfo=UTC))
         assert sin_val == pytest.approx(0.0, abs=1e-9)
@@ -191,7 +191,7 @@ class TestMinuteOfHourEncoding:
     def test_minute_15(self) -> None:
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _minute_of_hour_encoding
+        from src.intelligence.features.kernels.calendar import _minute_of_hour_encoding
 
         sin_val, cos_val = _minute_of_hour_encoding(datetime(2026, 3, 15, 14, 15, tzinfo=UTC))
         assert sin_val == pytest.approx(1.0, abs=1e-9)
@@ -200,7 +200,7 @@ class TestMinuteOfHourEncoding:
     def test_minute_30(self) -> None:
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _minute_of_hour_encoding
+        from src.intelligence.features.kernels.calendar import _minute_of_hour_encoding
 
         sin_val, cos_val = _minute_of_hour_encoding(datetime(2026, 3, 15, 14, 30, tzinfo=UTC))
         assert sin_val == pytest.approx(0.0, abs=1e-9)
@@ -211,7 +211,7 @@ class TestMinuteOfHourEncoding:
         expected and correct, not a bug."""
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _minute_of_hour_encoding
+        from src.intelligence.features.kernels.calendar import _minute_of_hour_encoding
 
         for hour in (0, 5, 13, 23):
             sin_val, cos_val = _minute_of_hour_encoding(datetime(2026, 3, 15, hour, 0, tzinfo=UTC))
@@ -224,7 +224,7 @@ class TestTdomEncoding:
         """2026-06-01 is a Monday (verified: calendar.weekday(2026, 6, 1) == 0)."""
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _tdom_encoding
+        from src.intelligence.features.kernels.calendar import _tdom_encoding
 
         ts = datetime(2026, 6, 1, 14, 0, tzinfo=UTC)
         sin_val, cos_val = _tdom_encoding(ts)
@@ -240,7 +240,7 @@ class TestTdomEncoding:
         + this Monday = t=6."""
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _tdom_encoding
+        from src.intelligence.features.kernels.calendar import _tdom_encoding
 
         ts = datetime(2026, 6, 8, 14, 0, tzinfo=UTC)
         sin_val, cos_val = _tdom_encoding(ts)
@@ -255,7 +255,7 @@ class TestTdomEncoding:
         date itself, but W only counts Mon-Fri) -- no crash, no holiday table."""
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _tdom_encoding
+        from src.intelligence.features.kernels.calendar import _tdom_encoding
 
         ts = datetime(2026, 6, 6, 14, 0, tzinfo=UTC)  # Saturday
         sin_val, cos_val = _tdom_encoding(ts)
@@ -270,7 +270,10 @@ class TestQuarterCycleEncoding:
         timestamps."""
         from datetime import UTC, datetime
 
-        from src.intelligence.feature_factory import _quarter_cycle_encoding, _quarter_position
+        from src.intelligence.features.kernels.calendar import (
+            _quarter_cycle_encoding,
+            _quarter_position,
+        )
 
         samples = [
             datetime(2026, 1, 1, tzinfo=UTC),
@@ -304,21 +307,21 @@ class TestVolVelocityZSeriesFullGeneric:
         difference, so its rolling z-score trends positive -- a perfectly
         linear series would have a CONSTANT first difference (zero variance,
         zero z-score), which is not what "positive velocity" should assert."""
-        from src.intelligence.feature_factory import _vol_velocity_z_series_full
+        from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
         series = np.array([float(i) ** 1.6 for i in range(50)])
         result = _vol_velocity_z_series_full(series, window=10)
         assert np.all(result[15:] > 0), f"Expected positive velocity, got {result[15:]}"
 
     def test_flat_series_yields_zero_velocity(self) -> None:
-        from src.intelligence.feature_factory import _vol_velocity_z_series_full
+        from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
         series = np.full(50, 3.5)
         result = _vol_velocity_z_series_full(series, window=10)
         assert np.all(result == 0.0), f"Expected all-zero velocity on a flat series, got {result}"
 
     def test_index_0_is_zero_padded(self) -> None:
-        from src.intelligence.feature_factory import _vol_velocity_z_series_full
+        from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
         rng = np.random.default_rng(1)
         series = rng.normal(0, 1, 50)
@@ -395,9 +398,7 @@ class TestBarsSinceRollingExtremeSeriesFull:
     binding design constraint from todo 180's Fable review)."""
 
     def test_boundedness_randomized(self) -> None:
-        from src.intelligence.feature_factory import (
-            _bars_since_rolling_extreme_series_full,
-        )
+        from src.intelligence.features.kernels.price import _bars_since_rolling_extreme_series_full
 
         rng = np.random.default_rng(3)
         highs, lows, _closes = _make_bars(500, seed=3)
@@ -414,9 +415,7 @@ class TestBarsSinceRollingExtremeSeriesFull:
     def test_saturation_strictly_decreasing(self) -> None:
         """A strictly-decreasing series never re-attains its earlier max inside
         the window -- the final bar must saturate to exactly window-1."""
-        from src.intelligence.feature_factory import (
-            _bars_since_rolling_extreme_series_full,
-        )
+        from src.intelligence.features.kernels.price import _bars_since_rolling_extreme_series_full
 
         window = 20
         values = np.arange(200.0, 0.0, -1.0)  # strictly decreasing, len > window
@@ -424,9 +423,7 @@ class TestBarsSinceRollingExtremeSeriesFull:
         assert out[-1] == float(window - 1)
 
     def test_recency_semantics_max_at_current_bar_is_zero(self) -> None:
-        from src.intelligence.feature_factory import (
-            _bars_since_rolling_extreme_series_full,
-        )
+        from src.intelligence.features.kernels.price import _bars_since_rolling_extreme_series_full
 
         values = np.arange(1.0, 101.0)  # strictly increasing -> max always current bar
         out = _bars_since_rolling_extreme_series_full(values, 20, "max")
@@ -435,9 +432,7 @@ class TestBarsSinceRollingExtremeSeriesFull:
     def test_recency_semantics_one_bar_later_is_one(self) -> None:
         """A series whose max is the second-to-last bar, then one lower final
         bar, must read 1.0 at the final bar (one bar since the extreme)."""
-        from src.intelligence.feature_factory import (
-            _bars_since_rolling_extreme_series_full,
-        )
+        from src.intelligence.features.kernels.price import _bars_since_rolling_extreme_series_full
 
         values = np.concatenate([np.arange(1.0, 51.0), [49.5]])
         out = _bars_since_rolling_extreme_series_full(values, 20, "max")
@@ -450,7 +445,7 @@ class TestBarsSinceEventSeriesFull:
     occurred inside the trailing window."""
 
     def test_boundedness_randomized(self) -> None:
-        from src.intelligence.feature_factory import _bars_since_event_series_full
+        from src.intelligence.features.kernels.price import _bars_since_event_series_full
 
         rng = np.random.default_rng(11)
         events = rng.random(500) > 0.85
@@ -462,14 +457,14 @@ class TestBarsSinceEventSeriesFull:
 
     def test_saturation_no_event_in_window(self) -> None:
         window = 10
-        from src.intelligence.feature_factory import _bars_since_event_series_full
+        from src.intelligence.features.kernels.price import _bars_since_event_series_full
 
         events = np.zeros(50, dtype=bool)  # never fires
         out = _bars_since_event_series_full(events, window)
         assert np.all(out == float(window - 1))
 
     def test_recency_semantics(self) -> None:
-        from src.intelligence.feature_factory import _bars_since_event_series_full
+        from src.intelligence.features.kernels.price import _bars_since_event_series_full
 
         events = np.zeros(30, dtype=bool)
         events[10] = True
@@ -486,7 +481,7 @@ class TestAbsRetAutocorrSeriesFull:
     def test_existing_signed_callers_are_byte_identical(self) -> None:
         """The use_abs refactor must not change ret_autocorr_1/5's existing
         output (use_abs=False default) to 1e-12."""
-        from src.intelligence.feature_factory import _ret_autocorr_series_full
+        from src.intelligence.features.kernels.price import _ret_autocorr_series_full
 
         rng = np.random.default_rng(21)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 300))
@@ -499,7 +494,7 @@ class TestAbsRetAutocorrSeriesFull:
         """Alternating small/large-magnitude blocks (volatility clustering)
         must yield a positive abs_ret_autocorr_1 -- large moves follow large
         moves, small moves follow small moves."""
-        from src.intelligence.feature_factory import _ret_autocorr_series_full
+        from src.intelligence.features.kernels.price import _ret_autocorr_series_full
 
         # Blocks of 20 small returns then 20 large returns, repeated -- the
         # |return| series is strongly positively autocorrelated at lag 1.
@@ -518,7 +513,7 @@ class TestAbsRetAutocorrSeriesFull:
     def test_alternating_magnitude_yields_negative_sign(self) -> None:
         """A perfectly alternating small/large/small/large |return| sequence
         must yield a negative abs_ret_autocorr_1."""
-        from src.intelligence.feature_factory import _ret_autocorr_series_full
+        from src.intelligence.features.kernels.price import _ret_autocorr_series_full
 
         n = 100
         signs = np.array([1.0 if i % 2 == 0 else -1.0 for i in range(n)])
@@ -533,7 +528,7 @@ class TestAbsRetAutocorrSeriesFull:
         assert result[-1] < 0.0, f"Expected negative alternating signal, got {result[-1]}"
 
     def test_bounded_signed(self) -> None:
-        from src.intelligence.feature_factory import _ret_autocorr_series_full
+        from src.intelligence.features.kernels.price import _ret_autocorr_series_full
 
         rng = np.random.default_rng(31)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 400))
@@ -586,7 +581,8 @@ class TestPhase151CrossTfDivergences:
     def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
         from services.backfill_feature_factory import CtfValues
         from src.intelligence.feature_cache import FeatureCache
-        from src.intelligence.feature_factory import FeatureFactory, _ret_lag_1
+        from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels.price import _ret_lag_1
 
         config = _make_config_for_min_window()
         cache = FeatureCache()

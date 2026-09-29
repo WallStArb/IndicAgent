@@ -208,7 +208,7 @@ def _assert_parity(batch: np.ndarray, streaming: dict, field: str, tol: float = 
 
 
 def test_momentum_z_fast_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _momentum_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_z_series_full
 
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_fast, cfg.momentum_zscore_window
@@ -217,7 +217,7 @@ def test_momentum_z_fast_parity(ohlcv, cfg, streaming):
 
 
 def test_momentum_z_mid_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _momentum_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_z_series_full
 
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_mid, cfg.momentum_zscore_window
@@ -226,7 +226,7 @@ def test_momentum_z_mid_parity(ohlcv, cfg, streaming):
 
 
 def test_momentum_z_slow_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _momentum_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_z_series_full
 
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_slow, cfg.momentum_zscore_window
@@ -235,7 +235,7 @@ def test_momentum_z_slow_parity(ohlcv, cfg, streaming):
 
 
 def test_momentum_reversal_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _momentum_reversal_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_reversal_z_series_full
 
     batch = _momentum_reversal_z_series_full(ohlcv["closes"], cfg.momentum_zscore_window)
     _assert_parity(batch, streaming, "momentum_reversal_z")
@@ -254,7 +254,7 @@ def _streaming_at(bar_idx: int, ohlcv: dict, cfg: FeatureFactoryConfig) -> objec
 
 def test_momentum_z_fast_transition_boundary(ohlcv, cfg):
     """Batch must match streaming exactly at cold-start boundary for momentum_z_fast."""
-    from src.intelligence.feature_factory import _momentum_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_z_series_full
 
     batch = _momentum_z_series_full(
         ohlcv["closes"], cfg.momentum_window_fast, cfg.momentum_zscore_window
@@ -294,7 +294,7 @@ def test_momentum_reversal_z_transition_boundary(ohlcv, cfg):
     semantics. Checks parity at bar 1 (cold), bar 2 (first non-zero), and several
     bars into the fully-saturated window region.
     """
-    from src.intelligence.feature_factory import _momentum_reversal_z_series_full
+    from src.intelligence.features.kernels.price import _momentum_reversal_z_series_full
 
     batch = _momentum_reversal_z_series_full(ohlcv["closes"], cfg.momentum_zscore_window)
 
@@ -339,14 +339,14 @@ def test_momentum_reversal_z_transition_boundary(ohlcv, cfg):
 
 
 def test_volume_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _volume_z_series_full
+    from src.intelligence.features.kernels.volume import _volume_z_series_full
 
     batch = _volume_z_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
     _assert_parity(batch, streaming, "volume_z")
 
 
 def test_ofi_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _ofi_z_series_full
+    from src.intelligence.features.kernels.volume import _ofi_z_series_full
 
     batch = _ofi_z_series_full(
         ohlcv["closes"],
@@ -359,7 +359,7 @@ def test_ofi_z_parity(ohlcv, cfg, streaming):
 
 
 def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _cvd_slope_z_series_full
+    from src.intelligence.features.kernels.volume import _cvd_slope_z_series_full
 
     batch = _cvd_slope_z_series_full(
         ohlcv["closes"],
@@ -378,21 +378,21 @@ def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_fast_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full
+    from src.intelligence.features.kernels.price import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
     _assert_parity(batch, streaming, "rsi_fast")
 
 
 def test_rsi_mid_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full
+    from src.intelligence.features.kernels.price import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
     _assert_parity(batch, streaming, "rsi_mid")
 
 
 def test_rsi_slow_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full
+    from src.intelligence.features.kernels.price import _rsi_series_full
 
     batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
     _assert_parity(batch, streaming, "rsi_slow")
@@ -411,7 +411,10 @@ def test_rsi_slow_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_velocity_fast_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.price import (
+        _rsi_series_full,
+        _vol_velocity_z_series_full,
+    )
 
     rsi_fast_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
     batch = _vol_velocity_z_series_full(rsi_fast_arr, cfg.rsi_velocity_window)
@@ -419,7 +422,10 @@ def test_rsi_velocity_fast_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_velocity_mid_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.price import (
+        _rsi_series_full,
+        _vol_velocity_z_series_full,
+    )
 
     rsi_mid_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
     batch = _vol_velocity_z_series_full(rsi_mid_arr, cfg.rsi_velocity_window)
@@ -427,7 +433,10 @@ def test_rsi_velocity_mid_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_velocity_slow_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rsi_series_full, _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.price import (
+        _rsi_series_full,
+        _vol_velocity_z_series_full,
+    )
 
     rsi_slow_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
     batch = _vol_velocity_z_series_full(rsi_slow_arr, cfg.rsi_velocity_window)
@@ -435,7 +444,8 @@ def test_rsi_velocity_slow_parity(ohlcv, cfg, streaming):
 
 
 def test_ofi_z_velocity_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _ofi_z_series_full, _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.volume import _ofi_z_series_full
 
     ofi_z_arr = _ofi_z_series_full(
         ohlcv["closes"], ohlcv["highs"], ohlcv["lows"], ohlcv["volumes"], cfg.ofi_zscore_window
@@ -445,10 +455,8 @@ def test_ofi_z_velocity_parity(ohlcv, cfg, streaming):
 
 
 def test_cvd_slope_z_velocity_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import (
-        _cvd_slope_z_series_full,
-        _vol_velocity_z_series_full,
-    )
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.volume import _cvd_slope_z_series_full
 
     cvd_slope_z_arr = _cvd_slope_z_series_full(
         ohlcv["closes"],
@@ -463,10 +471,8 @@ def test_cvd_slope_z_velocity_parity(ohlcv, cfg, streaming):
 
 
 def test_volume_z_velocity_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import (
-        _vol_velocity_z_series_full,
-        _volume_z_series_full,
-    )
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
+    from src.intelligence.features.kernels.volume import _volume_z_series_full
 
     volume_z_arr = _volume_z_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
     batch = _vol_velocity_z_series_full(volume_z_arr, cfg.volume_velocity_window)
@@ -475,7 +481,7 @@ def test_volume_z_velocity_parity(ohlcv, cfg, streaming):
 
 def test_rsi_fast_transition_boundary(ohlcv, cfg):
     """result[period] must match streaming at exactly period+1 closes."""
-    from src.intelligence.feature_factory import _rsi_series_full
+    from src.intelligence.features.kernels.price import _rsi_series_full
 
     period = cfg.rsi_fast_period
     batch = _rsi_series_full(ohlcv["closes"], period)
@@ -501,7 +507,7 @@ def test_rsi_fast_transition_boundary(ohlcv, cfg):
 
 
 def test_ret_skew_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _ret_skew_z_series_full
+    from src.intelligence.features.kernels.price import _ret_skew_z_series_full
 
     batch = _ret_skew_z_series_full(
         ohlcv["closes"], cfg.ret_skew_window, cfg.ret_skew_zscore_window
@@ -510,21 +516,21 @@ def test_ret_skew_z_parity(ohlcv, cfg, streaming):
 
 
 def test_ret_acf1_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _ret_acf1_z_series_full
+    from src.intelligence.features.kernels.price import _ret_acf1_z_series_full
 
     batch = _ret_acf1_z_series_full(ohlcv["closes"], cfg.ret_acf_window, cfg.ret_acf_zscore_window)
     _assert_parity(batch, streaming, "ret_acf1_z")
 
 
 def test_amihud_illiq_z_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _amihud_illiq_z_series_full
+    from src.intelligence.features.kernels.volume import _amihud_illiq_z_series_full
 
     batch = _amihud_illiq_z_series_full(ohlcv["closes"], ohlcv["volumes"], cfg.amihud_zscore_window)
     _assert_parity(batch, streaming, "amihud_illiq_z")
 
 
 def test_high_52w_dist_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _high_52w_dist_series_full
+    from src.intelligence.features.kernels.price import _high_52w_dist_series_full
 
     batch = _high_52w_dist_series_full(ohlcv["closes"], cfg.high_52w_window)
     _assert_parity(batch, streaming, "high_52w_dist")
@@ -536,7 +542,7 @@ def test_high_52w_dist_parity(ohlcv, cfg, streaming):
 
 
 def test_vwap_dev_sigma_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _vwap_dev_sigma_series_full
+    from src.intelligence.features.kernels.volume import _vwap_dev_sigma_series_full
 
     batch = _vwap_dev_sigma_series_full(
         ohlcv["opens"], ohlcv["highs"], ohlcv["lows"], ohlcv["closes"], ohlcv["volumes"]
@@ -546,7 +552,7 @@ def test_vwap_dev_sigma_parity(ohlcv, cfg, streaming):
 
 
 def test_rel_volume_parity(ohlcv, cfg, streaming):
-    from src.intelligence.feature_factory import _rel_volume_series_full
+    from src.intelligence.features.kernels.volume import _rel_volume_series_full
 
     batch = _rel_volume_series_full(ohlcv["volumes"], cfg.volume_zscore_window)
     _assert_parity(batch, streaming, "rel_volume")

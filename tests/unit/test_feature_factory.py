@@ -20,19 +20,20 @@ import pytest
 from src.intelligence.feature_cache import CrossAssetState, FeatureCache
 
 # These imports will fail RED until implementation exists.
-from src.intelligence.feature_factory import (
-    FeatureFactory,
-    FeatureFactoryConfig,
+from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.kernels._primitives import (
     _atr_series_full,
+    _is_valid_atr,
+    _is_valid_atr_series,
+    _rolling_zscore_series,
+)
+from src.intelligence.features.kernels.price import (
     _dist_from_high_series_full,
     _dist_from_low_series_full,
     _gap_z_series_full,
-    _informed_flow,
-    _is_valid_atr,
-    _is_valid_atr_series,
     _range_vs_atr,
-    _rolling_zscore_series,
 )
+from src.intelligence.features.kernels.volume import _informed_flow
 from src.intelligence.schemas import FeatureVector
 
 # Derived, not hardcoded -- a literal dev-machine path here means these tests
@@ -1439,12 +1440,8 @@ def test_price_volume_interaction_helpers_direct() -> None:
     (exact products/ratios + epsilon-guard edge cases), independent of the
     FeatureFactory.compute() integration test above.
     """
-    from src.intelligence.feature_factory import (
-        _price_vol_corr_series_full,
-        _product,
-        _ret_vol_ratio,
-        _up_vol_body_diff,
-    )
+    from src.intelligence.features.kernels.price import _product, _ret_vol_ratio, _up_vol_body_diff
+    from src.intelligence.features.kernels.volume import _price_vol_corr_series_full
 
     # Test 1-3, 6: _product returns a * b (pure product) -- shared by
     # vol_body_product, ret_vol_product_fast, range_vol_product, vol_skew_product.

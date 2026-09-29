@@ -42,15 +42,10 @@ from src.intelligence.feature_cache import (
     _compute_session_vp_profile,
 )
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
-from src.intelligence.features.kernels._primitives import (  # noqa: F401  re-exported for tests and scripts
-    _atr_series_full,
+from src.intelligence.features.kernels._primitives import (
     _is_valid_atr,
-    _is_valid_atr_series,
-    _pearson_acf1,
-    _rolling_zscore_series,
-    _skewness,
 )
-from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-exported for tests and scripts
+from src.intelligence.features.kernels.calendar import (
     _day_of_month_cos,
     _day_of_month_sin,
     _days_since_quarter_end,
@@ -79,31 +74,22 @@ from src.intelligence.features.kernels.calendar import (  # noqa: F401  re-expor
     _week_of_year_cos,
     _week_of_year_sin,
 )
-from src.intelligence.features.kernels.control import (  # noqa: F401  re-exported for tests and scripts
+from src.intelligence.features.kernels.control import (
     _CANARY_CONSTANT_VALUE,
     _canary_acausal_placebo,
     _canary_near_constant,
     _canary_noise_gaussian,
     _canary_noise_uniform,
-    _canary_sub_seed,
 )
 from src.intelligence.features.kernels.macro import RECORD_COLUMNS, align_daily_asof, bar_ts_ns
-from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported for tests and scripts
+from src.intelligence.features.kernels.price import (
     _aroon_osc,
     _bar_close_pos,
-    _bars_since_event_series_full,
-    _bars_since_rolling_extreme_series_full,
     _body_ratio,
     _cci,
     _close_vs_open_direction,
-    _dist_from_high_series_full,
-    _dist_from_low_series_full,
-    _gap_z_series_full,
-    _high_52w_dist_series_full,
     _intraday_ret,
     _lower_wick_ratio,
-    _momentum_reversal_z_series_full,
-    _momentum_z_series_full,
     _open_ret,
     _open_vs_intraday,
     _overnight_gap,
@@ -112,33 +98,20 @@ from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported
     _range_efficiency,
     _range_position,
     _range_vs_atr,
-    _ret_acf1_z_series_full,
-    _ret_autocorr_series_full,
     _ret_lag_1,
     _ret_lag_2,
     _ret_lag_3,
     _ret_lag_fast,
     _ret_lag_mid,
     _ret_lag_slow,
-    _ret_skew_z_series_full,
     _ret_vol_ratio,
-    _rsi,
-    _rsi_series_full,
     _up_vol_body_diff,
     _upper_wick_ratio,
     _vol_ratio,
-    _vol_velocity_z_series_full,
 )
-from src.intelligence.features.kernels.volume import (  # noqa: F401  re-exported for tests and scripts
-    _amihud_illiq_z_series_full,
+from src.intelligence.features.kernels.volume import (
     _cmf,
-    _cvd_slope_z_series_full,
     _informed_flow,
-    _ofi_z_series_full,
-    _price_vol_corr_series_full,
-    _rel_volume_series_full,
-    _volume_z_series_full,
-    _vwap_dev_sigma_series_full,
 )
 from src.intelligence.features.registry import compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
@@ -986,13 +959,6 @@ def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[st
         htf: [ltf for ltf, mapped_htf in higher_tf_map.items() if mapped_htf == htf]
         for htf in set(higher_tf_map.values())
     }
-
-
-# ---------------------------------------------------------------------------
-# Feature computation lives in the kernel registry (D-25): src/intelligence/features/kernels/
-# holds the price, volume, calendar, control and macro kernels. The helpers they use are
-# re-exported above for callers that import them from this module.
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

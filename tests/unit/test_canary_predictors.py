@@ -22,15 +22,17 @@ import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
-    _CANARY_CONSTANT_VALUE,
     FeatureFactory,
     FeatureFactoryConfig,
+    _cold_start_vector,
+)
+from src.intelligence.features.kernels.control import (
+    _CANARY_CONSTANT_VALUE,
     _canary_acausal_placebo,
     _canary_near_constant,
     _canary_noise_gaussian,
     _canary_noise_uniform,
     _canary_sub_seed,
-    _cold_start_vector,
 )
 from src.intelligence.schemas import FeatureVector
 
