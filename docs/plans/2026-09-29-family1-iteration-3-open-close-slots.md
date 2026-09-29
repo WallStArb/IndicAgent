@@ -13,7 +13,7 @@ whether the slot subset is a standalone-book candidate, not whether the edge exi
 ## Disclosed prior look (seen data)
 
 A per-slot split of `same_slot_mean5` on the 233-name panel, in-sample before `oos_start`, at
-keep 0.5 and keep 0.1 (scratch script, not committed). Gross P&L in bp per session, E in bp per
+keep 0.5 and keep 0.1 (`scripts/research/family1_slot_profile.py`). Gross P&L in bp per session, E in bp per
 unit traded:
 
 | Slot | keep 0.5 P&L | keep 0.5 E | keep 0.1 P&L | keep 0.1 E |
@@ -107,9 +107,9 @@ not change).
 ## Result, question 2 (2026-09-29): name replication
 
 Panel: 201 active equity names outside the 233-name `compute_eligible` set with 15m bars (203 at
-filing; 2 dropped in panel preparation), 4839 sessions, snapshot `panel_f7fd3a15bc645e5f` built to
-scratch (not committed). Same spec, S1 vintage-1 residualization built on this panel, horizon 2.
-Scratch script, not committed. E in bp per unit traded.
+filing; 2 dropped in panel preparation), 4839 sessions, snapshot
+`logs/research/snapshots/panel_f7fd3a15bc645e5f` (git-ignored). Same spec, S1 vintage-1 residualization built on this panel, horizon 2.
+Script: `scripts/research/family1_slot_profile.py`. E in bp per unit traded.
 
 | Slot | Member | keep | E | HAC t | E by sub-period (2010-14, 2015-19, 2020-25) |
 |---|---|---|---|---|---|
@@ -142,7 +142,8 @@ IBKR historical BID and ASK 15m bars (RTH), last 30 sessions to 2026-09-29, 39 n
 233-name set, 19 from the replication set; BRK.B failed to resolve and was skipped), chosen by
 symbol hash. Half-spread = (ask - bid) / 2 / mid at each bar's open, median over days per name,
 then median across names. Unweighted by trade weight; a quote snapshot, not an executed price.
-Scratch script and data in the session scratchpad, not committed.
+Per-name half-spreads: `docs/research/family1-spread-sample-2026-09-29.csv`. The pull script used
+ib_async outside `src/providers/ibkr.py`, so it is not committed; the data file is the record.
 
 | Time (ET) | 233-name set (bp) | replication set (bp) |
 |---|---|---|
@@ -212,8 +213,7 @@ Criteria:
 
 ## Result, question 4 (2026-09-29): closing slot on liquid names
 
-Cost-model fit: a = 6.257, b = -0.296 on 36 names. All 32 cells run; scratch script and output in
-the session scratchpad, not committed. E and net E in bp per unit traded; names per side is the
+Cost-model fit: a = 6.257, b = -0.296 on 36 names. All 32 cells run (`scripts/research/family1_liquid_close.py`, reads the spread CSV above). E and net E in bp per unit traded; names per side is the
 mean traded book size. mean5 shown; mean20 is within 0.05 bp of it in every cell except where noted.
 
 | Set | L | keep | Names per side | E | Cost | Net E |
