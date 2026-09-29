@@ -19,10 +19,11 @@ paying when held longer. Same members, same construction, only `horizon` changes
 
 ## Variants
 
-Baseline: horizon 2 bars (one slot), recorded run group `5a564f09`.
+Baseline: horizon 2 bars (one slot). Run group `5a564f09` used the E16 statistic, which is biased toward zero for own-history members, so `family1_h2` reruns the baseline under E17 (its P&L and turnover are unchanged) and every variant is compared with it.
 
 | Spec | horizon (15m bars) | hold |
 |---|---|---|
+| `family1_h2` | 2 | one slot (control, E17) |
 | `family1_h4` | 4 | 1 hour |
 | `family1_h8` | 8 | 2 hours |
 | `family1_h26` | 26 | to the close (market-on-close exit; no target crosses the overnight gap) |

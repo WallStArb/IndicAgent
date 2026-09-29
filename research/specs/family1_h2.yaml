@@ -1,4 +1,4 @@
-# Family 1 iteration 1 (exploration), horizon 8 bars. Note: docs/plans/2026-09-29-family1-iteration-1-horizon.md.
+# Family 1 iteration 1 (exploration), horizon 2 bars, E17 control. Note: docs/plans/2026-09-29-family1-iteration-1-horizon.md.
 # docs/plans/2026-09-25-family1-intraday-periodicity-prereg.md (sections 2-5).
 # This file is the machine form of that pre-registration. Editing any value after a real run is
 # a new spec hash, a new recorded run and, per the prereg, a methodology change.
@@ -6,7 +6,7 @@
 kind: family
 family: intraday_periodicity
 prior_source: docs/plans/2026-09-29-family1-iteration-1-horizon.md
-horizon: 8  # iteration 1: hold 8 bars; late slots exit at the close (market-on-close)
+horizon: 2  # control: the recorded baseline horizon, rerun under E17
 factor_spec: vintage_1  # prereg 2: S1 vintage-1 spec as merged, per-slot market loadings
 panel:
   universe: compute_eligible  # prereg 2: 233 names
