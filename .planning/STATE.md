@@ -59,12 +59,13 @@ bullets with current facts.
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 5 done (01, 03, 04, 05, 06); resume with 186-07. Cross-AI
-  review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors` rebuild needs
-  the 5m timeframe decision first (todo 445, design section 14.2) and 185's derived grid (todo
-  446). The fresh ic_engine computes targets with `panel.forward_returns`; the `forward_returns`
-  table is dropped after parity (UD-25, design 14.7). Phases 187-188: not planned; 187 waits on
-  family 2's evidence run and the research lane's release.
+  sequential, one executor at a time). 6 done (01, 03, 04, 05, 06, 07); resume with 186-08.
+  Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
+  rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
+  `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
+  185's derived grid (todo 446). The fresh ic_engine computes targets with `panel.forward_returns`;
+  the `forward_returns` table is dropped after parity (UD-25, design 14.7). Phases 187-188: not
+  planned; 187 waits on family 2's evidence run and the research lane's release.
 
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
