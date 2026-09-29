@@ -66,8 +66,11 @@ def _first_difference(
     bad = nan_a != nan_b
     both = ~nan_a & ~nan_b
     if atol > 0.0:
+        # Exactly equal values (equal infinities included, where inf - inf is NaN) are equal
+        # before the tolerance applies, as the ulp branches treat them.
         with np.errstate(invalid="ignore"):
-            bad |= both & ~(np.abs(a.astype(np.float64) - b.astype(np.float64)) <= atol)
+            within = np.abs(a.astype(np.float64) - b.astype(np.float64)) <= atol
+        bad |= both & ~within & (a != b)
     elif ulp == 0:
         bad |= both & (a != b)
     else:

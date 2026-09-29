@@ -165,6 +165,34 @@ def test_memory_atol_tolerates_last_bit_but_zero_is_exact():
     assert memory_check(loose, INPUTS, CFG, ROWS) == 0
 
 
+def _inf_kernel(sign):
+    def emit(x):
+        out = x.astype(np.float64).copy()
+        out[-1] = sign * np.inf  # the probed row is the last row of every windowed run
+        if len(x) == N:
+            out[ROWS] = np.inf
+        return out
+
+    return Kernel(
+        "k",
+        ("out",),
+        ("close",),
+        lambda c: 3,
+        lambda x, c: {"out": emit(x["close"])},
+        memory_atol=1e-2,
+    )
+
+
+def test_memory_atol_treats_equal_infinities_as_equal():
+    """inf - inf is NaN, which the tolerance comparison read as a violation."""
+    assert memory_check(_inf_kernel(+1.0), INPUTS, CFG, ROWS) == 3
+
+
+def test_memory_atol_still_flags_opposite_infinities():
+    with pytest.raises(MemoryViolation):
+        memory_check(_inf_kernel(-1.0), INPUTS, CFG, ROWS)
+
+
 def test_probe_registry_reports_path_dependent_and_acausal_control():
     def anchored(x):  # depends on the first row: no finite memory
         return x - x[0]
