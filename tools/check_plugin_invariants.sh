@@ -57,6 +57,10 @@ case "$CHECK" in
         # plugin suffix taxonomy does not describe (Panel, RidgeSpec, PostgresLedger).
         # bars/ (phase 185) is the same kind of pure Ring 1 library (ScrubParams,
         # SymbolBars, BarFlag), not plugin code.
+        # features/registry.py and features/causality_probe.py (186-08) are the pure kernel
+        # contract (Kernel, CausalityViolation), named by the plan's D-25/D-27 interface, not
+        # plugin classes.
+        src/intelligence/features/registry.py|src/intelligence/features/causality_probe.py) continue ;;
         src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
