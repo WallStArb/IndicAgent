@@ -374,7 +374,11 @@ class FeatureLifecycle(BaseBatch):
 
     async def execute(self, pool: asyncpg.Pool) -> None:  # type: ignore[override]
         async with pool.acquire() as conn:
-            config = LifecycleConfig.from_apr(await load_apr_dict_async(conn))
+            config = LifecycleConfig.from_apr(
+                await load_apr_dict_async(
+                    conn, extra_like_patterns=["feature.coverage.%", "feature.lifecycle.%"]
+                )
+            )
             plan = await self._plan(conn, config)
             if plan is None:
                 # No feature_vectors rows in the span: nothing is measured or written, so a

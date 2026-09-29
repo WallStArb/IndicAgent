@@ -357,12 +357,62 @@ async def test_dry_run_writes_nothing(monkeypatch):
             del outer
             return _Ctx()
 
-    async def fake_apr(_conn):
+    async def fake_apr(_conn, **_kwargs):
         return {}
 
     monkeypatch.setattr(fl, "load_apr_dict_async", fake_apr)
     await _node(dry_run=True).execute(_Pool())
     assert conn.writes == []
+
+
+@pytest.mark.asyncio
+async def test_execute_loads_the_feature_apr_keys_through_the_real_loader():
+    """The loader only reads alpha.% unless told otherwise; the four feature.* keys must be
+    requested, or the config silently uses its defaults."""
+    apr_rows = {
+        "feature.coverage.min_symbol_fraction": 0.5,
+        "feature.lifecycle.lookback_days": 30,
+        "feature.lifecycle.demotion_min_consecutive": 3,
+        "feature.lifecycle.recovery_min_passes": 4,
+        "alpha.unrelated.key": 1,
+    }
+    conn = _fake([_concept("good", "active")], {"1d": _symbols(6, 10)})
+    plain_fetch = conn.fetch
+
+    async def fetch(sql, *args):
+        if "FROM config_state" in sql:
+            patterns = [p.rstrip("%") for p in args[0]]
+            return [
+                {"config_key": k, "config_value": v}
+                for k, v in apr_rows.items()
+                if any(k.startswith(p) for p in patterns)
+            ]
+        return await plain_fetch(sql, *args)
+
+    conn.fetch = fetch
+
+    class _Pool:
+        def acquire(self):
+            class _Ctx:
+                async def __aenter__(self_inner):
+                    return conn
+
+                async def __aexit__(self_inner, *exc):
+                    return False
+
+            return _Ctx()
+
+    node = _node(dry_run=True)
+    seen: list[LifecycleConfig] = []
+    real_plan = node._plan
+
+    async def spy(c, config):
+        seen.append(config)
+        return await real_plan(c, config)
+
+    node._plan = spy
+    await node.execute(_Pool())
+    assert seen == [LifecycleConfig(0.5, 30, 3, 4)]
 
 
 # ---------------------------------------------------------------------------
