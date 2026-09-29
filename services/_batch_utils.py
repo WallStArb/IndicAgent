@@ -1288,6 +1288,23 @@ def make_worker_pool(
 # (todo 048, 2026-07-02).
 
 
+# table_schema filter is mandatory: omitting it returns same-named tables from other schemas
+# (e.g. timescaledb_internal), producing false "column exists" verdicts.
+_TABLE_COLUMNS_SQL = (
+    "SELECT column_name, data_type FROM information_schema.columns"
+    " WHERE table_schema = 'public' AND table_name = $1"
+)
+
+
+async def fetch_table_columns(conn: Any, table: str) -> dict[str, str]:
+    """{column_name: data_type} of a public-schema table, from information_schema.
+
+    `conn` is anything with an asyncpg-style `fetch(sql, *args)` (a connection, a pool or the
+    DatabaseManager). dtype comes from the schema, never from inferred row data."""
+    rows = await conn.fetch(_TABLE_COLUMNS_SQL, table)
+    return {row["column_name"]: row["data_type"] for row in rows}
+
+
 async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None = None) -> Any:
     """Load alpha.* (+ optional extra LIKE patterns, e.g. a service's own infra.<name>.*)
     APR keys via asyncpg into a raw {config_key: config_value} dict.

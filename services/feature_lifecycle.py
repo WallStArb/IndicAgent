@@ -51,10 +51,10 @@ import structlog
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
-from services._batch_utils import load_apr_dict_async  # noqa: E402
+from services._batch_utils import fetch_table_columns, load_apr_dict_async  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
-from src.core.integrity_monitor import emit_integrity_fact_async  # noqa: E402
+from src.core.integrity_monitor import emit_integrity_facts_async  # noqa: E402
 from src.core.service_utils import parse_training_window_end  # noqa: E402
 from src.intelligence.concept_registry_service import (  # noqa: E402
     ConceptRegistryService,
@@ -84,6 +84,11 @@ _GOVERNED_STATUSES = ("active", "shadow_only")
 _MAX_FEATURES_PER_QUERY = 800
 
 _FLOAT_TYPES = ("real", "double precision")
+
+# Timeframes measured at once. Each holds one pool connection for its aggregate queries, which
+# scan the feature_vectors hypertable; BaseBatch's pool has ten. An infra.* APR candidate: a
+# key needs a migration, which this change does not add.
+_MAX_CONCURRENT_TFS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -285,11 +290,10 @@ _CONCEPTS_SQL = """
     WHERE r.domain = $1
 """
 
-_COLUMNS_SQL = """
-    SELECT column_name, data_type FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'feature_vectors'
-"""
-
+# Timeframes are discovered from the rows, not from the `timeframe` vocabulary: the vocabulary
+# lists tfs with no feature_vectors rows (1m, 4h), and each would add an empty per-tf entry to
+# every feature's evidence, n_cells and evidence_key; a tf present in the table but missing from
+# the vocabulary would be dropped without a word. The index-only scan takes about 0.15 s.
 _TFS_SQL = """
     SELECT DISTINCT tf FROM feature_vectors
     WHERE bar_ts >= $1 AND bar_ts < $2 AND tf IS NOT NULL
@@ -308,11 +312,44 @@ _UPSERT_EVALUATION_SQL = """
 
 # Only rows this rule wrote (detail carries per_tf): the IC-era rows share the table and the
 # window keys but measured something else, so they are never evidence here.
+#
+# Derivation reads, per governed concept, the evaluations made under its current status since it
+# entered it (derive_feature_transition's own filter), the latest of each window, and only the
+# newest $5 windows: a trailing streak of at most max(demotion_min_consecutive,
+# recovery_min_passes) windows decides a transition. $2, $3, $4 are the governed concepts'
+# ids, statuses and status_since (NULL: no transition yet).
 _LOAD_EVALUATIONS_SQL = """
+    WITH latest AS (
+        SELECT DISTINCT ON (e.concept_id, e.window_end)
+               e.concept_id, e.window_end, e.evaluated_status, e.passed, e.n_observations,
+               e.guard_status, e.evaluated_at, e.statistic
+        FROM concept_evaluation e
+        JOIN unnest($2::uuid[], $3::text[], $4::timestamptz[])
+             AS g(concept_id, status, status_since) ON g.concept_id = e.concept_id
+        WHERE e.domain = $1
+          AND e.detail ? 'per_tf'
+          AND e.evaluated_status = g.status
+          AND (g.status_since IS NULL OR e.evaluated_at >= g.status_since)
+        ORDER BY e.concept_id, e.window_end, e.evaluated_at DESC
+    ), ranked AS (
+        SELECT latest.*,
+               row_number() OVER (PARTITION BY concept_id ORDER BY window_end DESC) AS recency
+        FROM latest
+    )
+    SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
+           evaluated_at, statistic
+    FROM ranked
+    WHERE recency <= $5
+"""
+
+# One concept's whole history, for a transition whose streak may reach past the trailing windows
+# above (its n_windows is the full streak length).
+_LOAD_CONCEPT_EVALUATIONS_SQL = """
     SELECT concept_id, window_end, evaluated_status, passed, n_observations, guard_status,
            evaluated_at, statistic
     FROM concept_evaluation
     WHERE domain = $1
+      AND concept_id = $2
       AND detail ? 'per_tf'
 """
 
@@ -381,6 +418,18 @@ def _quality_fact(
     return "symbol_coverage", coverage, coverage_floor
 
 
+def _evaluation_from_row(r: Any) -> Evaluation:
+    return Evaluation(
+        window_end=r["window_end"],
+        evaluated_status=r["evaluated_status"],
+        passed=r["passed"],
+        n_observations=r["n_observations"],
+        guard_status=r["guard_status"],
+        evaluated_at=r["evaluated_at"],
+        statistic=r["statistic"],
+    )
+
+
 class FeatureLifecycle(BaseBatch):
     job_name = "feature-lifecycle"
     compute_version = "2.0.0"
@@ -443,50 +492,42 @@ class FeatureLifecycle(BaseBatch):
         concepts = {r["name"]: dict(r) for r in await conn.fetch(_CONCEPTS_SQL, _DOMAIN)}
         governed = sorted(n for n, c in concepts.items() if c["status"] in _GOVERNED_STATUSES)
         # dtype from the schema, never inferred from rows
-        known_columns = {r["column_name"]: r["data_type"] for r in await conn.fetch(_COLUMNS_SQL)}
+        known_columns = await fetch_table_columns(conn, "feature_vectors")
         computable = [n for n in governed if n in known_columns]
 
         per_feature: dict[str, list[FeatureTfQuality]] = defaultdict(list)
-        for tf in tfs:
-            started = time.monotonic()
-            counts: dict[str, list[SymbolCounts]] = defaultdict(list)
-            for start in range(0, len(computable), _MAX_FEATURES_PER_QUERY):
-                chunk = computable[start : start + _MAX_FEATURES_PER_QUERY]
-                sql = build_tf_query(chunk, known_columns)
-                for row in await conn.fetch(sql, tf, span_start, span_end):
-                    for i, name in enumerate(chunk):
-                        counts[name].append(
-                            SymbolCounts(row["symbol"], row["n_rows"], row[f"c{i}"], row[f"x{i}"])
-                        )
+        for qualities in await self._measure_tfs(
+            conn, tfs, computable, known_columns, span_start, span_end
+        ):
             for name in computable:
-                per_feature[name].append(feature_tf_quality(name, tf, counts[name]))
-            self.logger.info(
-                "feature_lifecycle.tf_measured",
-                tf=tf,
-                n_features=len(computable),
-                seconds=round(time.monotonic() - started, 2),
-            )
+                per_feature[name].append(qualities[name])
 
         rows = self._plan_rows(governed, concepts, per_feature, tfs, config)
 
-        # Derive over the whole ledger plus this window's rows (the newest evaluations),
-        # so a replay of any window takes effect.
-        evaluations: dict[Any, list[Evaluation]] = defaultdict(list)
-        for r in await conn.fetch(_LOAD_EVALUATIONS_SQL, _DOMAIN):
-            evaluations[r["concept_id"]].append(
-                Evaluation(
-                    window_end=r["window_end"],
-                    evaluated_status=r["evaluated_status"],
-                    passed=r["passed"],
-                    n_observations=r["n_observations"],
-                    guard_status=r["guard_status"],
-                    evaluated_at=r["evaluated_at"],
-                    statistic=r["statistic"],
-                )
-            )
+        transitions = await self._transitions(conn, concepts, governed, config, rows)
+        return WindowPlan(len(tfs), rows, transitions)
+
+    async def _transitions(
+        self,
+        conn: asyncpg.Connection,
+        concepts: dict[str, dict],
+        governed: Sequence[str],
+        config: LifecycleConfig,
+        rows: Sequence[LedgerRow],
+    ) -> list[PlannedTransition]:
+        """Derive over the ledger plus this window's rows (the newest evaluations), so a replay
+        of any window takes effect.
+
+        The ledger read is the newest `window_limit` windows per concept. That decides every
+        transition (a streak of at most window_limit windows triggers one), but a transition's
+        n_windows is the whole streak, so one that may reach past the loaded windows is
+        re-derived from the concept's whole history: the result is what the whole ledger gives.
+        """
+        evaluations = await self._load_evaluations(conn, concepts, governed, config)
         for row in rows:
             evaluations[row.concept_id].append(row.evaluation)
 
+        window_limit = max(config.demotion_min_consecutive, config.recovery_min_passes)
         transitions = []
         for name in governed:
             concept = concepts[name]
@@ -497,9 +538,106 @@ class FeatureLifecycle(BaseBatch):
                 config,
                 last_transition_reason=concept["last_transition_reason"],
             )
+            if transition is not None and transition.n_windows >= window_limit:
+                transition = derive_feature_transition(
+                    concept["status"],
+                    concept["status_since"],
+                    [
+                        *(await self._load_concept_history(conn, concept["concept_id"])),
+                        *(r.evaluation for r in rows if r.concept_id == concept["concept_id"]),
+                    ],
+                    config,
+                    last_transition_reason=concept["last_transition_reason"],
+                )
             if transition is not None:
                 transitions.append(PlannedTransition(name, concept["status"], transition))
-        return WindowPlan(len(tfs), rows, transitions)
+        return transitions
+
+    async def _measure_tfs(
+        self,
+        conn: asyncpg.Connection,
+        tfs: Sequence[str],
+        computable: Sequence[str],
+        known_columns: dict[str, str],
+        span_start: datetime,
+        span_end: datetime,
+    ) -> list[dict[str, FeatureTfQuality]]:
+        """Per tf (in `tfs` order), each computable feature's quality. Over a pool the tfs are
+        measured concurrently, at most _MAX_CONCURRENT_TFS at a time, each on its own
+        connection; without one (a caller that holds only `conn`) they run in turn on it."""
+        gate = asyncio.Semaphore(_MAX_CONCURRENT_TFS)
+
+        async def measure(tf: str) -> dict[str, FeatureTfQuality]:
+            async with gate:
+                if self._pool is None:
+                    return await self._measure_tf(
+                        conn, tf, computable, known_columns, span_start, span_end
+                    )
+                async with self._pool.acquire() as tf_conn:
+                    return await self._measure_tf(
+                        tf_conn, tf, computable, known_columns, span_start, span_end
+                    )
+
+        if self._pool is None:
+            return [await measure(tf) for tf in tfs]
+        return list(await asyncio.gather(*(measure(tf) for tf in tfs)))
+
+    async def _measure_tf(
+        self,
+        conn: asyncpg.Connection,
+        tf: str,
+        computable: Sequence[str],
+        known_columns: dict[str, str],
+        span_start: datetime,
+        span_end: datetime,
+    ) -> dict[str, FeatureTfQuality]:
+        started = time.monotonic()
+        counts: dict[str, list[SymbolCounts]] = defaultdict(list)
+        for start in range(0, len(computable), _MAX_FEATURES_PER_QUERY):
+            chunk = computable[start : start + _MAX_FEATURES_PER_QUERY]
+            sql = build_tf_query(chunk, known_columns)
+            for row in await conn.fetch(sql, tf, span_start, span_end):
+                # columns by position: symbol, n_rows, then (populated, non-finite) per feature
+                symbol, n_rows, *pairs = tuple(row.values())
+                for i, name in enumerate(chunk):
+                    counts[name].append(
+                        SymbolCounts(symbol, n_rows, pairs[2 * i], pairs[2 * i + 1])
+                    )
+        self.logger.info(
+            "feature_lifecycle.tf_measured",
+            tf=tf,
+            n_features=len(computable),
+            seconds=round(time.monotonic() - started, 2),
+        )
+        return {name: feature_tf_quality(name, tf, counts[name]) for name in computable}
+
+    async def _load_evaluations(
+        self,
+        conn: asyncpg.Connection,
+        concepts: dict[str, dict],
+        governed: Sequence[str],
+        config: LifecycleConfig,
+    ) -> dict[Any, list[Evaluation]]:
+        """The evaluations derivation can read, per concept: see _LOAD_EVALUATIONS_SQL."""
+        chosen = [concepts[name] for name in governed]
+        rows = await conn.fetch(
+            _LOAD_EVALUATIONS_SQL,
+            _DOMAIN,
+            [c["concept_id"] for c in chosen],
+            [c["status"] for c in chosen],
+            [c["status_since"] for c in chosen],
+            max(config.demotion_min_consecutive, config.recovery_min_passes),
+        )
+        evaluations: dict[Any, list[Evaluation]] = defaultdict(list)
+        for r in rows:
+            evaluations[r["concept_id"]].append(_evaluation_from_row(r))
+        return evaluations
+
+    async def _load_concept_history(
+        self, conn: asyncpg.Connection, concept_id: Any
+    ) -> list[Evaluation]:
+        rows = await conn.fetch(_LOAD_CONCEPT_EVALUATIONS_SQL, _DOMAIN, concept_id)
+        return [_evaluation_from_row(r) for r in rows]
 
     def _plan_rows(
         self,
@@ -552,27 +690,31 @@ class FeatureLifecycle(BaseBatch):
         """Persist a plan: quality facts, ledger rows, transitions, metrics. Returns the
         number of transitions applied."""
         n_failed = len(plan.failures)
+        facts = []
         for r, failing in plan.failures:
             for tf, coverage, check in failing:
                 FEATURE_QUALITY_FAILURES.add(1, {"tf": tf, "check": check})
-                await emit_integrity_fact_async(
-                    conn,
-                    "feature_quality",
-                    f"{r.name}|tf={tf}",
-                    *_quality_fact(r, tf, coverage, check, config.coverage_floor),
-                    False,
-                    self._window,
+                facts.append(
+                    (
+                        "feature_quality",
+                        f"{r.name}|tf={tf}",
+                        *_quality_fact(r, tf, coverage, check, config.coverage_floor),
+                        False,
+                        self._window,
+                    )
                 )
-        await emit_integrity_fact_async(
-            conn,
-            "feature_quality",
-            None,
-            "n_features_failed",
-            float(n_failed),
-            0.0,
-            n_failed == 0,
-            self._window,
+        facts.append(
+            (
+                "feature_quality",
+                None,
+                "n_features_failed",
+                float(n_failed),
+                0.0,
+                n_failed == 0,
+                self._window,
+            )
         )
+        await emit_integrity_facts_async(conn, facts)
         run_ref = f"feature_lifecycle:{datetime.now(UTC).isoformat()}"
         await conn.executemany(
             _UPSERT_EVALUATION_SQL,

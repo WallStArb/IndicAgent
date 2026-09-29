@@ -377,10 +377,10 @@ async def test_non_finite_values_fail():
 async def _emitted_facts(monkeypatch, agg, config=None):
     facts = []
 
-    async def capture(conn, monitor_type, subject, metric, value, threshold, passed, window, **kw):
-        facts.append((subject, metric, value, threshold, passed))
+    async def capture(conn, batch):
+        facts.extend((f[1], f[2], f[3], f[4], f[5]) for f in batch)
 
-    monkeypatch.setattr(fl, "emit_integrity_fact_async", capture)
+    monkeypatch.setattr(fl, "emit_integrity_facts_async", capture)
     conn = _fake([_concept("good", "active")], agg)
     config = config or LifecycleConfig(0.95, 90, 2, 1)
     plan = await _plan(conn, config)
@@ -513,3 +513,172 @@ def test_ledger_upsert_refreshes_recency_on_identical_evidence():
 def test_transitions_carry_no_fdr_attestation():
     source = inspect.getsource(fl.FeatureLifecycle._apply)
     assert "fdr_passed=None" in source
+
+
+# ---------------------------------------------------------------------------
+# Trailing-window ledger read: transitions equal the whole-ledger derivation
+# ---------------------------------------------------------------------------
+
+
+def _ledger_row(concept_id, window, passed, status, at):
+    return {
+        "concept_id": concept_id,
+        "window_end": window,
+        "evaluated_status": status,
+        "passed": passed,
+        "n_observations": 1000,
+        "guard_status": "ok",
+        "evaluated_at": at,
+        "statistic": 0.9,
+    }
+
+
+class _LedgerConn:
+    """Serves the two ledger reads from an in-memory ledger, applying the documented
+    semantics of _LOAD_EVALUATIONS_SQL (status and since filter, latest per window, newest
+    $5 windows per concept) and returning a concept's whole history for the escalation read."""
+
+    def __init__(self, ledger):
+        self.ledger = ledger
+
+    async def fetch(self, sql, *args):
+        if sql == fl._LOAD_CONCEPT_EVALUATIONS_SQL:
+            _domain, concept_id = args
+            return [r for r in self.ledger if r["concept_id"] == concept_id]
+        assert sql == fl._LOAD_EVALUATIONS_SQL
+        _domain, ids, statuses, sinces, limit = args
+        out = []
+        for cid, status, since in zip(ids, statuses, sinces, strict=True):
+            kept = [
+                r
+                for r in self.ledger
+                if r["concept_id"] == cid
+                and r["evaluated_status"] == status
+                and (since is None or r["evaluated_at"] >= since)
+            ]
+            latest = {}
+            for r in kept:
+                if (
+                    r["window_end"] not in latest
+                    or r["evaluated_at"] > latest[r["window_end"]]["evaluated_at"]
+                ):
+                    latest[r["window_end"]] = r
+            newest = sorted(latest, reverse=True)[:limit]
+            out.extend(latest[w] for w in newest)
+        return out
+
+
+def _long_ledger():
+    """Concepts with 60 weekly windows and different endings, replays, an older status and
+    rows before status_since."""
+    since = _T0 - timedelta(days=100)
+    ledger, concepts = [], {}
+    endings = {  # name -> (status, passes for the last windows, oldest to newest)
+        "steady_pass": ("active", [True] * 60),
+        "fail_streak_2": ("active", [True] * 58 + [False] * 2),
+        "fail_streak_9": ("active", [True] * 51 + [False] * 9),
+        "one_fail": ("active", [True] * 59 + [False]),
+        "alternating": ("active", [i % 2 == 0 for i in range(60)]),
+        "pass_streak_7": ("shadow_only", [False] * 53 + [True] * 7),
+        "pass_then_fail": ("shadow_only", [True] * 59 + [False]),
+    }
+    for i, (name, (status, passes)) in enumerate(endings.items()):
+        cid = f"id-{name}"
+        concepts[name] = {
+            "concept_id": cid,
+            "name": name,
+            "status": status,
+            "status_since": since,
+            "last_transition_reason": "data_quality_fail",
+        }
+        for w, passed in enumerate(passes):
+            window = _W1 + timedelta(days=7 * w)
+            at = since + timedelta(days=w + 1)
+            ledger.append(_ledger_row(cid, window, passed, status, at))
+            if w % 9 == 0:  # a replay of the window, later, that agrees
+                ledger.append(_ledger_row(cid, window, passed, status, at + timedelta(hours=1)))
+            if w % 13 == 0:  # evidence from before the concept entered the status: never counts
+                ledger.append(
+                    _ledger_row(cid, window, not passed, status, since - timedelta(days=1))
+                )
+            if w % 11 == 0:  # evidence under the other status: never counts
+                other = "shadow_only" if status == "active" else "active"
+                ledger.append(_ledger_row(cid, window, not passed, other, at))
+    return ledger, concepts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("demotion,recovery", [(1, 1), (2, 1), (3, 2), (5, 4), (9, 7), (12, 9)])
+async def test_trailing_window_read_derives_the_whole_ledger_transitions(demotion, recovery):
+    ledger, concepts = _long_ledger()
+    config = LifecycleConfig(0.95, 90, demotion, recovery)
+    governed = sorted(concepts)
+    got = await _node()._transitions(_LedgerConn(ledger), concepts, governed, config, [])
+    want = []
+    for name in governed:
+        c = concepts[name]
+        evaluations = [
+            Evaluation(
+                r["window_end"],
+                r["evaluated_status"],
+                r["passed"],
+                r["n_observations"],
+                r["guard_status"],
+                r["evaluated_at"],
+                r["statistic"],
+            )
+            for r in ledger
+            if r["concept_id"] == c["concept_id"]
+        ]
+        t = derive_feature_transition(
+            c["status"],
+            c["status_since"],
+            evaluations,
+            config,
+            last_transition_reason=c["last_transition_reason"],
+        )
+        if t is not None:
+            want.append(fl.PlannedTransition(name, c["status"], t))
+    assert got == want
+    if (demotion, recovery) == (2, 1):  # streaks longer than the loaded windows keep their length
+        assert {p.name: p.transition.n_windows for p in got} == {
+            "fail_streak_2": 2,
+            "fail_streak_9": 9,
+            "pass_streak_7": 7,
+        }
+
+
+def test_evaluation_load_is_restricted_to_governed_status_since_and_newest_windows():
+    sql = fl._LOAD_EVALUATIONS_SQL
+    assert "e.evaluated_status = g.status" in sql
+    assert "e.evaluated_at >= g.status_since" in sql
+    assert "DISTINCT ON (e.concept_id, e.window_end)" in sql and "recency <= $5" in sql
+
+
+@pytest.mark.asyncio
+async def test_tfs_are_measured_concurrently_over_a_pool_and_in_order():
+    agg = {"1d": _symbols(10, 10), "1h": _symbols(10, 10), "5m": _symbols(10, 10)}
+    conn = _fake([_concept("good", "active")], agg)
+    peak = {"now": 0, "max": 0}
+
+    class _Pool:
+        def acquire(self):
+            class _Ctx:
+                async def __aenter__(self_inner):
+                    peak["now"] += 1
+                    peak["max"] = max(peak["max"], peak["now"])
+                    return conn
+
+                async def __aexit__(self_inner, *exc):
+                    peak["now"] -= 1
+                    return False
+
+            return _Ctx()
+
+    node = _node()
+    node._pool = _Pool()
+    over_pool = await node._plan(conn, LifecycleConfig(0.95, 90, 2, 1))
+    sequential = await _plan(conn)
+    assert peak["max"] <= fl._MAX_CONCURRENT_TFS
+    assert [q.tf for q in over_pool.rows[0].per_tf] == ["1d", "1h", "5m"]
+    assert over_pool.rows[0].evidence_key == sequential.rows[0].evidence_key

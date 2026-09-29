@@ -1411,3 +1411,24 @@ class TestNativeDmlWriteMode:
         assert "compress_chunk" not in sql
         assert "VACUUM" not in sql
         assert "set_config" in sql
+
+
+@pytest.mark.asyncio
+async def test_fetch_table_columns_reads_public_schema_names_and_types():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services._batch_utils import _TABLE_COLUMNS_SQL, fetch_table_columns
+
+    conn = MagicMock()
+    conn.fetch = AsyncMock(
+        return_value=[
+            {"column_name": "symbol", "data_type": "text"},
+            {"column_name": "momentum_z_fast", "data_type": "real"},
+        ]
+    )
+    assert await fetch_table_columns(conn, "feature_vectors") == {
+        "symbol": "text",
+        "momentum_z_fast": "real",
+    }
+    conn.fetch.assert_awaited_once_with(_TABLE_COLUMNS_SQL, "feature_vectors")
+    assert "table_schema = 'public'" in _TABLE_COLUMNS_SQL  # same-named internal tables excluded

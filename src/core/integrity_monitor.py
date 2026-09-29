@@ -44,6 +44,7 @@ training_window_end, so it also leaves this off -- not an oversight.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import structlog
@@ -194,3 +195,31 @@ async def emit_integrity_fact_async(
             metric_name=metric_name,
             error=str(error),
         )
+
+
+async def emit_integrity_facts_async(
+    conn: Any,
+    facts: Sequence[tuple[str, str | None, str, float | None, float | None, bool, Any]],
+) -> None:
+    """Write many facts in one round trip: each tuple is the positional arguments of
+    `emit_integrity_fact_async` after `conn` (monitor_type, subject, metric_name,
+    metric_value, threshold_value, passed, training_window_end), with no idempotency check.
+
+    Same guard: never raises. `executemany` is one implicit transaction, so a failing row
+    rolls the batch back; the facts are then written one by one through
+    `emit_integrity_fact_async`, so a bad fact costs only itself, as before batching. The
+    rows the batch inserts share one `evaluated_at` (the transaction's now()); the unique key
+    still differs per subject and metric.
+    """
+    if not facts:
+        return
+    try:
+        await conn.executemany(_INTEGRITY_MONITOR_INSERT_SQL_ASYNCPG, facts)
+    except Exception as error:
+        _logger.warning(
+            "integrity_monitor.emit_batch_failed",
+            n_facts=len(facts),
+            error=str(error),
+        )
+        for fact in facts:
+            await emit_integrity_fact_async(conn, *fact)

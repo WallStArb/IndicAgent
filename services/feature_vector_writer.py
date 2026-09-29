@@ -20,6 +20,7 @@ from typing import Any  # noqa: F401
 import _path_bootstrap  # noqa: F401 — project root on sys.path
 import structlog
 
+from services._batch_utils import fetch_table_columns
 from src.config.settings import Settings, get_active_symbols  # noqa: F401
 from src.core.agent.base_writer import BaseWriter
 from src.core.database_manager import DatabaseManager
@@ -70,13 +71,6 @@ CONSUMER_GROUP: str = "feature_vector_writer_group"
 HEALTH_CHECK_INTERVAL_SECS: int = 30
 
 # ── Module-level SQL ──────────────────────────────────────────────────────────
-
-# table_schema filter is mandatory: omitting it returns same-named tables from
-# other schemas (e.g. timescaledb_internal), producing false "column exists" verdicts.
-_VERIFY_SCHEMA_SQL = (
-    "SELECT column_name FROM information_schema.columns"
-    " WHERE table_name = 'feature_vectors' AND table_schema = 'public'"
-)
 
 # Canonical SQL imported from shared persistence module.
 # Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
@@ -273,8 +267,7 @@ class FeatureVectorWriter(BaseWriter):
         Raises RuntimeError immediately (before Kafka start) if any column is absent,
         converting a silent multi-hour data-loss failure into a loud startup crash.
         """
-        rows = await self.db_manager.fetch(_VERIFY_SCHEMA_SQL)
-        existing = {row["column_name"] for row in rows}
+        existing = set(await fetch_table_columns(self.db_manager, "feature_vectors"))
         missing = _REQUIRED_COLUMNS - existing
         if missing:
             raise RuntimeError(

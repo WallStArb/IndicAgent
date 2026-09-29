@@ -25,6 +25,7 @@ from src.core.integrity_monitor import (
     INTEGRITY_MONITOR_INSERT_SQL,
     emit_integrity_fact_async,
     emit_integrity_fact_sync,
+    emit_integrity_facts_async,
 )
 
 # ---------------------------------------------------------------------------
@@ -287,3 +288,50 @@ async def test_emit_async_guards_insert_failure_log_and_continue():
     await emit_integrity_fact_async(
         conn, "vocabulary_drift", "regime_hmm", "unregistered_code_count", 2.0, 0.0, False, None
     )
+
+
+# ---------------------------------------------------------------------------
+# Async batch helper
+# ---------------------------------------------------------------------------
+
+_FACTS = [
+    ("m", "a|tf=1d", "symbol_coverage", 0.1, 0.95, False, "w"),
+    ("m", None, "n_failed", 1.0, 0.0, False, "w"),
+]
+
+
+@pytest.mark.asyncio
+async def test_emit_facts_async_writes_one_executemany_with_the_single_fact_insert():
+    conn = MagicMock()
+    conn.executemany = AsyncMock()
+    conn.execute = AsyncMock()
+    await emit_integrity_facts_async(conn, _FACTS)
+    conn.executemany.assert_awaited_once()
+    sql, rows = conn.executemany.call_args.args
+    assert "INSERT INTO integrity_monitor" in sql and "ON CONFLICT" in sql
+    assert rows == _FACTS
+    conn.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_emit_facts_async_no_facts_is_no_round_trip():
+    conn = MagicMock()
+    conn.executemany = AsyncMock()
+    await emit_integrity_facts_async(conn, [])
+    conn.executemany.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_emit_facts_async_batch_failure_falls_back_to_per_fact_and_never_raises():
+    conn = MagicMock()
+    conn.executemany = AsyncMock(side_effect=RuntimeError("bad row"))
+    written = []
+
+    async def execute(sql, *args):
+        if args[1] is None:
+            raise RuntimeError("still bad")  # one fact fails on its own; the other still lands
+        written.append(args)
+
+    conn.execute = execute
+    await emit_integrity_facts_async(conn, _FACTS)
+    assert written == [_FACTS[0]]
