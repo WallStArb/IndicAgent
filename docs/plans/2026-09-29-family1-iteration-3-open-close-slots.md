@@ -99,3 +99,35 @@ from it is rerun through the runner in exploration mode, where E18 counts it.
 The replication needs a panel over the non-`compute_eligible` names. `build_panel` and the spec's
 `universe` field must accept it as a named universe (a code change; the frozen `family1_*` specs do
 not change).
+
+## Result, question 2 (2026-09-29): name replication
+
+Panel: 201 active equity names outside the 233-name `compute_eligible` set with 15m bars (203 at
+filing; 2 dropped in panel preparation), 4839 sessions, snapshot `panel_f7fd3a15bc645e5f` built to
+scratch (not committed). Same spec, S1 vintage-1 residualization built on this panel, horizon 2.
+Scratch script, not committed. E in bp per unit traded.
+
+| Slot | Member | keep | E | HAC t | E by sub-period (2010-14, 2015-19, 2020-25) |
+|---|---|---|---|---|---|
+| open | mean5 | 0.5 | 1.169 | 12.0 | 0.897, 0.851, 1.617 |
+| open | mean20 | 0.5 | 0.977 | 11.0 | 0.832, 0.596, 1.393 |
+| open | mean5 | 0.1 | 1.789 | 9.1 | 1.196, 1.333, 2.566 |
+| open | mean20 | 0.1 | 1.899 | 9.8 | 1.474, 1.182, 2.784 |
+| close | mean5 | 0.5 | 0.624 | 23.8 | 0.698, 0.678, 0.530 |
+| close | mean20 | 0.5 | 0.552 | 21.5 | 0.547, 0.640, 0.482 |
+| close | mean5 | 0.1 | 1.280 | 19.4 | 1.337, 1.415, 1.128 |
+| close | mean20 | 0.1 | 1.126 | 17.2 | 1.020, 1.327, 1.029 |
+| all slots | mean5 | 0.5 | 0.201 | 18.5 | 0.178, 0.205, 0.214 |
+| all slots | mean5 | 0.1 | 0.344 | 14.7 | 0.251, 0.371, 0.384 |
+
+Against the criteria: the opening slot replicates (E 0.98 to 1.17 against a bar of 0.30, t 11 to 12,
+positive in all three sub-periods, both members) and the closing slot replicates (E 0.55 to 0.62
+against 0.12, t 21 to 24). E rises from keep 0.5 to keep 0.1 in both members for both slots.
+
+Not resolved by this result:
+- Cost. These names are less liquid than the 233 (tick floor 0.69 bp median, p75 1.65 bp), and
+  their effect is larger (all-slot E 0.20 against 0.10), so edge and cost both rise. Question 3
+  decides whether the slots clear cost.
+- The opening slot's E rose in 2020-25 (1.6 against 0.9) and the closing slot's fell (0.53 against
+  0.70). Two slots, three periods; noted, not read.
+- Survivorship (todo 376) applies to both name sets.
