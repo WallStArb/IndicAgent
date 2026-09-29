@@ -55,19 +55,37 @@ same S1 residualization built on this panel, same coverage floor of 20 names.
 
 ### 3. Cost of the opening and closing slots
 
-No quote history is stored, so spreads are measured by proxy: the Corwin-Schultz high-low
-estimator from consecutive 15m bars, per name, for the opening bars, the closing bars and midday
-bars as a comparison, on the 233 and 203 name sets. Bias: the estimator rises with volatility,
-which is highest at the open, so it will overstate the open spread; that is stated in the result.
-If the gateway is up and the lease allows, one IBKR BID_ASK history sample for the same names
-replaces the proxy for a spot check.
+Amended 2026-09-29, after the first proxy result was seen (the replication result was not yet
+read). The original step measured spreads with the Corwin-Schultz high-low estimator on 15m bars.
+It returned median half-spreads of 8.7 bp (opening, 233 names), 3.2 to 3.5 bp (midday) and 4.3 bp
+(closing), and 10.5, 3.7 to 4.0 and 5.4 bp on the 203 names. Those levels are not spreads for
+liquid names: the estimator reads price movement as spread, and the opening bar carries the
+auction and overnight news. Only the ratio (open about 2.5x midday, close about 1.2x) is kept as
+weak evidence that the open costs more than midday. The proxy is dropped as a cost measure and
+its pass rule ("above 1.5 bp per side at the open") is not applied to it.
 
-- Cost per unit traded for a slot is the weight-averaged half-spread of the traded names, taken at
-  the 75th percentile across sessions.
-- The subset is worth building only if E (question 2, replication sample) minus that cost is
-  above 0 for the opening slot at keep 0.5 and keep 0.1. Otherwise the effect exists but cannot be
-  captured at this cost.
-- Measured cost above 1.5 bp per side at the open ends the opening-slot idea at any keep.
+Replacement:
+
+- Floor: half a cent over the average price of each name (2025-06 to 2025-12-23), which is the
+  half-spread of a name one tick wide. Median 0.49 bp on the 233 names (p25 0.25, p75 0.93) and
+  0.69 bp on the 203 names (p25 0.33, p75 1.65); median prices $102 and $72.
+- Opening estimate: no measurement exists. A 2x to 3x widening of a one-tick midday spread at the
+  open is a general market expectation, not a measured number here; it would put the open at about
+  1 to 2 bp per side on these names.
+- Measurement: an IBKR BID_ASK history sample for the opening, midday and closing windows on a
+  fixed 40-name subset (20 per set, drawn by symbol hash), taken when the `ibkr_history_stream`
+  lease is free (todo 449 holds it now). The sample replaces the estimate.
+
+Criteria, set before the sample exists:
+
+- Cost per unit traded for a slot is the weight-averaged measured half-spread of its traded names
+  at the 75th percentile across sessions.
+- The opening slot is worth building only if E from question 2 (replication sample) minus that
+  cost is above 0 at keep 0.5 and at keep 0.1. If only keep 0.1 clears, the slot is worth
+  building at that concentration only.
+- A measured opening half-spread above 2.0 bp at the median ends the opening-slot idea at any
+  keep. (Raised from 1.5 bp: the in-sample E at keep 0.1 is 1.5 bp, so a measured 1.5 to 2.0 bp
+  needs the replication E to decide.)
 
 ## What this does not decide
 
