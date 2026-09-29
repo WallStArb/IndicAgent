@@ -186,3 +186,46 @@ track):
   the 5m lane starts when the HTF lane ends (about 10 hours after 2026-09-29 18:30 UTC). The
   interim decision for the 5m lane (stop the fill via a flag, or accept the placeholders and
   delete them under 185) is the owner's.
+
+## Council design (supersedes the two design sections above where they differ, 2026-09-29)
+
+Principles, in order:
+
+1. A stored bar is an assertion about the market. Store only what the provider observed. Absence
+   is typed and lives elsewhere: not fetched (no `ohlcv_request` window covers it), fetched and
+   empty (`no_data`), market closed (`nyse_sessions`, `src/intelligence/bars/sessions.py`, built
+   in 185-06; never stored), provider hole (found by reconciliation, below). The fill turns all
+   four into the positive claim "price unchanged, volume 0", which is wrong for the last one and
+   for every closed slot.
+2. Redundancy is error detection. Independent measurements of one quantity must reconcile: a
+   coarser bar equals the aggregate of its finer bars, and daily volume equals the intraday sum.
+   A mismatch is an alarm, never resolved by first-write-wins. The 35,454 masked 2024 slots were
+   visible only because a finer timeframe happened to exist.
+3. One writer, pure function. Canonical bars = f(observations, rule version), the 185 D2 model
+   already used for 1d and D-15 for 15m/1h. A rule that cannot emit a placeholder makes the
+   hazard impossible by construction, and replaces `ON CONFLICT DO NOTHING` (first write wins,
+   stale on revision) for canonical rows.
+4. Fail loud at the write. A session window that returns zero bars for a name with earlier
+   volume is recorded and flagged, not filled.
+5. Delete only after proof. The migration removing `source = 'synthetic_fill'` runs after a
+   check that the digest of the real rows (`bar_content_digest`, 185-06) is identical before and
+   after, per symbol and timeframe.
+6. Measure before acting. First run the 15m-versus-5m mismatch over all years and every
+   timeframe pair (1m to 5m, 5m to 15m, 15m to 1h, intraday to 1d) to size the provider-hole
+   rate; 2024 alone was 35,454 at 15m.
+
+What this deletes: the fill, the `normalize_bars` store path and the one-time normalization
+mode in the backfill, presence-of-a-row gap inference, and placeholder counting in
+`bar_auditor`. What it adds: no table (coverage is `ohlcv_request`), one reconciliation check
+(185-23), and the derivation rule reused for intraday.
+
+Open question the council did not settle: the HTF lane spends the single IBKR history stream on
+15m and 1h that D-15 will derive from 5m. Independent 15m/1h are worth keeping as a sampled
+reconciliation set (they size the hole rate per timeframe), not as a full-universe duplicate.
+Let the current HTF run finish; 185-20 decides whether further redundant fetches are scheduled.
+
+Interim for the 5m lane (owner's call): two changes, both behind the Done-Coding gate. A flag on
+the pipeline that skips the fill store, passed only by `intraday_5m_lane.sh` (not yet running, so
+safe to edit; do not touch `intraday_chain.sh` or the HTF lane script while their loops run),
+and `detect_gaps` subtracting `ohlcv_request` windows with outcome `bars` or `no_data`. The
+default stays the old behaviour, so the running HTF loop is unchanged.
