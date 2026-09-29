@@ -106,11 +106,12 @@ CONFIGS = {
 }
 
 
-@pytest.mark.parametrize("block", [1 << 20, 64, 1])
+@pytest.mark.parametrize("block", [None, 7, 1])
 @pytest.mark.parametrize("kind", ["normal", "ties", "flat", "nan"])
 @pytest.mark.parametrize("config_name", list(CONFIGS))
 def test_bounded_window_scalars_equality(config_name, kind, block, monkeypatch):
-    monkeypatch.setattr(price, "_WINDOW_BLOCK_ELEMENTS", block)
+    if block is not None:
+        monkeypatch.setattr(price, "_block_rows", lambda n_windows: block)
     config = CONFIGS[config_name]
     for seed, n in ((1, 400), (2, 37), (3, 2)):
         x = _bars(seed, n, kind)

@@ -1822,10 +1822,12 @@ def _ret_lag_kernels() -> tuple[Kernel, ...]:
     return tuple(out)
 
 
-# Working-memory cap of the windowed reductions below, in float64 elements per block. It bounds
-# a temporary and never enters a value: every block size gives bit-identical output (pinned by
-# test_bounded_window_scalars_equality), so it is not an APR parameter.
-_WINDOW_BLOCK_ELEMENTS = 1 << 20
+def _block_rows(n_windows: int) -> int:
+    """Windows materialized per block: about the square root of their count, which bounds the
+    temporary to sqrt(n) x length elements. It never enters a value: every block size gives
+    bit-identical output (pinned by test_bounded_window_scalars_equality), so it is derived
+    from the shape and is not an APR parameter."""
+    return max(1, math.isqrt(n_windows))
 
 
 def _window_blocks(arr: np.ndarray, length: int):
@@ -1835,7 +1837,7 @@ def _window_blocks(arr: np.ndarray, length: int):
     if length < 1 or len(arr) < length:
         return
     view = np.lib.stride_tricks.sliding_window_view(arr, length)
-    step = max(1, _WINDOW_BLOCK_ELEMENTS // length)
+    step = _block_rows(len(view))
     for lo in range(0, len(view), step):
         yield lo + length - 1, np.ascontiguousarray(view[lo : lo + step])
 
