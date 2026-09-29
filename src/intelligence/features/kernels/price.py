@@ -1924,10 +1924,6 @@ def _compute_bar_statistics_refresh(x, config):
     return out
 
 
-def _bounded_memory(config) -> int:
-    return bounded_window_bars(config)
-
-
 KERNELS = (
     _k(
         "atr_wilder",
@@ -2158,7 +2154,7 @@ KERNELS = (
             "aroon_slow",
         ),
         ("high", "low", "close"),
-        _bounded_memory,
+        bounded_window_bars,
         _compute_bounded_window_scalars,
     ),
     _k(
