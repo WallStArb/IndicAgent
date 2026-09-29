@@ -156,3 +156,33 @@ the session calendar (`src/` has none for this yet; check before assuming).
 Steps 4 to 6 change accordingly: read-time grid only for the API route and any streaming
 consumer step 1 shows needs it; stop calling `normalize_bars()` in backfill only after the
 ledger drives `_detect_gaps`; the delete migration runs last and ends with a bare `VACUUM`.
+
+## Revision to the step 3 design: use phase 185's `ohlcv_request`, no new table (2026-09-29)
+
+The step 3 design above proposed a new `ohlcv_fetch_coverage` table. That duplicates a table phase
+185 already built. `ohlcv_request` (plans 185-02/03, live since 185-09 on 2026-09-28) records one
+row per provider request: symbol, timeframe, route, `window_start`, `window_end`, `outcome`
+(`bars` | `no_data` | `timeout` | `failed`), `n_bars`. Coverage is the union of `bars` and
+`no_data` windows; `no_data` is the "fetched, nothing there" case that stops closed slots being
+re-requested. Keep the gap-subtraction rule from the design (`timeout` and `failed` never
+subtract) and drop the new table.
+
+Limits found (2026-09-29): `ohlcv_request` holds 5,948 rows, all since 2026-09-28. It says
+nothing about the historical 2006 to 2026-09-27 fetches, so the seeding problem in the design
+stands. `window_start` is populated for every historical-pipeline row, but confirm a `bars`
+window guarantees the whole range was answered (IBKR chunking) before gap detection trusts it.
+
+Phase 185 overlap, and where this todo belongs (recommendation: absorb into 185, not a parallel
+track):
+
+- D-15 (UD-25, todo 446): the derivation writes 15m and 1h from 5m on session-anchored edges; the
+  stored IBKR 15m/1h become raw observations. That decides what a synthetic 15m/1h row means, and
+  the repair of masked 15m slots here is the same derivation.
+- 185-12 (write-path switch) and 185-20 (intraday verify-only, empty history, gated recovery) are
+  the natural homes for dropping the fill and switching gap detection to `ohlcv_request`.
+- D-26 / 185-23 daily audit: add "session-slot with placeholder while a finer timeframe has
+  volume" as a reconciliation check; it is the 15m-versus-5m mismatch query used here.
+- Timing conflict: 185 is at 11/24 with wave 3 next and the dispatch is paused on quota, while
+  the 5m lane starts when the HTF lane ends (about 10 hours after 2026-09-29 18:30 UTC). The
+  interim decision for the 5m lane (stop the fill via a flag, or accept the placeholders and
+  delete them under 185) is the owner's.
