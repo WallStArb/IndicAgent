@@ -155,6 +155,34 @@ class TestWilderRsiSeries:
                 abs(batch - scalar) < 1e-8
             ), f"n={n}: series={batch:.10f} scalar={scalar:.10f} delta={abs(batch-scalar):.2e}"
 
+    def test_bar_period_is_the_sma_seed_value_by_hand(self) -> None:
+        """Wilder: the first RSI sits at index `period` and averages the first `period` changes.
+
+        closes 10, 11, 10, 12, period 3: changes +1, -1, +2, so the average gain is 3/3 = 1.0,
+        the average loss 1/3, RS = 3 and RSI = 100 - 100 / 4 = 75.0 at index 3. Bars 0-2 have
+        fewer than `period` changes and stay at the 50.0 cold start.
+        """
+        from src.intelligence.feature_cache import _rsi_simple, _wilder_rsi_series
+        from src.intelligence.features.kernels._primitives import wilder_rsi_series
+
+        closes = np.array([10.0, 11.0, 10.0, 12.0])
+        want = [50.0, 50.0, 50.0, 75.0]
+        assert _wilder_rsi_series(closes, 3).tolist() == want
+        assert wilder_rsi_series(closes, 3).tolist() == want
+        assert _rsi_simple(closes, 3) == 75.0
+
+    def test_cache_wrapper_is_the_kernel_primitive(self) -> None:
+        from src.intelligence.feature_cache import _wilder_rsi_series
+        from src.intelligence.features.kernels._primitives import wilder_rsi_series
+
+        rng = np.random.default_rng(3)
+        for n in (0, 1, 5, 14, 15, 16, 40, 400):
+            closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, n))
+            for period in (3, 14, 50):
+                np.testing.assert_array_equal(
+                    _wilder_rsi_series(closes, period), wilder_rsi_series(closes, period)
+                )
+
     def test_cold_start_returns_50(self) -> None:
         from src.intelligence.feature_cache import _wilder_rsi_series
 

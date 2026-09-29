@@ -27,6 +27,41 @@ def wilder_memory_bars(period: int) -> int:
     return WILDER_MEMORY_HALF_LIVES * max(int(period), 1)
 
 
+def wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
+    """Wilder RSI at every bar in O(n): the one implementation (kernel columns rsi_*, the live
+    cache's scalar RSI and the batch CTF momentum series all call it).
+
+    Wilder's definition: the first RSI sits at index `period` and averages the first `period`
+    price changes (the SMA seed); later bars smooth with alpha = 1 / period. Bars before index
+    `period` have fewer than `period` changes and stay at the 50.0 cold start, as does a flat
+    window (no gains and no losses). A window with gains and no losses is 100.0.
+    """
+    n = len(closes)
+    result = np.full(n, 50.0, dtype=float)
+    if n < period + 1:
+        return result
+    deltas = np.diff(closes.astype(float))
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    alpha = 1.0 / period
+    avg_gain = float(np.mean(gains[:period]))
+    avg_loss = float(np.mean(losses[:period]))
+    if avg_loss < 1e-10:
+        result[period] = 100.0 if avg_gain > 0 else 50.0
+    else:
+        rs = avg_gain / avg_loss
+        result[period] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+    for i in range(period, len(gains)):
+        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
+        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
+        if avg_loss < 1e-10:
+            result[i + 1] = 100.0 if avg_gain > 0 else 50.0
+        else:
+            rs = avg_gain / avg_loss
+            result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
+    return result
+
+
 def bounded_window_bars(config) -> int:
     """compute_batch's per-bar window: the longest look-back of the bounded-window scalars
     (CCI slow, Aroon slow, long volatility ratio, CMF), so each reads rows [i - n, i]."""

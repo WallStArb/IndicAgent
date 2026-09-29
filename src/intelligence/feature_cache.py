@@ -25,7 +25,7 @@ import numpy as np
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.context.session_context import _et_from_utc
-from src.intelligence.features.kernels._primitives import _zscore_last
+from src.intelligence.features.kernels._primitives import _zscore_last, wilder_rsi_series
 from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
@@ -970,30 +970,10 @@ def _compute_session_directional_nodes(
 
 
 def _wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:
-    """Wilder RSI at every bar index. Length == len(closes). Cold-start entries = 50.0.
-
-    Single source of truth for Wilder smoothing. _rsi_simple is a thin wrapper.
-    Used by both the live-path scalar accessor and the batch CTF series builder.
-    """
-    n = len(closes)
-    out = np.full(n, 50.0, dtype=float)
-    if n < period + 1:
-        return out
-    deltas = np.diff(closes.astype(float))
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    alpha = 1.0 / period
-    avg_gain = float(np.mean(gains[:period]))
-    avg_loss = float(np.mean(losses[:period]))
-    for i in range(period, len(gains)):
-        avg_gain = alpha * float(gains[i]) + (1.0 - alpha) * avg_gain
-        avg_loss = alpha * float(losses[i]) + (1.0 - alpha) * avg_loss
-        if avg_loss < 1e-10:
-            rsi = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rsi = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
-        out[i + 1] = float(np.clip(rsi, 0.0, 100.0))
-    return out
+    """Wilder RSI at every bar index (length == len(closes), cold start 50.0): the kernel
+    primitive, so the live cache, the batch CTF series builder and the rsi_* kernel columns
+    share one definition. _rsi_simple is a thin wrapper."""
+    return wilder_rsi_series(closes, period)
 
 
 def _rsi_simple(closes: np.ndarray, period: int) -> float:

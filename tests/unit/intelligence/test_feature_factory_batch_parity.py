@@ -378,23 +378,23 @@ def test_cvd_slope_z_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_fast_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import _rsi_series_full
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
-    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
+    batch = wilder_rsi_series(ohlcv["closes"], cfg.rsi_fast_period)
     _assert_parity(batch, streaming, "rsi_fast")
 
 
 def test_rsi_mid_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import _rsi_series_full
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
-    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
+    batch = wilder_rsi_series(ohlcv["closes"], cfg.rsi_mid_period)
     _assert_parity(batch, streaming, "rsi_mid")
 
 
 def test_rsi_slow_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import _rsi_series_full
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
-    batch = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
+    batch = wilder_rsi_series(ohlcv["closes"], cfg.rsi_slow_period)
     _assert_parity(batch, streaming, "rsi_slow")
 
 
@@ -411,34 +411,28 @@ def test_rsi_slow_parity(ohlcv, cfg, streaming):
 
 
 def test_rsi_velocity_fast_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import (
-        _rsi_series_full,
-        _vol_velocity_z_series_full,
-    )
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
-    rsi_fast_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_fast_period)
+    rsi_fast_arr = wilder_rsi_series(ohlcv["closes"], cfg.rsi_fast_period)
     batch = _vol_velocity_z_series_full(rsi_fast_arr, cfg.rsi_velocity_window)
     _assert_parity(batch, streaming, "rsi_velocity_fast")
 
 
 def test_rsi_velocity_mid_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import (
-        _rsi_series_full,
-        _vol_velocity_z_series_full,
-    )
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
-    rsi_mid_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_mid_period)
+    rsi_mid_arr = wilder_rsi_series(ohlcv["closes"], cfg.rsi_mid_period)
     batch = _vol_velocity_z_series_full(rsi_mid_arr, cfg.rsi_velocity_window)
     _assert_parity(batch, streaming, "rsi_velocity_mid")
 
 
 def test_rsi_velocity_slow_parity(ohlcv, cfg, streaming):
-    from src.intelligence.features.kernels.price import (
-        _rsi_series_full,
-        _vol_velocity_z_series_full,
-    )
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
+    from src.intelligence.features.kernels.price import _vol_velocity_z_series_full
 
-    rsi_slow_arr = _rsi_series_full(ohlcv["closes"], cfg.rsi_slow_period)
+    rsi_slow_arr = wilder_rsi_series(ohlcv["closes"], cfg.rsi_slow_period)
     batch = _vol_velocity_z_series_full(rsi_slow_arr, cfg.rsi_velocity_window)
     _assert_parity(batch, streaming, "rsi_velocity_slow")
 
@@ -481,10 +475,10 @@ def test_volume_z_velocity_parity(ohlcv, cfg, streaming):
 
 def test_rsi_fast_transition_boundary(ohlcv, cfg):
     """result[period] must match streaming at exactly period+1 closes."""
-    from src.intelligence.features.kernels.price import _rsi_series_full
+    from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
     period = cfg.rsi_fast_period
-    batch = _rsi_series_full(ohlcv["closes"], period)
+    batch = wilder_rsi_series(ohlcv["closes"], period)
 
     # bar = period: streaming has exactly period+1 closes → SMA seed only
     cache = FeatureCache()

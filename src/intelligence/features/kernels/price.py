@@ -28,6 +28,7 @@ from src.intelligence.features.kernels._primitives import (
     _zscore_last,
     bounded_window_bars,
     wilder_memory_bars,
+    wilder_rsi_series,
 )
 from src.intelligence.features.registry import Kernel
 from src.intelligence.utils import safe_corr
@@ -548,38 +549,6 @@ def _momentum_reversal_z_series_full(closes: np.ndarray, zscore_window: int) -> 
     log_rets = np.diff(np.log(np.maximum(closes.astype(float), 1e-10)))
     z = _rolling_zscore_series(log_rets, zscore_window)
     return np.concatenate([[0.0], z])
-
-
-def _rsi_series_full(closes: np.ndarray, period: int) -> np.ndarray:
-    """Wilder RSI for every bar in O(n). result[i] == streaming RSI at bar i.
-    Returns 50.0 for i <= period (cold start matches streaming's fallback).
-    Single forward Wilder pass — numerically identical to _rsi_wilder at every bar.
-    """
-    n = len(closes)
-    result = np.full(n, 50.0, dtype=float)
-    if n < period + 1:
-        return result
-    deltas = np.diff(closes.astype(float))
-    gains = np.where(deltas > 0, deltas, 0.0)
-    losses = np.where(deltas < 0, -deltas, 0.0)
-    alpha = 1.0 / period
-    avg_gain = float(np.mean(gains[:period]))
-    avg_loss = float(np.mean(losses[:period]))
-    # Write bar `period` from the SMA seed (matches streaming _rsi_wilder with exactly period deltas)
-    if avg_loss < 1e-10:
-        result[period] = 100.0 if avg_gain > 0 else 50.0
-    else:
-        rs = avg_gain / avg_loss
-        result[period] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-    for i in range(period, len(gains)):
-        avg_gain = alpha * gains[i] + (1.0 - alpha) * avg_gain
-        avg_loss = alpha * losses[i] + (1.0 - alpha) * avg_loss
-        if avg_loss < 1e-10:
-            result[i + 1] = 100.0 if avg_gain > 0 else 50.0
-        else:
-            rs = avg_gain / avg_loss
-            result[i + 1] = float(np.clip(100.0 - 100.0 / (1.0 + rs), 0.0, 100.0))
-    return result
 
 
 def _ret_skew_z_series_full(closes: np.ndarray, skew_window: int, zscore_window: int) -> np.ndarray:
@@ -1346,7 +1315,7 @@ def _rsi_kernels() -> tuple[Kernel, ...]:
                 ("close",),
                 lambda c, p=period: wilder_memory_bars(getattr(c, p)) + getattr(c, p),
                 lambda x, c, p=period, col=column: {
-                    col: _rsi_series_full(x["close"], getattr(c, p))
+                    col: wilder_rsi_series(x["close"], getattr(c, p))
                 },
             )
         )
