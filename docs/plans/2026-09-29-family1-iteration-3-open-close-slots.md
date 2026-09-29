@@ -131,3 +131,44 @@ Not resolved by this result:
 - The opening slot's E rose in 2020-25 (1.6 against 0.9) and the closing slot's fell (0.53 against
   0.70). Two slots, three periods; noted, not read.
 - Survivorship (todo 376) applies to both name sets.
+
+## Result, question 3 (2026-09-29): measured IBKR bid/ask spreads
+
+IBKR historical BID and ASK 15m bars (RTH), last 30 sessions to 2026-09-29, 39 names (20 from the
+233-name set, 19 from the replication set; BRK.B failed to resolve and was skipped), chosen by
+symbol hash. Half-spread = (ask - bid) / 2 / mid at each bar's open, median over days per name,
+then median across names. Unweighted by trade weight; a quote snapshot, not an executed price.
+Scratch script and data in the session scratchpad, not committed.
+
+| Time (ET) | 233-name set (bp) | replication set (bp) |
+|---|---|---|
+| 09:30 (first quote, pre-auction) | 27.4 | 133.4 |
+| 09:45 | 4.8 | 15.1 |
+| 10:00 | 3.9 | 9.5 |
+| 10:30 | 3.0 | 6.6 |
+| 11:00 to 14:00 (midday median) | 1.9 | 4.9 |
+| 15:30 | 1.7 | 3.6 |
+| 15:45 | 1.5 | 3.8 |
+
+Quartiles across names for the 233 set at 15:30: p25 0.78 bp, p75 2.6 bp.
+
+Reading, given how the books trade: the opening slot enters at the 09:30 open (an auction fill has
+no spread crossing) and exits at the 10:00 open on a continuous quote; the closing slot enters at
+15:30 on a continuous quote and exits at the close (auction). Cost per unit traded is then about
+half the continuous-side half-spread:
+
+| Slot | 233 set: cost / E at keep 0.5 / E at keep 0.1 | replication set: cost / E at 0.5 / E at 0.1 |
+|---|---|---|
+| open | 1.9 / 0.72 / 1.52 | 4.8 / 1.17 / 1.79 |
+| close | 0.9 / 0.28 / 0.63 | 1.8 / 0.62 / 1.28 |
+
+Every cell is below zero net at median cost (best: close, 233 set, keep 0.1, about -0.2 bp per unit).
+The criterion "measured opening half-spread above 2.0 bp at the median ends the opening-slot idea
+at any keep" is met on either reading (27 bp at the first quote, 3.9 bp at the 10:00 exit): the
+opening slot as built is ended. The 0.7 bp half-spread used in earlier docs is too low for this
+universe; the tick floor (0.49 bp) is a floor, not the level.
+
+Open items: cost varies about 3x across names within the 233 set (p25 0.78 bp at 15:30), and E by
+name liquidity is not measured, so a liquidity-restricted closing slot is untested; the auction
+fill assumption (backtest open and close prices are the opening and closing auction prices) is not
+verified; effective spread with retail price improvement is not measured.
