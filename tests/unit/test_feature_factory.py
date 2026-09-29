@@ -1683,10 +1683,10 @@ class TestGapZAtrFloor:
         atr_valid_unfloored = atr_padded > 1e-10
 
         result_floored = _gap_z_series_full(
-            opens, closes, atr_raw, atr_valid_floored, zscore_window=3
+            opens, closes, atr_padded, atr_valid_floored, zscore_window=3
         )
         result_unfloored = _gap_z_series_full(
-            opens, closes, atr_raw, atr_valid_unfloored, zscore_window=3
+            opens, closes, atr_padded, atr_valid_unfloored, zscore_window=3
         )
 
         # 186-12: row k holds the score of the gap AT bar k (it used to hold the gap at bar k+1,

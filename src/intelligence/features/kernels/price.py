@@ -131,21 +131,27 @@ def _overnight_gap(open_price: float, prev_close: float, eps: float = EPS) -> fl
     return (open_price - prev_close) / prev_close if prev_close > eps else 0.0
 
 
+def _previous_bar(values: np.ndarray, fill: float | bool) -> np.ndarray:
+    """values[k - 1] at index k; `fill` at index 0, which has no previous bar. The one aligned
+    previous-bar construction the gap series share, so a series never reads one bar off."""
+    out = np.roll(values, 1)
+    if len(out):
+        out[0] = fill
+    return out
+
+
 def _overnight_gap_series_full(
     opens: np.ndarray, closes: np.ndarray, eps: float = EPS
 ) -> np.ndarray:
-    """Raw overnight_gap value per bar index i (i >= 1); index 0 padded with 0.0.
+    """Raw overnight_gap value per bar index i (i >= 1); index 0 is 0.0 (no previous close).
 
     result[i] == streaming _overnight_gap(opens[i], closes[i-1]) for i >= 1.
     Batch precompute helper — used only to feed _overnight_gap_z_series_full below;
     the raw per-bar overnight_gap value itself is O(1) via _overnight_gap() directly.
     """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    prev_closes = closes[:-1]
-    raw_gaps = np.where(prev_closes > eps, (opens[1:] - prev_closes) / prev_closes, 0.0)
-    return np.concatenate([[0.0], raw_gaps])
+    prev_close = _previous_bar(closes.astype(float), np.nan)
+    # NaN at index 0 is not > eps, so bar 0 falls to 0.0 with the other guarded bars
+    return np.where(prev_close > eps, (opens - prev_close) / prev_close, 0.0)
 
 
 def _overnight_gap_z(opens: np.ndarray, closes: np.ndarray, window: int, eps: float = EPS) -> float:
@@ -169,12 +175,12 @@ def _overnight_gap_z_series_full(opens: np.ndarray, closes: np.ndarray, window: 
     O(n) total — required because _overnight_gap_z rebuilds the full gap array per
     call; looping compute_batch() calling the streaming version would be O(n^2).
     """
-    n = len(closes)
-    if n < 2:
-        return np.zeros(n, dtype=float)
-    raw_gaps = _overnight_gap_series_full(opens, closes)[1:]  # index j == gap at bar j+1
-    z = _fixed_window_zscore_series(raw_gaps, window)
-    return np.concatenate([[0.0], z])  # index i == z-score at bar i (i >= 1)
+    result = np.zeros(len(closes), dtype=float)
+    if len(closes) < 2:
+        return result
+    # bar 0 has no gap: score bars 1.. and keep bar 0 at 0.0
+    result[1:] = _fixed_window_zscore_series(_overnight_gap_series_full(opens, closes)[1:], window)
+    return result
 
 
 def _range_efficiency(
@@ -631,55 +637,29 @@ def _high_52w_dist_series_full(closes: np.ndarray, window: int) -> np.ndarray:
 def _gap_z_series_full(
     opens: np.ndarray,
     closes: np.ndarray,
-    atr_raw: np.ndarray,
+    atr_padded: np.ndarray,
     atr_valid: np.ndarray,
     zscore_window: int,
 ) -> np.ndarray:
     """Gap-z series: ATR-normalized open gap, rolling z-scored.
 
-    `atr_raw`/`atr_valid` are the shared ATR series/validity mask already
-    computed once in `_precompute_series` (todo 269 -- previously this
-    function recomputed its own `_atr_series_full(highs, lows, closes,
-    period)`, a redundant second computation of the exact same array since
-    both used `config.adx_period`; now the same array is threaded through,
-    matching the pattern `_dist_from_high_series_full`/`_dist_from_low_series_full`
-    already use). `atr_valid` is aligned index-for-index with `atr_padded`/
-    `closes`, so `atr_for_gap[k] == atr_padded[k+1]` and the matching slice
-    is `atr_valid[1:1+gap_high]`.
+    The gap at bar k is (open[k] - close[k-1]) / ATR[k-1], all read from the aligned previous
+    bar (`_previous_bar`), so row k holds the score of bar k's own gap and reads nothing later.
+    `atr_padded` (length n, index 0 the pad) and `atr_valid` are the shared ATR series and
+    validity mask computed once in `_precompute_series` (todo 269); a bar whose previous ATR is
+    invalid divides by 1.0. Bar 0 has no previous close and bar 1's previous bar is the ATR
+    pad, so both are 0.0 and enter the z-score window as that leading 0.0.
     """
     n = len(closes)
     result = np.zeros(n, dtype=float)
     if n < 2:
         return result
-
-    # ATR series (length = n-1)
-    atr_core = atr_raw
-
-    # For gap computation, we need ATR at position j to normalize gap[j+1]
-    # gap[j+1] = (open[j+1] - close[j]) / ATR[j]
-    # atr_core has length n-1, where atr_core[k] = ATR after bar index k+1
-    # So atr_for_gap[k] = ATR for gap at position k+1
-    atr_for_gap = atr_core[:-1] if len(atr_core) >= 2 else atr_core
-
-    # Compute gap_raw: (open[i] - close[i-1]) / ATR[i-1]
-    # opens[2:] corresponds to gap at positions 2..n-1
-    # closes[1:-1] corresponds to close at positions 1..n-2
-    if len(atr_for_gap) > 0 and len(opens) >= 2 and len(closes) >= 2:
-        gap_high = min(len(opens) - 2, len(atr_for_gap))
-        gap_atr_valid = atr_valid[1 : 1 + gap_high]
-        gap_raw = (opens[2 : 2 + gap_high] - closes[1 : 1 + gap_high]) / np.where(
-            gap_atr_valid, atr_for_gap[:gap_high], 1.0
-        )
-        # Z-score the gap series
-        gap_z_core = _rolling_zscore_series(np.concatenate([[0.0], gap_raw]), zscore_window)
-        # Build result: position 0 = 0.0, position 1 = 0.0 (no prev close), then gap_z values.
-        # gap_z_core[m] scores the gap at bar m + 1 (index 0 is the leading pad), so bar k takes
-        # gap_z_core[k - 1]. Writing gap_z_core[k] to bar k read bar k + 1's open into row k
-        # (one-bar lookahead) and left the last row at 0.0 (186-12).
-        result = np.zeros(n, dtype=float)
-        if len(gap_z_core) >= 2:
-            result[2:] = gap_z_core[1:]
-
+    prev_close = _previous_bar(closes.astype(float), np.nan)
+    prev_atr = _previous_bar(atr_padded.astype(float), np.nan)
+    prev_valid = _previous_bar(atr_valid, False)
+    gap = (opens - prev_close) / np.where(prev_valid, prev_atr, 1.0)
+    gap[:2] = 0.0
+    result[1:] = _rolling_zscore_series(gap[1:], zscore_window)
     return result
 
 
@@ -1313,7 +1293,7 @@ def _compute_gap_z(x, config):
         "gap_z": _gap_z_series_full(
             x["open"],
             x["close"],
-            x["_atr_raw_padded"][1:],
+            x["_atr_raw_padded"],
             x["_atr_valid"],
             config.momentum_zscore_window,
         )

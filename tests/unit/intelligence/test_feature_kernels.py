@@ -397,9 +397,9 @@ def _short_gap_z(n):
 
     opens = np.array([100.0, 101.0, 103.0, 102.0])[:n]
     closes = np.array([100.5, 101.5, 102.0, 102.5])[:n]
-    atr_raw = np.full(n - 1, 2.0)
+    atr_padded = np.full(n, 2.0)
     atr_valid = np.ones(n, dtype=bool)
-    return _gap_z_series_full(opens, closes, atr_raw, atr_valid, 20), opens, closes
+    return _gap_z_series_full(opens, closes, atr_padded, atr_valid, 20), opens, closes
 
 
 def test_gap_z_three_bars_scores_bar_two_gap():
