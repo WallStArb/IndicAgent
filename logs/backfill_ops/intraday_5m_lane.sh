@@ -16,6 +16,14 @@
 set -u
 cd /home/bg/dev/indicagent
 
+# Pause marker (todo 462): while this file exists the lane does not start. Delete it, then relaunch
+# `nohup bash logs/backfill_ops/intraday_chain.sh` (gap-aware; the htf lane finishes first).
+PAUSE_MARKER=/home/bg/dev/indicagent/logs/backfill_ops/PAUSE_5M
+if [ -e "$PAUSE_MARKER" ]; then
+  echo "PAUSED $1: $PAUSE_MARKER exists ($(head -1 "$PAUSE_MARKER")); not starting"
+  exit 0
+fi
+
 LANE="$1"
 CLIENT_ID="$2"
 SYMBOLS=$(tr -d '[:space:]' < "$3")
