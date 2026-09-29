@@ -289,6 +289,10 @@ Plans:
   `causality_probe`/`memory_check` (D-27), frozen float32 golden of the current compute path
   (1 synthetic and 16 real cases) with a byte-identical parity test for 186-12 and 186-15; merged
   2026-09-29 (`70552a710`)
+- [x] 186-09 feature_lifecycle shrunk to data-quality checks (D-30): computed, finite and symbol
+  coverage above `feature.coverage.min_symbol_fraction`, statistic in
+  `src/intelligence/statistics/feature_coverage.py`, no reader of `ensemble_weights` left (R-03),
+  migration 387, `feature_registry` residue removed (D-31); merged 2026-09-29 (`02590dbcc`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
