@@ -1822,37 +1822,95 @@ def _ret_lag_kernels() -> tuple[Kernel, ...]:
     return tuple(out)
 
 
+# Working-memory cap of the windowed reductions below, in float64 elements per block. It bounds
+# a temporary and never enters a value: every block size gives bit-identical output (pinned by
+# test_bounded_window_scalars_equality), so it is not an APR parameter.
+_WINDOW_BLOCK_ELEMENTS = 1 << 20
+
+
+def _window_blocks(arr: np.ndarray, length: int):
+    """Yield (row, matrix): matrix[j] is arr[row + j - length + 1 : row + j + 1] for every row
+    with a full window, as a C-contiguous block so a reduction over axis 1 sums each window in
+    the same pairwise order as the reduction over that window alone."""
+    if length < 1 or len(arr) < length:
+        return
+    view = np.lib.stride_tricks.sliding_window_view(arr, length)
+    step = max(1, _WINDOW_BLOCK_ELEMENTS // length)
+    for lo in range(0, len(view), step):
+        yield lo + length - 1, np.ascontiguousarray(view[lo : lo + step])
+
+
+def _cci_windowed(typical: np.ndarray, period: int) -> np.ndarray:
+    """`_cci` at every row with a full window; the earlier rows are 0.0."""
+    out = np.zeros(len(typical))
+    for row, tw in _window_blocks(typical, period):
+        sma = tw.mean(axis=1)
+        mad = np.abs(tw - sma[:, None]).mean(axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            value = (tw[:, -1] - sma) / (0.015 * mad)
+        out[row : row + len(tw)] = np.where(mad < 1e-10, 0.0, value)
+    return out
+
+
+def _aroon_windowed(highs: np.ndarray, lows: np.ndarray, period: int) -> np.ndarray:
+    """`_aroon_osc` at every row with a full window; the earlier rows are 0.0."""
+    out = np.zeros(len(highs))
+    for (row, hw), (_, lw) in zip(
+        _window_blocks(highs, period + 1), _window_blocks(lows, period + 1), strict=True
+    ):
+        aroon_up = hw.argmax(axis=1) / period * 100.0
+        aroon_down = lw.argmin(axis=1) / period * 100.0
+        out[row : row + len(hw)] = np.clip((aroon_up - aroon_down) / 100.0, -1.0, 1.0)
+    return out
+
+
+def _vol_ratio_windowed(closes: np.ndarray, short_bars: int, long_bars: int) -> np.ndarray:
+    """`_vol_ratio` at every row with long_bars + 1 closes; the earlier rows are 1.0."""
+    out = np.ones(len(closes))
+    logs = np.log(np.maximum(closes, 1e-10))
+    for row, lw in _window_blocks(logs, long_bars + 1):
+        long_returns = np.diff(lw, axis=1)
+        short_returns = np.ascontiguousarray(long_returns[:, -short_bars:])
+        vol_short = np.std(short_returns, axis=1)
+        vol_long = np.std(long_returns, axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = vol_short / vol_long
+        out[row : row + len(lw)] = np.where(vol_long > 1e-10, ratio, 1.0)
+    return out
+
+
 def _compute_bounded_window_scalars(x, config):
     """range_position, vol_ratio, CCI and Aroon over compute_batch's bounded window.
 
     Row i reads rows [max(0, i - n), i] with n = bounded_window_bars(config), so memory is n.
+    Each kernel needs a trailing window of m rows; it has one at row i iff m - 1 <= min(i, n),
+    so a period longer than the bounded window never has one and stays at its cold-start value.
     """
     h, lo, c = x["high"], x["low"], x["close"]
-    n_rows = len(c)
     window = bounded_window_bars(config)
-    names = (
-        "range_position",
-        "vol_ratio",
-        "cci_fast",
-        "cci_mid",
-        "cci_slow",
-        "aroon_fast",
-        "aroon_slow",
-    )
-    out = {name: np.empty(n_rows) for name in names}
-    for i in range(n_rows):
-        start = max(0, i - window)
-        w_h, w_l, w_c = h[start : i + 1], lo[start : i + 1], c[start : i + 1]
-        range_bars = min(config.momentum_window_mid, i + 1 - start)
-        out["range_position"][i] = _range_position(
-            float(c[i]), w_h[-range_bars:], w_l[-range_bars:]
-        )
-        out["vol_ratio"][i] = _vol_ratio(w_c, config.vol_short_bars, config.vol_long_bars)
-        out["cci_fast"][i] = _cci(w_h, w_l, w_c, config.cci_fast_period)
-        out["cci_mid"][i] = _cci(w_h, w_l, w_c, config.cci_mid_period)
-        out["cci_slow"][i] = _cci(w_h, w_l, w_c, config.cci_slow_period)
-        out["aroon_fast"][i] = _aroon_osc(w_h, w_l, config.aroon_fast_period)
-        out["aroon_slow"][i] = _aroon_osc(w_h, w_l, config.aroon_slow_period)
+    range_bars = min(config.momentum_window_mid, window + 1)
+    range_low = _sliding_rolling_min(lo, range_bars)
+    range_high = _sliding_rolling_max(h, range_bars)
+    typical = (h + lo + c) / 3.0
+    out = {
+        "range_position": (c - range_low) / (range_high - range_low + EPS),
+        "vol_ratio": (
+            _vol_ratio_windowed(c, config.vol_short_bars, config.vol_long_bars)
+            if config.vol_long_bars <= window
+            else np.ones(len(c))
+        ),
+    }
+    for name, period in (
+        ("cci_fast", config.cci_fast_period),
+        ("cci_mid", config.cci_mid_period),
+        ("cci_slow", config.cci_slow_period),
+    ):
+        out[name] = _cci_windowed(typical, period) if period <= window + 1 else np.zeros(len(c))
+    for name, period in (
+        ("aroon_fast", config.aroon_fast_period),
+        ("aroon_slow", config.aroon_slow_period),
+    ):
+        out[name] = _aroon_windowed(h, lo, period) if period <= window else np.zeros(len(c))
     return out
 
 
@@ -1892,20 +1950,32 @@ def _compute_bar_statistics_refresh(x, config):
 
     The cache refreshes at rows i >= 1 with i % regime_cache_refresh_bars == 0 on bars
     [max(0, i - hurst_window), i], then the loop reads the five values at that same row; row 0
-    holds the cache's initial values.
+    holds the cache's initial values. The values change only at refresh rows, so each is read
+    once per refresh and held until the next one. refresh_regime reads only high, low and
+    close, so only those enter the bar dicts, and only for rows some refresh window covers.
     """
-    o, h, lo, c, v = (x[f].tolist() for f in ("open", "high", "low", "close", "volume"))
-    bars = [
-        {"open": o[i], "high": h[i], "low": lo[i], "close": c[i], "volume": v[i]}
-        for i in range(len(c))
-    ]
+    h, lo, c = (x[f].tolist() for f in ("high", "low", "close"))
+    n_rows = len(c)
     cache = FeatureCache()
-    out = {name: np.empty(len(bars)) for name in _BAR_STATISTICS}
-    for i in range(len(bars)):
-        if i >= 1 and i % config.regime_cache_refresh_bars == 0:
-            cache.refresh_regime(bars[max(0, i - config.hurst_window) : i + 1], config)
+    out = {name: np.empty(n_rows) for name in _BAR_STATISTICS}
+    step = config.regime_cache_refresh_bars
+    refresh_rows = list(range(step, n_rows, step))
+    first = refresh_rows[0] if refresh_rows else n_rows
+    for name in _BAR_STATISTICS:
+        out[name][:first] = getattr(cache, name)
+    if not refresh_rows:
+        return out
+    covered = np.zeros(n_rows, dtype=bool)
+    for i in refresh_rows:
+        covered[max(0, i - config.hurst_window) : i + 1] = True
+    bars: list[dict | None] = [None] * n_rows
+    for j in np.flatnonzero(covered).tolist():
+        bars[j] = {"high": h[j], "low": lo[j], "close": c[j]}
+    for k, i in enumerate(refresh_rows):
+        cache.refresh_regime(bars[max(0, i - config.hurst_window) : i + 1], config)
+        stop = refresh_rows[k + 1] if k + 1 < len(refresh_rows) else n_rows
         for name in _BAR_STATISTICS:
-            out[name][i] = getattr(cache, name)
+            out[name][i:stop] = getattr(cache, name)
     return out
 
 

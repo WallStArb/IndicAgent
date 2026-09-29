@@ -37,22 +37,26 @@ def _n_rows(kernel: Kernel, inputs: Mapping[str, np.ndarray]) -> int:
     return len(np.asarray(inputs[kernel.inputs[0]])) if kernel.inputs else 0
 
 
-def _run(kernel: Kernel, inputs: Mapping[str, np.ndarray], config: object, lo: int, hi: int):
-    cut = {name: np.asarray(inputs[name])[lo:hi] for name in kernel.inputs}
-    out = kernel.compute(cut, config)  # type: ignore[arg-type]
+def _cast_outputs(kernel: Kernel, out: Mapping[str, np.ndarray], rows: int) -> dict:
+    """The kernel's outputs in its dtype, checked for presence and for `rows` rows."""
     missing = [o for o in kernel.outputs if o not in out]
     if missing:
         raise CausalityViolation(f"kernel {kernel.name!r} did not return outputs {missing}")
     result = {}
     for name in kernel.outputs:
         arr = np.asarray(out[name]).astype(kernel.dtype)
-        if arr.shape[0] != hi - lo:
+        if arr.shape[0] != rows:
             raise CausalityViolation(
                 f"kernel {kernel.name!r} output {name!r} has {arr.shape[0]} rows for "
-                f"{hi - lo} input rows"
+                f"{rows} input rows"
             )
         result[name] = arr
     return result
+
+
+def _run(kernel: Kernel, inputs: Mapping[str, np.ndarray], config: object, lo: int, hi: int):
+    cut = {name: np.asarray(inputs[name])[lo:hi] for name in kernel.inputs}
+    return _cast_outputs(kernel, kernel.compute(cut, config), hi - lo)  # type: ignore[arg-type]
 
 
 def _first_difference(
@@ -94,9 +98,11 @@ def causality_probe(
     rows: np.ndarray,
     *,
     ulp: int = 0,
+    full: Mapping[str, np.ndarray] | None = None,
 ) -> None:
-    n = _n_rows(kernel, inputs)
-    full = _run(kernel, inputs, config, 0, n)
+    """`full` is the kernel's output on all rows in its dtype; it is computed when not given."""
+    if full is None:
+        full = _run(kernel, inputs, config, 0, _n_rows(kernel, inputs))
     for t in (int(r) for r in np.sort(np.asarray(rows))):
         truncated = _run(kernel, inputs, config, 0, t + 1)
         for name in kernel.outputs:
@@ -116,11 +122,13 @@ def memory_check(
     rows: np.ndarray,
     *,
     ulp: int = 0,
+    full: Mapping[str, np.ndarray] | None = None,
 ) -> int:
+    """`full` is the kernel's output on all rows in its dtype; it is computed when not given."""
     memory = int(kernel.memory(config))  # type: ignore[arg-type]
     atol = float(kernel.memory_atol)
-    n = _n_rows(kernel, inputs)
-    full = _run(kernel, inputs, config, 0, n)
+    if full is None:
+        full = _run(kernel, inputs, config, 0, _n_rows(kernel, inputs))
     for t in (int(r) for r in np.sort(np.asarray(rows))):
         if t < memory:
             continue
@@ -161,9 +169,13 @@ def probe_registry(
     available = dict(inputs)
     statuses: dict[str, str] = {}
     for kernel in registry.topological_order():
+        # One full-length compute serves the probe, the memory check and the downstream input.
+        native = kernel.compute({name: available[name] for name in kernel.inputs}, config)  # type: ignore[arg-type]
+        n = _n_rows(kernel, available)
         if kernel.acausal_control:
             try:
-                causality_probe(kernel, available, config, rows, ulp=ulp)
+                full = _cast_outputs(kernel, native, n)
+                causality_probe(kernel, available, config, rows, ulp=ulp, full=full)
             except CausalityViolation:
                 statuses[kernel.name] = STATUS_ACAUSAL_CONTROL
             else:
@@ -172,12 +184,12 @@ def probe_registry(
                     "cannot detect lookahead"
                 )
         else:
-            causality_probe(kernel, available, config, rows, ulp=ulp)
+            full = _cast_outputs(kernel, native, n)
+            causality_probe(kernel, available, config, rows, ulp=ulp, full=full)
             if kernel.path_dependent:
                 statuses[kernel.name] = STATUS_PATH_DEPENDENT
             else:
-                memory_check(kernel, available, config, rows, ulp=ulp)
+                memory_check(kernel, available, config, rows, ulp=ulp, full=full)
                 statuses[kernel.name] = STATUS_OK
-        native = kernel.compute({name: available[name] for name in kernel.inputs}, config)  # type: ignore[arg-type]
         available.update({name: np.asarray(native[name]) for name in kernel.outputs})
     return statuses

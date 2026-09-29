@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.features.kernels._primitives import ts_ns_to_datetimes
+from src.intelligence.features.kernels._primitives import unique_datetimes
 from src.intelligence.features.registry import Kernel
 
 if TYPE_CHECKING:
@@ -289,9 +289,9 @@ def _earnings_season_flag(bar_ts: datetime, config: FeatureFactoryConfig) -> flo
 
 
 # ---------------------------------------------------------------------------
-# Kernels. Each row converts its int64 ns bar start to a UTC datetime and calls the same scalar
-# helper compute() calls, so every value is bit-identical to the per-bar call. Memory is 0: a
-# row reads only its own timestamp.
+# Kernels. Each distinct int64 ns bar start becomes a UTC datetime once and goes through the same
+# scalar helper compute() calls, so every value is bit-identical to the per-bar call; rows that
+# share a timestamp share the value. Memory is 0: a row reads only its own timestamp.
 # ---------------------------------------------------------------------------
 
 _SESSION_OUTPUTS = (
@@ -334,20 +334,22 @@ _EVENT_OUTPUTS = (
 
 
 def _compute_session(inputs, config):
-    out = {name: np.empty(len(inputs["ts"])) for name in _SESSION_OUTPUTS}
-    for i, bar_ts in enumerate(ts_ns_to_datetimes(inputs["ts"])):
+    inverse, dts = unique_datetimes(inputs["ts"])
+    out = {name: np.empty(len(dts)) for name in _SESSION_OUTPUTS}
+    for i, bar_ts in enumerate(dts):
         out["in_ny_session"][i] = _in_ny_session(bar_ts, config)
         out["in_london_kz"][i] = _in_london_kz(bar_ts, config)
         out["in_overlap"][i] = _in_overlap(bar_ts, config)
         out["power_hour"][i] = _power_hour(bar_ts, config)
         out["opening_range"][i] = _opening_range(bar_ts, config)
         out["session_time_pos"][i] = _session_time_pos(bar_ts, config)
-    return out
+    return {name: values[inverse] for name, values in out.items()}
 
 
 def _compute_cycles(inputs, config):
-    out = {name: np.empty(len(inputs["ts"])) for name in _CYCLE_OUTPUTS}
-    for i, bar_ts in enumerate(ts_ns_to_datetimes(inputs["ts"])):
+    inverse, dts = unique_datetimes(inputs["ts"])
+    out = {name: np.empty(len(dts)) for name in _CYCLE_OUTPUTS}
+    for i, bar_ts in enumerate(dts):
         out["dow_sin"][i], out["dow_cos"][i] = _dow_encoding(bar_ts)
         out["month_position"][i] = _month_position(bar_ts)
         out["quarter_position"][i] = _quarter_position(bar_ts)
@@ -367,17 +369,18 @@ def _compute_cycles(inputs, config):
         out["week_of_year_cos"][i] = _week_of_year_cos(bar_ts)
         out["month_sin"][i] = _month_sin(bar_ts)
         out["month_cos"][i] = _month_cos(bar_ts)
-    return out
+    return {name: values[inverse] for name, values in out.items()}
 
 
 def _compute_events(inputs, config):
-    out = {name: np.empty(len(inputs["ts"])) for name in _EVENT_OUTPUTS}
-    for i, bar_ts in enumerate(ts_ns_to_datetimes(inputs["ts"])):
+    inverse, dts = unique_datetimes(inputs["ts"])
+    out = {name: np.empty(len(dts)) for name in _EVENT_OUTPUTS}
+    for i, bar_ts in enumerate(dts):
         out["opex_flag"][i] = _opex_flag(bar_ts)
         out["quad_witching_flag"][i] = _quad_witching_flag(bar_ts)
         out["earnings_season_flag"][i] = _earnings_season_flag(bar_ts, config)
         out["days_since_quarter_end"][i] = _days_since_quarter_end(bar_ts)
-    return out
+    return {name: values[inverse] for name, values in out.items()}
 
 
 def _compute_above_wk_vwap(inputs, config):
@@ -388,7 +391,8 @@ def _compute_above_wk_vwap(inputs, config):
     initial 0.0. One implementation of the weekly VWAP math.
     """
     n = len(inputs["ts"])
-    dts = ts_ns_to_datetimes(inputs["ts"])
+    inverse, unique_dts = unique_datetimes(inputs["ts"])
+    dts = [unique_dts[k] for k in inverse]
     cache = FeatureCache()
     out = np.empty(n)
     for i in range(n):

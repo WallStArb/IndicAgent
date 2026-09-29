@@ -43,6 +43,29 @@ def ts_ns_to_datetimes(ts: np.ndarray) -> list[datetime]:
     return [_EPOCH + timedelta(microseconds=int(ns) // 1000) for ns in ts]
 
 
+# The last unique_datetimes call: (timestamps, inverse, datetimes). The calendar and control
+# kernels of one compute_kernels call all read the same `ts`, so they share one conversion.
+_LAST_UNIQUE_TS: tuple[np.ndarray, np.ndarray, tuple[datetime, ...]] | None = None
+
+
+def unique_datetimes(ts: np.ndarray) -> tuple[np.ndarray, tuple[datetime, ...]]:
+    """(inverse, datetimes) with datetimes[inverse[i]] the UTC datetime of ts[i].
+
+    Each distinct timestamp is converted once (ts_ns_to_datetimes, so the same integer
+    arithmetic), and the result of the last call is kept and reused when the same timestamps
+    come again. Every calendar value is a pure function of the timestamp, so a kernel computes
+    per distinct timestamp and scatters with `inverse`.
+    """
+    global _LAST_UNIQUE_TS
+    last = _LAST_UNIQUE_TS
+    if last is not None and np.array_equal(last[0], ts):
+        return last[1], last[2]
+    unique, inverse = np.unique(ts, return_inverse=True)
+    result = (inverse.reshape(-1), tuple(ts_ns_to_datetimes(unique)))
+    _LAST_UNIQUE_TS = (np.array(ts, copy=True), *result)
+    return result
+
+
 def _atr_series_full(
     highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int
 ) -> np.ndarray:
@@ -75,6 +98,35 @@ def _atr_series_full(
     return atr
 
 
+def _cumsum_window_moments(
+    arr: np.ndarray, window: int, *, squares: bool = True
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Trailing mean and clamped variance of every expanding-then-saturated window, by cumsums.
+
+    Row i covers arr[max(0, i - window + 1):i + 1] (effective size min(window, i + 1)). The
+    mean is (cs[i] - cs[start - 1]) / eff_w and the variance max(s2 / eff_w - mean * mean, 0.0)
+    with the clamp keeping a NaN and never turning a value into NaN. Each operation is the
+    IEEE operation the per-row loops this replaces performed, in the same order, so the
+    results are bit-identical to them. With `squares` False only the mean is computed and the
+    variance is None.
+    """
+    n = len(arr)
+    eff_w = np.minimum(window, np.arange(1, n + 1))
+    prev = np.arange(n) + 1 - eff_w - 1  # index of cs just before the window; -1 means none
+
+    def window_sums(values: np.ndarray) -> np.ndarray:
+        cs = np.cumsum(values)
+        before = np.where(prev >= 0, cs[np.maximum(prev, 0)], 0.0)
+        return cs - before
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = window_sums(arr) / eff_w
+        if not squares:
+            return mean, None
+        var = window_sums(arr * arr) / eff_w - mean * mean
+    return mean, np.where(var < 0.0, 0.0, var)
+
+
 def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     """Rolling z-score series matching _zscore_last semantics.
 
@@ -89,17 +141,11 @@ def _rolling_zscore_series(arr: np.ndarray, window: int) -> np.ndarray:
     out = np.zeros(n, dtype=float)
     if n < 2 or window < 2:
         return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(1, n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w  # first index included (0-based)
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        std = math.sqrt(var)
-        out[i] = (arr[i] - mean) / std if std > STD_FLOOR else 0.0
+    mean, var = _cumsum_window_moments(arr, window)
+    std = np.sqrt(var)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = np.where(std > STD_FLOOR, (arr - mean) / std, 0.0)
+    out[1:] = z[1:]
     return out
 
 
@@ -121,21 +167,10 @@ def _rolling_std_series(arr: np.ndarray, window: int) -> np.ndarray:
     O(n) via cumulative sums. Shared building block for _vol_std_z (streaming) and
     _vol_std_z_series_full (batch).
     """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    cs2 = np.cumsum(arr * arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        s2 = cs2[i] - (cs2[start - 1] if start > 0 else 0.0)
-        mean = s / eff_w
-        var = max(s2 / eff_w - mean * mean, 0.0)
-        out[i] = math.sqrt(var)
-    return out
+    if len(arr) == 0:
+        return np.zeros(0, dtype=float)
+    _, var = _cumsum_window_moments(arr, window)
+    return np.sqrt(var)
 
 
 def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
@@ -145,17 +180,10 @@ def _rolling_mean_series(arr: np.ndarray, window: int) -> np.ndarray:
     alternative volatility estimators (Phase 142.5 Plan 04), which smooth their
     per-bar variance proxy over `window` bars before z-scoring.
     """
-    n = len(arr)
-    out = np.zeros(n, dtype=float)
-    if n == 0:
-        return out
-    cs = np.cumsum(arr)
-    for i in range(n):
-        eff_w = min(window, i + 1)
-        start = i + 1 - eff_w
-        s = cs[i] - (cs[start - 1] if start > 0 else 0.0)
-        out[i] = s / eff_w
-    return out
+    if len(arr) == 0:
+        return np.zeros(0, dtype=float)
+    mean, _ = _cumsum_window_moments(arr, window, squares=False)
+    return mean
 
 
 def _sliding_rolling(arr: np.ndarray, window: int, reduce) -> np.ndarray:

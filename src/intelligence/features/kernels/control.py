@@ -8,7 +8,7 @@ from datetime import datetime
 import numpy as np
 
 from src.core.rng import hash_key_to_int
-from src.intelligence.features.kernels._primitives import EPS, ts_ns_to_datetimes
+from src.intelligence.features.kernels._primitives import EPS, unique_datetimes
 from src.intelligence.features.registry import ExternalInput, Kernel
 
 _CANARY_CONSTANT_VALUE: float = 1.0
@@ -40,8 +40,12 @@ def _canary_sub_seed(bar_ts: datetime, symbol: str, base_seed: int, offset: int)
     determinism contract. The bar_ts/offset arithmetic component is unchanged from
     the original (still pure arithmetic, no hash() there either).
     """
-    ts_int = int(bar_ts.timestamp() * 1000)
-    symbol_hash = hash_key_to_int(symbol)
+    return _canary_seed(int(bar_ts.timestamp() * 1000), hash_key_to_int(symbol), base_seed, offset)
+
+
+def _canary_seed(ts_int: int, symbol_hash: int, base_seed: int, offset: int) -> int:
+    """`_canary_sub_seed` from its two per-row ingredients, so a caller hashes a symbol and
+    converts a timestamp once instead of once per canary."""
     return (base_seed * 1_000_003 + ts_int * 97 + offset + symbol_hash) % (2**32)
 
 
@@ -95,15 +99,50 @@ EXTERNAL_INPUTS = (
 
 
 def _compute_noise(inputs, config):
-    symbol = str(inputs["symbol"][0]) if len(inputs["symbol"]) else ""
-    dts = ts_ns_to_datetimes(inputs["ts"])
-    n = len(dts)
+    """The three noise canaries; each value is `_canary_noise_*` of (bar datetime, symbol, seed).
+
+    The symbol hash and the millisecond timestamp are computed once per distinct symbol and
+    per distinct timestamp, and a repeated (timestamp, symbol) row reuses its draws. Each draw
+    still comes from its own `default_rng` on the same sub-seed, in the same order.
+    """
+    symbols = inputs["symbol"]
+    n = len(inputs["ts"])
+    per_row_symbol = len(symbols) == n
+    default_symbol = str(symbols[0]) if len(symbols) else ""
+    inverse, unique_dts = unique_datetimes(inputs["ts"])
+    ts_ms = [int(bar_ts.timestamp() * 1000) for bar_ts in unique_dts]
+    seed = config.canary_rng_seed
+    symbol_hashes: dict[str, int] = {}
+    drawn: dict[tuple[int, str], tuple[float, float, float]] = {}
     gaussian, uniform, near_constant = np.empty(n), np.empty(n), np.empty(n)
-    for i, bar_ts in enumerate(dts):
-        sym = str(inputs["symbol"][i]) if len(inputs["symbol"]) == n else symbol
-        gaussian[i] = _canary_noise_gaussian(bar_ts, sym, config.canary_rng_seed)
-        uniform[i] = _canary_noise_uniform(bar_ts, sym, config.canary_rng_seed)
-        near_constant[i] = _canary_near_constant(bar_ts, sym, config.canary_rng_seed)
+    for i in range(n):
+        sym = str(symbols[i]) if per_row_symbol else default_symbol
+        key = (int(inverse[i]), sym)
+        values = drawn.get(key)
+        if values is None:
+            if sym not in symbol_hashes:
+                symbol_hashes[sym] = hash_key_to_int(sym)
+            ts_int, symbol_hash = ts_ms[key[0]], symbol_hashes[sym]
+            values = drawn[key] = (
+                float(
+                    np.random.default_rng(
+                        _canary_seed(ts_int, symbol_hash, seed, 0)
+                    ).standard_normal()
+                ),
+                float(
+                    np.random.default_rng(_canary_seed(ts_int, symbol_hash, seed, 1)).uniform(
+                        0.0, 1.0
+                    )
+                ),
+                _CANARY_CONSTANT_VALUE
+                + _CANARY_NEAR_CONSTANT_EPSILON
+                * float(
+                    np.random.default_rng(
+                        _canary_seed(ts_int, symbol_hash, seed, 2)
+                    ).standard_normal()
+                ),
+            )
+        gaussian[i], uniform[i], near_constant[i] = values
     return {
         "canary_noise_gaussian": gaussian,
         "canary_noise_uniform": uniform,

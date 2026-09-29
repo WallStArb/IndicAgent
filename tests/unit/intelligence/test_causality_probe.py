@@ -267,3 +267,40 @@ def test_registered_kernels_are_causal(kernel, _registered_case):
         assert kernel.path_dependent_reason  # memory_check is skipped: no finite memory exists
         return
     memory_check(kernel, available, config, rows)
+
+
+def test_probe_registry_computes_each_kernel_once_when_no_row_is_probed():
+    calls: list[str] = []
+
+    def counted(name):
+        def compute(x, c):
+            calls.append(name)
+            return {name: np.cumsum(next(iter(x.values())))}
+
+        return compute
+
+    kernels = [
+        Kernel(
+            "a",
+            ("a",),
+            ("close",),
+            lambda c: 0,
+            counted("a"),
+            path_dependent=True,
+            path_dependent_reason="test",
+        ),
+        Kernel(
+            "b",
+            ("b",),
+            ("a",),
+            lambda c: 0,
+            counted("b"),
+            path_dependent=True,
+            path_dependent_reason="test",
+        ),
+    ]
+    reg = KernelRegistry.from_kernels(kernels)
+    inputs = {"close": np.arange(1.0, 9.0)}
+    statuses = probe_registry(reg, inputs, CFG, np.array([], dtype=int))
+    assert statuses == {"a": "path_dependent_skipped_memory", "b": "path_dependent_skipped_memory"}
+    assert calls == ["a", "b"]
