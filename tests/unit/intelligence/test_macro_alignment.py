@@ -215,3 +215,52 @@ def test_align_daily_asof_requires_sorted_dates():
     a, b = SESSIONS[10], SESSIONS[11]
     with pytest.raises(ValueError, match="sorted"):
         align_daily_asof(np.array([0], dtype=np.int64), "5m", [b, a], [1, 2], None)
+
+
+# ---------------------------------------------------------------------------
+# Raw-input truncation and the no-fill default (186 review F9)
+# ---------------------------------------------------------------------------
+
+
+def _macro_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, np.ndarray]:
+    """Macro kernel outputs on the intraday row grid, from raw daily bars and raw bars."""
+    from src.intelligence.feature_factory import _macro_kernel_inputs
+    from src.intelligence.features.kernels.macro import MACRO_COLUMNS
+    from src.intelligence.features.registry import compute_kernels, default_registry
+
+    cross, beta = _records(daily)
+    ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
+    inputs = {
+        "ts": ts,
+        **_macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), cross, beta),
+    }
+    return compute_kernels(default_registry(), inputs, CONFIG, outputs=list(MACRO_COLUMNS))
+
+
+@pytest.mark.parametrize("cut_row", [3, BARS_PER_SESSION * 5 + 30, BARS_PER_SESSION * 6 + 77])
+def test_macro_rows_up_to_t_do_not_depend_on_raw_data_after_t(cut_row):
+    """Cut the raw bars at row t and the raw daily bars to those whose 16:00 ET close is
+    known by the end of row t's bar; rows <= t must not move."""
+    from src.intelligence.features.kernels.macro import _daily_close_ns
+
+    bars, daily = _intraday(), _daily_bars()
+    full = _macro_outputs(daily, bars)
+    t_end_ns = ref.dt_to_ns(bars[cut_row]["ts"]) + 300 * 1_000_000_000
+    known = {
+        s: [b for b in series if _daily_close_ns(b["ts"].date()) <= t_end_ns]
+        for s, series in daily.items()
+    }
+    cut = _macro_outputs(known, bars[: cut_row + 1])
+    for name, values in cut.items():
+        np.testing.assert_array_equal(values, full[name][: cut_row + 1], err_msg=name)
+
+
+def test_rows_before_the_first_daily_record_are_nan_not_zero():
+    """No record available is missing data: NaN, never a fabricated 0.0 z-score."""
+    bars, daily = _intraday(), _daily_bars()
+    late = {s: series[TARGET_SESSION:] for s, series in daily.items()}
+    out = _macro_outputs(late, bars)
+    first_session_rows = BARS_PER_SESSION * (TARGET_SESSION - INTRADAY_SESSIONS.start)
+    before = slice(0, first_session_rows)  # sessions 70-74: no record yet on 5m rows
+    for name in ("vix_z", "flight_quality", "yield_slope_z", "sb_corr_z"):
+        assert np.isnan(out[name][before]).all(), name

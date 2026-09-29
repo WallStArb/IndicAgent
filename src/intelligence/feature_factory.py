@@ -1197,6 +1197,11 @@ def _none_if_nan(value: float) -> float | None:
     return None if math.isnan(value) else float(value)
 
 
+# A row with no daily record available yet is missing data (no_fill): all-NaN, so the kernels
+# emit NaN instead of a fabricated 0.0 z-score.
+_MISSING_CROSS_ASSET = CrossAssetRecord(*([float("nan")] * len(CrossAssetRecord._fields)))
+
+
 def _macro_kernel_inputs(
     row_ns: np.ndarray,
     symbol: str,
@@ -1210,7 +1215,7 @@ def _macro_kernel_inputs(
     Batch path: the daily records are aligned as-of the row's bar end with `align_daily_asof`
     (a record dated d is available from the 16:00 ET close of d, so an intraday row on d reads
     d - 1; 1d rows read their own date). A row with no available record reads the default:
-    0.0 for the cross-asset fields, None for the betas. Live path (cross_asset_by_date and
+    NaN for the cross-asset fields, None (NaN) for the betas. Live path (cross_asset_by_date and
     beta_by_date None): the cache's values broadcast, with equity_beta_z None for SPY and
     rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
     already-closed daily values.
@@ -1220,7 +1225,7 @@ def _macro_kernel_inputs(
     if cross_asset_by_date is not None:
         dates = sorted(cross_asset_by_date)
         records = align_daily_asof(
-            row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], CrossAssetRecord()
+            row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], _MISSING_CROSS_ASSET
         )
         for name in RECORD_COLUMNS:
             out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
