@@ -78,7 +78,7 @@ The layers below map to `_DAG_ORDER` priority numbers. Lower priority = restarts
 | L4 — bar persistence | 4 | `bar-writer` |
 | L5 — intelligence context | 5 | `cross-asset`, `macro-compute` |
 | L6 — feature factory pipeline | 6 | `feature-vector-pipeline` |
-| L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer`, `ctx-writer` |
+| L7 — persistence writers | 7 | `feature-vector-writer`, `signal-writer`, `signal-tracker-compute`, `lifecycle-writer`, `lineage-writer` |
 | L8 — AI/analytics + IC/ensemble/alpha oneshots | 8 | `alpha-swarm`, `narrative-compute`, `llm-writer`, `swarm-ledger-writer`, `signal-metrics-compute`, `signal-metrics-writer`, `graduation-compute`, `graduation-writer`, `regime-writer`, `forward-return-writer`, `ic-engine`, `ensemble-trainer`, `alpha-publisher`, `ensemble-ic-engine`, `alpha-frame-writer`, `counterfactual-tracker`, and all timer-triggered oneshot services (ML batch, shadow, feature-validation, hmm-training, memory-batch) |
 | L9 — audit, parity, alerting, config/self-healing | 9 | `signal-auditor`, `signal-replay`, `alerting-agent`, `dlq-drain`, `config-service`, `outbox-dispatcher`, `self-healing-agent` |
 | L10 — top-level services | 10 | `api`, `dashboard` |
@@ -110,7 +110,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-writer": 7,
     "indicagent-lifecycle-writer": 7,
     "indicagent-lineage-writer": 7,
-    "indicagent-ctx-writer": 7,
     "indicagent-alpha-swarm": 8,
     "indicagent-narrative-compute": 8,
     "indicagent-llm-writer": 8,
@@ -201,7 +200,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_auditor":                "indicagent-signal-auditor",
     "graduation_analyzer":           "indicagent-graduation-compute",
     "graduation_writer":             "indicagent-graduation-writer",
-    "context_writer":                "indicagent-ctx-writer",
     "bar_replay_provider":           "indicagent-bar-replay",
     "signal_replay_auditor":         "indicagent-signal-replay",
     "dlq_writer":                    "indicagent-dlq-drain",

@@ -26,7 +26,7 @@ Live-verified 2026-09-04 (`timescaledb_information.jobs`/`hypertables`):
 | `alpha_events` | policy_compression (12h check) | **none — keep forever** | Sole `AlphaPublisher` output; emission audit trail |
 | `forward_returns` | policy_compression (12h check) | **none — keep forever** | IC measurement inputs |
 | `llm_calls` | policy_compression (12h check) | **none — keep forever** | Model performance history |
-| `intelligence_features`, `signal_events`, `signal_lineage`, `signal_transform_log`, `ctx_events`, `alpha_multiplier_shadow`, `macro_features`, `ml_signal_training`, `config_history`, `remediation_ledger`, `dlq_events`, `service_health_events` | policy_compression (12h) | `policy_retention` (1 day, several of these) | Infra/audit tables or archived v2.x — 1-day retention is correct for these, not a violation of the "keep forever" rule |
+| `intelligence_features`, `signal_events`, `signal_lineage`, `signal_transform_log`, `alpha_multiplier_shadow`, `macro_features`, `ml_signal_training`, `config_history`, `remediation_ledger`, `dlq_events`, `service_health_events` | policy_compression (12h) | `policy_retention` (1 day, several of these) | Infra/audit tables or archived v2.x — 1-day retention is correct for these, not a violation of the "keep forever" rule |
 
 No continuous aggregates are currently defined on this database (`timescaledb_information.continuous_aggregates` returns 0 rows, live-checked 2026-09-04). `market_data_5m` is a **plain view** over `market_data_ohlcv` (computed on read, not materialized/refreshed) — do not confuse it with a continuous aggregate. There is no `ohlcv_15m`/`ohlcv_1h`/`ohlcv_4h`/`ohlcv_1d`/`market_data_15m` object of any kind in the live schema; a prior version of this doc referenced them and was wrong.
 

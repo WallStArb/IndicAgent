@@ -49,11 +49,10 @@ Computes via `src/intelligence/feature_factory.py` — **not** `register_plugins
 | Signal Tracker | `indicagent-signal-tracker-compute` | `services/signal_tracker.py` | `market.bars` | lifecycle transitions (Kafka) |
 | Lifecycle Writer | `indicagent-lifecycle-writer` | `services/lifecycle_writer.py` | lifecycle transitions | `signal_ledger` |
 | Lineage Writer | `indicagent-lineage-writer` | `services/lineage_writer.py` | signal lineage events | `signal_lineage` |
-| CTX Writer | `indicagent-ctx-writer` | `services/context_writer.py` | qualitative context events | context snapshots (DB) |
 | Graduation Writer | `indicagent-graduation-writer` | `services/graduation_writer.py` | graduation events | `transform_graduation` |
 | LLM Writer | `indicagent-llm-writer` | `services/llm_writer.py` | `llm.calls` + `llm.outcomes` | `llm_calls` |
 
-Live 2026-09-04: `feature-vector-writer` `active running`; `signal-writer`, `signal-tracker-compute`, `lifecycle-writer` `inactive (dead)` (downstream of the stalled ingestion chain above); `lineage-writer` and `ctx-writer` `active running` (these two run independent of live bar flow).
+Live 2026-09-04: `feature-vector-writer` `active running`; `signal-writer`, `signal-tracker-compute`, `lifecycle-writer` `inactive (dead)` (downstream of the stalled ingestion chain above); `lineage-writer` `active running` (it runs independent of live bar flow).
 
 ## Signal Metrics Tier
 

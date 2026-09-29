@@ -33,8 +33,6 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | SLA query surface *(v2.x, archived)* | None | `signal_ledger` (view) | — | Join view across all three SLA tables (renamed from `signal_ledger_full` in Phase 130). Legacy monolith and `signal_outcomes` were dropped in Phase 130 — no separate read-only table remains. |
 | Signal-affecting lineage *(v2.x, archived)* | `topic_signal_lineage()` | `signal_lineage` | `LineageWriter` | Canonical audit trail for transforms and swarm `agent_prediction` events. |
 | Signal performance metrics *(v2.x, archived)* | signal metrics topic from `stream_keys.py` | `signal_metrics` tables | `SignalMetricsWriter` | Metrics compute may read canonical outcomes; writer persists metrics. |
-| Qualitative raw context | `{env}.ctx.*.raw` | `ctx_events` | `ContextWriter` | Raw qualitative facts are append-only. |
-| Qualitative context windows | `{env}.ctx.snapshot` | `ctx_snapshots` | `ContextWriter` | Source of truth for event-time validity. |
 | Quant-facing context cache | None | `intelligence_features.ctx` | `FeatureWriter` or optional bridge job | Denormalized projection only; not canonical truth. |
 | LLM call audit | `{env}.llm.calls` | `llm_calls` | `LLMWriter` | Every call, including failures, is training/audit data. |
 | LLM outcomes | `{env}.llm.outcomes` | `llm_calls` outcome columns | `LLMWriter` | Outcome backfill annotates historical call records. |

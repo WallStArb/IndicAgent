@@ -180,7 +180,7 @@ L5  Intelligence pipeline
 L6  Persistence writers (parallel)
     indicagent-feature-writer, indicagent-signal-writer,
     indicagent-lifecycle-writer, indicagent-lineage-writer,
-    indicagent-ctx-writer, indicagent-signal-tracker-compute
+    indicagent-signal-tracker-compute
 
 L7  AI/LLM layer
     indicagent-alpha-swarm, indicagent-narrative-compute,

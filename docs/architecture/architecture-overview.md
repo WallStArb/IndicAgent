@@ -147,7 +147,7 @@ L3:  bar-aggregator, bar-auditor
 L4:  bar-writer
 L5:  intelligence-pipeline, cross-asset, macro-compute
 L6:  feature-writer, signal-writer, signal-tracker-compute, lifecycle-writer,
-     lineage-writer, ctx-writer
+     lineage-writer
 L7:  alpha-swarm, narrative-compute, llm-writer, swarm-ledger-writer
 L8:  signal-metrics-compute, signal-metrics-writer, graduation-compute,
      graduation-writer, feature-snapshot-writer, ml-training

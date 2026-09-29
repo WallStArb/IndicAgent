@@ -317,7 +317,6 @@ The `{env}` prefix comes from `Settings.indicagent_env`. Mixed env prefixes caus
 {env}.intelligence.signal_lineage.dlq  # failed lineage persistence
 
 # CTX / macro
-{env}.ctx.snapshot                     # qualitative context snapshots (ContextWriter consumer)
 {env}.macro_signals                    # macro factor signals (MacroAnalyzer)
 
 # Writer DLQs

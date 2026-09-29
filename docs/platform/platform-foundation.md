@@ -86,7 +86,7 @@ P5   cross-asset, macro-compute             — intelligence context
 P6   feature-vector-pipeline                — Feature Factory compute
 P7   feature-vector-writer, signal-writer,  — persistence writers (parallel)
      signal-tracker-compute, lifecycle-writer,
-     lineage-writer, ctx-writer
+     lineage-writer
 P8   alpha-swarm, narrative-compute,        — AI/LLM layer + analytics +
      llm-writer, swarm-ledger-writer,         IC/ensemble/alpha oneshots +
      signal-metrics-compute/-writer,          all other timer-triggered
