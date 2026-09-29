@@ -33,6 +33,10 @@ class MemoryViolation(AssertionError):
     """A kernel's output at row t needs more history than its declared memory."""
 
 
+def _n_rows(kernel: Kernel, inputs: Mapping[str, np.ndarray]) -> int:
+    return len(np.asarray(inputs[kernel.inputs[0]])) if kernel.inputs else 0
+
+
 def _run(kernel: Kernel, inputs: Mapping[str, np.ndarray], config: object, lo: int, hi: int):
     cut = {name: np.asarray(inputs[name])[lo:hi] for name in kernel.inputs}
     out = kernel.compute(cut, config)  # type: ignore[arg-type]
@@ -80,7 +84,7 @@ def causality_probe(
     *,
     ulp: int = 0,
 ) -> None:
-    n = len(np.asarray(inputs[kernel.inputs[0]])) if kernel.inputs else 0
+    n = _n_rows(kernel, inputs)
     full = _run(kernel, inputs, config, 0, n)
     for t in (int(r) for r in np.sort(np.asarray(rows))):
         truncated = _run(kernel, inputs, config, 0, t + 1)
@@ -103,7 +107,7 @@ def memory_check(
     ulp: int = 0,
 ) -> int:
     memory = int(kernel.memory(config))  # type: ignore[arg-type]
-    n = len(np.asarray(inputs[kernel.inputs[0]])) if kernel.inputs else 0
+    n = _n_rows(kernel, inputs)
     full = _run(kernel, inputs, config, 0, n)
     for t in (int(r) for r in np.sort(np.asarray(rows))):
         if t < memory:
@@ -134,6 +138,6 @@ def probe_registry(
     for kernel in registry.topological_order():
         causality_probe(kernel, available, config, rows, ulp=ulp)
         checked[kernel.name] = memory_check(kernel, available, config, rows, ulp=ulp)
-        n = len(np.asarray(available[kernel.inputs[0]])) if kernel.inputs else 0
+        n = _n_rows(kernel, available)
         available.update(_run(kernel, available, config, 0, n))
     return checked
