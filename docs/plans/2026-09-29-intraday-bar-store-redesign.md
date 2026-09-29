@@ -43,13 +43,13 @@ provider did not return, and treats a stored placeholder as proof the slot was h
 
 | Need | Existing component | State |
 |---|---|---|
-| Every request with window and outcome | `ohlcv_request` via `ObservationSink` (append-only COPY, restricted role) | live since 185-09 |
-| Raw answers kept | `ohlcv_observation` (1d), `ohlcv_intraday_raw_archive` (15m/1h) | tables live |
-| 15m/1h from 5m on session-anchored edges | `BarDerivation(BaseBatch)`: archive, checksum-verify, delete segment (placeholders included), write derived rows, digests, constituent flags, one transaction per symbol, dry run by default | built (185-11), live rewrite is 185-12 |
+| Every request with window and outcome | `ohlcv_request` via `ObservationSink` (append-only COPY, restricted role) | written since 185-09 |
+| Raw answers kept | `ohlcv_observation` (1d), `ohlcv_intraday_raw_archive` (15m/1h) | tables exist |
+| 15m/1h from 5m on session-anchored edges | `BarDerivation(BaseBatch)`: archive, checksum-verify, delete segment (placeholders included), write derived rows, digests, constituent flags, one transaction per symbol, dry run by default | built (185-11), the rewrite of stored rows is 185-12 |
 | Session grid, digest, sessions | `src/intelligence/bars/` (`session_grid`, `digest`, `sessions`) | built |
 | Parity of fetched vs derived bars | 185-12 (owner decision 2026-09-27) | planned |
 | IBKR RTH grid for 15m/1h gap detection | 185-12 | planned |
-| Single-writer and lease guards | `test_market_data_ohlcv_writer_boundary`, `ibkr_history_stream` lease | 185-12 / live |
+| Single-writer and lease guards | `test_market_data_ohlcv_writer_boundary`, `ibkr_history_stream` lease | 185-12 / in place |
 
 Consequence: for 15m and 1h the placeholder deletion and the 13-name repair are `BarDerivation
 --apply` (185-12), not new code. The HTF lane running now writes 15m/1h under pre-plan-12 code and
