@@ -44,7 +44,6 @@ from src.intelligence.feature_cache import (
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.features.kernels._primitives import (  # noqa: F401  re-exported for tests and scripts
     _atr_series_full,
-    _atr_wilder,
     _is_valid_atr,
     _is_valid_atr_series,
     _pearson_acf1,

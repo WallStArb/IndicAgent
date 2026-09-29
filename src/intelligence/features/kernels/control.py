@@ -4,17 +4,12 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from src.core.rng import hash_key_to_int
 from src.intelligence.features.kernels._primitives import EPS, ts_ns_to_datetimes
 from src.intelligence.features.registry import ExternalInput, Kernel
-
-if TYPE_CHECKING:
-    pass
-
 
 _CANARY_CONSTANT_VALUE: float = 1.0
 

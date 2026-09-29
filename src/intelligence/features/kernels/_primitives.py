@@ -43,29 +43,6 @@ def ts_ns_to_datetimes(ts: np.ndarray) -> list[datetime]:
     return [_EPOCH + timedelta(microseconds=int(ns) // 1000) for ns in ts]
 
 
-def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
-    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data.
-
-    Reference implementation — used in tests only.
-    """
-    n = len(closes)
-    if n < period + 1:
-        return 0.0
-    high = highs[1:]
-    low = lows[1:]
-    prev_close = closes[:-1]
-    tr = np.maximum(
-        high - low,
-        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
-    )
-    # Wilder: alpha = 1/period; use ewm equivalent
-    alpha = 1.0 / period
-    atr = float(tr[0])
-    for val in tr[1:]:
-        atr = alpha * float(val) + (1.0 - alpha) * atr
-    return atr
-
-
 def _atr_series_full(
     highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int
 ) -> np.ndarray:

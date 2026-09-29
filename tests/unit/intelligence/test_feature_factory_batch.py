@@ -15,10 +15,8 @@ import math
 import numpy as np
 import pytest
 
-from src.intelligence.feature_factory import (
-    _atr_series_full,
-    _atr_wilder,
-)
+from src.intelligence.feature_factory import _atr_series_full
+from tests.unit.intelligence.helpers import _atr_wilder
 
 
 def _make_bars(n: int, seed: int = 42) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

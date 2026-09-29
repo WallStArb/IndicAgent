@@ -31,3 +31,26 @@ def make_ohlcv_from_hl(
     if volume is None:
         volume = np.full(len(close), 1000.0)
     return pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": volume})
+
+
+def _atr_wilder(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int) -> float:
+    """ATR using Wilder's EWM smoothing. Returns 0.0 on insufficient data.
+
+    Streaming reference for the batch ATR series parity tests.
+    """
+    n = len(closes)
+    if n < period + 1:
+        return 0.0
+    high = highs[1:]
+    low = lows[1:]
+    prev_close = closes[:-1]
+    tr = np.maximum(
+        high - low,
+        np.maximum(np.abs(high - prev_close), np.abs(low - prev_close)),
+    )
+    # Wilder: alpha = 1/period; use ewm equivalent
+    alpha = 1.0 / period
+    atr = float(tr[0])
+    for val in tr[1:]:
+        atr = alpha * float(val) + (1.0 - alpha) * atr
+    return atr
