@@ -9,6 +9,27 @@ import numpy as np
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
+# A Wilder recursion (ATR, RSI) forgets its seed geometrically: after `WILDER_MEMORY_HALF_LIVES *
+# period` bars the seed weight is (1 - 1/period) ** (40 * period) < exp(-40), about 4e-18, below
+# float64 resolution. A derived bound, not a tunable.
+WILDER_MEMORY_HALF_LIVES = 40
+
+
+def wilder_memory_bars(period: int) -> int:
+    """Bars after which a Wilder recursion with `period` no longer depends on its seed."""
+    return WILDER_MEMORY_HALF_LIVES * max(int(period), 1)
+
+
+def bounded_window_bars(config) -> int:
+    """compute_batch's per-bar window: the longest look-back of the bounded-window scalars
+    (CCI slow, Aroon slow, long volatility ratio, CMF), so each reads rows [i - n, i]."""
+    return max(
+        config.cci_slow_period,
+        config.aroon_slow_period,
+        config.vol_long_bars,
+        config.cmf_period,
+    )
+
 
 def ts_ns_to_datetimes(ts: np.ndarray) -> list[datetime]:
     """int64 UTC nanoseconds to aware datetimes by integer arithmetic (never float seconds)."""
