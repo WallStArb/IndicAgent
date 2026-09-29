@@ -88,3 +88,27 @@ def test_align_features_scatters_and_counts(symbols):
         align_features(stack, ts[[0, 0]], syms[[0, 0]], vals[:2])
     other, missing = align_features(stack, ts[:1], np.array(["ZZZ"]), vals[:1])
     assert missing == 1 and np.isnan(other).all()
+
+
+def test_untraded_bars_leave_the_row_set_before_the_stride(params):
+    """ic_engine's rows are feature_vectors INNER JOIN forward_returns (services/ic_engine.py
+    4903-4911): an untraded bar has no row, so the stride (3984-3990) counts only traded
+    bars, and completeness (3994-3996) is applied to the strided rows afterwards. A grid slot
+    the stack marks untraded is therefore removed by the row mask before the stride."""
+    rng = np.random.default_rng(11)
+    n = 300
+    untraded = rng.random(n) < 0.3
+    x = rng.normal(size=(n, 1, 1))
+    y = 0.4 * x[:, :, 0] + rng.normal(size=(n, 1))
+    y[7, 0] = np.nan  # a traded bar with a missing target: dropped after the stride
+    X, yy = observation_rows(x, y, ~untraded[:, None])
+    cell = pooled_rank_ic(X, yy, stride=3, params=params)
+
+    traded_rows = np.flatnonzero(~untraded)[::3]
+    keep = traded_rows[np.isfinite(y[traded_rows, 0])]
+    assert cell.n_independent[0] == keep.size
+    assert cell.ic[0] == pytest.approx(spearmanr(x[keep, 0, 0], y[keep, 0])[0], abs=1e-12)
+    # striding the full grid first picks different rows
+    grid_first = np.arange(0, n, 3)
+    grid_first = grid_first[~untraded[grid_first] & np.isfinite(y[grid_first, 0])]
+    assert not np.array_equal(grid_first, keep)

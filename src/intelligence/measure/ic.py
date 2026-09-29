@@ -40,7 +40,10 @@ def observation_rows(
     features: np.ndarray, targets: np.ndarray, row_mask: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
     """Flatten [n, m, k] features and [n, m] targets in (bar_ts, symbol) row-major order:
-    row r = t * m + j. `row_mask` [n, m] keeps a subset without reordering it."""
+    row r = t * m + j. `row_mask` [n, m] is row existence, not completeness: it keeps the
+    slots ic_engine would have a row for (traded bars, a regime's bars) without reordering,
+    and it runs before `pooled_rank_ic`'s stride. Missing values are left in; the finite
+    mask is applied after the stride."""
     n, m, k = features.shape
     if targets.shape != (n, m):
         raise ValueError(f"targets {targets.shape} do not match features {(n, m)}")
@@ -69,7 +72,11 @@ def pooled_rank_ic(
 
     1. Degenerate columns (std over the whole observation set below `params.degenerate_std`,
        ic_engine 2348) are dropped and counted; their IC is NaN.
-    2. Stride: rows 0, stride, 2 * stride ... of the flattened order (a slice, before any mask).
+    2. Stride: rows 0, stride, 2 * stride ... of the rows handed in. ic_engine's rows are the
+       (bar_ts, symbol) pairs that exist in feature_vectors joined to forward_returns, so a
+       caller drops slots that have no row (the stack's untraded bars, a regime's other bars)
+       with `observation_rows(row_mask=...)` before this call; a slot that exists with a
+       missing value stays in and is counted by the stride.
     3. Valid mask: target finite and every remaining feature finite (ic_engine's row
        completeness), applied after the stride.
     4. One pooled rankdata over the masked sample per column, Pearson on ranks
