@@ -309,6 +309,8 @@ real are CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV and EMR. C
   (185-12/17) derives 15m and 1h from it on session-anchored edges ahead of the phase 186
   rebuild. Names without 5m (the HTF lane's 698) get real bars from the fetch and are derived
   once the 5m lane runs.
-- Still to size: per year, the share of 5m-active 15m slots that hold a real 15m bar, and the
-  count of names below 50% (`completeness.sh` in the scratchpad, results in
-  `completeness_results.tsv`). 2006 is 85.3% and 2007 is 100.0%; later years pending.
+- Sized (per year, share of 5m-active 15m slots holding a real 15m bar): 2007 to 2023 is 99.6% to
+  100.0% (2006 85.3%), then 2024 97.7%, 2025 94.5% (13 names below 50%), 2026 98.4% (13 names
+  below 50%); 2021 and 2022 have one name below 50% each. So the defect is concentrated in recent
+  years and a small set of names, not spread across the corpus. Only the 240 names with 5m are
+  measurable. Redesign: `docs/plans/2026-09-29-intraday-bar-store-redesign.md`.
