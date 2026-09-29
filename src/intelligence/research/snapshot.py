@@ -163,7 +163,7 @@ def session_dates(panel: Panel) -> np.ndarray:
     return local.normalize().tz_localize(None).values.astype("datetime64[D]")
 
 
-def _utc(dt: datetime) -> datetime:
+def utc(dt: datetime) -> datetime:
     """A naive bound is UTC; an explicit offset is kept."""
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
@@ -231,7 +231,7 @@ async def build_panel(
     `manifest_extra` (for example the universe dimension) is merged into the manifest.
     `dividends` also captures the per-session dividend grid a total-return spec needs, so the
     snapshot hash covers the dividend facts the run used."""
-    lo, hi = (_utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
+    lo, hi = (utc(datetime.fromisoformat(x)) for x in (start, end_exclusive))
     pool = await read_only_pool(dsn)
     try:
         oos = await pool.fetchval(_OOS_START_SQL)

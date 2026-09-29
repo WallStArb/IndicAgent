@@ -67,14 +67,16 @@ def member_ic_over_time(
     per_window = params.monitor_window_sessions
     n_sessions = int(stack.session[-1]) + 1 if n else 0
     valid_grid = stack.valid_grid()
+    # `session` is non-decreasing, so each window's rows are one contiguous slice: two binary
+    # searches and views instead of a scan of every row per window.
+    firsts = np.arange(0, n_sessions, per_window)
+    lasts = np.minimum(firsts + per_window, n_sessions)
+    lows, highs = (np.searchsorted(stack.session, edge) for edge in (firsts, lasts))
     starts, counts, ics, nobs = [], [], [], []
-    for first in range(0, n_sessions, per_window):
-        last = min(first + per_window, n_sessions)
-        rows = np.flatnonzero((stack.session >= first) & (stack.session < last))
-        mask = valid_grid[rows]
-        X, y = observation_rows(feature[rows][:, :, None], stack.targets[rows], mask)
+    for first, last, lo, hi in zip(firsts.tolist(), lasts.tolist(), lows.tolist(), highs.tolist()):
+        X, y = observation_rows(feature[lo:hi, :, None], stack.targets[lo:hi], valid_grid[lo:hi])
         cell = pooled_rank_ic(X, y, stride=stride(stack, params), params=params)
-        starts.append(stack.timestamps[rows[0]])
+        starts.append(stack.timestamps[lo])
         counts.append(last - first)
         ics.append(float(cell.ic[0]))
         nobs.append(int(cell.n_independent[0]))
@@ -83,7 +85,7 @@ def member_ic_over_time(
     if finite.size:
         mean = float(finite.mean())
         sd = float(finite.std())
-        sharpe = mean / sd if sd > 1e-10 else 0.0
+        sharpe = mean / sd if sd > params.monitor_degenerate_std else 0.0
         hac = _hac_sharpe_gapped(ic, params.hac_max_lag)
     else:
         mean = sharpe = hac = float("nan")

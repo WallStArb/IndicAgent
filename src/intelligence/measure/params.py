@@ -21,6 +21,11 @@ class MeasureParams:
     monitor_window_sessions: int  # alpha.ic.monitor_window_sessions
     hac_max_lag: int  # alpha.ic.hac_max_lag
     degenerate_std: float  # std floor below which a feature column is degenerate (ic_engine 1e-8)
+    monitor_degenerate_std: float
+    """Std floor below which the spread of a member's window ICs is degenerate, so its IC
+    Sharpe is 0.0 rather than a ratio to a near-zero denominator (monitoring.py). A different
+    quantity from `degenerate_std`, which floors a feature column's std. Callers pass 1e-10, the
+    value the monitor used as a literal; 186-14 seeds it as an APR key (not seeded here)."""
 
     def __post_init__(self) -> None:
         for name in (
@@ -41,3 +46,7 @@ class MeasureParams:
             raise ValueError(f"fdr_alpha must be in (0, 1), got {self.fdr_alpha!r}")
         if not self.degenerate_std > 0.0:
             raise ValueError(f"degenerate_std must be positive, got {self.degenerate_std!r}")
+        if not self.monitor_degenerate_std > 0.0:
+            raise ValueError(
+                f"monitor_degenerate_std must be positive, got {self.monitor_degenerate_std!r}"
+            )

@@ -13,19 +13,19 @@ from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
 
 
+def _is_missing_label(v: object) -> bool:
+    return v is None or v == "" or (isinstance(v, float) and v != v)
+
+
 def _labelled(labels: np.ndarray) -> np.ndarray:
     """bool [n, m], False where the label is missing (NaN, None or an empty string)."""
     if labels.dtype.kind in "fc":
         return ~np.isnan(labels)
     if labels.dtype.kind in "iub":
         return np.ones(labels.shape, dtype=bool)
-    return np.array(
-        [
-            [not (v is None or v == "" or (isinstance(v, float) and v != v)) for v in row]
-            for row in labels
-        ],
-        dtype=bool,
-    ).reshape(labels.shape)
+    if labels.dtype.kind == "U":
+        return labels != ""
+    return ~np.frompyfunc(_is_missing_label, 1, 1)(labels).astype(bool)
 
 
 def regime_volatility_disclosure(
@@ -50,11 +50,12 @@ def regime_volatility_disclosure(
     labelled = _labelled(regime_volatility)
     n_unlabelled = int((valid & ~labelled).sum())
     cells: dict[str, IcCell] = {}
-    present = np.unique(regime_volatility[valid & labelled].astype(str))
-    as_text = regime_volatility.astype(str)
-    for label in present:
-        mask = valid & labelled & (as_text == label)
-        X, y = observation_rows(features, stack.targets, mask)
+    rows = valid & labelled
+    present, code = np.unique(regime_volatility[rows].astype(str), return_inverse=True)
+    codes = np.full((n, m), -1, dtype=np.intp)
+    codes[rows] = code.reshape(-1)
+    for j, label in enumerate(present):
+        X, y = observation_rows(features, stack.targets, codes == j)
         cells[str(label)] = pooled_rank_ic(
             X, y, stride=stride(stack, params), params=params, feature_names=feature_names
         )

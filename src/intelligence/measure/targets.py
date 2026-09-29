@@ -12,7 +12,7 @@ the union grid (an interior skipped row would change which open the kernel pairs
 from __future__ import annotations
 
 import dataclasses
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -69,9 +69,28 @@ def stride(stack: TargetStack, params: MeasureParams) -> int:
     return max(params.min_stride, stack.horizon)
 
 
-def stack_targets(
-    panels: list[Panel], horizon: int, end_exclusive: str | np.datetime64
-) -> TargetStack:
+@dataclasses.dataclass(frozen=True)
+class StackGrid:
+    """The union grid of a panel set, before any target: everything a stack holds that does not
+    depend on the horizon (`valid` is the union of the chunks' traded slots)."""
+
+    tf: str
+    bars_per_session: int
+    timestamps: np.ndarray  # [n] union grid
+    symbols: tuple[str, ...]
+    session: np.ndarray  # [n] int session index on the union grid
+    valid: np.ndarray  # [n] bool, some chunk traded the slot
+    end_exclusive: np.datetime64
+    chunk_rows: tuple[np.ndarray, ...]  # per panel, its rows on the union grid
+
+    def valid_grid(self) -> np.ndarray:
+        """[n, m] bool view of `valid` broadcast across symbols."""
+        return np.broadcast_to(self.valid[:, None], (len(self.timestamps), len(self.symbols)))
+
+
+def stack_grid(panels: list[Panel], end_exclusive: str | np.datetime64) -> StackGrid:
+    """Validate the chunks and build their union grid; horizon-free, so a caller measuring
+    several horizons builds it once and calls `stack_at_horizon` per horizon."""
     if not panels:
         raise ValueError("no panels to stack")
     tf, bps = panels[0].tf, panels[0].bars_per_session
@@ -88,9 +107,8 @@ def stack_targets(
     if len(union) % bps:
         raise ValueError(f"union grid of {len(union)} rows is not whole {bps}-bar sessions")
     n = len(union)
-    targets = np.full((n, len(symbols)), np.nan)
     valid = np.zeros(n, dtype=bool)
-    col = 0
+    chunk_rows = []
     for panel in panels:
         stamps = np.asarray(panel.timestamps)
         expected = union[(union >= stamps[0]) & (union <= stamps[-1])]
@@ -101,21 +119,45 @@ def stack_targets(
                 "stacking would shift its targets"
             )
         rows = np.searchsorted(union, stamps)
-        m = len(panel.symbols)
-        targets[rows, col : col + m] = chunk_targets(panel, horizon)
         valid[rows] |= np.asarray(panel.valid)
-        col += m
-    return TargetStack(
+        chunk_rows.append(rows)
+    return StackGrid(
         tf=tf,
         bars_per_session=bps,
         timestamps=union,
         symbols=symbols,
         session=np.repeat(np.arange(n // bps), bps),
-        horizon=horizon,
-        targets=targets,
         valid=valid,
         end_exclusive=_as_datetime64(end_exclusive),
+        chunk_rows=tuple(chunk_rows),
     )
+
+
+def stack_at_horizon(grid: StackGrid, panels: list[Panel], horizon: int) -> TargetStack:
+    """The grid's targets at one horizon: each chunk's kernel targets on its grid rows."""
+    targets = np.full((len(grid.timestamps), len(grid.symbols)), np.nan)
+    col = 0
+    for panel, rows in zip(panels, grid.chunk_rows, strict=True):
+        m = len(panel.symbols)
+        targets[rows, col : col + m] = chunk_targets(panel, horizon)
+        col += m
+    return TargetStack(
+        tf=grid.tf,
+        bars_per_session=grid.bars_per_session,
+        timestamps=grid.timestamps,
+        symbols=grid.symbols,
+        session=grid.session,
+        horizon=horizon,
+        targets=targets,
+        valid=grid.valid,
+        end_exclusive=grid.end_exclusive,
+    )
+
+
+def stack_targets(
+    panels: list[Panel], horizon: int, end_exclusive: str | np.datetime64
+) -> TargetStack:
+    return stack_at_horizon(stack_grid(panels, end_exclusive), panels, horizon)
 
 
 def _as_datetime64(value: str | np.datetime64) -> np.datetime64:
@@ -125,8 +167,7 @@ def _as_datetime64(value: str | np.datetime64) -> np.datetime64:
 
 
 def _utc(text: str) -> datetime:
-    parsed = datetime.fromisoformat(text)
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return snapshot.utc(datetime.fromisoformat(text))
 
 
 async def build_target_panels(

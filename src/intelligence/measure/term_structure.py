@@ -6,9 +6,14 @@ import dataclasses
 
 import numpy as np
 
+from src.intelligence.measure.ic import pooled_rank_ic_prepared, prepare_features
 from src.intelligence.measure.params import MeasureParams
-from src.intelligence.measure.proposer import propose
-from src.intelligence.measure.targets import check_horizon, stack_targets
+from src.intelligence.measure.targets import (
+    check_horizon,
+    stack_at_horizon,
+    stack_grid,
+    stride,
+)
 from src.intelligence.research.panel import Panel
 
 
@@ -38,9 +43,25 @@ def term_structure(
     ic = np.full((k, n_h), np.nan)
     n_obs = np.zeros((k, n_h), dtype=np.int64)
     p_value = np.full((k, n_h), np.nan)
+    # Nothing but the target depends on the horizon: the union grid, the rows that exist, the
+    # masked feature copy and the per-column std and finite masks are built once, and each
+    # horizon only ANDs its target's mask into them and takes its own stride.
+    grid = stack_grid(panels, end_exclusive)
+    n, m = len(grid.timestamps), len(grid.symbols)
+    if features.shape[:2] != (n, m):
+        raise ValueError(f"features {features.shape[:2]} do not match the stack grid {(n, m)}")
+    rows = np.flatnonzero(grid.valid_grid().reshape(n * m))
+    prepared = prepare_features(
+        features.reshape(n * m, features.shape[2])[rows], params, feature_names
+    )
     for h_idx, horizon in enumerate(horizons):
-        stack = stack_targets(panels, horizon, end_exclusive)
-        cell = propose(features, feature_names, stack, params).cell
+        stack = stack_at_horizon(grid, panels, horizon)
+        cell = pooled_rank_ic_prepared(
+            prepared,
+            stack.targets.reshape(n * m)[rows],
+            stride=stride(stack, params),
+            params=params,
+        )
         ic[:, h_idx], n_obs[:, h_idx], p_value[:, h_idx] = cell.ic, cell.n_independent, cell.p_value
     magnitude = np.where(np.isfinite(ic), np.abs(ic), -np.inf)
     best = np.argmax(magnitude, axis=1)

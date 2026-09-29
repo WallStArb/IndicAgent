@@ -8,6 +8,7 @@ here. This module fixes the observation order, the stride and the mask order so 
 from __future__ import annotations
 
 import dataclasses
+import math
 
 import numpy as np
 
@@ -57,6 +58,67 @@ def observation_rows(
     return x, y
 
 
+def _column_blocks(k: int):
+    """(first, stop) column ranges covering k columns in about sqrt(k)-wide blocks.
+
+    No block is a single column unless k is 1: numpy sums one column pairwise but several
+    columns row by row, so a one-column block would not reproduce the whole-matrix
+    `nanstd(axis=0)` bit for bit. The width bounds a block's temporaries to about
+    n * sqrt(k) elements and never enters a value.
+    """
+    if k <= 2:
+        yield 0, k
+        return
+    step = max(2, math.isqrt(k))
+    first = 0
+    while first < k:
+        stop = min(first + step, k)
+        if k - stop == 1:
+            stop = k
+        yield first, stop
+        first = stop
+
+
+@dataclasses.dataclass(frozen=True)
+class PreparedFeatures:
+    """A feature block with everything `pooled_rank_ic` derives from X alone, so a caller that
+    measures the same rows against several targets (the term structure's horizons) computes the
+    column std and the finite mask once and only ANDs in each target's mask."""
+
+    X: np.ndarray  # [rows, k]
+    names: tuple[str, ...]
+    live: np.ndarray  # [k] bool, std at or above params.degenerate_std
+    complete: np.ndarray  # [rows] bool, every live feature finite
+    n_degenerate: int
+
+
+def prepare_features(
+    X: np.ndarray, params: MeasureParams, feature_names: tuple[str, ...] | None = None
+) -> PreparedFeatures:
+    """Column std, degenerate columns and the finite-row mask of X, in column blocks."""
+    if X.ndim != 2:
+        raise ValueError(f"X {X.shape} is not one row per observation")
+    n, k = X.shape
+    names = feature_names if feature_names is not None else tuple(f"f{j}" for j in range(k))
+    if len(names) != k:
+        raise ValueError(f"{len(names)} names for {k} features")
+    std = np.full(k, np.nan)
+    if n:
+        with np.errstate(invalid="ignore"):
+            for first, stop in _column_blocks(k):
+                std[first:stop] = np.nanstd(X[:, first:stop], axis=0, dtype=np.float64)
+    live = std >= params.degenerate_std  # NaN std (all-missing column) is degenerate too
+    live_idx = np.flatnonzero(live)
+    complete = np.ones(n, dtype=bool)
+    for first, stop in _column_blocks(len(live_idx)) if len(live_idx) else ():
+        cols = live_idx[first:stop]
+        block = X[:, first:stop] if len(live_idx) == k else X[:, cols]
+        complete &= np.isfinite(block).all(axis=1)
+    return PreparedFeatures(
+        X=X, names=names, live=live, complete=complete, n_degenerate=int((~live).sum())
+    )
+
+
 def pooled_rank_ic(
     X: np.ndarray,
     y: np.ndarray,
@@ -90,15 +152,21 @@ def pooled_rank_ic(
         raise ValueError(f"X {X.shape} and y {y.shape} are not one row per observation")
     if stride < 1:
         raise ValueError(f"stride must be >= 1, got {stride}")
-    k = X.shape[1]
-    names = feature_names if feature_names is not None else tuple(f"f{j}" for j in range(k))
-    if len(names) != k:
-        raise ValueError(f"{len(names)} names for {k} features")
-    with np.errstate(invalid="ignore"):
-        std = np.nanstd(X, axis=0, dtype=np.float64) if X.shape[0] else np.full(k, np.nan)
-    live = std >= params.degenerate_std  # NaN std (all-missing column) is degenerate too
-    n_degenerate = int((~live).sum())
+    return pooled_rank_ic_prepared(
+        prepare_features(X, params, feature_names), y, stride=stride, params=params
+    )
 
+
+def pooled_rank_ic_prepared(
+    prepared: PreparedFeatures, y: np.ndarray, *, stride: int, params: MeasureParams
+) -> IcCell:
+    """`pooled_rank_ic` for a feature block prepared once; see it for the order of operations."""
+    X, live, names = prepared.X, prepared.live, prepared.names
+    if y.shape != (X.shape[0],):
+        raise ValueError(f"X {X.shape} and y {y.shape} are not one row per observation")
+    if stride < 1:
+        raise ValueError(f"stride must be >= 1, got {stride}")
+    k = X.shape[1]
     ic = np.full(k, np.nan)
     p_value = np.full(k, np.nan)
     ci_lower = np.full(k, np.nan)
@@ -107,18 +175,15 @@ def pooled_rank_ic(
     n_independent = np.zeros(k, dtype=np.int64)
     reliable = np.zeros(k, dtype=bool)
 
-    def _complete(x: np.ndarray, target: np.ndarray) -> np.ndarray:
-        return np.isfinite(target) & np.isfinite(x[:, live]).all(axis=1)
-
     if live.any():
-        n_full = int(_complete(X, y).sum())
-        Xs, ys = X[0::stride], y[0::stride]
-        valid = _complete(Xs, ys)
-        n_valid = int(valid.sum())
+        complete = np.isfinite(y) & prepared.complete
+        n_full = int(complete.sum())
+        rows = np.flatnonzero(complete[0::stride]) * stride  # stride first, then the mask
+        n_valid = len(rows)
         n_obs[live] = n_full
         n_independent[live] = n_valid
         if n_valid >= params.min_obs and n_valid > 2:
-            Xv, yv = Xs[valid][:, live], ys[valid]
+            Xv, yv = _live_columns(X, rows, live), y[rows]
             ic_live = compute_ic_vectorized(Xv, yv)
             lo, hi = _circular_block_bootstrap_ic(
                 Xv,
@@ -140,9 +205,81 @@ def pooled_rank_ic(
         ci_lower=ci_lower,
         ci_upper=ci_upper,
         reliable=reliable,
-        n_degenerate=n_degenerate,
+        n_degenerate=prepared.n_degenerate,
         stride=stride,
     )
+
+
+def _live_columns(X: np.ndarray, rows: np.ndarray, live: np.ndarray) -> np.ndarray:
+    """X[rows][:, live] built column block by column block, without the row-selected copy of
+    every column. Column-major, as numpy lays out a boolean column selection: the rank and
+    Pearson sums downstream add along axis 0, and a row-major block would add in another order."""
+    live_idx = np.flatnonzero(live)
+    out = np.empty((len(rows), len(live_idx)), dtype=X.dtype, order="F")
+    for first, stop in _column_blocks(len(live_idx)):
+        out[:, first:stop] = X[np.ix_(rows, live_idx[first:stop])]
+    return out
+
+
+@dataclasses.dataclass(frozen=True)
+class SlotMap:
+    """Where long-form rows land on a stack grid: `rows[i]`, `cols[i]` for each input row with
+    `ok[i]`. Built once per (bar_ts, symbols) and reused for every feature block."""
+
+    ok: np.ndarray  # [N] bool, the row matches a grid slot
+    rows: np.ndarray  # [ok.sum()] grid row index
+    cols: np.ndarray  # [ok.sum()] grid column (symbol) index
+
+
+def map_slots(stack: TargetStack, bar_ts: np.ndarray, symbols: np.ndarray) -> SlotMap:
+    """Match long-form (timestamp, symbol) rows to grid slots by exact equality.
+
+    Each distinct symbol is looked up once, not once per row. A duplicate (timestamp, symbol)
+    raises: two values for one slot would make the survivor arbitrary.
+    """
+    if len(bar_ts) != len(symbols):
+        raise ValueError("bar_ts, symbols and values must have one entry per row")
+    m = len(stack.symbols)
+    if len(bar_ts) == 0:
+        empty = np.zeros(0, dtype=np.int64)
+        return SlotMap(ok=np.zeros(0, dtype=bool), rows=empty, cols=empty)
+    stamps = np.asarray(stack.timestamps).astype("datetime64[ns]")
+    ts = np.asarray(bar_ts).astype("datetime64[ns]")
+    pos = np.clip(np.searchsorted(stamps, ts), 0, len(stamps) - 1)
+    ts_ok = stamps[pos] == ts
+    col_of = {s: j for j, s in enumerate(stack.symbols)}
+    labels = np.asarray(symbols)
+    if labels.dtype.kind != "U":
+        labels = labels.astype(str)  # str(s), as the per-row lookup did
+    distinct, inverse = np.unique(labels, return_inverse=True)
+    col_of_distinct = np.fromiter(
+        (col_of.get(str(s), -1) for s in distinct), dtype=np.int64, count=len(distinct)
+    )
+    col = col_of_distinct[inverse.reshape(-1)]
+    ok = ts_ok & (col >= 0)
+    rows, cols = pos[ok], col[ok]
+    flat = rows.astype(np.int64) * m + cols
+    taken = np.zeros(len(stack.timestamps) * m, dtype=bool)
+    taken[flat] = True
+    if int(taken.sum()) != len(flat):
+        raise ValueError("duplicate (timestamp, symbol) rows in the feature input")
+    return SlotMap(ok=ok, rows=rows, cols=cols)
+
+
+def scatter_features(
+    stack: TargetStack, slots: SlotMap, values: np.ndarray
+) -> tuple[np.ndarray, int]:
+    """Scatter long-form `values` onto the grid through a `SlotMap`: ([n, m, k] with NaN where
+    no row landed, count of input rows matching no grid slot)."""
+    values = np.asarray(values, dtype=float)
+    if values.ndim == 1:
+        values = values[:, None]
+    if len(values) != len(slots.ok):
+        raise ValueError("bar_ts, symbols and values must have one entry per row")
+    grid = np.full((len(stack.timestamps), len(stack.symbols), values.shape[1]), np.nan)
+    if len(values):
+        grid[slots.rows, slots.cols] = values[slots.ok]
+    return grid, int((~slots.ok).sum())
 
 
 def align_features(
@@ -152,27 +289,10 @@ def align_features(
 
     `bar_ts` is naive UTC (bar start on intraday, the session date's 00:00 on 1d, the keys
     `build_grid` uses). Returns ([n, m, k] with NaN where no row landed, count of input rows
-    matching no grid slot). A duplicate (timestamp, symbol) raises: two values for one slot
-    would make the survivor arbitrary.
+    matching no grid slot). A duplicate (timestamp, symbol) raises. A caller aligning several
+    feature blocks of the same rows calls `map_slots` once and `scatter_features` per block.
     """
     values = np.asarray(values, dtype=float)
-    if values.ndim == 1:
-        values = values[:, None]
     if not (len(bar_ts) == len(symbols) == len(values)):
         raise ValueError("bar_ts, symbols and values must have one entry per row")
-    grid = np.full((len(stack.timestamps), len(stack.symbols), values.shape[1]), np.nan)
-    if len(values) == 0:
-        return grid, 0
-    stamps = np.asarray(stack.timestamps).astype("datetime64[ns]")
-    ts = np.asarray(bar_ts).astype("datetime64[ns]")
-    pos = np.clip(np.searchsorted(stamps, ts), 0, len(stamps) - 1)
-    ts_ok = stamps[pos] == ts
-    col_of = {s: j for j, s in enumerate(stack.symbols)}
-    col = np.fromiter((col_of.get(str(s), -1) for s in symbols), dtype=np.int64, count=len(symbols))
-    ok = ts_ok & (col >= 0)
-    rows, cols = pos[ok], col[ok]
-    flat = rows.astype(np.int64) * len(stack.symbols) + cols
-    if len(np.unique(flat)) != len(flat):
-        raise ValueError("duplicate (timestamp, symbol) rows in the feature input")
-    grid[rows, cols] = values[ok]
-    return grid, int((~ok).sum())
+    return scatter_features(stack, map_slots(stack, bar_ts, symbols), values)

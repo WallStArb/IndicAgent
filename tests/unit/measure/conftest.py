@@ -77,4 +77,5 @@ def params() -> MeasureParams:
         monitor_window_sessions=10,
         hac_max_lag=2,
         degenerate_std=1e-8,
+        monitor_degenerate_std=1e-10,
     )
