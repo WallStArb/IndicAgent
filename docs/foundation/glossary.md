@@ -1847,6 +1847,50 @@ any single member; selection and weighting happen only inside training folds.
 
 ---
 
+### `synthetic fill`
+
+A stored bar the backfill fabricates for an interval slot the provider returned nothing for:
+open, high, low and close equal to the previous close, volume 0, `source = 'synthetic_fill'`. It
+is not an observation, and it makes a missing bar look handled. **Not:** a derived bar (`source = 'derived_5m'`).
+**Banned:** (none)
+**Avoid:** "placeholder bar", an informal name for the same thing
+**Status:** being retired (todo 462; plans 185-12 and 185-18 stop it at 5m, 15m and 1h, 1d follows D2)
+**Code surface:** `src/core/bar_normalizer.py` (`SOURCE_SYNTHETIC_FILL`, `normalize_bars`)
+
+---
+
+### `fetch coverage`
+
+For one (symbol, timeframe), the union of provider request windows that were answered with bars
+(and those bars stored) or with no data, read from `ohlcv_request`. A slot inside a covered window
+with no stored bar is a no-trade, not a gap. A timeout or failed request never covers.
+**Not:** stored row count, which a synthetic fill inflates.
+**Banned:** (none)
+**Status:** design (todo 462; `gap_plan.py` in plan 185-18)
+**Code surface:** `ohlcv_request`
+
+---
+
+### `provider hole`
+
+A slot the provider answered without a bar although trades occurred, found by reconciling a
+coarser timeframe or the daily bar against finer bars (a coarse bar missing, or with less volume
+than its constituents). A defect, unlike a no-trade slot, which is a real observation.
+**Banned:** (none)
+**Status:** design (todo 462; check in plan 185-23)
+
+---
+
+### `bar completeness`
+
+Per (symbol, timeframe, year), the share of expected session slots that hold a real bar or fall
+inside fetch coverage. Reported by the daily audit with the threshold in APR.
+**Not:** row count.
+**Banned:** (none)
+**Status:** design (todo 462; plan 185-23)
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names

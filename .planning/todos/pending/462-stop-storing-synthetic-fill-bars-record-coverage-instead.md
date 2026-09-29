@@ -58,7 +58,7 @@ partial versions of it.
 
 Ideally lands before the todo 449 5m lane starts (HTF lane on attempt 23, about 221 of 698
 symbols on 2026-09-29; the 5m lane follows in `intraday_chain.sh`). That avoids about 0.8B
-placeholder rows for the 458 missing 5m names. Editing the backfill script under a live run:
+placeholder rows for the 458 missing 5m names. Editing the backfill script while a run is going:
 `ic_engine` does not import it, but confirm before the edit. Step 1 and 2 can run now with no
 edit.
 
@@ -110,7 +110,7 @@ plus greps). Raw-table readers that depend on the placeholders and must change w
 Also call `normalize_bars`: `services/backfill_feature_factory.py`, `services/bar_aggregator.py`,
 `src/providers/ibkr.py`, `src/providers/ibkr_adapter.py`, `src/intelligence/services/bar_history_seeder.py`,
 `src/core/schemas/bar_message.py`. Not yet read; the streaming ones (aggregator, adapter, seeder)
-may need fills for a live series and are the open question for step 4.
+may need fills for a streaming series and are the open question for step 4.
 
 Remaining: read those normalizer callers, then steps 3 to 6. Steps 5 and 6 should wait on the
 gap-detection replacement, because removing the fill without the ledger makes `_detect_gaps`
@@ -160,7 +160,7 @@ ledger drives `_detect_gaps`; the delete migration runs last and ends with a bar
 ## Revision to the step 3 design: use phase 185's `ohlcv_request`, no new table (2026-09-29)
 
 The step 3 design above proposed a new `ohlcv_fetch_coverage` table. That duplicates a table phase
-185 already built. `ohlcv_request` (plans 185-02/03, live since 185-09 on 2026-09-28) records one
+185 already built. `ohlcv_request` (plans 185-02/03, written since 185-09 on 2026-09-28) records one
 row per provider request: symbol, timeframe, route, `window_start`, `window_end`, `outcome`
 (`bars` | `no_data` | `timeout` | `failed`), `n_bars`. Coverage is the union of `bars` and
 `no_data` windows; `no_data` is the "fetched, nothing there" case that stops closed slots being
@@ -247,7 +247,7 @@ Landed for the 5m lane, default off so the running HTF loop is unchanged:
 - `ohlcv_request.window_*` is not the range of the returned bars: IBKR durations round up to
   whole days, so a short window's answer holds bars from before `window_start`. A `count >=
   n_bars` corroboration failed on 195 of 400 requests for that reason; the shipped check is
-  "at least one stored row in the window". On live data 2,720 of 3,000 15m and 1h answers pass;
+  "at least one stored row in the window". On stored data 2,720 of 3,000 15m and 1h answers pass;
   the 280 that do not are all windows under 1.5 days (recent gap fills), which are simply
   re-requested.
 - Gate: targeted and full `tests/unit/` pass; ruff and black clean. `/simplify` and `/review`
@@ -320,7 +320,7 @@ real are CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV and EMR. C
 Two earlier steps in this todo are already covered by phase 185 and are not new work:
 
 - Deleting 15m and 1h placeholders and repairing the 13 names is `BarDerivation --apply`
-  (`services/bar_derivation.py`, live rewrite is plan 185-12): it archives the stored rows,
+  (`services/bar_derivation.py`, the rewrite of stored rows is plan 185-12): it archives the stored rows,
   verifies checksums, deletes the segment (placeholders included) and writes derived rows with
   digests in one transaction per symbol.
 - 15m/1h gap detection on IBKR's own RTH grid and a parity check of fetched versus derived bars
