@@ -1427,7 +1427,9 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = (
         "momentum_vol_regime_product quarter_momentum_product variance_ratio_momentum_product "
         "informed_flow cmf ofi_div vol_body_product ret_vol_product_fast range_vol_product "
         "up_vol_body_diff vol_skew_product breakout_volume_product illiquidity_momentum_product "
-        "efficiency_volume_product"
+        "efficiency_volume_product vix_z flight_quality yield_slope_z tip_tlt_ret_z hyg_lqd_ret_z "
+        "sb_corr_fast sb_corr_slow sb_corr_z equity_beta_z rate_beta_z "
+        "yield_slope_momentum_product vix_reversion_product"
     ).split(),
 )
 
@@ -1460,6 +1462,66 @@ def _batch_kernel_inputs(
         "volume": volumes,
         "symbol": np.array([symbol] * len(bars), dtype=object),
     }
+
+
+_MACRO_RECORD_FIELDS: tuple[str, ...] = (
+    "vix_z",
+    "flight_quality",
+    "yield_slope_z",
+    "tip_tlt_ret_z",
+    "hyg_lqd_ret_z",
+    "sb_corr_fast",
+    "sb_corr_slow",
+    "sb_corr_z",
+)
+
+
+def _none_if_nan(value: float) -> float | None:
+    """A beta the caller could not supply is None in the record and NaN on the kernel grid."""
+    return None if math.isnan(value) else float(value)
+
+
+def _macro_kernel_inputs(
+    bars: list[dict],
+    symbol: str,
+    cache: FeatureCache,
+    cross_asset_by_date: dict | None,
+    beta_by_date: dict | None,
+) -> dict[str, np.ndarray]:
+    """The ten `ext_*` macro inputs on the row grid (None becomes NaN).
+
+    Batch path: each row reads the record keyed by its own UTC date. Live path
+    (cross_asset_by_date/beta_by_date None): the cache's values broadcast, with equity_beta_z None
+    for SPY and rate_beta_z None for TLT (a self-regression is degenerate).
+    """
+    n = len(bars)
+    dates = []
+    for bar in bars:
+        bar_ts = bar["ts"]
+        if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
+            bar_ts = bar_ts.replace(tzinfo=UTC)
+        dates.append(bar_ts.date())
+    out: dict[str, np.ndarray] = {}
+    if cross_asset_by_date is not None:
+        default = CrossAssetRecord()
+        records = [cross_asset_by_date.get(d, default) for d in dates]
+        for name in _MACRO_RECORD_FIELDS:
+            out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
+    else:
+        for name in _MACRO_RECORD_FIELDS:
+            out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
+    if beta_by_date is not None:
+        pairs = [beta_by_date.get(d, (None, None)) for d in dates]
+        equity = [p[0] for p in pairs]
+        rate = [p[1] for p in pairs]
+    else:
+        equity = [None if symbol == "SPY" else cache.equity_beta_z] * n
+        rate = [None if symbol == "TLT" else cache.rate_beta_z] * n
+    out["ext_equity_beta_z"] = np.array(
+        [np.nan if v is None else v for v in equity], dtype=np.float64
+    )
+    out["ext_rate_beta_z"] = np.array([np.nan if v is None else v for v in rate], dtype=np.float64)
+    return out
 
 
 def _guard(v: float | None, fallback: float = 0.0) -> float | None:
@@ -5034,7 +5096,10 @@ class FeatureFactory:
         # so kernel origins cannot create an import cycle with this module.
         k = compute_kernels(
             default_registry(),
-            _batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
+            {
+                **_batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
+                **_macro_kernel_inputs(bars, symbol, cache, cross_asset_by_date, beta_by_date),
+            },
             config,
             outputs=list(dict.fromkeys((*_SERIES_KERNEL_OUTPUTS, *_DELEGATED_KERNEL_OUTPUTS))),
         )
@@ -5335,35 +5400,21 @@ class FeatureFactory:
             # CrossAssetRecord is a NamedTuple (Phase 151 Plan 04) -- keyword
             # attribute access below, never positional unpack, so field order
             # can never silently matter as this payload grows.
-            if cross_asset_by_date is not None:
-                _ca = cross_asset_by_date.get(bar_ts.date(), CrossAssetRecord())
-                vix_z_val = _ca.vix_z
-                flight_quality_val = _ca.flight_quality
-                yield_slope_z_val = _ca.yield_slope_z
-                tip_tlt_ret_z_val = _ca.tip_tlt_ret_z
-                hyg_lqd_ret_z_val = _ca.hyg_lqd_ret_z
-                sb_corr_fast_val = _ca.sb_corr_fast
-                sb_corr_slow_val = _ca.sb_corr_slow
-                sb_corr_z_val = _ca.sb_corr_z
-            else:
-                vix_z_val = cache.vix_z
-                flight_quality_val = cache.flight_quality
-                yield_slope_z_val = cache.yield_slope_z
-                tip_tlt_ret_z_val = cache.tip_tlt_ret_z
-                hyg_lqd_ret_z_val = cache.hyg_lqd_ret_z
-                sb_corr_fast_val = cache.sb_corr_fast
-                sb_corr_slow_val = cache.sb_corr_slow
-                sb_corr_z_val = cache.sb_corr_z
+            vix_z_val = float(k["vix_z"][i])
+            flight_quality_val = float(k["flight_quality"][i])
+            yield_slope_z_val = float(k["yield_slope_z"][i])
+            tip_tlt_ret_z_val = float(k["tip_tlt_ret_z"][i])
+            hyg_lqd_ret_z_val = float(k["hyg_lqd_ret_z"][i])
+            sb_corr_fast_val = float(k["sb_corr_fast"][i])
+            sb_corr_slow_val = float(k["sb_corr_slow"][i])
+            sb_corr_z_val = float(k["sb_corr_z"][i])
 
             # Factor betas (Phase 151 Plan 04, per-symbol): from pre-built
             # beta_by_date dict (batch) or cache (live). Independent of the
             # cross_asset_by_date branch above -- beta_by_date is symbol-
             # specific, cross_asset_by_date is symbol-independent.
-            if beta_by_date is not None:
-                equity_beta_z_val, rate_beta_z_val = beta_by_date.get(bar_ts.date(), (None, None))
-            else:
-                equity_beta_z_val = None if symbol == "SPY" else cache.equity_beta_z
-                rate_beta_z_val = None if symbol == "TLT" else cache.rate_beta_z
+            equity_beta_z_val = _none_if_nan(k["equity_beta_z"][i])
+            rate_beta_z_val = _none_if_nan(k["rate_beta_z"][i])
 
             # Calendar primitives
             in_ny_session_val = float(k["in_ny_session"][i])
@@ -5701,8 +5752,8 @@ class FeatureFactory:
             quarter_momentum_product_val = float(k["quarter_momentum_product"][i])
             variance_ratio_momentum_product_val = float(k["variance_ratio_momentum_product"][i])
             illiquidity_momentum_product_val = float(k["illiquidity_momentum_product"][i])
-            yield_slope_momentum_product_val = yield_slope_z_val * momentum_z_fast_val
-            vix_reversion_product_val = vix_z_val * momentum_reversal_z_val
+            yield_slope_momentum_product_val = float(k["yield_slope_momentum_product"][i])
+            vix_reversion_product_val = float(k["vix_reversion_product"][i])
             efficiency_volume_product_val = float(k["efficiency_volume_product"][i])
 
             # Canary / Control Predictors (Phase 143.1 Plan 02). Unlike the

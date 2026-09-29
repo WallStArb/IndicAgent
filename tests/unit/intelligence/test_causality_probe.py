@@ -212,7 +212,17 @@ def _registered_case():
     from tests.unit.intelligence.kernel_parity_reference import synthetic_inputs
 
     inputs, config = synthetic_inputs()
-    available = {**inputs, "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object)}
+    n = len(inputs["ts"])
+    ext_rng = np.random.default_rng(11)
+    available = {
+        **inputs,
+        "symbol": np.array(["SPY"] * n, dtype=object),
+        **{
+            e.name: ext_rng.normal(size=n)
+            for e in default_registry().external_inputs
+            if e.name.startswith("ext_")
+        },
+    }
     available.update(compute_kernels(default_registry(), available, config))
     return available, config
 

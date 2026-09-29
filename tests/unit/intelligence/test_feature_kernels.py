@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.feature_factory import FeatureFactory, _macro_kernel_inputs
 from src.intelligence.features.causality_probe import (
     CausalityViolation,
     causality_probe,
@@ -108,7 +108,7 @@ DELEGATED_HELPERS = (
 
 # Numeric persisted columns no kernel owns after this plan: SMC, structural VP/SR/swing/fib/
 # session-level/AMD, CTF, the three ret_div columns, the cross-sectional rank columns, the HMM
-# regime columns, and the macro columns until they move (this plan's macro commits). A column
+# regime columns. A column
 # that is dropped or left unowned changes this set and fails the test below.
 REMAINING_COLUMNS = frozenset(
     {
@@ -136,9 +136,7 @@ REMAINING_COLUMNS = frozenset(
         "demand_freshness",
         "distance_to_vah_atr",
         "distance_to_val_atr",
-        "equity_beta_z",
         "fib_cluster_strength",
-        "flight_quality",
         "fvg_dist_atr",
         "fvg_open_count",
         "fvg_size_atr",
@@ -146,7 +144,6 @@ REMAINING_COLUMNS = frozenset(
         "hmm_duration",
         "hmm_entropy",
         "hmm_regime_prob",
-        "hyg_lqd_ret_z",
         "in_fib_discount_zone",
         "in_lvn",
         "manip_strength",
@@ -177,16 +174,12 @@ REMAINING_COLUMNS = frozenset(
         "prior_session_close_dist_atr",
         "prior_session_high_dist_atr",
         "prior_session_low_dist_atr",
-        "rate_beta_z",
         "reclaim_velocity",
         "resistance_age_bars",
         "resistance_strength",
         "ret_div_1h_1d",
         "ret_div_1m_5m",
         "ret_div_5m_1h",
-        "sb_corr_fast",
-        "sb_corr_slow",
-        "sb_corr_z",
         "smc_trend_direction",
         "sr_level_count",
         "sr_resist_dist",
@@ -215,15 +208,12 @@ REMAINING_COLUMNS = frozenset(
         "swing_velocity_bars",
         "swing_velocity_bias",
         "swing_volume_confirmation",
-        "tip_tlt_ret_z",
         "trend_direction",
         "trend_duration_bars",
         "trend_leg_count",
         "trend_strength",
         "va_position",
         "va_width_atr",
-        "vix_reversion_product",
-        "vix_z",
         "volatility_rank_z",
         "volume_rank_z",
         "weekly_pivot_dist_atr",
@@ -231,8 +221,6 @@ REMAINING_COLUMNS = frozenset(
         "weekly_r2_dist_atr",
         "weekly_s1_dist_atr",
         "weekly_s2_dist_atr",
-        "yield_slope_momentum_product",
-        "yield_slope_z",
         "zone_friction_score",
     }
 )
@@ -266,19 +254,29 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
         "close": closes,
         "volume": volumes,
         "symbol": np.array(["SPY"] * n, dtype=object),
+        **{
+            external.name: rng.normal(0.0, 1.0, n)
+            for external in default_registry().external_inputs
+            if external.name.startswith("ext_")
+        },
     }
 
 
 @lru_cache(maxsize=1)
 def _synthetic_case():
     inputs, config = ref.synthetic_inputs()
-    inputs = {**inputs, "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object)}
     bars = ref._bars_from_arrays(
         *(inputs[f] for f in ("ts", "open", "high", "low", "close", "volume"))
     )
     results = FeatureFactory.compute_batch(
         bars, "SPY", "5m", FeatureCache(), config, warm_up_bars=0
     )
+    inputs = {
+        **inputs,
+        "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
+        # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
+        **_macro_kernel_inputs(bars, "SPY", FeatureCache(), None, None),
+    }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)
         for name in _ALL_COLUMN_NAMES
