@@ -172,3 +172,36 @@ Open items: cost varies about 3x across names within the 233 set (p25 0.78 bp at
 name liquidity is not measured, so a liquidity-restricted closing slot is untested; the auction
 fill assumption (backtest open and close prices are the opening and closing auction prices) is not
 verified; effective spread with retail price improvement is not measured.
+
+## Question 4 (2026-09-29): the closing slot on liquid names, criteria set before any run
+
+Motivation: the measured cost of the closing slot (0.9 bp per unit on the 233 set) is above its E,
+but cost varies about 3x across names. Dollar volume predicts measured spread: on the 36 sampled
+names with panel history, rank correlation -0.58 between trailing dollar volume and the median
+15:15-15:45 half-spread; a log-log fit has slope -0.30 and R2 0.40; by dollar-volume quartile the
+median half-spread is 4.9, 2.6, 2.7 and 0.6 bp (9 names each, top quartile median about $1.4B a day).
+Seen before this test: the E of the closing slot on the full 233 and 201 names, not E by liquidity.
+
+Test. Slot: closing only (signal row 23; enter 15:30, exit at the close). Members mean5 and mean20.
+Liquidity gate L: each session, trade only names in the top L fraction (by rank) of trailing
+60-session mean dollar volume (close x volume summed over the session's bars, prior sessions only),
+within the panel's names that session; alpha and volatility outside it are NaN before ranking.
+Grid: L in {1.0, 0.5, 0.25, 0.1} x keep in {0.5, 0.2} x 2 members x 2 name sets (233 seen, 201
+clean) = 32 cells, all printed, no cell picked afterwards. Coverage floor 20 names stays.
+
+Cost model (fixed now): each name's half-spread is exp(a + b log dollar volume) from the log-log
+fit above (refit on the same 36 names, coefficients printed with the result). Per unit traded the
+closing slot pays half the traded-weight-averaged half-spread of its entry names (the exit is an
+auction fill with no spread crossing). Net E = E minus that cost. The fit comes from 2026
+quotes and is applied to 2010-2025 bars; spreads were likely wider before about 2015, so early
+sub-period net E is flattered. Reported, not corrected.
+
+Criteria:
+- Worth building (a closing-slot ConstructionRule and its own pre-registration): net E of at least
+  +0.15 bp per unit traded, at some L of 0.25 or below and one keep, in both members and both name
+  sets, and net E positive in all three sub-periods on the 201 set.
+- Ends the liquid-names idea: net E at or below zero in every cell with L of 0.5 or below.
+- Otherwise inconclusive.
+- Expectation stated in advance: edge is larger in less liquid names (all-slot E was 0.20 on the
+  201 set against 0.10 on the 233), so E falls as L falls; the idea works only if cost falls faster.
+  The 201 set has fewer liquid names, so its top L may still be wide.
