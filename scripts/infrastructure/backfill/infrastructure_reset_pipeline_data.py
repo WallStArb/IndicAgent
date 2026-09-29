@@ -38,7 +38,6 @@ _LIFECYCLE_SERVICES = [
     "indicagent-swarm-ledger-writer",
     "indicagent-signal-metrics-compute",
     "indicagent-signal-metrics-writer",
-    "indicagent-ctx-writer",
     "indicagent-graduation-compute",
     "indicagent-graduation-writer",
     "indicagent-alpha-swarm",
@@ -90,9 +89,6 @@ _TRUNCATE_TABLES: list[tuple[str, str]] = [
     ("memory_calibration_spc", "SPC control charts derived from signal outcomes"),
     ("memory_regime_transitions", "regime win-rate / pnl_r stats derived from signals"),
     ("memory_system_state", "current regime epoch counter"),
-    # --- context snapshots (derived from bar + signal flow) ---
-    ("ctx_events", "context events derived from market data and signals"),
-    ("ctx_snapshots", "point-in-time context snapshots"),
     # --- intelligence pipeline validation ---
     ("intelligence_metrics", "correctness metrics for I1-I7 computed features"),
     # --- core SLA tables (order: executions before frames before events) ---

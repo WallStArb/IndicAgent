@@ -55,7 +55,7 @@ const SERVICE_LAYERS: Array<{ layer: number; name: string; units: string[] }> = 
   { layer: 3, name: "Bar Processing", units: ["indicagent-bar-aggregator", "indicagent-bar-auditor"] },
   { layer: 4, name: "OHLCV Persist",  units: ["indicagent-bar-writer"] },
   { layer: 5, name: "Intelligence",   units: ["indicagent-intelligence-pipeline", "indicagent-cross-asset", "indicagent-macro-compute"] },
-  { layer: 6, name: "Feature Writers",units: ["indicagent-feature-writer", "indicagent-signal-writer", "indicagent-signal-tracker-compute", "indicagent-lifecycle-writer", "indicagent-lineage-writer", "indicagent-ctx-writer"] },
+  { layer: 6, name: "Feature Writers",units: ["indicagent-feature-writer", "indicagent-signal-writer", "indicagent-signal-tracker-compute", "indicagent-lifecycle-writer", "indicagent-lineage-writer"] },
   { layer: 7, name: "AI / LLM",       units: ["indicagent-alpha-swarm", "indicagent-narrative-compute", "indicagent-llm-writer", "indicagent-swarm-ledger-writer"] },
   { layer: 8, name: "Analytics",      units: ["indicagent-signal-metrics-compute", "indicagent-signal-metrics-writer", "indicagent-graduation-compute", "indicagent-graduation-writer", "indicagent-dlq-drain", "indicagent-ml-training"] },
   { layer: 9, name: "Audit",          units: ["indicagent-signal-auditor", "indicagent-signal-replay", "indicagent-alerting-agent"] },

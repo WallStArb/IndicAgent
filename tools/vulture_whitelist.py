@@ -718,7 +718,6 @@ ALPHA_PUBLISHER_REJECTIONS_TOTAL  # unused variable (src/observability/metrics.p
 ATTR_PLUGIN_NAME  # unused variable (src/observability/spans.py:9)
 ATTR_TIER  # unused variable (src/observability/spans.py:10)
 ATTR_SIGNAL_ID  # unused variable (src/observability/spans.py:12)
-feature_data  # unused variable (src/persistence/repository/feature_repository.py:112)
 signal_schema_version  # unused variable (src/persistence/repository/signal_events_repository.py:136)
 pipeline_lag_ms  # unused variable (src/persistence/repository/signal_events_repository.py:206)
 feature_schema_version  # unused variable (src/persistence/repository/signal_events_repository.py:208)
@@ -785,7 +784,6 @@ _._publish_result  # unused method (src/intelligence/ai/group_coordinator.py:361
 _range_to_close  # unused function (src/intelligence/feature_factory.py:1727)
 _.update_htf_intel  # unused method (src/intelligence/pipeline/cache_manager.py:254)
 _.result_for  # unused method (src/intelligence/plugin_validator.py:91)
-_.insertBatch  # unused method (src/persistence/repository/feature_repository.py:112)
 _._cleanup_roll_suppression  # unused method (services/bar_auditor.py:796)
 config_get  # unused function (services/config_service.py:198)
 config_list  # unused function (services/config_service.py:206)
@@ -918,7 +916,6 @@ SubscriptionManager  # unused class (src/providers/base.py:171)
 get_signals_edge_series  # unused function (src/api/routes/signals.py:664)
 _.recall_regime_history  # unused method (src/core/memory/client.py:284)
 _.get_lead  # unused method (src/intelligence/ai/context.py:381)
-FeatureRepository  # unused class (src/persistence/repository/feature_repository.py:80)
 _cross_sectional_vol_normalized_target  # unused function (services/ic_engine.py:3119)
 webhook_alertmanager  # unused function (services/self_healer.py:51)
 load_quality_floor  # unused function (src/intelligence/pipeline/quality_gate.py:49)
@@ -986,7 +983,6 @@ _vix_symbol  # unused attribute (services/feature_vector_pipeline.py:240) - newl
 cross_asset_data  # unused variable (src/intelligence/pipeline/signal_processor.py:171) - same as above
 macro_data  # unused variable (src/intelligence/pipeline/signal_processor.py:172) - same as above
 htf_intel  # unused variable (src/intelligence/pipeline/signal_processor.py:173) - same as above
-insert_batch  # unused method (src/persistence/repository/feature_repository.py:104) - same as above
 get_all_states_for  # unused method (src/intelligence/pipeline/state_manager.py:103) - same as above
 get_lock  # unused method (src/intelligence/pipeline/state_manager.py:111) - same as above
 update_batch  # unused method (src/intelligence/pipeline/state_manager.py:138) - same as above

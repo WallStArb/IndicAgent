@@ -62,6 +62,11 @@ _ARCHIVED_UNIT_DENYLIST: dict[str, str] = {
         "ExecStart points at a deleted file. CLAUDE.md: 'Do not restart this unit "
         "expecting it to work.'"
     ),
+    "indicagent-ctx-writer": (
+        "Retired in phase 186 plan 11 (R-01): consumed topic ctx.snapshot, which never had a "
+        "publisher; wrote only ctx_events/ctx_snapshots (0 rows, dropped by the 186-11 "
+        "migration); unit uninstalled from the host."
+    ),
 }
 
 # Registry entries with no matching production/systemd/ file, confirmed real (not a typo/

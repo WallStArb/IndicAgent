@@ -77,7 +77,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-lifecycle-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-lineage-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    "indicagent-ctx-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
     "indicagent-alpha-swarm": 8,  # priority 8: downstream of signal-writer (7)
     "indicagent-narrative-compute": 8,  # priority 8: downstream of feature-vector-pipeline (6)
@@ -168,7 +167,6 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "signal_auditor": "indicagent-signal-auditor",
     "graduation_analyzer": "indicagent-graduation-compute",
     "graduation_writer": "indicagent-graduation-writer",
-    "context_writer": "indicagent-ctx-writer",
     "bar_replay_provider": "indicagent-bar-replay",
     "signal_replay_auditor": "indicagent-signal-replay",
     "dlq_writer": "indicagent-dlq-drain",

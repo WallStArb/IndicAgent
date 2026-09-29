@@ -9,8 +9,8 @@ Provides:
         Derives certification state from feature_parity_violations query.
         NO fetch_certification_state / update_certification_state (D-09).
 
-Security: table_name validated against _ALLOWED_TABLES allow-list (same pattern
-as FeatureRepository) — no f-string injection possible.
+Security: table_name validated against _ALLOWED_TABLES allow-list — no f-string
+injection possible.
 """
 
 from __future__ import annotations
