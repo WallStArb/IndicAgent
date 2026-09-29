@@ -25,6 +25,7 @@ import numpy as np
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.context.session_context import _et_from_utc
+from src.intelligence.features.kernels._primitives import _zscore_last
 from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
@@ -1223,8 +1224,4 @@ def _zscore_from_deque(history: deque, window: int) -> float:
     """
     if len(history) < window:
         return 0.0
-    arr = np.array(list(history)[-window:])
-    std = float(arr.std())
-    if std < 1e-8:
-        return 0.0
-    return float((float(history[-1]) - float(arr.mean())) / std)
+    return _zscore_last(np.array(list(history)[-window:]), window)
