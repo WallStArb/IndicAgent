@@ -330,3 +330,22 @@ What is new here is 5m and 1m (185 never touches them), the answered-window plan
 request-and-bars persistence, coverage-aware derivation flags, and the completeness audit. All of
 it, with the DAG, is in `docs/plans/2026-09-29-intraday-bar-store-redesign.md`. 185-12 edits the
 same pipeline file as `--real-bars-only`, so plan 185-12 against the current file.
+
+## Code review of the interim (2026-09-29, commit e7b26de03)
+
+The `/review` step of the Done-Coding SOP, run after the fact, found:
+
+- Fixed: a gap range ends at its last missing slot's start, and a provider request ending there
+  returns only bars that finished by then, so that slot's bar was never asked for; a one-slot gap
+  (start equal to end) issued no request at all (`while chunk_end > start` in the provider). The
+  placeholder path hid it by filling the slot. With `--real-bars-only` the slot never converged.
+  The pipeline now asks through `min(gap_end + interval, now)` when the flag is on, so a bar still
+  forming stays a gap. The default path still has the defect and may itself have produced
+  placeholders over real bars (isolated last slots); plan 185-18's `plan_gaps` must return
+  end-exclusive windows so the defect is fixed once for every timeframe.
+- Accepted, not a regression: a `bars` answer covers its whole window once one row is stored in it,
+  so a hole inside an answered window is not retried. The placeholder path never retried holes
+  either. The reconciliation check (185-23) is what finds them; until it runs, holes are invisible
+  to gap detection.
+- Accepted: the coverage query is unbounded by date and runs one correlated `EXISTS` per `bars`
+  request row. Measured 0.3 to 0.4 s per (symbol, tf); bound it if it grows.

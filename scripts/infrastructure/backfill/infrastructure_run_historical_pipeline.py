@@ -1796,12 +1796,20 @@ def main() -> None:
                             # definitive no-data answers is what ohlcv_empty_history records.
                             observed: list[EmptyHistory] = []
                             is_oldest_window = (gap_start, gap_end) == windows[0]
+                            # A gap range ends at its last missing slot's START, but a request
+                            # ending there returns bars that finish by then, so that slot's bar
+                            # is never asked for (and a one-slot gap issues no request at all).
+                            # The placeholder path hid this by filling the slot. Ask through
+                            # the slot's end, capped at now so a bar still forming stays a gap.
+                            fetch_end = (
+                                min(gap_end + interval, end_dt) if real_bars_only else gap_end
+                            )
                             try:
                                 ohlcv_bars = await provider.fetch_historical_bars(
                                     symbol=instrument.symbol,
                                     timeframe=tf,
                                     start=gap_start,
-                                    end=gap_end,
+                                    end=fetch_end,
                                     continuous=use_cont,
                                     on_chunk=_persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,

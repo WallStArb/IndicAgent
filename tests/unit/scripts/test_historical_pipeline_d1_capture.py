@@ -398,6 +398,18 @@ def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_ma
     assert len(result.marked) == 6
 
 
+def test_real_bars_only_asks_through_the_last_slot_end(driven_main):
+    # The fake gap is (2024-01-01, 2024-01-15) at 15m: the last missing slot starts 2024-01-15.
+    default = driven_main(_BASE_ARGS)
+    ends = {c["timeframe"]: c["end"] for c in default.provider.calls if c["symbol"] == "AAA"}
+    assert ends["15m"] == datetime(2024, 1, 15, tzinfo=UTC)
+
+    real = driven_main([*_BASE_ARGS, "--real-bars-only"])
+    ends = {c["timeframe"]: c["end"] for c in real.provider.calls if c["symbol"] == "AAA"}
+    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)  # through the slot's own end
+    assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)  # 1d stays on the placeholder path
+
+
 def test_priority_tier_flag_reaches_the_lease(driven_main):
     result = driven_main([*_BASE_ARGS, "--lease-tier", "priority"])
     assert result.acquire_seen == ("priority", "historical-pipeline:47")
