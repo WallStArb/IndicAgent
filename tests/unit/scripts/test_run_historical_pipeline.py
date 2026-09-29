@@ -773,6 +773,37 @@ class TestDetectGaps:
             )
         assert gaps == []
 
+    def test_answered_window_slots_are_not_gaps(self):
+        from scripts.infrastructure.backfill._request_coverage import AnsweredWindows
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
+
+        slots = [datetime(2026, 1, 2, h, 0, tzinfo=UTC) for h in range(15, 19)]
+        # 15:00 stored; the provider answered [16:00, 18:00) with nothing for 16:00 and 17:00.
+        answered = AnsweredWindows.from_rows(
+            [(datetime(2026, 1, 2, 16, 0, tzinfo=UTC), datetime(2026, 1, 2, 18, 0, tzinfo=UTC))]
+        )
+        with patch(
+            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
+            ".generate_session_slots",
+            return_value=slots,
+        ):
+            gaps = detect_gaps(
+                self._mock_conn([(datetime(2026, 1, 2, 15, 0, tzinfo=UTC),)]),
+                "SPY",
+                "1h",
+                datetime(2026, 1, 2, 15, 0, tzinfo=UTC),
+                datetime(2026, 1, 2, 18, 0, tzinfo=UTC),
+                "nyse",
+                "NYSE",
+                answered=answered,
+            )
+        # Only the 18:00 slot lies outside the answered window and has no bar.
+        assert gaps == [
+            (datetime(2026, 1, 2, 18, 0, tzinfo=UTC), datetime(2026, 1, 2, 18, 0, tzinfo=UTC))
+        ]
+
     def test_genuine_intraday_gap_detected(self):
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             detect_gaps,

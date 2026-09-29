@@ -50,6 +50,10 @@ sys.path.insert(0, str(project_root))
 
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
+from scripts.infrastructure.backfill._request_coverage import (
+    AnsweredWindows,
+    load_answered_windows,
+)
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
@@ -90,6 +94,9 @@ _logger = structlog.get_logger(__name__)
 
 _DEFAULT_TIMEFRAMES = "1d,1h,15m,5m,1m"
 _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeline's fetches
+# Timeframes `--real-bars-only` covers, for equities only: intraday SMART TRADES bars, whose
+# coverage ohlcv_request records. 1d stays on the placeholder path until phase 185 D2 owns it.
+_REAL_BARS_ONLY_TFS = frozenset({"5m", "15m", "1h"})
 # Dimensions whose members may be deliberately scoped below the full timeframe stack.
 _DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES = frozenset({"backfill", "compute_1d"})
 
@@ -987,12 +994,17 @@ def detect_gaps(
     end_dt: datetime,
     session_id: str,
     exchange: str,
+    answered: AnsweredWindows | None = None,
 ) -> list[tuple[datetime, datetime]]:
     """Detect gaps in OHLCV data, restricted to expected session slots.
 
     Uses session-aware slot generation so maintenance windows and market
     closures are not reported as gaps.  Returns contiguous missing ranges
     ready for use as IBKR fetch windows.
+
+    `answered` is the provider-answered request coverage (todo 462). With no placeholder rows
+    stored, a slot the provider answered "nothing traded" is otherwise indistinguishable from
+    one never asked, and would be re-requested every run. A covered slot is not a gap.
     """
     expected = generate_session_slots(session_id, exchange, timeframe, start_dt, end_dt)
     if not expected:
@@ -1010,11 +1022,15 @@ def detect_gaps(
             r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0] for r in rows
         }
 
-    missing = [ts for ts in expected if ts not in actual]
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
+    missing = [
+        ts
+        for ts in expected
+        if ts not in actual and not (answered is not None and answered.covers(ts, interval))
+    ]
     if not missing:
         return []
 
-    interval = timedelta(minutes=_TF_MINUTES[timeframe])
     ranges: list[tuple[datetime, datetime]] = []
     run_start = missing[0]
     run_end = missing[0]
@@ -1379,6 +1395,14 @@ def main() -> None:
         help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
         "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
     )
+    parser.add_argument(
+        "--real-bars-only",
+        action="store_true",
+        default=False,
+        help="Store only bars the provider returned for 5m, 15m and 1h: no synthetic flat fill, "
+        "and gap detection skips windows ohlcv_request records as answered (todo 462). "
+        "Default off keeps the placeholder path.",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -1650,6 +1674,11 @@ def main() -> None:
                             start_dt = head_floor
                             n_head_floored += 1
                         interval = timedelta(minutes=_TF_MINUTES[tf])
+                        real_bars_only = (
+                            args.real_bars_only
+                            and tf in _REAL_BARS_ONLY_TFS
+                            and instrument.asset_class == AssetClass.EQUITY
+                        )
 
                         gaps = detect_gaps(
                             db_conn,
@@ -1659,6 +1688,11 @@ def main() -> None:
                             end_dt,
                             session_id=instrument.session_id,
                             exchange=instrument.exchange,
+                            answered=(
+                                load_answered_windows(db_conn, instrument.symbol, tf)
+                                if real_bars_only
+                                else None
+                            ),
                         )
                         empty = empty_ranges.get((instrument.symbol, tf))
                         kept = empty_history.apply_empty_range(
@@ -1789,12 +1823,16 @@ def main() -> None:
                                     }
                                     for b in ohlcv_bars
                                 ]
-                                canonical = normalize_bars(
-                                    bar_dicts,
-                                    symbol=instrument.symbol,
-                                    timeframe=tf,
-                                    start=gap_start,
-                                    end=gap_end,
+                                canonical = (
+                                    bar_dicts
+                                    if real_bars_only
+                                    else normalize_bars(
+                                        bar_dicts,
+                                        symbol=instrument.symbol,
+                                        timeframe=tf,
+                                        start=gap_start,
+                                        end=gap_end,
+                                    )
                                 )
                                 try:
                                     db_conn.cursor().execute("SELECT 1")
