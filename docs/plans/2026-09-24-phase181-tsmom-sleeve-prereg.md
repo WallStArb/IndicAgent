@@ -155,12 +155,12 @@ Results (2026-09-24, synthetic only; no real-data number existed):
 - **V2-TSMOM: PASS.** PASS rate 2.0% (4/200), inside the 1.9-8.1% band at its conservative
   edge; mean excess Sharpe -0.035. The test raises false alarms slightly less often than
   nominal, which costs a little power and never inflates a PASS. Harness at b766685d2
-  (V2's code path is unchanged by b01eb751a). Artifact `logs/phase181/clean/v2_799d32e2cd648b12.json`.
+  (V2's code path is unchanged by b01eb751a). Artifact `v2_799d32e2cd648b12` (200 seeds, signal IC 0, PASS rate CI 0.06-3.9%; `logs/phase181/clean/` deleted 2026-09-29).
 - **V3-TSMOM: PASS.** The bisection undershot the targets, so read power against the realized
   mean excess Sharpe: 54% PASS (CI 47-61%) at 0.50 (target 0.6, latent drift sd 0.0457 daily
   vols), 74.5% (CI 68-81%) at 0.72 (target 0.8, 0.0551). Above the 50%-at-0.8 floor and in line
   with the arithmetic below. Harness at b01eb751a. Artifact
-  `logs/phase181/clean/v3_5b8655f0d848d357.json`.
+  `v3_5b8655f0d848d357` (200 seeds per size; deleted with `logs/phase181/clean/` 2026-09-29).
 - Both reproduce bit-for-bit an earlier run of the same code from an uncommitted tree.
 - **Unit tests:** green at b01eb751a.
 

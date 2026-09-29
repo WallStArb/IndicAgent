@@ -434,7 +434,7 @@ in-sample for production already, so it spends nothing.
 ### 12.2 Freeze record (2026-09-25)
 
 Every gate below was run on main `a64af3d1a96b3f7ed16a0be95f507fcc30e592be` with a clean tree
-(`scripts/`, `src/`, `services/`); artifacts under `logs/phase179/freeze/` unless noted.
+(`scripts/`, `src/`, `services/`); artifact ids below are the frozen-run files, deleted with `logs/phase179/freeze/` on 2026-09-29; every result is recorded inline in this section and 12.3.
 
 | Item | Value |
 |---|---|
