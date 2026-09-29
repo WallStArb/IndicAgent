@@ -293,6 +293,9 @@ Plans:
   coverage above `feature.coverage.min_symbol_fraction`, statistic in
   `src/intelligence/statistics/feature_coverage.py`, no reader of `ensemble_weights` left (R-03),
   migration 387, `feature_registry` residue removed (D-31); merged 2026-09-29 (`02590dbcc`)
+- [x] 186-10 measure package: proposer, IC term structure, monitoring and `regime_volatility`
+  disclosure as pure functions over `ic_math`, targets from `panel.forward_returns` on chunked S0
+  panels ending at `oos_start` (D-17, D-18, D-19); merged 2026-09-29 (`78edf26e5`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
