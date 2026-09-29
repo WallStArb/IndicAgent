@@ -374,6 +374,35 @@ async def test_non_finite_values_fail():
     assert plan.rows[0].verdict.failures == ("non_finite",)
 
 
+async def _emitted_facts(monkeypatch, agg, config=None):
+    facts = []
+
+    async def capture(conn, monitor_type, subject, metric, value, threshold, passed, window, **kw):
+        facts.append((subject, metric, value, threshold, passed))
+
+    monkeypatch.setattr(fl, "emit_integrity_fact_async", capture)
+    conn = _fake([_concept("good", "active")], agg)
+    config = config or LifecycleConfig(0.95, 90, 2, 1)
+    plan = await _plan(conn, config)
+    await _node(dry_run=False)._apply(conn, plan, config)
+    return [f for f in facts if f[0] is not None]
+
+
+@pytest.mark.asyncio
+async def test_non_finite_fact_carries_the_non_finite_count_not_a_passing_coverage(monkeypatch):
+    """100% coverage with a NaN: the fact must not read coverage 1.0 against floor 0.95
+    while passed is False."""
+    agg = {"1d": [{"symbol": "S0", "n_rows": 10, "good": (10, 1)}]}
+    facts = await _emitted_facts(monkeypatch, agg)
+    assert facts == [("good|tf=1d", "n_non_finite", 1.0, 0.0, False)]
+
+
+@pytest.mark.asyncio
+async def test_coverage_fact_keeps_coverage_against_the_floor(monkeypatch):
+    facts = await _emitted_facts(monkeypatch, {"1d": _symbols(1, 10)})
+    assert facts == [("good|tf=1d", "symbol_coverage", 0.1, 0.95, False)]
+
+
 @pytest.mark.asyncio
 async def test_rerun_on_identical_evidence_has_identical_evidence_key():
     make = lambda: _fake([_concept("good", "active")], {"1d": _symbols(10, 10)})  # noqa: E731

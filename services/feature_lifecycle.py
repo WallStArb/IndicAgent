@@ -369,6 +369,18 @@ def _failing_tfs(row: LedgerRow) -> list[tuple[str, float | None, str]]:
     ]
 
 
+def _quality_fact(
+    row: LedgerRow, tf: str, coverage: float | None, check: str, coverage_floor: float
+) -> tuple[str, float | None, float]:
+    """(metric_name, value, threshold) for a failing check, so a failing fact never carries
+    a value that satisfies its own threshold (a non_finite failure at full coverage reads
+    n_non_finite against 0, not coverage 1.0 against the floor)."""
+    if check == "non_finite":
+        n_bad = sum(q.n_non_finite for q in row.per_tf if q.tf == tf)
+        return "n_non_finite", float(n_bad), 0.0
+    return "symbol_coverage", coverage, coverage_floor
+
+
 class FeatureLifecycle(BaseBatch):
     job_name = "feature-lifecycle"
     compute_version = "2.0.0"
@@ -547,9 +559,7 @@ class FeatureLifecycle(BaseBatch):
                     conn,
                     "feature_quality",
                     f"{r.name}|tf={tf}",
-                    "symbol_coverage",
-                    coverage,
-                    config.coverage_floor,
+                    *_quality_fact(r, tf, coverage, check, config.coverage_floor),
                     False,
                     self._window,
                 )
