@@ -264,3 +264,28 @@ The 5m lane is paused by `logs/backfill_ops/PAUSE_5M` (checked in `intraday_5m_l
 resume: pass `--real-bars-only` in the lane script, run one symbol as a smoke test, confirm no
 `synthetic_fill` rows for it and that its `ohlcv_request` windows cover the run, then delete
 the marker.
+
+## Measurement: coarse placeholders masking real 5m volume, all years (2026-09-29)
+
+A placeholder row in the coarse timeframe whose slot holds real 5m volume (tradeable view). Only
+names and years with 5m history are counted, so these are floors. Method: per year, join
+`synthetic_fill` 15m or 1h rows to `date_bin` sums of 5m volume; scratch script and full table in
+the session scratchpad (`mismatch.sh`, `mismatch_results.tsv`).
+
+- 15m (the grid aligns with the 09:30 open, so this reading is clean): 155,022 masked slots and
+  about 18.7B shares hidden across 2007 to 2026. By year: 2010 854 (68 names), 2016 997, 2018
+  1,722, 2021 6,540 and 2022 4,780 (one name each), 2024 35,454 (100 names), 2025 84,032 (13
+  names, about a full year each), 2026 17,925 (193 names). The 2025 and 2026 counts are the
+  worst: 13 names whose 2025 15m is entirely placeholder while 5m is real, and 193 names with
+  recent 15m holes.
+- 1h: 14,986 to 81,019 masked slots per year on 150 to 240 names. Do not read this as provider
+  holes. The stored 1h grid has a real 09:30 half-hour bar and then hourly bars, while the fill
+  writes `:00` slots, so a placeholder at 09:00 ET sits beside the real 09:30 bar and the 5m
+  volume inside that hour is counted against it (MSFT 2024-08-05: placeholders at 08:00, 09:00,
+  16:00, 17:00 ET, real bars at 09:30, 10:00 to 15:00). That is a second defect of the same fill
+  (a grid that disagrees with the provider's session anchoring, the D-15 / UD-25 finding), and
+  the 1h provider-hole rate needs a session-anchored comparison before it is quoted.
+
+Implication for the repair: 15m masked slots are derivable from 5m today (155K rows), and the 2025
+names with a whole year of placeholder 15m are the first candidates. Re-check the 1h repair against
+the D-15 session-anchored derivation instead of a `:00` join.
