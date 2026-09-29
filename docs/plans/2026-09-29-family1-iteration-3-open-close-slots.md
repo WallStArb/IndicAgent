@@ -205,3 +205,35 @@ Criteria:
 - Expectation stated in advance: edge is larger in less liquid names (all-slot E was 0.20 on the
   201 set against 0.10 on the 233), so E falls as L falls; the idea works only if cost falls faster.
   The 201 set has fewer liquid names, so its top L may still be wide.
+
+## Result, question 4 (2026-09-29): closing slot on liquid names
+
+Cost-model fit: a = 6.257, b = -0.296 on 36 names. All 32 cells run; scratch script and output in
+the session scratchpad, not committed. E and net E in bp per unit traded; names per side is the
+mean traded book size. mean5 shown; mean20 is within 0.05 bp of it in every cell except where noted.
+
+| Set | L | keep | Names per side | E | Cost | Net E |
+|---|---|---|---|---|---|---|
+| 233 | 1.0 | 0.5 | 95 | 0.28 | 1.08 | -0.80 |
+| 233 | 0.5 | 0.2 | 23 | 0.42 | 0.75 | -0.33 |
+| 233 | 0.25 | 0.2 | 11 | 0.36 (mean20 0.43) | 0.60 | -0.24 (mean20 -0.17) |
+| 233 | 0.1 | 0.2 | 5 | 0.34 (mean20 0.41) | 0.49 | -0.15 (mean20 -0.08) |
+| 201 | 1.0 | 0.5 | 74 | 0.62 | 1.52 | -0.89 |
+| 201 | 0.5 | 0.2 | 20 | 0.69 | 1.15 | -0.46 |
+| 201 | 0.25 | 0.2 | 10 | 0.61 | 0.92 | -0.31 |
+| 201 | 0.1 | 0.2 | 4 | 0.56 | 0.78 | -0.23 |
+
+Net E is at or below zero in every one of the 32 cells; the "ends the liquid-names idea" criterion
+is met (net E at or below zero in every cell with L of 0.5 or below, both sets). A few
+sub-period cells are slightly positive (at most +0.045 bp, 233 set, L 0.1, keep 0.2), each on books of
+5 names per side. As expected in advance, E falls as L falls (mean5 keep 0.5, 233: 0.28, 0.27, 0.25,
+0.20); cost falls with it, but not faster.
+
+Sensitivity: the log-log fit is smooth and likely overstates cost for the most liquid names (the
+measured top-quartile median half-spread is 0.6 bp, against about 0.95 bp predicted at L 0.1).
+Using 0.6 bp at L 0.1, keep 0.2 on the 233 set gives net E of about +0.04 to +0.11 bp, still under the
++0.15 bp bar, on 5 names per side.
+
+Conclusion: no version of the same-slot signal traded as a standalone book clears measured cost in
+any slot, keep or liquidity cut tried. Open hypothesis, not tested: use the slot alpha only to time
+trades a slower strategy already makes, which pays no incremental spread.
