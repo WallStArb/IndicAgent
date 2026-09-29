@@ -141,21 +141,28 @@ reports.
 
 ## Order
 
-1. Done: `--real-bars-only`, answered-window gap detection (default off).
+1. Done: `--real-bars-only`, answered-window gap detection (default off, todo 462).
 2. Smoke test one 5m symbol; resume the 5m lane with the flag (paused now).
-3. Extract `plan`; move the answered-window type; persist request and bars atomically (removes the
-   `EXISTS` check).
-4. 185-12 as planned, rebased over the pipeline changes above (it edits the same fetch loop).
-5. Coverage-aware derivation flag; completeness audit in 185-23.
-6. 5m and 1m placeholder deletion after the digest check; then the 1d fill with D2.
+3. Plan 185-12 (amended 2026-09-29): atomic request-and-bars persist for the archive-bound 15m/1h
+   path, and the `partial_constituents` flag in `BarDerivation` before the full rewrite.
+4. Plan 185-18 (amended): the pure gap planner in `src/intelligence/bars/gap_plan.py`, shared by the
+   pipeline and `bar_auditor`; answered `bars` windows count as coverage; no fill at 5m and 1m by
+   default; the interim flag and `_request_coverage.py` are folded in and deleted.
+5. Plan 185-23 (amended): the completeness metric and the masked-slot check, with the measured
+   2026-09-29 baseline as its test.
+6. Todo 462, one migration: delete the 5m and 1m placeholder rows after a `bar_content_digest` check
+   that the real rows are unchanged. 1d follows D2.
 
 ## Conflicts and sequencing
 
-- 185-12 and the interim flag both edit `infrastructure_run_historical_pipeline.py`. 185-12 must
-  be planned against the current file, and after it lands 15m/1h fetches go to the archive, so the
-  flag then matters only for 5m and 1m.
+- 185-12 and the interim flag both edit the fetch loop in
+  `infrastructure_run_historical_pipeline.py`. The amended 185-12 says to read and fold in the
+  interim code; after it lands 15m/1h fetches go to the archive, so the flag matters only for 5m
+  and 1m until 185-18 makes it the default.
 - The 5m lane restarts only with the flag, and the HTF chain must not be edited while its loop runs.
 - Phase 186's rebuild waits on 185-12 (already its precondition); this doc gives the measured reason.
+- The two restricted roles (`ohlcv_observation_writer` and the bar-table writer) must be usable in
+  one transaction for the atomic persist; 185-12 records how that is solved.
 
 ## Success criteria
 
