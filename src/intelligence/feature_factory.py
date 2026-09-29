@@ -113,7 +113,7 @@ from src.intelligence.features.kernels.volume import (
     _cmf,
     _informed_flow,
 )
-from src.intelligence.features.registry import compute_kernels, default_registry
+from src.intelligence.features.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
@@ -1162,6 +1162,21 @@ def _none_if_nan(value: float) -> float | None:
     return None if math.isnan(value) else float(value)
 
 
+# The external-input alignments this module has a builder for: CONSTANT_PER_SERIES by
+# `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`. A kernel module
+# declaring an external with any other Alignment is refused rather than fed an unaligned value.
+_BUILT_ALIGNMENTS = frozenset({Alignment.CONSTANT_PER_SERIES, Alignment.DAILY_ASOF_CLOSE})
+
+
+def _require_buildable_externals() -> None:
+    for external in default_registry().external_inputs:
+        if external.alignment not in _BUILT_ALIGNMENTS:
+            raise ValueError(
+                f"external input {external.name!r} has alignment {external.alignment.name}, "
+                "and feature_factory has no builder for it"
+            )
+
+
 # A row with no daily record available yet is missing data (no_fill): all-NaN, so the kernels
 # emit NaN instead of a fabricated 0.0 z-score.
 _MISSING_CROSS_ASSET = CrossAssetRecord(*([float("nan")] * len(CrossAssetRecord._fields)))
@@ -1185,6 +1200,7 @@ def _macro_kernel_inputs(
     rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
     already-closed daily values.
     """
+    _require_buildable_externals()
     n = len(row_ns)
     out: dict[str, np.ndarray] = {}
     if cross_asset_by_date is not None:

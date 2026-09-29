@@ -12,6 +12,7 @@ Pure: no database, no ConfigService, no import-time registration side effects.
 from __future__ import annotations
 
 import dataclasses
+import enum
 import functools
 import importlib
 import pkgutil
@@ -65,17 +66,33 @@ class Kernel:
     acausal_control: bool = False
 
 
+class Alignment(enum.Enum):
+    """When a caller-supplied value is available relative to the row it is aligned to.
+
+    Part of the causality contract: the probe truncates inputs it is given, so it cannot see
+    how the caller aligned an external. Each member needs a builder in feature_factory
+    (`_BUILT_ALIGNMENTS`) and a raw-input truncation runner in tests/unit/intelligence/
+    test_macro_alignment.py.
+    """
+
+    # One value for the whole series, known before the first row (the symbol).
+    CONSTANT_PER_SERIES = "constant_per_series"
+    # A daily record available from the 16:00 ET close of its date, aligned with
+    # kernels.macro.align_daily_asof: a row reads only records closed by its bar end.
+    DAILY_ASOF_CLOSE = "daily_asof_close"
+
+
 @dataclass(frozen=True)
 class ExternalInput:
     """A caller-supplied per-row input on the row grid (a symbol string, daily macro values).
 
-    `alignment` states in prose when the value is available relative to the row; it is part of
-    the causality contract, because the probe cannot see how the caller aligned the value.
+    `alignment` is part of the causality contract; the registry refuses one that is not an
+    `Alignment` member.
     """
 
     name: str
     dtype: np.dtype
-    alignment: str
+    alignment: Alignment
 
 
 def _where(kernel: Kernel) -> str:
@@ -122,6 +139,11 @@ class KernelRegistry:
             if external.name in BAR_FIELDS:
                 raise KernelRegistryError(
                     f"external input {external.name!r} collides with a bar field"
+                )
+            if not isinstance(external.alignment, Alignment):
+                raise KernelRegistryError(
+                    f"external input {external.name!r} alignment {external.alignment!r} is not "
+                    "an Alignment member"
                 )
             external_names.add(external.name)
         by_name: dict[str, Kernel] = {}

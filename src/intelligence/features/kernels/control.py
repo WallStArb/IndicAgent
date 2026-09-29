@@ -9,7 +9,7 @@ import numpy as np
 
 from src.core.rng import hash_key_to_int
 from src.intelligence.features.kernels._primitives import EPS, unique_datetimes
-from src.intelligence.features.registry import ExternalInput, Kernel
+from src.intelligence.features.registry import Alignment, ExternalInput, Kernel
 
 _CANARY_CONSTANT_VALUE: float = 1.0
 
@@ -93,9 +93,7 @@ def _canary_acausal_placebo(closes: np.ndarray, i: int, eps: float = EPS) -> flo
 # Kernels
 # ---------------------------------------------------------------------------
 
-EXTERNAL_INPUTS = (
-    ExternalInput("symbol", np.dtype(object), "constant per series; known before the first row"),
-)
+EXTERNAL_INPUTS = (ExternalInput("symbol", np.dtype(object), Alignment.CONSTANT_PER_SERIES),)
 
 
 def _compute_noise(inputs, config):

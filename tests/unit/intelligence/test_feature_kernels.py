@@ -342,6 +342,14 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
+def test_the_path_dependent_allow_list_is_the_reviewed_seven():
+    """A new kernel that declares path_dependent skips the memory check; that needs a review,
+    so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
+    declared = {k.name for k in default_registry().kernels if k.path_dependent}
+    assert declared == PATH_DEPENDENT
+    assert len(PATH_DEPENDENT) == 7
+
+
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
     config = ref.build_config(MANIFEST[config_key])
@@ -355,6 +363,7 @@ def test_probe_registry_statuses(config_key):
         for kernel in default_registry().kernels
     }
     assert statuses == expected
+    assert set(statuses) == {k.name for k in default_registry().kernels}  # no kernel opts out
 
 
 def _gap_z(config, opens_override=None, n=400):

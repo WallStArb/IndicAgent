@@ -20,7 +20,8 @@ from src.intelligence.features.cross_asset_series import (
     build_cross_asset_series,
     build_symbol_beta_series,
 )
-from src.intelligence.features.kernels.macro import align_daily_asof
+from src.intelligence.features.kernels.macro import MACRO_COLUMNS, align_daily_asof
+from src.intelligence.features.registry import Alignment
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
@@ -237,22 +238,72 @@ def _macro_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, 
     return compute_kernels(default_registry(), inputs, CONFIG, outputs=list(MACRO_COLUMNS))
 
 
-@pytest.mark.parametrize("cut_row", [3, BARS_PER_SESSION * 5 + 30, BARS_PER_SESSION * 6 + 77])
-def test_macro_rows_up_to_t_do_not_depend_on_raw_data_after_t(cut_row):
-    """Cut the raw bars at row t and the raw daily bars to those whose 16:00 ET close is
-    known by the end of row t's bar; rows <= t must not move."""
+def _constant_per_series_outputs(bars: list[dict]) -> dict[str, np.ndarray]:
+    """The symbol external as the batch path builds it: one value on every row."""
+    from src.intelligence.feature_factory import _batch_kernel_inputs
+
+    z = np.zeros(len(bars))
+    ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
+    return {"symbol": _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL)["symbol"]}
+
+
+def _daily_asof_close_outputs(bars: list[dict], daily: dict[str, list[dict]]):
+    return _macro_outputs(daily, bars)
+
+
+def _truncate_daily_asof_close(daily, bars, cut_row):
     from src.intelligence.features.kernels.macro import _daily_close_ns
 
-    bars, daily = _intraday(), _daily_bars()
-    full = _macro_outputs(daily, bars)
     t_end_ns = ref.dt_to_ns(bars[cut_row]["ts"]) + 300 * 1_000_000_000
-    known = {
+    return {
         s: [b for b in series if _daily_close_ns(b["ts"].date()) <= t_end_ns]
         for s, series in daily.items()
     }
-    cut = _macro_outputs(known, bars[: cut_row + 1])
+
+
+def _external_outputs(alignment, bars, daily):
+    """(outputs on the row grid, the columns that carry every external of `alignment`)."""
+    from src.intelligence.features.registry import default_registry
+
+    declared = [e.name for e in default_registry().external_inputs if e.alignment is alignment]
+    if alignment is Alignment.DAILY_ASOF_CLOSE:
+        out = _daily_asof_close_outputs(bars, daily)
+        # macro_pass_through emits each ext_<column> as <column>
+        assert {f"ext_{c}" for c in out if c in MACRO_COLUMNS} == set(declared)
+        return out
+    if alignment is Alignment.CONSTANT_PER_SERIES:
+        return _constant_per_series_outputs(bars)
+    raise AssertionError(f"no truncation runner for alignment {alignment}")
+
+
+@pytest.mark.parametrize("alignment", list(Alignment), ids=lambda a: a.name)
+@pytest.mark.parametrize("cut_row", [3, BARS_PER_SESSION * 5 + 30, BARS_PER_SESSION * 6 + 77])
+def test_every_alignment_has_causal_rows_up_to_t(alignment, cut_row):
+    """For every external declared with `alignment`: truncate the raw bars at row t and the raw
+    daily records to those known by the end of row t's bar, run the real `_macro_kernel_inputs`
+    and kernels; rows <= t must not move. A new Alignment member without a runner fails here."""
+    bars, daily = _intraday(), _daily_bars()
+    full = _external_outputs(alignment, bars, daily)
+    known = (
+        _truncate_daily_asof_close(daily, bars, cut_row)
+        if alignment is Alignment.DAILY_ASOF_CLOSE
+        else daily
+    )
+    cut = _external_outputs(alignment, bars[: cut_row + 1], known)
+    assert set(cut) == set(full)
     for name, values in cut.items():
         np.testing.assert_array_equal(values, full[name][: cut_row + 1], err_msg=name)
+
+
+def test_the_factory_refuses_an_external_whose_alignment_it_cannot_build(monkeypatch):
+    from src.intelligence import feature_factory
+
+    monkeypatch.setattr(
+        feature_factory, "_BUILT_ALIGNMENTS", frozenset({Alignment.CONSTANT_PER_SERIES})
+    )
+    ts = np.array([0], dtype=np.int64)
+    with pytest.raises(ValueError, match="no builder"):
+        feature_factory._macro_kernel_inputs(ts, SYMBOL, "5m", FeatureCache(), None, None)
 
 
 def test_rows_before_the_first_daily_record_are_nan_not_zero():

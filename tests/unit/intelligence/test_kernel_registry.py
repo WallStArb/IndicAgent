@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from src.intelligence.features.registry import (
+    Alignment,
     ExternalInput,
     Kernel,
     KernelRegistry,
@@ -147,7 +148,7 @@ def test_discovery_rejects_non_kernel(tmp_path, monkeypatch):
 
 
 def _sym(name="symbol"):
-    return ExternalInput(name, np.dtype(object), "constant per series")
+    return ExternalInput(name, np.dtype(object), Alignment.CONSTANT_PER_SERIES)
 
 
 def _ext_kernel(name="e", ext="symbol"):
@@ -173,6 +174,12 @@ def test_undeclared_external_input_raises():
         KernelRegistry.from_kernels([_ext_kernel()])
 
 
+def test_external_with_a_prose_alignment_is_refused():
+    prose = ExternalInput("symbol", np.dtype(object), "constant per series")  # type: ignore[arg-type]
+    with pytest.raises(KernelRegistryError, match="alignment"):
+        KernelRegistry.from_kernels([_ext_kernel()], [prose])
+
+
 def test_duplicate_external_raises():
     with pytest.raises(KernelRegistryError, match="duplicate external"):
         KernelRegistry.from_kernels([_ext_kernel()], [_sym(), _sym()])
@@ -184,8 +191,8 @@ def test_external_equal_to_output_raises():
 
 
 def test_discovery_rejects_duplicate_external_across_modules(tmp_path, monkeypatch):
-    ext = "from src.intelligence.features.registry import ExternalInput\nimport numpy as np\n"
-    ext += "EXTERNAL_INPUTS = (ExternalInput('symbol', np.dtype(object), 'x'),)\n"
+    ext = "from src.intelligence.features.registry import Alignment, ExternalInput\nimport numpy as np\n"
+    ext += "EXTERNAL_INPUTS = (ExternalInput('symbol', np.dtype(object), Alignment.CONSTANT_PER_SERIES),)\n"
     name = _make_pkg(tmp_path, monkeypatch, "tmp_kernels_ext", {"one": ext, "two": ext})
     try:
         with pytest.raises(KernelRegistryError, match="duplicate external"):

@@ -19,16 +19,11 @@ import numpy as np
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
-from src.intelligence.features.registry import ExternalInput, Kernel
+from src.intelligence.features.registry import Alignment, ExternalInput, Kernel
 
 _NEW_YORK = ZoneInfo("America/New_York")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _NS_PER_S = 1_000_000_000
-
-_ALIGNMENT = (
-    "daily cross-asset record aligned by the caller with align_daily_asof: available at the "
-    "16:00 ET close of its date"
-)
 
 MACRO_COLUMNS: tuple[str, ...] = (
     "vix_z",
@@ -47,7 +42,8 @@ MACRO_COLUMNS: tuple[str, ...] = (
 RECORD_COLUMNS: tuple[str, ...] = MACRO_COLUMNS[:8]
 
 EXTERNAL_INPUTS = tuple(
-    ExternalInput(f"ext_{name}", np.dtype(np.float64), _ALIGNMENT) for name in MACRO_COLUMNS
+    ExternalInput(f"ext_{name}", np.dtype(np.float64), Alignment.DAILY_ASOF_CLOSE)
+    for name in MACRO_COLUMNS
 )
 
 
