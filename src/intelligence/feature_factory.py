@@ -98,6 +98,7 @@ from src.intelligence.features.kernels.control import (  # noqa: F401  re-export
     _canary_noise_uniform,
     _canary_sub_seed,
 )
+from src.intelligence.features.kernels.macro import align_daily_asof
 from src.intelligence.features.kernels.price import (  # noqa: F401  re-exported for tests and scripts
     _aroon_osc,
     _bar_close_pos,
@@ -1484,34 +1485,37 @@ def _none_if_nan(value: float) -> float | None:
 def _macro_kernel_inputs(
     bars: list[dict],
     symbol: str,
+    tf: str,
     cache: FeatureCache,
     cross_asset_by_date: dict | None,
     beta_by_date: dict | None,
 ) -> dict[str, np.ndarray]:
     """The ten `ext_*` macro inputs on the row grid (None becomes NaN).
 
-    Batch path: each row reads the record keyed by its own UTC date. Live path
-    (cross_asset_by_date/beta_by_date None): the cache's values broadcast, with equity_beta_z None
-    for SPY and rate_beta_z None for TLT (a self-regression is degenerate).
+    Batch path: the daily records are aligned as-of the row's bar end with `align_daily_asof`
+    (a record dated d is available from the 16:00 ET close of d, so an intraday row on d reads
+    d - 1; 1d rows read their own date). A row with no available record reads the default:
+    0.0 for the cross-asset fields, None for the betas. Live path (cross_asset_by_date and
+    beta_by_date None): the cache's values broadcast, with equity_beta_z None for SPY and
+    rate_beta_z None for TLT (a self-regression is degenerate); the cache holds only
+    already-closed daily values.
     """
     n = len(bars)
-    dates = []
-    for bar in bars:
-        bar_ts = bar["ts"]
-        if isinstance(bar_ts, datetime) and bar_ts.tzinfo is None:
-            bar_ts = bar_ts.replace(tzinfo=UTC)
-        dates.append(bar_ts.date())
+    row_ns = np.array([_bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
     out: dict[str, np.ndarray] = {}
     if cross_asset_by_date is not None:
-        default = CrossAssetRecord()
-        records = [cross_asset_by_date.get(d, default) for d in dates]
+        dates = sorted(cross_asset_by_date)
+        records = align_daily_asof(
+            row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], CrossAssetRecord()
+        )
         for name in _MACRO_RECORD_FIELDS:
             out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
     else:
         for name in _MACRO_RECORD_FIELDS:
             out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
     if beta_by_date is not None:
-        pairs = [beta_by_date.get(d, (None, None)) for d in dates]
+        dates = sorted(beta_by_date)
+        pairs = align_daily_asof(row_ns, tf, dates, [beta_by_date[d] for d in dates], (None, None))
         equity = [p[0] for p in pairs]
         rate = [p[1] for p in pairs]
     else:
@@ -5098,7 +5102,7 @@ class FeatureFactory:
             default_registry(),
             {
                 **_batch_kernel_inputs(bars, opens, highs, lows, closes, volumes, symbol),
-                **_macro_kernel_inputs(bars, symbol, cache, cross_asset_by_date, beta_by_date),
+                **_macro_kernel_inputs(bars, symbol, tf, cache, cross_asset_by_date, beta_by_date),
             },
             config,
             outputs=list(dict.fromkeys((*_SERIES_KERNEL_OUTPUTS, *_DELEGATED_KERNEL_OUTPUTS))),
