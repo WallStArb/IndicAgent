@@ -289,3 +289,26 @@ the session scratchpad (`mismatch.sh`, `mismatch_results.tsv`).
 Implication for the repair: 15m masked slots are derivable from 5m today (155K rows), and the 2025
 names with a whole year of placeholder 15m are the first candidates. Re-check the 1h repair against
 the D-15 session-anchored derivation instead of a `:00` join.
+
+## Finding: the 2025 whole-year placeholders are permanent holes that reached `feature_vectors` (2026-09-29)
+
+The 13 names with every regular-session 15m slot of 2025 (6,464 each) as a placeholder while 5m is
+real are CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW, DUK, ECL, ELV and EMR. CCJ shows the shape:
+15m real bars 2023 6,476, 2024 3,875, 2025 0, 2026 1,064; 1h real 2023 1,036, 2024 0, 2025 0, 2026
+292; 5m real and complete for every year (19,392 in 2025). The row counts look complete (35,040
+15m rows in 2025) because the fill writes the whole grid.
+
+- Nothing repairs it. These names are not in the HTF lane's list (`all.symbols`, built 2026-09-27
+  from names without intraday rows), and `detect_gaps` counts a placeholder as present, so even a
+  run that included them would report no gaps.
+- It propagated. `feature_vectors` for CCJ has 3,875 15m rows in 2024 and none in 2025, against
+  full 5m and 1d. A 15m or 1h signal sees these names as absent for those years with no flag: a
+  silent coverage bias in the corpus, not a wrong value (the tradeable view keeps the placeholder
+  values out, so the failure is missing data, not fabricated data).
+- The fix for names with real 5m is derivation, not re-fetch: 5m is complete for them, and D-15
+  (185-12/17) derives 15m and 1h from it on session-anchored edges ahead of the phase 186
+  rebuild. Names without 5m (the HTF lane's 698) get real bars from the fetch and are derived
+  once the 5m lane runs.
+- Still to size: per year, the share of 5m-active 15m slots that hold a real 15m bar, and the
+  count of names below 50% (`completeness.sh` in the scratchpad, results in
+  `completeness_results.tsv`). 2006 is 85.3% and 2007 is 100.0%; later years pending.
