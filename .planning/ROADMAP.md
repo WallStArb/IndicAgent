@@ -317,7 +317,10 @@ refactor map items 7-8 (design section 14.6): `service_auditor` and the orchestr
 manifest, research package split behind the three protocols; an auditor inventory in the DAG manifest (each auditor either live with an owner and an action,
 or archived: the v2.x auditors are archived under the dual intelligence-path decision, and
 `bar_auditor`'s gap detection returns only with streaming); indexes on every foreign key in the clean UCR schema (`concept_registry.parent_concept_id`,
-`research_run.concept_id`, `instrument_classification.scheme` lack them today).
+`research_run.concept_id`, `instrument_classification.scheme` lack them today); todo 459 in the
+recipe book's feature domain: a base-versus-interaction composition key replaces the stale
+`0_atomic`/`1_interaction`/`2_theory` tier (metadata, CVR `tier` namespace,
+`vocabulary_drift.py`), and the 11 HMM regime columns of `feature_vectors` get recipe rows.
 **Requirements**: TBD
 **Depends on:** phase 183 plan 10 and family 2 finished (research package free). Until it lands,
 the phase 183 runner's M = 30 accounting stays in force.

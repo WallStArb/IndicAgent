@@ -2,7 +2,7 @@
 status: pending
 priority: P3
 filed: 2026-09-29
-source: owner question 2026-09-29 while describing the feature corpus; fold into phase 187's UCR recipe book
+source: owner question 2026-09-29 while describing the feature corpus; scoped into phase 187 (ROADMAP goal) by owner decision 2026-09-29
 ---
 
 # UCR feature rows: replace the stale tier taxonomy with composition, register the 11 HMM columns
