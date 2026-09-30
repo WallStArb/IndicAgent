@@ -334,7 +334,7 @@ _EVENT_OUTPUTS = (
 
 
 def _compute_session(inputs, config):
-    inverse, dts = unique_datetimes(inputs["ts"])
+    inverse, dts = unique_datetimes(inputs["ts_dt"])
     out = {name: np.empty(len(dts)) for name in _SESSION_OUTPUTS}
     for i, bar_ts in enumerate(dts):
         out["in_ny_session"][i] = _in_ny_session(bar_ts, config)
@@ -347,7 +347,7 @@ def _compute_session(inputs, config):
 
 
 def _compute_cycles(inputs, config):
-    inverse, dts = unique_datetimes(inputs["ts"])
+    inverse, dts = unique_datetimes(inputs["ts_dt"])
     out = {name: np.empty(len(dts)) for name in _CYCLE_OUTPUTS}
     for i, bar_ts in enumerate(dts):
         out["dow_sin"][i], out["dow_cos"][i] = _dow_encoding(bar_ts)
@@ -373,7 +373,7 @@ def _compute_cycles(inputs, config):
 
 
 def _compute_events(inputs, config):
-    inverse, dts = unique_datetimes(inputs["ts"])
+    inverse, dts = unique_datetimes(inputs["ts_dt"])
     out = {name: np.empty(len(dts)) for name in _EVENT_OUTPUTS}
     for i, bar_ts in enumerate(dts):
         out["opex_flag"][i] = _opex_flag(bar_ts)
@@ -390,9 +390,8 @@ def _compute_above_wk_vwap(inputs, config):
     advances for row 0, so the value at row i reflects bars 1..i-1 and row 0 holds the cache's
     initial 0.0. One implementation of the weekly VWAP math.
     """
-    n = len(inputs["ts"])
-    inverse, unique_dts = unique_datetimes(inputs["ts"])
-    dts = [unique_dts[k] for k in inverse]
+    n = len(inputs["ts_dt"])
+    dts = inputs["ts_dt"]
     cache = FeatureCache()
     out = np.empty(n)
     for i in range(n):
@@ -412,28 +411,28 @@ KERNELS = (
     Kernel(
         name="calendar_session",
         outputs=_SESSION_OUTPUTS,
-        inputs=("ts",),
+        inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_session,
     ),
     Kernel(
         name="calendar_cycles",
         outputs=_CYCLE_OUTPUTS,
-        inputs=("ts",),
+        inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_cycles,
     ),
     Kernel(
         name="calendar_events",
         outputs=_EVENT_OUTPUTS,
-        inputs=("ts",),
+        inputs=("ts_dt",),
         memory=lambda config: 0,
         compute=_compute_events,
     ),
     Kernel(
         name="calendar_above_wk_vwap",
         outputs=("above_wk_vwap",),
-        inputs=("ts", "high", "low", "close", "volume"),
+        inputs=("ts_dt", "high", "low", "close", "volume"),
         memory=lambda config: 0,
         compute=_compute_above_wk_vwap,
         path_dependent=True,

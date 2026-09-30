@@ -107,10 +107,10 @@ def _compute_noise(inputs, config):
     still comes from its own `default_rng` on the same sub-seed, in the same order.
     """
     symbols = inputs["symbol"]
-    n = len(inputs["ts"])
+    n = len(inputs["ts_dt"])
     per_row_symbol = len(symbols) == n
     default_symbol = str(symbols[0]) if len(symbols) else ""
-    inverse, unique_dts = unique_datetimes(inputs["ts"])
+    inverse, unique_dts = unique_datetimes(inputs["ts_dt"])
     ts_ms = [int(bar_ts.timestamp() * 1000) for bar_ts in unique_dts]
     seed = config.canary_rng_seed
     symbol_hashes: dict[str, int] = {}
@@ -168,7 +168,7 @@ KERNELS = (
     Kernel(
         name="canary_noise",
         outputs=("canary_noise_gaussian", "canary_noise_uniform", "canary_near_constant"),
-        inputs=("ts", "symbol"),
+        inputs=("ts_dt", "symbol"),
         memory=lambda config: 0,
         compute=_compute_noise,
     ),

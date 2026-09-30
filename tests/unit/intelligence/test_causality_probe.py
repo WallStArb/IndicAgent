@@ -12,6 +12,7 @@ from src.intelligence.features.contract.causality_probe import (
     memory_check,
     probe_registry,
 )
+from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import (
     Kernel,
     KernelRegistry,
@@ -250,6 +251,7 @@ def _registered_case():
             if e.name.startswith("ext_")
         },
     }
+    available = with_derived_inputs(available)
     available.update(compute_kernels(default_registry(), available, config))
     return available, config
 

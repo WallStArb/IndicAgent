@@ -24,6 +24,7 @@ from src.intelligence.features.contract.causality_probe import (
     memory_check,
     probe_registry,
 )
+from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import compute_kernels, default_registry
 from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
 from tests.unit.intelligence import kernel_parity_reference as ref
@@ -321,7 +322,7 @@ def test_compute_batch_calls_no_delegated_helper():
 @lru_cache(maxsize=2)
 def _probe_case(config_key: str):
     config = ref.build_config(MANIFEST[config_key])
-    available = synthetic_bars(PROBE_BARS)
+    available = with_derived_inputs(synthetic_bars(PROBE_BARS))
     available.update(compute_kernels(default_registry(), available, config))
     return available, config
 

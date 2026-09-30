@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.intelligence.features.contract.derived_inputs import DERIVED_INPUTS, build_derived_inputs
+
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
 
@@ -172,7 +174,12 @@ class KernelRegistry:
                     f"kernel {_where(kernel)} is path_dependent without a path_dependent_reason"
                 )
             for name in kernel.inputs:
-                if name not in BAR_FIELDS and name not in by_output and name not in external_names:
+                if (
+                    name not in BAR_FIELDS
+                    and name not in DERIVED_INPUTS
+                    and name not in by_output
+                    and name not in external_names
+                ):
                     raise KernelRegistryError(
                         f"kernel {_where(kernel)} input {name!r} is not a bar field, a declared "
                         "external input or another kernel's output"
@@ -192,7 +199,7 @@ class KernelRegistry:
             seen: dict[str, Kernel] = {}
             external = self._external_names()
             for name in kernel.inputs:
-                if name not in BAR_FIELDS and name not in external:
+                if name not in BAR_FIELDS and name not in DERIVED_INPUTS and name not in external:
                     producer = self.by_output(name)
                     seen[producer.name] = producer
             cached = self._upstream_cache[kernel.name] = [seen[key] for key in sorted(seen)]
@@ -337,9 +344,10 @@ def compute_kernels(
     order = registry.topological_order(outputs)
     external = registry._external_names()
     produced = {o for kernel in order for o in kernel.outputs}
+    derived = {name for kernel in order for name in kernel.inputs if name in DERIVED_INPUTS}
     for kernel in order:
         for name in kernel.inputs:
-            if name not in produced and name not in inputs:
+            if name not in produced and name not in inputs and name not in derived:
                 kind = "external input" if name in external else "bar field"
                 raise KernelRegistryError(
                     f"kernel {_where(kernel)} needs {kind} {name!r}, which the caller did not supply"
@@ -348,6 +356,13 @@ def compute_kernels(
     if n is None:
         raise KernelRegistryError("compute_kernels needs at least one bar field in inputs")
     values: dict[str, np.ndarray] = dict(inputs)
+    for name in derived:
+        for needed in DERIVED_INPUTS[name][0]:
+            if needed not in inputs:
+                raise KernelRegistryError(
+                    f"derived input {name!r} needs bar field {needed!r}, which the caller did not supply"
+                )
+    values.update(build_derived_inputs(derived, inputs))
     result: dict[str, np.ndarray] = {}
     for kernel in order:
         cut = {name: values[name] for name in kernel.inputs}

@@ -7,9 +7,14 @@ from datetime import UTC, datetime
 
 import numpy as np
 
+from src.intelligence.features.contract.derived_inputs import (
+    DERIVED_INPUTS,
+    TS_DATETIME,
+    ts_ns_to_datetimes,
+)
+from src.intelligence.features.kernels import _primitives, control
 from src.intelligence.features.kernels import calendar as cal
-from src.intelligence.features.kernels import control
-from src.intelligence.features.kernels._primitives import ts_ns_to_datetimes, unique_datetimes
+from src.intelligence.features.kernels._primitives import unique_datetimes
 from tests.unit.intelligence import kernel_parity_reference as ref
 from tests.unit.intelligence.test_feature_kernels import MANIFEST
 
@@ -30,19 +35,32 @@ def _assert_rows_equal(got, want):
         assert got[name].tobytes() == np.array(w).tobytes(), name
 
 
-def test_unique_datetimes_round_trip_and_reuse():
+def _with_dt(ts, **extra):
+    """Kernel inputs with the derived `ts_dt` the registry layer supplies."""
+    return {"ts": ts, TS_DATETIME: DERIVED_INPUTS[TS_DATETIME][1]({"ts": ts}), **extra}
+
+
+def test_derived_ts_datetime_matches_scalar_conversion_and_shares_objects():
     ts = _ts()
-    inverse, dts = unique_datetimes(ts)
+    dt_col = _with_dt(ts)[TS_DATETIME]
+    assert list(dt_col) == ts_ns_to_datetimes(ts)
+    assert len({id(d) for d in dt_col}) == len(np.unique(ts))
+
+
+def test_unique_datetimes_round_trip_and_holds_no_state():
+    ts = _ts()
+    dt_col = _with_dt(ts)[TS_DATETIME]
+    inverse, dts = unique_datetimes(dt_col)
     assert [dts[k] for k in inverse] == ts_ns_to_datetimes(ts)
-    again = unique_datetimes(ts.copy())
-    assert again[0] is inverse and again[1] is dts
-    other = unique_datetimes(ts[:10])
-    assert [other[1][k] for k in other[0]] == ts_ns_to_datetimes(ts[:10])
+    assert len(dts) == len(set(dts))
+    again = unique_datetimes(dt_col[:10])
+    assert [again[1][k] for k in again[0]] == ts_ns_to_datetimes(ts[:10])
+    assert not [n for n in vars(_primitives) if n.startswith("_LAST")]
 
 
 def test_calendar_kernels_equal_per_row_scalars():
     ts, config = _ts(), _config()
-    inputs = {"ts": ts}
+    inputs = _with_dt(ts)
     dts = ts_ns_to_datetimes(ts)
     session = cal._compute_session(inputs, config)
     _assert_rows_equal(
@@ -96,7 +114,7 @@ def test_noise_kernel_equals_public_noise_functions():
         (np.array(["SPY"] * n, dtype=object), lambda i: "SPY"),
         (np.array(["SPY"], dtype=object), lambda i: "SPY"),  # one symbol for the series
     ):
-        got = control._compute_noise({"ts": ts, "symbol": sym_input}, config)
+        got = control._compute_noise(_with_dt(ts, symbol=sym_input), config)
         _assert_rows_equal(
             got,
             {

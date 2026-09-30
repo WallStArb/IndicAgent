@@ -22,6 +22,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
+from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import Kernel, KernelRegistry
 
 
@@ -166,7 +167,7 @@ def probe_registry(
     the probe does not catch raises CausalityViolation, because that means the probe is blind.
     Downstream kernels read upstream outputs at the dtype they were computed in.
     """
-    available = dict(inputs)
+    available = with_derived_inputs(inputs)
     statuses: dict[str, str] = {}
     for kernel in registry.topological_order():
         # One full-length compute serves the probe, the memory check and the downstream input.

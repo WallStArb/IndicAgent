@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 import numpy as np
 from scipy import stats
 
 from src.intelligence.features.contract.registry import Kernel
-
-_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 # Default divide-by-zero guard of the kernels' eps arguments, and the std below which a z-score is 0.
 EPS = 1e-10
@@ -74,32 +72,15 @@ def bounded_window_bars(config) -> int:
     )
 
 
-def ts_ns_to_datetimes(ts: np.ndarray) -> list[datetime]:
-    """int64 UTC nanoseconds to aware datetimes by integer arithmetic (never float seconds)."""
-    return [_EPOCH + timedelta(microseconds=int(ns) // 1000) for ns in ts]
+def unique_datetimes(dts: np.ndarray) -> tuple[np.ndarray, tuple[datetime, ...]]:
+    """(inverse, distinct) for the row-aligned `ts_dt` input: distinct[inverse[i]] is dts[i].
 
-
-# The last unique_datetimes call: (timestamps, inverse, datetimes). The calendar and control
-# kernels of one compute_kernels call all read the same `ts`, so they share one conversion.
-_LAST_UNIQUE_TS: tuple[np.ndarray, np.ndarray, tuple[datetime, ...]] | None = None
-
-
-def unique_datetimes(ts: np.ndarray) -> tuple[np.ndarray, tuple[datetime, ...]]:
-    """(inverse, datetimes) with datetimes[inverse[i]] the UTC datetime of ts[i].
-
-    Each distinct timestamp is converted once (ts_ns_to_datetimes, so the same integer
-    arithmetic), and the result of the last call is kept and reused when the same timestamps
-    come again. Every calendar value is a pure function of the timestamp, so a kernel computes
-    per distinct timestamp and scatters with `inverse`.
+    Every calendar value is a pure function of the timestamp, so a kernel computes once per
+    distinct datetime and scatters with `inverse`. No state survives the call.
     """
-    global _LAST_UNIQUE_TS
-    last = _LAST_UNIQUE_TS
-    if last is not None and np.array_equal(last[0], ts):
-        return last[1], last[2]
-    unique, inverse = np.unique(ts, return_inverse=True)
-    result = (inverse.reshape(-1), tuple(ts_ns_to_datetimes(unique)))
-    _LAST_UNIQUE_TS = (np.array(ts, copy=True), *result)
-    return result
+    index: dict[datetime, int] = {}
+    inverse = np.fromiter((index.setdefault(d, len(index)) for d in dts), np.int64, len(dts))
+    return inverse, tuple(index)
 
 
 def _atr_series_full(
