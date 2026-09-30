@@ -456,3 +456,27 @@ class TestIcMeasureIntegration:
             outcomes = self._run(world)
         assert outcomes and {o.status for o in outcomes} == {"replaced"}
         assert self._checksum() != before  # the CI bounds moved
+
+    def test_case_11_an_identity_that_was_replaced_and_returns_loads_again(
+        self, world: dict
+    ) -> None:
+        """Case 10 left K2 (201 resamples) in place of K1 (the default 200). Returning to K1 must
+        recompute and replace, not compute and then be refused as a terminal superseded key."""
+        k2 = self._checksum()
+        outcomes = self._run(world)
+        assert outcomes and {o.status for o in outcomes} == {"replaced"}
+        assert self._checksum() != k2
+        again = self._run(world)
+        assert {o.status for o in again} == {"skipped"}
+        completed = self._scalar(
+            "SELECT count(*) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%' "
+            "AND status = 'completed'"
+        )
+        units = self._scalar(
+            "SELECT count(DISTINCT unit_key) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%'"
+        )
+        assert completed == units  # one completed batch per unit
+        generations = self._scalar(
+            "SELECT max(generation) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%'"
+        )
+        assert generations == 2

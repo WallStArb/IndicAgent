@@ -325,18 +325,6 @@ class TestBulkLoadReplaceIntegration:
         assert self._status(second) == "completed"
         assert self._status(other) == "completed"  # a different writer is never flipped
 
-    def test_a_superseded_identity_cannot_come_back(self, table: str) -> None:
-        first = _spec(
-            table,
-            _DAY1,
-            _RANGE_END,
-            apr_snapshot={"v": "1"},
-            replace_where={"symbol": ["AAA", "BBB"], "tf": "1d"},
-        )
-        with connect(autocommit=False) as conn:
-            with pytest.raises(BulkLoadRefused, match="superseded"):
-                bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1))
-
     def test_a_different_symbol_set_replaces_the_unit_instead_of_loading_beside_it(
         self, table: str
     ) -> None:
@@ -408,3 +396,83 @@ class TestBarContentDigestsIntegration:
             conn.commit()
             filled = bar_content_digests(conn, "1d", [s1, s2, s3], jan, end)
             assert filled[s2] != after[s2]
+
+
+class TestReplaceScopeAndReturn:
+    """A replacing unit owns its whole scope across time, and a superseded identity that returns
+    loads again as a new provenance generation (migration 418); history is never rewritten."""
+
+    @pytest.fixture()
+    def table(self) -> str:
+        name = _name()
+        _create_scratch_hypertable(name)
+        yield name
+        _drop_table(name)
+
+    _WHERE = {"symbol": ["AAA", "BBB"], "tf": "1d"}
+
+    def _bar_rows(self, table: str) -> list[tuple]:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("SELECT symbol, bar_ts, x FROM {} ORDER BY symbol, bar_ts").format(
+                    sql.Identifier(table)
+                )
+            )
+            return cur.fetchall()
+
+    def _history(self, spec: BulkLoadSpec) -> list[tuple]:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT batch_key, generation, status FROM provenance_batch "
+                "WHERE unit_key = %s ORDER BY started_at, generation",
+                (spec.unit_key,),
+            )
+            return cur.fetchall()
+
+    def test_k1_then_k2_then_k1_ends_with_k1_rows_and_one_completed_batch(self, table: str) -> None:
+        def spec(v: str) -> BulkLoadSpec:
+            return _spec(
+                table,
+                _DAY1,
+                _RANGE_END,
+                writer="aba_unit",
+                apr_snapshot={"v": v},
+                replace_where=self._WHERE,
+            )
+
+        k1, k2 = spec("1"), spec("2")
+        assert k1.unit_key == k2.unit_key and k1.batch_key != k2.batch_key
+        for s, x in ((k1, 1.0), (k2, 2.0), (k1, 1.0)):
+            with connect(autocommit=False) as conn:
+                result = bulk_load(conn, s, _COLUMNS, _day_rows(_DAY1, x=x))
+            assert result.status == "loaded"
+        assert [r[2] for r in self._bar_rows(table)] == [1.0] * 4
+        history = self._history(k1)
+        assert history == [
+            (k1.batch_key, 1, "superseded"),
+            (k2.batch_key, 1, "superseded"),
+            (k1.batch_key, 2, "completed"),
+        ]
+        # the returned identity now skips like any completed one
+        with connect(autocommit=False) as conn:
+            assert bulk_load(conn, k1, _COLUMNS, _day_rows(_DAY1)).status == "skipped"
+
+    def test_a_later_range_start_leaves_no_orphaned_rows(self, table: str) -> None:
+        early = _spec(table, _DAY1, _RANGE_END, writer="scope_unit", replace_where=self._WHERE)
+        late = _spec(
+            table,
+            _DAY2,
+            _RANGE_END,
+            writer="scope_unit",
+            replace_where=self._WHERE,
+            apr_snapshot={"v": "2"},
+        )
+        assert early.unit_key == late.unit_key
+        with connect(autocommit=False) as conn:
+            bulk_load(conn, early, _COLUMNS, _day_rows(_DAY1) + _day_rows(_DAY2))
+        with connect(autocommit=False) as conn:
+            result = bulk_load(conn, late, _COLUMNS, _day_rows(_DAY2, x=7.0))
+        assert result.rows_replaced == 8  # the unit's whole scope, including before range_start
+        rows = self._bar_rows(table)
+        assert len(rows) == 4 and all(r[1] >= _DAY2 and r[2] == 7.0 for r in rows)
+        assert [h[2] for h in self._history(late)] == ["superseded", "completed"]

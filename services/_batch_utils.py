@@ -231,31 +231,35 @@ _BULK_LOAD_COMPRESSED_CHUNKS_SQL = (
 )
 _BULK_LOAD_TRY_LOCK_SQL = "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))"
 _BULK_LOAD_UNLOCK_SQL = "SELECT pg_advisory_unlock(hashtextextended(%s, 0))"
+# The latest row of a batch_key: a returning superseded identity has several (migration 418).
 _BULK_LOAD_SELECT_PROVENANCE_SQL = (
-    "SELECT status, row_count, attempts FROM provenance_batch WHERE batch_key = %s"
+    "SELECT status, row_count, attempts, generation FROM provenance_batch "
+    "WHERE batch_key = %s ORDER BY generation DESC LIMIT 1"
 )
 _BULK_LOAD_INSERT_PROVENANCE_SQL = (
     "INSERT INTO provenance_batch (batch_key, writer, target_table, time_column, tf, "
     "range_start, range_end, symbols, symbols_hash, code_key, apr_hash, apr_snapshot, "
-    "input_digest, unit_key) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    "input_digest, unit_key, generation) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 _BULK_LOAD_TAKEOVER_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'started', attempts = attempts + 1, "
-    "started_at = now(), error = NULL WHERE batch_key = %s"
+    "started_at = now(), error = NULL WHERE batch_key = %s AND generation = %s"
 )
 _BULK_LOAD_COMPLETE_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'completed', row_count = %s, "
-    "finished_at = now(), error = NULL WHERE batch_key = %s"
+    "finished_at = now(), error = NULL WHERE batch_key = %s AND generation = %s"
 )
 _BULK_LOAD_FAIL_PROVENANCE_SQL = (
-    "UPDATE provenance_batch SET status = 'failed', error = %s WHERE batch_key = %s"
+    "UPDATE provenance_batch SET status = 'failed', error = %s "
+    "WHERE batch_key = %s AND generation = %s"
 )
-# The replace path's flip (186-14, migration 416): every other completed row of the same unit (same
-# unit_key: writer, target, tf and replace_where) becomes superseded; the guard trigger allows
-# exactly this transition and changes nothing else on the row.
+# The replace path's flip (186-14, migrations 416 and 418): every other completed row of the same
+# unit (same unit_key: writer, target, tf and replace_where) becomes superseded; the guard trigger
+# allows exactly this transition and changes nothing else on the row.
 _BULK_LOAD_SUPERSEDE_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'superseded' WHERE unit_key = %s "
-    "AND status = 'completed' AND batch_key <> %s"
+    "AND status = 'completed' AND NOT (batch_key = %s AND generation = %s)"
 )
 _PRIOR_COMPLETED_UNIT_SQL = (
     "SELECT 1 FROM provenance_batch WHERE unit_key = %s AND status = 'completed' "
@@ -276,6 +280,7 @@ _PROVENANCE_BATCH_COLUMNS = (
     "apr_snapshot",
     "input_digest",
     "unit_key",
+    "generation",
     "row_count",
     "status",
     "attempts",
@@ -301,6 +306,7 @@ _COMPRESS_ONE_CHUNK_SQL = (
     "if_not_compressed => true)"
 )
 
+_TIMESTAMPTZ_MIN = datetime(1, 1, 1, tzinfo=UTC)
 _BULK_LOAD_HEX_32_64_RE = re.compile(r"^[0-9a-f]{32,64}$")
 
 
@@ -324,8 +330,8 @@ class BulkLoadSpec:
     apr_snapshot: Mapping[str, Any]
     input_digest: str  # lowercase hex
     # None: an append-only unit (a primary-key conflict is a loud error). A mapping: the unit owns
-    # the target rows it names (col = value, or col = ANY for a list, within the half-open time
-    # range); loading it deletes them and supersedes the unit's prior completed batches in the
+    # the target rows it names (col = value, or col = ANY for a list, over all time, whatever
+    # the range); loading it deletes them and supersedes the unit's prior completed batches in the
     # same transaction. See `unit_key`.
     replace_where: Mapping[str, Any] | None = None
 
@@ -462,16 +468,18 @@ def bulk_load(
     - Append-only by default: a primary-key conflict on the target is a loud error,
       never ON CONFLICT DO NOTHING. A spec with `replace_where` is the explicit, atomic
       replacement of a unit's prior rows, used when a unit's identity changes (the IC
-      writer, D-23): in the data transaction, before COPY, one DELETE bounded by the spec's
-      half-open time range and the mapping (col = value, or col = ANY for a list), and every
+      writer, D-23): in the data transaction, before COPY, one DELETE over the mapping (col =
+      value, or col = ANY for a list) across all time (the unit owns its whole scope), and every
       other completed provenance row with the same `spec.unit_key` flips to 'superseded', so
       a replaced unit keeps one completed row, the current key. The unit key hashes
       (writer, target, tf, replace_where) once, so the DELETE and the flip cannot disagree
       and a change of symbols, range, code, APR or input replaces the unit instead of
       loading beside it. Units that must coexist in one target differ in writer, tf or
       replace_where; nothing else separates them. A failure rolls back the DELETE, the flip
-      and the COPY together. A superseded key is terminal and cannot be loaded again
-      (BulkLoadRefused). provenance_batch.target_table is immutable once written.
+      and the COPY together. A superseded row is terminal, but its identity may return
+      (inputs going back to an earlier state): the load then inserts a new provenance row of
+      the same batch_key with generation + 1 (migration 418), leaving the superseded row as
+      history. provenance_batch.target_table is immutable once written.
     - Every row's time value is validated (tz-aware, inside the half-open unit
       range, non-decreasing) before it reaches the COPY buffer; a violation rolls
       the data transaction back, marks the provenance row failed in its own commit,
@@ -536,13 +544,10 @@ def _bulk_load_locked(
                 row_count=int(existing[1]),
                 chunks_compressed=0,
             )
-        if existing is not None and existing[0] == "superseded":
-            conn.rollback()
-            raise BulkLoadRefused(
-                f"bulk_load: unit {batch_key} was superseded by a later identity; a "
-                "superseded key is terminal and cannot be loaded again"
-            )
-        if existing is None:
+        if existing is None or existing[0] == "superseded":
+            # A first load, or an identity that another one replaced and that has returned: a new
+            # row (generation + 1). The superseded row is history and stays as it is.
+            generation = 1 if existing is None else int(existing[3]) + 1
             cur.execute(
                 _BULK_LOAD_INSERT_PROVENANCE_SQL,
                 (
@@ -560,10 +565,12 @@ def _bulk_load_locked(
                     Jsonb(dict(spec.apr_snapshot)),
                     spec.input_digest,
                     spec.unit_key,
+                    generation,
                 ),
             )
         else:  # started (a kill) or failed (a retry): take the row over
-            cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (batch_key,))
+            generation = int(existing[3])
+            cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (batch_key, generation))
     conn.commit()
 
     real_positions = _bulk_load_precheck(conn, spec, columns)
@@ -589,7 +596,9 @@ def _bulk_load_locked(
                 delete_stmt, delete_params = _bulk_load_delete_statement(spec, spec.replace_where)
                 cur.execute(delete_stmt, delete_params)
                 rows_replaced = cur.rowcount
-                cur.execute(_BULK_LOAD_SUPERSEDE_PROVENANCE_SQL, (spec.unit_key, batch_key))
+                cur.execute(
+                    _BULK_LOAD_SUPERSEDE_PROVENANCE_SQL, (spec.unit_key, batch_key, generation)
+                )
             copy_stmt = pg_sql.SQL("COPY {} ({}) FROM STDIN").format(
                 pg_sql.Identifier(spec.target_table),
                 pg_sql.SQL(", ").join(pg_sql.Identifier(c) for c in columns),
@@ -621,11 +630,11 @@ def _bulk_load_locked(
                         )
                     copy.write_row(row)
                     row_count += 1
-            cur.execute(_BULK_LOAD_COMPLETE_PROVENANCE_SQL, (row_count, batch_key))
+            cur.execute(_BULK_LOAD_COMPLETE_PROVENANCE_SQL, (row_count, batch_key, generation))
         conn.commit()
     except Exception as error:
         conn.rollback()
-        _bulk_load_mark_failed(conn, batch_key, error)
+        _bulk_load_mark_failed(conn, batch_key, generation, error)
         raise
 
     chunks_compressed = 0
@@ -652,14 +661,15 @@ def _bulk_load_locked(
 def _bulk_load_delete_statement(
     spec: BulkLoadSpec, replace_where: Mapping[str, Any]
 ) -> tuple[pg_sql.Composed, list[Any]]:
-    """The replace path's one DELETE: the unit's half-open time range plus the mapping's
-    equality (scalar) or = ANY (list) predicates. Identifiers are composed, never formatted;
-    the keys were validated against the live column set by the precheck."""
-    clauses = [
-        pg_sql.SQL("{} >= %s").format(pg_sql.Identifier(spec.time_column)),
-        pg_sql.SQL("{} < %s").format(pg_sql.Identifier(spec.time_column)),
-    ]
-    params: list[Any] = [spec.range_start, spec.range_end]
+    """The replace path's one DELETE: the mapping's equality (scalar) or = ANY (list) predicates,
+    over all time. A replacing unit owns its whole scope (the unit_key hashes the mapping, not the
+    range), so the DELETE and the provenance flip are one definition: a later run with another
+    range replaces every row of the scope, leaving none behind without a completed batch. The
+    spec's range still bounds the rows a load may write and is recorded as provenance metadata.
+    Identifiers are composed, never formatted; the keys were validated against the live column
+    set by the precheck."""
+    clauses = []
+    params: list[Any] = []
     for column, value in replace_where.items():
         if isinstance(value, list | tuple | set | frozenset):
             clauses.append(pg_sql.SQL("{} = ANY(%s)").format(pg_sql.Identifier(column)))
@@ -708,9 +718,11 @@ def _bulk_load_precheck(
     with conn.cursor() as cur:
         cur.execute(_BULK_LOAD_COMPRESSION_JOBS_SQL, (spec.target_table,))
         jobs = cur.fetchall()
+        # A replacing load's DELETE reaches the whole scope, so every chunk before range_end counts.
+        overlap_from = _TIMESTAMPTZ_MIN if spec.replace_where is not None else spec.range_start
         cur.execute(
             _BULK_LOAD_COMPRESSED_CHUNKS_SQL,
-            (spec.target_table, spec.range_end, spec.range_start),
+            (spec.target_table, spec.range_end, overlap_from),
         )
         (compressed_in_range,) = cur.fetchone()
     for _job_id, scheduled, compress_after in jobs:
@@ -740,13 +752,13 @@ def _bulk_load_read_apr(conn: Any) -> dict[str, Any]:
         return dict(cur.fetchall())
 
 
-def _bulk_load_mark_failed(conn: Any, batch_key: str, error: Exception) -> None:
+def _bulk_load_mark_failed(conn: Any, batch_key: str, generation: int, error: Exception) -> None:
     """Record the failure in its own commit (per-unit isolation, todo 343). A failure
     of the mark itself is logged once, never per row, and never masks the original
     exception (the caller re-raises it regardless)."""
     try:
         with conn.cursor() as cur:
-            cur.execute(_BULK_LOAD_FAIL_PROVENANCE_SQL, (str(error)[:2000], batch_key))
+            cur.execute(_BULK_LOAD_FAIL_PROVENANCE_SQL, (str(error)[:2000], batch_key, generation))
         conn.commit()
     except Exception as mark_error:
         _logger.warning(
@@ -773,7 +785,10 @@ def completed_provenance_batch(conn: Any, spec: BulkLoadSpec) -> dict[str, Any] 
 
 def prior_completed_unit(conn: Any, spec: BulkLoadSpec) -> bool:
     """True when a completed batch of the same unit (spec.unit_key) exists under a different
-    batch_key: loading `spec` replaces it. Lets a dry run report would_replace."""
+    batch_key: loading `spec` replaces it. Lets a dry run report would_replace. An append-only
+    spec (no replace_where) replaces nothing, so it is False without a query."""
+    if spec.replace_where is None:
+        return False
     with conn.cursor() as cur:
         cur.execute(_PRIOR_COMPLETED_UNIT_SQL, (spec.unit_key, spec.batch_key))
         return cur.fetchone() is not None

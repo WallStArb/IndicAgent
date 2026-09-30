@@ -187,7 +187,7 @@ class TestBulkLoadSpec:
 
 class TestBulkLoadSkipsCompleted:
     def test_completed_row_returns_skipped_without_copy_or_insert(self) -> None:
-        conn = _conn([_LOCKED, {"fetchone": ("completed", 4242, 1)}])
+        conn = _conn([_LOCKED, {"fetchone": ("completed", 4242, 1, 1)}])
         result = bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
         assert result.status == "skipped"
         assert result.row_count == 4242
@@ -240,7 +240,7 @@ class TestBulkLoadFreshKey:
         assert len(conn.copied_rows) == 4
 
     def test_stale_failed_row_is_taken_over_not_duplicated(self) -> None:
-        conn = _conn([_LOCKED, {"fetchone": ("failed", None, 2)}] + _fresh_happy_responses()[2:])
+        conn = _conn([_LOCKED, {"fetchone": ("failed", None, 2, 1)}] + _fresh_happy_responses()[2:])
         result = bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
         assert result.status == "loaded"
         takeover = conn.index_of("execute", "attempts = attempts + 1")
@@ -248,7 +248,9 @@ class TestBulkLoadFreshKey:
         assert conn.index_of("execute", "INSERT INTO provenance_batch") is None
 
     def test_stale_started_row_is_taken_over(self) -> None:
-        conn = _conn([_LOCKED, {"fetchone": ("started", None, 1)}] + _fresh_happy_responses()[2:])
+        conn = _conn(
+            [_LOCKED, {"fetchone": ("started", None, 1, 1)}] + _fresh_happy_responses()[2:]
+        )
         result = bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
         assert result.status == "loaded"
         assert conn.index_of("execute", "attempts = attempts + 1") is not None
@@ -604,15 +606,26 @@ class TestBulkLoadReplaceWhere:
         assert between == []
         _k, delete_sql, delete_params = conn.events[i_delete]
         assert '"feature_vectors"' in delete_sql
-        assert '"bar_ts" >=' in delete_sql and '"bar_ts" <' in delete_sql
+        # the unit owns its whole scope: the DELETE is not bounded by the spec's range
+        assert '"bar_ts"' not in delete_sql
         assert '"tf" = ' in delete_sql and '"symbol" = ANY' in delete_sql
-        assert list(delete_params) == [_RANGE_START, _RANGE_END, "1d", ["SPY", "QQQ"]]
+        assert list(delete_params) == ["1d", ["SPY", "QQQ"]]
         _k, sup_sql, sup_params = conn.events[i_supersede]
-        assert "unit_key = %s" in sup_sql and "batch_key <>" in sup_sql
+        assert "unit_key = %s" in sup_sql and "generation" in sup_sql
         assert "status = 'completed'" in sup_sql
-        assert tuple(sup_params) == (spec.unit_key, spec.batch_key)
+        assert tuple(sup_params) == (spec.unit_key, spec.batch_key, 1)
         _k, insert_sql, insert_params = conn.events[conn.require_index("execute", "INSERT INTO")]
-        assert "unit_key" in insert_sql and insert_params[-1] == spec.unit_key
+        assert "unit_key" in insert_sql and tuple(insert_params[-2:]) == (spec.unit_key, 1)
+
+    def test_a_replacing_load_checks_compressed_chunks_over_the_whole_scope(self) -> None:
+        """The DELETE reaches every row of the scope, so the compressed-chunk refusal covers all
+        time before range_end, not only the unit's range."""
+        conn = _conn(_replace_responses())
+        spec = _spec(replace_where={"tf": "1d"})
+        bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
+        i = conn.require_index("execute", "is_compressed")
+        _k, _sql, params = conn.events[i]
+        assert params[1] == spec.range_end and params[2] < _RANGE_START - timedelta(days=365 * 100)
 
     def test_unknown_replace_key_raises_before_the_data_transaction(self) -> None:
         conn = _conn(_replace_responses())
@@ -640,13 +653,37 @@ class TestBulkLoadReplaceWhere:
         assert "commit" not in after[: after.index("rollback")]
 
     def test_skipped_unit_issues_no_delete(self) -> None:
-        conn = _conn([_LOCKED, {"fetchone": ("completed", 4, 1)}])
+        conn = _conn([_LOCKED, {"fetchone": ("completed", 4, 1, 1)}])
         result = bulk_load(conn, _spec(replace_where={"tf": "1d"}), _COLUMNS_LIST, _ordered_rows())
         assert result.status == "skipped"
         assert conn.index_of("execute", "DELETE FROM") is None
 
-    def test_a_superseded_identity_is_refused_loudly(self) -> None:
-        conn = _conn([_LOCKED, {"fetchone": ("superseded", 4, 1)}])
-        with pytest.raises(BulkLoadRefused, match="superseded"):
-            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
-        assert conn.index_of("copy") is None
+    def test_a_superseded_identity_loads_again_as_the_next_generation(self) -> None:
+        """K1 replaced by K2 and then returning: a new provenance row, never a mutation of the
+        superseded one (the table is append-only and superseded is terminal)."""
+        responses = [_LOCKED, {"fetchone": ("superseded", 4, 1, 3)}] + _replace_responses()[2:]
+        conn = _conn(responses)
+        spec = _spec(replace_where={"tf": "1d"})
+        result = bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
+        assert result.status == "loaded"
+        _k, insert_sql, insert_params = conn.events[conn.require_index("execute", "INSERT INTO")]
+        assert "generation" in insert_sql and insert_params[-1] == 4  # 3 + 1
+        assert conn.index_of("execute", "SET status = 'started', attempts = attempts + 1") is None
+        _k, done_sql, done_params = conn.events[
+            conn.require_index("execute", "'completed', row_count")
+        ]
+        assert tuple(done_params) == (4, spec.batch_key, 4)  # rows written, key, generation
+
+    def test_a_takeover_and_the_completion_name_the_generation_they_act_on(self) -> None:
+        conn = _conn([_LOCKED, {"fetchone": ("failed", None, 2, 5)}] + _fresh_happy_responses()[2:])
+        spec = _spec()
+        bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
+        _k, _sql, params = conn.events[conn.require_index("execute", "attempts = attempts + 1")]
+        assert tuple(params) == (spec.batch_key, 5)
+        _k, _sql, done = conn.events[conn.require_index("execute", "'completed', row_count")]
+        assert done[-1] == 5
+
+    def test_a_dry_run_reports_would_replace_only_for_a_replacing_spec(self) -> None:
+        conn = _conn([{"fetchone": (1,)}])
+        assert batch_utils.prior_completed_unit(conn, _spec()) is False  # append-only
+        assert conn.events == []  # and no query was issued
