@@ -27,10 +27,10 @@ import pytest
 
 from services.ic_measure import IcMeasure, UnitOutcome
 from src.core.market_calendar import get_market_calendar
+from tests.integration.conftest import TEST_DB_URL, connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 
-_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _OOS = "2025-12-24T05:15:00Z"
 _N_SESSIONS = 120
 _N_SYMBOLS = 8
@@ -97,7 +97,7 @@ class TestIcMeasureIntegration:
         predictive = np.nan_to_num(target, nan=0.0) * 50 + rng.normal(0, 0.3, opens.shape)
         noise = rng.normal(size=opens.shape)
         inserted_apr: list[str] = []
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             for key, value_type, value in _APR:
                 got = conn.execute(
                     "INSERT INTO config_schema (config_key, value_type, default_value, description) "
@@ -153,7 +153,7 @@ class TestIcMeasureIntegration:
             "legacy_before": legacy_before,
             "legacy_row": f"legacy_{tag}",
         }
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             conn.execute(
                 "DELETE FROM feature_ic_scores WHERE feature_name = %s", (f"legacy_{tag}",)
             )
@@ -177,7 +177,7 @@ class TestIcMeasureIntegration:
         symbols: list[str], sessions: list[date], revision: int, only: str | None = None
     ) -> None:
         months = sorted({(d.year, d.month) for d in sessions})
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             for symbol in symbols:
                 if only and symbol != only:
                     continue
@@ -194,14 +194,14 @@ class TestIcMeasureIntegration:
     @staticmethod
     def _run(world: dict, **overrides: object) -> list[UnitOutcome]:
         overrides.setdefault("symbols", world["symbols"])
-        runner = IcMeasure(_args(**overrides), _DSN)
+        runner = IcMeasure(_args(**overrides), TEST_DB_URL)
         runner.run()
         assert runner.failures == [], runner.failures
         return runner.outcomes
 
     @staticmethod
     def _scalar(query: str, params: tuple = ()) -> object:
-        with psycopg.connect(_DSN) as conn:
+        with connect(autocommit=False) as conn:
             return conn.execute(query, params).fetchone()[0]
 
     def test_case_1_rows_scopes_bound_and_provenance(self, world: dict) -> None:
@@ -209,7 +209,7 @@ class TestIcMeasureIntegration:
         assert outcomes and {o.status for o in outcomes} == {"loaded"}
         scopes = {
             r[0]
-            for r in psycopg.connect(_DSN)
+            for r in connect(autocommit=False)
             .execute("SELECT DISTINCT regime_scope FROM feature_ic_scores_v2")
             .fetchall()
         }
@@ -267,7 +267,7 @@ class TestIcMeasureIntegration:
         )
         revised = world["symbols"][3]
         mid = _utc(world["sessions"][60])
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             conn.execute(
                 "UPDATE market_data_ohlcv SET open = open * 1.08 WHERE symbol = %s "
                 "AND timeframe = '1d' AND timestamp = %s",
@@ -284,7 +284,7 @@ class TestIcMeasureIntegration:
         )
         assert after != before
         statuses = dict(
-            psycopg.connect(_DSN)
+            connect(autocommit=False)
             .execute(
                 "SELECT status, count(*) FROM provenance_batch WHERE writer LIKE 'ic_measure.%%' "
                 "AND symbols @> %s::text[] GROUP BY status",
@@ -295,7 +295,7 @@ class TestIcMeasureIntegration:
         assert statuses["superseded"] == statuses["completed"] == len(outcomes)
 
     def test_case_4_legacy_table_untouched(self, world: dict) -> None:
-        with psycopg.connect(_DSN) as conn:
+        with connect(autocommit=False) as conn:
             count, checksum = self._legacy(conn)
             assert conn.execute(
                 "SELECT ic_value FROM feature_ic_scores WHERE feature_name = %s",
@@ -367,14 +367,14 @@ class TestIcMeasureIntegration:
             "FROM feature_ic_scores_v2 WHERE regime_scope = 'unstratified' AND lookahead_bars = 1"
         )
         rows = self._scalar("SELECT count(*) FROM feature_ic_scores_v2")
-        with psycopg.connect(_DSN) as conn:
+        with connect(autocommit=False) as conn:
             distinct_before, end_before = conn.execute(window_end).fetchone()
         assert distinct_before == 1
         calendar = get_market_calendar()
         new_day = world["sessions"][-1] + timedelta(days=1)
         while not calendar.is_trading_day("NYSE", new_day):
             new_day += timedelta(days=1)
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             for symbol in world["symbols"]:
                 (open_,) = conn.execute(
                     "SELECT open FROM market_data_ohlcv WHERE symbol = %s AND timeframe = '1d' "
@@ -396,7 +396,7 @@ class TestIcMeasureIntegration:
         outcomes = self._run(world)
         assert outcomes and {o.status for o in outcomes} == {"replaced"}
         assert self._scalar("SELECT count(*) FROM feature_ic_scores_v2") == rows
-        with psycopg.connect(_DSN) as conn:
+        with connect(autocommit=False) as conn:
             distinct_after, end_after = conn.execute(window_end).fetchone()
         assert distinct_after == 1 and end_after > end_before
 
@@ -405,7 +405,7 @@ class TestIcMeasureIntegration:
     def _apr(**values: str):
         """Set config_state values for the body and restore the previous ones after."""
         keys = {k.replace("__", "."): v for k, v in values.items()}
-        with psycopg.connect(_DSN, autocommit=True) as conn:
+        with connect() as conn:
             old = {
                 k: conn.execute(
                     "SELECT config_value FROM config_state WHERE config_key = %s", (k,)
@@ -419,7 +419,7 @@ class TestIcMeasureIntegration:
         try:
             yield
         finally:
-            with psycopg.connect(_DSN, autocommit=True) as conn:
+            with connect() as conn:
                 for k, v in old.items():
                     conn.execute(
                         "UPDATE config_state SET config_value = %s WHERE config_key = %s", (v, k)
@@ -427,7 +427,7 @@ class TestIcMeasureIntegration:
 
     def _checksum(self) -> tuple:
         return (
-            psycopg.connect(_DSN)
+            connect(autocommit=False)
             .execute(
                 "SELECT count(*), coalesce(sum(hashtext(feature_name || regime_scope || regime || "
                 "lookahead_bars || coalesce(ic_value::text, '') || coalesce(ic_ci_lower::text, '') || "

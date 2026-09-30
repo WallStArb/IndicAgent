@@ -57,10 +57,11 @@ import sys
 from pathlib import Path
 
 import asyncpg
+import psycopg
 import pytest
 
 _MAINTENANCE_DB_URL = "postgresql://postgres:postgres@localhost:5432/postgres"
-_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
+TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _TEST_DB_NAME = "indicagent_test"
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -87,6 +88,12 @@ _SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_20
 _BASELINE_MIGRATION_CUTOFF = 380
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
+
+
+def connect(*, autocommit: bool = True) -> psycopg.Connection:
+    """A psycopg connection to indicagent_test, shared by the integration files that write
+    through the real bulk_load and IC writer."""
+    return psycopg.connect(TEST_DB_URL, autocommit=autocommit)
 
 
 def _migration_number(path: Path) -> int:
@@ -133,7 +140,7 @@ def _run_psql_file(path: Path, *, tolerate_stderr_substrings: tuple[str, ...] = 
 
 
 async def _run_sql(sql: str) -> None:
-    conn = await asyncpg.connect(_TEST_DB_URL)
+    conn = await asyncpg.connect(TEST_DB_URL)
     try:
         await conn.execute(sql)
     finally:

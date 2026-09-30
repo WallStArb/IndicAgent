@@ -23,6 +23,7 @@ from src.intelligence.measure import ic as measure_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.term_structure import TermStructure
 from src.intelligence.research.panel import Panel
+from tests.unit._responder_fakes import FakeConn, rows_responder
 
 _REPO = Path(__file__).resolve().parents[2]
 _OOS = datetime(2026, 3, 1, tzinfo=UTC)
@@ -194,43 +195,6 @@ class TestHorizons:
             ic_measure.horizons_for(self._APR, "5m")
 
 
-# ---------------------------------------------------------------------------
-# Fake connections
-# ---------------------------------------------------------------------------
-
-
-class _Cursor:
-    def __init__(self, conn: _Conn) -> None:
-        self.conn = conn
-        self.rows: list[tuple] = []
-
-    def __enter__(self) -> _Cursor:
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
-
-    def execute(self, sql: Any, params: Any = None) -> None:
-        text = sql if isinstance(sql, str) else sql.as_string(None)
-        self.conn.statements.append((text, params))
-        self.rows = self.conn.responder(text, params)
-
-    def fetchall(self) -> list[tuple]:
-        return self.rows
-
-    def fetchone(self) -> tuple | None:
-        return self.rows[0] if self.rows else None
-
-
-class _Conn:
-    def __init__(self, responder=lambda text, params: []) -> None:
-        self.responder = responder
-        self.statements: list[tuple[str, Any]] = []
-
-    def cursor(self) -> _Cursor:
-        return _Cursor(self)
-
-
 class TestFeatureNames:
     def test_schema_types_decide_and_order_follows_featurevector(self) -> None:
         import dataclasses as dc
@@ -240,7 +204,7 @@ class TestFeatureNames:
         fv_names = [f.name for f in dc.fields(FeatureVector)]
         present = [fv_names[2], fv_names[0]]  # schema order must not matter
         rows = [(n, "real") for n in present] + [(fv_names[1], "text"), ("not_a_feature", "real")]
-        conn = _Conn(lambda text, params: rows)
+        conn = FakeConn(rows_responder(rows))
         names, missing = ic_measure.feature_names(conn, "feature_vectors")
         assert names == [fv_names[0], fv_names[2]]
         assert fv_names[1] in missing and fv_names[3] in missing
@@ -903,7 +867,7 @@ class TestExecuteUnit:
             ic_measure, "completed_provenance_batch", lambda conn, spec: {"row_count": 7}
         )
         outcome = ic_measure.execute_unit(
-            self._unit(lambda: calls.append("compute") or []), _Conn(), None, _OOS, dry_run=False
+            self._unit(lambda: calls.append("compute") or []), FakeConn(), None, _OOS, dry_run=False
         )
         assert outcome.status == "skipped" and calls == []
 
@@ -922,7 +886,7 @@ class TestExecuteUnit:
 
         monkeypatch.setattr(ic_measure, "bulk_load", fake_bulk_load)
         outcome = ic_measure.execute_unit(
-            self._unit(lambda: [_good_row()]), _Conn(), _Write(), _OOS, dry_run=False
+            self._unit(lambda: [_good_row()]), FakeConn(), _Write(), _OOS, dry_run=False
         )
         assert outcome.status == "replaced" and outcome.rows == 1
         assert captured["spec"].replace_where["regime_scope"] == "unstratified"
@@ -940,7 +904,7 @@ class TestExecuteUnit:
 
         monkeypatch.setattr(ic_measure, "bulk_load", fake_bulk_load)
         outcome = ic_measure.execute_unit(
-            self._unit(lambda: [_good_row()]), _Conn(), _Write(), _OOS, dry_run=False
+            self._unit(lambda: [_good_row()]), FakeConn(), _Write(), _OOS, dry_run=False
         )
         assert outcome.status == "loaded"
         assert "replace_where" not in captured and "compress_before" not in captured
@@ -954,7 +918,7 @@ class TestExecuteUnit:
             ic_measure, "bulk_load", lambda *a, **k: pytest.fail("bulk_load called in a dry run")
         )
         outcome = ic_measure.execute_unit(
-            self._unit(lambda: [_good_row(), _good_row()]), _Conn(), None, _OOS, dry_run=True
+            self._unit(lambda: [_good_row(), _good_row()]), FakeConn(), None, _OOS, dry_run=True
         )
         assert outcome.status == "would_replace" and outcome.rows == 2
 
@@ -964,7 +928,7 @@ class TestExecuteUnit:
         )
         assert (
             ic_measure.execute_unit(
-                self._unit(lambda: []), _Conn(), None, _OOS, dry_run=True
+                self._unit(lambda: []), FakeConn(), None, _OOS, dry_run=True
             ).status
             == "would_skip"
         )
@@ -972,7 +936,7 @@ class TestExecuteUnit:
         monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
         assert (
             ic_measure.execute_unit(
-                self._unit(lambda: [_good_row()]), _Conn(), None, _OOS, dry_run=True
+                self._unit(lambda: [_good_row()]), FakeConn(), None, _OOS, dry_run=True
             ).status
             == "would_load"
         )
@@ -990,7 +954,7 @@ class TestExecuteUnit:
         row[cols["training_window_end"]] = _OOS
         with pytest.raises(ValueError, match="oos_start"):
             ic_measure.execute_unit(
-                self._unit(lambda: [tuple(row)]), _Conn(), _Write(), _OOS, dry_run=False
+                self._unit(lambda: [tuple(row)]), FakeConn(), _Write(), _OOS, dry_run=False
             )
 
 

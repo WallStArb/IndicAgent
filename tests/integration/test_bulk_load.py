@@ -25,10 +25,9 @@ import pytest
 from psycopg import sql
 
 from services._batch_utils import BulkLoadRefused, BulkLoadSpec, bulk_load
+from tests.integration.conftest import connect
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
-
-_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 
 _DAY1 = datetime(2027, 1, 4, tzinfo=UTC)
 _DAY2 = datetime(2027, 1, 5, tzinfo=UTC)
@@ -46,7 +45,7 @@ def _name() -> str:
 
 
 def _create_scratch_hypertable(name: str) -> None:
-    with psycopg.connect(_TEST_DB_URL, autocommit=True) as conn:
+    with connect() as conn:
         conn.execute(
             sql.SQL(
                 "CREATE TABLE {} (symbol text, tf text, bar_ts timestamptz, "
@@ -67,12 +66,8 @@ def _create_scratch_hypertable(name: str) -> None:
 
 
 def _drop_table(name: str) -> None:
-    with psycopg.connect(_TEST_DB_URL, autocommit=True) as conn:
+    with connect() as conn:
         conn.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(sql.Identifier(name)))
-
-
-def _connect() -> psycopg.Connection:
-    return psycopg.connect(_TEST_DB_URL, autocommit=False)
 
 
 def _spec(table: str, start: datetime, end: datetime, **overrides: object) -> BulkLoadSpec:
@@ -110,7 +105,7 @@ class TestBulkLoadIntegration:
         _drop_table(name)
 
     def _count_rows(self, table: str, since: datetime | None = None) -> int:
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             if since is None:
                 cur.execute(sql.SQL("SELECT count(*) FROM {}").format(sql.Identifier(table)))
             else:
@@ -124,7 +119,7 @@ class TestBulkLoadIntegration:
             return int(count)
 
     def _compressed_chunks(self, table: str) -> int:
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM timescaledb_information.chunks "
                 "WHERE hypertable_name = %s AND is_compressed",
@@ -134,7 +129,7 @@ class TestBulkLoadIntegration:
             return int(count)
 
     def _provenance(self, spec: BulkLoadSpec) -> tuple[str, int | None, int, str | None]:
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT status, row_count, attempts, error FROM provenance_batch "
                 "WHERE batch_key = %s",
@@ -145,7 +140,7 @@ class TestBulkLoadIntegration:
     def test_case_1_load_two_days_and_compress_both_chunks(self, table: str) -> None:
         spec = _spec(table, _DAY1, _RANGE_END)
         rows = _day_rows(_DAY1) + _day_rows(_DAY2)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(conn, spec, _COLUMNS, rows, compress_before=_RANGE_END)
         assert result.status == "loaded"
         assert result.batch_key == spec.batch_key
@@ -153,7 +148,7 @@ class TestBulkLoadIntegration:
         assert result.chunks_compressed == 2
         assert self._compressed_chunks(table) == 2
         assert self._count_rows(table) == 8
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM pg_constraint con JOIN pg_class rel "
                 "ON rel.oid = con.conrelid WHERE rel.relname = %s AND con.contype = 'p'",
@@ -167,7 +162,7 @@ class TestBulkLoadIntegration:
     def test_case_2_rerun_identical_spec_is_a_no_op(self, table: str) -> None:
         spec = _spec(table, _DAY1, _RANGE_END)
         rows = _day_rows(_DAY1) + _day_rows(_DAY2)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(conn, spec, _COLUMNS, rows, compress_before=_RANGE_END)
         assert result.status == "skipped"
         assert result.row_count == 8
@@ -179,7 +174,7 @@ class TestBulkLoadIntegration:
     def test_case_3_changed_apr_hits_compressed_chunk_and_refuses(self, table: str) -> None:
         spec = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"infra.bulk_load.integration": "2"})
         assert spec.batch_key != _spec(table, _DAY1, _RANGE_END).batch_key
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             with pytest.raises(BulkLoadRefused, match="compressed chunk"):
                 bulk_load(conn, spec, _COLUMNS, _day_rows(_DAY1) + _day_rows(_DAY2))
         assert self._count_rows(table) == 8, "a refused load must add nothing"
@@ -190,7 +185,7 @@ class TestBulkLoadIntegration:
             ("AAA", "1d", _DAY3_START.replace(hour=3), 1.0, 2.0),
             ("AAA", "1d", _DAY3_START.replace(hour=1), 1.0, 2.0),  # earlier than row 0
         ]
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             with pytest.raises(ValueError, match="row 1"):
                 bulk_load(conn, spec, _COLUMNS, out_of_order)
         assert self._count_rows(table, since=_DAY3_START) == 0, "failed unit adds zero rows"
@@ -206,7 +201,7 @@ class TestBulkLoadIntegration:
             ("AAA", "1d", _DAY3_START.replace(hour=3), 1.0, 2.0),
             ("BBB", "1d", _DAY3_START.replace(hour=3), 1.0, 2.0),
         ]
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(conn, spec, _COLUMNS, ordered)
         assert result.status == "loaded"
         assert result.row_count == 4
@@ -216,10 +211,10 @@ class TestBulkLoadIntegration:
     def test_case_5_real_clamped_double_precision_unchanged(self, table: str) -> None:
         spec = _spec(table, _DAY4_START, _DAY4_END)
         rows = [("AAA", "1d", _DAY4_START.replace(hour=1), 1e-50, 1e-50)]
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(conn, spec, _COLUMNS, rows)
         assert result.status == "loaded"
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 sql.SQL("SELECT x, y FROM {} WHERE bar_ts >= %s").format(sql.Identifier(table)),
                 (_DAY4_START,),
@@ -232,7 +227,7 @@ class TestBulkLoadIntegration:
         table = _name()
         _create_scratch_hypertable(table)
         try:
-            with _connect() as conn, conn.cursor() as cur:
+            with connect(autocommit=False) as conn, conn.cursor() as cur:
                 cur.execute(
                     "SELECT add_compression_policy(%s, compress_after => INTERVAL '1 day')",
                     (table,),
@@ -244,10 +239,10 @@ class TestBulkLoadIntegration:
                 ("AAA", "1d", old_start + timedelta(hours=1), 1.0, 2.0),
                 ("BBB", "1d", old_start + timedelta(hours=2), 3.0, 4.0),
             ]
-            with _connect() as conn:
+            with connect(autocommit=False) as conn:
                 with pytest.raises(BulkLoadRefused, match="compression policy"):
                     bulk_load(conn, spec, _COLUMNS, rows)
-            with _connect() as conn, conn.cursor() as cur:
+            with connect(autocommit=False) as conn, conn.cursor() as cur:
                 cur.execute(
                     "SELECT job_id FROM timescaledb_information.jobs "
                     "WHERE hypertable_name = %s AND proc_name = 'policy_compression'",
@@ -256,7 +251,7 @@ class TestBulkLoadIntegration:
                 (job_id,) = cur.fetchone()
                 cur.execute("SELECT alter_job(%s, scheduled => false)", (job_id,))
                 conn.commit()
-            with _connect() as conn:
+            with connect(autocommit=False) as conn:
                 result = bulk_load(conn, spec, _COLUMNS, rows)
             assert result.status == "loaded"
             assert result.row_count == 2
@@ -265,7 +260,7 @@ class TestBulkLoadIntegration:
 
     def test_case_7_guard_triggers_refuse_edit_and_delete(self, table: str) -> None:
         completed_key = _spec(table, _DAY1, _RANGE_END).batch_key
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             with pytest.raises(psycopg.errors.CheckViolation):
                 cur.execute(
                     "UPDATE provenance_batch SET row_count = 0 WHERE batch_key = %s",
@@ -289,7 +284,7 @@ class TestBulkLoadReplaceIntegration:
         _drop_table(name)
 
     def _rows(self, table: str) -> list[tuple]:
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 sql.SQL("SELECT symbol, bar_ts, x FROM {} ORDER BY symbol, bar_ts").format(
                     sql.Identifier(table)
@@ -298,7 +293,7 @@ class TestBulkLoadReplaceIntegration:
             return cur.fetchall()
 
     def _status(self, spec: BulkLoadSpec) -> str:
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT status FROM provenance_batch WHERE batch_key = %s", (spec.batch_key,)
             )
@@ -307,14 +302,14 @@ class TestBulkLoadReplaceIntegration:
     def test_replace_swaps_the_unit_and_supersedes_the_previous_key(self, table: str) -> None:
         where = {"symbol": ["AAA", "BBB"], "tf": "1d"}
         first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"}, replace_where=where)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1, x=1.0) + _day_rows(_DAY2, x=1.0))
         # rows outside the predicate (another symbol) that must survive
         other = _spec(table, _DAY1, _RANGE_END, symbols=("CCC",), writer="other_unit")
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             bulk_load(conn, other, _COLUMNS, [("CCC", "1d", _DAY1.replace(hour=1), 9.0, 9.0)])
         second = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "2"}, replace_where=where)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(
                 conn, second, _COLUMNS, _day_rows(_DAY1, x=5.0) + _day_rows(_DAY2, x=5.0)
             )
@@ -338,7 +333,7 @@ class TestBulkLoadReplaceIntegration:
             apr_snapshot={"v": "1"},
             replace_where={"symbol": ["AAA", "BBB"], "tf": "1d"},
         )
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             with pytest.raises(BulkLoadRefused, match="superseded"):
                 bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1))
 
@@ -359,9 +354,9 @@ class TestBulkLoadReplaceIntegration:
         )
         assert narrow.unit_key == wide.unit_key and narrow.batch_key != wide.batch_key
         rows = _day_rows(_DAY3_START, x=1.0)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             bulk_load(conn, narrow, _COLUMNS, rows)
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             result = bulk_load(
                 conn,
                 wide,
@@ -370,7 +365,7 @@ class TestBulkLoadReplaceIntegration:
             )
         assert result.rows_replaced == 4
         assert self._status(narrow) == "superseded" and self._status(wide) == "completed"
-        with _connect() as conn, conn.cursor() as cur:
+        with connect(autocommit=False) as conn, conn.cursor() as cur:
             cur.execute(
                 sql.SQL("SELECT count(*) FROM {} WHERE bar_ts >= %s").format(sql.Identifier(table)),
                 (_DAY3_START,),
@@ -396,7 +391,7 @@ class TestBarContentDigestsIntegration:
                 (symbol, month, nxt, digest),
             )
 
-        with _connect() as conn:
+        with connect(autocommit=False) as conn:
             for symbol in (s1, s2):
                 for month, digest in ((jan, "a"), (mar, "c")):  # February is a hole
                     _insert(conn, symbol, month, digest)

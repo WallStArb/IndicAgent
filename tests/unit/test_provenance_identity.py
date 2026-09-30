@@ -13,11 +13,16 @@ import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from services._batch_utils import bar_content_digests, kernel_code_key, kernel_code_modules
+from tests.unit._responder_fakes import FakeConn, rows_responder
+
+
+def _conn(rows: list[tuple]) -> FakeConn:
+    return FakeConn(rows_responder(rows))
+
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -82,32 +87,6 @@ class TestKernelCodeKey:
         assert "sys.modules" not in source
 
 
-class _Cursor:
-    def __init__(self, conn: _Conn) -> None:
-        self.conn = conn
-
-    def __enter__(self) -> _Cursor:
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
-
-    def execute(self, sql: str, params: tuple) -> None:
-        self.conn.statements.append((sql, params))
-
-    def fetchall(self) -> list[tuple]:
-        return self.conn.rows
-
-
-class _Conn:
-    def __init__(self, rows: list[tuple]) -> None:
-        self.rows = rows
-        self.statements: list[tuple[str, tuple]] = []
-
-    def cursor(self) -> _Cursor:
-        return _Cursor(self)
-
-
 _START = datetime(2026, 1, 1, tzinfo=UTC)
 _END = datetime(2026, 4, 1, tzinfo=UTC)  # exclusive: Jan, Feb, Mar
 _JAN, _FEB, _MAR = (datetime(2026, m, 1, tzinfo=UTC) for m in (1, 2, 3))
@@ -115,7 +94,7 @@ _JAN, _FEB, _MAR = (datetime(2026, m, 1, tzinfo=UTC) for m in (1, 2, 3))
 
 class TestBarContentDigests:
     def test_one_statement_against_the_current_view_only(self) -> None:
-        conn = _Conn([("SPY", _JAN, "d1")])
+        conn = _conn([("SPY", _JAN, "d1")])
         bar_content_digests(conn, "1d", ["SPY"], _START, _END)
         assert len(conn.statements) == 1
         sql, params = conn.statements[0]
@@ -125,7 +104,7 @@ class TestBarContentDigests:
         assert params[0] == "1d"
 
     def test_composed_per_symbol_hex_and_absent_symbol(self) -> None:
-        conn = _Conn([("SPY", _JAN, "d1"), ("SPY", _FEB, "d2"), ("SPY", _MAR, "d3")])
+        conn = _conn([("SPY", _JAN, "d1"), ("SPY", _FEB, "d2"), ("SPY", _MAR, "d3")])
         out = bar_content_digests(conn, "1d", ["SPY", "QQQ"], _START, _END)
         assert _HEX64.fullmatch(out["SPY"])
         assert out["QQQ"] == "absent"
@@ -140,30 +119,30 @@ class TestBarContentDigests:
             ("QQQ", _MAR, "c"),
         ]
         changed = [r if r[:2] != ("SPY", _FEB) else ("SPY", _FEB, "B") for r in base]
-        one = bar_content_digests(_Conn(base), "1d", ["SPY", "QQQ"], _START, _END)
-        two = bar_content_digests(_Conn(changed), "1d", ["SPY", "QQQ"], _START, _END)
+        one = bar_content_digests(_conn(base), "1d", ["SPY", "QQQ"], _START, _END)
+        two = bar_content_digests(_conn(changed), "1d", ["SPY", "QQQ"], _START, _END)
         assert one["SPY"] != two["SPY"]
         assert one["QQQ"] == two["QQQ"]
 
     def test_month_hole_is_the_empty_sentinel_and_filling_it_flips_the_digest(self) -> None:
         holey = [("SPY", _JAN, "a"), ("SPY", _MAR, "c")]
         filled = holey + [("SPY", _FEB, "b")]
-        one = bar_content_digests(_Conn(holey), "1d", ["SPY"], _START, _END)
-        two = bar_content_digests(_Conn(filled), "1d", ["SPY"], _START, _END)
+        one = bar_content_digests(_conn(holey), "1d", ["SPY"], _START, _END)
+        two = bar_content_digests(_conn(filled), "1d", ["SPY"], _START, _END)
         assert one["SPY"] != two["SPY"]
         assert one["SPY"] != "absent"
 
     def test_row_order_of_the_fetch_does_not_matter(self) -> None:
         rows = [("SPY", _JAN, "a"), ("SPY", _FEB, "b")]
-        one = bar_content_digests(_Conn(rows), "1d", ["SPY"], _START, _END)
-        two = bar_content_digests(_Conn(rows[::-1]), "1d", ["SPY"], _START, _END)
+        one = bar_content_digests(_conn(rows), "1d", ["SPY"], _START, _END)
+        two = bar_content_digests(_conn(rows[::-1]), "1d", ["SPY"], _START, _END)
         assert one == two
 
     def test_naive_datetime_and_empty_range_raise(self) -> None:
         with pytest.raises(ValueError):
-            bar_content_digests(_Conn([]), "1d", ["SPY"], datetime(2026, 1, 1), _END)
+            bar_content_digests(_conn([]), "1d", ["SPY"], datetime(2026, 1, 1), _END)
         with pytest.raises(ValueError):
-            bar_content_digests(_Conn([]), "1d", ["SPY"], _END, _START)
+            bar_content_digests(_conn([]), "1d", ["SPY"], _END, _START)
 
 
 class TestImportClosure:
