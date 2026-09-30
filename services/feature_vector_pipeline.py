@@ -65,6 +65,8 @@ from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     invert_ctf_higher_tf_map,
 )
+from src.intelligence.features.contract.registry import registry_column_gaps
+from src.intelligence.features.feature_vector_persistence import NUMERIC_COLUMN_NAMES
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
@@ -980,9 +982,22 @@ class FeatureVectorPipeline(BaseDaemon):
             await self._config_service.get(key)
         return HmmConfig.from_values(self._config_service.get_sync)
 
+    @staticmethod
+    def _require_registry_column_ownership() -> None:
+        """Refuse to start when a numeric FeatureVector column has no registry kernel and is not
+        a listed unowned column (D-28). A column this daemon publishes that no kernel computes is
+        a train-serve skew: the rebuild writes it from kernels, the live path would not."""
+        gaps = registry_column_gaps(NUMERIC_COLUMN_NAMES)
+        if gaps:
+            raise RuntimeError(
+                "FeatureVector columns with no registry kernel and no UNOWNED_COLUMNS entry: "
+                f"{gaps}"
+            )
+
     async def _prewarm_threshold_config(self) -> None:
         """Prewarm config cache and build FeatureFactoryConfig from feature.* keys."""
         assert self._config_service is not None
+        self._require_registry_column_ownership()
         for key, default in self._THRESHOLD_KEYS:
             await self._config_service.get(key, default)
         hmm_config = await self._load_hmm_config()

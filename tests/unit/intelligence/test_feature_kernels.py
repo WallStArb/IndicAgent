@@ -31,6 +31,7 @@ from src.intelligence.features.contract.causality_probe import (
 )
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import (
+    UNOWNED_COLUMNS,
     KernelRegistry,
     compute_kernels,
     default_registry,
@@ -147,32 +148,20 @@ DELEGATED_HELPERS = (
 )
 
 
-# Numeric persisted columns no kernel owns: the cross-sectional rank columns (todo 421). The HMM
-# regime columns are owned by the regime kernels (186-13). A column
-# that is dropped or left unowned changes this set and fails the test below.
-REMAINING_COLUMNS = frozenset(
-    {
-        "momentum_rank_z",
-        "volatility_rank_z",
-        "volume_rank_z",
-    }
-)
-
-
 REGIME_COLUMNS = frozenset(
     (*REGIME_WRITER_OWNED_COLUMN_NAMES, *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
 )
 
 
-def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_remaining():
+def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_unowned():
     numeric = set(MANIFEST["numeric_columns"])
     owned = set(default_registry().feature_columns())
     # The regime kernels own 16 persisted columns; the parity manifest's numeric set holds the
     # three that FeatureVector carries (the labels and the other numeric ones are not in it).
     assert REGIME_COLUMNS <= owned
     assert REGIME_COLUMNS & numeric == {"hmm_regime_prob", "hmm_entropy", "hmm_duration"}
-    assert (owned - (REGIME_COLUMNS - numeric)) | REMAINING_COLUMNS == numeric
-    assert not owned & REMAINING_COLUMNS
+    assert (owned - (REGIME_COLUMNS - numeric)) | set(UNOWNED_COLUMNS) == numeric
+    assert not owned & set(UNOWNED_COLUMNS)
 
 
 def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:

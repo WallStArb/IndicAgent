@@ -16,7 +16,7 @@ import enum
 import functools
 import importlib
 import pkgutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -330,6 +330,34 @@ def discover_kernels(package: str = _DEFAULT_PACKAGE) -> KernelRegistry:
 @functools.lru_cache(maxsize=1)
 def default_registry() -> KernelRegistry:
     return discover_kernels()
+
+
+# Numeric FeatureVector columns no kernel owns, each with the reason. The pipeline refuses to
+# start when a numeric column is neither a registry feature column nor listed here, and a test
+# holds `feature_columns() + UNOWNED_COLUMNS` equal to the numeric schema, so a dropped or
+# forgotten column is loud (D-28, T-186-15-07).
+UNOWNED_COLUMNS: Mapping[str, str] = {
+    "momentum_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+    "volatility_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+    "volume_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+}
+
+
+def registry_column_gaps(
+    numeric_columns: Iterable[str], registry: KernelRegistry | None = None
+) -> list[str]:
+    """Numeric columns that are neither a registry feature column nor in `UNOWNED_COLUMNS`."""
+    owned = set((registry if registry is not None else default_registry()).feature_columns())
+    return sorted(c for c in numeric_columns if c not in owned and c not in UNOWNED_COLUMNS)
 
 
 def feature_memory_bars(
