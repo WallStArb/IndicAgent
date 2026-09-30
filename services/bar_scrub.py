@@ -108,7 +108,7 @@ _DELETE_STALE_SQL = """
 DELETE FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = $2
   AND rule <> ALL($3::text[])
-  AND rule <> 'legacy_price_sanity_status'
+  AND rule NOT IN ('legacy_price_sanity_status', 'split_seam')
   AND ($4::timestamptz IS NULL OR "timestamp" >= $4)
   AND ($5::timestamptz IS NULL OR "timestamp" < $5)
 """

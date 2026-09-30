@@ -42,6 +42,11 @@ _ALLOW_LIST: dict[str, str] = {
         "ibkr_named 1d row, quarantined ones included, into ohlcv_observation as a "
         "LEGACY_IMPORT observation; it writes D1 only, never market_data_ohlcv."
     ),
+    "scripts/ops/bars/ops_seam_audit.py": (
+        "PERMANENT: the split-seam audit (phase 185 plan 15, D-24) compares stored 1d "
+        "closes, quarantined bars included, with a fresh TRADES fetch; it writes "
+        "corporate_action and split_seam flags only, never market_data_ohlcv."
+    ),
 }
 
 

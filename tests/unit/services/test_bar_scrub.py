@@ -346,6 +346,8 @@ def test_write_flags_prune_stale_deletes_other_rules_except_legacy() -> None:
     assert "rule = ANY($3::text[])" in deletes[0]
     assert "rule <> ALL($3::text[])" in deletes[1]
     assert "'legacy_price_sanity_status'" in deletes[1]
+    # the seam audit's quarantine flags belong to plan 15, not the scrub pass
+    assert "'split_seam'" in deletes[1]
     assert any(
         event.get("event") == "bar_scrub.pruned_stale_flags" and event.get("deleted") == 2
         for event in logs
