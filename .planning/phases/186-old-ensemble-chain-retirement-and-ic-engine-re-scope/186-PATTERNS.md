@@ -31,10 +31,10 @@ the shared main checkout blocks the research lane's real runs.
 | `production/migrations/NNN_feature_vectors_v2.sql` (rebuilt table) | migration (hypertable) | DDL | `production/migrations/300_feature_ic_scores_history_hypertable.sql` (47-73), `295_feature_ic_scores_hypertable.sql` | exact |
 | `services/service_auditor.py` (remove entries) | config registry | n/a | itself: `_DAG_ORDER` 80, 108-116; `_AGENT_ID_TO_UNIT` 167; `_ONESHOT_UNITS` 205-214 | exact |
 | `services/feature_lifecycle.py` (D-30 shrink) | batch service | batch | itself (BaseBatch shape 550-600, `LifecycleConfig.from_apr` 93-127) | exact |
-| `src/intelligence/features/registry.py` | registry | transform | `src/intelligence/regime_signals/__init__.py` | role-match |
+| `src/intelligence/features/contract/registry.py` | registry | transform | `src/intelligence/regime_signals/__init__.py` | role-match |
 | `src/intelligence/features/kernels/{price,volume,smc,vp_sr,calendar,macro,regime}.py` | pure compute | transform | `src/intelligence/feature_factory.py` `_*_series_full` (2154-2930), `_precompute_series` (3558) | exact (code moves) |
 | `src/intelligence/features/kernels/regime.py` (HMM as kernel, R-10) | pure compute | transform | `services/regime_writer.py` `_walk_forward_hmm_labels` (724), `_compute_symbol_tf_walk_forward` (1003) | exact (code moves) |
-| `src/intelligence/features/causality_probe.py` | utility | transform | `src/intelligence/research/guards.py` `causality_probe_array` (193-222), `memory_check_array` (225-257) | exact (import, do not copy) |
+| `src/intelligence/features/contract/causality_probe.py` | utility | transform | `src/intelligence/research/guards.py` `causality_probe_array` (193-222), `memory_check_array` (225-257) | exact (import, do not copy) |
 | `tests/unit/intelligence/test_kernel_registry_parity.py` | test | transform | `tests/unit/intelligence/test_feature_factory_batch_parity.py` | exact |
 | `tests/unit/intelligence/test_causality_probe.py` | test | transform | `tests/unit/research/test_families_overnight_intraday.py:78-104` | exact |
 | `services/backfill_feature_factory.py` (rebuild writer, todo 339) | batch service | batch | itself: compute stage 1215-1325, worker 1326 | exact |
@@ -526,7 +526,7 @@ Checked by `tests/unit/services/test_service_auditor_registry_integrity.py` and
 references `_DAG_ORDER` and is deleted with the module. Seeded `alert.lag.*` keys for removed units
 are deleted in a migration (311 APR pattern).
 
-### `src/intelligence/features/registry.py` and `kernels/*.py` (D-25, D-26)
+### `src/intelligence/features/contract/registry.py` and `kernels/*.py` (D-25, D-26)
 
 **Registry analog:** `src/intelligence/regime_signals/__init__.py` (module docstring states the
 pure DB-free contract every module implements; registry is a plain dict built from explicit
@@ -582,7 +582,7 @@ signature takes `obs_matrix` plus fit parameters and returns labels aligned to
 (stays in the writer) and a pure transform (goes into the kernel). The full-history
 `_compute_symbol_tf` (1568) is deleted (D-29). `alpha.hmm.random_state` stays an APR seed.
 
-### `src/intelligence/features/causality_probe.py` (D-27)
+### `src/intelligence/features/contract/causality_probe.py` (D-27)
 
 **Analog:** `src/intelligence/research/guards.py:193-257` already implements the probe (NaN fill
 and per-cell random rescale, descending t, exact equality with NaN-both-sides allowed) and the

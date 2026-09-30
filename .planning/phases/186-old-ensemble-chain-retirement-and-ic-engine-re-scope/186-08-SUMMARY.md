@@ -5,8 +5,8 @@ subsystem: features
 tags: [kernel-registry, causality-probe, golden-fixture, float32-parity]
 requires: []
 provides:
-  - src.intelligence.features.registry (Kernel, KernelRegistry, discover_kernels, feature_memory_bars, default_registry)
-  - src.intelligence.features.causality_probe (causality_probe, memory_check, probe_registry)
+  - src.intelligence.features.contract.registry (Kernel, KernelRegistry, discover_kernels, feature_memory_bars, default_registry)
+  - src.intelligence.features.contract.causality_probe (causality_probe, memory_check, probe_registry)
   - tests/fixtures/kernel_parity golden float32 fixture and parity test
 affects: [186-12, 186-14, 186-15, 186-25]
 tech-stack:
@@ -15,9 +15,9 @@ tech-stack:
 key-files:
   created:
     - src/intelligence/features/__init__.py
-    - src/intelligence/features/registry.py
+    - src/intelligence/features/contract/registry.py
     - src/intelligence/features/kernels/__init__.py
-    - src/intelligence/features/causality_probe.py
+    - src/intelligence/features/contract/causality_probe.py
     - scripts/infrastructure/features_capture_kernel_parity_golden.py
     - tests/unit/intelligence/kernel_parity_reference.py
     - tests/unit/intelligence/test_kernel_registry.py
@@ -60,7 +60,7 @@ A kernel registry with automatic discovery and one memory function, a truncation
 
 **1. [Rule 3 - Blocking] Pre-commit plugin class naming check rejected `Kernel`, `CausalityViolation`, `MemoryViolation`**
 - The suffix allowlist in `tools/check_plugin_invariants.sh` does not admit these plan-mandated names.
-- Fix: exempted `src/intelligence/features/registry.py` and `src/intelligence/features/causality_probe.py` in the class-naming case (narrow, two files), committed with task 1. Renaming would have broken the plan's interface and acceptance greps that 186-12+ build on.
+- Fix: exempted `src/intelligence/features/contract/registry.py` and `src/intelligence/features/contract/causality_probe.py` in the class-naming case (narrow, two files), committed with task 1. Renaming would have broken the plan's interface and acceptance greps that 186-12+ build on.
 - Files modified: tools/check_plugin_invariants.sh (not in the plan's files_modified).
 
 **2. [Process] Task 1 and 2 implementation was written before the test run**

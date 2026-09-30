@@ -289,7 +289,7 @@ Plans:
   ret_autocorr_1 and sweep_detected at the 233 compute_eligible names; todo 445 closed; merged
   2026-09-28 (`0b4edf3a7`)
 - [x] 186-08 kernel registry, causality probe and golden parity fixture: `discover_kernels()` and
-  `feature_memory_bars()` (D-25, D-26) in `src/intelligence/features/registry.py`, truncation
+  `feature_memory_bars()` (D-25, D-26) in `src/intelligence/features/contract/registry.py`, truncation
   `causality_probe`/`memory_check` (D-27), frozen float32 golden of the current compute path
   (1 synthetic and 16 real cases) with a byte-identical parity test for 186-12 and 186-15; merged
   2026-09-29 (`70552a710`)

@@ -30,8 +30,8 @@ key-files:
     - .planning/todos/pending/461-gap-z-read-the-next-bars-open.md
   modified:
     - src/intelligence/feature_factory.py
-    - src/intelligence/features/registry.py
-    - src/intelligence/features/causality_probe.py
+    - src/intelligence/features/contract/registry.py
+    - src/intelligence/features/contract/causality_probe.py
     - tests/unit/intelligence/test_kernel_registry.py
     - tests/unit/intelligence/test_causality_probe.py
     - tests/unit/test_feature_factory.py

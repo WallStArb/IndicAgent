@@ -133,11 +133,11 @@ package, else `.planning/gate_look_log.jsonl`) and writes the decision (timefram
 including whether 5m features stay at 233 names) into todo 445, the ledger section 5 and STATE.md.
 Must not start IBKR jobs or touch `feature_vectors`' schema. No external gate (R-08).
 
-**186-08 Kernel registry contract.** Creates `src/intelligence/features/registry.py` (Kernel: name,
+**186-08 Kernel registry contract.** Creates `src/intelligence/features/contract/registry.py` (Kernel: name,
 origin, declared inputs, declared memory in bars, dtype, pure `compute(inputs up to t)`), with
 origin modules discovered automatically under `src/intelligence/features/kernels/` so later plans
 add modules without editing the registry; declared memory is the single source for feature-member
-memory (D-26). Creates `src/intelligence/features/causality_probe.py` (truncate inputs at
+memory (D-26). Creates `src/intelligence/features/contract/causality_probe.py` (truncate inputs at
 availability, recompute, compare exactly or within 1 ulp in float32; cross-sectional features
 truncate every symbol) with tests that fail an injected lookahead kernel. Captures a golden float32
 output fixture of the current `compute_batch` on fixture bars and a stated sample of real
@@ -330,7 +330,7 @@ stay binding for execution. Next step: the plan checker over all 29.
 Names fixed by written plans, which later plans must use:
 - Provenance table `provenance_batch` (186-06, not `lineage_batch`); API `bulk_load()`, `BulkLoadSpec`, `completed_provenance_batch()`, `bulk_load(replace_where=)`, `kernel_code_key()`, `bar_content_digests()` in `services/_batch_utils.py`, synchronous psycopg (async callers use `asyncio.to_thread`).
 - Determinism tool `scripts/research/determinism/` (186-03); promoted helpers `scripts/research/date_panel.py`, `cost_hurdle.py`, `feature_matrix.py`, `scripts/infrastructure/instrument_compute_eligibility_audit.py` (186-04).
-- Kernel registry `src/intelligence/features/registry.py`, `kernels/` (auto-discovered `KERNELS` tuples), `path_dependent`, `memory_atol`, `acausal_control`, `compute_kernels()`, `UNOWNED_COLUMNS` in `registry.py` (186-08, 186-12, 186-15). 186-15 depends on 186-13 (same files).
+- Kernel registry `src/intelligence/features/contract/registry.py`, `kernels/` (auto-discovered `KERNELS` tuples), `path_dependent`, `memory_atol`, `acausal_control`, `compute_kernels()`, `UNOWNED_COLUMNS` in `registry.py` (186-08, 186-12, 186-15). 186-15 depends on 186-13 (same files).
 - Fresh IC table `feature_ic_scores_v2` (186-14): `regime_scope` in the PK from creation, `training_window_end` = the latest target exit bar (one clock); the legacy `feature_ic_scores` table is untouched until 186-28 drops it whole. Fresh IC package `src/intelligence/measure/`; writer `services/ic_measure.py`, oneshot `indicagent-ic-measure` (186-10, 186-14).
 - 186-18 task 3 defers the market_regimes orphan-delete rerun to 186-26 task 1 (after 186-20's parity is on main, before the rebuild launch).
 - 186-19 leaves for 186-21: ops scripts importing `services.ensemble_ic_engine` (`ops_ensemble_ablation.py`, `ops_oos_gate1_signal_eval.py`), orchestrator steps 7-8, and APR keys left by 186-09 and 186-16. Delete APR keys per key after a grep, never by LIKE (live readers exist, e.g. `alpha.ensemble.mv_condition_max`, `alpha.ic.shrinkage_k`, `alpha.ic.canary_rng_seed`).

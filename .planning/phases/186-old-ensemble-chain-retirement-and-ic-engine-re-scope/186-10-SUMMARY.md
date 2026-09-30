@@ -77,7 +77,7 @@ Exact existing key names for min_obs, fdr_alpha and hac_max_lag were not verifie
 
 **1. [Rule 3 - Blocking] Plugin class naming hook rejected the pinned class names**
 - Found during: task 1 commit. `IcCell`, `TargetStack`, `MeasureParams`, `TermStructure`, `MemberIcSeries` fail the `src/intelligence/` suffix check.
-- Fix: added `src/intelligence/measure/*` to the exclusion list in `tools/check_plugin_invariants.sh`, the same precedent as `bars/` and `features/registry.py`. Pinned names are kept because 186-14 and 186-20 import them.
+- Fix: added `src/intelligence/measure/*` to the exclusion list in `tools/check_plugin_invariants.sh`, the same precedent as `bars/` and `features/contract/registry.py`. Pinned names are kept because 186-14 and 186-20 import them.
 - Commit: e5bce6800
 
 **2. TDD ordering.** Tests and implementation for each task were written together and committed as one feat commit per task, not separate RED and GREEN commits. Each test module was run green before commit; no separate failing-run commit exists.
