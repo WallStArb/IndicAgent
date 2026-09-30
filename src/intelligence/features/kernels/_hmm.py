@@ -439,21 +439,24 @@ _causal_decode = _alpha_pass
 
 def _smooth_states(raw_states: np.ndarray, min_hold: int) -> np.ndarray:
     """Minimum holding-period smoother. Requires min_hold consecutive bars of the same
-    new state before confirming a transition. Causal — no look-ahead."""
-    if min_hold <= 1:
+    new state before confirming a transition. Causal — no look-ahead.
+
+    Row t confirms the raw state when the last `min_hold` raw states (t - min_hold + 1 .. t)
+    are all equal, which needs t >= min_hold; the output holds the last confirmed state, or
+    the first raw state before any confirmation. Computed from run lengths in integers
+    (a run of length >= min_hold ending at t is exactly that window test), so the result is
+    identical to the per-row window loop it replaced (tests keep that loop as the reference).
+    """
+    if min_hold <= 1 or len(raw_states) == 0:
         return raw_states.copy()
     n = len(raw_states)
-    smoothed = raw_states.copy()
-    current = int(raw_states[0])
-    for t in range(1, n):
-        if t < min_hold:
-            smoothed[t] = current
-            continue
-        window = raw_states[t - min_hold + 1 : t + 1]
-        if np.all(window == raw_states[t]):
-            current = int(raw_states[t])
-        smoothed[t] = current
-    return smoothed
+    index = np.arange(n)
+    run_start = np.maximum.accumulate(
+        np.where(np.concatenate([[True], raw_states[1:] != raw_states[:-1]]), index, 0)
+    )
+    confirmed = (index - run_start + 1 >= min_hold) & (index >= min_hold)
+    last_confirmed = np.maximum.accumulate(np.where(confirmed, index, -1))
+    return np.where(last_confirmed >= 0, raw_states[np.maximum(last_confirmed, 0)], raw_states[0])
 
 
 def _check_occupation_gate(
@@ -518,20 +521,25 @@ def _compute_hmm_churn(labels: list | np.ndarray, churn_window: int) -> np.ndarr
     raw state indices) -- churn is computed on whatever label identity the
     caller passes in.
     """
+    if churn_window < 1:
+        raise ValueError(f"churn_window must be >= 1, got {churn_window}")
     n = len(labels)
     if n == 0:
         return np.zeros(0, dtype=float)
 
-    labels_arr = np.asarray(labels, dtype=object)
+    labels_arr = np.asarray(labels)
     changes = np.zeros(n, dtype=float)
     if n > 1:
         changes[1:] = (labels_arr[1:] != labels_arr[:-1]).astype(float)
 
-    churn = np.zeros(n, dtype=float)
-    for i in range(n):
-        window_start = max(0, i - churn_window + 1)
-        churn[i] = float(np.mean(changes[window_start : i + 1]))
-    return churn
+    # Sums of 0/1 flags are exact integers in float64, so the window sum from the cumulative
+    # sum and the division by the window's bar count give the same bits as np.mean over the
+    # slice did.
+    cumulative = np.cumsum(changes)
+    window_sum = cumulative.copy()
+    window_sum[churn_window:] -= cumulative[:-churn_window]
+    bars_available = np.minimum(np.arange(1, n + 1), churn_window).astype(float)
+    return np.asarray(window_sum / bars_available)
 
 
 def _build_label_map(means: np.ndarray, vocab: dict[str, str] | None = None) -> dict[int, str]:
@@ -875,9 +883,16 @@ def _walk_forward_hmm_full(
 
         # The gate sees the model's own training slice, not the segment it is about to label
         # (see the Causality paragraph in the docstring).
-        train_log_emit = _compute_log_emit(train_scaled, model.means_, model.covars_, eff_cov_type)
-        train_raw, _ = _alpha_pass_jit(train_log_emit, log_A, stationary_prior)
-        train_smoothed = _smooth_states(train_raw, min_hold_bars)
+        # A non-converged fit is refused by the gate after its length checks and before it reads
+        # any state, so only the slice length is needed and the decode is skipped.
+        if converged:
+            train_log_emit = _compute_log_emit(
+                train_scaled, model.means_, model.covars_, eff_cov_type
+            )
+            train_raw, _ = _alpha_pass_jit(train_log_emit, log_A, stationary_prior)
+            train_smoothed = _smooth_states(train_raw, min_hold_bars)
+        else:
+            train_smoothed = np.empty(len(train_scaled), dtype=np.int64)
         is_degenerate, gate_info = _check_occupation_gate(
             train_smoothed, n_components, min_state_occupation, converged
         )
