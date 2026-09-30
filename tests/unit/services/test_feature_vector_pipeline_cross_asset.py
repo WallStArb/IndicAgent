@@ -385,3 +385,65 @@ def test_cross_asset_symbols_constant_has_all_six_expected_tickers():
     _load_cross_asset_series()'s per-symbol fetch dict."""
     assert set(CROSS_ASSET_SYMBOLS) == {SPY, TLT, SHY, TIP, HYG, LQD}
     assert len(CROSS_ASSET_SYMBOLS) == 6
+
+
+# ---------------------------------------------------------------------------
+# Live lookup uses the batch path's as-of rule (186-15, D-28)
+# ---------------------------------------------------------------------------
+#
+# A daily record dated d is available from the 16:00 ET close of d. A bar (start ts, timeframe)
+# may read it once that close is at or before the bar's end. The batch path applies this with
+# kernels.macro.align_daily_asof (186-12); the live lookup read "most recent <= the bar's UTC
+# date", which returns d's record to a bar at 10:00 ET on d (a close that does not exist yet) and
+# d+1's record to a bar at 01:00 UTC on d+1 (the evening of ET date d).
+
+_EST_D0, _EST_D1, _EST_D2 = date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)
+_REC = {
+    _EST_D0: CrossAssetRecord(vix_z=1.0),
+    _EST_D1: CrossAssetRecord(vix_z=2.0),
+    _EST_D2: CrossAssetRecord(vix_z=3.0),
+}
+
+
+def _live_agent(dates=(_EST_D0, _EST_D1, _EST_D2)):
+    agent = _make_test_agent()
+    agent._cross_asset_by_date = {d: _REC[d] for d in dates}
+    agent._cross_asset_dates_sorted = sorted(dates)
+    return agent
+
+
+def _live_record(agent, bar_ts: datetime, tf: str) -> CrossAssetRecord:
+    return agent._cross_asset_record_for_date(bar_ts.date())
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
+)
+def test_a_10am_et_5m_bar_reads_the_prior_days_record_even_when_todays_is_present():
+    bar_ts = datetime(2024, 1, 3, 15, 0, tzinfo=UTC)  # 10:00 EST on d1
+    assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D0]
+
+
+def test_the_5m_bar_ending_at_the_close_reads_the_days_record():
+    bar_ts = datetime(2024, 1, 3, 20, 55, tzinfo=UTC)  # 15:55 to 16:00 EST on d1
+    assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D1]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
+)
+def test_a_bar_after_midnight_utc_reads_the_et_evening_date_not_the_next_utc_date():
+    bar_ts = datetime(2024, 1, 4, 1, 0, tzinfo=UTC)  # 20:00 EST on d1, UTC date d2
+    assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D1]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
+)
+def test_a_bar_before_any_record_is_available_reads_the_default():
+    agent = _live_agent(dates=(_EST_D1,))
+    bar_ts = datetime(2024, 1, 3, 15, 0, tzinfo=UTC)  # 10:00 EST on d1: d1's close is ahead
+    assert _live_record(agent, bar_ts, "5m") == CrossAssetRecord()
