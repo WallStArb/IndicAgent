@@ -1668,7 +1668,7 @@ class TestBuildLtfReturnSeries:
     def test_never_derives_from_a_1m_bar_strictly_after_target_ts(self) -> None:
         """Causality guard (T-151-10): no returned value may be derived from a
         1m bar whose own ts is strictly after the target 5m bar's ts."""
-        from services.backfill_feature_factory import _build_ltf_return_series
+        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
 
         base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
         ltf_bars = [
@@ -1691,7 +1691,7 @@ class TestBuildLtfReturnSeries:
     def test_matches_manual_log_return_at_exact_bar_boundary(self) -> None:
         """When target_ts exactly matches a 1m bar's own ts, the returned value
         must be log(close[k] / close[k-1]) for that bar."""
-        from services.backfill_feature_factory import _build_ltf_return_series
+        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
 
         base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
         closes = [100.0, 101.0, 99.5, 102.0]
@@ -1704,7 +1704,7 @@ class TestBuildLtfReturnSeries:
 
     def test_no_entry_before_any_eligible_1m_bar(self) -> None:
         """A target_ts strictly before the first 1m bar's ts yields no entry."""
-        from services.backfill_feature_factory import _build_ltf_return_series
+        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
 
         base = datetime(2026, 1, 2, 14, 30, 0, tzinfo=UTC)
         ltf_bars = [{"ts": base + timedelta(minutes=i), "close": 100.0 + i} for i in range(5)]
@@ -1714,7 +1714,7 @@ class TestBuildLtfReturnSeries:
         assert target_ts_list[0] not in result
 
     def test_empty_inputs_return_empty_dict(self) -> None:
-        from services.backfill_feature_factory import _build_ltf_return_series
+        from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
 
         assert _build_ltf_return_series([], [datetime(2026, 1, 1, tzinfo=UTC)]) == {}
         assert (

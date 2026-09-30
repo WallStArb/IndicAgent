@@ -575,16 +575,16 @@ class TestPhase151CrossTfDivergences:
     respectively and None everywhere else -- even with a populated ctf_by_ts."""
 
     def test_15m_never_populates_5m_1h_or_1h_1d_divergence(self) -> None:
-        from services.backfill_feature_factory import CtfValues
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels.cross_tf import CtfRecord
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
         ctf_ts_list = [bars[0]["ts"]]
         ctf_by_ts = {
-            bars[0]["ts"]: CtfValues(
+            bars[0]["ts"]: CtfRecord(
                 ctf_momentum=0.1,
                 ctf_vwap_align=1.0,
                 ctf_regime_align=1.0,
@@ -607,9 +607,9 @@ class TestPhase151CrossTfDivergences:
             assert fv.ret_div_1h_1d is None
 
     def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
-        from services.backfill_feature_factory import CtfValues
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels.cross_tf import CtfRecord
         from src.intelligence.features.kernels.price import _ret_lag_1
 
         config = _make_config_for_min_window()
@@ -618,7 +618,7 @@ class TestPhase151CrossTfDivergences:
         ctf_ts_list = [bars[0]["ts"]]
         htf_last_log_ret = 0.0123456789
         ctf_by_ts = {
-            bars[0]["ts"]: CtfValues(
+            bars[0]["ts"]: CtfRecord(
                 ctf_momentum=0.2,
                 ctf_vwap_align=1.0,
                 ctf_regime_align=0.0,
@@ -649,19 +649,19 @@ class TestPhase151CrossTfDivergences:
             assert fv.ret_div_1h_1d is None
 
     def test_ctf_momentum_unaffected_by_ctf_values_extension(self) -> None:
-        """CtfValues extended ctf_by_ts's payload from a 3-tuple to a 4-field
+        """CtfRecord extended ctf_by_ts's payload from a 3-tuple to a 4-field
         NamedTuple (Phase 151 Plan 05) -- the 3 pre-existing CTF features must
         still read identically off the same source, byte-for-byte."""
-        from services.backfill_feature_factory import CtfValues
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels.cross_tf import CtfRecord
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
         ctf_ts_list = [bars[0]["ts"]]
         ctf_by_ts = {
-            bars[0]["ts"]: CtfValues(
+            bars[0]["ts"]: CtfRecord(
                 ctf_momentum=0.42,
                 ctf_vwap_align=-1.0,
                 ctf_regime_align=1.0,

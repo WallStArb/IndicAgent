@@ -26,7 +26,6 @@ argument. Zero inline magic numbers in primitive bodies.
 
 from __future__ import annotations
 
-import bisect
 import dataclasses
 import math
 from collections.abc import Sequence
@@ -81,6 +80,7 @@ from src.intelligence.features.kernels.control import (
     _canary_noise_gaussian,
     _canary_noise_uniform,
 )
+from src.intelligence.features.kernels.cross_tf import ctf_row_inputs
 from src.intelligence.features.kernels.macro import (
     RECORD_COLUMNS,
     CrossAssetRecord,
@@ -1200,6 +1200,14 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = tuple(
 # trend and fib, and swing momentum columns, with the none-masks of the nullable ones. The
 # cache-backed session VP, session levels and AMD kernels replay their own cache and are not run
 # here (186-25 retires the cache-driven loop).
+_CROSS_TF_KERNEL_OUTPUTS: tuple[str, ...] = (
+    "ctf_momentum",
+    "ctf_vwap_align",
+    "ctf_regime_align",
+    "ret_div_5m_1h",
+    "ret_div_1h_1d",
+    "ret_div_1m_5m",
+)
 _FVG_OUTPUT_NAMES = tuple(sorted(_FVG_OUTPUT_KEYS))
 _POOL_OUTPUT_NAMES = tuple(sorted(_POOL_OUTPUT_KEYS))
 _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
@@ -1255,6 +1263,13 @@ def _batch_kernel_inputs(
     }
 
 
+def _aware_utc(ts: Any) -> Any:
+    """A bar timestamp as the loop reads it: a naive datetime is taken as UTC."""
+    if isinstance(ts, datetime) and ts.tzinfo is None:
+        return ts.replace(tzinfo=UTC)
+    return ts
+
+
 def _none_if_nan(value: float) -> float | None:
     """A beta the caller could not supply is None in the record and NaN on the kernel grid."""
     return None if math.isnan(value) else float(value)
@@ -1262,10 +1277,17 @@ def _none_if_nan(value: float) -> float | None:
 
 # The external-input alignments this module has a builder for: CONSTANT_PER_SERIES by
 # `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`,
-# DAILY_REFERENCE_GRID by `kernels.macro.daily_reference_grid` (the daily-grid kernels run on it). A kernel module
+# DAILY_REFERENCE_GRID by `kernels.macro.daily_reference_grid` (the daily-grid kernels run on it),
+# HTF_ASOF_CLOSE and LTF_ASOF_BAR_START by `_cross_tf_kernel_inputs`. A kernel module
 # declaring an external with any other Alignment is refused rather than fed an unaligned value.
 _BUILT_ALIGNMENTS = frozenset(
-    {Alignment.CONSTANT_PER_SERIES, Alignment.DAILY_ASOF_CLOSE, Alignment.DAILY_REFERENCE_GRID}
+    {
+        Alignment.CONSTANT_PER_SERIES,
+        Alignment.DAILY_ASOF_CLOSE,
+        Alignment.DAILY_REFERENCE_GRID,
+        Alignment.HTF_ASOF_CLOSE,
+        Alignment.LTF_ASOF_BAR_START,
+    }
 )
 
 
@@ -1326,6 +1348,36 @@ def _macro_kernel_inputs(
         [np.nan if v is None else v for v in equity], dtype=np.float64
     )
     out["ext_rate_beta_z"] = np.array([np.nan if v is None else v for v in rate], dtype=np.float64)
+    return out
+
+
+def _cross_tf_kernel_inputs(
+    row_ts: Sequence[datetime],
+    tf: str,
+    cache: FeatureCache,
+    ctf_by_ts: dict | None,
+    ctf_ts_list: list | None,
+    ltf_ret_by_ts: dict | None,
+) -> dict[str, np.ndarray]:
+    """The five cross-timeframe `ext_*` inputs on the row grid.
+
+    Batch path (`ctf_by_ts` and `ctf_ts_list` given): `ctf_row_inputs` looks each row up among the
+    HTF values keyed by their bar's close. Live path: the cache's CTF values broadcast and the
+    HTF return is NaN (the divergences have no live-path plumbing). `ext_ltf_last_log_ret` is the
+    1m return taken at the row's bar start, NaN where the dict has none.
+    """
+    n = len(row_ts)
+    if ctf_by_ts is not None and ctf_ts_list is not None:
+        out = ctf_row_inputs(row_ts, ctf_by_ts, ctf_ts_list)
+    else:
+        out = {
+            "ext_ctf_momentum": np.full(n, cache.ctf_momentum, dtype=np.float64),
+            "ext_ctf_vwap_align": np.full(n, cache.ctf_vwap_align, dtype=np.float64),
+            "ext_ctf_regime_align": np.full(n, cache.ctf_regime_align, dtype=np.float64),
+            "ext_htf_last_log_ret": np.full(n, np.nan),
+        }
+    ltf = ltf_ret_by_ts or {}
+    out["ext_ltf_last_log_ret"] = np.array([ltf.get(ts, np.nan) for ts in row_ts], dtype=np.float64)
     return out
 
 
@@ -2720,6 +2772,7 @@ class FeatureFactory:
         # batch; the loop below reads row i. The registry is looked up here, never at import,
         # so kernel origins cannot create an import cycle with this module.
         row_ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
+        row_ts = [_aware_utc(b["ts"]) for b in bars]
         k = compute_kernels(
             default_registry(),
             {
@@ -2727,6 +2780,7 @@ class FeatureFactory:
                 **_macro_kernel_inputs(
                     row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
                 ),
+                **_cross_tf_kernel_inputs(row_ts, tf, cache, ctf_by_ts, ctf_ts_list, ltf_ret_by_ts),
             },
             config,
             outputs=list(
@@ -2735,6 +2789,7 @@ class FeatureFactory:
                         *_SERIES_KERNEL_OUTPUTS,
                         *_DELEGATED_KERNEL_OUTPUTS,
                         *_STRUCTURE_KERNEL_OUTPUTS,
+                        *_CROSS_TF_KERNEL_OUTPUTS,
                     )
                 )
             ),
@@ -2943,25 +2998,14 @@ class FeatureFactory:
             minute_of_hour_sin_val = float(k["minute_of_hour_sin"][i])
             minute_of_hour_cos_val = float(k["minute_of_hour_cos"][i])
 
-            # CTF: from pre-built causal dict (batch) or cache (live). ctf_by_ts
-            # values are CtfValues NamedTuples (Phase 151 Plan 05 extended this
-            # from a bare 3-tuple to add htf_last_log_ret) -- always accessed by
-            # attribute name below, never positional unpacking.
-            _htf_last_log_ret_val: float | None = None
-            if ctf_by_ts is not None and ctf_ts_list is not None:
-                _idx = bisect.bisect_right(ctf_ts_list, bar_ts) - 1
-                if _idx >= 0:
-                    _ctf = ctf_by_ts[ctf_ts_list[_idx]]
-                    ctf_momentum_val = _ctf.ctf_momentum
-                    ctf_vwap_align_val = _ctf.ctf_vwap_align
-                    ctf_regime_align_val = _ctf.ctf_regime_align
-                    _htf_last_log_ret_val = _ctf.htf_last_log_ret
-                else:
-                    ctf_momentum_val = ctf_vwap_align_val = ctf_regime_align_val = 0.0
-            else:
-                ctf_momentum_val = cache.ctf_momentum
-                ctf_vwap_align_val = cache.ctf_vwap_align
-                ctf_regime_align_val = cache.ctf_regime_align
+            # CTF and the cross-timeframe divergences: registry kernels over the HTF and LTF
+            # externals (batch: aligned by bar close, live: the cache's values).
+            ctf_momentum_val = float(k["ctf_momentum"][i])
+            ctf_vwap_align_val = float(k["ctf_vwap_align"][i])
+            ctf_regime_align_val = float(k["ctf_regime_align"][i])
+            ret_div_1m_5m_val = _none_if_nan(k["ret_div_1m_5m"][i])
+            ret_div_5m_1h_val = _none_if_nan(k["ret_div_5m_1h"][i])
+            ret_div_1h_1d_val = _none_if_nan(k["ret_div_1h_1d"][i])
 
             # Renaissance Primitives (Phase 142.5 Plan 01). ret_lag_* index the full
             # `closes` array (view slice closes[:i+1], O(1)) rather than the bounded
@@ -2977,25 +3021,6 @@ class FeatureFactory:
             range_efficiency_val = float(k["range_efficiency"][i])
             ret_lag_1_val = float(k["ret_lag_1"][i])
 
-            # Named Interaction Primitives cross-TF divergences (Phase 151 Plan
-            # 05, todos 066/104). Each is timeframe-pinned to the LOWER tf of
-            # its pair and None everywhere else -- None means "this pair is
-            # undefined here," never a fake 0.0 (indistinguishable from "the
-            # two timeframes actually agree"). own_bar_log_return reuses
-            # ret_lag_1_val (already computed above) rather than recomputing
-            # the identical log(C_t/C_{t-1}) formula.
-            if tf == "5m" and ltf_ret_by_ts is not None and bar_ts in ltf_ret_by_ts:
-                ret_div_1m_5m_val = ltf_ret_by_ts[bar_ts] - ret_lag_1_val
-            else:
-                ret_div_1m_5m_val = None
-            if tf == "5m" and _htf_last_log_ret_val is not None:
-                ret_div_5m_1h_val = ret_lag_1_val - _htf_last_log_ret_val
-            else:
-                ret_div_5m_1h_val = None
-            if tf == "1h" and _htf_last_log_ret_val is not None:
-                ret_div_1h_1d_val = ret_lag_1_val - _htf_last_log_ret_val
-            else:
-                ret_div_1h_1d_val = None
             opex_flag_val = float(k["opex_flag"][i])
             quad_witching_flag_val = float(k["quad_witching_flag"][i])
             earnings_season_flag_val = float(k["earnings_season_flag"][i])

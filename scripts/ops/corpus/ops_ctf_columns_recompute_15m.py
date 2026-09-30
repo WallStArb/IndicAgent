@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Surgical CTF-column recompute at tf=15m -- todo 243's corrected-join fix.
 
-`_rekey_ctf_series_to_actual_close()` (shipped 2026-08-03, `services/backfill_feature_factory.py`)
+`_rekey_ctf_series_to_actual_close()` (shipped 2026-08-03, now `src/intelligence/features/kernels/cross_tf.py`)
 fixed a real lookahead bug in how `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` are joined
 onto lower-timeframe bars -- the batch join previously selected a still-forming HTF bar for LTF
 rows inside its still-open window. The fix is shipped and tested, but `feature_vectors` itself
@@ -14,7 +14,7 @@ every feature, not just CTF -- it would silently conflate the join fix with ever
 feature-compute change made since these rows were last written, with no way to attribute any
 downstream IC delta to the join fix specifically. This script imports and calls
 `_build_ctf_series`/`_rekey_ctf_series_to_actual_close` UNMODIFIED from
-`backfill_feature_factory.py` and writes ONLY the 3 CTF columns via a targeted UPDATE -- every
+`kernels/cross_tf.py` and writes ONLY the 3 CTF columns via a targeted UPDATE -- every
 other column on every touched row is left byte-identical.
 
 Design (see docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md for the
@@ -64,14 +64,16 @@ import structlog
 from services._batch_utils import bulk_update_by_key, load_config_service_sync
 from services._batch_utils import compressed_hypertable_write_session_or_noop as _write_session
 from services.backfill_feature_factory import (
-    _build_ctf_series,
     _build_feature_factory_config,
     _connect_db,
     _fetch_bars_from_db,
-    _rekey_ctf_series_to_actual_close,
 )
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.features.kernels.cross_tf import (
+    _build_ctf_series,
+    _rekey_ctf_series_to_actual_close,
+)
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 

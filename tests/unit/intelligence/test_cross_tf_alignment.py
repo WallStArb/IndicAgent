@@ -19,13 +19,13 @@ from datetime import UTC, date, datetime, timedelta
 import numpy as np
 import pytest
 
-from services.backfill_feature_factory import (
+from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.kernels.cross_tf import (
     _build_ctf_series,
     _build_ltf_return_series,
     _rekey_ctf_series_to_actual_close,
 )
-from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])

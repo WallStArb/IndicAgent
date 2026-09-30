@@ -281,6 +281,32 @@ def _daily_grid_outputs(daily: dict[str, list[dict]], symbol: str = SYMBOL) -> d
     )
 
 
+def _cross_tf_raw() -> tuple[list[dict], list[dict]]:
+    """Raw 1h bars (period start) and 1m bars (stamped at bar end) over the intraday sessions."""
+    from tests.unit.intelligence.test_cross_tf_alignment import _hour_bars, _minute_bars
+
+    sessions = [SESSIONS[s] for s in INTRADAY_SESSIONS]
+    hours, _ = _hour_bars(
+        [SESSIONS[s] for s in range(INTRADAY_SESSIONS.start - 4, INTRADAY_SESSIONS.stop)]
+    )
+    return hours, _minute_bars(sessions)
+
+
+def _htf_asof_close_outputs(bars: list[dict], hours: list[dict]) -> dict:
+    """The four HTF externals as the batch path builds them from raw 1h bars."""
+    from src.intelligence.features.kernels.cross_tf import ctf_row_inputs, ctf_series_by_close
+
+    series = ctf_series_by_close(hours, CONFIG, "5m", "1h")
+    return ctf_row_inputs([b["ts"] for b in bars], series, sorted(series))
+
+
+def _ltf_asof_bar_start_outputs(bars: list[dict], minutes: list[dict]) -> dict:
+    from src.intelligence.features.kernels.cross_tf import _build_ltf_return_series
+
+    series = _build_ltf_return_series(minutes, [b["ts"] for b in bars])
+    return {"ext_ltf_last_log_ret": np.array([series.get(b["ts"], np.nan) for b in bars])}
+
+
 def _external_outputs(alignment, bars, daily):
     """(outputs on the row grid, the columns that carry every external of `alignment`)."""
     from src.intelligence.features.contract.registry import default_registry
@@ -298,6 +324,14 @@ def _external_outputs(alignment, bars, daily):
 
         assert set(declared) == {*_CLOSE_EXTERNALS, "ref_sym_close"}
         return _daily_grid_outputs(daily)
+    if alignment in (Alignment.HTF_ASOF_CLOSE, Alignment.LTF_ASOF_BAR_START):
+        hours, minutes = _cross_tf_raw()
+        if alignment is Alignment.HTF_ASOF_CLOSE:
+            out = _htf_asof_close_outputs(bars, hours)
+        else:
+            out = _ltf_asof_bar_start_outputs(bars, minutes)
+        assert set(out) == set(declared)
+        return out
     raise AssertionError(f"no truncation runner for alignment {alignment}")
 
 
@@ -317,6 +351,21 @@ def test_every_alignment_has_causal_rows_up_to_t(alignment, cut_row):
         assert set(cut) == set(full)
         for name, values in cut.items():
             np.testing.assert_array_equal(values, full[name][: len(values)], err_msg=name)
+        return
+    if alignment in (Alignment.HTF_ASOF_CLOSE, Alignment.LTF_ASOF_BAR_START):
+        # raw inputs known by the cut row: HTF bars started by its bar end (the in-progress bar
+        # is then the last and has no known close), 1m bars stamped by its bar start
+        cut_bars = bars[: cut_row + 1]
+        row_end = bars[cut_row]["ts"] + timedelta(minutes=5)
+        hours, minutes = _cross_tf_raw()
+        if alignment is Alignment.HTF_ASOF_CLOSE:
+            cut = _htf_asof_close_outputs(cut_bars, [b for b in hours if b["ts"] <= row_end])
+        else:
+            cut = _ltf_asof_bar_start_outputs(
+                cut_bars, [b for b in minutes if b["ts"] <= bars[cut_row]["ts"]]
+            )
+        for name, values in cut.items():
+            np.testing.assert_array_equal(values, full[name][: cut_row + 1], err_msg=name)
         return
     known = (
         _truncate_daily_asof_close(daily, bars, cut_row)

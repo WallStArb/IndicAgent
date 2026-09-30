@@ -18,7 +18,11 @@ import numpy as np
 import pytest
 
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory, _macro_kernel_inputs
+from src.intelligence.feature_factory import (
+    FeatureFactory,
+    _cross_tf_kernel_inputs,
+    _macro_kernel_inputs,
+)
 from src.intelligence.features.contract.causality_probe import (
     CausalityViolation,
     causality_probe,
@@ -65,6 +69,7 @@ PATH_DEPENDENT = {
     "session_vp",
     "session_levels",
     "amd_cycle",
+    "ctf_source",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 
@@ -142,19 +147,12 @@ DELEGATED_HELPERS = (
 )
 
 
-# Numeric persisted columns no kernel owns after this step: CTF, the three ret_div columns and
-# the cross-sectional rank columns. The HMM
+# Numeric persisted columns no kernel owns: the cross-sectional rank columns (todo 421). The HMM
 # regime columns are owned by the regime kernels (186-13). A column
 # that is dropped or left unowned changes this set and fails the test below.
 REMAINING_COLUMNS = frozenset(
     {
-        "ctf_momentum",
-        "ctf_regime_align",
-        "ctf_vwap_align",
         "momentum_rank_z",
-        "ret_div_1h_1d",
-        "ret_div_1m_5m",
-        "ret_div_5m_1h",
         "volatility_rank_z",
         "volume_rank_z",
     }
@@ -227,6 +225,9 @@ def _synthetic_case():
         "tf": np.array(["5m"] * len(inputs["ts"]), dtype=object),
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
         **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
+        **_cross_tf_kernel_inputs(
+            [ref.ns_to_dt(ns) for ns in inputs["ts"]], "5m", FeatureCache(), None, None, None
+        ),
     }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)
@@ -349,12 +350,12 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_eleven():
+def test_the_path_dependent_allow_list_is_the_reviewed_twelve():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
     declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 11
+    assert len(PATH_DEPENDENT) == 12
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
