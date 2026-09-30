@@ -2,6 +2,7 @@
 
 (a) every registered feature column is a persisted FeatureVector column;
 (b) each kernel output equals the compute_batch column on the 500-bar synthetic fixture;
+    the regime kernels (HMM fit cost, per-tf schedule) are covered by test_regime_kernel.py;
 (c) compute_batch no longer calls the moved scalar helpers;
 (d) the causality probe and memory check pass every kernel under two configs.
 """
@@ -26,8 +27,17 @@ from src.intelligence.features.contract.causality_probe import (
 )
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
 from src.intelligence.features.contract.registry import compute_kernels, default_registry
-from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
+from src.intelligence.features.feature_vector_persistence import (
+    _ALL_COLUMN_NAMES,
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
+)
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.regime_kernel_fixtures import (
+    non_regime_kernels,
+    non_regime_outputs,
+    registry_without_regime,
+)
 
 MANIFEST = ref.load_manifest()
 PROBE_ROWS = np.array([700, 1200, 1800, 2400, 2999])
@@ -108,8 +118,8 @@ DELEGATED_HELPERS = (
 
 
 # Numeric persisted columns no kernel owns after this plan: SMC, structural VP/SR/swing/fib/
-# session-level/AMD, CTF, the three ret_div columns, the cross-sectional rank columns, the HMM
-# regime columns. A column
+# session-level/AMD, CTF, the three ret_div columns and the cross-sectional rank columns. The HMM
+# regime columns are owned by the regime kernels (186-13). A column
 # that is dropped or left unowned changes this set and fails the test below.
 REMAINING_COLUMNS = frozenset(
     {
@@ -142,9 +152,6 @@ REMAINING_COLUMNS = frozenset(
         "fvg_open_count",
         "fvg_size_atr",
         "gap_filled",
-        "hmm_duration",
-        "hmm_entropy",
-        "hmm_regime_prob",
         "in_fib_discount_zone",
         "in_lvn",
         "manip_strength",
@@ -227,10 +234,19 @@ REMAINING_COLUMNS = frozenset(
 )
 
 
+REGIME_COLUMNS = frozenset(
+    (*REGIME_WRITER_OWNED_COLUMN_NAMES, *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
+)
+
+
 def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_remaining():
     numeric = set(MANIFEST["numeric_columns"])
     owned = set(default_registry().feature_columns())
-    assert owned | REMAINING_COLUMNS == numeric
+    # The regime kernels own 16 persisted columns; the parity manifest's numeric set holds the
+    # three that FeatureVector carries (the labels and the other numeric ones are not in it).
+    assert REGIME_COLUMNS <= owned
+    assert REGIME_COLUMNS & numeric == {"hmm_regime_prob", "hmm_entropy", "hmm_duration"}
+    assert (owned - (REGIME_COLUMNS - numeric)) | REMAINING_COLUMNS == numeric
     assert not owned & REMAINING_COLUMNS
 
 
@@ -283,19 +299,21 @@ def _synthetic_case():
         for name in _ALL_COLUMN_NAMES
         if hasattr(results[0][1], name)
     }
-    kernels = compute_kernels(default_registry(), inputs, config)
+    kernels = compute_kernels(
+        default_registry(), inputs, config, outputs=non_regime_outputs(default_registry())
+    )
     return kernels, batch, len(inputs["ts"])
 
 
 def test_feature_columns_are_persisted_columns():
     columns = default_registry().feature_columns()
     assert columns
-    assert set(columns) <= set(_ALL_COLUMN_NAMES)
+    assert set(columns) <= set(_ALL_COLUMN_NAMES) | REGIME_COLUMNS
 
 
 def test_kernel_outputs_equal_compute_batch_rows_1_onward():
     kernels, batch, n = _synthetic_case()
-    columns = default_registry().feature_columns()
+    columns = [c for c in default_registry().feature_columns() if c in kernels]  # no regime
     for name in columns:
         assert name in batch, f"{name} is not a FeatureVector field"
         got = kernels[name][1:].astype(np.float32)
@@ -323,12 +341,17 @@ def test_compute_batch_calls_no_delegated_helper():
 def _probe_case(config_key: str):
     config = ref.build_config(MANIFEST[config_key])
     available = with_derived_inputs(synthetic_bars(PROBE_BARS))
-    available.update(compute_kernels(default_registry(), available, config))
+    available.update(
+        compute_kernels(
+            default_registry(), available, config, outputs=non_regime_outputs(default_registry())
+        )
+    )
     return available, config
 
 
+# The regime kernels are skipped here: REGIME_SKIP_REASON.
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
-@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
+@pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
 def test_probe_and_memory_check_per_kernel(kernel, config_key):
     available, config = _probe_case(config_key)
     if kernel.acausal_control:
@@ -346,7 +369,7 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
 def test_the_path_dependent_allow_list_is_the_reviewed_seven():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
-    declared = {k.name for k in default_registry().kernels if k.path_dependent}
+    declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
     assert len(PATH_DEPENDENT) == 7
 
@@ -354,17 +377,18 @@ def test_the_path_dependent_allow_list_is_the_reviewed_seven():
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
     config = ref.build_config(MANIFEST[config_key])
-    statuses = probe_registry(default_registry(), synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
+    registry = registry_without_regime(default_registry())  # REGIME_SKIP_REASON
+    statuses = probe_registry(registry, synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
     expected = {
         kernel.name: (
             "acausal_control_detected"
             if kernel.name in ACAUSAL_CONTROLS
             else "path_dependent_skipped_memory" if kernel.name in PATH_DEPENDENT else "ok"
         )
-        for kernel in default_registry().kernels
+        for kernel in registry.kernels
     }
     assert statuses == expected
-    assert set(statuses) == {k.name for k in default_registry().kernels}  # no kernel opts out
+    assert set(statuses) == {k.name for k in registry.kernels}  # no kernel opts out
 
 
 def _gap_z(config, opens_override=None, n=400):

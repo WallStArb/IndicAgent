@@ -42,6 +42,7 @@ from services.regime_writer import (
     _state_groups,
     _state_groups_by_vocab,
 )
+from src.intelligence.features.kernels import _hmm as hmm_module
 from tests.unit._hmm_decode_helpers import decode as _decode
 
 _HMM_RANDOM_STATE = 42  # conventional seed; lives in APR as alpha.hmm.random_state
@@ -1321,7 +1322,6 @@ def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_endin
     in). Verified via monkeypatching _seed_prior_from_label to capture its call arguments."""
     from unittest.mock import patch
 
-    import services.regime_writer as regime_writer_module
     from services.regime_writer import _walk_forward_hmm_labels
 
     n_full = 500
@@ -1332,14 +1332,14 @@ def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_endin
         timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
     )
 
-    real_seed_prior_from_label = regime_writer_module._seed_prior_from_label
+    real_seed_prior_from_label = hmm_module._seed_prior_from_label
     calls: list[tuple] = []
 
     def _spy(label_map, label, n_components, fallback_prior):
         calls.append((dict(label_map), label))
         return real_seed_prior_from_label(label_map, label, n_components, fallback_prior)
 
-    with patch.object(regime_writer_module, "_seed_prior_from_label", side_effect=_spy):
+    with patch.object(hmm_module, "_seed_prior_from_label", side_effect=_spy):
         labels, segments = _walk_forward_hmm_labels(
             obs,
             n_components=3,
@@ -1689,7 +1689,6 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
     unwritten gap cannot be verified."""
     from unittest.mock import patch
 
-    import services.regime_writer as regime_writer_module
     from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 900
@@ -1698,7 +1697,7 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
     timestamps = _make_timestamps(n)
     conn = _make_mock_conn(closes, volumes, timestamps)
 
-    real_gate = regime_writer_module._check_occupation_gate
+    real_gate = hmm_module._check_occupation_gate
     call_count = {"n": 0}
 
     def _flaky_gate(smoothed_states, n_components, min_state_occupation, converged):
@@ -1710,7 +1709,7 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
             return True, {"reason": "forced_for_test"}
         return real_gate(smoothed_states, n_components, min_state_occupation, converged)
 
-    with patch.object(regime_writer_module, "_check_occupation_gate", side_effect=_flaky_gate):
+    with patch.object(hmm_module, "_check_occupation_gate", side_effect=_flaky_gate):
         result = _compute_symbol_tf_walk_forward(
             conn=conn,
             symbol="SPY",
@@ -1754,7 +1753,6 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
     regardless of what segment 1 ended with."""
     from unittest.mock import patch
 
-    import services.regime_writer as regime_writer_module
     from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 900
@@ -1785,7 +1783,7 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
         _seg(6, 9, "trending_down", is_degenerate=False),
     ]
 
-    with patch.object(regime_writer_module, "_walk_forward_hmm_full", return_value=fake_segments):
+    with patch.object(hmm_module, "_walk_forward_hmm_full", return_value=fake_segments):
         result = _compute_symbol_tf_walk_forward(
             conn=conn,
             symbol="SPY",
@@ -2035,9 +2033,9 @@ def test_walk_forward_hmm_full_volatility_p_up_higher_in_high_vol_half():
 
 
 def _make_mock_conn_volatility(closes, timestamps):
-    """Build a psycopg connection mock returning synthetic (timestamp, close) rows only --
-    _fetch_obs_matrix_volatility never selects volume."""
-    rows = list(zip(timestamps, closes))
+    """Build a psycopg connection mock returning synthetic (timestamp, close, volume) rows;
+    the volatility kernel reads only the close, so the volume is a constant."""
+    rows = [(t, c, 1.0) for t, c in zip(timestamps, closes)]
     cursor_mock = MagicMock()
     cursor_mock.__enter__ = lambda s: s
     cursor_mock.__exit__ = MagicMock(return_value=False)
@@ -2047,99 +2045,27 @@ def _make_mock_conn_volatility(closes, timestamps):
     return conn_mock
 
 
-def test_fetch_obs_matrix_volatility_returns_two_column_shape():
-    """_fetch_obs_matrix_volatility must return an (n, 2) obs matrix when enough OHLCV
-    is available."""
-    from services.regime_writer import _fetch_obs_matrix_volatility
+def test_fetch_bars_returns_none_when_no_ohlcv():
+    """Empty OHLCV must return None, not raise (the `_fetch_obs_matrix_volatility` test this
+    replaces: that function is folded into the one bar fetch, 186-13)."""
+    from services.regime_writer import _fetch_bars
 
-    n = 600
-    closes = _make_vol_switching_closes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn_volatility(closes, timestamps)
-
-    result = _fetch_obs_matrix_volatility(
-        conn,
-        symbol="SPY",
-        tf="1h",
-        n_components=3,
-        vol_window=20,
-        vol_of_vol_window=20,
-        min_obs_factor=1,
-    )
-
-    assert result is not None
-    obs, valid_ts = result
-    assert obs.shape[1] == 2
-    assert len(valid_ts) == obs.shape[0]
+    assert _fetch_bars(_make_mock_conn_volatility([], []), "SPY", "1h") is None
 
 
-def test_fetch_obs_matrix_volatility_returns_none_when_no_ohlcv():
-    """Empty OHLCV must return None, not raise."""
-    from services.regime_writer import _fetch_obs_matrix_volatility
+def test_fetch_bars_issues_one_query_over_the_tradeable_view():
+    from services.regime_writer import _fetch_bars
 
-    conn = _make_mock_conn_volatility([], [])
-
-    result = _fetch_obs_matrix_volatility(
-        conn,
-        symbol="SPY",
-        tf="1h",
-        n_components=3,
-        vol_window=20,
-        vol_of_vol_window=20,
-        min_obs_factor=50,
-    )
-
-    assert result is None
-
-
-def test_fetch_obs_matrix_volatility_returns_none_when_insufficient_rows():
-    """Fewer valid rows than n_components * min_obs_factor must return None."""
-    from services.regime_writer import _fetch_obs_matrix_volatility
-
-    n = 50
-    closes = _make_vol_switching_closes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn_volatility(closes, timestamps)
-
-    result = _fetch_obs_matrix_volatility(
-        conn,
-        symbol="SPY",
-        tf="1h",
-        n_components=3,
-        vol_window=20,
-        vol_of_vol_window=20,
-        min_obs_factor=50,  # requires 150 rows, only ~11 valid rows available at n=50
-    )
-
-    assert result is None
-
-
-def test_fetch_obs_matrix_volatility_issues_single_query_no_volume():
-    """_fetch_obs_matrix_volatility must issue exactly one OHLCV query and never select
-    the `volume` column."""
-    from services.regime_writer import _fetch_obs_matrix_volatility
-
-    n = 600
-    closes = _make_vol_switching_closes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn_volatility(closes, timestamps)
-
-    _fetch_obs_matrix_volatility(
-        conn,
-        symbol="SPY",
-        tf="1h",
-        n_components=3,
-        vol_window=20,
-        vol_of_vol_window=20,
-        min_obs_factor=1,
-    )
+    n = 60
+    conn = _make_mock_conn_volatility(_make_vol_switching_closes(n), _make_timestamps(n))
+    bars = _fetch_bars(conn, "SPY", "1h")
 
     cursor_mock = conn.cursor.return_value
     assert cursor_mock.execute.call_count == 1
-    executed_sql = cursor_mock.execute.call_args[0][0]
-    assert "volume" not in executed_sql.lower()
-    assert "timestamp" in executed_sql.lower()
-    assert "close" in executed_sql.lower()
+    executed_sql = cursor_mock.execute.call_args[0][0].lower()
+    assert "market_data_ohlcv_tradeable" in executed_sql
+    assert "timestamp, close, volume" in executed_sql
+    assert len(bars["timestamps"]) == len(bars["close"]) == len(bars["volume"]) == n
 
 
 # ---------------------------------------------------------------------------
@@ -2272,10 +2198,10 @@ def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
 
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_none_fetch(monkeypatch):
-    """None must propagate when _fetch_obs_matrix_volatility returns None."""
+    """None must propagate when _fetch_bars returns None."""
     from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
-    monkeypatch.setattr(regime_writer_module, "_fetch_obs_matrix_volatility", lambda *a, **kw: None)
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda *a, **kw: None)
 
     result = _compute_symbol_tf_volatility_walk_forward(
         conn=MagicMock(),

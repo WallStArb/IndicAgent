@@ -25,6 +25,10 @@ ROWS = np.array([50, 120, 250, 399])
 CFG = object()
 _rng = np.random.default_rng(7)
 INPUTS = {"close": _rng.normal(100.0, 5.0, N).cumsum().astype(np.float64)}
+from tests.unit.intelligence.regime_kernel_fixtures import (
+    non_regime_kernels,
+    non_regime_outputs,
+)
 
 
 def _trail(x, w):
@@ -252,11 +256,16 @@ def _registered_case():
         },
     }
     available = with_derived_inputs(available)
-    available.update(compute_kernels(default_registry(), available, config))
+    available.update(
+        compute_kernels(
+            default_registry(), available, config, outputs=non_regime_outputs(default_registry())
+        )
+    )
     return available, config
 
 
-@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
+# The regime kernels are skipped here: REGIME_SKIP_REASON (test_regime_kernel.py runs the probe).
+@pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
 def test_registered_kernels_are_causal(kernel, _registered_case):
     available, config = _registered_case
     rows = np.array([120, 250, 400, 498])
