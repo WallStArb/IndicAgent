@@ -85,15 +85,6 @@
   "production/migrations/158_hmm_probability_vector.sql": {
    "direction score": 1
   },
-  "scripts/analysis/sleeve_walk_forward/run.py": {
-   "signal source": 3
-  },
-  "scripts/analysis/sleeve_walk_forward/synthetic.py": {
-   "signal source": 3
-  },
-  "scripts/analysis/universe_expansion_correlation_structure_check.py": {
-   "config store": 1
-  },
   "src/intelligence/archive/trading_i7/delta_exhaustion.py": {
    "intrinsic composite": 1
   },
@@ -147,12 +138,6 @@
   },
   "tests/unit/services/test_signal_probe_auditor_job_label.py": {
    "plugin confidence": 1
-  },
-  "tests/unit/sleeve_walk_forward/test_run.py": {
-   "signal source": 1
-  },
-  "tests/unit/sleeve_walk_forward/test_synthetic.py": {
-   "signal source": 1
   },
   "tests/unit/tools/test_check_glossary.py": {
    "market state": 1,

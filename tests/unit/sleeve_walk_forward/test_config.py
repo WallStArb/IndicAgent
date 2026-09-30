@@ -47,7 +47,6 @@ def test_pinned_values_match_prereg():
 
 def test_shift_memory_covers_the_longest_bounded_feature_reach():
     """Todo 424: 504 (price_vol_corr_slow) + 252 (z-score window) + 2 (forward span)."""
-    from scripts.analysis.sleeve_walk_forward.config import DEFAULT_CONFIG
-    from scripts.analysis.sleeve_walk_forward.score import FWD_SPAN_SESSIONS
-
-    assert DEFAULT_CONFIG.shift_memory == 504 + 252 + FWD_SPAN_SESSIONS
+    # 2 is the pre-registered forward span in sessions
+    # (docs/plans/2026-09-24-phase179-sleeve-walk-forward-prereg.md, formerly score.FWD_SPAN_SESSIONS).
+    assert DEFAULT_CONFIG.shift_memory == 504 + 252 + 2

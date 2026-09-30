@@ -1,9 +1,3 @@
-levered_hi  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:181)
-levered_lo  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:181)
-levered_n  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:181)
-control_hi  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:191)
-control_lo  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:191)
-control_n  # unused variable (scripts/analysis/retail_immediacy_provision_levered_sleeve_pilot.py:191)
 expected_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:33)
 actual_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:34)
 shapiro_stat  # unused variable (scripts/ops/alpha/ops_ic_null_calibration.py:319)
@@ -992,11 +986,6 @@ run_tiers  # unused method (src/intelligence/pipeline/executor.py:640) - same as
 run_i1  # unused method (src/intelligence/pipeline/executor.py:408) - same as above
 _known_compressed_hypertables_async  # unused function (services/_batch_utils.py:260) - deliberate forward-scaffolding, confirmed real via its own docstring and the sibling async_compressed_hypertable_write_session's docstring: bulk_update_by_key's sync guard uses the sync sibling _known_compressed_hypertables, and the async write-session path deliberately validates against a separate static hardened-table allow-list (_validate_compressed_hypertable) instead -- this function exists so a future asyncpg-based bulk_update_by_key can reuse the identical guard without a second change, not dead code (2026-09-22 hygiene pass)
 exc_val  # unused variable (services/_batch_utils.py:1304) - Python's __exit__(self, exc_type, exc_val, exc_tb) context-manager protocol requires all three positional params regardless of whether the implementation inspects them; Float32ChunkAccumulator.__exit__ doesn't need exception details, just calls self.close() (2026-09-22 hygiene pass)
-max_groups_per_tree  # unused variable (scripts/analysis/_nonlinear_interaction_combiner_shared.py:1221) - kept as a documented parameter matching the pre-registered design doc's language even though the function's own docstring explains it isn't literally enforced (LightGBM's interaction_constraints has no such knob; max_depth/num_leaves bound it structurally instead) -- deliberate, already explained in-place, not a silent gap (2026-09-22 hygiene pass)
-resid  # unused variable (scripts/analysis/alpha_score_residual_single_security_15m.py:390) - tuple-unpacking loop variable from a DB row; the value is re-read via batch/r[4] two lines later for the actual chunked array build rather than reusing this bound name -- cosmetic, zero functional impact, script belongs to a closed research verdict (2026-09-22 hygiene pass)
-arm_pass  # unused variable (scripts/analysis/nonlinear_interaction_combiner_n1_verdict.py:101) - computed (the lenient any-criteria reading) but only strict_pass is actually printed/used for overall_pass; the adjacent comment says both readings should be reported and only one is. Real, minor, in N1's own verdict script -- N1 is already flagged structurally inconclusive project-wide (not cited pass/fail either way), so this doesn't change any standing conclusion. Not fixed inline, noted here rather than reopening N1 (2026-09-22 hygiene pass)
-raw_padj  # unused variable (scripts/analysis/statistical_factor_residual_stage3_ic_falsification.py:279) - BH-FDR adjusted p-values computed but only the boolean raw_reject/resid_reject arrays are printed, not the adjusted magnitudes. Script belongs to the CLOSED statistical_factor_residual verdict (DEAD, 2026-09-01) -- doesn't affect that verdict, which rests on the reject booleans this doesn't touch (2026-09-22 hygiene pass)
-resid_padj  # unused variable (scripts/analysis/statistical_factor_residual_stage3_ic_falsification.py:280) - same as raw_padj above, same closed verdict, same non-effect
 UNSCALED_FIELDS  # unused variable (src/intelligence/research/evaluate.py:70) - the row-conversion classification list; read by the config-field classification test so a new EvaluationConfig field cannot go unclassified (phase 183, 2026-09-25)
 observed_daily  # unused variable (src/intelligence/research/evaluate.py:97) - EvaluationResult field (per-row or per-session series), read by tests and diagnostics (phase 183)
 observed_weights  # unused variable (src/intelligence/research/evaluate.py:99) - EvaluationResult field, calibrated-arm weights for turnover diagnostics (phase 183)
@@ -1028,3 +1017,27 @@ hmm_n_components  # unused variable (src/intelligence/feature_factory.py and ker
 hmm_covariance_type  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
 hmm_volatility_n_components  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
 hmm_volatility_covariance_type  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
+sleeve  # unused variable (scripts/analysis/sleeve_walk_forward/config.py:12 and scripts/research/determinism/config.py:12) - pre-registered HarnessConfig field pinned by test_config and the frozen-book tool; only caller was a script deleted by 186-16; 186-29 removes the kept copy
+training_start  # unused variable (sleeve and determinism config.py:28) - pre-registered HarnessConfig field, same as sleeve
+embargo_sessions  # unused variable (sleeve and determinism config.py:29) - pre-registered HarnessConfig field, same as sleeve
+n_tested  # unused variable (sleeve and determinism config.py:43; src/intelligence/research/signals.py:31) - pre-registered count field; signals.py is the research lane (D-02), only caller was a script deleted by 186-16
+min_positive_sub_periods  # unused variable (sleeve and determinism config.py:49) - pre-registered HarnessConfig field, same as sleeve
+all_1d  # unused variable (scripts/research/determinism/results.py:32) - frozen Snapshot dataclass field; the unpickler must keep the recorded shape; only caller was a script deleted by 186-16
+sleeve_features  # unused variable (scripts/research/determinism/results.py:33) - frozen Snapshot dataclass field, same as all_1d
+sleeve_has_row  # unused variable (scripts/research/determinism/results.py:34) - frozen Snapshot dataclass field, same as all_1d
+equity_labels  # unused variable (scripts/research/determinism/results.py:37) - frozen Snapshot dataclass field, same as all_1d
+n_bar_ts  # unused variable (scripts/research/feature_matrix.py:112) - result field of fetch_feature_matrix (186-04); only caller was a script deleted by 186-16
+_.family_stat  # unused method (scripts/research/date_panel.py:136) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
+_.bootstrap_ci  # unused method (scripts/research/date_panel.py:145) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
+_.sync_shift_null_p  # unused method (scripts/research/date_panel.py:173) - tested public API of the promoted date panel (186-04); only caller was a script deleted by 186-16
+MATERIALITY_GATE_NAMES  # unused variable (services/tag_calibrator.py:827) - declared ITR API beside is_materiality_eligible; only caller was a script deleted by 186-16; keep
+is_materiality_eligible  # unused function (services/tag_calibrator.py:941) - canonical ITR predicate per CLAUDE.md; only caller was a script deleted by 186-16; keep
+options  # unused variable (src/core/llm/chain.py:41) - dormant AI stack keyword parameter; only caller was a script deleted by 186-16; fate decided with the AI stack (src/intelligence/CLAUDE.md)
+standardize_scores  # unused function (src/intelligence/portfolio/weighting.py:30) - tested public API of portfolio weighting; only caller was a script deleted by 186-16; 186-19/186-23 decide
+compute_mu  # unused function (src/intelligence/portfolio/weighting.py:60) - tested public API of portfolio weighting, same as standardize_scores
+equal_weight_arm  # unused function (src/intelligence/portfolio/weighting.py:113) - tested public API of portfolio weighting, same as standardize_scores
+ic_proportional_arm  # unused function (src/intelligence/portfolio/weighting.py:127) - tested public API of portfolio weighting, same as standardize_scores
+mean_variance_arm  # unused function (src/intelligence/portfolio/weighting.py:146) - tested public API of portfolio weighting, same as standardize_scores
+portfolio_exposure_stats  # unused function (src/intelligence/portfolio/weighting.py:184) - tested public API of portfolio weighting, same as standardize_scores
+circular_block_bootstrap_ic_serial  # unused function (src/intelligence/statistics/ic_math.py:328) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
+causal_entity_expanding_mean  # unused function (src/intelligence/statistics/ic_math.py:621) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
