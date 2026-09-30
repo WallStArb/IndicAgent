@@ -35,6 +35,7 @@ import asyncio
 import dataclasses
 import functools
 import hashlib
+import json
 import sys
 import time
 from collections import defaultdict
@@ -59,7 +60,6 @@ from src.intelligence.concept_registry_service import (  # noqa: E402
     ConceptRegistryService,
     TransitionResult,
 )
-from src.intelligence.research.spec import canonical_json  # noqa: E402
 from src.intelligence.statistics.feature_coverage import (  # noqa: E402
     FeatureTfQuality,
     QualityVerdict,
@@ -156,18 +156,28 @@ def feature_evidence(
     return rows, {"failures": list(verdict.failures), "per_tf": rows}
 
 
+def _canonical_json(obj: dict[str, Any]) -> str:
+    """The evidence key's serialization: sorted keys, fixed separators, non-ASCII kept, and
+    NaN or infinity refused (allow_nan=False raises ValueError), so a non-finite statistic
+    fails loudly instead of hashing as a token. No default= hook: an unserializable value
+    raises TypeError instead of being coerced to a string.
+
+    Frozen by the ledger: every stored evidence_key is a hash of this output, so a change here
+    moves keys. Version any change through a version field in the evidence_key payload."""
+    return json.dumps(
+        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
+
+
 def evidence_key(status: str, rule: dict[str, Any], per_tf_rows: list[dict[str, Any]]) -> str:
     """sha256 over everything a verdict read: the evaluated status, the decision-rule
-    parameters and the canonical sorted per-tf statistics, serialized by the research spec's
-    canonical_json (fixed separators, allow_nan=False), so a non-finite statistic raises
-    instead of hashing as a string.
+    parameters and the canonical sorted per-tf statistics (see _canonical_json).
 
-    Versioning rule: this serialization defines the key. Any change to it (or to the payload
-    fields) that could give an old row's evidence a different key must be accompanied by a
-    version field in the payload, so old and new keys never collide. No data_quality row
-    existed when canonical_json was adopted (migration 389 counted zero), so none is needed
-    yet."""
-    payload = canonical_json({"status": status, "rule": rule, "per_tf": per_tf_rows})
+    Versioning rule: the serialization and the payload fields define the key. A change that
+    could give an old row's evidence a different key needs a version field in the payload, so
+    old and new keys never collide. No data_quality row existed when this serialization was
+    fixed (migration 389 counted zero), so the payload carries none yet."""
+    payload = _canonical_json({"status": status, "rule": rule, "per_tf": per_tf_rows})
     return hashlib.sha256(payload.encode()).hexdigest()
 
 

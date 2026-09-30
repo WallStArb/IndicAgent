@@ -205,13 +205,40 @@ class TestEvidenceKey:
         with pytest.raises(ValueError):
             evidence_key("active", _RULE, rows)
 
-    def test_key_is_sha256_of_the_spec_canonical_json(self):
+    @pytest.mark.parametrize(
+        "evidence",
+        [
+            {"status": "active", "rule": _RULE, "per_tf": _ROWS},
+            {"status": "shadow_only", "rule": _RULE, "per_tf": []},
+            {
+                "status": "active",
+                "rule": _RULE,
+                "per_tf": [
+                    {"tf": "5m", "symbol_coverage": 0.987654321, "check": None, "ok": True},
+                    {"tf": "1d", "symbol_coverage": 1e-12, "n_rows": 10**12, "check": "n\u00e9"},
+                ],
+            },
+        ],
+    )
+    def test_serialization_equals_the_spec_canonical_json_so_no_key_moves(self, evidence):
+        """The local serializer replaced research.spec.canonical_json; keys stay identical."""
         import hashlib
 
         from src.intelligence.research.spec import canonical_json
 
-        payload = canonical_json({"status": "active", "rule": _RULE, "per_tf": _ROWS})
-        assert evidence_key("active", _RULE, _ROWS) == hashlib.sha256(payload.encode()).hexdigest()
+        assert fl._canonical_json(evidence) == canonical_json(evidence)
+        key = evidence_key(evidence["status"], evidence["rule"], evidence["per_tf"])
+        assert key == hashlib.sha256(canonical_json(evidence).encode()).hexdigest()
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_local_serializer_rejects_non_finite_and_unserializable_values(self, bad):
+        with pytest.raises(ValueError):
+            fl._canonical_json({"x": bad})
+        with pytest.raises(TypeError):
+            fl._canonical_json({"x": datetime(2026, 1, 1, tzinfo=UTC)})
+
+    def test_module_does_not_import_research(self):
+        assert "src.intelligence.research" not in inspect.getsource(fl)
 
     def test_changed_status_changes_key(self):
         assert evidence_key("active", _RULE, _ROWS) != evidence_key("shadow_only", _RULE, _ROWS)
