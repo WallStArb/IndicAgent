@@ -222,7 +222,6 @@ def _synthetic_case():
         **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
         **_cross_tf_kernel_inputs(
             inputs["ts"],
-            [ref.ns_to_dt(ns) for ns in inputs["ts"]],
             "5m",
             FeatureCache(),
             None,

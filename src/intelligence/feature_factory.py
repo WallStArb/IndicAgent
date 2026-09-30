@@ -1327,7 +1327,6 @@ def _macro_kernel_inputs(
 
 def _cross_tf_kernel_inputs(
     row_ns: np.ndarray,
-    row_ts: Sequence[datetime],
     tf: str,
     cache: FeatureCache,
     ctf_by_ts: CtfSeries | None,
@@ -1340,7 +1339,7 @@ def _cross_tf_kernel_inputs(
     HTF return is NaN (the divergences have no live-path plumbing). `ext_ltf_last_log_ret` is the
     1m return taken at the row's bar start, NaN where the dict has none.
     """
-    n = len(row_ts)
+    n = len(row_ns)
     if ctf_by_ts is not None:
         out = ctf_row_inputs(row_ns, ctf_by_ts)
     else:
@@ -1350,8 +1349,12 @@ def _cross_tf_kernel_inputs(
             "ext_ctf_regime_align": np.full(n, cache.ctf_regime_align, dtype=np.float64),
             "ext_htf_last_log_ret": np.full(n, np.nan),
         }
-    ltf = ltf_ret_by_ts or {}
-    out["ext_ltf_last_log_ret"] = np.array([ltf.get(ts, np.nan) for ts in row_ts], dtype=np.float64)
+    # Same UTC-nanosecond convention as the CTF and macro paths: a naive timestamp is taken as UTC
+    # on either side, so naive and aware inputs match identically.
+    ltf = {bar_ts_ns(ts): value for ts, value in (ltf_ret_by_ts or {}).items()}
+    out["ext_ltf_last_log_ret"] = np.array(
+        [ltf.get(int(ns), np.nan) for ns in row_ns.tolist()], dtype=np.float64
+    )
     return out
 
 
@@ -2746,7 +2749,6 @@ class FeatureFactory:
         # batch; the loop below reads row i. The registry is looked up here, never at import,
         # so kernel origins cannot create an import cycle with this module.
         row_ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
-        row_ts = [b["ts"] for b in bars]
         k = compute_kernels(
             default_registry(),
             {
@@ -2754,7 +2756,7 @@ class FeatureFactory:
                 **_macro_kernel_inputs(
                     row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
                 ),
-                **_cross_tf_kernel_inputs(row_ns, row_ts, tf, cache, ctf_by_ts, ltf_ret_by_ts),
+                **_cross_tf_kernel_inputs(row_ns, tf, cache, ctf_by_ts, ltf_ret_by_ts),
             },
             config,
             outputs=list(

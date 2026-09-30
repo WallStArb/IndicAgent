@@ -542,3 +542,34 @@ def test_real_rows_ignore_htf_bars_not_closed_by_their_bar_end(symbol, tf, htf_t
         if _ctf_values(want, ret_div) != _ctf_values(got, ret_div):
             moved += 1
     assert moved == 0, f"{moved} of {len(picks)} rows read an HTF bar that was not closed"
+
+
+def _naive(bars: list[dict]) -> list[dict]:
+    return [{**b, "ts": b["ts"].replace(tzinfo=None)} for b in bars]
+
+
+def test_naive_and_aware_timestamps_give_the_same_ltf_return_input():
+    """The 1m return lookup uses the same UTC-nanosecond convention as the CTF and macro paths, so
+    naive bars (taken as UTC) read the same values as aware bars. RED before: every
+    ext_ltf_last_log_ret was NaN for naive rows against an aware-keyed series."""
+    from src.intelligence.feature_factory import _cross_tf_kernel_inputs
+
+    rows = _five_minute_bars(_sessions(3))
+    minutes = _minute_bars(_sessions(3))
+    series = _build_ltf_return_series(minutes, [b["ts"] for b in rows])
+    assert series
+
+    def run(bars, ltf):
+        ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
+        return _cross_tf_kernel_inputs(ns, "5m", FeatureCache(), None, ltf)["ext_ltf_last_log_ret"]
+
+    aware = run(rows, series)
+    assert np.isfinite(aware).any()
+    naive_rows = _naive(rows)
+    naive_series = _build_ltf_return_series(_naive(minutes), [b["ts"] for b in naive_rows])
+    for got in (
+        run(naive_rows, series),
+        run(rows, naive_series),
+        run(naive_rows, naive_series),
+    ):
+        assert got.tobytes() == aware.tobytes()
