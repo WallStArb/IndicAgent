@@ -121,7 +121,7 @@ class _Conn:
 
 
 def test_pass_1d_fail_5m_sets_only_the_1d_switch_true() -> None:
-    results = {"1d": _result("1d", True), "5m": _result("5m", False)}
+    results = {"1d": True, "5m": False}
     assert study.switch_values(results) == {
         "infra.bar_derivation.venue_bars_1d": True,
         "infra.bar_derivation.venue_bars_intraday": False,
