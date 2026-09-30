@@ -900,7 +900,9 @@ class IcMeasure:
                 )
             )
             after = bar_content_digests(read_conn, tf, symbols, start, oos_start)
-            absent = check_bar_digests(before, after, allow_absent=self.args.allow_absent_digests)
+            absent = check_bar_digests(
+                before, after, allow_absent=self.args.allow_absent_digests or self.args.dry_run
+            )
             if absent:
                 _logger.warning("ic_measure.bar_digests_absent", tf=tf, symbols=len(absent))
             panels = [research_panel.load(p) for p in paths]
@@ -940,6 +942,14 @@ class IcMeasure:
                     counts["failed"] = counts.get("failed", 0) + 1
                     continue
                 self.outcomes.append(outcome)
+                _logger.info(  # once per unit, never per row
+                    "ic_measure.unit_done",
+                    tf=tf,
+                    writer=outcome.writer,
+                    status=outcome.status,
+                    rows=outcome.rows,
+                    seconds=round(time.monotonic() - t0, 1),
+                )
                 counts[outcome.status] = counts.get(outcome.status, 0) + 1
                 counts["rows"] = counts.get("rows", 0) + outcome.rows
         _logger.info(

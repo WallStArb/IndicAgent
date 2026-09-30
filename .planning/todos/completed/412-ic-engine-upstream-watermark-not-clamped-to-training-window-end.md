@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-09-24
 source: found while scoping todo 411's feature catch-up, read against services/ic_engine.py
@@ -49,3 +49,19 @@ the 411 catch-up adds post-window bars, and `--dry-run-validity` still reports 0
 ## Triage 2026-09-26 (backlog review with the owner)
 
 On the feature critical path: todo 435 wires `feature_vectors` into the research layer, so fresh, complete, correct features are a book input.
+
+## Closed 2026-09-30 (phase 186 plan 14)
+
+The old watermark is not the thing that got fixed further: `services/ic_engine.py` is deleted in
+186-23, so its `_compute_upstream_watermark` dies with it. Revision detection in the fresh writer
+(`services/ic_measure.py`) is `bar_content_digests` in `services/_batch_utils.py`: a per-symbol
+composition of phase 185's month digests (`bar_content_digest_current`) over `[start, oos_start)`,
+folded into each unit's provenance identity beside the per-job code key and the APR snapshot
+(commits `e299c3ae5`, `91a90d5c3` on branch `phase-186-14`).
+
+The 412 failure mode (work after the holdout boundary invalidating every cell) does not recur:
+feature computes never enter the digest (only bars and the aligned feature block of the window
+do, and the block is fetched with `bar_ts < oos_start`), and bar months wholly after
+`oos_start` are outside the composed range. One limit, stated rather than hidden: the digest is
+per calendar month, so a revision of a bar in the month that contains `oos_start`, after
+`oos_start`, also moves the digest (conservative over-invalidation of that one boundary month).
