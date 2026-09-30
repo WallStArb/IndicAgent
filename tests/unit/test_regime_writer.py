@@ -32,8 +32,8 @@ from services.regime_writer import (
     _LABEL_TRENDING_DOWN,
     _LABEL_TRENDING_UP,
     _build_label_map,
-    _causal_decode,
 )
+from tests.unit._hmm_decode_helpers import _causal_decode
 
 # Core 3-state canonical label set (K=3: trending_up / ranging / trending_down)
 _CANONICAL_LABELS = {_LABEL_TRENDING_UP, _LABEL_TRENDING_DOWN, _LABEL_RANGING}
@@ -266,7 +266,7 @@ def test_causal_decode_vectorized_matches_original():
     Validates that the vectorized batch-emit precomputation does not alter
     the forward-filter result compared to the original per-step Python loop.
 
-    Note: _causal_decode is now a backward-compat alias for _alpha_pass, which expects
+    Note: _causal_decode is the test-helper reference forward filter, which expects
     pre-computed log emissions rather than raw observations. This test computes log_emit
     explicitly to match the current signature.
     """

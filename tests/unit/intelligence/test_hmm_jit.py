@@ -1,6 +1,6 @@
 """Tests for src.intelligence.hmm_jit — Numba JIT forward filter.
 
-The _alpha_pass_ref function is a verbatim copy of _alpha_pass from services/regime_writer.py.
+The _alpha_pass_ref function is a verbatim copy of the numpy forward filter that lived in the regime kernel until 186-16.
 Tests verify numerical identity between the JIT and Python reference implementations.
 """
 
@@ -13,7 +13,7 @@ import numpy as np
 from src.intelligence.hmm_jit import alpha_pass_jit
 
 # ---------------------------------------------------------------------------
-# Reference implementation (verbatim copy of services/regime_writer._alpha_pass)
+# Reference implementation (verbatim copy of the numpy forward filter deleted from the regime kernel in 186-16)
 # ---------------------------------------------------------------------------
 
 

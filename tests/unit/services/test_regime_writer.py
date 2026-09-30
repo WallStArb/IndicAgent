@@ -39,7 +39,6 @@ from services.regime_writer import (
     _build_label_map,
     _build_obs_matrix,
     _build_obs_matrix_volatility,
-    _state_groups,
     _state_groups_by_vocab,
 )
 from src.intelligence.features.kernels import _hmm as hmm_module
@@ -711,7 +710,7 @@ def test_build_label_map_volatility_vocab_k4_raises_value_error():
 
 
 # ---------------------------------------------------------------------------
-# Tests: _state_groups_by_vocab / _state_groups
+# Tests: _state_groups_by_vocab
 # ---------------------------------------------------------------------------
 
 
@@ -752,22 +751,6 @@ def test_state_groups_by_vocab_volatility_k2():
     assert mid_states == []
     assert len(low_states) == 1
     assert len(high_states) == 1
-
-
-def test_state_groups_still_returns_bullish_ranging_bearish_order():
-    """_state_groups(label_map) still returns (bullish_states, ranging_states,
-    bearish_states) in that exact order, unchanged for every existing caller."""
-    means = np.array([[-0.9], [-0.4], [0.0], [0.4], [0.9]])
-    label_map = _build_label_map(means)
-    bullish_states, ranging_states, bearish_states = _state_groups(label_map)
-
-    assert set(bullish_states) == {
-        k for k, v in label_map.items() if v in (_LABEL_TRENDING_UP, "transition_up")
-    }
-    assert set(bearish_states) == {
-        k for k, v in label_map.items() if v in (_LABEL_TRENDING_DOWN, "transition_down")
-    }
-    assert set(ranging_states) == {k for k, v in label_map.items() if v == _LABEL_RANGING}
 
 
 def test_alpha_history_to_regime_probs_positional_call_unchanged():
@@ -942,14 +925,14 @@ def _compute_symbol_tf_volatility_walk_forward(
 
 
 # ---------------------------------------------------------------------------
-# Tests: _walk_forward_hmm_labels / _seed_prior_from_label (todo 248/026 P4a)
+# Tests: _walk_forward_hmm_full / _seed_prior_from_label (todo 248/026 P4a)
 #
 # _compute_symbol_tf fits its GaussianHMM once on the ENTIRE (symbol, tf) history before
 # causally decoding -- the decode step is causal, but the model's own parameters were
 # estimated with knowledge of the whole series, a parameter-level lookahead channel
 # confirmed empirically (docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md: SPY/1h
 # full-fit vs expanding-refit labels agree only 24.9% of the time, chance baseline 21.7%).
-# _walk_forward_hmm_labels fixes this: refits periodically on a growing training prefix
+# _walk_forward_hmm_full fixes this: refits periodically on a growing training prefix
 # only, and seeds each new model's initial belief from the label the PREVIOUS segment
 # ended on (via _seed_prior_from_label) rather than a fresh stationary prior -- raw HMM
 # state indices are not comparable across independently-fit models, but semantic labels
@@ -991,15 +974,15 @@ def test_seed_prior_from_label_falls_back_when_label_absent():
     np.testing.assert_array_equal(pi0, fallback)
 
 
-def test_walk_forward_hmm_labels_unaffected_by_future_data():
+def test_walk_forward_hmm_full_unaffected_by_future_data():
     """Causality: labels for bars before a truncation point must be identical whether or
     not data after that point exists -- mirrors test_causal_decode_uses_only_past_observations,
     one level up (the model's PARAMETERS, not just the decode, must not see the future).
 
-    If _walk_forward_hmm_labels fit on the full series (the current _compute_symbol_tf bug),
+    If _walk_forward_hmm_full fit on the full series (the current _compute_symbol_tf bug),
     truncating the tail would change every prior model's fit and this test would fail.
     """
-    from services.regime_writer import _walk_forward_hmm_labels
+    from services.regime_writer import _walk_forward_hmm_full
 
     n_full = 1200
     closes = _make_ranging_closes(n_full)
@@ -1021,10 +1004,19 @@ def test_walk_forward_hmm_labels_unaffected_by_future_data():
         initial_warmup_bars=300,
         min_hold_bars=3,
         full_cov_min_obs=0,
+        min_state_occupation=0.0,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
-    labels_full, _ = _walk_forward_hmm_labels(obs_full, **kwargs)
-    labels_truncated, _ = _walk_forward_hmm_labels(obs_truncated, **kwargs)
+    labels_full = [
+        label for seg in _walk_forward_hmm_full(obs_full, **kwargs) for label in _seg_labels(seg)
+    ]
+    labels_truncated = [
+        label
+        for seg in _walk_forward_hmm_full(obs_truncated, **kwargs)
+        for label in _seg_labels(seg)
+    ]
 
     n_overlap = truncate_at - kwargs["initial_warmup_bars"]
     assert len(labels_truncated) == n_overlap
@@ -1034,14 +1026,14 @@ def test_walk_forward_hmm_labels_unaffected_by_future_data():
     )
 
 
-def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_ending_label():
+def test_walk_forward_hmm_full_second_segment_seeded_from_first_segments_ending_label():
     """Belief continuity: the second segment's model must be decoded with an initial prior
     concentrated on the state its OWN label_map maps to the first segment's final label --
     not that model's stationary distribution (which ignores what regime bar 299 was actually
     in). Verified via monkeypatching _seed_prior_from_label to capture its call arguments."""
     from unittest.mock import patch
 
-    from services.regime_writer import _walk_forward_hmm_labels
+    from services.regime_writer import _walk_forward_hmm_full
 
     n_full = 500
     closes = _make_ranging_closes(n_full)
@@ -1059,7 +1051,7 @@ def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_endin
         return real_seed_prior_from_label(label_map, label, n_components, fallback_prior)
 
     with patch.object(hmm_module, "_seed_prior_from_label", side_effect=_spy):
-        labels, segments = _walk_forward_hmm_labels(
+        segments = _walk_forward_hmm_full(
             obs,
             n_components=3,
             covariance_type="diag",
@@ -1069,13 +1061,17 @@ def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_endin
             initial_warmup_bars=200,
             min_hold_bars=3,
             full_cov_min_obs=0,
+            min_state_occupation=0.0,
+            min_obs_factor=50,
+            covariance_ridge=1e-6,
         )
+    labels = [label for seg in segments for label in _seg_labels(seg)]
 
     assert len(segments) >= 2, "Test needs at least 2 refit segments to check continuity"
     # First segment has no predecessor -- must NOT call _seed_prior_from_label.
     # Every later segment must call it exactly once, with the prior segment's final label.
     assert len(calls) == len(segments) - 1
-    first_segment_len = segments[0][2] - segments[0][1]
+    first_segment_len = segments[0]["seg_end"] - segments[0]["seg_start"]
     _, second_call_label = calls[0]
     assert second_call_label == labels[first_segment_len - 1], (
         "Second segment's seeded prior must use the first segment's own final label, not "
@@ -1084,122 +1080,8 @@ def test_walk_forward_hmm_labels_second_segment_seeded_from_first_segments_endin
 
 
 # ---------------------------------------------------------------------------
-# Tests: _hmm_seed_stability_check (todo 026's bundled ask -- 3-5 seeds, compare
-# log-likelihood spread and label agreement, since each walk-forward segment's refit is
-# itself a fresh non-convex EM optimization subject to the same local-optima risk todo 108's
-# multi-seed-restart already addresses for the single full-history fit).
-# ---------------------------------------------------------------------------
-
-
-def test_hmm_seed_stability_check_shape_and_ranges():
-    """Structural contract: one log-likelihood per seed, one agreement value per unique
-    seed pair, ll_spread and min_pairwise_agreement are consistent aggregates of those."""
-    from services.regime_writer import _hmm_seed_stability_check
-
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    obs, _ = _build_obs_matrix(
-        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
-    )
-
-    seeds = [42, 43, 44]
-    result = _hmm_seed_stability_check(
-        obs,
-        n_components=3,
-        covariance_type="diag",
-        n_iter=50,
-        seeds=seeds,
-        full_cov_min_obs=0,
-    )
-
-    assert set(result["log_likelihoods"].keys()) == set(seeds)
-    assert all(isinstance(v, float) for v in result["log_likelihoods"].values())
-
-    expected_pairs = {(a, b) for i, a in enumerate(seeds) for b in seeds[i + 1 :]}
-    assert set(result["pairwise_label_agreement"].keys()) == expected_pairs
-    assert all(0.0 <= v <= 1.0 for v in result["pairwise_label_agreement"].values())
-
-    lls = list(result["log_likelihoods"].values())
-    assert result["ll_spread"] == pytest.approx(max(lls) - min(lls))
-    assert result["min_pairwise_agreement"] == pytest.approx(
-        min(result["pairwise_label_agreement"].values())
-    )
-
-
-def test_hmm_seed_stability_check_is_deterministic():
-    """Same obs + same seeds must give byte-identical results across two calls --
-    GaussianHMM.fit is deterministic given a fixed seed and data; any non-determinism here
-    would mean a real bug in the aggregation (e.g. unordered dict/set iteration leaking into
-    a computed value)."""
-    from services.regime_writer import _hmm_seed_stability_check
-
-    n = 400
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    obs, _ = _build_obs_matrix(
-        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
-    )
-
-    kwargs = dict(
-        n_components=3,
-        covariance_type="diag",
-        n_iter=50,
-        seeds=[42, 43],
-        full_cov_min_obs=0,
-    )
-    result_a = _hmm_seed_stability_check(obs, **kwargs)
-    result_b = _hmm_seed_stability_check(obs, **kwargs)
-
-    assert result_a == result_b
-
-
-# ---------------------------------------------------------------------------
 # Tests: _walk_forward_hmm_full / _compute_symbol_tf_walk_forward (todo 248)
 # ---------------------------------------------------------------------------
-
-
-def test_walk_forward_hmm_full_matches_labels_from_bare_labels_function():
-    """_walk_forward_hmm_full's labels must match _walk_forward_hmm_labels' own output
-    exactly for the same input -- the two functions duplicate the per-segment fit/decode
-    logic deliberately (see _walk_forward_hmm_full's docstring), so this pins that the
-    duplication has not silently diverged."""
-    from services.regime_writer import _walk_forward_hmm_full, _walk_forward_hmm_labels
-
-    n = 900
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    obs, _ = _build_obs_matrix(
-        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
-    )
-
-    kwargs = dict(
-        n_components=3,
-        covariance_type="diag",
-        n_iter=50,
-        hmm_random_state=_HMM_RANDOM_STATE,
-        refit_every_bars=200,
-        initial_warmup_bars=300,
-        min_hold_bars=3,
-        full_cov_min_obs=0,
-    )
-
-    bare_labels, bare_segments = _walk_forward_hmm_labels(obs, **kwargs)
-    full_segments = _walk_forward_hmm_full(
-        obs, min_state_occupation=0.0, **kwargs, min_obs_factor=50, covariance_ridge=1e-6
-    )
-
-    full_labels: list[str] = []
-    for seg in full_segments:
-        full_labels.extend(_seg_labels(seg))
-
-    assert full_labels == bare_labels
-    assert [(s["seg_start"], s["seg_end"]) for s in full_segments] == [
-        (train_end, seg_end) for train_end, _seg_start, seg_end in bare_segments
-    ]
 
 
 def test_walk_forward_hmm_full_probabilities_sum_to_one_per_bar():

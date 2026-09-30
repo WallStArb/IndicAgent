@@ -129,9 +129,6 @@ from src.intelligence.features.kernels._hmm import (
     _alpha_history_to_regime_probs as _alpha_history_to_regime_probs,
 )
 from src.intelligence.features.kernels._hmm import (
-    _alpha_pass as _alpha_pass,
-)
-from src.intelligence.features.kernels._hmm import (
     _build_label_map as _build_label_map,
 )
 from src.intelligence.features.kernels._hmm import (
@@ -141,9 +138,6 @@ from src.intelligence.features.kernels._hmm import (
     _build_obs_matrix_volatility as _build_obs_matrix_volatility,
 )
 from src.intelligence.features.kernels._hmm import (
-    _causal_decode as _causal_decode,
-)
-from src.intelligence.features.kernels._hmm import (
     _check_occupation_gate as _check_occupation_gate,
 )
 from src.intelligence.features.kernels._hmm import (
@@ -151,9 +145,6 @@ from src.intelligence.features.kernels._hmm import (
 )
 from src.intelligence.features.kernels._hmm import (
     _compute_log_emit as _compute_log_emit,
-)
-from src.intelligence.features.kernels._hmm import (
-    _hmm_seed_stability_check as _hmm_seed_stability_check,
 )
 from src.intelligence.features.kernels._hmm import (
     _log_emit_diag as _log_emit_diag,
@@ -171,9 +162,6 @@ from src.intelligence.features.kernels._hmm import (
     _smooth_states as _smooth_states,
 )
 from src.intelligence.features.kernels._hmm import (
-    _state_groups as _state_groups,
-)
-from src.intelligence.features.kernels._hmm import (
     _state_groups_by_vocab as _state_groups_by_vocab,
 )
 from src.intelligence.features.kernels._hmm import (
@@ -181,9 +169,6 @@ from src.intelligence.features.kernels._hmm import (
 )
 from src.intelligence.features.kernels._hmm import (
     _walk_forward_hmm_full as _walk_forward_hmm_full,
-)
-from src.intelligence.features.kernels._hmm import (
-    _walk_forward_hmm_labels as _walk_forward_hmm_labels,
 )
 from src.intelligence.features.kernels.regime import compute_regime_columns
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit

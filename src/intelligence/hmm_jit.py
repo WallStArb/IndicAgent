@@ -1,6 +1,6 @@
 """Numba JIT forward filter for HMM regime inference.
 
-Provides alpha_pass_jit — a numerically identical drop-in for regime_writer._alpha_pass.
+Provides alpha_pass_jit — a numerically identical drop-in for the numpy forward filter (kept as the parity oracle in tests/unit/intelligence/test_hmm_jit.py).
 The key difference: takes log_A (pre-computed) instead of raw transmat_, which moves the
 log(max(transmat_, 1e-300)) computation outside the JIT boundary to the Python call site.
 
@@ -29,7 +29,7 @@ def alpha_pass_jit(
     log_A: np.ndarray,
     pi0: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Causal forward-filter via Numba JIT. Numerically identical to _alpha_pass.
+    """Causal forward-filter via Numba JIT. Numerically identical to the numpy oracle in test_hmm_jit.py.
 
     Args:
         log_emit: (n, K) float64 — precomputed log emission probabilities.
