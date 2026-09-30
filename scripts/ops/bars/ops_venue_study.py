@@ -174,14 +174,14 @@ def quotas_full(primary_by_symbol: Mapping[str, str], prereg: Mapping[str, Any])
     return all(len(names) >= quota for names in chosen.values())
 
 
-def switch_values(results: Mapping[str, VenueStudyResult]) -> dict[str, bool]:
-    return {_SWITCH_KEYS[tf]: bool(results[tf].passed) for tf in _TIMEFRAMES}
+def switch_values(passed_by_timeframe: Mapping[str, bool]) -> dict[str, bool]:
+    return {_SWITCH_KEYS[tf]: bool(passed_by_timeframe[tf]) for tf in _TIMEFRAMES}
 
 
-def apply_verdict(conn: Any, results: Mapping[str, VenueStudyResult], verdict_sha: str) -> None:
+def apply_verdict(conn: Any, passed_by_timeframe: Mapping[str, bool], verdict_sha: str) -> None:
     """Set both switches to the verdict in one transaction: config_history row plus
     config_state update, changed_by 'venue_study_185' (T-185-13-02)."""
-    values = switch_values(results)
+    values = switch_values(passed_by_timeframe)
     with conn.transaction():
         with conn.cursor() as cur:
             for tf in _TIMEFRAMES:
@@ -358,6 +358,9 @@ def _day_key(timeframe: str, ts: datetime) -> Any:
 
 async def _run(args: argparse.Namespace) -> int:
     settings = Settings()
+    if args.apply_only:
+        _apply_from_file(settings)
+        return 0
     prereg = load_preregistration(_PREREG_PATH)
     prereg_sha = hashlib.sha256(_PREREG_PATH.read_bytes()).hexdigest()
     committed_at = git_commit_time(_PREREG_PATH)
@@ -509,13 +512,24 @@ async def _run(args: argparse.Namespace) -> int:
     }
     _VERDICT_PATH.write_text(json.dumps(verdict, indent=2, sort_keys=True) + "\n")
     _REPORT_PATH.write_text(render_report(verdict, results, prereg, excluded))
-    verdict_sha = hashlib.sha256(_VERDICT_PATH.read_bytes()).hexdigest()
     print(json.dumps({tf: results[tf].passed for tf in _TIMEFRAMES}))
-    if args.apply_verdict:
-        apply_verdict(conn, results, verdict_sha)
-        print(f"applied verdict (sha256 {verdict_sha})")
     conn.close()
+    if args.apply_verdict:
+        # Fresh connection: the fetch phase runs for over an hour, past the
+        # server's idle-session timeout for the connection opened at start.
+        _apply_from_file(settings)
     return 0
+
+
+def _apply_from_file(settings: Settings) -> None:
+    """Set the switches from the committed-to-be verdict file (D-17)."""
+    raw = _VERDICT_PATH.read_bytes()
+    verdict = json.loads(raw)
+    passed = {tf: bool(verdict["results"][tf]["passed"]) for tf in _TIMEFRAMES}
+    sha = hashlib.sha256(raw).hexdigest()
+    with psycopg.connect(settings.database_url, autocommit=True) as conn:
+        apply_verdict(conn, passed, sha)
+    print(f"applied verdict {passed} (sha256 {sha})")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -524,6 +538,11 @@ def _parse_args() -> argparse.Namespace:
         "--apply-verdict",
         action="store_true",
         help="set the two venue_bars APR switches from the verdict",
+    )
+    parser.add_argument(
+        "--apply-only",
+        action="store_true",
+        help="skip the study and set the switches from the existing verdict file",
     )
     parser.add_argument(
         "--allow-rerun", action="store_true", help="run although a verdict file exists"
