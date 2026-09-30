@@ -160,7 +160,7 @@ suspect, corroboration and gap flags as flags on bars.
 **Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
 through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
 Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 13/24 plans executed
+**Plans:** 14/24 plans executed
 
 Plans:
 
@@ -189,7 +189,7 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)
-- [ ] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
+- [x] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
