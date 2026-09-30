@@ -1139,10 +1139,14 @@ class TestSourceLints:
 def _bytecode_closure(entries: tuple[str, ...], own: tuple[str, ...]) -> set[str]:
     """Slow independent walk: IMPORT_NAME instructions of the compiled code (a different
     mechanism from the ast walk in src.core.code_identity), following modules, hashing a package
-    as its __init__ without following it, adding every ancestor package."""
+    as its __init__ without following it, adding every ancestor package. A name taken from a
+    package resolves to the module that defines it (`obj.__module__`, again a different
+    mechanism from the ast read of the __init__), and an I/O-boundary module is not followed."""
     import dis
     import importlib.util
     import types
+
+    from src.core.code_identity import IO_BOUNDARY_MODULES as io_boundary
 
     roots = ("src", "services")
 
@@ -1183,6 +1187,12 @@ def _bytecode_closure(entries: tuple[str, ...], own: tuple[str, ...]) -> set[str
                                 sub = None
                             if sub is not None:
                                 found.add(f"{base}.{item}")
+                                continue
+                            defined_in = getattr(
+                                getattr(importlib.import_module(base), item, None), "__module__", ""
+                            )
+                            if defined_in.partition(".")[0] in roots and defined_in != base:
+                                found.add(defined_in)
         return found
 
     seen: set[str] = set()
@@ -1192,7 +1202,7 @@ def _bytecode_closure(entries: tuple[str, ...], own: tuple[str, ...]) -> set[str
         if name in seen:
             continue
         seen.add(name)
-        if spec(name).submodule_search_locations is None:
+        if spec(name).submodule_search_locations is None and name not in io_boundary:
             todo.extend(imports_of(name))
     out = seen | set(own)
     for name in list(out):
@@ -1207,6 +1217,12 @@ class TestCodeKeyClosure:
         entries = (*ic_measure._COMMON_ENTRIES, *ic_measure._JOB_ENTRIES[job])
         expected = _bytecode_closure(entries, ic_measure._OWN_MODULES)
         assert set(ic_measure.job_code_modules(job)) == expected
+
+    def test_infrastructure_that_cannot_reach_a_value_is_not_in_a_compute_key(self) -> None:
+        for job in ic_measure._ALL_JOBS:
+            mods = set(ic_measure.job_code_modules(job))
+            assert "src.core.database_manager" in mods  # registered by name
+            assert not {"src.observability.metrics", "src.core.tier_aliases"} & mods, job
 
     def test_the_target_path_modules_the_hand_list_missed_are_hashed(self) -> None:
         for job in ic_measure._ALL_JOBS:
@@ -1247,6 +1263,8 @@ class TestCodeKeyClosure:
                 ("src.intelligence.research.store", True),
                 ("src.core.market_calendar", True),
                 ("src.intelligence.measure.monitoring", False),  # outside the proposer closure
+                ("src.core.database_manager", False),  # an I/O boundary: hashed by name only
+                ("src.observability.metrics", False),  # telemetry
             ):
                 edited.clear()
                 edited[name] = real(name).read_bytes() + b"\nEDIT = 1\n"
