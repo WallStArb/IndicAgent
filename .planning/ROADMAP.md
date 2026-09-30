@@ -160,7 +160,7 @@ suspect, corroboration and gap flags as flags on bars.
 **Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
 through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
 Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 24 plans
+**Plans:** 12/24 plans executed
 
 Plans:
 
@@ -183,7 +183,7 @@ Plans:
 
 - [x] 185-10-PLAN.md - historical scrub pass over 1d and 5m (wave 3)
 - [x] 185-11-PLAN.md - D2b writer, archive, digest table, single-writer CI (wave 3)
-- [ ] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
+- [x] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
 - [ ] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
