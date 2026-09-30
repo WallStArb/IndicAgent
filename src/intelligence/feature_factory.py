@@ -29,6 +29,7 @@ from __future__ import annotations
 import bisect
 import dataclasses
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -1244,8 +1245,13 @@ def _guard(v: float | None, fallback: float = 0.0) -> float | None:
 _GUARD_COUNTED_SUBSTITUTIONS: dict[str, int] = {}
 
 
-def _guard_counted(v: float, name: str) -> float:
+def _guard_counted(v: float, name: str, inputs: Sequence[float] = ()) -> float:
     """Like _guard(v, fallback=0.0) but increments a named, observable counter.
+
+    With `inputs` (the factors of the product), a non-finite product whose input is itself
+    non-finite is missing data propagating (an early row with no cross-asset record yet), not
+    a numerical anomaly: it is substituted the same 0.0 but not counted, so the tripwire
+    counts only a product that is non-finite while every input is finite.
 
     Used exclusively by the 10 Theory-Motivated Interaction compounds (Phase
     151 Plan 06, todo -- see plan doc). Explicit range clipping was rejected
@@ -1261,6 +1267,8 @@ def _guard_counted(v: float, name: str) -> float:
     """
     if math.isfinite(v):
         return v
+    if not all(math.isfinite(x) for x in inputs):
+        return 0.0
     _GUARD_COUNTED_SUBSTITUTIONS[name] = _GUARD_COUNTED_SUBSTITUTIONS.get(name, 0) + 1
     return 0.0
 
@@ -3859,6 +3867,9 @@ def _build_feature_vector(
         cci_fast=_guard(cci_fast),
         cci_mid=_guard(cci_mid),
         cci_slow=_guard(cci_slow),
+        # Legacy no-fill gap (todo 463, plan 186-25): the kernels emit NaN for a row with no daily
+        # record yet, and this guard turns it back into a fabricated 0.0 because FeatureVector
+        # fields are non-nullable floats. 186-25 removes these guards on the rebuild path.
         vix_z=_guard(vix_z),
         flight_quality=_guard(flight_quality),
         yield_slope_z=_guard(yield_slope_z),
@@ -3988,6 +3999,7 @@ def _build_feature_vector(
         bars_since_vol_spike_fast=_guard(bars_since_vol_spike_fast, 0.0),
         bars_since_vol_spike_slow=_guard(bars_since_vol_spike_slow, 0.0),
         abs_ret_autocorr_1=_guard(abs_ret_autocorr_1, 0.0),
+        # Same legacy no-fill gap as vix_z above (todo 463, plan 186-25): NaN becomes 0.0 here.
         tip_tlt_ret_z=_guard(tip_tlt_ret_z, 0.0),
         hyg_lqd_ret_z=_guard(hyg_lqd_ret_z, 0.0),
         sb_corr_fast=_guard(sb_corr_fast, 0.0),
@@ -4026,9 +4038,15 @@ def _build_feature_vector(
             illiquidity_momentum_product, "illiquidity_momentum_product"
         ),
         yield_slope_momentum_product=_guard_counted(
-            yield_slope_momentum_product, "yield_slope_momentum_product"
+            yield_slope_momentum_product,
+            "yield_slope_momentum_product",
+            inputs=(yield_slope_z, momentum_z_fast),
         ),
-        vix_reversion_product=_guard_counted(vix_reversion_product, "vix_reversion_product"),
+        vix_reversion_product=_guard_counted(
+            vix_reversion_product,
+            "vix_reversion_product",
+            inputs=(vix_z, momentum_reversal_z),
+        ),
         efficiency_volume_product=_guard_counted(
             efficiency_volume_product, "efficiency_volume_product"
         ),
