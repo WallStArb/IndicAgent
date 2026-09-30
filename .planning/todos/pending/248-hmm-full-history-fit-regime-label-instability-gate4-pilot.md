@@ -240,3 +240,12 @@ does not yet have real per-tf values:
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Re-tiered P2 -> P1. Regime and HMM columns are feature inputs to books (todo 435), and a lookahead-contaminated stored column passes the S3 causality probe, so this is on the feature path. Owner's standing directive: deploy regardless of Gate 4. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path. Also decide `alpha.hmm.n_restarts` (108) and `n_iter` (226) before the refit.
+
+## State verified 2026-09-30 (plan 186-13)
+
+Earlier text in this file and STATE.md said the walk-forward path was built but not deployed. That is stale.
+
+- `config_history`: `alpha.hmm.walk_forward.enabled` version 2 = true, 2026-08-12 18:20 UTC, by brandon, "flipped alongside the post-231-symbol-expansion full corpus recompute (feature_vectors truncated + migration 312 applied)". `config_state` holds true today.
+- `logs/regime_writer.log.2` and `.3` (2026-08-16): 1,986 `walk_forward_hmm_convergence_iters` events, 1,512 `walk_forward_segment_skipped` and 21 `walk_forward_all_segments_degenerate` events. The single-fit path emits none of these.
+- Stored label positions (0-based position of the first non-NULL label among `market_data_ohlcv_tradeable` bars; feature_vectors starts after its own valid_start, hence the offset above warmup): regime SPY 1d 1280, SPY 1h 8270, TLT 1d 776, TLT 1h 4970, QQQ 1d 776, QQQ 1h 4970. Walk-forward warmup is 504 (1d) and 3300 (1h); the full-history path would put the first label near bar 20.
+- Verdict: walk-forward deployed for every sampled cell. The stored columns still carry the segment-gate lookahead of todo 451 until the 186-26 rebuild.
