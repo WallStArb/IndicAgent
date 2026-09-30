@@ -36,14 +36,10 @@ from typing import Any
 import numpy as np
 import structlog
 
-from src.intelligence.feature_cache import (
-    FeatureCache,
-)
+from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.features.kernels._hmm import HmmConfig
-from src.intelligence.features.kernels._primitives import (
-    none_mask_name,
-)
+from src.intelligence.features.kernels._primitives import KeyGroup, none_mask_name
 from src.intelligence.features.kernels.calendar import (
     _day_of_month_cos,
     _day_of_month_sin,
@@ -121,10 +117,12 @@ from src.intelligence.features.kernels.price import (
 from src.intelligence.features.kernels.smc import (
     _FVG_OUTPUT_KEYS,
     _POOL_OUTPUT_KEYS,
-    BOS_KEYS,
-    OB_KEYS,
-    SWEEP_KEYS,
-    ZONE_KEYS,
+    BOS,
+    FVG,
+    OB,
+    POOL,
+    SWEEP,
+    ZONE,
     _compute_bos_choch,
     _compute_fvg,
     _compute_liquidity_pools,
@@ -140,35 +138,20 @@ from src.intelligence.features.kernels.volume import (
 from src.intelligence.features.kernels.vp_sr import (
     _NEUTRAL_VP_EXTRA,
     _SWING_STRUCTURE_OUTPUT_KEYS,
-    FIB_KEYS,
-    FIB_NULLABLE,
-    SR_KEYS,
-    SWING_KEYS,
-    SWING_MOMENTUM_KEYS,
-    SWING_MOMENTUM_NULLABLE,
-    SWING_NULLABLE,
-    SWING_STRUCTURE_KEYS,
-    SWING_STRUCTURE_NULLABLE,
-    TREND_KEYS,
-    TREND_NULLABLE,
+    FIB,
+    SR,
+    SWING,
+    SWING_MOMENTUM,
+    SWING_STRUCTURE,
+    TREND,
+    _compute_fib_zones,
+    _compute_sr_dist_atr,
+    _compute_swing_momentum,
+    _compute_swing_structure,
     _compute_trend_structure,
     _derive_session_levels,
+    _derive_session_vp,
     _rolling_poc_price,
-)
-from src.intelligence.features.kernels.vp_sr import (
-    _compute_fib_zones as _compute_fib_zones,
-)
-from src.intelligence.features.kernels.vp_sr import (
-    _compute_sr_dist_atr as _compute_sr_dist_atr,
-)
-from src.intelligence.features.kernels.vp_sr import (
-    _compute_swing_momentum as _compute_swing_momentum,
-)
-from src.intelligence.features.kernels.vp_sr import (
-    _compute_swing_structure as _compute_swing_structure,
-)
-from src.intelligence.features.kernels.vp_sr import (
-    _derive_session_vp as _derive_session_vp,
 )
 from src.intelligence.schemas import FeatureVector
 
@@ -1200,10 +1183,8 @@ _DELEGATED_KERNEL_OUTPUTS: tuple[str, ...] = tuple(
 )
 
 
-# The stateless structure columns compute_batch reads from kernels: the rolling POC, S/R, swing,
-# trend and fib, and swing momentum columns, with the none-masks of the nullable ones. The
-# cache-backed session VP, session levels and AMD kernels replay their own cache and are not run
-# here (186-25 retires the cache-driven loop).
+# The cross-timeframe columns compute_batch reads from kernels: the three CTF pass-throughs and the
+# three ret_div divergences.
 _CROSS_TF_KERNEL_OUTPUTS: tuple[str, ...] = (
     "ctf_momentum",
     "ctf_vwap_align",
@@ -1212,35 +1193,30 @@ _CROSS_TF_KERNEL_OUTPUTS: tuple[str, ...] = (
     "ret_div_1h_1d",
     "ret_div_1m_5m",
 )
-_FVG_OUTPUT_NAMES = tuple(sorted(_FVG_OUTPUT_KEYS))
-_POOL_OUTPUT_NAMES = tuple(sorted(_POOL_OUTPUT_KEYS))
+# The stateless structure columns compute_batch reads from kernels: the rolling POC, S/R, swing,
+# trend and fib, and swing momentum columns, with the none-masks of the nullable ones. The
+# cache-backed session VP, session levels and AMD kernels replay their own cache and are not run
+# here (186-25 retires the cache-driven loop). Each group's outputs come from its one spec.
 _STRUCTURE_KERNEL_OUTPUTS: tuple[str, ...] = (
     "_poc_price_rolling",
-    *SR_KEYS,
-    *OB_KEYS,
-    *(_FVG_OUTPUT_NAMES),
-    *SWEEP_KEYS,
-    *(_POOL_OUTPUT_NAMES),
-    *ZONE_KEYS,
-    *BOS_KEYS,
-    *(
-        name
-        for keys, nullable in (
-            (SWING_STRUCTURE_KEYS, SWING_STRUCTURE_NULLABLE),
-            (SWING_MOMENTUM_KEYS, SWING_MOMENTUM_NULLABLE),
-        )
-        for name in (*keys, *(none_mask_name(key) for key in keys if key in nullable))
-    ),
+    *SR.outputs,
+    *OB.outputs,
+    *FVG.outputs,
+    *SWEEP.outputs,
+    *POOL.outputs,
+    *ZONE.outputs,
+    *BOS.outputs,
+    *SWING_STRUCTURE.outputs,
+    *SWING_MOMENTUM.outputs,
 )
 
 
-def _kernel_row(
-    k: dict[str, np.ndarray], keys: Sequence[str], nullable: frozenset[str], i: int
-) -> dict[str, Any]:
-    """Row i of a kernel-produced field group as the helper's dict, None where the mask says so."""
+def _kernel_row(k: dict[str, np.ndarray], group: KeyGroup, i: int) -> dict[str, Any]:
+    """Row i of a kernel-produced field group as the helper's dict (the group's public keys), None
+    where the mask says so."""
     return {
-        key: None if key in nullable and k[none_mask_name(key)][i] > 0.5 else float(k[key][i])
-        for key in keys
+        key: None if key in group.nullable and k[none_mask_name(key)][i] > 0.5 else float(k[key][i])
+        for key in group.public_keys
     }
 
 
@@ -1268,7 +1244,7 @@ def _batch_kernel_inputs(
 
 
 def _none_if_nan(value: float) -> float | None:
-    """A beta the caller could not supply is None in the record and NaN on the kernel grid."""
+    """A value that is NaN on the kernel grid is None in the FeatureVector."""
     return None if math.isnan(value) else float(value)
 
 
@@ -2889,12 +2865,12 @@ class FeatureFactory:
 
             # S/R, swing, trend, swing momentum and fib: registry kernels over the same causal
             # windows the loop used to slice (valid for tf=='1d' too, D-19).
-            _sr_fields = _kernel_row(k, SR_KEYS, frozenset(), i)
+            _sr_fields = _kernel_row(k, SR, i)
 
-            _swing_fields = _kernel_row(k, SWING_KEYS, SWING_NULLABLE, i)
-            _trend_fields = _kernel_row(k, TREND_KEYS, TREND_NULLABLE, i)
-            _swing_momentum_fields = _kernel_row(k, SWING_MOMENTUM_KEYS, SWING_MOMENTUM_NULLABLE, i)
-            _fib_fields = _kernel_row(k, FIB_KEYS, FIB_NULLABLE, i)
+            _swing_fields = _kernel_row(k, SWING, i)
+            _trend_fields = _kernel_row(k, TREND, i)
+            _swing_momentum_fields = _kernel_row(k, SWING_MOMENTUM, i)
+            _fib_fields = _kernel_row(k, FIB, i)
 
             # Session Levels (Phase 165 Plan 05): the last 16 Phase 165
             # fields, derived from FeatureCache's raw state --
@@ -2904,12 +2880,12 @@ class FeatureFactory:
 
             # Smart money concepts: registry kernels over the same causal windows the loop
             # used to slice, each reading the loop's atr_val.
-            _ob_fields = _kernel_row(k, OB_KEYS, frozenset(), i)
-            _fvg_fields = _kernel_row(k, _FVG_OUTPUT_NAMES, frozenset(), i)
-            _sweep_fields = _kernel_row(k, SWEEP_KEYS, frozenset(), i)
-            _pool_fields = _kernel_row(k, _POOL_OUTPUT_NAMES, frozenset(), i)
-            _zone_fields = _kernel_row(k, ZONE_KEYS, frozenset(), i)
-            _bos_fields = _kernel_row(k, BOS_KEYS, frozenset(), i)
+            _ob_fields = _kernel_row(k, OB, i)
+            _fvg_fields = _kernel_row(k, FVG, i)
+            _sweep_fields = _kernel_row(k, SWEEP, i)
+            _pool_fields = _kernel_row(k, POOL, i)
+            _zone_fields = _kernel_row(k, ZONE, i)
+            _bos_fields = _kernel_row(k, BOS, i)
 
             # AMD reads FeatureCache's overnight state, kept current by the
             # update_overnight_range() call earlier in this loop (cache-backed, like session VP).

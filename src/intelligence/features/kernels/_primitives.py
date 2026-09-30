@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from types import MappingProxyType
+from typing import Any, NamedTuple
 
 import numpy as np
 from scipy import stats
@@ -332,6 +333,16 @@ def _kurtosis(arr: np.ndarray) -> float:
     return result if math.isfinite(result) else 0.0
 
 
+# The ATR series every windowed kernel reads: Wilder ATR padded with 0.0 at row 0 so it aligns with
+# the bars (price.py produces it; volume, vp_sr and smc read it).
+ATR_RAW_PADDED = "_atr_raw_padded"
+
+
+def window_start(i: int, lookback: int) -> int:
+    """First row of the causal window of `lookback` bars ending at row i: `max(0, i - lookback + 1)`."""
+    return max(0, i - lookback + 1)
+
+
 def none_mask_name(key: str) -> str:
     """Name of the intermediate output that marks rows where `key` is None (not a number)."""
     return f"_{key}_is_none"
@@ -357,6 +368,63 @@ def constant_value(values: np.ndarray, what: str) -> str:
 def constant_tf(tf_values: np.ndarray) -> str:
     """The one timeframe of a series from the per-row `tf` external input."""
     return constant_value(tf_values, "tf")
+
+
+def nullable_keys(fallback: Mapping[str, Any]) -> frozenset[str]:
+    """Keys a helper may return None for: the keys its fallback dict holds as None."""
+    return frozenset(key for key, value in fallback.items() if value is None)
+
+
+class KeyGroup(NamedTuple):
+    """The keys one row helper returns, which of them may be None, and the keys it hands on as
+    in-memory intermediates under another name (`names`: key -> registered output name).
+
+    One spec feeds both sides of a kernel: `outputs` is what the Kernel registers and `columns`
+    runs `row_dict_columns` with the same keys, so the two cannot drift. `public_keys` are the
+    keys a caller of the kernel reads back (intermediates excluded).
+    """
+
+    keys: tuple[str, ...]
+    nullable: frozenset[str] = frozenset()
+    names: Mapping[str, str] = MappingProxyType({})
+
+    @classmethod
+    def from_fallback(
+        cls, fallback: Mapping[str, Any], names: Mapping[str, str] | None = None
+    ) -> KeyGroup:
+        """Keys in the fallback dict's order; nullable where the fallback holds None."""
+        return cls(tuple(fallback), nullable_keys(fallback), MappingProxyType(dict(names or {})))
+
+    @classmethod
+    def concat(cls, *groups: KeyGroup) -> KeyGroup:
+        """One group from several computed by one kernel (no renames)."""
+        return cls(
+            tuple(key for group in groups for key in group.keys),
+            frozenset().union(*(group.nullable for group in groups)),
+        )
+
+    @property
+    def public_keys(self) -> tuple[str, ...]:
+        return tuple(key for key in self.keys if key not in self.names)
+
+    @property
+    def outputs(self) -> tuple[str, ...]:
+        """Registered output names: each key (renamed if an intermediate), then the none-masks."""
+        return row_dict_outputs(self.keys, self.nullable, self.names)
+
+    def columns(self, n: int, row_fn: Callable[[int], Mapping[str, Any]]) -> dict[str, np.ndarray]:
+        return row_dict_columns(n, self.keys, self.nullable, row_fn, self.names)
+
+
+def row_dict_outputs(
+    keys: Sequence[str], nullable: frozenset[str], output_names: Mapping[str, str] | None = None
+) -> tuple[str, ...]:
+    """The column names `row_dict_columns(n, keys, nullable, ..., output_names)` returns."""
+    names = output_names or {}
+    return (
+        *(names.get(key, key) for key in keys),
+        *(none_mask_name(key) for key in keys if key in nullable),
+    )
 
 
 def row_dict_columns(

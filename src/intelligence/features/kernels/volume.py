@@ -9,6 +9,7 @@ import numpy as np
 
 from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
+    ATR_RAW_PADDED,
     EPS,
     _fixed_window_zscore_series,
     _is_valid_atr,
@@ -713,7 +714,7 @@ def _compute_cmf(x, config):
 
 
 def _compute_informed_flow(x, config):
-    o, c, atr = x["open"].tolist(), x["close"].tolist(), x["_atr_raw_padded"].tolist()
+    o, c, atr = x["open"].tolist(), x["close"].tolist(), x[ATR_RAW_PADDED].tolist()
     return {
         "informed_flow": np.array(
             [
@@ -884,7 +885,7 @@ KERNELS = (
     _k(
         "informed_flow",
         ("informed_flow",),
-        ("open", "close", "_atr_raw_padded"),
+        ("open", "close", ATR_RAW_PADDED),
         lambda c: 0,
         _compute_informed_flow,
     ),

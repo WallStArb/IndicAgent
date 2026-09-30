@@ -18,7 +18,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 # Ensure project root on sys.path for direct import
@@ -46,6 +45,7 @@ from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
 from src.intelligence.features.kernels.macro import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
+from tests.unit.intelligence.bar_builders import synthetic_daily_bars
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1383,21 +1383,7 @@ def test_feature_factory_cold_start_returns_vector() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_daily_bars(n: int, seed: int, start_close: float = 100.0) -> list[dict]:
-    rng = np.random.default_rng(seed)
-    closes = start_close * np.cumprod(1 + rng.normal(0, 0.01, n))
-    base = datetime(2020, 1, 2, 21, 0, tzinfo=UTC)
-    return [
-        {
-            "ts": base + timedelta(days=i),
-            "open": float(closes[i] * 0.999),
-            "high": float(closes[i] * 1.001),
-            "low": float(closes[i] * 0.999),
-            "close": float(closes[i]),
-            "volume": 1_000_000.0,
-        }
-        for i in range(n)
-    ]
+_make_daily_bars = synthetic_daily_bars
 
 
 def _reference_cross_asset_series(

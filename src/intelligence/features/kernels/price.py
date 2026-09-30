@@ -11,6 +11,7 @@ import numpy as np
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
+    ATR_RAW_PADDED,
     EPS,
     _atr_series_full,
     _fixed_window_zscore_series,
@@ -1242,19 +1243,19 @@ def _fast_mid_slow(template: str) -> tuple[tuple[str, str], ...]:
 
 def _compute_atr(x, config):
     atr_raw = _atr_series_full(x["high"], x["low"], x["close"], config.adx_period)
-    return {"_atr_raw_padded": np.concatenate([[0.0], atr_raw])}
+    return {ATR_RAW_PADDED: np.concatenate([[0.0], atr_raw])}
 
 
 def _compute_atr_valid(x, config):
     return {
         "_atr_valid": _is_valid_atr_series(
-            x["_atr_raw_padded"], x["close"], config.atr_normalization_min_pct
+            x[ATR_RAW_PADDED], x["close"], config.atr_normalization_min_pct
         )
     }
 
 
 def _compute_atr_z(x, config):
-    return {"atr_z": _rolling_zscore_series(x["_atr_raw_padded"], config.momentum_zscore_window)}
+    return {"atr_z": _rolling_zscore_series(x[ATR_RAW_PADDED], config.momentum_zscore_window)}
 
 
 def _compute_gap_z(x, config):
@@ -1262,7 +1263,7 @@ def _compute_gap_z(x, config):
         "gap_z": _gap_z_series_full(
             x["open"],
             x["close"],
-            x["_atr_raw_padded"],
+            x[ATR_RAW_PADDED],
             x["_atr_valid"],
             config.momentum_zscore_window,
         )
@@ -1441,12 +1442,12 @@ _BREAKOUT_KERNELS = (
     *_scaled_series_kernel(
         "dist_from_high",
         "dist_from_high_{scale}",
-        ("close", "high", "_atr_raw_padded", "_atr_valid"),
+        ("close", "high", ATR_RAW_PADDED, "_atr_valid"),
         lambda c, s: getattr(c, f"dist_window_{s}"),
         lambda x, c, s: _dist_from_high_series_full(
             x["close"],
             x["high"],
-            x["_atr_raw_padded"],
+            x[ATR_RAW_PADDED],
             x["_atr_valid"],
             getattr(c, f"dist_window_{s}"),
         ),
@@ -1454,12 +1455,12 @@ _BREAKOUT_KERNELS = (
     *_scaled_series_kernel(
         "dist_from_low",
         "dist_from_low_{scale}",
-        ("close", "low", "_atr_raw_padded", "_atr_valid"),
+        ("close", "low", ATR_RAW_PADDED, "_atr_valid"),
         lambda c, s: getattr(c, f"dist_window_{s}"),
         lambda x, c, s: _dist_from_low_series_full(
             x["close"],
             x["low"],
-            x["_atr_raw_padded"],
+            x[ATR_RAW_PADDED],
             x["_atr_valid"],
             getattr(c, f"dist_window_{s}"),
         ),
@@ -1703,7 +1704,7 @@ def _compute_bar_shape(x, config):
 
 def _compute_range_vs_atr(x, config):
     h, lo, c = (x[f].tolist() for f in ("high", "low", "close"))
-    atr = x["_atr_raw_padded"].tolist()
+    atr = x[ATR_RAW_PADDED].tolist()
     return {
         "range_vs_atr": np.array(
             [
@@ -1933,23 +1934,23 @@ def _compute_bar_statistics_refresh(x, config):
 KERNELS = (
     _k(
         "atr_wilder",
-        ("_atr_raw_padded",),
+        (ATR_RAW_PADDED,),
         ("high", "low", "close"),
         lambda c: wilder_memory_bars(c.adx_period),
         _compute_atr,
     ),
-    _k("atr_valid", ("_atr_valid",), ("_atr_raw_padded", "close"), lambda c: 0, _compute_atr_valid),
+    _k("atr_valid", ("_atr_valid",), (ATR_RAW_PADDED, "close"), lambda c: 0, _compute_atr_valid),
     _k(
         "atr_z",
         ("atr_z",),
-        ("_atr_raw_padded",),
+        (ATR_RAW_PADDED,),
         lambda c: c.momentum_zscore_window,
         _compute_atr_z,
     ),
     _k(
         "gap_z",
         ("gap_z",),
-        ("open", "close", "_atr_raw_padded", "_atr_valid"),
+        ("open", "close", ATR_RAW_PADDED, "_atr_valid"),
         lambda c: c.momentum_zscore_window + 2,
         _compute_gap_z,
     ),
@@ -2136,7 +2137,7 @@ KERNELS = (
     _k(
         "range_vs_atr",
         ("range_vs_atr",),
-        ("high", "low", "close", "_atr_raw_padded"),
+        ("high", "low", "close", ATR_RAW_PADDED),
         lambda c: 0,
         _compute_range_vs_atr,
     ),

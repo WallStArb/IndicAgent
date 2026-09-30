@@ -288,7 +288,7 @@ def test_stateless_structure_kernels_equal_direct_helper_calls():
             assert np.float32(kernels[name][i]) == np.float32(expected) or (
                 np.isnan(kernels[name][i]) and np.isnan(expected)
             ), (name, i)
-        for name in vp_sr.SWING_KEYS:
+        for name in vp_sr.SWING.keys:
             want = swing[name]
             expected = np.nan if want is None else want
             got = kernels[name][i]

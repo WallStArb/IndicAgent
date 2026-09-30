@@ -28,7 +28,6 @@ import math
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-import numpy as np
 import pytest
 
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
@@ -44,6 +43,7 @@ from src.intelligence.features.kernels.macro import (
     CrossAssetRecord,
     build_cross_asset_series,
 )
+from tests.unit.intelligence.bar_builders import synthetic_daily_bars
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 _T0 = datetime(2026, 3, 23, 14, 30, 0, tzinfo=UTC)
@@ -112,19 +112,8 @@ def _daily_rows(n: int, seed: int, start_close: float = 100.0) -> list[dict]:
     """Synthetic DB rows shaped like execute_query()'s asyncpg dict output
     (SELECT timestamp, open, high, low, close, volume FROM ...), oldest-first.
     """
-    rng = np.random.default_rng(seed)
-    closes = start_close * np.cumprod(1 + rng.normal(0, 0.01, n))
-    base = datetime(2020, 1, 2, 21, 0, tzinfo=UTC)
     return [
-        {
-            "timestamp": base + timedelta(days=i),
-            "open": float(closes[i] * 0.999),
-            "high": float(closes[i] * 1.001),
-            "low": float(closes[i] * 0.999),
-            "close": float(closes[i]),
-            "volume": 1_000_000.0,
-        }
-        for i in range(n)
+        {"timestamp": bar.pop("ts"), **bar} for bar in synthetic_daily_bars(n, seed, start_close)
     ]
 
 

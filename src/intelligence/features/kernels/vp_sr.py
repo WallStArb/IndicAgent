@@ -25,10 +25,11 @@ from src.intelligence.feature_cache import (
 )
 from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
+    ATR_RAW_PADDED,
+    KeyGroup,
     _is_valid_atr,
     constant_tf,
-    none_mask_name,
-    row_dict_columns,
+    window_start,
 )
 from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import linear_ramp
@@ -288,7 +289,7 @@ def _compute_sr_dist_atr(
     if not atr_valid:
         return dict(_SR_FALLBACK)
 
-    lookback = config.sr_lookback_by_tf.get(tf, 120)
+    lookback = _sr_lookback(config, tf)
     h = highs[-lookback:]
     lo = lows[-lookback:]
     v = volume[-lookback:]
@@ -1185,40 +1186,36 @@ def _derive_session_levels(
 # ---------------------------------------------------------------------------
 
 
-def _none_keys(fallback: dict[str, Any]) -> frozenset[str]:
-    return frozenset(key for key, value in fallback.items() if value is None)
-
-
-VP_KEYS = tuple(_NEUTRAL_VP_EXTRA)
-VP_NULLABLE = _none_keys(_NEUTRAL_VP_EXTRA)
-SR_KEYS = tuple(_SR_FALLBACK)
-SWING_KEYS = tuple(_SWING_FALLBACK)
-TREND_KEYS = tuple(_TREND_STRUCTURE_FALLBACK)
-SWING_MOMENTUM_KEYS = tuple(_SWING_MOMENTUM_FALLBACK)
-FIB_KEYS = tuple(_FIB_FALLBACK)
-SESSION_LEVEL_KEYS = tuple(_SESSION_LEVELS_FALLBACK)
-# Keys the helpers may return None for: the keys their fallback dict holds as None.
-SWING_NULLABLE = _none_keys(_SWING_FALLBACK)
-TREND_NULLABLE = _none_keys(_TREND_STRUCTURE_FALLBACK)
-SWING_MOMENTUM_NULLABLE = _none_keys(_SWING_MOMENTUM_FALLBACK)
-FIB_NULLABLE = _none_keys(_FIB_FALLBACK)
-SESSION_LEVEL_NULLABLE = _none_keys(_SESSION_LEVELS_FALLBACK)
+# One (keys, nullable) spec per key group: the Kernel's outputs and the row reader both derive
+# from it. A key is nullable where its helper's fallback dict holds None.
+VP = KeyGroup.from_fallback(_NEUTRAL_VP_EXTRA)
+SR = KeyGroup.from_fallback(_SR_FALLBACK)
+SWING = KeyGroup.from_fallback(_SWING_FALLBACK)
+TREND = KeyGroup.from_fallback(_TREND_STRUCTURE_FALLBACK)
+SWING_MOMENTUM = KeyGroup.from_fallback(_SWING_MOMENTUM_FALLBACK)
+FIB = KeyGroup.from_fallback(_FIB_FALLBACK)
+SESSION_LEVEL = KeyGroup.from_fallback(_SESSION_LEVELS_FALLBACK)
 # The swing, trend and fib columns come from one kernel because the trend and fib helpers
 # reuse the swing pass's pivots (D-06, one find_peaks pass per bar).
-SWING_STRUCTURE_KEYS = (*SWING_KEYS, *TREND_KEYS, *FIB_KEYS)
-SWING_STRUCTURE_NULLABLE = SWING_NULLABLE | TREND_NULLABLE | FIB_NULLABLE
+SWING_STRUCTURE = KeyGroup.concat(SWING, TREND, FIB)
 
 _POC = "_poc_price_rolling"
-_ATR = "_atr_raw_padded"
 _OHLCV = ("open", "high", "low", "close", "volume")
 
+# The S/R lookback when a timeframe has no entry in `sr_lookback_by_tf`. The compute reads the
+# per-tf value and the kernel's memory bounds every tf through the same two accessors, so a change
+# here moves both together (a kernel's memory function sees config, not tf).
+_SR_DEFAULT_LOOKBACK = 120
 
-def _outputs(keys: tuple[str, ...], nullable: frozenset[str]) -> tuple[str, ...]:
-    return (*keys, *(none_mask_name(key) for key in keys if key in nullable))
+
+def _sr_lookback(config, tf: str) -> int:
+    return config.sr_lookback_by_tf.get(tf, _SR_DEFAULT_LOOKBACK)
 
 
-def _window_start(i: int, lookback: int) -> int:
-    return max(0, i - lookback + 1)
+def _sr_max_lookback(config) -> int:
+    return max(
+        max(config.sr_lookback_by_tf.values(), default=_SR_DEFAULT_LOOKBACK), _SR_DEFAULT_LOOKBACK
+    )
 
 
 def _compute_rolling_poc(x, config):
@@ -1228,7 +1225,7 @@ def _compute_rolling_poc(x, config):
         return {_POC: out}
     highs, lows, closes, volumes = x["high"], x["low"], x["close"], x["volume"]
     for i in range(1, n):
-        start = _window_start(i, config.session_vp_rolling_window)
+        start = window_start(i, config.session_vp_rolling_window)
         price = _rolling_poc_price(
             highs[start : i + 1],
             lows[start : i + 1],
@@ -1268,7 +1265,7 @@ def _replay_cache(x, config, update):
 def _compute_session_vp_columns(x, config):
     n = len(x["close"])
     tf = constant_tf(x["tf"])
-    closes, atr, poc = x["close"], x[_ATR], x[_POC]
+    closes, atr, poc = x["close"], x[ATR_RAW_PADDED], x[_POC]
     rows: dict[int, dict[str, float | None]] = {}
 
     def update(cache, bar_ts, open_, high_, low_, close_, vol_, cfg):
@@ -1280,16 +1277,22 @@ def _compute_session_vp_columns(x, config):
         else:
             rolling = None if math.isnan(poc[i]) else float(poc[i])
             rows[i] = _derive_session_vp(cache, float(closes[i]), float(atr[i]), rolling, config)
-    return row_dict_columns(n, VP_KEYS, VP_NULLABLE, rows.__getitem__)
+    return VP.columns(n, rows.__getitem__)
 
 
 def _compute_support_resistance(x, config):
     tf = constant_tf(x["tf"])
-    highs, lows, closes, volumes, atr = x["high"], x["low"], x["close"], x["volume"], x[_ATR]
-    lookback = config.sr_lookback_by_tf.get(tf, 120)
+    highs, lows, closes, volumes, atr = (
+        x["high"],
+        x["low"],
+        x["close"],
+        x["volume"],
+        x[ATR_RAW_PADDED],
+    )
+    lookback = _sr_lookback(config, tf)
 
     def row(i):
-        start = _window_start(i, lookback)
+        start = window_start(i, lookback)
         return _compute_sr_dist_atr(
             highs[start : i + 1],
             lows[start : i + 1],
@@ -1300,14 +1303,14 @@ def _compute_support_resistance(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), SR_KEYS, frozenset(), row)
+    return SR.columns(len(closes), row)
 
 
 def _compute_swing_structure_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[_ATR]
+    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
 
     def row(i):
-        start = _window_start(i, config.swing_lookback_bars)
+        start = window_start(i, config.swing_lookback_bars)
         h, lo, close_, atr_val = (
             highs[start : i + 1],
             lows[start : i + 1],
@@ -1319,25 +1322,25 @@ def _compute_swing_structure_columns(x, config):
         fib = _compute_fib_zones(close_, atr_val, swing, config)
         return {**swing, **trend, **fib}
 
-    return row_dict_columns(len(closes), SWING_STRUCTURE_KEYS, SWING_STRUCTURE_NULLABLE, row)
+    return SWING_STRUCTURE.columns(len(closes), row)
 
 
 def _compute_swing_momentum_columns(x, config):
     highs, lows, volumes = x["high"], x["low"], x["volume"]
 
     def row(i):
-        start = _window_start(i, config.swing_momentum_lookback_bars)
+        start = window_start(i, config.swing_momentum_lookback_bars)
         return _compute_swing_momentum(
             highs[start : i + 1], lows[start : i + 1], volumes[start : i + 1], config
         )
 
-    return row_dict_columns(len(highs), SWING_MOMENTUM_KEYS, SWING_MOMENTUM_NULLABLE, row)
+    return SWING_MOMENTUM.columns(len(highs), row)
 
 
 def _compute_session_levels_columns(x, config):
     n = len(x["close"])
     tf = constant_tf(x["tf"])
-    closes, atr = x["close"], x[_ATR]
+    closes, atr = x["close"], x[ATR_RAW_PADDED]
     rows: dict[int, dict[str, float | None]] = {}
 
     def update(cache, bar_ts, open_, high_, low_, close_, vol_, cfg):
@@ -1345,7 +1348,7 @@ def _compute_session_levels_columns(x, config):
 
     for i, cache, _bar_ts in _replay_cache(x, config, update):
         rows[i] = _derive_session_levels(cache, float(closes[i]), float(atr[i]), tf, config)
-    return row_dict_columns(n, SESSION_LEVEL_KEYS, SESSION_LEVEL_NULLABLE, rows.__getitem__)
+    return SESSION_LEVEL.columns(n, rows.__getitem__)
 
 
 _PATH_SESSION_ACCUMULATOR = (
@@ -1363,8 +1366,8 @@ KERNELS = (
     ),
     Kernel(
         name="session_vp",
-        outputs=_outputs(VP_KEYS, VP_NULLABLE),
-        inputs=("ts_dt", *_OHLCV[1:], _POC, _ATR, "tf"),
+        outputs=VP.outputs,
+        inputs=("ts_dt", *_OHLCV[1:], _POC, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_vp_columns,
         path_dependent=True,
@@ -1372,30 +1375,29 @@ KERNELS = (
     ),
     Kernel(
         name="support_resistance",
-        outputs=SR_KEYS,
-        inputs=("high", "low", "close", "volume", _ATR, "tf"),
-        # A kernel's memory function sees config, not tf, so this bounds every per-tf lookback.
-        memory=lambda config: max(max(config.sr_lookback_by_tf.values(), default=120), 120) - 1,
+        outputs=SR.outputs,
+        inputs=("high", "low", "close", "volume", ATR_RAW_PADDED, "tf"),
+        memory=lambda config: _sr_max_lookback(config) - 1,
         compute=_compute_support_resistance,
     ),
     Kernel(
         name="swing_structure",
-        outputs=_outputs(SWING_STRUCTURE_KEYS, SWING_STRUCTURE_NULLABLE),
-        inputs=("high", "low", "close", _ATR),
+        outputs=SWING_STRUCTURE.outputs,
+        inputs=("high", "low", "close", ATR_RAW_PADDED),
         memory=lambda config: config.swing_lookback_bars - 1,
         compute=_compute_swing_structure_columns,
     ),
     Kernel(
         name="swing_momentum",
-        outputs=_outputs(SWING_MOMENTUM_KEYS, SWING_MOMENTUM_NULLABLE),
+        outputs=SWING_MOMENTUM.outputs,
         inputs=("high", "low", "volume"),
         memory=lambda config: config.swing_momentum_lookback_bars - 1,
         compute=_compute_swing_momentum_columns,
     ),
     Kernel(
         name="session_levels",
-        outputs=_outputs(SESSION_LEVEL_KEYS, SESSION_LEVEL_NULLABLE),
-        inputs=("ts_dt", *_OHLCV, _ATR, "tf"),
+        outputs=SESSION_LEVEL.outputs,
+        inputs=("ts_dt", *_OHLCV, ATR_RAW_PADDED, "tf"),
         memory=lambda config: 0,
         compute=_compute_session_levels_columns,
         path_dependent=True,

@@ -18,7 +18,12 @@ import numpy as np
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.contract.registry import Kernel
-from src.intelligence.features.kernels._primitives import _is_valid_atr, row_dict_columns
+from src.intelligence.features.kernels._primitives import (
+    ATR_RAW_PADDED,
+    KeyGroup,
+    _is_valid_atr,
+    window_start,
+)
 from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp
 
@@ -320,13 +325,13 @@ _FVG_FALLBACK: dict[str, float] = {
     "fvg_midpoint": 0.0,
 }
 
-# Persisted subset of _compute_fvg()'s return dict -- fvg_midpoint is an
-# in-memory-only intermediate for Plan 04's supply/demand zones and must
-# never reach _build_feature_vector. Derived from _FVG_FALLBACK (like
-# _SWING_STRUCTURE_OUTPUT_KEYS derives from _SWING_FALLBACK above) so there
-# is one source of truth for _compute_fvg()'s key set, not two hand-typed
-# lists that could drift out of sync.
-_FVG_OUTPUT_KEYS = frozenset(_FVG_FALLBACK) - {"fvg_midpoint"}
+# fvg_midpoint is an in-memory-only intermediate for the supply/demand zones: the group registers
+# it as `_fvg_midpoint` and it never reaches _build_feature_vector. The persisted subset of
+# _compute_fvg()'s return dict derives from the group, so _FVG_FALLBACK is the one source of truth
+# for its key set.
+_FVG_MIDPOINT = "_fvg_midpoint"
+FVG = KeyGroup.from_fallback(_FVG_FALLBACK, {"fvg_midpoint": _FVG_MIDPOINT})
+_FVG_OUTPUT_KEYS = frozenset(FVG.public_keys)
 
 
 def _compute_fvg(
@@ -438,12 +443,11 @@ _POOL_FALLBACK: dict[str, float] = {
     "price_in_premium": 0.0,
 }
 
-# Persisted subset of _compute_liquidity_pools()'s return dict --
-# price_in_premium is an in-memory-only intermediate for Plan 04's
-# supply/demand zones and must never reach _build_feature_vector. Derived
-# from _POOL_FALLBACK for the same one-source-of-truth reason as
-# _FVG_OUTPUT_KEYS above.
-_POOL_OUTPUT_KEYS = frozenset(_POOL_FALLBACK) - {"price_in_premium"}
+# price_in_premium is an in-memory-only intermediate for the supply/demand zones, handled like
+# fvg_midpoint above.
+_PRICE_IN_PREMIUM = "_price_in_premium"
+POOL = KeyGroup.from_fallback(_POOL_FALLBACK, {"price_in_premium": _PRICE_IN_PREMIUM})
+_POOL_OUTPUT_KEYS = frozenset(POOL.public_keys)
 
 
 def _compute_liquidity_sweeps(
@@ -1084,37 +1088,41 @@ def _derive_amd_cycle(
 # Kernels
 # ---------------------------------------------------------------------------
 
-_ATR = "_atr_raw_padded"
-
-OB_KEYS = tuple(_OB_FALLBACK)
-FVG_KEYS = tuple(_FVG_FALLBACK)
-SWEEP_KEYS = tuple(_SWEEP_FALLBACK)
-POOL_KEYS = tuple(_POOL_FALLBACK)
-ZONE_KEYS = tuple(_ZONE_FALLBACK)
-BOS_KEYS = tuple(_BOS_FALLBACK)
-AMD_KEYS = (
-    "amd_phase",
-    "amd_manipulation_detected",
-    "amd_distribution_direction",
-    "manip_strength",
+# One (keys, nullable) spec per key group (FVG and POOL are defined beside their fallbacks above).
+OB = KeyGroup.from_fallback(_OB_FALLBACK)
+SWEEP = KeyGroup.from_fallback(_SWEEP_FALLBACK)
+ZONE = KeyGroup.from_fallback(_ZONE_FALLBACK)
+BOS = KeyGroup.from_fallback(_BOS_FALLBACK)
+AMD = KeyGroup(
+    (
+        "amd_phase",
+        "amd_manipulation_detected",
+        "amd_distribution_direction",
+        "manip_strength",
+    )
 )
-# In-memory intermediates of the FVG and pool helpers that the zones helper consumes.
-_FVG_MIDPOINT = "_fvg_midpoint"
-_PRICE_IN_PREMIUM = "_price_in_premium"
-_FVG_NAMES = {"fvg_midpoint": _FVG_MIDPOINT}
-_POOL_NAMES = {"price_in_premium": _PRICE_IN_PREMIUM}
 
 
-def _window_start(i: int, lookback: int) -> int:
-    return max(0, i - lookback + 1)
+def _lookback_of(name: str):
+    """Accessor for one declared lookback: the compute and the Kernel's memory both call it, so
+    declared memory cannot drift from the window the compute slices."""
+    return lambda config: getattr(config, name)
+
+
+_OB_LOOKBACK = _lookback_of("smc_order_blocks_lookback")
+_FVG_LOOKBACK = _lookback_of("smc_fvg_lookback")
+_SWEEP_LOOKBACK = _lookback_of("smc_liquidity_sweeps_lookback")
+_POOL_LOOKBACK = _lookback_of("smc_liquidity_pools_lookback")
+_ZONE_LOOKBACK = _lookback_of("smc_zones_lookback")
+_BOS_LOOKBACK = _lookback_of("smc_bos_choch_lookback")
 
 
 def _compute_order_blocks_columns(x, config):
     opens, highs, lows, closes, volumes = (x[f] for f in ("open", "high", "low", "close", "volume"))
-    atr = x[_ATR]
+    atr = x[ATR_RAW_PADDED]
 
     def row(i):
-        s = _window_start(i, config.smc_order_blocks_lookback)
+        s = window_start(i, _OB_LOOKBACK(config))
         return _compute_order_blocks(
             opens[s : i + 1],
             highs[s : i + 1],
@@ -1126,14 +1134,14 @@ def _compute_order_blocks_columns(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), OB_KEYS, frozenset(), row)
+    return OB.columns(len(closes), row)
 
 
 def _compute_fvg_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[_ATR]
+    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
 
     def row(i):
-        s = _window_start(i, config.smc_fvg_lookback)
+        s = window_start(i, _FVG_LOOKBACK(config))
         return _compute_fvg(
             highs[s : i + 1],
             lows[s : i + 1],
@@ -1143,14 +1151,14 @@ def _compute_fvg_columns(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), FVG_KEYS, frozenset(), row, _FVG_NAMES)
+    return FVG.columns(len(closes), row)
 
 
 def _compute_sweeps_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[_ATR]
+    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
 
     def row(i):
-        s = _window_start(i, config.smc_liquidity_sweeps_lookback)
+        s = window_start(i, _SWEEP_LOOKBACK(config))
         return _compute_liquidity_sweeps(
             highs[s : i + 1],
             lows[s : i + 1],
@@ -1160,14 +1168,14 @@ def _compute_sweeps_columns(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), SWEEP_KEYS, frozenset(), row)
+    return SWEEP.columns(len(closes), row)
 
 
 def _compute_pools_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[_ATR]
+    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
 
     def row(i):
-        s = _window_start(i, config.smc_liquidity_pools_lookback)
+        s = window_start(i, _POOL_LOOKBACK(config))
         return _compute_liquidity_pools(
             highs[s : i + 1],
             lows[s : i + 1],
@@ -1177,15 +1185,15 @@ def _compute_pools_columns(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), POOL_KEYS, frozenset(), row, _POOL_NAMES)
+    return POOL.columns(len(closes), row)
 
 
 def _compute_zones_columns(x, config):
     opens, highs, lows, closes = (x[f] for f in ("open", "high", "low", "close"))
-    atr, midpoint, premium = x[_ATR], x[_FVG_MIDPOINT], x[_PRICE_IN_PREMIUM]
+    atr, midpoint, premium = x[ATR_RAW_PADDED], x[_FVG_MIDPOINT], x[_PRICE_IN_PREMIUM]
 
     def row(i):
-        s = _window_start(i, config.smc_zones_lookback)
+        s = window_start(i, _ZONE_LOOKBACK(config))
         return _compute_supply_demand_zones(
             opens[s : i + 1],
             highs[s : i + 1],
@@ -1198,14 +1206,14 @@ def _compute_zones_columns(x, config):
             float(premium[i]),
         )
 
-    return row_dict_columns(len(closes), ZONE_KEYS, frozenset(), row)
+    return ZONE.columns(len(closes), row)
 
 
 def _compute_bos_columns(x, config):
-    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[_ATR]
+    highs, lows, closes, atr = x["high"], x["low"], x["close"], x[ATR_RAW_PADDED]
 
     def row(i):
-        s = _window_start(i, config.smc_bos_choch_lookback)
+        s = window_start(i, _BOS_LOOKBACK(config))
         return _compute_bos_choch(
             highs[s : i + 1],
             lows[s : i + 1],
@@ -1215,7 +1223,7 @@ def _compute_bos_columns(x, config):
             config,
         )
 
-    return row_dict_columns(len(closes), BOS_KEYS, frozenset(), row)
+    return BOS.columns(len(closes), row)
 
 
 def _compute_amd_columns(x, config):
@@ -1225,15 +1233,15 @@ def _compute_amd_columns(x, config):
     for i in range(1, len(highs)):
         cache.update_overnight_range(ts[i], float(highs[i]), float(lows[i]), config)
         rows[i] = _derive_amd_cycle(cache, ts[i], config)
-    return row_dict_columns(len(highs), AMD_KEYS, frozenset(), rows.__getitem__)
+    return AMD.columns(len(highs), rows.__getitem__)
 
 
-def _stateless(name, keys, inputs, lookback_name, compute, names=None):
+def _stateless(name, group, inputs, lookback, compute):
     return Kernel(
         name=name,
-        outputs=tuple((names or {}).get(key, key) for key in keys),
+        outputs=group.outputs,
         inputs=inputs,
-        memory=lambda config: getattr(config, lookback_name) - 1,
+        memory=lambda config: lookback(config) - 1,
         compute=compute,
     )
 
@@ -1241,51 +1249,49 @@ def _stateless(name, keys, inputs, lookback_name, compute, names=None):
 KERNELS = (
     _stateless(
         "order_blocks",
-        OB_KEYS,
-        ("open", "high", "low", "close", "volume", _ATR),
-        "smc_order_blocks_lookback",
+        OB,
+        ("open", "high", "low", "close", "volume", ATR_RAW_PADDED),
+        _OB_LOOKBACK,
         _compute_order_blocks_columns,
     ),
     _stateless(
         "fair_value_gaps",
-        FVG_KEYS,
-        ("high", "low", "close", _ATR),
-        "smc_fvg_lookback",
+        FVG,
+        ("high", "low", "close", ATR_RAW_PADDED),
+        _FVG_LOOKBACK,
         _compute_fvg_columns,
-        _FVG_NAMES,
     ),
     _stateless(
         "liquidity_sweeps",
-        SWEEP_KEYS,
-        ("high", "low", "close", _ATR),
-        "smc_liquidity_sweeps_lookback",
+        SWEEP,
+        ("high", "low", "close", ATR_RAW_PADDED),
+        _SWEEP_LOOKBACK,
         _compute_sweeps_columns,
     ),
     _stateless(
         "liquidity_pools",
-        POOL_KEYS,
-        ("high", "low", "close", _ATR),
-        "smc_liquidity_pools_lookback",
+        POOL,
+        ("high", "low", "close", ATR_RAW_PADDED),
+        _POOL_LOOKBACK,
         _compute_pools_columns,
-        _POOL_NAMES,
     ),
     _stateless(
         "supply_demand_zones",
-        ZONE_KEYS,
-        ("open", "high", "low", "close", _ATR, _FVG_MIDPOINT, _PRICE_IN_PREMIUM),
-        "smc_zones_lookback",
+        ZONE,
+        ("open", "high", "low", "close", ATR_RAW_PADDED, _FVG_MIDPOINT, _PRICE_IN_PREMIUM),
+        _ZONE_LOOKBACK,
         _compute_zones_columns,
     ),
     _stateless(
         "bos_choch",
-        BOS_KEYS,
-        ("high", "low", "close", _ATR),
-        "smc_bos_choch_lookback",
+        BOS,
+        ("high", "low", "close", ATR_RAW_PADDED),
+        _BOS_LOOKBACK,
         _compute_bos_columns,
     ),
     Kernel(
         name="amd_cycle",
-        outputs=AMD_KEYS,
+        outputs=AMD.outputs,
         inputs=("ts_dt", "high", "low"),
         memory=lambda config: 0,
         compute=_compute_amd_columns,
