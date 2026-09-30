@@ -16,7 +16,7 @@ Finding section for the full evidence trail.
 
 This file now tests the REPLACEMENT mechanism: `_load_cross_asset_series()`
 (daily bars -> build_cross_asset_series(), the SAME function the batch path
-calls), `_cross_asset_record_for_date()` (causal "most recent <= d" lookup),
+calls), `_cross_asset_record_for_bar()` (as-of lookup shared with the batch path),
 and `_process_bar_compute()`'s once-per-UTC-day refresh trigger.
 """
 
@@ -200,13 +200,16 @@ async def test_load_cross_asset_series_matches_build_cross_asset_series_directly
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_process_bar_compute_applies_exact_historical_date_match():
-    """For a bar on a date that IS a key in self._cross_asset_by_date (a real,
-    already-closed historical date -- the only kind the batch path ever sees),
-    _cross_asset_record_for_date's "most recent <= d" reduces to an exact match,
-    so the values _process_bar_compute() installs onto the cache equal the batch
-    builder's own values for that date to 1e-12 -- the live-vs-batch parity claim
-    end to end, through the real per-bar code path (not just _load_cross_asset_series
-    in isolation, as in the test above).
+    """For a bar after the close of a date that IS a key in self._cross_asset_by_date (a
+    real, already-closed historical date -- the only kind the batch path ever sees),
+    _cross_asset_record_for_bar reads that date's record, so the values
+    _process_bar_compute() installs onto the cache equal the batch builder's own values for
+    that date to 1e-12 -- the live-vs-batch parity claim end to end, through the real per-bar
+    code path (not just _load_cross_asset_series in isolation, as in the test above).
+
+    186-15: the bar used to sit at 14:00 UTC (before the close) and read its own date's record
+    through the old "most recent <= the UTC date" lookup, which is the same-day lookahead the
+    as-of rule removes; it now sits at 22:00 UTC, after the 16:00 ET close.
     """
     agent = _make_test_agent()
     rows_by_symbol = {
@@ -223,7 +226,7 @@ async def test_process_bar_compute_applies_exact_historical_date_match():
     target_date = agent._cross_asset_dates_sorted[-1]
     expected = agent._cross_asset_by_date[target_date]
 
-    bar_ts = datetime.combine(target_date, datetime.min.time(), tzinfo=UTC) + timedelta(hours=14)
+    bar_ts = datetime.combine(target_date, datetime.min.time(), tzinfo=UTC) + timedelta(hours=22)
     bar = _bar("AAPL", bar_ts, high=151.0, low=149.0, close=150.0)
     agent._bar_history.append(bar)
 
@@ -249,12 +252,14 @@ def test_causal_fallback_exact_match_when_date_is_a_key():
     agent._cross_asset_by_date = {d1: rec1, d2: rec2}
     agent._cross_asset_dates_sorted = [d1, d2]
 
-    assert agent._cross_asset_record_for_date(d1) == rec1
-    assert agent._cross_asset_record_for_date(d2) == rec2
+    # a 1d bar of date d (stamped at 00:00 UTC) ends after d's 16:00 ET close: it reads d
+    assert agent._cross_asset_record_for_bar(datetime(2024, 1, 2, tzinfo=UTC), "1d") == rec1
+    assert agent._cross_asset_record_for_bar(datetime(2024, 1, 3, tzinfo=UTC), "1d") == rec2
 
 
 def test_causal_fallback_uses_most_recent_past_date_for_still_forming_today():
-    """A date that postdates every available entry (the live daemon's still-open
+    """(186-15: keyed by the bar's timestamp and timeframe now, not its UTC date.)
+    A date that postdates every available entry (the live daemon's still-open
     trading day, whose own 1d bar has not been written yet) must fall back to the
     most recent PAST date's record, never to the all-0.0 CrossAssetRecord()
     default -- an exact-date lookup (the batch path's own semantics) would zero
@@ -265,20 +270,22 @@ def test_causal_fallback_uses_most_recent_past_date_for_still_forming_today():
     agent._cross_asset_by_date = {d1: CrossAssetRecord(vix_z=1.0), d2: rec2}
     agent._cross_asset_dates_sorted = [d1, d2]
 
-    still_forming_today = date(2024, 1, 4)
-    assert agent._cross_asset_record_for_date(still_forming_today) == rec2
+    # 10:00 EST on the still-forming 2024-01-04: its own close is ahead, so the prior day's record
+    still_forming_today = datetime(2024, 1, 4, 15, 0, tzinfo=UTC)
+    assert agent._cross_asset_record_for_bar(still_forming_today, "5m") == rec2
 
 
 def test_causal_fallback_never_uses_a_future_date():
-    """A date that predates every available entry must fall back to the all-0.0
+    """(186-15: keyed by the bar's timestamp and timeframe now, not its UTC date.)
+    A date that predates every available entry must fall back to the all-0.0
     default, never a future date's record (causality)."""
     agent = _make_test_agent()
     d1 = date(2024, 1, 5)
     agent._cross_asset_by_date = {d1: CrossAssetRecord(vix_z=9.0)}
     agent._cross_asset_dates_sorted = [d1]
 
-    before_any_data = date(2024, 1, 1)
-    assert agent._cross_asset_record_for_date(before_any_data) == CrossAssetRecord()
+    before_any_data = datetime(2024, 1, 1, 15, 0, tzinfo=UTC)
+    assert agent._cross_asset_record_for_bar(before_any_data, "5m") == CrossAssetRecord()
 
 
 def test_causal_fallback_empty_series_degrades_to_zero_defaults():
@@ -288,7 +295,10 @@ def test_causal_fallback_empty_series_degrades_to_zero_defaults():
     agent = _make_test_agent()
     assert agent._cross_asset_by_date == {}
     assert agent._cross_asset_dates_sorted == []
-    assert agent._cross_asset_record_for_date(date(2026, 1, 1)) == CrossAssetRecord()
+    assert (
+        agent._cross_asset_record_for_bar(datetime(2026, 1, 1, 15, 0, tzinfo=UTC), "5m")
+        == CrossAssetRecord()
+    )
 
 
 @pytest.mark.unit
@@ -336,7 +346,7 @@ async def test_setup_load_failure_leaves_series_empty_not_crashed():
         await agent._load_cross_asset_series()
 
     # State untouched by the failed attempt -- still whatever make_agent() seeded
-    # (empty), which _cross_asset_record_for_date degrades to 0.0 from.
+    # (empty), which _cross_asset_record_for_bar degrades to 0.0 from.
     assert agent._cross_asset_by_date == {}
     assert agent._cross_asset_dates_sorted == []
 
@@ -413,13 +423,9 @@ def _live_agent(dates=(_EST_D0, _EST_D1, _EST_D2)):
 
 
 def _live_record(agent, bar_ts: datetime, tf: str) -> CrossAssetRecord:
-    return agent._cross_asset_record_for_date(bar_ts.date())
+    return agent._cross_asset_record_for_bar(bar_ts, tf)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
-)
 def test_a_10am_et_5m_bar_reads_the_prior_days_record_even_when_todays_is_present():
     bar_ts = datetime(2024, 1, 3, 15, 0, tzinfo=UTC)  # 10:00 EST on d1
     assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D0]
@@ -430,19 +436,11 @@ def test_the_5m_bar_ending_at_the_close_reads_the_days_record():
     assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
-)
 def test_a_bar_after_midnight_utc_reads_the_et_evening_date_not_the_next_utc_date():
     bar_ts = datetime(2024, 1, 4, 1, 0, tzinfo=UTC)  # 20:00 EST on d1, UTC date d2
     assert _live_record(_live_agent(), bar_ts, "5m") == _REC[_EST_D1]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="RED (186-15): the live lookup keys on the bar's UTC date, not the daily close",
-)
 def test_a_bar_before_any_record_is_available_reads_the_default():
     agent = _live_agent(dates=(_EST_D1,))
     bar_ts = datetime(2024, 1, 3, 15, 0, tzinfo=UTC)  # 10:00 EST on d1: d1's close is ahead

@@ -87,6 +87,26 @@ def _daily_close_ns(day: date) -> int:
     return (close.astimezone(UTC) - _EPOCH) // timedelta(microseconds=1) * 1000
 
 
+def daily_close_availability(daily_dates: Sequence[date]) -> list[int]:
+    """UTC nanoseconds at which each daily record becomes available: the 16:00 ET close of its
+    date. `daily_dates` must be sorted ascending; ValueError otherwise."""
+    available = [_daily_close_ns(d) for d in daily_dates]
+    if any(later < earlier for earlier, later in zip(available, available[1:], strict=False)):
+        raise ValueError("daily_dates must be sorted ascending")
+    return available
+
+
+def daily_asof_index(row_ts_ns: int, tf: str, available_ns: Sequence[int]) -> int:
+    """Index of the latest daily record available at the bar's end, else -1.
+
+    The one availability rule for daily records: a record dated d is available from the 16:00 ET
+    close of d, and a row (bar start `row_ts_ns`, timeframe `tf`) can read it when that close is
+    at or before the row's bar end, `row_ts_ns` plus the bar duration. `align_daily_asof` (batch)
+    and the live pipeline's cross-asset lookup both call this, so live and batch cannot drift.
+    """
+    return bisect_right(available_ns, row_ts_ns + _bar_end_offset_seconds(tf) * _NS_PER_S) - 1
+
+
 def align_daily_asof(
     row_ts_ns: np.ndarray,
     tf: str,
@@ -108,13 +128,11 @@ def align_daily_asof(
     """
     if len(daily_dates) != len(values):
         raise ValueError("daily_dates and values must have the same length")
-    offset_ns = _bar_end_offset_seconds(tf) * _NS_PER_S
-    available = [_daily_close_ns(d) for d in daily_dates]
-    if any(later < earlier for earlier, later in zip(available, available[1:], strict=False)):
-        raise ValueError("daily_dates must be sorted ascending")
+    available = daily_close_availability(daily_dates)
+    _bar_end_offset_seconds(tf)  # an unknown timeframe raises even for an empty row set
     out: list[Any] = []
     for ts in row_ts_ns.tolist():
-        j = bisect_right(available, ts + offset_ns) - 1
+        j = daily_asof_index(ts, tf, available)
         out.append(values[j] if j >= 0 else default)
     return out
 

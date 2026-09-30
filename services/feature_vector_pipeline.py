@@ -11,7 +11,6 @@ at init. FeatureCache refreshed every regime_cache_refresh_bars bars.
 from __future__ import annotations
 
 import asyncio
-import bisect
 import dataclasses
 import os
 import signal as _signal
@@ -77,7 +76,10 @@ from src.intelligence.features.kernels.macro import (
     TIP,
     TLT,
     CrossAssetRecord,
+    bar_ts_ns,
     build_cross_asset_series,
+    daily_asof_index,
+    daily_close_availability,
 )
 from src.intelligence.pipeline import (
     CacheManager,
@@ -401,25 +403,35 @@ class FeatureVectorPipeline(BaseDaemon):
         self._cross_asset_by_date = cross_asset_by_date
         self._cross_asset_dates_sorted = sorted(cross_asset_by_date.keys())
 
-    def _cross_asset_record_for_date(self, d: date) -> CrossAssetRecord:
-        """Return the cross-asset record for the most recent date <= d (causal: never a
-        future date). Falls back to CrossAssetRecord()'s all-0.0 defaults when d
-        predates the earliest available date or the series never loaded -- with
-        self._cross_asset_dates_sorted empty, bisect returns index -1 for every date,
-        always hitting this fallback (today's exact degradation path).
+    # (the dates list the availability instants were computed for, the instants); a class
+    # attribute so an agent built without __init__ (tests) starts empty too
+    _cross_asset_available_cache: tuple[list[date], list[int]] | None = None
 
-        Deliberately "most recent <= d", not build_cross_asset_series' own exact-date
-        lookup (FeatureFactory.compute_batch's `cross_asset_by_date.get(bar_ts.date(),
-        CrossAssetRecord())`): the live daemon processes bars on the CURRENT,
-        still-forming trading day, whose own 1d bar does not exist in the DB until
-        end-of-day. An exact match would zero every cross-asset field for the entire
-        live trading session, every single day -- strictly worse than yesterday's
-        still-real value. For any date that IS a key in self._cross_asset_by_date
-        (every historical, already-closed date the batch path also has), "most recent
-        <= d" reduces to an exact match, so the live/batch parity claim holds to
-        1e-12 on real historical dates -- it only differs on the still-open date.
+    def _cross_asset_available_ns(self) -> list[int]:
+        """Availability instants (16:00 ET close of each record's date) of the loaded records,
+        computed once per loaded series: the list object `_cross_asset_dates_sorted` is replaced
+        on every load, so identity is the cache key."""
+        dates = self._cross_asset_dates_sorted
+        cached = self._cross_asset_available_cache
+        if cached is None or cached[0] is not dates:
+            cached = (dates, daily_close_availability(dates))
+            self._cross_asset_available_cache = cached
+        return cached[1]
+
+    def _cross_asset_record_for_bar(self, bar_ts: datetime, tf: str) -> CrossAssetRecord:
+        """The cross-asset record available at the end of the bar (start `bar_ts`, timeframe `tf`).
+
+        Uses `daily_asof_index`, the same availability rule the batch path applies with
+        `align_daily_asof`: a record dated d is available from the 16:00 ET close of d, so a bar
+        at 10:00 ET on d reads d - 1, the 5m bar ending at 16:00 ET reads d, and a bar at 01:00
+        UTC on d + 1 (the evening of ET date d) reads d. The previous lookup keyed on the bar's
+        UTC date ("most recent <= d"), which returned d's record from inside the session it
+        closes and d + 1's record to that evening bar; that stopped matching the batch path when
+        186-12 fixed the batch side (todo 450). Falls back to CrossAssetRecord()'s all-0.0
+        defaults when no record is available yet or the series never loaded (an empty series
+        makes every index -1).
         """
-        idx = bisect.bisect_right(self._cross_asset_dates_sorted, d) - 1
+        idx = daily_asof_index(bar_ts_ns(bar_ts), tf, self._cross_asset_available_ns())
         if idx < 0:
             return CrossAssetRecord()
         return self._cross_asset_by_date[self._cross_asset_dates_sorted[idx]]
@@ -1571,10 +1583,10 @@ class FeatureVectorPipeline(BaseDaemon):
             refresh_task.add_done_callback(self._background_tasks.discard)
 
         # Cross-asset broadcast (Plan 151-09 Task 2): look up this bar's own date in the
-        # daily series -- see _cross_asset_record_for_date()'s docstring for the
-        # "most recent <= d" causal fallback (never a future date) and why this
-        # replaced todo 221/222's per-timeframe CrossAssetState mechanism.
-        _ca = self._cross_asset_record_for_date(bar.ts.date())
+        # daily series -- see _cross_asset_record_for_bar()'s docstring for the as-of
+        # availability rule shared with the batch path and why this replaced todo
+        # 221/222's per-timeframe CrossAssetState mechanism.
+        _ca = self._cross_asset_record_for_bar(bar.ts, bar.tf)
         cache.vix_z = _ca.vix_z
         cache.flight_quality = _ca.flight_quality
         cache.yield_slope_z = _ca.yield_slope_z
