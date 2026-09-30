@@ -2,7 +2,7 @@
 
 **Filed:** 2026-08-09
 **Source:** Phase 172 execute-phase `/simplify` gate, reuse/simplification/altitude-angle reviews
-**Status:** pending, not blocking
+**Status:** completed 2026-09-30 (plan 186-13)
 
 ## The gap
 
@@ -60,3 +60,11 @@ Optional before the 248 refit; not required for it.
 ## Refactor map (2026-09-26)
 
 Folded into refactor map item 5 of the adopted unified design (section 14.6), scoped into phase 186: `regime_writer` fixed once, before the `feature_vectors` rebuild consumes its columns.
+
+## Closed 2026-09-30 (plan 186-13)
+
+The two walk-forward accumulators are one function (`walk_forward_family_arrays` in
+`kernels/_hmm.py`, commit 02b5beb31); the two fetches are one `_fetch_bars`, the two writers one
+`_write_family_results`, the two compute wrappers one `_compute_family_rows`, all driven by
+`RegimeWriteSpec` constants; the worker args are a NamedTuple with pinned field names (commit
+efe3613c2). The regime golden was byte-identical through both moves.

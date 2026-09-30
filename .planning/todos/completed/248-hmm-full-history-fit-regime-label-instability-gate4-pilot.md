@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+closed: 2026-09-30
 priority: P1
 filed: 2026-08-03
 source: todo 026's P4a decision gate ("validate the practical impact first"), open since
@@ -249,3 +250,14 @@ Earlier text in this file and STATE.md said the walk-forward path was built but 
 - `logs/regime_writer.log.2` and `.3` (2026-08-16): 1,986 `walk_forward_hmm_convergence_iters` events, 1,512 `walk_forward_segment_skipped` and 21 `walk_forward_all_segments_degenerate` events. The single-fit path emits none of these.
 - Stored label positions (0-based position of the first non-NULL label among `market_data_ohlcv_tradeable` bars; feature_vectors starts after its own valid_start, hence the offset above warmup): regime SPY 1d 1280, SPY 1h 8270, TLT 1d 776, TLT 1h 4970, QQQ 1d 776, QQQ 1h 4970. Walk-forward warmup is 504 (1d) and 3300 (1h); the full-history path would put the first label near bar 20.
 - Verdict: walk-forward deployed for every sampled cell. The stored columns still carry the segment-gate lookahead of todo 451 until the 186-26 rebuild.
+
+## Closed 2026-09-30 (plan 186-13)
+
+Walk-forward is the only mode: the full-history single fit, `--walk-forward`/`--no-walk-forward`
+and the `alpha.hmm.walk_forward.enabled`, `alpha.hmm.n_restarts` and `feature.hmm.heldout_fraction`
+keys are deleted (commit a75048500, migration 410). The HMM is a pure registry kernel
+(`kernels/regime.py`, math in `kernels/_hmm.py`), byte-identical to the writer's output on the
+golden (commit 02b5beb31). The segment gate lookahead of todo 451 is fixed (commit e24427178).
+The stored `feature_vectors` regime columns stay as found in the 2026-09-30 verification (walk-forward
+labels, with the 451 mask) until the 186-26 rebuild computes them from the kernel; the
+stratification and ic_engine re-run consequences are the rebuild's.

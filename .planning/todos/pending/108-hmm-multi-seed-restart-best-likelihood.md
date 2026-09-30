@@ -62,3 +62,10 @@ delta on a few symbols before rolling out corpus-wide.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Fold into the 248 refit: decide `alpha.hmm.n_restarts` before the refit (measure log-likelihood and label agreement on a few symbols), not after.
+
+## Note 2026-09-30 (plan 186-13)
+
+The single-fit `n_restarts` path and the `alpha.hmm.n_restarts` key are deleted (walk-forward is the
+only mode). The multi-seed question now applies per walk-forward segment: each segment's fit is
+still one seed with a same-seed doubled-`n_iter` retry (`_walk_forward_hmm_full`). It stays pending.
+

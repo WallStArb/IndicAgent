@@ -2,7 +2,7 @@
 
 **Filed:** 2026-08-09
 **Source:** Phase 172 execute-phase `/simplify` gate, efficiency-angle review
-**Status:** pending, not blocking
+**Status:** completed 2026-09-30 (plan 186-13)
 
 ## The gaps
 
@@ -59,3 +59,15 @@ Re-tiered P2 -> P1: the 248 refit is exactly the full `--refit` whose transient 
 ## Refactor map (2026-09-26)
 
 Folded into refactor map item 5 of the adopted unified design (section 14.6), scoped into phase 186: `regime_writer` fixed once, before the `feature_vectors` rebuild consumes its columns.
+
+## Closed 2026-09-30 (plan 186-13)
+
+- Item 1 (rolling-window memory): `_rolling` evaluates in row blocks (`infra.hmm.rolling_block_rows`,
+  16384; migration 410), bit-identical at block sizes 1, 7, 4096 and n. tracemalloc peak at
+  395,609 rows, window 250: 809.7 MB unblocked, 48.7 MB blocked. Commit a3599078b.
+- Item 2 (per-cell count query): `bulk_update_by_key` returns the JOIN-UPDATE rowcount; the writer
+  issues one end-of-run grouped NULL-remaining query. Commit efe3613c2.
+- Item 3 (drift audit): `run_drift_audit` reads both regime namespaces from one `feature_vectors`
+  scan. Commit bf6388efd.
+- Item 4 (`_ColumnFamily` SQL): computed once per family. Commit bf6388efd.
+- The startup-gate item was already handled in the phase 172 `/simplify` pass.
