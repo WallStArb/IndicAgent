@@ -15,7 +15,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from src.intelligence.measure.params import MeasureParams
-from src.intelligence.measure.targets import TargetStack
+from src.intelligence.measure.targets import StackGrid, TargetStack
 from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics, dense_rank_inputs
 from src.intelligence.statistics.ic_math import _p_values_from_ic, compute_ic_vectorized
 
@@ -361,7 +361,7 @@ class SlotMap:
         return out
 
 
-def map_slots(stack: TargetStack, bar_ts: np.ndarray, symbols: np.ndarray) -> SlotMap:
+def map_slots(stack: StackGrid | TargetStack, bar_ts: np.ndarray, symbols: np.ndarray) -> SlotMap:
     """Match long-form (timestamp, symbol) rows to grid slots by exact equality.
 
     Each distinct symbol is looked up once, not once per row. A duplicate (timestamp, symbol)
@@ -397,7 +397,7 @@ def map_slots(stack: TargetStack, bar_ts: np.ndarray, symbols: np.ndarray) -> Sl
 
 
 def scatter_features(
-    stack: TargetStack, slots: SlotMap, values: np.ndarray
+    stack: StackGrid | TargetStack, slots: SlotMap, values: np.ndarray
 ) -> tuple[np.ndarray, int]:
     """Scatter long-form `values` onto the grid through a `SlotMap`: ([n, m, k] with NaN where
     no row landed, count of input rows matching no grid slot)."""
@@ -413,7 +413,7 @@ def scatter_features(
 
 
 def align_features(
-    stack: TargetStack, bar_ts: np.ndarray, symbols: np.ndarray, values: np.ndarray
+    stack: StackGrid | TargetStack, bar_ts: np.ndarray, symbols: np.ndarray, values: np.ndarray
 ) -> tuple[np.ndarray, int]:
     """Scatter long-form feature rows onto the stack grid by exact (timestamp, symbol) match.
 

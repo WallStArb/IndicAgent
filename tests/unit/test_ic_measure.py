@@ -8,6 +8,7 @@ CI-clean: no DB, no network.
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import re
 from datetime import UTC, datetime
@@ -801,35 +802,59 @@ class TestFamilyDigest:
         )
 
 
+def _tf_run(start: datetime = datetime(2026, 1, 1, tzinfo=UTC)) -> ic_measure.TfRun:
+    apr = {"alpha.ic_measure.horizons": {"1d": [1, 2]}}
+    horizons = (1, 2)
+    return ic_measure.TfRun(
+        tf="1d",
+        apr=apr,
+        params=_params(),
+        horizons=horizons,
+        start=start,
+        oos_start=_OOS,
+        chunk_rows=1000,
+        bar_digests={"AAA": "1" * 64},
+        snapshot={"k": 1},
+    )
+
+
 class TestUnitOwnsItsScope:
     def test_the_unit_names_no_feature_and_no_symbol_and_its_writer_has_no_block_index(
         self,
     ) -> None:
         ctx = _context()
         for job in ic_measure._ALL_JOBS:
-            unit = ic_measure.IcMeasure._unit(
-                job,
-                "1d",
-                ctx,
-                datetime(2026, 1, 1, tzinfo=UTC),
-                _OOS,
-                {"k": 1},
-                {"job": job},
-                lambda: [],
-            )
-            assert unit.spec.writer == f"ic_measure.{job}"
-            assert set(unit.spec.replace_where) == {"tf", "symbol", "regime_scope"}
+            spec = ic_measure._spec(job, _tf_run(), ctx, ic_measure._identity(job, {}, {}, {}))
+            assert spec.writer == f"ic_measure.{job}"
+            assert set(spec.replace_where) == {"tf", "symbol", "regime_scope"}
 
     def test_the_unit_key_ignores_symbols_and_window_but_not_scope(self) -> None:
         ctx = _context()
-        args = (datetime(2026, 1, 1, tzinfo=UTC), _OOS, {"k": 1}, {"job": "proposer"}, lambda: [])
-        one = ic_measure.IcMeasure._unit("proposer", "1d", ctx, *args).spec
-        other = ic_measure.IcMeasure._unit(
-            "proposer", "1d", ctx, datetime(2026, 1, 5, tzinfo=UTC), *args[1:]
-        ).spec
+        identity = ic_measure._identity("proposer", {}, {}, {})
+        one = ic_measure._spec("proposer", _tf_run(), ctx, identity)
+        other = ic_measure._spec(
+            "proposer", _tf_run(datetime(2026, 1, 5, tzinfo=UTC)), ctx, identity
+        )
         assert one.unit_key == other.unit_key
-        scope = ic_measure.IcMeasure._unit("regime_volatility", "1d", ctx, *args).spec
+        assert one.batch_key != other.batch_key  # the window is part of the batch identity
+        scope = ic_measure._spec(
+            "regime_volatility",
+            _tf_run(),
+            ctx,
+            ic_measure._identity("regime_volatility", {}, {}, {}),
+        )
         assert scope.unit_key != one.unit_key
+
+    def test_the_identity_holds_the_job_the_shared_inputs_and_the_jobs_own(self) -> None:
+        identity = ic_measure._identity(
+            "regime_volatility", {"bars": {"A": "x"}}, {"family": "f"}, {"labels": "l"}
+        )
+        assert identity == {
+            "job": "regime_volatility",
+            "bars": {"A": "x"},
+            "family": "f",
+            "labels": "l",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -983,7 +1008,9 @@ class TestBarDigestBracket:
             ic_measure.check_bar_digests(before, after, allow_absent=False)
 
     def test_absent_symbols_refuse_a_real_run_but_not_when_allowed(self) -> None:
-        same = {"AAA": "absent", "BBB": "2" * 64}
+        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
+
+        same = {"AAA": BAR_DIGEST_ABSENT_SYMBOL, "BBB": "2" * 64}
         with pytest.raises(ValueError, match="AAA"):
             ic_measure.check_bar_digests(same, same, allow_absent=False)
         assert ic_measure.check_bar_digests(same, same, allow_absent=True) == ["AAA"]
@@ -991,6 +1018,52 @@ class TestBarDigestBracket:
     def test_unchanged_present_digests_pass(self) -> None:
         same = {"AAA": "1" * 64}
         assert ic_measure.check_bar_digests(same, dict(same), allow_absent=False) == []
+
+
+class TestAbsentDigestTolerance:
+    """A real run refuses symbols with no bar digest; a dry run and the explicit flag accept them.
+    The rule lives in one place."""
+
+    @staticmethod
+    def _allows(**flags: bool) -> bool:
+        args = argparse.Namespace(dry_run=False, allow_absent_digests=False)
+        for name, value in flags.items():
+            setattr(args, name, value)
+        return ic_measure.IcMeasure(args, "postgresql://unused").allow_absent_digests
+
+    def test_only_a_dry_run_or_the_flag_tolerates_absent_digests(self) -> None:
+        assert self._allows() is False
+        assert self._allows(dry_run=True) is True
+        assert self._allows(allow_absent_digests=True) is True
+
+    def test_the_sentinel_is_the_one_bar_content_digests_returns(self) -> None:
+        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL, bar_content_digests
+
+        conn = FakeConn(rows_responder([]))
+        digests = bar_content_digests(conn, "1d", ["SPY"], _OOS.replace(year=2025), _OOS)
+        assert digests == {"SPY": BAR_DIGEST_ABSENT_SYMBOL}
+
+
+class TestTfContext:
+    def test_a_context_is_immutable_and_built_once_from_the_grid(self) -> None:
+        ctx = _context()
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            ctx.present = np.zeros((0, 0), dtype=bool)
+        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+        assert ctx.present.shape == (n, m) and ctx.present.all()
+        assert "slot_horizon" not in ic_measure.make_tf_context.__code__.co_varnames
+        assert ctx.stack(1) is ctx.stack(1)  # the stack cache still works on a frozen context
+
+
+class TestSourceIdentifiers:
+    def test_the_label_source_is_derived_from_the_label_column(self) -> None:
+        assert ic_measure._LABEL_SOURCE == f"feature_vectors.{ic_measure._LABEL_COLUMN}"
+
+    def test_a_tf_run_is_a_frozen_bundle_of_what_the_units_share(self) -> None:
+        names = {f.name for f in dataclasses.fields(ic_measure.TfRun)}
+        assert {"tf", "apr", "params", "horizons", "start", "oos_start", "chunk_rows"} <= names
+        assert {"bar_digests", "snapshot"} <= names
+        assert ic_measure.TfRun.__dataclass_params__.frozen
 
 
 class TestMonitoringNeedsMembers:

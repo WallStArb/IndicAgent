@@ -846,7 +846,7 @@ _BAR_DIGEST_SQL = (
     "WHERE timeframe = %s AND symbol = ANY(%s) AND range_start >= %s AND range_start < %s"
 )
 _BAR_DIGEST_EMPTY_MONTH = "empty"
-_BAR_DIGEST_ABSENT_SYMBOL = "absent"
+BAR_DIGEST_ABSENT_SYMBOL = "absent"
 
 
 def _month_starts(start: datetime, end_exclusive: datetime) -> list[datetime]:
@@ -898,7 +898,7 @@ def bar_content_digests(
     for symbol in symbols:
         present = by_symbol.get(symbol)
         if not present:
-            out[symbol] = _BAR_DIGEST_ABSENT_SYMBOL
+            out[symbol] = BAR_DIGEST_ABSENT_SYMBOL
             continue
         lines = [
             f"{format_iso_ts(month)}:{present.get(month, _BAR_DIGEST_EMPTY_MONTH)}"

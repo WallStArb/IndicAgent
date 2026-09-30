@@ -55,6 +55,7 @@ import math
 import sys
 import tempfile
 import time
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime
@@ -70,6 +71,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from services._batch_utils import (  # noqa: E402
+    BAR_DIGEST_ABSENT_SYMBOL,
     BulkLoadResult,
     BulkLoadSpec,
     bar_content_digests,
@@ -144,7 +146,7 @@ POOLED_SYMBOL = "POOLED"
 ALL_REGIMES = "_all"
 VECTOR_DOMAIN = "quant"
 _LABEL_COLUMN = "regime_volatility"
-_LABEL_SOURCE = "feature_vectors.regime_volatility"
+_LABEL_SOURCE = f"feature_vectors.{_LABEL_COLUMN}"
 
 SCOPE_UNSTRATIFIED = "unstratified"
 SCOPE_REGIME_VOLATILITY = "regime_volatility"
@@ -375,14 +377,17 @@ def fetch_long_form(
 # ---------------------------------------------------------------------------
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TfContext:
     tf: str
     panels: list[research_panel.Panel]
     grid: StackGrid
     slots: SlotMap
     present: np.ndarray  # [n, m] bool: slots that received a feature_vectors row
-    _stacks: dict[int, TargetStack] = dataclasses.field(default_factory=dict)
+    # Targets per horizon, built on first use; a cache, so it is not part of a context's value.
+    _stacks: dict[int, TargetStack] = dataclasses.field(
+        default_factory=dict, repr=False, compare=False
+    )
 
     def stack(self, horizon: int) -> TargetStack:
         if horizon not in self._stacks:
@@ -395,25 +400,17 @@ def make_tf_context(
     end_exclusive: str | np.datetime64,
     bar_ts: np.ndarray,
     symbols: np.ndarray,
-    slot_horizon: int = 1,
 ) -> TfContext:
-    """Union grid of the panels and the slot map of the feature rows' (bar_ts, symbol) keys.
-    `slot_horizon` only supplies a stack to the slot mapper (which reads timestamps and symbols,
-    never targets); it never enters a value."""
+    """Union grid of the panels and the slot map of the feature rows' (bar_ts, symbol) keys."""
     grid = stack_grid(panels, end_exclusive)
-    context = TfContext(
+    slots = map_slots(grid, bar_ts, symbols)
+    return TfContext(
         tf=panels[0].tf,
         panels=panels,
         grid=grid,
-        slots=SlotMap(
-            np.zeros(0, dtype=bool), np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
-        ),
-        present=np.zeros((0, 0), dtype=bool),
+        slots=slots,
+        present=slots.present(len(grid.timestamps), len(grid.symbols)),
     )
-    slots = map_slots(context.stack(slot_horizon), bar_ts, symbols)
-    context.slots = slots
-    context.present = slots.present(len(grid.timestamps), len(grid.symbols))
-    return context
 
 
 def column_digest(name: str, column: np.ndarray) -> str:
@@ -497,25 +494,50 @@ def _sign(value: float | None) -> int | None:
     return 1 if value > 0 else -1 if value < 0 else 0
 
 
-def _row(**fields: Any) -> tuple:
-    base: dict[str, Any] = {
+def _cell_row(
+    *,
+    feature: str,
+    tf: str,
+    horizon: int,
+    window_end: datetime,
+    n_independent: int,
+    ic: float | None,
+    reliable: bool,
+    **extra: Any,
+) -> tuple:
+    """One feature_ic_scores_v2 row in COLUMNS order: the fields every job writes, the pooled
+    defaults, and the job's own columns in `extra` (an unknown column name raises)."""
+    fields: dict[str, Any] = {
         "vector_domain": VECTOR_DOMAIN,
         "symbol": POOLED_SYMBOL,
         "is_pooled": True,
         "regime": ALL_REGIMES,
         "regime_label_source": "none",
+        "feature_name": feature,
+        "tf": tf,
+        "lookahead_bars": int(horizon),
+        "training_window_end": window_end,
+        "n_independent": int(n_independent),
+        "reliable": reliable,
+        "ic_value": ic,
+        "ic_sign": _sign(ic),
     }
-    base.update(fields)
-    unknown = set(base) - set(COLUMNS)
+    fields.update(extra)
+    unknown = set(fields) - set(COLUMNS)
     if unknown:
         raise ValueError(f"unknown row fields {sorted(unknown)}")
-    return tuple(base.get(name) for name in COLUMNS)
+    return tuple(fields.get(name) for name in COLUMNS)
 
 
 def _ci_gate(lower: float | None, upper: float | None) -> bool | None:
     if lower is None or upper is None:
         return None
     return lower > 0 or upper < 0
+
+
+def _to_utc(value: np.datetime64) -> datetime:
+    converted: datetime = pd.Timestamp(value).to_pydatetime().replace(tzinfo=UTC)
+    return converted
 
 
 def _window_end(stack: TargetStack) -> datetime:
@@ -525,11 +547,6 @@ def _window_end(stack: TargetStack) -> datetime:
     if end is None:
         raise ValueError(f"{stack.tf} horizon {stack.horizon} has no finite target")
     return _to_utc(end)
-
-
-def _to_utc(value: np.datetime64) -> datetime:
-    converted: datetime = pd.Timestamp(value).to_pydatetime().replace(tzinfo=UTC)
-    return converted
 
 
 def proposer_rows(
@@ -555,15 +572,14 @@ def proposer_rows(
                 adjusted = _null_if_nan(bh_adjusted_p[i])
                 fdr = bool(passes_fdr[i]) if adjusted is not None else None
             rows.append(
-                _row(
-                    feature_name=name,
+                _cell_row(
+                    feature=name,
                     tf=tf,
-                    lookahead_bars=int(horizon),
-                    training_window_end=horizon_ends[horizon],
-                    n_independent=int(term.n_obs[i, j]),
+                    horizon=horizon,
+                    window_end=horizon_ends[horizon],
+                    n_independent=term.n_obs[i, j],
+                    ic=ic,
                     reliable=ic is not None,
-                    ic_value=ic,
-                    ic_sign=_sign(ic),
                     p_value=_null_if_nan(term.p_value[i, j]),
                     ic_ci_lower=lower,
                     ic_ci_upper=upper,
@@ -589,16 +605,15 @@ def disclosure_rows(
             ic = _null_if_nan(cell.ic[i])
             lower, upper = _null_if_nan(cell.ci_lower[i]), _null_if_nan(cell.ci_upper[i])
             rows.append(
-                _row(
-                    feature_name=name,
+                _cell_row(
+                    feature=name,
                     tf=tf,
-                    regime=label,
-                    lookahead_bars=int(horizon),
-                    training_window_end=window_end,
-                    n_independent=int(cell.n_independent[i]),
+                    horizon=horizon,
+                    window_end=window_end,
+                    n_independent=cell.n_independent[i],
+                    ic=ic,
                     reliable=ic is not None and bool(cell.reliable[i]),
-                    ic_value=ic,
-                    ic_sign=_sign(ic),
+                    regime=label,
                     p_value=_null_if_nan(cell.p_value[i]),
                     ic_ci_lower=lower,
                     ic_ci_upper=upper,
@@ -637,15 +652,14 @@ def member_rows(
     for w, end in enumerate(window_ends):
         ic = _null_if_nan(series.ic[w])
         rows.append(
-            _row(
-                feature_name=series.member,
+            _cell_row(
+                feature=series.member,
                 tf=tf,
-                lookahead_bars=int(horizon),
-                training_window_end=end,
-                n_independent=int(series.n_obs[w]),
+                horizon=horizon,
+                window_end=end,
+                n_independent=series.n_obs[w],
+                ic=ic,
                 reliable=ic is not None,
-                ic_value=ic,
-                ic_sign=_sign(ic),
                 ic_sharpe=sharpe,
                 ic_sharpe_n_windows=n_windows,
                 ic_sharpe_hac=sharpe_hac,
@@ -887,12 +901,12 @@ def check_bar_digests(
     before: Mapping[str, str], after: Mapping[str, str], *, allow_absent: bool
 ) -> list[str]:
     """The bar digests bracketing the panel build must agree (the panels saw the digested
-    bars). Returns the symbols with no digest at all ("absent"): revision detection is blind for
+    bars). Returns the symbols with no digest at all (`BAR_DIGEST_ABSENT_SYMBOL`): revision detection is blind for
     them, so a real run refuses unless `allow_absent`."""
     changed = sorted(s for s in before if before[s] != after.get(s))
     if changed:
         raise ValueError(f"bar content changed during the panel build for {changed[:10]}")
-    absent = sorted(s for s, d in before.items() if d == "absent")
+    absent = sorted(s for s, d in before.items() if d == BAR_DIGEST_ABSENT_SYMBOL)
     if absent and not allow_absent:
         raise ValueError(
             f"{len(absent)} symbol(s) have no bar_content_digest rows (first {absent[:5]}); "
@@ -990,12 +1004,31 @@ def _parse_oos(value: Any) -> datetime:
     return parsed.astimezone(UTC)
 
 
+@dataclasses.dataclass(frozen=True)
+class TfRun:
+    """What every unit of one timeframe shares, fixed before a feature is fetched."""
+
+    tf: str
+    apr: Mapping[str, Any]
+    params: MeasureParams
+    horizons: tuple[int, ...]
+    start: datetime
+    oos_start: datetime
+    chunk_rows: int  # rows per server-side cursor fetch (operational)
+    bar_digests: Mapping[str, str]  # per measured symbol, taken before the panel build
+    snapshot: Mapping[str, Any]  # the units' computational apr_snapshot
+
+
 class IcMeasure:
     def __init__(self, args: argparse.Namespace, dsn: str) -> None:
         self.args = args
         self.dsn = dsn
         self.outcomes: list[UnitOutcome] = []
         self.failures: list[str] = []
+        # The one place the absent-digest tolerance is decided: a dry run writes nothing, so it
+        # tolerates symbols with no bar_content_digest row; a real run refuses them unless the
+        # flag says otherwise (186-28's acceptance forbids the flag on the live run).
+        self.allow_absent_digests = bool(args.dry_run or args.allow_absent_digests)
 
     # -- setup ---------------------------------------------------------------
 
@@ -1008,9 +1041,7 @@ class IcMeasure:
             keys = {_OOS_START_KEY, *(k for tf in tfs for k in apr_keys_read(tf))}
             apr = {k: v for k in keys if (v := cfg.get_sync(k, missing)) is not missing}
             oos_start = _parse_oos(apr.get(_OOS_START_KEY))
-            table_column_types(
-                read_conn, self.args.feature_table
-            )  # a missing table, before any work
+            table_column_types(read_conn, self.args.feature_table)  # a missing table raises here
             jobs = active_jobs(self.args.jobs, self.args.members)
             if not jobs:
                 _logger.warning("ic_measure.no_active_jobs", jobs=self.args.jobs)
@@ -1056,7 +1087,7 @@ class IcMeasure:
         start = self._start(read_conn, tf, symbols)
         chunk_rows = int(apr[_FETCH_CHUNK_KEY])
         before = bar_content_digests(read_conn, tf, symbols, start, oos_start)
-        counts: dict[str, int] = {}
+        counts: Counter[str] = Counter()
         with tempfile.TemporaryDirectory(prefix="ic_measure_") as tmp:
             paths = asyncio.run(
                 build_target_panels(
@@ -1071,9 +1102,7 @@ class IcMeasure:
                 )
             )
             after = bar_content_digests(read_conn, tf, symbols, start, oos_start)
-            absent = check_bar_digests(
-                before, after, allow_absent=self.args.allow_absent_digests or self.args.dry_run
-            )
+            absent = check_bar_digests(before, after, allow_absent=self.allow_absent_digests)
             if absent:
                 _logger.warning("ic_measure.bar_digests_absent", tf=tf, symbols=len(absent))
             panels = [research_panel.load(p) for p in paths]
@@ -1084,45 +1113,20 @@ class IcMeasure:
             ctx = make_tf_context(
                 panels, oos_start.replace(tzinfo=None).isoformat(), keys.bar_ts, keys.symbols
             )
+            run = TfRun(
+                tf=tf,
+                apr=apr,
+                params=params,
+                horizons=horizons,
+                start=start,
+                oos_start=oos_start,
+                chunk_rows=chunk_rows,
+                bar_digests={s: before[s] for s in used},
+                snapshot=identity_snapshot(apr, tf, horizons, oos_start),
+            )
             names = feature_names(read_conn, self.args.feature_table)
-            bar_digests = {s: before[s] for s in used}
-            for unit in self._units(
-                read_conn,
-                apr,
-                tf,
-                jobs,
-                ctx,
-                names,
-                keys,
-                params,
-                horizons,
-                start,
-                oos_start,
-                chunk_rows,
-                bar_digests,
-            ):
-                try:
-                    outcome = execute_unit(
-                        unit, read_conn, write, oos_start, dry_run=self.args.dry_run
-                    )
-                except Exception as error:
-                    self.failures.append(f"{unit.spec.writer}: {error}")
-                    _logger.error(
-                        "ic_measure.unit_failed", tf=tf, writer=unit.spec.writer, error=str(error)
-                    )
-                    counts["failed"] = counts.get("failed", 0) + 1
-                    continue
-                self.outcomes.append(outcome)
-                _logger.info(  # once per unit, never per row
-                    "ic_measure.unit_done",
-                    tf=tf,
-                    writer=outcome.writer,
-                    status=outcome.status,
-                    rows=outcome.rows,
-                    seconds=round(time.monotonic() - t0, 1),
-                )
-                counts[outcome.status] = counts.get(outcome.status, 0) + 1
-                counts["rows"] = counts.get("rows", 0) + outcome.rows
+            for unit in self._units(read_conn, run, ctx, names, keys, jobs):
+                self._run_unit(unit, read_conn, write, run, counts, t0)
         _logger.info(
             "ic_measure.tf_complete",
             tf=tf,
@@ -1132,16 +1136,39 @@ class IcMeasure:
             **counts,
         )
 
-    def _block_fetcher(
+    def _run_unit(
         self,
+        unit: UnitPlan,
         read_conn: Any,
-        tf: str,
-        ctx: TfContext,
-        keys: LongForm,
-        start: datetime,
-        oos_start: datetime,
-        chunk_rows: int,
-        slot_horizon: int,
+        write: _WriteSession,
+        run: TfRun,
+        counts: Counter[str],
+        t0: float,
+    ) -> None:
+        """Execute one unit; a failure is recorded and the tf carries on with the next."""
+        try:
+            outcome = execute_unit(unit, read_conn, write, run.oos_start, dry_run=self.args.dry_run)
+        except Exception as error:
+            self.failures.append(f"{unit.spec.writer}: {error}")
+            _logger.error(
+                "ic_measure.unit_failed", tf=run.tf, writer=unit.spec.writer, error=str(error)
+            )
+            counts["failed"] += 1
+            return
+        self.outcomes.append(outcome)
+        _logger.info(  # once per unit, never per row
+            "ic_measure.unit_done",
+            tf=run.tf,
+            writer=outcome.writer,
+            status=outcome.status,
+            rows=outcome.rows,
+            seconds=round(time.monotonic() - t0, 1),
+        )
+        counts[outcome.status] += 1
+        counts["rows"] += outcome.rows
+
+    def _block_fetcher(
+        self, read_conn: Any, run: TfRun, ctx: TfContext, keys: LongForm
     ) -> Callable[[Sequence[str]], np.ndarray]:
         """Fetch one block of columns and align it to the grid; the fetched keys must be the ones
         the slot map was built on."""
@@ -1150,46 +1177,37 @@ class IcMeasure:
             fetched = fetch_long_form(
                 read_conn,
                 self.args.feature_table,
-                tf,
+                run.tf,
                 ctx.grid.symbols,
-                start,
-                oos_start,
+                run.start,
+                run.oos_start,
                 list(block),
-                chunk_rows,
+                run.chunk_rows,
             )
             if not (
                 np.array_equal(fetched.bar_ts, keys.bar_ts)
                 and np.array_equal(fetched.symbols, keys.symbols)
             ):
-                raise ValueError(f"{tf} feature rows changed between fetches; rerun")
-            grid, _unmatched = scatter_features(ctx.stack(slot_horizon), ctx.slots, fetched.values)
+                raise ValueError(f"{run.tf} feature rows changed between fetches; rerun")
+            grid, _unmatched = scatter_features(ctx.grid, ctx.slots, fetched.values)
             return grid
 
         return fetch
 
-    def _labels(
-        self,
-        read_conn: Any,
-        tf: str,
-        ctx: TfContext,
-        start: datetime,
-        oos_start: datetime,
-        chunk_rows: int,
-        slot_horizon: int,
-    ) -> np.ndarray:
+    def _labels(self, read_conn: Any, run: TfRun, ctx: TfContext) -> np.ndarray:
         """The regime_volatility label of every grid slot ('' where none)."""
         label_rows = fetch_long_form(
             read_conn,
             self.args.feature_table,
-            tf,
+            run.tf,
             ctx.grid.symbols,
-            start,
-            oos_start,
+            run.start,
+            run.oos_start,
             [_LABEL_COLUMN],
-            chunk_rows,
+            run.chunk_rows,
             text=True,
         )
-        label_slots = map_slots(ctx.stack(slot_horizon), label_rows.bar_ts, label_rows.symbols)
+        label_slots = map_slots(ctx.grid, label_rows.bar_ts, label_rows.symbols)
         width = max((len(v) for v in label_rows.values[:, 0]), default=1) or 1
         labels = np.full((len(ctx.grid.timestamps), len(ctx.grid.symbols)), "", dtype=f"<U{width}")
         labels[label_slots.rows, label_slots.cols] = label_rows.values[label_slots.ok, 0]
@@ -1198,124 +1216,127 @@ class IcMeasure:
     def _units(
         self,
         read_conn: Any,
-        apr: Mapping[str, Any],
-        tf: str,
-        jobs: list[str],
+        run: TfRun,
         ctx: TfContext,
         names: list[str],
         keys: LongForm,
-        params: MeasureParams,
-        horizons: tuple[int, ...],
-        start: datetime,
-        oos_start: datetime,
-        chunk_rows: int,
-        bar_digests: Mapping[str, str],
+        jobs: list[str],
     ) -> Iterator[UnitPlan]:
         """One unit per active job (job, tf). Blocking is a memory matter of the fetch and the IC
         computation only: one pass over the blocks builds the identity, and a unit that has to
         compute makes its own pass (skipped units compute nothing)."""
-        snapshot_keys = identity_snapshot(apr, tf, horizons, oos_start)
-        fetch = self._block_fetcher(
-            read_conn, tf, ctx, keys, start, oos_start, chunk_rows, horizons[0]
-        )
-        common = {"bars": dict(bar_digests), "panels": panels_digest(ctx.grid, ctx.panels)}
-        block_jobs = [j for j in jobs if j != JOB_MONITORING]
-        if block_jobs:
-            source = FeatureSource(
-                tuple(feature_blocks(names, max(int(apr[_BLOCK_COLUMNS_KEY]), 1))), fetch
-            )
-            existing = existing_rows(ctx.grid.valid_grid(), ctx.present)
-            row_sets: dict[str, np.ndarray] = {}
-            labels = labels_key = None
-            if JOB_PROPOSER in block_jobs:
-                row_sets[ALL_ROWS] = existing
-            if JOB_REGIME_VOLATILITY in block_jobs:
-                labels = self._labels(read_conn, tf, ctx, start, oos_start, chunk_rows, horizons[0])
-                labels_key = labels_digest(labels)
-                masks, _n_unlabelled = label_row_masks(existing, labels)
-                row_sets.update({f"{_LABEL_PREFIX}{label}": m for label, m in masks.items()})
-            inputs = scan_family(source, ctx, params, row_sets)
-            family = {"family": family_digest(names, params), "features": inputs.features_key}
-            for job in block_jobs:
-                extra = {"labels": labels_key} if job == JOB_REGIME_VOLATILITY else {}
-                yield self._unit(
-                    job,
-                    tf,
-                    ctx,
-                    start,
-                    oos_start,
-                    snapshot_keys,
-                    {"job": job, **common, **family, **extra},
-                    self._compute(job, ctx, source, inputs, labels, params, horizons),
-                )
+        fetch = self._block_fetcher(read_conn, run, ctx, keys)
+        common = {"bars": dict(run.bar_digests), "panels": panels_digest(ctx.grid, ctx.panels)}
+        family_jobs = [j for j in jobs if j != JOB_MONITORING]
+        if family_jobs:
+            yield from self._family_units(read_conn, run, ctx, names, fetch, common, family_jobs)
         if JOB_MONITORING in jobs:
-            members = tuple(dict.fromkeys(self.args.members))
-            unknown = sorted(set(members) - set(names))
-            if unknown:
-                raise ValueError(f"monitoring members {unknown} are not numeric feature columns")
-            source = FeatureSource((members,), fetch)
-            inputs = scan_family(source, ctx, params, {})
-            identity = {
-                "job": JOB_MONITORING,
-                **common,
-                "family": family_digest(members, params),
-                "features": inputs.features_key,
-            }
-            yield self._unit(
-                JOB_MONITORING,
-                tf,
-                ctx,
-                start,
-                oos_start,
-                snapshot_keys,
-                identity,
-                self._compute(JOB_MONITORING, ctx, source, inputs, None, params, horizons),
+            yield self._monitoring_unit(run, ctx, names, fetch, common)
+
+    def _family_units(
+        self,
+        read_conn: Any,
+        run: TfRun,
+        ctx: TfContext,
+        names: list[str],
+        fetch: Callable[[Sequence[str]], np.ndarray],
+        common: Mapping[str, Any],
+        jobs: list[str],
+    ) -> Iterator[UnitPlan]:
+        """The proposer and regime_volatility units: one scan of the whole family gives their
+        shared identity inputs and row completeness."""
+        source = FeatureSource(
+            tuple(feature_blocks(names, max(int(run.apr[_BLOCK_COLUMNS_KEY]), 1))), fetch
+        )
+        existing = existing_rows(ctx.grid.valid_grid(), ctx.present)
+        row_sets: dict[str, np.ndarray] = {}
+        labels = labels_key = None
+        if JOB_PROPOSER in jobs:
+            row_sets[ALL_ROWS] = existing
+        if JOB_REGIME_VOLATILITY in jobs:
+            labels = self._labels(read_conn, run, ctx)
+            labels_key = labels_digest(labels)
+            masks, _n_unlabelled = label_row_masks(existing, labels)
+            row_sets.update({f"{_LABEL_PREFIX}{label}": m for label, m in masks.items()})
+        inputs = scan_family(source, ctx, run.params, row_sets)
+        family = {
+            "family": family_digest(names, run.params),
+            "features": inputs.features_key,
+        }
+        for job in jobs:
+            extra = {"labels": labels_key} if job == JOB_REGIME_VOLATILITY else {}
+            identity = _identity(job, common, family, extra)
+            yield UnitPlan(
+                job=job,
+                spec=_spec(job, run, ctx, identity),
+                compute=self._compute(job, run, ctx, source, inputs, labels),
             )
 
-    @staticmethod
-    def _unit(
-        job: str,
-        tf: str,
+    def _monitoring_unit(
+        self,
+        run: TfRun,
         ctx: TfContext,
-        start: datetime,
-        oos_start: datetime,
-        snapshot_keys: Mapping[str, Any],
-        identity: Mapping[str, Any],
-        compute: Callable[[], list[tuple]],
+        names: list[str],
+        fetch: Callable[[Sequence[str]], np.ndarray],
+        common: Mapping[str, Any],
     ) -> UnitPlan:
-        """The unit owns every row of its scope in this tf (replace_where names no feature and
-        no symbol), so a change to the family, the symbols or the window replaces it."""
-        spec = BulkLoadSpec(
-            writer=f"{_WRITER}.{job}",
-            target_table=TARGET_TABLE,
-            time_column="training_window_end",
-            tf=tf,
-            range_start=start,
-            range_end=oos_start,
-            symbols=tuple(ctx.grid.symbols),
-            code_key=job_code_key(job),
-            apr_snapshot=snapshot_keys,
-            input_digest=hashlib.sha256(canonical_json(identity).encode()).hexdigest(),
-            replace_where={"tf": tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]},
+        """The monitoring unit over the `--members` columns, each a whole block of its own."""
+        members = tuple(dict.fromkeys(self.args.members))
+        unknown = sorted(set(members) - set(names))
+        if unknown:
+            raise ValueError(f"monitoring members {unknown} are not numeric feature columns")
+        source = FeatureSource((members,), fetch)
+        inputs = scan_family(source, ctx, run.params, {})
+        family = {"family": family_digest(members, run.params), "features": inputs.features_key}
+        identity = _identity(JOB_MONITORING, common, family, {})
+        return UnitPlan(
+            job=JOB_MONITORING,
+            spec=_spec(JOB_MONITORING, run, ctx, identity),
+            compute=self._compute(JOB_MONITORING, run, ctx, source, inputs, None),
         )
-        return UnitPlan(job=job, spec=spec, compute=compute)
 
     @staticmethod
     def _compute(
         job: str,
+        run: TfRun,
         ctx: TfContext,
         source: FeatureSource,
         inputs: FamilyInputs,
         labels: np.ndarray | None,
-        params: MeasureParams,
-        horizons: tuple[int, ...],
     ) -> Callable[[], list[tuple]]:
+        params, horizons = run.params, run.horizons
         if job == JOB_PROPOSER:
             return lambda: compute_proposer_rows(ctx, source, inputs, params, horizons)
         if job == JOB_REGIME_VOLATILITY:
             assert labels is not None
             return lambda: compute_disclosure_rows(ctx, source, inputs, labels, params, horizons)
         return lambda: compute_monitoring_rows(ctx, source, inputs, params, horizons[0])
+
+
+def _identity(
+    job: str, common: Mapping[str, Any], family: Mapping[str, Any], extra: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The inputs a unit's batch key is taken over: the job, the bars and panels every unit of
+    the tf shares, the family's digests, and the job's own (the regime labels)."""
+    return {"job": job, **common, **family, **extra}
+
+
+def _spec(job: str, run: TfRun, ctx: TfContext, identity: Mapping[str, Any]) -> BulkLoadSpec:
+    """The unit owns every row of its scope in this tf (replace_where names no feature and no
+    symbol), so a change to the family, the symbols or the window replaces it."""
+    return BulkLoadSpec(
+        writer=f"{_WRITER}.{job}",
+        target_table=TARGET_TABLE,
+        time_column="training_window_end",
+        tf=run.tf,
+        range_start=run.start,
+        range_end=run.oos_start,
+        symbols=tuple(ctx.grid.symbols),
+        code_key=job_code_key(job),
+        apr_snapshot=run.snapshot,
+        input_digest=hashlib.sha256(canonical_json(identity).encode()).hexdigest(),
+        replace_where={"tf": run.tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]},
+    )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
