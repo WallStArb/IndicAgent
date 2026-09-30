@@ -315,6 +315,10 @@ Plans:
   training slice, golden regenerated in its own commit; `regime_writer` is a thin wrapper (todos 290
   and 291), migration 410; todo 248 was already deployed (flag true since 2026-08-12); merged
   2026-09-30 locally (`d754a1c98`, push held by the coordinator)
+- [x] 186-16 `scripts/analysis/` deletion (D-12): 94 scripts and 26 test files removed except the sleeve
+  `config.py` closure, the pilot-only HMM helpers deleted with them, migration 412 retires two
+  unread APR keys; `repro_frozen` (promoted to `scripts.research.determinism`) bit-identical before
+  and after; merged 2026-09-30 locally (`299798dc7`, push held by the coordinator)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
