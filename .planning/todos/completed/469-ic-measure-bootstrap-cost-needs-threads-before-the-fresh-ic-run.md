@@ -1,9 +1,14 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-09-30
+closed: 2026-09-30
 source: plan 186-14 live dry run of services/ic_measure.py
 ---
+
+Closed by plan 186-14 pass 2: the counting-rank kernel, sliced draws and 12 threads make the full 1d
+universe a 7-minute serial run, so unit-level worker processes are not built. Decision and numbers
+below ("Pass 2 measurements"). The intraday full-universe memory question this run raised is todo 471.
 
 # The fresh IC writer's bootstrap is serial and too slow for the 186-28 run
 
@@ -73,3 +78,28 @@ not 4.7e5. Measured against scipy on the same resample rows (3 columns, 12 resam
 rounded away. The fresh table is empty and the legacy table came from another engine, so nothing stored has to
 match; within the new engine the result is the same for any thread count and slice size, and the code key
 moved with the kernel.
+
+## Decision (2026-09-30): closed without unit-level worker processes
+
+Real dry runs on the live database after the kernel, the skipped bootstraps and the thread count
+(`services/ic_measure.py --dry-run`, BLAS at 1 thread, kernel at 12 threads, a backfill running on the
+host; none writes):
+
+| Run | Before (HEAD at the start of pass 2) | After |
+|---|---|---|
+| 8 symbols, `--tf 1d --jobs proposer` (`AA AAPL ADM AEP AGG AMD AMLP AMT`) | 1:43.8 (the executor's 10:55 was the pre-pass-1 per-block units) | 0:10.1, 488 MB |
+| 100 symbols, `--tf 1d`, both default jobs | not run | 0:31.5, 830 MB; scan pass 12.6 s of it, bootstraps about 7 s per job |
+| all 925 compute_eligible_1d symbols, `--tf 1d`, both default jobs | first unit unfinished after 73:01 (186-14 summary) | 7:12 (proposer unit done at 5:12, disclosure at 7:10), 4.0 GB peak |
+| 40 symbols, `--tf 15m`, both default jobs (4,170,077 feature rows, 2006 to 2026) | first unit unfinished after 37:29 | 17:04 (proposer 11:37, disclosure +5:25), 6.9 GB peak |
+
+What dominates at 1d is now the serial feature fetch (three passes over 300 columns: the identity scan and
+one verified fetch per job, about three quarters of the wall clock at 100 symbols), not the bootstrap. Processes would
+parallelize fetch and compute across units, but a full 1d run is minutes, a kill loses at most one unit
+(about 2 to 5 minutes), and a worker needs its own connection and the shared grid. The CLAUDE.md pool rule
+(compute-only workers, one serial writer) would be followed, but there is nothing to buy at 1d, so nothing
+is built. `UnitCompute` (a frozen dataclass, not a closure) names exactly what a unit's compute holds; it is
+not picklable because `source.fetch` is bound to the parent's connection, and that is stated on the class.
+
+Remaining cost, not a bootstrap cost: the 15m run scales with rows (about 23x the 40 names for the whole
+universe, hours of kernel time at 12 threads) and its memory scales with bars x symbols x the block width
+(`alpha.ic.feature_block_columns`, 32). That is todo 471.
