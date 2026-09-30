@@ -67,7 +67,7 @@ bullets with current facts.
   names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 13 done (01 to 13; 02, 11, 12 landed in wave 2, 13 in wave 3); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); resume with 186-16, then 14 (gated on 185-11).
+  sequential, one executor at a time). 14 done (01 to 13 and 16; 02, 11, 12 landed in wave 2, 13 and 16 in wave 3); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); resume with 186-14 (gated on 185-11).
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
   rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
   `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
