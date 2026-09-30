@@ -51,7 +51,6 @@ import argparse
 import asyncio
 import dataclasses
 import hashlib
-import json
 import math
 import sys
 import tempfile
@@ -84,6 +83,7 @@ from services._batch_utils import (  # noqa: E402
     table_column_types,
 )
 from src.config.settings import Settings  # noqa: E402
+from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402
 from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
@@ -441,7 +441,7 @@ def family_digest(names: Sequence[str], params: MeasureParams) -> str:
     (block and chunk sizes) are not part of it."""
     computational = {f: getattr(params, f) for f in fields_of_kind(COMPUTATIONAL)}
     return hashlib.sha256(
-        _canonical({"names": sorted(names), "params": computational}).encode()
+        canonical_json({"names": sorted(names), "params": computational}).encode()
     ).hexdigest()
 
 
@@ -986,10 +986,6 @@ def _parse_oos(value: Any) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _canonical(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=str)
-
-
 class IcMeasure:
     def __init__(self, args: argparse.Namespace, dsn: str) -> None:
         self.args = args
@@ -1295,7 +1291,7 @@ class IcMeasure:
             symbols=tuple(ctx.grid.symbols),
             code_key=job_code_key(job),
             apr_snapshot=snapshot_keys,
-            input_digest=hashlib.sha256(_canonical(identity).encode()).hexdigest(),
+            input_digest=hashlib.sha256(canonical_json(identity).encode()).hexdigest(),
             replace_where={"tf": tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]},
         )
         return UnitPlan(job=job, spec=spec, compute=compute)

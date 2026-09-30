@@ -51,6 +51,8 @@ from pydantic import (
     model_validator,
 )
 
+from src.core.canonical_json import canonical_json
+
 MEMBER_PREFIX = "src.intelligence.research.families."
 
 _STRICT = ConfigDict(extra="forbid", strict=True, frozen=True)
@@ -342,12 +344,6 @@ def parse_spec_text(text: str) -> FamilySpec | BookSpec:
     if kind == "book":
         return BookSpec.model_validate(data)
     raise ValueError(f"unknown spec kind: {kind!r}")
-
-
-def canonical_json(obj: dict) -> str:
-    return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    )
 
 
 def _sha(text: str) -> str:

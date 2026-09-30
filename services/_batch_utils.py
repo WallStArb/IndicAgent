@@ -26,6 +26,7 @@ import structlog
 from psycopg.types.json import Jsonb
 
 from src.config.config_service import ConfigService
+from src.core.canonical_json import canonical_json
 from src.core.code_identity import FIRST_PARTY_PACKAGES, code_key, import_closure
 from src.core.real_column_range import REAL_MAX_MAGNITUDE, REAL_MIN_MAGNITUDE, clamp_to_real_range
 from src.core.service_utils import format_iso_ts
@@ -352,11 +353,7 @@ class BulkLoadSpec:
 
     @property
     def apr_hash(self) -> str:
-        return hashlib.sha256(
-            json.dumps(
-                self.apr_snapshot, sort_keys=True, separators=(",", ":"), default=str
-            ).encode()
-        ).hexdigest()
+        return hashlib.sha256(canonical_json(self.apr_snapshot).encode()).hexdigest()
 
     @property
     def symbols_hash(self) -> str:
@@ -386,9 +383,7 @@ class BulkLoadSpec:
             "tf": self.tf,
             "replace_where": where,
         }
-        return hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        return hashlib.sha256(canonical_json(identity).encode()).hexdigest()
 
     @property
     def batch_key(self) -> str:
@@ -404,9 +399,7 @@ class BulkLoadSpec:
             "input_digest": self.input_digest,
             "unit_key": self.unit_key,
         }
-        return hashlib.sha256(
-            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        return hashlib.sha256(canonical_json(identity).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
