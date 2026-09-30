@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import dataclasses
 import functools
 import hashlib
 import json
@@ -121,14 +120,23 @@ class LifecycleConfig:
         )
 
     def rule_fingerprint(self) -> dict[str, Any]:
-        """Every decision-rule field, so any rule change re-evaluates a window instead of
-        colliding with its old row. Over-inclusive on purpose: a field that cannot move a
-        verdict only adds a row with the same verdict, never a missed re-evaluation. The infra
-        concurrency knob is not a rule field: it cannot move a verdict, and tuning it must not
-        re-evaluate every window."""
-        rule = dataclasses.asdict(self)
-        del rule["max_concurrent_tfs"]
-        return rule
+        """The decision-rule fields (RULE_FIELDS), so any rule change re-evaluates a window
+        instead of colliding with its old row. Named explicitly: a field added to this class
+        joins the fingerprint only by being listed, so an infra-only knob (INFRA_FIELDS)
+        cannot leak in and re-evaluate every window when tuned."""
+        return {name: getattr(self, name) for name in RULE_FIELDS}
+
+
+# Decision-rule fields: what a verdict or a transition reads. Everything else on LifecycleConfig
+# is infrastructure that cannot move a verdict. A test requires every field to sit in exactly
+# one of the two tuples, so a new field must be classified.
+RULE_FIELDS = (
+    "coverage_floor",
+    "lookback_days",
+    "demotion_min_consecutive",
+    "recovery_min_passes",
+)
+INFRA_FIELDS = ("max_concurrent_tfs",)
 
 
 # ---------------------------------------------------------------------------

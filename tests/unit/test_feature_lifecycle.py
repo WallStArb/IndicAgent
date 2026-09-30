@@ -68,9 +68,52 @@ def test_config_reads_only_the_four_feature_keys():
     assert config == LifecycleConfig(0.95, 90, 2, 1, max_concurrent_tfs=3)
 
 
+# The fingerprint as it was built before the explicit field list (dataclasses.asdict minus the
+# infra knob); evidence keys already written must not move.
+_LEGACY_FINGERPRINT = {
+    "coverage_floor": 0.95,
+    "lookback_days": 90,
+    "demotion_min_consecutive": 2,
+    "recovery_min_passes": 1,
+}
+
+
+def test_rule_fingerprint_equals_the_pre_refactor_output():
+    config = LifecycleConfig(0.95, 90, 2, 1)
+    assert config.rule_fingerprint() == _LEGACY_FINGERPRINT
+    import dataclasses
+
+    legacy = dataclasses.asdict(config)
+    del legacy["max_concurrent_tfs"]
+    assert config.rule_fingerprint() == legacy
+    assert list(config.rule_fingerprint()) == list(legacy)
+
+
 def test_the_concurrency_knob_is_not_part_of_the_rule_fingerprint():
     """An infra knob cannot move a verdict; tuning it must not re-evaluate every window."""
-    assert "max_concurrent_tfs" not in LifecycleConfig(0.95, 90, 2, 1).rule_fingerprint()
+    base = LifecycleConfig(0.95, 90, 2, 1)
+    assert "max_concurrent_tfs" not in base.rule_fingerprint()
+    assert evidence_key("active", base.rule_fingerprint(), _ROWS) == evidence_key(
+        "active", LifecycleConfig(0.95, 90, 2, 1, max_concurrent_tfs=9).rule_fingerprint(), _ROWS
+    )
+
+
+def test_a_new_infra_field_does_not_change_the_fingerprint():
+    import dataclasses
+
+    @dataclasses.dataclass(frozen=True)
+    class Extended(LifecycleConfig):
+        new_infra_knob: int = 7
+
+    assert Extended(0.95, 90, 2, 1).rule_fingerprint() == _LEGACY_FINGERPRINT
+
+
+def test_every_config_field_is_classified_as_rule_or_infra():
+    import dataclasses
+
+    names = [f.name for f in dataclasses.fields(LifecycleConfig)]
+    assert sorted(names) == sorted(fl.RULE_FIELDS + fl.INFRA_FIELDS)
+    assert not set(fl.RULE_FIELDS) & set(fl.INFRA_FIELDS)
 
 
 @pytest.mark.asyncio
