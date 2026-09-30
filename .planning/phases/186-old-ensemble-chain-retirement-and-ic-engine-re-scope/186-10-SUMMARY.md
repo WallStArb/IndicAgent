@@ -56,7 +56,7 @@ Stored `n_independent` equals the strided valid count (`"n_independent": int(n_v
 | min_stride | alpha.ic.subsample_min_stride (existing) |
 | bootstrap_block_size | alpha.ic.bootstrap_block_size.{tf} (existing) |
 | bootstrap_resamples | alpha.ic.bootstrap_resamples (existing) |
-| rng_seed | writer-chosen per cell |
+| rng_seed | alpha.ic.bootstrap_seed (the raw constant; each cell seeds a fresh generator from it, unlike ic_engine's one advancing stream, see the 186-14 summary, review fix F5) |
 | fdr_alpha | existing BH-FDR level key used by ic_engine |
 | min_obs | alpha.ic.min_reliable_n equivalent (ic_engine's min_reliable_n) |
 | symbol_chunk_size | new infra.* key, seeded by 186-14 |

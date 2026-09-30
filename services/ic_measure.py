@@ -10,9 +10,11 @@ BulkLoadSpec unit_key, and a change of family, symbols or window replaces the un
 
 Blocking is a memory matter only. The feature family of a tf is fetched and measured in blocks of
 alpha.ic.feature_block_columns, but the row completeness, the bootstrap draws and the
-Benjamini-Hochberg family are whole-family, exactly as in ic_engine (a cell is masked over all
-its features before its feature_block_columns chunks; one BH family is corrected after every
-block). The BH family of the proposer is every feature of the tf at the proposer horizon
+Benjamini-Hochberg family are whole-family, as in ic_engine (a cell is masked over all its
+features before its feature_block_columns chunks; one block-start matrix per cell is shared by
+every block; one BH family is corrected after every block). The bootstrap generator is not
+ic_engine's: each cell seeds its own, so a CI matches ic_engine's in distribution but not bit
+for bit (see measure.ic.block_bootstrap_ci); IC and p-value are comparable. The BH family of the proposer is every feature of the tf at the proposer horizon
 (src/intelligence/measure/proposer.py `family_fdr` cites ic_engine's wider corpus family).
 Every value and every FDR decision is bit-identical for any block size; tests assert it.
 

@@ -188,3 +188,16 @@ def test_monitoring_never_bootstraps(symbols, params, monkeypatch: pytest.Monkey
     calls = _spy_slices(monkeypatch)
     series = member_ic_over_time(feat, "m", stack, params, present=all_present(feat.shape))
     assert calls == [] and np.isfinite(series.ic).any()
+
+
+def test_a_cell_ci_does_not_depend_on_which_cells_were_measured_before_it(params) -> None:
+    """Each cell seeds a fresh generator (ic_engine advances one across cells): order, skipped
+    units and block size cannot change a CI."""
+    x1, y1 = _inputs(0, 600, 4)
+    x2, y2 = _inputs(1, 900, 4)
+    p = _with(params, bootstrap_resamples=30, min_obs=30)
+    alone = pooled_rank_ic(x2, y2, stride=2, params=p)
+    pooled_rank_ic(x1, y1, stride=1, params=p)  # another cell first
+    after = pooled_rank_ic(x2, y2, stride=2, params=p)
+    assert np.array_equal(alone.ci_lower, after.ci_lower, equal_nan=True)
+    assert np.array_equal(alone.ci_upper, after.ci_upper, equal_nan=True)

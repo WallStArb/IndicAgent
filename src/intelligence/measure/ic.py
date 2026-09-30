@@ -222,7 +222,8 @@ def pooled_rank_ic(
        completeness), applied after the stride.
     4. One pooled rankdata over the masked sample per column, Pearson on ranks
        (`compute_ic_vectorized`), t-approximation p-values on n_independent, circular block
-       bootstrap CI (`block_bootstrap_ci`) with `default_rng(params.rng_seed)`.
+       bootstrap CI (`block_bootstrap_ci`), a fresh `default_rng(params.rng_seed)` per cell (not
+       ic_engine's advancing stream: see `block_bootstrap_ci`).
 
     `n_independent` is the strided valid count: ic_engine stores exactly that as n_independent
     (`"n_independent": int(n_valid)`, 4125). Fewer than `params.min_obs` such rows gives NaN IC.
@@ -315,12 +316,25 @@ def block_bootstrap_ci(
     the last places (about 1e-14 absolute measured at n from 4.5e5 to 2e6, todo 469); the kernel's
     own result is still the same for any thread count and slice size.
 
-    The block starts are one stream from a fresh `default_rng(params.rng_seed)`, drawn in slices
-    of `params.bootstrap_chunk_resamples` rows: a batched `integers(..., size=(B, K))` consumes
-    the generator exactly as B draws of size K do (as ic_engine's blocked bootstrap relies on),
-    so a slice never changes a row, and the starts matrix never exceeds one slice in memory.
-    `params.bootstrap_threads` threads run the resample loop; rows are independent, so the
-    thread count cannot change a value."""
+    Relation to ic_engine, stated exactly. Same draw shape and same statistic: one block-start
+    matrix `integers(0, n_valid, size=(B, ceil(n_valid / block)))` per cell, shared by every
+    feature block of the cell (services/ic_engine.py 2110-2158), resamples built as
+    `(start + offsets) % n_valid`. Different stream: ic_engine seeds ONE generator per
+    cross-sectional pass with `bootstrap_seed + hash("cross_sectional") % 2**31` and advances it
+    across every cell (6561-6563, 4719-4722), so a cell's draws depend on the cells measured
+    before it. Here every cell seeds a fresh `default_rng(params.rng_seed)` (the raw
+    alpha.ic.bootstrap_seed): all columns of a cell and every feature block share one index set,
+    which makes a CI independent of the block size, of the order of the cells and of which units
+    a rerun skips. The price is that a CI is not bit-comparable with a stored ic_engine CI
+    (same distribution, different resamples); IC and p-value are. CIs are never combined across
+    cells, so sharing one seed across cells (common random numbers) does not bias any of them.
+
+    The starts are drawn in slices of `params.bootstrap_chunk_resamples` rows: a batched
+    `integers(..., size=(B, K))` consumes the generator exactly as B draws of size K do (the
+    property ic_engine's single batched draw relies on, 2110-2117), so a slice never changes a
+    row, and the starts matrix never exceeds one slice in memory. `params.bootstrap_threads`
+    threads run the resample loop; rows are independent, so the thread count cannot change a
+    value."""
     n_valid = len(yv)
     n_blocks = math.ceil(n_valid / params.bootstrap_block_size)
     offsets = np.arange(params.bootstrap_block_size)
