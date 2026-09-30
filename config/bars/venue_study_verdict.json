@@ -1,0 +1,1168 @@
+{
+  "artifact": {
+    "path": "data/venue_study/62cd2054-db25-4f92-889a-d9cb13e8bc0f.csv.gz",
+    "sha256": "4aa3c211d548178b79ca7463e6558b1a6fac67adcb65962b99a37930bf6b7ea2"
+  },
+  "excluded": [],
+  "fetch_run_id": "62cd2054-db25-4f92-889a-d9cb13e8bc0f",
+  "generated_at": "2026-09-30T02:12:48.008426+00:00",
+  "preregistration_sha256": "94ff1f4c63d075744593919a4fc4104b955af8fdf74b4540962c3236291f91bd",
+  "results": {
+    "1d": {
+      "criterion_a_pass": false,
+      "criterion_b_pass": false,
+      "n_names_by_venue": {
+        "ARCA": 12,
+        "ISLAND": 12,
+        "NYSE": 12
+      },
+      "names": [
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5938748335552596,
+            "ARCA": 0.9027962716378163,
+            "BATS": 0.8801597869507324,
+            "ISLAND": 0.8695073235685752,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "JPM"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.45139813581890814,
+            "ARCA": 0.9440745672436751,
+            "BATS": 0.9440745672436751,
+            "ISLAND": 0.9640479360852197,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "KR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.12916111850865514,
+            "ARCA": 0.6324900133155792,
+            "BATS": 0.6245006657789614,
+            "ISLAND": 0.6964047936085219,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "FDS"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.22769640479360853,
+            "ARCA": 0.8069241011984021,
+            "BATS": 0.848202396804261,
+            "ISLAND": 0.8748335552596538,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "ALK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.15046604527296936,
+            "ARCA": 0.6644474034620506,
+            "BATS": 0.6151797603195739,
+            "ISLAND": 0.7003994673768309,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "WAT"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.3621837549933422,
+            "ARCA": 0.8721704394141145,
+            "BATS": 0.8695073235685752,
+            "ISLAND": 0.9094540612516645,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "PGR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.35685752330226367,
+            "ARCA": 0.8908122503328895,
+            "BATS": 0.9027962716378163,
+            "ISLAND": 0.9640479360852197,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "CMS"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5366178428761651,
+            "ARCA": 0.9107856191744341,
+            "BATS": 0.8974700399467377,
+            "ISLAND": 0.9001331557922769,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "BMY"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.34753661784287615,
+            "ARCA": 0.8535286284953395,
+            "BATS": 0.8468708388814914,
+            "ISLAND": 0.8801597869507324,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "RSG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5765645805592543,
+            "ARCA": 0.7909454061251664,
+            "BATS": 0.7976031957390146,
+            "ISLAND": 0.8055925432756325,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 0.9946737683089214,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "NAD"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5552596537949401,
+            "ARCA": 0.7869507323568575,
+            "BATS": 0.7829560585885486,
+            "ISLAND": 0.7922769640479361,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "AES"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.22902796271637815,
+            "ARCA": 0.748335552596538,
+            "BATS": 0.6897470039946738,
+            "ISLAND": 0.8015978695073236,
+            "NYSE": 1.0
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "NYSE",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "WSM"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.39014647137150466,
+            "ARCA": 0.881491344873502,
+            "BATS": 0.8628495339547271,
+            "ISLAND": 1.0,
+            "NYSE": 0.9547270306258322
+          },
+          "listing_max_volume_share": 0.29427430093209056,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "FISV"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2303595206391478,
+            "ARCA": 0.7643142476697736,
+            "BATS": 0.7443408788282291,
+            "ISLAND": 1.0,
+            "NYSE": 0.6005326231691078
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "ASML"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.3715046604527297,
+            "ARCA": 0.8974700399467377,
+            "BATS": 0.8788282290279628,
+            "ISLAND": 1.0,
+            "NYSE": 0.7989347536617842
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "COST"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.045272969374167776,
+            "ARCA": 0.3422103861517976,
+            "BATS": 0.3581890812250333,
+            "ISLAND": 1.0,
+            "NYSE": 0.24234354194407456
+          },
+          "listing_max_volume_share": 0.9866844207723036,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": true,
+          "passes_volume": true,
+          "symbol": "STBA"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.05725699067909454,
+            "ARCA": 0.3821571238348868,
+            "BATS": 0.355525965379494,
+            "ISLAND": 1.0,
+            "NYSE": 0.25033288948069243
+          },
+          "listing_max_volume_share": 0.996005326231691,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": true,
+          "passes_volume": true,
+          "symbol": "PATK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.0692410119840213,
+            "ARCA": 0.4567243675099867,
+            "BATS": 0.4234354194407457,
+            "ISLAND": 1.0,
+            "NYSE": 0.3009320905459387
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": true,
+          "passes_volume": true,
+          "symbol": "ATRO"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.18908122503328895,
+            "ARCA": 0.5299600532623169,
+            "BATS": 0.5139813581890812,
+            "ISLAND": 1.0,
+            "NYSE": 0.4806924101198402
+          },
+          "listing_max_volume_share": 0.9853528628495339,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "FCEL"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.30758988015978694,
+            "ARCA": 0.8681757656458056,
+            "BATS": 0.8535286284953395,
+            "ISLAND": 1.0,
+            "NYSE": 0.8681757656458056
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "SSP"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2756324900133156,
+            "ARCA": 0.8641810918774967,
+            "BATS": 0.9054593874833555,
+            "ISLAND": 1.0,
+            "NYSE": 0.7390146471371505
+          },
+          "listing_max_volume_share": 1.0,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "WYNN"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2796271637816245,
+            "ARCA": 0.8402130492676432,
+            "BATS": 0.8375499334221038,
+            "ISLAND": 1.0,
+            "NYSE": 0.6964047936085219
+          },
+          "listing_max_volume_share": 0.996005326231691,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "ADSK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.20239680426098536,
+            "ARCA": 0.4793608521970706,
+            "BATS": 0.4607190412782956,
+            "ISLAND": 1.0,
+            "NYSE": 0.35685752330226367
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": true,
+          "passes_volume": true,
+          "symbol": "BKNG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.23169107856191745,
+            "ARCA": 0.7563249001331558,
+            "BATS": 0.7403462050599201,
+            "ISLAND": 1.0,
+            "NYSE": 0.644474034620506
+          },
+          "listing_max_volume_share": 0.9986684420772304,
+          "listing_venue": "ISLAND",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "BIIB"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.6644474034620506,
+            "ARCA": 1.0,
+            "BATS": 0.8548601864181092,
+            "ISLAND": 0.8788282290279628,
+            "NYSE": 0.8615179760319573
+          },
+          "listing_max_volume_share": 0.9826897470039947,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "KRE"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.4474034620505992,
+            "ARCA": 1.0,
+            "BATS": 0.8428761651131824,
+            "ISLAND": 0.8468708388814914,
+            "NYSE": 0.8122503328894807
+          },
+          "listing_max_volume_share": 0.7936085219707057,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "EWG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.7376830892143809,
+            "ARCA": 1.0,
+            "BATS": 0.9494007989347537,
+            "ISLAND": 0.952063914780293,
+            "NYSE": 0.918774966711052
+          },
+          "listing_max_volume_share": 0.9933422103861518,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "XLU"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.6737683089214381,
+            "ARCA": 1.0,
+            "BATS": 0.8948069241011984,
+            "ISLAND": 0.8854860186418109,
+            "NYSE": 0.8575233022636485
+          },
+          "listing_max_volume_share": 0.9973368841544608,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "XLF"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.023968042609853527,
+            "ARCA": 1.0,
+            "BATS": 0.5246338215712384,
+            "ISLAND": 0.48868175765645805,
+            "NYSE": 0.15712383488681758
+          },
+          "listing_max_volume_share": 0.918774966711052,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VCR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.34620505992010653,
+            "ARCA": 1.0,
+            "BATS": 0.8242343541944075,
+            "ISLAND": 0.8255659121171771,
+            "NYSE": 0.8015978695073236
+          },
+          "listing_max_volume_share": 0.9747003994673769,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "EWW"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.7643142476697736,
+            "ARCA": 1.0,
+            "BATS": 0.9720372836218375,
+            "ISLAND": 0.9773635153129161,
+            "NYSE": 0.9587217043941412
+          },
+          "listing_max_volume_share": 0.9840213049267643,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "VWO"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.25432756324900135,
+            "ARCA": 1.0,
+            "BATS": 0.8561917443408789,
+            "ISLAND": 0.8428761651131824,
+            "NYSE": 0.6870838881491345
+          },
+          "listing_max_volume_share": 0.9840213049267643,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "VUG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.8881491344873502,
+            "ARCA": 1.0,
+            "BATS": 0.9747003994673769,
+            "ISLAND": 0.9693741677762983,
+            "NYSE": 0.9786950732356857
+          },
+          "listing_max_volume_share": 0.966711051930759,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "EFA"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.7616511318242344,
+            "ARCA": 1.0,
+            "BATS": 0.9747003994673769,
+            "ISLAND": 0.9773635153129161,
+            "NYSE": 0.9587217043941412
+          },
+          "listing_max_volume_share": 0.7776298268974701,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "RSP"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.019973368841544607,
+            "ARCA": 1.0,
+            "BATS": 0.45006657789613846,
+            "ISLAND": 0.43142476697736354,
+            "NYSE": 0.12117177097203728
+          },
+          "listing_max_volume_share": 0.9174434087882823,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": true,
+          "passes_volume": false,
+          "symbol": "XSD"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.41278295605858856,
+            "ARCA": 1.0,
+            "BATS": 0.9414114513981359,
+            "ISLAND": 0.9600532623169108,
+            "NYSE": 0.8535286284953395
+          },
+          "listing_max_volume_share": 0.9280958721704394,
+          "listing_venue": "ARCA",
+          "n_days": 751,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VTV"
+        }
+      ],
+      "passed": false,
+      "reasons": [
+        "criterion_a: 0.833 of names pass, need 0.9",
+        "criterion_b: 0.139 of names pass, need 0.9"
+      ]
+    },
+    "5m": {
+      "criterion_a_pass": false,
+      "criterion_b_pass": false,
+      "n_names_by_venue": {
+        "ARCA": 12,
+        "ISLAND": 12,
+        "NYSE": 12
+      },
+      "names": [
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.38846153846153847,
+            "ARCA": 0.9213675213675213,
+            "BATS": 0.9290598290598291,
+            "ISLAND": 0.9628205128205128,
+            "NYSE": 0.9799145299145299
+          },
+          "listing_max_volume_share": 0.6623931623931624,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "JPM"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.28205128205128205,
+            "ARCA": 0.8594017094017095,
+            "BATS": 0.82991452991453,
+            "ISLAND": 0.923931623931624,
+            "NYSE": 0.9474358974358974
+          },
+          "listing_max_volume_share": 0.523931623931624,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "KR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.05042735042735043,
+            "ARCA": 0.24316239316239316,
+            "BATS": 0.2829059829059829,
+            "ISLAND": 0.40555555555555556,
+            "NYSE": 0.46025641025641023
+          },
+          "listing_max_volume_share": 0.41239316239316237,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "FDS"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.15384615384615385,
+            "ARCA": 0.57991452991453,
+            "BATS": 0.5841880341880342,
+            "ISLAND": 0.7217948717948718,
+            "NYSE": 0.7816239316239316
+          },
+          "listing_max_volume_share": 0.5213675213675214,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "ALK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.10299145299145299,
+            "ARCA": 0.4324786324786325,
+            "BATS": 0.5166666666666667,
+            "ISLAND": 0.6252136752136752,
+            "NYSE": 0.6495726495726496
+          },
+          "listing_max_volume_share": 0.39145299145299145,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "WAT"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.17863247863247864,
+            "ARCA": 0.6324786324786325,
+            "BATS": 0.65,
+            "ISLAND": 0.7636752136752136,
+            "NYSE": 0.8290598290598291
+          },
+          "listing_max_volume_share": 0.5534188034188035,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "PGR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2876068376068376,
+            "ARCA": 0.8170940170940171,
+            "BATS": 0.8341880341880342,
+            "ISLAND": 0.9256410256410257,
+            "NYSE": 0.9213675213675213
+          },
+          "listing_max_volume_share": 0.37564102564102564,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "CMS"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2931623931623932,
+            "ARCA": 0.9230769230769231,
+            "BATS": 0.9256410256410257,
+            "ISLAND": 0.958974358974359,
+            "NYSE": 0.9632478632478633
+          },
+          "listing_max_volume_share": 0.3995726495726496,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "BMY"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.18076923076923077,
+            "ARCA": 0.5824786324786325,
+            "BATS": 0.6260683760683761,
+            "ISLAND": 0.7418803418803419,
+            "NYSE": 0.7756410256410257
+          },
+          "listing_max_volume_share": 0.4794871794871795,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "RSG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.46794871794871795,
+            "ARCA": 0.8897435897435897,
+            "BATS": 0.8628205128205129,
+            "ISLAND": 0.9217948717948717,
+            "NYSE": 0.9487179487179487
+          },
+          "listing_max_volume_share": 0.5081196581196581,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "NAD"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.9209401709401709,
+            "ARCA": 0.9598290598290599,
+            "BATS": 0.9585470085470086,
+            "ISLAND": 0.9705128205128205,
+            "NYSE": 0.9623931623931624
+          },
+          "listing_max_volume_share": 0.45085470085470086,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "AES"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.10384615384615385,
+            "ARCA": 0.37777777777777777,
+            "BATS": 0.4166666666666667,
+            "ISLAND": 0.541025641025641,
+            "NYSE": 0.6867521367521368
+          },
+          "listing_max_volume_share": 0.6487179487179487,
+          "listing_venue": "NYSE",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "WSM"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2329059829059829,
+            "ARCA": 0.8324786324786325,
+            "BATS": 0.7111111111111111,
+            "ISLAND": 0.9286324786324787,
+            "NYSE": 0.647008547008547
+          },
+          "listing_max_volume_share": 0.9128205128205128,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "FISV"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.2564102564102564,
+            "ARCA": 0.9465811965811965,
+            "BATS": 0.8367521367521368,
+            "ISLAND": 0.9722222222222222,
+            "NYSE": 0.6782051282051282
+          },
+          "listing_max_volume_share": 0.8867521367521367,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "ASML"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.27008547008547007,
+            "ARCA": 0.9106837606837607,
+            "BATS": 0.8068376068376069,
+            "ISLAND": 0.9641025641025641,
+            "NYSE": 0.6615384615384615
+          },
+          "listing_max_volume_share": 0.8688034188034188,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "COST"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.005555555555555556,
+            "ARCA": 0.4893162393162393,
+            "BATS": 0.4598290598290598,
+            "ISLAND": 0.7833333333333333,
+            "NYSE": 0.3316239316239316
+          },
+          "listing_max_volume_share": 0.5376068376068376,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "STBA"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.035897435897435895,
+            "ARCA": 0.394017094017094,
+            "BATS": 0.2948717948717949,
+            "ISLAND": 0.5393162393162393,
+            "NYSE": 0.19914529914529913
+          },
+          "listing_max_volume_share": 0.5683760683760684,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "PATK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.04957264957264957,
+            "ARCA": 0.28504273504273503,
+            "BATS": 0.22264957264957264,
+            "ISLAND": 0.46324786324786327,
+            "NYSE": 0.1547008547008547
+          },
+          "listing_max_volume_share": 0.5863247863247864,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "ATRO"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.10598290598290598,
+            "ARCA": 0.5987179487179487,
+            "BATS": 0.46025641025641023,
+            "ISLAND": 0.7196581196581197,
+            "NYSE": 0.37222222222222223
+          },
+          "listing_max_volume_share": 0.8764957264957265,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "FCEL"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.13333333333333333,
+            "ARCA": 0.7794871794871795,
+            "BATS": 0.7448717948717949,
+            "ISLAND": 0.9042735042735043,
+            "NYSE": 0.5991452991452991
+          },
+          "listing_max_volume_share": 0.5641025641025641,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "SSP"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.13760683760683762,
+            "ARCA": 0.6854700854700855,
+            "BATS": 0.5632478632478632,
+            "ISLAND": 0.7995726495726496,
+            "NYSE": 0.36196581196581196
+          },
+          "listing_max_volume_share": 0.7606837606837606,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "WYNN"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.1123931623931624,
+            "ARCA": 0.5709401709401709,
+            "BATS": 0.4952991452991453,
+            "ISLAND": 0.7649572649572649,
+            "NYSE": 0.3452991452991453
+          },
+          "listing_max_volume_share": 0.8482905982905983,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "ADSK"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.4393162393162393,
+            "ARCA": 0.9918803418803419,
+            "BATS": 0.9756410256410256,
+            "ISLAND": 0.9965811965811966,
+            "NYSE": 0.9388888888888889
+          },
+          "listing_max_volume_share": 0.9837606837606837,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": true,
+          "symbol": "BKNG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.09743589743589744,
+            "ARCA": 0.40683760683760684,
+            "BATS": 0.4098290598290598,
+            "ISLAND": 0.6461538461538462,
+            "NYSE": 0.2923076923076923
+          },
+          "listing_max_volume_share": 0.6615384615384615,
+          "listing_venue": "ISLAND",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "BIIB"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5700854700854701,
+            "ARCA": 0.9965811965811966,
+            "BATS": 0.9730769230769231,
+            "ISLAND": 0.9927350427350428,
+            "NYSE": 0.9256410256410257
+          },
+          "listing_max_volume_share": 0.8773504273504273,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "KRE"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.3021367521367521,
+            "ARCA": 0.9568376068376069,
+            "BATS": 0.8316239316239317,
+            "ISLAND": 0.935042735042735,
+            "NYSE": 0.7307692307692307
+          },
+          "listing_max_volume_share": 0.617948717948718,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "EWG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.6534188034188034,
+            "ARCA": 0.9952991452991453,
+            "BATS": 0.9747863247863248,
+            "ISLAND": 0.9918803418803419,
+            "NYSE": 0.9294871794871795
+          },
+          "listing_max_volume_share": 0.8559829059829059,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "XLU"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.6935897435897436,
+            "ARCA": 0.9995726495726496,
+            "BATS": 0.9846153846153847,
+            "ISLAND": 0.9978632478632479,
+            "NYSE": 0.9482905982905983
+          },
+          "listing_max_volume_share": 0.8021367521367522,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "XLF"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.0858974358974359,
+            "ARCA": 0.6585470085470085,
+            "BATS": 0.3329059829059829,
+            "ISLAND": 0.49017094017094015,
+            "NYSE": 0.13931623931623932
+          },
+          "listing_max_volume_share": 0.33632478632478635,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VCR"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.12478632478632479,
+            "ARCA": 0.8910256410256411,
+            "BATS": 0.6726495726495727,
+            "ISLAND": 0.785042735042735,
+            "NYSE": 0.5790598290598291
+          },
+          "listing_max_volume_share": 0.6679487179487179,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "EWW"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.6991452991452991,
+            "ARCA": 0.9931623931623932,
+            "BATS": 0.947008547008547,
+            "ISLAND": 0.9837606837606837,
+            "NYSE": 0.9393162393162393
+          },
+          "listing_max_volume_share": 0.5987179487179487,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VWO"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.4824786324786325,
+            "ARCA": 0.9893162393162394,
+            "BATS": 0.882051282051282,
+            "ISLAND": 0.976068376068376,
+            "NYSE": 0.9064102564102564
+          },
+          "listing_max_volume_share": 0.5782051282051283,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VUG"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5952991452991453,
+            "ARCA": 1.0,
+            "BATS": 0.9952991452991453,
+            "ISLAND": 0.9965811965811966,
+            "NYSE": 0.9534188034188035
+          },
+          "listing_max_volume_share": 0.6329059829059829,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "EFA"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.5893162393162393,
+            "ARCA": 0.9991452991452991,
+            "BATS": 0.979059829059829,
+            "ISLAND": 0.9995726495726496,
+            "NYSE": 0.9230769230769231
+          },
+          "listing_max_volume_share": 0.614957264957265,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "RSP"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.021367521367521368,
+            "ARCA": 0.6196581196581197,
+            "BATS": 0.24145299145299146,
+            "ISLAND": 0.3645299145299145,
+            "NYSE": 0.1876068376068376
+          },
+          "listing_max_volume_share": 0.5709401709401709,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "XSD"
+        },
+        {
+          "close_match_share_by_venue": {
+            "AMEX": 0.19914529914529913,
+            "ARCA": 0.9769230769230769,
+            "BATS": 0.8158119658119658,
+            "ISLAND": 0.955982905982906,
+            "NYSE": 0.8572649572649572
+          },
+          "listing_max_volume_share": 0.6341880341880342,
+          "listing_venue": "ARCA",
+          "n_days": 2340,
+          "passes_close": false,
+          "passes_volume": false,
+          "symbol": "VTV"
+        }
+      ],
+      "passed": false,
+      "reasons": [
+        "criterion_a: 0.028 of names pass, need 0.9",
+        "criterion_b: 0.000 of names pass, need 0.9"
+      ]
+    }
+  },
+  "selected": {
+    "ARCA": [
+      "KRE",
+      "EWG",
+      "XLU",
+      "XLF",
+      "VCR",
+      "EWW",
+      "VWO",
+      "VUG",
+      "EFA",
+      "RSP",
+      "XSD",
+      "VTV"
+    ],
+    "ISLAND": [
+      "FISV",
+      "ASML",
+      "COST",
+      "STBA",
+      "PATK",
+      "ATRO",
+      "FCEL",
+      "SSP",
+      "WYNN",
+      "ADSK",
+      "BKNG",
+      "BIIB"
+    ],
+    "NYSE": [
+      "JPM",
+      "KR",
+      "FDS",
+      "ALK",
+      "WAT",
+      "PGR",
+      "CMS",
+      "BMY",
+      "RSG",
+      "NAD",
+      "AES",
+      "WSM"
+    ]
+  }
+}
