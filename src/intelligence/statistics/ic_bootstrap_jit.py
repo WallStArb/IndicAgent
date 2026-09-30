@@ -25,13 +25,15 @@ Semantics match the scipy path, including its edge cases:
   ``(starts[b][:, None] + offsets).ravel()[:n_valid] % n_valid``.
 
 Exactness: ranks are multiples of 0.5 and the rank mean is exactly ``(n + 1) / 2``, so every
-centered sum and sum of squares is exact in float64 while it stays below 2**53, and summation
-order cannot matter. Against the scipy path fed float64 input the kernel is bit-identical
-(``tests/unit/test_ic_bootstrap_jit.py``). It is NOT bit-identical to production's scipy path
-on float32 input: scipy >= 1.15 returns float32 ranks for float32 input, so that path
-accumulates sums of squares in float32 (~1e-7 relative), and the kernel is the more accurate
-of the two. Multi-million-row cross-sectional cells can also exceed 2**53. The kernel choice
-is therefore a COMPUTATIONAL config field in ic_engine's fingerprint, not an operational one.
+centered rank is a multiple of 0.5 and every square and product a multiple of 0.25. Each sum is
+then exact in float64 while it stays below 2**53 / 4 (about n**3 / 12 < 2.25e15, n below about
+3.0e5), and summation order cannot matter. Against the scipy path fed float64 input the kernel
+is bit-identical there (``tests/unit/test_ic_bootstrap_jit.py``); above it both paths round, in
+different orders, and differ in the last places (about 1e-14 absolute measured at n from 4.5e5
+to 2e6, todo 469). It is NOT bit-identical to production's scipy path on float32 input: scipy
+>= 1.15 returns float32 ranks for float32 input, so that path accumulates sums of squares in
+float32 (~1e-7 relative), and the kernel is the more accurate of the two. The kernel choice is
+therefore a COMPUTATIONAL config field in ic_engine's fingerprint, not an operational one.
 
 Deterministic: each resample writes only its own row of ``boot_ics`` and reads nothing
 another iteration writes, so thread count and scheduling order never change the output.
