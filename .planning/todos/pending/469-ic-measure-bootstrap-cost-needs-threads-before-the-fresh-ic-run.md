@@ -38,3 +38,38 @@ Measure first (the 186-14 numbers above are the baseline), then pick: a thread c
 threaded), unit-level worker processes in the writer (compute-only workers, writes stay serial in
 main, the CLAUDE.md pool rule), or both. Keep the stored values bit-identical to the serial path
 for one small cell as the acceptance test. Decide before 186-28 starts, not during it.
+
+## Pass 2 measurements (2026-09-30): kernel step done
+
+The measure package now bootstraps with `ic_bootstrap_jit` (counting ranks, no sort) through
+`measure.ic.block_bootstrap_ci`, drawing block starts from one `default_rng(seed)` stream in slices of
+`infra.ic_measure.bootstrap_chunk_resamples` (250) and running them on `infra.ic_measure.bootstrap_threads`
+(12) numba threads. Both keys are operational (migration 417), never in a unit identity. Jobs that discard
+the CI no longer compute it: the term structure bootstraps only its first (proposer) horizon and monitoring
+none.
+
+Synthetic cell, 50,000 rows x 32 features, 2000 resamples, block 10, BLAS at 1 thread, 24-core host with a
+backfill running:
+
+| Path | Wall clock |
+|---|---|
+| scipy per resample (the 186-14 path) | 277 s (138 ms per resample, measured on 100 and scaled) |
+| kernel, 1 thread | 5.9 s |
+| kernel, 2 threads | 3.1 s |
+| kernel, 6 threads | 1.8 s |
+| kernel, 12 threads | 1.0 s |
+
+Real cell, `--tf 1d --symbols SPY --jobs proposer --dry-run` (one symbol, four horizons, 300 features): 21.7 s
+before, 4.8 s after (both include the panel build and feature fetch).
+
+Bit-identity against the scipy path: stored rows of 14 captured cases (five raw cells with ties and a constant
+column, n up to 60,000; proposer, disclosure and monitoring rows of three synthetic tfs) are exactly equal
+before and after, and a unit test compares the kernel CI with `_circular_block_bootstrap_ic` on the same
+starts. The exactness bound is lower than the kernel's docstring says: centered ranks are multiples of 0.5 so
+their squares are multiples of 0.25, and the sums are exact below n**3 / 12 < 2**53 / 4, n below about 3.0e5,
+not 4.7e5. Measured against scipy on the same resample rows (3 columns, 12 resamples): n = 300,000 identical
+(0 of 36 differ); n = 450,000 to 2,000,000 all 36 differ by up to 2e-14 absolute (about 1e4 to 6e4 ulps of a
+0.001 IC). `feature_ic_scores_v2` stores these columns as double precision, so the differences are kept, not
+rounded away. The fresh table is empty and the legacy table came from another engine, so nothing stored has to
+match; within the new engine the result is the same for any thread count and slice size, and the code key
+moved with the kernel.

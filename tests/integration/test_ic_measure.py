@@ -50,6 +50,8 @@ _APR = [
     ("alpha.ic.feature_block_columns", "int", "32"),
     ("alpha.validation.oos_start", "string", _OOS),
     ("infra.ic_measure.fetch_chunk_rows", "int", "200000"),
+    ("infra.ic_measure.bootstrap_threads", "int", "2"),
+    ("infra.ic_measure.bootstrap_chunk_resamples", "int", "50"),
 ]
 
 
@@ -441,6 +443,8 @@ class TestIcMeasureIntegration:
             alpha__ic__feature_block_columns="7",
             infra__ic_measure__symbol_chunk_size="3",
             infra__ic_measure__fetch_chunk_rows="5000",
+            infra__ic_measure__bootstrap_threads="3",
+            infra__ic_measure__bootstrap_chunk_resamples="7",
         ):
             outcomes = self._run(world)
         assert outcomes and {o.status for o in outcomes} == {"skipped"}

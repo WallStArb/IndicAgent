@@ -55,7 +55,8 @@ def member_ic_over_time(
     starts, counts, ics, nobs = [], [], [], []
     for first, last, lo, hi in zip(firsts.tolist(), lasts.tolist(), lows.tolist(), highs.tolist()):
         X, y = observation_rows(feature[lo:hi, :, None], stack.targets[lo:hi], valid_grid[lo:hi])
-        cell = pooled_rank_ic(X, y, stride=stride(stack, params), params=params)
+        # the window IC is the only value kept, so its CI is not computed
+        cell = pooled_rank_ic(X, y, stride=stride(stack, params), params=params, bootstrap=False)
         starts.append(stack.timestamps[lo])
         counts.append(last - first)
         ics.append(float(cell.ic[0]))

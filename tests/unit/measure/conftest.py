@@ -74,6 +74,8 @@ def params() -> MeasureParams:
         fdr_alpha=0.05,
         min_obs=30,
         symbol_chunk_size=5,
+        bootstrap_threads=1,
+        bootstrap_chunk_resamples=20,
         monitor_window_sessions=10,
         hac_max_lag=2,
         degenerate_std=1e-8,

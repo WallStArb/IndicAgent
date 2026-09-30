@@ -42,6 +42,13 @@ class MeasureParams:
     # Size of the symbol chunks the S0 panels are built in. Targets of chunks stacked on the union
     # grid equal the targets of one panel exactly (targets.py), so it never enters a value.
     symbol_chunk_size: int = _field(OPERATIONAL)  # infra.ic_measure.symbol_chunk_size
+    # Threads of the bootstrap kernel and the resamples drawn and run per slice. Each resample
+    # row is independent and the start draws are one stream whatever the slicing, so neither can
+    # move a value (tests assert thread counts and slice sizes agree bit for bit).
+    bootstrap_threads: int = _field(OPERATIONAL)  # infra.ic_measure.bootstrap_threads
+    bootstrap_chunk_resamples: int = _field(
+        OPERATIONAL
+    )  # infra.ic_measure.bootstrap_chunk_resamples
     monitor_window_sessions: int = _field(COMPUTATIONAL)  # alpha.ic_measure.monitor_window_sessions
     hac_max_lag: int = _field(COMPUTATIONAL)  # alpha.ic.hac_max_lag
     degenerate_std: float = _field(COMPUTATIONAL)  # alpha.ic_measure.degenerate_std (1e-8)

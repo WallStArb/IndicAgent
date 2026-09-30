@@ -91,7 +91,6 @@ from src.intelligence.measure.ic import (  # noqa: E402
     SlotMap,
     existing_rows,
     map_slots,
-    merge_cells,
     scatter_features,
 )
 from src.intelligence.measure.monitoring import (  # noqa: E402
@@ -106,9 +105,7 @@ from src.intelligence.measure.params import (  # noqa: E402
     fields_of_kind,
 )
 from src.intelligence.measure.proposer import (  # noqa: E402
-    ProposerResult,
     family_fdr,
-    propose_cell,
 )
 from src.intelligence.measure.regime_disclosure import (  # noqa: E402
     label_row_masks,
@@ -186,7 +183,7 @@ COLUMNS: tuple[str, ...] = (
 _COL = {name: i for i, name in enumerate(COLUMNS)}
 
 # ---------------------------------------------------------------------------
-# APR: every MeasureParams field maps to exactly one key (migration 414 seeds the new ones).
+# APR: every MeasureParams field maps to exactly one key (migrations 414 and 417 seed the new ones).
 # Keys are split as ic_engine splits its config (services/ic_engine.py
 # `_COMPUTATIONAL_CONFIG_FIELDS`, `_OPERATIONAL_CONFIG_FIELDS`, lines 997-1070): a computational
 # key moves stored values and is part of a unit's identity and apr_snapshot; an operational key
@@ -212,6 +209,8 @@ MEASURE_PARAM_KEYS: dict[str, str] = {
     "fdr_alpha": "alpha.ic.fdr_alpha",
     "min_obs": "alpha.ic.min_reliable_n",
     "symbol_chunk_size": "infra.ic_measure.symbol_chunk_size",
+    "bootstrap_threads": "infra.ic_measure.bootstrap_threads",
+    "bootstrap_chunk_resamples": "infra.ic_measure.bootstrap_chunk_resamples",
     "monitor_window_sessions": "alpha.ic_measure.monitor_window_sessions",
     "hac_max_lag": "alpha.ic.hac_max_lag",
     "degenerate_std": "alpha.ic_measure.degenerate_std",
@@ -552,31 +551,25 @@ def _to_utc(value: np.datetime64) -> datetime:
 def proposer_rows(
     tf: str,
     term: TermStructure,
-    result: ProposerResult,
-    proposer_horizon: int,
+    bh_adjusted_p: np.ndarray,
+    passes_fdr: np.ndarray,
     horizon_ends: Mapping[int, datetime],
 ) -> list[tuple]:
     """One 'unstratified' row per (feature, horizon) from the term structure; the CI and FDR
-    columns come from the proposer's cell at the proposer horizon and are NULL elsewhere."""
+    columns come from the proposer cell (the term structure's first horizon, where it alone is
+    bootstrapped) and the family's BH result, and are NULL at the other horizons."""
     rows = []
-    cell_ci = {
-        name: (
-            result.cell.ci_lower[i],
-            result.cell.ci_upper[i],
-            result.bh_adjusted_p[i],
-            result.passes_fdr[i],
-        )
-        for i, name in enumerate(result.cell.features)
-    }
+    cell = term.proposer_cell
+    proposer_horizon = term.horizons[0]
     for j, horizon in enumerate(term.horizons):
         for i, name in enumerate(term.features):
             ic = _null_if_nan(term.ic[i, j])
             lower = upper = adjusted = None
             fdr = None
             if horizon == proposer_horizon:
-                lo, hi, adj, passes = cell_ci[name]
-                lower, upper, adjusted = _null_if_nan(lo), _null_if_nan(hi), _null_if_nan(adj)
-                fdr = bool(passes) if adjusted is not None else None
+                lower, upper = _null_if_nan(cell.ci_lower[i]), _null_if_nan(cell.ci_upper[i])
+                adjusted = _null_if_nan(bh_adjusted_p[i])
+                fdr = bool(passes_fdr[i]) if adjusted is not None else None
             rows.append(
                 _row(
                     feature_name=name,
@@ -785,15 +778,13 @@ def compute_proposer_rows(
     params: MeasureParams,
     horizons: Sequence[int],
 ) -> list[tuple]:
-    """Term structure and proposer cell per block, then Benjamini-Hochberg once over the whole
-    family: blocking bounds memory and never reaches a value or an FDR decision."""
+    """Term structure per block (its first horizon's cell is the proposer cell, the only one
+    bootstrapped), then Benjamini-Hochberg once over the whole family: blocking bounds memory and
+    never reaches a value or an FDR decision."""
     horizons = tuple(horizons)
-    proposer_horizon = horizons[0]
-    stack = ctx.stack(proposer_horizon)
     end = np.datetime_as_string(ctx.grid.end_exclusive, unit="s")
     complete = inputs.complete[ALL_ROWS]
     terms: list[TermStructure] = []
-    cells: list[IcCell] = []
     for block in source.blocks:
         grid = _verified_block(source, block, inputs)
         terms.append(
@@ -808,21 +799,10 @@ def compute_proposer_rows(
                 complete=complete,
             )
         )
-        cells.append(
-            propose_cell(grid, block, stack, params, present=ctx.present, complete=complete)
-        )
-    cell = merge_cells(cells)
-    adjusted, passes = family_fdr(cell.p_value, params.fdr_alpha)
+    term = merge_term_structures(terms)
+    adjusted, passes = family_fdr(term.proposer_cell.p_value, params.fdr_alpha)
     ends = {h: _window_end(ctx.stack(h)) for h in horizons}
-    return _sorted_rows(
-        proposer_rows(
-            ctx.tf,
-            merge_term_structures(terms),
-            ProposerResult(cell=cell, bh_adjusted_p=adjusted, passes_fdr=passes),
-            proposer_horizon,
-            ends,
-        )
-    )
+    return _sorted_rows(proposer_rows(ctx.tf, term, adjusted, passes, ends))
 
 
 def compute_disclosure_rows(

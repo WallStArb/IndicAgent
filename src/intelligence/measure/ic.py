@@ -1,7 +1,8 @@
 """Pooled rank IC over a (bar_ts, symbol) observation set, over `ic_math`.
 
-Rank IC, p-values and the circular block bootstrap are `ic_math`'s; nothing is re-implemented
-here. This module fixes the observation order, the stride and the mask order so a stored
+Rank IC and p-values are `ic_math`'s; the circular block bootstrap is `ic_math`'s statistic run
+by the counting-rank kernel of `ic_bootstrap_jit` (`block_bootstrap_ci`). Nothing is
+re-implemented here. This module fixes the observation order, the stride and the mask order so a stored
 `feature_ic_scores` cell can be replayed to float tolerance (186-20).
 """
 
@@ -15,11 +16,8 @@ import numpy as np
 
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack
-from src.intelligence.statistics.ic_math import (
-    _circular_block_bootstrap_ic,
-    _p_values_from_ic,
-    compute_ic_vectorized,
-)
+from src.intelligence.statistics.ic_bootstrap_jit import blocked_bootstrap_ics, dense_rank_inputs
+from src.intelligence.statistics.ic_math import _p_values_from_ic, compute_ic_vectorized
 
 
 @dataclasses.dataclass(frozen=True)
@@ -31,7 +29,7 @@ class IcCell:
     n_obs: np.ndarray  # [k] complete finite pairs before the stride
     n_independent: np.ndarray  # [k] complete finite pairs after the stride (ic_engine's n_valid)
     p_value: np.ndarray  # [k]
-    ci_lower: np.ndarray  # [k] circular block bootstrap 95% bounds
+    ci_lower: np.ndarray  # [k] circular block bootstrap 95% bounds, NaN when bootstrap=False
     ci_upper: np.ndarray  # [k]
     reliable: np.ndarray  # [k] bool, finite IC on at least params.min_obs strided pairs
     n_degenerate: int
@@ -201,6 +199,7 @@ def pooled_rank_ic(
     params: MeasureParams,
     feature_names: tuple[str, ...] | None = None,
     complete: np.ndarray | None = None,
+    bootstrap: bool = True,
 ) -> IcCell:
     """Pooled Spearman IC per column of X against y, in the order ic_engine uses.
 
@@ -218,13 +217,18 @@ def pooled_rank_ic(
        completeness), applied after the stride.
     4. One pooled rankdata over the masked sample per column, Pearson on ranks
        (`compute_ic_vectorized`), t-approximation p-values on n_independent, circular block
-       bootstrap CI with `default_rng(params.rng_seed)`.
+       bootstrap CI (`block_bootstrap_ci`) with `default_rng(params.rng_seed)`.
 
     `n_independent` is the strided valid count: ic_engine stores exactly that as n_independent
     (`"n_independent": int(n_valid)`, 4125). Fewer than `params.min_obs` such rows gives NaN IC.
 
     A caller that measures a feature family in blocks passes `complete` (see `prepare_features`);
     every value is then independent of the blocking.
+
+    `bootstrap=False` skips step 4's CI and leaves `ci_lower` and `ci_upper` NaN: ic, n_obs,
+    n_independent, p_value and reliable do not depend on the CI, and every cell seeds its own
+    generator, so skipping a cell's bootstrap cannot move another cell's. A caller that stores or
+    reads no CI from a cell passes False; the bootstrap is the cell's whole cost.
     """
     if X.ndim != 2 or y.shape != (X.shape[0],):
         raise ValueError(f"X {X.shape} and y {y.shape} are not one row per observation")
@@ -235,11 +239,17 @@ def pooled_rank_ic(
         y,
         stride=stride,
         params=params,
+        bootstrap=bootstrap,
     )
 
 
 def pooled_rank_ic_prepared(
-    prepared: PreparedFeatures, y: np.ndarray, *, stride: int, params: MeasureParams
+    prepared: PreparedFeatures,
+    y: np.ndarray,
+    *,
+    stride: int,
+    params: MeasureParams,
+    bootstrap: bool = True,
 ) -> IcCell:
     """`pooled_rank_ic` for a feature block prepared once; see it for the order of operations."""
     X, live, names = prepared.X, prepared.live, prepared.names
@@ -266,16 +276,10 @@ def pooled_rank_ic_prepared(
         if n_valid >= params.min_obs and n_valid > 2:
             Xv, yv = _live_columns(X, rows, live), y[rows]
             ic_live = compute_ic_vectorized(Xv, yv)
-            lo, hi = _circular_block_bootstrap_ic(
-                Xv,
-                yv,
-                params.bootstrap_block_size,
-                params.bootstrap_resamples,
-                np.random.default_rng(params.rng_seed),
-            )
             ic[live] = ic_live
             p_value[live] = _p_values_from_ic(ic_live, n_valid)
-            ci_lower[live], ci_upper[live] = lo, hi
+            if bootstrap:
+                ci_lower[live], ci_upper[live] = block_bootstrap_ci(Xv, yv, params)
             reliable[live] = np.isfinite(ic_live)
     return IcCell(
         features=names,
@@ -289,6 +293,43 @@ def pooled_rank_ic_prepared(
         n_degenerate=prepared.n_degenerate,
         stride=stride,
     )
+
+
+def block_bootstrap_ci(
+    Xv: np.ndarray, yv: np.ndarray, params: MeasureParams
+) -> tuple[np.ndarray, np.ndarray]:
+    """95% circular block bootstrap bounds of the Spearman IC of each column of Xv against yv,
+    the statistic of `ic_math._circular_block_bootstrap_ic` by the counting-rank kernel.
+
+    Rows are complete and finite (the caller's valid mask). Each column and the target are dense
+    ranked once; a resample's average ranks then come from counts and a prefix sum, with no sort
+    (`ic_bootstrap_jit`). Centered ranks are multiples of 0.5, so their squares and products are
+    multiples of 0.25 and every sum is exact in float64 while n**3 / 12 stays below 2**53 / 4
+    (n below about 3.0e5): there each bound equals the scipy path bit for bit on float64 input,
+    whatever the summation order. Above it both paths round, in different orders, and differ in
+    the last places (about 1e-14 absolute measured at n from 4.5e5 to 2e6, todo 469); the kernel's
+    own result is still the same for any thread count and slice size.
+
+    The block starts are one stream from a fresh `default_rng(params.rng_seed)`, drawn in slices
+    of `params.bootstrap_chunk_resamples` rows: a batched `integers(..., size=(B, K))` consumes
+    the generator exactly as B draws of size K do (as ic_engine's blocked bootstrap relies on),
+    so a slice never changes a row, and the starts matrix never exceeds one slice in memory.
+    `params.bootstrap_threads` threads run the resample loop; rows are independent, so the
+    thread count cannot change a value."""
+    n_valid = len(yv)
+    n_blocks = math.ceil(n_valid / params.bootstrap_block_size)
+    offsets = np.arange(params.bootstrap_block_size)
+    dense = dense_rank_inputs(Xv, yv, n_valid)
+    rng = np.random.default_rng(params.rng_seed)
+    resamples, chunk = params.bootstrap_resamples, params.bootstrap_chunk_resamples
+    boot_ics = np.empty((resamples, Xv.shape[1]))
+    for first in range(0, resamples, chunk):
+        stop = min(first + chunk, resamples)
+        starts = rng.integers(0, n_valid, size=(stop - first, n_blocks))
+        boot_ics[first:stop] = blocked_bootstrap_ics(
+            dense, starts, offsets, n_valid, params.bootstrap_threads
+        )
+    return np.percentile(boot_ics, 2.5, axis=0), np.percentile(boot_ics, 97.5, axis=0)
 
 
 def _live_columns(X: np.ndarray, rows: np.ndarray, live: np.ndarray) -> np.ndarray:

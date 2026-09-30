@@ -39,6 +39,8 @@ _VALUES: dict[str, Any] = {
     "alpha.ic.fdr_alpha": 0.05,
     "alpha.ic.min_reliable_n": 100,
     "infra.ic_measure.symbol_chunk_size": 50,
+    "infra.ic_measure.bootstrap_threads": 2,
+    "infra.ic_measure.bootstrap_chunk_resamples": 250,
     "alpha.ic_measure.monitor_window_sessions": 63,
     "alpha.ic.hac_max_lag": 3,
     "alpha.ic_measure.degenerate_std": 1e-8,
@@ -73,7 +75,10 @@ class TestLoadParams:
         assert "alpha.ic.lookahead" not in code
 
     def test_seeded_apr_keys_match_load_params(self) -> None:
-        migration = (_REPO / "production" / "migrations" / "414_ic_measure_apr.sql").read_text()
+        migration = "\n".join(
+            (_REPO / "production" / "migrations" / name).read_text()
+            for name in ("414_ic_measure_apr.sql", "417_ic_measure_bootstrap_apr.sql")
+        )
         seeded = set(re.findall(r"^\s*\('([a-z_.0-9]+)', '", migration, flags=re.M))
         read = set(ic_measure.param_keys("1d").values()) | {ic_measure.HORIZONS_KEY}
         must_be_seeded = {k for k in read if "ic_measure" in k}
@@ -116,7 +121,11 @@ class TestOperationalVersusComputational:
         operational = set(fields_of_kind(OPERATIONAL))
         assert computational | operational == names
         assert not computational & operational
-        assert operational == {"symbol_chunk_size"}
+        assert operational == {
+            "symbol_chunk_size",
+            "bootstrap_threads",
+            "bootstrap_chunk_resamples",
+        }
 
     def test_an_unclassified_field_cannot_be_constructed(self) -> None:
         @dataclasses.dataclass(frozen=True)
@@ -280,6 +289,8 @@ def _params() -> MeasureParams:
         fdr_alpha=0.05,
         min_obs=5,
         symbol_chunk_size=50,
+        bootstrap_threads=1,
+        bootstrap_chunk_resamples=7,
         monitor_window_sessions=10,
         hac_max_lag=1,
         degenerate_std=1e-8,
@@ -352,7 +363,6 @@ class TestSlotPresentMask:
             return wrapper
 
         for name in (
-            "propose_cell",
             "term_structure",
             "regime_volatility_disclosure",
             "member_ic_over_time",
@@ -369,7 +379,6 @@ class TestSlotPresentMask:
         member = _source(features[:, :, :1], ("f0",), 2)
         ic_measure.compute_monitoring_rows(ctx, member, _scan(ctx, member, params), params, 1)
         assert set(seen) == {
-            "propose_cell",
             "term_structure",
             "regime_volatility_disclosure",
             "member_ic_over_time",
@@ -383,7 +392,7 @@ class TestSlotPresentMask:
 # ---------------------------------------------------------------------------
 
 
-def _term(ic: list[float], p: list[float]) -> TermStructure:
+def _term(ic: list[float], p: list[float], cell: measure_ic.IcCell) -> TermStructure:
     return TermStructure(
         features=("f0", "f1"),
         horizons=(1,),
@@ -391,13 +400,13 @@ def _term(ic: list[float], p: list[float]) -> TermStructure:
         n_obs=np.array([[30], [30]]),
         p_value=np.array(p).reshape(2, 1),
         peak_horizon=np.array([1, 0]),
+        proposer_cell=cell,
     )
 
 
 class TestRows:
     def test_nan_ic_is_written_as_null_not_nan_and_not_zero(self) -> None:
         from src.intelligence.measure.ic import IcCell
-        from src.intelligence.measure.proposer import ProposerResult
 
         nan = float("nan")
         cell = IcCell(
@@ -412,11 +421,14 @@ class TestRows:
             n_degenerate=0,
             stride=1,
         )
-        result = ProposerResult(
-            cell=cell, bh_adjusted_p=np.array([0.04, nan]), passes_fdr=np.array([True, False])
-        )
         end = datetime(2026, 2, 1, tzinfo=UTC)
-        rows = ic_measure.proposer_rows("1d", _term([0.1, nan], [0.02, nan]), result, 1, {1: end})
+        rows = ic_measure.proposer_rows(
+            "1d",
+            _term([0.1, nan], [0.02, nan], cell),
+            np.array([0.04, nan]),
+            np.array([True, False]),
+            {1: end},
+        )
         cols = {name: i for i, name in enumerate(ic_measure.COLUMNS)}
         by_feature = {r[cols["feature_name"]]: r for r in rows}
         bad = by_feature["f1"]
@@ -728,6 +740,64 @@ class TestBlockingNeverReachesAValue:
         features[3, 1, 6] += 1e-6
         with pytest.raises(ValueError, match="changed between fetches"):
             ic_measure.compute_proposer_rows(ctx, source, inputs, _params(), (1,))
+
+
+class TestSkippedBootstrapsKeepStoredRows:
+    """The term structure bootstraps only its first horizon and monitoring bootstraps nothing;
+    the stored rows are the rows of cells that were bootstrapped everywhere."""
+
+    def test_proposer_rows_equal_those_built_from_fully_bootstrapped_cells(self) -> None:
+        from src.intelligence.measure.proposer import propose
+
+        ctx = _context()
+        features = _family_features(ctx)
+        horizons = (2, 1, 5)
+        params = _params()
+        rows = _proposer(ctx, features, _FAMILY, params, horizons, 4)
+        full = {
+            h: propose(features, _FAMILY, ctx.stack(h), params, present=ctx.present)
+            for h in horizons
+        }
+        first = full[horizons[0]]
+        term = TermStructure(
+            features=_FAMILY,
+            horizons=horizons,
+            ic=np.stack([full[h].cell.ic for h in horizons], axis=1),
+            n_obs=np.stack([full[h].cell.n_independent for h in horizons], axis=1),
+            p_value=np.stack([full[h].cell.p_value for h in horizons], axis=1),
+            peak_horizon=np.zeros(len(_FAMILY), dtype=int),
+            proposer_cell=first.cell,
+        )
+        ends = {h: ic_measure._window_end(ctx.stack(h)) for h in horizons}
+        reference = ic_measure._sorted_rows(
+            ic_measure.proposer_rows("1d", term, first.bh_adjusted_p, first.passes_fdr, ends)
+        )
+        assert rows == reference and rows
+
+    def test_monitoring_rows_equal_those_built_from_bootstrapped_cells(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.intelligence.measure import monitoring as measure_monitoring
+
+        ctx = _context()
+        features = _family_features(ctx)
+        members = (_FAMILY[0], _FAMILY[2], _FAMILY[5])
+        index = [_FAMILY.index(x) for x in members]
+        source = _source(features[:, :, index], members, 2)
+        rows = ic_measure.compute_monitoring_rows(
+            ctx, source, _scan(ctx, source, _params()), _params(), 1
+        )
+        real = measure_monitoring.pooled_rank_ic
+
+        def with_bootstrap(*args: Any, **kwargs: Any):
+            kwargs["bootstrap"] = True
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(measure_monitoring, "pooled_rank_ic", with_bootstrap)
+        reference = ic_measure.compute_monitoring_rows(
+            ctx, source, _scan(ctx, source, _params()), _params(), 1
+        )
+        assert rows == reference and rows
 
 
 class TestFamilyDigest:

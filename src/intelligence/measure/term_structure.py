@@ -7,7 +7,13 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from src.intelligence.measure.ic import existing_rows, pooled_rank_ic_prepared, prepare_features
+from src.intelligence.measure.ic import (
+    IcCell,
+    existing_rows,
+    merge_cells,
+    pooled_rank_ic_prepared,
+    prepare_features,
+)
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import (
     check_horizon,
@@ -26,6 +32,10 @@ class TermStructure:
     n_obs: np.ndarray  # [k, H] strided valid pairs
     p_value: np.ndarray  # [k, H]
     peak_horizon: np.ndarray  # [k] horizon of max |ic|; 0 when no horizon has a finite IC
+    # The cell at horizons[0], the proposer's horizon, the only one bootstrapped: equal to
+    # `proposer.propose_cell` on that horizon's stack, CI included. Other horizons keep ic, n_obs
+    # and p_value and have no interval.
+    proposer_cell: IcCell
 
 
 def term_structure(
@@ -43,7 +53,12 @@ def term_structure(
     feature row, `present` [n, m] from `SlotMap.present`). Every horizon is checked before anything is
     computed; an intraday horizon that would leave the session is the caller's 1d run. `complete`
     is the family's row completeness when the features are one block of a larger family
-    (`ic.FamilyCompleteness`)."""
+    (`ic.FamilyCompleteness`).
+
+    Only the first horizon's cell is bootstrapped (`TermStructure.proposer_cell`): the horizon
+    rows keep ic, n_obs and p_value, none of which depends on the interval, and the proposer's
+    interval is the first horizon's, so the later horizons' bootstraps would be computed and
+    discarded."""
     for horizon in horizons:
         check_horizon(panels[0].tf, panels[0].bars_per_session, horizon)
     k, n_h = len(feature_names), len(horizons)
@@ -61,6 +76,7 @@ def term_structure(
     prepared = prepare_features(
         features.reshape(n * m, features.shape[2])[rows], params, feature_names, complete=complete
     )
+    cells: list[IcCell] = []
     for h_idx, horizon in enumerate(horizons):
         stack = stack_at_horizon(grid, panels, horizon)
         cell = pooled_rank_ic_prepared(
@@ -68,7 +84,9 @@ def term_structure(
             stack.targets.reshape(n * m)[rows],
             stride=stride(stack, params),
             params=params,
+            bootstrap=h_idx == 0,
         )
+        cells.append(cell)
         ic[:, h_idx], n_obs[:, h_idx], p_value[:, h_idx] = cell.ic, cell.n_independent, cell.p_value
     magnitude = np.where(np.isfinite(ic), np.abs(ic), -np.inf)
     best = np.argmax(magnitude, axis=1)
@@ -81,6 +99,7 @@ def term_structure(
         n_obs=n_obs,
         p_value=p_value,
         peak_horizon=peak,
+        proposer_cell=cells[0],
     )
 
 
@@ -98,4 +117,5 @@ def merge_term_structures(parts: Sequence[TermStructure]) -> TermStructure:
         n_obs=np.concatenate([p.n_obs for p in parts]),
         p_value=np.concatenate([p.p_value for p in parts]),
         peak_horizon=np.concatenate([p.peak_horizon for p in parts]),
+        proposer_cell=merge_cells([p.proposer_cell for p in parts]),
     )
