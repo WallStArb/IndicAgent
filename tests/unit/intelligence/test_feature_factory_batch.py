@@ -577,20 +577,22 @@ class TestPhase151CrossTfDivergences:
     def test_15m_never_populates_5m_1h_or_1h_1d_divergence(self) -> None:
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels.cross_tf import CtfRecord
+        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
         ctf_ts_list = [bars[0]["ts"]]
-        ctf_by_ts = {
-            bars[0]["ts"]: CtfRecord(
-                ctf_momentum=0.1,
-                ctf_vwap_align=1.0,
-                ctf_regime_align=1.0,
-                htf_last_log_ret=0.01,
-            )
-        }
+        ctf_by_ts = CtfSeries.from_close_keyed(
+            {
+                bars[0]["ts"]: CtfRecord(
+                    ctf_momentum=0.1,
+                    ctf_vwap_align=1.0,
+                    ctf_regime_align=1.0,
+                    htf_last_log_ret=0.01,
+                )
+            }
+        )
         results = FeatureFactory.compute_batch(
             bars,
             "SPY",
@@ -609,7 +611,7 @@ class TestPhase151CrossTfDivergences:
     def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels.cross_tf import CtfRecord
+        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
         from src.intelligence.features.kernels.price import _ret_lag_1
 
         config = _make_config_for_min_window()
@@ -617,14 +619,16 @@ class TestPhase151CrossTfDivergences:
         bars = _make_bars_dicts(60)
         ctf_ts_list = [bars[0]["ts"]]
         htf_last_log_ret = 0.0123456789
-        ctf_by_ts = {
-            bars[0]["ts"]: CtfRecord(
-                ctf_momentum=0.2,
-                ctf_vwap_align=1.0,
-                ctf_regime_align=0.0,
-                htf_last_log_ret=htf_last_log_ret,
-            )
-        }
+        ctf_by_ts = CtfSeries.from_close_keyed(
+            {
+                bars[0]["ts"]: CtfRecord(
+                    ctf_momentum=0.2,
+                    ctf_vwap_align=1.0,
+                    ctf_regime_align=0.0,
+                    htf_last_log_ret=htf_last_log_ret,
+                )
+            }
+        )
         results = FeatureFactory.compute_batch(
             bars,
             "SPY",
@@ -654,20 +658,22 @@ class TestPhase151CrossTfDivergences:
         still read identically off the same source, byte-for-byte."""
         from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
-        from src.intelligence.features.kernels.cross_tf import CtfRecord
+        from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
         ctf_ts_list = [bars[0]["ts"]]
-        ctf_by_ts = {
-            bars[0]["ts"]: CtfRecord(
-                ctf_momentum=0.42,
-                ctf_vwap_align=-1.0,
-                ctf_regime_align=1.0,
-                htf_last_log_ret=0.005,
-            )
-        }
+        ctf_by_ts = CtfSeries.from_close_keyed(
+            {
+                bars[0]["ts"]: CtfRecord(
+                    ctf_momentum=0.42,
+                    ctf_vwap_align=-1.0,
+                    ctf_regime_align=1.0,
+                    htf_last_log_ret=0.005,
+                )
+            }
+        )
         results = FeatureFactory.compute_batch(
             bars,
             "SPY",

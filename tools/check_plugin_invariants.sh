@@ -38,7 +38,7 @@ CHECK="${1:-}"
 # Canonical allowlist: approved suffixes for concrete (non-abstract) classes
 # in src/intelligence/. Do not duplicate this regex anywhere else in the repo
 # -- both call sites source it from here.
-_ALLOWED_SUFFIXES='Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision'
+_ALLOWED_SUFFIXES='Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision|Series'
 
 case "$CHECK" in
   class-naming)

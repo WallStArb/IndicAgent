@@ -177,22 +177,60 @@ def _build_ltf_return_series(ltf_bars: list[dict], target_ts_list: list) -> dict
     return result
 
 
+class CtfSeries(dict):
+    """CTF records keyed by the time their HTF bar closed (the next HTF bar's start).
+
+    `ctf_row_inputs` and `FeatureFactory.compute_batch` accept only this type, so a dict keyed by
+    HTF period start (which would let a row read the bar still forming around it) is refused
+    with TypeError rather than joined. Build one with `ctf_series_by_close`; `from_close_keyed`
+    is for callers that already hold close-keyed records (tests).
+    """
+
+    _TOKEN = object()
+
+    def __init__(self, records: dict, *, _token: object = None):
+        if _token is not CtfSeries._TOKEN:
+            raise TypeError(
+                "build a CtfSeries with ctf_series_by_close or CtfSeries.from_close_keyed"
+            )
+        super().__init__(records)
+
+    @classmethod
+    def from_close_keyed(cls, records: dict) -> CtfSeries:
+        """Wrap records the caller has already keyed by HTF bar close time."""
+        return cls(records, _token=cls._TOKEN)
+
+
+def require_ctf_series(ctf_by_ts: object) -> CtfSeries:
+    """`ctf_by_ts` itself if it is a CtfSeries; TypeError for anything else, a plain dict included."""
+    if not isinstance(ctf_by_ts, CtfSeries):
+        raise TypeError(
+            f"ctf_by_ts must be a CtfSeries built by ctf_series_by_close, got "
+            f"{type(ctf_by_ts).__name__}: a dict keyed by HTF period start lets a row read the "
+            "HTF bar still forming around it"
+        )
+    return ctf_by_ts
+
+
 def ctf_series_by_close(
     htf_bars: list[dict], config: FeatureFactoryConfig, tf: str, htf_tf: str
-) -> dict:
-    """{HTF close time: CtfRecord} for `tf` rows: build the series, then key each value by its
-    bar's close (the next HTF bar's start). The only public constructor of a CTF series."""
-    return _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), tf, htf_tf)
+) -> CtfSeries:
+    """CTF records for `tf` rows keyed by HTF close time: build the series, then key each value by
+    its bar's close (the next HTF bar's start). The only constructor of a CtfSeries from bars."""
+    rekeyed = _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), tf, htf_tf)
+    return CtfSeries.from_close_keyed(rekeyed)
 
 
 def ctf_row_inputs(
-    row_ts: Sequence[datetime], ctf_by_ts: dict, ctf_ts_list: list
+    row_ts: Sequence[datetime], ctf_by_ts: CtfSeries, ctf_ts_list: list
 ) -> dict[str, np.ndarray]:
     """The four HTF externals on the row grid: for each row the latest HTF value whose close key
     is at or before the row's bar start (a row is never given a bar that closes after it starts).
 
-    `ext_ctf_*` are 0.0 before the first HTF close; `ext_htf_last_log_ret` is NaN there.
+    `ext_ctf_*` are 0.0 before the first HTF close; `ext_htf_last_log_ret` is NaN there. A plain
+    dict is refused with TypeError (see `CtfSeries`).
     """
+    require_ctf_series(ctf_by_ts)
     n = len(row_ts)
     momentum = np.zeros(n)
     vwap = np.zeros(n)

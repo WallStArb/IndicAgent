@@ -65,6 +65,7 @@ from src.intelligence.features.feature_vector_persistence import (
 )
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels.cross_tf import (
+    CtfSeries,
     _build_ltf_return_series,
     ctf_series_by_close,
 )
@@ -1345,7 +1346,7 @@ def _compute_symbol_tf(
     """
     # Build CTF series for this symbol (O(n) single pass over HTF bars)
     htf_tf = config.ctf_higher_tf_map.get(tf)
-    ctf_by_ts: dict = {}
+    ctf_by_ts: CtfSeries | None = None
     htf_ts_list: list = []
     if htf_tf:
         htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)

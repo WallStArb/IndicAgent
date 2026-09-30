@@ -80,7 +80,11 @@ from src.intelligence.features.kernels.control import (
     _canary_noise_gaussian,
     _canary_noise_uniform,
 )
-from src.intelligence.features.kernels.cross_tf import ctf_row_inputs
+from src.intelligence.features.kernels.cross_tf import (
+    CtfSeries,
+    ctf_row_inputs,
+    require_ctf_series,
+)
 from src.intelligence.features.kernels.macro import (
     RECORD_COLUMNS,
     CrossAssetRecord,
@@ -1355,7 +1359,7 @@ def _cross_tf_kernel_inputs(
     row_ts: Sequence[datetime],
     tf: str,
     cache: FeatureCache,
-    ctf_by_ts: dict | None,
+    ctf_by_ts: CtfSeries | None,
     ctf_ts_list: list | None,
     ltf_ret_by_ts: dict | None,
 ) -> dict[str, np.ndarray]:
@@ -2713,7 +2717,7 @@ class FeatureFactory:
         config: FeatureFactoryConfig,
         warm_up_bars: int = 0,
         cross_asset_by_date: dict | None = None,
-        ctf_by_ts: dict | None = None,
+        ctf_by_ts: CtfSeries | None = None,
         ctf_ts_list: list | None = None,
         beta_by_date: dict | None = None,
         ltf_ret_by_ts: dict | None = None,
@@ -2733,7 +2737,8 @@ class FeatureFactory:
             keyed by date, defaulting to (None, None) when the date is absent; None is also
             the permanent value when the caller IS the factor proxy for that beta (SPY for
             equity_beta_z, TLT for rate_beta_z) -- a self-regression is degenerate
-          - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts via bisect
+          - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts (a CtfSeries
+            keyed by HTF bar close; a plain dict raises TypeError) via bisect
           - VP (poc_dist_atr, va_position, + 12 structural fields) computed from OHLCV via
             FeatureCache.update_session_vp(), called once per bar including warm-up --
             the identical mechanism the live path uses (D-05: no I3/tick-data dependency
@@ -2758,6 +2763,8 @@ class FeatureFactory:
             have no live-path plumbing today -- always None (Plan 05, same asymmetry
             documented for the Plan 04 cross-asset gap).
         """
+        if ctf_by_ts is not None:
+            require_ctf_series(ctf_by_ts)  # TypeError for a dict not keyed by HTF bar close
         if len(bars) < 2:
             return []
 

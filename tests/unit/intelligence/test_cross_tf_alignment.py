@@ -3,9 +3,10 @@
 A lower-timeframe (LTF) row with bar start s and bar end e = s + bar duration may read a
 higher-timeframe (HTF) bar only if that bar is closed by e. Higher-timeframe bars are stamped at
 their period start, so a dict keyed by that start lets a row read the bar still forming around it.
-Todo 243 re-keys each HTF bar to the next HTF bar's start before the join, and this file checks
-that the batch path as the writer drives it (`_build_ctf_series`, the re-key, `compute_batch`) is
-causal, and that a start-keyed dict is not.
+Todo 243 re-keys each HTF bar to the next HTF bar's start before the join. Before 186-15 nothing
+in `compute_batch` enforced that (it took any dict; this file's first version showed a start-keyed
+dict passing through and a 5m row reading the unfinished 1h bar). `ctf_series_by_close` now
+builds and keys in one step and `compute_batch` and `ctf_row_inputs` accept only its `CtfSeries`.
 
 Columns under test: ctf_momentum, ctf_vwap_align, ctf_regime_align, ret_div_5m_1h,
 ret_div_1h_1d and ret_div_1m_5m.
@@ -22,9 +23,11 @@ import pytest
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.kernels.cross_tf import (
-    _build_ctf_series,
+    CtfRecord,
+    CtfSeries,
     _build_ltf_return_series,
-    _rekey_ctf_series_to_actual_close,
+    ctf_row_inputs,
+    ctf_series_by_close,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
 
@@ -40,13 +43,8 @@ WEEKDAYS_FROM = date(2022, 6, 1)
 N_SESSIONS = 14
 
 
-def _by_close(htf_bars: list[dict], tf: str, htf_tf: str) -> dict:
-    return _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, CONFIG), tf, htf_tf)
-
-
-def _by_start(htf_bars: list[dict]) -> dict:
-    """The dict `_build_ctf_series` returns: each HTF bar keyed at its period start."""
-    return _build_ctf_series(htf_bars, CONFIG)
+def _by_close(htf_bars: list[dict], tf: str, htf_tf: str) -> CtfSeries:
+    return ctf_series_by_close(htf_bars, CONFIG, tf, htf_tf)
 
 
 def _sessions(n: int = N_SESSIONS) -> list[date]:
@@ -284,21 +282,10 @@ def _scenario(name: str):
     return sessions, hours, close_of, rows
 
 
-_START_KEYED_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason="RED (186-15): a dict keyed by HTF period start lets a row read the HTF bar still "
-    "forming around it; the fix makes the close-keyed series the only form",
-)
-
-
-@pytest.mark.parametrize(
-    "keying", ["by_close", pytest.param("start_keyed", marks=_START_KEYED_XFAIL)]
-)
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
-def test_row_reads_only_htf_bars_closed_by_its_bar_end(scenario, keying):
+def test_row_reads_only_htf_bars_closed_by_its_bar_end(scenario):
     _sessions_, hours, close_of, rows = _scenario(scenario)
-    series = _by_close(hours, "5m", "1h") if keying == "by_close" else _by_start(hours)
-    got = _compute(rows, "5m", series)
+    got = _compute(rows, "5m", _by_close(hours, "5m", "1h"))
     by_bar = _htf_returns_by_bar(hours)
     n_read = 0
     for ts, fv in got.items():
@@ -314,6 +301,56 @@ def test_the_scenarios_cover_a_weekend_and_a_half_day():
     sessions = _sessions()
     assert any((b - a).days > 1 for a, b in zip(sessions, sessions[1:], strict=False))
     assert _sessions()[5].weekday() < 5
+
+
+def test_a_plain_dict_is_refused_by_ctf_row_inputs_and_compute_batch():
+    hours, _ = _hour_bars(_sessions(3))
+    plain = dict(_by_close(hours, "5m", "1h"))
+    assert not isinstance(plain, CtfSeries)
+    with pytest.raises(TypeError, match="CtfSeries"):
+        ctf_row_inputs([hours[0]["ts"]], plain, sorted(plain))
+    rows = _five_minute_bars(_sessions(3))
+    with pytest.raises(TypeError, match="CtfSeries"):
+        FeatureFactory.compute_batch(
+            rows,
+            SYMBOL,
+            "5m",
+            FeatureCache(),
+            CONFIG,
+            ctf_by_ts=plain,
+            ctf_ts_list=sorted(plain),
+        )
+
+
+def test_a_start_keyed_dict_is_the_refused_shape():
+    """The dict `_build_ctf_series` returns (keyed by period start) is what the old join could
+    not tell from a close-keyed one; it is a plain dict, so both entry points refuse it."""
+    from src.intelligence.features.kernels.cross_tf import _build_ctf_series
+
+    hours, _ = _hour_bars(_sessions(3))
+    start_keyed = _build_ctf_series(hours, CONFIG)
+    with pytest.raises(TypeError, match="CtfSeries"):
+        ctf_row_inputs([hours[0]["ts"]], start_keyed, sorted(start_keyed))
+    with pytest.raises(TypeError, match="CtfSeries"):
+        CtfSeries(start_keyed)
+    with pytest.raises(TypeError, match="CtfSeries"):
+        FeatureFactory.compute_batch(
+            _five_minute_bars(_sessions(3)),
+            SYMBOL,
+            "5m",
+            FeatureCache(),
+            CONFIG,
+            ctf_by_ts=start_keyed,
+            ctf_ts_list=sorted(start_keyed),
+        )
+
+
+def test_ctf_series_is_a_dict_subclass_of_close_keyed_records():
+    hours, _ = _hour_bars(_sessions(3))
+    series = _by_close(hours, "5m", "1h")
+    assert isinstance(series, CtfSeries) and isinstance(series, dict)
+    assert all(isinstance(v, CtfRecord) for v in series.values())
+    assert CtfSeries.from_close_keyed(dict(series)) == series
 
 
 def test_the_series_is_keyed_by_htf_close():
@@ -371,21 +408,3 @@ def test_real_rows_ignore_htf_bars_not_closed_by_their_bar_end(symbol, tf, htf_t
         if _ctf_values(want, ret_div) != _ctf_values(got, ret_div):
             moved += 1
     assert moved == 0, f"{moved} of {len(picks)} rows read an HTF bar that was not closed"
-
-
-def test_start_keyed_dict_lets_an_intraday_row_read_an_unfinished_htf_bar():
-    """`compute_batch` accepts any dict. Handed the start-keyed dict, a 5m row inside an open
-    hour reads that hour's bar (still forming), through `bisect_right`: the value is the one of
-    the bar that closes after the row. (The writer never passes this dict today, because
-    `_rekey_ctf_series_to_actual_close` runs first; nothing in `compute_batch` enforces that.)"""
-    sessions = _sessions(3)
-    hours, close_of = _hour_bars(sessions)
-    rows = _five_minute_bars(sessions)
-    start_keyed = _by_start(hours)
-    got = _compute(rows, "5m", start_keyed)
-    by_bar = _htf_returns_by_bar(hours)
-    row_ts = _utc(sessions[1], (15, 5))  # inside the 15:00-16:00 bar
-    read = _htf_bar_read_by(got[row_ts], by_bar)
-    assert read == _utc(sessions[1], (15, 0))
-    assert close_of[read] > row_ts + FIVE_MIN  # the bar closes at 16:00
-    assert got[row_ts].ctf_momentum == start_keyed[read].ctf_momentum
