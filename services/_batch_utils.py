@@ -1130,7 +1130,12 @@ _COMPRESS_ALL_DECOMPRESSED_CHUNKS_SQL = (
 # GUC-override/VACUUM sequence against a table it was never designed or tested for. Adding
 # a table here must be a deliberate, reviewed decision -- a live query must never make it
 # on this mechanism's behalf.
-_WRITE_SESSION_HARDENED_TABLES = frozenset({"feature_vectors", "feature_ic_scores"})
+# feature_ic_scores_v2 (phase 186 plan 14): an empty fresh table with no scheduled compression policy;
+# the session runs against it for services/ic_measure.py (decompress, recompress and VACUUM, which
+# the plan 186-14 integration test exercises on indicagent_test).
+_WRITE_SESSION_HARDENED_TABLES = frozenset(
+    {"feature_vectors", "feature_ic_scores", "feature_ic_scores_v2"}
+)
 
 
 def _validate_compressed_hypertable(hypertable: str) -> None:
