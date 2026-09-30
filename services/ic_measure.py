@@ -4,14 +4,34 @@
 Runs the pure measure jobs of src/intelligence/measure/ (proposer with its term structure across
 the tf's horizons, regime_volatility disclosure, member monitoring) and writes
 feature_ic_scores_v2 only through bulk_load(), one provenance batch per unit. A unit is
-(job, tf, feature block).
+(job, tf): it owns every row of its scope (unstratified, regime_volatility or member_window) in
+that tf, so the replace DELETE and the provenance supersede flip share one definition, the
+BulkLoadSpec unit_key, and a change of family, symbols or window replaces the unit.
 
-Identity of a unit (the provenance batch key): the per-job code key (kernel_code_key over the
-modules that compute it), every APR value the job read, and an input digest of the per-symbol
-bar content digests, the aligned feature block (and labels or members where used). A rerun with
-the same identity is skipped before any IC is computed; a changed identity replaces the unit's
-rows atomically (bulk_load replace_where). The writer refuses any row whose
-training_window_end is at or after alpha.validation.oos_start before it reaches bulk_load.
+Blocking is a memory matter only. The feature family of a tf is fetched and measured in blocks of
+alpha.ic.feature_block_columns, but the row completeness, the bootstrap draws and the
+Benjamini-Hochberg family are whole-family, exactly as in ic_engine (a cell is masked over all
+its features before its feature_block_columns chunks; one BH family is corrected after every
+block). The BH family of the proposer is every feature of the tf at the proposer horizon
+(src/intelligence/measure/proposer.py `family_fdr` cites ic_engine's wider corpus family).
+Every value and every FDR decision is bit-identical for any block size; tests assert it.
+
+Identity of a unit (the provenance batch key):
+- the per-job code key: entry modules, their first-party import closure and this file
+  (kernel_code_key);
+- the computational APR values (identity_snapshot); operational knobs (block, fetch and symbol
+  chunk sizes, the session-length guard) are read and logged but are never part of it, following
+  ic_engine's computational/operational split (services/ic_engine.py 997-1070);
+- an input digest: the per-symbol bar content digests, the S0 panel content digest (the bars as
+  the panels loaded them, which the month-granular bar digest cannot see), a per-column digest
+  of every feature of the family, the family digest (sorted names and computational params), and
+  the regime labels or the member set where used.
+A rerun with the same identity is skipped before any IC is computed; a changed identity replaces
+the unit's rows atomically. Adding or removing a feature changes the family digest and replaces
+every unit of the tf, which is correct: the BH family and the completeness mask changed. A real
+run refuses while any symbol has no bar_content_digest row (phase 185 writes them), since
+revision detection would be blind. The writer refuses any row whose training_window_end is at or
+after alpha.validation.oos_start before it reaches bulk_load.
 
 A NaN IC is written as NULL, never as NaN or zero. A traded bar with no feature_vectors row for
 a symbol is not an observation: every job receives the `present` slot mask.
@@ -36,7 +56,7 @@ import math
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
@@ -66,9 +86,12 @@ from services._batch_utils import (  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
+    FamilyCompleteness,
     IcCell,
     SlotMap,
+    existing_rows,
     map_slots,
+    merge_cells,
     scatter_features,
 )
 from src.intelligence.measure.monitoring import (  # noqa: E402
@@ -82,8 +105,13 @@ from src.intelligence.measure.params import (  # noqa: E402
     field_type,
     fields_of_kind,
 )
-from src.intelligence.measure.proposer import ProposerResult, propose  # noqa: E402
+from src.intelligence.measure.proposer import (  # noqa: E402
+    ProposerResult,
+    family_fdr,
+    propose_cell,
+)
 from src.intelligence.measure.regime_disclosure import (  # noqa: E402
+    label_row_masks,
     regime_volatility_disclosure,
 )
 from src.intelligence.measure.targets import (  # noqa: E402
@@ -94,7 +122,11 @@ from src.intelligence.measure.targets import (  # noqa: E402
     stack_at_horizon,
     stack_grid,
 )
-from src.intelligence.measure.term_structure import TermStructure, term_structure  # noqa: E402
+from src.intelligence.measure.term_structure import (  # noqa: E402
+    TermStructure,
+    merge_term_structures,
+    term_structure,
+)
 from src.intelligence.research import panel as research_panel  # noqa: E402
 from src.intelligence.research import snapshot  # noqa: E402
 from src.intelligence.schemas import FeatureVector  # noqa: E402
@@ -401,13 +433,61 @@ def make_tf_context(
     return context
 
 
-def block_digest(names: Sequence[str], grid: np.ndarray, present: np.ndarray) -> str:
-    """sha256 of the block's names, its aligned float values in (bar_ts, symbol, feature) order
-    and the `present` mask. Alignment by slot makes it independent of the fetch row order."""
+def column_digest(name: str, column: np.ndarray) -> str:
+    """sha256 of one feature's name and its aligned float values in (bar_ts, symbol) order.
+    Alignment by slot makes it independent of the fetch row order, and a per-column digest makes
+    the family digest independent of how the family is blocked."""
     hasher = hashlib.sha256()
-    hasher.update("\x1f".join(names).encode() + b"\x00")
-    hasher.update(np.ascontiguousarray(grid, dtype=np.float64))
+    hasher.update(name.encode() + b"\x00")
+    hasher.update(np.ascontiguousarray(column, dtype=np.float64))
+    return hasher.hexdigest()
+
+
+def features_digest(columns: Mapping[str, str], present: np.ndarray) -> str:
+    """sha256 over the sorted (name, column digest) pairs and the `present` mask."""
+    hasher = hashlib.sha256()
+    for name in sorted(columns):
+        hasher.update(f"{name}:{columns[name]}\n".encode())
     hasher.update(np.packbits(present).tobytes())
+    return hasher.hexdigest()
+
+
+def family_digest(names: Sequence[str], params: MeasureParams) -> str:
+    """sha256 of the sorted feature names of the family and the computational parameters: what
+    defines the FDR family and everything a family-wide decision depends on. Operational fields
+    (block and chunk sizes) are not part of it."""
+    computational = {f: getattr(params, f) for f in fields_of_kind(COMPUTATIONAL)}
+    return hashlib.sha256(
+        _canonical({"names": sorted(names), "params": computational}).encode()
+    ).hexdigest()
+
+
+def panels_digest(grid: StackGrid, panels: Sequence[research_panel.Panel]) -> str:
+    """sha256 of the S0 panels as the measure loaded them: the union grid (timestamps, traded
+    mask) and, per symbol in sorted order, its open, close and volume placed on that grid.
+
+    This is what the month-granular bar digest cannot see: the tradeable filter (volume > 0) and
+    the calendar's session assembly are applied between the stored bars and these arrays. It is
+    independent of how the symbols were split into panels (`symbol_chunk_size`). Dividends are
+    not part of it on purpose: the targets are price-only executable open-to-open returns and
+    `build_target_panels` never asks S0 for the dividend grid, so a dividend revision cannot
+    change an IC."""
+    hasher = hashlib.sha256()
+    hasher.update(f"{grid.tf}|{grid.bars_per_session}\n".encode())
+    hasher.update(np.ascontiguousarray(np.asarray(grid.timestamps).astype("datetime64[ns]")))
+    hasher.update(np.packbits(grid.valid).tobytes())
+    per_symbol: dict[str, str] = {}
+    n = len(grid.timestamps)
+    for panel, rows in zip(panels, grid.chunk_rows, strict=True):
+        for j, symbol in enumerate(panel.symbols):
+            column = hashlib.sha256()
+            for field in ("open", "close", "volume"):
+                placed = np.full(n, np.nan)
+                placed[rows] = np.asarray(getattr(panel, field))[:, j]
+                column.update(placed)
+            per_symbol[symbol] = column.hexdigest()
+    for symbol in sorted(per_symbol):
+        hasher.update(f"{symbol}:{per_symbol[symbol]}\n".encode())
     return hasher.hexdigest()
 
 
@@ -614,62 +694,178 @@ def refuse_reaching_oos(rows: Sequence[tuple], oos_start: datetime) -> None:
 # ---------------------------------------------------------------------------
 
 
+ALL_ROWS = "all"  # the row set of the unstratified jobs: every existing row
+_LABEL_PREFIX = "label:"
+
+
+def feature_blocks(names: Sequence[str], size: int) -> list[tuple[str, ...]]:
+    """Consecutive blocks of `size` names. A trailing block of one name joins the previous one:
+    numpy sums a single column pairwise but several columns row by row, so a one-column block
+    would not reproduce the multi-column results bit for bit (ic._column_blocks, same rule).
+    Blocking decides memory only; no value and no identity depends on it."""
+    if size < 1:
+        raise ValueError(f"block size must be >= 1, got {size}")
+    blocks = [tuple(names[i : i + size]) for i in range(0, len(names), size)]
+    if len(blocks) > 1 and len(blocks[-1]) == 1:
+        tail = blocks.pop()
+        blocks[-1] = (*blocks[-1], *tail)
+    return blocks
+
+
+@dataclasses.dataclass(frozen=True)
+class FeatureSource:
+    """The feature family as the measure jobs see it: blocks of names and a fetch of one block
+    as an aligned [n, m, k] grid. The fetch is the only place a block size matters."""
+
+    blocks: tuple[tuple[str, ...], ...]
+    fetch: Callable[[Sequence[str]], np.ndarray]
+
+
+@dataclasses.dataclass(frozen=True)
+class FamilyInputs:
+    """What one pass over the family yields: a digest per column, the family's features digest,
+    and the row completeness of every row set a job measures (ALL_ROWS, and one per regime
+    label for the disclosure)."""
+
+    column_digests: Mapping[str, str]
+    features_key: str
+    complete: Mapping[str, np.ndarray]
+
+
+def scan_family(
+    source: FeatureSource, ctx: TfContext, params: MeasureParams, row_sets: Mapping[str, np.ndarray]
+) -> FamilyInputs:
+    """One pass over the blocks: digest every column and accumulate the family-wide row
+    completeness of each row set. Blocks are freed as it goes."""
+    accumulators = {key: FamilyCompleteness(params) for key in row_sets}
+    digests: dict[str, str] = {}
+    for block in source.blocks:
+        grid = source.fetch(block)
+        for i, name in enumerate(block):
+            digests[name] = column_digest(name, grid[:, :, i])
+        flat = grid.reshape(-1, grid.shape[2])
+        for key, mask in row_sets.items():
+            accumulators[key].add(flat[mask.reshape(-1)])  # observation_rows' row order
+    return FamilyInputs(
+        column_digests=digests,
+        features_key=features_digest(digests, ctx.present),
+        complete={key: acc.complete for key, acc in accumulators.items()},
+    )
+
+
+def _verified_block(
+    source: FeatureSource, block: Sequence[str], inputs: FamilyInputs
+) -> np.ndarray:
+    """The block's grid, refusing a column that differs from the one the identity was built on."""
+    grid = source.fetch(block)
+    for i, name in enumerate(block):
+        if column_digest(name, grid[:, :, i]) != inputs.column_digests[name]:
+            raise ValueError(f"feature {name!r} changed between fetches; rerun")
+    return grid
+
+
+def _sorted_rows(rows: list[tuple]) -> list[tuple]:
+    """Total order on the primary key's identifying columns (time first, as bulk_load requires),
+    so the stored order is the same for any blocking."""
+    return sorted(
+        rows,
+        key=lambda r: (
+            r[_COL["training_window_end"]],
+            r[_COL["feature_name"]],
+            r[_COL["regime"]],
+            r[_COL["lookahead_bars"]],
+        ),
+    )
+
+
 def compute_proposer_rows(
     ctx: TfContext,
-    names: Sequence[str],
-    features: np.ndarray,
+    source: FeatureSource,
+    inputs: FamilyInputs,
     params: MeasureParams,
     horizons: Sequence[int],
 ) -> list[tuple]:
-    names = tuple(names)
+    """Term structure and proposer cell per block, then Benjamini-Hochberg once over the whole
+    family: blocking bounds memory and never reaches a value or an FDR decision."""
     horizons = tuple(horizons)
-    term = term_structure(
-        features,
-        names,
-        ctx.panels,
-        horizons,
-        np.datetime_as_string(ctx.grid.end_exclusive, unit="s"),
-        params,
-        present=ctx.present,
-    )
     proposer_horizon = horizons[0]
-    result = propose(features, names, ctx.stack(proposer_horizon), params, present=ctx.present)
+    stack = ctx.stack(proposer_horizon)
+    end = np.datetime_as_string(ctx.grid.end_exclusive, unit="s")
+    complete = inputs.complete[ALL_ROWS]
+    terms: list[TermStructure] = []
+    cells: list[IcCell] = []
+    for block in source.blocks:
+        grid = _verified_block(source, block, inputs)
+        terms.append(
+            term_structure(
+                grid,
+                block,
+                ctx.panels,
+                horizons,
+                end,
+                params,
+                present=ctx.present,
+                complete=complete,
+            )
+        )
+        cells.append(
+            propose_cell(grid, block, stack, params, present=ctx.present, complete=complete)
+        )
+    cell = merge_cells(cells)
+    adjusted, passes = family_fdr(cell.p_value, params.fdr_alpha)
     ends = {h: _window_end(ctx.stack(h)) for h in horizons}
-    return proposer_rows(ctx.tf, term, result, proposer_horizon, ends)
+    return _sorted_rows(
+        proposer_rows(
+            ctx.tf,
+            merge_term_structures(terms),
+            ProposerResult(cell=cell, bh_adjusted_p=adjusted, passes_fdr=passes),
+            proposer_horizon,
+            ends,
+        )
+    )
 
 
 def compute_disclosure_rows(
     ctx: TfContext,
-    names: Sequence[str],
-    features: np.ndarray,
+    source: FeatureSource,
+    inputs: FamilyInputs,
     labels: np.ndarray,
     params: MeasureParams,
     horizons: Sequence[int],
 ) -> list[tuple]:
-    names = tuple(names)
+    complete = {
+        key.removeprefix(_LABEL_PREFIX): mask
+        for key, mask in inputs.complete.items()
+        if key.startswith(_LABEL_PREFIX)
+    }
     rows: list[tuple] = []
-    for horizon in horizons:
-        stack = ctx.stack(horizon)
-        cells, _n_unlabelled = regime_volatility_disclosure(
-            features, names, stack, labels, params, present=ctx.present
-        )
-        rows.extend(disclosure_rows(ctx.tf, names, cells, horizon, _window_end(stack)))
-    return sorted(rows, key=lambda r: r[_COL["training_window_end"]])
+    for block in source.blocks:
+        grid = _verified_block(source, block, inputs)
+        for horizon in horizons:
+            stack = ctx.stack(horizon)
+            cells, _n_unlabelled = regime_volatility_disclosure(
+                grid, block, stack, labels, params, present=ctx.present, complete=complete
+            )
+            rows.extend(disclosure_rows(ctx.tf, block, cells, horizon, _window_end(stack)))
+    return _sorted_rows(rows)
 
 
 def compute_monitoring_rows(
     ctx: TfContext,
-    member_grids: Mapping[str, np.ndarray],
+    source: FeatureSource,
+    inputs: FamilyInputs,
     params: MeasureParams,
     horizon: int,
 ) -> list[tuple]:
     stack = ctx.stack(horizon)
     ends = _window_ends(stack, params.monitor_window_sessions)
     rows: list[tuple] = []
-    for member, grid in member_grids.items():
-        series = member_ic_over_time(grid, member, stack, params, present=ctx.present)
-        rows.extend(member_rows(ctx.tf, series, horizon, ends))
-    return sorted(rows, key=lambda r: r[_COL["training_window_end"]])
+    for block in source.blocks:
+        grid = _verified_block(source, block, inputs)
+        for i, member in enumerate(block):
+            series = member_ic_over_time(grid[:, :, i], member, stack, params, present=ctx.present)
+            rows.extend(member_rows(ctx.tf, series, horizon, ends))
+    return _sorted_rows(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -970,6 +1166,69 @@ class IcMeasure:
             **counts,
         )
 
+    def _block_fetcher(
+        self,
+        read_conn: Any,
+        tf: str,
+        ctx: TfContext,
+        keys: LongForm,
+        start: datetime,
+        oos_start: datetime,
+        chunk_rows: int,
+        slot_horizon: int,
+    ) -> Callable[[Sequence[str]], np.ndarray]:
+        """Fetch one block of columns and align it to the grid; the fetched keys must be the ones
+        the slot map was built on."""
+
+        def fetch(block: Sequence[str]) -> np.ndarray:
+            fetched = fetch_long_form(
+                read_conn,
+                self.args.feature_table,
+                tf,
+                ctx.grid.symbols,
+                start,
+                oos_start,
+                list(block),
+                chunk_rows,
+            )
+            if not (
+                np.array_equal(fetched.bar_ts, keys.bar_ts)
+                and np.array_equal(fetched.symbols, keys.symbols)
+            ):
+                raise ValueError(f"{tf} feature rows changed between fetches; rerun")
+            grid, _unmatched = scatter_features(ctx.stack(slot_horizon), ctx.slots, fetched.values)
+            return grid
+
+        return fetch
+
+    def _labels(
+        self,
+        read_conn: Any,
+        tf: str,
+        ctx: TfContext,
+        start: datetime,
+        oos_start: datetime,
+        chunk_rows: int,
+        slot_horizon: int,
+    ) -> np.ndarray:
+        """The regime_volatility label of every grid slot ('' where none)."""
+        label_rows = fetch_long_form(
+            read_conn,
+            self.args.feature_table,
+            tf,
+            ctx.grid.symbols,
+            start,
+            oos_start,
+            [_LABEL_COLUMN],
+            chunk_rows,
+            text=True,
+        )
+        label_slots = map_slots(ctx.stack(slot_horizon), label_rows.bar_ts, label_rows.symbols)
+        width = max((len(v) for v in label_rows.values[:, 0]), default=1) or 1
+        labels = np.full((len(ctx.grid.timestamps), len(ctx.grid.symbols)), "", dtype=f"<U{width}")
+        labels[label_slots.rows, label_slots.cols] = label_rows.values[label_slots.ok, 0]
+        return labels
+
     def _units(
         self,
         read_conn: Any,
@@ -985,115 +1244,112 @@ class IcMeasure:
         oos_start: datetime,
         chunk_rows: int,
         bar_digests: Mapping[str, str],
-    ):
-        """Yield units one at a time (a block's grid is freed before the next is fetched)."""
+    ) -> Iterator[UnitPlan]:
+        """One unit per active job (job, tf). Blocking is a memory matter of the fetch and the IC
+        computation only: one pass over the blocks builds the identity, and a unit that has to
+        compute makes its own pass (skipped units compute nothing)."""
         snapshot_keys = identity_snapshot(apr, tf, horizons, oos_start)
-        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
-        labels: np.ndarray | None = None
-        labels_key = ""
-        blocks: list[tuple[str, list[str], list[str]]] = []  # (job group, names, jobs)
-        size = int(apr[_BLOCK_COLUMNS_KEY])
+        fetch = self._block_fetcher(
+            read_conn, tf, ctx, keys, start, oos_start, chunk_rows, horizons[0]
+        )
+        common = {"bars": dict(bar_digests), "panels": panels_digest(ctx.grid, ctx.panels)}
         block_jobs = [j for j in jobs if j != JOB_MONITORING]
         if block_jobs:
-            for first in range(0, len(names), size):
-                blocks.append(("features", names[first : first + size], block_jobs))
+            source = FeatureSource(
+                tuple(feature_blocks(names, max(int(apr[_BLOCK_COLUMNS_KEY]), 1))), fetch
+            )
+            existing = existing_rows(ctx.grid.valid_grid(), ctx.present)
+            row_sets: dict[str, np.ndarray] = {}
+            labels = labels_key = None
+            if JOB_PROPOSER in block_jobs:
+                row_sets[ALL_ROWS] = existing
+            if JOB_REGIME_VOLATILITY in block_jobs:
+                labels = self._labels(read_conn, tf, ctx, start, oos_start, chunk_rows, horizons[0])
+                labels_key = labels_digest(labels)
+                masks, _n_unlabelled = label_row_masks(existing, labels)
+                row_sets.update({f"{_LABEL_PREFIX}{label}": m for label, m in masks.items()})
+            inputs = scan_family(source, ctx, params, row_sets)
+            family = {"family": family_digest(names, params), "features": inputs.features_key}
+            for job in block_jobs:
+                extra = {"labels": labels_key} if job == JOB_REGIME_VOLATILITY else {}
+                yield self._unit(
+                    job,
+                    tf,
+                    ctx,
+                    start,
+                    oos_start,
+                    snapshot_keys,
+                    {"job": job, **common, **family, **extra},
+                    self._compute(job, ctx, source, inputs, labels, params, horizons),
+                )
         if JOB_MONITORING in jobs:
-            blocks.append(("members", list(self.args.members), [JOB_MONITORING]))
-        for _kind, block, block_job_list in blocks:
-            fetched = fetch_long_form(
-                read_conn,
-                self.args.feature_table,
+            members = tuple(dict.fromkeys(self.args.members))
+            unknown = sorted(set(members) - set(names))
+            if unknown:
+                raise ValueError(f"monitoring members {unknown} are not numeric feature columns")
+            source = FeatureSource((members,), fetch)
+            inputs = scan_family(source, ctx, params, {})
+            identity = {
+                "job": JOB_MONITORING,
+                **common,
+                "family": family_digest(members, params),
+                "features": inputs.features_key,
+            }
+            yield self._unit(
+                JOB_MONITORING,
                 tf,
-                ctx.grid.symbols,
+                ctx,
                 start,
                 oos_start,
-                block,
-                chunk_rows,
+                snapshot_keys,
+                identity,
+                self._compute(JOB_MONITORING, ctx, source, inputs, None, params, horizons),
             )
-            if not (
-                np.array_equal(fetched.bar_ts, keys.bar_ts)
-                and np.array_equal(fetched.symbols, keys.symbols)
-            ):
-                raise ValueError(f"{tf} feature rows changed between fetches; rerun")
-            grid, _unmatched = scatter_features(ctx.stack(horizons[0]), ctx.slots, fetched.values)
-            features_key = block_digest(block, grid, ctx.present)
-            for job in block_job_list:
-                extra: dict[str, Any] = {}
-                if job == JOB_REGIME_VOLATILITY:
-                    if labels is None:
-                        label_rows = fetch_long_form(
-                            read_conn,
-                            self.args.feature_table,
-                            tf,
-                            ctx.grid.symbols,
-                            start,
-                            oos_start,
-                            [_LABEL_COLUMN],
-                            chunk_rows,
-                            text=True,
-                        )
-                        label_slots = map_slots(
-                            ctx.stack(horizons[0]), label_rows.bar_ts, label_rows.symbols
-                        )
-                        width = max((len(v) for v in label_rows.values[:, 0]), default=1) or 1
-                        labels = np.full((n, m), "", dtype=f"<U{width}")
-                        labels[label_slots.rows, label_slots.cols] = label_rows.values[
-                            label_slots.ok, 0
-                        ]
-                        labels_key = labels_digest(labels)
-                    extra["labels"] = labels_key
-                if job == JOB_MONITORING:
-                    extra["members"] = list(block)
-                identity = _canonical(
-                    {
-                        "job": job,
-                        "bars": dict(bar_digests),
-                        "features": features_key,
-                        "names": list(block),
-                        **extra,
-                    }
-                )
-                spec = BulkLoadSpec(
-                    writer=f"{_WRITER}.{job}",
-                    target_table=TARGET_TABLE,
-                    time_column="training_window_end",
-                    tf=tf,
-                    range_start=start,
-                    range_end=oos_start,
-                    symbols=tuple(ctx.grid.symbols),
-                    code_key=job_code_key(job),
-                    apr_snapshot=snapshot_keys,
-                    input_digest=hashlib.sha256(identity.encode()).hexdigest(),
-                    replace_where={
-                        "tf": tf,
-                        "symbol": POOLED_SYMBOL,
-                        "regime_scope": _JOB_SCOPE[job],
-                        "feature_name": list(block),
-                    },
-                )
-                yield UnitPlan(
-                    job=job,
-                    spec=spec,
-                    compute=self._compute(job, ctx, block, grid, labels, params, horizons),
-                )
+
+    @staticmethod
+    def _unit(
+        job: str,
+        tf: str,
+        ctx: TfContext,
+        start: datetime,
+        oos_start: datetime,
+        snapshot_keys: Mapping[str, Any],
+        identity: Mapping[str, Any],
+        compute: Callable[[], list[tuple]],
+    ) -> UnitPlan:
+        """The unit owns every row of its scope in this tf (replace_where names no feature and
+        no symbol), so a change to the family, the symbols or the window replaces it."""
+        spec = BulkLoadSpec(
+            writer=f"{_WRITER}.{job}",
+            target_table=TARGET_TABLE,
+            time_column="training_window_end",
+            tf=tf,
+            range_start=start,
+            range_end=oos_start,
+            symbols=tuple(ctx.grid.symbols),
+            code_key=job_code_key(job),
+            apr_snapshot=snapshot_keys,
+            input_digest=hashlib.sha256(_canonical(identity).encode()).hexdigest(),
+            replace_where={"tf": tf, "symbol": POOLED_SYMBOL, "regime_scope": _JOB_SCOPE[job]},
+        )
+        return UnitPlan(job=job, spec=spec, compute=compute)
 
     @staticmethod
     def _compute(
         job: str,
         ctx: TfContext,
-        block: list[str],
-        grid: np.ndarray,
+        source: FeatureSource,
+        inputs: FamilyInputs,
         labels: np.ndarray | None,
         params: MeasureParams,
         horizons: tuple[int, ...],
     ) -> Callable[[], list[tuple]]:
         if job == JOB_PROPOSER:
-            return lambda: compute_proposer_rows(ctx, block, grid, params, horizons)
+            return lambda: compute_proposer_rows(ctx, source, inputs, params, horizons)
         if job == JOB_REGIME_VOLATILITY:
             assert labels is not None
-            return lambda: compute_disclosure_rows(ctx, block, grid, labels, params, horizons)
-        members = {name: grid[:, :, i] for i, name in enumerate(block)}
-        return lambda: compute_monitoring_rows(ctx, members, params, horizons[0])
+            return lambda: compute_disclosure_rows(ctx, source, inputs, labels, params, horizons)
+        return lambda: compute_monitoring_rows(ctx, source, inputs, params, horizons[0])
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

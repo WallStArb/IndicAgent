@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -36,10 +37,13 @@ def term_structure(
     params: MeasureParams,
     *,
     present: np.ndarray,
+    complete: np.ndarray | None = None,
 ) -> TermStructure:
     """The same pooled cells at each horizon, over the rows that exist (traded bar and a
     feature row, `present` [n, m] from `SlotMap.present`). Every horizon is checked before anything is
-    computed; an intraday horizon that would leave the session is the caller's 1d run."""
+    computed; an intraday horizon that would leave the session is the caller's 1d run. `complete`
+    is the family's row completeness when the features are one block of a larger family
+    (`ic.FamilyCompleteness`)."""
     for horizon in horizons:
         check_horizon(panels[0].tf, panels[0].bars_per_session, horizon)
     k, n_h = len(feature_names), len(horizons)
@@ -55,7 +59,7 @@ def term_structure(
         raise ValueError(f"features {features.shape[:2]} do not match the stack grid {(n, m)}")
     rows = np.flatnonzero(existing_rows(grid.valid_grid(), present).reshape(n * m))
     prepared = prepare_features(
-        features.reshape(n * m, features.shape[2])[rows], params, feature_names
+        features.reshape(n * m, features.shape[2])[rows], params, feature_names, complete=complete
     )
     for h_idx, horizon in enumerate(horizons):
         stack = stack_at_horizon(grid, panels, horizon)
@@ -77,4 +81,21 @@ def term_structure(
         n_obs=n_obs,
         p_value=p_value,
         peak_horizon=peak,
+    )
+
+
+def merge_term_structures(parts: Sequence[TermStructure]) -> TermStructure:
+    """The term structures of feature blocks over the same horizons as one, features in block
+    order."""
+    if not parts:
+        raise ValueError("no term structures to merge")
+    if len({p.horizons for p in parts}) != 1:
+        raise ValueError("term structures disagree on the horizons")
+    return TermStructure(
+        features=tuple(f for p in parts for f in p.features),
+        horizons=parts[0].horizons,
+        ic=np.concatenate([p.ic for p in parts]),
+        n_obs=np.concatenate([p.n_obs for p in parts]),
+        p_value=np.concatenate([p.p_value for p in parts]),
+        peak_horizon=np.concatenate([p.peak_horizon for p in parts]),
     )

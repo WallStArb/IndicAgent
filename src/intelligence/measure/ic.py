@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -105,9 +106,19 @@ class PreparedFeatures:
 
 
 def prepare_features(
-    X: np.ndarray, params: MeasureParams, feature_names: tuple[str, ...] | None = None
+    X: np.ndarray,
+    params: MeasureParams,
+    feature_names: tuple[str, ...] | None = None,
+    *,
+    complete: np.ndarray | None = None,
 ) -> PreparedFeatures:
-    """Column std, degenerate columns and the finite-row mask of X, in column blocks."""
+    """Column std, degenerate columns and the finite-row mask of X, in column blocks.
+
+    `complete` [rows] is the row completeness of the whole feature family (`FamilyCompleteness`):
+    a row counts only when every live feature of the family is finite, exactly as ic_engine masks
+    a cell over all of its features and only then works in `feature_block_columns` chunks
+    (services/ic_engine.py, `valid_mask` before the block loop). Without it the mask is derived
+    from this block alone, so a block's IC would depend on which other columns share it."""
     if X.ndim != 2:
         raise ValueError(f"X {X.shape} is not one row per observation")
     n, k = X.shape
@@ -120,14 +131,65 @@ def prepare_features(
             for first, stop in _column_blocks(k):
                 std[first:stop] = np.nanstd(X[:, first:stop], axis=0, dtype=np.float64)
     live = std >= params.degenerate_std  # NaN std (all-missing column) is degenerate too
+    family_complete = complete
     live_idx = np.flatnonzero(live)
     complete = np.ones(n, dtype=bool)
     for first, stop in _column_blocks(len(live_idx)) if len(live_idx) else ():
         cols = live_idx[first:stop]
         block = X[:, first:stop] if len(live_idx) == k else X[:, cols]
         complete &= np.isfinite(block).all(axis=1)
+    if family_complete is not None:
+        if family_complete.shape != (n,) or family_complete.dtype != np.bool_:
+            raise ValueError(f"complete must be a bool array of shape {(n,)}")
+        if (family_complete & ~complete).any():
+            raise ValueError("complete admits a row with a non-finite live feature in this block")
+        complete = family_complete
     return PreparedFeatures(
         X=X, names=names, live=live, complete=complete, n_degenerate=int((~live).sum())
+    )
+
+
+class FamilyCompleteness:
+    """Row completeness of a whole feature family, accumulated one block at a time.
+
+    `add` takes a block's [rows, k] observation matrix (the rows the family is measured on, in
+    the order `observation_rows` yields them); `complete` is then the AND of every block's
+    live-feature finiteness, the mask ic_engine computes over all of a cell's features before it
+    chunks them. Hand it to `pooled_rank_ic(complete=)` so no IC depends on the blocking."""
+
+    def __init__(self, params: MeasureParams) -> None:
+        self._params = params
+        self._complete: np.ndarray | None = None
+
+    def add(self, X: np.ndarray) -> None:
+        block = prepare_features(X, self._params).complete
+        self._complete = block if self._complete is None else self._complete & block
+
+    @property
+    def complete(self) -> np.ndarray:
+        if self._complete is None:
+            raise ValueError("FamilyCompleteness has no blocks")
+        return self._complete
+
+
+def merge_cells(cells: Sequence[IcCell]) -> IcCell:
+    """The cells of feature blocks measured on the same rows and stride as one cell, features in
+    block order; n_degenerate adds up."""
+    if not cells:
+        raise ValueError("no cells to merge")
+    if len({c.stride for c in cells}) != 1:
+        raise ValueError("cells disagree on the stride")
+    return IcCell(
+        features=tuple(f for c in cells for f in c.features),
+        ic=np.concatenate([c.ic for c in cells]),
+        n_obs=np.concatenate([c.n_obs for c in cells]),
+        n_independent=np.concatenate([c.n_independent for c in cells]),
+        p_value=np.concatenate([c.p_value for c in cells]),
+        ci_lower=np.concatenate([c.ci_lower for c in cells]),
+        ci_upper=np.concatenate([c.ci_upper for c in cells]),
+        reliable=np.concatenate([c.reliable for c in cells]),
+        n_degenerate=sum(c.n_degenerate for c in cells),
+        stride=cells[0].stride,
     )
 
 
@@ -138,6 +200,7 @@ def pooled_rank_ic(
     stride: int,
     params: MeasureParams,
     feature_names: tuple[str, ...] | None = None,
+    complete: np.ndarray | None = None,
 ) -> IcCell:
     """Pooled Spearman IC per column of X against y, in the order ic_engine uses.
 
@@ -159,13 +222,19 @@ def pooled_rank_ic(
 
     `n_independent` is the strided valid count: ic_engine stores exactly that as n_independent
     (`"n_independent": int(n_valid)`, 4125). Fewer than `params.min_obs` such rows gives NaN IC.
+
+    A caller that measures a feature family in blocks passes `complete` (see `prepare_features`);
+    every value is then independent of the blocking.
     """
     if X.ndim != 2 or y.shape != (X.shape[0],):
         raise ValueError(f"X {X.shape} and y {y.shape} are not one row per observation")
     if stride < 1:
         raise ValueError(f"stride must be >= 1, got {stride}")
     return pooled_rank_ic_prepared(
-        prepare_features(X, params, feature_names), y, stride=stride, params=params
+        prepare_features(X, params, feature_names, complete=complete),
+        y,
+        stride=stride,
+        params=params,
     )
 
 

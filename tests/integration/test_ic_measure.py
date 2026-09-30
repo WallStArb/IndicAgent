@@ -17,6 +17,7 @@ Run: pytest tests/integration/test_ic_measure.py -m integration
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
@@ -396,3 +397,58 @@ class TestIcMeasureIntegration:
         with psycopg.connect(_DSN) as conn:
             distinct_after, end_after = conn.execute(window_end).fetchone()
         assert distinct_after == 1 and end_after > end_before
+
+    @staticmethod
+    @contextmanager
+    def _apr(**values: str):
+        """Set config_state values for the body and restore the previous ones after."""
+        keys = {k.replace("__", "."): v for k, v in values.items()}
+        with psycopg.connect(_DSN, autocommit=True) as conn:
+            old = {
+                k: conn.execute(
+                    "SELECT config_value FROM config_state WHERE config_key = %s", (k,)
+                ).fetchone()[0]
+                for k in keys
+            }
+            for k, v in keys.items():
+                conn.execute(
+                    "UPDATE config_state SET config_value = %s WHERE config_key = %s", (v, k)
+                )
+        try:
+            yield
+        finally:
+            with psycopg.connect(_DSN, autocommit=True) as conn:
+                for k, v in old.items():
+                    conn.execute(
+                        "UPDATE config_state SET config_value = %s WHERE config_key = %s", (v, k)
+                    )
+
+    def _checksum(self) -> tuple:
+        return (
+            psycopg.connect(_DSN)
+            .execute(
+                "SELECT count(*), coalesce(sum(hashtext(feature_name || regime_scope || regime || "
+                "lookahead_bars || coalesce(ic_value::text, '') || coalesce(ic_ci_lower::text, '') || "
+                "coalesce(bh_adjusted_p::text, '') || n_independent)::numeric), 0) "
+                "FROM feature_ic_scores_v2"
+            )
+            .fetchone()
+        )
+
+    def test_case_9_operational_knobs_change_neither_identity_nor_rows(self, world: dict) -> None:
+        before = self._checksum()
+        with self._apr(
+            alpha__ic__feature_block_columns="7",
+            infra__ic_measure__symbol_chunk_size="3",
+            infra__ic_measure__fetch_chunk_rows="5000",
+        ):
+            outcomes = self._run(world)
+        assert outcomes and {o.status for o in outcomes} == {"skipped"}
+        assert self._checksum() == before
+
+    def test_case_10_a_computational_key_changes_identity_and_rows(self, world: dict) -> None:
+        before = self._checksum()
+        with self._apr(alpha__ic__bootstrap_resamples="201"):
+            outcomes = self._run(world)
+        assert outcomes and {o.status for o in outcomes} == {"replaced"}
+        assert self._checksum() != before  # the CI bounds moved

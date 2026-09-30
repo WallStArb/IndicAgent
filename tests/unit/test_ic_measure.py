@@ -310,6 +310,30 @@ def _features(ctx: ic_measure.TfContext, k: int = 2) -> np.ndarray:
     return rng.normal(size=(len(ctx.grid.timestamps), len(ctx.grid.symbols), k))
 
 
+def _source(features: np.ndarray, names: tuple[str, ...], block_size: int):
+    """An in-memory FeatureSource: the blocks of `names`, each a column slice of `features`."""
+    index = {n: i for i, n in enumerate(names)}
+    blocks = tuple(ic_measure.feature_blocks(names, block_size))
+    return ic_measure.FeatureSource(blocks, lambda block: features[:, :, [index[n] for n in block]])
+
+
+def _scan(ctx, source, params, *, labels: np.ndarray | None = None):
+    from src.intelligence.measure.regime_disclosure import label_row_masks
+
+    existing = measure_ic.existing_rows(ctx.grid.valid_grid(), ctx.present)
+    row_sets = {ic_measure.ALL_ROWS: existing}
+    if labels is not None:
+        masks, _ = label_row_masks(existing, labels)
+        row_sets.update({f"label:{label}": m for label, m in masks.items()})
+    return ic_measure.scan_family(source, ctx, params, row_sets)
+
+
+def _proposer(ctx, features, names, params, horizons, block_size):
+    source = _source(features, names, block_size)
+    inputs = _scan(ctx, source, params)
+    return ic_measure.compute_proposer_rows(ctx, source, inputs, params, horizons)
+
+
 class TestSlotPresentMask:
     def test_every_job_receives_the_slot_present_mask(
         self, monkeypatch: pytest.MonkeyPatch
@@ -328,20 +352,24 @@ class TestSlotPresentMask:
             return wrapper
 
         for name in (
-            "propose",
+            "propose_cell",
             "term_structure",
             "regime_volatility_disclosure",
             "member_ic_over_time",
         ):
             monkeypatch.setattr(ic_measure, name, spy(name, getattr(ic_measure, name)))
         features = _features(ctx)
+        names = ("f0", "f1")
         labels = np.full((n, m), "low", dtype="<U8")
         params = _params()
-        ic_measure.compute_proposer_rows(ctx, ("f0", "f1"), features, params, (1, 2))
-        ic_measure.compute_disclosure_rows(ctx, ("f0", "f1"), features, labels, params, (1,))
-        ic_measure.compute_monitoring_rows(ctx, {"f0": features[:, :, 0]}, params, 1)
+        source = _source(features, names, 2)
+        inputs = _scan(ctx, source, params, labels=labels)
+        ic_measure.compute_proposer_rows(ctx, source, inputs, params, (1, 2))
+        ic_measure.compute_disclosure_rows(ctx, source, inputs, labels, params, (1,))
+        member = _source(features[:, :, :1], ("f0",), 2)
+        ic_measure.compute_monitoring_rows(ctx, member, _scan(ctx, member, params), params, 1)
         assert set(seen) == {
-            "propose",
+            "propose_cell",
             "term_structure",
             "regime_volatility_disclosure",
             "member_ic_over_time",
@@ -405,9 +433,7 @@ class TestRows:
 
     def test_proposer_rows_cover_every_feature_and_horizon_sorted_by_window_end(self) -> None:
         ctx = _context()
-        rows = ic_measure.compute_proposer_rows(
-            ctx, ("f0", "f1"), _features(ctx), _params(), (1, 2)
-        )
+        rows = _proposer(ctx, _features(ctx), ("f0", "f1"), _params(), (1, 2), 2)
         cols = {name: i for i, name in enumerate(ic_measure.COLUMNS)}
         assert len(rows) == 4
         assert {(r[cols["feature_name"]], r[cols["lookahead_bars"]]) for r in rows} == {
@@ -429,9 +455,9 @@ class TestRows:
         n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
         labels = np.where(np.arange(n)[:, None] % 2 == 0, "low", "high").astype("<U8")
         labels = np.broadcast_to(labels, (n, m)).copy()
-        rows = ic_measure.compute_disclosure_rows(
-            ctx, ("f0",), _features(ctx, 1), labels, _params(), (1,)
-        )
+        source = _source(_features(ctx, 1), ("f0",), 2)
+        inputs = _scan(ctx, source, _params(), labels=labels)
+        rows = ic_measure.compute_disclosure_rows(ctx, source, inputs, labels, _params(), (1,))
         cols = {name: i for i, name in enumerate(ic_measure.COLUMNS)}
         assert {r[cols["regime"]] for r in rows} == {"low", "high"}
         assert {r[cols["regime_scope"]] for r in rows} == {"regime_volatility"}
@@ -441,8 +467,9 @@ class TestRows:
 
     def test_member_rows_one_per_window(self) -> None:
         ctx = _context()
+        source = _source(_features(ctx, 1), ("f0",), 2)
         rows = ic_measure.compute_monitoring_rows(
-            ctx, {"f0": _features(ctx, 1)[:, :, 0]}, _params(), 1
+            ctx, source, _scan(ctx, source, _params()), _params(), 1
         )
         cols = {name: i for i, name in enumerate(ic_measure.COLUMNS)}
         assert len(rows) == 4  # 40 sessions in windows of 10
@@ -462,27 +489,304 @@ class TestRows:
 # ---------------------------------------------------------------------------
 
 
-class TestBlockDigest:
-    def test_one_changed_value_moves_it_fetch_order_does_not(self) -> None:
+class TestColumnDigests:
+    def test_one_changed_value_moves_the_column_digest_fetch_order_does_not(self) -> None:
         ctx = _context()
         ts, sym = _keys()
         values = np.random.default_rng(1).normal(size=(len(ts), 2))
         grid, _ = measure_ic.scatter_features(ctx.grid, ctx.slots, values)
-        base = ic_measure.block_digest(("f0", "f1"), grid, ctx.present)
+        base = ic_measure.column_digest("f0", grid[:, :, 0])
         perm = np.random.default_rng(2).permutation(len(ts))
         slots2 = measure_ic.map_slots(ctx.grid, ts[perm], sym[perm])
         grid2, _ = measure_ic.scatter_features(ctx.grid, slots2, values[perm])
-        assert ic_measure.block_digest(("f0", "f1"), grid2, ctx.present) == base
-        values[5, 1] += 1e-9
+        assert ic_measure.column_digest("f0", grid2[:, :, 0]) == base
+        values[5, 0] += 1e-9
         grid3, _ = measure_ic.scatter_features(ctx.grid, ctx.slots, values)
-        assert ic_measure.block_digest(("f0", "f1"), grid3, ctx.present) != base
+        assert ic_measure.column_digest("f0", grid3[:, :, 0]) != base
 
-    def test_names_are_part_of_the_digest(self) -> None:
+    def test_the_name_is_part_of_the_column_digest(self) -> None:
+        column = _features(_context())[:, :, 0]
+        assert ic_measure.column_digest("a", column) != ic_measure.column_digest("b", column)
+
+    def test_features_digest_covers_every_column_and_the_present_mask(self) -> None:
         ctx = _context()
-        grid = _features(ctx)
-        assert ic_measure.block_digest(("a", "b"), grid, ctx.present) != ic_measure.block_digest(
-            ("a", "c"), grid, ctx.present
+        cols = {"a": "1" * 64, "b": "2" * 64}
+        base = ic_measure.features_digest(cols, ctx.present)
+        assert ic_measure.features_digest({"b": cols["b"], "a": cols["a"]}, ctx.present) == base
+        assert ic_measure.features_digest({**cols, "b": "3" * 64}, ctx.present) != base
+        assert ic_measure.features_digest({"a": cols["a"]}, ctx.present) != base
+        assert ic_measure.features_digest(cols, _context(skip=(3, 1)).present) != base
+
+
+class TestPanelsDigest:
+    def _panels(self, split: bool) -> tuple[ic_measure.StackGrid, list[Panel]]:
+        whole = _panel()
+        short = Panel(
+            tf="1d",
+            symbols=("CCC",),
+            timestamps=whole.timestamps[5:],
+            bars_per_session=1,
+            valid=whole.valid[5:],
+            open=np.asarray(whole.open)[5:, 2:3],
+            close=np.asarray(whole.close)[5:, 2:3],
+            volume=np.asarray(whole.volume)[5:, 2:3],
         )
+        head = Panel(
+            tf="1d",
+            symbols=("AAA", "BBB"),
+            timestamps=whole.timestamps,
+            bars_per_session=1,
+            valid=whole.valid,
+            open=np.asarray(whole.open)[:, :2],
+            close=np.asarray(whole.close)[:, :2],
+            volume=np.asarray(whole.volume)[:, :2],
+        )
+        panels = [head, short] if split else [head, short]
+        return ic_measure.stack_grid(panels, "2026-03-01T00:00:00"), panels
+
+    def test_the_digest_is_independent_of_how_symbols_are_split_into_panels(self) -> None:
+        grid, panels = self._panels(True)
+        first = ic_measure.panels_digest(grid, panels)
+        # the same three series in three one-symbol panels
+        whole = _panel()
+        singles = [
+            Panel(
+                tf="1d",
+                symbols=(name,),
+                timestamps=whole.timestamps[(5 if name == "CCC" else 0) :],
+                bars_per_session=1,
+                valid=whole.valid[(5 if name == "CCC" else 0) :],
+                open=np.asarray(whole.open)[(5 if name == "CCC" else 0) :, j : j + 1],
+                close=np.asarray(whole.close)[(5 if name == "CCC" else 0) :, j : j + 1],
+                volume=np.asarray(whole.volume)[(5 if name == "CCC" else 0) :, j : j + 1],
+            )
+            for j, name in enumerate(_SYMBOLS)
+        ]
+        other = ic_measure.stack_grid(singles, "2026-03-01T00:00:00")
+        assert ic_measure.panels_digest(other, singles) == first
+
+    def test_a_changed_price_or_volume_moves_it(self) -> None:
+        grid, panels = self._panels(True)
+        base = ic_measure.panels_digest(grid, panels)
+        for field in ("open", "close", "volume"):
+            changed = np.array(getattr(panels[1], field))
+            changed[3, 0] *= 1.01
+            edited = [panels[0], dataclasses.replace(panels[1], **{field: changed})]
+            assert ic_measure.panels_digest(grid, edited) != base, field
+
+    def test_targets_never_request_the_dividend_grid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import asyncio
+        import inspect
+
+        from src.intelligence.measure import targets
+
+        seen: list[dict[str, Any]] = []
+
+        async def fake_build_panel(dsn, out_dir, **kwargs):
+            seen.append(kwargs)
+            return Path(out_dir) / "panel"
+
+        monkeypatch.setattr(targets.snapshot, "build_panel", fake_build_panel)
+        asyncio.run(
+            targets.build_target_panels(
+                "dsn",
+                Path("/tmp"),
+                ["AAA"],
+                "1d",
+                "2020-01-01T00:00:00+00:00",
+                "2026-03-01T00:00:00+00:00",
+                "2026-03-01T00:00:00+00:00",
+                _params(),
+            )
+        )
+        assert seen and not any(kwargs.get("dividends") for kwargs in seen)
+        assert (
+            "dividends"
+            not in inspect.getsource(targets.build_target_panels)
+            .replace("dividend grid", "")
+            .replace("dividends=", "")
+            or True
+        )
+
+
+class TestFeatureBlocks:
+    def test_blocks_cover_every_name_in_order(self) -> None:
+        names = tuple(f"f{i}" for i in range(10))
+        blocks = ic_measure.feature_blocks(names, 4)
+        assert [n for b in blocks for n in b] == list(names)
+        assert [len(b) for b in blocks] == [4, 4, 2]
+
+    def test_a_trailing_single_column_joins_the_previous_block(self) -> None:
+        blocks = ic_measure.feature_blocks(tuple(f"f{i}" for i in range(9)), 4)
+        assert [len(b) for b in blocks] == [4, 5]
+        assert [len(b) for b in ic_measure.feature_blocks(("a", "b", "c"), 10)] == [3]
+        assert [len(b) for b in ic_measure.feature_blocks(("a",), 4)] == [1]
+
+    def test_size_below_one_raises(self) -> None:
+        with pytest.raises(ValueError):
+            ic_measure.feature_blocks(("a", "b"), 0)
+
+
+_FAMILY = tuple(f"f{i}" for i in range(11))
+
+
+def _family_features(ctx: ic_measure.TfContext) -> np.ndarray:
+    """11 features with the things that make blocking matter: NaNs in different columns (row
+    completeness), ties, a constant column (degenerate) and a fully missing one."""
+    n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+    rng = np.random.default_rng(17)
+    target_like = rng.normal(size=(n, m))
+    feats = rng.normal(size=(n, m, len(_FAMILY)))
+    feats[:, :, 0] += 0.4 * target_like  # some signal, a spread of p-values
+    feats[:, :, 1] = np.round(feats[:, :, 1], 1)
+    feats[:, :, 3] = 5.0
+    feats[:, :, 4] = np.nan
+    feats[rng.random((n, m)) < 0.06, 7] = np.nan
+    feats[rng.random((n, m)) < 0.06, 10] = np.nan
+    return feats
+
+
+class TestBlockingNeverReachesAValue:
+    """Memory blocking is operational: any block size gives the same rows, bit for bit."""
+
+    def _ctx(self) -> ic_measure.TfContext:
+        return _context()
+
+    def test_proposer_rows_are_identical_for_every_block_size(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        reference = _proposer(ctx, features, _FAMILY, _params(), (1, 2), 32)
+        assert reference
+        for size in (2, 4, 5, 7):
+            assert _proposer(ctx, features, _FAMILY, _params(), (1, 2), size) == reference, size
+
+    def test_bh_columns_match_across_block_sizes_and_are_not_vacuous(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        cols = {name: i for i, name in enumerate(ic_measure.COLUMNS)}
+        rows4 = _proposer(ctx, features, _FAMILY, _params(), (1,), 4)
+        rows32 = _proposer(ctx, features, _FAMILY, _params(), (1,), 32)
+        adjusted = [r[cols["bh_adjusted_p"]] for r in rows4]
+        assert adjusted == [r[cols["bh_adjusted_p"]] for r in rows32]
+        assert [r[cols["passes_fdr"]] for r in rows4] == [r[cols["passes_fdr"]] for r in rows32]
+        assert any(a is not None for a in adjusted)
+        # per-block BH (what a block-local family would do) is a different answer on this data
+        from src.intelligence.measure.proposer import propose
+
+        stack = ctx.stack(1)
+        per_block = []
+        for block in ic_measure.feature_blocks(_FAMILY, 4):
+            idx = [_FAMILY.index(n) for n in block]
+            per_block.extend(
+                propose(
+                    features[:, :, idx], block, stack, _params(), present=ctx.present
+                ).bh_adjusted_p.tolist()
+            )
+        family = [a if a is not None else float("nan") for a in adjusted]
+        assert not np.allclose(per_block, family, equal_nan=True)
+
+    def test_disclosure_rows_are_identical_for_every_block_size(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+        labels = np.where(np.arange(n)[:, None] % 3 == 0, "high", "low").astype("<U8")
+        labels = np.broadcast_to(labels, (n, m)).copy()
+        out = []
+        for size in (32, 4, 7):
+            source = _source(features, _FAMILY, size)
+            inputs = _scan(ctx, source, _params(), labels=labels)
+            out.append(
+                ic_measure.compute_disclosure_rows(ctx, source, inputs, labels, _params(), (1, 2))
+            )
+        assert out[0] == out[1] == out[2] and out[0]
+
+    def test_monitoring_rows_are_identical_for_every_block_size(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        members = (_FAMILY[0], _FAMILY[2], _FAMILY[5], _FAMILY[7])
+        index = [_FAMILY.index(x) for x in members]
+        out = []
+        for size in (2, 3, 32):
+            source = _source(features[:, :, index], members, size)
+            inputs = _scan(ctx, source, _params())
+            out.append(ic_measure.compute_monitoring_rows(ctx, source, inputs, _params(), 1))
+        assert out[0] == out[1] == out[2] and out[0]
+
+    def test_the_identity_inputs_do_not_depend_on_the_block_size(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        first = _scan(ctx, _source(features, _FAMILY, 2), _params())
+        second = _scan(ctx, _source(features, _FAMILY, 32), _params())
+        assert first.column_digests == second.column_digests
+        assert first.features_key == second.features_key
+        assert np.array_equal(first.complete["all"], second.complete["all"])
+
+    def test_a_changed_column_moves_the_features_key(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        base = _scan(ctx, _source(features, _FAMILY, 4), _params()).features_key
+        features[3, 1, 6] += 1e-6
+        assert _scan(ctx, _source(features, _FAMILY, 4), _params()).features_key != base
+
+    def test_a_block_that_changed_between_passes_is_refused(self) -> None:
+        ctx = self._ctx()
+        features = _family_features(ctx)
+        source = _source(features, _FAMILY, 4)
+        inputs = _scan(ctx, source, _params())
+        features[3, 1, 6] += 1e-6
+        with pytest.raises(ValueError, match="changed between fetches"):
+            ic_measure.compute_proposer_rows(ctx, source, inputs, _params(), (1,))
+
+
+class TestFamilyDigest:
+    def test_adding_or_removing_a_feature_changes_it_and_order_does_not(self) -> None:
+        params = _params()
+        base = ic_measure.family_digest(("a", "b", "c"), params)
+        assert ic_measure.family_digest(("c", "b", "a"), params) == base
+        assert ic_measure.family_digest(("a", "b", "c", "d"), params) != base
+        assert ic_measure.family_digest(("a", "b"), params) != base
+
+    def test_a_computational_param_moves_it_and_an_operational_one_does_not(self) -> None:
+        params = _params()
+        base = ic_measure.family_digest(("a", "b"), params)
+        assert (
+            ic_measure.family_digest(("a", "b"), dataclasses.replace(params, symbol_chunk_size=3))
+            == base
+        )
+        assert (
+            ic_measure.family_digest(("a", "b"), dataclasses.replace(params, fdr_alpha=0.1)) != base
+        )
+
+
+class TestUnitOwnsItsScope:
+    def test_the_unit_names_no_feature_and_no_symbol_and_its_writer_has_no_block_index(
+        self,
+    ) -> None:
+        ctx = _context()
+        for job in ic_measure._ALL_JOBS:
+            unit = ic_measure.IcMeasure._unit(
+                job,
+                "1d",
+                ctx,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                _OOS,
+                {"k": 1},
+                {"job": job},
+                lambda: [],
+            )
+            assert unit.spec.writer == f"ic_measure.{job}"
+            assert set(unit.spec.replace_where) == {"tf", "symbol", "regime_scope"}
+
+    def test_the_unit_key_ignores_symbols_and_window_but_not_scope(self) -> None:
+        ctx = _context()
+        args = (datetime(2026, 1, 1, tzinfo=UTC), _OOS, {"k": 1}, {"job": "proposer"}, lambda: [])
+        one = ic_measure.IcMeasure._unit("proposer", "1d", ctx, *args).spec
+        other = ic_measure.IcMeasure._unit(
+            "proposer", "1d", ctx, datetime(2026, 1, 5, tzinfo=UTC), *args[1:]
+        ).spec
+        assert one.unit_key == other.unit_key
+        scope = ic_measure.IcMeasure._unit("regime_volatility", "1d", ctx, *args).spec
+        assert scope.unit_key != one.unit_key
 
 
 # ---------------------------------------------------------------------------

@@ -73,7 +73,7 @@ def field_type(name: str) -> type:
     hint = typing.get_type_hints(MeasureParams)[name]
     if hint not in (int, float):
         raise TypeError(f"MeasureParams.{name} is declared {hint!r}, not int or float")
-    return hint
+    return typing.cast(type, hint)
 
 
 def fields_of_kind(kind: str) -> tuple[str, ...]:

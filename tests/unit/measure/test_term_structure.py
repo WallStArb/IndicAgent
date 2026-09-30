@@ -60,3 +60,49 @@ def test_list_arguments_are_stored_as_tuples_and_detached_from_the_caller(symbol
     assert from_lists.horizons == twin.horizons == (1, 2, 5)
     assert np.array_equal(from_lists.ic, twin.ic, equal_nan=True)
     assert hash(from_lists.features) == hash(twin.features)
+
+
+def test_blocks_with_family_completeness_merge_to_the_whole_term_structure(symbols, params):
+    from src.intelligence.measure.ic import FamilyCompleteness, existing_rows
+    from src.intelligence.measure.term_structure import merge_term_structures
+
+    panel = make_panel(symbols, 150, 1, seed=3)
+    rng = np.random.default_rng(4)
+    present = rng.random((150, len(symbols))) > 0.1
+    feats = rng.normal(size=(150, len(symbols), 6))
+    feats[rng.random((150, len(symbols))) < 0.05, 4] = np.nan
+    names = tuple(f"f{i}" for i in range(6))
+    end = "2027-01-01"
+    whole = term_structure(feats, names, [panel], (1, 2, 5), end, params, present=present)
+    stack = stack_targets([panel], 1, end)
+    rows = existing_rows(stack.valid_grid(), present).reshape(-1)
+    family = FamilyCompleteness(params)
+    parts = []
+    for first, stop in ((0, 3), (3, 6)):
+        family.add(feats[:, :, first:stop].reshape(-1, stop - first)[rows])
+    for first, stop in ((0, 3), (3, 6)):
+        parts.append(
+            term_structure(
+                feats[:, :, first:stop],
+                names[first:stop],
+                [panel],
+                (1, 2, 5),
+                end,
+                params,
+                present=present,
+                complete=family.complete,
+            )
+        )
+    merged = merge_term_structures(parts)
+    assert merged.features == whole.features
+    for field in ("ic", "n_obs", "p_value", "peak_horizon"):
+        assert np.array_equal(getattr(merged, field), getattr(whole, field), equal_nan=True), field
+    with pytest.raises(ValueError, match="horizons"):
+        merge_term_structures(
+            [
+                parts[0],
+                term_structure(
+                    feats[:, :, :3], names[:3], [panel], (1,), end, params, present=present
+                ),
+            ]
+        )
