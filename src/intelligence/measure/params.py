@@ -14,18 +14,18 @@ class MeasureParams:
     min_stride: int  # alpha.ic.subsample_min_stride
     bootstrap_block_size: int  # alpha.ic.bootstrap_block_size.{tf}
     bootstrap_resamples: int  # alpha.ic.bootstrap_resamples
-    rng_seed: int  # cell-level seed chosen by the writer
+    rng_seed: int  # alpha.ic.bootstrap_seed
     fdr_alpha: float  # alpha.ic.fdr_alpha (BH-FDR level)
     min_obs: int  # alpha.ic.min_reliable_n (minimum finite pairs for a reliable cell)
-    symbol_chunk_size: int  # infra.measure.symbol_chunk_size
-    monitor_window_sessions: int  # alpha.ic.monitor_window_sessions
+    symbol_chunk_size: int  # infra.ic_measure.symbol_chunk_size
+    monitor_window_sessions: int  # alpha.ic_measure.monitor_window_sessions
     hac_max_lag: int  # alpha.ic.hac_max_lag
-    degenerate_std: float  # std floor below which a feature column is degenerate (ic_engine 1e-8)
+    degenerate_std: float  # alpha.ic_measure.degenerate_std (ic_engine's literal 1e-8)
     monitor_degenerate_std: float
     """Std floor below which the spread of a member's window ICs is degenerate, so its IC
     Sharpe is 0.0 rather than a ratio to a near-zero denominator (monitoring.py). A different
     quantity from `degenerate_std`, which floors a feature column's std. Callers pass 1e-10, the
-    value the monitor used as a literal; 186-14 seeds it as an APR key (not seeded here)."""
+    value the monitor used as a literal; 186-14 seeds it as alpha.ic_measure.monitor_degenerate_std (not seeded here)."""
 
     def __post_init__(self) -> None:
         for name in (
