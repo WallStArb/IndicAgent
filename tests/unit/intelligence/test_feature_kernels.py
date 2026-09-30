@@ -54,6 +54,7 @@ PATH_DEPENDENT = {
     "vwap_dev_sigma",
     "session_vp",
     "session_levels",
+    "amd_cycle",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 
@@ -122,60 +123,30 @@ DELEGATED_HELPERS = (
     "_compute_trend_structure",
     "_compute_swing_momentum",
     "_compute_fib_zones",
+    "_compute_order_blocks",
+    "_compute_fvg",
+    "_compute_liquidity_sweeps",
+    "_compute_liquidity_pools",
+    "_compute_supply_demand_zones",
+    "_compute_bos_choch",
 )
 
 
-# Numeric persisted columns no kernel owns after this step: SMC, AMD, CTF, the three ret_div
-# columns and the cross-sectional rank columns. The HMM
+# Numeric persisted columns no kernel owns after this step: CTF, the three ret_div columns and
+# the cross-sectional rank columns. The HMM
 # regime columns are owned by the regime kernels (186-13). A column
 # that is dropped or left unowned changes this set and fails the test below.
 REMAINING_COLUMNS = frozenset(
     {
-        "active_demand_zones",
-        "active_supply_zones",
-        "amd_distribution_direction",
-        "amd_manipulation_detected",
-        "amd_phase",
-        "bars_since_last_shift",
-        "bars_since_last_sweep",
-        "bos_direction",
-        "bos_strength",
-        "breaker_block_active",
-        "breaker_dist_atr",
-        "bsl_dist_atr",
-        "bsl_touches",
-        "choch_direction",
-        "choch_strength",
         "ctf_momentum",
         "ctf_regime_align",
         "ctf_vwap_align",
-        "demand_dist_atr",
-        "demand_freshness",
-        "fvg_dist_atr",
-        "fvg_open_count",
-        "fvg_size_atr",
-        "manip_strength",
         "momentum_rank_z",
-        "ob_bear_dist_atr",
-        "ob_bull_dist_atr",
-        "ob_mitigated_flag",
-        "ob_mitigation_pct",
-        "ob_strength",
-        "pool_count",
-        "reclaim_velocity",
         "ret_div_1h_1d",
         "ret_div_1m_5m",
         "ret_div_5m_1h",
-        "smc_trend_direction",
-        "ssl_dist_atr",
-        "ssl_touches",
-        "supply_dist_atr",
-        "supply_freshness",
-        "sweep_detected",
-        "sweep_strength",
         "volatility_rank_z",
         "volume_rank_z",
-        "zone_friction_score",
     }
 )
 
@@ -273,6 +244,49 @@ def test_kernel_outputs_equal_compute_batch_rows_1_onward():
         ), f"{name}: row {int(np.argmax(bad)) + 1} got {got[bad][0]!r} want {want[bad][0]!r}"
 
 
+def test_stateless_structure_kernels_equal_direct_helper_calls():
+    """The batch loop now reads these columns from the kernels, so (b) alone compares a kernel
+    with itself. This calls the moved helpers directly on the loop's windows, every 7th row."""
+    from src.intelligence.features.kernels import smc, vp_sr
+
+    kernels, _batch, n = _synthetic_case()
+    inputs, config = ref.synthetic_inputs()
+    o, h, lo, c, v = (inputs[f] for f in ("open", "high", "low", "close", "volume"))
+    atr = kernels["_atr_raw_padded"]
+    for i in range(1, n, 7):
+        a = float(atr[i])
+        s = max(0, i - config.smc_order_blocks_lookback + 1)
+        ob = smc._compute_order_blocks(
+            o[s : i + 1],
+            h[s : i + 1],
+            lo[s : i + 1],
+            c[s : i + 1],
+            v[s : i + 1],
+            float(c[i]),
+            a,
+            config,
+        )
+        s = max(0, i - config.sr_lookback_by_tf.get("5m", 120) + 1)
+        sr = vp_sr._compute_sr_dist_atr(
+            h[s : i + 1], lo[s : i + 1], float(c[i]), a, v[s : i + 1], "5m", config
+        )
+        s = max(0, i - config.swing_lookback_bars + 1)
+        swing = vp_sr._compute_swing_structure(h[s : i + 1], lo[s : i + 1], float(c[i]), a, config)
+        trend = vp_sr._compute_trend_structure(
+            h[s : i + 1], lo[s : i + 1], float(c[i]), a, swing, config
+        )
+        for name, want in {**ob, **sr, **trend}.items():
+            expected = np.nan if want is None else want
+            assert np.float32(kernels[name][i]) == np.float32(expected) or (
+                np.isnan(kernels[name][i]) and np.isnan(expected)
+            ), (name, i)
+        for name in vp_sr.SWING_KEYS:
+            want = swing[name]
+            expected = np.nan if want is None else want
+            got = kernels[name][i]
+            assert got == expected or (np.isnan(got) and np.isnan(expected)), (name, i)
+
+
 def _code_lines(func) -> str:
     return "\n".join(
         line for line in inspect.getsource(func).splitlines() if not line.lstrip().startswith("#")
@@ -314,12 +328,12 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_nine():
+def test_the_path_dependent_allow_list_is_the_reviewed_ten():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
     declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 9
+    assert len(PATH_DEPENDENT) == 10
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
