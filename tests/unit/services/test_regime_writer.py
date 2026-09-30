@@ -38,7 +38,6 @@ from services.regime_writer import (
     _build_label_map,
     _build_obs_matrix,
     _build_obs_matrix_volatility,
-    _compute_symbol_tf,
     _state_groups,
     _state_groups_by_vocab,
 )
@@ -807,7 +806,7 @@ def test_canonical_label_constants():
 
 
 # ---------------------------------------------------------------------------
-# Tests: _compute_symbol_tf
+# Tests: the walk-forward compute functions
 # ---------------------------------------------------------------------------
 
 
@@ -825,401 +824,9 @@ def _make_mock_conn(closes, volumes, timestamps):
     return conn_mock
 
 
-def test_compute_symbol_tf_returns_tuple_structure():
-    """_compute_symbol_tf must return (update_rows, converged, heldout_ll) with correct row shape.
-
-    min_state_occupation=0.0 disables the P2b degenerate-model gate for this fixture —
-    this test verifies return-tuple structure, not gate behavior (gate has no dedicated
-    coverage of its own; see todo captured this session).
-    """
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-    )
-
-    assert result is not None
-    update_rows, converged, heldout_ll = result
-    assert isinstance(update_rows, list)
-    assert len(update_rows) > 0
-    # Each tuple: (regime, p_up, p_ranging, p_down, prob_val, entropy_val, duration,
-    #              hmm_churn, symbol, tf, ts)
-    assert len(update_rows[0]) == 11
-    assert isinstance(converged, bool)
-    assert isinstance(heldout_ll, float)
-
-
-def test_compute_symbol_tf_logs_convergence_iterations():
-    """_compute_symbol_tf must log the actual EM iteration count used per cell.
-
-    This is measurement-only instrumentation for todo 226 (n_iter=200 headroom
-    check) -- asserts the log event fires with correct fields. Zero side-effect
-    evidence comes from sibling tests (test_compute_symbol_tf_returns_tuple_structure,
-    test_compute_symbol_tf_regime_values, test_compute_symbol_tf_probabilities_sum_to_one)
-    continuing to pass unmodified, confirming the instrumentation has no effect on
-    fit output or label computation.
-    """
-    from structlog.testing import capture_logs
-
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    with capture_logs() as cap_logs:
-        result = _compute_symbol_tf(
-            conn=conn,
-            symbol="SPY",
-            tf="1d",
-            n_components=3,
-            vol_window=20,
-            n_iter=50,
-            hmm_random_state=42,
-            momentum_window=20,
-            vol_of_vol_window=20,
-            min_state_occupation=0.0,
-        )
-
-    assert result is not None
-
-    events = [e for e in cap_logs if e["event"] == "regime_writer.hmm_convergence_iters"]
-    assert len(events) == 1
-    event = events[0]
-    assert event["symbol"] == "SPY"
-    assert event["tf"] == "1d"
-    assert event["n_iter_cap"] == 50
-    assert isinstance(event["iters_used"], int)
-    assert 0 < event["iters_used"] <= 50
-    assert isinstance(event["converged"], bool)
-
-
-def test_compute_symbol_tf_regime_values():
-    """All regime labels in update_rows must be canonical strings."""
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="TLT",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-    )
-
-    assert result is not None
-    update_rows, _, _ = result
-    valid_labels = {"trending_up", "trending_down", "ranging"}
-    for row in update_rows:
-        assert row[0] in valid_labels, f"Invalid regime label: {row[0]}"
-
-
-def test_compute_symbol_tf_probabilities_sum_to_one():
-    """p_up + p_ranging + p_down must sum to ~1.0 for each row."""
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="GLD",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-    )
-
-    assert result is not None
-    update_rows, _, _ = result
-    for row in update_rows:
-        (
-            _regime,
-            p_up,
-            p_ranging,
-            p_down,
-            prob_val,
-            entropy_val,
-            duration,
-            _hmm_churn,
-            sym,
-            tf,
-            ts,
-        ) = row
-        total = p_up + p_ranging + p_down
-        assert abs(total - 1.0) < 1e-6, f"Probabilities sum to {total}, expected ~1.0"
-
-
-def test_compute_symbol_tf_returns_none_on_insufficient_data():
-    """Returns None when fewer obs than n_components * _MIN_OBS_FACTOR."""
-    n = 10
-    closes = [100.0] * n
-    volumes = [1e6] * n
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-    )
-
-    assert result is None
-
-
-def test_compute_symbol_tf_no_db_write():
-    """Worker must not call conn.execute or conn.executemany for writes."""
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-    )
-
-    # The cursor mock is only called for the SELECT (fetchmany) — never for UPDATE
-    cursor = conn.cursor.return_value
-    for c in cursor.execute.call_args_list:
-        sql = c[0][0].upper() if c[0] else ""
-        assert "UPDATE" not in sql, f"Worker issued an UPDATE: {sql}"
-
-
 # ---------------------------------------------------------------------------
 # Tests: alpha.hmm.n_restarts multi-seed restart (todo 108)
 # ---------------------------------------------------------------------------
-
-
-def test_compute_symbol_tf_n_restarts_default_fits_once_on_convergence(monkeypatch):
-    """n_restarts defaults to 1 -- when the single seed converges on the first try,
-    exactly one GaussianHMM is instantiated, at hmm_random_state, matching the prior
-    single-seed code path exactly (no multi-seed loop overhead at the default).
-
-    n_restarts is intentionally NOT passed here -- this proves the *default* behavior,
-    not merely that n_restarts=1 works when explicitly requested.
-    """
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    call_log: list[dict] = []
-    real_gaussian_hmm = regime_writer_module.GaussianHMM
-
-    class _TrackedHMM(real_gaussian_hmm):
-        def __init__(self, *args, **kwargs):
-            call_log.append(
-                {"n_iter": kwargs.get("n_iter"), "random_state": kwargs.get("random_state")}
-            )
-            super().__init__(*args, **kwargs)
-
-    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _TrackedHMM)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-    )
-
-    assert result is not None
-    assert len(call_log) == 1, f"Expected exactly 1 GaussianHMM fit at the default, got {call_log}"
-    assert call_log[0] == {"n_iter": 50, "random_state": 42}
-
-
-def test_compute_symbol_tf_n_restarts_default_preserves_same_seed_retry(monkeypatch):
-    """n_restarts=1 (default) must preserve the prior same-seed, doubled-n_iter retry
-    on non-convergence -- exactly 2 GaussianHMM fits, BOTH using hmm_random_state, never
-    hmm_random_state + 1. This is the load-bearing default-preserving property: the new
-    multi-seed loop must not silently turn a single-seed retry into a second, different
-    seed being tried.
-
-    The code under test reads iter < n_iter as the convergence signal (todo 229),
-    not hmmlearn's always-True monitor_.converged -- real non-convergence can't be
-    forced deterministically via n_iter alone, so the first fit's monitor_ is
-    force-overridden to iter == n_iter (a cap-hit) to exercise the retry branch.
-    """
-    from types import SimpleNamespace
-
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    call_log: list[dict] = []
-    fit_count = {"n": 0}
-    real_gaussian_hmm = regime_writer_module.GaussianHMM
-
-    class _ForceFirstNonConvergedHMM(real_gaussian_hmm):
-        def __init__(self, *args, **kwargs):
-            call_log.append(
-                {"n_iter": kwargs.get("n_iter"), "random_state": kwargs.get("random_state")}
-            )
-            super().__init__(*args, **kwargs)
-
-        def fit(self, X, lengths=None):
-            super().fit(X, lengths)
-            fit_count["n"] += 1
-            if fit_count["n"] == 1:
-                real_n_iter = self.monitor_.n_iter
-                # Force iter == n_iter (cap-hit) -- the code under test now reads
-                # iter < n_iter, not the always-True monitor_.converged (todo 229).
-                self.monitor_ = SimpleNamespace(iter=real_n_iter, n_iter=real_n_iter)
-            return self
-
-    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ForceFirstNonConvergedHMM)
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=42,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-        # n_restarts intentionally omitted -- proves the default, not an explicit 1.
-    )
-
-    assert result is not None
-    assert (
-        len(call_log) == 2
-    ), f"Expected exactly 2 GaussianHMM fits (original + same-seed retry), got {call_log}"
-    assert call_log[0] == {"n_iter": 50, "random_state": 42}
-    assert call_log[1] == {
-        "n_iter": 100,
-        "random_state": 42,
-    }, "Retry must reuse hmm_random_state (not hmm_random_state + 1) and double n_iter"
-
-
-def test_compute_symbol_tf_n_restarts_selects_highest_log_likelihood(monkeypatch):
-    """n_restarts > 1 must select the converged candidate with the highest log-likelihood.
-
-    Monkeypatches GaussianHMM.score() so a specific, non-obvious seed (hmm_random_state + 2,
-    neither the first nor the last seed tried) is engineered to report the highest
-    log-likelihood regardless of the real data-driven score -- this isolates the
-    *selection* logic under test from whatever any particular seed's real likelihood
-    happens to be on this fixture. No real market data; reuses this file's synthetic
-    ranging-price fixture. Model identity is verified via _stationary_distribution's
-    input (the transmat_ of whichever model the restart loop picked), the first place
-    downstream of the loop that touches the chosen model.
-    """
-    from types import SimpleNamespace
-
-    n = 500
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    conn = _make_mock_conn(closes, volumes, timestamps)
-
-    hmm_random_state = 42
-    n_restarts = 4
-    winning_seed = hmm_random_state + 2  # neither the first nor the last seed tried
-
-    real_gaussian_hmm = regime_writer_module.GaussianHMM
-    seed_to_transmat: dict[int, np.ndarray] = {}
-
-    class _ControlledHMM(real_gaussian_hmm):
-        def fit(self, X, lengths=None):
-            super().fit(X, lengths)
-            if self.random_state == winning_seed:
-                # Force convergence (iter < n_iter -- todo 229's real signal, not the
-                # always-True monitor_.converged) so the engineered score below is what
-                # decides the winner: convergence status ranks ahead of log-likelihood
-                # in the selection tuple, so a non-converged "winner" would lose
-                # regardless of its score.
-                real_n_iter = self.monitor_.n_iter
-                self.monitor_ = SimpleNamespace(iter=real_n_iter - 1, n_iter=real_n_iter)
-            seed_to_transmat[self.random_state] = self.transmat_.copy()
-            return self
-
-        def score(self, X, lengths=None):
-            if self.random_state == winning_seed:
-                return 1e6  # engineered to dominate every other seed's real score
-            return super().score(X, lengths)
-
-    monkeypatch.setattr(regime_writer_module, "GaussianHMM", _ControlledHMM)
-
-    captured: dict = {}
-    real_stationary_distribution = regime_writer_module._stationary_distribution
-
-    def _capture_stationary_distribution(transmat):
-        captured["transmat"] = np.asarray(transmat).copy()
-        return real_stationary_distribution(transmat)
-
-    monkeypatch.setattr(
-        regime_writer_module, "_stationary_distribution", _capture_stationary_distribution
-    )
-
-    result = _compute_symbol_tf(
-        conn=conn,
-        symbol="SPY",
-        tf="1d",
-        n_components=3,
-        vol_window=20,
-        n_iter=50,
-        hmm_random_state=hmm_random_state,
-        momentum_window=20,
-        vol_of_vol_window=20,
-        min_state_occupation=0.0,
-        n_restarts=n_restarts,
-    )
-
-    assert result is not None
-    assert "transmat" in captured, "Model selection never reached _stationary_distribution"
-    assert winning_seed in seed_to_transmat, "Winning seed was never fit"
-    np.testing.assert_array_equal(captured["transmat"], seed_to_transmat[winning_seed])
 
 
 # ---------------------------------------------------------------------------
@@ -2364,74 +1971,6 @@ def test_write_regime_volatility_results_queries_regime_volatility_column(monkey
 # ---------------------------------------------------------------------------
 
 
-def test_run_symbol_worker_dispatches_on_walk_forward_flag(monkeypatch):
-    """_run_symbol_worker's dispatch branch must call _compute_symbol_tf_walk_forward
-    when walk_forward_enabled=True and _compute_symbol_tf when False -- and, critically,
-    must NOT call the other function in either case. Asserting only the positive call
-    would still pass if the branch dispatched to walk-forward unconditionally; the
-    paired positive/negative assertion is what makes this test discriminating."""
-    calls = {"walk_forward": 0, "single_fit": 0}
-
-    def _wf_sentinel(**kwargs):
-        calls["walk_forward"] += 1
-        return ([], True, float("nan"))
-
-    def _sf_sentinel(**kwargs):
-        calls["single_fit"] += 1
-        return ([], True, float("nan"))
-
-    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
-    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
-    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
-
-    # Exact positional order from _run_symbol_worker's docstring: symbol, tfs, dsn,
-    # n_components, vol_window, momentum_window, vol_of_vol_window, n_iter,
-    # hmm_random_state, covariance_type, min_hold_bars, heldout_fraction,
-    # full_cov_min_obs, min_state_occupation, churn_window, min_obs_factor, n_restarts,
-    # walk_forward_enabled, walk_forward_params, regime_column -- an out-of-order
-    # tuple silently misassigns rather than raising, so this order must match exactly.
-    base_args = (
-        "SPY",  # symbol
-        ["1h"],  # tfs
-        "postgresql://fake",  # dsn
-        3,  # n_components
-        20,  # vol_window
-        20,  # momentum_window
-        20,  # vol_of_vol_window
-        50,  # n_iter
-        42,  # hmm_random_state
-        "diag",  # covariance_type
-        3,  # min_hold_bars
-        0.2,  # heldout_fraction
-        0,  # full_cov_min_obs
-        0.0,  # min_state_occupation
-        10,  # churn_window
-        20,  # min_obs_factor
-        1,  # n_restarts
-    )
-    walk_forward_params = {"1h": (200, 300)}
-
-    calls["walk_forward"] = 0
-    calls["single_fit"] = 0
-    result_true = regime_writer_module._run_symbol_worker(
-        base_args + (True, walk_forward_params, "regime")
-    )
-    assert calls["walk_forward"] == 1, "walk-forward sentinel must be called when flag is True"
-    assert calls["single_fit"] == 0, "single-fit sentinel must NOT be called when flag is True"
-    assert result_true["error"] is None
-    assert result_true["results"][0]["tf"] == "1h"
-
-    calls["walk_forward"] = 0
-    calls["single_fit"] = 0
-    result_false = regime_writer_module._run_symbol_worker(
-        base_args + (False, walk_forward_params, "regime")
-    )
-    assert calls["walk_forward"] == 0, "walk-forward sentinel must NOT be called when flag is False"
-    assert calls["single_fit"] == 1, "single-fit sentinel must be called when flag is False"
-    assert result_false["error"] is None
-    assert result_false["results"][0]["tf"] == "1h"
-
-
 # ---------------------------------------------------------------------------
 # Tests: --regime-column dispatch, discovery, args-tuple arity pin
 # (Phase 172, plan 172-04, Task 3)
@@ -2498,10 +2037,9 @@ def test_discover_symbols_rejects_unknown_label_column():
 
 def test_run_symbol_worker_dispatches_to_volatility_compute(monkeypatch):
     """regime_column='regime_volatility' must call
-    _compute_symbol_tf_volatility_walk_forward and call NEITHER _compute_symbol_tf NOR
-    _compute_symbol_tf_walk_forward -- regardless of walk_forward_enabled's value,
-    since the volatility axis is walk-forward-only unconditionally."""
-    calls = {"volatility": 0, "walk_forward": 0, "single_fit": 0}
+    _compute_symbol_tf_volatility_walk_forward and not _compute_symbol_tf_walk_forward;
+    walk-forward is the only mode (D-29)."""
+    calls = {"volatility": 0, "walk_forward": 0}
 
     def _vol_sentinel(**kwargs):
         calls["volatility"] += 1
@@ -2511,15 +2049,10 @@ def test_run_symbol_worker_dispatches_to_volatility_compute(monkeypatch):
         calls["walk_forward"] += 1
         return ([], True, float("nan"))
 
-    def _sf_sentinel(**kwargs):
-        calls["single_fit"] += 1
-        return ([], True, float("nan"))
-
     monkeypatch.setattr(
         regime_writer_module, "_compute_symbol_tf_volatility_walk_forward", _vol_sentinel
     )
     monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
-    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf", _sf_sentinel)
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
 
     base_args = (
@@ -2534,34 +2067,28 @@ def test_run_symbol_worker_dispatches_to_volatility_compute(monkeypatch):
         42,
         "diag",
         3,
-        0.2,
         0,
         0.0,
         10,
         20,
-        1,
     )
     walk_forward_params = {"1h": (200, 300)}
 
-    # walk_forward_enabled=False here deliberately -- if the volatility branch were
-    # gated behind walk_forward_enabled instead of checked first, this would wrongly
-    # dispatch to the single-fit path.
     result = regime_writer_module._run_symbol_worker(
-        base_args + (False, walk_forward_params, "regime_volatility")
+        base_args + (walk_forward_params, "regime_volatility")
     )
 
     assert calls["volatility"] == 1
     assert calls["walk_forward"] == 0
-    assert calls["single_fit"] == 0
     assert result["error"] is None
     assert result["results"][0]["tf"] == "1h"
 
 
 def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypatch):
-    """The worker args tuple must be exactly 20 elements with regime_column at
-    index 19 -- pinned so a future insertion elsewhere in the tuple fails the suite
+    """The worker args tuple must be exactly 17 elements with regime_column at
+    index 16 -- pinned so a future insertion elsewhere in the tuple fails the suite
     instead of silently mis-binding parameters across the ProcessPoolExecutor
-    boundary. Truncating to 19 elements must raise ValueError, not silently drop
+    boundary. Truncating to 16 elements must raise ValueError, not silently drop
     regime_column and default to something."""
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
     monkeypatch.setattr(
@@ -2574,9 +2101,6 @@ def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypat
         "_compute_symbol_tf_walk_forward",
         lambda **kw: ([], True, float("nan")),
     )
-    monkeypatch.setattr(
-        regime_writer_module, "_compute_symbol_tf", lambda **kw: ([], True, float("nan"))
-    )
 
     base_args = (
         "SPY",
@@ -2590,22 +2114,20 @@ def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypat
         42,
         "diag",
         3,
-        0.2,
         0,
         0.0,
         10,
         20,
-        1,
     )
     walk_forward_params = {"1h": (200, 300)}
 
-    args_volatility = base_args + (False, walk_forward_params, "regime_volatility")
-    args_regime = base_args + (False, walk_forward_params, "regime")
+    args_volatility = base_args + (walk_forward_params, "regime_volatility")
+    args_regime = base_args + (walk_forward_params, "regime")
 
-    assert len(args_volatility) == 20
-    assert args_volatility[19] == "regime_volatility"
-    assert len(args_regime) == 20
-    assert args_regime[19] == "regime"
+    assert len(args_volatility) == 17
+    assert args_volatility[16] == "regime_volatility"
+    assert len(args_regime) == 17
+    assert args_regime[16] == "regime"
 
     # Both full-length tuples must actually run without error.
     result_vol = regime_writer_module._run_symbol_worker(args_volatility)
@@ -2614,32 +2136,4 @@ def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypat
     assert result_regime["error"] is None
 
     with pytest.raises(ValueError):
-        regime_writer_module._run_symbol_worker(args_volatility[:19])
-
-
-def test_main_regime_volatility_no_walk_forward_exits_nonzero():
-    """--regime-column regime_volatility --no-walk-forward must exit non-zero with a
-    message naming 'walk-forward' -- the volatility axis is walk-forward-only by
-    design, since the column has no legacy corpus to preserve compatibility with."""
-    import subprocess
-    import sys
-
-    result = subprocess.run(
-        [
-            sys.executable,
-            "services/regime_writer.py",
-            "--regime-column",
-            "regime_volatility",
-            "--no-walk-forward",
-            "--symbols",
-            "SPY",
-            "--tf",
-            "1d",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(_project_root),
-    )
-
-    assert result.returncode != 0
-    assert "walk-forward" in (result.stderr + result.stdout).lower()
+        regime_writer_module._run_symbol_worker(args_volatility[:16])
