@@ -9,7 +9,10 @@
 -- The repo-wide grep recorded in 186-13-SUMMARY.md finds readers only in the analysis pilots
 -- 186-16 deletes (scripts/analysis/hmm_*), which import the deleted function and no longer run.
 -- config_history rows stay (the audit trail of every past value); config_state and
--- config_schema rows go. The per-tf alpha.hmm.walk_forward.refit_every_bars.* and
+-- config_schema rows go. At deletion time the last history rows were: n_restarts 1
+-- (migration_277 seed), heldout_fraction 0.2 (migration_179 seed), walk_forward.enabled true
+-- (version 2, set by the operator on 2026-08-12 when the legacy column went walk-forward); no
+-- row held a value that differed from what the code now does unconditionally. The per-tf alpha.hmm.walk_forward.refit_every_bars.* and
 -- initial_warmup_bars.* keys stay: the kernels read them.
 --
 -- infra.hmm.rolling_block_rows: rows per block in the obs-builder rolling reductions
@@ -49,9 +52,11 @@ INSERT INTO config_state (config_key, config_value, version) VALUES
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
-VALUES
-(NOW(), 'infra.hmm.rolling_block_rows', 1, '16384', 'migration_410',
- 'Initial value: about 32 MB of window intermediate at window 250 [initial_estimate]')
-ON CONFLICT DO NOTHING;
+SELECT NOW(), 'infra.hmm.rolling_block_rows', 1, '16384', 'migration_410',
+       'Initial value: about 32 MB of window intermediate at window 250 [initial_estimate]'
+WHERE NOT EXISTS (
+    SELECT 1 FROM config_history h
+    WHERE h.config_key = 'infra.hmm.rolling_block_rows' AND h.changed_by = 'migration_410'
+);
 
 COMMIT;

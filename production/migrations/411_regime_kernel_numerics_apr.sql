@@ -7,7 +7,7 @@
 --   alpha.hmm.momentum_vol_floor  1e-8  floor on realized_vol in the trend momentum column
 --                                       (sum of log returns / max(realized_vol, floor))
 -- The seeds equal the literals, so stored labels and the regime golden do not change. The
--- kernels read them through HmmParams (kernels/_hmm.py), the one declaration of the HMM keys.
+-- kernels read them through HmmConfig (kernels/_hmm.py), the one declaration of the HMM keys.
 -- 1e-300 (log and variance floors) stays a constant: a mathematical guard, not a tunable.
 --
 -- Guarded: the migration refuses (raises, nothing changes) if either key already exists with a
