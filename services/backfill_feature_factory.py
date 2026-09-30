@@ -79,7 +79,7 @@ from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
     feature_vector_to_insert_params,
 )
-from src.intelligence.features.kernels._hmm import load_hmm_config_fields
+from src.intelligence.features.kernels._hmm import hmm_config_fields_from_values
 from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -728,7 +728,7 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
         ),
         earnings_season_start_days=int(cfg.get_sync("feature.earnings_season.start_days", 14)),
         earnings_season_end_days=int(cfg.get_sync("feature.earnings_season.end_days", 42)),
-        **load_hmm_config_fields(cfg),
+        **hmm_config_fields_from_values(cfg.get_sync),
     )
 
 

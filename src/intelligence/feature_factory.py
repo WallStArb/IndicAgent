@@ -944,10 +944,14 @@ class FeatureFactoryConfig:
     earnings_season_end_days: int = 42  # feature.earnings_season.end_days
     # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py).
     # Flat scalars so dataclasses.asdict round-trips through the 186-08 manifest and the frozen
-    # dataclass stays hashable. Defaults are the writer's own APR fallbacks; the production
-    # entrypoints wire every one from ConfigService via kernels._hmm.load_hmm_config_fields so
-    # the rebuild never runs the kernel on these defaults. Changing hmm_random_state,
-    # any window, n_components or a schedule value invalidates every stored regime label.
+    # dataclass stays hashable. The names, APR keys and defaults are declared once, in
+    # kernels._hmm.HmmConfig; these fields are the same set (the registry hands kernels this
+    # config) and a unit test holds their defaults equal to HmmConfig'. The production
+    # entrypoints wire every one from ConfigService via kernels._hmm.hmm_config_fields_from_values
+    # so the rebuild never runs the kernel on these defaults. Changing hmm_random_state, any
+    # window, n_components, the ridge/floor or a schedule value invalidates every stored regime
+    # label. `infra.hmm.rolling_block_rows` is deliberately absent: it changes no output, and
+    # the regime writer and the rebuild pass it to the kernels as an argument.
     hmm_n_components: int = 3  # feature.hmm.n_components
     hmm_vol_window: int = 20  # feature.hmm.vol_window
     hmm_momentum_window: int = 20  # feature.hmm.obs_momentum_window
@@ -960,13 +964,12 @@ class FeatureFactoryConfig:
     hmm_min_state_occupation: float = 0.05  # feature.hmm.min_state_occupation
     hmm_churn_window: int = 10  # feature.hmm.churn_window
     hmm_min_obs_factor: int = 50  # feature.hmm.min_obs_factor
+    hmm_covariance_ridge: float = 1e-6  # alpha.hmm.covariance_ridge
+    hmm_momentum_vol_floor: float = 1e-8  # alpha.hmm.momentum_vol_floor
     hmm_volatility_n_components: int = 3  # alpha.hmm_volatility.n_components
     hmm_volatility_vol_window: int = 20  # alpha.hmm_volatility.vol_window
     hmm_volatility_vol_of_vol_window: int = 60  # alpha.hmm_volatility.vol_of_vol_window
     hmm_volatility_covariance_type: str = "full"  # alpha.hmm_volatility.covariance_type
-    # Rows per block in the obs-builder rolling reductions; bounds transient memory, does not
-    # change output.
-    hmm_rolling_block_rows: int = 16384  # infra.hmm.rolling_block_rows
     hmm_refit_every_bars_5m: int = 19800  # alpha.hmm.walk_forward.refit_every_bars.5m
     hmm_refit_every_bars_15m: int = 6600  # alpha.hmm.walk_forward.refit_every_bars.15m
     hmm_refit_every_bars_1h: int = 1650  # alpha.hmm.walk_forward.refit_every_bars.1h

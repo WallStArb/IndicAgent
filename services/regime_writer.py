@@ -64,9 +64,8 @@ import argparse
 import contextlib
 import sys
 import time
-from dataclasses import dataclass
+from itertools import repeat
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -84,10 +83,6 @@ from services._batch_utils import load_config_service_sync as _load_config_servi
 from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
-from src.intelligence.features.feature_vector_persistence import (
-    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
-    REGIME_WRITER_OWNED_COLUMN_NAMES,
-)
 
 # Moved to the registry kernels (186-13); re-imported under their old names so ops scripts
 # and tests keep importing them from here.
@@ -126,6 +121,14 @@ from src.intelligence.features.kernels._hmm import (
 )
 from src.intelligence.features.kernels._hmm import (
     _WALK_FORWARD_DEFAULT_PARAMS as _WALK_FORWARD_DEFAULT_PARAMS,
+)
+from src.intelligence.features.kernels._hmm import (
+    DEFAULT_ROLLING_BLOCK_ROWS,
+    FAMILY_SPECS,
+    STATUS_WRITTEN,
+    HmmConfig,
+    RegimeFamilySpec,
+    load_rolling_block_rows,
 )
 from src.intelligence.features.kernels._hmm import (
     _alpha_history_to_regime_probs as _alpha_history_to_regime_probs,
@@ -187,10 +190,7 @@ from src.intelligence.features.kernels._hmm import (
 from src.intelligence.features.kernels._hmm import (
     _walk_forward_hmm_labels as _walk_forward_hmm_labels,
 )
-from src.intelligence.features.kernels._hmm import (
-    family_model_fields,
-    load_hmm_config_fields,
-)
+from src.intelligence.features.kernels.regime import compute_regime_columns
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
@@ -216,13 +216,6 @@ _JOB = "regime-writer"
 
 # Default target timeframes (matches backfill_feature_factory.py targets).
 _DEFAULT_TFS: list[str] = ["5m", "15m", "1h", "1d"]
-
-# The only two feature_vectors columns _discover_symbols is ever allowed to query
-# against. label_column is internally sourced (from --regime-column, itself
-# argparse `choices`-constrained) so this is defense-in-depth, not a real external
-# injection surface -- but validating against this frozenset before interpolation
-# makes that true structurally rather than by inspection (T-172-04-SQL).
-_DISCOVERY_LABEL_COLUMNS = frozenset({"regime", "regime_volatility"})
 
 
 @contextlib.contextmanager
@@ -252,55 +245,40 @@ class _NoopTracer:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class RegimeWriteSpec:
-    """One regime column family as the writer sees it (trend `regime`, `regime_volatility`).
+_SPEC_BY_COLUMN = {spec.regime_column: spec for spec in FAMILY_SPECS.values()}
 
-    `family` names the kernel family in `kernels/regime.py`; `owned_columns` is the
-    label-then-numeric column tuple from feature_vector_persistence (the UPDATE's SET list);
-    `event_prefix` keeps the two families' log events distinct.
-    """
-
-    family: str
-    regime_column: str
-    owned_columns: tuple[str, ...]
-    staging_table: str
-    event_prefix: str
-    span_name: str
+# The only feature_vectors columns _discover_symbols is ever allowed to query against: the
+# families' own label columns. label_column is internally sourced (from --regime-column, itself
+# argparse `choices`-constrained) so this is defense-in-depth, not a real external injection
+# surface -- but validating against this frozenset before interpolation makes that true
+# structurally rather than by inspection (T-172-04-SQL).
+_DISCOVERY_LABEL_COLUMNS = frozenset(_SPEC_BY_COLUMN)
 
 
-TREND_SPEC = RegimeWriteSpec(
-    family="trend",
-    regime_column="regime",
-    owned_columns=tuple(REGIME_WRITER_OWNED_COLUMN_NAMES),
-    staging_table="_regime_writer_staging",
-    event_prefix="",
-    span_name="regime_writer.write_symbol_tf",
-)
-VOLATILITY_SPEC = RegimeWriteSpec(
-    family="volatility",
-    regime_column="regime_volatility",
-    owned_columns=tuple(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES),
-    staging_table="_regime_volatility_writer_staging",
-    event_prefix="volatility_",
-    span_name="regime_writer.write_volatility_symbol_tf",
-)
-_SPEC_BY_COLUMN = {spec.regime_column: spec for spec in (TREND_SPEC, VOLATILITY_SPEC)}
+def _staging_table(spec: RegimeFamilySpec) -> str:
+    """Temp table `bulk_update_by_key` stages one family's rows in."""
+    return f"_{spec.regime_column}_writer_staging"
 
 
-def _fetch_bars(conn: Any, symbol: str, tf: str) -> dict[str, Any] | None:
-    """Timestamps, closes and volumes of one (symbol, tf) series from
+def _span_name(spec: RegimeFamilySpec) -> str:
+    return f"regime_writer.write_{spec.event_prefix}symbol_tf"
+
+
+def _fetch_bars(conn: Any, symbol: str, tf: str, with_volume: bool = True) -> dict[str, Any] | None:
+    """Timestamps, closes and (with `with_volume`) volumes of one (symbol, tf) series from
     `market_data_ohlcv_tradeable`, or None (logging `regime_writer.no_ohlcv`) when there are none.
 
+    The volatility family never reads volume, so its runs do not fetch it (`volume` is None).
     Server-side cursors require no active transaction, so any open one is committed first.
     """
     timestamps: list = []
-    closes: list[float] = []
-    volumes: list[float] = []
+    closes: list = []
+    volumes: list = []
+    columns = "timestamp, close, volume" if with_volume else "timestamp, close"
     conn.commit()
     with conn.cursor("ohlcv_stream") as cur:
         cur.execute(
-            "SELECT timestamp, close, volume "
+            f"SELECT {columns} "
             "FROM market_data_ohlcv_tradeable "
             "WHERE symbol = %s AND timeframe = %s "
             "ORDER BY timestamp ASC",
@@ -310,19 +288,29 @@ def _fetch_bars(conn: Any, symbol: str, tf: str) -> dict[str, Any] | None:
             batch = cur.fetchmany(10000)
             if not batch:
                 break
-            for r in batch:
-                timestamps.append(r[0])
-                closes.append(float(r[1]))
-                volumes.append(float(r[2]))
+            by_column = list(zip(*batch, strict=True))
+            timestamps.extend(by_column[0])
+            closes.extend(by_column[1])
+            if with_volume:
+                volumes.extend(by_column[2])
     if not timestamps:
         _logger.warning("regime_writer.no_ohlcv", symbol=symbol, tf=tf)
         return None
-    return {"timestamps": timestamps, "close": closes, "volume": volumes}
+    return {
+        "timestamps": timestamps,
+        "close": np.array(closes, dtype=float),
+        "volume": np.array(volumes, dtype=float) if with_volume else None,
+    }
 
 
 def _compute_family_rows(
-    bars: dict[str, Any], spec: RegimeWriteSpec, config: Any, tf: str, symbol: str
-) -> tuple[list[tuple], bool] | None:
+    bars: dict[str, Any],
+    spec: RegimeFamilySpec,
+    params: HmmConfig,
+    tf: str,
+    symbol: str,
+    block_rows: int = DEFAULT_ROLLING_BLOCK_ROWS,
+) -> list[tuple] | None:
     """Run one family's walk-forward kernel over `bars` and build the UPDATE rows.
 
     Each row is (label, the 7 numeric columns in owned-column order, symbol, tf, timestamp),
@@ -331,57 +319,36 @@ def _compute_family_rows(
     stays NULL rather than carrying a fabricated value. Returns None when no bar was written,
     logging why from the segment status (`insufficient_obs`: no model was fit; otherwise
     `all_segments_degenerate`; the per-segment skips are logged by the kernel).
-    `converged` is True whenever anything was written: the segment gate refuses a non-converged
-    fit.
 
-    `config` carries the hmm_* attributes the kernels read (`load_hmm_config_fields`).
+    `params` is the loaded `HmmConfig`; `block_rows` is `infra.hmm.rolling_block_rows`. The
+    columns come from `compute_regime_columns`, the entry the rebuild shares.
     """
-    from src.intelligence.features.contract.registry import compute_kernels, default_registry
-    from src.intelligence.features.kernels.regime import FAMILY_KERNELS
-
-    kernel_spec = FAMILY_KERNELS[spec.family]
-    n = len(bars["timestamps"])
-    inputs = {
-        "ts": np.array([int(t.timestamp()) * 1_000_000_000 for t in bars["timestamps"]]),
-        "close": np.asarray(bars["close"], dtype=float),
-        "volume": np.asarray(bars["volume"], dtype=float),
-        "tf": np.array([tf] * n, dtype=object),
-    }
-    out = compute_kernels(
-        default_registry(),
-        inputs,
-        config,
-        outputs=[
-            kernel_spec.code_output,
-            kernel_spec.status_output,
-            *kernel_spec.numeric_outputs,
-        ],
+    columns = compute_regime_columns(
+        bars["close"], bars.get("volume"), params, tf, spec, block_rows
     )
-    status = out[kernel_spec.status_output]
-    written = np.flatnonzero(status == 1.0)
+    status = columns[spec.status_output]
+    written = np.flatnonzero(status == STATUS_WRITTEN)
     if len(written) == 0:
         event = "insufficient_obs" if not status.any() else "all_segments_degenerate"
         _logger.warning(
             f"regime_writer.{spec.event_prefix}walk_forward_{event}",
             symbol=symbol,
             tf=tf,
-            n_obs=n,
+            n_obs=len(status),
         )
         return None
-    codes = out[kernel_spec.code_output]
-    numeric = [out[name] for name in kernel_spec.numeric_outputs]
+    written_rows = written.tolist()
     timestamps = bars["timestamps"]
-    update_rows = [
-        (
-            kernel_spec.labels[int(codes[i])],
-            *(float(column[i]) for column in numeric),
-            symbol,
-            tf,
-            timestamps[i],
+    return list(
+        zip(
+            columns[spec.regime_column][written].tolist(),
+            *(columns[name][written].tolist() for name in spec.numeric_outputs),
+            repeat(symbol),
+            repeat(tf),
+            [timestamps[i] for i in written_rows],
+            strict=False,
         )
-        for i in written
-    ]
-    return update_rows, True
+    )
 
 
 def _regime_family_col_types(owned_columns: tuple[str, ...]) -> dict[str, str]:
@@ -418,7 +385,7 @@ def _regime_family_col_types(owned_columns: tuple[str, ...]) -> dict[str, str]:
 
 def _write_family_results(
     conn: Any,
-    spec: RegimeWriteSpec,
+    spec: RegimeFamilySpec,
     symbol: str,
     tf: str,
     update_rows: list[tuple],
@@ -433,13 +400,13 @@ def _write_family_results(
     module and that module's --refresh exclusion both derive from.
     """
     with tracer.start_as_current_span(
-        spec.span_name, attributes={"symbol": symbol, "tf": tf}
+        _span_name(spec), attributes={"symbol": symbol, "tf": tf}
     ) as span:
         try:
             n_updated = _bulk_update_by_key(
                 conn,
                 table="feature_vectors",
-                temp_table=spec.staging_table,
+                temp_table=_staging_table(spec),
                 key_cols=["symbol", "tf", "bar_ts"],
                 set_cols=list(spec.owned_columns),
                 col_types=_regime_family_col_types(spec.owned_columns),
@@ -463,18 +430,20 @@ def _write_family_results(
             raise
 
 
-def _record_null_remaining(conn: Any, spec: RegimeWriteSpec, symbols: list[str]) -> None:
-    """One grouped query at the end of a run: NULL labels left per (symbol, tf), set on the
-    `REGIME_WRITER_NULL_REGIME_REMAINING` gauge with `regime_column` so the two families are
-    separate series. Replaces the per-cell count(*) each write used to issue."""
-    if spec.regime_column not in _DISCOVERY_LABEL_COLUMNS:
-        raise ValueError(f"unknown regime column {spec.regime_column!r}")
+def _record_null_remaining(
+    conn: Any, spec: RegimeFamilySpec, symbols: list[str], tfs: list[str]
+) -> None:
+    """One grouped query at the end of a run: NULL labels left per (symbol, tf) of the
+    timeframes the run covered, set on the `REGIME_WRITER_NULL_REGIME_REMAINING` gauge with
+    `regime_column` so the two families are separate series. Replaces the per-cell count(*) each
+    write used to issue. The `tf` filter keeps the count off the compressed chunks of the
+    timeframes this run did not touch."""
     with conn.cursor() as cur:
-        # regime_column is one of the two constants above, never external input.
+        # regime_column comes from the family table (`FAMILY_SPECS`), never external input.
         cur.execute(
             f"SELECT symbol, tf, count(*) FILTER (WHERE {spec.regime_column} IS NULL) "
-            "FROM feature_vectors WHERE symbol = ANY(%s) GROUP BY symbol, tf",
-            (symbols,),
+            "FROM feature_vectors WHERE symbol = ANY(%s) AND tf = ANY(%s) GROUP BY symbol, tf",
+            (symbols, tfs),
         )
         rows = cur.fetchall()
     conn.commit()
@@ -527,16 +496,17 @@ def _discover_symbols(conn: Any, label_column: str = "regime") -> list[str]:
 class _WorkerArgs(NamedTuple):
     """What crosses the ProcessPoolExecutor boundary, by field name.
 
-    `config` carries every hmm_* attribute the kernels read (`load_hmm_config_fields`), loaded
-    once in main(): both families and every timeframe's schedule are in it, so a worker needs
-    no per-family parameter plumbing.
+    `params` carries every APR value the kernels read (`HmmConfig.from_values`), loaded once
+    in main(): both families and every timeframe's schedule are in it, so a worker needs no
+    per-family parameter plumbing. `block_rows` is `infra.hmm.rolling_block_rows`.
     """
 
     symbol: str
     tfs: list[str]
     dsn: str
     regime_column: str
-    config: Any
+    params: HmmConfig
+    block_rows: int
 
 
 def _run_symbol_worker(args: _WorkerArgs) -> dict:
@@ -549,10 +519,11 @@ def _run_symbol_worker(args: _WorkerArgs) -> dict:
     Returns:
         dict with keys:
           symbol: str
-          results: list of {tf, update_rows, converged} or {tf, error}
+          results: list of {tf, update_rows} (update_rows None when nothing was written) or
+                   {tf, error}
           error: str | None  (set if connection itself failed)
     """
-    symbol, tfs, dsn, regime_column, config = args
+    symbol, tfs, dsn, regime_column, params, block_rows = args
     spec = _SPEC_BY_COLUMN[regime_column]
 
     setup_service_logging("logs/regime_writer.log")
@@ -567,15 +538,13 @@ def _run_symbol_worker(args: _WorkerArgs) -> dict:
 
         for tf in tfs:
             try:
-                bars = _fetch_bars(conn, symbol, tf)
-                result = (
-                    None if bars is None else _compute_family_rows(bars, spec, config, tf, symbol)
+                bars = _fetch_bars(conn, symbol, tf, with_volume=spec.needs_volume)
+                update_rows = (
+                    None
+                    if bars is None
+                    else _compute_family_rows(bars, spec, params, tf, symbol, block_rows)
                 )
-                if result is None:
-                    results.append({"tf": tf, "update_rows": None, "converged": False})
-                else:
-                    update_rows, converged = result
-                    results.append({"tf": tf, "update_rows": update_rows, "converged": converged})
+                results.append({"tf": tf, "update_rows": update_rows})
             except Exception as error:
                 worker_log.error(
                     "regime_writer.worker_cell_failed",
@@ -702,11 +671,11 @@ def main() -> None:
             )
             try:
                 cfg = _load_config_service_shared(_conn)
-                # Every hmm_* value both families and every timeframe's schedule read, from
-                # the same APR keys and fallbacks the kernels' golden was captured under.
-                hmm_fields = load_hmm_config_fields(cfg)
-                config = SimpleNamespace(**hmm_fields)
-                n_components, covariance_type = family_model_fields(config, spec.family)
+                # Every APR value both families and every timeframe's schedule read, from the
+                # same keys and fallbacks the kernels' golden was captured under.
+                params = HmmConfig.from_values(cfg.get_sync)
+                block_rows = load_rolling_block_rows(cfg.get_sync)
+                n_components, covariance_type = spec.model_fields(params)
 
                 symbols = (
                     args.symbols
@@ -730,17 +699,18 @@ def main() -> None:
                 tfs=tfs,
                 n_components=n_components,
                 covariance_type=covariance_type,
-                n_iter=config.hmm_n_iter,
+                n_iter=params.hmm_n_iter,
                 n_workers=n_workers,
-                min_hold_bars=config.hmm_min_hold_bars,
-                min_state_occupation=config.hmm_min_state_occupation,
-                churn_window=config.hmm_churn_window,
-                rolling_block_rows=config.hmm_rolling_block_rows,
+                min_hold_bars=params.hmm_min_hold_bars,
+                min_state_occupation=params.hmm_min_state_occupation,
+                churn_window=params.hmm_churn_window,
+                rolling_block_rows=block_rows,
                 regime_column=spec.regime_column,
             )
 
             worker_args = [
-                _WorkerArgs(symbol, tfs, dsn, spec.regime_column, config) for symbol in symbols
+                _WorkerArgs(symbol, tfs, dsn, spec.regime_column, params, block_rows)
+                for symbol in symbols
             ]
 
             # Pre-compile the JIT in the main process before spawning workers.
@@ -811,7 +781,7 @@ def main() -> None:
                                 except Exception:
                                     pass
                 try:
-                    _record_null_remaining(write_conn, spec, symbols)
+                    _record_null_remaining(write_conn, spec, symbols, tfs)
                 except Exception as error:
                     _logger.error("regime_writer.null_remaining_failed", error=str(error))
                     try:

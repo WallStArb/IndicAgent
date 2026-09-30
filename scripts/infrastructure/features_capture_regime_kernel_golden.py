@@ -41,7 +41,6 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -49,6 +48,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.intelligence.features.kernels._hmm import FAMILY_SPECS, HmmConfig  # noqa: E402
 from tests.unit.intelligence.regime_kernel_fixtures import (  # noqa: E402
     FAMILY_LABELS,
     N_NUMERIC_COLUMNS,
@@ -66,67 +66,32 @@ SAMPLE: tuple[tuple[str, str], ...] = (
 )
 FAMILIES = ("trend", "volatility")
 
-# The writer's own APR fallbacks (main() in services/regime_writer.py), key -> fallback.
-_WRITER_FALLBACKS: dict[str, Any] = {
-    "feature.hmm.n_components": 3,
-    "feature.hmm.vol_window": 20,
-    "feature.hmm.n_iter": 200,
-    "alpha.hmm.random_state": 42,
-    "feature.hmm.obs_momentum_window": 20,
-    "feature.hmm.obs_vol_of_vol_window": 20,
-    "feature.hmm.covariance_type": "full",
-    "feature.hmm.min_hold_bars": 3,
-    "feature.hmm.full_cov_min_obs": 500,
-    "feature.hmm.min_state_occupation": 0.05,
-    "feature.hmm.churn_window": 10,
-    "feature.hmm.min_obs_factor": 50,
-    "alpha.hmm_volatility.n_components": 3,
-    "alpha.hmm_volatility.vol_window": 20,
-    "alpha.hmm_volatility.vol_of_vol_window": 60,
-    "alpha.hmm_volatility.covariance_type": "full",
-    "alpha.hmm.walk_forward.refit_every_bars.5m": 19800,
-    "alpha.hmm.walk_forward.initial_warmup_bars.5m": 39600,
-    "alpha.hmm.walk_forward.refit_every_bars.15m": 6600,
-    "alpha.hmm.walk_forward.initial_warmup_bars.15m": 13200,
-    "alpha.hmm.walk_forward.refit_every_bars.1h": 1650,
-    "alpha.hmm.walk_forward.initial_warmup_bars.1h": 3300,
-    "alpha.hmm.walk_forward.refit_every_bars.1d": 252,
-    "alpha.hmm.walk_forward.initial_warmup_bars.1d": 504,
-}
-
-_SQL_SPAN = "SELECT timestamp, close, volume FROM market_data_ohlcv_tradeable WHERE symbol = %s AND timeframe = %s ORDER BY timestamp ASC"
-
 
 def snapshot_apr(cfg: Any) -> dict[str, Any]:
-    """Every HMM APR key through ConfigService, with the writer's fallbacks."""
-    return {key: cfg.get_sync(key, fallback) for key, fallback in _WRITER_FALLBACKS.items()}
+    """Every HMM APR key the kernels read, as `cfg.get_sync` returns it.
+
+    The loader (`HmmConfig.from_values`) is the only list of keys and defaults; a recording
+    getter over it makes the snapshot exactly what the writer would have used, so it cannot
+    drift from the writer's fallbacks."""
+    seen: dict[str, Any] = {}
+
+    def get(key: str, default: Any) -> Any:
+        seen[key] = cfg.get_sync(key, default)
+        return seen[key]
+
+    HmmConfig.from_values(get)
+    return seen
 
 
 def run_kernel_full(
     apr: dict[str, Any], bars: dict[str, np.ndarray], family: str, tf: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(code, segment status, numeric columns as float32) from the registry kernels."""
-    from src.intelligence.features.contract.registry import compute_kernels, default_registry
-    from src.intelligence.features.kernels import regime as regime_kernels
+    """(code, segment status, numeric columns as float32) from `compute_regime_columns`."""
+    from src.intelligence.features.kernels.regime import compute_regime_columns
 
-    fields = regime_kernels.hmm_config_fields_from_values(
-        lambda key, default: apr.get(key, default)
-    )
-    config = SimpleNamespace(**fields)
-    spec = regime_kernels.FAMILY_KERNELS[family]
-    n = len(bars["ts"])
-    inputs = {
-        "ts": bars["ts"],
-        "close": bars["close"],
-        "volume": bars["volume"],
-        "tf": np.array([tf] * n, dtype=object),
-    }
-    out = compute_kernels(
-        default_registry(),
-        inputs,
-        config,
-        outputs=[spec.code_output, spec.status_output, *spec.numeric_outputs],
-    )
+    params = HmmConfig.from_values(lambda key, default: apr.get(key, default))
+    spec = FAMILY_SPECS[family]
+    out = compute_regime_columns(bars["close"], bars["volume"], params, tf, spec)
     columns = np.stack([np.asarray(out[name], dtype=np.float32) for name in spec.numeric_outputs])
     return (
         np.asarray(out[spec.code_output], dtype=np.float64),
@@ -221,20 +186,27 @@ def _same(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) ->
     return bad
 
 
+def _epoch_ns(timestamps: list) -> np.ndarray:
+    """int64 epoch nanoseconds of tz-aware datetimes (whole seconds, as the bars are)."""
+    return np.array([int(t.timestamp()) * 1_000_000_000 for t in timestamps], dtype=np.int64)
+
+
 def _fetch_real_bars(dsn: str) -> dict[str, dict[str, np.ndarray]]:
+    """The sample's bars through the regime writer's own fetch (imported here, not at module
+    level: importing the writer opens its log file)."""
     import psycopg
 
+    from services.regime_writer import _fetch_bars
+
     out: dict[str, dict[str, np.ndarray]] = {}
-    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+    with psycopg.connect(dsn) as conn:
         for symbol, tf in SAMPLE:
-            cur.execute(_SQL_SPAN, (symbol, tf))
-            rows = cur.fetchall()
+            bars = _fetch_bars(conn, symbol, tf)
+            assert bars is not None, f"no bars for {symbol}/{tf}"
             out[f"{symbol}/{tf}"] = {
-                "ts": np.array(
-                    [int(r[0].timestamp()) * 1_000_000_000 for r in rows], dtype=np.int64
-                ),
-                "close": np.array([float(r[1]) for r in rows], dtype=np.float64),
-                "volume": np.array([float(r[2]) for r in rows], dtype=np.float64),
+                "ts": _epoch_ns(bars["timestamps"]),
+                "close": bars["close"],
+                "volume": bars["volume"],
             }
     return out
 

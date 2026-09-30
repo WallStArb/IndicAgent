@@ -1,10 +1,11 @@
 """Walk-forward HMM math for the regime kernels (moved from services/regime_writer.py, 186-13).
 
 Pure functions over arrays: the observation matrices, the causal forward filter and smoother,
-the label maps, and the walk-forward fit-and-decode loop. `kernels/regime.py` wraps them as
-registry kernels; `services/regime_writer.py` re-imports the moved names so existing callers
-keep working. The leading underscore keeps `discover_kernels` from treating this module as a
-kernel origin.
+the label maps, and the walk-forward fit-and-decode loop, plus the two declarations every
+caller shares: `HmmConfig` (every APR key the kernels read, with its default) and the per-family
+`RegimeFamilySpec` spec table. `kernels/regime.py` wraps them as registry kernels;
+`services/regime_writer.py` re-imports the moved names so existing callers keep working. The
+leading underscore keeps `discover_kernels` from treating this module as a kernel origin.
 
 CORRECTNESS INVARIANTS (unchanged by the move):
 - Decoding uses the forward filter only; `model.predict()` (Viterbi) leaks the future.
@@ -15,7 +16,10 @@ CORRECTNESS INVARIANTS (unchanged by the move):
 
 from __future__ import annotations
 
+import dataclasses
 import math
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -24,31 +28,28 @@ from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 from threadpoolctl import threadpool_limits
 
+from src.intelligence.features.feature_vector_persistence import (
+    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    REGIME_WRITER_OWNED_COLUMN_NAMES,
+)
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 
 _logger = structlog.get_logger(__name__)
 
-# Minimum obs rows per (symbol, tf) = n_components * this factor.
-# Below this, the fit is meaningless (too few state transitions to estimate A).
-# APR fallback default, live value read from feature.hmm.min_obs_factor (migration 275,
-# todo 009 Part A).
-_MIN_OBS_FACTOR_DEFAULT = 50
+# Label-affecting numerics carried over verbatim from the pre-186 writer and read through APR
+# (`alpha.hmm.covariance_ridge`, `alpha.hmm.momentum_vol_floor`, migration 411). These are the
+# APR fallback defaults only: changing either in APR invalidates every stored regime label.
+# 1e-300 (the log and variance floors below) is a mathematical guard against log(0) and
+# division by zero, not a tunable, and N_NUMERIC_COLUMNS is a schema identifier; both stay
+# constants.
+_DEFAULT_COVARIANCE_RIDGE = 1e-6
+_DEFAULT_MOMENTUM_VOL_FLOOR = 1e-8
 
-# todo 248 walk-forward HMM: (refit_every_bars, initial_warmup_bars) per tf, APR
-# fallback defaults only (live values read per-tf from
-# alpha.hmm.walk_forward.refit_every_bars.<tf> / .initial_warmup_bars.<tf>, migration
-# TBD). 1h is the pilot's directly-measured value; 15m is the broadened pilot's own
-# independently-confirmed value (same schedule, 4x bar density); 5m scales the same
-# schedule by its own 12x density ratio (not independently piloted); 1d is a fresh,
-# unpiloted ~1yr-refit/~2yr-warmup estimate at daily bar density. See
-# docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md for the full derivation and
-# per-tf certainty caveats.
-_WALK_FORWARD_DEFAULT_PARAMS: dict[str, tuple[int, int]] = {
-    "5m": (19800, 39600),
-    "15m": (6600, 13200),
-    "1h": (1650, 3300),
-    "1d": (252, 504),
-}
+# Rows per block of the obs-builder rolling reductions: bounds transient memory, never changes
+# output (tests pin bit equality at every block size). Callers read `infra.hmm.rolling_block_rows`
+# and pass it to the kernels as an argument; this is the fallback when they do not.
+ROLLING_BLOCK_ROWS_KEY = "infra.hmm.rolling_block_rows"
+DEFAULT_ROLLING_BLOCK_ROWS = 16384
 
 # Canonical regime label set — no other values written to DB.
 _LABEL_TRENDING_UP = "trending_up"
@@ -86,6 +87,163 @@ _VOLATILITY_VOCAB: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# The one declaration of the HMM parameters
+# ---------------------------------------------------------------------------
+
+WALK_FORWARD_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "1d")
+
+
+def _apr(key: str) -> dict[str, str]:
+    return {"apr_key": key}
+
+
+def _cast(f: dataclasses.Field) -> Callable[[Any], Any]:
+    """The cast for a field's APR value: the type of its default (int, float or str)."""
+    cast: Callable[[Any], Any] = type(f.default)
+    return cast
+
+
+@dataclass(frozen=True)
+class HmmConfig:
+    """Every APR-backed value the regime kernels read: field name, APR key and default, declared
+    once. The loader (`from_values`), the golden capture, the writer and the rebuild all read
+    this class; `FeatureFactoryConfig` carries the same fields (the registry hands kernels that
+    config) and a unit test holds its defaults equal to these.
+
+    The type of a field's default is the cast applied to its APR value. Changing any of these
+    values invalidates every stored regime label (each fit is path dependent).
+    `infra.hmm.rolling_block_rows` is not a field because it does not change output
+    (`ROLLING_BLOCK_ROWS_KEY`; callers pass it to the kernels as an argument).
+
+    Per-tf schedule (`alpha.hmm.walk_forward.*`, todo 248): (refit_every_bars,
+    initial_warmup_bars). 1h is the pilot's directly-measured value (1650, 3300); 15m is the
+    broadened pilot's own independently-confirmed value (same schedule, 4x bar density); 5m
+    scales the same schedule by its own 12x density ratio (not independently piloted); 1d is a
+    fresh, unpiloted ~1yr-refit/~2yr-warmup estimate at daily bar density. See
+    docs/analysis/hmm-parameter-lookahead-pilot-spy-1h.md for the full derivation and per-tf
+    certainty caveats.
+    """
+
+    hmm_n_components: int = field(default=3, metadata=_apr("feature.hmm.n_components"))
+    hmm_vol_window: int = field(default=20, metadata=_apr("feature.hmm.vol_window"))
+    hmm_momentum_window: int = field(default=20, metadata=_apr("feature.hmm.obs_momentum_window"))
+    hmm_vol_of_vol_window: int = field(
+        default=20, metadata=_apr("feature.hmm.obs_vol_of_vol_window")
+    )
+    hmm_n_iter: int = field(default=200, metadata=_apr("feature.hmm.n_iter"))
+    hmm_random_state: int = field(default=42, metadata=_apr("alpha.hmm.random_state"))
+    hmm_covariance_type: str = field(default="full", metadata=_apr("feature.hmm.covariance_type"))
+    hmm_min_hold_bars: int = field(default=3, metadata=_apr("feature.hmm.min_hold_bars"))
+    hmm_full_cov_min_obs: int = field(default=500, metadata=_apr("feature.hmm.full_cov_min_obs"))
+    hmm_min_state_occupation: float = field(
+        default=0.05, metadata=_apr("feature.hmm.min_state_occupation")
+    )
+    hmm_churn_window: int = field(default=10, metadata=_apr("feature.hmm.churn_window"))
+    # Minimum obs rows per (symbol, tf) = n_components * this factor; below it the fit is
+    # meaningless (too few state transitions to estimate A). Migration 275, todo 009 Part A.
+    hmm_min_obs_factor: int = field(default=50, metadata=_apr("feature.hmm.min_obs_factor"))
+    hmm_covariance_ridge: float = field(
+        default=_DEFAULT_COVARIANCE_RIDGE, metadata=_apr("alpha.hmm.covariance_ridge")
+    )
+    hmm_momentum_vol_floor: float = field(
+        default=_DEFAULT_MOMENTUM_VOL_FLOOR, metadata=_apr("alpha.hmm.momentum_vol_floor")
+    )
+    hmm_volatility_n_components: int = field(
+        default=3, metadata=_apr("alpha.hmm_volatility.n_components")
+    )
+    hmm_volatility_vol_window: int = field(
+        default=20, metadata=_apr("alpha.hmm_volatility.vol_window")
+    )
+    hmm_volatility_vol_of_vol_window: int = field(
+        default=60, metadata=_apr("alpha.hmm_volatility.vol_of_vol_window")
+    )
+    hmm_volatility_covariance_type: str = field(
+        default="full", metadata=_apr("alpha.hmm_volatility.covariance_type")
+    )
+    hmm_refit_every_bars_5m: int = field(
+        default=19800, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.5m")
+    )
+    hmm_initial_warmup_bars_5m: int = field(
+        default=39600, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.5m")
+    )
+    hmm_refit_every_bars_15m: int = field(
+        default=6600, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.15m")
+    )
+    hmm_initial_warmup_bars_15m: int = field(
+        default=13200, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.15m")
+    )
+    hmm_refit_every_bars_1h: int = field(
+        default=1650, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1h")
+    )
+    hmm_initial_warmup_bars_1h: int = field(
+        default=3300, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1h")
+    )
+    hmm_refit_every_bars_1d: int = field(
+        default=252, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1d")
+    )
+    hmm_initial_warmup_bars_1d: int = field(
+        default=504, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1d")
+    )
+
+    @classmethod
+    def apr_keys(cls) -> tuple[str, ...]:
+        """Every APR key the loader reads."""
+        return tuple(f.metadata["apr_key"] for f in dataclasses.fields(cls))
+
+    @classmethod
+    def from_values(cls, get: Callable[[str, Any], Any]) -> HmmConfig:
+        """From `get(key, default)`: `ConfigService.get_sync` for a live load, a dict lookup
+        for a stored snapshot, a recording wrapper to capture the snapshot."""
+        return cls(
+            **{
+                f.name: _cast(f)(get(f.metadata["apr_key"], f.default))
+                for f in dataclasses.fields(cls)
+            }
+        )
+
+    @classmethod
+    def from_config(cls, config: Any) -> HmmConfig:
+        """From any object carrying the hmm_* attributes (`FeatureFactoryConfig`); a missing
+        attribute raises rather than taking a default."""
+        if isinstance(config, cls):
+            return config
+        return cls(**{f.name: _cast(f)(getattr(config, f.name)) for f in dataclasses.fields(cls)})
+
+    def walk_forward_schedule(self, tf: str) -> tuple[int, int]:
+        """(refit_every_bars, initial_warmup_bars) for `tf`; ValueError outside 5m/15m/1h/1d."""
+        if tf not in WALK_FORWARD_TIMEFRAMES:
+            raise ValueError(
+                f"walk-forward HMM schedule is defined for {WALK_FORWARD_TIMEFRAMES}, got {tf!r}"
+            )
+        return (
+            int(getattr(self, f"hmm_refit_every_bars_{tf}")),
+            int(getattr(self, f"hmm_initial_warmup_bars_{tf}")),
+        )
+
+
+def hmm_config_fields_from_values(get: Callable[[str, Any], Any]) -> dict[str, Any]:
+    """The `FeatureFactoryConfig` hmm_* fields from `get(key, default)` (see
+    `HmmConfig.from_values`), for callers that build that config with `**fields`."""
+    return dataclasses.asdict(HmmConfig.from_values(get))
+
+
+def load_rolling_block_rows(get: Callable[[str, Any], Any]) -> int:
+    """`infra.hmm.rolling_block_rows` from `get(key, default)`."""
+    return int(get(ROLLING_BLOCK_ROWS_KEY, DEFAULT_ROLLING_BLOCK_ROWS))
+
+
+# Fallback defaults re-exported for callers of the pre-186 names (ops scripts, tests).
+_MIN_OBS_FACTOR_DEFAULT = HmmConfig.hmm_min_obs_factor
+_WALK_FORWARD_DEFAULT_PARAMS: dict[str, tuple[int, int]] = {
+    tf: (
+        getattr(HmmConfig, f"hmm_refit_every_bars_{tf}"),
+        getattr(HmmConfig, f"hmm_initial_warmup_bars_{tf}"),
+    )
+    for tf in WALK_FORWARD_TIMEFRAMES
+}
+
+
+# ---------------------------------------------------------------------------
 # Core HMM functions
 # ---------------------------------------------------------------------------
 
@@ -109,44 +267,32 @@ def _rolling(arr: np.ndarray, window: int, fn, block_rows: int | None = None) ->
     return np.concatenate(parts)
 
 
-def _build_obs_matrix(
-    timestamps: list,
-    closes: list[float] | np.ndarray,
-    volumes: list[float] | np.ndarray,
+def _observations_trend(
+    closes: np.ndarray,
+    volumes: np.ndarray,
     vol_window: int,
     momentum_window: int,
     vol_of_vol_window: int,
     block_rows: int | None = None,
-) -> tuple[np.ndarray, list]:
-    """Build (n_valid, 5) observation matrix from OHLCV prices and volumes.
+    momentum_vol_floor: float = _DEFAULT_MOMENTUM_VOL_FLOOR,
+) -> tuple[np.ndarray, int]:
+    """(obs_matrix, valid_start) of the trend family; see `_build_obs_matrix` for the columns.
 
-    Observation dimensions:
-      [0] log_return   = ln(close[t] / close[t-1])
-      [1] realized_vol = rolling std of log_returns over vol_window bars
-      [2] momentum     = sum(log_returns[-momentum_window:]) / (realized_vol + eps)
-                         Directional drift signal, vol-normalized.
-      [3] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars
-                         Regime transition indicator: stable regimes have stable vol.
-      [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
-                         Volume anomaly relative to recent baseline.
-
-    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
-    All rows before valid_start are discarded (insufficient window history).
-    Returns (obs_matrix, valid_timestamps).
+    `valid_start` indexes the log-return series: obs row j is log-return row `valid_start + j`,
+    which is bar row `valid_start + j + 1`. Insufficient input returns an empty matrix.
     """
-    closes_arr = np.array(closes, dtype=float)
-    volumes_arr = np.maximum(np.array(volumes, dtype=float), 1.0)  # guard zero volume
+    closes_arr = np.asarray(closes, dtype=float)
+    volumes_arr = np.maximum(np.asarray(volumes, dtype=float), 1.0)  # guard zero volume
 
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
     log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
-    ts_shifted = timestamps[1:]
 
     if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
-        return np.empty((0, 5), dtype=float), []
+        return np.empty((0, 5), dtype=float), 0
 
     realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
     mom_raw = _rolling(log_returns, momentum_window, np.sum, block_rows)
-    momentum = mom_raw / np.maximum(realized_vol, 1e-8)
+    momentum = mom_raw / np.maximum(realized_vol, momentum_vol_floor)
     vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
     rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean, block_rows)
     rel_volume = log_volumes - rolling_mean_logvol
@@ -161,8 +307,77 @@ def _build_obs_matrix(
             rel_volume[valid_start:],
         ]
     )
-    valid_ts = ts_shifted[valid_start:]
-    return obs, valid_ts
+    return obs, valid_start
+
+
+def _build_obs_matrix(
+    timestamps: list,
+    closes: list[float] | np.ndarray,
+    volumes: list[float] | np.ndarray,
+    vol_window: int,
+    momentum_window: int,
+    vol_of_vol_window: int,
+    block_rows: int | None = None,
+    momentum_vol_floor: float = _DEFAULT_MOMENTUM_VOL_FLOOR,
+) -> tuple[np.ndarray, list]:
+    """Build (n_valid, 5) observation matrix from OHLCV prices and volumes.
+
+    Observation dimensions:
+      [0] log_return   = ln(close[t] / close[t-1])
+      [1] realized_vol = rolling std of log_returns over vol_window bars
+      [2] momentum     = sum(log_returns[-momentum_window:]) / (realized_vol + eps)
+                         Directional drift signal, vol-normalized; eps is the
+                         `momentum_vol_floor` (`alpha.hmm.momentum_vol_floor`).
+      [3] vol_of_vol   = rolling std of realized_vol over vol_of_vol_window bars
+                         Regime transition indicator: stable regimes have stable vol.
+      [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
+                         Volume anomaly relative to recent baseline.
+
+    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
+    All rows before valid_start are discarded (insufficient window history).
+    Returns (obs_matrix, valid_timestamps).
+    """
+    obs, valid_start = _observations_trend(
+        np.asarray(closes, dtype=float),
+        np.asarray(volumes, dtype=float),
+        vol_window,
+        momentum_window,
+        vol_of_vol_window,
+        block_rows,
+        momentum_vol_floor,
+    )
+    if len(obs) == 0:
+        return obs, []
+    return obs, timestamps[1:][valid_start:]
+
+
+def _observations_volatility(
+    closes: np.ndarray,
+    vol_window: int,
+    vol_of_vol_window: int,
+    block_rows: int | None = None,
+) -> tuple[np.ndarray, int]:
+    """(obs_matrix, valid_start) of the volatility family; see `_build_obs_matrix_volatility`
+    for the columns and the start index. `valid_start` indexes the log-return series, as in
+    `_observations_trend`. Insufficient input returns an empty matrix."""
+    closes_arr = np.asarray(closes, dtype=float)
+
+    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
+
+    if len(log_returns) < vol_window + vol_of_vol_window - 1:
+        return np.empty((0, 2), dtype=float), 0
+
+    realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
+
+    valid_start = vol_window + vol_of_vol_window - 2
+    obs = np.column_stack(
+        [
+            realized_vol[valid_start:],
+            vol_of_vol[valid_start:],
+        ]
+    )
+    return obs, valid_start
 
 
 def _build_obs_matrix_volatility(
@@ -216,26 +431,12 @@ def _build_obs_matrix_volatility(
     vol_window + vol_of_vol_window - 1 log returns) returns
     (np.empty((0, 2)), []) rather than raising.
     """
-    closes_arr = np.array(closes, dtype=float)
-
-    log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
-    ts_shifted = timestamps[1:]
-
-    if len(log_returns) < vol_window + vol_of_vol_window - 1:
-        return np.empty((0, 2), dtype=float), []
-
-    realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
-    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
-
-    valid_start = vol_window + vol_of_vol_window - 2
-    obs = np.column_stack(
-        [
-            realized_vol[valid_start:],
-            vol_of_vol[valid_start:],
-        ]
+    obs, valid_start = _observations_volatility(
+        np.asarray(closes, dtype=float), vol_window, vol_of_vol_window, block_rows
     )
-    valid_ts = ts_shifted[valid_start:]
-    return obs, valid_ts
+    if len(obs) == 0:
+        return obs, []
+    return obs, timestamps[1:][valid_start:]
 
 
 def _stationary_distribution(A: np.ndarray) -> np.ndarray:
@@ -267,12 +468,17 @@ def _log_emit_diag(obs: np.ndarray, means: np.ndarray, variances: np.ndarray) ->
     )
 
 
-def _log_emit_full(obs: np.ndarray, means: np.ndarray, covars: np.ndarray) -> np.ndarray:
+def _log_emit_full(
+    obs: np.ndarray,
+    means: np.ndarray,
+    covars: np.ndarray,
+    ridge: float = _DEFAULT_COVARIANCE_RIDGE,
+) -> np.ndarray:
     """Log emission (n, K) for full-covariance Gaussian. covars shape (K, d, d).
 
-    Uses Cholesky decomposition for numerical stability. Regularizes with 1e-6 * I
-    to guard near-singular covariance matrices (rare but possible on flat TFs).
-    Falls back to diagonal on Cholesky failure per state.
+    Uses Cholesky decomposition for numerical stability. Regularizes with `ridge` * I
+    (`alpha.hmm.covariance_ridge`) to guard near-singular covariance matrices (rare but
+    possible on flat TFs). Falls back to diagonal on Cholesky failure per state.
     """
     n, d = obs.shape
     K = means.shape[0]
@@ -280,7 +486,7 @@ def _log_emit_full(obs: np.ndarray, means: np.ndarray, covars: np.ndarray) -> np
     log_2pi_d = d * math.log(2 * math.pi)
     for k in range(K):
         diff = obs - means[k]  # (n, d)
-        cov = covars[k] + np.eye(d) * 1e-6
+        cov = covars[k] + np.eye(d) * ridge
         try:
             L = np.linalg.cholesky(cov)
             log_det = 2.0 * np.sum(np.log(np.maximum(np.diag(L), 1e-300)))
@@ -295,7 +501,11 @@ def _log_emit_full(obs: np.ndarray, means: np.ndarray, covars: np.ndarray) -> np
 
 
 def _compute_log_emit(
-    obs: np.ndarray, means: np.ndarray, covars: np.ndarray, cov_type: str
+    obs: np.ndarray,
+    means: np.ndarray,
+    covars: np.ndarray,
+    cov_type: str,
+    ridge: float = _DEFAULT_COVARIANCE_RIDGE,
 ) -> np.ndarray:
     """Dispatch to _log_emit_full/_log_emit_diag based on a fitted model's own
     covariance_type, handling the diag-covars-from-a-full-shaped-array extraction
@@ -309,7 +519,7 @@ def _compute_log_emit(
     factoring it out means a future fix (e.g. to the ndim==3 guard) lands once.
     """
     if cov_type == "full":
-        return _log_emit_full(obs, means, covars)
+        return _log_emit_full(obs, means, covars, ridge)
     d = means.shape[1]
     covars_diag = covars[:, np.arange(d), np.arange(d)] if covars.ndim == 3 else covars
     return _log_emit_diag(obs, means, covars_diag)
@@ -740,6 +950,7 @@ def _walk_forward_hmm_full(
     tf: str | None = None,
     vocab: dict[str, str] | None = None,
     min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
+    covariance_ridge: float = _DEFAULT_COVARIANCE_RIDGE,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
@@ -791,7 +1002,10 @@ def _walk_forward_hmm_full(
         {
             "seg_start": int, "seg_end": int,  # half-open [seg_start, seg_end) bar-index
                 range into obs_matrix / valid_ts (both 1:1 index-aligned by construction)
-            "labels": list[str],        # len == seg_end - seg_start
+            "states": np.ndarray[int],  # smoothed state index per bar, len == seg_end - seg_start
+            "state_labels": tuple[str, ...],  # label of state k, from this segment's own fit
+                (a bar's label is `state_labels[states[i]]`; two states can share a label at
+                K >= 4, so run lengths and churn count label changes, not state changes)
             "p_up": list[float], "p_ranging": list[float], "p_down": list[float],
                 # probability mass on this segment's HIGH/MID/LOW state groups (per its
                 # own vocab, via _state_groups_by_vocab) -- for _TREND_VOCAB these are
@@ -876,11 +1090,13 @@ def _walk_forward_hmm_full(
             pi0 = _seed_prior_from_label(label_map, prior_label, n_components, stationary_prior)
 
         seg_scaled = scaler.transform(obs_matrix[boundary:seg_end])
-        log_emit = _compute_log_emit(seg_scaled, model.means_, model.covars_, eff_cov_type)
+        log_emit = _compute_log_emit(
+            seg_scaled, model.means_, model.covars_, eff_cov_type, covariance_ridge
+        )
         log_A = np.log(np.maximum(model.transmat_, 1e-300))
         raw_states, alpha_history = _alpha_pass_jit(log_emit, log_A, pi0)
         smoothed = _smooth_states(raw_states, min_hold_bars)
-        seg_labels = [label_map[int(s)] for s in smoothed]
+        state_labels = tuple(label_map[k] for k in range(n_components))
 
         # The gate sees the model's own training slice, not the segment it is about to label
         # (see the Causality paragraph in the docstring).
@@ -888,7 +1104,7 @@ def _walk_forward_hmm_full(
         # any state, so only the slice length is needed and the decode is skipped.
         if converged:
             train_log_emit = _compute_log_emit(
-                train_scaled, model.means_, model.covars_, eff_cov_type
+                train_scaled, model.means_, model.covars_, eff_cov_type, covariance_ridge
             )
             train_raw, _ = _alpha_pass_jit(train_log_emit, log_A, stationary_prior)
             train_smoothed = _smooth_states(train_raw, min_hold_bars)
@@ -918,7 +1134,8 @@ def _walk_forward_hmm_full(
             {
                 "seg_start": boundary,
                 "seg_end": seg_end,
-                "labels": seg_labels,
+                "states": smoothed,
+                "state_labels": state_labels,
                 "p_up": p_up_list,
                 "p_ranging": p_ranging_list,
                 "p_down": p_down_list,
@@ -929,7 +1146,7 @@ def _walk_forward_hmm_full(
                 "gate_info": gate_info,
             }
         )
-        prior_label = seg_labels[-1]
+        prior_label = state_labels[int(smoothed[-1])]
         boundary = seg_end
 
     return segment_results
@@ -1011,7 +1228,7 @@ def _hmm_seed_stability_check(
 
 
 # ---------------------------------------------------------------------------
-# Config and the one walk-forward family function (186-13)
+# The family specs and the one walk-forward family function (186-13)
 # ---------------------------------------------------------------------------
 
 TREND_LABELS: tuple[str, ...] = (
@@ -1026,6 +1243,9 @@ VOLATILITY_LABELS: tuple[str, ...] = (_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBU
 FAMILY_TREND = "trend"
 FAMILY_VOLATILITY = "volatility"
 
+# Numeric columns per family: three state-group probabilities, hmm_regime_prob, hmm_entropy,
+# hmm_duration, hmm_churn. A schema identifier (the owned-column tuples in
+# feature_vector_persistence), checked against them below, not a tunable.
 N_NUMERIC_COLUMNS = 7
 
 # segment_status codes: 0 no model yet, 1 written, 2 degenerate_occupation, 3 not_converged,
@@ -1041,60 +1261,6 @@ _GATE_REASON_STATUS = {
     "not_converged": STATUS_NOT_CONVERGED,
 }
 
-WALK_FORWARD_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "1d")
-
-
-def hmm_config_fields_from_values(get: Any) -> dict[str, Any]:
-    """`FeatureFactoryConfig` hmm_* fields from `get(key, fallback)`, the same APR keys and
-    fallbacks the writer's main() read (`_WALK_FORWARD_DEFAULT_PARAMS` for the per-tf schedule).
-
-    `get` is `ConfigService.get_sync` for a live load and a dict lookup for a stored snapshot.
-    """
-    fields: dict[str, Any] = {
-        "hmm_n_components": int(get("feature.hmm.n_components", 3)),
-        "hmm_vol_window": int(get("feature.hmm.vol_window", 20)),
-        "hmm_momentum_window": int(get("feature.hmm.obs_momentum_window", 20)),
-        "hmm_vol_of_vol_window": int(get("feature.hmm.obs_vol_of_vol_window", 20)),
-        "hmm_n_iter": int(get("feature.hmm.n_iter", 200)),
-        "hmm_random_state": int(get("alpha.hmm.random_state", 42)),
-        "hmm_covariance_type": str(get("feature.hmm.covariance_type", "full")),
-        "hmm_min_hold_bars": int(get("feature.hmm.min_hold_bars", 3)),
-        "hmm_full_cov_min_obs": int(get("feature.hmm.full_cov_min_obs", 500)),
-        "hmm_min_state_occupation": float(get("feature.hmm.min_state_occupation", 0.05)),
-        "hmm_churn_window": int(get("feature.hmm.churn_window", 10)),
-        "hmm_min_obs_factor": int(get("feature.hmm.min_obs_factor", _MIN_OBS_FACTOR_DEFAULT)),
-        "hmm_volatility_n_components": int(get("alpha.hmm_volatility.n_components", 3)),
-        "hmm_volatility_vol_window": int(get("alpha.hmm_volatility.vol_window", 20)),
-        "hmm_volatility_vol_of_vol_window": int(get("alpha.hmm_volatility.vol_of_vol_window", 60)),
-        "hmm_volatility_covariance_type": str(get("alpha.hmm_volatility.covariance_type", "full")),
-        "hmm_rolling_block_rows": int(get("infra.hmm.rolling_block_rows", 16384)),
-    }
-    for tf_key, (refit_default, warmup_default) in _WALK_FORWARD_DEFAULT_PARAMS.items():
-        fields[f"hmm_refit_every_bars_{tf_key}"] = int(
-            get(f"alpha.hmm.walk_forward.refit_every_bars.{tf_key}", refit_default)
-        )
-        fields[f"hmm_initial_warmup_bars_{tf_key}"] = int(
-            get(f"alpha.hmm.walk_forward.initial_warmup_bars.{tf_key}", warmup_default)
-        )
-    return fields
-
-
-def load_hmm_config_fields(cfg: Any) -> dict[str, Any]:
-    """`hmm_config_fields_from_values` over a loaded ConfigService."""
-    return hmm_config_fields_from_values(cfg.get_sync)
-
-
-def walk_forward_schedule(config: Any, tf: str) -> tuple[int, int]:
-    """(refit_every_bars, initial_warmup_bars) for `tf`; ValueError outside 5m/15m/1h/1d."""
-    if tf not in WALK_FORWARD_TIMEFRAMES:
-        raise ValueError(
-            f"walk-forward HMM schedule is defined for {WALK_FORWARD_TIMEFRAMES}, got {tf!r}"
-        )
-    return (
-        int(getattr(config, f"hmm_refit_every_bars_{tf}")),
-        int(getattr(config, f"hmm_initial_warmup_bars_{tf}")),
-    )
-
 
 class FamilyResult(NamedTuple):
     """Row-aligned walk-forward output for one family.
@@ -1108,32 +1274,136 @@ class FamilyResult(NamedTuple):
     numeric: np.ndarray
 
 
-class _FamilySpec(NamedTuple):
+def _trend_observations(
+    close: np.ndarray, volume: np.ndarray | None, params: HmmConfig, block_rows: int | None
+) -> tuple[np.ndarray, int]:
+    assert volume is not None  # the trend family declares volume as an input
+    return _observations_trend(
+        close,
+        volume,
+        params.hmm_vol_window,
+        params.hmm_momentum_window,
+        params.hmm_vol_of_vol_window,
+        block_rows,
+        params.hmm_momentum_vol_floor,
+    )
+
+
+def _volatility_observations(
+    close: np.ndarray, volume: np.ndarray | None, params: HmmConfig, block_rows: int | None
+) -> tuple[np.ndarray, int]:
+    return _observations_volatility(
+        close, params.hmm_volatility_vol_window, params.hmm_volatility_vol_of_vol_window, block_rows
+    )
+
+
+@dataclass(frozen=True, eq=False)
+class RegimeFamilySpec:
+    """Everything that differs between the two regime families, declared once: the vocabulary
+    and label order, the log event prefix, where its model fields live in `HmmConfig`, how the
+    three state-group probabilities map onto its numeric columns, its observation builder and
+    input names, and the feature_vectors column and kernel-output names.
+
+    `prob_order` indexes the (high-state mass, mid-state mass, low-state mass) triple that
+    `_alpha_history_to_regime_probs` returns as (p_up, p_ranging, p_down): trend columns are
+    (up, ranging, down) = (0, 1, 2) and volatility columns are (calm = the low group, elevated,
+    turbulent = the high group) = (2, 1, 0).
+    """
+
+    family: str
     vocab: dict[str, str]
     labels: tuple[str, ...]
     event_prefix: str
+    config_prefix: str
+    prob_order: tuple[int, int, int]
+    inputs: tuple[str, ...]
+    build_observations: Callable[
+        [np.ndarray, np.ndarray | None, HmmConfig, int | None], tuple[np.ndarray, int]
+    ]
+    regime_column: str
+    code_output: str
+    status_output: str
+    numeric_outputs: tuple[str, ...]
+
+    @property
+    def owned_columns(self) -> tuple[str, ...]:
+        """The feature_vectors columns this family writes, label first."""
+        return (self.regime_column, *self.numeric_outputs)
+
+    @property
+    def needs_volume(self) -> bool:
+        return "volume" in self.inputs
+
+    def model_fields(self, params: HmmConfig) -> tuple[int, str]:
+        """(n_components, covariance_type) of this family."""
+        return (
+            int(getattr(params, f"{self.config_prefix}_n_components")),
+            str(getattr(params, f"{self.config_prefix}_covariance_type")),
+        )
+
+    def code_of_state(self, state_labels: tuple[str, ...]) -> np.ndarray:
+        """Label-tuple index of each state's label (ValueError for a label outside the set)."""
+        return np.array([self.labels.index(label) for label in state_labels], dtype=np.int64)
 
 
-_FAMILY_SPECS: dict[str, _FamilySpec] = {
-    FAMILY_TREND: _FamilySpec(_TREND_VOCAB, TREND_LABELS, ""),
-    FAMILY_VOLATILITY: _FamilySpec(_VOLATILITY_VOCAB, VOLATILITY_LABELS, "volatility_"),
+FAMILY_SPECS: dict[str, RegimeFamilySpec] = {
+    FAMILY_TREND: RegimeFamilySpec(
+        family=FAMILY_TREND,
+        vocab=_TREND_VOCAB,
+        labels=TREND_LABELS,
+        event_prefix="",
+        config_prefix="hmm",
+        prob_order=(0, 1, 2),
+        inputs=("close", "volume", "tf"),
+        build_observations=_trend_observations,
+        regime_column=REGIME_WRITER_OWNED_COLUMN_NAMES[0],
+        code_output="_hmm_trend_code",
+        status_output="_hmm_trend_segment_status",
+        numeric_outputs=tuple(REGIME_WRITER_OWNED_COLUMN_NAMES[1:]),
+    ),
+    FAMILY_VOLATILITY: RegimeFamilySpec(
+        family=FAMILY_VOLATILITY,
+        vocab=_VOLATILITY_VOCAB,
+        labels=VOLATILITY_LABELS,
+        event_prefix="volatility_",
+        config_prefix="hmm_volatility",
+        prob_order=(2, 1, 0),
+        inputs=("close", "tf"),
+        build_observations=_volatility_observations,
+        regime_column=REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0],
+        code_output="_hmm_volatility_code",
+        status_output="_hmm_volatility_segment_status",
+        numeric_outputs=tuple(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:]),
+    ),
 }
+assert all(len(f.numeric_outputs) == N_NUMERIC_COLUMNS for f in FAMILY_SPECS.values())
 
 
-def family_model_fields(config: Any, family: str) -> tuple[int, str]:
-    """(n_components, covariance_type) of `family` from the config."""
-    if family == FAMILY_VOLATILITY:
-        return int(config.hmm_volatility_n_components), str(config.hmm_volatility_covariance_type)
-    return int(config.hmm_n_components), str(config.hmm_covariance_type)
+def _run_durations(
+    codes: np.ndarray, previous_code: int, carried_run: int
+) -> tuple[np.ndarray, int]:
+    """Bars the label has held at each row of one written segment, and the run length at its end.
+
+    A run that continues the previous written segment's last label (`previous_code`, -1 for
+    none) starts from `carried_run` instead of 0. Run-length arithmetic over the integer codes;
+    the same counts as incrementing a duration per row.
+    """
+    index = np.arange(len(codes))
+    starts_run = np.concatenate([[codes[0] != previous_code], codes[1:] != codes[:-1]])
+    run_start = np.maximum.accumulate(np.where(starts_run, index, 0))
+    durations = index - run_start + 1
+    if not starts_run[0]:
+        durations[run_start == 0] += carried_run
+    return durations.astype(float), int(durations[-1])
 
 
 def walk_forward_family_arrays(
     obs_matrix: np.ndarray,
     valid_offset: int,
     n_rows: int,
-    config: Any,
+    params: HmmConfig,
     tf: str,
-    family: str,
+    spec: RegimeFamilySpec,
 ) -> FamilyResult:
     """Walk-forward decode of one family, as row-aligned arrays over the `n_rows` bar grid.
 
@@ -1141,15 +1411,12 @@ def walk_forward_family_arrays(
     are NaN in `code` and `numeric` and carry the segment status. The skip and reset rules are
     the writer's: a degenerate or non-converged segment is not written, and duration and the
     churn window restart at the first written bar after any skipped gap (churn is computed per
-    written segment, so no label change is fabricated across a gap).
+    written segment, so no label change is fabricated across a gap: Phase 172 code review WR-01).
 
-    The numeric columns are in each family's owned-column order: trend (p_up, p_ranging,
-    p_down, ...), volatility (calm = the low group, elevated, turbulent = the high group), then
-    hmm_regime_prob, hmm_entropy, hmm_duration, hmm_churn.
+    The numeric columns are in the family's owned-column order (`spec.numeric_outputs`).
     """
-    spec = _FAMILY_SPECS[family]
-    n_components, covariance_type = family_model_fields(config, family)
-    refit_every_bars, initial_warmup_bars = walk_forward_schedule(config, tf)
+    n_components, covariance_type = spec.model_fields(params)
+    refit_every_bars, initial_warmup_bars = params.walk_forward_schedule(tf)
 
     code = np.full(n_rows, np.nan)
     status = np.full(n_rows, STATUS_NO_MODEL)
@@ -1164,33 +1431,21 @@ def walk_forward_family_arrays(
             obs_matrix,
             n_components,
             covariance_type,
-            config.hmm_n_iter,
-            config.hmm_random_state,
+            params.hmm_n_iter,
+            params.hmm_random_state,
             refit_every_bars,
             initial_warmup_bars,
-            config.hmm_min_hold_bars,
-            config.hmm_full_cov_min_obs,
-            config.hmm_min_state_occupation,
+            params.hmm_min_hold_bars,
+            params.hmm_full_cov_min_obs,
+            params.hmm_min_state_occupation,
             tf=tf,
             vocab=spec.vocab,
-            min_obs_factor=config.hmm_min_obs_factor,
+            min_obs_factor=params.hmm_min_obs_factor,
+            covariance_ridge=params.hmm_covariance_ridge,
         )
 
-    # Churn is a property of the label sequence, computed per written segment then
-    # concatenated: treating the last label before a gap and the first after it as adjacent
-    # would fabricate a label change where none was observed (Phase 172 code review WR-01).
-    written_labels = [seg["labels"] for seg in segment_results if not seg["is_degenerate"]]
-    churn_values = (
-        np.concatenate(
-            [_compute_hmm_churn(labels, config.hmm_churn_window) for labels in written_labels]
-        )
-        if written_labels
-        else np.zeros(0, dtype=float)
-    )
-
-    duration = 0
-    prev_label: str | None = None
-    churn_cursor = 0
+    previous_code = -1
+    carried_run = 0
     for seg in segment_results:
         rows = slice(valid_offset + seg["seg_start"], valid_offset + seg["seg_end"])
         if seg["is_degenerate"]:
@@ -1202,31 +1457,23 @@ def walk_forward_family_arrays(
                 **seg["gate_info"],
             )
             status[rows] = _GATE_REASON_STATUS.get(seg["gate_info"]["reason"], STATUS_OTHER_GATE)
-            duration = 0  # continuity through an unwritten gap cannot be verified
-            prev_label = None
+            previous_code, carried_run = -1, 0  # continuity through a gap cannot be verified
             continue
 
-        seg_len = seg["seg_end"] - seg["seg_start"]
-        durations = np.empty(seg_len)
-        codes = np.empty(seg_len)
-        for i, label in enumerate(seg["labels"]):
-            if label == prev_label:
-                duration += 1
-            else:
-                duration = 1
-                prev_label = label
-            durations[i] = float(duration)
-            codes[i] = float(spec.labels.index(label))
+        codes = spec.code_of_state(seg["state_labels"])[seg["states"]]
+        durations, carried_run = _run_durations(codes, previous_code, carried_run)
+        previous_code = int(codes[-1])
+        masses = (seg["p_up"], seg["p_ranging"], seg["p_down"])
         status[rows] = STATUS_WRITTEN
         code[rows] = codes
-        if family == FAMILY_VOLATILITY:
-            probs = (seg["p_down"], seg["p_ranging"], seg["p_up"])
-        else:
-            probs = (seg["p_up"], seg["p_ranging"], seg["p_down"])
-        for c, values in enumerate((*probs, seg["prob_val"], seg["entropy_val"])):
-            numeric[c, rows] = values
-        numeric[5, rows] = durations
-        numeric[6, rows] = churn_values[churn_cursor : churn_cursor + seg_len]
-        churn_cursor += seg_len
+        numeric[:, rows] = np.vstack(
+            [
+                *(masses[i] for i in spec.prob_order),
+                seg["prob_val"],
+                seg["entropy_val"],
+                durations,
+                _compute_hmm_churn(codes, params.hmm_churn_window),
+            ]
+        )
 
     return FamilyResult(code, status, numeric)

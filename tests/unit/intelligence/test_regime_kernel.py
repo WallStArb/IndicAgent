@@ -40,7 +40,8 @@ from src.intelligence.features.feature_vector_persistence import (
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from src.intelligence.features.kernels import _hmm
-from src.intelligence.features.kernels.regime import FAMILY_KERNELS
+from src.intelligence.features.kernels._hmm import FAMILY_SPECS
+from src.intelligence.features.kernels.regime import compute_regime_columns
 from tests.unit.intelligence.regime_kernel_fixtures import (
     FAMILY_LABELS,
     SMALL_HMM_APR,
@@ -104,7 +105,7 @@ def test_label_tuples_equal_the_golden_label_order():
     assert _hmm.TREND_LABELS == FAMILY_LABELS["trend"]
     assert _hmm.VOLATILITY_LABELS == FAMILY_LABELS["volatility"]
     for family in FAMILIES:
-        assert FAMILY_KERNELS[family].labels == FAMILY_LABELS[family]
+        assert FAMILY_SPECS[family].labels == FAMILY_LABELS[family]
 
 
 def test_registry_owns_the_sixteen_regime_columns():
@@ -112,14 +113,14 @@ def test_registry_owns_the_sixteen_regime_columns():
     outputs = {o for k in registry.kernels if k.origin == "regime" for o in k.outputs}
     columns = set(registry.feature_columns()) & set(ALL_COLUMNS)
     assert columns == set(ALL_COLUMNS) and len(ALL_COLUMNS) == 16
-    assert FAMILY_KERNELS["trend"].numeric_outputs == REGIME_WRITER_OWNED_COLUMN_NAMES[1:]
+    assert FAMILY_SPECS["trend"].numeric_outputs == REGIME_WRITER_OWNED_COLUMN_NAMES[1:]
     assert (
-        FAMILY_KERNELS["volatility"].numeric_outputs
+        FAMILY_SPECS["volatility"].numeric_outputs
         == REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:]
     )
-    assert FAMILY_KERNELS["trend"].label_output == REGIME_WRITER_OWNED_COLUMN_NAMES[0]
+    assert FAMILY_SPECS["trend"].regime_column == REGIME_WRITER_OWNED_COLUMN_NAMES[0]
     assert (
-        FAMILY_KERNELS["volatility"].label_output == REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0]
+        FAMILY_SPECS["volatility"].regime_column == REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0]
     )
     assert set(ALL_COLUMNS) <= outputs
     # the intermediates are not feature columns
@@ -139,7 +140,7 @@ def test_feature_memory_bars_raises_for_every_regime_column(column):
 
 
 def _run(bars: dict, family: str, tf: str = "1d", *, tf_values=None, outputs=None):
-    spec = FAMILY_KERNELS[family]
+    spec = FAMILY_SPECS[family]
     n = len(bars["close"])
     inputs = {
         "ts": bars["ts"],
@@ -151,7 +152,7 @@ def _run(bars: dict, family: str, tf: str = "1d", *, tf_values=None, outputs=Non
         default_registry(),
         inputs,
         _config(),
-        outputs=outputs or [spec.code_output, spec.status_output, spec.label_output],
+        outputs=outputs or [spec.code_output, spec.status_output, spec.regime_column],
     )
 
 
@@ -163,9 +164,9 @@ def _bars():
 @pytest.mark.parametrize("family", FAMILIES)
 def test_label_kernel_maps_the_code_and_leaves_none_where_unlabeled(family):
     out = _run(_bars(), family)
-    spec = FAMILY_KERNELS[family]
+    spec = FAMILY_SPECS[family]
     code = out[spec.code_output]
-    label = out[spec.label_output]
+    label = out[spec.regime_column]
     assert label.dtype == object
     assert (label == None).sum() == np.isnan(code).sum()  # noqa: E711
     written = ~np.isnan(code)
@@ -179,12 +180,12 @@ def test_non_finite_tail_is_unlabeled_from_its_first_row(family):
     cut = 2400
     bars["close"][cut:] = np.nan
     bars["volume"][cut:] = np.nan
-    spec = FAMILY_KERNELS[family]
+    spec = FAMILY_SPECS[family]
     tail = _run(bars, family)
     head = _run({k: v[:cut] for k, v in bars.items()}, family)
     assert np.isnan(tail[spec.code_output][cut:]).all()
     assert (tail[spec.status_output][cut:] == _hmm.STATUS_NO_MODEL).all()
-    assert (tail[spec.label_output][cut:] == None).all()  # noqa: E711
+    assert (tail[spec.regime_column][cut:] == None).all()  # noqa: E711
     # the finite prefix is exactly what the same rows give on their own
     assert np.array_equal(tail[spec.code_output][:cut], head[spec.code_output], equal_nan=True)
 
@@ -211,7 +212,7 @@ def test_series_too_short_for_a_model_is_all_unlabeled():
     short = {k: v[:300] for k, v in _bars().items()}
     for family in FAMILIES:
         out = _run(short, family)
-        spec = FAMILY_KERNELS[family]
+        spec = FAMILY_SPECS[family]
         assert np.isnan(out[spec.code_output]).all()
         assert (out[spec.status_output] == _hmm.STATUS_NO_MODEL).all()
 
@@ -299,12 +300,12 @@ def test_every_regime_origin_kernel_is_covered_by_a_probe_or_label_test():
 
 @pytest.mark.parametrize("family", FAMILIES)
 def test_label_kernels_are_row_local(family):
-    spec = FAMILY_KERNELS[family]
+    spec = FAMILY_SPECS[family]
     label_kernel = default_registry().by_name(f"hmm_{family}_label")
     code = _run(_bars(), family)[spec.code_output]
-    full = label_kernel.compute({spec.code_output: code}, _config())[spec.label_output]
+    full = label_kernel.compute({spec.code_output: code}, _config())[spec.regime_column]
     for t in (10, 1900, 2999):
-        cut = label_kernel.compute({spec.code_output: code[: t + 1]}, _config())[spec.label_output]
+        cut = label_kernel.compute({spec.code_output: code[: t + 1]}, _config())[spec.regime_column]
         assert list(cut) == list(full[: t + 1])
 
 
@@ -384,8 +385,47 @@ def test_obs_builders_are_bitwise_equal_when_blocked(family):
     assert np.array_equal(got.view(np.uint64), want.view(np.uint64))
 
 
-def test_block_rows_config_default_and_reaches_the_kernels():
-    fields = _hmm.hmm_config_fields_from_values(lambda key, default: default)
-    assert fields["hmm_rolling_block_rows"] == 16384
-    fields = _hmm.hmm_config_fields_from_values({"infra.hmm.rolling_block_rows": 64}.get)
-    assert fields["hmm_rolling_block_rows"] == 64
+def _same_column(a: np.ndarray, b: np.ndarray) -> bool:
+    """Exact equality, NaN equal to NaN, object columns (labels, None) compared as lists."""
+    if a.dtype == object or b.dtype == object:
+        return list(a) == list(b)
+    return np.array_equal(a, b, equal_nan=True)
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_block_rows_argument_changes_no_output(family):
+    """`block_rows` is the caller's memory bound (`infra.hmm.rolling_block_rows`): the shared
+    entry point returns the same columns at any block size, and with none."""
+    bars = _bars()
+    params = _hmm.HmmConfig.from_values(SMALL_HMM_APR.get)
+    spec = FAMILY_SPECS[family]
+    want = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec, None)
+    for block_rows in (1, 257, 16384):
+        got = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec, block_rows)
+        assert list(got) == list(want)
+        assert all(_same_column(got[name], want[name]) for name in want), block_rows
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_the_shared_entry_point_equals_the_registry_kernels(family):
+    """The writer and the rebuild both call `compute_regime_columns`; the registry kernels are
+    what the kernel-parity machinery runs. They must return the same columns, label included."""
+    spec = FAMILY_SPECS[family]
+    bars = _bars()
+    params = _hmm.HmmConfig.from_values(SMALL_HMM_APR.get)
+    shared = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec)
+    outputs = [spec.code_output, spec.status_output, *spec.numeric_outputs, spec.regime_column]
+    registry = _run(bars, family, outputs=outputs)
+    assert set(shared) == set(outputs)
+    assert all(_same_column(shared[name], registry[name]) for name in outputs)
+
+
+def test_the_shared_entry_point_rejects_an_unknown_tf_and_a_volatility_run_needs_no_volume():
+    params = _hmm.HmmConfig.from_values(SMALL_HMM_APR.get)
+    bars = _bars()
+    with pytest.raises(ValueError, match="timeframes"):
+        compute_regime_columns(bars["close"], bars["volume"], params, "7m", FAMILY_SPECS["trend"])
+    volatility = FAMILY_SPECS["volatility"]
+    with_volume = compute_regime_columns(bars["close"], bars["volume"], params, "1d", volatility)
+    without = compute_regime_columns(bars["close"], None, params, "1d", volatility)
+    assert all(_same_column(with_volume[name], without[name]) for name in with_volume)

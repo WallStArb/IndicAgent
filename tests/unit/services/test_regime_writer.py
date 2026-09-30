@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -831,13 +830,18 @@ def _make_mock_conn(closes, volumes, timestamps):
     return conn_mock
 
 
+def _seg_labels(seg):
+    """A `_walk_forward_hmm_full` segment's per-bar labels, from its states and state labels."""
+    return [seg["state_labels"][state] for state in seg["states"]]
+
+
 def _family_config(tf, refit_every_bars, initial_warmup_bars, **fields):
-    """The hmm_* attributes the kernels read: APR defaults with `fields` and one tf's schedule."""
+    """The `HmmConfig` the kernels read: APR defaults with `fields` and one tf's schedule."""
     base = hmm_module.hmm_config_fields_from_values(lambda key, default: default)
     base.update(fields)
     base[f"hmm_refit_every_bars_{tf}"] = refit_every_bars
     base[f"hmm_initial_warmup_bars_{tf}"] = initial_warmup_bars
-    return SimpleNamespace(**base)
+    return hmm_module.HmmConfig(**base)
 
 
 def _compute_symbol_tf_walk_forward(
@@ -882,7 +886,7 @@ def _compute_symbol_tf_walk_forward(
         hmm_min_obs_factor=min_obs_factor,
     )
     return regime_writer_module._compute_family_rows(
-        bars, regime_writer_module.TREND_SPEC, config, tf, symbol
+        bars, hmm_module.FAMILY_SPECS["trend"], config, tf, symbol
     )
 
 
@@ -925,7 +929,7 @@ def _compute_symbol_tf_volatility_walk_forward(
         hmm_min_obs_factor=min_obs_factor,
     )
     return regime_writer_module._compute_family_rows(
-        bars, regime_writer_module.VOLATILITY_SPEC, config, tf, symbol
+        bars, hmm_module.FAMILY_SPECS["volatility"], config, tf, symbol
     )
 
 
@@ -1185,7 +1189,7 @@ def test_walk_forward_hmm_full_matches_labels_from_bare_labels_function():
 
     full_labels: list[str] = []
     for seg in full_segments:
-        full_labels.extend(seg["labels"])
+        full_labels.extend(_seg_labels(seg))
 
     assert full_labels == bare_labels
     assert [(s["seg_start"], s["seg_end"]) for s in full_segments] == [
@@ -1311,7 +1315,7 @@ def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
 
 
 def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
-    """`_compute_family_rows` returns (update_rows, converged) with 11-column rows."""
+    """`_compute_family_rows` returns the update rows, 11 columns each."""
 
     n = 900
     closes = _make_ranging_closes(n)
@@ -1337,11 +1341,10 @@ def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
     )
 
     assert result is not None
-    update_rows, converged = result
+    update_rows = result
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
     assert len(update_rows[0]) == 11
-    assert isinstance(converged, bool)
 
 
 def test_compute_symbol_tf_walk_forward_omits_warmup_prefix_bars():
@@ -1372,7 +1375,7 @@ def test_compute_symbol_tf_walk_forward_omits_warmup_prefix_bars():
     )
 
     assert result is not None
-    update_rows, _converged = result
+    update_rows = result
     # obs matrix has (n - valid_start) rows after _build_obs_matrix's own warmup
     # trim (vol_window=momentum_window=vol_of_vol_window=20, so valid_start=19);
     # walk-forward then additionally requires initial_warmup_bars=300 before the
@@ -1428,7 +1431,7 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
         )
 
     assert result is not None
-    update_rows, _converged = result
+    update_rows = result
     # 3 segments total (300-500, 500-700, 700-900, indexed into obs_matrix/valid_ts --
     # NOT the raw timestamps list, which _build_obs_matrix trims by valid_start bars).
     # Segment 2 (500-700) forced degenerate. First row of the third segment (obs
@@ -1464,7 +1467,8 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
         return {
             "seg_start": seg_start,
             "seg_end": seg_end,
-            "labels": [label] * width,
+            "states": np.zeros(width, dtype=int),
+            "state_labels": (label,),
             "p_up": [0.5] * width,
             "p_ranging": [0.3] * width,
             "p_down": [0.2] * width,
@@ -1500,7 +1504,7 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
         )
 
     assert result is not None
-    update_rows, _converged = result
+    update_rows = result
     # update_rows column order: (label, p_up, p_ranging, p_down, prob_val,
     # entropy_val, duration, hmm_churn, symbol, tf, ts) -- churn is index 7.
     # Row 0 is segment 1's first bar (index 0 of update_rows); row 3 is segment
@@ -1615,7 +1619,7 @@ def test_walk_forward_hmm_full_no_vocab_arg_matches_trend_output():
 
     trend_labels = {_LABEL_TRENDING_UP, _LABEL_RANGING, _LABEL_TRENDING_DOWN}
     for seg in segments:
-        for label in seg["labels"]:
+        for label in _seg_labels(seg):
             assert label in trend_labels
         for p_up, p_ranging, p_down in zip(seg["p_up"], seg["p_ranging"], seg["p_down"]):
             assert abs((p_up + p_ranging + p_down) - 1.0) < 1e-6
@@ -1648,7 +1652,7 @@ def test_walk_forward_hmm_full_volatility_vocab_k3_labels_restricted():
     assert len(segments) > 0
     allowed = {_LABEL_CALM, _LABEL_ELEVATED, _LABEL_TURBULENT}
     for seg in segments:
-        for label in seg["labels"]:
+        for label in _seg_labels(seg):
             assert label in allowed
 
 
@@ -1679,7 +1683,7 @@ def test_walk_forward_hmm_full_volatility_vocab_k2_labels_restricted():
     assert len(segments) > 0
     allowed = {_LABEL_CALM, _LABEL_TURBULENT}
     for seg in segments:
-        for label in seg["labels"]:
+        for label in _seg_labels(seg):
             assert label in allowed
 
 
@@ -1764,6 +1768,20 @@ def test_fetch_bars_issues_one_query_over_the_tradeable_view():
     assert len(bars["timestamps"]) == len(bars["close"]) == len(bars["volume"]) == n
 
 
+def test_fetch_bars_without_volume_does_not_select_or_return_it():
+    from services.regime_writer import _fetch_bars
+
+    n = 60
+    conn = _make_mock_conn_volatility(_make_vol_switching_closes(n), _make_timestamps(n))
+    bars = _fetch_bars(conn, "SPY", "1h", with_volume=False)
+
+    executed_sql = conn.cursor.return_value.execute.call_args[0][0].lower()
+    assert "volume" not in executed_sql
+    assert bars["volume"] is None
+    assert len(bars["timestamps"]) == len(bars["close"]) == n
+    assert bars["close"].dtype == np.float64
+
+
 # ---------------------------------------------------------------------------
 # Tests: _compute_symbol_tf_volatility_walk_forward + _write_regime_volatility_results
 # (Phase 172, plan 172-04, Task 2)
@@ -1771,7 +1789,7 @@ def test_fetch_bars_issues_one_query_over_the_tradeable_view():
 
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
-    """Same (update_rows, converged) contract as the trend family, with the volatility owned
+    """Same update-rows contract as the trend family, with the volatility owned
     columns."""
     from src.intelligence.features.feature_vector_persistence import (
         REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
@@ -1799,12 +1817,11 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
     )
 
     assert result is not None
-    update_rows, converged = result
+    update_rows = result
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
     assert len(update_rows[0]) == len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) + 3
     assert len(update_rows[0]) == 11
-    assert isinstance(converged, bool)
 
 
 def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high_vol_half():
@@ -1835,7 +1852,7 @@ def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high
     )
 
     assert result is not None
-    update_rows, _converged = result
+    update_rows = result
 
     # _make_vol_switching_closes' switch point is at raw-close index n // 2; bar_ts
     # (row index 10) is monotonically increasing with that same raw index, so bucketing
@@ -1877,7 +1894,7 @@ def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
     )
 
     assert result is not None
-    update_rows, _converged = result
+    update_rows = result
     assert len(update_rows) > 0
     for row in update_rows:
         assert len(row) == 11
@@ -1966,9 +1983,9 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_none_when_all_segment
 @pytest.mark.parametrize(
     "spec_name,owned_name,staging",
     [
-        ("TREND_SPEC", "REGIME_WRITER_OWNED_COLUMN_NAMES", "_regime_writer_staging"),
+        ("trend", "REGIME_WRITER_OWNED_COLUMN_NAMES", "_regime_writer_staging"),
         (
-            "VOLATILITY_SPEC",
+            "volatility",
             "REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES",
             "_regime_volatility_writer_staging",
         ),
@@ -2001,7 +2018,7 @@ def test_write_family_results_uses_the_familys_owned_columns_and_staging_table(
 
     n_updated = regime_writer_module._write_family_results(
         conn=conn,
-        spec=getattr(regime_writer_module, spec_name),
+        spec=hmm_module.FAMILY_SPECS[spec_name],
         symbol="SPY",
         tf="1h",
         update_rows=rows,
@@ -2020,7 +2037,7 @@ def test_write_family_results_uses_the_familys_owned_columns_and_staging_table(
 
 
 @pytest.mark.parametrize(
-    "spec_name,column", [("TREND_SPEC", "regime"), ("VOLATILITY_SPEC", "regime_volatility")]
+    "spec_name,column", [("trend", "regime"), ("volatility", "regime_volatility")]
 )
 def test_record_null_remaining_is_one_grouped_query_per_family(monkeypatch, spec_name, column):
     """One end-of-run grouped NULL count, gauge set per (symbol, tf, regime_column)."""
@@ -2039,13 +2056,14 @@ def test_record_null_remaining_is_one_grouped_query_per_family(monkeypatch, spec
     conn.cursor.return_value = cursor_mock
 
     regime_writer_module._record_null_remaining(
-        conn, getattr(regime_writer_module, spec_name), ["SPY", "QQQ"]
+        conn, hmm_module.FAMILY_SPECS[spec_name], ["SPY", "QQQ"], ["1d", "1h"]
     )
 
     assert cursor_mock.execute.call_count == 1
     sql, params = cursor_mock.execute.call_args[0]
     assert f"{column} IS NULL" in sql and "GROUP BY symbol, tf" in sql
-    assert params == (["SPY", "QQQ"],)
+    assert "tf = ANY(%s)" in sql  # only the timeframes this run covered
+    assert params == (["SPY", "QQQ"], ["1d", "1h"])
     assert gauge_calls == [
         (3, {"symbol": "SPY", "tf": "1d", "regime_column": column}),
         (0, {"symbol": "SPY", "tf": "1h", "regime_column": column}),
@@ -2128,30 +2146,37 @@ def _worker_config():
 
 def test_run_symbol_worker_dispatches_on_regime_column(monkeypatch):
     """The worker fetches bars and calls `_compute_family_rows` with the spec of its
-    `regime_column`: TREND_SPEC for "regime", VOLATILITY_SPEC for "regime_volatility"."""
+    `regime_column`: the trend spec for "regime", the volatility spec for "regime_volatility"."""
     seen = []
 
-    def _fake_compute_family_rows(bars, spec, config, tf, symbol):
-        seen.append((spec, tf, symbol))
-        return ([], True)
+    def _fake_compute_family_rows(bars, spec, params, tf, symbol, block_rows):
+        seen.append((spec, tf, symbol, block_rows))
+        return []
 
+    def _fake_fetch_bars(conn, symbol, tf, with_volume=True):
+        fetched.append(with_volume)
+        return {"x": 1}
+
+    fetched: list[bool] = []
     monkeypatch.setattr(regime_writer_module, "_compute_family_rows", _fake_compute_family_rows)
-    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: {"x": 1})
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", _fake_fetch_bars)
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
 
-    for column, spec in (
-        ("regime", regime_writer_module.TREND_SPEC),
-        ("regime_volatility", regime_writer_module.VOLATILITY_SPEC),
+    for column, spec, with_volume in (
+        ("regime", hmm_module.FAMILY_SPECS["trend"], True),
+        ("regime_volatility", hmm_module.FAMILY_SPECS["volatility"], False),
     ):
         seen.clear()
+        fetched.clear()
         result = regime_writer_module._run_symbol_worker(
             regime_writer_module._WorkerArgs(
-                "SPY", ["1h"], "postgresql://fake", column, _worker_config()
+                "SPY", ["1h"], "postgresql://fake", column, _worker_config(), 4096
             )
         )
-        assert seen == [(spec, "1h", "SPY")]
+        assert seen == [(spec, "1h", "SPY", 4096)]
+        assert fetched == [with_volume]  # only the trend family fetches volume
         assert result["error"] is None
-        assert result["results"] == [{"tf": "1h", "update_rows": [], "converged": True}]
+        assert result["results"] == [{"tf": "1h", "update_rows": []}]
 
 
 def test_worker_args_field_names_are_pinned():
@@ -2163,31 +2188,34 @@ def test_worker_args_field_names_are_pinned():
         "tfs",
         "dsn",
         "regime_column",
-        "config",
+        "params",
+        "block_rows",
     )
 
 
 def test_run_symbol_worker_reports_a_missing_bar_series_as_no_rows(monkeypatch):
-    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: None)
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf, **kw: None)
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
     result = regime_writer_module._run_symbol_worker(
         regime_writer_module._WorkerArgs(
-            "SPY", ["1h"], "postgresql://fake", "regime", _worker_config()
+            "SPY", ["1h"], "postgresql://fake", "regime", _worker_config(), 16384
         )
     )
-    assert result["results"] == [{"tf": "1h", "update_rows": None, "converged": False}]
+    assert result["results"] == [{"tf": "1h", "update_rows": None}]
 
 
 def test_run_symbol_worker_isolates_a_failing_cell(monkeypatch):
-    def _boom(bars, spec, config, tf, symbol):
+    def _boom(bars, spec, params, tf, symbol, block_rows):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(regime_writer_module, "_compute_family_rows", _boom)
-    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: {"x": 1})
+    monkeypatch.setattr(
+        regime_writer_module, "_fetch_bars", lambda conn, symbol, tf, **kw: {"x": 1}
+    )
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
     result = regime_writer_module._run_symbol_worker(
         regime_writer_module._WorkerArgs(
-            "SPY", ["1h", "1d"], "postgresql://fake", "regime", _worker_config()
+            "SPY", ["1h", "1d"], "postgresql://fake", "regime", _worker_config(), 16384
         )
     )
     assert [c["tf"] for c in result["results"]] == ["1h", "1d"]

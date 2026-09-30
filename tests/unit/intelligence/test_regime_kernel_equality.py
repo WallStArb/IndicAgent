@@ -127,3 +127,63 @@ def test_non_converged_segment_skips_the_training_slice_decode_and_keeps_its_ver
             "gate_basis": "training_slice",
         }
     assert calls == [seg["seg_end"] - seg["seg_start"] for seg in segments]
+
+
+def _reference_durations(segments):
+    """The per-row duration loop `walk_forward_family_arrays` ran before run-length arithmetic:
+    `segments` is a list of label arrays, None for a skipped (degenerate) segment. Returns one
+    duration array per written segment."""
+    duration = 0
+    prev_label = None
+    out = []
+    for labels in segments:
+        if labels is None:
+            duration = 0
+            prev_label = None
+            continue
+        durations = np.empty(len(labels))
+        for i, label in enumerate(labels):
+            if label == prev_label:
+                duration += 1
+            else:
+                duration = 1
+                prev_label = label
+            durations[i] = float(duration)
+        out.append(durations)
+    return out
+
+
+def test_run_durations_equal_the_per_row_loop_across_segments_and_gaps():
+    rng = np.random.default_rng(11)
+    for trial in range(300):
+        segments = []
+        for _ in range(int(rng.integers(1, 7))):
+            if rng.random() < 0.25:
+                segments.append(None)
+                continue
+            n = int(rng.integers(1, 40))
+            stay = rng.choice([0.3, 0.8, 0.97])
+            codes = [int(rng.integers(0, 3))]
+            for _ in range(n - 1):
+                codes.append(codes[-1] if rng.random() < stay else int(rng.integers(0, 3)))
+            segments.append(np.array(codes, dtype=np.int64))
+        want = _reference_durations(segments)
+        got = []
+        previous_code, carried = -1, 0
+        for codes in segments:
+            if codes is None:
+                previous_code, carried = -1, 0
+                continue
+            durations, carried = _hmm._run_durations(codes, previous_code, carried)
+            previous_code = int(codes[-1])
+            got.append(durations)
+        assert len(got) == len(want)
+        for g, w in zip(got, want, strict=True):
+            assert g.dtype == w.dtype and np.array_equal(g, w), trial
+
+
+def test_a_run_continuing_across_a_segment_boundary_keeps_counting():
+    first, carried = _hmm._run_durations(np.array([1, 1, 2, 2, 2]), -1, 0)
+    assert list(first) == [1, 2, 1, 2, 3] and carried == 3
+    second, carried = _hmm._run_durations(np.array([2, 2, 0]), 2, carried)
+    assert list(second) == [4, 5, 1] and carried == 1

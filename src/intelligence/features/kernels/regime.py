@@ -2,10 +2,14 @@
 
 Four kernels over bars only: a heavy walk-forward fit-and-decode per family (trend and
 volatility) and a label kernel per family that turns the numeric label code into the text label.
-The math is in `_hmm.py`. The heavy kernels are path dependent: each segment's model is fit on
-every observation from the series start, and refit boundaries count from the first valid
-observation, so no finite memory reproduces a row (`feature_memory_bars` raises for all 16
-columns and the rebuild computes them from the series start).
+The math and the per-family specs are in `_hmm.py`. The heavy kernels are path dependent: each
+segment's model is fit on every observation from the series start, and refit boundaries count
+from the first valid observation, so no finite memory reproduces a row (`feature_memory_bars`
+raises for all 16 columns and the rebuild computes them from the series start).
+
+`compute_regime_columns` is the one entry point that turns bars into a family's columns; the
+registry kernels below, the regime writer and the rebuild all go through it, so their outputs
+cannot diverge.
 
 Input rules: `tf` must be one known timeframe repeated on every row. Rows are computed on the
 finite prefix; a non-finite close or volume that runs to the end of the series yields NaN (None
@@ -18,24 +22,20 @@ Pure: no database, no ConfigService.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
-from src.intelligence.features.feature_vector_persistence import (
-    REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
-    REGIME_WRITER_OWNED_COLUMN_NAMES,
-)
 from src.intelligence.features.kernels import _hmm
 from src.intelligence.features.kernels._hmm import (
+    DEFAULT_ROLLING_BLOCK_ROWS,
+    FAMILY_SPECS,
     FAMILY_TREND,
     FAMILY_VOLATILITY,
     N_NUMERIC_COLUMNS,
-    TREND_LABELS,
-    VOLATILITY_LABELS,
-    hmm_config_fields_from_values,
+    HmmConfig,
+    RegimeFamilySpec,
 )
 
 if TYPE_CHECKING:
@@ -43,10 +43,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "EXTERNAL_INPUTS",
-    "FAMILY_KERNELS",
     "KERNELS",
-    "RegimeFamilySpec",
-    "hmm_config_fields_from_values",
+    "compute_regime_columns",
 ]
 
 EXTERNAL_INPUTS = (ExternalInput("tf", np.dtype(object), Alignment.CONSTANT_PER_SERIES),)
@@ -58,39 +56,6 @@ _HEAVY_REASON = (
 _LABEL_REASON = "reads a path-dependent upstream code"
 
 
-@dataclass(frozen=True)
-class RegimeFamilySpec:
-    """Names of one family's kernel outputs (the capture script and the writer read these)."""
-
-    family: str
-    label_output: str
-    code_output: str
-    status_output: str
-    numeric_outputs: tuple[str, ...]
-    labels: tuple[str, ...]
-
-
-FAMILY_KERNELS: dict[str, RegimeFamilySpec] = {
-    FAMILY_TREND: RegimeFamilySpec(
-        family=FAMILY_TREND,
-        label_output=REGIME_WRITER_OWNED_COLUMN_NAMES[0],
-        code_output="_hmm_trend_code",
-        status_output="_hmm_trend_segment_status",
-        numeric_outputs=tuple(REGIME_WRITER_OWNED_COLUMN_NAMES[1:]),
-        labels=TREND_LABELS,
-    ),
-    FAMILY_VOLATILITY: RegimeFamilySpec(
-        family=FAMILY_VOLATILITY,
-        label_output=REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[0],
-        code_output="_hmm_volatility_code",
-        status_output="_hmm_volatility_segment_status",
-        numeric_outputs=tuple(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES[1:]),
-        labels=VOLATILITY_LABELS,
-    ),
-}
-assert all(len(f.numeric_outputs) == N_NUMERIC_COLUMNS for f in FAMILY_KERNELS.values())
-
-
 def _known_tf(tf_values: np.ndarray) -> str:
     """The one timeframe of a series; ValueError for an empty, mixed or unknown value."""
     values = np.asarray(tf_values, dtype=object)
@@ -99,11 +64,15 @@ def _known_tf(tf_values: np.ndarray) -> str:
     first = values[0]
     if not all(v == first for v in values):
         raise ValueError("regime kernels need one tf per series; the tf input changes across rows")
-    if first not in _hmm.WALK_FORWARD_TIMEFRAMES:
+    return _check_tf(first)
+
+
+def _check_tf(tf: object) -> str:
+    if tf not in _hmm.WALK_FORWARD_TIMEFRAMES:
         raise ValueError(
-            f"regime kernels know timeframes {_hmm.WALK_FORWARD_TIMEFRAMES}, got {first!r}"
+            f"regime kernels know timeframes {_hmm.WALK_FORWARD_TIMEFRAMES}, got {tf!r}"
         )
-    return str(first)
+    return str(tf)
 
 
 def _finite_prefix_rows(*arrays: np.ndarray) -> int:
@@ -120,89 +89,118 @@ def _finite_prefix_rows(*arrays: np.ndarray) -> int:
     return first
 
 
-def _compute_family(inputs: Mapping[str, np.ndarray], config: FeatureFactoryConfig, family: str):
-    close = np.asarray(inputs["close"], dtype=float)
+def _compute_family(
+    close: np.ndarray,
+    volume: np.ndarray | None,
+    params: HmmConfig,
+    tf: str,
+    spec: RegimeFamilySpec,
+    block_rows: int | None,
+) -> _hmm.FamilyResult:
+    """The family's row-aligned walk-forward arrays over a series of bars (`volume` is read only
+    by a family whose spec declares it as an input)."""
+    close = np.asarray(close, dtype=float)
     n = len(close)
-    tf = _known_tf(inputs["tf"])
-    if family == FAMILY_TREND:
-        volume = np.asarray(inputs["volume"], dtype=float)
+    if spec.needs_volume:
+        volume = np.asarray(volume, dtype=float)
         prefix = _finite_prefix_rows(close, volume)
+        volume = volume[:prefix]
     else:
         prefix = _finite_prefix_rows(close)
-    rows = list(range(prefix))
-    if family == FAMILY_TREND:
-        obs, valid_rows = _hmm._build_obs_matrix(
-            rows,
-            close[:prefix],
-            volume[:prefix],
-            vol_window=config.hmm_vol_window,
-            momentum_window=config.hmm_momentum_window,
-            vol_of_vol_window=config.hmm_vol_of_vol_window,
-            block_rows=config.hmm_rolling_block_rows,
-        )
-    else:
-        obs, valid_rows = _hmm._build_obs_matrix_volatility(
-            rows,
-            close[:prefix],
-            vol_window=config.hmm_volatility_vol_window,
-            vol_of_vol_window=config.hmm_volatility_vol_of_vol_window,
-            block_rows=config.hmm_rolling_block_rows,
-        )
-    if not valid_rows:
+    obs, valid_start = spec.build_observations(close[:prefix], volume, params, block_rows)
+    if len(obs) == 0:
         return _hmm.FamilyResult(
             np.full(n, np.nan),
             np.full(n, _hmm.STATUS_NO_MODEL),
             np.full((N_NUMERIC_COLUMNS, n), np.nan),
         )
-    return _hmm.walk_forward_family_arrays(obs, valid_rows[0], n, config, tf, family)
+    # obs row j is log-return row valid_start + j, which is bar row valid_start + j + 1
+    return _hmm.walk_forward_family_arrays(obs, valid_start + 1, n, params, tf, spec)
 
 
-def _heavy_compute(family: str):
-    spec = FAMILY_KERNELS[family]
-
-    def compute(inputs, config):
-        arrays = _compute_family(inputs, config, family)
-        out = {spec.code_output: arrays.code, spec.status_output: arrays.status}
-        out.update(zip(spec.numeric_outputs, arrays.numeric, strict=True))
-        return out
-
-    compute.__name__ = f"_compute_{family}_walk_forward"
-    return compute
-
-
-def _label_compute(family: str):
-    spec = FAMILY_KERNELS[family]
+def _label_table(spec: RegimeFamilySpec) -> np.ndarray:
+    """Object array indexed by label code, with None at the extra last slot (unlabeled)."""
     table = np.empty(len(spec.labels) + 1, dtype=object)
     table[: len(spec.labels)] = spec.labels
     table[len(spec.labels)] = None
+    return table
 
+
+def _label_column(spec: RegimeFamilySpec, code: np.ndarray) -> np.ndarray:
+    index = np.where(np.isnan(code), len(spec.labels), code).astype(int)
+    return np.asarray(_label_table(spec)[index])
+
+
+def _heavy_columns(spec: RegimeFamilySpec, result: _hmm.FamilyResult) -> dict[str, np.ndarray]:
+    out = {spec.code_output: result.code, spec.status_output: result.status}
+    out.update(zip(spec.numeric_outputs, result.numeric, strict=True))
+    return out
+
+
+def compute_regime_columns(
+    close: np.ndarray,
+    volume: np.ndarray | None,
+    params: HmmConfig,
+    tf: str,
+    family: RegimeFamilySpec,
+    block_rows: int | None = DEFAULT_ROLLING_BLOCK_ROWS,
+) -> dict[str, np.ndarray]:
+    """Every output column of `family` over one (symbol, tf) series of bars: the code, the
+    segment status, the numeric columns and the text label column (None where unlabeled), keyed
+    by name and identical to what the registry kernels compute for the same bars.
+
+    `params` is the loaded `HmmConfig` (`HmmConfig.from_values(cfg.get_sync)`); `block_rows` is
+    the caller's `infra.hmm.rolling_block_rows` and bounds memory without changing output.
+    """
+    result = _compute_family(close, volume, params, _check_tf(tf), family, block_rows)
+    out = _heavy_columns(family, result)
+    out[family.regime_column] = _label_column(family, result.code)
+    return out
+
+
+def _heavy_compute(spec: RegimeFamilySpec):
     def compute(inputs, config):
-        code = np.asarray(inputs[spec.code_output], dtype=float)
-        index = np.where(np.isnan(code), len(spec.labels), code).astype(int)
-        return {spec.label_output: table[index]}
+        volume = inputs["volume"] if spec.needs_volume else None
+        result = _compute_family(
+            inputs["close"],
+            volume,
+            HmmConfig.from_config(config),
+            _known_tf(inputs["tf"]),
+            spec,
+            DEFAULT_ROLLING_BLOCK_ROWS,
+        )
+        return _heavy_columns(spec, result)
 
-    compute.__name__ = f"_compute_{family}_label"
+    compute.__name__ = f"_compute_{spec.family}_walk_forward"
+    return compute
+
+
+def _label_compute(spec: RegimeFamilySpec):
+    def compute(inputs: Mapping[str, np.ndarray], config: FeatureFactoryConfig):
+        code = np.asarray(inputs[spec.code_output], dtype=float)
+        return {spec.regime_column: _label_column(spec, code)}
+
+    compute.__name__ = f"_compute_{spec.family}_label"
     return compute
 
 
 def _kernels_for(family: str) -> tuple[Kernel, Kernel]:
-    spec = FAMILY_KERNELS[family]
-    heavy_inputs = ("close", "volume", "tf") if family == FAMILY_TREND else ("close", "tf")
+    spec = FAMILY_SPECS[family]
     heavy = Kernel(
         name=f"hmm_{family}_walk_forward",
         outputs=(spec.code_output, spec.status_output, *spec.numeric_outputs),
-        inputs=heavy_inputs,
+        inputs=spec.inputs,
         memory=lambda config: 0,
-        compute=_heavy_compute(family),
+        compute=_heavy_compute(spec),
         path_dependent=True,
         path_dependent_reason=_HEAVY_REASON,
     )
     label = Kernel(
         name=f"hmm_{family}_label",
-        outputs=(spec.label_output,),
+        outputs=(spec.regime_column,),
         inputs=(spec.code_output,),
         memory=lambda config: 0,
-        compute=_label_compute(family),
+        compute=_label_compute(spec),
         dtype=np.dtype(object),
         path_dependent=True,
         path_dependent_reason=_LABEL_REASON,
