@@ -1019,6 +1019,35 @@ class TfRun:
     snapshot: Mapping[str, Any]  # the units' computational apr_snapshot
 
 
+@dataclasses.dataclass(frozen=True)
+class UnitCompute:
+    """What a unit computes, as plain named fields instead of a closure: calling it runs the
+    job's pure measure function over the family and returns the unit's rows. The fields are
+    exactly its inputs (the context's panels and stacks are the large ones, the fetch reads the
+    feature table), so nothing else is kept alive with the plan. The single-process writer is
+    measured to need nothing more (todo 469: the full 1d universe takes minutes); a worker
+    process would need a fetch that opens its own connection, because `source.fetch` is bound
+    to the parent's."""
+
+    job: str
+    run: TfRun
+    ctx: TfContext
+    source: FeatureSource
+    inputs: FamilyInputs
+    labels: np.ndarray | None
+
+    def __call__(self) -> list[tuple]:
+        params, horizons = self.run.params, self.run.horizons
+        if self.job == JOB_PROPOSER:
+            return compute_proposer_rows(self.ctx, self.source, self.inputs, params, horizons)
+        if self.job == JOB_REGIME_VOLATILITY:
+            assert self.labels is not None
+            return compute_disclosure_rows(
+                self.ctx, self.source, self.inputs, self.labels, params, horizons
+            )
+        return compute_monitoring_rows(self.ctx, self.source, self.inputs, params, horizons[0])
+
+
 class IcMeasure:
     def __init__(self, args: argparse.Namespace, dsn: str) -> None:
         self.args = args
@@ -1269,7 +1298,7 @@ class IcMeasure:
             yield UnitPlan(
                 job=job,
                 spec=_spec(job, run, ctx, identity),
-                compute=self._compute(job, run, ctx, source, inputs, labels),
+                compute=UnitCompute(job, run, ctx, source, inputs, labels),
             )
 
     def _monitoring_unit(
@@ -1292,25 +1321,8 @@ class IcMeasure:
         return UnitPlan(
             job=JOB_MONITORING,
             spec=_spec(JOB_MONITORING, run, ctx, identity),
-            compute=self._compute(JOB_MONITORING, run, ctx, source, inputs, None),
+            compute=UnitCompute(JOB_MONITORING, run, ctx, source, inputs, None),
         )
-
-    @staticmethod
-    def _compute(
-        job: str,
-        run: TfRun,
-        ctx: TfContext,
-        source: FeatureSource,
-        inputs: FamilyInputs,
-        labels: np.ndarray | None,
-    ) -> Callable[[], list[tuple]]:
-        params, horizons = run.params, run.horizons
-        if job == JOB_PROPOSER:
-            return lambda: compute_proposer_rows(ctx, source, inputs, params, horizons)
-        if job == JOB_REGIME_VOLATILITY:
-            assert labels is not None
-            return lambda: compute_disclosure_rows(ctx, source, inputs, labels, params, horizons)
-        return lambda: compute_monitoring_rows(ctx, source, inputs, params, horizons[0])
 
 
 def _identity(

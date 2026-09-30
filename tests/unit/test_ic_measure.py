@@ -1020,6 +1020,50 @@ class TestBarDigestBracket:
         assert ic_measure.check_bar_digests(same, dict(same), allow_absent=False) == []
 
 
+class TestUnitCompute:
+    """A unit's compute is named data, not a closure, and gives the rows the compute functions do."""
+
+    def test_the_callable_holds_its_inputs_as_fields_and_returns_the_job_rows(self) -> None:
+        ctx = _context()
+        features = _family_features(ctx)
+        names = _FAMILY
+        params = _params()
+        source = _source(features, names, 4)
+        inputs = _scan(ctx, source, params)
+        run = dataclasses.replace(_tf_run(), params=params, horizons=(1, 2))
+        compute = ic_measure.UnitCompute(ic_measure.JOB_PROPOSER, run, ctx, source, inputs, None)
+        assert compute() == ic_measure.compute_proposer_rows(ctx, source, inputs, params, (1, 2))
+        assert dataclasses.is_dataclass(compute) and not hasattr(compute, "__closure__")
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            compute.job = "monitoring"  # type: ignore[misc]
+
+    def test_each_job_dispatches_to_its_own_function(self) -> None:
+        ctx = _context()
+        features = _family_features(ctx)
+        params = _params()
+        source = _source(features, _FAMILY, 4)
+        run = dataclasses.replace(_tf_run(), params=params, horizons=(1,))
+        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+        labels = np.broadcast_to(
+            np.where(np.arange(n)[:, None] % 3 == 0, "high", "low").astype("<U8"), (n, m)
+        ).copy()
+        inputs = _scan(ctx, source, params, labels=labels)
+        disclosure = ic_measure.UnitCompute(
+            ic_measure.JOB_REGIME_VOLATILITY, run, ctx, source, inputs, labels
+        )()
+        assert disclosure == ic_measure.compute_disclosure_rows(
+            ctx, source, inputs, labels, params, (1,)
+        )
+        member_source = _source(features[:, :, :2], _FAMILY[:2], 2)
+        member_inputs = _scan(ctx, member_source, params)
+        monitoring = ic_measure.UnitCompute(
+            ic_measure.JOB_MONITORING, run, ctx, member_source, member_inputs, None
+        )()
+        assert monitoring == ic_measure.compute_monitoring_rows(
+            ctx, member_source, member_inputs, params, 1
+        )
+
+
 class TestAbsentDigestTolerance:
     """A real run refuses symbols with no bar digest; a dry run and the explicit flag accept them.
     The rule lives in one place."""
