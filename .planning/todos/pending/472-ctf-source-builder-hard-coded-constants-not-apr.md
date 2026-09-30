@@ -27,8 +27,14 @@ Same mandate, same byte-identical seeding rule:
 - `cross_tf.py`: `deque(maxlen=20)` and the cold-start volatility `0.005` (above), plus the `1e-10`
   guards.
 - `vp_sr.py`: the S/R strength cap `2.0` and the default S/R lookback `_SR_DEFAULT_LOOKBACK = 120`
-  (one constant since 186-15 review; it is the fallback for a tf missing from
-  `sr_lookback_by_tf`, so it belongs next to that key).
+  (one named module constant since the 186-15 review, not an APR key). It is the fallback for a
+  tf missing from `sr_lookback_by_tf` and the floor of the S/R kernel's declared memory
+  (`_sr_max_lookback`), so both the default and the per-tf `sr_lookback_by_tf` fallback must become
+  `feature.sr.*` APR keys (the per-tf map is already `feature.sr.lookback_by_tf`; add the default
+  beside it), read through `FeatureFactoryConfig`. Seed 120 so the golden stays identical. The S/R
+  kernel's `code_content_key` and memory depend on the value, so changing it after the move
+  discards resumable ic_engine cells and changes declared memory: edit it only with no corpus run
+  live or resumable.
 - `feature_cache.py` (legacy, frozen): the `_HMM_*` transition, emission and prior tables that
   `_hmm_forward_step` reads; `ctf_regime_align` inherits them. They move with the helpers in
   todo 476 and become APR JSON (a behavioral list with a warning that changing it invalidates
