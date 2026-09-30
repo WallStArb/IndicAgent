@@ -60,6 +60,15 @@ def _run(kernel: Kernel, inputs: Mapping[str, np.ndarray], config: object, lo: i
     return _cast_outputs(kernel, kernel.compute(cut, config), hi - lo)  # type: ignore[arg-type]
 
 
+def _missing(values: np.ndarray) -> np.ndarray:
+    """True where an element is None or a float NaN."""
+    return np.fromiter(
+        (v is None or (isinstance(v, float) and v != v) for v in values.ravel()),
+        dtype=bool,
+        count=values.size,
+    ).reshape(values.shape)
+
+
 def _first_difference(
     a: np.ndarray, b: np.ndarray, ulp: int, atol: float = 0.0
 ) -> tuple[int, object, object] | None:
@@ -68,8 +77,12 @@ def _first_difference(
     `atol` is an absolute tolerance (memory_check only; the causality probe stays exact).
     """
     if a.dtype.kind not in "fc":
-        # Labels and other non-float outputs (object dtype): exact equality, None equals None.
-        bad = np.asarray(a != b, dtype=bool)
+        # Labels and other non-float outputs (object dtype). Missing is one marker: None and a
+        # float NaN are the same "missing" on both sides and equal only to another missing
+        # value; every other value is compared by equality.
+        miss_a, miss_b = _missing(a), _missing(b)
+        bad = miss_a != miss_b
+        bad |= ~miss_a & ~miss_b & np.asarray(a != b, dtype=bool)
         if not bad.any():
             return None
         idx = np.argwhere(bad)[0]

@@ -369,3 +369,35 @@ def test_object_dtype_lookahead_is_detected():
 
     with pytest.raises(CausalityViolation):
         causality_probe(_label_kernel(peeking), INPUTS, CFG, ROWS)
+
+
+def _object_array(values):
+    arr = np.empty(len(values), dtype=object)
+    arr[:] = values
+    return arr
+
+
+def test_object_arrays_with_nan_compare_equal_to_themselves():
+    from src.intelligence.features.contract.causality_probe import _first_difference
+
+    a = _object_array(["up", np.nan, None, "down"])
+    assert _first_difference(a, a.copy(), 0) is None
+
+
+def test_none_and_nan_are_the_same_missing_marker_and_only_equal_each_other():
+    from src.intelligence.features.contract.causality_probe import _first_difference
+
+    assert _first_difference(_object_array([None, "a"]), _object_array([np.nan, "a"]), 0) is None
+    assert _first_difference(_object_array([None]), _object_array(["a"]), 0) == (0, None, "a")
+    assert _first_difference(_object_array(["a", np.nan]), _object_array(["a", "b"]), 0)[0] == 1
+
+
+def test_a_causal_label_kernel_padding_with_nan_passes_the_probe():
+    def labels(x):
+        out = np.empty(len(x), dtype=object)
+        out[:] = [np.nan if int(v * 1000) % 3 == 0 else "up" for v in x]
+        return out
+
+    kernel = _label_kernel(labels)
+    causality_probe(kernel, INPUTS, CFG, ROWS)
+    memory_check(kernel, INPUTS, CFG, ROWS)
