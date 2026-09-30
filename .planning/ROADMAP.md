@@ -319,6 +319,13 @@ Plans:
   `config.py` closure, the pilot-only HMM helpers deleted with them, migration 412 retires two
   unread APR keys; `repro_frozen` (promoted to `scripts.research.determinism`) bit-identical before
   and after; merged 2026-09-30 locally (`299798dc7`, push held by the coordinator)
+- [x] 186-15 feature_factory split, last origins: SMC, VP/SR, cross-asset and factor-beta, CTF and ret_div
+  are registry kernels (139 kernels, nine origins, D-25), byte-identical against the golden, which was
+  never regenerated; the CTF availability tests (written first) found todo 243's re-key causal and
+  `compute_batch` accepting any dict, now a close-keyed `CtfSeries` that raises TypeError otherwise;
+  the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
+  cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
+  merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
 - [x] 186-14 fresh IC writer: `services/ic_measure.py` writes `feature_ic_scores_v2` (migration 413, `regime_scope`
   in the PK, legacy table untouched) only through `bulk_load`, one provenance batch per unit, skipped
   before any IC when the identity (per-job code key, APR snapshot, per-symbol bar digests, block

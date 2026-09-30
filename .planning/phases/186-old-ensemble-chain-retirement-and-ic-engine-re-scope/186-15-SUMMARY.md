@@ -196,7 +196,8 @@ The Asian session pair is now owned by the session-levels kernel; `regime_rollin
 
 ## Verification
 
-- `pytest tests/unit/ -q` on the branch worktree: see the merged-main line below.
+- `pytest tests/unit/ -q` on the branch worktree (before the merge): exit 0, 4 skips, 5m10s.
+- `pytest tests/unit/ -q -p no:cacheprovider` on merged main (`5fd6d17c6`, run in the main checkout): exit=0, the same 4 skips (two `personal_cost_hurdle` imports from the 186-16 deletion, `test_pipeline_annotation`, `test_causal_hmm_decoding`), 5m14s. No ignores needed.
 - ruff, black clean on every touched file (two pre-existing unsorted-import findings in `tests/unit/research_tools/test_repro_frozen.py` and `tests/unit/scripts/test_bar_campaign_preflight.py` are not mine and were left).
 - mypy: `mypy src/ --ignore-missing-imports | mypy-baseline filter` reports `new: 0`; per-file message counts differ from main only by the three moved "Unsupported operand" errors (feature_factory.py to vp_sr.py) and one fewer "Argument 2" in feature_factory.py.
 - vulture: equal to main after the four whitelist entries.
@@ -217,4 +218,4 @@ None. No new endpoints, auth paths or schema changes.
 
 ## Self-Check
 
-See the merged-main record appended after the merge.
+PASSED. Every created file exists on main (`vp_sr.py`, `smc.py`, `cross_tf.py`, `daily_grid_fixtures.py`, `test_cross_tf_alignment.py`, `test_feature_vector_pipeline_registry.py`, todo 472), `cross_asset_series.py` is gone, and every commit in the table exists in `git log main` (merge commit `5fd6d17c6`).
