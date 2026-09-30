@@ -16,10 +16,12 @@ CORRECTNESS INVARIANTS (unchanged by the move):
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import math
+import threading
 import typing
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
@@ -91,6 +93,21 @@ _VOLATILITY_VOCAB: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 WALK_FORWARD_TIMEFRAMES: tuple[str, ...] = ("5m", "15m", "1h", "1d")
+
+
+# `threadpool_limits` changes the BLAS thread count of the whole process and restores the value it
+# saw on entry, so two threads pinning and restoring it interleave (one restores while the other
+# is mid-fit, or saves the other's pinned value). The heavy fit therefore runs one thread at a
+# time. Reentrant, so a nested call in the same thread cannot deadlock. The ProcessPool writer
+# has one caller per process, so the lock is never contended there.
+_BLAS_PIN_LOCK = threading.RLock()
+
+
+@contextlib.contextmanager
+def pinned_blas_threads() -> Iterator[None]:
+    """Run the body with BLAS at one thread, serialized against other threads doing the same."""
+    with _BLAS_PIN_LOCK, threadpool_limits(limits=1):
+        yield
 
 
 def _apr(key: str) -> dict[str, str]:
@@ -1396,7 +1413,7 @@ def walk_forward_family_arrays(
     # bits differ from the golden and, on this box, run to run (test_regime_kernel.py). Every
     # BLAS call of the fit and the emission solves happens inside this call, so the caller's
     # `infra.blas_threads_per_worker` cannot change a regime label.
-    with threadpool_limits(limits=1):
+    with pinned_blas_threads():
         segment_results = _walk_forward_hmm_full(
             obs_matrix,
             n_components,

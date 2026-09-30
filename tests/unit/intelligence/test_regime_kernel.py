@@ -91,6 +91,46 @@ def test_kernel_output_does_not_depend_on_the_callers_blas_threads(threads):
         assert np.array_equal(_bits(columns[c]), _bits(stored["trend/columns"][c])), c
 
 
+def test_two_threads_running_the_kernel_concurrently_both_match_the_golden():
+    """`threadpool_limits` is process-global and not reentrant: two threads each pinning and
+    restoring it can leave one of them running (or restoring) the wrong thread count. The heavy
+    kernel serializes its pinned section behind a lock, so concurrent callers, each inside
+    their own `threadpool_limits(8)`, both get the single-thread golden."""
+    import threading
+
+    stored = np.load(FIXTURE_DIR / "synthetic_golden.npz")
+    bars = load_synthetic(FIXTURE_DIR)
+    results: dict[int, tuple] = {}
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(2)
+
+    def work(i: int) -> None:
+        try:
+            with threadpool_limits(8):
+                barrier.wait()
+                results[i] = run_kernel_case(SMALL_HMM_APR, bars, "trend", "1d")
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    for i in range(2):
+        labels, columns = results[i]
+        assert np.array_equal(labels, stored["trend/labels"]), i
+        for c in range(len(columns)):
+            assert np.array_equal(_bits(columns[c]), _bits(stored["trend/columns"][c])), (i, c)
+
+
+def test_the_pin_is_reentrant_within_one_thread():
+    """A kernel call nested inside a pinned section of the same thread must not deadlock."""
+    with _hmm.pinned_blas_threads(), _hmm.pinned_blas_threads():
+        pass
+
+
 @pytest.mark.parametrize("case", ["SPY/1d", "TLT/1d", "LQD/1d"])
 def test_real_daily_cases_reproduce_the_writer_golden(case):
     stored = json.loads((FIXTURE_DIR / "real_golden.json").read_text())
