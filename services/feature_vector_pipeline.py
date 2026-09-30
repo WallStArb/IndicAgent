@@ -76,6 +76,7 @@ from src.intelligence.features.cross_asset_series import (
     CrossAssetRecord,
     build_cross_asset_series,
 )
+from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.pipeline import (
     CacheManager,
     OutputQueue,
@@ -970,11 +971,21 @@ class FeatureVectorPipeline(BaseDaemon):
         )
         self._timeframes = list(vocabulary_access.standard_timeframes())
 
+    async def _load_hmm_config(self) -> HmmConfig:
+        """The regime kernels' HmmConfig from APR: prewarm every key it reads, then load it from
+        the warm cache. A key missing from config_state raises (KeyError naming it): none has a
+        default, because each one changes stored regime labels."""
+        assert self._config_service is not None
+        for key in HmmConfig.apr_keys():
+            await self._config_service.get(key)
+        return HmmConfig.from_values(self._config_service.get_sync)
+
     async def _prewarm_threshold_config(self) -> None:
         """Prewarm config cache and build FeatureFactoryConfig from feature.* keys."""
         assert self._config_service is not None
         for key, default in self._THRESHOLD_KEYS:
             await self._config_service.get(key, default)
+        hmm_config = await self._load_hmm_config()
 
         # Build FeatureFactoryConfig from prewarmed feature.* values (APR contract).
         # All get_sync() calls hit the warm cache — no DB round-trips on compute path.
@@ -1238,6 +1249,7 @@ class FeatureVectorPipeline(BaseDaemon):
             ),
             earnings_season_start_days=_int("feature.earnings_season.start_days", 14),
             earnings_season_end_days=_int("feature.earnings_season.end_days", 42),
+            hmm=hmm_config,
         )
 
         _assert_rsi_mid_period_fits_bar_history(
