@@ -1041,3 +1041,7 @@ mean_variance_arm  # unused function (src/intelligence/portfolio/weighting.py:14
 portfolio_exposure_stats  # unused function (src/intelligence/portfolio/weighting.py:184) - tested public API of portfolio weighting, same as standardize_scores
 circular_block_bootstrap_ic_serial  # unused function (src/intelligence/statistics/ic_math.py:328) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
 causal_entity_expanding_mean  # unused function (src/intelligence/statistics/ic_math.py:621) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
+cross_asset_records  # unused function (src/intelligence/features/kernels/macro.py) - rebuilds the builder's dict from cross_asset_daily's outputs; tested; the rebuild writer (186-25) consumes it
+beta_records  # unused function (src/intelligence/features/kernels/macro.py) - rebuilds the beta builder's dict from factor_beta_daily's outputs; tested; the rebuild writer (186-25) consumes it
+daily_reference_grid  # unused function (src/intelligence/features/kernels/macro.py) - builds the daily-grid kernels' inputs from 1d bars; tested; the rebuild writer (186-25) consumes it
+_.ctf  # unused attribute (src/core/memory/writer.py:326) - payload field of the memory writer; a local variable named ctf in the CTF recompute script used to mask it until 186-15 removed that copy of the join
