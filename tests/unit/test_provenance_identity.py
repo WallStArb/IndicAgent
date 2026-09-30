@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from services._batch_utils import bar_content_digests, kernel_code_key
+from services._batch_utils import bar_content_digests, kernel_code_key, kernel_code_modules
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -164,3 +164,88 @@ class TestBarContentDigests:
             bar_content_digests(_Conn([]), "1d", ["SPY"], datetime(2026, 1, 1), _END)
         with pytest.raises(ValueError):
             bar_content_digests(_Conn([]), "1d", ["SPY"], _END, _START)
+
+
+class TestImportClosure:
+    """kernel_code_key walks the first-party import closure of its entry modules."""
+
+    @pytest.fixture
+    def tree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        root = tmp_path / "kpkg_closure"
+        (root / "sub").mkdir(parents=True)
+        (root / "__init__.py").write_text("from kpkg_closure import hub_target\n")
+        (root / "sub" / "__init__.py").write_text("")
+        (root / "entry.py").write_text(
+            "import os\nimport numpy\nfrom kpkg_closure import direct\n"
+            "from kpkg_closure.sub import leaf\nfrom . import sibling\n\n\n"
+            "def lazy():\n    import kpkg_closure.in_function\n    return kpkg_closure.in_function\n"
+        )
+        for name in ("direct", "sibling", "in_function", "hub_target", "outside"):
+            (root / f"{name}.py").write_text(f"NAME = {name!r}\n")
+        (root / "direct.py").write_text("from kpkg_closure.chain import deep\nNAME = 'direct'\n")
+        (root / "chain.py").write_text("")
+        (root / "chain").mkdir()
+        (root / "chain" / "__init__.py").write_text("")
+        (root / "chain" / "deep.py").write_text("VALUE = 1\n")
+        (root / "chain.py").unlink()
+        (root / "sub" / "leaf.py").write_text("VALUE = 2\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        yield root
+        for name in [n for n in sys.modules if n.startswith("kpkg_closure")]:
+            del sys.modules[name]
+
+    def test_closure_follows_imports_in_functions_and_relative_imports_and_skips_others(
+        self, tree: Path
+    ) -> None:
+        mods = kernel_code_modules(["kpkg_closure.entry"], packages=("kpkg_closure",))
+        assert set(mods) == {
+            "kpkg_closure",  # the package __init__ runs on import
+            "kpkg_closure.entry",
+            "kpkg_closure.direct",
+            "kpkg_closure.sibling",
+            "kpkg_closure.in_function",
+            "kpkg_closure.chain",
+            "kpkg_closure.chain.deep",
+            "kpkg_closure.sub",
+            "kpkg_closure.sub.leaf",
+        }
+        assert "kpkg_closure.outside" not in mods
+        assert "kpkg_closure.hub_target" not in mods  # an __init__'s own imports are not followed
+
+    def test_editing_a_module_on_the_closure_moves_the_key_and_one_outside_does_not(
+        self, tree: Path
+    ) -> None:
+        packages = ("kpkg_closure",)
+        before = kernel_code_key(["kpkg_closure.entry"], packages=packages)
+        _rewrite(tree / "outside.py", "NAME = 'changed'\n")
+        _rewrite(tree / "hub_target.py", "NAME = 'changed'\n")
+        assert kernel_code_key(["kpkg_closure.entry"], packages=packages) == before
+        _rewrite(tree / "chain" / "deep.py", "VALUE = 99\n")
+        moved = kernel_code_key(["kpkg_closure.entry"], packages=packages)
+        assert moved != before
+        _rewrite(tree / "in_function.py", "NAME = 'changed'\n")
+        assert kernel_code_key(["kpkg_closure.entry"], packages=packages) != moved
+
+    def test_own_modules_are_hashed_without_following_their_imports(self, tree: Path) -> None:
+        mods = kernel_code_modules(
+            ["kpkg_closure.sub.leaf"], own=["kpkg_closure.entry"], packages=("kpkg_closure",)
+        )
+        assert "kpkg_closure.entry" in mods
+        assert "kpkg_closure.direct" not in mods
+
+    def test_an_import_of_a_missing_first_party_module_raises(self, tree: Path) -> None:
+        (tree / "broken.py").write_text("import kpkg_closure.gone\n")
+        with pytest.raises(ModuleNotFoundError, match="gone"):
+            kernel_code_modules(["kpkg_closure.broken"], packages=("kpkg_closure",))
+
+    def test_normalizer_matches_ic_engine_copy(self) -> None:
+        """services/ic_engine.py keeps a verbatim copy until 186-23 deletes it; the two must
+        agree or the two engines' keys are not comparable. Delete with ic_engine."""
+        ic_engine = pytest.importorskip("services.ic_engine")
+        from src.core.code_identity import normalized_source_for_hash
+
+        for path in (Path(__file__), Path(ic_engine.__file__).with_name("_batch_utils.py")):
+            source = path.read_bytes()
+            assert normalized_source_for_hash(source) == ic_engine._normalized_source_for_hash(
+                source
+            )

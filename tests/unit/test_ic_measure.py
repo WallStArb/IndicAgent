@@ -592,3 +592,128 @@ class TestSourceLints:
         )
         assert "bulk_load(" in source
         assert "SELECT *" not in source
+
+
+# ---------------------------------------------------------------------------
+# Code key: the hashed modules equal an independently computed import closure
+# ---------------------------------------------------------------------------
+
+
+def _bytecode_closure(entries: tuple[str, ...], own: tuple[str, ...]) -> set[str]:
+    """Slow independent walk: IMPORT_NAME instructions of the compiled code (a different
+    mechanism from the ast walk in src.core.code_identity), following modules, hashing a package
+    as its __init__ without following it, adding every ancestor package."""
+    import dis
+    import importlib.util
+    import types
+
+    roots = ("src", "services")
+
+    def spec(name: str):
+        return importlib.util.find_spec(name)
+
+    def imports_of(name: str) -> set[str]:
+        origin = spec(name).origin
+        code = compile(Path(origin).read_text(), origin, "exec")
+        package = (
+            name if spec(name).submodule_search_locations is not None else name.rpartition(".")[0]
+        )
+        found: set[str] = set()
+        stack: list[types.CodeType] = [code]
+        while stack:
+            current = stack.pop()
+            consts: list[Any] = []
+            for ins in dis.get_instructions(current):
+                if ins.opname in ("LOAD_CONST", "LOAD_SMALL_INT"):  # 3.14 loads small ints apart
+                    consts.append(ins.argval)
+                    if isinstance(ins.argval, types.CodeType):
+                        stack.append(ins.argval)
+                elif ins.opname == "IMPORT_NAME":
+                    level, fromlist = consts[-2], consts[-1]
+                    base = (
+                        importlib.util.resolve_name("." * level + ins.argval, package)
+                        if level
+                        else ins.argval
+                    )
+                    if base.partition(".")[0] not in roots:
+                        continue
+                    found.add(base)
+                    if spec(base).submodule_search_locations is not None:
+                        for item in fromlist or ():
+                            try:
+                                sub = spec(f"{base}.{item}")
+                            except (ModuleNotFoundError, ValueError):
+                                sub = None
+                            if sub is not None:
+                                found.add(f"{base}.{item}")
+        return found
+
+    seen: set[str] = set()
+    todo = list(entries)
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if spec(name).submodule_search_locations is None:
+            todo.extend(imports_of(name))
+    out = seen | set(own)
+    for name in list(out):
+        parts = name.split(".")
+        out.update(".".join(parts[:i]) for i in range(1, len(parts)) if parts[0] in roots)
+    return {n for n in out if spec(n).origin is not None}  # a namespace package has no file
+
+
+class TestCodeKeyClosure:
+    @pytest.mark.parametrize("job", ic_measure._ALL_JOBS)
+    def test_hashed_modules_equal_the_independently_walked_import_closure(self, job: str) -> None:
+        entries = (*ic_measure._COMMON_ENTRIES, *ic_measure._JOB_ENTRIES[job])
+        expected = _bytecode_closure(entries, ic_measure._OWN_MODULES)
+        assert set(ic_measure.job_code_modules(job)) == expected
+
+    def test_the_target_path_modules_the_hand_list_missed_are_hashed(self) -> None:
+        for job in ic_measure._ALL_JOBS:
+            mods = set(ic_measure.job_code_modules(job))
+            assert {
+                "src.intelligence.research.store",
+                "src.intelligence.research.dividends",
+                "src.core.market_calendar",
+                "src.intelligence.statistics.ic_math",
+            } <= mods, job
+
+    def test_jobs_are_scoped_a_proposer_module_is_not_in_the_monitoring_key(self) -> None:
+        assert "src.intelligence.measure.proposer" in ic_measure.job_code_modules("proposer")
+        assert "src.intelligence.measure.proposer" not in ic_measure.job_code_modules("monitoring")
+        assert "src.intelligence.measure.monitoring" not in ic_measure.job_code_modules("proposer")
+
+    def test_editing_a_closure_module_moves_the_key_and_an_outside_module_does_not(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.core import code_identity
+
+        real = code_identity.source_path
+        edited: dict[str, bytes] = {}
+
+        def patched(name: str) -> Path:
+            if name in edited:
+                path = Path(__file__).parent / f"_edit_{name}.py"
+                path.write_bytes(edited[name])
+                created.append(path)
+                return path
+            return real(name)
+
+        created: list[Path] = []
+        monkeypatch.setattr(code_identity, "source_path", patched)
+        try:
+            base = ic_measure.job_code_key("proposer")
+            for name, moves in (
+                ("src.intelligence.research.store", True),
+                ("src.core.market_calendar", True),
+                ("src.intelligence.measure.monitoring", False),  # outside the proposer closure
+            ):
+                edited.clear()
+                edited[name] = real(name).read_bytes() + b"\nEDIT = 1\n"
+                assert (ic_measure.job_code_key("proposer") != base) is moves, name
+        finally:
+            for path in created:
+                path.unlink(missing_ok=True)

@@ -58,6 +58,7 @@ from services._batch_utils import (  # noqa: E402
     completed_provenance_batch,
     compressed_hypertable_write_session,
     kernel_code_key,
+    kernel_code_modules,
     load_config_service_sync,
     short_lived_conn,
 )
@@ -754,16 +755,19 @@ def active_jobs(jobs: Sequence[str], members: Sequence[str]) -> list[str]:
 # The run
 # ---------------------------------------------------------------------------
 
-_COMMON_MODULES = (
-    "services.ic_measure",
+# The code key of a job (D-23) covers its entry modules plus everything first-party they import
+# (kernel_code_key walks the closure, so the research store, dividends and market calendar the
+# target path reaches are in it without being listed) and this file, whose row building and unit
+# identity are part of what a value is. This file's own imports are infrastructure (bulk_load,
+# settings, metrics) and are not followed. Scoped per job: a proposer edit never re-keys
+# monitoring.
+_COMMON_ENTRIES = (
     "src.intelligence.measure.params",
     "src.intelligence.measure.targets",
     "src.intelligence.measure.ic",
-    "src.intelligence.research.panel",
-    "src.intelligence.research.snapshot",
-    "src.intelligence.statistics.ic_math",
 )
-_JOB_MODULES: dict[str, tuple[str, ...]] = {
+_OWN_MODULES = ("services.ic_measure",)
+_JOB_ENTRIES: dict[str, tuple[str, ...]] = {
     JOB_PROPOSER: (
         "src.intelligence.measure.proposer",
         "src.intelligence.measure.term_structure",
@@ -782,9 +786,15 @@ _EARLIEST_BAR_SQL = (
 )
 
 
+def job_code_modules(job: str) -> tuple[str, ...]:
+    """The modules the job's code key hashes."""
+    return kernel_code_modules((*_COMMON_ENTRIES, *_JOB_ENTRIES[job]), own=_OWN_MODULES)
+
+
 def job_code_key(job: str) -> str:
-    """The per-job code key: only the modules that compute that job (D-23)."""
-    return kernel_code_key((*_COMMON_MODULES, *_JOB_MODULES[job]))
+    """The per-job code key: the job's entry modules, their first-party import closure and this
+    file (D-23)."""
+    return kernel_code_key((*_COMMON_ENTRIES, *_JOB_ENTRIES[job]), own=_OWN_MODULES)
 
 
 class _WriteSession:

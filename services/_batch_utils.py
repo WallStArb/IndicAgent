@@ -3,18 +3,15 @@ APR-loading helper for the async batch services)."""
 
 from __future__ import annotations
 
-import ast
 import csv
 import hashlib
-import importlib
-import inspect
 import io
 import json
 import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from contextvars import ContextVar
@@ -29,6 +26,7 @@ import structlog
 from psycopg.types.json import Jsonb
 
 from src.config.config_service import ConfigService
+from src.core.code_identity import FIRST_PARTY_PACKAGES, code_key, import_closure
 from src.core.real_column_range import REAL_MAX_MAGNITUDE, REAL_MIN_MAGNITUDE, clamp_to_real_range
 from src.core.service_utils import format_iso_ts
 
@@ -769,57 +767,38 @@ def compress_completed_chunks(conn: Any, target_table: str, before: datetime) ->
 # ---------------------------------------------------------------------------
 
 
-def _normalized_source_for_hash(source: bytes) -> bytes:
-    """AST-normalized source bytes for content hashing.
+def kernel_code_key(
+    modules: Iterable[str],
+    *,
+    own: Iterable[str] = (),
+    packages: Collection[str] = FIRST_PARTY_PACKAGES,
+) -> str:
+    """Code identity of one job: sha256 over the AST-normalized source of the entry modules, every
+    first-party module they import (transitively, found with `ast`, imports inside functions
+    included) and the `own` modules, as 64 lowercase hex (D-23; see `src.core.code_identity`).
 
-    Comments and formatting are not part of the AST; module, class and function docstrings
-    are blanked, so a comment or docstring reword does not move a code key while any logic
-    edit does. Falls back to the raw bytes on a parse failure, which only makes the hash more
-    change-sensitive for that file. This replicates services/ic_engine.py's function of the
-    same name without importing it (that would pull the whole old engine into a writer's
-    process); ic_engine's copy is deleted with ic_engine in 186-23 and this is then the only one.
+    The caller names the entry modules of the computation; the import closure is derived, so an
+    import added to a computation module moves the key without a hand-kept list to update. Not
+    ic_engine's all-imports key (`code_content_key`, which hashes everything loaded into the
+    process): a module outside the closure never moves it. `own` modules are hashed as files
+    without following their imports (a writer's orchestration module). Names are de-duplicated
+    and sorted, so order does not matter. An empty entry list raises ValueError and a name that
+    cannot be resolved raises ModuleNotFoundError, never a silent skip.
     """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return source
-    docstring_holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-    for node in ast.walk(tree):
-        if not isinstance(node, docstring_holders) or not node.body:
-            continue
-        first = node.body[0]
-        if (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Constant)
-            and isinstance(first.value.value, str)
-        ):
-            first.value.value = ""
-    return ast.dump(tree).encode()
+    return code_key(kernel_code_modules(modules, own=own, packages=packages))
 
 
-def kernel_code_key(modules: Iterable[str]) -> str:
-    """Code identity of one job: sha256 over the AST-normalized source of exactly the named
-    dotted modules (D-23), as 64 lowercase hex.
-
-    The caller names the modules that compute the job; nothing is discovered. This is not
-    ic_engine's all-imports key (`code_content_key`): an edit to a module outside the list never
-    moves it. Names are de-duplicated and sorted, so list order does not matter. An empty list
-    raises ValueError and a name that cannot be imported raises ModuleNotFoundError, never a
-    silent skip.
-    """
-    names = sorted(set(modules))
-    if not names:
+def kernel_code_modules(
+    modules: Iterable[str],
+    *,
+    own: Iterable[str] = (),
+    packages: Collection[str] = FIRST_PARTY_PACKAGES,
+) -> tuple[str, ...]:
+    """The sorted module names `kernel_code_key` hashes for these entries."""
+    entries = sorted(set(modules))
+    if not entries:
         raise ValueError("kernel_code_key: at least one module name is required")
-    digest = hashlib.sha256()
-    for name in names:
-        module = importlib.import_module(name)
-        path = inspect.getsourcefile(module)
-        if path is None:
-            raise ModuleNotFoundError(f"kernel_code_key: no source file for module {name!r}")
-        with open(path, "rb") as handle:
-            digest.update(name.encode() + b"\x00" + _normalized_source_for_hash(handle.read()))
-            digest.update(b"\x01")
-    return digest.hexdigest()
+    return import_closure(entries, own, packages)
 
 
 _BAR_DIGEST_SQL = (
