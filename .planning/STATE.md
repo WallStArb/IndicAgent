@@ -60,6 +60,9 @@ bullets with current facts.
   minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans 11-12) is in place by
   wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
+  Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
+  number plus 16, because phase 186 took 384 to 389); other phases keep taking the next free number below 400.
+  Plans 12, 18 and 23 carry the todo 462 intraday redesign (`docs/plans/2026-09-29-intraday-bar-store-redesign.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
   sequential, one executor at a time). 12 done (01 to 12; 02, 11, 12 landed in wave 2); paused by owner, resume with 186-17 then wave 3.

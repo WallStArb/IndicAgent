@@ -13,7 +13,7 @@ Scope comes from 185-CONTEXT.md (D-01..D-28) and 185-RESEARCH.md ("Recommended p
 | `production/migrations/380_ohlcv_observation_store.sql` (D1: `ohlcv_request`, `ohlcv_observation`, append-only triggers, NOLOGIN roles + grants) | migration | append-only store | `367_classification_integrity_guards.sql` + `366_research_run_ledger.sql` (triggers), `376_dividend_events.sql` (table/CHECK/COMMENT shape) | exact for triggers; no analog for roles |
 | `production/migrations/381_bar_quality_flag.sql` (flag table, tradeable view anti-join, migrate 67 status rows, drop todo 347 index, `threshold.bar_scrub.*` APR) | migration | view + APR seed | `374_former_venue_history_recovery.sql` (view rewrite + APR seed) | exact |
 | `production/migrations/383_derived_grid.sql` (plan 11; 15m/1h raw archive, `bar_derivation`, `bar_content_digest`) | migration | side tables | `376_dividend_events.sql` | role-match |
-| `production/migrations/384_corporate_action.sql` (plan 15; `corporate_action` append-only with supersedes; `listing_venue` ships separately as plan 24's `392_listing_venue.sql`) | migration | point-in-time append-only | `367_classification_integrity_guards.sql` (EXCLUDE gist, close-then-insert, same-UTC-day) | exact |
+| `production/migrations/400_corporate_action.sql` (plan 15; `corporate_action` append-only with supersedes; `listing_venue` ships separately as plan 24's `408_listing_venue.sql`) | migration | point-in-time append-only | `367_classification_integrity_guards.sql` (EXCLUDE gist, close-then-insert, same-UTC-day) | exact |
 | APR seed migrations (survivorship `alpha.survivorship.*`, D7 thresholds, `infra.bar_derivation.overlap_sessions`) | migration | config seed | `376_dividend_events.sql` lines 89-143 | exact |
 | `src/intelligence/bars/__init__.py` | package | - | `src/intelligence/research/__init__.py` | exact |
 | `src/intelligence/bars/scrub_rules.py` | pure rule module | transform | `src/intelligence/statistics/price_sanity.py` + pure half of `services/dividend_event_writer.py` | exact |
@@ -137,7 +137,7 @@ APR seed: copy the three-block shape from 376 (below, "APR seed").
 
 ---
 
-### `production/migrations/384_corporate_action.sql` (plan 15; migration, point in time; `listing_venue` is plan 24's `392_listing_venue.sql`)
+### `production/migrations/400_corporate_action.sql` (plan 15; migration, point in time; `listing_venue` is plan 24's `408_listing_venue.sql`)
 
 **Analog:** `367_classification_integrity_guards.sql` lines 21-30 (no-overlap exclusion) and 32-60 (close-then-insert, same-UTC-day rule).
 ```sql
