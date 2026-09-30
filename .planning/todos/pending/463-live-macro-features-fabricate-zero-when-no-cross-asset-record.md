@@ -17,6 +17,19 @@ value with 0.0. The batch and rebuild path (`_macro_kernel_inputs`, 186-12 and 1
 for the same situation and stores NULL. The two paths disagree, and the live one breaks
 `no_fill` (a fabricated 0.0 z-score reads as a real reading).
 
+Scope, stated precisely (pass C): the F9/B5a NaN takes effect only on the registry-kernel path
+(`compute_kernels`, `_macro_kernel_inputs`). The legacy `_build_feature_vector` build path, used
+by both `compute()` and `compute_batch()`, still wraps vix_z, flight_quality, yield_slope_z,
+tip_tlt_ret_z, hyg_lqd_ret_z and sb_corr_fast/slow/z in `_guard(..., 0.0)`, and FeatureVector
+fields are non-nullable floats, so a `compute_batch` row with no daily record yet persists 0.0,
+not NULL. That includes today's batch backfills, not only the dormant live path. Pass C stopped
+the products' `_guard_counted` tripwire from firing on the missing input (544 false counts on the
+early rows of one test series) but left the substituted value at 0.0, and pinned the behavior with
+`tests/unit/intelligence/test_legacy_featurevector_macro_fill.py`, named to fail when 186-25
+changes it. 186-25 removes the `_guard(..., 0.0)` on these fields for the rebuild path and must
+prove with a test that rebuilt early-history macro columns are NULL, not 0.0, in the feature
+vectors table.
+
 It was not fixed in pass B5 because making the record NaN alone changes nothing: `compute()` puts
 the zero back, `FeatureVector` types the macro fields as `float`, and
 `validate_feature_vector` (`feature_vector_persistence.py`) rejects a NaN field while accepting
@@ -41,8 +54,8 @@ None. Fixing it means deciding how a feature column is allowed to be missing.
 Option 1, done together with the streaming path's revival (the live feed is down, so nothing
 fabricated is being written today) and with a live-versus-rebuild parity test on the first rows
 of a series. It is the only option that makes live and rebuild identical and keeps every feature
-that is available. Until then the live path stays dormant, so no stored row carries the defect
-except through the rebuild's own NULL rows.
+that is available. Until then the live path stays dormant; rows written by the legacy batch path before the 186-25
+rebuild carry 0.0 for these columns on their early history, and the rebuild replaces them.
 
 ## Steps
 
