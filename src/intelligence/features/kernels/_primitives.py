@@ -16,15 +16,16 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 EPS = 1e-10
 STD_FLOOR = 1e-8
 
-# A Wilder recursion (ATR, RSI) forgets its seed geometrically: after `WILDER_MEMORY_HALF_LIVES *
-# period` bars the seed weight is (1 - 1/period) ** (40 * period) < exp(-40), about 4e-18, below
-# float64 resolution. A derived bound, not a tunable.
-WILDER_MEMORY_HALF_LIVES = 40
+# A Wilder recursion (ATR, RSI) forgets its seed geometrically: after `WILDER_MEMORY_E_FOLDS *
+# period` bars the seed weight is (1 - 1/period) ** (40 * period), at most exp(-40), about 4e-18.
+# Float64 resolution is 2.2e-16 (exp(-37) is already below it), so 40 e-folds leave the seed
+# invisible with a margin of three. A derived bound, not a tunable.
+WILDER_MEMORY_E_FOLDS = 40
 
 
 def wilder_memory_bars(period: int) -> int:
     """Bars after which a Wilder recursion with `period` no longer depends on its seed."""
-    return WILDER_MEMORY_HALF_LIVES * max(int(period), 1)
+    return WILDER_MEMORY_E_FOLDS * max(int(period), 1)
 
 
 def wilder_rsi_series(closes: np.ndarray, period: int) -> np.ndarray:

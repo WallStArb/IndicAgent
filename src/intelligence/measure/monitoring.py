@@ -13,6 +13,14 @@ from src.intelligence.measure.ic import existing_rows, observation_rows, pooled_
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
 
+# Numerical guards on the HAC Sharpe, not tunables (exempt as mathematical constants): a
+# variance or standard deviation this small is float64 rounding noise around a constant series,
+# so the ratio it would divide by is treated as zero. Unrelated to
+# MeasureParams.monitor_degenerate_std, the APR-backed threshold on the spread of the window IC
+# series that decides the plain (non-HAC) IC Sharpe.
+_HAC_VARIANCE_FLOOR = 1e-12
+_HAC_STD_FLOOR = 1e-10
+
 
 @dataclasses.dataclass(frozen=True)
 class MemberIcSeries:
@@ -48,11 +56,11 @@ def _hac_sharpe_gapped(ic: np.ndarray, max_lag: int) -> float:
             if not pair.any():
                 continue
             gamma_k = (demeaned[k:][pair] * demeaned[:-k][pair]).mean()
-            rho_k = gamma_k / var0 if var0 > 1e-12 else 0.0
+            rho_k = gamma_k / var0 if var0 > _HAC_VARIANCE_FLOOR else 0.0
             inflation += 2.0 * (1.0 - k / (max_lag + 1)) * rho_k
         inflation = max(inflation, 1.0)  # can't be more precise than i.i.d.
     hac_std = np.sqrt(var0 * inflation)
-    return float(mean / hac_std) if hac_std > 1e-10 else 0.0
+    return float(mean / hac_std) if hac_std > _HAC_STD_FLOOR else 0.0
 
 
 def member_ic_over_time(

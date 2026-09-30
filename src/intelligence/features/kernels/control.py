@@ -11,9 +11,12 @@ from src.core.rng import hash_key_to_int
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
 from src.intelligence.features.kernels._primitives import EPS, unique_datetimes
 
+# These two numbers define the control predictors, they are not tunables (APR-exempt: statistical
+# concept definitions, like the 5 in momentum_z_5). canary_constant is the value 1.0 on every row;
+# canary_near_constant is 1.0 plus 1e-6 times a standard normal draw, a column that is constant to
+# within numerical noise. Changing either redefines the control and invalidates every recorded
+# reading of it.
 _CANARY_CONSTANT_VALUE: float = 1.0
-
-
 _CANARY_NEAR_CONSTANT_EPSILON: float = 1e-6
 
 
