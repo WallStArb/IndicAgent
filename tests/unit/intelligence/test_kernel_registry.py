@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from src.intelligence.features.registry import (
+from src.intelligence.features.contract.registry import (
     Alignment,
     ExternalInput,
     Kernel,
@@ -96,7 +96,7 @@ def test_default_package_discovers_origins():
 
 _KERNEL_SRC = textwrap.dedent("""
     import numpy as np
-    from src.intelligence.features.registry import Kernel
+    from src.intelligence.features.contract.registry import Kernel
     KERNELS = (
         Kernel(name="{n}", outputs=("{n}",), inputs=("close",),
                memory=lambda c: 1, compute=lambda x, c: {{"{n}": x["close"]}}),
@@ -191,7 +191,7 @@ def test_external_equal_to_output_raises():
 
 
 def test_discovery_rejects_duplicate_external_across_modules(tmp_path, monkeypatch):
-    ext = "from src.intelligence.features.registry import Alignment, ExternalInput\nimport numpy as np\n"
+    ext = "from src.intelligence.features.contract.registry import Alignment, ExternalInput\nimport numpy as np\n"
     ext += "EXTERNAL_INPUTS = (ExternalInput('symbol', np.dtype(object), Alignment.CONSTANT_PER_SERIES),)\n"
     name = _make_pkg(tmp_path, monkeypatch, "tmp_kernels_ext", {"one": ext, "two": ext})
     try:

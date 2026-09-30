@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
     EPS,
     _fixed_window_zscore_series,
@@ -23,7 +24,6 @@ from src.intelligence.features.kernels.price import (
     _up_vol_body_diff,
     _vol_velocity_z_series_full,
 )
-from src.intelligence.features.registry import Kernel
 from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:

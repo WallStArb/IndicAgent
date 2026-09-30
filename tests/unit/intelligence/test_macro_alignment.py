@@ -14,6 +14,7 @@ import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.contract.registry import Alignment
 from src.intelligence.features.cross_asset_series import (
     CROSS_ASSET_SYMBOLS,
     CrossAssetRecord,
@@ -21,7 +22,6 @@ from src.intelligence.features.cross_asset_series import (
     build_symbol_beta_series,
 )
 from src.intelligence.features.kernels.macro import MACRO_COLUMNS, align_daily_asof
-from src.intelligence.features.registry import Alignment
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
@@ -226,8 +226,8 @@ def test_align_daily_asof_requires_sorted_dates():
 def _macro_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, np.ndarray]:
     """Macro kernel outputs on the intraday row grid, from raw daily bars and raw bars."""
     from src.intelligence.feature_factory import _macro_kernel_inputs
+    from src.intelligence.features.contract.registry import compute_kernels, default_registry
     from src.intelligence.features.kernels.macro import MACRO_COLUMNS
-    from src.intelligence.features.registry import compute_kernels, default_registry
 
     cross, beta = _records(daily)
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
@@ -263,7 +263,7 @@ def _truncate_daily_asof_close(daily, bars, cut_row):
 
 def _external_outputs(alignment, bars, daily):
     """(outputs on the row grid, the columns that carry every external of `alignment`)."""
-    from src.intelligence.features.registry import default_registry
+    from src.intelligence.features.contract.registry import default_registry
 
     declared = [e.name for e in default_registry().external_inputs if e.alignment is alignment]
     if alignment is Alignment.DAILY_ASOF_CLOSE:

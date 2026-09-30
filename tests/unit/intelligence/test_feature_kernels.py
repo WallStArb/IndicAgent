@@ -18,14 +18,14 @@ import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, _macro_kernel_inputs
-from src.intelligence.features.causality_probe import (
+from src.intelligence.features.contract.causality_probe import (
     CausalityViolation,
     causality_probe,
     memory_check,
     probe_registry,
 )
+from src.intelligence.features.contract.registry import compute_kernels, default_registry
 from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
-from src.intelligence.features.registry import compute_kernels, default_registry
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 MANIFEST = ref.load_manifest()

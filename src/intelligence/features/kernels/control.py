@@ -8,8 +8,8 @@ from datetime import datetime
 import numpy as np
 
 from src.core.rng import hash_key_to_int
+from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
 from src.intelligence.features.kernels._primitives import EPS, unique_datetimes
-from src.intelligence.features.registry import Alignment, ExternalInput, Kernel
 
 _CANARY_CONSTANT_VALUE: float = 1.0
 

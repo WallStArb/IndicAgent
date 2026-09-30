@@ -41,6 +41,7 @@ from src.intelligence.feature_cache import (
     _compute_session_value_area,
     _compute_session_vp_profile,
 )
+from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.features.kernels._primitives import (
     _is_valid_atr,
@@ -113,7 +114,6 @@ from src.intelligence.features.kernels.volume import (
     _cmf,
     _informed_flow,
 )
-from src.intelligence.features.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.schemas import FeatureVector
 from src.intelligence.utils import clamp, find_peaks, find_troughs
 from src.intelligence.utils.gradient_utils import freshness_decay, linear_ramp

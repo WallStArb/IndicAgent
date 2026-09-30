@@ -19,7 +19,7 @@ import numpy as np
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
-from src.intelligence.features.registry import Alignment, ExternalInput, Kernel
+from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
 
 _NEW_YORK = ZoneInfo("America/New_York")
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)

@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 from scipy import stats
 
-from src.intelligence.features.registry import Kernel
+from src.intelligence.features.contract.registry import Kernel
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 

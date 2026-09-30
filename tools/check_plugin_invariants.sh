@@ -52,20 +52,13 @@ case "$CHECK" in
       [ -z "$file" ] && continue
       case "$file" in
         *schemas.py|*alpha_multiplier.py|*dag.py|*position_sizer.py) continue ;;
-        # research/ is the research DAG library (panels, specs, ledger, statistics), not
-        # plugin code: like statistics/, its classes are data and computation types that the
-        # plugin suffix taxonomy does not describe (Panel, RidgeSpec, PostgresLedger).
-        # bars/ (phase 185) is the same kind of pure Ring 1 library (ScrubParams,
-        # SymbolBars, BarFlag), not plugin code.
-        # features/registry.py and features/causality_probe.py (186-08) are the pure kernel
-        # contract (Kernel, CausalityViolation), named by the plan's D-25/D-27 interface, not
-        # plugin classes.
-        src/intelligence/features/registry.py|src/intelligence/features/causality_probe.py) continue ;;
-        # measure/ (186-10) is the pure IC measurement library (IcCell, TargetStack,
-        # MeasureParams, TermStructure), the names the plan pins for the 186-14 writer and the
-        # 186-20 parity harness; data and computation types, not plugin classes.
-        src/intelligence/measure/*) continue ;;
-        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*) continue ;;
+        # Pure Ring 1 libraries, exempt by directory (one rule, no per-file entries): their classes
+        # are data and computation types that the plugin suffix taxonomy does not describe.
+        #   research/  the research DAG library (Panel, RidgeSpec, PostgresLedger)
+        #   bars/      the bar scrub library (ScrubParams, SymbolBars, BarFlag)
+        #   measure/   the IC measurement library (IcCell, TargetStack, MeasureParams)
+        #   features/contract/  the kernel contract (Kernel, Alignment, CausalityViolation)
+        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*|src/intelligence/measure/*|src/intelligence/features/contract/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
       FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
@@ -83,18 +76,17 @@ case "$CHECK" in
     ;;
 
   file-naming)
-    # Canonical exclusion: ai/swarm dirs use their own naming conventions.
+    # Canonical exclusion: ai/swarm dirs use their own naming conventions. A leading underscore
+    # marks a private module (kernels/_primitives.py: discover_kernels() skips it, so it is never
+    # imported as a kernel origin).
     VIOLATIONS=""
     while IFS= read -r file; do
       [ -z "$file" ] && continue
       case "$file" in
         src/intelligence/ai/*|src/intelligence/swarm/*) continue ;;
-        # kernels/_primitives.py (186-12): the leading underscore keeps discover_kernels() from
-        # importing the shared helper module as a kernel origin (plan-pinned name).
-        src/intelligence/features/kernels/_primitives.py) continue ;;
       esac
       filename=$(basename "$file")
-      echo "$filename" | grep -qE '^([a-z][a-z0-9_]*|__init__|conftest|TEMPLATE_agent|TEMPLATE)\.py$' || \
+      echo "$filename" | grep -qE '^(_?[a-z][a-z0-9_]*|__init__|conftest|TEMPLATE_agent|TEMPLATE)\.py$' || \
         VIOLATIONS="${VIOLATIONS}  ${file}"$'\n'
     done
     if [ -n "$VIOLATIONS" ]; then

@@ -5,14 +5,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.intelligence.features.causality_probe import (
+from src.intelligence.features.contract.causality_probe import (
     CausalityViolation,
     MemoryViolation,
     causality_probe,
     memory_check,
     probe_registry,
 )
-from src.intelligence.features.registry import (
+from src.intelligence.features.contract.registry import (
     Kernel,
     KernelRegistry,
     compute_kernels,

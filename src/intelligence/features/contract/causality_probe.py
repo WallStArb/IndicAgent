@@ -22,7 +22,7 @@ from collections.abc import Mapping
 
 import numpy as np
 
-from src.intelligence.features.registry import Kernel, KernelRegistry
+from src.intelligence.features.contract.registry import Kernel, KernelRegistry
 
 
 class CausalityViolation(AssertionError):

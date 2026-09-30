@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
     EPS,
     _atr_series_full,
@@ -30,7 +31,6 @@ from src.intelligence.features.kernels._primitives import (
     wilder_memory_bars,
     wilder_rsi_series,
 )
-from src.intelligence.features.registry import Kernel
 from src.intelligence.utils import safe_corr
 
 if TYPE_CHECKING:
