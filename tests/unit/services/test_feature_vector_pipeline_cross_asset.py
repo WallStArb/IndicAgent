@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import math
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -188,7 +189,8 @@ async def test_load_cross_asset_series_matches_build_cross_asset_series_directly
     for d, ref in reference.items():
         got = agent._cross_asset_by_date[d]
         for field_name in CrossAssetRecord._fields:
-            assert abs(getattr(got, field_name) - getattr(ref, field_name)) < 1e-12, (
+            got_v, ref_v = getattr(got, field_name), getattr(ref, field_name)
+            assert (math.isnan(got_v) and math.isnan(ref_v)) or abs(got_v - ref_v) < 1e-12, (
                 f"{d}: {field_name} live={getattr(got, field_name)} "
                 f"!= batch={getattr(ref, field_name)}"
             )

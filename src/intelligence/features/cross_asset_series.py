@@ -104,7 +104,7 @@ def build_cross_asset_series(
     58->80 ETF expansion (2026-07-01), postdating SPY/TLT/SHY's full history.
     A date with insufficient TIP/HYG/LQD coverage does NOT skip the whole date
     (unlike SPY/TLT/SHY, which continue to gate the entire row as before) --
-    only the affected spread(s) emit 0.0 for that date, so vix_z/yield_slope_z
+    only the affected spread(s) are NaN (missing, no_fill) for that date, so vix_z/yield_slope_z
     are never silently dropped for dates that predate the newer ETFs'
     listings. The count of dates with partial TIP/HYG/LQD coverage is logged
     ONCE at the end of the builder (CLAUDE.md's never-log-per-row-over-the-
@@ -217,8 +217,9 @@ def build_cross_asset_series(
             sb_corr_history.append(sb_corr_fast)
             sb_corr_z = _zscore_from_deque(sb_corr_history, config.sb_corr_zscore_window)
 
-        # tip_tlt_ret_z / hyg_lqd_ret_z: coverage-guarded -- 0.0 (not a skip)
-        # when TIP/HYG/LQD lack coverage for this date (pre-listing dates).
+        # tip_tlt_ret_z / hyg_lqd_ret_z: coverage-guarded -- NaN (missing, not a skip and not a
+        # fabricated 0.0 z-score) when TIP/HYG/LQD lack coverage for this date (pre-listing dates,
+        # and the first record date, before a previous close exists).
         partial_coverage = False
         if (
             tip_end >= 2
@@ -232,7 +233,7 @@ def build_cross_asset_series(
             tip_tlt_ratio_history.append(tip_log_ret - tlt_log_ret)
             tip_tlt_ret_z = _zscore_from_deque(tip_tlt_ratio_history, config.tip_tlt_zscore_window)
         else:
-            tip_tlt_ret_z = 0.0
+            tip_tlt_ret_z = math.nan
             partial_coverage = True
 
         if (
@@ -248,7 +249,7 @@ def build_cross_asset_series(
             hyg_lqd_ratio_history.append(hyg_log_ret - lqd_log_ret)
             hyg_lqd_ret_z = _zscore_from_deque(hyg_lqd_ratio_history, config.hyg_lqd_zscore_window)
         else:
-            hyg_lqd_ret_z = 0.0
+            hyg_lqd_ret_z = math.nan
             partial_coverage = True
 
         if partial_coverage:

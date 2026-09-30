@@ -1479,15 +1479,22 @@ class TestBuildCrossAssetSeries:
         hyg = _make_daily_bars(50, seed=14)
         lqd = _make_daily_bars(50, seed=15)
         result = build_cross_asset_series(spy, tlt, shy, tip, hyg, lqd, config)
+        first = min(result)
         for d, values in result.items():
             for field_name in CrossAssetRecord._fields:
                 v = getattr(values, field_name)
+                if d == first and field_name in ("tip_tlt_ret_z", "hyg_lqd_ret_z"):
+                    # no previous TIP/HYG/LQD close is tracked yet on the first record date
+                    # (todo 464): missing, not a fabricated 0.0
+                    assert math.isnan(v), f"{d}: {field_name} should be missing"
+                    continue
                 assert math.isfinite(v), f"{d}: {field_name} not finite"
 
-    def test_tip_hyg_lqd_partial_coverage_emits_zero_not_skip(self) -> None:
+    def test_tip_hyg_lqd_partial_coverage_emits_nan_not_zero_and_not_skip(self) -> None:
         """Dates with SPY/TLT/SHY coverage but no TIP/HYG/LQD coverage (pre-listing
         dates) must still emit vix_z/yield_slope_z -- TIP/HYG/LQD unavailability
-        must NOT skip the whole date, only zero the affected spread fields."""
+        must NOT skip the whole date, and the affected spread fields are missing (NaN,
+        no_fill), never a fabricated 0.0 z-score."""
         from src.intelligence.features.cross_asset_series import build_cross_asset_series
 
         config = _make_config()
@@ -1504,8 +1511,8 @@ class TestBuildCrossAssetSeries:
         assert early_dates, "expected early dates with SPY/TLT/SHY-only coverage"
         for d in early_dates:
             values = result[d]
-            assert values.tip_tlt_ret_z == 0.0
-            assert values.hyg_lqd_ret_z == 0.0
+            assert math.isnan(values.tip_tlt_ret_z)
+            assert math.isnan(values.hyg_lqd_ret_z)
             # vix_z/yield_slope_z are NOT forced to 0.0 -- SPY/TLT/SHY coverage
             # is unaffected by TIP/HYG/LQD's absence.
             assert math.isfinite(values.vix_z)
