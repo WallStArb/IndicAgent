@@ -433,7 +433,7 @@ def _alpha_pass(
     return states, alpha_history
 
 
-# Backward-compat alias — function was renamed from _causal_decode to _alpha_pass
+# Compat alias — function was renamed from _causal_decode to _alpha_pass
 _causal_decode = _alpha_pass
 
 
