@@ -85,7 +85,7 @@ from services._batch_utils import (  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402
-from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
+from src.core.service_utils import format_iso_ts, parse_iso_ts, setup_service_logging  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
     FamilyCompleteness,
     IcCell,
@@ -980,10 +980,14 @@ class _WriteSession:
 
 
 def _parse_oos(value: Any) -> datetime:
+    """alpha.validation.oos_start as a UTC datetime: a missing or unparseable value raises
+    (`parse_iso_ts` returns None for one), a naive one is UTC, an offset is converted."""
     if value is None:
         raise ValueError(f"APR key {_OOS_START_KEY} is not set")
-    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    parsed = parse_iso_ts(str(value))
+    if parsed is None:
+        raise ValueError(f"APR key {_OOS_START_KEY} is not an ISO timestamp: {value!r}")
+    return parsed.astimezone(UTC)
 
 
 class IcMeasure:

@@ -177,6 +177,20 @@ class TestOperationalVersusComputational:
         assert ic_measure.identity_snapshot(apr, "1d", (1, 2), self._OOS_DT) != base
 
 
+class TestParseOos:
+    def test_z_naive_and_offset_forms_are_utc(self) -> None:
+        expected = datetime(2025, 12, 24, 5, 15, tzinfo=UTC)
+        for text in ("2025-12-24T05:15:00Z", "2025-12-24T05:15:00", "2025-12-24T00:15:00-05:00"):
+            assert ic_measure._parse_oos(text) == expected, text
+            assert ic_measure._parse_oos(text).utcoffset().total_seconds() == 0, text
+
+    def test_a_missing_or_garbled_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="not set"):
+            ic_measure._parse_oos(None)
+        with pytest.raises(ValueError, match="not an ISO timestamp"):
+            ic_measure._parse_oos("yesterday")
+
+
 class TestHorizons:
     _APR = {
         "alpha.ic_measure.horizons": {"1d": [1, 2], "15m": [2, 26], "1h": [1]},
