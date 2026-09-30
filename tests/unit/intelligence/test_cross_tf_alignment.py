@@ -573,3 +573,36 @@ def test_naive_and_aware_timestamps_give_the_same_ltf_return_input():
         run(naive_rows, naive_series),
     ):
         assert got.tobytes() == aware.tobytes()
+
+
+def test_ctf_series_survives_pickle_copy_and_deepcopy_and_stays_immutable():
+    """RED before: the series refused pickle/copy (its __setattr__ always raises), so a worker
+    process could not receive one."""
+    import copy
+    import pickle
+
+    hours, _ = _hour_bars(_sessions(3))
+    series = _by_close(hours, "5m", "1h")
+    probe = np.concatenate([series.close_ns - 1, series.close_ns, series.close_ns + 1])
+    want = series.asof(probe)
+    for clone in (
+        pickle.loads(pickle.dumps(series)),
+        copy.copy(series),
+        copy.deepcopy(series),
+    ):
+        assert isinstance(clone, CtfSeries) and len(clone) == len(series)
+        assert clone.close_ns.tobytes() == series.close_ns.tobytes()
+        for left, right in zip(clone.asof(probe), want, strict=True):
+            assert left.tobytes() == right.tobytes()
+        with pytest.raises(AttributeError):
+            clone.close_ns = clone.close_ns  # type: ignore[misc]
+        with pytest.raises(ValueError):
+            clone.close_ns[0] = 0
+
+
+def test_a_rebuilt_series_keeps_the_builders_validation():
+    bad = (np.array([2, 1], dtype=np.int64), *([np.zeros(2)] * 4))
+    with pytest.raises(ValueError, match="distinct|increasing|length"):
+        CtfSeries._reconstruct(*bad)
+    with pytest.raises(ValueError, match="distinct|increasing|length"):
+        CtfSeries._reconstruct(np.array([1, 2], dtype=np.int64), *([np.zeros(3)] * 4))

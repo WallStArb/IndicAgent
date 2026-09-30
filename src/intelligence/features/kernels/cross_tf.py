@@ -219,12 +219,35 @@ class CtfSeries:
             "_regime_align": np.array(regime_align, dtype=np.float64),
             "_htf_last_log_ret": np.array(htf_last_log_ret, dtype=np.float64),
         }
+        if len({len(array) for array in arrays.values()}) != 1:
+            raise ValueError("CtfSeries arrays must have one length")
+        if len(arrays["_close_ns"]) > 1 and not np.all(np.diff(arrays["_close_ns"]) > 0):
+            raise ValueError("CtfSeries keys must be distinct, increasing instants")
         for name, array in arrays.items():
             array.setflags(write=False)
             object.__setattr__(self, name, array)
 
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("CtfSeries is immutable")
+
+    @classmethod
+    def _reconstruct(cls, close_ns, momentum, vwap_align, regime_align, htf_last_log_ret):
+        """Rebuild from the five arrays through the constructor's validation (pickle, copy)."""
+        return cls(
+            close_ns, momentum, vwap_align, regime_align, htf_last_log_ret, _token=cls._TOKEN
+        )
+
+    def __reduce__(self):
+        return (
+            CtfSeries._reconstruct,
+            (
+                self._close_ns,
+                self._momentum,
+                self._vwap_align,
+                self._regime_align,
+                self._htf_last_log_ret,
+            ),
+        )
 
     def __len__(self) -> int:
         return len(self._close_ns)
