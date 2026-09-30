@@ -968,6 +968,14 @@ def _walk_forward_hmm_full(
     refit boundary from data before it. The fitted model decodes its own training slice from
     the stationary prior, the decode is smoothed with `min_hold_bars`, and
     `_check_occupation_gate` runs on that (`gate_info["gate_basis"] == "training_slice"`).
+    The decode spans the whole expanding training slice, so the occupancy floor is measured
+    over all history, not the last `refit_every_bars`. A trailing-window floor was measured
+    against it (186-13 review, R6; table in 186-13-SUMMARY.md) and rejected: over 66 name, tf
+    and family series at every boundary, it rejected 53% of healthy control boundaries (SPY,
+    QQQ, TLT, trend) against 7% for the expanding gate, because a window of one refit length
+    legitimately sits in fewer than all five states. It also separated the documented-degenerate
+    names from the controls less well: 87% against 53% rejected (34 points apart) where the
+    expanding gate gives 74% against 7% (67 points apart).
     Gating on the decoded segment, as this function first did, let bars up to
     `refit_every_bars` ahead decide whether bar t is written. The first boundary is
     `max(initial_warmup_bars, n_components * min_obs_factor)`, independent of the series

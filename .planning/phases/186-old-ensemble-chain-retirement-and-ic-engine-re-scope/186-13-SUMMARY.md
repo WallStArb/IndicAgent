@@ -293,6 +293,66 @@ UPDATE is refused by the 426 guard anyway.
   (line 51) still lists "290, 291, 248 bundle"; those are closed.
 - 186-13 unblocks: 186-18 and 186-25 handoffs above.
 
+## Review pass (2026-09-30)
+
+A four-review pass and a final review changed the following after the tasks above (all
+bit-identical to the golden unless stated).
+
+- No defaults for the HMM parameters. `HmmConfig` (`kernels/_hmm.py`) declares the 26 APR keys once,
+  with no default; a missing key raises `KeyError` naming it. The old defaults were not the live
+  values (live `feature.hmm.n_components` 5, `alpha.hmm_volatility.vol_window` and
+  `vol_of_vol_window` 250 and 250, against 3, 20 and 60). `FeatureFactoryConfig.hmm` is one
+  optional nested field the kernels refuse to run without; `backfill_feature_factory.py` and
+  `feature_vector_pipeline.py` load it with `HmmConfig.from_values(cfg.get_sync)`. The golden
+  manifest snapshot predates migration 411, so the capture script completes it with the two
+  literals then in force.
+- Kernels are silent: fit and skip events are returned (`RegimeEventRecord`) and
+  `regime_writer.py` logs them with symbol and tf under the old names (todo 468, closed).
+- The pinned BLAS section holds a reentrant lock (`pinned_blas_threads`); the two-thread test is a
+  guard, the race did not reproduce here without it.
+- Migration 410 (applied): the last history rows of the three deleted keys were
+  `n_restarts` 1 (migration_277 seed), `heldout_fraction` 0.2 (migration_179 seed) and
+  `walk_forward.enabled` true (version 2, operator `brandon`, 2026-08-12, when the legacy column
+  went walk-forward). No user override held a value the code no longer honors. Its history insert is
+  now idempotent; there was one `migration_410` row, no duplicates.
+
+### Gate window: expanding history kept (R6)
+
+The training-slice gate decodes the whole expanding training slice, so its occupancy floor is over
+all history. Question: should it be over the trailing `refit_every_bars` of that slice (causal:
+data before the boundary only), so a refit that just collapsed is caught? Measured at every refit
+boundary with live APR (K=5 trend, K=3 volatility, floor 0.05), both gates on the same fit and
+decode, 66 (name, tf, family) series from the regime_writer known-exclusion list plus SPY, QQQ, TLT
+as controls. Trend family, all measured timeframes:
+
+| role | name | boundaries | expanding rejects | trailing rejects | expanding accepts, trailing rejects |
+|---|---|---|---|---|---|
+| control | QQQ | 59 | 1 | 27 | 26 |
+| control | SPY | 74 | 1 | 45 | 44 |
+| control | TLT | 28 | 9 | 14 | 5 |
+| documented | EFA | 17 | 12 | 17 | 5 |
+| documented | FXI | 17 | 8 | 14 | 6 |
+| documented | FXY | 32 | 9 | 22 | 13 |
+| documented | LQD | 75 | 71 | 68 | 4 |
+| documented | PFF | 32 | 22 | 25 | 4 |
+| documented | RSP | 56 | 38 | 48 | 13 |
+| documented | USMV | 52 | 43 | 47 | 7 |
+| documented | UUP | 33 | 19 | 28 | 9 |
+| documented | VWO | 18 | 18 | 17 | 0 |
+| documented | XRT | 18 | 18 | 18 | 0 |
+
+Totals, trend: controls 161 boundaries, expanding rejects 11 (7%), trailing rejects 86 (53%);
+documented 350 boundaries, expanding rejects 258 (74%), trailing rejects 304 (87%). Volatility:
+controls 153 boundaries, 114 and 118 rejected; documented 343, 236 and 290 rejected.
+
+Decision: keep the expanding gate. The expanding gate does pass documented-degenerate boundaries
+whose last window is below the floor (61 of 350 trend boundaries), but the trailing floor rejects
+healthy controls far more (53% against 7%) because one refit window of a K=5 model rarely visits all
+five states at 5% each, so low trailing occupancy does not identify a degenerate fit. The expanding
+gate separates documented from control names by 67 points, the trailing gate by 34. The golden is
+unchanged. The volatility family's heavy rejection of the controls at the live 250/250 windows is
+the known todo 289 (SPY and TLT 1d volatility write 0 rows in the golden).
+
 ## Known Stubs
 
 None.

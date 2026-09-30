@@ -54,3 +54,5 @@ SPY 1h trend +18,034; SPY 1h volatility +4,355 and -1,650; LQD 1d trend -252; LQ
 +300. The training-slice gate accepts far more segments than the whole-segment gate (which
 rejected a segment on its own future collapse), so stored coverage rises when the rebuild runs.
 Stored `feature_vectors` regime columns keep the old mask until the 186-26 rebuild (todo 466).
+
+Gate window checked 2026-09-30 (186-13 review, R6): a trailing-window floor (last `refit_every_bars` of the training slice) was measured against the expanding-history gate at every refit boundary for 13 names (documented exclusions plus SPY, QQQ, TLT as controls). It rejected 53% of healthy control boundaries against 7%, and separated documented names from controls less well (34 points against 67), so the expanding gate stays and the golden is unchanged. Table in `186-13-SUMMARY.md`.
