@@ -107,7 +107,8 @@ def assert_namespace_coverage(
     queried_namespaces: Iterable[str], known_namespaces: Iterable[str]
 ) -> None:
     """Fail loud, not silently, if this module's hardcoded namespace-query dicts
-    (_WINDOWED_NAMESPACE_QUERIES / _UNWINDOWED_NAMESPACE_QUERIES) drift out of sync
+    (_WINDOWED_NAMESPACE_QUERIES / _UNWINDOWED_NAMESPACE_QUERIES / _REGIME_SCAN_NAMESPACES)
+    drift out of sync
     with the controlled_vocabulary registry VocabularyService actually loaded (todo 132).
 
     Without this, a namespace renamed or retired in the DB would silently stop being
@@ -152,21 +153,22 @@ def classify_namespace_drift(
 # -- never a hardcoded interval literal, never a full-hypertable distinct scan (T-161-02).
 # ---------------------------------------------------------------------------
 
+# regime_hmm and regime_volatility are both audited on purpose during Phase 172's cutover
+# window (172-RESEARCH.md Open Question 1: phased cutover, legacy `regime` stays readable and
+# audited through at least one full corpus cycle after `regime_volatility` ships). What would
+# justify removing the regime_hmm entry later: the legacy `regime` column no longer being
+# written or read by any live path. Both columns come from ONE scan of the same
+# feature_vectors window (todo 290: two DISTINCT scans read the same rows twice); the
+# `FILTER (WHERE col <> '')` drops the '' placeholder and NULLs, as each namespace's own
+# `<> ''` predicate did. The namespaces are in the order of the query's two columns.
+_REGIME_SCAN_NAMESPACES: tuple[str, str] = ("regime_hmm", "regime_volatility")
+_REGIME_SCAN_QUERY = (
+    "SELECT array_agg(DISTINCT regime) FILTER (WHERE regime <> ''), "
+    "array_agg(DISTINCT regime_volatility) FILTER (WHERE regime_volatility <> '') "
+    "FROM feature_vectors WHERE bar_ts > now() - ($1 || ' days')::interval"
+)
+
 _WINDOWED_NAMESPACE_QUERIES: dict[str, str] = {
-    # regime_hmm and regime_volatility are both audited on purpose during Phase
-    # 172's cutover window (172-RESEARCH.md Open Question 1: phased cutover, legacy
-    # `regime` stays readable and audited through at least one full corpus cycle
-    # after `regime_volatility` ships). What would justify removing the regime_hmm
-    # entry later: the legacy `regime` column no longer being written or read by
-    # any live path.
-    "regime_hmm": (
-        "SELECT DISTINCT regime FROM feature_vectors "
-        "WHERE bar_ts > now() - ($1 || ' days')::interval AND regime <> ''"
-    ),
-    "regime_volatility": (
-        "SELECT DISTINCT regime_volatility FROM feature_vectors "
-        "WHERE bar_ts > now() - ($1 || ' days')::interval AND regime_volatility <> ''"
-    ),
     "regime_cross_sectional_equity": (
         "SELECT DISTINCT regime_label FROM market_regimes "
         "WHERE ts > now() - ($1 || ' days')::interval AND regime_group = 'equity'"
@@ -266,11 +268,19 @@ async def run_drift_audit(pool: asyncpg.Pool, vocab: VocabularyService, window_d
     ] + [(namespace, sql, ()) for namespace, sql in _UNWINDOWED_NAMESPACE_QUERIES.items()]
 
     async with pool.acquire() as conn:
+        # One scan of the feature_vectors window feeds both regime namespaces.
+        regime_row = await conn.fetchrow(_REGIME_SCAN_QUERY, window_param)
+        for namespace, values in zip(_REGIME_SCAN_NAMESPACES, regime_row, strict=True):
+            drift_count += await _evaluate_and_persist(
+                conn,
+                namespace,
+                extract_regime_codes(values or []),
+                vocab.codes(namespace),
+            )
+
         for namespace, sql, params in namespace_queries:
             rows = await conn.fetch(sql, *params)
             observed = [row[0] for row in rows if row[0] is not None]
-            if namespace in ("regime_hmm", "regime_volatility"):
-                observed = extract_regime_codes(observed)
             drift_count += await _evaluate_and_persist(
                 conn, namespace, observed, vocab.codes(namespace)
             )
@@ -322,7 +332,11 @@ class VocabularyDriftAuditor(BaseBatch):
         vocab = VocabularyService(self._db_dsn, pool=pool)
         await vocab.initialize()
         try:
-            queried = set(_WINDOWED_NAMESPACE_QUERIES) | set(_UNWINDOWED_NAMESPACE_QUERIES)
+            queried = (
+                set(_WINDOWED_NAMESPACE_QUERIES)
+                | set(_UNWINDOWED_NAMESPACE_QUERIES)
+                | set(_REGIME_SCAN_NAMESPACES)
+            )
             assert_namespace_coverage(queried, vocab.known_namespaces())
 
             drift_count = await run_drift_audit(pool, vocab, window_days)

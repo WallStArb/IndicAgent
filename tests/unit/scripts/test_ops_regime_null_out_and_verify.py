@@ -415,3 +415,62 @@ class TestLoadInitialWarmupBars:
         result = _load_initial_warmup_bars(conn, "1h")
 
         assert result == _WALK_FORWARD_DEFAULT_PARAMS["1h"][1]
+
+
+# ---------------------------------------------------------------------------
+# todo 290 item 4 (186-13): SQL text is computed once per family, not per cell
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("family_name", ["regime", "regime_volatility"])
+def test_column_family_sql_is_precomputed_and_matches_the_builders(family_name):
+    family = _COLUMN_FAMILIES[family_name]
+    assert family.null_out_sql == _build_null_out_sql(family.owned_columns)
+    assert family.any_owned_nonnull_sql == _build_any_owned_nonnull_sql(family.owned_columns)
+    assert f"{family.label_column} IS NOT NULL" in family.pre_null_labeled_sql
+    assert f"min(bar_ts) FILTER (WHERE {family.label_column} IS NOT NULL)" in (
+        family.labeled_count_and_min_ts_sql
+    )
+
+
+def test_per_cell_helpers_never_rebuild_the_sql(monkeypatch):
+    import scripts.ops.corpus.ops_regime_null_out_and_verify as module
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("SQL rebuilt per cell")
+
+    for name in (
+        "_build_null_out_sql",
+        "_build_any_owned_nonnull_sql",
+        "_build_pre_null_labeled_sql",
+        "_build_labeled_count_and_min_ts_sql",
+        "_pre_null_labeled_sql_text",
+        "_labeled_count_and_min_ts_sql_text",
+    ):
+        monkeypatch.setattr(module, name, _boom)
+
+    class _Cursor:
+        rowcount = 3
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, sql, params=None):
+            self.sql = sql
+
+        def fetchone(self):
+            return (1, None) if "min(bar_ts)" in self.sql else (1,)
+
+    class _Conn:
+        def cursor(self):
+            return _Cursor()
+
+    family = _COLUMN_FAMILIES["regime_volatility"]
+    for _ in range(2):
+        assert module._pre_null_labeled_count(_Conn(), "SPY", "1d", family) == 1
+        assert module._issue_null_out_update(_Conn(), "SPY", "1d", family) == 3
+        assert module._count_any_owned_nonnull(_Conn(), "SPY", "1d", family) == 1
+        assert module._labeled_count_and_min_ts(_Conn(), "SPY", "1d", family) == (1, None)

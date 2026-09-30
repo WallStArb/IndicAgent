@@ -23,7 +23,10 @@ if str(_project_root) not in sys.path:
 
 import pytest
 
+from src.config import vocabulary_drift
 from src.config.vocabulary_drift import (
+    _REGIME_SCAN_NAMESPACES,
+    _REGIME_SCAN_QUERY,
     _WINDOWED_NAMESPACE_QUERIES,
     NamespaceDriftResult,
     assert_namespace_coverage,
@@ -169,30 +172,122 @@ def test_assert_namespace_coverage_raises_on_unknown_namespace():
 # ---------------------------------------------------------------------------
 
 
-def test_windowed_namespace_queries_has_regime_volatility_entry():
-    """_WINDOWED_NAMESPACE_QUERIES must carry a regime_volatility key whose SQL
-    selects DISTINCT regime_volatility from feature_vectors, bound by the same
-    $1-parametrized recent-window predicate and '' placeholder filter as the
-    existing regime_hmm entry -- and regime_hmm must still be present, untouched."""
-    assert "regime_volatility" in _WINDOWED_NAMESPACE_QUERIES
-    sql = _WINDOWED_NAMESPACE_QUERIES["regime_volatility"]
-    assert "regime_volatility" in sql
-    assert "$1" in sql
-    assert "<> ''" in sql
-    assert "regime_hmm" in _WINDOWED_NAMESPACE_QUERIES
+def test_regime_namespaces_share_one_scan_of_feature_vectors():
+    """todo 290 (186-13): regime_hmm and regime_volatility read the same feature_vectors window,
+    so they are one query, not two DISTINCT scans; neither keeps a per-namespace entry."""
+    assert _REGIME_SCAN_NAMESPACES == ("regime_hmm", "regime_volatility")
+    assert "regime_hmm" not in _WINDOWED_NAMESPACE_QUERIES
+    assert "regime_volatility" not in _WINDOWED_NAMESPACE_QUERIES
+    assert _REGIME_SCAN_QUERY.count("FROM feature_vectors") == 1
+    assert "array_agg(DISTINCT regime) FILTER (WHERE regime <> '')" in _REGIME_SCAN_QUERY
+    assert (
+        "array_agg(DISTINCT regime_volatility) FILTER (WHERE regime_volatility <> '')"
+        in _REGIME_SCAN_QUERY
+    )
 
 
-def test_regime_volatility_query_binds_window_never_a_hardcoded_interval_literal():
+def test_regime_scan_query_binds_window_never_a_hardcoded_interval_literal():
     """T-161-02: every windowed query binds the APR-sourced recent-window as $1,
     never a hardcoded interval literal (e.g. '30 days'::interval). A hardcoded
     literal here would silently stop tracking infra.vocabulary_drift.window_days
-    changes for this one namespace while every sibling namespace kept respecting
+    changes for the regime namespaces while every sibling namespace kept respecting
     it."""
-    sql = _WINDOWED_NAMESPACE_QUERIES["regime_volatility"]
-    assert "($1 || ' days')::interval" in sql
+    assert "($1 || ' days')::interval" in _REGIME_SCAN_QUERY
     # No digit immediately precedes "days'::interval" -- catches a hardcoded
     # literal like "30 days'::interval" slipping in instead of the $1 bind.
-    assert not re.search(r"\d+\s*days'::interval", sql)
+    assert not re.search(r"\d+\s*days'::interval", _REGIME_SCAN_QUERY)
+
+
+class _FakeConn:
+    """Serves the one regime scan row and the per-namespace DISTINCT queries."""
+
+    def __init__(self, regime_row, other_rows=None):
+        self.regime_row = regime_row
+        self.other_rows = other_rows or {}
+        self.fetchrow_sql: list[str] = []
+        self.fetch_sql: list[str] = []
+
+    async def fetchrow(self, sql, *params):
+        self.fetchrow_sql.append(sql)
+        assert params == ("30",)
+        return self.regime_row
+
+    async def fetch(self, sql, *params):
+        self.fetch_sql.append(sql)
+        return [(code,) for code in self.other_rows.get(sql, [])]
+
+
+class _FakePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def acquire(self):
+        conn = self.conn
+
+        class _Ctx:
+            async def __aenter__(self_inner):
+                return conn
+
+            async def __aexit__(self_inner, *exc):
+                return False
+
+        return _Ctx()
+
+
+class _FakeVocab:
+    def __init__(self, codes):
+        self._codes = codes
+
+    def codes(self, namespace):
+        return self._codes.get(namespace, [])
+
+
+def _run_audit(monkeypatch, regime_row):
+    import asyncio
+
+    facts: list[tuple] = []
+
+    async def _emit(conn, source, subject, metric, value, threshold, passed, training_window_end):
+        facts.append((subject, value, passed))
+
+    monkeypatch.setattr(vocabulary_drift, "emit_integrity_fact_async", _emit)
+    conn = _FakeConn(regime_row)
+    vocab = _FakeVocab(
+        {
+            "regime_hmm": ["trending_up", "ranging", "trending_down"],
+            "regime_volatility": ["calm", "elevated", "turbulent"],
+        }
+    )
+    drift = asyncio.run(vocabulary_drift.run_drift_audit(_FakePool(conn), vocab, 30))
+    return drift, facts, conn
+
+
+def test_run_drift_audit_issues_one_feature_vectors_query_for_both_regime_namespaces(monkeypatch):
+    drift, facts, conn = _run_audit(
+        monkeypatch, (["trending_up", "ranging"], ["calm", "turbulent", "mystery"])
+    )
+    assert conn.fetchrow_sql == [_REGIME_SCAN_QUERY]
+    assert not any("FROM feature_vectors" in sql for sql in conn.fetch_sql)
+    # per-namespace results as before: regime_hmm clean, regime_volatility has one stray code
+    by_subject = {subject: (value, passed) for subject, value, passed in facts}
+    assert by_subject["regime_hmm"] == (0.0, True)
+    assert by_subject["regime_volatility"] == (1.0, False)
+    assert drift >= 1
+
+
+def test_run_drift_audit_treats_an_all_null_regime_column_as_idle(monkeypatch):
+    """array_agg over no rows is NULL: source-idle for that namespace, no fact emitted."""
+    drift, facts, _conn = _run_audit(monkeypatch, (None, ["calm"]))
+    subjects = [subject for subject, _value, _passed in facts]
+    assert "regime_hmm" not in subjects
+    assert "regime_volatility" in subjects
+
+
+def test_run_drift_audit_drops_the_empty_string_placeholder(monkeypatch):
+    _drift, facts, _conn = _run_audit(monkeypatch, (["", "ranging"], [""]))
+    by_subject = {subject: (value, passed) for subject, value, passed in facts}
+    assert by_subject["regime_hmm"] == (0.0, True)
+    assert "regime_volatility" not in by_subject  # only the placeholder: idle
 
 
 def test_assert_namespace_coverage_passes_when_regime_volatility_known():

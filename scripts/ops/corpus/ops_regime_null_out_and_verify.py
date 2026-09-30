@@ -55,7 +55,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -66,13 +66,13 @@ import psycopg
 import structlog
 
 from services._batch_utils import compressed_hypertable_write_session_or_noop as _write_session
-from services.regime_writer import _WALK_FORWARD_DEFAULT_PARAMS
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
+from src.intelligence.features.kernels._hmm import _WALK_FORWARD_DEFAULT_PARAMS
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -96,6 +96,44 @@ _STATUS_FAILED = "failed"
 
 
 # ---------------------------------------------------------------------------
+# SQL text builders -- pure functions of the owned-column tuple / label column, never a
+# hand-typed column list. Each `_ColumnFamily` computes its four statements once.
+# ---------------------------------------------------------------------------
+
+
+def _build_set_null_clause_sql(owned_columns: tuple[str, ...]) -> str:
+    return ",\n    ".join(f"{c} = NULL" for c in owned_columns)
+
+
+def _build_null_out_sql(owned_columns: tuple[str, ...]) -> str:
+    set_clause = _build_set_null_clause_sql(owned_columns)
+    return f"UPDATE feature_vectors SET\n    {set_clause}\nWHERE symbol = %s AND tf = %s"
+
+
+def _build_any_owned_nonnull_sql(owned_columns: tuple[str, ...]) -> str:
+    return (
+        "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND ("
+        + " OR ".join(f"{c} IS NOT NULL" for c in owned_columns)
+        + ")"
+    )
+
+
+def _pre_null_labeled_sql_text(label_column: str) -> str:
+    return (
+        f"SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s "
+        f"AND {label_column} IS NOT NULL"
+    )
+
+
+def _labeled_count_and_min_ts_sql_text(label_column: str) -> str:
+    return (
+        f"SELECT count(*) FILTER (WHERE {label_column} IS NOT NULL), "
+        f"min(bar_ts) FILTER (WHERE {label_column} IS NOT NULL) "
+        "FROM feature_vectors WHERE symbol = %s AND tf = %s"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Column-family registry -- Phase 172 plan 05
 # ---------------------------------------------------------------------------
 #
@@ -108,11 +146,30 @@ _STATUS_FAILED = "failed"
 
 @dataclass(frozen=True)
 class _ColumnFamily:
+    """One regime column family. The four statements the script issues per (symbol, tf) cell
+    are computed once here (todo 290 item 4), not rebuilt per cell; the label column is
+    re-validated before use in `main()` (`_validate_label_column`)."""
+
     name: str
     owned_columns: tuple[str, ...]
     label_column: str
     default_manifest_path: str
     default_provenance_report_path: Path
+    null_out_sql: str = field(init=False, repr=False)
+    any_owned_nonnull_sql: str = field(init=False, repr=False)
+    pre_null_labeled_sql: str = field(init=False, repr=False)
+    labeled_count_and_min_ts_sql: str = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        set_ = object.__setattr__
+        set_(self, "null_out_sql", _build_null_out_sql(self.owned_columns))
+        set_(self, "any_owned_nonnull_sql", _build_any_owned_nonnull_sql(self.owned_columns))
+        set_(self, "pre_null_labeled_sql", _pre_null_labeled_sql_text(self.label_column))
+        set_(
+            self,
+            "labeled_count_and_min_ts_sql",
+            _labeled_count_and_min_ts_sql_text(self.label_column),
+        )
 
 
 _FAMILY_REGIME = "regime"
@@ -155,44 +212,19 @@ def _validate_label_column(label_column: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SQL builders -- pure functions of the owned-column tuple / label column, never a hand-typed
-# column list. Column-agnostic queries (_ROWS_BEFORE_TS_SQL, _CONFIG_VALUE_SQL,
-# _CHUNK_COMPRESSION_SQL) stay module-level constants, unchanged by this generalization.
+# Validated label-column builders. Column-agnostic queries (_ROWS_BEFORE_TS_SQL,
+# _CONFIG_VALUE_SQL, _CHUNK_COMPRESSION_SQL) stay module-level constants.
 # ---------------------------------------------------------------------------
-
-
-def _build_set_null_clause_sql(owned_columns: tuple[str, ...]) -> str:
-    return ",\n    ".join(f"{c} = NULL" for c in owned_columns)
-
-
-def _build_null_out_sql(owned_columns: tuple[str, ...]) -> str:
-    set_clause = _build_set_null_clause_sql(owned_columns)
-    return f"UPDATE feature_vectors SET\n    {set_clause}\nWHERE symbol = %s AND tf = %s"
-
-
-def _build_any_owned_nonnull_sql(owned_columns: tuple[str, ...]) -> str:
-    return (
-        "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND ("
-        + " OR ".join(f"{c} IS NOT NULL" for c in owned_columns)
-        + ")"
-    )
 
 
 def _build_pre_null_labeled_sql(label_column: str) -> str:
     _validate_label_column(label_column)
-    return (
-        f"SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s "
-        f"AND {label_column} IS NOT NULL"
-    )
+    return _pre_null_labeled_sql_text(label_column)
 
 
 def _build_labeled_count_and_min_ts_sql(label_column: str) -> str:
     _validate_label_column(label_column)
-    return (
-        f"SELECT count(*) FILTER (WHERE {label_column} IS NOT NULL), "
-        f"min(bar_ts) FILTER (WHERE {label_column} IS NOT NULL) "
-        "FROM feature_vectors WHERE symbol = %s AND tf = %s"
-    )
+    return _labeled_count_and_min_ts_sql_text(label_column)
 
 
 _ROWS_BEFORE_TS_SQL = (
@@ -241,7 +273,7 @@ def _flush_manifest(path: Path, manifest: dict[str, dict[str, Any]]) -> None:
 def _pre_null_labeled_count(
     conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
 ) -> int:
-    sql = _build_pre_null_labeled_sql(family.label_column)
+    sql = family.pre_null_labeled_sql
     with conn.cursor() as cur:
         cur.execute(sql, (symbol, tf))
         (count,) = cur.fetchone()
@@ -251,7 +283,7 @@ def _pre_null_labeled_count(
 def _issue_null_out_update(
     conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
 ) -> int:
-    sql = _build_null_out_sql(family.owned_columns)
+    sql = family.null_out_sql
     with conn.cursor() as cur:
         cur.execute(sql, (symbol, tf))
         rows_affected = cur.rowcount
@@ -261,7 +293,7 @@ def _issue_null_out_update(
 def _count_any_owned_nonnull(
     conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
 ) -> int:
-    sql = _build_any_owned_nonnull_sql(family.owned_columns)
+    sql = family.any_owned_nonnull_sql
     with conn.cursor() as cur:
         cur.execute(sql, (symbol, tf))
         (count,) = cur.fetchone()
@@ -446,7 +478,7 @@ def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
 def _labeled_count_and_min_ts(
     conn: Any, symbol: str, tf: str, family: _ColumnFamily = _DEFAULT_COLUMN_FAMILY_OBJ
 ) -> tuple[int, datetime | None]:
-    sql = _build_labeled_count_and_min_ts_sql(family.label_column)
+    sql = family.labeled_count_and_min_ts_sql
     with conn.cursor() as cur:
         cur.execute(sql, (symbol, tf))
         labeled_rows, first_labeled_bar_ts = cur.fetchone()
