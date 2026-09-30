@@ -82,6 +82,11 @@ class Alignment(enum.Enum):
     # A daily record available from the 16:00 ET close of its date, aligned with
     # kernels.macro.align_daily_asof: a row reads only records closed by its bar end.
     DAILY_ASOF_CLOSE = "daily_asof_close"
+    # A daily close on a daily reference grid (one row per date, the union of the symbols' 1d
+    # dates, NaN where a symbol has no bar): value final at that date's 16:00 ET close. Only the
+    # daily-grid kernels (cross_asset_daily, factor_beta_daily) read it; it is never aligned to
+    # intraday rows, which read the kernels' records through DAILY_ASOF_CLOSE.
+    DAILY_REFERENCE_GRID = "daily_reference_grid"
 
 
 @dataclass(frozen=True)

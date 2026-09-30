@@ -17,7 +17,7 @@ from structlog.testing import capture_logs
 from src.intelligence import feature_factory as ff
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
-from src.intelligence.features.cross_asset_series import (
+from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     build_cross_asset_series,
     build_symbol_beta_series,

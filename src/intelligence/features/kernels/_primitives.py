@@ -337,19 +337,26 @@ def none_mask_name(key: str) -> str:
     return f"_{key}_is_none"
 
 
-def constant_tf(tf_values: np.ndarray) -> str:
-    """The one timeframe of a series from the per-row `tf` external input.
+def constant_value(values: np.ndarray, what: str) -> str:
+    """The one value of a per-row external input that is constant over the series.
 
     Raises ValueError for no rows or a value that changes across rows: a kernel that branches
-    on tf must not silently mix two series.
+    on it must not silently mix two series.
     """
-    values = np.asarray(tf_values, dtype=object)
-    if len(values) == 0:
-        raise ValueError("a kernel that reads tf needs at least one row")
-    first = values[0]
-    if not all(v == first for v in values):
-        raise ValueError("the tf input changes across rows; a kernel runs one series at a time")
+    column = np.asarray(values, dtype=object)
+    if len(column) == 0:
+        raise ValueError(f"a kernel that reads {what} needs at least one row")
+    first = column[0]
+    if not all(v == first for v in column):
+        raise ValueError(
+            f"the {what} input changes across rows; a kernel runs one series at a time"
+        )
     return str(first)
+
+
+def constant_tf(tf_values: np.ndarray) -> str:
+    """The one timeframe of a series from the per-row `tf` external input."""
+    return constant_value(tf_values, "tf")
 
 
 def row_dict_columns(

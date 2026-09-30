@@ -41,7 +41,6 @@ from src.intelligence.feature_cache import (
     FeatureCache,
 )
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
-from src.intelligence.features.cross_asset_series import CrossAssetRecord
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import (
     none_mask_name,
@@ -82,7 +81,12 @@ from src.intelligence.features.kernels.control import (
     _canary_noise_gaussian,
     _canary_noise_uniform,
 )
-from src.intelligence.features.kernels.macro import RECORD_COLUMNS, align_daily_asof, bar_ts_ns
+from src.intelligence.features.kernels.macro import (
+    RECORD_COLUMNS,
+    CrossAssetRecord,
+    align_daily_asof,
+    bar_ts_ns,
+)
 from src.intelligence.features.kernels.price import (
     _aroon_osc,
     _bar_close_pos,
@@ -1257,9 +1261,12 @@ def _none_if_nan(value: float) -> float | None:
 
 
 # The external-input alignments this module has a builder for: CONSTANT_PER_SERIES by
-# `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`. A kernel module
+# `_batch_kernel_inputs` (the symbol), DAILY_ASOF_CLOSE by `_macro_kernel_inputs`,
+# DAILY_REFERENCE_GRID by `kernels.macro.daily_reference_grid` (the daily-grid kernels run on it). A kernel module
 # declaring an external with any other Alignment is refused rather than fed an unaligned value.
-_BUILT_ALIGNMENTS = frozenset({Alignment.CONSTANT_PER_SERIES, Alignment.DAILY_ASOF_CLOSE})
+_BUILT_ALIGNMENTS = frozenset(
+    {Alignment.CONSTANT_PER_SERIES, Alignment.DAILY_ASOF_CLOSE, Alignment.DAILY_REFERENCE_GRID}
+)
 
 
 def _require_buildable_externals() -> None:

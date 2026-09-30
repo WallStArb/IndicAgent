@@ -33,7 +33,7 @@ import pytest
 
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.schemas.bar_message import BarMessage, SessionType
-from src.intelligence.features.cross_asset_series import (
+from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     HYG,
     LQD,

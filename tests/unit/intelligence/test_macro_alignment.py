@@ -14,14 +14,15 @@ import pytest
 
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
-from src.intelligence.features.contract.registry import Alignment
-from src.intelligence.features.cross_asset_series import (
+from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
+from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
+    MACRO_COLUMNS,
     CrossAssetRecord,
+    align_daily_asof,
     build_cross_asset_series,
     build_symbol_beta_series,
 )
-from src.intelligence.features.kernels.macro import MACRO_COLUMNS, align_daily_asof
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
@@ -262,6 +263,24 @@ def _truncate_daily_asof_close(daily, bars, cut_row):
     }
 
 
+def _daily_grid_outputs(daily: dict[str, list[dict]], symbol: str = SYMBOL) -> dict:
+    """The daily-grid kernels' outputs on the reference grid built from raw daily bars."""
+    from src.intelligence.features.kernels.macro import (
+        _BETA_OUTPUTS,
+        _XA_OUTPUTS,
+        daily_reference_grid,
+    )
+
+    series = {f"ref_{s.lower()}_close": daily[s] for s in CROSS_ASSET_SYMBOLS}
+    series["ref_sym_close"] = daily[symbol]
+    grid = daily_reference_grid(series)
+    n = len(grid["ts"])
+    inputs = {**grid, "symbol": np.array([symbol] * n, dtype=object)}
+    return compute_kernels(
+        default_registry(), inputs, CONFIG, outputs=[*_XA_OUTPUTS, *_BETA_OUTPUTS]
+    )
+
+
 def _external_outputs(alignment, bars, daily):
     """(outputs on the row grid, the columns that carry every external of `alignment`)."""
     from src.intelligence.features.contract.registry import default_registry
@@ -274,6 +293,11 @@ def _external_outputs(alignment, bars, daily):
         return out
     if alignment is Alignment.CONSTANT_PER_SERIES:
         return _constant_per_series_outputs(bars)
+    if alignment is Alignment.DAILY_REFERENCE_GRID:
+        from src.intelligence.features.kernels.macro import _CLOSE_EXTERNALS
+
+        assert set(declared) == {*_CLOSE_EXTERNALS, "ref_sym_close"}
+        return _daily_grid_outputs(daily)
     raise AssertionError(f"no truncation runner for alignment {alignment}")
 
 
@@ -285,6 +309,15 @@ def test_every_alignment_has_causal_rows_up_to_t(alignment, cut_row):
     and kernels; rows <= t must not move. A new Alignment member without a runner fails here."""
     bars, daily = _intraday(), _daily_bars()
     full = _external_outputs(alignment, bars, daily)
+    if alignment is Alignment.DAILY_REFERENCE_GRID:
+        # rows are dates: keep the daily bars dated on or before the cut row's date
+        last = bars[cut_row]["ts"].date()
+        known_daily = {s: [b for b in v if b["ts"].date() <= last] for s, v in daily.items()}
+        cut = _external_outputs(alignment, bars, known_daily)
+        assert set(cut) == set(full)
+        for name, values in cut.items():
+            np.testing.assert_array_equal(values, full[name][: len(values)], err_msg=name)
+        return
     known = (
         _truncate_daily_asof_close(daily, bars, cut_row)
         if alignment is Alignment.DAILY_ASOF_CLOSE

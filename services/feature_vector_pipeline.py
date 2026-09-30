@@ -65,7 +65,8 @@ from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     invert_ctf_higher_tf_map,
 )
-from src.intelligence.features.cross_asset_series import (
+from src.intelligence.features.kernels._hmm import HmmConfig
+from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     HYG,
     LQD,
@@ -76,7 +77,6 @@ from src.intelligence.features.cross_asset_series import (
     CrossAssetRecord,
     build_cross_asset_series,
 )
-from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.pipeline import (
     CacheManager,
     OutputQueue,

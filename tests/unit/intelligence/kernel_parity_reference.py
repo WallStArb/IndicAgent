@@ -193,11 +193,11 @@ def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> Referen
 
 def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
     from services.backfill_feature_factory import _compute_symbol_tf
-    from src.intelligence.features.cross_asset_series import (
+    from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
+    from src.intelligence.features.kernels.macro import (
         build_cross_asset_series,
         build_symbol_beta_series,
     )
-    from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
 
     npz = _load_npz("real_inputs.npz", fixture_dir)
     config = build_config(manifest["real_config"])

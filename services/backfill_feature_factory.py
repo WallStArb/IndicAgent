@@ -64,7 +64,13 @@ from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
 )
-from src.intelligence.features.cross_asset_series import (
+from src.intelligence.features.feature_vector_persistence import (
+    FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
+    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
+    feature_vector_to_insert_params,
+)
+from src.intelligence.features.kernels._hmm import HmmConfig
+from src.intelligence.features.kernels.macro import (
     HYG,
     LQD,
     SHY,
@@ -74,12 +80,6 @@ from src.intelligence.features.cross_asset_series import (
     build_cross_asset_series,
     build_symbol_beta_series,
 )
-from src.intelligence.features.feature_vector_persistence import (
-    FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
-    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
-    feature_vector_to_insert_params,
-)
-from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -174,7 +174,7 @@ _READ_CHUNK_BARS: int = 2000
 _FALLBACK_WARM_UP_BARS: int = 252
 
 # Cross-asset symbols for FeatureCache.update_cross_asset() -- SPY/TLT/SHY/TIP/HYG/LQD
-# and CROSS_ASSET_SYMBOLS now live in src.intelligence.features.cross_asset_series
+# and CROSS_ASSET_SYMBOLS now live in src.intelligence.features.kernels.macro
 # (Plan 151-09 Task 1 moved them there alongside build_cross_asset_series/
 # build_symbol_beta_series -- single definition project-wide).
 
@@ -291,7 +291,7 @@ _UPSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_UPSERT_SQL_PSYCOPG
 
 
 # _build_cross_asset_series/_safe_corr_np/_build_symbol_beta_series moved to
-# src.intelligence.features.cross_asset_series (Plan 151-09 Task 1) as
+# src.intelligence.features.kernels.macro (Plan 151-09 Task 1) as
 # build_cross_asset_series/build_symbol_beta_series -- imported above, no local
 # definition here.
 

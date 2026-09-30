@@ -26,16 +26,25 @@ from src.intelligence.features.contract.causality_probe import (
     probe_registry,
 )
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
-from src.intelligence.features.contract.registry import compute_kernels, default_registry
+from src.intelligence.features.contract.registry import (
+    KernelRegistry,
+    compute_kernels,
+    default_registry,
+)
 from src.intelligence.features.feature_vector_persistence import (
     _ALL_COLUMN_NAMES,
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.daily_grid_fixtures import (
+    DAILY_GRID_KERNELS,
+    daily_grid_inputs,
+    daily_grid_kernels,
+    intraday_kernels,
+)
 from tests.unit.intelligence.regime_kernel_fixtures import (
     non_regime_kernels,
-    non_regime_outputs,
     registry_without_regime,
 )
 
@@ -45,6 +54,7 @@ PROBE_BARS = 3000
 
 # Kernels whose output depends on where the series starts (registry path_dependent).
 PATH_DEPENDENT = {
+    "cross_asset_daily",
     "calendar_above_wk_vwap",
     "ret_autocorr",
     "abs_ret_autocorr",
@@ -197,6 +207,11 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
     }
 
 
+def _intraday_outputs() -> list[str]:
+    """Outputs of the kernels that run on the intraday row grid (not regime, not daily-grid)."""
+    return [o for k in intraday_kernels(non_regime_kernels(default_registry())) for o in k.outputs]
+
+
 @lru_cache(maxsize=1)
 def _synthetic_case():
     inputs, config = ref.synthetic_inputs()
@@ -218,9 +233,7 @@ def _synthetic_case():
         for name in _ALL_COLUMN_NAMES
         if hasattr(results[0][1], name)
     }
-    kernels = compute_kernels(
-        default_registry(), inputs, config, outputs=non_regime_outputs(default_registry())
-    )
+    kernels = compute_kernels(default_registry(), inputs, config, outputs=_intraday_outputs())
     return kernels, batch, len(inputs["ts"])
 
 
@@ -304,18 +317,26 @@ def _probe_case(config_key: str):
     config = ref.build_config(MANIFEST[config_key])
     available = with_derived_inputs(synthetic_bars(PROBE_BARS))
     available.update(
-        compute_kernels(
-            default_registry(), available, config, outputs=non_regime_outputs(default_registry())
-        )
+        compute_kernels(default_registry(), available, config, outputs=_intraday_outputs())
     )
     return available, config
+
+
+PROBE_DAILY_ROWS = 3000
+
+
+@lru_cache(maxsize=2)
+def _daily_probe_case(config_key: str):
+    config = ref.build_config(MANIFEST[config_key])
+    return with_derived_inputs(daily_grid_inputs(PROBE_DAILY_ROWS)), config
 
 
 # The regime kernels are skipped here: REGIME_SKIP_REASON.
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 @pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
 def test_probe_and_memory_check_per_kernel(kernel, config_key):
-    available, config = _probe_case(config_key)
+    case = _daily_probe_case if kernel.name in DAILY_GRID_KERNELS else _probe_case
+    available, config = case(config_key)
     if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
             causality_probe(kernel, available, config, PROBE_ROWS)
@@ -328,18 +349,21 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_ten():
+def test_the_path_dependent_allow_list_is_the_reviewed_eleven():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
     declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 10
+    assert len(PATH_DEPENDENT) == 11
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
     config = ref.build_config(MANIFEST[config_key])
     registry = registry_without_regime(default_registry())  # REGIME_SKIP_REASON
+    registry = KernelRegistry.from_kernels(
+        intraday_kernels(registry.kernels), registry.external_inputs
+    )
     statuses = probe_registry(registry, synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
     expected = {
         kernel.name: (
@@ -351,6 +375,67 @@ def test_probe_registry_statuses(config_key):
     }
     assert statuses == expected
     assert set(statuses) == {k.name for k in registry.kernels}  # no kernel opts out
+
+
+@pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
+def test_probe_registry_statuses_on_the_daily_grid(config_key):
+    """The daily-grid kernels are probed on one row per date (see daily_grid_fixtures)."""
+    config = ref.build_config(MANIFEST[config_key])
+    registry = KernelRegistry.from_kernels(
+        daily_grid_kernels(default_registry().kernels), default_registry().external_inputs
+    )
+    rows = np.array([700, 1200, 1800, 2400, 2999])
+    statuses = probe_registry(registry, daily_grid_inputs(PROBE_DAILY_ROWS), config, rows)
+    assert statuses == {
+        "cross_asset_daily": "path_dependent_skipped_memory",
+        "factor_beta_daily": "ok",
+    }
+
+
+@pytest.mark.parametrize("symbol", ["SPY", "TLT", "QQQ"])
+def test_daily_grid_kernels_reproduce_the_builders_on_real_daily_bars(symbol):
+    """Each registered daily kernel, run on the grid built from the stored real 1d bars, gives
+    back exactly the dict the builder returns (SPY has no equity beta, TLT no rate beta)."""
+    from src.intelligence.features.kernels.macro import (
+        _BETA_OUTPUTS,
+        _XA_OUTPUTS,
+        CROSS_ASSET_SYMBOLS,
+        beta_records,
+        build_cross_asset_series,
+        build_symbol_beta_series,
+        cross_asset_records,
+        daily_reference_grid,
+    )
+
+    npz = np.load(ref.FIXTURE_DIR / "real_inputs.npz")
+    config = ref.build_config(MANIFEST["real_config"])
+    names = {symbol, *CROSS_ASSET_SYMBOLS}
+    if any(f"d1/{s}/ts" not in npz.files for s in names):
+        pytest.skip(f"real_inputs.npz has no 1d bars for {sorted(names)}")
+    d1 = {s: ref._series_bars(npz, f"d1/{s}") for s in names}
+    grid = daily_reference_grid(
+        {
+            **{f"ref_{s.lower()}_close": d1[s] for s in CROSS_ASSET_SYMBOLS},
+            "ref_sym_close": d1[symbol],
+        }
+    )
+    n = len(grid["ts"])
+    out = compute_kernels(
+        default_registry(),
+        {**grid, "symbol": np.array([symbol] * n, dtype=object)},
+        config,
+        outputs=[*_XA_OUTPUTS, *_BETA_OUTPUTS],
+    )
+    dates = [ref.ns_to_dt(ns).date() for ns in grid["ts"]]
+    want_cross = build_cross_asset_series(*(d1[s] for s in CROSS_ASSET_SYMBOLS), config)
+    want_beta = build_symbol_beta_series(d1[symbol], d1["SPY"], d1["TLT"], symbol, config)
+    got_cross = cross_asset_records(dates, out)
+    got_beta = beta_records(dates, out)
+    assert want_cross and want_beta
+    assert got_cross.keys() == want_cross.keys()
+    for d, record in want_cross.items():
+        np.testing.assert_array_equal(np.array(got_cross[d]), np.array(record), err_msg=str(d))
+    assert got_beta == want_beta
 
 
 def _gap_z(config, opens_override=None, n=400):

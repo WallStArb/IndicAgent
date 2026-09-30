@@ -44,7 +44,7 @@ from services.backfill_feature_factory import (
 from src.config.config_service import ConfigService
 from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
-from src.intelligence.features.cross_asset_series import CrossAssetRecord
+from src.intelligence.features.kernels.macro import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
 
 # ---------------------------------------------------------------------------
@@ -1440,7 +1440,7 @@ class TestBuildCrossAssetSeries:
         """New incremental O(D) implementation must produce identical values to O(D×N)
         reference on the 3 pre-existing macro fields -- no regression from Phase 151
         Plan 04's 5-field extension. Also asserts the return type is CrossAssetRecord."""
-        from src.intelligence.features.cross_asset_series import build_cross_asset_series
+        from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(300, seed=1, start_close=450.0)
@@ -1469,7 +1469,7 @@ class TestBuildCrossAssetSeries:
             ), f"{d}: yield_slope_z {res.yield_slope_z} != {ref_ys}"
 
     def test_all_values_finite(self) -> None:
-        from src.intelligence.features.cross_asset_series import build_cross_asset_series
+        from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(50, seed=10)
@@ -1495,7 +1495,7 @@ class TestBuildCrossAssetSeries:
         dates) must still emit vix_z/yield_slope_z -- TIP/HYG/LQD unavailability
         must NOT skip the whole date, and the affected spread fields are missing (NaN,
         no_fill), never a fabricated 0.0 z-score."""
-        from src.intelligence.features.cross_asset_series import build_cross_asset_series
+        from src.intelligence.features.kernels.macro import build_cross_asset_series
 
         config = _make_config()
         spy = _make_daily_bars(60, seed=20)
@@ -1617,7 +1617,7 @@ class TestBuildSymbolBetaSeries:
     def test_spy_equity_beta_z_always_none(self) -> None:
         """symbol='SPY' must yield equity_beta_z=None at every date (self-regression
         against itself is degenerate -- beta identically 1)."""
-        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
+        from src.intelligence.features.kernels.macro import build_symbol_beta_series
 
         config = _make_config()
         spy = _make_daily_bars(120, seed=1, start_close=450.0)
@@ -1630,7 +1630,7 @@ class TestBuildSymbolBetaSeries:
 
     def test_tlt_rate_beta_z_always_none(self) -> None:
         """symbol='TLT' must yield rate_beta_z=None at every date."""
-        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
+        from src.intelligence.features.kernels.macro import build_symbol_beta_series
 
         config = _make_config()
         spy = _make_daily_bars(120, seed=1, start_close=450.0)
@@ -1644,7 +1644,7 @@ class TestBuildSymbolBetaSeries:
     def test_non_proxy_symbol_yields_finite_betas(self) -> None:
         """A symbol that is neither SPY nor TLT gets finite (non-None) betas for
         both factors once enough history has accumulated."""
-        from src.intelligence.features.cross_asset_series import build_symbol_beta_series
+        from src.intelligence.features.kernels.macro import build_symbol_beta_series
 
         config = _make_config()
         sym = _make_daily_bars(120, seed=3, start_close=200.0)
