@@ -1833,7 +1833,8 @@ services/_batch_utils.py bulk_load)
 The one writer of the fresh IC table (`services/ic_measure.py`, oneshot, phase 186 D-17). It runs
 the pure measure jobs (proposer with term structure, `regime_volatility` disclosure, monitoring)
 and writes `feature_ic_scores_v2` only through `bulk_load()`, one provenance batch per unit
-(job, tf, feature block). **Banned:** (none)
+(job, tf); a unit owns every row of its scope in that tf, and feature blocking is memory only.
+**Banned:** (none)
 **Status:** active (phase 186 plan 14)
 
 ---
