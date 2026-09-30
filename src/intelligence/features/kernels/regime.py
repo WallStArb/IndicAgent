@@ -22,7 +22,7 @@ Pure: no database, no ConfigService.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -35,6 +35,7 @@ from src.intelligence.features.kernels._hmm import (
     FAMILY_VOLATILITY,
     N_NUMERIC_COLUMNS,
     HmmConfig,
+    RegimeEventRecord,
     RegimeFamilySpec,
 )
 
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 __all__ = [
     "EXTERNAL_INPUTS",
     "KERNELS",
+    "RegimeColumnsResult",
     "compute_regime_columns",
 ]
 
@@ -137,6 +139,14 @@ def _heavy_columns(spec: RegimeFamilySpec, result: _hmm.FamilyResult) -> dict[st
     return out
 
 
+class RegimeColumnsResult(NamedTuple):
+    """`compute_regime_columns` result: the columns by name, and the run's fit and skip events
+    (`RegimeEventRecord`) for the caller to log with its symbol and tf."""
+
+    columns: dict[str, np.ndarray]
+    events: tuple[RegimeEventRecord, ...]
+
+
 def compute_regime_columns(
     close: np.ndarray,
     volume: np.ndarray | None,
@@ -144,10 +154,11 @@ def compute_regime_columns(
     tf: str,
     family: RegimeFamilySpec,
     block_rows: int | None = DEFAULT_ROLLING_BLOCK_ROWS,
-) -> dict[str, np.ndarray]:
+) -> RegimeColumnsResult:
     """Every output column of `family` over one (symbol, tf) series of bars: the code, the
     segment status, the numeric columns and the text label column (None where unlabeled), keyed
-    by name and identical to what the registry kernels compute for the same bars.
+    by name and identical to what the registry kernels compute for the same bars, plus the run's
+    events. The kernels are silent: a caller that wants the fit and skip lines logs `events`.
 
     `params` is the loaded `HmmConfig` (`HmmConfig.from_values(cfg.get_sync)`); `block_rows` is
     the caller's `infra.hmm.rolling_block_rows` and bounds memory without changing output.
@@ -155,7 +166,7 @@ def compute_regime_columns(
     result = _compute_family(close, volume, params, _check_tf(tf), family, block_rows)
     out = _heavy_columns(family, result)
     out[family.regime_column] = _label_column(family, result.code)
-    return out
+    return RegimeColumnsResult(out, result.events)
 
 
 def _hmm_config(config: FeatureFactoryConfig) -> HmmConfig:

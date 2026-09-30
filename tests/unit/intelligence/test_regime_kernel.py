@@ -400,9 +400,11 @@ def test_block_rows_argument_changes_no_output(family):
     bars = _bars()
     params = _hmm.HmmConfig.from_values(SMALL_HMM_APR.get)
     spec = FAMILY_SPECS[family]
-    want = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec, None)
+    want = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec, None).columns
     for block_rows in (1, 257, 16384):
-        got = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec, block_rows)
+        got = compute_regime_columns(
+            bars["close"], bars["volume"], params, "1d", spec, block_rows
+        ).columns
         assert list(got) == list(want)
         assert all(_same_column(got[name], want[name]) for name in want), block_rows
 
@@ -414,7 +416,7 @@ def test_the_shared_entry_point_equals_the_registry_kernels(family):
     spec = FAMILY_SPECS[family]
     bars = _bars()
     params = _hmm.HmmConfig.from_values(SMALL_HMM_APR.get)
-    shared = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec)
+    shared = compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec).columns
     outputs = [spec.code_output, spec.status_output, *spec.numeric_outputs, spec.regime_column]
     registry = _run(bars, family, outputs=outputs)
     assert set(shared) == set(outputs)
@@ -427,6 +429,8 @@ def test_the_shared_entry_point_rejects_an_unknown_tf_and_a_volatility_run_needs
     with pytest.raises(ValueError, match="timeframes"):
         compute_regime_columns(bars["close"], bars["volume"], params, "7m", FAMILY_SPECS["trend"])
     volatility = FAMILY_SPECS["volatility"]
-    with_volume = compute_regime_columns(bars["close"], bars["volume"], params, "1d", volatility)
-    without = compute_regime_columns(bars["close"], None, params, "1d", volatility)
+    with_volume = compute_regime_columns(
+        bars["close"], bars["volume"], params, "1d", volatility
+    ).columns
+    without = compute_regime_columns(bars["close"], None, params, "1d", volatility).columns
     assert all(_same_column(with_volume[name], without[name]) for name in with_volume)

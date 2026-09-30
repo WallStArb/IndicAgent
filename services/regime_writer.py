@@ -118,6 +118,7 @@ from src.intelligence.features.kernels._hmm import (
 )
 from src.intelligence.features.kernels._hmm import (
     DEFAULT_ROLLING_BLOCK_ROWS,
+    EVENT_SEGMENT_SKIPPED,
     FAMILY_SPECS,
     STATUS_WRITTEN,
     HmmConfig,
@@ -297,6 +298,22 @@ def _fetch_bars(conn: Any, symbol: str, tf: str, with_volume: bool = True) -> di
     }
 
 
+def _log_events(events: Any, spec: RegimeFamilySpec, symbol: str, tf: str) -> None:
+    """Log the kernel's fit and skip events with the cell's symbol and tf, under the names
+    triage greps for: `regime_writer.walk_forward_hmm_convergence_iters` (info) and
+    `regime_writer.<family prefix>walk_forward_segment_skipped` (warning)."""
+    for event in events:
+        if event.kind == EVENT_SEGMENT_SKIPPED:
+            _logger.warning(
+                f"regime_writer.{spec.event_prefix}{event.kind}",
+                symbol=symbol,
+                tf=tf,
+                **event.fields,
+            )
+        else:
+            _logger.info(f"regime_writer.{event.kind}", symbol=symbol, tf=tf, **event.fields)
+
+
 def _compute_family_rows(
     bars: dict[str, Any],
     spec: RegimeFamilySpec,
@@ -317,9 +334,10 @@ def _compute_family_rows(
     `params` is the loaded `HmmConfig`; `block_rows` is `infra.hmm.rolling_block_rows`. The
     columns come from `compute_regime_columns`, the entry the rebuild shares.
     """
-    columns = compute_regime_columns(
+    columns, events = compute_regime_columns(
         bars["close"], bars.get("volume"), params, tf, spec, block_rows
     )
+    _log_events(events, spec, symbol, tf)
     status = columns[spec.status_output]
     written = np.flatnonzero(status == STATUS_WRITTEN)
     if len(written) == 0:

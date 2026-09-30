@@ -1274,55 +1274,99 @@ def test_walk_forward_hmm_full_flags_degenerate_short_final_segment():
     )
 
 
-def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
-    """_walk_forward_hmm_full must log one regime_writer.walk_forward_hmm_convergence_iters
-    event PER REFIT SEGMENT (not one per cell) -- todo 226's cap-headroom analysis only
-    covers the walk-forward path if this instrumentation exists there too. The event name
-    is deliberately distinct from the single-fit path's regime_writer.hmm_convergence_iters
-    so downstream analysis can tell which code path produced a given record."""
+def test_writer_logs_one_convergence_event_per_segment_with_symbol_and_tf():
+    """One regime_writer.walk_forward_hmm_convergence_iters record PER REFIT SEGMENT (todo 226's
+    cap-headroom analysis), carrying the cell's symbol and tf. The kernel is silent and returns
+    the events; the writer attributes them (todo 468: they used to log symbol=None)."""
     from structlog.testing import capture_logs
 
-    from services.regime_writer import _walk_forward_hmm_full
-
     n = 900
-    closes = _make_ranging_closes(n)
-    volumes = _make_volumes(n)
-    timestamps = _make_timestamps(n)
-    obs, _ = _build_obs_matrix(
-        timestamps, closes, volumes, vol_window=20, momentum_window=20, vol_of_vol_window=20
-    )
-
+    conn = _make_mock_conn(_make_ranging_closes(n), _make_volumes(n), _make_timestamps(n))
     with capture_logs() as cap_logs:
-        segments = _walk_forward_hmm_full(
-            obs,
-            n_components=3,
-            covariance_type="diag",
-            n_iter=50,
-            hmm_random_state=_HMM_RANDOM_STATE,
-            refit_every_bars=200,
-            initial_warmup_bars=300,
-            min_hold_bars=3,
-            full_cov_min_obs=0,
-            min_state_occupation=0.0,
+        rows = _compute_symbol_tf_walk_forward(
+            conn=conn,
             symbol="SPY",
             tf="1h",
-            min_obs_factor=50,
-            covariance_ridge=1e-6,
+            n_components=3,
+            vol_window=20,
+            n_iter=50,
+            hmm_random_state=_HMM_RANDOM_STATE,
+            momentum_window=20,
+            vol_of_vol_window=20,
+            refit_every_bars=200,
+            initial_warmup_bars=300,
+            covariance_type="diag",
+            full_cov_min_obs=0,
+            min_state_occupation=0.0,
         )
-
-    assert len(segments) >= 3, "test needs multiple segments to be meaningful"
-
+    assert rows is not None
     events = [
         e for e in cap_logs if e["event"] == "regime_writer.walk_forward_hmm_convergence_iters"
     ]
-    assert len(events) == len(segments)
+    assert len(events) >= 3, "test needs multiple segments to be meaningful"
     for event in events:
         assert event["symbol"] == "SPY"
         assert event["tf"] == "1h"
         assert isinstance(event["iters_used"], int)
         assert isinstance(event["n_iter_cap"], int)
-        assert isinstance(event["seg_start"], int)
-        assert isinstance(event["seg_end"], int)
+        assert event["train_end"] == event["seg_start"]
+
+
+@pytest.mark.parametrize("spec_name,prefix", [("trend", ""), ("volatility", "volatility_")])
+@pytest.mark.parametrize("reason", ["degenerate_occupation", "not_converged"])
+def test_skipped_segment_events_are_logged_with_symbol_and_tf(spec_name, prefix, reason):
+    """A degenerate segment and a non-converged one each produce a writer log record named
+    regime_writer.<family prefix>walk_forward_segment_skipped with symbol, tf and the gate's
+    diagnostics; the kernel itself logs nothing."""
+    from unittest.mock import patch
+
+    from structlog.testing import capture_logs
+
+    def _seg(seg_start, seg_end, degenerate, gate_info):
+        width = seg_end - seg_start
+        label = "calm" if spec_name == "volatility" else "ranging"
+        return {
+            "seg_start": seg_start,
+            "seg_end": seg_end,
+            "states": np.zeros(width, dtype=int),
+            "state_labels": (label,),
+            "p_up": [0.5] * width,
+            "p_ranging": [0.3] * width,
+            "p_down": [0.2] * width,
+            "prob_val": [0.5] * width,
+            "entropy_val": [0.5] * width,
+            "converged": reason != "not_converged",
+            "iters_used": 7,
+            "n_iter_cap": 50,
+            "is_degenerate": degenerate,
+            "gate_info": gate_info,
+        }
+
+    fake = [
+        _seg(0, 3, False, {}),
+        _seg(3, 6, True, {"reason": reason, "n_obs": 3, "gate_basis": "training_slice"}),
+    ]
+    n = 120
+    bars = {
+        "timestamps": _make_timestamps(n),
+        "close": np.array(_make_ranging_closes(n)),
+        "volume": np.array(_make_volumes(n)),
+    }
+    params = _family_config("1h", 200, 0, hmm_volatility_vol_of_vol_window=20)
+    with (
+        patch.object(hmm_module, "_walk_forward_hmm_full", return_value=fake),
+        capture_logs() as cap_logs,
+    ):
+        regime_writer_module._compute_family_rows(
+            bars, hmm_module.FAMILY_SPECS[spec_name], params, "1h", "QQQ"
+        )
+    skipped = [
+        e for e in cap_logs if e["event"] == f"regime_writer.{prefix}walk_forward_segment_skipped"
+    ]
+    assert len(skipped) == 1
+    assert skipped[0]["symbol"] == "QQQ" and skipped[0]["tf"] == "1h"
+    assert skipped[0]["reason"] == reason and skipped[0]["seg_start"] == 3
+    assert skipped[0]["log_level"] == "warning"
 
 
 def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
@@ -1486,6 +1530,8 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
             "prob_val": [0.5] * width,
             "entropy_val": [0.5] * width,
             "converged": True,
+            "iters_used": 7,
+            "n_iter_cap": 50,
             "is_degenerate": is_degenerate,
             "gate_info": gate_info or {},
         }

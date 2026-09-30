@@ -100,7 +100,7 @@ def run_kernel_full(
 
     params = HmmConfig.from_values({**_PRE_411_NUMERICS, **apr}.get)
     spec = FAMILY_SPECS[family]
-    out = compute_regime_columns(bars["close"], bars["volume"], params, tf, spec)
+    out = compute_regime_columns(bars["close"], bars["volume"], params, tf, spec).columns
     columns = np.stack([np.asarray(out[name], dtype=np.float32) for name in spec.numeric_outputs])
     return (
         np.asarray(out[spec.code_output], dtype=np.float64),

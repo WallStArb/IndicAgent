@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 import numpy as np
-import structlog
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
 from threadpoolctl import threadpool_limits
@@ -34,8 +33,6 @@ from src.intelligence.features.feature_vector_persistence import (
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
-
-_logger = structlog.get_logger(__name__)
 
 # Label-affecting numerics carried over verbatim from the pre-186 writer; the kernels read them
 # from APR through `HmmConfig` (`alpha.hmm.covariance_ridge`, `alpha.hmm.momentum_vol_floor`,
@@ -915,8 +912,6 @@ def _walk_forward_hmm_full(
     min_hold_bars: int,
     full_cov_min_obs: int,
     min_state_occupation: float,
-    symbol: str | None = None,
-    tf: str | None = None,
     vocab: dict[str, str] | None = None,
     *,
     min_obs_factor: int,
@@ -944,12 +939,6 @@ def _walk_forward_hmm_full(
     single full-series fit (doubled n_iter, one retry) -- omitting it here would make
     every genuinely-recoverable segment more likely to trip the degenerate gate below
     purely from under-iterating, not from an actual bad fit.
-
-    `symbol`/`tf` are log-correlation context ONLY -- never used in compute. They are
-    threaded through purely so each segment's `regime_writer.walk_forward_hmm_convergence_iters`
-    log record (todo 226) is attributable to a (symbol, tf) cell, matching the single-fit
-    path's `regime_writer.hmm_convergence_iters` log shape. Defaults to None so existing
-    keyword-arg call sites that omit them keep passing unchanged.
 
     `vocab` (Phase 172): rank-slot label vocabulary passed through to `_build_label_map`
     and `_state_groups_by_vocab` for every segment's own fit. Defaults to `_TREND_VOCAB`
@@ -991,6 +980,7 @@ def _walk_forward_hmm_full(
                 exposing raw alpha + a bare label_map to the caller would just move
                 this same per-segment index resolution into the caller for no benefit.
             "converged": bool,
+            "iters_used": int, "n_iter_cap": int,  # the fit's EM iterations and its cap
             "is_degenerate": bool,     # _check_occupation_gate's verdict for this segment
             "gate_info": dict,         # _check_occupation_gate's diagnostics for this segment
         }
@@ -1039,17 +1029,6 @@ def _walk_forward_hmm_full(
                 converged = True
 
         seg_end = min(boundary + refit_every_bars, n)
-        _logger.info(
-            "regime_writer.walk_forward_hmm_convergence_iters",
-            symbol=symbol,
-            tf=tf,
-            iters_used=int(model.monitor_.iter),
-            n_iter_cap=int(model.monitor_.n_iter),
-            converged=converged,
-            seg_start=boundary,
-            seg_end=seg_end,
-            train_end=boundary,
-        )
 
         label_map = _build_label_map(model.means_, vocab=vocab)
 
@@ -1112,6 +1091,8 @@ def _walk_forward_hmm_full(
                 "prob_val": prob_val_list,
                 "entropy_val": entropy_val_list,
                 "converged": converged,
+                "iters_used": int(model.monitor_.iter),
+                "n_iter_cap": int(model.monitor_.n_iter),
                 "is_degenerate": is_degenerate,
                 "gate_info": gate_info,
             }
@@ -1232,16 +1213,35 @@ _GATE_REASON_STATUS = {
 }
 
 
+# Event kinds a run reports (the kernel is silent; the caller logs them with its own context,
+# symbol and tf, under the names operators grep for). The skipped-segment event carries the
+# family's `event_prefix` in its log name, the convergence event does not.
+EVENT_CONVERGENCE = "walk_forward_hmm_convergence_iters"
+EVENT_SEGMENT_SKIPPED = "walk_forward_segment_skipped"
+
+
+class RegimeEventRecord(NamedTuple):
+    """One thing a walk-forward run did that an operator triages from: a segment's fit
+    (`EVENT_CONVERGENCE`: iters_used, n_iter_cap, converged, seg_start, seg_end, train_end) or a
+    segment that was not written (`EVENT_SEGMENT_SKIPPED`: seg_start, seg_end and the occupation
+    gate's diagnostics, `reason` among them)."""
+
+    kind: str
+    fields: dict[str, Any]
+
+
 class FamilyResult(NamedTuple):
     """Row-aligned walk-forward output for one family.
 
     `code` indexes the family's label tuple (NaN where unlabeled); `status` is the segment
-    status per row; `numeric` is (7, n_rows) in the family's owned-column order.
+    status per row; `numeric` is (7, n_rows) in the family's owned-column order; `events` are
+    the per-segment fit and skip reports, in segment order.
     """
 
     code: np.ndarray
     status: np.ndarray
     numeric: np.ndarray
+    events: tuple[RegimeEventRecord, ...] = ()
 
 
 def _trend_observations(
@@ -1408,23 +1408,35 @@ def walk_forward_family_arrays(
             params.hmm_min_hold_bars,
             params.hmm_full_cov_min_obs,
             params.hmm_min_state_occupation,
-            tf=tf,
             vocab=spec.vocab,
             min_obs_factor=params.hmm_min_obs_factor,
             covariance_ridge=params.hmm_covariance_ridge,
         )
 
+    events: list[RegimeEventRecord] = []
     previous_code = -1
     carried_run = 0
     for seg in segment_results:
         rows = slice(valid_offset + seg["seg_start"], valid_offset + seg["seg_end"])
+        events.append(
+            RegimeEventRecord(
+                EVENT_CONVERGENCE,
+                {
+                    "iters_used": seg["iters_used"],
+                    "n_iter_cap": seg["n_iter_cap"],
+                    "converged": seg["converged"],
+                    "seg_start": seg["seg_start"],
+                    "seg_end": seg["seg_end"],
+                    "train_end": seg["seg_start"],
+                },
+            )
+        )
         if seg["is_degenerate"]:
-            _logger.warning(
-                f"regime_writer.{spec.event_prefix}walk_forward_segment_skipped",
-                tf=tf,
-                seg_start=seg["seg_start"],
-                seg_end=seg["seg_end"],
-                **seg["gate_info"],
+            events.append(
+                RegimeEventRecord(
+                    EVENT_SEGMENT_SKIPPED,
+                    {"seg_start": seg["seg_start"], "seg_end": seg["seg_end"], **seg["gate_info"]},
+                )
             )
             status[rows] = _GATE_REASON_STATUS.get(seg["gate_info"]["reason"], STATUS_OTHER_GATE)
             previous_code, carried_run = -1, 0  # continuity through a gap cannot be verified
@@ -1446,4 +1458,4 @@ def walk_forward_family_arrays(
             ]
         )
 
-    return FamilyResult(code, status, numeric)
+    return FamilyResult(code, status, numeric, tuple(events))

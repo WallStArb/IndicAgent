@@ -182,7 +182,7 @@ def test_the_two_params_reach_the_kernel_output(change):
     spec = FAMILY_SPECS["trend"]
 
     def run(params):
-        return compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec)
+        return compute_regime_columns(bars["close"], bars["volume"], params, "1d", spec).columns
 
     want, got = run(base), run(dataclasses.replace(base, **change))
     assert any(
