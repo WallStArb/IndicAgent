@@ -319,6 +319,12 @@ Plans:
   `config.py` closure, the pilot-only HMM helpers deleted with them, migration 412 retires two
   unread APR keys; `repro_frozen` (promoted to `scripts.research.determinism`) bit-identical before
   and after; merged 2026-09-30 locally (`299798dc7`, push held by the coordinator)
+- [x] 186-14 fresh IC writer: `services/ic_measure.py` writes `feature_ic_scores_v2` (migration 413, `regime_scope`
+  in the PK, legacy table untouched) only through `bulk_load`, one provenance batch per unit, skipped
+  before any IC when the identity (per-job code key, APR snapshot, per-symbol bar digests, block
+  digest) is unchanged and replaced atomically when it moves (`replace_where`); migrations 414 and 415;
+  todo 412 closed, todo 469 filed (serial bootstrap cost); merged 2026-09-30 locally (`0db1aa213`, push
+  held by the coordinator)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
