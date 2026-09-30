@@ -90,6 +90,83 @@ class TestLoadParams:
         }
 
 
+class TestOperationalVersusComputational:
+    """ic_engine's split (services/ic_engine.py _COMPUTATIONAL_CONFIG_FIELDS and
+    _OPERATIONAL_CONFIG_FIELDS): operational keys never enter the identity."""
+
+    _OOS_DT = datetime(2025, 12, 24, 5, 15, tzinfo=UTC)
+    _HORIZONS = (1, 2, 5)
+
+    def _apr(self) -> dict[str, Any]:
+        apr = dict(_VALUES)
+        apr.update(
+            {
+                "alpha.ic.feature_block_columns": 32,
+                "infra.ic_measure.fetch_chunk_rows": 200000,
+                "alpha.ic_measure.horizons": {"1d": [1, 2, 5], "15m": [2]},
+            }
+        )
+        return apr
+
+    def test_every_measure_param_field_is_classified_exactly_once(self) -> None:
+        from src.intelligence.measure.params import COMPUTATIONAL, OPERATIONAL, fields_of_kind
+
+        names = {f.name for f in dataclasses.fields(MeasureParams)}
+        computational = set(fields_of_kind(COMPUTATIONAL))
+        operational = set(fields_of_kind(OPERATIONAL))
+        assert computational | operational == names
+        assert not computational & operational
+        assert operational == {"symbol_chunk_size"}
+
+    def test_an_unclassified_field_cannot_be_constructed(self) -> None:
+        @dataclasses.dataclass(frozen=True)
+        class Half(MeasureParams):
+            extra: int = 3
+
+        with pytest.raises(TypeError, match="extra is not classified"):
+            Half(**dataclasses.asdict(_params()), extra=3)
+
+    def test_param_types_come_from_the_dataclass_not_a_hand_kept_list(self) -> None:
+        params = ic_measure.load_params(self._apr(), "1d")
+        for field in dataclasses.fields(MeasureParams):
+            assert type(getattr(params, field.name)) is ic_measure.field_type(field.name)
+        assert "_INT_FIELDS" not in (_REPO / "services" / "ic_measure.py").read_text()
+
+    def test_operational_keys_are_read_but_never_in_the_identity(self) -> None:
+        snapshot = ic_measure.identity_snapshot(self._apr(), "1d", self._HORIZONS, self._OOS_DT)
+        read = set(ic_measure.apr_keys_read("1d"))
+        for key in ic_measure.operational_keys("1d"):
+            assert key in read
+            assert key not in snapshot
+        assert ic_measure.param_keys("1d")["symbol_chunk_size"] in ic_measure.operational_keys("1d")
+        assert "alpha.ic.feature_block_columns" in ic_measure.operational_keys("1d")
+        assert "infra.ic_measure.fetch_chunk_rows" in ic_measure.operational_keys("1d")
+
+    def test_changing_an_operational_key_leaves_the_identity_unchanged(self) -> None:
+        base = ic_measure.identity_snapshot(self._apr(), "1d", self._HORIZONS, self._OOS_DT)
+        for key in ic_measure.operational_keys("1d"):
+            apr = self._apr()
+            apr[key] = 7
+            assert (
+                ic_measure.identity_snapshot(apr, "1d", self._HORIZONS, self._OOS_DT) == base
+            ), key
+
+    def test_changing_a_computational_key_changes_the_identity(self) -> None:
+        base = ic_measure.identity_snapshot(self._apr(), "1d", self._HORIZONS, self._OOS_DT)
+        for key in ic_measure.computational_keys("1d"):
+            apr = self._apr()
+            apr[key] = apr[key] + 1
+            changed = ic_measure.identity_snapshot(apr, "1d", self._HORIZONS, self._OOS_DT)
+            assert changed != base, key
+
+    def test_another_tfs_horizons_do_not_re_key_this_tf(self) -> None:
+        base = ic_measure.identity_snapshot(self._apr(), "1d", self._HORIZONS, self._OOS_DT)
+        apr = self._apr()
+        apr["alpha.ic_measure.horizons"] = {"1d": [1, 2, 5], "15m": [2, 9]}
+        assert ic_measure.identity_snapshot(apr, "1d", self._HORIZONS, self._OOS_DT) == base
+        assert ic_measure.identity_snapshot(apr, "1d", (1, 2), self._OOS_DT) != base
+
+
 class TestHorizons:
     _APR = {
         "alpha.ic_measure.horizons": {"1d": [1, 2], "15m": [2, 26], "1h": [1]},

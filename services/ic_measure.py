@@ -74,7 +74,13 @@ from src.intelligence.measure.monitoring import (  # noqa: E402
     MemberIcSeries,
     member_ic_over_time,
 )
-from src.intelligence.measure.params import MeasureParams  # noqa: E402
+from src.intelligence.measure.params import (  # noqa: E402
+    COMPUTATIONAL,
+    OPERATIONAL,
+    MeasureParams,
+    field_type,
+    fields_of_kind,
+)
 from src.intelligence.measure.proposer import ProposerResult, propose  # noqa: E402
 from src.intelligence.measure.regime_disclosure import (  # noqa: E402
     regime_volatility_disclosure,
@@ -147,13 +153,21 @@ COLUMNS: tuple[str, ...] = (
 _COL = {name: i for i, name in enumerate(COLUMNS)}
 
 # ---------------------------------------------------------------------------
-# APR: every MeasureParams field maps to exactly one key (migration 414 seeds the new ones)
+# APR: every MeasureParams field maps to exactly one key (migration 414 seeds the new ones).
+# Keys are split as ic_engine splits its config (services/ic_engine.py
+# `_COMPUTATIONAL_CONFIG_FIELDS`, `_OPERATIONAL_CONFIG_FIELDS`, lines 997-1070): a computational
+# key moves stored values and is part of a unit's identity and apr_snapshot; an operational key
+# is read and logged but never enters either, so tuning a memory knob re-keys nothing.
 # ---------------------------------------------------------------------------
 
 HORIZONS_KEY = "alpha.ic_measure.horizons"
+_OOS_START_KEY = "alpha.validation.oos_start"
+# Operational keys that are not MeasureParams fields: the feature block width is only a memory
+# chunk (every measure result is bit-identical for any width, asserted by
+# tests/unit/test_ic_measure.py), the fetch chunk is a cursor round-trip size, and the session
+# length only lets a cross-session intraday horizon be refused before any fetch.
 _BLOCK_COLUMNS_KEY = "alpha.ic.feature_block_columns"
 _FETCH_CHUNK_KEY = "infra.ic_measure.fetch_chunk_rows"
-_OOS_START_KEY = "alpha.validation.oos_start"
 _BARS_PER_DAY_KEY = "alpha.ic.broadcast_max_bars_per_day.{tf}"
 
 # MeasureParams field -> APR key ("{tf}" is replaced by the timeframe).
@@ -170,18 +184,6 @@ MEASURE_PARAM_KEYS: dict[str, str] = {
     "degenerate_std": "alpha.ic_measure.degenerate_std",
     "monitor_degenerate_std": "alpha.ic_measure.monitor_degenerate_std",
 }
-_INT_FIELDS = frozenset(
-    {
-        "min_stride",
-        "bootstrap_block_size",
-        "bootstrap_resamples",
-        "rng_seed",
-        "min_obs",
-        "symbol_chunk_size",
-        "monitor_window_sessions",
-        "hac_max_lag",
-    }
-)
 
 
 def param_keys(tf: str) -> dict[str, str]:
@@ -189,14 +191,31 @@ def param_keys(tf: str) -> dict[str, str]:
     return {field: key.format(tf=tf) for field, key in MEASURE_PARAM_KEYS.items()}
 
 
+def computational_keys(tf: str) -> list[str]:
+    """APR keys whose value moves stored values: the identity and the unit's apr_snapshot."""
+    keys = param_keys(tf)
+    return [keys[f] for f in fields_of_kind(COMPUTATIONAL)]
+
+
+def operational_keys(tf: str) -> list[str]:
+    """APR keys the run reads for throughput and guards only; never in an identity."""
+    keys = param_keys(tf)
+    out = [keys[f] for f in fields_of_kind(OPERATIONAL)]
+    out += [_BLOCK_COLUMNS_KEY, _FETCH_CHUNK_KEY]
+    if tf != "1d":
+        out.append(_BARS_PER_DAY_KEY.format(tf=tf))
+    return out
+
+
 def load_params(apr: Mapping[str, Any], tf: str) -> MeasureParams:
     """MeasureParams from APR values. A missing key raises KeyError naming it: no default here,
-    the measure package has none either (APR mandate)."""
+    the measure package has none either (APR mandate). Each value is cast to its field's declared
+    type, so a new field needs no list kept here."""
     values: dict[str, Any] = {}
     for field, key in param_keys(tf).items():
         if key not in apr:
             raise KeyError(f"APR key {key!r} (MeasureParams.{field}) is not set")
-        values[field] = int(apr[key]) if field in _INT_FIELDS else float(apr[key])
+        values[field] = field_type(field)(apr[key])
     return MeasureParams(**values)
 
 
@@ -216,11 +235,20 @@ def horizons_for(apr: Mapping[str, Any], tf: str) -> tuple[int, ...]:
 
 
 def apr_keys_read(tf: str) -> list[str]:
-    """Every APR key the writer reads for one tf (also the unit's apr_snapshot keys)."""
-    keys = [*param_keys(tf).values(), HORIZONS_KEY, _BLOCK_COLUMNS_KEY, _FETCH_CHUNK_KEY]
-    if tf != "1d":
-        keys.append(_BARS_PER_DAY_KEY.format(tf=tf))
-    return keys
+    """Every APR key the writer reads for one tf."""
+    return [*computational_keys(tf), HORIZONS_KEY, *operational_keys(tf)]
+
+
+def identity_snapshot(
+    apr: Mapping[str, Any], tf: str, horizons: Sequence[int], oos_start: datetime
+) -> dict[str, Any]:
+    """The unit's apr_snapshot: computational values only. The horizons are this tf's own list
+    (the full `alpha.ic_measure.horizons` mapping would re-key a tf when another tf's horizons
+    change); operational keys are deliberately absent."""
+    snapshot_keys = {k: apr[k] for k in computational_keys(tf)}
+    snapshot_keys[_OOS_START_KEY] = format_iso_ts(oos_start)
+    snapshot_keys[f"{HORIZONS_KEY}[{tf}]"] = list(horizons)
+    return snapshot_keys
 
 
 # ---------------------------------------------------------------------------
@@ -988,9 +1016,7 @@ class IcMeasure:
         bar_digests: Mapping[str, str],
     ):
         """Yield units one at a time (a block's grid is freed before the next is fetched)."""
-        snapshot_keys = {k: apr[k] for k in apr_keys_read(tf) if k in apr}
-        snapshot_keys["alpha.validation.oos_start"] = format_iso_ts(oos_start)
-        snapshot_keys[f"{HORIZONS_KEY}[{tf}]"] = list(horizons)
+        snapshot_keys = identity_snapshot(apr, tf, horizons, oos_start)
         n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
         labels: np.ndarray | None = None
         labels_key = ""
