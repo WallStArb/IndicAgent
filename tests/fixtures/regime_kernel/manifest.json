@@ -33,6 +33,546 @@
   },
   "capture_commit": "ec3d8a814933595814c13239665da407ddc192da",
   "captured_utc": "2026-09-30T04:57:29.369308+00:00",
+  "changed_cases": {
+    "LQD/1d/trend": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          3296,
+          3548,
+          "written->skipped"
+        ]
+      ],
+      "rows_gained_label": 0,
+      "rows_lost_label": 252,
+      "rows_written_now": 0
+    },
+    "LQD/1d/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          3271,
+          3523,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 252,
+      "rows_lost_label": 0,
+      "rows_written_now": 252
+    },
+    "SPY/1d/trend": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          3052,
+          0
+        ],
+        [
+          3052,
+          0
+        ],
+        [
+          3052,
+          0
+        ],
+        [
+          3052,
+          0
+        ],
+        [
+          3052,
+          0
+        ],
+        [
+          3073,
+          21
+        ],
+        [
+          3052,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          776,
+          1028,
+          "skipped->written"
+        ],
+        [
+          1028,
+          1280,
+          "skipped->written"
+        ],
+        [
+          1532,
+          1784,
+          "skipped->written"
+        ],
+        [
+          1784,
+          2036,
+          "skipped->written"
+        ],
+        [
+          2036,
+          2288,
+          "skipped->written"
+        ],
+        [
+          2540,
+          2792,
+          "skipped->written"
+        ],
+        [
+          2792,
+          3044,
+          "skipped->written"
+        ],
+        [
+          3548,
+          3800,
+          "skipped->written"
+        ],
+        [
+          3800,
+          4052,
+          "skipped->written"
+        ],
+        [
+          4052,
+          4304,
+          "skipped->written"
+        ],
+        [
+          4304,
+          4556,
+          "skipped->written"
+        ],
+        [
+          4808,
+          5060,
+          "skipped->written"
+        ],
+        [
+          5060,
+          5088,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 3052,
+      "rows_lost_label": 0,
+      "rows_written_now": 4312
+    },
+    "SPY/1d/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ],
+        [
+          252,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          1003,
+          1255,
+          "written->skipped"
+        ]
+      ],
+      "rows_gained_label": 0,
+      "rows_lost_label": 252,
+      "rows_written_now": 0
+    },
+    "SPY/1h/trend": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          18034,
+          0
+        ],
+        [
+          18034,
+          0
+        ],
+        [
+          18034,
+          0
+        ],
+        [
+          18034,
+          0
+        ],
+        [
+          18034,
+          0
+        ],
+        [
+          18037,
+          3
+        ],
+        [
+          18034,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          3320,
+          4970,
+          "skipped->written"
+        ],
+        [
+          4970,
+          6620,
+          "skipped->written"
+        ],
+        [
+          6620,
+          8270,
+          "skipped->written"
+        ],
+        [
+          9920,
+          11570,
+          "skipped->written"
+        ],
+        [
+          11570,
+          13220,
+          "skipped->written"
+        ],
+        [
+          13220,
+          14870,
+          "skipped->written"
+        ],
+        [
+          14870,
+          16520,
+          "skipped->written"
+        ],
+        [
+          16520,
+          18170,
+          "skipped->written"
+        ],
+        [
+          21470,
+          23120,
+          "skipped->written"
+        ],
+        [
+          26420,
+          28070,
+          "skipped->written"
+        ],
+        [
+          29720,
+          31254,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 18034,
+      "rows_lost_label": 0,
+      "rows_written_now": 27934
+    },
+    "SPY/1h/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ],
+        [
+          6005,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          8749,
+          10399,
+          "skipped->written"
+        ],
+        [
+          10399,
+          12049,
+          "skipped->written"
+        ],
+        [
+          20299,
+          21949,
+          "written->skipped"
+        ],
+        [
+          30199,
+          31254,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 4355,
+      "rows_lost_label": 1650,
+      "rows_written_now": 9305
+    },
+    "TLT/1d/trend": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ],
+        [
+          504,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          776,
+          1028,
+          "written->skipped"
+        ],
+        [
+          1028,
+          1280,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 252,
+      "rows_lost_label": 252,
+      "rows_written_now": 504
+    },
+    "synthetic/trend": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          2080,
+          0
+        ],
+        [
+          2080,
+          0
+        ],
+        [
+          2080,
+          0
+        ],
+        [
+          2080,
+          0
+        ],
+        [
+          2080,
+          0
+        ],
+        [
+          2107,
+          27
+        ],
+        [
+          2080,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          620,
+          920,
+          "skipped->written"
+        ],
+        [
+          1220,
+          1520,
+          "skipped->written"
+        ],
+        [
+          1520,
+          1820,
+          "skipped->written"
+        ],
+        [
+          1820,
+          2120,
+          "skipped->written"
+        ],
+        [
+          2120,
+          2420,
+          "skipped->written"
+        ],
+        [
+          2420,
+          2720,
+          "skipped->written"
+        ],
+        [
+          2720,
+          3000,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 2080,
+      "rows_lost_label": 0,
+      "rows_written_now": 2380
+    },
+    "synthetic/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ],
+        [
+          300,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          2179,
+          2479,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 300,
+      "rows_lost_label": 0,
+      "rows_written_now": 600
+    }
+  },
   "family_labels": {
     "trend": [
       "trending_up",
@@ -47,17 +587,19 @@
       "turbulent"
     ]
   },
+  "regenerated_from": "e24427178e3dc60036eb30b66dfca791926f6a4a",
+  "regeneration_reason": "186-13 causal segment gate and length gate (todo 451): the occupation gate reads the training slice, the first boundary no longer depends on series length",
   "runtime_seconds": {
-    "LQD/1d/trend": 6.64,
-    "LQD/1d/volatility": 0.29,
-    "SPY/1d/trend": 8.26,
-    "SPY/1d/volatility": 0.41,
-    "SPY/1h/trend": 37.24,
-    "SPY/1h/volatility": 3.94,
-    "TLT/1d/trend": 1.47,
-    "TLT/1d/volatility": 0.08,
-    "synthetic/trend": 0.67,
-    "synthetic/volatility": 0.16
+    "LQD/1d/trend": 6.4,
+    "LQD/1d/volatility": 0.48,
+    "SPY/1d/trend": 6.97,
+    "SPY/1d/volatility": 0.47,
+    "SPY/1h/trend": 36.38,
+    "SPY/1h/volatility": 4.21,
+    "TLT/1d/trend": 1.53,
+    "TLT/1d/volatility": 0.15,
+    "synthetic/trend": 0.65,
+    "synthetic/volatility": 0.18
   },
   "sample": [
     [
@@ -107,29 +649,29 @@
   "synthetic_digests": {
     "synthetic/trend": {
       "columns_sha256": [
-        "6c341fa22e965204fd6059f4d1ef328d9f44e9f7db0643c9acfc936da65ccc7e",
-        "a753d3ea7aa3f16f90a5194653d0e656a048952a607a6b1c7876a84f52a13e53",
-        "7b22ff7cb2a32797c8c15a2b08877957b58e976e0d3dd40f1fe2ff5981c607e7",
-        "53ae5ea658364f41b4da602a915191fabce96cab11488e0a410329bfa40bcc40",
-        "6453508f395ea24120e20f38c453b14669aca8809334439c830a0c6a307d7e4b",
-        "057f791d569d23698c15bd11db0dbd8ff149a0de9cd81f78411c4d319b8a1370",
-        "e41a170393709dccc925b3f31a4bdfbfa16c040244861c6d2caf1e9f0ae5653e"
+        "93ab7e030984faec7566b6cfb2e737a9ed5a63d0065aee60da246dabe361248f",
+        "d174771fa2a10121447a35e44049194af1ec0309311d3b4e31c769d2362a2c13",
+        "8adc42f530ca4a432891a9a03c42c65aff8af408b4c65e7d19860698d6838847",
+        "c8fe99c4e685f1b9c18c462c6a7b8567f8cc1bcda97b1705fc89783c521de8a4",
+        "8f75c5b73190c9b2f2b4cb0e380ca42247ff5768f17348531272fda82860c6f0",
+        "33d450517249d41fc74aabd3ea24b7905f4f04368b545874fd0a387c1dcb0d1b",
+        "e773cf337bf247aa45accd51db66b4bb2b5ff0a339a82774df8ae010d844a1a6"
       ],
-      "labels_sha256": "ceb90881f30629b35c550a016d185657e62f311613e9ecee8f72b754149779f2",
-      "rows_written": 300
+      "labels_sha256": "fb7e9a3269892da03b5a8717110c8ea67c5556daea937efd3b60eae5b10e3820",
+      "rows_written": 2380
     },
     "synthetic/volatility": {
       "columns_sha256": [
-        "b7ccc1f960adf017a97ee4a53c9cceed1c58196f4a8b7da2f14326f4d930336a",
-        "a642f62efde1009c690933daf8180ec704d464a35de114ba58f74e5def7b6f81",
-        "2afd7ef5f58da3e4de708761e5b1de5e279207fc969e2c595d9b2c040aa01b6a",
-        "ccff72b78d88e630ca833d1adbefdb9b3f6a5c34a0a0675e52a9661ae72627e6",
-        "05af6727b13a43f3ecb66e782cd9d9049eeb83262fb86c2d7e036833ece3b61f",
-        "0391dd9b368c8374a9a20be9de0610718f8f3085bf6e41e5e104a9609b815b66",
-        "53e3183f4e8b84ecca6c4ea739d172510c14ba4e314a0213ba926d84fc9a87fb"
+        "c9f7435e93cae39525ab74deed575de54f3aedce5bc9c9bf65ef86120afc0a18",
+        "e623e1036123cee0e3555cd88f524f9f86f2a0057e35613a4f6c27d9fdbfb90e",
+        "ca957172abd1a4c4b2f5619f10fa59d4e95a2efe9f3dd542d2ef7e1b531cebee",
+        "f3026e6b439fb077816ff27278d3106b854cf429a9ae4003c583b97301853c1d",
+        "127533c564e2e6477de04681f51c282b1d30a1887af14be98e0947d862f522f4",
+        "f182bd0dcf1e1c338a37ed94c8b568ee6c6e897a77b7a43f0606a666033e6142",
+        "8ecc531410724d383fd52bc173e41066d0d86352a87944a269a590865aa9e0af"
       ],
-      "labels_sha256": "7ebdbe99f0fecb9ce586e03fc424f65ad6c43b28a809d5f701ec2cdb359fe781",
-      "rows_written": 300
+      "labels_sha256": "a8d9d39475233c710a64768d4f3b1e7f37224ec54139212cb079750b24a30bdf",
+      "rows_written": 600
     }
   }
 }

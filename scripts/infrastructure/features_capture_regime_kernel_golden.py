@@ -22,8 +22,10 @@ Modes:
                  capture refuses on nondeterminism.
   --verify       recompute every stored case through the kernels from `real_inputs.npz` and
                  the manifest's APR snapshot (no database read) and compare digests.
+  --dump PATH    write the kernels' current per-row state (code, status, columns) to PATH.
   --regenerate   like --verify, but writes the recomputed digests and arrays (the golden
-                 regeneration commit); needs --reason.
+                 regeneration commit); needs --reason and --changed-from, a --dump taken
+                 before the change, from which the manifest's flip report is computed.
   --dry-run      capture without writing.
 
 Usage: python scripts/infrastructure/features_capture_regime_kernel_golden.py [--out DIR]
@@ -222,10 +224,10 @@ def rows_to_grid(
     return labels, columns
 
 
-def run_kernel_case(
+def run_kernel_full(
     apr: dict[str, Any], bars: dict[str, np.ndarray], family: str, tf: str
-) -> tuple[np.ndarray, np.ndarray]:
-    """Label indices and numeric columns from the registry kernels, on the same grid."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(code, segment status, numeric columns as float32) from the registry kernels."""
     from src.intelligence.features.contract.registry import compute_kernels, default_registry
     from src.intelligence.features.kernels import regime as regime_kernels
 
@@ -242,12 +244,90 @@ def run_kernel_case(
         "tf": np.array([tf] * n, dtype=object),
     }
     out = compute_kernels(
-        default_registry(), inputs, config, outputs=[spec.code_output, *spec.numeric_outputs]
+        default_registry(),
+        inputs,
+        config,
+        outputs=[spec.code_output, spec.status_output, *spec.numeric_outputs],
     )
-    code = np.asarray(out[spec.code_output], dtype=np.float64)
-    labels = np.where(np.isnan(code), -1.0, code).astype(np.int8)
     columns = np.stack([np.asarray(out[name], dtype=np.float32) for name in spec.numeric_outputs])
-    return labels, columns
+    return (
+        np.asarray(out[spec.code_output], dtype=np.float64),
+        np.asarray(out[spec.status_output], dtype=np.float64),
+        columns,
+    )
+
+
+def run_kernel_case(
+    apr: dict[str, Any], bars: dict[str, np.ndarray], family: str, tf: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Label indices (int8, -1 unwritten) and numeric columns from the registry kernels."""
+    code, _status, columns = run_kernel_full(apr, bars, family, tf)
+    return np.where(np.isnan(code), -1.0, code).astype(np.int8), columns
+
+
+def _all_cases(out: Path) -> list[tuple[str, dict[str, np.ndarray], str, dict[str, Any]]]:
+    manifest = json.loads((out / "manifest.json").read_text())
+    cases = [
+        (name, bars, name.split("/")[1], manifest["apr_snapshot"])
+        for name, bars in load_real_inputs(out).items()
+    ]
+    cases.append(("synthetic", load_synthetic(out), "1d", SMALL_HMM_APR))
+    return cases
+
+
+def dump_state(out: Path, path: Path) -> None:
+    """Every case and family's code, segment status and numeric columns from the kernels as
+    they are now, keyed `<case>|<family>|code|status|c0..c6`. Run it before and after a
+    behavior change; `--regenerate --changed-from` compares the two."""
+    arrays: dict[str, np.ndarray] = {}
+    for name, bars, tf, apr in _all_cases(out):
+        for family in FAMILIES:
+            code, status, columns = run_kernel_full(apr, bars, family, tf)
+            arrays[f"{name}|{family}|code"] = code
+            arrays[f"{name}|{family}|status"] = status
+            for c in range(N_NUMERIC_COLUMNS):
+                arrays[f"{name}|{family}|c{c}"] = columns[c]
+    np.savez(path, **arrays)
+
+
+def change_report(pre_path: Path, post_path: Path, out: Path) -> dict[str, Any]:
+    """Per case and family: the refit segments whose gate verdict flipped, rows that gained or
+    lost a label, and per-column changed-row counts, in total and outside the flipped segments
+    (only the duration column may differ outside them, in the first written run after a flip)."""
+    pre, post = np.load(pre_path), np.load(post_path)
+    report: dict[str, Any] = {}
+    for name, _bars, tf, apr in _all_cases(out):
+        refit = int(apr[f"alpha.hmm.walk_forward.refit_every_bars.{tf}"])
+        for family in FAMILIES:
+            key = f"{name}|{family}"
+            s_pre, s_post = pre[f"{key}|status"], post[f"{key}|status"]
+            n = len(s_pre)
+            written = np.flatnonzero((s_pre > 0) | (s_post > 0))
+            first = int(written[0]) if len(written) else None
+            flipped: list[list] = []
+            flip_rows = np.zeros(n, dtype=bool)
+            lost = gained = 0
+            lo = first
+            while lo is not None and lo < n:
+                hi = min(lo + refit, n)
+                was, now = s_pre[lo] == 1.0, s_post[lo] == 1.0
+                if was != now:
+                    flipped.append([lo, hi, "written->skipped" if was else "skipped->written"])
+                    flip_rows[lo:hi] = True
+                    lost, gained = lost + (hi - lo) * was, gained + (hi - lo) * now
+                lo = hi
+            changed = []
+            for c in range(N_NUMERIC_COLUMNS):
+                x, y = pre[f"{key}|c{c}"], post[f"{key}|c{c}"]
+                diff = ~((x == y) | (np.isnan(x) & np.isnan(y)))
+                changed.append([int(diff.sum()), int((diff & ~flip_rows).sum())])
+            report[f"{name}/{family}"] = {
+                "flipped_segments": flipped,
+                "rows_lost_label": int(lost),
+                "rows_gained_label": int(gained),
+                "columns_changed_rows_total_and_outside_flipped": changed,
+            }
+    return report
 
 
 def _run_twice(fn, *args) -> tuple[np.ndarray, np.ndarray, float]:
@@ -381,6 +461,12 @@ def main() -> None:
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--regenerate", action="store_true")
     parser.add_argument("--reason", default="")
+    parser.add_argument("--dump", type=Path, help="write the kernels' current state to this npz")
+    parser.add_argument(
+        "--changed-from",
+        type=Path,
+        help="a --dump from before the change; --regenerate records the flip report against it",
+    )
     args = parser.parse_args()
     out: Path = args.out
     # Production runs the HMM in pool workers capped to one BLAS thread (limit_blas_threads).
@@ -389,6 +475,11 @@ def main() -> None:
     import threadpoolctl
 
     threadpoolctl.threadpool_limits(1)
+
+    if args.dump:
+        dump_state(out, args.dump)
+        print(f"wrote {args.dump}")
+        return
 
     if args.verify or args.regenerate:
         manifest = json.loads((out / "manifest.json").read_text())
@@ -406,12 +497,20 @@ def main() -> None:
                 raise SystemExit("VERIFY FAILED: digests differ for " + ", ".join(bad))
             print(f"VERIFY OK: {len(digests)} case/family digests match the stored golden")
             return
-        if not args.reason:
-            raise SystemExit("--regenerate needs --reason")
+        if not args.reason or not args.changed_from:
+            raise SystemExit("--regenerate needs --reason and --changed-from")
+        post_dump = out.parent / "_regime_post_dump.npz"
+        dump_state(out, post_dump)
+        try:
+            report = change_report(args.changed_from, post_dump, out)
+        finally:
+            post_dump.unlink(missing_ok=True)
         changed = {k: digests[k]["rows_written"] for k in digests if digests[k] != stored.get(k)}
         manifest["regenerated_from"] = _git_head()
         manifest["regeneration_reason"] = args.reason
-        manifest["changed_cases"] = changed
+        manifest["changed_cases"] = {
+            case: {"rows_written_now": rows, **report[case]} for case, rows in changed.items()
+        }
         manifest["runtime_seconds"] = runtimes
         _write_fixture(out, manifest, digests, bars_by_case, synthetic, grids)
         print("regenerated; changed cases:", sorted(changed))
