@@ -1056,6 +1056,101 @@ class TestBarDigestBracket:
         assert ic_measure.check_bar_digests(before, after, ("AAA",), allow_absent=False) == []
 
 
+class TestBlockFetchCounts:
+    """The family is streamed once per run to build the identity and once more inside a unit that
+    computes (the concurrent-change guard); a run that skips every unit streams it once."""
+
+    def _units(self, monkeypatch: pytest.MonkeyPatch, jobs: list[str], members: list[str]):
+        from collections import Counter
+
+        ctx = _context()
+        features = _family_features(ctx)
+        ts, sym = _keys()
+        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
+        flat = features.reshape(n * m, len(_FAMILY))
+        keys = ic_measure.LongForm(ts, sym, np.zeros((len(ts), 0)))
+        fetched: Counter = Counter()
+
+        def fake_fetch(conn, table, tf, symbols, start, end, columns, chunk_rows, *, text=False):
+            if text:
+                label = np.where(np.arange(n)[:, None] % 3 == 0, "high", "low")
+                labels = np.broadcast_to(label, (n, m)).reshape(-1, 1).astype("<U8")
+                return ic_measure.LongForm(ts, sym, labels)
+            fetched.update(columns)
+            index = [_FAMILY.index(c) for c in columns]
+            return ic_measure.LongForm(ts, sym, flat[:, index])
+
+        monkeypatch.setattr(ic_measure, "fetch_long_form", fake_fetch)
+        args = argparse.Namespace(
+            feature_table="feature_vectors",
+            members=members,
+            dry_run=True,
+            allow_absent_digests=True,
+        )
+        runner = ic_measure.IcMeasure(args, "x")
+        run = dataclasses.replace(
+            _tf_run(),
+            params=_params(),
+            apr={"alpha.ic.feature_block_columns": 4, "alpha.ic_measure.horizons": {"1d": [1, 2]}},
+            horizons=(1, 2),
+        )
+        units = list(runner._units(None, run, ctx, list(_FAMILY), keys, jobs))
+        return units, fetched
+
+    @staticmethod
+    def _execute(units, monkeypatch: pytest.MonkeyPatch, *, completed: bool) -> None:
+        monkeypatch.setattr(
+            ic_measure, "completed_provenance_batch", lambda conn, spec: {} if completed else None
+        )
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
+        for unit in units:
+            ic_measure.execute_unit(unit, FakeConn(), None, _OOS, dry_run=True)
+
+    def test_a_run_that_skips_every_unit_fetches_each_column_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        members = [_FAMILY[0], _FAMILY[2]]
+        units, fetched = self._units(monkeypatch, ["proposer", "monitoring"], members)
+        self._execute(units, monkeypatch, completed=True)
+        assert set(fetched) == set(_FAMILY) and set(fetched.values()) == {1}, fetched
+
+    def test_monitoring_alone_fetches_its_members_once_when_it_skips(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        members = [_FAMILY[0], _FAMILY[2]]
+        units, fetched = self._units(monkeypatch, ["monitoring"], members)
+        self._execute(units, monkeypatch, completed=True)
+        assert dict(fetched) == {m: 1 for m in members}
+
+    def test_the_monitoring_identity_is_the_same_whether_or_not_the_family_was_scanned(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        members = [_FAMILY[0], _FAMILY[2]]
+        with_family, _ = self._units(monkeypatch, ["proposer", "monitoring"], members)
+        alone, _ = self._units(monkeypatch, ["monitoring"], members)
+        a = next(u for u in with_family if u.job == "monitoring")
+        b = next(u for u in alone if u.job == "monitoring")
+        assert a.spec.input_digest == b.spec.input_digest
+        assert a.spec.batch_key == b.spec.batch_key
+
+    def test_a_computing_unit_fetches_each_of_its_columns_at_most_twice(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        units, fetched = self._units(monkeypatch, ["proposer"], [])
+        self._execute(units, monkeypatch, completed=False)
+        assert set(fetched) == set(_FAMILY) and set(fetched.values()) == {2}, fetched
+
+    def test_computing_units_add_one_verifying_fetch_each_and_monitoring_adds_no_scan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        members = [_FAMILY[0], _FAMILY[2]]
+        units, fetched = self._units(monkeypatch, ["proposer", "monitoring"], members)
+        self._execute(units, monkeypatch, completed=False)
+        # family scan + proposer compute + monitoring compute for a member, never a member scan
+        assert {fetched[m] for m in members} == {3}
+        assert {fetched[n] for n in _FAMILY if n not in members} == {2}
+
+
 class TestAbsentDigestTolerance:
     """A real run refuses symbols with no bar digest; a dry run and the explicit flag accept them.
     The rule lives in one place."""

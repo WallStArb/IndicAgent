@@ -725,6 +725,17 @@ class FamilyInputs:
     complete: Mapping[str, np.ndarray]
 
 
+@dataclasses.dataclass(frozen=True)
+class FamilyScan:
+    """One scan of the family for the proposer and regime_volatility units: the block source, what
+    the scan yielded, and the regime labels (and their digest) when that job is active."""
+
+    source: FeatureSource
+    inputs: FamilyInputs
+    labels: np.ndarray | None
+    labels_key: str | None
+
+
 def scan_family(
     source: FeatureSource, ctx: TfContext, params: MeasureParams, row_sets: Mapping[str, np.ndarray]
 ) -> FamilyInputs:
@@ -1274,28 +1285,31 @@ class IcMeasure:
         jobs: list[str],
     ) -> Iterator[UnitPlan]:
         """One unit per active job (job, tf). Blocking is a memory matter of the fetch and the IC
-        computation only: one pass over the blocks builds the identity, and a unit that has to
-        compute makes its own pass (skipped units compute nothing)."""
+        computation only: one pass over the blocks builds the identity (and every column's
+        digest), and a unit that has to compute makes its own verifying pass (skipped units
+        compute nothing, so a run that skips everything streams the family once)."""
         fetch = self._block_fetcher(read_conn, run, ctx, keys)
         common = {"bars": dict(run.bar_digests), "panels": panels_digest(ctx.grid, ctx.panels)}
         family_jobs = [j for j in jobs if j != JOB_MONITORING]
+        scanned: Mapping[str, str] | None = None
         if family_jobs:
-            yield from self._family_units(read_conn, run, ctx, names, fetch, common, family_jobs)
+            scan = self._scan_family_jobs(read_conn, run, ctx, names, fetch, family_jobs)
+            scanned = scan.inputs.column_digests
+            yield from self._family_units(run, ctx, names, common, family_jobs, scan)
         if JOB_MONITORING in jobs:
-            yield self._monitoring_unit(run, ctx, names, fetch, common)
+            yield self._monitoring_unit(run, ctx, names, fetch, common, scanned)
 
-    def _family_units(
+    def _scan_family_jobs(
         self,
         read_conn: Any,
         run: TfRun,
         ctx: TfContext,
         names: list[str],
         fetch: Callable[[Sequence[str]], np.ndarray],
-        common: Mapping[str, Any],
         jobs: list[str],
-    ) -> Iterator[UnitPlan]:
-        """The proposer and regime_volatility units: one scan of the whole family gives their
-        shared identity inputs and row completeness."""
+    ) -> FamilyScan:
+        """One scan of the whole family: the proposer's and regime_volatility's shared identity
+        inputs (column digests) and row completeness."""
         source = FeatureSource(
             tuple(feature_blocks(names, max(int(run.apr[_BLOCK_COLUMNS_KEY]), 1))), fetch
         )
@@ -1310,17 +1324,29 @@ class IcMeasure:
             masks, _n_unlabelled = label_row_masks(existing, labels)
             row_sets.update({f"{_LABEL_PREFIX}{label}": m for label, m in masks.items()})
         inputs = scan_family(source, ctx, run.params, row_sets)
+        return FamilyScan(source, inputs, labels, labels_key)
+
+    @staticmethod
+    def _family_units(
+        run: TfRun,
+        ctx: TfContext,
+        names: list[str],
+        common: Mapping[str, Any],
+        jobs: list[str],
+        scan: FamilyScan,
+    ) -> Iterator[UnitPlan]:
+        """The proposer and regime_volatility units over one family scan."""
         family = {
             "family": family_digest(names, run.params),
-            "features": inputs.features_key,
+            "features": scan.inputs.features_key,
         }
         for job in jobs:
-            extra = {"labels": labels_key} if job == JOB_REGIME_VOLATILITY else {}
+            extra = {"labels": scan.labels_key} if job == JOB_REGIME_VOLATILITY else {}
             identity = _identity(job, common, family, extra)
             yield UnitPlan(
                 job=job,
                 spec=_spec(job, run, ctx, identity),
-                compute=UnitCompute(job, run, ctx, source, inputs, labels),
+                compute=UnitCompute(job, run, ctx, scan.source, scan.inputs, scan.labels),
             )
 
     def _monitoring_unit(
@@ -1330,14 +1356,22 @@ class IcMeasure:
         names: list[str],
         fetch: Callable[[Sequence[str]], np.ndarray],
         common: Mapping[str, Any],
+        scanned: Mapping[str, str] | None,
     ) -> UnitPlan:
-        """The monitoring unit over the `--members` columns, each a whole block of its own."""
+        """The monitoring unit over the `--members` columns, each a whole block of its own. A
+        column's digest does not depend on how the family is blocked, so when the family was
+        scanned in this run the members' digests are taken from that scan instead of streaming
+        the columns again."""
         members = tuple(dict.fromkeys(self.args.members))
         unknown = sorted(set(members) - set(names))
         if unknown:
             raise ValueError(f"monitoring members {unknown} are not numeric feature columns")
         source = FeatureSource((members,), fetch)
-        inputs = scan_family(source, ctx, run.params, {})
+        if scanned is not None:
+            digests = {m: scanned[m] for m in members}
+            inputs = FamilyInputs(digests, features_digest(digests, ctx.present), {})
+        else:
+            inputs = scan_family(source, ctx, run.params, {})
         family = {"family": family_digest(members, run.params), "features": inputs.features_key}
         identity = _identity(JOB_MONITORING, common, family, {})
         return UnitPlan(
