@@ -42,8 +42,8 @@ def regime_volatility_disclosure(
 
     `regime_volatility` is [n, m] aligned to the stack (the 186-14 writer loads the column from
     feature_vectors and aligns it like a feature; integer codes or strings). Returns the cells
-    keyed by str(label) and the count of existing-row observations (traded bar, feature row present) with no label, which are counted,
-    never assigned to a regime.
+    keyed by str(label) and the count of existing-row observations (traded bar, feature row
+    present) with no label, which are counted, never assigned to a regime.
     """
     n, m = stack.targets.shape
     if regime_volatility.shape != (n, m):
@@ -53,10 +53,10 @@ def regime_volatility_disclosure(
     n_unlabelled = int((valid & ~labelled).sum())
     cells: dict[str, IcCell] = {}
     rows = valid & labelled
-    present, code = np.unique(regime_volatility[rows].astype(str), return_inverse=True)
+    distinct, code = np.unique(regime_volatility[rows].astype(str), return_inverse=True)
     codes = np.full((n, m), -1, dtype=np.intp)
     codes[rows] = code.reshape(-1)
-    for j, label in enumerate(present):
+    for j, label in enumerate(distinct):
         X, y = observation_rows(features, stack.targets, codes == j)
         cells[str(label)] = pooled_rank_ic(
             X, y, stride=stride(stack, params), params=params, feature_names=feature_names
