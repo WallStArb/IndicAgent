@@ -249,15 +249,18 @@ def test_psycopg_variants_have_no_leftover_placeholders():
 # hand-typed literal fails loud even if the literal's values still match today.
 
 
-def test_regime_writer_set_cols_is_the_canonical_tuple_not_a_copy():
-    """services/regime_writer.py must import REGIME_WRITER_OWNED_COLUMN_NAMES
-    from feature_vector_persistence.py rather than defining its own literal --
-    the two ownership lists (this module's DO UPDATE SET exclusion and
-    regime_writer's UPDATE set_cols) must be structurally the same object,
-    not independently maintained copies that can silently drift apart."""
-    import services.regime_writer as regime_writer_module
+def test_regime_writer_set_cols_derive_from_the_canonical_tuples():
+    """The writer's UPDATE set_cols are each family spec's `owned_columns`, which the spec builds
+    from REGIME_WRITER_OWNED_COLUMN_NAMES (and the volatility tuple) in this module. Value
+    equality with those tuples fails loud if the spec table ever holds its own literal that
+    drifts from the ownership lists this module's DO UPDATE SET exclusion uses."""
+    from src.intelligence.features.feature_vector_persistence import (
+        REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    )
+    from src.intelligence.features.kernels._hmm import FAMILY_SPECS
 
-    assert regime_writer_module.REGIME_WRITER_OWNED_COLUMN_NAMES is REGIME_WRITER_OWNED_COLUMN_NAMES
+    assert FAMILY_SPECS["trend"].owned_columns == REGIME_WRITER_OWNED_COLUMN_NAMES
+    assert FAMILY_SPECS["volatility"].owned_columns == REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES
 
 
 # ── Real-column underflow clamp (underflow-7symbol-real-column debug session,
