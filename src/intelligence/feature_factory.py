@@ -964,6 +964,9 @@ class FeatureFactoryConfig:
     hmm_volatility_vol_window: int = 20  # alpha.hmm_volatility.vol_window
     hmm_volatility_vol_of_vol_window: int = 60  # alpha.hmm_volatility.vol_of_vol_window
     hmm_volatility_covariance_type: str = "full"  # alpha.hmm_volatility.covariance_type
+    # Rows per block in the obs-builder rolling reductions; bounds transient memory, does not
+    # change output.
+    hmm_rolling_block_rows: int = 16384  # infra.hmm.rolling_block_rows
     hmm_refit_every_bars_5m: int = 19800  # alpha.hmm.walk_forward.refit_every_bars.5m
     hmm_refit_every_bars_15m: int = 6600  # alpha.hmm.walk_forward.refit_every_bars.15m
     hmm_refit_every_bars_1h: int = 1650  # alpha.hmm.walk_forward.refit_every_bars.1h

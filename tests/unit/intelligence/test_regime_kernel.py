@@ -319,3 +319,54 @@ def test_segment_gate_is_taken_on_the_training_slice():
     assert len(segments) == 1
     assert segments[0]["gate_info"]["gate_basis"] == "training_slice"
     assert not segments[0]["is_degenerate"]
+
+
+# ---------------------------------------------------------------------------
+# Bounded rolling-window memory in the obs builders (todo 290 item 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("window", [20, 60, 250])
+@pytest.mark.parametrize("block_rows", [1, 7, 4096, 5000])
+@pytest.mark.parametrize("fn", [np.std, np.sum, np.mean], ids=lambda f: f.__name__)
+def test_blocked_rolling_is_bitwise_equal_to_unblocked(window, block_rows, fn):
+    rng = np.random.default_rng(window * 31 + block_rows)
+    series = rng.normal(0.0, 0.01, 5000)
+    want = _hmm._rolling(series, window, fn)
+    got = _hmm._rolling(series, window, fn, block_rows=block_rows)
+    assert got.dtype == want.dtype and got.shape == want.shape
+    assert np.array_equal(got.view(np.uint64), want.view(np.uint64))
+
+
+def test_blocked_rolling_short_series_and_no_block_are_unchanged():
+    series = np.arange(30, dtype=float)
+    assert np.array_equal(
+        _hmm._rolling(series, 20, np.std, block_rows=3), _hmm._rolling(series, 20, np.std)
+    )
+    # the series is exactly one window long: one real value, window - 1 zeros
+    assert _hmm._rolling(series[:20], 20, np.sum, block_rows=4)[-1] == series[:20].sum()
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_obs_builders_are_bitwise_equal_when_blocked(family):
+    bars = _bars()
+    rows = list(range(len(bars["close"])))
+    if family == "trend":
+        args = (rows, bars["close"], bars["volume"])
+        kwargs = dict(vol_window=20, momentum_window=20, vol_of_vol_window=20)
+        build = _hmm._build_obs_matrix
+    else:
+        args = (rows, bars["close"])
+        kwargs = dict(vol_window=20, vol_of_vol_window=60)
+        build = _hmm._build_obs_matrix_volatility
+    want, want_rows = build(*args, **kwargs)
+    got, got_rows = build(*args, **kwargs, block_rows=257)
+    assert want_rows == got_rows
+    assert np.array_equal(got.view(np.uint64), want.view(np.uint64))
+
+
+def test_block_rows_config_default_and_reaches_the_kernels():
+    fields = _hmm.hmm_config_fields_from_values(lambda key, default: default)
+    assert fields["hmm_rolling_block_rows"] == 16384
+    fields = _hmm.hmm_config_fields_from_values({"infra.hmm.rolling_block_rows": 64}.get)
+    assert fields["hmm_rolling_block_rows"] == 64

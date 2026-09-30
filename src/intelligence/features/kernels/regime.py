@@ -138,6 +138,7 @@ def _compute_family(inputs: Mapping[str, np.ndarray], config: FeatureFactoryConf
             vol_window=config.hmm_vol_window,
             momentum_window=config.hmm_momentum_window,
             vol_of_vol_window=config.hmm_vol_of_vol_window,
+            block_rows=config.hmm_rolling_block_rows,
         )
     else:
         obs, valid_rows = _hmm._build_obs_matrix_volatility(
@@ -145,6 +146,7 @@ def _compute_family(inputs: Mapping[str, np.ndarray], config: FeatureFactoryConf
             close[:prefix],
             vol_window=config.hmm_volatility_vol_window,
             vol_of_vol_window=config.hmm_volatility_vol_of_vol_window,
+            block_rows=config.hmm_rolling_block_rows,
         )
     if not valid_rows:
         return _hmm.FamilyResult(

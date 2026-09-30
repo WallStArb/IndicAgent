@@ -89,10 +89,23 @@ _VOLATILITY_VOCAB: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
-def _rolling(arr: np.ndarray, window: int, fn) -> np.ndarray:
-    """Apply fn over a sliding window, zero-padding the warm-up prefix."""
+def _rolling(arr: np.ndarray, window: int, fn, block_rows: int | None = None) -> np.ndarray:
+    """Apply fn over a sliding window, zero-padding the warm-up prefix.
+
+    With `block_rows`, `fn` runs over that many windows at a time and the results are
+    concatenated. `np.std` and `np.mean` allocate an (n_windows, window) float64 intermediate
+    (about 790 MB at 395,609 rows and window 250); blocking bounds it to
+    `block_rows * window * 8` bytes. Each output element is the same per-window reduction, so
+    the result is bit-identical to the unblocked one (tests pin it); prefix-sum variants would
+    change the bytes and are not used.
+    """
     windows = np.lib.stride_tricks.sliding_window_view(arr, window)
-    return np.concatenate([np.zeros(window - 1), fn(windows, axis=1)])
+    if block_rows is None or block_rows >= len(windows):
+        return np.concatenate([np.zeros(window - 1), fn(windows, axis=1)])
+    parts = [np.zeros(window - 1)]
+    for start in range(0, len(windows), block_rows):
+        parts.append(fn(windows[start : start + block_rows], axis=1))
+    return np.concatenate(parts)
 
 
 def _build_obs_matrix(
@@ -102,6 +115,7 @@ def _build_obs_matrix(
     vol_window: int,
     momentum_window: int,
     vol_of_vol_window: int,
+    block_rows: int | None = None,
 ) -> tuple[np.ndarray, list]:
     """Build (n_valid, 5) observation matrix from OHLCV prices and volumes.
 
@@ -129,11 +143,11 @@ def _build_obs_matrix(
     if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
         return np.empty((0, 5), dtype=float), []
 
-    realized_vol = _rolling(log_returns, vol_window, np.std)
-    mom_raw = _rolling(log_returns, momentum_window, np.sum)
+    realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
+    mom_raw = _rolling(log_returns, momentum_window, np.sum, block_rows)
     momentum = mom_raw / np.maximum(realized_vol, 1e-8)
-    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std)
-    rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean)
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
+    rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean, block_rows)
     rel_volume = log_volumes - rolling_mean_logvol
 
     valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
@@ -155,6 +169,7 @@ def _build_obs_matrix_volatility(
     closes: list[float],
     vol_window: int,
     vol_of_vol_window: int,
+    block_rows: int | None = None,
 ) -> tuple[np.ndarray, list]:
     """Build (n_valid, 2) observation matrix from close prices only: [realized_vol,
     vol_of_vol]. Phase 172's volatility-only regime axis -- the only axis that cleared
@@ -208,8 +223,8 @@ def _build_obs_matrix_volatility(
     if len(log_returns) < vol_window + vol_of_vol_window - 1:
         return np.empty((0, 2), dtype=float), []
 
-    realized_vol = _rolling(log_returns, vol_window, np.std)
-    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std)
+    realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
+    vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
 
     valid_start = vol_window + vol_of_vol_window - 2
     obs = np.column_stack(
@@ -1036,6 +1051,7 @@ def hmm_config_fields_from_values(get: Any) -> dict[str, Any]:
         "hmm_volatility_vol_window": int(get("alpha.hmm_volatility.vol_window", 20)),
         "hmm_volatility_vol_of_vol_window": int(get("alpha.hmm_volatility.vol_of_vol_window", 60)),
         "hmm_volatility_covariance_type": str(get("alpha.hmm_volatility.covariance_type", "full")),
+        "hmm_rolling_block_rows": int(get("infra.hmm.rolling_block_rows", 16384)),
     }
     for tf_key, (refit_default, warmup_default) in _WALK_FORWARD_DEFAULT_PARAMS.items():
         fields[f"hmm_refit_every_bars_{tf_key}"] = int(
