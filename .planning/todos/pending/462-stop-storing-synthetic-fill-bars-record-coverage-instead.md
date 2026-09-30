@@ -349,3 +349,25 @@ The `/review` step of the Done-Coding SOP, run after the fact, found:
   to gap detection.
 - Accepted: the coverage query is unbounded by date and runs one correlated `EXISTS` per `bars`
   request row. Measured 0.3 to 0.4 s per (symbol, tf); bound it if it grows.
+
+## Smoke test of `--real-bars-only` against IBKR (2026-09-30 00:05 to 00:13 UTC)
+
+ZTS, 15m and 1h, client 46, priority lease, after stopping the HTF chain (it had been running
+since 2026-09-28 and was at 253 of 698 names).
+
+- Run 1: 6.3 minutes for both timeframes, 12 requests. Stored 88,960 real 15m bars and 23,958
+  real 1h bars (2013-02-01 to 2026-09-29), zero `synthetic_fill` rows, `volume > 0` on every row.
+  The old path writes 700,700 15m and 175,175 1h rows for a 20 year name. 1h has 3,435 bars at
+  minute :30 (the 09:30 half-hour bar) and 20,523 on the hour, the provider's own grid.
+- Run 2 re-requested 13 15m and 9 1h gaps: the one-day seams between provider chunks. The provider
+  steps `chunk_end = chunk_start - 1 day` and records the window as `[chunk_start, chunk_end]`,
+  but the request's duration reaches one day past `chunk_start`, so the bars are fetched while the
+  recorded window understates coverage by a day per chunk. Harmless (the seams are re-asked once
+  and then recorded) but it means the first nightly after a fresh fetch repeats a handful of
+  requests per name. Plan 185-18's `plan_gaps` should treat the recorded window as
+  `[chunk_start - 1 day, chunk_end]` or the provider should record the true window.
+- Run 3: 2 gaps left (one 15m slot at 2022-10-01 00:00 UTC and the forming tail). The 20:00 ET
+  slot is an expected NYSE slot (the close hour is inclusive in `generate_session_slots`) that
+  never has a bar; it is covered by any large answered window but a tiny window fails the
+  stored-row check, so it is re-asked. Two tiny requests per symbol and run remain; plan 185-12's
+  RTH-grid expected slots remove the after-close slot.
