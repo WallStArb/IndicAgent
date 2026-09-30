@@ -715,6 +715,7 @@ def _walk_forward_hmm_full(
     symbol: str | None = None,
     tf: str | None = None,
     vocab: dict[str, str] | None = None,
+    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
@@ -752,6 +753,16 @@ def _walk_forward_hmm_full(
     pre-172 tests -- reproduces today's trend-path output exactly, unchanged. Passing
     `_VOLATILITY_VOCAB` restricts each segment's labels to the calm/elevated/turbulent set.
 
+    Causality (todo 451, 186-13): a segment's degenerate/non-converged verdict is computed at its
+    refit boundary from data before it. The fitted model decodes its own training slice from
+    the stationary prior, the decode is smoothed with `min_hold_bars`, and
+    `_check_occupation_gate` runs on that (`gate_info["gate_basis"] == "training_slice"`).
+    Gating on the decoded segment, as this function first did, let bars up to
+    `refit_every_bars` ahead decide whether bar t is written. The first boundary is
+    `max(initial_warmup_bars, n_components * min_obs_factor)`, independent of the series
+    length, and a series with no boundary returns no segments (no ValueError): whether early
+    rows get labels must not depend on how many rows come later.
+
     Returns one dict per refit segment (NOT one dict per bar), each:
         {
             "seg_start": int, "seg_end": int,  # half-open [seg_start, seg_end) bar-index
@@ -783,14 +794,9 @@ def _walk_forward_hmm_full(
     """
     vocab = vocab if vocab is not None else _TREND_VOCAB
     n = len(obs_matrix)
-    if n < initial_warmup_bars + n_components:
-        raise ValueError(
-            f"Insufficient history for walk-forward HMM: {n} obs, "
-            f"need >= {initial_warmup_bars + n_components}"
-        )
 
     segment_results: list[dict[str, Any]] = []
-    boundary = initial_warmup_bars
+    boundary = max(initial_warmup_bars, n_components * min_obs_factor)
     prior_label: str | None = None
 
     while boundary < n:
@@ -852,9 +858,15 @@ def _walk_forward_hmm_full(
         smoothed = _smooth_states(raw_states, min_hold_bars)
         seg_labels = [label_map[int(s)] for s in smoothed]
 
+        # The gate sees the model's own training slice, not the segment it is about to label
+        # (see the Causality paragraph in the docstring).
+        train_log_emit = _compute_log_emit(train_scaled, model.means_, model.covars_, eff_cov_type)
+        train_raw, _ = _alpha_pass_jit(train_log_emit, log_A, stationary_prior)
+        train_smoothed = _smooth_states(train_raw, min_hold_bars)
         is_degenerate, gate_info = _check_occupation_gate(
-            smoothed, n_components, min_state_occupation, converged
+            train_smoothed, n_components, min_state_occupation, converged
         )
+        gate_info = {**gate_info, "gate_basis": "training_slice"}
 
         # This segment's own state groups, derived from its own label_map -- see
         # _state_groups' docstring for why raw state indices aren't comparable
@@ -1111,10 +1123,6 @@ def walk_forward_family_arrays(
     status = np.full(n_rows, STATUS_NO_MODEL)
     numeric = np.full((N_NUMERIC_COLUMNS, n_rows), np.nan)
 
-    n = len(obs_matrix)
-    if n < n_components * config.hmm_min_obs_factor or n < initial_warmup_bars + n_components:
-        return FamilyResult(code, status, numeric)
-
     segment_results = _walk_forward_hmm_full(
         obs_matrix,
         n_components,
@@ -1128,6 +1136,7 @@ def walk_forward_family_arrays(
         config.hmm_min_state_occupation,
         tf=tf,
         vocab=spec.vocab,
+        min_obs_factor=config.hmm_min_obs_factor,
     )
 
     # Churn is a property of the label sequence, computed per written segment then

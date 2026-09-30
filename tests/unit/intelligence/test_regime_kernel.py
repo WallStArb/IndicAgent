@@ -27,6 +27,7 @@ from scripts.infrastructure.features_capture_regime_kernel_golden import (
     load_synthetic,
     run_kernel_case,
 )
+from src.intelligence.features.contract.causality_probe import causality_probe
 from src.intelligence.features.contract.registry import (
     KernelRegistryError,
     compute_kernels,
@@ -43,6 +44,7 @@ from tests.unit.intelligence.regime_kernel_fixtures import (
     FAMILY_LABELS,
     SMALL_HMM_APR,
     digest_case,
+    make_collapsing_segment_bars,
     make_synthetic_regime_bars,
 )
 
@@ -203,3 +205,117 @@ def test_series_too_short_for_a_model_is_all_unlabeled():
         spec = FAMILY_KERNELS[family]
         assert np.isnan(out[spec.code_output]).all()
         assert (out[spec.status_output] == _hmm.STATUS_NO_MODEL).all()
+
+
+# ---------------------------------------------------------------------------
+# Lookahead in the segment gate and the length gates (186-13 task 2, todo 451)
+# ---------------------------------------------------------------------------
+
+
+def _kernel_and_inputs(name: str, bars: dict, tf: str = "1d"):
+    kernel = default_registry().by_name(name)
+    n = len(bars["close"])
+    inputs = {
+        "ts": bars["ts"],
+        "close": bars["close"],
+        "volume": bars["volume"],
+        "tf": np.array([tf] * n, dtype=object),
+    }
+    return kernel, inputs
+
+
+def test_segment_gate_verdict_does_not_depend_on_bars_after_t():
+    """RED against the whole-segment gate: on the full 920 bars the first segment (bars 620..919)
+    decodes into one state for its last rows, so the gate rejects it and bar 640 is unlabeled;
+    cut at bar 649 the same rows are labeled. The verdict has to come from data before the
+    refit boundary, so the two runs must agree."""
+    bars = make_collapsing_segment_bars()
+    kernel, inputs = _kernel_and_inputs("hmm_trend_walk_forward", bars)
+    cut = 649
+    full = kernel.compute(inputs, _config())
+    truncated = kernel.compute({k: v[:cut] for k, v in inputs.items()}, _config())
+    rows = slice(620, cut)
+    assert np.array_equal(
+        full["_hmm_trend_segment_status"][rows],
+        truncated["_hmm_trend_segment_status"][rows],
+    ), "the segment gate read bars after the cut"
+    causality_probe(kernel, inputs, _config(), np.array([cut - 1]))
+
+
+def test_first_boundary_does_not_depend_on_total_series_length():
+    """RED against the whole-series length gate: at 602 observations (bars 0..621) the old
+    gate refused every row, yet the full series labels bars 620 and 621. A row's label must not
+    depend on how many rows come later."""
+    bars = make_synthetic_regime_bars(700, 7)
+    kernel, inputs = _kernel_and_inputs("hmm_trend_walk_forward", bars)
+    full = kernel.compute(inputs, _config())
+    assert not np.isnan(full["_hmm_trend_code"][620])  # the full series does label bar 620
+    truncated = kernel.compute({k: v[:622] for k, v in inputs.items()}, _config())
+    assert np.array_equal(
+        full["_hmm_trend_code"][:622], truncated["_hmm_trend_code"], equal_nan=True
+    )
+
+
+# (kernel, tf, bar count, probed rows): rows just after a refit boundary (obs boundary + 20
+# warmup bars + a few), mid-segment and the last row. SMALL_HMM_APR schedules: 1d refit 300 /
+# warmup 600; 1h refit 450 / warmup 900.
+_PROBE_CASES = [
+    (name, tf, n, rows)
+    for name in ("hmm_trend_walk_forward", "hmm_volatility_walk_forward")
+    for tf, n, rows in (
+        ("1d", 1250, (625, 760, 925, 1249)),
+        ("1h", 1700, (925, 1100, 1375, 1699)),
+    )
+]
+
+
+@pytest.mark.parametrize("name,tf,n,rows", _PROBE_CASES)
+def test_causality_probe_passes_the_walk_forward_kernels(name, tf, n, rows):
+    """ulp 0 on every output, truncating at rows just after a refit boundary, mid-segment and at
+    the last row (todo 451: this fails before the training-slice gate)."""
+    bars = make_synthetic_regime_bars(n, 42)
+    kernel, inputs = _kernel_and_inputs(name, bars, tf)
+    causality_probe(kernel, inputs, _config(), np.array(rows), ulp=0)
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_label_kernels_are_row_local(family):
+    spec = FAMILY_KERNELS[family]
+    label_kernel = default_registry().by_name(f"hmm_{family}_label")
+    code = _run(_bars(), family)[spec.code_output]
+    full = label_kernel.compute({spec.code_output: code}, _config())[spec.label_output]
+    for t in (10, 1900, 2999):
+        cut = label_kernel.compute({spec.code_output: code[: t + 1]}, _config())[spec.label_output]
+        assert list(cut) == list(full[: t + 1])
+
+
+def test_segment_gate_is_taken_on_the_training_slice():
+    """Each segment's gate diagnostics name their basis, and the collapsing segment (whose
+    decode occupies one state for its last rows) is written, because its model's training slice
+    passes the gate."""
+    bars = make_collapsing_segment_bars()
+    config = _config()
+    obs, _ = _hmm._build_obs_matrix(
+        list(range(len(bars["close"]))),
+        bars["close"],
+        bars["volume"],
+        vol_window=config.hmm_vol_window,
+        momentum_window=config.hmm_momentum_window,
+        vol_of_vol_window=config.hmm_vol_of_vol_window,
+    )
+    segments = _hmm._walk_forward_hmm_full(
+        obs,
+        config.hmm_n_components,
+        config.hmm_covariance_type,
+        config.hmm_n_iter,
+        config.hmm_random_state,
+        config.hmm_refit_every_bars_1d,
+        config.hmm_initial_warmup_bars_1d,
+        config.hmm_min_hold_bars,
+        config.hmm_full_cov_min_obs,
+        config.hmm_min_state_occupation,
+        min_obs_factor=config.hmm_min_obs_factor,
+    )
+    assert len(segments) == 1
+    assert segments[0]["gate_info"]["gate_basis"] == "training_slice"
+    assert not segments[0]["is_degenerate"]

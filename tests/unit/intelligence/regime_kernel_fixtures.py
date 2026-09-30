@@ -129,3 +129,29 @@ def registry_without_regime(registry):
         non_regime_kernels(registry),
         [e for e in registry.external_inputs if e.name != "tf"],
     )
+
+
+def make_collapsing_segment_bars() -> dict[str, np.ndarray]:
+    """920 bars, tuned for the 1d SMALL_HMM_APR schedule (warmup 600, refit 300, trend windows
+    20, so obs row j is bar j + 20 and the first walk-forward segment is bars 620..919).
+
+    Bars 0..619 are a regime-switching series. The segment then opens with a 39-bar burst
+    (20 turbulent, 4 mid, 15 calm-ramp returns) and continues flat. The decoded segment sits
+    in one state for its last ~260 rows, so on the whole segment one state falls below
+    `min_state_occupation` and the segment gate rejects it; cut a few dozen rows into the
+    segment and all three states occur, so the same rows are written.
+    """
+    base = make_synthetic_regime_bars(620, 7)
+    rng = np.random.default_rng(7)
+    burst = np.concatenate(
+        [rng.normal(0, 0.03, 20), rng.normal(0, 0.009, 4), rng.normal(0, 0.004, 15)]
+    )
+    n_flat = 300 - len(burst)
+    burst_close = base["close"][-1] * np.exp(np.cumsum(burst))
+    close = np.concatenate([base["close"], burst_close, np.full(n_flat, burst_close[-1])])
+    activity = np.abs(np.concatenate([burst, np.zeros(n_flat)]))
+    volume = np.concatenate(
+        [base["volume"], np.full(300, base["volume"][-1]) * np.exp(activity * 20)]
+    )
+    ts = make_synthetic_regime_bars(len(close), 7)["ts"]
+    return {"ts": ts, "close": close, "volume": volume}
