@@ -239,12 +239,13 @@ def _macro_outputs(daily: dict[str, list[dict]], bars: list[dict]) -> dict[str, 
 
 
 def _constant_per_series_outputs(bars: list[dict]) -> dict[str, np.ndarray]:
-    """The symbol external as the batch path builds it: one value on every row."""
+    """The symbol and tf externals as the batch path builds them: one value on every row."""
     from src.intelligence.feature_factory import _batch_kernel_inputs
 
     z = np.zeros(len(bars))
     ts = np.array([ref.dt_to_ns(b["ts"]) for b in bars], dtype=np.int64)
-    return {"symbol": _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL)["symbol"]}
+    built = _batch_kernel_inputs(ts, z, z, z, z, z, SYMBOL, "5m")
+    return {"symbol": built["symbol"], "tf": built["tf"]}
 
 
 def _daily_asof_close_outputs(bars: list[dict], daily: dict[str, list[dict]]):

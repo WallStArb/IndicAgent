@@ -52,6 +52,8 @@ PATH_DEPENDENT = {
     "variance_ratio",
     "bar_statistics_refresh",
     "vwap_dev_sigma",
+    "session_vp",
+    "session_levels",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 
@@ -114,11 +116,17 @@ DELEGATED_HELPERS = (
     "_cmf",
     "_product",
     "_up_vol_body_diff",
+    "_rolling_poc_price",
+    "_compute_sr_dist_atr",
+    "_compute_swing_structure",
+    "_compute_trend_structure",
+    "_compute_swing_momentum",
+    "_compute_fib_zones",
 )
 
 
-# Numeric persisted columns no kernel owns after this plan: SMC, structural VP/SR/swing/fib/
-# session-level/AMD, CTF, the three ret_div columns and the cross-sectional rank columns. The HMM
+# Numeric persisted columns no kernel owns after this step: SMC, AMD, CTF, the three ret_div
+# columns and the cross-sectional rank columns. The HMM
 # regime columns are owned by the regime kernels (186-13). A column
 # that is dropped or left unowned changes this set and fails the test below.
 REMAINING_COLUMNS = frozenset(
@@ -128,8 +136,6 @@ REMAINING_COLUMNS = frozenset(
         "amd_distribution_direction",
         "amd_manipulation_detected",
         "amd_phase",
-        "asian_session_high_dist_atr",
-        "asian_session_low_dist_atr",
         "bars_since_last_shift",
         "bars_since_last_sweep",
         "bos_direction",
@@ -145,90 +151,30 @@ REMAINING_COLUMNS = frozenset(
         "ctf_vwap_align",
         "demand_dist_atr",
         "demand_freshness",
-        "distance_to_vah_atr",
-        "distance_to_val_atr",
-        "fib_cluster_strength",
         "fvg_dist_atr",
         "fvg_open_count",
         "fvg_size_atr",
-        "gap_filled",
-        "in_fib_discount_zone",
-        "in_lvn",
         "manip_strength",
         "momentum_rank_z",
-        "nearest_fib_dist_atr",
-        "nearest_fib_ratio",
-        "nearest_hvn_above_dist_atr",
-        "nearest_hvn_below_dist_atr",
-        "nearest_hvn_dist_atr",
-        "nearest_level_dist_atr",
-        "nearest_lvn_above_dist_atr",
-        "nearest_lvn_below_dist_atr",
         "ob_bear_dist_atr",
         "ob_bull_dist_atr",
         "ob_mitigated_flag",
         "ob_mitigation_pct",
         "ob_strength",
-        "opening_gap_pct",
-        "overnight_high_dist_atr",
-        "overnight_low_dist_atr",
-        "overnight_range_pct",
-        "poc_dist_atr",
-        "poc_rolling_dist_atr",
-        "poc_session_rolling_divergence_atr",
         "pool_count",
-        "price_in_value_area",
-        "price_position",
-        "prior_session_close_dist_atr",
-        "prior_session_high_dist_atr",
-        "prior_session_low_dist_atr",
         "reclaim_velocity",
-        "resistance_age_bars",
-        "resistance_strength",
         "ret_div_1h_1d",
         "ret_div_1m_5m",
         "ret_div_5m_1h",
         "smc_trend_direction",
-        "sr_level_count",
-        "sr_resist_dist",
-        "sr_support_dist",
         "ssl_dist_atr",
         "ssl_touches",
-        "struct_accel_bias",
-        "struct_energy",
-        "structure_integrity",
         "supply_dist_atr",
         "supply_freshness",
-        "support_age_bars",
-        "support_strength",
         "sweep_detected",
         "sweep_strength",
-        "swing_amplitude_expanding",
-        "swing_amplitude_intensity",
-        "swing_amplitude_ratio",
-        "swing_high_age_bars",
-        "swing_high_dist_atr",
-        "swing_high_type",
-        "swing_low_age_bars",
-        "swing_low_dist_atr",
-        "swing_low_type",
-        "swing_pattern",
-        "swing_velocity_bars",
-        "swing_velocity_bias",
-        "swing_volume_confirmation",
-        "trend_direction",
-        "trend_duration_bars",
-        "trend_leg_count",
-        "trend_strength",
-        "va_position",
-        "va_width_atr",
         "volatility_rank_z",
         "volume_rank_z",
-        "weekly_pivot_dist_atr",
-        "weekly_r1_dist_atr",
-        "weekly_r2_dist_atr",
-        "weekly_s1_dist_atr",
-        "weekly_s2_dist_atr",
         "zone_friction_score",
     }
 )
@@ -271,6 +217,7 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
         "close": closes,
         "volume": volumes,
         "symbol": np.array(["SPY"] * n, dtype=object),
+        "tf": np.array(["5m"] * n, dtype=object),
         **{
             external.name: rng.normal(0.0, 1.0, n)
             for external in default_registry().external_inputs
@@ -291,6 +238,7 @@ def _synthetic_case():
     inputs = {
         **inputs,
         "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
+        "tf": np.array(["5m"] * len(inputs["ts"]), dtype=object),
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
         **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
     }
@@ -366,12 +314,12 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_seven():
+def test_the_path_dependent_allow_list_is_the_reviewed_nine():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
     declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 7
+    assert len(PATH_DEPENDENT) == 9
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])

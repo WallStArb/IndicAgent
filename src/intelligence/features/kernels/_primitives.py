@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 
 import numpy as np
 from scipy import stats
@@ -328,6 +330,61 @@ def _kurtosis(arr: np.ndarray) -> float:
         return 0.0
     result = float(np.mean(((arr - mean) / std) ** 4) - 3.0)
     return result if math.isfinite(result) else 0.0
+
+
+def none_mask_name(key: str) -> str:
+    """Name of the intermediate output that marks rows where `key` is None (not a number)."""
+    return f"_{key}_is_none"
+
+
+def constant_tf(tf_values: np.ndarray) -> str:
+    """The one timeframe of a series from the per-row `tf` external input.
+
+    Raises ValueError for no rows or a value that changes across rows: a kernel that branches
+    on tf must not silently mix two series.
+    """
+    values = np.asarray(tf_values, dtype=object)
+    if len(values) == 0:
+        raise ValueError("a kernel that reads tf needs at least one row")
+    first = values[0]
+    if not all(v == first for v in values):
+        raise ValueError("the tf input changes across rows; a kernel runs one series at a time")
+    return str(first)
+
+
+def row_dict_columns(
+    n: int,
+    keys: Sequence[str],
+    nullable: frozenset[str],
+    row_fn: Callable[[int], Mapping[str, Any]],
+    output_names: Mapping[str, str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Run `row_fn(i)` for rows 1..n-1 and collect each key as a float64 column.
+
+    Row 0 is NaN (the batch loop never emits it). A value of None in a `nullable` key is NaN in
+    the column and 1.0 in the `none_mask_name(key)` column (0.0 where a number was returned), so
+    a None and a non-finite float stay distinguishable for a caller that maps them differently.
+    A None in a key not declared nullable raises: a silent NaN would be a wrong answer.
+    `output_names` renames a key to its registered output (intermediates start with "_").
+    """
+    names = output_names or {}
+    columns = {key: np.full(n, np.nan) for key in keys}
+    masks = {key: np.full(n, np.nan) for key in keys if key in nullable}
+    for i in range(1, n):
+        row = row_fn(i)
+        for key in keys:
+            value = row[key]
+            if value is None:
+                if key not in masks:
+                    raise ValueError(f"row {i}: {key!r} is None but is not declared nullable")
+                masks[key][i] = 1.0
+            else:
+                columns[key][i] = value
+                if key in masks:
+                    masks[key][i] = 0.0
+    out = {names.get(key, key): col for key, col in columns.items()}
+    out.update({none_mask_name(key): mask for key, mask in masks.items()})
+    return out
 
 
 def _k(name, outputs, inputs, memory, compute, **kw) -> Kernel:

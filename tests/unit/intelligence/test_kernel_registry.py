@@ -91,7 +91,7 @@ def test_kernel_is_frozen():
 
 def test_default_package_discovers_origins():
     origins = {k.origin for k in discover_kernels().kernels}
-    assert origins <= {"calendar", "control", "macro", "price", "regime", "volume"}
+    assert origins <= {"calendar", "control", "macro", "price", "regime", "volume", "vp_sr"}
 
 
 _KERNEL_SRC = textwrap.dedent("""

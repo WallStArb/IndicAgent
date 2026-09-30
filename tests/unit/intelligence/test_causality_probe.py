@@ -249,6 +249,7 @@ def _registered_case():
     available = {
         **inputs,
         "symbol": np.array(["SPY"] * n, dtype=object),
+        "tf": np.array(["5m"] * n, dtype=object),
         **{
             e.name: ext_rng.normal(size=n)
             for e in default_registry().external_inputs
