@@ -57,3 +57,26 @@ may read these columns at intraday timeframes.
 Handoff to plan 186-15: `ctf_by_ts` is looked up with `bisect_right(ctf_ts_list, bar_ts) - 1` on
 higher-timeframe bar keys. If those keys are higher-timeframe bar starts, an intraday row reads an
 unfinished higher-timeframe bar. Prove it with a failing test when the CTF kernels move.
+
+## CTF check (186-15, 2026-09-30)
+
+Result: the writer's path is causal; the join was not safe by construction. Tests written before
+the move (`test_cross_tf_alignment.py`, commit `feeecaa60`) passed on the unchanged code for the 5m
+to 1h, 1h to 1d and 1m to 5m cases, the four scenarios (opening 30-minute partial hour, a missing
+1h bar, a weekend gap, a half-day), and a real-data variant that replaced every HTF bar not closed
+by a row's bar end on 50 rows each of SPY 5m, QQQ 15m and SPY 1h with random OHLCV and saw no
+change. Todo 243's re-key (`_rekey_ctf_series_to_actual_close`) is what makes the batch join
+causal, so the stored CTF and ret_div columns carry no lookahead from it.
+
+What the tests did show: `compute_batch` accepted any dict. Handed the dict `_build_ctf_series`
+returns (keyed by HTF period start), a 5m row at 15:05 read the 15:00 to 16:00 bar that closes
+after it, and the close-bound assertion on that input failed (recorded as four strict xfails).
+Mutation: passing the un-re-keyed dict makes Tests A and B and the real-data variant fail.
+
+Fixed in `85dbb2894`: `ctf_series_by_close` builds and keys by close in one call and returns a
+`CtfSeries`; `ctf_row_inputs` and `compute_batch` raise TypeError for a plain dict. No value
+changed, so the golden fixture was not regenerated. Code moved in `49756d47e`.
+
+One asymmetry stays on purpose: CTF reads HTF bars closed by the LTF bar start, while the macro
+rule reads daily records available by the bar end. The CTF form is stricter by at most one LTF bar
+at an HTF boundary; changing it would change values without fixing a lookahead.
