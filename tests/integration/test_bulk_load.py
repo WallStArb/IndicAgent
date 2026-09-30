@@ -275,3 +275,103 @@ class TestBulkLoadIntegration:
             with pytest.raises(psycopg.errors.CheckViolation):
                 cur.execute("DELETE FROM provenance_batch")
             conn.rollback()
+
+
+class TestBulkLoadReplaceIntegration:
+    """replace_where on a real hypertable (186-14): the unit's old rows go, the new rows land,
+    and the previous key's provenance row flips to superseded, in one transaction."""
+
+    @pytest.fixture(scope="class")
+    def table(self) -> str:
+        name = _name()
+        _create_scratch_hypertable(name)
+        yield name
+        _drop_table(name)
+
+    def _rows(self, table: str) -> list[tuple]:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("SELECT symbol, bar_ts, x FROM {} ORDER BY symbol, bar_ts").format(
+                    sql.Identifier(table)
+                )
+            )
+            return cur.fetchall()
+
+    def _status(self, spec: BulkLoadSpec) -> str:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM provenance_batch WHERE batch_key = %s", (spec.batch_key,)
+            )
+            return cur.fetchone()[0]
+
+    def test_replace_swaps_the_unit_and_supersedes_the_previous_key(self, table: str) -> None:
+        first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"})
+        with _connect() as conn:
+            bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1, x=1.0) + _day_rows(_DAY2, x=1.0))
+        # rows outside the predicate (another symbol) that must survive
+        other = _spec(table, _DAY1, _RANGE_END, symbols=("CCC",), writer="other_unit")
+        with _connect() as conn:
+            bulk_load(conn, other, _COLUMNS, [("CCC", "1d", _DAY1.replace(hour=1), 9.0, 9.0)])
+        second = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "2"})
+        with _connect() as conn:
+            result = bulk_load(
+                conn,
+                second,
+                _COLUMNS,
+                _day_rows(_DAY1, x=5.0) + _day_rows(_DAY2, x=5.0),
+                replace_where={"symbol": ["AAA", "BBB"], "tf": "1d"},
+            )
+        assert result.status == "loaded"
+        assert result.rows_replaced == 8
+        assert result.row_count == 8
+        rows = self._rows(table)
+        assert [r for r in rows if r[0] != "CCC"] and all(
+            r[2] == 5.0 for r in rows if r[0] != "CCC"
+        )
+        assert [r for r in rows if r[0] == "CCC"][0][2] == 9.0
+        assert self._status(first) == "superseded"
+        assert self._status(second) == "completed"
+        assert self._status(other) == "completed"  # a different writer is never flipped
+
+    def test_a_superseded_identity_cannot_come_back(self, table: str) -> None:
+        first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"})
+        with _connect() as conn:
+            with pytest.raises(BulkLoadRefused, match="superseded"):
+                bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1))
+
+
+class TestBarContentDigestsIntegration:
+    def test_composition_changes_only_for_the_changed_symbol(self) -> None:
+        from services._batch_utils import bar_content_digests
+
+        tag = uuid4().hex[:6].upper()
+        s1, s2, s3 = f"DG1{tag}", f"DG2{tag}", f"DG3{tag}"
+        jan, feb, mar = (datetime(2031, m, 1, tzinfo=UTC) for m in (1, 2, 3))
+        end = datetime(2031, 4, 1, tzinfo=UTC)
+
+        def _insert(conn: psycopg.Connection, symbol: str, month: datetime, digest: str) -> None:
+            nxt = (month + timedelta(days=32)).replace(day=1)
+            conn.execute(
+                "INSERT INTO bar_content_digest (symbol, timeframe, range_start, range_end, "
+                "digest, algorithm, rule_version, n_rows) VALUES (%s, '1d', %s, %s, %s, "
+                "'sha256-bars-v1', 'test', 1)",
+                (symbol, month, nxt, digest),
+            )
+
+        with _connect() as conn:
+            for symbol in (s1, s2):
+                for month, digest in ((jan, "a"), (mar, "c")):  # February is a hole
+                    _insert(conn, symbol, month, digest)
+            conn.commit()
+            before = bar_content_digests(conn, "1d", [s1, s2, s3], jan, end)
+            assert before[s3] == "absent"
+            assert before[s1] == before[s2]
+            _insert(conn, s1, mar, "C")  # a later row supersedes March for s1 only
+            conn.commit()
+            after = bar_content_digests(conn, "1d", [s1, s2, s3], jan, end)
+            assert after[s1] != before[s1]
+            assert after[s2] == before[s2]
+            _insert(conn, s2, feb, "b")  # the hole gains a row: the digest flips
+            conn.commit()
+            filled = bar_content_digests(conn, "1d", [s1, s2, s3], jan, end)
+            assert filled[s2] != after[s2]

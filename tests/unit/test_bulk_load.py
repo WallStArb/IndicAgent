@@ -609,3 +609,90 @@ class TestBulkLoadCompressOnComplete:
         result = bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
         assert result.chunks_compressed == 0
         assert conn.index_of("execute", "compress_chunk") is None
+
+
+# ---------------------------------------------------------------------------
+# replace_where: atomic replacement of a unit's prior rows (phase 186 plan 14, D-24)
+# ---------------------------------------------------------------------------
+
+
+def _replace_responses(deleted: int = 7) -> list[dict]:
+    # the DELETE's rowcount is the one fetch between the APR read and the COPY
+    return _fresh_happy_responses() + [{"rowcount": deleted}]
+
+
+class TestBulkLoadReplaceWhere:
+    def test_none_issues_no_delete_and_result_reports_zero_replaced(self) -> None:
+        conn = _FakeConn(_fresh_happy_responses())
+        result = bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
+        assert conn.index_of("execute", "DELETE FROM") is None
+        assert result.rows_replaced == 0
+
+    def test_delete_then_supersede_inside_the_data_transaction_before_copy(self) -> None:
+        conn = _FakeConn(_replace_responses(7))
+        result = bulk_load(
+            conn,
+            _spec(),
+            _COLUMNS_LIST,
+            _ordered_rows(),
+            replace_where={"tf": "1d", "symbol": ["SPY", "QQQ"]},
+        )
+        assert result.status == "loaded"
+        assert result.rows_replaced == 7
+        i_timeout = conn.require_index("execute", "statement_timeout")
+        i_delete = conn.require_index("execute", "DELETE FROM")
+        i_supersede = conn.require_index("execute", "'superseded'")
+        i_copy = conn.require_index("copy")
+        i_complete = conn.require_index("execute", "'completed', row_count")
+        assert i_timeout < i_delete < i_supersede < i_copy < i_complete
+        # no commit between the DELETE and the completed update: one transaction
+        between = [k for k, _t, _p in conn.events[i_delete:i_complete] if k == "commit"]
+        assert between == []
+        _k, delete_sql, delete_params = conn.events[i_delete]
+        assert '"feature_vectors"' in delete_sql
+        assert '"bar_ts" >=' in delete_sql and '"bar_ts" <' in delete_sql
+        assert '"tf" = ' in delete_sql and '"symbol" = ANY' in delete_sql
+        assert list(delete_params) == [_RANGE_START, _RANGE_END, "1d", ["SPY", "QQQ"]]
+        _k, sup_sql, sup_params = conn.events[i_supersede]
+        assert "batch_key <>" in sup_sql and "status = 'completed'" in sup_sql
+        assert sup_params[-1] == _spec().batch_key
+
+    def test_unknown_replace_key_raises_before_the_data_transaction(self) -> None:
+        conn = _FakeConn(_replace_responses())
+        with pytest.raises(ValueError, match="nope"):
+            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={"nope": 1})
+        assert conn.index_of("execute", "DELETE FROM") is None
+        assert conn.index_of("copy") is None
+
+    def test_empty_mapping_raises(self) -> None:
+        conn = _FakeConn(_replace_responses())
+        with pytest.raises(ValueError, match="replace_where"):
+            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={})
+
+    def test_copy_failure_after_delete_rolls_everything_back(self) -> None:
+        conn = _FakeConn(_replace_responses())
+
+        def _exploding_rows():
+            yield _ordered_rows()[0]
+            raise RuntimeError("connection dropped mid-COPY")
+
+        with pytest.raises(RuntimeError, match="dropped"):
+            bulk_load(conn, _spec(), _COLUMNS_LIST, _exploding_rows(), replace_where={"tf": "1d"})
+        i_delete = conn.require_index("execute", "DELETE FROM")
+        after = [k for k, _t, _p in conn.events[i_delete:]]
+        assert "rollback" in after
+        assert "commit" not in after[: after.index("rollback")]
+
+    def test_skipped_unit_issues_no_delete(self) -> None:
+        conn = _FakeConn([_LOCKED, {"fetchone": ("completed", 4, 1)}])
+        result = bulk_load(
+            conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={"tf": "1d"}
+        )
+        assert result.status == "skipped"
+        assert conn.index_of("execute", "DELETE FROM") is None
+
+    def test_a_superseded_identity_is_refused_loudly(self) -> None:
+        conn = _FakeConn([_LOCKED, {"fetchone": ("superseded", 4, 1)}])
+        with pytest.raises(BulkLoadRefused, match="superseded"):
+            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
+        assert conn.index_of("copy") is None

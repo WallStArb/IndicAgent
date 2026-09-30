@@ -3,8 +3,11 @@ APR-loading helper for the async batch services)."""
 
 from __future__ import annotations
 
+import ast
 import csv
 import hashlib
+import importlib
+import inspect
 import io
 import json
 import os
@@ -231,6 +234,14 @@ _BULK_LOAD_COMPLETE_PROVENANCE_SQL = (
 _BULK_LOAD_FAIL_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'failed', error = %s WHERE batch_key = %s"
 )
+# The replace path's flip (186-14): every other completed row of the same unit (same writer,
+# target, tf, range, symbols) becomes superseded; the guard trigger allows exactly this
+# transition and changes nothing else on the row.
+_BULK_LOAD_SUPERSEDE_PROVENANCE_SQL = (
+    "UPDATE provenance_batch SET status = 'superseded' WHERE writer = %s AND target_table = %s "
+    "AND tf = %s AND range_start = %s AND range_end = %s AND symbols_hash = %s "
+    "AND status = 'completed' AND batch_key <> %s"
+)
 _PROVENANCE_BATCH_COLUMNS = (
     "batch_key",
     "writer",
@@ -352,6 +363,7 @@ class BulkLoadResult:
     status: Literal["loaded", "skipped"]
     row_count: int
     chunks_compressed: int
+    rows_replaced: int = 0  # rows the replace_where DELETE removed (0 when not replacing)
 
 
 class BulkLoadRefused(RuntimeError):
@@ -368,6 +380,7 @@ def bulk_load(
     rows: Iterable[Sequence[Any]],
     *,
     compress_before: datetime | None = None,
+    replace_where: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """Load one (symbols x tf x time range) unit into spec.target_table (D-24).
 
@@ -399,10 +412,19 @@ def bulk_load(
       ValueError.
     - The float32 clamp is driven by the live information_schema types, never by a
       caller-supplied col_types (the todo 312 drift class cannot happen here).
-    - Append-only: a primary-key conflict on the target is a loud error, never
-      ON CONFLICT DO NOTHING. 186-14 later extends this primitive with
-      replace_where for its replace path; provenance_batch.target_table is
-      immutable once written.
+    - Append-only by default: a primary-key conflict on the target is a loud error,
+      never ON CONFLICT DO NOTHING. `replace_where` is the explicit, atomic
+      replacement of a unit's prior rows, used when a unit's identity changes (the
+      IC writer, D-23): in the data transaction, before COPY, one DELETE bounded by
+      the spec's half-open time range and the mapping (col = value, or col = ANY for
+      a list), and every other completed provenance row with the same writer,
+      target_table, tf, range and symbols hash flips to 'superseded', so a replaced
+      unit keeps one completed row, the current key. A failure rolls back the
+      DELETE, the flip and the COPY together. Callers that split one range into
+      several units must give each unit its own writer name, or the flip would
+      supersede its siblings. A superseded key is terminal and cannot be loaded
+      again (BulkLoadRefused). provenance_batch.target_table is immutable once
+      written.
     - Every row's time value is validated (tz-aware, inside the half-open unit
       range, non-decreasing) before it reaches the COPY buffer; a violation rolls
       the data transaction back, marks the provenance row failed in its own commit,
@@ -418,6 +440,8 @@ def bulk_load(
         raise ValueError(
             f"bulk_load: columns must contain the spec's time column {spec.time_column!r}"
         )
+    if replace_where is not None and not replace_where:
+        raise ValueError("bulk_load: replace_where must name at least one column")
     time_idx = list(columns).index(spec.time_column)
 
     with conn.cursor() as cur:
@@ -427,7 +451,9 @@ def bulk_load(
         raise BulkLoadRefused(f"another session is loading unit {batch_key}")
 
     try:
-        return _bulk_load_locked(conn, spec, columns, rows, time_idx, compress_before)
+        return _bulk_load_locked(
+            conn, spec, columns, rows, time_idx, compress_before, replace_where
+        )
     finally:
         # Session advisory locks survive commit/rollback, so the unlock is explicit;
         # the SELECT opens a read transaction that is rolled back immediately after.
@@ -450,6 +476,7 @@ def _bulk_load_locked(
     rows: Iterable[Sequence[Any]],
     time_idx: int,
     compress_before: datetime | None,
+    replace_where: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """bulk_load's body, run under the batch key's session advisory lock."""
     batch_key = spec.batch_key
@@ -466,6 +493,12 @@ def _bulk_load_locked(
                 status="skipped",
                 row_count=int(existing[1]),
                 chunks_compressed=0,
+            )
+        if existing is not None and existing[0] == "superseded":
+            conn.rollback()
+            raise BulkLoadRefused(
+                f"bulk_load: unit {batch_key} was superseded by a later identity; a "
+                "superseded key is terminal and cannot be loaded again"
             )
         if existing is None:
             cur.execute(
@@ -490,7 +523,7 @@ def _bulk_load_locked(
             cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (batch_key,))
     conn.commit()
 
-    real_positions = _bulk_load_precheck(conn, spec, columns)
+    real_positions = _bulk_load_precheck(conn, spec, columns, replace_where)
     apr = _bulk_load_read_apr(conn)
     timeout_ms = cfg(
         apr, _BULK_LOAD_STATEMENT_TIMEOUT_APR_KEY, _BULK_LOAD_DEFAULT_STATEMENT_TIMEOUT_MS
@@ -502,12 +535,29 @@ def _bulk_load_locked(
     )
 
     row_count = 0
+    rows_replaced = 0
     try:
         with conn.cursor() as cur:
             # SET LOCAL semantics (transaction-scoped) without a second round trip to
             # read the prior value: the data transaction below is short-lived and the
             # session-level value is untouched.
             cur.execute("SELECT set_config('statement_timeout', %s, true)", (str(int(timeout_ms)),))
+            if replace_where is not None:
+                delete_stmt, delete_params = _bulk_load_delete_statement(spec, replace_where)
+                cur.execute(delete_stmt, delete_params)
+                rows_replaced = cur.rowcount
+                cur.execute(
+                    _BULK_LOAD_SUPERSEDE_PROVENANCE_SQL,
+                    (
+                        spec.writer,
+                        spec.target_table,
+                        spec.tf,
+                        spec.range_start,
+                        spec.range_end,
+                        spec.symbols_hash,
+                        batch_key,
+                    ),
+                )
             copy_stmt = pg_sql.SQL("COPY {} ({}) FROM STDIN").format(
                 pg_sql.Identifier(spec.target_table),
                 pg_sql.SQL(", ").join(pg_sql.Identifier(c) for c in columns),
@@ -555,6 +605,7 @@ def _bulk_load_locked(
         batch_key=batch_key,
         target=spec.target_table,
         rows=row_count,
+        rows_replaced=rows_replaced,
         chunks_compressed=chunks_compressed,
     )
     return BulkLoadResult(
@@ -562,10 +613,40 @@ def _bulk_load_locked(
         status="loaded",
         row_count=row_count,
         chunks_compressed=chunks_compressed,
+        rows_replaced=rows_replaced,
     )
 
 
-def _bulk_load_precheck(conn: Any, spec: BulkLoadSpec, columns: Sequence[str]) -> frozenset[int]:
+def _bulk_load_delete_statement(
+    spec: BulkLoadSpec, replace_where: Mapping[str, Any]
+) -> tuple[pg_sql.Composed, list[Any]]:
+    """The replace path's one DELETE: the unit's half-open time range plus the mapping's
+    equality (scalar) or = ANY (list) predicates. Identifiers are composed, never formatted;
+    the keys were validated against the live column set by the precheck."""
+    clauses = [
+        pg_sql.SQL("{} >= %s").format(pg_sql.Identifier(spec.time_column)),
+        pg_sql.SQL("{} < %s").format(pg_sql.Identifier(spec.time_column)),
+    ]
+    params: list[Any] = [spec.range_start, spec.range_end]
+    for column, value in replace_where.items():
+        if isinstance(value, list | tuple | set | frozenset):
+            clauses.append(pg_sql.SQL("{} = ANY(%s)").format(pg_sql.Identifier(column)))
+            params.append(list(value))
+        else:
+            clauses.append(pg_sql.SQL("{} = %s").format(pg_sql.Identifier(column)))
+            params.append(value)
+    statement = pg_sql.SQL("DELETE FROM {} WHERE {}").format(
+        pg_sql.Identifier(spec.target_table), pg_sql.SQL(" AND ").join(clauses)
+    )
+    return statement, params
+
+
+def _bulk_load_precheck(
+    conn: Any,
+    spec: BulkLoadSpec,
+    columns: Sequence[str],
+    replace_where: Mapping[str, Any] | None = None,
+) -> frozenset[int]:
     """All refusal checks, before any COPY. Returns the positions (into `columns`)
     whose live information_schema data_type is 'real' -- the clamp set, read from the
     live schema rather than any caller-supplied col_types (todo 312 drift class)."""
@@ -577,6 +658,12 @@ def _bulk_load_precheck(conn: Any, spec: BulkLoadSpec, columns: Sequence[str]) -
             raise ValueError(
                 f"bulk_load: columns not present in the live schema of "
                 f"{spec.target_table!r}: {missing}"
+            )
+        unknown_keys = [c for c in (replace_where or {}) if c not in live_columns]
+        if unknown_keys:
+            raise ValueError(
+                f"bulk_load: replace_where columns not present in the live schema of "
+                f"{spec.target_table!r}: {unknown_keys}"
             )
         real_positions = frozenset(i for i, c in enumerate(columns) if live_columns[c] == "real")
         cur.execute(_BULK_LOAD_TIME_DIMENSION_SQL, (spec.target_table,))
@@ -674,6 +761,132 @@ def compress_completed_chunks(conn: Any, target_table: str, before: datetime) ->
             chunks=len(chunks),
         )
     return len(chunks)
+
+
+# ---------------------------------------------------------------------------
+# Provenance identity helpers (phase 186 plan 14, D-23): the per-kernel code key and the
+# per-symbol bar content digest that, with the APR snapshot, make a unit's identity.
+# ---------------------------------------------------------------------------
+
+
+def _normalized_source_for_hash(source: bytes) -> bytes:
+    """AST-normalized source bytes for content hashing.
+
+    Comments and formatting are not part of the AST; module, class and function docstrings
+    are blanked, so a comment or docstring reword does not move a code key while any logic
+    edit does. Falls back to the raw bytes on a parse failure, which only makes the hash more
+    change-sensitive for that file. This replicates services/ic_engine.py's function of the
+    same name without importing it (that would pull the whole old engine into a writer's
+    process); ic_engine's copy is deleted with ic_engine in 186-23 and this is then the only one.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    docstring_holders = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for node in ast.walk(tree):
+        if not isinstance(node, docstring_holders) or not node.body:
+            continue
+        first = node.body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            first.value.value = ""
+    return ast.dump(tree).encode()
+
+
+def kernel_code_key(modules: Iterable[str]) -> str:
+    """Code identity of one job: sha256 over the AST-normalized source of exactly the named
+    dotted modules (D-23), as 64 lowercase hex.
+
+    The caller names the modules that compute the job; nothing is discovered. This is not
+    ic_engine's all-imports key (`code_content_key`): an edit to a module outside the list never
+    moves it. Names are de-duplicated and sorted, so list order does not matter. An empty list
+    raises ValueError and a name that cannot be imported raises ModuleNotFoundError, never a
+    silent skip.
+    """
+    names = sorted(set(modules))
+    if not names:
+        raise ValueError("kernel_code_key: at least one module name is required")
+    digest = hashlib.sha256()
+    for name in names:
+        module = importlib.import_module(name)
+        path = inspect.getsourcefile(module)
+        if path is None:
+            raise ModuleNotFoundError(f"kernel_code_key: no source file for module {name!r}")
+        with open(path, "rb") as handle:
+            digest.update(name.encode() + b"\x00" + _normalized_source_for_hash(handle.read()))
+            digest.update(b"\x01")
+    return digest.hexdigest()
+
+
+_BAR_DIGEST_SQL = (
+    "SELECT symbol, range_start, digest FROM bar_content_digest_current "
+    "WHERE timeframe = %s AND symbol = ANY(%s) AND range_start >= %s AND range_start < %s"
+)
+_BAR_DIGEST_EMPTY_MONTH = "empty"
+_BAR_DIGEST_ABSENT_SYMBOL = "absent"
+
+
+def _month_starts(start: datetime, end_exclusive: datetime) -> list[datetime]:
+    """UTC calendar month starts covering [start, end_exclusive)."""
+    months = []
+    cursor = start.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    while cursor < end_exclusive:
+        months.append(cursor)
+        cursor = (
+            cursor.replace(year=cursor.year + 1, month=1)
+            if cursor.month == 12
+            else cursor.replace(month=cursor.month + 1)
+        )
+    return months
+
+
+def bar_content_digests(
+    conn: Any, tf: str, symbols: Sequence[str], start: datetime, end_exclusive: datetime
+) -> dict[str, str]:
+    """One digest per symbol for bars of `tf` in [start, end_exclusive), composed from phase
+    185's month digests (`bar_content_digest_current`, the one definition of the bar content
+    digest; nothing is re-hashed here and no second row encoding exists).
+
+    Per symbol: sha256 over the month-ordered (month, digest) pairs, where a month in range with
+    no digest row contributes the literal "empty", so a month gaining rows (a recovery, a
+    scrub revision) flips the result; absence is explicit input, never a skipped aggregate.
+    A symbol with no digest row at all maps to "absent": the caller must treat that as
+    revision detection being blind for that symbol (digests only exist once 185 has written
+    them), not as a stable value.
+
+    Granularity is the calendar month: the month containing `end_exclusive` is digested whole,
+    so a revision of a bar in that month after `end_exclusive` also moves the result
+    (conservative over-invalidation); months wholly after it never do. The caller owns the read
+    connection; this function does not commit.
+    """
+    for name, value in (("start", start), ("end_exclusive", end_exclusive)):
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise ValueError(f"bar_content_digests: {name} must be a tz-aware datetime")
+    if start >= end_exclusive:
+        raise ValueError("bar_content_digests: start must be before end_exclusive")
+    months = _month_starts(start, end_exclusive)
+    with conn.cursor() as cur:
+        cur.execute(_BAR_DIGEST_SQL, (tf, list(symbols), months[0], end_exclusive))
+        rows = cur.fetchall()
+    by_symbol: dict[str, dict[datetime, str]] = {}
+    for symbol, range_start, digest in rows:
+        by_symbol.setdefault(symbol, {})[range_start.astimezone(UTC)] = digest
+    out: dict[str, str] = {}
+    for symbol in symbols:
+        present = by_symbol.get(symbol)
+        if not present:
+            out[symbol] = _BAR_DIGEST_ABSENT_SYMBOL
+            continue
+        lines = [
+            f"{format_iso_ts(month)}:{present.get(month, _BAR_DIGEST_EMPTY_MONTH)}"
+            for month in months
+        ]
+        out[symbol] = hashlib.sha256("\n".join(lines).encode()).hexdigest()
+    return out
 
 
 # ---------------------------------------------------------------------------
