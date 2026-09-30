@@ -1,0 +1,135 @@
+{
+  "apr_snapshot": {
+    "alpha.hmm.random_state": 42,
+    "alpha.hmm.walk_forward.initial_warmup_bars.15m": 13200,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1d": 504,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1h": 3300,
+    "alpha.hmm.walk_forward.initial_warmup_bars.5m": 39600,
+    "alpha.hmm.walk_forward.refit_every_bars.15m": 6600,
+    "alpha.hmm.walk_forward.refit_every_bars.1d": 252,
+    "alpha.hmm.walk_forward.refit_every_bars.1h": 1650,
+    "alpha.hmm.walk_forward.refit_every_bars.5m": 19800,
+    "alpha.hmm_volatility.covariance_type": "full",
+    "alpha.hmm_volatility.n_components": 3,
+    "alpha.hmm_volatility.vol_of_vol_window": 250,
+    "alpha.hmm_volatility.vol_window": 250,
+    "feature.hmm.churn_window": 10,
+    "feature.hmm.covariance_type": "full",
+    "feature.hmm.full_cov_min_obs": 500,
+    "feature.hmm.min_hold_bars": 3,
+    "feature.hmm.min_obs_factor": 50,
+    "feature.hmm.min_state_occupation": 0.05,
+    "feature.hmm.n_components": 5,
+    "feature.hmm.n_iter": 200,
+    "feature.hmm.obs_momentum_window": 20,
+    "feature.hmm.obs_vol_of_vol_window": 20,
+    "feature.hmm.vol_window": 20
+  },
+  "bar_counts": {
+    "LQD/1d": 5061,
+    "SPY/1d": 5088,
+    "SPY/1h": 31254,
+    "TLT/1d": 2673
+  },
+  "capture_commit": "ec3d8a814933595814c13239665da407ddc192da",
+  "captured_utc": "2026-09-30T04:57:29.369308+00:00",
+  "family_labels": {
+    "trend": [
+      "trending_up",
+      "trending_down",
+      "ranging",
+      "transition_up",
+      "transition_down"
+    ],
+    "volatility": [
+      "calm",
+      "elevated",
+      "turbulent"
+    ]
+  },
+  "runtime_seconds": {
+    "LQD/1d/trend": 6.64,
+    "LQD/1d/volatility": 0.29,
+    "SPY/1d/trend": 8.26,
+    "SPY/1d/volatility": 0.41,
+    "SPY/1h/trend": 37.24,
+    "SPY/1h/volatility": 3.94,
+    "TLT/1d/trend": 1.47,
+    "TLT/1d/volatility": 0.08,
+    "synthetic/trend": 0.67,
+    "synthetic/volatility": 0.16
+  },
+  "sample": [
+    [
+      "SPY",
+      "1d"
+    ],
+    [
+      "TLT",
+      "1d"
+    ],
+    [
+      "LQD",
+      "1d"
+    ],
+    [
+      "SPY",
+      "1h"
+    ]
+  ],
+  "source": "writer",
+  "synthetic_apr": {
+    "alpha.hmm.random_state": 42,
+    "alpha.hmm.walk_forward.initial_warmup_bars.15m": 1200,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1d": 600,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1h": 900,
+    "alpha.hmm.walk_forward.initial_warmup_bars.5m": 1500,
+    "alpha.hmm.walk_forward.refit_every_bars.15m": 600,
+    "alpha.hmm.walk_forward.refit_every_bars.1d": 300,
+    "alpha.hmm.walk_forward.refit_every_bars.1h": 450,
+    "alpha.hmm.walk_forward.refit_every_bars.5m": 900,
+    "alpha.hmm_volatility.covariance_type": "full",
+    "alpha.hmm_volatility.n_components": 3,
+    "alpha.hmm_volatility.vol_of_vol_window": 60,
+    "alpha.hmm_volatility.vol_window": 20,
+    "feature.hmm.churn_window": 10,
+    "feature.hmm.covariance_type": "full",
+    "feature.hmm.full_cov_min_obs": 500,
+    "feature.hmm.min_hold_bars": 3,
+    "feature.hmm.min_obs_factor": 50,
+    "feature.hmm.min_state_occupation": 0.05,
+    "feature.hmm.n_components": 3,
+    "feature.hmm.n_iter": 50,
+    "feature.hmm.obs_momentum_window": 20,
+    "feature.hmm.obs_vol_of_vol_window": 20,
+    "feature.hmm.vol_window": 20
+  },
+  "synthetic_digests": {
+    "synthetic/trend": {
+      "columns_sha256": [
+        "6c341fa22e965204fd6059f4d1ef328d9f44e9f7db0643c9acfc936da65ccc7e",
+        "a753d3ea7aa3f16f90a5194653d0e656a048952a607a6b1c7876a84f52a13e53",
+        "7b22ff7cb2a32797c8c15a2b08877957b58e976e0d3dd40f1fe2ff5981c607e7",
+        "53ae5ea658364f41b4da602a915191fabce96cab11488e0a410329bfa40bcc40",
+        "6453508f395ea24120e20f38c453b14669aca8809334439c830a0c6a307d7e4b",
+        "057f791d569d23698c15bd11db0dbd8ff149a0de9cd81f78411c4d319b8a1370",
+        "e41a170393709dccc925b3f31a4bdfbfa16c040244861c6d2caf1e9f0ae5653e"
+      ],
+      "labels_sha256": "ceb90881f30629b35c550a016d185657e62f311613e9ecee8f72b754149779f2",
+      "rows_written": 300
+    },
+    "synthetic/volatility": {
+      "columns_sha256": [
+        "b7ccc1f960adf017a97ee4a53c9cceed1c58196f4a8b7da2f14326f4d930336a",
+        "a642f62efde1009c690933daf8180ec704d464a35de114ba58f74e5def7b6f81",
+        "2afd7ef5f58da3e4de708761e5b1de5e279207fc969e2c595d9b2c040aa01b6a",
+        "ccff72b78d88e630ca833d1adbefdb9b3f6a5c34a0a0675e52a9661ae72627e6",
+        "05af6727b13a43f3ecb66e782cd9d9049eeb83262fb86c2d7e036833ece3b61f",
+        "0391dd9b368c8374a9a20be9de0610718f8f3085bf6e41e5e104a9609b815b66",
+        "53e3183f4e8b84ecca6c4ea739d172510c14ba4e314a0213ba926d84fc9a87fb"
+      ],
+      "labels_sha256": "7ebdbe99f0fecb9ce586e03fc424f65ad6c43b28a809d5f701ec2cdb359fe781",
+      "rows_written": 300
+    }
+  }
+}
