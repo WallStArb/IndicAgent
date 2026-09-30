@@ -31,7 +31,7 @@ Identity of a unit (the provenance batch key):
 A rerun with the same identity is skipped before any IC is computed; a changed identity replaces
 the unit's rows atomically. Adding or removing a feature changes the family digest and replaces
 every unit of the tf, which is correct: the BH family and the completeness mask changed. A real
-run refuses while any symbol has no bar_content_digest row (phase 185 writes them), since
+run refuses while any symbol the panels use has no bar_content_digest row (phase 185 writes them), since
 revision detection would be blind. The writer refuses any row whose training_window_end is at or
 after alpha.validation.oos_start before it reaches bulk_load.
 
@@ -900,15 +900,22 @@ def execute_unit(
 
 
 def check_bar_digests(
-    before: Mapping[str, str], after: Mapping[str, str], *, allow_absent: bool
+    before: Mapping[str, str],
+    after: Mapping[str, str],
+    used: Sequence[str],
+    *,
+    allow_absent: bool,
 ) -> list[str]:
-    """The bar digests bracketing the panel build must agree (the panels saw the digested
-    bars). Returns the symbols with no digest at all (`BAR_DIGEST_ABSENT_SYMBOL`): revision detection is blind for
-    them, so a real run refuses unless `allow_absent`."""
-    changed = sorted(s for s in before if before[s] != after.get(s))
+    """The bar digests of the symbols the panels used must agree across the panel build (the
+    panels saw the digested bars). Returns the used symbols with no digest at all
+    (`BAR_DIGEST_ABSENT_SYMBOL`): revision detection is blind for them, so a real run refuses
+    unless `allow_absent`. Only `used` symbols count: a requested symbol with no tradeable bars
+    has no panel column, cannot affect an IC, and must not block the run (absent stays absent,
+    never zero or unchanged, for every symbol that does)."""
+    changed = sorted(s for s in used if before[s] != after.get(s))
     if changed:
         raise ValueError(f"bar content changed during the panel build for {changed[:10]}")
-    absent = sorted(s for s, d in before.items() if d == BAR_DIGEST_ABSENT_SYMBOL)
+    absent = sorted(s for s in used if before[s] == BAR_DIGEST_ABSENT_SYMBOL)
     if absent and not allow_absent:
         raise ValueError(
             f"{len(absent)} symbol(s) have no bar_content_digest rows (first {absent[:5]}); "
@@ -1146,11 +1153,11 @@ class IcMeasure:
                 )
             )
             after = bar_content_digests(read_conn, tf, symbols, start, oos_start)
-            absent = check_bar_digests(before, after, allow_absent=self.allow_absent_digests)
-            if absent:
-                _logger.warning("ic_measure.bar_digests_absent", tf=tf, symbols=len(absent))
             panels = [research_panel.load(p) for p in paths]
             used = tuple(s for p in panels for s in p.symbols)
+            absent = check_bar_digests(before, after, used, allow_absent=self.allow_absent_digests)
+            if absent:
+                _logger.warning("ic_measure.bar_digests_absent", tf=tf, symbols=len(absent))
             keys = fetch_long_form(
                 read_conn, self.args.feature_table, tf, used, start, oos_start, [], chunk_rows
             )

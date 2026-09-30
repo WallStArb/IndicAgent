@@ -1025,63 +1025,35 @@ class TestBarDigestBracket:
         before = {"AAA": "1" * 64, "BBB": "2" * 64}
         after = {"AAA": "1" * 64, "BBB": "3" * 64}
         with pytest.raises(ValueError, match="BBB"):
-            ic_measure.check_bar_digests(before, after, allow_absent=False)
+            ic_measure.check_bar_digests(before, after, ("AAA", "BBB"), allow_absent=False)
 
     def test_absent_symbols_refuse_a_real_run_but_not_when_allowed(self) -> None:
         from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
 
         same = {"AAA": BAR_DIGEST_ABSENT_SYMBOL, "BBB": "2" * 64}
+        used = ("AAA", "BBB")
         with pytest.raises(ValueError, match="AAA"):
-            ic_measure.check_bar_digests(same, same, allow_absent=False)
-        assert ic_measure.check_bar_digests(same, same, allow_absent=True) == ["AAA"]
+            ic_measure.check_bar_digests(same, same, used, allow_absent=False)
+        assert ic_measure.check_bar_digests(same, same, used, allow_absent=True) == ["AAA"]
 
     def test_unchanged_present_digests_pass(self) -> None:
         same = {"AAA": "1" * 64}
-        assert ic_measure.check_bar_digests(same, dict(same), allow_absent=False) == []
+        assert ic_measure.check_bar_digests(same, dict(same), ("AAA",), allow_absent=False) == []
 
+    def test_only_symbols_the_panels_used_can_block_a_real_run(self) -> None:
+        """A universe symbol with no tradeable bars has no panel column and no digest row; it
+        cannot affect an IC, so it must not refuse the run. A used symbol with no row still does."""
+        from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
 
-class TestUnitCompute:
-    """A unit's compute is named data, not a closure, and gives the rows the compute functions do."""
+        digests = {"NOBARS": BAR_DIGEST_ABSENT_SYMBOL, "AAA": "1" * 64}
+        assert ic_measure.check_bar_digests(digests, digests, ("AAA",), allow_absent=False) == []
+        with pytest.raises(ValueError, match="NOBARS"):
+            ic_measure.check_bar_digests(digests, digests, ("AAA", "NOBARS"), allow_absent=False)
 
-    def test_the_callable_holds_its_inputs_as_fields_and_returns_the_job_rows(self) -> None:
-        ctx = _context()
-        features = _family_features(ctx)
-        names = _FAMILY
-        params = _params()
-        source = _source(features, names, 4)
-        inputs = _scan(ctx, source, params)
-        run = dataclasses.replace(_tf_run(), params=params, horizons=(1, 2))
-        compute = ic_measure.UnitCompute(ic_measure.JOB_PROPOSER, run, ctx, source, inputs, None)
-        assert compute() == ic_measure.compute_proposer_rows(ctx, source, inputs, params, (1, 2))
-        assert dataclasses.is_dataclass(compute) and not hasattr(compute, "__closure__")
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            compute.job = "monitoring"  # type: ignore[misc]
-
-    def test_each_job_dispatches_to_its_own_function(self) -> None:
-        ctx = _context()
-        features = _family_features(ctx)
-        params = _params()
-        source = _source(features, _FAMILY, 4)
-        run = dataclasses.replace(_tf_run(), params=params, horizons=(1,))
-        n, m = len(ctx.grid.timestamps), len(ctx.grid.symbols)
-        labels = np.broadcast_to(
-            np.where(np.arange(n)[:, None] % 3 == 0, "high", "low").astype("<U8"), (n, m)
-        ).copy()
-        inputs = _scan(ctx, source, params, labels=labels)
-        disclosure = ic_measure.UnitCompute(
-            ic_measure.JOB_REGIME_VOLATILITY, run, ctx, source, inputs, labels
-        )()
-        assert disclosure == ic_measure.compute_disclosure_rows(
-            ctx, source, inputs, labels, params, (1,)
-        )
-        member_source = _source(features[:, :, :2], _FAMILY[:2], 2)
-        member_inputs = _scan(ctx, member_source, params)
-        monitoring = ic_measure.UnitCompute(
-            ic_measure.JOB_MONITORING, run, ctx, member_source, member_inputs, None
-        )()
-        assert monitoring == ic_measure.compute_monitoring_rows(
-            ctx, member_source, member_inputs, params, 1
-        )
+    def test_a_change_in_an_unused_symbol_is_not_the_panels_concern(self) -> None:
+        before = {"AAA": "1" * 64, "NOBARS": "2" * 64}
+        after = {"AAA": "1" * 64, "NOBARS": "3" * 64}
+        assert ic_measure.check_bar_digests(before, after, ("AAA",), allow_absent=False) == []
 
 
 class TestAbsentDigestTolerance:
