@@ -26,8 +26,16 @@ _CLOSE_COLUMNS = (
 )
 
 
-def daily_grid_inputs(n: int, seed: int = 21) -> dict[str, np.ndarray]:
-    """n consecutive calendar dates, seven positive random-walk closes and the symbol."""
+RAGGED_START_ROWS = {"ref_tip_close": 200, "ref_hyg_close": 320, "ref_lqd_close": 450}
+RAGGED_HOLE_EVERY = 37
+
+
+def daily_grid_inputs(n: int, seed: int = 21, *, ragged: bool = False) -> dict[str, np.ndarray]:
+    """n consecutive calendar dates, seven positive random-walk closes and the symbol.
+
+    `ragged`: TIP, HYG and LQD start later (NaN until `RAGGED_START_ROWS`, as they entered the
+    universe after SPY/TLT/SHY) and each has NaN holes (every `RAGGED_HOLE_EVERY` rows, offset per
+    symbol), so the cross-asset coverage-guard branches run."""
     rng = np.random.default_rng(seed)
     start = datetime(2015, 1, 5, tzinfo=UTC)
     ts = np.array(
@@ -37,11 +45,17 @@ def daily_grid_inputs(n: int, seed: int = 21) -> dict[str, np.ndarray]:
     inputs: dict[str, np.ndarray] = {"ts": ts, "symbol": np.array(["QQQ"] * n, dtype=object)}
     for name in _CLOSE_COLUMNS:
         inputs[name] = np.cumprod(1.0 + rng.normal(0.0, 0.01, n)) * 100.0
+    if ragged:
+        for offset, (name, start) in enumerate(RAGGED_START_ROWS.items()):
+            inputs[name][:start] = np.nan
+            inputs[name][start + offset :: RAGGED_HOLE_EVERY] = np.nan
     return inputs
 
 
 def intraday_kernels(kernels) -> tuple:
-    return tuple(k for k in kernels if k.name not in DAILY_GRID_KERNELS)
+    """The kernels probed on the intraday synthetic grid: neither daily-grid nor regime (the
+    regime kernels have their own probe series, regime_kernel_fixtures.regime_probe_case)."""
+    return tuple(k for k in kernels if k.name not in DAILY_GRID_KERNELS and k.origin != "regime")
 
 
 def daily_grid_kernels(kernels) -> tuple:

@@ -404,3 +404,39 @@ def test_rows_before_the_first_daily_record_are_nan_not_zero():
     before = slice(0, first_session_rows)  # sessions 70-74: no record yet on 5m rows
     for name in ("vix_z", "flight_quality", "yield_slope_z", "sb_corr_z"):
         assert np.isnan(out[name][before]).all(), name
+
+
+def _covered_externals(alignment, bars, daily) -> set[str]:
+    """The externals of `alignment` that `_external_outputs` builds and truncates, by name."""
+    out = _external_outputs(alignment, bars, daily)
+    if alignment is Alignment.DAILY_ASOF_CLOSE:
+        return {f"ext_{c}" for c in out if c in MACRO_COLUMNS}
+    if alignment is Alignment.DAILY_REFERENCE_GRID:
+        from src.intelligence.features.kernels.macro import daily_reference_grid
+
+        series = {f"ref_{s.lower()}_close": daily[s] for s in CROSS_ASSET_SYMBOLS}
+        series["ref_sym_close"] = daily[SYMBOL]
+        return set(daily_reference_grid(series)) - {"ts"}
+    return set(out)
+
+
+def test_every_declared_external_has_a_builder_and_a_truncation_case():
+    """Per external, not per alignment: a new external a kernel declares cannot ship unless its
+    alignment has a registered builder in the factory and the truncation test above builds
+    and cuts that exact external."""
+    from src.intelligence import feature_factory
+
+    bars, daily = _intraday(), _daily_bars()
+    externals = default_registry().external_inputs
+    assert externals
+    covered = {
+        alignment: _covered_externals(alignment, bars, daily)
+        for alignment in {e.alignment for e in externals}
+    }
+    for external in externals:
+        assert (
+            external.alignment in feature_factory._BUILT_ALIGNMENTS
+        ), f"{external.name}: no builder for {external.alignment.name}"
+        assert (
+            external.name in covered[external.alignment]
+        ), f"{external.name}: not covered by the {external.alignment.name} truncation case"

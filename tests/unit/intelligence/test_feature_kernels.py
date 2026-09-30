@@ -2,7 +2,7 @@
 
 (a) every registered feature column is a persisted FeatureVector column;
 (b) each kernel output equals the compute_batch column on the 500-bar synthetic fixture;
-    the regime kernels (HMM fit cost, per-tf schedule) are covered by test_regime_kernel.py;
+    the regime kernels are probed on their own short series and covered by test_regime_kernel.py;
 (c) compute_batch no longer calls the moved scalar helpers;
 (d) the causality probe and memory check pass every kernel under two configs.
 """
@@ -49,8 +49,9 @@ from tests.unit.intelligence.daily_grid_fixtures import (
     intraday_kernels,
 )
 from tests.unit.intelligence.regime_kernel_fixtures import (
-    non_regime_kernels,
-    registry_without_regime,
+    REGIME_PROBE_ROWS,
+    regime_kernels,
+    regime_probe_case,
 )
 
 MANIFEST = ref.load_manifest()
@@ -71,6 +72,11 @@ PATH_DEPENDENT = {
     "session_levels",
     "amd_cycle",
     "ctf_source",
+    # the regime kernels: the walk-forward fits run from the series start (kernels/regime.py)
+    "hmm_trend_walk_forward",
+    "hmm_trend_label",
+    "hmm_volatility_walk_forward",
+    "hmm_volatility_label",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 
@@ -196,7 +202,7 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
 
 def _intraday_outputs() -> list[str]:
     """Outputs of the kernels that run on the intraday row grid (not regime, not daily-grid)."""
-    return [o for k in intraday_kernels(non_regime_kernels(default_registry())) for o in k.outputs]
+    return [o for k in intraday_kernels(default_registry().kernels) for o in k.outputs]
 
 
 @lru_cache(maxsize=1)
@@ -326,38 +332,50 @@ def _daily_probe_case(config_key: str):
     return with_derived_inputs(daily_grid_inputs(PROBE_DAILY_ROWS)), config
 
 
-# The regime kernels are skipped here: REGIME_SKIP_REASON.
+@lru_cache(maxsize=1)
+def _regime_probe_case(_config_key: str):
+    return regime_probe_case()
+
+
+def _case_for(kernel, config_key: str):
+    """(inputs, config, probed rows) of the grid the kernel runs on: daily, regime or intraday."""
+    if kernel.name in DAILY_GRID_KERNELS:
+        return (*_daily_probe_case(config_key), PROBE_ROWS)
+    if kernel.origin == "regime":
+        return (*_regime_probe_case("regime"), REGIME_PROBE_ROWS)
+    return (*_probe_case(config_key), PROBE_ROWS)
+
+
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
-@pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
+@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
 def test_probe_and_memory_check_per_kernel(kernel, config_key):
-    case = _daily_probe_case if kernel.name in DAILY_GRID_KERNELS else _probe_case
-    available, config = case(config_key)
+    available, config, rows = _case_for(kernel, config_key)
     if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
-            causality_probe(kernel, available, config, PROBE_ROWS)
+            causality_probe(kernel, available, config, rows)
         return
-    causality_probe(kernel, available, config, PROBE_ROWS)
+    causality_probe(kernel, available, config, rows)
     if kernel.path_dependent:
         assert kernel.name in PATH_DEPENDENT
         return
     assert kernel.name not in PATH_DEPENDENT
-    memory_check(kernel, available, config, PROBE_ROWS)
+    memory_check(kernel, available, config, rows)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_twelve():
+def test_the_path_dependent_allow_list_is_the_reviewed_sixteen():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
-    so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
-    declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
+    so it has to be added to PATH_DEPENDENT here (and this count changed) by a person. Twelve
+    feature kernels plus the four regime kernels (two walk-forward fits and their labels)."""
+    declared = {k.name for k in default_registry().kernels if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 12
+    assert len(PATH_DEPENDENT) == 16
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
     config = ref.build_config(MANIFEST[config_key])
-    registry = registry_without_regime(default_registry())  # REGIME_SKIP_REASON
     registry = KernelRegistry.from_kernels(
-        intraday_kernels(registry.kernels), registry.external_inputs
+        intraday_kernels(default_registry().kernels), default_registry().external_inputs
     )
     statuses = probe_registry(registry, synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
     expected = {
@@ -370,6 +388,32 @@ def test_probe_registry_statuses(config_key):
     }
     assert statuses == expected
     assert set(statuses) == {k.name for k in registry.kernels}  # no kernel opts out
+
+
+def test_probe_registry_statuses_on_the_regime_series():
+    """The regime kernels go through probe_registry on their own short series under the small HMM
+    configuration, like every other kernel; none is exempt."""
+    available, config = _regime_probe_case("regime")
+    registry = KernelRegistry.from_kernels(
+        regime_kernels(default_registry().kernels), default_registry().external_inputs
+    )
+    inputs = {name: available[name] for name in ("ts", "close", "volume", "tf")}
+    statuses = probe_registry(registry, inputs, config, REGIME_PROBE_ROWS)
+    assert statuses == dict.fromkeys(
+        (k.name for k in registry.kernels), "path_dependent_skipped_memory"
+    )
+    assert set(statuses) == {k.name for k in default_registry().kernels if k.origin == "regime"}
+
+
+def test_every_registered_kernel_is_probed_by_exactly_one_registry_probe():
+    """The intraday, daily-grid and regime probes partition the registry: a kernel added to a new
+    origin that none of them runs fails here rather than going unprobed."""
+    kernels = default_registry().kernels
+    intraday = {k.name for k in intraday_kernels(kernels)}
+    daily = {k.name for k in daily_grid_kernels(kernels)}
+    regime = {k.name for k in regime_kernels(kernels)}
+    assert not (intraday & daily or intraday & regime or daily & regime)
+    assert intraday | daily | regime == {k.name for k in kernels}
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
@@ -485,3 +529,103 @@ def test_gap_z_four_bars_scores_each_gap_against_its_trailing_window():
     assert out[2] == pytest.approx(1.0)
     assert out[3] == pytest.approx(expected_bar3)
     assert np.isfinite(out).all()
+
+
+# ---------------------------------------------------------------------------
+# Ragged symbol starts, NaN holes and the daily as-of index (186-15 review)
+# ---------------------------------------------------------------------------
+
+RAGGED_PROBE_ROWS = np.array([150, 199, 201, 260, 330, 449, 452, 700, 1800, 2999])
+
+
+@pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
+def test_daily_grid_kernels_are_causal_when_symbols_start_late_and_have_holes(config_key):
+    """TIP, HYG and LQD start at rows 200, 320 and 450 and each has NaN holes, so the
+    cross-asset coverage guard (a spread is NaN, the rest of the record is not) runs both ways.
+    The probe rows sit on both sides of every start."""
+    config = ref.build_config(MANIFEST[config_key])
+    available = with_derived_inputs(daily_grid_inputs(PROBE_DAILY_ROWS, ragged=True))
+    registry = KernelRegistry.from_kernels(
+        daily_grid_kernels(default_registry().kernels), default_registry().external_inputs
+    )
+    statuses = probe_registry(registry, available, config, RAGGED_PROBE_ROWS)
+    assert statuses == {
+        "cross_asset_daily": "path_dependent_skipped_memory",
+        "factor_beta_daily": "ok",
+    }
+    out = default_registry().by_name("cross_asset_daily").compute(available, config)
+    # the guard branches were taken: the record exists from row 1 while each late spread is NaN
+    assert np.isfinite(out["_xa_vix_z"][1:]).all()
+    assert np.isnan(out["_xa_tip_tlt_ret_z"][1:201]).all()
+    assert np.isfinite(out["_xa_tip_tlt_ret_z"][260])
+    assert np.isnan(out["_xa_hyg_lqd_ret_z"][1:451]).all()
+    assert np.isfinite(out["_xa_hyg_lqd_ret_z"][700])
+
+
+ASOF_TFS = ("1m", "5m", "15m", "1h", "1d")
+
+
+def _asof_case(tf: str):
+    """Rows on a (ts, tf) grid over ~14 sessions with a weekend and a holiday gap, and ragged
+    daily records: the first 25 dates have no value (a late-starting symbol), every 7th is a NaN
+    hole, and two weekdays have no record at all."""
+    from datetime import date, timedelta
+
+    from src.intelligence.features.kernels.macro import daily_close_availability
+
+    sessions, d = [], date(2022, 6, 1)
+    while len(sessions) < 60:
+        if d.weekday() < 5 and d not in (date(2022, 6, 20), date(2022, 7, 4)):
+            sessions.append(d)
+        d += timedelta(days=1)
+    dates = sessions[:40] + sessions[42:]
+    values = np.arange(len(dates), dtype=np.float64) + 1.0
+    values[:25] = np.nan
+    values[25::7] = np.nan
+    step = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "1d": 1440}[tf]
+    rows = []
+    for day in sessions[30:44]:
+        start = datetime(
+            day.year,
+            day.month,
+            day.day,
+            0 if tf == "1d" else 13,
+            0 if tf == "1d" else 30,
+            tzinfo=UTC,
+        )
+        count = 1 if tf == "1d" else 390 // step
+        rows += [ref.dt_to_ns(start + timedelta(minutes=step * k)) for k in range(count)]
+    return np.array(rows, dtype=np.int64), dates, values, daily_close_availability(dates)
+
+
+@pytest.mark.parametrize("tf", ASOF_TFS)
+def test_daily_asof_index_is_causal_and_needs_no_memory_on_a_ragged_grid(tf):
+    from src.intelligence.features.contract.registry import Kernel
+    from src.intelligence.features.kernels.macro import daily_asof_index, daily_asof_indices
+
+    ts, _dates, values, available = _asof_case(tf)
+    column = np.append(values, np.nan)  # the trailing default is what index -1 reads
+
+    def compute(x, _config):
+        idx = daily_asof_indices(x["ts"], tf, available)
+        return {"idx": idx.astype(np.float64), "value": column[idx]}
+
+    kernel = Kernel(
+        name="daily_asof_probe",
+        outputs=("idx", "value"),
+        inputs=("ts",),
+        memory=lambda config: 0,
+        compute=compute,
+    )
+    rows = np.unique(np.linspace(0, len(ts) - 1, 8).astype(int))
+    causality_probe(kernel, {"ts": ts}, object(), rows)
+    memory_check(kernel, {"ts": ts}, object(), rows)
+    # the vector form is the scalar rule row by row
+    scalar = [daily_asof_index(int(t), tf, available) for t in ts.tolist()]
+    assert scalar == daily_asof_indices(ts, tf, available).tolist()
+    # records that become available after row t's bar end do not change rows <= t
+    full = daily_asof_indices(ts, tf, available)
+    duration_ns = {"1m": 0, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}[tf] * 1_000_000_000
+    for t in rows:
+        known = [a for a in available if a <= int(ts[t]) + duration_ns]
+        np.testing.assert_array_equal(daily_asof_indices(ts[: t + 1], tf, known), full[: t + 1])

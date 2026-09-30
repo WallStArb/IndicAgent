@@ -67,6 +67,13 @@ def _first_difference(
 
     `atol` is an absolute tolerance (memory_check only; the causality probe stays exact).
     """
+    if a.dtype.kind not in "fc":
+        # Labels and other non-float outputs (object dtype): exact equality, None equals None.
+        bad = np.asarray(a != b, dtype=bool)
+        if not bad.any():
+            return None
+        idx = np.argwhere(bad)[0]
+        return int(idx[0]), a[tuple(idx)], b[tuple(idx)]
     nan_a, nan_b = np.isnan(a), np.isnan(b)
     bad = nan_a != nan_b
     both = ~nan_a & ~nan_b

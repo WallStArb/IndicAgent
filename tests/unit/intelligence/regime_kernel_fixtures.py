@@ -109,25 +109,37 @@ def digest_case(labels: np.ndarray, columns: np.ndarray) -> dict[str, Any]:
     }
 
 
-REGIME_SKIP_REASON = "HMM fit cost and per-tf schedule; covered by test_regime_kernel.py"
+# The regime kernels are probed on their own short series (they need `tf`, a real-length close and
+# volume, and an HMM schedule): 1,250 daily bars under SMALL_HMM_APR (1d refit 300, warmup 600),
+# probing rows just after the first refit boundary, mid-segment, after the second boundary and the
+# last row. About one second per family per compute, so the registry-wide probe tests run them.
+REGIME_PROBE_BARS = 1250
+REGIME_PROBE_ROWS = np.array([625, 760, 925, 1249])
 
 
-def non_regime_kernels(registry) -> tuple:
-    """The registry's kernels without the regime origin (which needs the `tf` external and a
-    real-length series; test_regime_kernel.py covers it)."""
-    return tuple(k for k in registry.kernels if k.origin != "regime")
+def regime_kernels(kernels) -> tuple:
+    return tuple(k for k in kernels if k.origin == "regime")
 
 
-def non_regime_outputs(registry) -> list[str]:
-    return [o for k in non_regime_kernels(registry) for o in k.outputs]
+def small_hmm_config():
+    """The registry config the regime kernels read: `hmm` loaded from SMALL_HMM_APR."""
+    from types import SimpleNamespace
+
+    from src.intelligence.features.kernels._hmm import HmmConfig
+
+    return SimpleNamespace(hmm=HmmConfig.from_values(SMALL_HMM_APR.get))
 
 
-def registry_without_regime(registry):
-    """A registry over the non-regime kernels, for probe_registry runs."""
-    from src.intelligence.features.contract.registry import KernelRegistry
+def regime_probe_case():
+    """(available inputs with every regime output computed, config) for the regime kernels."""
+    from src.intelligence.features.contract.registry import compute_kernels, default_registry
 
-    # `tf` stays declared: the structure kernels read it too.
-    return KernelRegistry.from_kernels(non_regime_kernels(registry), registry.external_inputs)
+    bars = make_synthetic_regime_bars(REGIME_PROBE_BARS, 42)
+    available = {**bars, "tf": np.array(["1d"] * REGIME_PROBE_BARS, dtype=object)}
+    config = small_hmm_config()
+    outputs = [o for k in regime_kernels(default_registry().kernels) for o in k.outputs]
+    available.update(compute_kernels(default_registry(), available, config, outputs=outputs))
+    return available, config
 
 
 def make_collapsing_segment_bars() -> dict[str, np.ndarray]:

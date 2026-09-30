@@ -30,7 +30,10 @@ from tests.unit.intelligence.daily_grid_fixtures import (
     daily_grid_inputs,
     intraday_kernels,
 )
-from tests.unit.intelligence.regime_kernel_fixtures import non_regime_kernels
+from tests.unit.intelligence.regime_kernel_fixtures import (
+    REGIME_PROBE_ROWS,
+    regime_probe_case,
+)
 
 
 def _trail(x, w):
@@ -259,9 +262,7 @@ def _registered_case():
         },
     }
     available = with_derived_inputs(available)
-    outputs = [
-        o for k in intraday_kernels(non_regime_kernels(default_registry())) for o in k.outputs
-    ]
+    outputs = [o for k in intraday_kernels(default_registry().kernels) for o in k.outputs]
     available.update(compute_kernels(default_registry(), available, config, outputs=outputs))
     return available, config
 
@@ -274,12 +275,22 @@ def _daily_grid_case():
     return with_derived_inputs(daily_grid_inputs(500)), config
 
 
-# The regime kernels are skipped here: REGIME_SKIP_REASON (test_regime_kernel.py runs the probe).
-@pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
-def test_registered_kernels_are_causal(kernel, _registered_case, _daily_grid_case):
-    # the daily-grid kernels are probed on one row per date (daily_grid_fixtures)
-    available, config = _daily_grid_case if kernel.name in DAILY_GRID_KERNELS else _registered_case
+@pytest.fixture(scope="module")
+def _regime_case():
+    return regime_probe_case()
+
+
+@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
+def test_registered_kernels_are_causal(kernel, _registered_case, _daily_grid_case, _regime_case):
+    # the daily-grid kernels are probed on one row per date (daily_grid_fixtures), the regime
+    # kernels on their own short series under the small HMM configuration
     rows = np.array([120, 250, 400, 498])
+    if kernel.name in DAILY_GRID_KERNELS:
+        available, config = _daily_grid_case
+    elif kernel.origin == "regime":
+        (available, config), rows = _regime_case, REGIME_PROBE_ROWS
+    else:
+        available, config = _registered_case
     if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
             causality_probe(kernel, available, config, rows)
@@ -326,3 +337,35 @@ def test_probe_registry_computes_each_kernel_once_when_no_row_is_probed():
     statuses = probe_registry(reg, inputs, CFG, np.array([], dtype=int))
     assert statuses == {"a": "path_dependent_skipped_memory", "b": "path_dependent_skipped_memory"}
     assert calls == ["a", "b"]
+
+
+def _label_kernel(fn):
+    return Kernel(
+        name="label",
+        outputs=("out",),
+        inputs=("close",),
+        memory=lambda c: 0,
+        compute=lambda x, c: {"out": fn(x["close"])},
+        dtype=np.dtype(object),
+    )
+
+
+def _row_labels(x):
+    return np.array(["up" if int(v * 1000) % 2 else None for v in x], dtype=object)
+
+
+def test_object_dtype_outputs_are_compared_by_equality():
+    """A label kernel (string or None per row) goes through the probe and the memory check; the
+    float comparison used to raise TypeError on it (np.isnan on an object array)."""
+    kernel = _label_kernel(_row_labels)
+    causality_probe(kernel, INPUTS, CFG, ROWS)
+    memory_check(kernel, INPUTS, CFG, ROWS)
+
+
+def test_object_dtype_lookahead_is_detected():
+    def peeking(x):
+        labels = _row_labels(x)
+        return np.roll(labels, -1)  # row t reads row t + 1
+
+    with pytest.raises(CausalityViolation):
+        causality_probe(_label_kernel(peeking), INPUTS, CFG, ROWS)

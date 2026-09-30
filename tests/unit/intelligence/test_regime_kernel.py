@@ -329,9 +329,10 @@ def test_causality_probe_passes_the_walk_forward_kernels(name, tf, n, rows):
 
 
 def test_every_regime_origin_kernel_is_covered_by_a_probe_or_label_test():
-    """`non_regime_kernels` exempts the whole `regime` origin from the generic probe runs, so a
-    kernel added to that origin would inherit the exemption unnoticed. Each one has to be a
-    heavy kernel in `_PROBE_CASES` or a label kernel `test_label_kernels_are_row_local` runs."""
+    """The registry-wide probe tests run every regime kernel on the short series under the small
+    HMM configuration; this file adds the per-tf and boundary-row probes for the heavy kernels.
+    A kernel added to the origin has to be a heavy kernel in `_PROBE_CASES` or a label kernel
+    `test_label_kernels_are_row_local` runs."""
     regime_kernels = {k.name for k in default_registry().kernels if k.origin == "regime"}
     probed = {name for name, *_ in _PROBE_CASES}
     label_tested = {f"hmm_{family}_label" for family in FAMILIES}
