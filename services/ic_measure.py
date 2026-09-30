@@ -77,13 +77,13 @@ from services._batch_utils import (  # noqa: E402
     bulk_load,
     completed_provenance_batch,
     compressed_hypertable_write_session,
-    kernel_code_key,
     kernel_code_modules,
     load_config_service_sync,
     prior_completed_unit,
     short_lived_conn,
 )
 from src.config.settings import Settings  # noqa: E402
+from src.core.code_identity import code_key  # noqa: E402
 from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
     FamilyCompleteness,
@@ -989,7 +989,7 @@ def job_code_modules(job: str) -> tuple[str, ...]:
 def job_code_key(job: str) -> str:
     """The per-job code key: the job's entry modules, their first-party import closure and this
     file (D-23)."""
-    return kernel_code_key((*_COMMON_ENTRIES, *_JOB_ENTRIES[job]), own=_OWN_MODULES)
+    return code_key(job_code_modules(job))
 
 
 class _WriteSession:
