@@ -1,0 +1,16 @@
+[Unit]
+Description=IndicAgent IC Measure (fresh IC jobs -> feature_ic_scores_v2) -- phase 186, services/ic_measure.py
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+# No timer: the orchestrator runs this after the feature_vectors rebuild (plan 186-28).
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/ic_measure.py
+
+[Install]
+WantedBy=multi-user.target

@@ -1118,7 +1118,7 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 **Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
 **Banned:** predictive power score, signal quality score
-**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by `services/ic_engine.py`
+**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by `services/ic_engine.py`; the table is frozen and dropped whole by plan 186-28 (fresh rows go to `feature_ic_scores_v2`)
 
 ---
 
@@ -1825,6 +1825,36 @@ content digest, symbol x tf x time range); the lineage record and the idempotenc
 **Banned:** (none)
 **Status:** active (phase 186, table provenance_batch, written only by
 services/_batch_utils.py bulk_load)
+
+---
+
+### `ic_measure`
+
+The one writer of the fresh IC table (`services/ic_measure.py`, oneshot, phase 186 D-17). It runs
+the pure measure jobs (proposer with term structure, `regime_volatility` disclosure, monitoring)
+and writes `feature_ic_scores_v2` only through `bulk_load()`, one provenance batch per unit
+(job, tf, feature block). **Banned:** (none)
+**Status:** active (phase 186 plan 14)
+
+---
+
+### `feature_ic_scores_v2`
+
+The fresh IC hypertable (migration 413): `regime_scope` is in the primary key from creation, and
+`training_window_end` has one meaning, the latest target exit bar used by the cell, always before
+`alpha.validation.oos_start`. Sole writer `ic_measure`. The legacy `feature_ic_scores` table is
+frozen and dropped whole by plan 186-28. **Banned:** (none)
+**Status:** active (phase 186 plan 14)
+
+---
+
+### `fresh regime_scope values`
+
+The three values `feature_ic_scores_v2.regime_scope` allows: `unstratified` (proposer cells,
+regime `_all`), `regime_volatility` (disclosure, regime = the label) and `member_window`
+(monitoring, one row per window, regime `_all`). The legacy values (`cross_sectional`,
+`symbol_hmm`, `pooled`, `earnings_season`) cannot enter the v2 table. **Banned:** (none)
+**Status:** active (phase 186 plan 14)
 
 ---
 

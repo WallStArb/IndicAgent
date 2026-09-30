@@ -106,6 +106,7 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
     "indicagent-forward-return-writer": 8,  # oneshot; LEAD() forward returns -> forward_returns
     "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
+    "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
     "indicagent-feature-lifecycle": 8,  # oneshot (todo 402); feature_ic_scores -> concept_evaluation + concept_registry
     # Phase 139 ensemble + alpha emission oneshots (inactive between IC pipeline runs is correct)
     "indicagent-ensemble-trainer": 8,  # oneshot; feature_ic_scores -> ensemble_weights + ensemble_alpha
@@ -206,6 +207,7 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-forward-return-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-engine",  # Type=oneshot; inactive between IC pipeline runs is correct
+        "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct
         "indicagent-feature-lifecycle",  # todo 402; inactive between IC pipeline runs is correct
         # Phase 139 ensemble + alpha emission oneshots + Phase 142A ensemble IC oneshot —
         # inactive between IC pipeline runs is correct
