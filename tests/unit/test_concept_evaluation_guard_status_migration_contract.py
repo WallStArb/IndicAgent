@@ -15,7 +15,8 @@ _SQL = (
 def test_migration_refuses_on_violation_before_adding_the_check():
     assert _SQL.index("RAISE EXCEPTION") < _SQL.index("ADD CONSTRAINT")
     assert "(evidence_kind = 'feature_ic') = (guard_status IS NOT NULL)" in _SQL
-    assert "VACUUM" not in _SQL  # a plain table: no compressed-hypertable step applies
+    statements = "\n".join(ln for ln in _SQL.splitlines() if not ln.lstrip().startswith("--"))
+    assert "VACUUM" not in statements  # a plain table: no compressed-hypertable step applies
 
 
 def test_the_only_writer_satisfies_the_check():
