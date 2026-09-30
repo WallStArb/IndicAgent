@@ -33,14 +33,14 @@ async def test_setup_prewarms_timeframe_vocabulary(monkeypatch):
     """_prewarm_timeframe_vocabulary() registers a VocabularyService with
     vocabulary_access so self._timeframes reflects CVR's registered set,
     not the hardcoded default."""
-    # Deliberately differs from the old hardcoded _STANDARD_TFS tuple (adds
-    # "30m"), so a passing assertion proves the value came from the registry, not
-    # a stale fallback. Patched on vocabulary_access -- prewarm() constructs
+    # Deliberately differs from the old hardcoded _STANDARD_TFS tuple (drops "1m" and
+    # "4h"; every entry stays one the live as-of lookup supports, which the start now checks),
+    # so a passing assertion proves the value came from the registry, not a stale fallback. Patched on vocabulary_access -- prewarm() constructs
     # VocabularyService there now, not in feature_vector_pipeline's own module.
     monkeypatch.setattr(
         vocabulary_access,
         "VocabularyService",
-        FakeVocabularyService(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]),
+        FakeVocabularyService(["5m", "15m", "1h", "1d"]),
     )
     agent = make_agent()
 
@@ -50,7 +50,7 @@ async def test_setup_prewarms_timeframe_vocabulary(monkeypatch):
 
     assert vocabulary_access._vocab_service is agent._vocabulary_service
     assert agent._vocabulary_service.initialized is True
-    assert agent._timeframes == ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+    assert agent._timeframes == ["5m", "15m", "1h", "1d"]
 
 
 @pytest.mark.unit
