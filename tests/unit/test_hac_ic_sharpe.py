@@ -220,3 +220,52 @@ def test_lookaheads_for_returns_per_tf_values():
     assert config.lookaheads_for("5m") == {"fast": 1, "mid": 6, "slow": 12, "extended": 39}
     assert config.lookaheads_for("15m") == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
     assert config.lookaheads_for("1d") == {"fast": 1, "mid": 2, "slow": 5, "extended": 10}
+
+
+# ---------------------------------------------------------------------------
+# NaN-aware adjacent-pair form (one definition shared with measure/monitoring)
+# ---------------------------------------------------------------------------
+
+
+def _nan_free_reference(x, lag):
+    """The vectorized NaN-free branch, called on a 2-D column."""
+    return float(_hac_sharpe_nd(x[:, None], lag)[0])
+
+
+def test_gapped_column_is_bit_identical_to_the_vectorized_form_without_nan():
+    from src.intelligence.statistics.ic_math import _hac_sharpe_gapped_column
+
+    rng = np.random.default_rng(0)
+    mismatches, total = 0, 0
+    for n in [*range(2, 60), 100, 250, 1000]:
+        for lag in (0, 1, 3, 8, 20):
+            for trial in range(6):
+                x = rng.normal(0.02, 0.05, n)
+                if trial % 2:
+                    x = np.cumsum(x) * 0.1 + x
+                total += 1
+                mismatches += _hac_sharpe_gapped_column(x, lag) != _nan_free_reference(x, lag)
+    assert total > 1500 and mismatches == 0
+
+
+def test_nan_columns_pair_only_adjacent_windows_and_columns_are_independent():
+    ic = np.array([0.1, 0.2, np.nan, 0.3, 0.4])
+    both = np.column_stack([ic, np.array([0.1, 0.2, 0.1, 0.3, 0.4])])
+    out = _hac_sharpe_nd(both, 1)
+    assert out[0] == np.float64(0.25 / np.sqrt(0.02)) or abs(out[0] - 0.25 / np.sqrt(0.02)) < 1e-12
+    assert out[1] == _nan_free_reference(both[:, 1], 1)
+
+
+def test_all_nan_column_is_nan_and_precomputed_moments_are_refused_with_nan():
+    import pytest
+
+    out = _hac_sharpe_nd(np.full((6, 1), np.nan), 2)
+    assert np.isnan(out[0])
+    with pytest.raises(ValueError):
+        _hac_sharpe_nd(np.array([[0.1], [np.nan], [0.2]]), 1, mean_ic=np.array([0.1]))
+
+
+def test_hac_floors_are_shared_constants():
+    from src.intelligence.statistics import ic_math
+
+    assert (ic_math.HAC_VARIANCE_FLOOR, ic_math.HAC_STD_FLOOR) == (1e-12, 1e-10)

@@ -964,6 +964,44 @@ def update_cumulative_e_value(
 # ---------------------------------------------------------------------------
 
 
+# Numerical guards on the HAC Sharpe, not tunables (exempt as mathematical constants): a
+# variance or standard deviation this small is float64 rounding noise around a constant series,
+# so the ratio it would divide by is treated as zero.
+HAC_VARIANCE_FLOOR = 1e-12
+HAC_STD_FLOOR = 1e-10
+
+
+def _hac_sharpe_gapped_column(ic: np.ndarray, max_lag: int) -> float:
+    """Newey-West Bartlett IC Sharpe of one window series that holds NaN.
+
+    Dropping the NaN windows first would pair windows that are not lag-k apart. Mean and
+    variance use the finite windows; the lag-k autocovariance averages demeaned products over
+    the pairs (t, t + k) that are both finite in the original series (no such pair: rho_k = 0).
+    Every operation is the 1-D form of the NaN-free branch of `_hac_sharpe_nd`, so the two agree
+    bit for bit on a series without NaN (tests/unit/test_hac_ic_sharpe.py).
+    """
+    ok = np.isfinite(ic)
+    finite = ic[ok]
+    n = finite.size
+    if n == 0:
+        return float("nan")
+    mean = finite.mean()
+    var0 = ((finite - mean) ** 2).mean()
+    inflation = 1.0
+    if max_lag > 0 and n >= max_lag + 2:
+        demeaned = np.where(ok, ic - mean, 0.0)
+        for k in range(1, max_lag + 1):
+            pair = ok[k:] & ok[:-k]
+            if not pair.any():
+                continue
+            gamma_k = (demeaned[k:][pair] * demeaned[:-k][pair]).mean()
+            rho_k = gamma_k / var0 if var0 > HAC_VARIANCE_FLOOR else 0.0
+            inflation += 2.0 * (1.0 - k / (max_lag + 1)) * rho_k
+        inflation = max(inflation, 1.0)  # can't be more precise than i.i.d.
+    hac_std = np.sqrt(var0 * inflation)
+    return float(mean / hac_std) if hac_std > HAC_STD_FLOOR else 0.0
+
+
 def _hac_sharpe_nd(
     window_ics: np.ndarray,
     max_lag: int,
@@ -973,18 +1011,29 @@ def _hac_sharpe_nd(
     """Newey-West Bartlett-kernel HAC-corrected IC Sharpe.
 
     Args:
-        window_ics: [n_windows, n_features] IC values per rolling window.
+        window_ics: [n_windows, n_features] IC values per rolling window. Rows are adjacent
+            windows in time. A NaN marks a window with no IC: the affected columns take the
+            NaN-aware adjacent-pair form (`_hac_sharpe_gapped_column`); a NaN-free array takes
+            the vectorized form below, and the two are bit-identical on the same finite series.
         max_lag: Bartlett-kernel max lag K. K=0 returns naive Sharpe.
-        mean_ic: Pre-computed column means (optional; computed internally if absent).
+        mean_ic: Pre-computed column means (optional; computed internally if absent). Not
+              allowed with NaN in window_ics, where the mean is over the finite windows.
         var0: Pre-computed population variance per feature (optional; avoids recomputation
-              when the caller already holds mean_ic and std_ic).
+              when the caller already holds mean_ic and std_ic). Same NaN restriction.
 
     Returns:
         sharpe_hac: [n_features]. Equal to naive Sharpe when max_lag=0 or
         when the IC series has zero autocorrelation. Always <= naive Sharpe
-        for positively autocorrelated IC series (inflation floored at 1).
+        for positively autocorrelated IC series (inflation floored at 1). A column with no
+        finite window is NaN.
     """
     n, p = window_ics.shape
+    if np.isnan(window_ics).any():
+        if mean_ic is not None or var0 is not None:
+            raise ValueError("mean_ic and var0 cannot be supplied for window_ics holding NaN")
+        return np.array(
+            [_hac_sharpe_gapped_column(window_ics[:, j], max_lag) for j in range(p)], dtype=float
+        )
     if mean_ic is None:
         mean_ic = window_ics.mean(axis=0)
     if var0 is None:
@@ -992,18 +1041,18 @@ def _hac_sharpe_nd(
 
     if max_lag == 0 or n < max_lag + 2:
         hac_std = np.sqrt(var0)
-        return np.where(hac_std > 1e-10, mean_ic / hac_std, 0.0)
+        return np.where(hac_std > HAC_STD_FLOOR, mean_ic / hac_std, 0.0)
 
     demeaned = window_ics - mean_ic
     inflation = np.ones(p)
     for k in range(1, max_lag + 1):
         gamma_k = (demeaned[k:] * demeaned[:-k]).mean(axis=0)
-        rho_k = np.where(var0 > 1e-12, gamma_k / var0, 0.0)
+        rho_k = np.where(var0 > HAC_VARIANCE_FLOOR, gamma_k / var0, 0.0)
         inflation += 2.0 * (1.0 - k / (max_lag + 1)) * rho_k
 
     inflation = np.maximum(inflation, 1.0)  # can't be more precise than i.i.d.
     hac_std = np.sqrt(var0 * inflation)
-    return np.where(hac_std > 1e-10, mean_ic / hac_std, 0.0)
+    return np.where(hac_std > HAC_STD_FLOOR, mean_ic / hac_std, 0.0)
 
 
 def _compute_ic_rolling_metrics(
