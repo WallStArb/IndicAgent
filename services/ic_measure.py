@@ -89,7 +89,7 @@ from services._batch_utils import (  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.canonical_json import canonical_json  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402
-from src.core.service_utils import format_iso_ts, parse_iso_ts, setup_service_logging  # noqa: E402
+from src.core.service_utils import format_iso_ts, setup_service_logging  # noqa: E402
 from src.intelligence.measure.ic import (  # noqa: E402
     FamilyCompleteness,
     IcCell,
@@ -995,15 +995,28 @@ class _WriteSession:
             self._conn = None
 
 
+def _aware_utc(value: Any, what: str) -> datetime:
+    """An ISO 8601 timestamp with an offset (Z included), as UTC. A naive one is refused, never
+    read as UTC or as the host's zone: these timestamps bound the out-of-sample guard and the
+    window, the same rule as `src.core.service_utils.parse_training_window_end`. `what` names the
+    key or flag in the error."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError as error:
+        raise ValueError(f"{what} is not an ISO 8601 timestamp: {value!r}") from error
+    if parsed.tzinfo is None:
+        raise ValueError(
+            f"{what} must be a timezone-aware ISO 8601 timestamp (Z or an offset), got {value!r}; "
+            "a naive value is not reinterpreted as UTC"
+        )
+    return parsed.astimezone(UTC)
+
+
 def _parse_oos(value: Any) -> datetime:
-    """alpha.validation.oos_start as a UTC datetime: a missing or unparseable value raises
-    (`parse_iso_ts` returns None for one), a naive one is UTC, an offset is converted."""
+    """alpha.validation.oos_start as a UTC datetime; missing, garbled or naive raises."""
     if value is None:
         raise ValueError(f"APR key {_OOS_START_KEY} is not set")
-    parsed = parse_iso_ts(str(value))
-    if parsed is None:
-        raise ValueError(f"APR key {_OOS_START_KEY} is not an ISO timestamp: {value!r}")
-    return parsed.astimezone(UTC)
+    return _aware_utc(value, f"APR key {_OOS_START_KEY}")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1091,7 +1104,7 @@ class IcMeasure:
 
     def _start(self, read_conn: Any, tf: str, symbols: Sequence[str]) -> datetime:
         if self.args.start:
-            return datetime.fromisoformat(self.args.start).astimezone(UTC)
+            return _aware_utc(self.args.start, "--start")
         with read_conn.cursor() as cur:
             cur.execute(_EARLIEST_BAR_SQL, (tf, list(symbols)))
             (earliest,) = cur.fetchone()
@@ -1371,7 +1384,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="monitoring only: comma list of feature names",
     )
     parser.add_argument("--symbols", nargs="+", help="override the universe (tests and smoke)")
-    parser.add_argument("--start", help="ISO start of the window (default: earliest tradeable bar)")
+    parser.add_argument(
+        "--start",
+        help="ISO 8601 start of the window with a Z or offset (default: earliest tradeable bar)",
+    )
     parser.add_argument("--feature-table", default="feature_vectors")
     parser.add_argument("--dry-run", action="store_true", help="compute and report, write nothing")
     parser.add_argument(
