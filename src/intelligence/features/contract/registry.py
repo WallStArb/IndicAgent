@@ -80,7 +80,7 @@ class Alignment(enum.Enum):
     # One value for the whole series, known before the first row (the symbol).
     CONSTANT_PER_SERIES = "constant_per_series"
     # A daily record available from the 16:00 ET close of its date, aligned with
-    # kernels.macro.align_daily_asof: a row reads only records closed by its bar end.
+    # kernels.macro.daily_asof_indices: a row reads only records closed by its bar end.
     DAILY_ASOF_CLOSE = "daily_asof_close"
     # A daily close on a daily reference grid (one row per date, the union of the symbols' 1d
     # dates, NaN where a symbol has no bar): value final at that date's 16:00 ET close. Only the

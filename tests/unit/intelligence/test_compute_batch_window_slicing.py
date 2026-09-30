@@ -118,7 +118,6 @@ def golden_results():
         warm_up_bars=60,
         cross_asset_by_date={},
         ctf_by_ts=None,
-        ctf_ts_list=None,
     )
     assert len(results) == 90, "synthetic fixture changed -- regenerate golden values"
     return results

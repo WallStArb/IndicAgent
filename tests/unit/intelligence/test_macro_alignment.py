@@ -19,9 +19,11 @@ from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     MACRO_COLUMNS,
     CrossAssetRecord,
-    align_daily_asof,
+    bar_ts_ns,
     build_cross_asset_series,
     build_symbol_beta_series,
+    daily_asof_indices,
+    daily_close_availability,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
 
@@ -175,7 +177,13 @@ def _ns(day: date, hour: int, minute: int = 0) -> int:
     return ref.dt_to_ns(datetime(day.year, day.month, day.day, hour, minute, tzinfo=UTC))
 
 
-def test_align_daily_asof_rule():
+def _align(rows, tf, dates, values, default) -> list:
+    """The daily record each row reads: the batch rule (`daily_asof_indices`) applied to values."""
+    index = daily_asof_indices(rows, tf, daily_close_availability(dates))
+    return [values[j] if j >= 0 else default for j in index.tolist()]
+
+
+def test_daily_asof_rule():
     d = SESSIONS[TARGET_SESSION]
     dates = [SESSIONS[TARGET_SESSION - 1], d]
     values = ["prior", "today"]
@@ -187,36 +195,34 @@ def test_align_daily_asof_rule():
         ],
         dtype=np.int64,
     )
-    assert align_daily_asof(rows, "5m", dates, values, "none") == ["prior", "today", "today"]
-    assert align_daily_asof(rows[:1], "1h", dates, values, "none") == ["prior"]
-    assert align_daily_asof(np.array([_ns(d, 19, 0)]), "1h", dates, values, "none") == ["today"]
+    assert _align(rows, "5m", dates, values, "none") == ["prior", "today", "today"]
+    assert _align(rows[:1], "1h", dates, values, "none") == ["prior"]
+    assert _align(np.array([_ns(d, 19, 0)]), "1h", dates, values, "none") == ["today"]
 
 
-def test_align_daily_asof_default_when_no_record_is_available():
+def test_daily_asof_default_when_no_record_is_available():
     d = SESSIONS[TARGET_SESSION]
     default = CrossAssetRecord()
-    out = align_daily_asof(
-        np.array([_ns(d, 14, 0)]), "5m", [d], [CrossAssetRecord(vix_z=3.0)], default
-    )
+    out = _align(np.array([_ns(d, 14, 0)]), "5m", [d], [CrossAssetRecord(vix_z=3.0)], default)
     assert out == [default]
     assert default.vix_z == 0.0
 
 
-def test_align_daily_asof_1d_row_reads_own_date():
+def test_daily_asof_1d_row_reads_own_date():
     d = SESSIONS[TARGET_SESSION]
-    out = align_daily_asof(np.array([_ns(d, 0, 0)]), "1d", [d], ["own"], "none")
+    out = _align(np.array([_ns(d, 0, 0)]), "1d", [d], ["own"], "none")
     assert out == ["own"]
 
 
-def test_align_daily_asof_unknown_timeframe_raises():
+def test_daily_asof_unknown_timeframe_raises():
     with pytest.raises(ValueError, match="unknown timeframe"):
-        align_daily_asof(np.array([0], dtype=np.int64), "7m", [], [], None)
+        daily_asof_indices(np.array([0], dtype=np.int64), "7m", [])
 
 
-def test_align_daily_asof_requires_sorted_dates():
+def test_daily_asof_requires_sorted_dates():
     a, b = SESSIONS[10], SESSIONS[11]
     with pytest.raises(ValueError, match="sorted"):
-        align_daily_asof(np.array([0], dtype=np.int64), "5m", [b, a], [1, 2], None)
+        daily_close_availability([b, a])
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +303,7 @@ def _htf_asof_close_outputs(bars: list[dict], hours: list[dict]) -> dict:
     from src.intelligence.features.kernels.cross_tf import ctf_row_inputs, ctf_series_by_close
 
     series = ctf_series_by_close(hours, CONFIG, "5m", "1h")
-    return ctf_row_inputs([b["ts"] for b in bars], series, sorted(series))
+    return ctf_row_inputs(np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64), series)
 
 
 def _ltf_asof_bar_start_outputs(bars: list[dict], minutes: list[dict]) -> dict:

@@ -12,18 +12,18 @@ only one.) The 1d self-referential case reads the row's own bar, available at th
 
 from __future__ import annotations
 
-import bisect
 import math
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
-from src.intelligence.feature_cache import _HMM_K, _hmm_forward_step, _wilder_rsi_series
+from src.intelligence.feature_cache import _HMM_K, _hmm_forward_step
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
-from src.intelligence.features.kernels._primitives import constant_tf
+from src.intelligence.features.kernels._primitives import constant_tf, wilder_rsi_series
+from src.intelligence.features.kernels.macro import bar_ts_ns
 
 if TYPE_CHECKING:
     from src.intelligence.feature_factory import FeatureFactoryConfig
@@ -71,7 +71,7 @@ def _build_ctf_series(
     period = config.rsi_mid_period
 
     # ctf_momentum: Wilder RSI per bar, normalized to [-1, +1]. Single shared impl.
-    rsi_series = _wilder_rsi_series(closes, period)
+    rsi_series = wilder_rsi_series(closes, period)
     ctf_mom = np.clip((rsi_series - 50.0) / 50.0, -1.0, 1.0)
 
     # ctf_vwap_align: sign(close - cumulative VWAP)
@@ -114,14 +114,13 @@ def _build_ctf_series(
     }
 
 
-def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> dict:
-    """Re-key `_build_ctf_series`'s dict from HTF period-start to each bar's ACTUAL close
-    (todo 243) -- the next HTF bar's own start, not a flat nominal-duration offset.
+def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> CtfSeries:
+    """Key `_build_ctf_series`'s period-start records by each bar's ACTUAL close (todo 243) --
+    the next HTF bar's own start, not a flat nominal-duration offset -- as a `CtfSeries`.
 
     Only applies to genuine cross-timeframe pairs (`tf != htf_tf`, e.g. 5m/15m->1h,
-    1h->1d): the batch join (`bisect.bisect_right(ctf_ts_list, bar_ts) - 1` in
-    FeatureFactory.compute_batch) would otherwise select a still-forming HTF bar for LTF
-    rows inside its still-open window -- real lookahead. A flat offset (`ts + nominal
+    1h->1d): the as-of join (`CtfSeries.asof`) would otherwise select a still-forming HTF bar
+    for LTF rows inside its still-open window -- real lookahead. A flat offset (`ts + nominal
     duration`) is wrong for real partial bars: confirmed against production data, the
     RTH-session-opening 1h bar is a genuine 30-minute partial (e.g. 13:30-14:00 UTC), and
     a flat offset would overshoot its true close by 30 minutes, silently routing LTF rows
@@ -130,14 +129,16 @@ def _rekey_ctf_series_to_actual_close(ctf_by_ts: dict, tf: str, htf_tf: str) -> 
     close isn't knowable from data on hand; the next backfill run picks it up once its
     successor bar exists.
 
-    1d's self-referential case (`tf == htf_tf`) is returned unchanged: re-keying it would
-    select the *prior* day's bar instead of the current, already-closed one -- see
+    1d's self-referential case (`tf == htf_tf`) keeps each bar's own key: re-keying it
+    would select the *prior* day's bar instead of the current, already-closed one -- see
     `FeatureFactoryConfig.ctf_higher_tf_map`'s docstring (feature_factory.py).
     """
     if tf == htf_tf:
-        return ctf_by_ts
+        return CtfSeries.from_close_keyed(ctf_by_ts)
     ts_sorted = sorted(ctf_by_ts.keys())
-    return {ts_sorted[i + 1]: ctf_by_ts[ts_sorted[i]] for i in range(len(ts_sorted) - 1)}
+    return CtfSeries.from_close_keyed(
+        {ts_sorted[i + 1]: ctf_by_ts[ts_sorted[i]] for i in range(len(ts_sorted) - 1)}
+    )
 
 
 def _build_ltf_return_series(ltf_bars: list[dict], target_ts_list: list) -> dict:
@@ -177,28 +178,101 @@ def _build_ltf_return_series(ltf_bars: list[dict], target_ts_list: list) -> dict
     return result
 
 
-class CtfSeries(dict):
-    """CTF records keyed by the time their HTF bar closed (the next HTF bar's start).
+class CtfSeries:
+    """CTF values keyed by the time their HTF bar closed (the next HTF bar's start).
 
-    `ctf_row_inputs` and `FeatureFactory.compute_batch` accept only this type, so a dict keyed by
-    HTF period start (which would let a row read the bar still forming around it) is refused
-    with TypeError rather than joined. Build one with `ctf_series_by_close`; `from_close_keyed`
-    is for callers that already hold close-keyed records (tests).
+    Immutable: a sorted int64-ns close-time array and the four value arrays, read only through
+    `asof`. `ctf_row_inputs` accepts only this type (the one type check, `require_ctf_series`),
+    so a dict keyed by HTF period start, which would let a row read the bar still forming
+    around it, is refused with TypeError rather than joined. Build one with
+    `ctf_series_by_close`; `from_close_keyed` is for callers that already hold close-keyed
+    records (tests). Keys convert with `bar_ts_ns`: a naive datetime is taken as UTC.
     """
 
+    __slots__ = ("_close_ns", "_htf_last_log_ret", "_momentum", "_regime_align", "_vwap_align")
     _TOKEN = object()
 
-    def __init__(self, records: dict, *, _token: object = None):
+    def __init__(
+        self,
+        close_ns: np.ndarray,
+        momentum: np.ndarray,
+        vwap_align: np.ndarray,
+        regime_align: np.ndarray,
+        htf_last_log_ret: np.ndarray,
+        *,
+        _token: object = None,
+    ):
         if _token is not CtfSeries._TOKEN:
             raise TypeError(
                 "build a CtfSeries with ctf_series_by_close or CtfSeries.from_close_keyed"
             )
-        super().__init__(records)
+        arrays = {
+            "_close_ns": np.array(close_ns, dtype=np.int64),
+            "_momentum": np.array(momentum, dtype=np.float64),
+            "_vwap_align": np.array(vwap_align, dtype=np.float64),
+            "_regime_align": np.array(regime_align, dtype=np.float64),
+            "_htf_last_log_ret": np.array(htf_last_log_ret, dtype=np.float64),
+        }
+        for name, array in arrays.items():
+            array.setflags(write=False)
+            object.__setattr__(self, name, array)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("CtfSeries is immutable")
+
+    def __len__(self) -> int:
+        return len(self._close_ns)
+
+    @property
+    def close_ns(self) -> np.ndarray:
+        """The sorted close times, UTC int64 nanoseconds (read-only)."""
+        return self._close_ns
 
     @classmethod
-    def from_close_keyed(cls, records: dict) -> CtfSeries:
-        """Wrap records the caller has already keyed by HTF bar close time."""
-        return cls(records, _token=cls._TOKEN)
+    def from_close_keyed(cls, records: Mapping[datetime, CtfRecord]) -> CtfSeries:
+        """Wrap records the caller has already keyed by HTF bar close time.
+
+        ValueError when two keys name the same instant (a naive and an aware datetime of one
+        time), since the as-of lookup would have no defined answer.
+        """
+        keyed = sorted(
+            ((bar_ts_ns(ts), value) for ts, value in records.items()), key=lambda kv: kv[0]
+        )
+        close_ns = np.array([ns for ns, _ in keyed], dtype=np.int64)
+        if len(close_ns) > 1 and not np.all(np.diff(close_ns) > 0):
+            raise ValueError("CtfSeries keys must be distinct instants")
+        return cls(
+            close_ns,
+            [v.ctf_momentum for _, v in keyed],
+            [v.ctf_vwap_align for _, v in keyed],
+            [v.ctf_regime_align for _, v in keyed],
+            [v.htf_last_log_ret for _, v in keyed],
+            _token=cls._TOKEN,
+        )
+
+    def asof(
+        self, row_ns: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """(momentum, vwap_align, regime_align, htf_last_log_ret, valid) for each row time.
+
+        A row reads the latest value whose close key is at or before the row's time (a row is
+        never given a bar that closes after it starts). Where `valid` is False (no close yet)
+        every value is NaN.
+        """
+        row_ns = np.asarray(row_ns, dtype=np.int64)
+        idx = np.searchsorted(self._close_ns, row_ns, side="right") - 1
+        valid = idx >= 0
+        if not len(self):
+            nan = np.full(len(row_ns), np.nan)
+            return nan, nan.copy(), nan.copy(), nan.copy(), valid
+        safe = np.where(valid, idx, 0)
+        return (
+            np.where(valid, self._momentum[safe], np.nan),
+            np.where(valid, self._vwap_align[safe], np.nan),
+            np.where(valid, self._regime_align[safe], np.nan),
+            np.where(valid, self._htf_last_log_ret[safe], np.nan),
+            valid,
+        )
 
 
 def require_ctf_series(ctf_by_ts: object) -> CtfSeries:
@@ -217,37 +291,20 @@ def ctf_series_by_close(
 ) -> CtfSeries:
     """CTF records for `tf` rows keyed by HTF close time: build the series, then key each value by
     its bar's close (the next HTF bar's start). The only constructor of a CtfSeries from bars."""
-    rekeyed = _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), tf, htf_tf)
-    return CtfSeries.from_close_keyed(rekeyed)
+    return _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), tf, htf_tf)
 
 
-def ctf_row_inputs(
-    row_ts: Sequence[datetime], ctf_by_ts: CtfSeries, ctf_ts_list: list
-) -> dict[str, np.ndarray]:
-    """The four HTF externals on the row grid: for each row the latest HTF value whose close key
-    is at or before the row's bar start (a row is never given a bar that closes after it starts).
+def ctf_row_inputs(row_ns: np.ndarray, ctf_by_ts: CtfSeries) -> dict[str, np.ndarray]:
+    """The four HTF externals on the row grid (`row_ns`: bar starts as UTC int64 nanoseconds).
 
     `ext_ctf_*` are 0.0 before the first HTF close; `ext_htf_last_log_ret` is NaN there. A plain
     dict is refused with TypeError (see `CtfSeries`).
     """
-    require_ctf_series(ctf_by_ts)
-    n = len(row_ts)
-    momentum = np.zeros(n)
-    vwap = np.zeros(n)
-    regime = np.zeros(n)
-    htf_ret = np.full(n, np.nan)
-    for i, ts in enumerate(row_ts):
-        idx = bisect.bisect_right(ctf_ts_list, ts) - 1
-        if idx >= 0:
-            value = ctf_by_ts[ctf_ts_list[idx]]
-            momentum[i] = value.ctf_momentum
-            vwap[i] = value.ctf_vwap_align
-            regime[i] = value.ctf_regime_align
-            htf_ret[i] = value.htf_last_log_ret
+    momentum, vwap, regime, htf_ret, valid = require_ctf_series(ctf_by_ts).asof(row_ns)
     return {
-        "ext_ctf_momentum": momentum,
-        "ext_ctf_vwap_align": vwap,
-        "ext_ctf_regime_align": regime,
+        "ext_ctf_momentum": np.where(valid, momentum, 0.0),
+        "ext_ctf_vwap_align": np.where(valid, vwap, 0.0),
+        "ext_ctf_regime_align": np.where(valid, regime, 0.0),
         "ext_htf_last_log_ret": htf_ret,
     }
 

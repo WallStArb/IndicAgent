@@ -18,7 +18,7 @@ do NOT prove live and batch select the identical HTF bar for a given LTF row -- 
 `_rekey_ctf_series_to_actual_close()`, which re-keys `_build_ctf_series`'s dict to each
 HTF bar's ACTUAL close -- the next HTF bar's own start, not a flat nominal-duration offset
 -- for genuine cross-timeframe pairs (5m/15m->1h, 1h->1d) before the join's
-`bisect.bisect_right(ctf_ts_list, bar_ts) - 1` runs, so it can no longer select a still-
+`CtfSeries.asof` runs, so it can no longer select a still-
 forming bar. A flat offset was rejected during code review (2026-08-03): it silently
 overshoots a real partial bar's true close (confirmed against production data -- the
 RTH-session-opening 1h bar is a genuine 30-minute partial, e.g. 13:30-14:00 UTC), routing
@@ -29,18 +29,20 @@ select the *prior* day's bar instead of the current, already-closed one).
 
 from __future__ import annotations
 
-import bisect
 from datetime import UTC, datetime, timedelta
 
+import numpy as np
 import pytest
 
 from services.feature_vector_pipeline import _assert_rsi_mid_period_fits_bar_history
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.schemas.bar_message import BarMessage, SessionType
 from src.intelligence.features.kernels.cross_tf import (
+    CtfRecord,
     _build_ctf_series,
     _rekey_ctf_series_to_actual_close,
 )
+from src.intelligence.features.kernels.macro import bar_ts_ns
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 
@@ -213,14 +215,15 @@ class TestCtfBatchJoinLookaheadFix:
     HTF bar, not the last one that had actually closed. Calls the real production
     function (`_rekey_ctf_series_to_actual_close`), not a duplicated re-key expression
     (code review finding, 2026-08-03), then joins with the same
-    `bisect.bisect_right(ctf_ts_list, bar_ts) - 1` `_compute_symbol_tf` uses.
+    `CtfSeries.asof` join `_compute_symbol_tf` uses.
     """
 
-    def _join(self, ctf_by_ts: dict, bar_ts: datetime):
-        ctf_ts_list = sorted(ctf_by_ts.keys())
-        idx = bisect.bisect_right(ctf_ts_list, bar_ts) - 1
-        assert idx >= 0, "no closed HTF bar available at this bar_ts"
-        return ctf_by_ts[ctf_ts_list[idx]]
+    def _join(self, ctf_by_ts, bar_ts: datetime) -> CtfRecord:
+        momentum, vwap, regime, htf_ret, valid = ctf_by_ts.asof(
+            np.array([bar_ts_ns(bar_ts)], dtype=np.int64)
+        )
+        assert valid[0], "no closed HTF bar available at this bar_ts"
+        return CtfRecord(float(momentum[0]), float(vwap[0]), float(regime[0]), float(htf_ret[0]))
 
     def test_cross_timeframe_join_selects_last_closed_bar_not_still_forming_one(self):
         """5m rows within an 1h bar's still-open window must resolve to the *prior*,
@@ -292,13 +295,12 @@ class TestCtfBatchJoinLookaheadFix:
         htf_bars = _to_bar_dicts(htf_bars_msgs)
         config = make_agent()._feature_factory_config
 
-        ctf_by_ts = _rekey_ctf_series_to_actual_close(
-            _build_ctf_series(htf_bars, config), "1d", "1d"
-        )
+        per_start = _build_ctf_series(htf_bars, config)
+        ctf_by_ts = _rekey_ctf_series_to_actual_close(per_start, "1d", "1d")
 
         own_bar_ts = htf_bars_msgs[-1].ts
         selected = self._join(ctf_by_ts, own_bar_ts)
-        assert selected == ctf_by_ts[own_bar_ts], (
+        assert selected == per_start[own_bar_ts], (
             "1d self-referential join must resolve to the bar's own value, not a prior "
             "day's -- re-keying this case would be a regression, not a fix"
         )

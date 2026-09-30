@@ -14,6 +14,7 @@ ret_div_1h_1d and ret_div_1m_5m.
 
 from __future__ import annotations
 
+import bisect
 import random
 from datetime import UTC, date, datetime, timedelta
 
@@ -29,6 +30,7 @@ from src.intelligence.features.kernels.cross_tf import (
     ctf_row_inputs,
     ctf_series_by_close,
 )
+from src.intelligence.features.kernels.macro import bar_ts_ns
 from tests.unit.intelligence import kernel_parity_reference as ref
 
 CONFIG = ref.build_config(ref.load_manifest()["synthetic_config"])
@@ -133,7 +135,6 @@ def _hourly_ltf(sessions: list[date], seed: int = 9) -> list[dict]:
 
 def _compute(bars: list[dict], tf: str, ctf, ltf_ret: dict | None = None):
     """compute_batch as `_compute_symbol_tf` calls it for the CTF and ret_div inputs."""
-    ts_list = sorted(ctf.keys()) if ctf else None
     results = FeatureFactory.compute_batch(
         bars,
         SYMBOL,
@@ -142,7 +143,6 @@ def _compute(bars: list[dict], tf: str, ctf, ltf_ret: dict | None = None):
         CONFIG,
         warm_up_bars=0,
         ctf_by_ts=ctf or None,
-        ctf_ts_list=ts_list,
         ltf_ret_by_ts=ltf_ret or None,
     )
     return {ts: fv for ts, fv in results}
@@ -305,34 +305,32 @@ def test_the_scenarios_cover_a_weekend_and_a_half_day():
 
 def test_a_plain_dict_is_refused_by_ctf_row_inputs_and_compute_batch():
     hours, _ = _hour_bars(_sessions(3))
-    plain = dict(_by_close(hours, "5m", "1h"))
-    assert not isinstance(plain, CtfSeries)
+    series = _by_close(hours, "5m", "1h")
+    plain = {
+        ns: CtfRecord(*vals)
+        for ns, *vals in zip(
+            series.close_ns.tolist(), *series.asof(series.close_ns)[:4], strict=True
+        )
+    }
     with pytest.raises(TypeError, match="CtfSeries"):
-        ctf_row_inputs([hours[0]["ts"]], plain, sorted(plain))
+        ctf_row_inputs(np.array([bar_ts_ns(hours[0]["ts"])]), plain)
     rows = _five_minute_bars(_sessions(3))
     with pytest.raises(TypeError, match="CtfSeries"):
-        FeatureFactory.compute_batch(
-            rows,
-            SYMBOL,
-            "5m",
-            FeatureCache(),
-            CONFIG,
-            ctf_by_ts=plain,
-            ctf_ts_list=sorted(plain),
-        )
+        FeatureFactory.compute_batch(rows, SYMBOL, "5m", FeatureCache(), CONFIG, ctf_by_ts=plain)
 
 
 def test_a_start_keyed_dict_is_the_refused_shape():
     """The dict `_build_ctf_series` returns (keyed by period start) is what the old join could
-    not tell from a close-keyed one; it is a plain dict, so both entry points refuse it."""
+    not tell from a close-keyed one; it is a plain dict, so every entry point refuses it, and a
+    CtfSeries cannot be built by calling the constructor."""
     from src.intelligence.features.kernels.cross_tf import _build_ctf_series
 
     hours, _ = _hour_bars(_sessions(3))
     start_keyed = _build_ctf_series(hours, CONFIG)
     with pytest.raises(TypeError, match="CtfSeries"):
-        ctf_row_inputs([hours[0]["ts"]], start_keyed, sorted(start_keyed))
+        ctf_row_inputs(np.array([bar_ts_ns(hours[0]["ts"])]), start_keyed)
     with pytest.raises(TypeError, match="CtfSeries"):
-        CtfSeries(start_keyed)
+        CtfSeries(*([np.zeros(1)] * 5))
     with pytest.raises(TypeError, match="CtfSeries"):
         FeatureFactory.compute_batch(
             _five_minute_bars(_sessions(3)),
@@ -341,16 +339,25 @@ def test_a_start_keyed_dict_is_the_refused_shape():
             FeatureCache(),
             CONFIG,
             ctf_by_ts=start_keyed,
-            ctf_ts_list=sorted(start_keyed),
         )
 
 
-def test_ctf_series_is_a_dict_subclass_of_close_keyed_records():
+def test_ctf_series_is_an_immutable_close_keyed_object():
     hours, _ = _hour_bars(_sessions(3))
     series = _by_close(hours, "5m", "1h")
-    assert isinstance(series, CtfSeries) and isinstance(series, dict)
-    assert all(isinstance(v, CtfRecord) for v in series.values())
-    assert CtfSeries.from_close_keyed(dict(series)) == series
+    assert isinstance(series, CtfSeries) and not isinstance(series, dict)
+    assert series.close_ns.dtype == np.int64 and np.all(np.diff(series.close_ns) > 0)
+    with pytest.raises(AttributeError):
+        series.close_ns = series.close_ns  # type: ignore[misc]
+    with pytest.raises(ValueError):
+        series.close_ns[0] = 0
+    with pytest.raises(ValueError, match="distinct"):
+        CtfSeries.from_close_keyed(
+            {
+                datetime(2022, 6, 1, 14): CtfRecord(0.0, 0.0, 0.0, 0.0),
+                datetime(2022, 6, 1, 14, tzinfo=UTC): CtfRecord(1.0, 1.0, 1.0, 1.0),
+            }
+        )
 
 
 def test_the_series_is_keyed_by_htf_close():
@@ -358,9 +365,136 @@ def test_the_series_is_keyed_by_htf_close():
     series = _by_close(hours, "5m", "1h")
     starts = [b["ts"] for b in hours]
     # each key is the next bar's start, which is at or after the source bar's true close
-    for source, key in zip(starts[:-1], sorted(series), strict=True):
-        assert key >= close_of[source]
+    for source, key in zip(starts[:-1], series.close_ns.tolist(), strict=True):
+        assert key >= bar_ts_ns(close_of[source])
     assert len(series) == len(hours) - 1  # the last bar has no known successor
+
+
+def _bisect_reference(series_by_close: dict[datetime, CtfRecord], row_ts: list[datetime]) -> dict:
+    """The pre-CtfSeries join, kept as the slow reference: bisect_right over sorted datetimes."""
+    keys = sorted(series_by_close)
+    out = {c: np.zeros(len(row_ts)) for c in CTF_COLUMNS}
+    out["ext_htf_last_log_ret"] = np.full(len(row_ts), np.nan)
+    for i, ts in enumerate(row_ts):
+        idx = bisect.bisect_right(keys, ts) - 1
+        if idx >= 0:
+            value = series_by_close[keys[idx]]
+            out["ctf_momentum"][i] = value.ctf_momentum
+            out["ctf_vwap_align"][i] = value.ctf_vwap_align
+            out["ctf_regime_align"][i] = value.ctf_regime_align
+            out["ext_htf_last_log_ret"][i] = value.htf_last_log_ret
+    return out
+
+
+def _period_start_records(hours: list[dict], tf: str, htf_tf: str) -> dict[datetime, CtfRecord]:
+    from src.intelligence.features.kernels.cross_tf import (
+        _build_ctf_series,
+    )
+
+    per_start = _build_ctf_series(hours, CONFIG)
+    if tf == htf_tf:
+        return per_start
+    keys = sorted(per_start)
+    return {keys[i + 1]: per_start[keys[i]] for i in range(len(keys) - 1)}
+
+
+@pytest.mark.parametrize("scenario", list(SCENARIOS))
+def test_asof_equals_the_bisect_reference_on_the_scenarios(scenario):
+    _sessions_, hours, _close_of, rows = _scenario(scenario)
+    records = _period_start_records(hours, "5m", "1h")
+    series = _by_close(hours, "5m", "1h")
+    row_ts = [b["ts"] for b in rows]
+    # also rows exactly on a close, one microsecond either side, and before the first close
+    keys = sorted(records)
+    row_ts += [keys[0] - timedelta(hours=3), keys[0], keys[5]]
+    row_ts += [
+        k + d for k in keys[:20] for d in (timedelta(microseconds=1), -timedelta(microseconds=1))
+    ]
+    row_ns = np.array([bar_ts_ns(t) for t in row_ts], dtype=np.int64)
+    want = _bisect_reference(records, row_ts)
+    got = ctf_row_inputs(row_ns, series)
+    for want_name, got_name in zip(
+        (*CTF_COLUMNS, "ext_htf_last_log_ret"),
+        ("ext_ctf_momentum", "ext_ctf_vwap_align", "ext_ctf_regime_align", "ext_htf_last_log_ret"),
+        strict=True,
+    ):
+        assert want[want_name].tobytes() == got[got_name].tobytes(), (scenario, want_name)
+
+
+def test_asof_equals_the_bisect_reference_on_random_keys_and_naive_rows():
+    rng = np.random.default_rng(4)
+    base = datetime(2022, 6, 1, 13, 30, tzinfo=UTC)
+    offsets = np.unique(rng.integers(0, 10**7, size=200))
+    keys = [base + timedelta(seconds=int(o)) for o in offsets]
+    records = {k: CtfRecord(*map(float, rng.normal(size=4))) for k in keys}
+    series = CtfSeries.from_close_keyed(records)
+    row_ts = [base + timedelta(seconds=int(o)) for o in rng.integers(-1000, 10**7 + 1000, size=500)]
+    row_ts += keys[:50]
+    want = _bisect_reference(records, row_ts)
+    got = ctf_row_inputs(np.array([bar_ts_ns(t) for t in row_ts], dtype=np.int64), series)
+    assert want["ctf_momentum"].tobytes() == got["ext_ctf_momentum"].tobytes()
+    assert want["ext_htf_last_log_ret"].tobytes() == got["ext_htf_last_log_ret"].tobytes()
+    naive = [t.replace(tzinfo=None) for t in row_ts]
+    again = ctf_row_inputs(np.array([bar_ts_ns(t) for t in naive], dtype=np.int64), series)
+    assert again["ext_ctf_regime_align"].tobytes() == got["ext_ctf_regime_align"].tobytes()
+
+
+def test_an_empty_series_reads_zeros_and_nan():
+    empty = CtfSeries.from_close_keyed({})
+    out = ctf_row_inputs(np.array([1, 2, 3], dtype=np.int64), empty)
+    assert not out["ext_ctf_momentum"].any() and np.isnan(out["ext_htf_last_log_ret"]).all()
+
+
+@pytest.mark.parametrize("tf", ["5m", "15m"])
+def test_the_backfill_shares_one_period_start_series_per_higher_tf(monkeypatch, tf):
+    """5m and 15m both map to 1h: the second (symbol, tf) call reuses the cached period-start
+    series instead of re-fetching and rebuilding, and gets the series the uncached call builds."""
+    import services.backfill_feature_factory as bff
+
+    hours, _ = _hour_bars(_sessions(4))
+    fetched: list[str] = []
+
+    def fake_fetch(conn, symbol, fetch_tf):
+        fetched.append(fetch_tf)
+        if fetch_tf == "1h":
+            return hours
+        return _five_minute_bars(_sessions(4)) if fetch_tf == tf else []
+
+    seen: list = []
+    monkeypatch.setattr(bff, "_fetch_bars_from_db", fake_fetch)
+    monkeypatch.setattr(
+        bff.FeatureFactory,
+        "compute_batch",
+        staticmethod(lambda *a, **kw: seen.append(kw["ctf_by_ts"]) or []),
+    )
+
+    def run(cache):
+        bff._compute_symbol_tf(
+            conn=None,
+            symbol=SYMBOL,
+            tf=tf,
+            config=CONFIG,
+            pipeline_version="t",
+            warm_up_bars=0,
+            cross_asset_by_date={},
+            beta_by_date={},
+            symbol_1d_bars=_day_bars(_sessions(4))[0],
+            ctf_period_start_by_htf=cache,
+        )
+
+    shared: dict = {}
+    run(shared)
+    n_fetched = fetched.count("1h")
+    run(shared)
+    assert fetched.count("1h") == n_fetched  # second call read the cache
+    run(None)
+    cached_first, cached_second, uncached = seen
+    for series in (cached_first, cached_second):
+        assert series.close_ns.tobytes() == uncached.close_ns.tobytes()
+        probe = uncached.close_ns
+        for left, right in zip(series.asof(probe), uncached.asof(probe), strict=True):
+            assert left.tobytes() == right.tobytes()
+    assert cached_first.close_ns.tobytes() == _by_close(hours, tf, "1h").close_ns.tobytes()
 
 
 # ---- Real data -----------------------------------------------------------------------------

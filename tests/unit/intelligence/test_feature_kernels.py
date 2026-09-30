@@ -215,7 +215,12 @@ def _synthetic_case():
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
         **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
         **_cross_tf_kernel_inputs(
-            [ref.ns_to_dt(ns) for ns in inputs["ts"]], "5m", FeatureCache(), None, None, None
+            inputs["ts"],
+            [ref.ns_to_dt(ns) for ns in inputs["ts"]],
+            "5m",
+            FeatureCache(),
+            None,
+            None,
         ),
     }
     batch = {

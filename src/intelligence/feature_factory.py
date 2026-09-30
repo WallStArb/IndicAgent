@@ -83,13 +83,13 @@ from src.intelligence.features.kernels.control import (
 from src.intelligence.features.kernels.cross_tf import (
     CtfSeries,
     ctf_row_inputs,
-    require_ctf_series,
 )
 from src.intelligence.features.kernels.macro import (
     RECORD_COLUMNS,
     CrossAssetRecord,
-    align_daily_asof,
     bar_ts_ns,
+    daily_asof_indices,
+    daily_close_availability,
 )
 from src.intelligence.features.kernels.price import (
     _aroon_osc,
@@ -1267,13 +1267,6 @@ def _batch_kernel_inputs(
     }
 
 
-def _aware_utc(ts: Any) -> Any:
-    """A bar timestamp as the loop reads it: a naive datetime is taken as UTC."""
-    if isinstance(ts, datetime) and ts.tzinfo is None:
-        return ts.replace(tzinfo=UTC)
-    return ts
-
-
 def _none_if_nan(value: float) -> float | None:
     """A beta the caller could not supply is None in the record and NaN on the kernel grid."""
     return None if math.isnan(value) else float(value)
@@ -1319,7 +1312,7 @@ def _macro_kernel_inputs(
 ) -> dict[str, np.ndarray]:
     """The ten `ext_*` macro inputs on the row grid (None becomes NaN).
 
-    Batch path: the daily records are aligned as-of the row's bar end with `align_daily_asof`
+    Batch path: the daily records are aligned as-of the row's bar end with `daily_asof_indices`
     (a record dated d is available from the 16:00 ET close of d, so an intraday row on d reads
     d - 1; 1d rows read their own date). A row with no available record reads the default:
     NaN for the cross-asset fields, None (NaN) for the betas. Live path (cross_asset_by_date and
@@ -1332,47 +1325,48 @@ def _macro_kernel_inputs(
     out: dict[str, np.ndarray] = {}
     if cross_asset_by_date is not None:
         dates = sorted(cross_asset_by_date)
-        records = align_daily_asof(
-            row_ns, tf, dates, [cross_asset_by_date[d] for d in dates], _MISSING_CROSS_ASSET
-        )
+        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
+        records = [cross_asset_by_date[d] for d in dates]
         for name in RECORD_COLUMNS:
-            out[f"ext_{name}"] = np.array([getattr(r, name) for r in records], dtype=np.float64)
+            # The default closes each column, so index -1 (no record available) reads it.
+            column = [getattr(r, name) for r in records] + [getattr(_MISSING_CROSS_ASSET, name)]
+            out[f"ext_{name}"] = np.array(column, dtype=np.float64)[index]
     else:
         for name in RECORD_COLUMNS:
             out[f"ext_{name}"] = np.full(n, getattr(cache, name), dtype=np.float64)
     if beta_by_date is not None:
         dates = sorted(beta_by_date)
-        pairs = align_daily_asof(row_ns, tf, dates, [beta_by_date[d] for d in dates], (None, None))
-        equity = [p[0] for p in pairs]
-        rate = [p[1] for p in pairs]
+        index = daily_asof_indices(row_ns, tf, daily_close_availability(dates))
+        pairs = [beta_by_date[d] for d in dates] + [(None, None)]
+        for position, name in enumerate(("ext_equity_beta_z", "ext_rate_beta_z")):
+            column = [np.nan if p[position] is None else p[position] for p in pairs]
+            out[name] = np.array(column, dtype=np.float64)[index]
     else:
-        equity = [None if symbol == "SPY" else cache.equity_beta_z] * n
-        rate = [None if symbol == "TLT" else cache.rate_beta_z] * n
-    out["ext_equity_beta_z"] = np.array(
-        [np.nan if v is None else v for v in equity], dtype=np.float64
-    )
-    out["ext_rate_beta_z"] = np.array([np.nan if v is None else v for v in rate], dtype=np.float64)
+        equity = None if symbol == "SPY" else cache.equity_beta_z
+        rate = None if symbol == "TLT" else cache.rate_beta_z
+        out["ext_equity_beta_z"] = np.full(n, np.nan if equity is None else equity)
+        out["ext_rate_beta_z"] = np.full(n, np.nan if rate is None else rate)
     return out
 
 
 def _cross_tf_kernel_inputs(
+    row_ns: np.ndarray,
     row_ts: Sequence[datetime],
     tf: str,
     cache: FeatureCache,
     ctf_by_ts: CtfSeries | None,
-    ctf_ts_list: list | None,
     ltf_ret_by_ts: dict | None,
 ) -> dict[str, np.ndarray]:
     """The five cross-timeframe `ext_*` inputs on the row grid.
 
-    Batch path (`ctf_by_ts` and `ctf_ts_list` given): `ctf_row_inputs` looks each row up among the
-    HTF values keyed by their bar's close. Live path: the cache's CTF values broadcast and the
+    Batch path (`ctf_by_ts` given): `ctf_row_inputs` looks each row up among the HTF values
+    keyed by their bar's close. Live path: the cache's CTF values broadcast and the
     HTF return is NaN (the divergences have no live-path plumbing). `ext_ltf_last_log_ret` is the
     1m return taken at the row's bar start, NaN where the dict has none.
     """
     n = len(row_ts)
-    if ctf_by_ts is not None and ctf_ts_list is not None:
-        out = ctf_row_inputs(row_ts, ctf_by_ts, ctf_ts_list)
+    if ctf_by_ts is not None:
+        out = ctf_row_inputs(row_ns, ctf_by_ts)
     else:
         out = {
             "ext_ctf_momentum": np.full(n, cache.ctf_momentum, dtype=np.float64),
@@ -2718,7 +2712,6 @@ class FeatureFactory:
         warm_up_bars: int = 0,
         cross_asset_by_date: dict | None = None,
         ctf_by_ts: CtfSeries | None = None,
-        ctf_ts_list: list | None = None,
         beta_by_date: dict | None = None,
         ltf_ret_by_ts: dict | None = None,
     ) -> list[tuple[datetime, FeatureVector]]:
@@ -2738,7 +2731,7 @@ class FeatureFactory:
             the permanent value when the caller IS the factor proxy for that beta (SPY for
             equity_beta_z, TLT for rate_beta_z) -- a self-regression is degenerate
           - CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align) read from ctf_by_ts (a CtfSeries
-            keyed by HTF bar close; a plain dict raises TypeError) via bisect
+            keyed by HTF bar close; a plain dict raises TypeError) via CtfSeries.asof
           - VP (poc_dist_atr, va_position, + 12 structural fields) computed from OHLCV via
             FeatureCache.update_session_vp(), called once per bar including warm-up --
             the identical mechanism the live path uses (D-05: no I3/tick-data dependency
@@ -2763,8 +2756,6 @@ class FeatureFactory:
             have no live-path plumbing today -- always None (Plan 05, same asymmetry
             documented for the Plan 04 cross-asset gap).
         """
-        if ctf_by_ts is not None:
-            require_ctf_series(ctf_by_ts)  # TypeError for a dict not keyed by HTF bar close
         if len(bars) < 2:
             return []
 
@@ -2779,7 +2770,7 @@ class FeatureFactory:
         # batch; the loop below reads row i. The registry is looked up here, never at import,
         # so kernel origins cannot create an import cycle with this module.
         row_ns = np.array([bar_ts_ns(b["ts"]) for b in bars], dtype=np.int64)
-        row_ts = [_aware_utc(b["ts"]) for b in bars]
+        row_ts = [b["ts"] for b in bars]
         k = compute_kernels(
             default_registry(),
             {
@@ -2787,7 +2778,7 @@ class FeatureFactory:
                 **_macro_kernel_inputs(
                     row_ns, symbol, tf, cache, cross_asset_by_date, beta_by_date
                 ),
-                **_cross_tf_kernel_inputs(row_ts, tf, cache, ctf_by_ts, ctf_ts_list, ltf_ret_by_ts),
+                **_cross_tf_kernel_inputs(row_ns, row_ts, tf, cache, ctf_by_ts, ltf_ret_by_ts),
             },
             config,
             outputs=list(

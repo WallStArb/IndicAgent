@@ -29,8 +29,8 @@ full scoped-execution plan this script implements Steps 2-5 of):
    (`_fetch_bars_from_db`), build the corrected CTF series
    (`_rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), "15m", "1h")`), then
    join it onto every existing 15m `feature_vectors` row for that symbol using the SAME
-   `bisect.bisect_right(ctf_ts_list, bar_ts) - 1` logic `FeatureFactory.compute_batch` uses
-   (`src/intelligence/feature_factory.py:7621`) -- including its `_idx < 0` fallback (all three
+   `CtfSeries.asof` lookup `FeatureFactory.compute_batch` uses
+   (`src/intelligence/features/kernels/cross_tf.py`) -- including its `_idx < 0` fallback (all three
    CTF columns default to `0.0`, never `None`, for a bar with no eligible HTF cell yet).
 3. Only rows whose corrected value actually differs from the stored value (tolerance 1e-9) are
    written -- an UPDATE that would set a column to its current value has no visible effect, so
@@ -58,6 +58,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+import numpy as np
 import structlog
 
 from services._batch_utils import bulk_update_by_key, load_config_service_sync
@@ -70,6 +71,7 @@ from services.backfill_feature_factory import (
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.features.kernels.cross_tf import ctf_row_inputs, ctf_series_by_close
+from src.intelligence.features.kernels.macro import bar_ts_ns
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -110,7 +112,6 @@ def _recompute_symbol(conn: Any, symbol: str, config: Any, apply: bool) -> dict[
         return {"symbol": symbol, "rows_examined": 0, "rows_changed": 0, "rows_written": 0}
 
     ctf_by_ts = ctf_series_by_close(htf_bars, config, _TF, htf_tf)
-    ctf_ts_list = sorted(ctf_by_ts.keys())
 
     with conn.cursor() as cur:
         cur.execute(_FETCH_ROWS_SQL, (symbol, _TF))
@@ -118,7 +119,9 @@ def _recompute_symbol(conn: Any, symbol: str, config: Any, apply: bool) -> dict[
 
     # The same lookup compute_batch uses (kernels.cross_tf.ctf_row_inputs): one implementation
     # (todo 273), 0.0 for a bar with no eligible HTF cell yet.
-    joined = ctf_row_inputs([row[0] for row in rows], ctf_by_ts, ctf_ts_list)
+    joined = ctf_row_inputs(
+        np.array([bar_ts_ns(row[0]) for row in rows], dtype=np.int64), ctf_by_ts
+    )
     updates: list[tuple[float, float, float, str, str, Any]] = []
     for k, (bar_ts, old_mom, old_vwap, old_regime) in enumerate(rows):
         new_mom = float(joined["ext_ctf_momentum"][k])

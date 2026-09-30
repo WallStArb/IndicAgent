@@ -582,7 +582,6 @@ class TestPhase151CrossTfDivergences:
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
-        ctf_ts_list = [bars[0]["ts"]]
         ctf_by_ts = CtfSeries.from_close_keyed(
             {
                 bars[0]["ts"]: CtfRecord(
@@ -601,7 +600,6 @@ class TestPhase151CrossTfDivergences:
             config,
             warm_up_bars=5,
             ctf_by_ts=ctf_by_ts,
-            ctf_ts_list=ctf_ts_list,
         )
         assert results, "compute_batch returned no results"
         for _, fv in results:
@@ -617,7 +615,6 @@ class TestPhase151CrossTfDivergences:
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
-        ctf_ts_list = [bars[0]["ts"]]
         htf_last_log_ret = 0.0123456789
         ctf_by_ts = CtfSeries.from_close_keyed(
             {
@@ -637,7 +634,6 @@ class TestPhase151CrossTfDivergences:
             config,
             warm_up_bars=5,
             ctf_by_ts=ctf_by_ts,
-            ctf_ts_list=ctf_ts_list,
         )
         assert results, "compute_batch returned no results"
 
@@ -663,7 +659,6 @@ class TestPhase151CrossTfDivergences:
         config = _make_config_for_min_window()
         cache = FeatureCache()
         bars = _make_bars_dicts(60)
-        ctf_ts_list = [bars[0]["ts"]]
         ctf_by_ts = CtfSeries.from_close_keyed(
             {
                 bars[0]["ts"]: CtfRecord(
@@ -682,7 +677,6 @@ class TestPhase151CrossTfDivergences:
             config,
             warm_up_bars=5,
             ctf_by_ts=ctf_by_ts,
-            ctf_ts_list=ctf_ts_list,
         )
         assert results, "compute_batch returned no results"
         for _, fv in results:

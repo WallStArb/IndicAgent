@@ -403,7 +403,7 @@ def test_cross_asset_symbols_constant_has_all_six_expected_tickers():
 #
 # A daily record dated d is available from the 16:00 ET close of d. A bar (start ts, timeframe)
 # may read it once that close is at or before the bar's end. The batch path applies this with
-# kernels.macro.align_daily_asof (186-12); the live lookup read "most recent <= the bar's UTC
+# kernels.macro.daily_asof_indices (186-12); the live lookup read "most recent <= the bar's UTC
 # date", which returns d's record to a bar at 10:00 ET on d (a close that does not exist yet) and
 # d+1's record to a bar at 01:00 UTC on d+1 (the evening of ET date d).
 

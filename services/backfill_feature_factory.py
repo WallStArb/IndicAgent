@@ -66,8 +66,9 @@ from src.intelligence.features.feature_vector_persistence import (
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels.cross_tf import (
     CtfSeries,
+    _build_ctf_series,
     _build_ltf_return_series,
-    ctf_series_by_close,
+    _rekey_ctf_series_to_actual_close,
 )
 from src.intelligence.features.kernels.macro import (
     HYG,
@@ -1238,6 +1239,9 @@ def _run_compute_worker(args: tuple) -> dict:
         beta_by_date = build_symbol_beta_series(
             symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
         )
+        # Period-start CTF series per higher tf, shared by every tf that maps to it (5m and 15m
+        # both read 1h); the cheap close re-key runs per tf inside _compute_symbol_tf.
+        ctf_period_start_by_htf: dict[str, dict] = {}
 
         for tf in tfs:
             try:
@@ -1252,6 +1256,7 @@ def _run_compute_worker(args: tuple) -> dict:
                     beta_by_date=beta_by_date,
                     symbol_1d_bars=symbol_1d_bars,
                     refresh=refresh,
+                    ctf_period_start_by_htf=ctf_period_start_by_htf,
                 )
 
                 depth_years = _DEPTH_YEARS[tf]
@@ -1312,6 +1317,7 @@ def _compute_symbol_tf(
     beta_by_date: dict,
     symbol_1d_bars: list[dict],
     refresh: bool = False,
+    ctf_period_start_by_htf: dict[str, dict] | None = None,
 ) -> list[tuple]:
     """Compute FeatureVectors for one (symbol, tf) pair.
 
@@ -1344,18 +1350,23 @@ def _compute_symbol_tf(
     ProcessPoolExecutor worker) never writes them; the main process does,
     serially, via _batch_insert.
     """
-    # Build CTF series for this symbol (O(n) single pass over HTF bars)
+    # CTF series for this symbol: the period-start build is O(n) over the HTF bars and is
+    # shared through `ctf_period_start_by_htf` (keyed by htf_tf) when the caller passes one; the
+    # re-key to each bar's close is per tf.
     htf_tf = config.ctf_higher_tf_map.get(tf)
     ctf_by_ts: CtfSeries | None = None
-    htf_ts_list: list = []
     if htf_tf:
-        htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
-        if htf_bars:
-            ctf_by_ts = ctf_series_by_close(htf_bars, config, tf, htf_tf)
-            htf_ts_list = sorted(ctf_by_ts.keys())
+        period_start = (ctf_period_start_by_htf or {}).get(htf_tf)
+        if period_start is None:
+            htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
+            period_start = _build_ctf_series(htf_bars, config) if htf_bars else {}
+            if ctf_period_start_by_htf is not None:
+                ctf_period_start_by_htf[htf_tf] = period_start
             _logger.debug(
                 "ctf_series_built", symbol=symbol, tf=tf, htf_tf=htf_tf, htf_bars=len(htf_bars)
             )
+        if period_start:
+            ctf_by_ts = _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf)
 
     cache = FeatureCache()
     # tf=="1d" reuses the caller's already-fetched daily bars instead of an
@@ -1394,8 +1405,7 @@ def _compute_symbol_tf(
         config,
         warm_up_bars=warm_up_bars,
         cross_asset_by_date=cross_asset_by_date,
-        ctf_by_ts=ctf_by_ts or None,
-        ctf_ts_list=htf_ts_list or None,
+        ctf_by_ts=ctf_by_ts,
         beta_by_date=beta_by_date or None,
         ltf_ret_by_ts=ltf_ret_by_ts or None,
     )

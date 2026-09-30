@@ -422,7 +422,7 @@ class FeatureVectorPipeline(BaseDaemon):
         """The cross-asset record available at the end of the bar (start `bar_ts`, timeframe `tf`).
 
         Uses `daily_asof_index`, the same availability rule the batch path applies with
-        `align_daily_asof`: a record dated d is available from the 16:00 ET close of d, so a bar
+        `daily_asof_indices`: a record dated d is available from the 16:00 ET close of d, so a bar
         at 10:00 ET on d reads d - 1, the 5m bar ending at 16:00 ET reads d, and a bar at 01:00
         UTC on d + 1 (the evening of ET date d) reads d. The previous lookup keyed on the bar's
         UTC date ("most recent <= d"), which returned d's record from inside the session it

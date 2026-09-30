@@ -3,7 +3,7 @@
 The daily cross-asset record (`build_cross_asset_series`) and the per-symbol beta record
 (`build_symbol_beta_series`) are built by the caller from daily bars; a kernel receives them as
 external inputs on the row grid. The contract that keeps them causal is in each external's
-`alignment` string: the caller aligns them with `align_daily_asof`, so a row reads only records
+`alignment` string: the caller aligns them with `daily_asof_indices`, so a row reads only records
 that were available at the row's bar end.
 
 The two builders also live here, and `cross_asset_daily` and `factor_beta_daily` register them
@@ -20,7 +20,7 @@ from bisect import bisect_right
 from collections import deque
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -101,40 +101,25 @@ def daily_asof_index(row_ts_ns: int, tf: str, available_ns: Sequence[int]) -> in
 
     The one availability rule for daily records: a record dated d is available from the 16:00 ET
     close of d, and a row (bar start `row_ts_ns`, timeframe `tf`) can read it when that close is
-    at or before the row's bar end, `row_ts_ns` plus the bar duration. `align_daily_asof` (batch)
+    at or before the row's bar end, `row_ts_ns` plus the bar duration. `daily_asof_indices` (batch)
     and the live pipeline's cross-asset lookup both call this, so live and batch cannot drift.
     """
     return bisect_right(available_ns, row_ts_ns + _bar_end_offset_seconds(tf) * _NS_PER_S) - 1
 
 
-def align_daily_asof(
-    row_ts_ns: np.ndarray,
-    tf: str,
-    daily_dates: Sequence[date],
-    values: Sequence[Any],
-    default: Any,
-) -> list[Any]:
-    """For each row, the latest daily record available at the row's bar end, else `default`.
+def daily_asof_indices(row_ts_ns: np.ndarray, tf: str, available_ns: Sequence[int]) -> np.ndarray:
+    """`daily_asof_index` for every row at once: an int64 array, -1 where no record is available.
 
-    A daily record dated d is available at the 16:00 ET close of d; a row (bar start
-    `row_ts_ns`, timeframe `tf`) can use it when that close is at or before the row's bar end,
-    `row_ts_ns` plus the bar duration. Keying a record by the row's UTC date instead reads the
-    same day's close from inside the session, which is lookahead on intraday rows.
-
-    Half-day sessions close before 16:00 ET, so this rule is conservative on those days: it only
-    withholds a record that was already available, never admits one that was not.
-
-    `daily_dates` must be sorted ascending and parallel to `values`. Pure: no I/O.
+    Same rule and same result as the scalar (`searchsorted(..., side="right") - 1` over the
+    bar end), computed once per call so callers can gather any number of per-date columns with
+    one fancy index. A record dated d is available at the 16:00 ET close of d; keying a record
+    by the row's UTC date instead reads the same day's close from inside the session, which is
+    lookahead on intraday rows. Half-day sessions close before 16:00 ET, so the rule is
+    conservative on those days: it only withholds a record that was already available, never
+    admits one that was not. An unknown timeframe raises even for an empty row set.
     """
-    if len(daily_dates) != len(values):
-        raise ValueError("daily_dates and values must have the same length")
-    available = daily_close_availability(daily_dates)
-    _bar_end_offset_seconds(tf)  # an unknown timeframe raises even for an empty row set
-    out: list[Any] = []
-    for ts in row_ts_ns.tolist():
-        j = daily_asof_index(ts, tf, available)
-        out.append(values[j] if j >= 0 else default)
-    return out
+    bar_end = np.asarray(row_ts_ns, dtype=np.int64) + _bar_end_offset_seconds(tf) * _NS_PER_S
+    return np.searchsorted(np.asarray(available_ns, dtype=np.int64), bar_end, side="right") - 1
 
 
 # Cross-asset proxy symbols (Phase 151 Plan 04, moved here by Plan 09 Task 1). Single
