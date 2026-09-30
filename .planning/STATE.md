@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-28T11:15:14.371Z"
+last_updated: "2026-09-30T02:14:02.894Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 25
+  completed_plans: 35
   percent: 17
 ---
 
