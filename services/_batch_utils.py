@@ -198,6 +198,23 @@ _BULK_LOAD_COLUMNS_SQL = (
     "SELECT column_name, data_type FROM information_schema.columns "
     "WHERE table_schema = current_schema() AND table_name = %s"
 )
+
+
+def table_column_types(conn: Any, table: str) -> dict[str, str]:
+    """{column_name: data_type} of `table` in the connection's current schema, from
+    information_schema (dtype comes from the schema, never from row data). A table with no
+    columns does not exist, and raises, so a schema identifier that will be composed into SQL
+    is validated by the same read that types its columns. The one sync read of this catalog:
+    bulk_load and the IC writer use it; `fetch_table_columns` is its asyncpg twin over the
+    public schema."""
+    with conn.cursor() as cur:
+        cur.execute(_BULK_LOAD_COLUMNS_SQL, (table,))
+        types: dict[str, str] = dict(cur.fetchall())
+    if not types:
+        raise ValueError(f"table {table} does not exist in the current schema")
+    return types
+
+
 _BULK_LOAD_TIME_DIMENSION_SQL = (
     "SELECT column_name FROM timescaledb_information.dimensions "
     "WHERE hypertable_name = %s AND dimension_number = 1"
@@ -671,22 +688,21 @@ def _bulk_load_precheck(
     """All refusal checks, before any COPY. Returns the positions (into `columns`)
     whose live information_schema data_type is 'real' -- the clamp set, read from the
     live schema rather than any caller-supplied col_types (todo 312 drift class)."""
+    live_columns = table_column_types(conn, spec.target_table)
+    missing = [c for c in columns if c not in live_columns]
+    if missing:
+        raise ValueError(
+            f"bulk_load: columns not present in the live schema of "
+            f"{spec.target_table!r}: {missing}"
+        )
+    unknown_keys = [c for c in (spec.replace_where or {}) if c not in live_columns]
+    if unknown_keys:
+        raise ValueError(
+            f"bulk_load: replace_where columns not present in the live schema of "
+            f"{spec.target_table!r}: {unknown_keys}"
+        )
+    real_positions = frozenset(i for i, c in enumerate(columns) if live_columns[c] == "real")
     with conn.cursor() as cur:
-        cur.execute(_BULK_LOAD_COLUMNS_SQL, (spec.target_table,))
-        live_columns = dict(cur.fetchall())
-        missing = [c for c in columns if c not in live_columns]
-        if missing:
-            raise ValueError(
-                f"bulk_load: columns not present in the live schema of "
-                f"{spec.target_table!r}: {missing}"
-            )
-        unknown_keys = [c for c in (spec.replace_where or {}) if c not in live_columns]
-        if unknown_keys:
-            raise ValueError(
-                f"bulk_load: replace_where columns not present in the live schema of "
-                f"{spec.target_table!r}: {unknown_keys}"
-            )
-        real_positions = frozenset(i for i, c in enumerate(columns) if live_columns[c] == "real")
         cur.execute(_BULK_LOAD_TIME_DIMENSION_SQL, (spec.target_table,))
         dimensions = [row[0] for row in cur.fetchall()]
     if not dimensions:

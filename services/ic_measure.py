@@ -81,6 +81,7 @@ from services._batch_utils import (  # noqa: E402
     load_config_service_sync,
     prior_completed_unit,
     short_lived_conn,
+    table_column_types,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.code_identity import code_key  # noqa: E402
@@ -288,39 +289,22 @@ def identity_snapshot(
 # ---------------------------------------------------------------------------
 
 _NUMERIC_TYPES = frozenset({"real", "double precision", "integer", "bigint", "smallint", "numeric"})
-_COLUMN_TYPES_SQL = (
-    "SELECT column_name, data_type FROM information_schema.columns "
-    "WHERE table_schema = current_schema() AND table_name = %s"
-)
-_TABLE_EXISTS_SQL = (
-    "SELECT 1 FROM information_schema.tables "
-    "WHERE table_schema = current_schema() AND table_name = %s"
-)
 
 
-def validate_feature_table(read_conn: Any, table: str) -> None:
-    """A schema identifier must name a real table (it is composed into SQL as an Identifier)."""
-    with read_conn.cursor() as cur:
-        cur.execute(_TABLE_EXISTS_SQL, (table,))
-        if cur.fetchone() is None:
-            raise ValueError(f"feature table {table!r} does not exist")
-
-
-def feature_names(read_conn: Any, feature_table: str) -> tuple[list[str], list[str]]:
+def feature_names(read_conn: Any, feature_table: str) -> list[str]:
     """FeatureVector field names that are numeric columns of the table (types from
-    information_schema, never inferred from data), in FeatureVector order, and the names the
-    table lacks or holds as a non-numeric type."""
-    with read_conn.cursor() as cur:
-        cur.execute(_COLUMN_TYPES_SQL, (feature_table,))
-        types = dict(cur.fetchall())
+    information_schema, never inferred from data; a missing table raises), in FeatureVector
+    order. The names the table lacks or holds as a non-numeric type are logged as a count."""
+    types = table_column_types(read_conn, feature_table)
     wanted = [f.name for f in dataclasses.fields(FeatureVector)]
     names = [n for n in wanted if types.get(n) in _NUMERIC_TYPES]
-    missing = [n for n in wanted if types.get(n) not in _NUMERIC_TYPES]
-    if missing:
+    if len(names) < len(wanted):
         _logger.warning(
-            "ic_measure.feature_names_missing", table=feature_table, missing=len(missing)
+            "ic_measure.feature_names_missing",
+            table=feature_table,
+            missing=len(wanted) - len(names),
         )
-    return names, missing
+    return names
 
 
 def feature_block_sql(table: str, names: Sequence[str]) -> sql.Composed:
@@ -1024,7 +1008,9 @@ class IcMeasure:
             keys = {_OOS_START_KEY, *(k for tf in tfs for k in apr_keys_read(tf))}
             apr = {k: v for k in keys if (v := cfg.get_sync(k, missing)) is not missing}
             oos_start = _parse_oos(apr.get(_OOS_START_KEY))
-            validate_feature_table(read_conn, self.args.feature_table)
+            table_column_types(
+                read_conn, self.args.feature_table
+            )  # a missing table, before any work
             jobs = active_jobs(self.args.jobs, self.args.members)
             if not jobs:
                 _logger.warning("ic_measure.no_active_jobs", jobs=self.args.jobs)
@@ -1098,7 +1084,7 @@ class IcMeasure:
             ctx = make_tf_context(
                 panels, oos_start.replace(tzinfo=None).isoformat(), keys.bar_ts, keys.symbols
             )
-            names, _missing = feature_names(read_conn, self.args.feature_table)
+            names = feature_names(read_conn, self.args.feature_table)
             bar_digests = {s: before[s] for s in used}
             for unit in self._units(
                 read_conn,

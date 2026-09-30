@@ -205,10 +205,13 @@ class TestFeatureNames:
         present = [fv_names[2], fv_names[0]]  # schema order must not matter
         rows = [(n, "real") for n in present] + [(fv_names[1], "text"), ("not_a_feature", "real")]
         conn = FakeConn(rows_responder(rows))
-        names, missing = ic_measure.feature_names(conn, "feature_vectors")
+        names = ic_measure.feature_names(conn, "feature_vectors")
         assert names == [fv_names[0], fv_names[2]]
-        assert fv_names[1] in missing and fv_names[3] in missing
         assert "not_a_feature" not in names
+
+    def test_a_missing_table_raises(self) -> None:
+        with pytest.raises(ValueError, match="feature_nope does not exist"):
+            ic_measure.feature_names(FakeConn(rows_responder([])), "feature_nope")
 
     def test_feature_fetch_selects_named_columns_never_star(self) -> None:
         stmt = ic_measure.feature_block_sql("feature_vectors", ["momentum_z_fast", "hurst"])

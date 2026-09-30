@@ -362,6 +362,34 @@ class TestBulkLoadFailureIsolation:
 # ---------------------------------------------------------------------------
 
 
+class TestTableColumnTypes:
+    """The one information_schema column read, used by bulk_load and the IC writer."""
+
+    def test_maps_columns_to_types_in_the_current_schema(self) -> None:
+        conn = _conn([_COLUMNS])
+        types = batch_utils.table_column_types(conn, "feature_vectors")
+        assert types == {
+            "symbol": "text",
+            "tf": "text",
+            "bar_ts": "timestamptz",
+            "x": "real",
+            "y": "double precision",
+        }
+        (text, params), *rest = conn.statements
+        assert not rest and params == ("feature_vectors",)
+        assert "information_schema.columns" in text and "current_schema()" in text
+
+    def test_a_table_with_no_columns_does_not_exist_and_raises(self) -> None:
+        with pytest.raises(ValueError, match="feature_nope does not exist"):
+            batch_utils.table_column_types(_conn([{"fetchall": []}]), "feature_nope")
+
+    def test_bulk_load_into_a_missing_table_raises_before_any_write(self) -> None:
+        conn = _conn([_LOCKED, {"fetchone": None}, {"fetchall": []}])
+        with pytest.raises(ValueError, match="feature_vectors does not exist"):
+            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows())
+        assert conn.copied_rows == []
+
+
 class TestBulkLoadRefusals:
     def test_scheduled_compression_policy_over_the_range_refuses(self) -> None:
         responses = _fresh_happy_responses()
