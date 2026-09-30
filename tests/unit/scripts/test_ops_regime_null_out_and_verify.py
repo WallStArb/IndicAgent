@@ -19,7 +19,6 @@ from scripts.ops.corpus.ops_regime_null_out_and_verify import (
     _DEFAULT_COLUMN_FAMILY_OBJ,
     _STATUS_FAILED,
     _STATUS_VERIFIED_NULL,
-    _WALK_FORWARD_DEFAULT_PARAMS,
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
     _build_any_owned_nonnull_sql,
@@ -400,21 +399,19 @@ class TestVerifyPostRelabel:
 
 
 class TestLoadInitialWarmupBars:
-    def test_reads_from_config_state_row_not_module_constant_when_present(self):
+    def test_reads_from_config_state_row_when_present(self):
         mocked_value = 999
-        assert mocked_value != _WALK_FORWARD_DEFAULT_PARAMS["1h"][1]
         conn = _ScriptedConn([{"fetchone": (mocked_value,)}])
 
         result = _load_initial_warmup_bars(conn, "1h")
 
         assert result == mocked_value
 
-    def test_falls_back_to_module_constant_when_key_missing(self):
+    def test_raises_naming_the_key_when_it_is_missing(self):
         conn = _ScriptedConn([{"fetchone": None}])
 
-        result = _load_initial_warmup_bars(conn, "1h")
-
-        assert result == _WALK_FORWARD_DEFAULT_PARAMS["1h"][1]
+        with pytest.raises(KeyError, match="initial_warmup_bars.1h"):
+            _load_initial_warmup_bars(conn, "1h")
 
 
 # ---------------------------------------------------------------------------

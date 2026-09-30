@@ -11,6 +11,7 @@ All tests use synthetic data — no DB dependency. Tests verify:
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from services.regime_writer import (
 )
 from src.intelligence.features.kernels import _hmm as hmm_module
 from tests.unit._hmm_decode_helpers import decode as _decode
+from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 
 _HMM_RANDOM_STATE = 42  # conventional seed; lives in APR as alpha.hmm.random_state
 
@@ -837,11 +839,12 @@ def _seg_labels(seg):
 
 def _family_config(tf, refit_every_bars, initial_warmup_bars, **fields):
     """The `HmmConfig` the kernels read: APR defaults with `fields` and one tf's schedule."""
-    base = hmm_module.hmm_config_fields_from_values(lambda key, default: default)
-    base.update(fields)
-    base[f"hmm_refit_every_bars_{tf}"] = refit_every_bars
-    base[f"hmm_initial_warmup_bars_{tf}"] = initial_warmup_bars
-    return hmm_module.HmmConfig(**base)
+    base = hmm_module.HmmConfig.from_values(SMALL_HMM_APR.get)
+    schedule = {
+        f"hmm_refit_every_bars_{tf}": refit_every_bars,
+        f"hmm_initial_warmup_bars_{tf}": initial_warmup_bars,
+    }
+    return dataclasses.replace(base, **fields, **schedule)
 
 
 def _compute_symbol_tf_walk_forward(
@@ -1185,7 +1188,9 @@ def test_walk_forward_hmm_full_matches_labels_from_bare_labels_function():
     )
 
     bare_labels, bare_segments = _walk_forward_hmm_labels(obs, **kwargs)
-    full_segments = _walk_forward_hmm_full(obs, min_state_occupation=0.0, **kwargs)
+    full_segments = _walk_forward_hmm_full(
+        obs, min_state_occupation=0.0, **kwargs, min_obs_factor=50, covariance_ridge=1e-6
+    )
 
     full_labels: list[str] = []
     for seg in full_segments:
@@ -1221,6 +1226,8 @@ def test_walk_forward_hmm_full_probabilities_sum_to_one_per_bar():
         min_hold_bars=3,
         full_cov_min_obs=0,
         min_state_occupation=0.0,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     assert len(segments) > 1, "test needs multiple segments to be meaningful"
@@ -1257,6 +1264,8 @@ def test_walk_forward_hmm_full_flags_degenerate_short_final_segment():
         # High occupation floor makes a short trailing segment likely to trip it --
         # deliberately strict for this test, not representative of a production value.
         min_state_occupation=0.30,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     assert any(seg["is_degenerate"] for seg in segments), (
@@ -1297,6 +1306,8 @@ def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
             min_state_occupation=0.0,
             symbol="SPY",
             tf="1h",
+            min_obs_factor=50,
+            covariance_ridge=1e-6,
         )
 
     assert len(segments) >= 3, "test needs multiple segments to be meaningful"
@@ -1615,6 +1626,8 @@ def test_walk_forward_hmm_full_no_vocab_arg_matches_trend_output():
         min_hold_bars=3,
         full_cov_min_obs=0,
         min_state_occupation=0.0,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     trend_labels = {_LABEL_TRENDING_UP, _LABEL_RANGING, _LABEL_TRENDING_DOWN}
@@ -1647,6 +1660,8 @@ def test_walk_forward_hmm_full_volatility_vocab_k3_labels_restricted():
         full_cov_min_obs=0,
         min_state_occupation=0.0,
         vocab=_VOLATILITY_VOCAB,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     assert len(segments) > 0
@@ -1678,6 +1693,8 @@ def test_walk_forward_hmm_full_volatility_vocab_k2_labels_restricted():
         full_cov_min_obs=0,
         min_state_occupation=0.0,
         vocab=_VOLATILITY_VOCAB,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     assert len(segments) > 0
@@ -1715,6 +1732,8 @@ def test_walk_forward_hmm_full_volatility_p_up_higher_in_high_vol_half():
         full_cov_min_obs=0,
         min_state_occupation=0.0,
         vocab=_VOLATILITY_VOCAB,
+        min_obs_factor=50,
+        covariance_ridge=1e-6,
     )
 
     # Flatten (bar-index-into-obs, p_up) pairs across every segment.

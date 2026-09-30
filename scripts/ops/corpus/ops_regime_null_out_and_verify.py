@@ -72,7 +72,6 @@ from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
-from src.intelligence.features.kernels._hmm import _WALK_FORWARD_DEFAULT_PARAMS
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -441,8 +440,9 @@ def _run_verify_post_null(
 def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
     """Read alpha.hmm.walk_forward.initial_warmup_bars.<tf> straight from config_state --
     this is a read-only ops script, so a plain SELECT is sufficient and avoids pulling the
-    async ConfigService into a synchronous script. Falls back to the module default, logging
-    loudly, only when the key is genuinely missing. Shared unchanged across both column
+    async ConfigService into a synchronous script. Raises when the key is missing: the warmup
+    prefix decides which rows are nulled, and there is no default to fall back to (the regime
+    kernels refuse one too, `HmmConfig`). Shared unchanged across both column
     families -- both reuse the same per-tf walk-forward schedule keys (172-05's interfaces
     section), since the warmup-prefix floor is a property of the timeframe, not of which
     observation columns are fitted."""
@@ -451,14 +451,7 @@ def _load_initial_warmup_bars(conn: Any, tf: str) -> int:
         cur.execute(_CONFIG_VALUE_SQL, (key,))
         row = cur.fetchone()
     if row is None or row[0] is None:
-        fallback = _WALK_FORWARD_DEFAULT_PARAMS[tf][1]
-        _logger.warning(
-            "regime_null_out.warmup_bars_apr_fallback",
-            tf=tf,
-            config_key=key,
-            fallback=fallback,
-        )
-        return fallback
+        raise KeyError(f"APR key {key!r} is missing from config_state; no default exists")
     return int(row[0])
 
 

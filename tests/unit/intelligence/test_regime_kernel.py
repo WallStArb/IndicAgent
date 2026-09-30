@@ -128,15 +128,15 @@ def test_registry_owns_the_sixteen_regime_columns():
 
 
 def _config(apr: dict | None = None):
-    """The hmm_* config attributes over `apr` (SMALL_HMM_APR by default)."""
+    """The registry config the kernels read: `hmm` loaded from `apr` (SMALL_HMM_APR by default)."""
     values = SMALL_HMM_APR if apr is None else apr
-    return SimpleNamespace(**_hmm.hmm_config_fields_from_values(values.get))
+    return SimpleNamespace(hmm=_hmm.HmmConfig.from_values(values.get))
 
 
 @pytest.mark.parametrize("column", ALL_COLUMNS)
 def test_feature_memory_bars_raises_for_every_regime_column(column):
     with pytest.raises(KernelRegistryError, match="path dependent"):
-        feature_memory_bars(column, _config({}))
+        feature_memory_bars(column, SimpleNamespace(hmm=None))
 
 
 def _run(bars: dict, family: str, tf: str = "1d", *, tf_values=None, outputs=None):
@@ -314,7 +314,7 @@ def test_segment_gate_is_taken_on_the_training_slice():
     decode occupies one state for its last rows) is written, because its model's training slice
     passes the gate."""
     bars = make_collapsing_segment_bars()
-    config = _config()
+    config = _config().hmm
     obs, _ = _hmm._build_obs_matrix(
         list(range(len(bars["close"]))),
         bars["close"],
@@ -335,6 +335,7 @@ def test_segment_gate_is_taken_on_the_training_slice():
         config.hmm_full_cov_min_obs,
         config.hmm_min_state_occupation,
         min_obs_factor=config.hmm_min_obs_factor,
+        covariance_ridge=config.hmm_covariance_ridge,
     )
     assert len(segments) == 1
     assert segments[0]["gate_info"]["gate_basis"] == "training_slice"

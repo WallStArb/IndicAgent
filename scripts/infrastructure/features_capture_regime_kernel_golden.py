@@ -67,12 +67,21 @@ SAMPLE: tuple[tuple[str, str], ...] = (
 FAMILIES = ("trend", "volatility")
 
 
+# The two numerics migration 411 moved into APR. The stored manifest's snapshot predates that
+# migration; these are the literals in force when it was captured (the seeds equal them), so
+# a stored snapshot is completed with them. Any other missing key raises.
+_PRE_411_NUMERICS: dict[str, Any] = {
+    "alpha.hmm.covariance_ridge": 1e-6,
+    "alpha.hmm.momentum_vol_floor": 1e-8,
+}
+
+
 def snapshot_apr(cfg: Any) -> dict[str, Any]:
     """Every HMM APR key the kernels read, as `cfg.get_sync` returns it.
 
-    The loader (`HmmConfig.from_values`) is the only list of keys and defaults; a recording
-    getter over it makes the snapshot exactly what the writer would have used, so it cannot
-    drift from the writer's fallbacks."""
+    The loader (`HmmConfig.from_values`) is the only list of keys; a recording getter over it
+    makes the snapshot exactly what the writer would have used. There are no defaults, so a key
+    missing from APR raises here rather than entering the snapshot."""
     seen: dict[str, Any] = {}
 
     def get(key: str, default: Any) -> Any:
@@ -89,7 +98,7 @@ def run_kernel_full(
     """(code, segment status, numeric columns as float32) from `compute_regime_columns`."""
     from src.intelligence.features.kernels.regime import compute_regime_columns
 
-    params = HmmConfig.from_values(lambda key, default: apr.get(key, default))
+    params = HmmConfig.from_values({**_PRE_411_NUMERICS, **apr}.get)
     spec = FAMILY_SPECS[family]
     out = compute_regime_columns(bars["close"], bars["volume"], params, tf, spec)
     columns = np.stack([np.asarray(out[name], dtype=np.float32) for name in spec.numeric_outputs])

@@ -44,6 +44,7 @@ from src.intelligence.feature_cache import (
 )
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
 from src.intelligence.features.cross_asset_series import CrossAssetRecord
+from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import (
     _is_valid_atr,
 )
@@ -942,42 +943,16 @@ class FeatureFactoryConfig:
     # feature_vector_pipeline.py) explicitly wire these from ConfigService.
     earnings_season_start_days: int = 14  # feature.earnings_season.start_days
     earnings_season_end_days: int = 42  # feature.earnings_season.end_days
-    # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py).
-    # Flat scalars so dataclasses.asdict round-trips through the 186-08 manifest and the frozen
-    # dataclass stays hashable. The names, APR keys and defaults are declared once, in
-    # kernels._hmm.HmmConfig; these fields are the same set (the registry hands kernels this
-    # config) and a unit test holds their defaults equal to HmmConfig'. The production
-    # entrypoints wire every one from ConfigService via kernels._hmm.hmm_config_fields_from_values
-    # so the rebuild never runs the kernel on these defaults. Changing hmm_random_state, any
-    # window, n_components, the ridge/floor or a schedule value invalidates every stored regime
-    # label. `infra.hmm.rolling_block_rows` is deliberately absent: it changes no output, and
-    # the regime writer and the rebuild pass it to the kernels as an argument.
-    hmm_n_components: int = 3  # feature.hmm.n_components
-    hmm_vol_window: int = 20  # feature.hmm.vol_window
-    hmm_momentum_window: int = 20  # feature.hmm.obs_momentum_window
-    hmm_vol_of_vol_window: int = 20  # feature.hmm.obs_vol_of_vol_window
-    hmm_n_iter: int = 200  # feature.hmm.n_iter
-    hmm_random_state: int = 42  # alpha.hmm.random_state
-    hmm_covariance_type: str = "full"  # feature.hmm.covariance_type
-    hmm_min_hold_bars: int = 3  # feature.hmm.min_hold_bars
-    hmm_full_cov_min_obs: int = 500  # feature.hmm.full_cov_min_obs
-    hmm_min_state_occupation: float = 0.05  # feature.hmm.min_state_occupation
-    hmm_churn_window: int = 10  # feature.hmm.churn_window
-    hmm_min_obs_factor: int = 50  # feature.hmm.min_obs_factor
-    hmm_covariance_ridge: float = 1e-6  # alpha.hmm.covariance_ridge
-    hmm_momentum_vol_floor: float = 1e-8  # alpha.hmm.momentum_vol_floor
-    hmm_volatility_n_components: int = 3  # alpha.hmm_volatility.n_components
-    hmm_volatility_vol_window: int = 20  # alpha.hmm_volatility.vol_window
-    hmm_volatility_vol_of_vol_window: int = 60  # alpha.hmm_volatility.vol_of_vol_window
-    hmm_volatility_covariance_type: str = "full"  # alpha.hmm_volatility.covariance_type
-    hmm_refit_every_bars_5m: int = 19800  # alpha.hmm.walk_forward.refit_every_bars.5m
-    hmm_refit_every_bars_15m: int = 6600  # alpha.hmm.walk_forward.refit_every_bars.15m
-    hmm_refit_every_bars_1h: int = 1650  # alpha.hmm.walk_forward.refit_every_bars.1h
-    hmm_refit_every_bars_1d: int = 252  # alpha.hmm.walk_forward.refit_every_bars.1d
-    hmm_initial_warmup_bars_5m: int = 39600  # alpha.hmm.walk_forward.initial_warmup_bars.5m
-    hmm_initial_warmup_bars_15m: int = 13200  # alpha.hmm.walk_forward.initial_warmup_bars.15m
-    hmm_initial_warmup_bars_1h: int = 3300  # alpha.hmm.walk_forward.initial_warmup_bars.1h
-    hmm_initial_warmup_bars_1d: int = 504  # alpha.hmm.walk_forward.initial_warmup_bars.1d
+    # Walk-forward HMM regime kernels (186-13; kernels/regime.py, math in kernels/_hmm.py). The
+    # names, APR keys and casts are declared once, in kernels._hmm.HmmConfig, and there are no
+    # defaults: every value changes stored regime labels and the live APR values differ from
+    # any value a default could carry. None means "not wired": the regime kernels raise on it.
+    # Every production entrypoint that runs them loads this with
+    # `HmmConfig.from_values(config_service.get_sync)` (backfill_feature_factory.py,
+    # feature_vector_pipeline.py). Changing any value invalidates every stored regime label.
+    # `infra.hmm.rolling_block_rows` is not here: it changes no output, and the regime writer
+    # and the rebuild pass it to the kernels as an argument.
+    hmm: HmmConfig | None = None
 
 
 def invert_ctf_higher_tf_map(higher_tf_map: dict[str, str]) -> dict[str, list[str]]:

@@ -34,8 +34,7 @@ FAMILY_LABELS: dict[str, tuple[str, ...]] = {
 N_NUMERIC_COLUMNS = 7
 
 # Stated small configuration (186-13): trend n_components 3, windows 20, n_iter 50; volatility
-# n_components 3, vol_window 20, vol_of_vol_window 60; the remaining values are the writer's own
-# fallbacks. The per-tf schedule is small so a 3,000-bar series has several refit segments.
+# n_components 3, vol_window 20, vol_of_vol_window 60; the remaining values are the live values. The per-tf schedule is small so a 3,000-bar series has several refit segments.
 SMALL_HMM_APR: dict[str, Any] = {
     "feature.hmm.n_components": 3,
     "feature.hmm.vol_window": 20,
@@ -49,6 +48,8 @@ SMALL_HMM_APR: dict[str, Any] = {
     "feature.hmm.min_state_occupation": 0.05,
     "feature.hmm.churn_window": 10,
     "feature.hmm.min_obs_factor": 50,
+    "alpha.hmm.covariance_ridge": 1e-6,
+    "alpha.hmm.momentum_vol_floor": 1e-8,
     "alpha.hmm_volatility.n_components": 3,
     "alpha.hmm_volatility.vol_window": 20,
     "alpha.hmm_volatility.vol_of_vol_window": 60,

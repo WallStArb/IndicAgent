@@ -158,13 +158,23 @@ def compute_regime_columns(
     return out
 
 
+def _hmm_config(config: FeatureFactoryConfig) -> HmmConfig:
+    """The regime kernels' parameters from the registry's config; raises when not wired."""
+    if config.hmm is None:
+        raise ValueError(
+            "FeatureFactoryConfig.hmm is None: load it with "
+            "HmmConfig.from_values(config_service.get_sync) before running the regime kernels"
+        )
+    return config.hmm
+
+
 def _heavy_compute(spec: RegimeFamilySpec):
     def compute(inputs, config):
         volume = inputs["volume"] if spec.needs_volume else None
         result = _compute_family(
             inputs["close"],
             volume,
-            HmmConfig.from_config(config),
+            _hmm_config(config),
             _known_tf(inputs["tf"]),
             spec,
             DEFAULT_ROLLING_BLOCK_ROWS,

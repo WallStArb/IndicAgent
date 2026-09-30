@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -36,18 +37,20 @@ from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 
 _logger = structlog.get_logger(__name__)
 
-# Label-affecting numerics carried over verbatim from the pre-186 writer and read through APR
-# (`alpha.hmm.covariance_ridge`, `alpha.hmm.momentum_vol_floor`, migration 411). These are the
-# APR fallback defaults only: changing either in APR invalidates every stored regime label.
-# 1e-300 (the log and variance floors below) is a mathematical guard against log(0) and
+# Label-affecting numerics carried over verbatim from the pre-186 writer; the kernels read them
+# from APR through `HmmConfig` (`alpha.hmm.covariance_ridge`, `alpha.hmm.momentum_vol_floor`,
+# migration 411) and never fall back to these. They remain only as the defaults of the legacy
+# helpers the analysis pilots call (`_build_obs_matrix`, `_log_emit_full`, `_compute_log_emit`),
+# which 186-16 deletes with the pilots. 1e-300 (the log and variance floors below) is a mathematical guard against log(0) and
 # division by zero, not a tunable, and N_NUMERIC_COLUMNS is a schema identifier; both stay
 # constants.
 _DEFAULT_COVARIANCE_RIDGE = 1e-6
 _DEFAULT_MOMENTUM_VOL_FLOOR = 1e-8
 
 # Rows per block of the obs-builder rolling reductions: bounds transient memory, never changes
-# output (tests pin bit equality at every block size). Callers read `infra.hmm.rolling_block_rows`
-# and pass it to the kernels as an argument; this is the fallback when they do not.
+# output (tests pin bit equality at every block size), so a default is safe here. Callers read
+# `infra.hmm.rolling_block_rows` and pass it to the kernels as an argument; this is the fallback
+# when they do not.
 ROLLING_BLOCK_ROWS_KEY = "infra.hmm.rolling_block_rows"
 DEFAULT_ROLLING_BLOCK_ROWS = 16384
 
@@ -97,23 +100,19 @@ def _apr(key: str) -> dict[str, str]:
     return {"apr_key": key}
 
 
-def _cast(f: dataclasses.Field) -> Callable[[Any], Any]:
-    """The cast for a field's APR value: the type of its default (int, float or str)."""
-    cast: Callable[[Any], Any] = type(f.default)
-    return cast
-
-
 @dataclass(frozen=True)
 class HmmConfig:
-    """Every APR-backed value the regime kernels read: field name, APR key and default, declared
-    once. The loader (`from_values`), the golden capture, the writer and the rebuild all read
-    this class; `FeatureFactoryConfig` carries the same fields (the registry hands kernels that
-    config) and a unit test holds its defaults equal to these.
+    """Every APR-backed value the regime kernels read: field name and APR key, declared once.
+    The loader (`from_values`), the golden capture, the writer and the rebuild all read this
+    class; `FeatureFactoryConfig.hmm` carries one (the registry hands kernels that config).
 
-    The type of a field's default is the cast applied to its APR value. Changing any of these
-    values invalidates every stored regime label (each fit is path dependent).
-    `infra.hmm.rolling_block_rows` is not a field because it does not change output
-    (`ROLLING_BLOCK_ROWS_KEY`; callers pass it to the kernels as an argument).
+    There are no defaults, on purpose: every one of these values changes stored labels (each
+    fit is path dependent), and the live APR values differ from the values an old default would
+    have been (n_components 5, volatility windows 250), so a missing key raises and names the
+    key instead of silently running a different model. The annotation is the cast applied to the
+    APR value. `infra.hmm.rolling_block_rows` is not a field because it does not change output
+    (`ROLLING_BLOCK_ROWS_KEY`; callers pass it to the kernels as an argument and a default is
+    safe there).
 
     Per-tf schedule (`alpha.hmm.walk_forward.*`, todo 248): (refit_every_bars,
     initial_warmup_bars). 1h is the pilot's directly-measured value (1650, 3300); 15m is the
@@ -124,65 +123,53 @@ class HmmConfig:
     certainty caveats.
     """
 
-    hmm_n_components: int = field(default=3, metadata=_apr("feature.hmm.n_components"))
-    hmm_vol_window: int = field(default=20, metadata=_apr("feature.hmm.vol_window"))
-    hmm_momentum_window: int = field(default=20, metadata=_apr("feature.hmm.obs_momentum_window"))
-    hmm_vol_of_vol_window: int = field(
-        default=20, metadata=_apr("feature.hmm.obs_vol_of_vol_window")
-    )
-    hmm_n_iter: int = field(default=200, metadata=_apr("feature.hmm.n_iter"))
-    hmm_random_state: int = field(default=42, metadata=_apr("alpha.hmm.random_state"))
-    hmm_covariance_type: str = field(default="full", metadata=_apr("feature.hmm.covariance_type"))
-    hmm_min_hold_bars: int = field(default=3, metadata=_apr("feature.hmm.min_hold_bars"))
-    hmm_full_cov_min_obs: int = field(default=500, metadata=_apr("feature.hmm.full_cov_min_obs"))
-    hmm_min_state_occupation: float = field(
-        default=0.05, metadata=_apr("feature.hmm.min_state_occupation")
-    )
-    hmm_churn_window: int = field(default=10, metadata=_apr("feature.hmm.churn_window"))
+    hmm_n_components: int = field(metadata=_apr("feature.hmm.n_components"))
+    hmm_vol_window: int = field(metadata=_apr("feature.hmm.vol_window"))
+    hmm_momentum_window: int = field(metadata=_apr("feature.hmm.obs_momentum_window"))
+    hmm_vol_of_vol_window: int = field(metadata=_apr("feature.hmm.obs_vol_of_vol_window"))
+    hmm_n_iter: int = field(metadata=_apr("feature.hmm.n_iter"))
+    hmm_random_state: int = field(metadata=_apr("alpha.hmm.random_state"))
+    hmm_covariance_type: str = field(metadata=_apr("feature.hmm.covariance_type"))
+    hmm_min_hold_bars: int = field(metadata=_apr("feature.hmm.min_hold_bars"))
+    hmm_full_cov_min_obs: int = field(metadata=_apr("feature.hmm.full_cov_min_obs"))
+    hmm_min_state_occupation: float = field(metadata=_apr("feature.hmm.min_state_occupation"))
+    hmm_churn_window: int = field(metadata=_apr("feature.hmm.churn_window"))
     # Minimum obs rows per (symbol, tf) = n_components * this factor; below it the fit is
     # meaningless (too few state transitions to estimate A). Migration 275, todo 009 Part A.
-    hmm_min_obs_factor: int = field(default=50, metadata=_apr("feature.hmm.min_obs_factor"))
-    hmm_covariance_ridge: float = field(
-        default=_DEFAULT_COVARIANCE_RIDGE, metadata=_apr("alpha.hmm.covariance_ridge")
-    )
-    hmm_momentum_vol_floor: float = field(
-        default=_DEFAULT_MOMENTUM_VOL_FLOOR, metadata=_apr("alpha.hmm.momentum_vol_floor")
-    )
-    hmm_volatility_n_components: int = field(
-        default=3, metadata=_apr("alpha.hmm_volatility.n_components")
-    )
-    hmm_volatility_vol_window: int = field(
-        default=20, metadata=_apr("alpha.hmm_volatility.vol_window")
-    )
+    hmm_min_obs_factor: int = field(metadata=_apr("feature.hmm.min_obs_factor"))
+    hmm_covariance_ridge: float = field(metadata=_apr("alpha.hmm.covariance_ridge"))
+    hmm_momentum_vol_floor: float = field(metadata=_apr("alpha.hmm.momentum_vol_floor"))
+    hmm_volatility_n_components: int = field(metadata=_apr("alpha.hmm_volatility.n_components"))
+    hmm_volatility_vol_window: int = field(metadata=_apr("alpha.hmm_volatility.vol_window"))
     hmm_volatility_vol_of_vol_window: int = field(
-        default=60, metadata=_apr("alpha.hmm_volatility.vol_of_vol_window")
+        metadata=_apr("alpha.hmm_volatility.vol_of_vol_window")
     )
     hmm_volatility_covariance_type: str = field(
-        default="full", metadata=_apr("alpha.hmm_volatility.covariance_type")
+        metadata=_apr("alpha.hmm_volatility.covariance_type")
     )
     hmm_refit_every_bars_5m: int = field(
-        default=19800, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.5m")
+        metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.5m")
     )
     hmm_initial_warmup_bars_5m: int = field(
-        default=39600, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.5m")
+        metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.5m")
     )
     hmm_refit_every_bars_15m: int = field(
-        default=6600, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.15m")
+        metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.15m")
     )
     hmm_initial_warmup_bars_15m: int = field(
-        default=13200, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.15m")
+        metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.15m")
     )
     hmm_refit_every_bars_1h: int = field(
-        default=1650, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1h")
+        metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1h")
     )
     hmm_initial_warmup_bars_1h: int = field(
-        default=3300, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1h")
+        metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1h")
     )
     hmm_refit_every_bars_1d: int = field(
-        default=252, metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1d")
+        metadata=_apr("alpha.hmm.walk_forward.refit_every_bars.1d")
     )
     hmm_initial_warmup_bars_1d: int = field(
-        default=504, metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1d")
+        metadata=_apr("alpha.hmm.walk_forward.initial_warmup_bars.1d")
     )
 
     @classmethod
@@ -192,22 +179,21 @@ class HmmConfig:
 
     @classmethod
     def from_values(cls, get: Callable[[str, Any], Any]) -> HmmConfig:
-        """From `get(key, default)`: `ConfigService.get_sync` for a live load, a dict lookup
-        for a stored snapshot, a recording wrapper to capture the snapshot."""
-        return cls(
-            **{
-                f.name: _cast(f)(get(f.metadata["apr_key"], f.default))
-                for f in dataclasses.fields(cls)
-            }
-        )
-
-    @classmethod
-    def from_config(cls, config: Any) -> HmmConfig:
-        """From any object carrying the hmm_* attributes (`FeatureFactoryConfig`); a missing
-        attribute raises rather than taking a default."""
-        if isinstance(config, cls):
-            return config
-        return cls(**{f.name: _cast(f)(getattr(config, f.name)) for f in dataclasses.fields(cls)})
+        """From `get(key, default)`: `ConfigService.get_sync` for a live load, a dict lookup for a
+        stored snapshot, a recording wrapper to capture the snapshot. A key whose value is missing
+        (None) raises KeyError naming it; no value is ever defaulted."""
+        hints = typing.get_type_hints(cls)
+        values: dict[str, Any] = {}
+        for f in dataclasses.fields(cls):
+            key = f.metadata["apr_key"]
+            raw = get(key, None)
+            if raw is None:
+                raise KeyError(
+                    f"regime HMM parameter {key!r} is missing from APR; it changes every stored "
+                    "regime label, so there is no default (seed it in config_state)"
+                )
+            values[f.name] = hints[f.name](raw)
+        return cls(**values)
 
     def walk_forward_schedule(self, tf: str) -> tuple[int, int]:
         """(refit_every_bars, initial_warmup_bars) for `tf`; ValueError outside 5m/15m/1h/1d."""
@@ -221,26 +207,9 @@ class HmmConfig:
         )
 
 
-def hmm_config_fields_from_values(get: Callable[[str, Any], Any]) -> dict[str, Any]:
-    """The `FeatureFactoryConfig` hmm_* fields from `get(key, default)` (see
-    `HmmConfig.from_values`), for callers that build that config with `**fields`."""
-    return dataclasses.asdict(HmmConfig.from_values(get))
-
-
 def load_rolling_block_rows(get: Callable[[str, Any], Any]) -> int:
     """`infra.hmm.rolling_block_rows` from `get(key, default)`."""
     return int(get(ROLLING_BLOCK_ROWS_KEY, DEFAULT_ROLLING_BLOCK_ROWS))
-
-
-# Fallback defaults re-exported for callers of the pre-186 names (ops scripts, tests).
-_MIN_OBS_FACTOR_DEFAULT = HmmConfig.hmm_min_obs_factor
-_WALK_FORWARD_DEFAULT_PARAMS: dict[str, tuple[int, int]] = {
-    tf: (
-        getattr(HmmConfig, f"hmm_refit_every_bars_{tf}"),
-        getattr(HmmConfig, f"hmm_initial_warmup_bars_{tf}"),
-    )
-    for tf in WALK_FORWARD_TIMEFRAMES
-}
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +242,8 @@ def _observations_trend(
     vol_window: int,
     momentum_window: int,
     vol_of_vol_window: int,
-    block_rows: int | None = None,
-    momentum_vol_floor: float = _DEFAULT_MOMENTUM_VOL_FLOOR,
+    block_rows: int | None,
+    momentum_vol_floor: float,
 ) -> tuple[np.ndarray, int]:
     """(obs_matrix, valid_start) of the trend family; see `_build_obs_matrix` for the columns.
 
@@ -949,8 +918,9 @@ def _walk_forward_hmm_full(
     symbol: str | None = None,
     tf: str | None = None,
     vocab: dict[str, str] | None = None,
-    min_obs_factor: int = _MIN_OBS_FACTOR_DEFAULT,
-    covariance_ridge: float = _DEFAULT_COVARIANCE_RIDGE,
+    *,
+    min_obs_factor: int,
+    covariance_ridge: float,
 ) -> list[dict[str, Any]]:
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,

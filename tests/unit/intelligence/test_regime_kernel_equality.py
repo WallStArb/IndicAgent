@@ -116,7 +116,7 @@ def test_non_converged_segment_skips_the_training_slice_decode_and_keeps_its_ver
 
     monkeypatch.setattr(_hmm, "_alpha_pass_jit", counting)
     segments = _hmm._walk_forward_hmm_full(
-        obs, 3, "full", 1, 42, 300, 600, 3, 500, 0.05, min_obs_factor=50
+        obs, 3, "full", 1, 42, 300, 600, 3, 500, 0.05, min_obs_factor=50, covariance_ridge=1e-6
     )
     assert len(segments) >= 2
     for seg in segments:

@@ -111,16 +111,10 @@ from src.intelligence.features.kernels._hmm import (
     _LABEL_TURBULENT as _LABEL_TURBULENT,
 )
 from src.intelligence.features.kernels._hmm import (
-    _MIN_OBS_FACTOR_DEFAULT as _MIN_OBS_FACTOR_DEFAULT,
-)
-from src.intelligence.features.kernels._hmm import (
     _TREND_VOCAB as _TREND_VOCAB,
 )
 from src.intelligence.features.kernels._hmm import (
     _VOLATILITY_VOCAB as _VOLATILITY_VOCAB,
-)
-from src.intelligence.features.kernels._hmm import (
-    _WALK_FORWARD_DEFAULT_PARAMS as _WALK_FORWARD_DEFAULT_PARAMS,
 )
 from src.intelligence.features.kernels._hmm import (
     DEFAULT_ROLLING_BLOCK_ROWS,

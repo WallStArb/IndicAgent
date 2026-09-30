@@ -1,9 +1,8 @@
-"""The one declaration of the HMM parameters (186-13 review, D2 and D3).
+"""The one declaration of the HMM parameters (186-13 review, D2, D3 and R1).
 
 `HmmConfig` (kernels/_hmm.py) declares every APR key the regime kernels read, with its field
-name and default. These tests hold the other places that must agree with it: the
-`FeatureFactoryConfig` hmm_* fields (the registry hands kernels that config), and the APR
-schema (a mistyped key would silently take its fallback).
+name and no default. These tests hold what must agree with it: the APR schema (a mistyped key
+would be a key no migration seeds) and the live seeded values.
 """
 
 from __future__ import annotations
@@ -25,64 +24,91 @@ from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR, make_s
 MIGRATIONS = Path(__file__).resolve().parents[3] / "production" / "migrations"
 
 
-def _factory_config_hmm_defaults() -> dict[str, object]:
-    return {
-        f.name: f.default
-        for f in dataclasses.fields(FeatureFactoryConfig)
-        if f.name.startswith("hmm_")
-    }
-
-
-def test_feature_factory_config_hmm_fields_and_defaults_equal_hmm_params():
-    """The loader with every key at its fallback gives the FeatureFactoryConfig defaults, field
-    for field: a value or a field added in one place and not the other fails here."""
-    from_loader = _hmm.hmm_config_fields_from_values(lambda key, default: default)
-    assert from_loader == _factory_config_hmm_defaults()
-    assert from_loader == dataclasses.asdict(HmmConfig())
-
-
 def test_block_rows_is_an_argument_not_a_config_field():
-    assert "hmm_rolling_block_rows" not in _factory_config_hmm_defaults()
+    assert "hmm_rolling_block_rows" not in {f.name for f in dataclasses.fields(HmmConfig)}
+    assert "hmm" in {f.name for f in dataclasses.fields(FeatureFactoryConfig)}
     assert _hmm.load_rolling_block_rows(lambda key, default: default) == 16384
     assert _hmm.load_rolling_block_rows({"infra.hmm.rolling_block_rows": "64"}.get) == 64
 
 
-def test_loader_casts_values_and_takes_the_fallback_for_a_missing_key():
-    params = HmmConfig.from_values(
-        {"feature.hmm.n_components": "5", "feature.hmm.min_state_occupation": 1}.get
-    )
+def test_loader_casts_values():
+    params = HmmConfig.from_values({**SMALL_HMM_APR, "feature.hmm.n_components": "5"}.get)
     assert params.hmm_n_components == 5 and isinstance(params.hmm_n_components, int)
-    assert params.hmm_min_state_occupation == 1.0
     assert isinstance(params.hmm_min_state_occupation, float)
-    assert params.hmm_random_state == 42  # the mapping has no such key
+    assert isinstance(params.hmm_covariance_type, str)
 
 
-def test_from_config_reads_every_field_and_raises_on_a_missing_one():
-    fields = dataclasses.asdict(HmmConfig(hmm_n_components=5))
-    assert HmmConfig.from_config(SimpleNamespace(**fields)) == HmmConfig(hmm_n_components=5)
-    del fields["hmm_churn_window"]
-    with pytest.raises(AttributeError, match="hmm_churn_window"):
-        HmmConfig.from_config(SimpleNamespace(**fields))
-    params = HmmConfig()
-    assert HmmConfig.from_config(params) is params
+@pytest.mark.parametrize("key", HmmConfig.apr_keys())
+def test_loader_raises_naming_any_missing_key(key):
+    """No HMM key has a default: each changes stored labels, so a missing one is a loud error
+    that names it (RED before R1: the loader took a fallback and ran a different model)."""
+    values = {k: v for k, v in SMALL_HMM_APR.items() if k != key}
+    with pytest.raises(KeyError, match=re.escape(key)):
+        HmmConfig.from_values(values.get)
 
 
-def test_small_test_config_only_names_keys_the_loader_reads():
-    """A mistyped key in the shared test fixture would silently leave its default in force."""
-    assert set(SMALL_HMM_APR) <= set(HmmConfig.apr_keys())
+def test_the_kernels_raise_when_the_config_is_not_wired():
+    from src.intelligence.features.kernels.regime import _hmm_config
+
+    with pytest.raises(ValueError, match="FeatureFactoryConfig.hmm is None"):
+        _hmm_config(SimpleNamespace(hmm=None))
 
 
-def test_schedule_defaults_are_derived_from_the_declaration():
-    assert _hmm._WALK_FORWARD_DEFAULT_PARAMS == {
-        "5m": (19800, 39600),
-        "15m": (6600, 13200),
-        "1h": (1650, 3300),
-        "1d": (252, 504),
-    }
-    assert HmmConfig().walk_forward_schedule("1h") == (1650, 3300)
+def test_small_test_config_is_a_complete_snapshot():
+    """SMALL_HMM_APR names exactly the keys the loader reads: a mistyped key would otherwise
+    leave its value unset (now an error) and a stale one would linger unread."""
+    assert set(SMALL_HMM_APR) == set(HmmConfig.apr_keys())
+
+
+def test_schedule_lookup():
+    params = HmmConfig.from_values(SMALL_HMM_APR.get)
+    assert params.walk_forward_schedule("1d") == (300, 600)
     with pytest.raises(ValueError, match="walk-forward HMM schedule"):
-        HmmConfig().walk_forward_schedule("1m")
-    assert _hmm._MIN_OBS_FACTOR_DEFAULT == 50
+        params.walk_forward_schedule("1m")
+
+
+# The keys and values migrations seed, which a fresh database starts from and live APR holds
+# (verified against config_state 2026-09-30). The kernels' stored labels depend on them.
+_SEEDED_LIVE_VALUES = {
+    "feature.hmm.n_components": 5,
+    "feature.hmm.vol_window": 20,
+    "feature.hmm.obs_momentum_window": 20,
+    "feature.hmm.obs_vol_of_vol_window": 20,
+    "feature.hmm.n_iter": 200,
+    "alpha.hmm.random_state": 42,
+    "feature.hmm.covariance_type": "full",
+    "feature.hmm.min_hold_bars": 3,
+    "feature.hmm.full_cov_min_obs": 500,
+    "feature.hmm.min_state_occupation": 0.05,
+    "feature.hmm.churn_window": 10,
+    "feature.hmm.min_obs_factor": 50,
+    "alpha.hmm.covariance_ridge": 1e-6,
+    "alpha.hmm.momentum_vol_floor": 1e-8,
+    "alpha.hmm_volatility.n_components": 3,
+    "alpha.hmm_volatility.vol_window": 250,
+    "alpha.hmm_volatility.vol_of_vol_window": 250,
+    "alpha.hmm_volatility.covariance_type": "full",
+    "alpha.hmm.walk_forward.refit_every_bars.5m": 19800,
+    "alpha.hmm.walk_forward.initial_warmup_bars.5m": 39600,
+    "alpha.hmm.walk_forward.refit_every_bars.15m": 6600,
+    "alpha.hmm.walk_forward.initial_warmup_bars.15m": 13200,
+    "alpha.hmm.walk_forward.refit_every_bars.1h": 1650,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1h": 3300,
+    "alpha.hmm.walk_forward.refit_every_bars.1d": 252,
+    "alpha.hmm.walk_forward.initial_warmup_bars.1d": 504,
+}
+
+
+def test_the_loader_returns_the_live_seeded_values():
+    """The seed list covers every key, and the loader returns those values unchanged (live
+    n_components is 5 and the volatility windows are 250/250, not the old defaults 3 and 20/60)."""
+    assert set(_SEEDED_LIVE_VALUES) == set(HmmConfig.apr_keys())
+    params = HmmConfig.from_values(_SEEDED_LIVE_VALUES.get)
+    assert params.hmm_n_components == 5
+    assert (params.hmm_volatility_vol_window, params.hmm_volatility_vol_of_vol_window) == (250, 250)
+    assert dataclasses.asdict(params) == {
+        f.name: _SEEDED_LIVE_VALUES[f.metadata["apr_key"]] for f in dataclasses.fields(HmmConfig)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -118,10 +144,10 @@ def test_every_apr_key_the_loader_reads_is_in_config_schema():
 # ---------------------------------------------------------------------------
 
 
-def test_ridge_and_vol_floor_defaults_are_the_literals_they_replaced():
-    params = HmmConfig()
-    assert params.hmm_covariance_ridge == 1e-6
-    assert params.hmm_momentum_vol_floor == 1e-8
+def test_ridge_and_vol_floor_seeds_are_the_literals_the_legacy_helpers_default_to():
+    params = HmmConfig.from_values(SMALL_HMM_APR.get)
+    assert params.hmm_covariance_ridge == _hmm._DEFAULT_COVARIANCE_RIDGE == 1e-6
+    assert params.hmm_momentum_vol_floor == _hmm._DEFAULT_MOMENTUM_VOL_FLOOR == 1e-8
     means = np.zeros((2, 3))
     covars = np.stack([np.eye(3) * 0.5, np.eye(3) * 2.0])
     obs = np.random.default_rng(3).normal(size=(50, 3))
