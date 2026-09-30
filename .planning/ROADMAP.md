@@ -309,6 +309,12 @@ Plans:
   with their own golden regenerations: intraday macro records now align as-of the daily close (todo
   450 closed) and `gap_z` no longer reads the next bar's open (todo 461 filed); merged 2026-09-29
   (`10967cd67`)
+- [x] 186-13 regime kernels: the walk-forward HMM is four registry kernels (trend and volatility, D-29,
+  R-10), byte-identical to the unchanged writer on a captured golden; the full-history path and its
+  flags are deleted; the segment gate read future bars (RED tests, todo 451) and now gates on the
+  training slice, golden regenerated in its own commit; `regime_writer` is a thin wrapper (todos 290
+  and 291), migration 410; todo 248 was already deployed (flag true since 2026-08-12); merged
+  2026-09-30 locally (`d754a1c98`, push held by the coordinator)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
