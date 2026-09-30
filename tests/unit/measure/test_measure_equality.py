@@ -153,9 +153,10 @@ def test_term_structure_equals_per_horizon_proposer(symbols, params, tag, min_st
     feats[rng.random((n, m, 5)) < 0.07] = np.nan
     feats[:, :, 3] = 1.0
     names = tuple(f"f{i}" for i in range(5))
-    got = term_structure(feats, names, panels, horizons, end, prm)
+    present = rng.random((n, m)) > 0.1  # some (bar, symbol) rows do not exist
+    got = term_structure(feats, names, panels, horizons, end, prm, present=present)
     for h_idx, horizon in enumerate(horizons):
-        cell = propose(feats, names, stack_targets(panels, horizon, end), prm).cell
+        cell = propose(feats, names, stack_targets(panels, horizon, end), prm, present=present).cell
         assert got.ic[:, h_idx].tobytes() == cell.ic.tobytes()
         assert got.n_obs[:, h_idx].tobytes() == cell.n_independent.tobytes()
         assert got.p_value[:, h_idx].tobytes() == cell.p_value.tobytes()
@@ -238,14 +239,14 @@ def _reference_labelled(labels):
     ).reshape(labels.shape)
 
 
-def _reference_disclosure(features, names, stack, labels, params):
-    valid = stack.valid_grid()
+def _reference_disclosure(features, names, stack, labels, params, exists):
+    valid = stack.valid_grid() & exists
     labelled = _reference_labelled(labels)
     n_unlabelled = int((valid & ~labelled).sum())
     cells = {}
-    present = np.unique(labels[valid & labelled].astype(str))
+    seen = np.unique(labels[valid & labelled].astype(str))
     as_text = labels.astype(str)
-    for label in present:
+    for label in seen:
         mask = valid & labelled & (as_text == label)
         X, y = observation_rows(features, stack.targets, mask)
         cells[str(label)] = pooled_rank_ic(
@@ -284,8 +285,11 @@ def test_regime_disclosure_equals_string_mask_loop(symbols, params, kind):
         if kind == "unicode":
             labels = np.where(labels == None, "", labels).astype(str)  # noqa: E711
     names = ("a", "b", "c")
-    want_cells, want_missing = _reference_disclosure(feats, names, stack, labels, params)
-    got_cells, got_missing = regime_volatility_disclosure(feats, names, stack, labels, params)
+    exists = rng.random((n, m)) > 0.1  # some (bar, symbol) rows do not exist
+    want_cells, want_missing = _reference_disclosure(feats, names, stack, labels, params, exists)
+    got_cells, got_missing = regime_volatility_disclosure(
+        feats, names, stack, labels, params, present=exists
+    )
     assert got_missing == want_missing and list(got_cells) == list(want_cells)
     for label, want in want_cells.items():
         for field in ("ic", "n_obs", "n_independent", "p_value", "ci_lower", "ci_upper"):
@@ -295,11 +299,11 @@ def test_regime_disclosure_equals_string_mask_loop(symbols, params, kind):
 # ---------------------------------------------------------------- monitoring
 
 
-def _reference_member_ic(feature, stack, params):
+def _reference_member_ic(feature, stack, params, exists):
     n = len(stack.timestamps)
     per_window = params.monitor_window_sessions
     n_sessions = int(stack.session[-1]) + 1 if n else 0
-    valid_grid = stack.valid_grid()
+    valid_grid = stack.valid_grid() & exists
     out = []
     for first in range(0, n_sessions, per_window):
         last = min(first + per_window, n_sessions)
@@ -319,8 +323,9 @@ def test_member_windows_equal_row_scan(symbols, params, tag, window):
     feature = np.random.default_rng(8).normal(size=(n, m))
     feature[np.random.default_rng(9).random((n, m)) < 0.05] = np.nan
     prm = dataclasses.replace(params, monitor_window_sessions=window, min_obs=5)
-    series = member_ic_over_time(feature, "m", stack, prm)
-    want = _reference_member_ic(feature, stack, prm)
+    exists = np.random.default_rng(10).random((n, m)) > 0.1  # some (bar, symbol) rows do not exist
+    series = member_ic_over_time(feature, "m", stack, prm, present=exists)
+    want = _reference_member_ic(feature, stack, prm, exists)
     assert [w[0] for w in want] == series.window_start.tolist()
     assert [w[1] for w in want] == series.n_sessions.tolist()
     assert np.array([w[2] for w in want]).tobytes() == series.ic.tobytes()

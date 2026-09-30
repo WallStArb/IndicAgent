@@ -6,7 +6,14 @@ import numpy as np
 import pytest
 from scipy.stats import spearmanr
 
-from src.intelligence.measure.ic import align_features, observation_rows, pooled_rank_ic
+from src.intelligence.measure.ic import (
+    align_features,
+    map_slots,
+    observation_rows,
+    pooled_rank_ic,
+    scatter_features,
+)
+from src.intelligence.measure.proposer import propose
 from src.intelligence.measure.targets import stack_targets
 from tests.unit.measure.conftest import make_panel
 
@@ -112,3 +119,44 @@ def test_untraded_bars_leave_the_row_set_before_the_stride(params):
     grid_first = np.arange(0, n, 3)
     grid_first = grid_first[~untraded[grid_first] & np.isfinite(y[grid_first, 0])]
     assert not np.array_equal(grid_first, keep)
+
+
+def test_a_traded_bar_missing_one_symbols_row_leaves_the_row_set_before_the_stride(symbols, params):
+    """The union grid's `valid` is bar-level: a traded bar where one symbol has no
+    feature_vectors row is a NaN slot the grid keeps. ic_engine has no row for it, so its stride
+    counts only existing (bar, symbol) rows, ordered by (bar_ts, symbol). The slot map knows
+    which slots received a row, and `present` removes the rest before the stride."""
+    prm = dataclasses.replace(params, min_stride=3, min_obs=5)
+    panel = make_panel(symbols[:3], 80, 1, seed=5)
+    stack = stack_targets([panel], 1, "2027-01-01")
+    n, m = stack.targets.shape
+    rng = np.random.default_rng(6)
+    missing = rng.random((n, m)) < 0.25  # the (bar, symbol) rows feature_vectors does not have
+    missing[10] = False
+    # long-form rows in ic_engine's order, built without the grid: (bar, symbol) ascending
+    order = [(t, j) for t in range(n) for j in range(m) if not missing[t, j]]
+    bar_ts = np.array([stack.timestamps[t] for t, _ in order])
+    syms = np.array([stack.symbols[j] for _, j in order])
+    x_long = rng.normal(size=len(order))
+    y_true = np.array([stack.targets[t, j] for t, j in order])
+    x_long = 0.5 * np.where(np.isfinite(y_true), y_true, 0.0) / 0.01 + x_long
+
+    slots = map_slots(stack, bar_ts, syms)
+    grid, unmatched = scatter_features(stack, slots, x_long)
+    assert unmatched == 0
+    present = slots.present(n, m)
+    assert np.array_equal(present, ~missing)
+
+    # ic_engine: stride over the existing rows first, then the finite mask
+    strided = np.arange(0, len(order), 3)
+    keep = strided[np.isfinite(y_true[strided])]
+    want = spearmanr(x_long[keep], y_true[keep])[0]
+
+    got = propose(grid, ("f",), stack, prm, present=present).cell
+    assert got.n_independent[0] == keep.size
+    assert got.ic[0] == pytest.approx(want, abs=1e-12)
+
+    # the bar-level mask alone counts the NaN slots in the stride and picks other rows
+    X, y = observation_rows(grid, stack.targets, stack.valid_grid())
+    bar_level = pooled_rank_ic(X, y, stride=3, params=prm)
+    assert bar_level.n_independent[0] != got.n_independent[0] or bar_level.ic[0] != got.ic[0]

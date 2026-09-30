@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.intelligence.measure.ic import IcCell, observation_rows, pooled_rank_ic
+from src.intelligence.measure.ic import IcCell, existing_rows, observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
 
@@ -34,19 +34,21 @@ def regime_volatility_disclosure(
     stack: TargetStack,
     regime_volatility: np.ndarray,
     params: MeasureParams,
+    *,
+    present: np.ndarray,
 ) -> tuple[dict[str, IcCell], int]:
     """One pooled cell per distinct `regime_volatility` label present, each equal to
     `pooled_rank_ic` on that label's rows at stride max(params.min_stride, horizon).
 
     `regime_volatility` is [n, m] aligned to the stack (the 186-14 writer loads the column from
     feature_vectors and aligns it like a feature; integer codes or strings). Returns the cells
-    keyed by str(label) and the count of valid-row observations with no label, which are counted,
+    keyed by str(label) and the count of existing-row observations (traded bar, feature row present) with no label, which are counted,
     never assigned to a regime.
     """
     n, m = stack.targets.shape
     if regime_volatility.shape != (n, m):
         raise ValueError(f"regime_volatility {regime_volatility.shape} != stack grid {(n, m)}")
-    valid = stack.valid_grid()
+    valid = existing_rows(stack.valid_grid(), present)
     labelled = _labelled(regime_volatility)
     n_unlabelled = int((valid & ~labelled).sum())
     cells: dict[str, IcCell] = {}

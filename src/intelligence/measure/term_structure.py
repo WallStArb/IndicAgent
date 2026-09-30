@@ -6,7 +6,7 @@ import dataclasses
 
 import numpy as np
 
-from src.intelligence.measure.ic import pooled_rank_ic_prepared, prepare_features
+from src.intelligence.measure.ic import existing_rows, pooled_rank_ic_prepared, prepare_features
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import (
     check_horizon,
@@ -34,8 +34,11 @@ def term_structure(
     horizons: tuple[int, ...],
     end_exclusive: str,
     params: MeasureParams,
+    *,
+    present: np.ndarray,
 ) -> TermStructure:
-    """The same pooled cells at each horizon. Every horizon is checked before anything is
+    """The same pooled cells at each horizon, over the rows that exist (traded bar and a
+    feature row, `present` [n, m] from `SlotMap.present`). Every horizon is checked before anything is
     computed; an intraday horizon that would leave the session is the caller's 1d run."""
     for horizon in horizons:
         check_horizon(panels[0].tf, panels[0].bars_per_session, horizon)
@@ -50,7 +53,7 @@ def term_structure(
     n, m = len(grid.timestamps), len(grid.symbols)
     if features.shape[:2] != (n, m):
         raise ValueError(f"features {features.shape[:2]} do not match the stack grid {(n, m)}")
-    rows = np.flatnonzero(grid.valid_grid().reshape(n * m))
+    rows = np.flatnonzero(existing_rows(grid.valid_grid(), present).reshape(n * m))
     prepared = prepare_features(
         features.reshape(n * m, features.shape[2])[rows], params, feature_names
     )

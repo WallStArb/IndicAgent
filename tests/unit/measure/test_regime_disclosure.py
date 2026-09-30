@@ -5,7 +5,7 @@ import numpy as np
 from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
 from src.intelligence.measure.regime_disclosure import regime_volatility_disclosure
 from src.intelligence.measure.targets import stack_targets
-from tests.unit.measure.conftest import make_panel
+from tests.unit.measure.conftest import all_present, make_panel
 
 
 def test_one_cell_per_label_and_unlabelled_counted(symbols, params):
@@ -17,7 +17,9 @@ def test_one_cell_per_label_and_unlabelled_counted(symbols, params):
     labels = np.repeat(labels, m, axis=1)
     labels[5, :] = None
     labels[6, 0] = ""
-    cells, n_unlabelled = regime_volatility_disclosure(feats, ("a", "b"), stack, labels, params)
+    cells, n_unlabelled = regime_volatility_disclosure(
+        feats, ("a", "b"), stack, labels, params, present=all_present((n, m))
+    )
     assert set(cells) == {"low", "high"}
     assert n_unlabelled == m + 1
     mask = (labels == "low") & stack.valid[:, None]
@@ -33,5 +35,7 @@ def test_numeric_codes_with_nan(symbols, params):
     codes = np.zeros((n, m))
     codes[::2] = 1.0
     codes[3] = np.nan
-    cells, n_unlabelled = regime_volatility_disclosure(feats, ("a",), stack, codes, params)
+    cells, n_unlabelled = regime_volatility_disclosure(
+        feats, ("a",), stack, codes, params, present=all_present((n, m))
+    )
     assert set(cells) == {"0.0", "1.0"} and n_unlabelled == m

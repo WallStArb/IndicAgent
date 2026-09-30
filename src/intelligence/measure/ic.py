@@ -58,6 +58,18 @@ def observation_rows(
     return x, y
 
 
+def existing_rows(valid_grid: np.ndarray, present: np.ndarray) -> np.ndarray:
+    """[n, m] bool row existence as ic_engine has it: the bar traded (`valid_grid`) and the
+    (bar_ts, symbol) has a feature row (`present`, from `SlotMap.present`). The one row
+    selection every measure job hands to `observation_rows` before the stride."""
+    if present.shape != valid_grid.shape or present.dtype != np.bool_:
+        raise ValueError(
+            f"present must be a bool array of shape {valid_grid.shape}, "
+            f"got {present.dtype} {present.shape}"
+        )
+    return valid_grid & present
+
+
 def _column_blocks(k: int):
     """(first, stop) column ranges covering k columns in about sqrt(k)-wide blocks.
 
@@ -229,6 +241,14 @@ class SlotMap:
     ok: np.ndarray  # [N] bool, the row matches a grid slot
     rows: np.ndarray  # [ok.sum()] grid row index
     cols: np.ndarray  # [ok.sum()] grid column (symbol) index
+
+    def present(self, n: int, m: int) -> np.ndarray:
+        """[n, m] bool: the slots that received a row. A traded bar where one symbol has no
+        feature_vectors row is a NaN slot on the grid that ic_engine has no row for; its stride
+        counts only these slots. Pass it as `present` to the measure jobs."""
+        out = np.zeros((n, m), dtype=bool)
+        out[self.rows, self.cols] = True
+        return out
 
 
 def map_slots(stack: TargetStack, bar_ts: np.ndarray, symbols: np.ndarray) -> SlotMap:

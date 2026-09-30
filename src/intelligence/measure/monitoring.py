@@ -9,7 +9,7 @@ import dataclasses
 
 import numpy as np
 
-from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
+from src.intelligence.measure.ic import existing_rows, observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
 
@@ -56,17 +56,24 @@ def _hac_sharpe_gapped(ic: np.ndarray, max_lag: int) -> float:
 
 
 def member_ic_over_time(
-    feature: np.ndarray, member: str, stack: TargetStack, params: MeasureParams
+    feature: np.ndarray,
+    member: str,
+    stack: TargetStack,
+    params: MeasureParams,
+    *,
+    present: np.ndarray,
 ) -> MemberIcSeries:
     """IC per window of `params.monitor_window_sessions` whole sessions, stride
-    max(params.min_stride, horizon) applied inside each window. A trailing short window is
-    reported with its own session count, never merged into the previous one."""
+    max(params.min_stride, horizon) applied inside each window, over the rows that exist
+    (`present` [n, m] from `SlotMap.present`; the traded-bar mask alone would count NaN slots).
+    A trailing short window is reported with its own session count, never merged into the
+    previous one."""
     n, m = stack.targets.shape
     if feature.shape != (n, m):
         raise ValueError(f"feature {feature.shape} does not match the stack grid {(n, m)}")
     per_window = params.monitor_window_sessions
     n_sessions = int(stack.session[-1]) + 1 if n else 0
-    valid_grid = stack.valid_grid()
+    valid_grid = existing_rows(stack.valid_grid(), present)
     # `session` is non-decreasing, so each window's rows are one contiguous slice: two binary
     # searches and views instead of a scan of every row per window.
     firsts = np.arange(0, n_sessions, per_window)

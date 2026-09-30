@@ -6,7 +6,7 @@ import pytest
 from src.intelligence.measure.ic import observation_rows, pooled_rank_ic
 from src.intelligence.measure.monitoring import member_ic_over_time
 from src.intelligence.measure.targets import stack_targets
-from tests.unit.measure.conftest import make_panel
+from tests.unit.measure.conftest import all_present, make_panel
 
 
 def _member(stack, flip_at):
@@ -19,7 +19,7 @@ def _member(stack, flip_at):
 def test_windows_match_pooled_ic_on_their_rows(symbols, params):
     stack = stack_targets([make_panel(symbols, 40, 1, seed=8)], 1, "2027-01-01")
     feat = _member(stack, 20)
-    series = member_ic_over_time(feat, "m", stack, params)
+    series = member_ic_over_time(feat, "m", stack, params, present=all_present(stack.targets.shape))
     assert series.ic.shape == (4,) and series.n_sessions.tolist() == [10] * 4
     assert series.partial_tail_sessions == 0
     for w in range(4):
@@ -34,13 +34,17 @@ def test_windows_match_pooled_ic_on_their_rows(symbols, params):
 
 def test_sign_flip_shows_in_windows(symbols, params):
     stack = stack_targets([make_panel(symbols, 40, 1, seed=8)], 1, "2027-01-01")
-    series = member_ic_over_time(_member(stack, 20), "m", stack, params)
+    series = member_ic_over_time(
+        _member(stack, 20), "m", stack, params, present=all_present(stack.targets.shape)
+    )
     assert (series.ic[:2] > 0.5).all() and (series.ic[2:] < -0.5).all()
 
 
 def test_trailing_partial_window_is_reported_not_merged(symbols, params):
     stack = stack_targets([make_panel(symbols, 45, 1, seed=8)], 1, "2027-01-01")
-    series = member_ic_over_time(_member(stack, 99), "m", stack, params)
+    series = member_ic_over_time(
+        _member(stack, 99), "m", stack, params, present=all_present(stack.targets.shape)
+    )
     assert series.n_sessions.tolist() == [10, 10, 10, 10, 5]
     assert series.partial_tail_sessions == 5
 

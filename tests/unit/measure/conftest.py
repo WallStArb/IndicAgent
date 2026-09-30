@@ -79,3 +79,8 @@ def params() -> MeasureParams:
         degenerate_std=1e-8,
         monitor_degenerate_std=1e-10,
     )
+
+
+def all_present(shape: tuple[int, int]) -> np.ndarray:
+    """Every (bar, symbol) slot received a feature row."""
+    return np.ones(shape, dtype=bool)

@@ -6,7 +6,7 @@ import dataclasses
 
 import numpy as np
 
-from src.intelligence.measure.ic import IcCell, observation_rows, pooled_rank_ic
+from src.intelligence.measure.ic import IcCell, existing_rows, observation_rows, pooled_rank_ic
 from src.intelligence.measure.params import MeasureParams
 from src.intelligence.measure.targets import TargetStack, stride
 from src.intelligence.statistics.ic_math import apply_bh_fdr
@@ -26,15 +26,19 @@ def propose(
     feature_names: tuple[str, ...],
     stack: TargetStack,
     params: MeasureParams,
+    *,
+    present: np.ndarray,
 ) -> ProposerResult:
-    """One pooled IC cell over every valid row of `stack` for the feature block `features`
-    [n, m, k] (aligned to stack.timestamps x stack.symbols). Stride is
+    """One pooled IC cell over every existing row of `stack` for the feature block `features`
+    [n, m, k] (aligned to stack.timestamps x stack.symbols). A row exists where the bar traded
+    and the slot received a feature row (`present` [n, m], `SlotMap.present`), the rows ic_engine
+    strides over. Stride is
     max(params.min_stride, horizon), the formula stored cells use. Features arrive in blocks the
     caller chooses; nothing here assumes the whole feature set fits in memory."""
     n, m = stack.targets.shape
     if features.shape[:2] != (n, m):
         raise ValueError(f"features {features.shape[:2]} do not match the stack grid {(n, m)}")
-    X, y = observation_rows(features, stack.targets, stack.valid_grid())
+    X, y = observation_rows(features, stack.targets, existing_rows(stack.valid_grid(), present))
     cell = pooled_rank_ic(
         X,
         y,
