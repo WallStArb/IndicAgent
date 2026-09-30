@@ -1209,7 +1209,7 @@ _SR_DEFAULT_LOOKBACK = 120
 
 
 def _sr_lookback(config, tf: str) -> int:
-    return config.sr_lookback_by_tf.get(tf, _SR_DEFAULT_LOOKBACK)
+    return int(config.sr_lookback_by_tf.get(tf, _SR_DEFAULT_LOOKBACK))
 
 
 def _sr_max_lookback(config) -> int:

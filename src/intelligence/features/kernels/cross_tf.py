@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from src.intelligence.feature_cache import _HMM_K, _hmm_forward_step
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
@@ -190,15 +191,20 @@ class CtfSeries:
     """
 
     __slots__ = ("_close_ns", "_htf_last_log_ret", "_momentum", "_regime_align", "_vwap_align")
+    _close_ns: np.ndarray
+    _momentum: np.ndarray
+    _vwap_align: np.ndarray
+    _regime_align: np.ndarray
+    _htf_last_log_ret: np.ndarray
     _TOKEN = object()
 
     def __init__(
         self,
-        close_ns: np.ndarray,
-        momentum: np.ndarray,
-        vwap_align: np.ndarray,
-        regime_align: np.ndarray,
-        htf_last_log_ret: np.ndarray,
+        close_ns: ArrayLike,
+        momentum: ArrayLike,
+        vwap_align: ArrayLike,
+        regime_align: ArrayLike,
+        htf_last_log_ret: ArrayLike,
         *,
         _token: object = None,
     ):
