@@ -57,9 +57,10 @@ case "$CHECK" in
         #   research/  the research DAG library (Panel, RidgeSpec, PostgresLedger)
         #   bars/      the bar scrub library (ScrubParams, SymbolBars, BarFlag)
         #   measure/   the IC measurement library (IcCell, TargetStack, MeasureParams)
-        #   features/  the kernel registry and its kernels (Kernel, Alignment, CausalityViolation,
-        #              CtfSeries, CtfRecord, CrossAssetRecord); covers features/contract/
-        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*|src/intelligence/measure/*|src/intelligence/features/*) continue ;;
+        #   features/kernels/, features/contract/  the kernel registry and its kernels (Kernel,
+        #              Alignment, CtfSeries, CtfRecord, CrossAssetRecord); the plugin-era
+        #              features/ directories stay checked
+        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*|src/intelligence/measure/*|src/intelligence/features/kernels/*|src/intelligence/features/contract/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
       FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
