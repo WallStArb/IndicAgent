@@ -160,3 +160,16 @@ def test_a_traded_bar_missing_one_symbols_row_leaves_the_row_set_before_the_stri
     X, y = observation_rows(grid, stack.targets, stack.valid_grid())
     bar_level = pooled_rank_ic(X, y, stride=3, params=prm)
     assert bar_level.n_independent[0] != got.n_independent[0] or bar_level.ic[0] != got.ic[0]
+
+
+def test_an_all_missing_column_is_degenerate_without_a_numpy_warning(params):
+    import warnings
+
+    from src.intelligence.measure.ic import prepare_features
+
+    x = np.random.default_rng(0).normal(size=(50, 3))
+    x[:, 1] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any RuntimeWarning fails the test
+        prepared = prepare_features(x, params)
+    assert prepared.live.tolist() == [True, False, True] and prepared.n_degenerate == 1

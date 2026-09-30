@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import warnings
 from collections.abc import Sequence
 
 import numpy as np
@@ -125,7 +126,11 @@ def prepare_features(
         raise ValueError(f"{len(names)} names for {k} features")
     std = np.full(k, np.nan)
     if n:
-        with np.errstate(invalid="ignore"):
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            # An all-missing column has no std: NaN, degenerate by design. numpy warns about it.
+            warnings.filterwarnings(
+                "ignore", message="Degrees of freedom <= 0", category=RuntimeWarning
+            )
             for first, stop in _column_blocks(k):
                 std[first:stop] = np.nanstd(X[:, first:stop], axis=0, dtype=np.float64)
     live = std >= params.degenerate_std  # NaN std (all-missing column) is degenerate too
