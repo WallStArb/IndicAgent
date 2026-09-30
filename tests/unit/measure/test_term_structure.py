@@ -39,3 +39,24 @@ def test_intraday_horizon_across_session_is_refused_first(symbols, params):
             params,
             present=all_present(feats.shape[:2]),
         )
+
+
+def test_list_arguments_are_stored_as_tuples_and_detached_from_the_caller(symbols, params):
+    panel = make_panel(symbols, 150, 1, seed=3)
+    rng = np.random.default_rng(4)
+    feats = rng.normal(size=(150, len(symbols), 2))
+    present = all_present(feats.shape[:2])
+    names, horizons = ["a", "b"], [1, 2, 5]
+    from_lists = term_structure(
+        feats, names, [panel], horizons, "2027-01-01", params, present=present
+    )
+    names.append("mutated")
+    horizons.append(99)
+    twin = term_structure(
+        feats, ("a", "b"), [panel], (1, 2, 5), "2027-01-01", params, present=present
+    )
+    assert isinstance(from_lists.features, tuple) and isinstance(from_lists.horizons, tuple)
+    assert from_lists.features == twin.features == ("a", "b")
+    assert from_lists.horizons == twin.horizons == (1, 2, 5)
+    assert np.array_equal(from_lists.ic, twin.ic, equal_nan=True)
+    assert hash(from_lists.features) == hash(twin.features)
