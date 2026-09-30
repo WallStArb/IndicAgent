@@ -84,3 +84,10 @@ validity, source-reference resolution, git existence of `recipe_commit` and ever
 (these git checks skip with a stated reason on a shallow clone, such as CI's checkout), and full
 `DROP_TABLES` coverage. Later drop plans must add any new drop target to `DROP_TABLES` before
 dropping it, and write its card first.
+
+## Deleted recipe code
+
+`scripts/analysis/` was deleted in phase 186 plan 16. The last commit containing it is
+`920f8e2b36b305f8c46069d8a91d326e6b1244db`; read any cited path with
+`git show 920f8e2b36b305f8c46069d8a91d326e6b1244db:<path>`. A card's own `recipe_commit` is
+authoritative for that card.

@@ -35,7 +35,7 @@ isolate with the detached-HEAD scratch worktree in `docs/reference/gotchas.md`).
    - small code change (single area, no schema or src/intelligence/research|statistics
      files): targeted tests for the touched area, then commit
    - substantive code: /simplify -> /review -> pytest tests/unit/ -q, then commit
-     (+ scripts/analysis/sleeve_walk_forward/repro_frozen.py bit-identical for
+     (+ scripts/research/determinism/repro_frozen.py bit-identical for
      src/intelligence/research/ or statistics/ edits)
 2. Commit on main (pre-commit's 9 checks always run)
 3. git push origin main; CI is the backstop
@@ -173,7 +173,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **`git add` with several pathspecs aborts entirely if any path doesn't match** (e.g. the pre-rename side of a moved todo file): none get staged. Stage a renamed path alone (`git add -- <new_path>`) before batching. After `git mv`, re-`git add` the new path: it carries the previously-staged blob, so earlier unstaged edits are otherwise left out of the commit.
 - **Shared-checkout commits:** `git commit` itself carries an explicit pathspec (`git commit -m "..." -- <paths>`) — concurrent sessions share the index, so a bare commit sweeps their staged files (a bare commit has swept another session's file to origin). Never chain `git push` with a first-time commit: commit, verify `git show HEAD --stat`, push separately — the unpushed window (`reset --soft HEAD^`) is the only recovery.
 - **A migration applied live via `psql -f` has no forcing function to get committed** — unlike code, its effect is already active in the DB even if the file never lands in git. Commit it in the same breath as applying it, not "later."
-- **Research changes keep frozen verdicts bit-identical:** after any edit under `src/intelligence/research/` or `src/intelligence/statistics/`, run `.venv/bin/python scripts/analysis/sleeve_walk_forward/repro_frozen.py <scratch_dir> --logs /home/bg/dev/indicagent/logs` (from a worktree); it must report bit-identical. Moves before phase 186 deletes that directory (todo 448).
+- **Research changes keep frozen verdicts bit-identical:** after any edit under `src/intelligence/research/` or `src/intelligence/statistics/`, run `.venv/bin/python -m scripts.research.determinism.repro_frozen <scratch_dir> --logs /home/bg/dev/indicagent/logs` (from a worktree); it must report bit-identical.
 - **New optional research-spec fields go in `spec.py`'s `_OPTIONAL_*_FIELDS`** (dropped from the canonical form when unset), or every recorded spec hash moves and the ledger's run records stop matching their specs.
 - **Validating a test statistic:** check the H0 mean and sd of t and rejection counts against a binomial bound at each level, never one-sided p ranges alone (E16's bias hid behind p 0.28-0.77). Commit the pass criterion before the result exists.
 - **Shift nulls have (sessions - L) / tau effective draws,** not one per shift: a persistent signal (tau 40-60) gets about 60-90 and cannot resolve p < 0.00167, however many shifts are run.

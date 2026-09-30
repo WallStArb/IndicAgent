@@ -309,8 +309,10 @@ how it is controlled.
   measurement. Phase 177 is not on this path for in-sample work: the vintage ends 2025-12-24
   and recent staleness does not touch it. It is on the path for the holdout read, the forward
   shadow run, and survivorship (todo 376).
-- `scripts/analysis/`: frozen for new S0/S1/S3/S5 logic. Existing scripts stay as the record of
-  their verdicts.
+- `scripts/analysis/`: deleted in phase 186 plan 16 (last commit containing it:
+  920f8e2b36b305f8c46069d8a91d326e6b1244db). Verdicts live as summary cards in
+  `docs/research/summary-cards/`, each pinning its recipe by commit. The `HarnessConfig` module
+  stays until 186-29.
 
 ## 7. What this deliberately does not do
 

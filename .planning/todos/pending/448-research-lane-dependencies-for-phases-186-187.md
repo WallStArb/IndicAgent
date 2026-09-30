@@ -18,6 +18,10 @@ source: phase 183 session council review of the unified design against the resea
    Progress: 2026-09-28, phase 186-03: promoted to
    `scripts/research/determinism/repro_frozen.py`; bit-identical on phase 179 S3 and phase 181
    S2/S3 (commit dc1985fc1); the sleeve directory deletion (186-16, 186-29) no longer blocks it.
+   2026-09-30, 186-16: the old command `scripts/analysis/sleeve_walk_forward/repro_frozen.py` no
+   longer exists; the bit-identity check is
+   `python -m scripts.research.determinism.repro_frozen <scratch_out_dir>` (phase 183's D-16 and
+   the multi-timeframe design's B7 guard run this), rerun bit-identical on the post-deletion tree.
 2. **One source for E17 memory.** Phase 186's kernel registry declares each feature's memory.
    For feature members, that declared memory is `PredictorSource.memory`; with
    `Combiner.training_rows` (exists) and a `HorizonRule.reach` (kappa weight below 1e-3), one

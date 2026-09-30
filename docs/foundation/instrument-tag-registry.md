@@ -279,8 +279,7 @@ gates, stored separately by design so a future per-consumer cutover can calibrat
 the statistical gate (`passes_materiality`, Pass 4), the temporal gate
 (`discovery_state == 'confirmed'`, todo 125), and the expiry gate (`valid_to IS NULL`, todo
 126). Any future consumer of the materiality-filtered arm should import this function rather
-than re-deriving the conjunction -- `scripts/analysis/itr_materiality_shadow_diagnostic.py`
-does exactly this.
+than re-deriving the conjunction.
 
 **Current measured state (2026-09-23, `175-04-SUMMARY.md`):** the first live Pass 4 run
 measured 2170 empirical pairs; 222 cleared the statistical gate. Under the materiality-filtered

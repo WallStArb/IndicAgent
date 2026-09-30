@@ -71,7 +71,6 @@ failing candidates plus each gate's `sole_failure` count) that any future
 loosen/tighten/leave-alone decision should start from.
 | `alpha.concept_registry.ensemble_strategy_min_observations` / `ensemble_strategy_min_promotion_consecutive` | 1000 / 2 | Concept promotion gate | `[initial_estimate]` — the *shape* of the reasoning is documented (non-overlapping CIs are strict), the specific number isn't. |
 | `alpha.ensemble_ic.min_obs_per_regime` / `wf_stability_ratio` / `stop_target_min_qualifying_symbols` | 3000 / 3.0 / 3 | Data-sufficiency and fold-stability diagnostics (`ensemble_ic_engine.py`) | All `[initial_estimate]`, no empirical basis cited. |
-| `alpha.validation.regime_gate_min_clusters` | 20 | Day-cluster coverage floor — the key that started this audit | `[initial_estimate]`: "no empirical calibration performed yet." Lower blast radius than the rest of this table — consumed only by `scripts/analysis/*.py` one-off eval scripts, not a live daemon. |
 | `threshold.signal_audit.verifiable_population_floor` / `partial_population_floor` | 0.90 / 0.50 | Signal audit verdict tiers | `[initial_estimate]`, no data cited — consuming pipeline (I1-I7 signal audit) is part of the archived v2.x tier, not confirmed live; lower priority to recalibrate for that reason. |
 | `alpha.decay.demotion_min_consecutive` | 2 | `active → shadow_only` demotion hysteresis for the `feature` domain's sync (`ic_engine.py`) lifecycle path (migration 321, todo 323) — gates `ConceptRegistryService.is_demotion_eligible()` | `[initial_estimate]`: migration's own text picks 2 "as the most directly defensible symmetric starting point" by matching `alpha.concept_registry.ensemble_strategy_min_promotion_consecutive`'s value — a borrowed number, not a measurement against this project's own demotion history. |
 
@@ -130,6 +129,9 @@ convention (migration 103, Phase 109 era) and were never backfilled.
   with no cited study to check it against.
 
 ## How to use this doc
+
+`alpha.validation.regime_gate_min_clusters` (the key named in the introduction) was retired by
+migration 412 (186-16): its only reader was a deleted `scripts/analysis/` script.
 
 When picking up calibration work: prioritize Section 1 top-to-bottom (live production impact
 first). When a key gets a real empirical study, move it to Section 2 with a one-line citation,
