@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-30T02:14:02.894Z"
+last_updated: "2026-09-30T04:40:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 35
+  completed_plans: 36
   percent: 17
 ---
 
@@ -54,15 +54,17 @@ bullets with current facts.
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 24 plans in 10 waves; 11 done (01-11), wave 2 complete with 185-09 (the
+- **Phase 185:** 24 plans in 10 waves; 13 done (01-11, 13, 14), wave 3 complete with 185-09 (the
   `ibkr_history_stream` lease, D1 capture in the backfill, the nightly waiting instead of skipping).
-  Next: 13 and 14 (need the gateway), then 12, then 15-24. Plans 10, 14, 15 and 16 clear the
+  Next: 12 and 15 (wave 4), then 16-24. Plans 10, 14, 15 and 16 clear the
   minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans 11-12) is in place by
   wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
   number plus 16, because phase 186 took 384 to 389); other phases keep taking the next free number below 400.
   Plans 12, 18 and 23 carry the todo 462 intraday redesign (`docs/plans/2026-09-29-intraday-bar-store-redesign.md`).
+  Plan 13's venue study failed both timeframes, so venue bars stay stored and unused; plan 14 left 42 late
+  names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
   sequential, one executor at a time). 12 done (01 to 12; 02, 11, 12 landed in wave 2); paused by owner, resume with 186-17 then wave 3.
@@ -104,7 +106,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186` (coordinator indicagent-f3): 5/29 done; next 186-07, then wave 1 continues 07-10 and waves 2-10, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | `/gsd-execute-phase 185`: 11/24 done (01-11); next 13 and 14 (need the gateway), then 12 | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 185 | `/gsd-execute-phase 185`: 13/24 done (01-11, 13, 14); next 12 and 15 (wave 4), then 16-24 | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
