@@ -111,10 +111,6 @@ def snapshot_apr(cfg: Any) -> dict[str, Any]:
     return {key: cfg.get_sync(key, fallback) for key, fallback in _WRITER_FALLBACKS.items()}
 
 
-def _ns_to_dt(ns: int) -> datetime:
-    return datetime.fromtimestamp(ns // 1_000_000_000, tz=UTC)
-
-
 def run_kernel_full(
     apr: dict[str, Any], bars: dict[str, np.ndarray], family: str, tf: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -221,14 +217,6 @@ def change_report(pre_path: Path, post_path: Path, out: Path) -> dict[str, Any]:
     return report
 
 
-def _run_twice(fn, *args) -> tuple[np.ndarray, np.ndarray, float]:
-    t0 = time.monotonic()
-    first = fn(*args)
-    elapsed = time.monotonic() - t0
-    second = fn(*args)
-    return first, second, elapsed
-
-
 def _same(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> list[str]:
     bad = []
     if not np.array_equal(a[0], b[0]):
@@ -312,7 +300,7 @@ def _write_fixture(out: Path, manifest: dict, digests: dict, bars_by_case, synth
         )
         + "\n"
     )
-    synth: dict[str, np.ndarray] = {f"input/{k}": v for k, v in synthetic.items()}
+    synth: dict[str, Any] = {f"input/{k}": v for k, v in synthetic.items()}
     for family in FAMILIES:
         labels, columns = grids[f"synthetic/{family}"]
         synth[f"{family}/labels"] = labels
@@ -356,7 +344,7 @@ def main() -> None:
     # Production runs the HMM in pool workers capped to one BLAS thread (limit_blas_threads).
     # The thread count changes the low bits of the fit and, with several threads, differs run
     # to run, so the golden is defined at one thread.
-    import threadpoolctl
+    import threadpoolctl  # type: ignore[import-untyped]
 
     threadpoolctl.threadpool_limits(1)
 

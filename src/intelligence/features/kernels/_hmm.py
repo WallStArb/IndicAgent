@@ -110,8 +110,8 @@ def _rolling(arr: np.ndarray, window: int, fn, block_rows: int | None = None) ->
 
 def _build_obs_matrix(
     timestamps: list,
-    closes: list[float],
-    volumes: list[float],
+    closes: list[float] | np.ndarray,
+    volumes: list[float] | np.ndarray,
     vol_window: int,
     momentum_window: int,
     vol_of_vol_window: int,
@@ -166,7 +166,7 @@ def _build_obs_matrix(
 
 def _build_obs_matrix_volatility(
     timestamps: list,
-    closes: list[float],
+    closes: list[float] | np.ndarray,
     vol_window: int,
     vol_of_vol_window: int,
     block_rows: int | None = None,
@@ -260,7 +260,7 @@ def _log_emit_diag(obs: np.ndarray, means: np.ndarray, variances: np.ndarray) ->
     """Log emission (n, K) for diagonal Gaussian. variances shape (K, d)."""
     var_clipped = np.maximum(variances, 1e-300)
     diff = obs[:, np.newaxis, :] - means[np.newaxis, :, :]  # (n, K, d)
-    return (
+    return np.asarray(
         -0.5 * np.sum(diff**2 / var_clipped[np.newaxis, :, :], axis=2)
         - 0.5 * np.sum(np.log(2 * np.pi * var_clipped), axis=1)[np.newaxis, :]
     )
@@ -491,7 +491,7 @@ def _check_occupation_gate(
     occupation = {
         int(k): float(np.count_nonzero(smoothed_states == k)) / n_obs for k in range(n_components)
     }
-    min_state = min(occupation, key=occupation.get)
+    min_state = min(occupation, key=lambda state: occupation[state])
     min_fraction = occupation[min_state]
     if min_fraction < min_state_occupation:
         return True, {
@@ -625,7 +625,7 @@ def _seed_prior_from_label(
             pi0[state_idx] = 1.0
     if pi0.sum() == 0.0:
         return fallback_prior
-    return pi0 / pi0.sum()
+    return np.asarray(pi0 / pi0.sum())
 
 
 def _walk_forward_hmm_labels(
@@ -735,7 +735,7 @@ def _walk_forward_hmm_full(
     """Production-parity walk-forward decode (todo 248): per-segment version of
     `_walk_forward_hmm_labels` that additionally returns the per-bar alpha vectors,
     each segment's own convergence status, and each segment's own degenerate-occupation
-    gate result -- everything `_compute_symbol_tf_walk_forward` needs to assemble
+    gate result -- everything `walk_forward_family_arrays` needs to assemble
     `feature_vectors`' full column set (p_up/p_ranging/p_down/prob/entropy/duration),
     not just the bare regime label `_walk_forward_hmm_labels` returns.
 
@@ -803,7 +803,7 @@ def _walk_forward_hmm_full(
         }
     Degenerate/non-converged segments ARE included (not silently dropped) -- this
     function is a pure reporter of what each segment's fit produced; the caller
-    (`_compute_symbol_tf_walk_forward`) decides whether to write a segment's bars,
+    (`walk_forward_family_arrays`) decides whether to write a segment's bars,
     mirroring the existing separation between `_check_occupation_gate` (decides) and
     `_compute_symbol_tf` (acts on the decision) in the single-fit path.
     """

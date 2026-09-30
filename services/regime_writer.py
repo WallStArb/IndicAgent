@@ -559,7 +559,7 @@ def _run_symbol_worker(args: _WorkerArgs) -> dict:
     worker_log = structlog.get_logger(__name__)
 
     conn = None
-    results = []
+    results: list[dict[str, Any]] = []
     error_msg = None
 
     try:

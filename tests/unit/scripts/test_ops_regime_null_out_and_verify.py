@@ -442,8 +442,6 @@ def test_per_cell_helpers_never_rebuild_the_sql(monkeypatch):
     for name in (
         "_build_null_out_sql",
         "_build_any_owned_nonnull_sql",
-        "_build_pre_null_labeled_sql",
-        "_build_labeled_count_and_min_ts_sql",
         "_pre_null_labeled_sql_text",
         "_labeled_count_and_min_ts_sql_text",
     ):

@@ -211,21 +211,8 @@ def _validate_label_column(label_column: str) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Validated label-column builders. Column-agnostic queries (_ROWS_BEFORE_TS_SQL,
-# _CONFIG_VALUE_SQL, _CHUNK_COMPRESSION_SQL) stay module-level constants.
-# ---------------------------------------------------------------------------
-
-
-def _build_pre_null_labeled_sql(label_column: str) -> str:
-    _validate_label_column(label_column)
-    return _pre_null_labeled_sql_text(label_column)
-
-
-def _build_labeled_count_and_min_ts_sql(label_column: str) -> str:
-    _validate_label_column(label_column)
-    return _labeled_count_and_min_ts_sql_text(label_column)
-
+# Column-agnostic queries (_ROWS_BEFORE_TS_SQL, _CONFIG_VALUE_SQL, _CHUNK_COMPRESSION_SQL) stay
+# module-level constants.
 
 _ROWS_BEFORE_TS_SQL = (
     "SELECT count(*) FROM feature_vectors WHERE symbol = %s AND tf = %s AND bar_ts < %s"
