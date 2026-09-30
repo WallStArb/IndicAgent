@@ -219,7 +219,7 @@ _BULK_LOAD_SELECT_PROVENANCE_SQL = (
 _BULK_LOAD_INSERT_PROVENANCE_SQL = (
     "INSERT INTO provenance_batch (batch_key, writer, target_table, time_column, tf, "
     "range_start, range_end, symbols, symbols_hash, code_key, apr_hash, apr_snapshot, "
-    "input_digest) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    "input_digest, unit_key) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 _BULK_LOAD_TAKEOVER_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'started', attempts = attempts + 1, "
@@ -232,13 +232,16 @@ _BULK_LOAD_COMPLETE_PROVENANCE_SQL = (
 _BULK_LOAD_FAIL_PROVENANCE_SQL = (
     "UPDATE provenance_batch SET status = 'failed', error = %s WHERE batch_key = %s"
 )
-# The replace path's flip (186-14): every other completed row of the same unit (same writer,
-# target, tf, range, symbols) becomes superseded; the guard trigger allows exactly this
-# transition and changes nothing else on the row.
+# The replace path's flip (186-14, migration 416): every other completed row of the same unit (same
+# unit_key: writer, target, tf and replace_where) becomes superseded; the guard trigger allows
+# exactly this transition and changes nothing else on the row.
 _BULK_LOAD_SUPERSEDE_PROVENANCE_SQL = (
-    "UPDATE provenance_batch SET status = 'superseded' WHERE writer = %s AND target_table = %s "
-    "AND tf = %s AND range_start = %s AND range_end = %s AND symbols_hash = %s "
+    "UPDATE provenance_batch SET status = 'superseded' WHERE unit_key = %s "
     "AND status = 'completed' AND batch_key <> %s"
+)
+_PRIOR_COMPLETED_UNIT_SQL = (
+    "SELECT 1 FROM provenance_batch WHERE unit_key = %s AND status = 'completed' "
+    "AND batch_key <> %s LIMIT 1"
 )
 _PROVENANCE_BATCH_COLUMNS = (
     "batch_key",
@@ -254,6 +257,7 @@ _PROVENANCE_BATCH_COLUMNS = (
     "apr_hash",
     "apr_snapshot",
     "input_digest",
+    "unit_key",
     "row_count",
     "status",
     "attempts",
@@ -301,6 +305,11 @@ class BulkLoadSpec:
     code_key: str  # per-kernel code key (D-23), lowercase hex
     apr_snapshot: Mapping[str, Any]
     input_digest: str  # lowercase hex
+    # None: an append-only unit (a primary-key conflict is a loud error). A mapping: the unit owns
+    # the target rows it names (col = value, or col = ANY for a list, within the half-open time
+    # range); loading it deletes them and supersedes the unit's prior completed batches in the
+    # same transaction. See `unit_key`.
+    replace_where: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for name in ("writer", "target_table", "time_column", "tf"):
@@ -318,6 +327,8 @@ class BulkLoadSpec:
         if not self.symbols:
             raise ValueError("BulkLoadSpec.symbols must be non-empty")
         object.__setattr__(self, "symbols", tuple(sorted(self.symbols)))
+        if self.replace_where is not None and not self.replace_where:
+            raise ValueError("BulkLoadSpec.replace_where must name at least one column")
         for name in ("code_key", "input_digest"):
             if not _BULK_LOAD_HEX_32_64_RE.fullmatch(getattr(self, name)):
                 raise ValueError(f"BulkLoadSpec.{name} must be 32-64 lowercase hex characters")
@@ -335,6 +346,34 @@ class BulkLoadSpec:
         return hashlib.sha256("|".join(self.symbols).encode()).hexdigest()
 
     @property
+    def unit_key(self) -> str:
+        """Identity of the unit whose rows a replacing load owns: sha256 over (writer, target,
+        tf, replace_where), computed here once and used by both the DELETE predicate's owner
+        (the mapping it hashes) and the provenance supersede flip. Symbols, range, code, APR and
+        input are deliberately absent: a change to any of them replaces the unit instead of
+        loading beside it. Two units that must coexist differ in writer, tf or replace_where.
+        List values hash sorted, so their order never matters."""
+        where = None
+        if self.replace_where is not None:
+            where = {
+                column: (
+                    sorted(map(str, value))
+                    if isinstance(value, list | tuple | set | frozenset)
+                    else str(value)
+                )
+                for column, value in self.replace_where.items()
+            }
+        identity = {
+            "writer": self.writer,
+            "target_table": self.target_table,
+            "tf": self.tf,
+            "replace_where": where,
+        }
+        return hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    @property
     def batch_key(self) -> str:
         identity = {
             "writer": self.writer,
@@ -346,6 +385,7 @@ class BulkLoadSpec:
             "code_key": self.code_key,
             "apr_hash": self.apr_hash,
             "input_digest": self.input_digest,
+            "unit_key": self.unit_key,
         }
         return hashlib.sha256(
             json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
@@ -378,7 +418,6 @@ def bulk_load(
     rows: Iterable[Sequence[Any]],
     *,
     compress_before: datetime | None = None,
-    replace_where: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """Load one (symbols x tf x time range) unit into spec.target_table (D-24).
 
@@ -411,18 +450,18 @@ def bulk_load(
     - The float32 clamp is driven by the live information_schema types, never by a
       caller-supplied col_types (the todo 312 drift class cannot happen here).
     - Append-only by default: a primary-key conflict on the target is a loud error,
-      never ON CONFLICT DO NOTHING. `replace_where` is the explicit, atomic
-      replacement of a unit's prior rows, used when a unit's identity changes (the
-      IC writer, D-23): in the data transaction, before COPY, one DELETE bounded by
-      the spec's half-open time range and the mapping (col = value, or col = ANY for
-      a list), and every other completed provenance row with the same writer,
-      target_table, tf, range and symbols hash flips to 'superseded', so a replaced
-      unit keeps one completed row, the current key. A failure rolls back the
-      DELETE, the flip and the COPY together. Callers that split one range into
-      several units must give each unit its own writer name, or the flip would
-      supersede its siblings. A superseded key is terminal and cannot be loaded
-      again (BulkLoadRefused). provenance_batch.target_table is immutable once
-      written.
+      never ON CONFLICT DO NOTHING. A spec with `replace_where` is the explicit, atomic
+      replacement of a unit's prior rows, used when a unit's identity changes (the IC
+      writer, D-23): in the data transaction, before COPY, one DELETE bounded by the spec's
+      half-open time range and the mapping (col = value, or col = ANY for a list), and every
+      other completed provenance row with the same `spec.unit_key` flips to 'superseded', so
+      a replaced unit keeps one completed row, the current key. The unit key hashes
+      (writer, target, tf, replace_where) once, so the DELETE and the flip cannot disagree
+      and a change of symbols, range, code, APR or input replaces the unit instead of
+      loading beside it. Units that must coexist in one target differ in writer, tf or
+      replace_where; nothing else separates them. A failure rolls back the DELETE, the flip
+      and the COPY together. A superseded key is terminal and cannot be loaded again
+      (BulkLoadRefused). provenance_batch.target_table is immutable once written.
     - Every row's time value is validated (tz-aware, inside the half-open unit
       range, non-decreasing) before it reaches the COPY buffer; a violation rolls
       the data transaction back, marks the provenance row failed in its own commit,
@@ -438,8 +477,6 @@ def bulk_load(
         raise ValueError(
             f"bulk_load: columns must contain the spec's time column {spec.time_column!r}"
         )
-    if replace_where is not None and not replace_where:
-        raise ValueError("bulk_load: replace_where must name at least one column")
     time_idx = list(columns).index(spec.time_column)
 
     with conn.cursor() as cur:
@@ -449,9 +486,7 @@ def bulk_load(
         raise BulkLoadRefused(f"another session is loading unit {batch_key}")
 
     try:
-        return _bulk_load_locked(
-            conn, spec, columns, rows, time_idx, compress_before, replace_where
-        )
+        return _bulk_load_locked(conn, spec, columns, rows, time_idx, compress_before)
     finally:
         # Session advisory locks survive commit/rollback, so the unlock is explicit;
         # the SELECT opens a read transaction that is rolled back immediately after.
@@ -474,7 +509,6 @@ def _bulk_load_locked(
     rows: Iterable[Sequence[Any]],
     time_idx: int,
     compress_before: datetime | None,
-    replace_where: Mapping[str, Any] | None = None,
 ) -> BulkLoadResult:
     """bulk_load's body, run under the batch key's session advisory lock."""
     batch_key = spec.batch_key
@@ -515,13 +549,14 @@ def _bulk_load_locked(
                     spec.apr_hash,
                     Jsonb(dict(spec.apr_snapshot)),
                     spec.input_digest,
+                    spec.unit_key,
                 ),
             )
         else:  # started (a kill) or failed (a retry): take the row over
             cur.execute(_BULK_LOAD_TAKEOVER_PROVENANCE_SQL, (batch_key,))
     conn.commit()
 
-    real_positions = _bulk_load_precheck(conn, spec, columns, replace_where)
+    real_positions = _bulk_load_precheck(conn, spec, columns)
     apr = _bulk_load_read_apr(conn)
     timeout_ms = cfg(
         apr, _BULK_LOAD_STATEMENT_TIMEOUT_APR_KEY, _BULK_LOAD_DEFAULT_STATEMENT_TIMEOUT_MS
@@ -540,22 +575,11 @@ def _bulk_load_locked(
             # read the prior value: the data transaction below is short-lived and the
             # session-level value is untouched.
             cur.execute("SELECT set_config('statement_timeout', %s, true)", (str(int(timeout_ms)),))
-            if replace_where is not None:
-                delete_stmt, delete_params = _bulk_load_delete_statement(spec, replace_where)
+            if spec.replace_where is not None:
+                delete_stmt, delete_params = _bulk_load_delete_statement(spec, spec.replace_where)
                 cur.execute(delete_stmt, delete_params)
                 rows_replaced = cur.rowcount
-                cur.execute(
-                    _BULK_LOAD_SUPERSEDE_PROVENANCE_SQL,
-                    (
-                        spec.writer,
-                        spec.target_table,
-                        spec.tf,
-                        spec.range_start,
-                        spec.range_end,
-                        spec.symbols_hash,
-                        batch_key,
-                    ),
-                )
+                cur.execute(_BULK_LOAD_SUPERSEDE_PROVENANCE_SQL, (spec.unit_key, batch_key))
             copy_stmt = pg_sql.SQL("COPY {} ({}) FROM STDIN").format(
                 pg_sql.Identifier(spec.target_table),
                 pg_sql.SQL(", ").join(pg_sql.Identifier(c) for c in columns),
@@ -643,7 +667,6 @@ def _bulk_load_precheck(
     conn: Any,
     spec: BulkLoadSpec,
     columns: Sequence[str],
-    replace_where: Mapping[str, Any] | None = None,
 ) -> frozenset[int]:
     """All refusal checks, before any COPY. Returns the positions (into `columns`)
     whose live information_schema data_type is 'real' -- the clamp set, read from the
@@ -657,7 +680,7 @@ def _bulk_load_precheck(
                 f"bulk_load: columns not present in the live schema of "
                 f"{spec.target_table!r}: {missing}"
             )
-        unknown_keys = [c for c in (replace_where or {}) if c not in live_columns]
+        unknown_keys = [c for c in (spec.replace_where or {}) if c not in live_columns]
         if unknown_keys:
             raise ValueError(
                 f"bulk_load: replace_where columns not present in the live schema of "
@@ -737,6 +760,14 @@ def completed_provenance_batch(conn: Any, spec: BulkLoadSpec) -> dict[str, Any] 
     if row is None:
         return None
     return dict(zip(_PROVENANCE_BATCH_COLUMNS, row))
+
+
+def prior_completed_unit(conn: Any, spec: BulkLoadSpec) -> bool:
+    """True when a completed batch of the same unit (spec.unit_key) exists under a different
+    batch_key: loading `spec` replaces it. Lets a dry run report would_replace."""
+    with conn.cursor() as cur:
+        cur.execute(_PRIOR_COMPLETED_UNIT_SQL, (spec.unit_key, spec.batch_key))
+        return cur.fetchone() is not None
 
 
 def compress_completed_chunks(conn: Any, target_table: str, before: datetime) -> int:

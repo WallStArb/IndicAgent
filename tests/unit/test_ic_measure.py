@@ -494,7 +494,7 @@ def _spec() -> Any:
     from services._batch_utils import BulkLoadSpec
 
     return BulkLoadSpec(
-        writer="ic_measure.proposer.b000",
+        writer="ic_measure.proposer",
         target_table="feature_ic_scores_v2",
         time_column="training_window_end",
         tf="1d",
@@ -504,6 +504,12 @@ def _spec() -> Any:
         code_key="a" * 64,
         apr_snapshot={"k": 1},
         input_digest="b" * 64,
+        replace_where={
+            "tf": "1d",
+            "symbol": "POOLED",
+            "regime_scope": "unstratified",
+            "feature_name": ["f0"],
+        },
     )
 
 
@@ -521,17 +527,7 @@ class _Write:
 
 class TestExecuteUnit:
     def _unit(self, compute) -> ic_measure.UnitPlan:
-        return ic_measure.UnitPlan(
-            job="proposer",
-            spec=_spec(),
-            replace_where={
-                "tf": "1d",
-                "symbol": "POOLED",
-                "regime_scope": "unstratified",
-                "feature_name": ["f0"],
-            },
-            compute=compute,
-        )
+        return ic_measure.UnitPlan(job="proposer", spec=_spec(), compute=compute)
 
     def test_completed_identity_skips_before_any_ic_is_computed(
         self, monkeypatch: pytest.MonkeyPatch
@@ -545,15 +541,15 @@ class TestExecuteUnit:
         )
         assert outcome.status == "skipped" and calls == []
 
-    def test_changed_identity_with_a_prior_completed_batch_replaces(
+    def test_changed_identity_with_a_prior_completed_unit_replaces(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         captured: dict[str, Any] = {}
         monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
-        monkeypatch.setattr(ic_measure, "prior_completed_batch", lambda conn, spec: True)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: True)
 
         def fake_bulk_load(conn, spec, columns, rows, **kwargs):
-            captured.update(kwargs, rows=list(rows))
+            captured.update(kwargs, spec=spec, rows=list(rows))
             return BulkLoadResult(
                 spec.batch_key, "loaded", len(captured["rows"]), 0, rows_replaced=3
             )
@@ -563,14 +559,14 @@ class TestExecuteUnit:
             self._unit(lambda: [_good_row()]), _Conn(), _Write(), _OOS, dry_run=False
         )
         assert outcome.status == "replaced" and outcome.rows == 1
-        assert captured["replace_where"]["regime_scope"] == "unstratified"
+        assert captured["spec"].replace_where["regime_scope"] == "unstratified"
 
-    def test_fresh_unit_appends_without_replace_where(
+    def test_a_unit_with_no_prior_batch_is_loaded_through_the_same_replace_path(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         captured: dict[str, Any] = {}
         monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
-        monkeypatch.setattr(ic_measure, "prior_completed_batch", lambda conn, spec: False)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
 
         def fake_bulk_load(conn, spec, columns, rows, **kwargs):
             captured.update(kwargs)
@@ -581,13 +577,13 @@ class TestExecuteUnit:
             self._unit(lambda: [_good_row()]), _Conn(), _Write(), _OOS, dry_run=False
         )
         assert outcome.status == "loaded"
-        assert captured.get("replace_where") is None and "compress_before" not in captured
+        assert "replace_where" not in captured and "compress_before" not in captured
 
     def test_dry_run_reports_without_calling_bulk_load(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
-        monkeypatch.setattr(ic_measure, "prior_completed_batch", lambda conn, spec: True)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: True)
         monkeypatch.setattr(
             ic_measure, "bulk_load", lambda *a, **k: pytest.fail("bulk_load called in a dry run")
         )
@@ -607,7 +603,7 @@ class TestExecuteUnit:
             == "would_skip"
         )
         monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
-        monkeypatch.setattr(ic_measure, "prior_completed_batch", lambda conn, spec: False)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
         assert (
             ic_measure.execute_unit(
                 self._unit(lambda: [_good_row()]), _Conn(), None, _OOS, dry_run=True
@@ -617,7 +613,7 @@ class TestExecuteUnit:
 
     def test_a_row_reaching_oos_start_writes_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(ic_measure, "completed_provenance_batch", lambda conn, spec: None)
-        monkeypatch.setattr(ic_measure, "prior_completed_batch", lambda conn, spec: False)
+        monkeypatch.setattr(ic_measure, "prior_completed_unit", lambda conn, spec: False)
         monkeypatch.setattr(
             ic_measure,
             "bulk_load",

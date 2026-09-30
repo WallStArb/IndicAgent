@@ -305,21 +305,18 @@ class TestBulkLoadReplaceIntegration:
             return cur.fetchone()[0]
 
     def test_replace_swaps_the_unit_and_supersedes_the_previous_key(self, table: str) -> None:
-        first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"})
+        where = {"symbol": ["AAA", "BBB"], "tf": "1d"}
+        first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"}, replace_where=where)
         with _connect() as conn:
             bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1, x=1.0) + _day_rows(_DAY2, x=1.0))
         # rows outside the predicate (another symbol) that must survive
         other = _spec(table, _DAY1, _RANGE_END, symbols=("CCC",), writer="other_unit")
         with _connect() as conn:
             bulk_load(conn, other, _COLUMNS, [("CCC", "1d", _DAY1.replace(hour=1), 9.0, 9.0)])
-        second = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "2"})
+        second = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "2"}, replace_where=where)
         with _connect() as conn:
             result = bulk_load(
-                conn,
-                second,
-                _COLUMNS,
-                _day_rows(_DAY1, x=5.0) + _day_rows(_DAY2, x=5.0),
-                replace_where={"symbol": ["AAA", "BBB"], "tf": "1d"},
+                conn, second, _COLUMNS, _day_rows(_DAY1, x=5.0) + _day_rows(_DAY2, x=5.0)
             )
         assert result.status == "loaded"
         assert result.rows_replaced == 8
@@ -334,10 +331,51 @@ class TestBulkLoadReplaceIntegration:
         assert self._status(other) == "completed"  # a different writer is never flipped
 
     def test_a_superseded_identity_cannot_come_back(self, table: str) -> None:
-        first = _spec(table, _DAY1, _RANGE_END, apr_snapshot={"v": "1"})
+        first = _spec(
+            table,
+            _DAY1,
+            _RANGE_END,
+            apr_snapshot={"v": "1"},
+            replace_where={"symbol": ["AAA", "BBB"], "tf": "1d"},
+        )
         with _connect() as conn:
             with pytest.raises(BulkLoadRefused, match="superseded"):
                 bulk_load(conn, first, _COLUMNS, _day_rows(_DAY1))
+
+    def test_a_different_symbol_set_replaces_the_unit_instead_of_loading_beside_it(
+        self, table: str
+    ) -> None:
+        where = {"tf": "1d", "symbol": ["AAA", "BBB", "CCC"]}
+        narrow = _spec(
+            table, _DAY3_START, _DAY3_END, writer="unit_key_symbols", replace_where=where
+        )
+        wide = _spec(
+            table,
+            _DAY3_START,
+            _DAY3_END,
+            writer="unit_key_symbols",
+            replace_where=where,
+            symbols=("AAA", "BBB", "CCC"),
+        )
+        assert narrow.unit_key == wide.unit_key and narrow.batch_key != wide.batch_key
+        rows = _day_rows(_DAY3_START, x=1.0)
+        with _connect() as conn:
+            bulk_load(conn, narrow, _COLUMNS, rows)
+        with _connect() as conn:
+            result = bulk_load(
+                conn,
+                wide,
+                _COLUMNS,
+                [*rows, ("CCC", "1d", _DAY3_START.replace(hour=5), 1.0, 2.0)],
+            )
+        assert result.rows_replaced == 4
+        assert self._status(narrow) == "superseded" and self._status(wide) == "completed"
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                sql.SQL("SELECT count(*) FROM {} WHERE bar_ts >= %s").format(sql.Identifier(table)),
+                (_DAY3_START,),
+            )
+            assert cur.fetchone()[0] == 5
 
 
 class TestBarContentDigestsIntegration:

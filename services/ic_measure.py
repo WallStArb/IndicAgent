@@ -60,6 +60,7 @@ from services._batch_utils import (  # noqa: E402
     kernel_code_key,
     kernel_code_modules,
     load_config_service_sync,
+    prior_completed_unit,
     short_lived_conn,
 )
 from src.config.settings import Settings  # noqa: E402
@@ -675,18 +676,11 @@ def compute_monitoring_rows(
 # Units: skip, replace, dry run
 # ---------------------------------------------------------------------------
 
-_PRIOR_COMPLETED_SQL = (
-    "SELECT 1 FROM provenance_batch WHERE writer = %s AND target_table = %s AND tf = %s "
-    "AND range_start = %s AND range_end = %s AND symbols_hash = %s "
-    "AND status = 'completed' AND batch_key <> %s LIMIT 1"
-)
-
 
 @dataclasses.dataclass(frozen=True)
 class UnitPlan:
     job: str
-    spec: BulkLoadSpec
-    replace_where: Mapping[str, Any]
+    spec: BulkLoadSpec  # carries replace_where: the unit owns the rows it names
     compute: Callable[[], list[tuple]]
 
 
@@ -698,25 +692,6 @@ class UnitOutcome:
     rows: int
 
 
-def prior_completed_batch(read_conn: Any, spec: BulkLoadSpec) -> bool:
-    """True when a completed batch of the same unit (writer, target, tf, range, symbols) exists
-    under a different key: the new identity replaces it."""
-    with read_conn.cursor() as cur:
-        cur.execute(
-            _PRIOR_COMPLETED_SQL,
-            (
-                spec.writer,
-                spec.target_table,
-                spec.tf,
-                spec.range_start,
-                spec.range_end,
-                spec.symbols_hash,
-                spec.batch_key,
-            ),
-        )
-        return cur.fetchone() is not None
-
-
 def execute_unit(
     unit: UnitPlan,
     read_conn: Any,
@@ -726,7 +701,8 @@ def execute_unit(
     dry_run: bool,
 ) -> UnitOutcome:
     """Skip a completed identity before computing anything; otherwise compute, refuse rows
-    reaching oos_start, and write (append, or replace a prior identity of the same unit).
+    reaching oos_start, and write, replacing the rows of the unit's prior identity (the spec's
+    replace_where and unit_key, one definition for the DELETE and the provenance flip).
     `write_session.connection()` yields the write connection inside the compressed write session
     and is only called when a write actually happens."""
     spec = unit.spec
@@ -734,21 +710,16 @@ def execute_unit(
         return UnitOutcome(unit.job, spec.writer, "would_skip" if dry_run else "skipped", 0)
     rows = unit.compute()
     refuse_reaching_oos(rows, oos_start)
-    replacing = prior_completed_batch(read_conn, spec)
+    replacing = prior_completed_unit(read_conn, spec)
     if dry_run:
         status = "would_replace" if replacing else "would_load"
         return UnitOutcome(unit.job, spec.writer, status, len(rows))
-    result: BulkLoadResult = bulk_load(
-        write_session.connection(),
-        spec,
-        COLUMNS,
-        rows,
-        replace_where=dict(unit.replace_where) if replacing else None,
-    )
+    result: BulkLoadResult = bulk_load(write_session.connection(), spec, COLUMNS, rows)
     if result.status == "skipped":  # completed by another session between the check and the lock
         return UnitOutcome(unit.job, spec.writer, "skipped", 0)
+    replaced = replacing or result.rows_replaced > 0
     return UnitOutcome(
-        unit.job, spec.writer, "replaced" if replacing else "loaded", result.row_count
+        unit.job, spec.writer, "replaced" if replaced else "loaded", result.row_count
     )
 
 
@@ -1028,7 +999,7 @@ class IcMeasure:
                 blocks.append(("features", names[first : first + size], block_jobs))
         if JOB_MONITORING in jobs:
             blocks.append(("members", list(self.args.members), [JOB_MONITORING]))
-        for idx, (_kind, block, block_job_list) in enumerate(blocks):
+        for _kind, block, block_job_list in blocks:
             fetched = fetch_long_form(
                 read_conn,
                 self.args.feature_table,
@@ -1083,7 +1054,7 @@ class IcMeasure:
                     }
                 )
                 spec = BulkLoadSpec(
-                    writer=f"{_WRITER}.{job}.b{idx:03d}",
+                    writer=f"{_WRITER}.{job}",
                     target_table=TARGET_TABLE,
                     time_column="training_window_end",
                     tf=tf,
@@ -1093,16 +1064,16 @@ class IcMeasure:
                     code_key=job_code_key(job),
                     apr_snapshot=snapshot_keys,
                     input_digest=hashlib.sha256(identity.encode()).hexdigest(),
-                )
-                yield UnitPlan(
-                    job=job,
-                    spec=spec,
                     replace_where={
                         "tf": tf,
                         "symbol": POOLED_SYMBOL,
                         "regime_scope": _JOB_SCOPE[job],
                         "feature_name": list(block),
                     },
+                )
+                yield UnitPlan(
+                    job=job,
+                    spec=spec,
                     compute=self._compute(job, ctx, block, grid, labels, params, horizons),
                 )
 

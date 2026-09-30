@@ -621,6 +621,56 @@ def _replace_responses(deleted: int = 7) -> list[dict]:
     return _fresh_happy_responses() + [{"rowcount": deleted}]
 
 
+class TestUnitKey:
+    """unit_key = sha256(writer, target, tf, replace_where): one definition for the DELETE's owner
+    and the supersede flip (migration 416)."""
+
+    _WHERE = {"tf": "1d", "symbol": "POOLED", "feature_name": ["a", "b"]}
+
+    def test_symbols_range_code_apr_and_input_do_not_change_it_but_do_change_batch_key(
+        self,
+    ) -> None:
+        base = _spec(replace_where=self._WHERE)
+        for name, mutated in {
+            "symbols": _spec(replace_where=self._WHERE, symbols=("SPY", "IWM")),
+            "range_start": _spec(
+                replace_where=self._WHERE, range_start=_RANGE_START - timedelta(days=1)
+            ),
+            "range_end": _spec(replace_where=self._WHERE, range_end=_RANGE_END + timedelta(days=1)),
+            "code_key": _spec(replace_where=self._WHERE, code_key="c" * 64),
+            "apr_snapshot": _spec(replace_where=self._WHERE, apr_snapshot={"k": 2}),
+            "input_digest": _spec(replace_where=self._WHERE, input_digest="d" * 64),
+        }.items():
+            assert mutated.unit_key == base.unit_key, name
+            assert mutated.batch_key != base.batch_key, name
+
+    def test_writer_target_tf_and_replace_where_change_it_and_the_batch_key(self) -> None:
+        base = _spec(replace_where=self._WHERE)
+        for name, mutated in {
+            "writer": _spec(replace_where=self._WHERE, writer="other"),
+            "target_table": _spec(replace_where=self._WHERE, target_table="feature_ic_scores"),
+            "tf": _spec(replace_where=self._WHERE, tf="15m"),
+            "replace_where": _spec(replace_where={**self._WHERE, "symbol": "OTHER"}),
+            "append_only": _spec(),
+        }.items():
+            assert mutated.unit_key != base.unit_key, name
+            assert mutated.batch_key != base.batch_key, name
+
+    def test_list_value_order_never_matters(self) -> None:
+        a = _spec(replace_where={"feature_name": ["a", "b"], "tf": "1d"})
+        b = _spec(replace_where={"tf": "1d", "feature_name": ["b", "a"]})
+        assert a.unit_key == b.unit_key and a.batch_key == b.batch_key
+
+    def test_prior_completed_unit_looks_up_by_unit_key_only(self) -> None:
+        spec = _spec(replace_where=self._WHERE)
+        conn = _FakeConn([{"fetchone": (1,)}])
+        assert batch_utils.prior_completed_unit(conn, spec) is True
+        _k, text, params = conn.events[0]
+        assert "unit_key = %s" in text and "status = 'completed'" in text
+        assert tuple(params) == (spec.unit_key, spec.batch_key)
+        assert batch_utils.prior_completed_unit(_FakeConn([{"fetchone": None}]), spec) is False
+
+
 class TestBulkLoadReplaceWhere:
     def test_none_issues_no_delete_and_result_reports_zero_replaced(self) -> None:
         conn = _FakeConn(_fresh_happy_responses())
@@ -630,13 +680,8 @@ class TestBulkLoadReplaceWhere:
 
     def test_delete_then_supersede_inside_the_data_transaction_before_copy(self) -> None:
         conn = _FakeConn(_replace_responses(7))
-        result = bulk_load(
-            conn,
-            _spec(),
-            _COLUMNS_LIST,
-            _ordered_rows(),
-            replace_where={"tf": "1d", "symbol": ["SPY", "QQQ"]},
-        )
+        spec = _spec(replace_where={"tf": "1d", "symbol": ["SPY", "QQQ"]})
+        result = bulk_load(conn, spec, _COLUMNS_LIST, _ordered_rows())
         assert result.status == "loaded"
         assert result.rows_replaced == 7
         i_timeout = conn.require_index("execute", "statement_timeout")
@@ -654,20 +699,22 @@ class TestBulkLoadReplaceWhere:
         assert '"tf" = ' in delete_sql and '"symbol" = ANY' in delete_sql
         assert list(delete_params) == [_RANGE_START, _RANGE_END, "1d", ["SPY", "QQQ"]]
         _k, sup_sql, sup_params = conn.events[i_supersede]
-        assert "batch_key <>" in sup_sql and "status = 'completed'" in sup_sql
-        assert sup_params[-1] == _spec().batch_key
+        assert "unit_key = %s" in sup_sql and "batch_key <>" in sup_sql
+        assert "status = 'completed'" in sup_sql
+        assert tuple(sup_params) == (spec.unit_key, spec.batch_key)
+        _k, insert_sql, insert_params = conn.events[conn.require_index("execute", "INSERT INTO")]
+        assert "unit_key" in insert_sql and insert_params[-1] == spec.unit_key
 
     def test_unknown_replace_key_raises_before_the_data_transaction(self) -> None:
         conn = _FakeConn(_replace_responses())
         with pytest.raises(ValueError, match="nope"):
-            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={"nope": 1})
+            bulk_load(conn, _spec(replace_where={"nope": 1}), _COLUMNS_LIST, _ordered_rows())
         assert conn.index_of("execute", "DELETE FROM") is None
         assert conn.index_of("copy") is None
 
     def test_empty_mapping_raises(self) -> None:
-        conn = _FakeConn(_replace_responses())
         with pytest.raises(ValueError, match="replace_where"):
-            bulk_load(conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={})
+            _spec(replace_where={})
 
     def test_copy_failure_after_delete_rolls_everything_back(self) -> None:
         conn = _FakeConn(_replace_responses())
@@ -677,7 +724,7 @@ class TestBulkLoadReplaceWhere:
             raise RuntimeError("connection dropped mid-COPY")
 
         with pytest.raises(RuntimeError, match="dropped"):
-            bulk_load(conn, _spec(), _COLUMNS_LIST, _exploding_rows(), replace_where={"tf": "1d"})
+            bulk_load(conn, _spec(replace_where={"tf": "1d"}), _COLUMNS_LIST, _exploding_rows())
         i_delete = conn.require_index("execute", "DELETE FROM")
         after = [k for k, _t, _p in conn.events[i_delete:]]
         assert "rollback" in after
@@ -685,9 +732,7 @@ class TestBulkLoadReplaceWhere:
 
     def test_skipped_unit_issues_no_delete(self) -> None:
         conn = _FakeConn([_LOCKED, {"fetchone": ("completed", 4, 1)}])
-        result = bulk_load(
-            conn, _spec(), _COLUMNS_LIST, _ordered_rows(), replace_where={"tf": "1d"}
-        )
+        result = bulk_load(conn, _spec(replace_where={"tf": "1d"}), _COLUMNS_LIST, _ordered_rows())
         assert result.status == "skipped"
         assert conn.index_of("execute", "DELETE FROM") is None
 

@@ -190,7 +190,8 @@ class TestIcMeasureIntegration:
 
     @staticmethod
     def _run(world: dict, **overrides: object) -> list[UnitOutcome]:
-        runner = IcMeasure(_args(symbols=world["symbols"], **overrides), _DSN)
+        overrides.setdefault("symbols", world["symbols"])
+        runner = IcMeasure(_args(**overrides), _DSN)
         runner.run()
         assert runner.failures == [], runner.failures
         return runner.outcomes
@@ -336,3 +337,62 @@ class TestIcMeasureIntegration:
             )
             >= 1
         )
+
+    def test_case_7_a_different_symbol_set_replaces_the_units(self, world: dict) -> None:
+        scopes = "('unstratified', 'regime_volatility')"
+        rows = self._scalar(
+            f"SELECT count(*) FROM feature_ic_scores_v2 WHERE regime_scope IN {scopes}"
+        )
+        outcomes = self._run(world, symbols=world["symbols"][:-1])
+        assert outcomes and {o.status for o in outcomes} == {"replaced"}
+        assert (
+            self._scalar(
+                f"SELECT count(*) FROM feature_ic_scores_v2 WHERE regime_scope IN {scopes}"
+            )
+            == rows
+        )
+        # exactly one completed provenance row per unit: the prior symbol set is superseded
+        assert self._scalar(
+            "SELECT count(*) FROM provenance_batch WHERE writer IN "
+            "('ic_measure.proposer', 'ic_measure.regime_volatility') "
+            "AND status = 'completed' AND target_table = 'feature_ic_scores_v2'"
+        ) == len(outcomes)
+
+    def test_case_8_a_moved_window_end_replaces_rather_than_duplicates(self, world: dict) -> None:
+        window_end = (
+            "SELECT count(DISTINCT training_window_end), max(training_window_end) "
+            "FROM feature_ic_scores_v2 WHERE regime_scope = 'unstratified' AND lookahead_bars = 1"
+        )
+        rows = self._scalar("SELECT count(*) FROM feature_ic_scores_v2")
+        with psycopg.connect(_DSN) as conn:
+            distinct_before, end_before = conn.execute(window_end).fetchone()
+        assert distinct_before == 1
+        calendar = get_market_calendar()
+        new_day = world["sessions"][-1] + timedelta(days=1)
+        while not calendar.is_trading_day("NYSE", new_day):
+            new_day += timedelta(days=1)
+        with psycopg.connect(_DSN, autocommit=True) as conn:
+            for symbol in world["symbols"]:
+                (open_,) = conn.execute(
+                    "SELECT open FROM market_data_ohlcv WHERE symbol = %s AND timeframe = '1d' "
+                    "ORDER BY timestamp DESC LIMIT 1",
+                    (symbol,),
+                ).fetchone()
+                conn.execute(
+                    "INSERT INTO market_data_ohlcv (timestamp, symbol, timeframe, open, high, "
+                    "low, close, volume) VALUES (%s, %s, '1d', %s, %s, %s, %s, 1000)",
+                    (_utc(new_day), symbol, open_ * 1.002, open_ * 1.01, open_ * 0.99, open_),
+                )
+                conn.execute(
+                    "INSERT INTO feature_vectors (symbol, tf, bar_ts, pipeline_version, "
+                    f"{_PREDICTIVE}, {_NOISE}, regime_volatility) VALUES (%s, '1d', %s, 'test', "
+                    "0.1, 0.2, 'low')",
+                    (symbol, _utc(new_day)),
+                )
+        self._seed_digests(world["symbols"], [*world["sessions"], new_day], revision=2)
+        outcomes = self._run(world)
+        assert outcomes and {o.status for o in outcomes} == {"replaced"}
+        assert self._scalar("SELECT count(*) FROM feature_ic_scores_v2") == rows
+        with psycopg.connect(_DSN) as conn:
+            distinct_after, end_after = conn.execute(window_end).fetchone()
+        assert distinct_after == 1 and end_after > end_before
