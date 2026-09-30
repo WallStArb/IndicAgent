@@ -576,7 +576,6 @@ class TestPanelsDigest:
 
     def test_targets_never_request_the_dividend_grid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import asyncio
-        import inspect
 
         from src.intelligence.measure import targets
 
@@ -600,13 +599,6 @@ class TestPanelsDigest:
             )
         )
         assert seen and not any(kwargs.get("dividends") for kwargs in seen)
-        assert (
-            "dividends"
-            not in inspect.getsource(targets.build_target_panels)
-            .replace("dividend grid", "")
-            .replace("dividends=", "")
-            or True
-        )
 
 
 class TestFeatureBlocks:
