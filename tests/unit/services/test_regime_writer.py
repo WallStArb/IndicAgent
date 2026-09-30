@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -353,7 +354,13 @@ def test_build_obs_matrix_volatility_no_volumes_param():
 
     sig = inspect.signature(_build_obs_matrix_volatility)
     assert "volumes" not in sig.parameters
-    assert set(sig.parameters.keys()) == {"timestamps", "closes", "vol_window", "vol_of_vol_window"}
+    assert set(sig.parameters.keys()) == {
+        "timestamps",
+        "closes",
+        "vol_window",
+        "vol_of_vol_window",
+        "block_rows",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -824,6 +831,104 @@ def _make_mock_conn(closes, volumes, timestamps):
     return conn_mock
 
 
+def _family_config(tf, refit_every_bars, initial_warmup_bars, **fields):
+    """The hmm_* attributes the kernels read: APR defaults with `fields` and one tf's schedule."""
+    base = hmm_module.hmm_config_fields_from_values(lambda key, default: default)
+    base.update(fields)
+    base[f"hmm_refit_every_bars_{tf}"] = refit_every_bars
+    base[f"hmm_initial_warmup_bars_{tf}"] = initial_warmup_bars
+    return SimpleNamespace(**base)
+
+
+def _compute_symbol_tf_walk_forward(
+    conn,
+    symbol,
+    tf,
+    n_components,
+    vol_window,
+    n_iter,
+    hmm_random_state,
+    momentum_window,
+    vol_of_vol_window,
+    refit_every_bars,
+    initial_warmup_bars,
+    covariance_type="full",
+    min_hold_bars=3,
+    full_cov_min_obs=500,
+    min_state_occupation=0.05,
+    churn_window=10,
+    min_obs_factor=50,
+):
+    """Trend family through the writer's fetch and `_compute_family_rows`, with the argument
+    list of the walk-forward function this replaces (deleted in 186-13, todo 291)."""
+    bars = regime_writer_module._fetch_bars(conn, symbol, tf)
+    if bars is None:
+        return None
+    config = _family_config(
+        tf,
+        refit_every_bars,
+        initial_warmup_bars,
+        hmm_n_components=n_components,
+        hmm_vol_window=vol_window,
+        hmm_momentum_window=momentum_window,
+        hmm_vol_of_vol_window=vol_of_vol_window,
+        hmm_n_iter=n_iter,
+        hmm_random_state=hmm_random_state,
+        hmm_covariance_type=covariance_type,
+        hmm_min_hold_bars=min_hold_bars,
+        hmm_full_cov_min_obs=full_cov_min_obs,
+        hmm_min_state_occupation=min_state_occupation,
+        hmm_churn_window=churn_window,
+        hmm_min_obs_factor=min_obs_factor,
+    )
+    return regime_writer_module._compute_family_rows(
+        bars, regime_writer_module.TREND_SPEC, config, tf, symbol
+    )
+
+
+def _compute_symbol_tf_volatility_walk_forward(
+    conn,
+    symbol,
+    tf,
+    n_components,
+    vol_window,
+    vol_of_vol_window,
+    n_iter,
+    hmm_random_state,
+    refit_every_bars,
+    initial_warmup_bars,
+    covariance_type="full",
+    min_hold_bars=3,
+    full_cov_min_obs=500,
+    min_state_occupation=0.05,
+    churn_window=10,
+    min_obs_factor=50,
+):
+    """Volatility family counterpart of `_compute_symbol_tf_walk_forward` above."""
+    bars = regime_writer_module._fetch_bars(conn, symbol, tf)
+    if bars is None:
+        return None
+    config = _family_config(
+        tf,
+        refit_every_bars,
+        initial_warmup_bars,
+        hmm_volatility_n_components=n_components,
+        hmm_volatility_vol_window=vol_window,
+        hmm_volatility_vol_of_vol_window=vol_of_vol_window,
+        hmm_volatility_covariance_type=covariance_type,
+        hmm_n_iter=n_iter,
+        hmm_random_state=hmm_random_state,
+        hmm_min_hold_bars=min_hold_bars,
+        hmm_full_cov_min_obs=full_cov_min_obs,
+        hmm_min_state_occupation=min_state_occupation,
+        hmm_churn_window=churn_window,
+        hmm_min_obs_factor=min_obs_factor,
+    )
+    return regime_writer_module._compute_family_rows(
+        bars, regime_writer_module.VOLATILITY_SPEC, config, tf, symbol
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tests: alpha.hmm.n_restarts multi-seed restart (todo 108)
 # ---------------------------------------------------------------------------
@@ -1206,9 +1311,7 @@ def test_walk_forward_hmm_full_logs_convergence_iters_per_segment():
 
 
 def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
-    """Same (update_rows, converged, heldout_ll) contract as _compute_symbol_tf, so
-    _run_symbol_worker's caller can branch on which function ran without caring."""
-    from services.regime_writer import _compute_symbol_tf_walk_forward
+    """`_compute_family_rows` returns (update_rows, converged) with 11-column rows."""
 
     n = 900
     closes = _make_ranging_closes(n)
@@ -1234,24 +1337,16 @@ def test_compute_symbol_tf_walk_forward_returns_tuple_structure():
     )
 
     assert result is not None
-    update_rows, converged, heldout_ll = result
+    update_rows, converged = result
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
     assert len(update_rows[0]) == 11
     assert isinstance(converged, bool)
-    assert isinstance(heldout_ll, float)
-    import math
-
-    assert math.isnan(heldout_ll), (
-        "heldout_ll must be NaN for the walk-forward path -- no single unified "
-        "model has a well-defined held-out score across segment boundaries."
-    )
 
 
 def test_compute_symbol_tf_walk_forward_omits_warmup_prefix_bars():
     """Bars before initial_warmup_bars must be entirely absent from update_rows --
     never written, so they stay NULL rather than inheriting a stale value."""
-    from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 900
     closes = _make_ranging_closes(n)
@@ -1277,7 +1372,7 @@ def test_compute_symbol_tf_walk_forward_omits_warmup_prefix_bars():
     )
 
     assert result is not None
-    update_rows, _converged, _heldout_ll = result
+    update_rows, _converged = result
     # obs matrix has (n - valid_start) rows after _build_obs_matrix's own warmup
     # trim (vol_window=momentum_window=vol_of_vol_window=20, so valid_start=19);
     # walk-forward then additionally requires initial_warmup_bars=300 before the
@@ -1295,8 +1390,6 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
     whatever duration the prior (written) segment reached -- continuity through an
     unwritten gap cannot be verified."""
     from unittest.mock import patch
-
-    from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 900
     closes = _make_ranging_closes(n)
@@ -1335,7 +1428,7 @@ def test_compute_symbol_tf_walk_forward_duration_resets_after_skipped_segment():
         )
 
     assert result is not None
-    update_rows, _converged, _heldout_ll = result
+    update_rows, _converged = result
     # 3 segments total (300-500, 500-700, 700-900, indexed into obs_matrix/valid_ts --
     # NOT the raw timestamps list, which _build_obs_matrix trims by valid_start bars).
     # Segment 2 (500-700) forced degenerate. First row of the third segment (obs
@@ -1359,8 +1452,6 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
     segment 3's first bar has no predecessor by construction and must be exactly 0.0,
     regardless of what segment 1 ended with."""
     from unittest.mock import patch
-
-    from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 900
     closes = _make_ranging_closes(n)
@@ -1409,7 +1500,7 @@ def test_compute_symbol_tf_walk_forward_churn_does_not_fabricate_change_across_s
         )
 
     assert result is not None
-    update_rows, _converged, _heldout_ll = result
+    update_rows, _converged = result
     # update_rows column order: (label, p_up, p_ranging, p_down, prob_val,
     # entropy_val, duration, hmm_churn, symbol, tf, ts) -- churn is index 7.
     # Row 0 is segment 1's first bar (index 0 of update_rows); row 3 is segment
@@ -1425,7 +1516,6 @@ def test_compute_symbol_tf_walk_forward_returns_none_when_all_segments_degenerat
     """If every segment is degenerate, the function returns None (same skip marker
     as every other 'nothing trustworthy to write' case in this file), not an
     empty-but-truthy update_rows list."""
-    from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 500
     closes = _make_ranging_closes(n)
@@ -1458,7 +1548,6 @@ def test_compute_symbol_tf_walk_forward_returns_none_on_insufficient_warmup():
     """If the series is shorter than initial_warmup_bars, returns None rather than
     raising -- the ValueError _walk_forward_hmm_full raises must be caught, not
     propagated to the ProcessPoolExecutor worker."""
-    from services.regime_writer import _compute_symbol_tf_walk_forward
 
     n = 500
     closes = _make_ranging_closes(n)
@@ -1682,11 +1771,8 @@ def test_fetch_bars_issues_one_query_over_the_tradeable_view():
 
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
-    """Same (update_rows, converged, heldout_ll) contract as the trend walk-forward
-    compute function; heldout_ll is always NaN for the volatility axis too."""
-    import math
-
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
+    """Same (update_rows, converged) contract as the trend family, with the volatility owned
+    columns."""
     from src.intelligence.features.feature_vector_persistence import (
         REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     )
@@ -1713,16 +1799,12 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_tuple_structure():
     )
 
     assert result is not None
-    update_rows, converged, heldout_ll = result
+    update_rows, converged = result
     assert isinstance(update_rows, list)
     assert len(update_rows) > 0
     assert len(update_rows[0]) == len(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) + 3
     assert len(update_rows[0]) == 11
     assert isinstance(converged, bool)
-    assert math.isnan(heldout_ll), (
-        "heldout_ll must be NaN -- no single unified model has a well-defined "
-        "held-out score across walk-forward segment boundaries."
-    )
 
 
 def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high_vol_half():
@@ -1730,7 +1812,6 @@ def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high
     the high-volatility half of a _make_vol_switching_closes series than over the
     low-volatility half. This must fail if the p_down/p_up positions in the row tuple
     are swapped -- verified by temporarily swapping, confirming red, then restoring."""
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
     n = 1200
     closes = _make_vol_switching_closes(n)
@@ -1754,7 +1835,7 @@ def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high
     )
 
     assert result is not None
-    update_rows, _converged, _heldout_ll = result
+    update_rows, _converged = result
 
     # _make_vol_switching_closes' switch point is at raw-close index n // 2; bar_ts
     # (row index 10) is monotonically increasing with that same raw index, so bucketing
@@ -1773,7 +1854,6 @@ def test_compute_symbol_tf_volatility_walk_forward_turbulent_prob_higher_in_high
 def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
     """At n_components=2, hmm_vol_prob_elevated (row index 2) must be 0.0 for every
     row -- no state carries the 'elevated' label when there is no mid slot."""
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
     n = 900
     closes = _make_vol_switching_closes(n)
@@ -1797,7 +1877,7 @@ def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
     )
 
     assert result is not None
-    update_rows, _converged, _heldout_ll = result
+    update_rows, _converged = result
     assert len(update_rows) > 0
     for row in update_rows:
         assert len(row) == 11
@@ -1806,7 +1886,6 @@ def test_compute_symbol_tf_volatility_walk_forward_k2_elevated_prob_is_zero():
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_none_fetch(monkeypatch):
     """None must propagate when _fetch_bars returns None."""
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
     monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda *a, **kw: None)
 
@@ -1832,7 +1911,6 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_none_fetch(mo
 def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_insufficient_warmup():
     """ValueError from _walk_forward_hmm_full (insufficient warmup) must be caught and
     turned into None, not propagated to the ProcessPoolExecutor worker."""
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
     n = 500
     closes = _make_vol_switching_closes(n)
@@ -1860,7 +1938,6 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_none_on_insufficient_
 
 def test_compute_symbol_tf_volatility_walk_forward_returns_none_when_all_segments_degenerate():
     """If every segment is degenerate, returns None rather than an empty-but-truthy list."""
-    from services.regime_writer import _compute_symbol_tf_volatility_walk_forward
 
     n = 900
     closes = _make_vol_switching_closes(n)
@@ -1886,84 +1963,94 @@ def test_compute_symbol_tf_volatility_walk_forward_returns_none_when_all_segment
     assert result is None
 
 
-def test_write_regime_volatility_results_uses_owned_columns_and_staging_table(monkeypatch):
-    """_write_regime_volatility_results must call _bulk_update_by_key with
-    set_cols=list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES) and
-    temp_table='_regime_volatility_writer_staging' -- never the legacy family's
-    ownership tuple or staging table."""
-    from services.regime_writer import _write_regime_volatility_results
-    from src.intelligence.features.feature_vector_persistence import (
-        REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
-    )
+@pytest.mark.parametrize(
+    "spec_name,owned_name,staging",
+    [
+        ("TREND_SPEC", "REGIME_WRITER_OWNED_COLUMN_NAMES", "_regime_writer_staging"),
+        (
+            "VOLATILITY_SPEC",
+            "REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES",
+            "_regime_volatility_writer_staging",
+        ),
+    ],
+)
+def test_write_family_results_uses_the_familys_owned_columns_and_staging_table(
+    monkeypatch, spec_name, owned_name, staging
+):
+    """`_write_family_results` calls `_bulk_update_by_key` with the family's own ownership
+    tuple and staging table (never the other family's), returns the JOIN-UPDATE's rowcount,
+    and issues no count query of its own."""
+    from src.intelligence.features import feature_vector_persistence as persistence
 
     captured = {}
 
     def _fake_bulk_update_by_key(conn, *, table, temp_table, key_cols, set_cols, col_types, rows):
-        captured["table"] = table
-        captured["temp_table"] = temp_table
-        captured["key_cols"] = key_cols
-        captured["set_cols"] = set_cols
-        captured["col_types"] = col_types
-        captured["rows"] = rows
+        captured.update(
+            table=table,
+            temp_table=temp_table,
+            key_cols=key_cols,
+            set_cols=set_cols,
+            col_types=col_types,
+            rows=rows,
+        )
+        return 5
 
     monkeypatch.setattr(regime_writer_module, "_bulk_update_by_key", _fake_bulk_update_by_key)
-
-    cursor_mock = MagicMock()
-    cursor_mock.__enter__ = lambda s: s
-    cursor_mock.__exit__ = MagicMock(return_value=False)
-    cursor_mock.fetchone.return_value = (5, 0)
     conn = MagicMock()
-    conn.cursor.return_value = cursor_mock
+    rows = [("calm", 0.9, 0.05, 0.05, 0.9, 0.1, 1.0, 0.0, "SPY", "1h", "2020-01-01T00:00:00Z")]
 
-    n_updated = _write_regime_volatility_results(
+    n_updated = regime_writer_module._write_family_results(
         conn=conn,
+        spec=getattr(regime_writer_module, spec_name),
         symbol="SPY",
         tf="1h",
-        update_rows=[
-            ("calm", 0.9, 0.05, 0.05, 0.9, 0.1, 1.0, 0.0, "SPY", "1h", "2020-01-01T00:00:00Z")
-        ],
-        converged=True,
+        update_rows=rows,
         tracer=regime_writer_module._NoopTracer(),
     )
 
-    assert captured["table"] == "feature_vectors"
-    assert captured["temp_table"] == "_regime_volatility_writer_staging"
-    assert captured["set_cols"] == list(REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
-    assert captured["key_cols"] == ["symbol", "tf", "bar_ts"]
     assert n_updated == 5
+    assert captured["table"] == "feature_vectors"
+    assert captured["temp_table"] == staging
+    assert captured["set_cols"] == list(getattr(persistence, owned_name))
+    assert captured["key_cols"] == ["symbol", "tf", "bar_ts"]
+    assert captured["rows"] == rows
+    assert captured["col_types"]["symbol"] == "text"
+    conn.commit.assert_called_once()
+    conn.cursor.assert_not_called()  # no per-cell count(*) query
 
 
-def test_write_regime_volatility_results_queries_regime_volatility_column(monkeypatch):
-    """The post-write count query must filter on regime_volatility, not the legacy
-    regime column."""
-    from services.regime_writer import _write_regime_volatility_results
+@pytest.mark.parametrize(
+    "spec_name,column", [("TREND_SPEC", "regime"), ("VOLATILITY_SPEC", "regime_volatility")]
+)
+def test_record_null_remaining_is_one_grouped_query_per_family(monkeypatch, spec_name, column):
+    """One end-of-run grouped NULL count, gauge set per (symbol, tf, regime_column)."""
+    gauge_calls = []
 
+    class _Gauge:
+        def set(self, value, attrs):
+            gauge_calls.append((value, dict(attrs)))
+
+    monkeypatch.setattr(regime_writer_module, "REGIME_WRITER_NULL_REGIME_REMAINING", _Gauge())
     cursor_mock = MagicMock()
     cursor_mock.__enter__ = lambda s: s
     cursor_mock.__exit__ = MagicMock(return_value=False)
-    cursor_mock.fetchone.return_value = (3, 1)
+    cursor_mock.fetchall.return_value = [("SPY", "1d", 3), ("SPY", "1h", 0), ("QQQ", "1d", 7)]
     conn = MagicMock()
     conn.cursor.return_value = cursor_mock
 
-    monkeypatch.setattr(regime_writer_module, "_bulk_update_by_key", lambda *a, **kw: None)
-
-    _write_regime_volatility_results(
-        conn=conn,
-        symbol="SPY",
-        tf="1h",
-        update_rows=[
-            ("calm", 0.9, 0.05, 0.05, 0.9, 0.1, 1.0, 0.0, "SPY", "1h", "2020-01-01T00:00:00Z")
-        ],
-        converged=True,
-        tracer=regime_writer_module._NoopTracer(),
+    regime_writer_module._record_null_remaining(
+        conn, getattr(regime_writer_module, spec_name), ["SPY", "QQQ"]
     )
 
-    # The count query is the SECOND cur.execute call -- the first is inside
-    # _bulk_update_by_key, which is stubbed out above, so only the count query
-    # actually reaches this mock cursor.
-    executed_sql = cursor_mock.execute.call_args[0][0]
-    assert "regime_volatility IS NOT NULL" in executed_sql
-    assert "regime_volatility IS NULL" in executed_sql
+    assert cursor_mock.execute.call_count == 1
+    sql, params = cursor_mock.execute.call_args[0]
+    assert f"{column} IS NULL" in sql and "GROUP BY symbol, tf" in sql
+    assert params == (["SPY", "QQQ"],)
+    assert gauge_calls == [
+        (3, {"symbol": "SPY", "tf": "1d", "regime_column": column}),
+        (0, {"symbol": "SPY", "tf": "1h", "regime_column": column}),
+        (7, {"symbol": "QQQ", "tf": "1d", "regime_column": column}),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -2035,105 +2122,73 @@ def test_discover_symbols_rejects_unknown_label_column():
         _discover_symbols(conn, label_column="bogus")
 
 
-def test_run_symbol_worker_dispatches_to_volatility_compute(monkeypatch):
-    """regime_column='regime_volatility' must call
-    _compute_symbol_tf_volatility_walk_forward and not _compute_symbol_tf_walk_forward;
-    walk-forward is the only mode (D-29)."""
-    calls = {"volatility": 0, "walk_forward": 0}
+def _worker_config():
+    return _family_config("1h", 200, 300, hmm_covariance_type="diag")
 
-    def _vol_sentinel(**kwargs):
-        calls["volatility"] += 1
-        return ([], True, float("nan"))
 
-    def _wf_sentinel(**kwargs):
-        calls["walk_forward"] += 1
-        return ([], True, float("nan"))
+def test_run_symbol_worker_dispatches_on_regime_column(monkeypatch):
+    """The worker fetches bars and calls `_compute_family_rows` with the spec of its
+    `regime_column`: TREND_SPEC for "regime", VOLATILITY_SPEC for "regime_volatility"."""
+    seen = []
 
-    monkeypatch.setattr(
-        regime_writer_module, "_compute_symbol_tf_volatility_walk_forward", _vol_sentinel
-    )
-    monkeypatch.setattr(regime_writer_module, "_compute_symbol_tf_walk_forward", _wf_sentinel)
+    def _fake_compute_family_rows(bars, spec, config, tf, symbol):
+        seen.append((spec, tf, symbol))
+        return ([], True)
+
+    monkeypatch.setattr(regime_writer_module, "_compute_family_rows", _fake_compute_family_rows)
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: {"x": 1})
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
 
-    base_args = (
-        "SPY",
-        ["1h"],
-        "postgresql://fake",
-        3,
-        20,
-        20,
-        20,
-        50,
-        42,
-        "diag",
-        3,
-        0,
-        0.0,
-        10,
-        20,
-    )
-    walk_forward_params = {"1h": (200, 300)}
+    for column, spec in (
+        ("regime", regime_writer_module.TREND_SPEC),
+        ("regime_volatility", regime_writer_module.VOLATILITY_SPEC),
+    ):
+        seen.clear()
+        result = regime_writer_module._run_symbol_worker(
+            regime_writer_module._WorkerArgs(
+                "SPY", ["1h"], "postgresql://fake", column, _worker_config()
+            )
+        )
+        assert seen == [(spec, "1h", "SPY")]
+        assert result["error"] is None
+        assert result["results"] == [{"tf": "1h", "update_rows": [], "converged": True}]
 
+
+def test_worker_args_field_names_are_pinned():
+    """The worker args are a NamedTuple whose field names are pinned, so a reordering or an
+    added field fails here instead of binding silently across the ProcessPoolExecutor
+    boundary."""
+    assert regime_writer_module._WorkerArgs._fields == (
+        "symbol",
+        "tfs",
+        "dsn",
+        "regime_column",
+        "config",
+    )
+
+
+def test_run_symbol_worker_reports_a_missing_bar_series_as_no_rows(monkeypatch):
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: None)
+    monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
     result = regime_writer_module._run_symbol_worker(
-        base_args + (walk_forward_params, "regime_volatility")
+        regime_writer_module._WorkerArgs(
+            "SPY", ["1h"], "postgresql://fake", "regime", _worker_config()
+        )
     )
-
-    assert calls["volatility"] == 1
-    assert calls["walk_forward"] == 0
-    assert result["error"] is None
-    assert result["results"][0]["tf"] == "1h"
+    assert result["results"] == [{"tf": "1h", "update_rows": None, "converged": False}]
 
 
-def test_run_symbol_worker_args_tuple_arity_and_regime_column_position(monkeypatch):
-    """The worker args tuple must be exactly 17 elements with regime_column at
-    index 16 -- pinned so a future insertion elsewhere in the tuple fails the suite
-    instead of silently mis-binding parameters across the ProcessPoolExecutor
-    boundary. Truncating to 16 elements must raise ValueError, not silently drop
-    regime_column and default to something."""
+def test_run_symbol_worker_isolates_a_failing_cell(monkeypatch):
+    def _boom(bars, spec, config, tf, symbol):
+        raise RuntimeError("fit failed")
+
+    monkeypatch.setattr(regime_writer_module, "_compute_family_rows", _boom)
+    monkeypatch.setattr(regime_writer_module, "_fetch_bars", lambda conn, symbol, tf: {"x": 1})
     monkeypatch.setattr(regime_writer_module.psycopg, "connect", lambda *a, **kw: MagicMock())
-    monkeypatch.setattr(
-        regime_writer_module,
-        "_compute_symbol_tf_volatility_walk_forward",
-        lambda **kw: ([], True, float("nan")),
+    result = regime_writer_module._run_symbol_worker(
+        regime_writer_module._WorkerArgs(
+            "SPY", ["1h", "1d"], "postgresql://fake", "regime", _worker_config()
+        )
     )
-    monkeypatch.setattr(
-        regime_writer_module,
-        "_compute_symbol_tf_walk_forward",
-        lambda **kw: ([], True, float("nan")),
-    )
-
-    base_args = (
-        "SPY",
-        ["1h"],
-        "postgresql://fake",
-        3,
-        20,
-        20,
-        20,
-        50,
-        42,
-        "diag",
-        3,
-        0,
-        0.0,
-        10,
-        20,
-    )
-    walk_forward_params = {"1h": (200, 300)}
-
-    args_volatility = base_args + (walk_forward_params, "regime_volatility")
-    args_regime = base_args + (walk_forward_params, "regime")
-
-    assert len(args_volatility) == 17
-    assert args_volatility[16] == "regime_volatility"
-    assert len(args_regime) == 17
-    assert args_regime[16] == "regime"
-
-    # Both full-length tuples must actually run without error.
-    result_vol = regime_writer_module._run_symbol_worker(args_volatility)
-    assert result_vol["error"] is None
-    result_regime = regime_writer_module._run_symbol_worker(args_regime)
-    assert result_regime["error"] is None
-
-    with pytest.raises(ValueError):
-        regime_writer_module._run_symbol_worker(args_volatility[:16])
+    assert [c["tf"] for c in result["results"]] == ["1h", "1d"]
+    assert all(c["update_rows"] is None and c["error"] == "fit failed" for c in result["results"])

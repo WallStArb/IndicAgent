@@ -1024,6 +1024,35 @@ class TestBulkUpdateByKeyCompressedHypertableGuard:
         )  # must not raise
 
 
+class TestBulkUpdateByKeyRowcount:
+    """186-13 (todo 290 item 2): the JOIN-UPDATE's rowcount is returned so a writer can report
+    rows updated without a follow-up count query."""
+
+    def _run(self, rowcount: int) -> int:
+        conn = MagicMock()
+        cur = conn.cursor.return_value.__enter__.return_value
+        cur.copy.return_value.__enter__.return_value = MagicMock()
+        cur.rowcount = rowcount
+        result = bulk_update_by_key(
+            conn,
+            table="some_ordinary_table",
+            temp_table="_t",
+            key_cols=["id"],
+            set_cols=["value"],
+            col_types={"id": "int", "value": "text"},
+            rows=[(1, "x"), (2, "y")],
+        )
+        executed = [c.args[0] for c in cur.execute.call_args_list]
+        assert executed[-1].startswith("UPDATE some_ordinary_table")
+        return result
+
+    def test_returns_the_join_update_rowcount(self) -> None:
+        assert self._run(2) == 2
+
+    def test_returns_zero_when_no_row_matched(self) -> None:
+        assert self._run(0) == 0
+
+
 class TestClampToRealRange:
     """todo 312: an HMM posterior probability underflowing float4's representable range
     made Postgres reject the write outright rather than round it -- these are the pure

@@ -15,11 +15,12 @@ BLAS is limited to one thread (as production's worker pool does); several thread
 to run reproducible.
 
 Modes:
-  (default)      capture from the database through the compute path named by --source and
-                 write the fixture. `--source writer` runs the unchanged writer functions
-                 through a fake connection that serves only the two bar SELECT shapes;
-                 `--source kernel` runs the registry kernels. Each case runs twice and the
-                 capture refuses on nondeterminism.
+  (default)      capture from the database through the registry kernels and write the
+                 fixture. Each case runs twice and the capture refuses on nondeterminism. (The
+                 first capture, at commit ec3d8a814, ran the unchanged writer functions
+                 through a fake connection; the manifest's `source` says which path wrote a
+                 fixture, and the kernels reproduced it byte for byte before the writer's own
+                 compute functions were deleted.)
   --verify       recompute every stored case through the kernels from `real_inputs.npz` and
                  the manifest's APR snapshot (no database read) and compare digests.
   --dump PATH    write the kernels' current per-row state (code, status, columns) to PATH.
@@ -112,116 +113,6 @@ def snapshot_apr(cfg: Any) -> dict[str, Any]:
 
 def _ns_to_dt(ns: int) -> datetime:
     return datetime.fromtimestamp(ns // 1_000_000_000, tz=UTC)
-
-
-class _FakeCursor:
-    """Serves the writer's two bar SELECT shapes from stored arrays; anything else raises."""
-
-    def __init__(self, bars: dict[str, np.ndarray]):
-        self._bars = bars
-        self._rows: list[tuple] = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def execute(self, sql: str, params: tuple):
-        text = " ".join(sql.split())
-        if not text.startswith("SELECT timestamp, close"):
-            raise AssertionError(f"fake connection got an unexpected statement: {text!r}")
-        ts, close, volume = self._bars["ts"], self._bars["close"], self._bars["volume"]
-        if "volume" in text:
-            self._rows = [
-                (_ns_to_dt(int(t)), float(c), float(v)) for t, c, v in zip(ts, close, volume)
-            ]
-        else:
-            self._rows = [(_ns_to_dt(int(t)), float(c)) for t, c in zip(ts, close)]
-
-    def fetchmany(self, n: int):
-        out, self._rows = self._rows[:n], self._rows[n:]
-        return out
-
-
-class _FakeConnection:
-    def __init__(self, bars: dict[str, np.ndarray]):
-        self._bars = bars
-
-    def commit(self):
-        return None
-
-    def cursor(self, name: str | None = None):
-        return _FakeCursor(self._bars)
-
-
-def _schedule(apr: dict[str, Any], tf: str) -> tuple[int, int]:
-    return (
-        int(apr[f"alpha.hmm.walk_forward.refit_every_bars.{tf}"]),
-        int(apr[f"alpha.hmm.walk_forward.initial_warmup_bars.{tf}"]),
-    )
-
-
-def run_writer_case(
-    apr: dict[str, Any], bars: dict[str, np.ndarray], family: str, tf: str
-) -> list[tuple] | None:
-    """The unchanged writer's walk-forward function for one family, through a fake connection."""
-    from services import regime_writer as rw
-
-    refit, warmup = _schedule(apr, tf)
-    conn = _FakeConnection(bars)
-    common = dict(
-        conn=conn,
-        symbol="CASE",
-        tf=tf,
-        n_iter=int(apr["feature.hmm.n_iter"]),
-        hmm_random_state=int(apr["alpha.hmm.random_state"]),
-        refit_every_bars=refit,
-        initial_warmup_bars=warmup,
-        min_hold_bars=int(apr["feature.hmm.min_hold_bars"]),
-        full_cov_min_obs=int(apr["feature.hmm.full_cov_min_obs"]),
-        min_state_occupation=float(apr["feature.hmm.min_state_occupation"]),
-        churn_window=int(apr["feature.hmm.churn_window"]),
-        min_obs_factor=int(apr["feature.hmm.min_obs_factor"]),
-    )
-    if family == "trend":
-        result = rw._compute_symbol_tf_walk_forward(
-            n_components=int(apr["feature.hmm.n_components"]),
-            vol_window=int(apr["feature.hmm.vol_window"]),
-            momentum_window=int(apr["feature.hmm.obs_momentum_window"]),
-            vol_of_vol_window=int(apr["feature.hmm.obs_vol_of_vol_window"]),
-            covariance_type=str(apr["feature.hmm.covariance_type"]),
-            **common,
-        )
-    else:
-        result = rw._compute_symbol_tf_volatility_walk_forward(
-            n_components=int(apr["alpha.hmm_volatility.n_components"]),
-            vol_window=int(apr["alpha.hmm_volatility.vol_window"]),
-            vol_of_vol_window=int(apr["alpha.hmm_volatility.vol_of_vol_window"]),
-            covariance_type=str(apr["alpha.hmm_volatility.covariance_type"]),
-            **common,
-        )
-    return None if result is None else result[0]
-
-
-def rows_to_grid(
-    update_rows: list[tuple] | None, ts_ns: np.ndarray, family: str
-) -> tuple[np.ndarray, np.ndarray]:
-    """Label indices (int8, -1 unwritten) and the 7 numeric columns (float32, NaN unwritten)
-    on the bar grid, from the writer's update rows."""
-    labels_order = FAMILY_LABELS[family]
-    n = len(ts_ns)
-    labels = np.full(n, -1, dtype=np.int8)
-    columns = np.full((N_NUMERIC_COLUMNS, n), np.nan, dtype=np.float32)
-    if not update_rows:
-        return labels, columns
-    position = {int(t): i for i, t in enumerate(ts_ns)}
-    for row in update_rows:
-        i = position[int(row[-1].timestamp()) * 1_000_000_000]
-        labels[i] = labels_order.index(row[0])
-        for c in range(N_NUMERIC_COLUMNS):
-            columns[c, i] = np.float32(row[1 + c])
-    return labels, columns
 
 
 def run_kernel_full(
@@ -351,12 +242,6 @@ def _same(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) ->
     return bad
 
 
-def _grid_from(source: str, apr, bars, family, tf) -> tuple[np.ndarray, np.ndarray]:
-    if source == "writer":
-        return rows_to_grid(run_writer_case(apr, bars, family, tf), bars["ts"], family)
-    return run_kernel_case(apr, bars, family, tf)
-
-
 def _fetch_real_bars(dsn: str) -> dict[str, dict[str, np.ndarray]]:
     import psycopg
 
@@ -381,7 +266,7 @@ def _git_head() -> str:
     ).stdout.strip()
 
 
-def _case_digests(source, apr, bars_by_case, synthetic, *, twice: bool):
+def _case_digests(apr, bars_by_case, synthetic, *, twice: bool):
     """(digests per case/family, grids, runtimes)."""
     digests: dict[str, Any] = {}
     grids: dict[str, tuple[np.ndarray, np.ndarray]] = {}
@@ -394,10 +279,10 @@ def _case_digests(source, apr, bars_by_case, synthetic, *, twice: bool):
         for family in FAMILIES:
             key = f"{name}/{family}"
             t0 = time.monotonic()
-            grid = _grid_from(source, case_apr, bars, family, tf)
+            grid = run_kernel_case(case_apr, bars, family, tf)
             runtimes[key] = round(time.monotonic() - t0, 2)
             if twice:
-                bad = _same(grid, _grid_from(source, case_apr, bars, family, tf))
+                bad = _same(grid, run_kernel_case(case_apr, bars, family, tf))
                 if bad:
                     problems.append(f"{key}: nondeterministic in {bad}")
             grids[key] = grid
@@ -456,7 +341,6 @@ def load_synthetic(out: Path) -> dict[str, np.ndarray]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    parser.add_argument("--source", choices=["writer", "kernel"], default="writer")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--regenerate", action="store_true")
@@ -486,9 +370,7 @@ def main() -> None:
         apr = manifest["apr_snapshot"]
         bars_by_case = load_real_inputs(out)
         synthetic = load_synthetic(out)
-        digests, grids, runtimes = _case_digests(
-            "kernel", apr, bars_by_case, synthetic, twice=False
-        )
+        digests, grids, runtimes = _case_digests(apr, bars_by_case, synthetic, twice=False)
         stored = json.loads((out / "real_golden.json").read_text())
         stored.update(manifest["synthetic_digests"])
         if args.verify:
@@ -526,11 +408,11 @@ def main() -> None:
         apr = snapshot_apr(load_config_service_sync(conn))
     bars_by_case = _fetch_real_bars(dsn)
     synthetic = make_synthetic_regime_bars(3000, 42)
-    digests, grids, runtimes = _case_digests(args.source, apr, bars_by_case, synthetic, twice=True)
+    digests, grids, runtimes = _case_digests(apr, bars_by_case, synthetic, twice=True)
     manifest = {
         "capture_commit": _git_head(),
         "captured_utc": datetime.now(UTC).isoformat(),
-        "source": args.source,
+        "source": "kernel",
         "apr_snapshot": apr,
         "synthetic_apr": SMALL_HMM_APR,
         "sample": [list(s) for s in SAMPLE],

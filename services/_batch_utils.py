@@ -106,8 +106,11 @@ def bulk_update_by_key(
     set_cols: list[str],
     col_types: dict[str, str],
     rows: list[tuple],
-) -> None:
+) -> int:
     """Bulk UPDATE `table` keyed on `key_cols` via COPY into a temp table + one JOIN-UPDATE.
+
+    Returns the JOIN-UPDATE's rowcount (rows of `table` actually updated), so a caller can
+    report what changed without a follow-up count query.
 
     Replaces per-row execute_batch UPDATE (one index probe per row) with a single
     set-based UPDATE (one merge/hash join for the whole batch). For 50k+ row updates
@@ -173,6 +176,7 @@ def bulk_update_by_key(
         cur.execute(
             f"UPDATE {table} AS t SET {set_clause} FROM {temp_table} AS v WHERE {key_clause}"
         )
+        return int(cur.rowcount)
 
 
 # ---------------------------------------------------------------------------
