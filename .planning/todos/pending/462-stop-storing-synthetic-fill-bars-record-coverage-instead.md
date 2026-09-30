@@ -371,3 +371,21 @@ since 2026-09-28 and was at 253 of 698 names).
   never has a bar; it is covered by any large answered window but a tiny window fails the
   stored-row check, so it is re-asked. Two tiny requests per symbol and run remain; plan 185-12's
   RTH-grid expected slots remove the after-close slot.
+
+## Pre-rewrite baseline, committed script (2026-09-30)
+
+`scripts/ops/bars/ops_masked_slot_baseline.py --last-year 2026 --whole-year 2025 --whole-year-min 6000`,
+run before plan 185-12's rewrite (the archive table is empty and nothing has been derived yet). It
+reproduces the 2026-09-29 scratch measurement exactly:
+
+- 15m masked slots: 155,022 in total, 18,705,195,537 shares hidden, in 12 years. By year: 2007 18,
+  2008 51, 2010 854, 2016 997, 2018 1,722, 2019 936, 2020 1,713, 2021 6,540, 2022 4,780, 2024 35,454
+  (100 names), 2025 84,032 (13 names), 2026 17,925 (193 names).
+- Names masked in bulk in 2025 (6,464 slots each): CCJ, COP, CRM, CTVA, CVS, DAL, DHI, DOCS, DOW,
+  DUK, ECL, ELV, EMR.
+
+After plan 185-12's rewrite the same command must report zero masked slots for every derived
+symbol (plan 185-23's check reads the same definition). `BarDerivation` dry run on SPY, AAPL and
+XLU: 501,783 derived rows in 7.5 s, 0 failures; it dropped 4,880, 116 and 20 5m bars as outside the
+regular session, so the derived 15m/1h grid is regular trading hours only (D-15) and the rewrite
+removes the stored extended-hours 15m/1h rows from `market_data_ohlcv` (they are archived).
