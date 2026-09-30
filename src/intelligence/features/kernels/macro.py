@@ -74,6 +74,12 @@ def _bar_end_offset_seconds(tf: str) -> int:
         raise ValueError(f"unknown timeframe {tf!r}; known: 1m, {sorted(TF_DURATIONS)}") from None
 
 
+def require_supported_timeframes(timeframes: Sequence[str]) -> None:
+    """ValueError naming the first timeframe `daily_asof_index` has no bar duration for."""
+    for tf in timeframes:
+        _bar_end_offset_seconds(tf)
+
+
 def bar_ts_ns(bar_ts: datetime) -> int:
     """UTC nanoseconds of a bar start by integer arithmetic; a naive datetime is taken as UTC."""
     if bar_ts.tzinfo is None:

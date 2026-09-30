@@ -80,6 +80,7 @@ from src.intelligence.features.kernels.macro import (
     build_cross_asset_series,
     daily_asof_index,
     daily_close_availability,
+    require_supported_timeframes,
 )
 from src.intelligence.pipeline import (
     CacheManager,
@@ -984,6 +985,14 @@ class FeatureVectorPipeline(BaseDaemon):
             self.settings.database_url, self._db.pool
         )
         self._timeframes = list(vocabulary_access.standard_timeframes())
+        self._require_supported_timeframes(self._timeframes)
+
+    @staticmethod
+    def _require_supported_timeframes(timeframes: list[str]) -> None:
+        """Stop the start on a configured timeframe the live cross-asset as-of lookup cannot serve
+        (`daily_asof_index` raises per bar otherwise). No fallback duration: a guessed one would
+        read a wrong record silently."""
+        require_supported_timeframes(timeframes)
 
     async def _load_hmm_config(self) -> HmmConfig:
         """The regime kernels' HmmConfig from APR: prewarm every key it reads, then load it from
