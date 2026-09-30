@@ -32,7 +32,7 @@ results:
     value: "14,750,919 rows, 231 symbols, 3,469 dates, in-sample bar_ts < 2025-12-24"
     source: db:concept_registry
   - name: bucketed_retest_2026_09_11
-    value: "0 of 8 sector buckets qualify; every raw bucket null_p between 0.15 and 0.80 (0.05 not reached before correction); pre-registered fast-kill (at most 1 of about 8) triggers"
+    value: "0 of 8 sector buckets qualify; every raw bucket null_p between 0.15 and 0.80 (0.05 not reached before correction); pre-registered fast-kill (at most 1 of about 8) triggers; run by scripts/analysis/alpha_score_residual_bucketed_retest_15m.py as committed in 8841bc219 (2026-09-11, after this card's recipe_commit, so the script is recorded here and not as a source; deleted by plan 186-16, recoverable at 8841bc219 or 920f8e2b3)"
     source: docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
 known_defects:
   - "Todo 372 finding 1 (fixed 2026-09-11, commit 5dd25cd15): Panel.sync_shift_null_p shifted each symbol by k modulo its own active-date count instead of on the shared panel calendar, degrading the panel-synchronous null into independent per-symbol shifts and understating the false-positive rate. The recorded family null p (0.002) came from code before that fix; a later commit (cfc4a5b20) also fixed the null p denominator dropping NaN replicates. The FAIL rests on condition 4 (0 of 231), which those null bugs do not touch."
@@ -49,7 +49,6 @@ reproducible: false
 sources:
   - docs/plans/2026-09-02-personal-scale-edge-determination-plan.md
   - production/migrations/330_concept_registry_residual_single_security_verdict.sql
-  - scripts/analysis/alpha_score_residual_bucketed_retest_15m.py
   - db:concept_registry
   - docs/research/construction-verdict-ledger.md#4-verdict-record-frozen-chronological
 related_cards: []
