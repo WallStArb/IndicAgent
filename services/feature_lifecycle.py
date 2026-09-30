@@ -373,14 +373,14 @@ _LOAD_EVALUATIONS_SQL = """
     WHERE recency <= $5
 """
 
-# One concept's whole history, for a transition whose streak may reach past the trailing windows
-# above (its n_windows is the full streak length).
+# The whole history of the concepts whose transition streak may reach past the trailing windows
+# above (its n_windows is the full streak length), read in one query for all of them.
 _LOAD_CONCEPT_EVALUATIONS_SQL = """
     SELECT concept_id, window_end, evaluated_status, passed, n_observations,
            evaluated_at, statistic
     FROM concept_evaluation
     WHERE domain = $1
-      AND concept_id = $2
+      AND concept_id = ANY($2)
       AND evidence_kind = 'data_quality'
 """
 
@@ -563,22 +563,33 @@ class FeatureLifecycle(BaseBatch):
             evaluations[row.concept_id].append(row.evaluation)
 
         window_limit = max(config.demotion_min_consecutive, config.recovery_min_passes)
-        transitions = []
+        first: dict[str, Any] = {}
         for name in governed:
             concept = concepts[name]
-            transition = derive_feature_transition(
+            first[name] = derive_feature_transition(
                 concept["status"],
                 concept["status_since"],
                 evaluations.get(concept["concept_id"], []),
                 config,
                 last_transition_reason=concept["last_transition_reason"],
             )
-            if transition is not None and transition.n_windows >= window_limit:
+        # One read of the whole history for every concept whose streak may exceed the window.
+        long_streak = [
+            concepts[name]["concept_id"]
+            for name, t in first.items()
+            if t is not None and t.n_windows >= window_limit
+        ]
+        histories = await self._load_concept_histories(conn, long_streak) if long_streak else {}
+        transitions = []
+        for name in governed:
+            concept = concepts[name]
+            transition = first[name]
+            if concept["concept_id"] in histories:
                 transition = derive_feature_transition(
                     concept["status"],
                     concept["status_since"],
                     [
-                        *(await self._load_concept_history(conn, concept["concept_id"])),
+                        *histories[concept["concept_id"]],
                         *(r.evaluation for r in rows if r.concept_id == concept["concept_id"]),
                     ],
                     config,
@@ -669,11 +680,15 @@ class FeatureLifecycle(BaseBatch):
             evaluations[r["concept_id"]].append(_evaluation_from_row(r))
         return evaluations
 
-    async def _load_concept_history(
-        self, conn: asyncpg.Connection, concept_id: Any
-    ) -> list[Evaluation]:
-        rows = await conn.fetch(_LOAD_CONCEPT_EVALUATIONS_SQL, _DOMAIN, concept_id)
-        return [_evaluation_from_row(r) for r in rows]
+    async def _load_concept_histories(
+        self, conn: asyncpg.Connection, concept_ids: Sequence[Any]
+    ) -> dict[Any, list[Evaluation]]:
+        """Each concept's whole data_quality history, in one query."""
+        rows = await conn.fetch(_LOAD_CONCEPT_EVALUATIONS_SQL, _DOMAIN, list(concept_ids))
+        histories: dict[Any, list[Evaluation]] = {cid: [] for cid in concept_ids}
+        for r in rows:
+            histories[r["concept_id"]].append(_evaluation_from_row(r))
+        return histories
 
     def _plan_rows(
         self,

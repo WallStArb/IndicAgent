@@ -639,6 +639,7 @@ def test_evaluation_load_reads_only_rows_this_rule_wrote():
     for sql in (fl._LOAD_EVALUATIONS_SQL, fl._LOAD_CONCEPT_EVALUATIONS_SQL):
         assert "evidence_kind = 'data_quality'" in sql
         assert "per_tf" not in sql
+    assert "concept_id = ANY($2)" in fl._LOAD_CONCEPT_EVALUATIONS_SQL
     assert "evidence_kind" in fl._UPSERT_EVALUATION_SQL
     assert "guard_status" not in fl._UPSERT_EVALUATION_SQL
 
@@ -678,11 +679,13 @@ class _LedgerConn:
 
     def __init__(self, ledger):
         self.ledger = ledger
+        self.history_reads = 0
 
     async def fetch(self, sql, *args):
         if sql == fl._LOAD_CONCEPT_EVALUATIONS_SQL:
-            _domain, concept_id = args
-            return [r for r in self.ledger if r["concept_id"] == concept_id]
+            _domain, concept_ids = args
+            self.history_reads += 1
+            return [r for r in self.ledger if r["concept_id"] in concept_ids]
         assert sql == fl._LOAD_EVALUATIONS_SQL
         _domain, ids, statuses, sinces, limit = args
         out = []
@@ -751,7 +754,9 @@ async def test_trailing_window_read_derives_the_whole_ledger_transitions(demotio
     ledger, concepts = _long_ledger()
     config = LifecycleConfig(0.95, 90, demotion, recovery)
     governed = sorted(concepts)
-    got = await _node()._transitions(_LedgerConn(ledger), concepts, governed, config, [])
+    conn = _LedgerConn(ledger)
+    got = await _node()._transitions(conn, concepts, governed, config, [])
+    assert conn.history_reads <= 1  # one query for every concept that needs its whole history
     want = []
     for name in governed:
         c = concepts[name]
@@ -783,6 +788,7 @@ async def test_trailing_window_read_derives_the_whole_ledger_transitions(demotio
             "fail_streak_9": 9,
             "pass_streak_7": 7,
         }
+        assert conn.history_reads == 1  # three concepts escalate, one read
 
 
 def test_evaluation_load_is_restricted_to_governed_status_since_and_newest_windows():
