@@ -20,6 +20,20 @@ The 186-15 move was held byte-identical against the golden fixture, so the const
 migrated there. `_HMM_K` and the forward step live in `feature_cache.py` and have the same
 question.
 
+## More hard-coded numbers found by the 186-15 altitude review
+
+Same mandate, same byte-identical seeding rule:
+
+- `cross_tf.py`: `deque(maxlen=20)` and the cold-start volatility `0.005` (above), plus the `1e-10`
+  guards.
+- `vp_sr.py`: the S/R strength cap `2.0` and the default S/R lookback `_SR_DEFAULT_LOOKBACK = 120`
+  (one constant since 186-15 review; it is the fallback for a tf missing from
+  `sr_lookback_by_tf`, so it belongs next to that key).
+- `feature_cache.py` (legacy, frozen): the `_HMM_*` transition, emission and prior tables that
+  `_hmm_forward_step` reads; `ctf_regime_align` inherits them. They move with the helpers in
+  todo 476 and become APR JSON (a behavioral list with a warning that changing it invalidates
+  stored `ctf_regime_align`).
+
 ## Fix
 
 Seed `alpha.ctf.*` keys (window, cold-start volatility) with the current values in a migration,
