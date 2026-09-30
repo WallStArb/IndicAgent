@@ -4,8 +4,9 @@ Golden parity: both families reproduce the golden captured from the unchanged re
 (`tests/fixtures/regime_kernel/`): label index equal, float32 columns bitwise equal, on the
 synthetic case and on every 1d real case (SPY, TLT, LQD; LQD exercises the degenerate skip path).
 The SPY 1h case is checked by `features_capture_regime_kernel_golden.py --verify`, not here,
-because it takes about a minute per family. The fit runs with one BLAS thread, as production's
-worker pool does; more threads change the low bits and are not run to run reproducible.
+because it takes about a minute per family. The kernel pins its own BLAS to one thread, so these
+tests run under whatever thread count the process has (more threads would change the low bits and
+are not run to run reproducible).
 
 Measured (BLAS threads 1): the synthetic case about 1 s per family, the three 1d real cases
 together about 16 s, so all of them run here; SPY 1h is left to --verify (about 40 s).
@@ -53,12 +54,6 @@ FAMILIES = ("trend", "volatility")
 ALL_COLUMNS = (*REGIME_WRITER_OWNED_COLUMN_NAMES, *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES)
 
 
-@pytest.fixture(autouse=True)
-def _one_blas_thread():
-    with threadpool_limits(1):
-        yield
-
-
 @lru_cache(maxsize=1)
 def _manifest() -> dict:
     return json.loads((FIXTURE_DIR / "manifest.json").read_text())
@@ -79,6 +74,20 @@ def test_synthetic_case_reproduces_the_writer_golden(family):
     assert np.array_equal(labels, stored[f"{family}/labels"])
     for c in range(len(columns)):
         assert np.array_equal(_bits(columns[c]), _bits(stored[f"{family}/columns"][c])), c
+
+
+@pytest.mark.parametrize("threads", [8, 24])
+def test_kernel_output_does_not_depend_on_the_callers_blas_threads(threads):
+    """Determinism is the kernel's own property: a caller running many BLAS threads gets the
+    single-thread golden. On this box the trend synthetic case differs at 8 and 24 threads
+    without the kernel's own pin."""
+    stored = np.load(FIXTURE_DIR / "synthetic_golden.npz")
+    bars = load_synthetic(FIXTURE_DIR)
+    with threadpool_limits(threads):
+        labels, columns = run_kernel_case(SMALL_HMM_APR, bars, "trend", "1d")
+    assert np.array_equal(labels, stored["trend/labels"])
+    for c in range(len(columns)):
+        assert np.array_equal(_bits(columns[c]), _bits(stored["trend/columns"][c])), c
 
 
 @pytest.mark.parametrize("case", ["SPY/1d", "TLT/1d", "LQD/1d"])

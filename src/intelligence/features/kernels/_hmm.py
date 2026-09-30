@@ -22,6 +22,7 @@ import numpy as np
 import structlog
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
+from threadpoolctl import threadpool_limits
 
 from src.intelligence.hmm_jit import alpha_pass_jit as _alpha_pass_jit
 
@@ -1154,21 +1155,26 @@ def walk_forward_family_arrays(
     status = np.full(n_rows, STATUS_NO_MODEL)
     numeric = np.full((N_NUMERIC_COLUMNS, n_rows), np.nan)
 
-    segment_results = _walk_forward_hmm_full(
-        obs_matrix,
-        n_components,
-        covariance_type,
-        config.hmm_n_iter,
-        config.hmm_random_state,
-        refit_every_bars,
-        initial_warmup_bars,
-        config.hmm_min_hold_bars,
-        config.hmm_full_cov_min_obs,
-        config.hmm_min_state_occupation,
-        tf=tf,
-        vocab=spec.vocab,
-        min_obs_factor=config.hmm_min_obs_factor,
-    )
+    # One BLAS thread is part of the kernel's definition: with several threads the fit's low
+    # bits differ from the golden and, on this box, run to run (test_regime_kernel.py). Every
+    # BLAS call of the fit and the emission solves happens inside this call, so the caller's
+    # `infra.blas_threads_per_worker` cannot change a regime label.
+    with threadpool_limits(limits=1):
+        segment_results = _walk_forward_hmm_full(
+            obs_matrix,
+            n_components,
+            covariance_type,
+            config.hmm_n_iter,
+            config.hmm_random_state,
+            refit_every_bars,
+            initial_warmup_bars,
+            config.hmm_min_hold_bars,
+            config.hmm_full_cov_min_obs,
+            config.hmm_min_state_occupation,
+            tf=tf,
+            vocab=spec.vocab,
+            min_obs_factor=config.hmm_min_obs_factor,
+        )
 
     # Churn is a property of the label sequence, computed per written segment then
     # concatenated: treating the last label before a gap and the first after it as adjacent

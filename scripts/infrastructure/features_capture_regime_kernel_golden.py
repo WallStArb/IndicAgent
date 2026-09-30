@@ -11,8 +11,8 @@ history. Both families (trend `regime`, `regime_volatility`) run on each case. A
 (`make_synthetic_regime_bars(3000, 42)` under SMALL_HMM_APR at the 1d schedule) is written to
 `synthetic_golden.npz`.
 
-BLAS is limited to one thread (as production's worker pool does); several threads are not run
-to run reproducible.
+The walk-forward kernel pins its own BLAS to one thread (`walk_forward_family_arrays`), so the
+golden does not depend on this process's thread settings.
 
 Modes:
   (default)      capture from the database through the registry kernels and write the
@@ -34,17 +34,8 @@ Usage: python scripts/infrastructure/features_capture_regime_kernel_golden.py [-
 
 from __future__ import annotations
 
-import os
-
-# Production runs the HMM in pool workers capped to one BLAS thread (limit_blas_threads). The
-# thread count changes the low bits of the fit and, with several threads, differs run to run
-# (measured: SPY 1d trend probabilities), so the golden is defined at one thread. The variables
-# must be set before numpy and scipy load their BLAS.
-for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
-    os.environ[_var] = "1"
-
-import argparse  # noqa: E402
-import json  # noqa: E402
+import argparse
+import json
 import subprocess
 import sys
 import time
@@ -341,13 +332,6 @@ def main() -> None:
     )
     args = parser.parse_args()
     out: Path = args.out
-    # Production runs the HMM in pool workers capped to one BLAS thread (limit_blas_threads).
-    # The thread count changes the low bits of the fit and, with several threads, differs run
-    # to run, so the golden is defined at one thread.
-    import threadpoolctl  # type: ignore[import-untyped]
-
-    threadpoolctl.threadpool_limits(1)
-
     if args.dump:
         dump_state(out, args.dump)
         print(f"wrote {args.dump}")
