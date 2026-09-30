@@ -126,10 +126,8 @@ def registry_without_regime(registry):
     """A registry over the non-regime kernels, for probe_registry runs."""
     from src.intelligence.features.contract.registry import KernelRegistry
 
-    return KernelRegistry.from_kernels(
-        non_regime_kernels(registry),
-        [e for e in registry.external_inputs if e.name != "tf"],
-    )
+    # `tf` stays declared: the structure kernels read it too.
+    return KernelRegistry.from_kernels(non_regime_kernels(registry), registry.external_inputs)
 
 
 def make_collapsing_segment_bars() -> dict[str, np.ndarray]:

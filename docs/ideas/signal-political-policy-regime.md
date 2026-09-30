@@ -105,7 +105,7 @@ required, matching this project's "data quality over model complexity" principle
   **This is not a novel problem.** `FeatureVector` already has an established mechanism for
   exactly this shape of value — see `vix_z` (`schemas.py:482`, `"broadcast to every symbol
   on a given date"`, comment at `schemas.py:1467`) — computed once by
-  `build_cross_asset_series()` in `src/intelligence/features/cross_asset_series.py` and
+  `build_cross_asset_series()` in `src/intelligence/features/kernels/macro.py` and
   joined onto every symbol's row at the same cadence, never routed through
   `market_regimes`/`tag_filter` at all. Policy/EPU belongs in that lane, not in
   `market_regimes`. See the concrete sketch below.
@@ -136,7 +136,7 @@ all.
    `feature.policy_regime.max_staleness_days` — beyond which the field goes `None` rather than
    silently carrying a months-stale number forward forever. Same "daily grain, broadcast to
    all timeframes by date" cadence contract `build_symbol_beta_series()` already documents
-   (`cross_asset_series.py:303`) — reuse it, don't reinvent it.
+   (`kernels/macro.py` (`build_symbol_beta_series`)) — reuse it, don't reinvent it.
 
 3. **New `FeatureVector` fields**, immediately adjacent to `vix_z`/`vix_level`
    (`schemas.py:482`), each carrying the same `"# broadcast to every symbol on a given date,

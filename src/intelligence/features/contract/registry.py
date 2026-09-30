@@ -16,7 +16,7 @@ import enum
 import functools
 import importlib
 import pkgutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -82,6 +82,17 @@ class Alignment(enum.Enum):
     # A daily record available from the 16:00 ET close of its date, aligned with
     # kernels.macro.align_daily_asof: a row reads only records closed by its bar end.
     DAILY_ASOF_CLOSE = "daily_asof_close"
+    # A daily close on a daily reference grid (one row per date, the union of the symbols' 1d
+    # dates, NaN where a symbol has no bar): value final at that date's 16:00 ET close. Only the
+    # daily-grid kernels (cross_asset_daily, factor_beta_daily) read it; it is never aligned to
+    # intraday rows, which read the kernels' records through DAILY_ASOF_CLOSE.
+    DAILY_REFERENCE_GRID = "daily_reference_grid"
+    # A higher-timeframe value keyed by its bar's close time (the next HTF bar's start) and read
+    # with kernels.cross_tf.ctf_row_inputs: a row reads only HTF bars closed by its bar start.
+    HTF_ASOF_CLOSE = "htf_asof_close"
+    # A lower-timeframe value (the last 1m log return) taken from 1m bars stamped at or before
+    # the row's bar start (kernels.cross_tf._build_ltf_return_series).
+    LTF_ASOF_BAR_START = "ltf_asof_bar_start"
 
 
 @dataclass(frozen=True)
@@ -319,6 +330,34 @@ def discover_kernels(package: str = _DEFAULT_PACKAGE) -> KernelRegistry:
 @functools.lru_cache(maxsize=1)
 def default_registry() -> KernelRegistry:
     return discover_kernels()
+
+
+# Numeric FeatureVector columns no kernel owns, each with the reason. The pipeline refuses to
+# start when a numeric column is neither a registry feature column nor listed here, and a test
+# holds `feature_columns() + UNOWNED_COLUMNS` equal to the numeric schema, so a dropped or
+# forgotten column is loud (D-28, T-186-15-07).
+UNOWNED_COLUMNS: Mapping[str, str] = {
+    "momentum_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+    "volatility_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+    "volume_rank_z": (
+        "todo 421: hard-coded None in feature_factory; a cross-sectional rank needs the whole "
+        "universe per bar, so it cannot be a per-series kernel; 186-24 drops the column"
+    ),
+}
+
+
+def registry_column_gaps(
+    numeric_columns: Iterable[str], registry: KernelRegistry | None = None
+) -> list[str]:
+    """Numeric columns that are neither a registry feature column nor in `UNOWNED_COLUMNS`."""
+    owned = set((registry if registry is not None else default_registry()).feature_columns())
+    return sorted(c for c in numeric_columns if c not in owned and c not in UNOWNED_COLUMNS)
 
 
 def feature_memory_bars(

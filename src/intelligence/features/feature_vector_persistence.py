@@ -504,6 +504,24 @@ _ALL_COLUMN_NAMES: tuple[str, ...] = (
 )
 _TOTAL_COLUMNS = len(_ALL_COLUMN_NAMES)
 
+# Columns that hold identifiers, labels or timestamps; every other column is a number (or None).
+NON_NUMERIC_COLUMN_NAMES: frozenset[str] = frozenset(
+    {
+        "feature_vector_id",
+        "symbol",
+        "tf",
+        "bar_ts",
+        "bar_close_ts",
+        "pipeline_version",
+        "feature_factory_version",
+        "regime",
+        "regime_label_source",
+    }
+)
+NUMERIC_COLUMN_NAMES: tuple[str, ...] = tuple(
+    c for c in _ALL_COLUMN_NAMES if c not in NON_NUMERIC_COLUMN_NAMES
+)
+
 _INSERT_COLUMNS_SQL = ",\n    ".join(_ALL_COLUMN_NAMES)
 _VALUES_PLACEHOLDERS_SQL = ", ".join(f"${i}" for i in range(1, _TOTAL_COLUMNS + 1))
 

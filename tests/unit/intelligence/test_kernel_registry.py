@@ -17,6 +17,7 @@ from src.intelligence.features.contract.registry import (
     KernelRegistry,
     KernelRegistryError,
     compute_kernels,
+    default_registry,
     discover_kernels,
     feature_memory_bars,
 )
@@ -91,7 +92,17 @@ def test_kernel_is_frozen():
 
 def test_default_package_discovers_origins():
     origins = {k.origin for k in discover_kernels().kernels}
-    assert origins <= {"calendar", "control", "macro", "price", "regime", "volume"}
+    assert origins <= {
+        "calendar",
+        "control",
+        "cross_tf",
+        "macro",
+        "price",
+        "regime",
+        "smc",
+        "volume",
+        "vp_sr",
+    }
 
 
 _KERNEL_SRC = textwrap.dedent("""
@@ -249,3 +260,35 @@ def test_path_dependent_needs_reason_and_refuses_memory():
     assert reg.is_path_dependent("a") and reg.is_path_dependent("b")
     with pytest.raises(KernelRegistryError, match="anchored at first close"):
         feature_memory_bars("b", CFG, reg)
+
+
+D25_ORIGINS = {"price", "volume", "smc", "vp_sr", "calendar", "macro", "regime"}
+
+
+def test_registry_covers_every_d25_origin():
+    origins = {k.origin for k in default_registry().kernels}
+    assert D25_ORIGINS <= origins, sorted(D25_ORIGINS - origins)
+
+
+def test_feature_columns_plus_unowned_equal_schema():
+    """Every numeric FeatureVector column is a kernel output or a listed, reasoned exception,
+    exactly: nothing unowned is unlisted and nothing listed is also owned."""
+    from src.intelligence.features.contract.registry import UNOWNED_COLUMNS
+    from src.intelligence.features.feature_vector_persistence import (
+        NUMERIC_COLUMN_NAMES,
+        REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+        REGIME_WRITER_OWNED_COLUMN_NAMES,
+    )
+
+    numeric = set(NUMERIC_COLUMN_NAMES)
+    owned = set(default_registry().feature_columns())
+    regime_writer_columns = {
+        *REGIME_WRITER_OWNED_COLUMN_NAMES,
+        *REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
+    }
+    # owned columns outside the numeric schema are the regime writer's own columns (labels and
+    # the walk-forward numerics the writer persists), which feature_vectors carries separately
+    assert owned - numeric <= regime_writer_columns
+    assert (owned & numeric) | set(UNOWNED_COLUMNS) == numeric
+    assert not owned & set(UNOWNED_COLUMNS)
+    assert all(isinstance(reason, str) and reason.strip() for reason in UNOWNED_COLUMNS.values())

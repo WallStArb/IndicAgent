@@ -34,10 +34,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from services.backfill_feature_factory import _build_ctf_series, _rekey_ctf_series_to_actual_close
 from services.feature_vector_pipeline import _assert_rsi_mid_period_fits_bar_history
 from src.core.bar_normalizer import SOURCE_IBKR_NAMED
 from src.core.schemas.bar_message import BarMessage, SessionType
+from src.intelligence.features.kernels.cross_tf import (
+    _build_ctf_series,
+    _rekey_ctf_series_to_actual_close,
+)
 from tests.unit.pipeline.pipeline_helpers import make_agent
 
 

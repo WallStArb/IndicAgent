@@ -286,7 +286,7 @@ harder version is already sitting there proven.
 
 1. Should the interaction-builder read `regime_prob_vector` live per row (a DB round-trip
    per symbol×timestamp) or precompute a broadcast-style per-`(regime_group, tf, ts)` lookup
-   once and join in-memory, mirroring `cross_asset_series.py`'s broadcast pattern? Given
+   once and join in-memory, mirroring `kernels/macro.py`'s broadcast pattern? Given
    CLAUDE.md's standing warning against per-row hot-loop DB calls, the latter is almost
    certainly right — needs sizing against real row counts before committing to a design.
 2. `instrument_tags.loading` has a `valid_from`/`valid_to` window and `half_life_days` decay

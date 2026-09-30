@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Surgical CTF-column recompute at tf=15m -- todo 243's corrected-join fix.
 
-`_rekey_ctf_series_to_actual_close()` (shipped 2026-08-03, `services/backfill_feature_factory.py`)
+`_rekey_ctf_series_to_actual_close()` (shipped 2026-08-03, now `src/intelligence/features/kernels/cross_tf.py`)
 fixed a real lookahead bug in how `ctf_momentum`/`ctf_vwap_align`/`ctf_regime_align` are joined
 onto lower-timeframe bars -- the batch join previously selected a still-forming HTF bar for LTF
 rows inside its still-open window. The fix is shipped and tested, but `feature_vectors` itself
@@ -14,7 +14,7 @@ every feature, not just CTF -- it would silently conflate the join fix with ever
 feature-compute change made since these rows were last written, with no way to attribute any
 downstream IC delta to the join fix specifically. This script imports and calls
 `_build_ctf_series`/`_rekey_ctf_series_to_actual_close` UNMODIFIED from
-`backfill_feature_factory.py` and writes ONLY the 3 CTF columns via a targeted UPDATE -- every
+`kernels/cross_tf.py` and writes ONLY the 3 CTF columns via a targeted UPDATE -- every
 other column on every touched row is left byte-identical.
 
 Design (see docs/plans/2026-08-05-ctf-join-fix-scoped-recompute-and-gate1-reverify.md for the
@@ -51,7 +51,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import bisect
 import sys
 import time
 from pathlib import Path
@@ -64,14 +63,13 @@ import structlog
 from services._batch_utils import bulk_update_by_key, load_config_service_sync
 from services._batch_utils import compressed_hypertable_write_session_or_noop as _write_session
 from services.backfill_feature_factory import (
-    _build_ctf_series,
     _build_feature_factory_config,
     _connect_db,
     _fetch_bars_from_db,
-    _rekey_ctf_series_to_actual_close,
 )
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
+from src.intelligence.features.kernels.cross_tf import ctf_row_inputs, ctf_series_by_close
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -111,30 +109,21 @@ def _recompute_symbol(conn: Any, symbol: str, config: Any, apply: bool) -> dict[
         _logger.warning("ctf_recompute.no_htf_bars", symbol=symbol, htf_tf=htf_tf)
         return {"symbol": symbol, "rows_examined": 0, "rows_changed": 0, "rows_written": 0}
 
-    ctf_by_ts = _rekey_ctf_series_to_actual_close(_build_ctf_series(htf_bars, config), _TF, htf_tf)
+    ctf_by_ts = ctf_series_by_close(htf_bars, config, _TF, htf_tf)
     ctf_ts_list = sorted(ctf_by_ts.keys())
 
     with conn.cursor() as cur:
         cur.execute(_FETCH_ROWS_SQL, (symbol, _TF))
         rows = cur.fetchall()
 
-    # Mirrors src/intelligence/feature_factory.py's FeatureFactory.compute_batch CTF join
-    # (currently ~line 7621) exactly, including its idx<0 fallback below -- that logic isn't
-    # exported as a reusable function (it's inline in a large per-bar production loop), so this
-    # is a deliberate narrow duplication, not an oversight. If that join logic ever changes,
-    # this copy must be updated to match.
+    # The same lookup compute_batch uses (kernels.cross_tf.ctf_row_inputs): one implementation
+    # (todo 273), 0.0 for a bar with no eligible HTF cell yet.
+    joined = ctf_row_inputs([row[0] for row in rows], ctf_by_ts, ctf_ts_list)
     updates: list[tuple[float, float, float, str, str, Any]] = []
-    for bar_ts, old_mom, old_vwap, old_regime in rows:
-        idx = bisect.bisect_right(ctf_ts_list, bar_ts) - 1
-        if idx >= 0:
-            ctf = ctf_by_ts[ctf_ts_list[idx]]
-            new_mom, new_vwap, new_regime = (
-                ctf.ctf_momentum,
-                ctf.ctf_vwap_align,
-                ctf.ctf_regime_align,
-            )
-        else:
-            new_mom = new_vwap = new_regime = 0.0
+    for k, (bar_ts, old_mom, old_vwap, old_regime) in enumerate(rows):
+        new_mom = float(joined["ext_ctf_momentum"][k])
+        new_vwap = float(joined["ext_ctf_vwap_align"][k])
+        new_regime = float(joined["ext_ctf_regime_align"][k])
 
         changed = (
             _value_changed(old_mom, new_mom, _CHANGED_TOLERANCE)

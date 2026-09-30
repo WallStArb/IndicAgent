@@ -25,10 +25,12 @@ ROWS = np.array([50, 120, 250, 399])
 CFG = object()
 _rng = np.random.default_rng(7)
 INPUTS = {"close": _rng.normal(100.0, 5.0, N).cumsum().astype(np.float64)}
-from tests.unit.intelligence.regime_kernel_fixtures import (
-    non_regime_kernels,
-    non_regime_outputs,
+from tests.unit.intelligence.daily_grid_fixtures import (
+    DAILY_GRID_KERNELS,
+    daily_grid_inputs,
+    intraday_kernels,
 )
+from tests.unit.intelligence.regime_kernel_fixtures import non_regime_kernels
 
 
 def _trail(x, w):
@@ -249,6 +251,7 @@ def _registered_case():
     available = {
         **inputs,
         "symbol": np.array(["SPY"] * n, dtype=object),
+        "tf": np.array(["5m"] * n, dtype=object),
         **{
             e.name: ext_rng.normal(size=n)
             for e in default_registry().external_inputs
@@ -256,18 +259,26 @@ def _registered_case():
         },
     }
     available = with_derived_inputs(available)
-    available.update(
-        compute_kernels(
-            default_registry(), available, config, outputs=non_regime_outputs(default_registry())
-        )
-    )
+    outputs = [
+        o for k in intraday_kernels(non_regime_kernels(default_registry())) for o in k.outputs
+    ]
+    available.update(compute_kernels(default_registry(), available, config, outputs=outputs))
     return available, config
+
+
+@pytest.fixture(scope="module")
+def _daily_grid_case():
+    from tests.unit.intelligence.kernel_parity_reference import synthetic_inputs
+
+    _inputs, config = synthetic_inputs()
+    return with_derived_inputs(daily_grid_inputs(500)), config
 
 
 # The regime kernels are skipped here: REGIME_SKIP_REASON (test_regime_kernel.py runs the probe).
 @pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
-def test_registered_kernels_are_causal(kernel, _registered_case):
-    available, config = _registered_case
+def test_registered_kernels_are_causal(kernel, _registered_case, _daily_grid_case):
+    # the daily-grid kernels are probed on one row per date (daily_grid_fixtures)
+    available, config = _daily_grid_case if kernel.name in DAILY_GRID_KERNELS else _registered_case
     rows = np.array([120, 250, 400, 498])
     if kernel.acausal_control:
         with pytest.raises(CausalityViolation):

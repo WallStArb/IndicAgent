@@ -18,7 +18,11 @@ import numpy as np
 import pytest
 
 from src.intelligence.feature_cache import FeatureCache
-from src.intelligence.feature_factory import FeatureFactory, _macro_kernel_inputs
+from src.intelligence.feature_factory import (
+    FeatureFactory,
+    _cross_tf_kernel_inputs,
+    _macro_kernel_inputs,
+)
 from src.intelligence.features.contract.causality_probe import (
     CausalityViolation,
     causality_probe,
@@ -26,16 +30,26 @@ from src.intelligence.features.contract.causality_probe import (
     probe_registry,
 )
 from src.intelligence.features.contract.derived_inputs import with_derived_inputs
-from src.intelligence.features.contract.registry import compute_kernels, default_registry
+from src.intelligence.features.contract.registry import (
+    UNOWNED_COLUMNS,
+    KernelRegistry,
+    compute_kernels,
+    default_registry,
+)
 from src.intelligence.features.feature_vector_persistence import (
     _ALL_COLUMN_NAMES,
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
 from tests.unit.intelligence import kernel_parity_reference as ref
+from tests.unit.intelligence.daily_grid_fixtures import (
+    DAILY_GRID_KERNELS,
+    daily_grid_inputs,
+    daily_grid_kernels,
+    intraday_kernels,
+)
 from tests.unit.intelligence.regime_kernel_fixtures import (
     non_regime_kernels,
-    non_regime_outputs,
     registry_without_regime,
 )
 
@@ -45,6 +59,7 @@ PROBE_BARS = 3000
 
 # Kernels whose output depends on where the series starts (registry path_dependent).
 PATH_DEPENDENT = {
+    "cross_asset_daily",
     "calendar_above_wk_vwap",
     "ret_autocorr",
     "abs_ret_autocorr",
@@ -52,6 +67,10 @@ PATH_DEPENDENT = {
     "variance_ratio",
     "bar_statistics_refresh",
     "vwap_dev_sigma",
+    "session_vp",
+    "session_levels",
+    "amd_cycle",
+    "ctf_source",
 }
 ACAUSAL_CONTROLS = {"canary_acausal_placebo"}
 
@@ -114,123 +133,18 @@ DELEGATED_HELPERS = (
     "_cmf",
     "_product",
     "_up_vol_body_diff",
-)
-
-
-# Numeric persisted columns no kernel owns after this plan: SMC, structural VP/SR/swing/fib/
-# session-level/AMD, CTF, the three ret_div columns and the cross-sectional rank columns. The HMM
-# regime columns are owned by the regime kernels (186-13). A column
-# that is dropped or left unowned changes this set and fails the test below.
-REMAINING_COLUMNS = frozenset(
-    {
-        "active_demand_zones",
-        "active_supply_zones",
-        "amd_distribution_direction",
-        "amd_manipulation_detected",
-        "amd_phase",
-        "asian_session_high_dist_atr",
-        "asian_session_low_dist_atr",
-        "bars_since_last_shift",
-        "bars_since_last_sweep",
-        "bos_direction",
-        "bos_strength",
-        "breaker_block_active",
-        "breaker_dist_atr",
-        "bsl_dist_atr",
-        "bsl_touches",
-        "choch_direction",
-        "choch_strength",
-        "ctf_momentum",
-        "ctf_regime_align",
-        "ctf_vwap_align",
-        "demand_dist_atr",
-        "demand_freshness",
-        "distance_to_vah_atr",
-        "distance_to_val_atr",
-        "fib_cluster_strength",
-        "fvg_dist_atr",
-        "fvg_open_count",
-        "fvg_size_atr",
-        "gap_filled",
-        "in_fib_discount_zone",
-        "in_lvn",
-        "manip_strength",
-        "momentum_rank_z",
-        "nearest_fib_dist_atr",
-        "nearest_fib_ratio",
-        "nearest_hvn_above_dist_atr",
-        "nearest_hvn_below_dist_atr",
-        "nearest_hvn_dist_atr",
-        "nearest_level_dist_atr",
-        "nearest_lvn_above_dist_atr",
-        "nearest_lvn_below_dist_atr",
-        "ob_bear_dist_atr",
-        "ob_bull_dist_atr",
-        "ob_mitigated_flag",
-        "ob_mitigation_pct",
-        "ob_strength",
-        "opening_gap_pct",
-        "overnight_high_dist_atr",
-        "overnight_low_dist_atr",
-        "overnight_range_pct",
-        "poc_dist_atr",
-        "poc_rolling_dist_atr",
-        "poc_session_rolling_divergence_atr",
-        "pool_count",
-        "price_in_value_area",
-        "price_position",
-        "prior_session_close_dist_atr",
-        "prior_session_high_dist_atr",
-        "prior_session_low_dist_atr",
-        "reclaim_velocity",
-        "resistance_age_bars",
-        "resistance_strength",
-        "ret_div_1h_1d",
-        "ret_div_1m_5m",
-        "ret_div_5m_1h",
-        "smc_trend_direction",
-        "sr_level_count",
-        "sr_resist_dist",
-        "sr_support_dist",
-        "ssl_dist_atr",
-        "ssl_touches",
-        "struct_accel_bias",
-        "struct_energy",
-        "structure_integrity",
-        "supply_dist_atr",
-        "supply_freshness",
-        "support_age_bars",
-        "support_strength",
-        "sweep_detected",
-        "sweep_strength",
-        "swing_amplitude_expanding",
-        "swing_amplitude_intensity",
-        "swing_amplitude_ratio",
-        "swing_high_age_bars",
-        "swing_high_dist_atr",
-        "swing_high_type",
-        "swing_low_age_bars",
-        "swing_low_dist_atr",
-        "swing_low_type",
-        "swing_pattern",
-        "swing_velocity_bars",
-        "swing_velocity_bias",
-        "swing_volume_confirmation",
-        "trend_direction",
-        "trend_duration_bars",
-        "trend_leg_count",
-        "trend_strength",
-        "va_position",
-        "va_width_atr",
-        "volatility_rank_z",
-        "volume_rank_z",
-        "weekly_pivot_dist_atr",
-        "weekly_r1_dist_atr",
-        "weekly_r2_dist_atr",
-        "weekly_s1_dist_atr",
-        "weekly_s2_dist_atr",
-        "zone_friction_score",
-    }
+    "_rolling_poc_price",
+    "_compute_sr_dist_atr",
+    "_compute_swing_structure",
+    "_compute_trend_structure",
+    "_compute_swing_momentum",
+    "_compute_fib_zones",
+    "_compute_order_blocks",
+    "_compute_fvg",
+    "_compute_liquidity_sweeps",
+    "_compute_liquidity_pools",
+    "_compute_supply_demand_zones",
+    "_compute_bos_choch",
 )
 
 
@@ -239,15 +153,15 @@ REGIME_COLUMNS = frozenset(
 )
 
 
-def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_remaining():
+def test_every_numeric_column_is_owned_by_a_kernel_or_listed_as_unowned():
     numeric = set(MANIFEST["numeric_columns"])
     owned = set(default_registry().feature_columns())
     # The regime kernels own 16 persisted columns; the parity manifest's numeric set holds the
     # three that FeatureVector carries (the labels and the other numeric ones are not in it).
     assert REGIME_COLUMNS <= owned
     assert REGIME_COLUMNS & numeric == {"hmm_regime_prob", "hmm_entropy", "hmm_duration"}
-    assert (owned - (REGIME_COLUMNS - numeric)) | REMAINING_COLUMNS == numeric
-    assert not owned & REMAINING_COLUMNS
+    assert (owned - (REGIME_COLUMNS - numeric)) | set(UNOWNED_COLUMNS) == numeric
+    assert not owned & set(UNOWNED_COLUMNS)
 
 
 def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
@@ -271,12 +185,18 @@ def synthetic_bars(n: int, seed: int = 42) -> dict[str, np.ndarray]:
         "close": closes,
         "volume": volumes,
         "symbol": np.array(["SPY"] * n, dtype=object),
+        "tf": np.array(["5m"] * n, dtype=object),
         **{
             external.name: rng.normal(0.0, 1.0, n)
             for external in default_registry().external_inputs
             if external.name.startswith("ext_")
         },
     }
+
+
+def _intraday_outputs() -> list[str]:
+    """Outputs of the kernels that run on the intraday row grid (not regime, not daily-grid)."""
+    return [o for k in intraday_kernels(non_regime_kernels(default_registry())) for o in k.outputs]
 
 
 @lru_cache(maxsize=1)
@@ -291,17 +211,19 @@ def _synthetic_case():
     inputs = {
         **inputs,
         "symbol": np.array(["SPY"] * len(inputs["ts"]), dtype=object),
+        "tf": np.array(["5m"] * len(inputs["ts"]), dtype=object),
         # the live-cache branch compute_batch took above: cache values broadcast, SPY beta None
         **_macro_kernel_inputs(inputs["ts"], "SPY", "5m", FeatureCache(), None, None),
+        **_cross_tf_kernel_inputs(
+            [ref.ns_to_dt(ns) for ns in inputs["ts"]], "5m", FeatureCache(), None, None, None
+        ),
     }
     batch = {
         name: np.array([getattr(fv, name) for _, fv in results], dtype=np.float64)
         for name in _ALL_COLUMN_NAMES
         if hasattr(results[0][1], name)
     }
-    kernels = compute_kernels(
-        default_registry(), inputs, config, outputs=non_regime_outputs(default_registry())
-    )
+    kernels = compute_kernels(default_registry(), inputs, config, outputs=_intraday_outputs())
     return kernels, batch, len(inputs["ts"])
 
 
@@ -325,6 +247,49 @@ def test_kernel_outputs_equal_compute_batch_rows_1_onward():
         ), f"{name}: row {int(np.argmax(bad)) + 1} got {got[bad][0]!r} want {want[bad][0]!r}"
 
 
+def test_stateless_structure_kernels_equal_direct_helper_calls():
+    """The batch loop now reads these columns from the kernels, so (b) alone compares a kernel
+    with itself. This calls the moved helpers directly on the loop's windows, every 7th row."""
+    from src.intelligence.features.kernels import smc, vp_sr
+
+    kernels, _batch, n = _synthetic_case()
+    inputs, config = ref.synthetic_inputs()
+    o, h, lo, c, v = (inputs[f] for f in ("open", "high", "low", "close", "volume"))
+    atr = kernels["_atr_raw_padded"]
+    for i in range(1, n, 7):
+        a = float(atr[i])
+        s = max(0, i - config.smc_order_blocks_lookback + 1)
+        ob = smc._compute_order_blocks(
+            o[s : i + 1],
+            h[s : i + 1],
+            lo[s : i + 1],
+            c[s : i + 1],
+            v[s : i + 1],
+            float(c[i]),
+            a,
+            config,
+        )
+        s = max(0, i - config.sr_lookback_by_tf.get("5m", 120) + 1)
+        sr = vp_sr._compute_sr_dist_atr(
+            h[s : i + 1], lo[s : i + 1], float(c[i]), a, v[s : i + 1], "5m", config
+        )
+        s = max(0, i - config.swing_lookback_bars + 1)
+        swing = vp_sr._compute_swing_structure(h[s : i + 1], lo[s : i + 1], float(c[i]), a, config)
+        trend = vp_sr._compute_trend_structure(
+            h[s : i + 1], lo[s : i + 1], float(c[i]), a, swing, config
+        )
+        for name, want in {**ob, **sr, **trend}.items():
+            expected = np.nan if want is None else want
+            assert np.float32(kernels[name][i]) == np.float32(expected) or (
+                np.isnan(kernels[name][i]) and np.isnan(expected)
+            ), (name, i)
+        for name in vp_sr.SWING_KEYS:
+            want = swing[name]
+            expected = np.nan if want is None else want
+            got = kernels[name][i]
+            assert got == expected or (np.isnan(got) and np.isnan(expected)), (name, i)
+
+
 def _code_lines(func) -> str:
     return "\n".join(
         line for line in inspect.getsource(func).splitlines() if not line.lstrip().startswith("#")
@@ -342,18 +307,26 @@ def _probe_case(config_key: str):
     config = ref.build_config(MANIFEST[config_key])
     available = with_derived_inputs(synthetic_bars(PROBE_BARS))
     available.update(
-        compute_kernels(
-            default_registry(), available, config, outputs=non_regime_outputs(default_registry())
-        )
+        compute_kernels(default_registry(), available, config, outputs=_intraday_outputs())
     )
     return available, config
+
+
+PROBE_DAILY_ROWS = 3000
+
+
+@lru_cache(maxsize=2)
+def _daily_probe_case(config_key: str):
+    config = ref.build_config(MANIFEST[config_key])
+    return with_derived_inputs(daily_grid_inputs(PROBE_DAILY_ROWS)), config
 
 
 # The regime kernels are skipped here: REGIME_SKIP_REASON.
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 @pytest.mark.parametrize("kernel", non_regime_kernels(default_registry()), ids=lambda k: k.name)
 def test_probe_and_memory_check_per_kernel(kernel, config_key):
-    available, config = _probe_case(config_key)
+    case = _daily_probe_case if kernel.name in DAILY_GRID_KERNELS else _probe_case
+    available, config = case(config_key)
     if kernel.acausal_control:
         with pytest.raises(CausalityViolation):
             causality_probe(kernel, available, config, PROBE_ROWS)
@@ -366,18 +339,21 @@ def test_probe_and_memory_check_per_kernel(kernel, config_key):
     memory_check(kernel, available, config, PROBE_ROWS)
 
 
-def test_the_path_dependent_allow_list_is_the_reviewed_seven():
+def test_the_path_dependent_allow_list_is_the_reviewed_twelve():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person."""
     declared = {k.name for k in non_regime_kernels(default_registry()) if k.path_dependent}
     assert declared == PATH_DEPENDENT
-    assert len(PATH_DEPENDENT) == 7
+    assert len(PATH_DEPENDENT) == 12
 
 
 @pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
 def test_probe_registry_statuses(config_key):
     config = ref.build_config(MANIFEST[config_key])
     registry = registry_without_regime(default_registry())  # REGIME_SKIP_REASON
+    registry = KernelRegistry.from_kernels(
+        intraday_kernels(registry.kernels), registry.external_inputs
+    )
     statuses = probe_registry(registry, synthetic_bars(PROBE_BARS), config, PROBE_ROWS)
     expected = {
         kernel.name: (
@@ -389,6 +365,67 @@ def test_probe_registry_statuses(config_key):
     }
     assert statuses == expected
     assert set(statuses) == {k.name for k in registry.kernels}  # no kernel opts out
+
+
+@pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
+def test_probe_registry_statuses_on_the_daily_grid(config_key):
+    """The daily-grid kernels are probed on one row per date (see daily_grid_fixtures)."""
+    config = ref.build_config(MANIFEST[config_key])
+    registry = KernelRegistry.from_kernels(
+        daily_grid_kernels(default_registry().kernels), default_registry().external_inputs
+    )
+    rows = np.array([700, 1200, 1800, 2400, 2999])
+    statuses = probe_registry(registry, daily_grid_inputs(PROBE_DAILY_ROWS), config, rows)
+    assert statuses == {
+        "cross_asset_daily": "path_dependent_skipped_memory",
+        "factor_beta_daily": "ok",
+    }
+
+
+@pytest.mark.parametrize("symbol", ["SPY", "TLT", "QQQ"])
+def test_daily_grid_kernels_reproduce_the_builders_on_real_daily_bars(symbol):
+    """Each registered daily kernel, run on the grid built from the stored real 1d bars, gives
+    back exactly the dict the builder returns (SPY has no equity beta, TLT no rate beta)."""
+    from src.intelligence.features.kernels.macro import (
+        _BETA_OUTPUTS,
+        _XA_OUTPUTS,
+        CROSS_ASSET_SYMBOLS,
+        beta_records,
+        build_cross_asset_series,
+        build_symbol_beta_series,
+        cross_asset_records,
+        daily_reference_grid,
+    )
+
+    npz = np.load(ref.FIXTURE_DIR / "real_inputs.npz")
+    config = ref.build_config(MANIFEST["real_config"])
+    names = {symbol, *CROSS_ASSET_SYMBOLS}
+    if any(f"d1/{s}/ts" not in npz.files for s in names):
+        pytest.skip(f"real_inputs.npz has no 1d bars for {sorted(names)}")
+    d1 = {s: ref._series_bars(npz, f"d1/{s}") for s in names}
+    grid = daily_reference_grid(
+        {
+            **{f"ref_{s.lower()}_close": d1[s] for s in CROSS_ASSET_SYMBOLS},
+            "ref_sym_close": d1[symbol],
+        }
+    )
+    n = len(grid["ts"])
+    out = compute_kernels(
+        default_registry(),
+        {**grid, "symbol": np.array([symbol] * n, dtype=object)},
+        config,
+        outputs=[*_XA_OUTPUTS, *_BETA_OUTPUTS],
+    )
+    dates = [ref.ns_to_dt(ns).date() for ns in grid["ts"]]
+    want_cross = build_cross_asset_series(*(d1[s] for s in CROSS_ASSET_SYMBOLS), config)
+    want_beta = build_symbol_beta_series(d1[symbol], d1["SPY"], d1["TLT"], symbol, config)
+    got_cross = cross_asset_records(dates, out)
+    got_beta = beta_records(dates, out)
+    assert want_cross and want_beta
+    assert got_cross.keys() == want_cross.keys()
+    for d, record in want_cross.items():
+        np.testing.assert_array_equal(np.array(got_cross[d]), np.array(record), err_msg=str(d))
+    assert got_beta == want_beta
 
 
 def _gap_z(config, opens_override=None, n=400):
