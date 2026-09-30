@@ -38,7 +38,7 @@ CHECK="${1:-}"
 # Canonical allowlist: approved suffixes for concrete (non-abstract) classes
 # in src/intelligence/. Do not duplicate this regex anywhere else in the repo
 # -- both call sites source it from here.
-_ALLOWED_SUFFIXES='Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision|Series'
+_ALLOWED_SUFFIXES='Plugin|Mixin|Agent|Test|Data|Protocol|Enum|Error|Exception|Config|Result|State|Score|Frame|Entry|Event|Spec|Type|Info|Registry|Manager|Builder|Handler|Tracker|Scorer|Aggregat|Transition|Monitor|Stage|Runner|Client|Service|Target|Profile|Weight|Provider|Chain|Candidate|Queue|Executor|Processor|Task|Snapshot|Shape|Trainer|Analyzer|Validator|Auditor|Writer|Publisher|Report|Factory|Cache|Record|Vector|Decision'
 
 case "$CHECK" in
   class-naming)
@@ -57,8 +57,9 @@ case "$CHECK" in
         #   research/  the research DAG library (Panel, RidgeSpec, PostgresLedger)
         #   bars/      the bar scrub library (ScrubParams, SymbolBars, BarFlag)
         #   measure/   the IC measurement library (IcCell, TargetStack, MeasureParams)
-        #   features/contract/  the kernel contract (Kernel, Alignment, CausalityViolation)
-        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*|src/intelligence/measure/*|src/intelligence/features/contract/*) continue ;;
+        #   features/  the kernel registry and its kernels (Kernel, Alignment, CausalityViolation,
+        #              CtfSeries, CtfRecord, CrossAssetRecord); covers features/contract/
+        src/intelligence/swarm/*|src/intelligence/ai/*|src/intelligence/statistics/*|src/intelligence/services/*|src/intelligence/research/*|src/intelligence/bars/*|src/intelligence/measure/*|src/intelligence/features/*) continue ;;
       esac
       [ -f "${REPO_ROOT}/${file}" ] || continue
       FILE_VIOLATIONS=$(grep -n '^class [A-Z]' "${REPO_ROOT}/${file}" 2>/dev/null | \
