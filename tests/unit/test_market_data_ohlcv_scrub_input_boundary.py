@@ -37,6 +37,11 @@ _ALLOW_LIST: dict[str, str] = {
         "re-write flags for bars the tradeable view hides; writes go to "
         "bar_quality_flag only, never market_data_ohlcv (D-09)."
     ),
+    "scripts/ops/bars/ops_d1_bootstrap.py": (
+        "PERMANENT: the D1 legacy import (phase 185 plan 15, D-05) copies every stored "
+        "ibkr_named 1d row, quarantined ones included, into ohlcv_observation as a "
+        "LEGACY_IMPORT observation; it writes D1 only, never market_data_ohlcv."
+    ),
 }
 
 
