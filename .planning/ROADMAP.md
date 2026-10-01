@@ -326,6 +326,11 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-22 old-chain table drops (D-14, D-06, D-08, R-01): migration 426 drops ensemble_weights,
+  ensemble_alpha, alpha_ensemble_ic, alpha_events, alpha_frames, alpha_strategy_scores, context_features,
+  feature_ic_scores_history and construction_spreads (50.7 GB freed, jobs 1067-1070/1072/1073 gone, 1071
+  kept); orphaned ops readers and the context_features writer deleted, todo 355 closed; old ic_engine is
+  non-runnable until 186-23; merged 2026-10-01 (`772c43823`)
 - [x] 186-24 feature_vectors_v2 schema (D-34, D-37, D-16): migration 425 creates the empty rebuilt
   hypertable (312 columns derived from the registry, PK symbol/tf/bar_ts, 1-year chunks, compression
   without a policy); Asian pair kept because the kernel computes it, 5 feature columns dropped by
