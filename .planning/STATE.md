@@ -113,9 +113,8 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 ## Decisions waiting on the owner
 
-- Midterm forward observation: if the post-midterm presidential-cycle effect is to be tested, its spec
-  must be committed before the 2026-11-03 election to count as a forward observation
-  (`docs/ideas/signal-political-policy-regime.md`). Otherwise nothing is lost.
+- None open. The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward
+  window (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`.
 
 ## Open items that are not verdicts
 

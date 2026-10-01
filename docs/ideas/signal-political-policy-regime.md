@@ -241,6 +241,34 @@ this hypothesis (look 1: SPY 2006+, above).
   sd near 11 points, the smallest difference detectable at 80% power is roughly 7 points; the
   commonly quoted effect (3 to 4 points) would most likely read "not shown" even if real.
 
+### Result of the pre-registered look (run 2026-10-01, after the spec above was committed)
+
+| | Midterm years (24) | Other years (74) |
+|---|---|---|
+| Mean 6-month log return from election day | +10.0% | +1.9% |
+| Windows positive | 21 of 24 | 65% |
+
+Difference +8.1 points; permutation one-sided p = 0.0008 (100,000 draws, seed 20261001); bootstrap 95%
+interval +3.0 to +12.9 points; halves 1928-1976 +9.6 and 1977-2025 +6.6. **The pass criterion is met.**
+Descriptive only: 12-month +11.2% against +3.7%; 6-month means by cycle phase: midterm +10.0,
+presidential +3.5, pre-election +1.7, post-election +0.6.
+
+What the pass does and does not mean:
+- **Literature selection.** This effect was chosen because it is famous (the presidential cycle was
+  popularized from the late 1960s). Of the many calendar effects people have tried, the surviving ones
+  get published, and a pre-registration cannot remove that selection. The p-value is conditional on
+  having picked this hypothesis; treat it as much weaker than 0.0008.
+- **After publication.** The 1977-2025 half is mostly after the effect became widely known and is still
+  +6.6 points, which argues against pure data mining; it was not separately tested.
+- **One event every four years.** As a strategy it is about 24 trades in 98 years; it is a conditioning
+  input (for example, a cycle coordinate or a midterm-window flag in a combiner), not a book.
+- **Not a verdict.** A research-runner attempt is still required before any use, counted against the
+  vintage, with the forward window below as its unsearched confirmation.
+
+**Forward observation.** The rule dates the next midterm 2026-11-03, so the committed spec already
+defines the 2026 window (close at or before 2026-11-03 to close at or before 2027-05-03). Its result is
+recorded here in May 2027, unchanged by anything learned before then.
+
 ### Spec to pre-register
 
 - Outcome: SPY (and one broad equal-weight ETF, RSP) total return, election day to +6
