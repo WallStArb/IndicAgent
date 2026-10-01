@@ -499,17 +499,20 @@ _STAGE_DIFF_SQL = f"""
 
 # Dry run only. Per category (orphaned, changed, new): rows, rows on a UTC weekend, and rows whose
 # timestamp joins a feature_vectors row of the same tf (the cells ic_engine and 186-20's parity
-# harness replay are stratified by these labels). `statement_timeout` bounds the feature_vectors
-# probe; the EXISTS rides feature_vectors_bar_ts_idx (checked with EXPLAIN on the 5m equity cell).
+# harness replay are stratified by these labels). The distinct feature_vectors timestamps of the tf
+# are read once (a parallel scan of the (tf, bar_ts) primary key, about 5 s for the 75M 5m rows,
+# EXPLAIN ANALYZE 2026-09-30) and joined; a correlated EXISTS per row ran past 4 minutes on the
+# 5m equity cell. `statement_timeout` bounds the probe.
 _DRY_RUN_EXTRAS_SQL = f"""
+    WITH fv_ts AS MATERIALIZED (
+        SELECT DISTINCT bar_ts FROM feature_vectors WHERE tf = %s
+    )
     SELECT category,
            count(*) AS n,
-           count(*) FILTER (WHERE extract(isodow FROM ts) IN (6, 7)) AS weekend,
-           count(*) FILTER (
-               WHERE EXISTS (SELECT 1 FROM feature_vectors fv WHERE fv.tf = %s AND fv.bar_ts = x.ts)
-           ) AS joins_feature_vectors
+           count(*) FILTER (WHERE extract(isodow FROM x.ts) IN (6, 7)) AS weekend,
+           count(*) FILTER (WHERE f.bar_ts IS NOT NULL) AS joins_feature_vectors
     FROM (
-        SELECT m.ts,
+        SELECT COALESCE(m.ts, s.ts) AS ts,
                CASE WHEN s.ts IS NULL THEN 'orphaned'
                     WHEN m.ts IS NULL THEN 'new'
                     ELSE 'changed' END AS category
@@ -520,6 +523,7 @@ _DRY_RUN_EXTRAS_SQL = f"""
            OR m.regime_label IS DISTINCT FROM s.regime_label
            OR m.regime_prob_vector IS DISTINCT FROM s.regime_prob_vector
     ) x
+    LEFT JOIN fv_ts f ON f.bar_ts = x.ts
     GROUP BY category
 """
 
