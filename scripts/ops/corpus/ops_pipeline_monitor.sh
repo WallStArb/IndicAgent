@@ -13,7 +13,7 @@ PYSPY=/home/bg/.local/bin/py-spy
 # todo 306's documented recovery invocation) that the old literal-path pattern silently
 # missed. Same bug class fixed 2026-08-14 in ops_regime_monitor.sh and
 # per_symbol_regime_candidates_stage2_orthogonality.py's in-flight-write guard.
-SERVICE_PATTERN='services[./](backfill_feature_factory|regime_writer|forward_return_writer|ic_engine|ensemble_trainer|alpha_publisher)'
+SERVICE_PATTERN='services[./](backfill_feature_factory|regime_writer|forward_return_writer|ic_engine)'
 
 pg() { PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent -tAc "$1" 2>/dev/null; }
 
@@ -21,7 +21,7 @@ orch_alive() { pgrep -f "ops_corpus_pipeline_run.sh" >/dev/null 2>&1; }
 
 if ! orch_alive; then
   # did it finish?
-  if tail -n 50 "$MAIN_LOG" 2>/dev/null | grep -qE "Pipeline (complete|Done)|all 6 steps"; then
+  if tail -n 50 "$MAIN_LOG" 2>/dev/null | grep -qE "Pipeline (complete|Done)"; then
     echo "COMPLETED — verify row counts then commit planning docs"
   elif tail -n 50 "$MAIN_LOG" 2>/dev/null | grep -qiE "error|failed|aborted|traceback"; then
     echo "FAILED — inspect $MAIN_LOG tail"; tail -n 15 "$MAIN_LOG" 2>/dev/null
@@ -32,8 +32,8 @@ if ! orch_alive; then
 fi
 
 # current step
-STEP_LINE=$(grep -E "Step [0-9]/6" "$MAIN_LOG" 2>/dev/null | tail -1)
-STEP=$(echo "$STEP_LINE" | grep -oE "Step [0-9]/6[^ ]* — [a-z_]+" | head -1)
+STEP_LINE=$(grep -E "Step [0-9]/5" "$MAIN_LOG" 2>/dev/null | tail -1)
+STEP=$(echo "$STEP_LINE" | grep -oE "Step [0-9]/5[^ ]* — [a-z_]+" | head -1)
 # last step status line age
 LAST_TS=$(grep -oE "^[A-Z][a-z]{2} [A-Z][a-z]{2} +[0-9 ]+:([0-9]{2}:){2}[0-9]{2}" "$MAIN_LOG" 2>/dev/null | tail -1)
 

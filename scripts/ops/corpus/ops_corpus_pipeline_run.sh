@@ -3,7 +3,7 @@
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
 # Runs feature_factory → regime_writer → forward_return_writer → cross_sectional_regime_model →
-# ic_engine → feature_lifecycle → ic_shrinkage → ensemble_trainer → alpha_publisher sequence for corpus generation.
+# ic_engine → feature_lifecycle sequence for corpus generation.
 # Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
 #
@@ -75,7 +75,7 @@ banner() {
     local status=$3
     echo
     echo "======================================"
-    printf " Step %d/8 — %s\n" "$step" "$name"
+    printf " Step %d/5 — %s\n" "$step" "$name"
     echo " Status: $status"
     echo " $(date)"
     echo "======================================"
@@ -142,11 +142,11 @@ check_regime_consistency() {
 }
 
 check_canary_integrity() {
-    # Skip once resuming from a step past ic_shrinkage (6) or later -- mirrors
-    # check_regime_consistency's pattern: if we're that far into a resumed run,
-    # ic_engine (5, this check's dependency) already completed in a prior
-    # invocation and this gate already evaluated its output then.
-    if (( FROM_STEP > 6 )); then
+    # Skip once resuming from a step past the last one (5 is the final step) --
+    # mirrors check_regime_consistency's pattern: if we're resuming that far
+    # into a run, ic_engine (5, this check's dependency) already completed in a
+    # prior invocation and this gate already evaluated its output then.
+    if (( FROM_STEP > 5 )); then
         return 0
     fi
 
@@ -164,12 +164,12 @@ check_canary_integrity() {
         echo "  This means either a negative-control canary cleared the IC"
         echo "  significance gate in the POOLED stratum (broken measurement"
         echo "  pipeline -- one config flip from weighting a control feature"
-        echo "  into the live ensemble), the acausal-placebo positive control"
+        echo "  into a downstream consumer), the acausal-placebo positive control"
         echo "  failed to clear it (pipeline cannot detect genuine look-ahead"
         echo "  leakage), or per-symbol false clears exceeded the"
         echo "  pre-committed Binomial tail bound."
         echo
-        echo "  Pipeline halted. Do not proceed to ic_shrinkage/ensemble_trainer"
+        echo "  Pipeline halted. Do not use this run's feature_ic_scores"
         echo "  with unverified measurement integrity."
         echo
         exit 1
@@ -297,29 +297,6 @@ fi
 echo "======================================"
 echo
 
-# WEIGHT_EPOCH — per-run weight epoch derived from the (clamped) freeze point.
-# Boundary identity, not a globally unique per-run ID: two runs sharing the same
-# TRAINING_WINDOW_END share one epoch by design — ensemble_trainer's DO UPDATE upsert
-# makes a same-epoch re-run idempotent (overwrite, not collide). Threaded to BOTH
-# ensemble_trainer (step 5, producer) and alpha_publisher (step 6, consumer) so they
-# always agree on the same weight_version — closing the silent-staleness trap at both
-# the training write and the emission event_id.
-#
-# Pure digit extraction of the freeze timestamp — deterministic, filesystem/PK-safe,
-# no arithmetic (no off-by-one surface).
-WEIGHT_EPOCH="run_$(echo "$TRAINING_WINDOW_END" | tr -cd '0-9')"
-
-if [ -z "$TRAINING_WINDOW_END" ] || [ "$WEIGHT_EPOCH" = "run_" ]; then
-    echo "FATAL: WEIGHT_EPOCH is empty/malformed (TRAINING_WINDOW_END='$TRAINING_WINDOW_END') — refusing to run trainer/publisher with a degenerate epoch" >&2
-    exit 1
-fi
-
-echo "======================================"
-echo " Weight epoch"
-echo " WEIGHT_EPOCH: $WEIGHT_EPOCH"
-echo "======================================"
-echo
-
 # Step 2 — Regime Writer (feature_vectors → regime_label column)
 run_step 2 "regime_writer" \
     "$PYTHON" services/regime_writer.py \
@@ -376,53 +353,17 @@ check_canary_integrity
 
 # Step 5 (cont.) — Feature Lifecycle (feature_ic_scores → concept_evaluation + concept_registry,
 # todo 402). Shares step 5 so --from-step 5 re-runs it with ic_engine. Governs
-# feature status from this window's persisted IC before
-# ensemble_trainer reads it. Reads the champion ensemble weights pinned in APR (an
-# earlier run's output), so this step never depends on step 7 of the same run.
+# feature status (a data-quality role) from this window's persisted IC.
 run_step 5 "feature_lifecycle" \
     "$PYTHON" services/feature_lifecycle.py \
     --training-window-end "$TRAINING_WINDOW_END"
-
-# Step 6 — IC Shrinkage (E1): shrink feature_ic_scores IC estimates toward a
-# leave-one-out peer-group prior; the out-of-fold acceptance gate flips
-# alpha.ensemble.ic_input to 'ic_shrunk' only on empirical PASS (D-04/D-05). A gate
-# FAIL is a valid, expected report (exit 0) -- it must not halt the pipeline; step 7
-# always proceeds using whichever ic_input is currently configured.
-run_step 6 "ic_shrinkage" \
-    "$PYTHON" scripts/ops/alpha/ops_ic_shrinkage.py \
-    --training-window-end "$TRAINING_WINDOW_END"
-
-# Step 7 — Ensemble Trainer (feature_ic_scores + feature_vectors → ensemble_weights + ensemble_alpha)
-run_step 7 "ensemble_trainer" \
-    "$PYTHON" services/ensemble_trainer.py \
-    --weight-version "$WEIGHT_EPOCH" \
-    --training-window-end "$TRAINING_WINDOW_END"
-
-# Step 8 — Alpha Publisher (ensemble_alpha → alpha_events, DB only)
-#
-# --skip-kafka: a corpus/backfill run re-scores historical-vintage bars, not live ones --
-# publishing that onto the live alpha.events Kafka topic would flood downstream
-# consumers with backfill data alongside real-time events, indistinguishable from each
-# other on the topic. This flag has existed since Phase 141.1 explicitly documented as
-# "corpus batch mode — DB only, O(chunk) memory" but was never wired in here across this
-# call site's entire git history -- confirmed the omission was live and unaddressed
-# since a 2026-07-02 audit doc first raised the open question ("should --skip-kafka
-# become the only mode until [a Kafka consumer] exists?"). Consequence, 2026-08-22: the
-# unbounded !skip_kafka accumulation path (now fixed independently, see
-# AlphaPublisher._flush_chunk) OOM-killed this step at 24.6GB RSS once ensemble_alpha
-# grew past ~30M rows -- this flag addresses the architectural question those two
-# findings share, not just the memory bug.
-run_step 8 "alpha_publisher" \
-    "$PYTHON" services/alpha_publisher.py \
-    --weight-version "$WEIGHT_EPOCH" \
-    --skip-kafka
 
 # Vocabulary Drift Audit (Phase 161, Controlled Vocabulary System) — observability-only
 # (D-09): writes a loud integrity_monitor row (monitor_type='vocabulary_drift') + OTel
 # counter + logger.error per namespace/guard carrying an unregistered live code. Never
 # gates the pipeline — not wrapped in run_step (halts on non-zero) and not modeled on
 # check_canary_integrity (a hard gate); `|| true` swallows a non-zero exit so a drift-
-# audit failure never blocks alpha_publisher's already-committed completion. Backgrounded
+# audit failure never blocks the feature_lifecycle step's already-committed completion. Backgrounded
 # (subshell + &) since nothing downstream waits on it — no reason to hold the pipeline's
 # wall-clock completion on a step that can't fail it. PID logged so an unexpectedly-killed
 # run (e.g. a supervising wrapper tearing down the process group) leaves a trace instead
@@ -437,7 +378,7 @@ echo "Vocabulary drift audit backgrounded (PID: $!)"
 # plus the unclassified stratum size per level. Catches what the seed guard and the
 # onboarding gate cannot, e.g. a raw UPDATE instruments SET is_active = true. Same
 # contract as the vocabulary drift audit above: observability-only, backgrounded, `|| true`,
-# outside run_step, so it never gates alpha_publisher's committed completion; PID echoed
+# outside run_step, so it never gates the feature_lifecycle step's committed completion; PID echoed
 # for traceability.
 ( "$PYTHON" -m src.config.classification_coverage \
     2>&1 | tee -a "$LOG_DIR/classification_coverage_$(date +%Y%m%d_%H%M%S).log" || true ) &

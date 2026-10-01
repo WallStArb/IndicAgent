@@ -816,7 +816,6 @@ _price_percentile  # unused function (src/intelligence/feature_factory.py:1598)
 _updown_ratio  # unused function (src/intelligence/feature_factory.py:1668)
 _.seed_cis_weights  # unused method (src/intelligence/pipeline/cache_manager.py:293)
 _.stream_real_time_bars  # unused method (src/providers/base.py:90)
-weight_mass_fraction  # unused function (scripts/ops/alpha/ops_ensemble_ablation.py:158)
 version_conflict_handler  # unused function (services/config_service.py:136)
 _.get_concept  # unused method (src/intelligence/concept_registry_service.py:875)
 _.update_cross_asset  # unused method (src/intelligence/feature_cache.py:777)
@@ -1045,3 +1044,7 @@ daily_reference_grid  # unused function (src/intelligence/features/kernels/macro
 _.ctf  # unused attribute (src/core/memory/writer.py:326) - payload field of the memory writer; a local variable named ctf in the CTF recompute script used to mask it until 186-15 removed that copy of the join
 _.itersize  # unused attribute (services/ic_engine.py:3420) - psycopg named-cursor fetch size, read by the driver; the other setters were deleted by 186-19; ic_engine is deleted whole by 186-23
 set_config_service  # unused function (src/intelligence/trading/*.py) - the CLAUDE.md module-level APR injection hook; its only caller was alpha_frame_writer, deleted by 186-19; the v2.x trading tier's fate is todo 223
+feature_to_group  # unused variable (scripts/research/determinism/results.py:40) - snapshot dataclass field, round-tripped by snapshot_io and tests; its only reader was ops_ic_shrinkage, deleted by 186-21; the research lane owns the file (D-02)
+fisher_z_difference_p  # unused function (src/intelligence/statistics/ic_math.py:507) - tested public statistic; its only caller was ops_ensemble_ablation, deleted by 186-21; ic_math is in ic_engine's import closure (D-01), 186-10/186-23 decide
+ensure_success_for  # unused method (src/observability/corpus_manifest.py:163) - tested shared prerequisite-gate primitive; its only caller was ops_ensemble_ablation, deleted by 186-21; fate with the corpus manifest (186-23)
+record_comparison_outcome  # unused method (src/intelligence/concept_registry_service.py:349) - tested concept-status transaction; its only caller was ops_ensemble_weight_compare, deleted by 186-21; the UCR spec keeps its semantics, fate with the registry service

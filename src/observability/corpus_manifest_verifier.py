@@ -337,20 +337,6 @@ class CorpusManifestVerifier:
             if null_regime_count > 0:
                 raise RuntimeError(f"{null_regime_count} POOLED rows have NULL/empty regime labels")
 
-        # Check 6: No zero-weight strata in ensemble_weights
-        _logger.info("corpus_verification.checking_ensemble_weights")
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*)
-                FROM ensemble_weights
-                WHERE weight = 0 OR weight IS NULL
-                """)
-            zero_weight_count = cur.fetchone()[0]
-            if zero_weight_count > 0:
-                raise RuntimeError(
-                    f"{zero_weight_count} ensemble_weights rows have zero/NULL weight"
-                )
-
         # Check 7: Training window end consistency
         if training_window_end:
             _logger.info("corpus_verification.checking_training_window_consistency")
@@ -385,30 +371,8 @@ class CorpusManifestVerifier:
                 "     python services/ic_engine.py --cross-sectional-only --tf 5m 15m 1h "
                 "--training-window-end <ISO8601 UTC>"
             )
-            print("  2. Re-run ensemble trainer:")
-            print("     python services/ensemble_trainer.py")
-            print("  3. Re-run alpha publisher:")
-            print("     python services/alpha_publisher.py")
-            print("  4. Re-run verification:")
+            print("  2. Re-run verification:")
             print("     python scripts/corpus_final_verification.py")
-            print("\n" + "=" * 70)
-        elif failed_step == "ensemble_trainer":
-            print("\n" + "=" * 70)
-            print("FAIL: Ensemble training incomplete or failed")
-            print("=" * 70)
-            print("\nTo fix:")
-            print("  1. Check logs: logs/ensemble_trainer.log")
-            print("  2. Re-run: python services/ensemble_trainer.py")
-            print("  3. Re-run verification: python scripts/corpus_final_verification.py")
-            print("\n" + "=" * 70)
-        elif failed_step == "alpha_publisher":
-            print("\n" + "=" * 70)
-            print("FAIL: Alpha publishing incomplete or failed")
-            print("=" * 70)
-            print("\nTo fix:")
-            print("  1. Check logs: logs/alpha_publisher.log")
-            print("  2. Re-run: python services/alpha_publisher.py")
-            print("  3. Re-run verification: python scripts/corpus_final_verification.py")
             print("\n" + "=" * 70)
         else:
             print("\nFAIL: Corpus verification failed - check logs for details")
