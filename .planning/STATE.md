@@ -113,10 +113,19 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 ## Decisions waiting on the owner
 
-- None open. E17's gating criterion was decided 2026-09-26 (option C: measured-size gate plus a
-  per-family static-size guard, built under todo 447; methodology-change-ledger E17).
+- Long-history index levels (raised 2026-10-01): store FRED's Nasdaq Composite (daily since 1971) and
+  any free long S&P series as context-only economic series, never a tradeable price (the Yahoo
+  dividends precedent), or keep equity prices strictly IBKR. Needed for any test of equity behavior
+  before 2006 (`docs/ideas/signal-macro-context-layer.md`).
+- Midterm forward observation: if the post-midterm presidential-cycle effect is to be tested, its spec
+  must be committed before the 2026-11-03 election to count as a forward observation
+  (`docs/ideas/signal-political-policy-regime.md`). Otherwise nothing is lost.
 
 ## Open items that are not verdicts
+
+- Economic series (todo 480, 2026-10-01): `economic_series_observation` holds 10 FRED and 39 NY Fed
+  series. Backfilled FRED availability times are assumed, not measured (THREEFYTP10 about a week
+  early); todo 482 (deferred, gate: phase 184 B8) reloads them from ALFRED. No reader until B8.
 
 - Todo 248 (HMM per-symbol lookahead): walk-forward deployed 2026-08-12. Stored regime columns
   carry the todo 451 gate mask until the 186-26 rebuild; 186-13 made the HMM a registry kernel.
