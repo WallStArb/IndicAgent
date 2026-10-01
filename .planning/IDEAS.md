@@ -5,24 +5,11 @@ When actionable (clear problem + solution): create `.planning/todos/pending/<n>-
 When ready to build: assign to a milestone in `ROADMAP.md` → `/gsd-plan-phase`.
 Full planning system: `.planning/PLANNING-SYSTEM.md`.
 
-**Scope note (2026-07-05):** this file has drifted to pre-v3.0-era ideas only — nothing below
-tracks the active v3.0 intelligence cluster (Feature Factory, stratification, IC, ensemble,
-Concept Registry, etc.). Alpha research status (queued families, reopened ideas, never-tested
-candidates, verdicts) lives in `docs/research/construction-verdict-ledger.md`, the one
-consolidated list since 2026-09-25; this file is a capture inbox only. New ideas outside the
-v3.0 cluster still belong here as before.
-
-**Cleanup pass (2026-07-05):** every `docs/research/` link below was broken — they predate the
-2026-06/07 rename to `vision-0N-`/`intel-0N-`/`platform-0N-`/`ai-0N-`/`signal-0N-` prefixes
-(the same rot that got `ai-index.md` archived in favor of `idea-catalog.md`). Links fixed to
-current filenames. Deleted outright (not just flagged): bullets describing the archived I1-I7
-plugin tier where the underlying idea is dead, already superseded by something real in v3.0, or
-where the only live overlap is narrower than the bullet claimed — verified each individually,
-not blanket-removed. Also deleted 2 bullets citing an already-archived plan doc and todo numbers
-since recycled for unrelated work (todo numbers aren't stable identifiers across eras here —
-don't cite them as pointers). Kept: still-valid-but-deprioritized vision docs (different endgame,
-not wrong) and the large `signal-06` Renaissance-refinement doc (105 ideas, unread at this
-altitude — too big to responsibly call dead without actually reading it).
+**Scope:** a capture inbox for ideas outside alpha research. Alpha and signal ideas (queued
+families, reopened ideas, never-tested candidates, verdicts) live only in
+`docs/research/construction-verdict-ledger.md`; each `docs/ideas/signal-*.md` doc has its row there,
+not here. Much of the list below predates v3.0 and was written against the archived I1-I7 tier;
+check a bullet's doc against `src/intelligence/CLAUDE.md` before treating it as current.
 
 ---
 - **TradeAgent — Autonomous trading app** — see `docs/research/vision-05-tradeagent.md`. Separate app consuming IndicAgent; multi-tenant; LLM lead + guardrails; broker-agnostic (MCP); trade linkage (groups, options+equities); learning/self-improvement; observability, HITL, security; agent dashboards. Vision/ideas only; not on IndicAgent roadmap. Note: `PROJECT.md`'s endgame (personal live trading, confirmed 2026-07-05) makes this a different-endgame doc except for its execution-vehicle framing — see todo 059.
@@ -41,7 +28,7 @@ altitude — too big to responsibly call dead without actually reading it).
 - **Regime Transition Early Detection** — `regime_entropy` + `hmm_regime_velocity` to detect Phase B/D transition windows. See `docs/research/intel-06-regime-transition-detection.md`.
 - **Roll Detection Architecture Improvements** — dedicated `roll_events` table, signed `roll_gap` convention, `FUTURES_SPECS` per-symbol month cycles.
 - **DerivAgent — Derivatives Intelligence** — volatility surface, GEX, VANNA/CHARM, VRP. Full options intelligence vision. See `docs/research/vision-02-derivagent.md`.
-- **Macro & Cross-Asset Intelligence** — wire existing ftq_score/yield_curve_slope/corr_z into I4Context and intelligence_features; add thin I4 plugins; regime-segment setup_performance; extend with stock-bond correlation + VX term structure services. See `docs/research/intel-08-macro-cross-asset.md`.
+- **Macro & Cross-Asset Intelligence** (v2.x framing; the current design is `docs/ideas/signal-macro-context-layer.md`, macro series point in time by measurement, phase 184 B8) — wire existing ftq_score/yield_curve_slope/corr_z into I4Context and intelligence_features; add thin I4 plugins; regime-segment setup_performance; extend with stock-bond correlation + VX term structure services. See `docs/research/intel-08-macro-cross-asset.md`.
 - **Renaissance I7/I8 Refinement** — 105 ideas across 48 sections: alpha decay, hidden alpha, regime intelligence, adaptive learning, information theory, neural intelligence. See `docs/research/signal-06-renaissance-refinements.md` — written against the now-archived I7/I8 plugin tier; check which sections still apply to v3.0's Feature Factory before treating any of it as current.
 - **Future Indicators Backlog** — Tracks B/C: I3 structure enhancements (SR zones, swing magnitude, trend structure), momentum composite (EMA stack score, golden/death cross, ADX qualification). See `docs/research/intel-03-future-indicators.md`.
 - **SR / Zone Engine Improvements** — Post-Phase-116 backlog: regression-fit default_strength weights (todo 019, gate n>=500), zone width output, per-TF source priors, multi-session levels, touch/test memory, adaptive cluster radius, proximity-weighted score, source diversity min, stale level decay. See `docs/research/sr-zone-engine-improvements.md`.
@@ -52,6 +39,8 @@ altitude — too big to responsibly call dead without actually reading it).
 - **Architectural Weakness Assessment** — top 7 weak links: pipeline god class (1820 lines), settings god object, 64-field ledger tuple, dead AI foundations (LineageRecorder/graduation), silent queue drops, bare excepts, unprotected global state. See `docs/research/platform-08-architectural-weaknesses.md`.
 - **Cross-Group Lead-Lag IC** — does one `regime_group`'s state predict another's forward returns (e.g. rates→precious metals, industrial metals→bonds)? Reuses `ic_engine`, new join pattern not new infra. Gated on Phase 151 (`regime_group`). See `docs/research/cross-group-lead-lag-ic.md`.
 - **Generic orthogonality/redundancy gate** — intel-12's regime-dimension gate protocol (structural pre-filter → correlation/MI study → substitution test) generalizes to features and vectors; the statistical test inside it doesn't (scalar correlation vs. cross-vector needs CCA/leakage-regression). Feature-level already has a home (Feature Registry's promotion gate, once migrated to `concept_registry`); cross-vector doesn't yet. Not buildable now — no real caller exists (intel-12 and concept_registry both unbuilt, only one vector exists). See `docs/intelligence/intelligence-layer-architecture.md` "Sequencing note (2026-07-05)". Build trigger: Phase 144/145 or the Feature Registry → Concept Registry migration, whichever lands first. **(Updated 2026-07-18)** — this is the same generalization a since-superseded "Unified Orthogonalization Layer" proposal tried to build too early, before any real per-layer caller existed (`docs/research/unified-orthogonalization-layer.md`, marked SUPERSEDED but kept as a written math spec — residualization, partial IC, incremental R², effective-N-via-eigenvalues — worth reusing rather than rederiving when this trigger fires). Sharpened trigger: once Phase 145 (regime substitution test) **and** Phase 157 (portfolio effective-N/Kelly) have both shipped real, proven implementations — not just Phase 144/145 alone — extract the shared math into a Ring 0 module (`src/core/`), not a shared service/governance contract across layers (those differ too much in plumbing to unify at the contract level).
+
+- **Evolutionary optimization of APR parameters**: treat APR keys as the genome and search them evolutionarily, narrowed from an agent-genome framing. Gated on a stated precondition. See `docs/ideas/eai-apr-parameter-evolution.md`.
 
 ## Ops ideas
 
