@@ -218,6 +218,29 @@ The 3 November 2026 midterm falls inside the unsearched forward span. A spec com
 observation under the evidence framework. One event confirms nothing statistically, but
 committing the spec costs almost nothing and the window cannot be recovered later.
 
+### Pre-registered look, 2026-10-01 (written and committed before the run)
+
+Owner-requested descriptive look on stored data. Not a research-runner verdict; counted as look 2 at
+this hypothesis (look 1: SPY 2006+, above).
+
+- **Data:** `YAHOO_GSPC_CLOSE` (S&P 500 price index, Yahoo, from 1927-12-30), price-only. Dividends are
+  similar across years and cancel in the excess.
+- **Event date:** election day E_y = the Tuesday after the first Monday in November, every year y from
+  1928 to 2025 (a calendar rule; the market was closed on some election days, so the entry is the last
+  close at or before E_y). Midterm years: even, not divisible by 4 (1930 to 2022, 24 years).
+- **Window:** last close at or before E_y to the last close at or before E_y + 6 calendar months.
+  Windows of different years never overlap.
+- **Statistic:** mean 6-month log return over midterm years minus the mean over all other years
+  (presidential and odd years), same calendar window.
+- **Test:** one-sided permutation p-value, 100,000 random draws of 24 "midterm" years from all years
+  (the year is the exchangeable unit). Also a bootstrap 95% interval over years for the difference.
+- **Pass criterion, fixed now:** p < 0.05 and the difference > 0, and the same sign in both halves of
+  the sample (1928-1976 and 1977-2025). Anything else is "not shown".
+- **Reported, not tested:** the 12-month window and the four cycle-phase means (descriptive only).
+- **Power, stated before the run:** with 24 midterm years against about 74 others and a 6-month return
+  sd near 11 points, the smallest difference detectable at 80% power is roughly 7 points; the
+  commonly quoted effect (3 to 4 points) would most likely read "not shown" even if real.
+
 ### Spec to pre-register
 
 - Outcome: SPY (and one broad equal-weight ETF, RSP) total return, election day to +6
