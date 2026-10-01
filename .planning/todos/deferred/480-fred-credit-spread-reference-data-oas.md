@@ -7,6 +7,13 @@ source: interactive session, crash-precursor check (HYG ratios are a coincident 
 
 # FRED credit spread and Treasury yield series (economic_series_observation)
 
+Deferred 2026-10-01 (build first: nothing here is on the 185/186 critical path). Tier 1 FRED and the
+NY Fed reference rates are built and stored. Gate: each remaining source (NY Fed Primary Dealer and
+SOMA lending, Tier 2 FRED series) enters only with a named consumer; monthly and weekly FRED series
+only after todo 482. The daily timer is an operator step that can be enabled any time: FRED serves the
+ICE spreads for a trailing three years and everything since 2023-10 is stored, so a day not collected
+can still be fetched later; daily collection only adds measured `fetch` availability times.
+
 ## What
 
 The DB holds no credit spread series. The only credit gauges are ETF price ratios (`HYG/LQD`,
@@ -68,7 +75,8 @@ the view `economic_series_observation_current` returns it, and a run fails if a 
 The daily path was also exercised: a rerun on 2026-10-01 appended 14 new observations with basis
 `fetch`.
 
-Left: install and enable the timer (needs sudo); register in the service docs; the NY Fed Primary
+Left (consumer-gated, see the Deferred line at the top): enable the timer (optional, any time);
+register in the service docs; the NY Fed Primary
 Dealer and SOMA securities lending families (weekly and daily, different shape); remaining Tier 2
 FRED series; the glossary row for option-adjusted spread; first pre-registered use.
 

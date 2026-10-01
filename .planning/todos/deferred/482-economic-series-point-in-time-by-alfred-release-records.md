@@ -1,11 +1,15 @@
 ---
 status: pending
-priority: P1
+priority: P2
 filed: 2026-10-01
 source: macro context layer council pass (docs/ideas/signal-macro-context-layer.md)
 ---
 
 # Economic series: availability and revisions from ALFRED release records, not an assumed lag
+
+Deferred 2026-10-01. Gate: the start of phase 184 scope item B8 (the S0 economic block), whose first
+step this is. Nothing reads `economic_series_observation` before B8, so the reload costs the same then
+as now. Standing rule until it lands: no monthly or weekly FRED series is added.
 
 ## What
 
@@ -21,7 +25,7 @@ of the business day after the observation date) and stores today's revised value
 - A monthly series under the rule would be weeks early (CPI January 2024: first release
   2024-02-13). Tier 2 FRED series must not be added before this lands.
 
-No consumer reads the table yet, so a clean reload is cheap now.
+No consumer reads the table until phase 184 B8.
 
 ## Recommendation
 

@@ -1,7 +1,8 @@
 # Macro context layer: market-wide series and events, point in time by measurement - Idea
 
 **Status:** Idea, design refined 2026-10-01 by a council pass (below). The series store exists
-(`economic_series_observation`, todo 480); the point-in-time corrections it needs are todo 482.
+(`economic_series_observation`, todo 480); the point-in-time corrections it needs are todo 482, deferred
+to the start of phase 184 B8.
 Needs a rigor pass before promotion to `docs/research/`.
 **Author:** Claude (Opus 5.5), interactive session, 2026-10-01; first draft by Claude (Sonnet 5.5)
 the same day.
@@ -211,13 +212,13 @@ No new phase. Each piece has a natural owner:
 
 | Piece | Lands in | Gate |
 |---|---|---|
-| Release-record reload, audits, CVR namespaces | todo 482, now | nothing reads the table yet, so it is cheap now and costly later |
-| Daily timer installed and enabled | operator step (sudo) | the ICE spreads lose a day of history for every day it is off |
+| Release-record reload, audits, CVR namespaces | todo 482 (deferred) | the start of phase 184 B8; nothing reads the table before then, so it costs the same then as now. Until then no monthly or weekly FRED series is added |
+| Daily timer installed and enabled | operator step (sudo), any time | not urgent: FRED serves the ICE spreads for a trailing three years and everything since 2023-10 is stored; daily collection adds measured `fetch` availability times |
 | S0 economic block: decision-time join, age, maximum age, knowledge cutoff, hashed into the manifest; the shift test | phase 184 (scope item B8, beside the `align` node) | 482 done |
 | Derived macro measures as kernels | phase 184 B2 (`kernel_source` on the 186 registry); todo 475 moves the macro kernels to the series registry | 186 kernel registry |
 | Rates regime curve from the measured slope | todo 481, with the 186 regime rebuild | null-arm control |
 | Schedule series (FOMC, CPI, jobs report from FRED's release calendar: 333 releases, CPI dates since 1949, jobs report since 1955, future dates included) and the event study | the first pre-registered spec that needs them, through the phase 187 runner | a written spec with its power stated |
-| NY Fed Primary Dealer and SOMA lending, Tier 2 FRED series | todo 480 | a named consumer; monthly and weekly series only after 482 |
+| NY Fed Primary Dealer and SOMA lending, Tier 2 FRED series | todo 480 (deferred) | a named consumer; monthly and weekly series only after 482 |
 
 If the 184 work grows past one scope item, split it then; it does not justify a phase on its own today.
 
