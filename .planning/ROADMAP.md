@@ -375,6 +375,14 @@ Plans:
   digest) is unchanged and replaced atomically when it moves (`replace_where`); migrations 414 and 415;
   todo 412 closed, todo 469 filed (serial bootstrap cost); merged 2026-09-30 locally (`0db1aa213`, push
   held by the coordinator)
+- [x] 186-25 feature_vectors_v2 rebuild writer (D-28, D-32a, todo 339): `run_rebuild_stage` in
+  `services/backfill_feature_factory.py` with provenance-keyed (symbol chunk, tf, calendar-year-range)
+  units and kill-and-resume; one `compute_kernels` pass per series from its start (regime included,
+  R-10), workers spool rows to files and return paths and counts only, the main process merges in time
+  order and streams through `bulk_load` (`preclamped_real`); compression only on a clean full-scope
+  run; the v2 row contract pinned to the 312-column 186-24 schema; `services/rebuild_preconditions.py`
+  holds the seven pure D-32 checks for 186-26's launcher; todos 339 and 476 closed; merged 2026-10-01
+  (`84192f5f4`)
 
 ### Phase 187: Research core: recipe book, selection, construction
 
