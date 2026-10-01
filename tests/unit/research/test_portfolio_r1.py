@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
+from scripts.research.determinism.config import HarnessConfig
 from src.intelligence.research.portfolio import (
     RANK_VOL_NEUTRAL_ARM,
     plan_covariance,

@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from scipy.stats import spearmanr
 
-from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
+from scripts.research.determinism.config import HarnessConfig
 from src.intelligence.portfolio import weighting as W
 from src.intelligence.research.portfolio import (
     arm_returns,

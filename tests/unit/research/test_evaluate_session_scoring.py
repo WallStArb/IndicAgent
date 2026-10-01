@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pytest
 
-from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
+from scripts.research.determinism.config import HarnessConfig
 from src.intelligence.research import evaluate as ev
 from src.intelligence.research.evaluate import (
     SESSIONS_PER_YEAR,

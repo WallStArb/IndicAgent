@@ -3,7 +3,7 @@ import functools
 import numpy as np
 import pytest
 
-from scripts.analysis.sleeve_walk_forward.config import HarnessConfig
+from scripts.research.determinism.config import HarnessConfig
 from services._batch_utils import make_worker_pool
 from src.intelligence.research.evaluate import annualized_sharpe, evaluate, sub_period_masks
 

@@ -1014,7 +1014,7 @@ hmm_n_components  # unused variable (src/intelligence/feature_factory.py and ker
 hmm_covariance_type  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
 hmm_volatility_n_components  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
 hmm_volatility_covariance_type  # unused variable (src/intelligence/feature_factory.py and kernels/_hmm.py: read by getattr in RegimeFamilySpec.model_fields)
-sleeve  # unused variable (scripts/analysis/sleeve_walk_forward/config.py:12 and scripts/research/determinism/config.py:12) - pre-registered HarnessConfig field pinned by test_config and the frozen-book tool; only caller was a script deleted by 186-16; 186-29 removes the kept copy
+sleeve  # unused variable (scripts/research/determinism/config.py:12) - pre-registered HarnessConfig field kept for the frozen-book tool; its only caller was a script deleted by 186-16
 training_start  # unused variable (sleeve and determinism config.py:28) - pre-registered HarnessConfig field, same as sleeve
 embargo_sessions  # unused variable (sleeve and determinism config.py:29) - pre-registered HarnessConfig field, same as sleeve
 n_tested  # unused variable (sleeve and determinism config.py:43; src/intelligence/research/signals.py:31) - pre-registered count field; signals.py is the research lane (D-02), only caller was a script deleted by 186-16
