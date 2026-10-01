@@ -18,6 +18,7 @@ from services.cross_sectional_regime_model import (
     _assign_labels,
     _bucket,
     _parse_group_configs,
+    _replace_group_tf,
     _resolve_group_symbols,
     _smooth_labels,
 )
@@ -675,3 +676,157 @@ def test_build_symbol_regime_class_full_universe_routing():
         "URA": "commodity",
         "CCJ": "equity",
     }
+
+
+# ---------------------------------------------------------------------------
+# Atomic (regime_group, tf) replace (todo 420)
+# ---------------------------------------------------------------------------
+
+
+class _FakeCopy:
+    def __init__(self, sink: list):
+        self._sink = sink
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def write_row(self, row):
+        self._sink.append(row)
+
+
+class _FakeCursor:
+    """Records SQL; serves the diff and extras queries; `fail_on` raises on a matching SQL."""
+
+    def __init__(self, conn: _FakeConn):
+        self._conn = conn
+        self.rowcount = 0
+        self._result: list = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def copy(self, sql):
+        self._conn.copy_sql.append(sql)
+        return _FakeCopy(self._conn.staged)
+
+    def execute(self, sql, params=None):
+        self._conn.executed.append(sql)
+        if self._conn.fail_on and self._conn.fail_on in sql:
+            raise RuntimeError("boom")
+        if "FULL OUTER JOIN" in sql and "GROUP BY category" in sql:
+            self._result = self._conn.extras_rows
+        elif "FULL OUTER JOIN" in sql:
+            self._result = [self._conn.diff]
+        elif sql.startswith("DELETE FROM market_regimes"):
+            self.rowcount = self._conn.diff[0]
+            self._conn.pending_store = []
+        elif sql.startswith("INSERT INTO market_regimes"):
+            self.rowcount = len(self._conn.staged)
+            self._conn.pending_store = list(self._conn.staged)
+
+    def fetchone(self):
+        return self._result[0]
+
+    def fetchall(self):
+        return self._result
+
+
+class _FakeConn:
+    def __init__(self, diff, *, stored_rows=("old",), fail_on=None, extras_rows=()):
+        self.diff = diff  # (stored, produced, orphaned, changed, new)
+        self.store = list(stored_rows)
+        self.pending_store = list(stored_rows)
+        self.fail_on = fail_on
+        self.extras_rows = list(extras_rows)
+        self.executed: list[str] = []
+        self.copy_sql: list[str] = []
+        self.staged: list = []
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self):
+        return _FakeCursor(self)
+
+    def commit(self):
+        self.commits += 1
+        self.store = list(self.pending_store)
+
+    def rollback(self):
+        self.rollbacks += 1
+        self.pending_store = list(self.store)
+
+
+_ROWS = [("equity", "1d", _TS, "calm", {"a": 1.0}), ("equity", "1d", _TS, "stress", {"a": 0.0})]
+
+
+def _replace(conn, **kwargs):
+    defaults = dict(max_orphan_fraction=0.01, accept_orphan_delete=False, dry_run=False)
+    return _replace_group_tf(conn, "equity", "1d", _ROWS, **{**defaults, **kwargs})
+
+
+class TestReplaceGroupTf:
+    def test_replaces_the_history_in_one_transaction(self):
+        conn = _FakeConn((1000, 1002, 5, 3, 7), stored_rows=("a",) * 3)
+        result = _replace(conn, max_orphan_fraction=0.01)
+        assert (result.stored, result.produced, result.orphaned) == (1000, 1002, 5)
+        assert (result.changed, result.new) == (3, 7)
+        assert result.inserted == len(_ROWS)
+        assert conn.commits == 1 and conn.rollbacks == 0
+        assert conn.store == conn.staged  # the history is exactly the staged rows
+        sql = " ".join(conn.executed)
+        assert "CREATE TEMP TABLE" in sql and "ON COMMIT DROP" in sql
+        assert sql.index("DELETE FROM market_regimes") < sql.index("INSERT INTO market_regimes")
+        assert conn.staged[0][4] == json.dumps({"a": 1.0})
+
+    def test_refuses_an_unexpected_shrink_and_writes_nothing(self):
+        conn = _FakeConn((1000, 900, 100, 0, 0))
+        with pytest.raises(ValueError, match=r"equity, 1d.*100 of 1000"):
+            _replace(conn)
+        assert conn.commits == 0 and conn.rollbacks == 1
+        assert conn.store == ["old"]
+        assert not any(q.startswith("DELETE") for q in conn.executed)
+
+    def test_accept_orphan_delete_overrides_the_guard(self):
+        conn = _FakeConn((1000, 900, 100, 0, 0))
+        result = _replace(conn, accept_orphan_delete=True)
+        assert result.orphaned == 100 and conn.commits == 1
+
+    def test_an_error_between_delete_and_commit_leaves_the_stored_rows_unchanged(self):
+        conn = _FakeConn((10, 10, 0, 0, 0), fail_on="INSERT INTO market_regimes")
+        with pytest.raises(RuntimeError, match="boom"):
+            _replace(conn)
+        assert any(q.startswith("DELETE FROM market_regimes") for q in conn.executed)
+        assert conn.commits == 0 and conn.rollbacks == 1
+        assert conn.store == ["old"] and conn.pending_store == ["old"]
+
+    def test_dry_run_reports_counts_and_extras_writes_nothing_and_rolls_back(self):
+        conn = _FakeConn(
+            (1000, 900, 100, 4, 2),
+            extras_rows=[("orphaned", 100, 90, 3), ("changed", 4, 0, 4), ("new", 2, 0, 2)],
+        )
+        result = _replace(conn, dry_run=True)
+        assert (result.orphaned, result.changed, result.new) == (100, 4, 2)
+        assert (result.deleted, result.inserted) == (0, 0)
+        assert result.extras["orphaned"] == {"rows": 100, "weekend": 90, "joins_feature_vectors": 3}
+        assert result.extras["would_refuse"] is True
+        assert conn.commits == 0 and conn.rollbacks == 1
+        assert not any(q.startswith(("DELETE", "INSERT")) for q in conn.executed)
+        assert any("statement_timeout" in q for q in conn.executed)
+
+    def test_dry_run_survives_a_feature_vectors_probe_failure(self):
+        conn = _FakeConn((10, 10, 0, 1, 0), fail_on="GROUP BY category")
+        result = _replace(conn, dry_run=True)
+        assert result.changed == 1
+        assert "extras_error" in result.extras
+        assert conn.commits == 0
+
+    def test_the_module_has_no_upsert_write_path_left(self):
+        import services.cross_sectional_regime_model as module
+
+        assert not hasattr(module, "_write_rows")
