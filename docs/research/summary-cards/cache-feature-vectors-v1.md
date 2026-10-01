@@ -16,6 +16,8 @@ known_defects:
   - The intraday macro columns (vix_z, flight_quality, yield_slope_z, tip_tlt_ret_z, hyg_lqd_ret_z, sb_corr_fast, sb_corr_slow, sb_corr_z, equity_beta_z, rate_beta_z and the two macro products) read the same day's 16:00 ET close on 5m, 15m and 1h rows (todo 450, fixed in 186-12).
   - gap_z at bar T was built from bar T+1's open on every timeframe and was 0.0 on the last row of every batch (todo 461, fixed in 186-12).
   - The stored regime and regime_volatility columns and their numeric columns (hmm_*) were written by a walk-forward HMM whose segment gate read the decoded segment's own future labels, so whether a bar has a label, and the duration and churn resets after a skipped gap, depend on later bars (todo 451, fixed in 186-13; dependents in todo 466).
+  - The stored trend regime columns (regime and the hmm_* numeric columns) were fit on observation rows whose vol_of_vol was a rolling std over zero-padded realized_vol warmup values (the first 19 rows at the live windows), so every training slice and the scaler carried them (todo 286, fixed in 186-18; the volatility family never had it); the rebuild replaces them.
+  - The stored hmm_vol_churn rows (9.4M) predate the Phase 172 WR-01 fix that computes churn per written segment (todo 292); they are not recomputed in place, the only write path being regime_writer's UPDATE, which the todo 426 guard refuses, and the 186-26 rebuild recomputes every regime column through the kernel.
 spans_looked_at: []
 forward_span_looks: 0
 tables: [feature_vectors]
@@ -49,7 +51,7 @@ one lands with 186-27 before the drop.
 5m-heavy composition with no active consumer; carries invalid v2.x raw-price columns; the
 intraday macro columns and `gap_z` carry lookahead (todos 450 and 461, fixed in code by plan
 186-12, stored rows corrected by the rebuild), and so do the regime columns (todo 451, fixed by
-plan 186-13; label presence and duration depended on later bars); its size drove the 768 GB disk-full incident class
+plan 186-13; label presence and duration depended on later bars), the trend regime columns carry the nested vol_of_vol warmup artifact (todo 286, 186-18) and `hmm_vol_churn` rows predate the WR-01 fix (todo 292); its size drove the 768 GB disk-full incident class
 of risk on schema changes.
 
 ## Why closed
