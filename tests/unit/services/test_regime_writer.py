@@ -146,9 +146,9 @@ def test_build_obs_matrix_shape():
         timestamps, closes, volumes, vol_window, momentum_window, vol_of_vol_window
     )
 
-    # n closes -> n-1 log returns -> drop first (max_window-1) for warm-up
-    # With all windows equal to vol_window: remaining = (n-1) - (vol_window-1) = n - vol_window
-    expected_rows = n - vol_window
+    # n closes -> n-1 log returns -> drop the first vol_window + vol_of_vol_window - 2 rows
+    # (the nested vol_of_vol warmup, todo 286)
+    expected_rows = (n - 1) - (vol_window + vol_of_vol_window - 2)
     assert obs.shape == (expected_rows, 5), f"Expected ({expected_rows}, 5), got {obs.shape}"
     assert len(valid_ts) == expected_rows
 

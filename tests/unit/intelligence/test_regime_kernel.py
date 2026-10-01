@@ -275,16 +275,16 @@ def _kernel_and_inputs(name: str, bars: dict, tf: str = "1d"):
 
 
 def test_segment_gate_verdict_does_not_depend_on_bars_after_t():
-    """RED against the whole-segment gate: on the full 920 bars the first segment (bars 620..919)
-    decodes into one state for its last rows, so the gate rejects it and bar 640 is unlabeled;
-    cut at bar 649 the same rows are labeled. The verdict has to come from data before the
+    """RED against the whole-segment gate: on the full 939 bars the first segment (bars 639..938)
+    decodes into one state for its last rows, so the gate rejects it and bar 660 is unlabeled;
+    cut at bar 668 the same rows are labeled. The verdict has to come from data before the
     refit boundary, so the two runs must agree."""
     bars = make_collapsing_segment_bars()
     kernel, inputs = _kernel_and_inputs("hmm_trend_walk_forward", bars)
-    cut = 649
+    cut = 668
     full = kernel.compute(inputs, _config())
     truncated = kernel.compute({k: v[:cut] for k, v in inputs.items()}, _config())
-    rows = slice(620, cut)
+    rows = slice(639, cut)
     assert np.array_equal(
         full["_hmm_trend_segment_status"][rows],
         truncated["_hmm_trend_segment_status"][rows],
@@ -293,16 +293,16 @@ def test_segment_gate_verdict_does_not_depend_on_bars_after_t():
 
 
 def test_first_boundary_does_not_depend_on_total_series_length():
-    """RED against the whole-series length gate: at 602 observations (bars 0..621) the old
-    gate refused every row, yet the full series labels bars 620 and 621. A row's label must not
+    """RED against the whole-series length gate: at 602 observations (bars 0..640) the old
+    gate refused every row, yet the full series labels bars 639 and 640. A row's label must not
     depend on how many rows come later."""
-    bars = make_synthetic_regime_bars(700, 7)
+    bars = make_synthetic_regime_bars(720, 7)
     kernel, inputs = _kernel_and_inputs("hmm_trend_walk_forward", bars)
     full = kernel.compute(inputs, _config())
-    assert not np.isnan(full["_hmm_trend_code"][620])  # the full series does label bar 620
-    truncated = kernel.compute({k: v[:622] for k, v in inputs.items()}, _config())
+    assert not np.isnan(full["_hmm_trend_code"][639])  # the full series does label bar 639
+    truncated = kernel.compute({k: v[:641] for k, v in inputs.items()}, _config())
     assert np.array_equal(
-        full["_hmm_trend_code"][:622], truncated["_hmm_trend_code"], equal_nan=True
+        full["_hmm_trend_code"][:641], truncated["_hmm_trend_code"], equal_nan=True
     )
 
 
@@ -475,3 +475,46 @@ def test_the_shared_entry_point_rejects_an_unknown_tf_and_a_volatility_run_needs
     ).columns
     without = compute_regime_columns(bars["close"], None, params, "1d", volatility).columns
     assert all(_same_column(with_volume[name], without[name]) for name in with_volume)
+
+
+# ---------------------------------------------------------------------------
+# Todo 286: trend obs rows start after the nested vol_of_vol warmup
+# ---------------------------------------------------------------------------
+
+
+def test_trend_vol_of_vol_never_reaches_the_zero_padded_realized_vol_warmup():
+    """Todo 286. vol_of_vol is a rolling std of realized_vol, whose first `vol_window - 1` rows
+    are zero padding from `_rolling`. The first emitted trend obs row must therefore have a
+    vol_of_vol over a window made entirely of full-window realized_vol values, equal to the
+    population std computed here independently from the log returns."""
+    vol_window = momentum_window = vol_of_vol_window = 20
+    rng = np.random.default_rng(286)
+    n = 400
+    # large returns for the first 60 steps, small after: the padding zeros are far from the data
+    returns = np.concatenate([rng.normal(0, 0.05, 60), rng.normal(0, 0.002, n - 60)])
+    closes = 100.0 * np.exp(np.cumsum(returns))
+    volumes = np.full(n, 1e6)
+    ts = list(range(n))
+
+    obs, valid_ts = _hmm._build_obs_matrix(
+        ts,
+        closes,
+        volumes,
+        vol_window=vol_window,
+        momentum_window=momentum_window,
+        vol_of_vol_window=vol_of_vol_window,
+    )
+
+    log_returns = np.log(closes[1:] / closes[:-1])
+    start = valid_ts[0] - 1  # log-return index of the first emitted obs row
+    first_clean = vol_window + vol_of_vol_window - 2
+    assert start >= first_clean, (
+        f"first obs row is log-return row {start}, but its vol_of_vol window reaches realized_vol "
+        f"warmup padding until row {first_clean}"
+    )
+    realized = {
+        i: float(np.std(log_returns[i - vol_window + 1 : i + 1]))
+        for i in range(vol_window - 1, len(log_returns))
+    }
+    window_vols = [realized[i] for i in range(start - vol_of_vol_window + 1, start + 1)]
+    assert obs[0, 3] == pytest.approx(float(np.std(window_vols)), rel=1e-12)

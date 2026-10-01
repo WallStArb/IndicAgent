@@ -38,11 +38,12 @@ def test_obs_matrix_shape_5d():
 
 
 def test_obs_matrix_valid_rows_discarded():
-    """First max(vol_window, momentum_window, vol_of_vol_window) rows must be discarded."""
+    """Rows before the nested vol_of_vol warmup are discarded (todo 286): the first obs row is
+    log-return row vol_window + vol_of_vol_window - 2, not max(windows) - 1."""
     ts, closes, volumes = _make_prices(500)
-    vol_window = _DEFAULT_WINDOWS["vol_window"]
+    first_clean = _DEFAULT_WINDOWS["vol_window"] + _DEFAULT_WINDOWS["vol_of_vol_window"] - 2
     obs, valid_ts = _build_obs_matrix(ts, closes, volumes, **_DEFAULT_WINDOWS)
-    expected_rows = (len(closes) - 1) - (vol_window - 1)
+    expected_rows = (len(closes) - 1) - first_clean
     assert obs.shape[0] == expected_rows, f"Expected {expected_rows} rows, got {obs.shape[0]}"
     assert len(valid_ts) == obs.shape[0]
 

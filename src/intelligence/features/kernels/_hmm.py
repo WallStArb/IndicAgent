@@ -270,7 +270,15 @@ def _observations_trend(
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
     log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
 
-    if len(log_returns) < max(vol_window, momentum_window, vol_of_vol_window):
+    # vol_of_vol is a rolling std of realized_vol, whose own first `vol_window - 1` rows are zero
+    # padding from `_rolling`, so its first clean row is `vol_window + vol_of_vol_window - 2`
+    # (todo 286). The volatility builder follows the same rule; the two must never be
+    # "re-aligned" back to `max(windows) - 1`, which feeds padded windows to the model.
+    valid_start = max(
+        max(vol_window, momentum_window, vol_of_vol_window) - 1,
+        vol_window + vol_of_vol_window - 2,
+    )
+    if len(log_returns) < valid_start + 1:
         return np.empty((0, 5), dtype=float), 0
 
     realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
@@ -280,7 +288,6 @@ def _observations_trend(
     rolling_mean_logvol = _rolling(log_volumes, vol_window, np.mean, block_rows)
     rel_volume = log_volumes - rolling_mean_logvol
 
-    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
     obs = np.column_stack(
         [
             log_returns[valid_start:],
@@ -316,8 +323,10 @@ def _build_obs_matrix(
       [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
                          Volume anomaly relative to recent baseline.
 
-    valid_start = max(vol_window, momentum_window, vol_of_vol_window) - 1
-    All rows before valid_start are discarded (insufficient window history).
+    valid_start = max(max(vol_window, momentum_window, vol_of_vol_window) - 1,
+                      vol_window + vol_of_vol_window - 2)
+    All rows before valid_start are discarded (insufficient window history, and for vol_of_vol
+    the zero-padded realized_vol warmup; todo 286).
     Returns (obs_matrix, valid_timestamps).
     """
     obs, valid_start = _observations_trend(
@@ -390,25 +399,12 @@ def _build_obs_matrix_volatility(
     rolling-mean-of-log-volume pass) and makes column-index confusion between the two
     matrices' different semantics impossible. `volumes` is never read.
 
-    valid_start = vol_window + vol_of_vol_window - 2. This DIVERGES from
-    `_build_obs_matrix`'s `max(windows) - 1`: that expression is correct for three
-    columns computed by a single rolling pass over log_returns, but vol_of_vol is a
-    rolling std of realized_vol, which `_rolling` itself zero-pads for its first
-    vol_window - 1 entries. Under `max(windows) - 1`, the first vol_window - 1 emitted
-    vol_of_vol values would be computed over windows that still contain those zeros --
-    warmup artifacts presented as valid observations. `vol_window + vol_of_vol_window -
-    2` is the first index at which the entire vol_of_vol lookback window lies inside
-    real data, so no emitted vol_of_vol value is ever computed over a zero-padded
-    realized_vol entry. At the seeded windows of 20/60 this discards 19 additional bars
-    per cell out of a series of at least 20000 -- immaterial cost, no fabricated-input
-    rows. `_build_obs_matrix` itself is NOT changed to match -- its 26.8M existing
-    rows were produced under its current behavior, and editing it would silently
-    change the meaning of a column this phase deliberately leaves untouched (filed as
-    pending todo 286). Plan 172-01's null-arm gate measures the volatility axis
-    through the composite matrix's columns 1 and 3 and therefore under the legacy
-    start index; the 19-bar difference is not material to a block-reliability
-    statistic computed over tens of thousands of bars, noted here rather than left for
-    a future reader to notice the mismatch.
+    valid_start = vol_window + vol_of_vol_window - 2: vol_of_vol is a rolling std of
+    realized_vol, which `_rolling` itself zero-pads for its first vol_window - 1 entries,
+    so this is the first index at which the entire vol_of_vol lookback window lies inside
+    real data and no emitted vol_of_vol value is ever computed over a zero-padded
+    realized_vol entry. `_build_obs_matrix` follows the same rule since todo 286 (it
+    took `max(windows) - 1` before, which fed padded windows to the trend model).
 
     Returns (obs_matrix, valid_timestamps). Insufficient input (fewer than
     vol_window + vol_of_vol_window - 1 log returns) returns
