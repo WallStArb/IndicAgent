@@ -274,7 +274,12 @@ the intent visible in the log).
 `indicagent-regime-coverage-auditor.timer` (02:00) runs `services/regime_coverage_auditor.py`, which
 lists the symbols whose `feature_vectors.regime` is 100% NULL. The unit fails only on a gap that is
 not registered, or whose registration has expired. Registered gaps live in APR key
-`alpha.regime.coverage_auditor.known_exceptions`, a JSON list of `{symbol, reason, expires, todo}`.
+`alpha.regime.coverage_auditor.known_exceptions`, a JSON list of `{symbol, kind, reason, clears_on,
+expires, todo}`. `kind` is `rebuild_pending` (needs `expires` and `clears_on`, the trigger that ends
+it, for example `186-26 rebuild`) or `permanent_degenerate` (a reason, no expiry; capped by
+`alpha.regime.coverage_auditor.max_permanent_exceptions` and listed in the log on every run).
+Gauges `regime_coverage_auditor_exceptions_live` and `regime_coverage_auditor_days_to_earliest_expiry`
+carry the unexpired count and the days left.
 
 An exception means a diagnosed, expected gap (history shorter than the walk-forward warmup, a
 degenerate fit). An operator adds one only after classifying the symbol with

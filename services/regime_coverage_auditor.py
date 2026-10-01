@@ -9,10 +9,15 @@ affected for years). This canary exists so the NEXT such gap is caught immediate
 instead of by accident during an unrelated investigation.
 
 A gap is alert-worthy unless it is a registered exception. APR key
-`alpha.regime.coverage_auditor.known_exceptions` is a JSON list of `{symbol, reason, expires,
-todo}`: a symbol whose stored regime is all NULL for a diagnosed reason (history shorter than the
-walk-forward warmup, a degenerate fit; 186-18, todo 341). The job fails only on an unregistered
-gap or an exception past its `expires` date, so the nightly unit carries information again. An
+`alpha.regime.coverage_auditor.known_exceptions` is a JSON list of `{symbol, kind, reason,
+clears_on, expires, todo}`: a symbol whose stored regime is all NULL for a diagnosed reason
+(history shorter than the walk-forward warmup, a degenerate fit; 186-18, todo 341). `kind` is
+`rebuild_pending` (needs `expires` and `clears_on`, the trigger that ends it, for example "186-26
+rebuild") or `permanent_degenerate` (needs a reason, no expiry; capped by APR
+`alpha.regime.coverage_auditor.max_permanent_exceptions` and listed in the log on every run).
+The job fails only on an unregistered gap or an exception past its `expires` date, so the nightly
+unit carries information again. Gauges `regime_coverage_auditor_exceptions_live` and
+`regime_coverage_auditor_days_to_earliest_expiry` carry the unexpired count and the days left. An
 exception is added by an operator after a diagnosis (`scripts/infrastructure/
 features_regime_kernel_coverage_sweep.py` classifies the cell), always with an expiry: it is a
 review date, renewed with a fresh diagnosis or removed. A listed symbol that is no longer a gap
@@ -35,6 +40,7 @@ from typing import Any
 
 import psycopg
 import structlog
+from opentelemetry import metrics as _otel_metrics
 from psycopg.rows import dict_row
 
 project_root = Path(__file__).parent.parent
@@ -52,6 +58,23 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "regime-coverage-auditor"
 _EXCEPTIONS_KEY = "alpha.regime.coverage_auditor.known_exceptions"
+_MAX_PERMANENT_KEY = "alpha.regime.coverage_auditor.max_permanent_exceptions"
+
+KIND_REBUILD = "rebuild_pending"
+KIND_PERMANENT = "permanent_degenerate"
+_KINDS = (KIND_REBUILD, KIND_PERMANENT)
+
+# Per-service instruments, the repo's pattern for service-owned metrics (src/observability/metrics.py
+# is Ring 0 and takes no domain-named instruments, todo 465).
+_meter = _otel_metrics.get_meter("indicagent")
+_EXCEPTIONS_LIVE = _meter.create_gauge(
+    "regime_coverage_auditor_exceptions_live",
+    description="Registered coverage exceptions that have not expired",
+)
+_DAYS_TO_EARLIEST_EXPIRY = _meter.create_gauge(
+    "regime_coverage_auditor_days_to_earliest_expiry",
+    description="Days until the earliest expiry among live exceptions (unset when none expires)",
+)
 
 _COVERAGE_GAP_SQL = """
     SELECT symbol, count(*) AS total_rows, count(regime) AS non_null_regime_rows
@@ -64,12 +87,14 @@ _COVERAGE_GAP_SQL = """
 
 @dataclass(frozen=True)
 class KnownException:
-    """One registered coverage gap: why it is expected, the todo that tracks it, the last day it
-    is honored (a review date)."""
+    """One registered coverage gap: why it is expected, what ends it (`clears_on`), the todo that
+    tracks it, and the last day it is honored (`expires`, None for a permanent entry)."""
 
     symbol: str
+    kind: str
     reason: str
-    expires: date
+    expires: date | None
+    clears_on: str | None
     todo: str | None
 
 
@@ -87,40 +112,62 @@ class AuditResult:
         return bool(self.unregistered or self.expired)
 
 
-def parse_known_exceptions(raw: Any) -> list[KnownException]:
+def _text(entry: dict[str, Any], key: str) -> str:
+    return str(entry.get(key) or "").strip()
+
+
+def parse_known_exceptions(raw: Any, max_permanent: int = 5) -> list[KnownException]:
     """The APR value (a JSON string, or the list a json-typed key already parsed to) as
-    `KnownException`s. Raises ValueError on anything malformed: a missing or empty symbol,
-    reason or expires, an unparseable date, or a duplicate symbol."""
+    `KnownException`s. Raises ValueError on anything malformed: a missing or empty symbol, kind or
+    reason, an unknown kind, a `rebuild_pending` entry without an ISO `expires` and a `clears_on`,
+    a `permanent_degenerate` entry with an expiry, a duplicate symbol, or more than
+    `max_permanent` permanent entries."""
     entries = json.loads(raw) if isinstance(raw, str) else raw
     if not isinstance(entries, list):
         raise ValueError(f"{_EXCEPTIONS_KEY} must be a JSON list, got {type(entries).__name__}")
     parsed: list[KnownException] = []
     for index, entry in enumerate(entries):
+        where = f"{_EXCEPTIONS_KEY}[{index}]"
         if not isinstance(entry, dict):
-            raise ValueError(f"{_EXCEPTIONS_KEY}[{index}] must be an object")
-        missing = [
-            k for k in ("symbol", "reason", "expires") if not str(entry.get(k) or "").strip()
-        ]
+            raise ValueError(f"{where} must be an object")
+
+        missing = [k for k in ("symbol", "kind", "reason") if not _text(entry, k)]
         if missing:
-            raise ValueError(f"{_EXCEPTIONS_KEY}[{index}] is missing {missing}")
-        try:
-            expires = date.fromisoformat(str(entry["expires"]))
-        except ValueError as error:
-            raise ValueError(
-                f"{_EXCEPTIONS_KEY}[{index}] expires {entry['expires']!r} is not an ISO date"
-            ) from error
-        todo = entry.get("todo")
+            raise ValueError(f"{where} is missing {missing}")
+        kind = _text(entry, "kind")
+        if kind not in _KINDS:
+            raise ValueError(f"{where} kind {kind!r} is not one of {_KINDS}")
+        expires: date | None = None
+        if kind == KIND_REBUILD:
+            missing = [k for k in ("expires", "clears_on") if not _text(entry, k)]
+            if missing:
+                raise ValueError(f"{where} ({kind}) is missing {missing}")
+            try:
+                expires = date.fromisoformat(_text(entry, "expires"))
+            except ValueError as error:
+                raise ValueError(
+                    f"{where} expires {entry['expires']!r} is not an ISO date"
+                ) from error
+        elif _text(entry, "expires"):
+            raise ValueError(f"{where} ({kind}) must not carry an expiry")
         parsed.append(
             KnownException(
-                symbol=str(entry["symbol"]),
-                reason=str(entry["reason"]),
+                symbol=_text(entry, "symbol"),
+                kind=kind,
+                reason=_text(entry, "reason"),
                 expires=expires,
-                todo=None if todo is None else str(todo),
+                clears_on=_text(entry, "clears_on") or None,
+                todo=_text(entry, "todo") or None,
             )
         )
     symbols = [e.symbol for e in parsed]
     if len(set(symbols)) != len(symbols):
         raise ValueError(f"{_EXCEPTIONS_KEY} lists a symbol more than once")
+    n_permanent = sum(e.kind == KIND_PERMANENT for e in parsed)
+    if n_permanent > max_permanent:
+        raise ValueError(
+            f"{_EXCEPTIONS_KEY} has {n_permanent} permanent entries, above the cap {max_permanent}"
+        )
     return parsed
 
 
@@ -137,7 +184,7 @@ def evaluate_gaps(
         entry = by_symbol.get(symbol)
         if entry is None:
             unregistered.append(symbol)
-        elif entry.expires < today:
+        elif entry.expires is not None and entry.expires < today:
             expired.append(symbol)
         else:
             excepted.append(entry)
@@ -175,19 +222,33 @@ def main() -> None:
     try:
         settings = Settings()
         conn = _connect_db(settings)
+        cfg = load_config_service_sync(conn)
         exceptions = parse_known_exceptions(
-            load_config_service_sync(conn).get_sync(_EXCEPTIONS_KEY, "[]")
+            cfg.get_sync(_EXCEPTIONS_KEY, "[]"), int(cfg.get_sync(_MAX_PERMANENT_KEY, 5))
         )
         with conn.cursor(row_factory=dict_row) as cur:
             gap_symbols = _fetch_coverage_gaps(cur)
 
-        result = evaluate_gaps(gap_symbols, exceptions, datetime.now(UTC).date())
+        today = datetime.now(UTC).date()
+        result = evaluate_gaps(gap_symbols, exceptions, today)
+        live = [e for e in exceptions if e.expires is None or e.expires >= today]
+        _EXCEPTIONS_LIVE.set(len(live))
+        expiring = [(e.expires - today).days for e in live if e.expires is not None]
+        if expiring:
+            _DAYS_TO_EARLIEST_EXPIRY.set(min(expiring))
+        permanent = [e for e in exceptions if e.kind == KIND_PERMANENT]
+        if permanent:
+            _logger.info(
+                "regime_coverage_auditor.permanent_exceptions",
+                symbols=[e.symbol for e in permanent],
+                reasons={e.symbol: e.reason for e in permanent},
+            )
         if result.excepted:
             _logger.info(
                 "regime_coverage_auditor.gap_excepted",
                 n_symbols=len(result.excepted),
                 excepted={
-                    e.symbol: f"{e.reason} (todo {e.todo}, until {e.expires})"
+                    e.symbol: f"{e.kind}: {e.reason} (todo {e.todo}, until {e.expires}, clears on {e.clears_on})"
                     for e in result.excepted
                 },
             )
