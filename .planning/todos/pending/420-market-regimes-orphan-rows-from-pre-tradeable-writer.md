@@ -48,3 +48,27 @@ J > 0. The rerun is owned by the 186-26 executor (task 1's conditional step): it
 chain) and before the rebuild launch (the rebuild consumes regime inputs; waiting for the
 feature_vectors swap would be too late). This todo closes only after that rerun lands, not
 when 186-18 merges.
+
+## 186-18 status (2026-09-30): mechanism fixed, cleanup run deferred
+
+Landed: `cross_sectional_regime_model` replaces each (regime_group, tf) history atomically
+(`_replace_group_tf`: temp stage, diff, DELETE + INSERT, one commit, rollback on any error),
+refuses an orphan share above APR `alpha.regime.cross_sectional.max_orphan_delete_fraction`
+(0.01, migration 419) unless `--accept-orphan-delete`, and `--dry-run` reports the diff.
+
+Dry run on the current bars (`evidence/186-18-market-regimes-dry-run.json`), enabled groups equity,
+rates, commodity and fx over four tfs: stored 5,354,790 rows, 3,511,736 orphaned (equity 2,427,789,
+rates 1,083,947), all in equity and rates; commodity and fx orphan none. Weekend orphans
+total 1,223,265 (equity 844,895, rates 378,370), exactly this todo's figure. Weekday orphans are
+2,288,471, not zero: the old writer stored rows for bars `market_data_ohlcv_tradeable` no longer
+serves (synthetic and flat-carry-forward placeholders), so the stored history is larger than what the
+current bars produce (equity 5m stored 2,084,617, produced 376,494).
+
+Changed rows (same timestamp, different label or probability vector): equity 344,378 and commodity
+126,656 (rates 0, fx 354). New rows 15,050. J, the orphaned plus changed plus new timestamps that join
+a feature_vectors row of the same tf, is 510,835 (186,132 of them equity 5m changed rows), so the
+cleanup would change the cells 186-20 replays. 186-20-SUMMARY.md is not on main, so per the plan the
+cleanup run was not executed and the `market_regimes` rows are untouched. Rerun owner unchanged: the
+186-26 executor runs `python services/cross_sectional_regime_model.py --accept-orphan-delete`, then
+`VACUUM (ANALYZE) market_regimes;`, after 186-20's parity report is on main and before the rebuild
+launch. This todo stays pending until that rerun lands.

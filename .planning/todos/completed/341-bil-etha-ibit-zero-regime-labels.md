@@ -80,3 +80,31 @@ exist and every one is not converged; (d) labels under the kernel: at least one 
 so the stored NULLs come from the old writer and the rebuild labels it; (e) anything else,
 including an exception, is a defect to fix in the plan. For (b) and (c) the todo 168 precedent
 applies: record per-segment diagnostics, do not change global HMM parameters to rescue a symbol.
+
+## Closed 2026-09-30 (plan 186-18)
+
+Diagnosis on the 186-13 kernel from stored bars (`evidence/186-18-regime-coverage.json` key
+`todo_341`; rule committed before the sweep). The auditor reads the trend column `regime`; trend
+cells per symbol (a history short, b degenerate, d labels under the kernel, e other):
+
+| symbol | 1d | 15m | 1h | 5m |
+|---|---|---|---|---|
+| BIL | d (4 segments, 1,008 rows) | e (16 degenerate, 1 not converged, none written) | b | b |
+| EMLC | d | d | d | d |
+| ETHA | a (501 observations, boundary 504) | b | d | d |
+| IBIT | d | d | d | b |
+| VIXY | d | d | d | d |
+
+Every one of the five has kernel labels in at least one trend cell (class d), so the stored NULLs
+come from the old writer's whole-segment gate, which 186-13 replaced, and the 186-26 rebuild will
+write labels for all five. BIL's 15m trend cell lands in the rule's (e) bucket only because its
+rejections mix degenerate occupation and one not-converged fit; every segment was rejected by a
+named gate (near-flat price, the todo 168 precedent), so there is no code defect, and no global HMM
+parameter was changed to rescue a symbol. Volatility cells (reported, not used by the auditor): BIL
+labeled at all four tfs, ETHA and IBIT degenerate at 15m and 1h, VIXY 1d degenerate.
+
+The auditor now fails only on an unregistered or expired gap (`feat 186-18`, `b7f60706e`); migration
+420 registers the five symbols in `alpha.regime.coverage_auditor.known_exceptions` with expiry
+2026-12-29 and the class in each reason. A run of the auditor after the migration exits 0
+(`no_unregistered_gap_found`, 5 excepted). Once the rebuild writes labels the entries go stale and
+the auditor warns; remove them then.

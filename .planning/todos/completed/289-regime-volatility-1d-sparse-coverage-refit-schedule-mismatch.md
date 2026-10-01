@@ -53,3 +53,25 @@ forward return is read, so this is not a look at outcomes and adds nothing to an
   200 names first in sha256(symbol) order. Estimate from `manifest.json`'s measured 1d runtimes
   (trend 1.6 to 5.8 s, volatility 0.1 to 0.4 s per name at 252, about 7x for the three schedules
   together, 6 workers): at most about 43 s per name x 931 names / 6 = about 1.9 h, so all names.
+
+## Closed 2026-09-30 (plan 186-18): the schedule is not the cause
+
+Measured on the 186-13 kernel (training-slice gate) from stored bars, all 931 `compute_eligible_1d`
+names, 3,408 s, evidence `evidence/186-18-regime-coverage.json` key `todo_289`. Pooled 1d segment
+skip fraction per family at `hmm_refit_every_bars_1d`:
+
+| schedule | trend | volatility | deciding (larger) |
+|---|---|---|---|
+| 126 | 0.1506 | 0.9838 | 0.9838 |
+| 252 | 0.1594 | 0.9821 | 0.9821 |
+| 504 | 0.1799 | 0.9794 | 0.9794 |
+
+Rule result: 252 is within 0.02 of the smallest deciding value (0.9794), so 252 is kept; no
+migration, default or golden change. Dominant skip reason in both families: degenerate occupation
+(no not-converged or other-gate skips at 1d). Labeled fraction of rows after the first boundary,
+reported not decided on: trend 0.85 / 0.84 / 0.82, volatility 0.016 / 0.018 / 0.020 at 126 / 252 / 504.
+
+The premise of this todo (a schedule mismatch) is refuted: `regime_volatility` at 1d is gated off
+for about 98% of segments at every schedule because the 3-state fit on the 250-day windows leaves
+one state empty in the decode (median minimum state occupation 0 over the 742 no-label cells at
+252). The coverage problem is the model configuration, filed as todo 478.
