@@ -326,6 +326,12 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-19 old-chain deletion (D-09): eight services (ensemble_trainer, ensemble_ic_engine,
+  alpha_frame_writer, counterfactual_tracker, alpha_publisher, alpha_scorer, ic discovery report,
+  cross_sectional_spread_tracker), `gate_math`, three ensemble modules, two unit files and 34 test
+  files removed; `ensemble/` keeps covariance, shrinkage, weights with an import-free init; the five
+  units are deny-listed in the registry test; `repro_frozen` bit-identical on merged main; last commit
+  holding the code is `2d4c2e4e1`; the two ops scripts and orchestrator steps 7-8 left for 186-21
 - [x] 186-18 regime bundle on the kernel: trend obs rows start after the nested vol_of_vol warmup
   (RED test, golden regenerated in its own commit, volatility digests unchanged; todo 286), WR-01
   pinned on both kernel families (292); a read-only coverage sweep decided by pre-registered rules:
