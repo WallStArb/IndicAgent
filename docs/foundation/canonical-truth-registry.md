@@ -10,7 +10,7 @@
 / `trade_frames`/`trade_executions`/`signal_ledger`) describe the **v2.x pipeline — archived, no
 live consumer as of 2026-07-02** (see `CLAUDE.md` Architecture section). They are retained below
 for historical ownership record, not as live behavior. The v3.0 pipeline
-(`feature_vectors` → `forward_returns` → `feature_ic_scores` / `alpha_ensemble_ic` → `alpha_events`)
+(`feature_vectors` → `forward_returns` → `feature_ic_scores`)
 is the live canonical set.
 
 This registry defines which stream/table owns each durable business fact. Any new table, stream, read model, or cache must either appear here or explicitly declare that it is a derived projection.
@@ -45,9 +45,8 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | v3.0 IC discovery report | None (file write) | `docs/analysis/ic-discovery-report-{date}.md` | `ICEngine` | Markdown report of features passing FDR + walk-forward gates by regime and TF. Written at end of each IC Engine run. Not a DB table — filesystem artifact. |
 
 <!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger view (renamed from signal_ledger_full, Phase 130) — verified 2026-09-04 -->
-<!-- alpha_ensemble_ic, ensemble_alpha, alpha_events: no writer since 186-19; dropped by 186-22 -->
+<!-- alpha_ensemble_ic, ensemble_alpha, alpha_events: rows removed; tables dropped by migration 426 (186-22) -->
 <!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
-<!-- v3.0 rows added 2026-09-04: alpha_ensemble_ic, ensemble_alpha, alpha_events (previously undocumented terminal pipeline nodes) -->
 
 ## Signal Ledger Architecture (SLA) Note *(v2.x — archived, no live consumer as of 2026-07-02)*
 

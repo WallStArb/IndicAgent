@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-08-25
+closed: 2026-10-01
 source: Phase 173 Plan 02 (173-02-PLAN.md Task 2) -- surfaced while deleting ic_engine.py's
   bespoke CONTEXT_FEATURES daily-cadence significance path
 ---
@@ -73,3 +74,7 @@ Re-scoped: retire `context_writer` (`indicagent-ctx-writer.service`, running 202
 ## Unified design adopted 2026-09-26
 
 Folded into phase 186 (adopted unified design, todo 436, section 14): `context_features` is summarized then dropped (design section 14.2, amended 2026-09-26), and its writer goes with the old-chain deletion after a consumer check.
+
+## Closed 2026-10-01 by plan 186-22
+
+Migration 426 dropped `context_features` (card `cache-context-features`) and the writer script `infrastructure_context_features_writer.py` was deleted. The three APR keys it read (`feature.vix.zscore_window`, `feature.yield_curve.zscore_window`, `feature.cross_asset.rv_window`) stay: `feature_factory` and `feature_vector_pipeline` read them per bar.
