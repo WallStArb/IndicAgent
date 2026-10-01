@@ -61,20 +61,25 @@ CREATE TRIGGER economic_series_observation_append_only
 
 CREATE TABLE IF NOT EXISTS economic_series_observation_coverage (
     series_id TEXT PRIMARY KEY,
+    unit TEXT NOT NULL,
     covered_from DATE NOT NULL,
     covered_to DATE NOT NULL,
     checked_at TIMESTAMPTZ NOT NULL
 );
 
 COMMENT ON TABLE economic_series_observation_coverage IS
-    'Span of observation dates a series'' last fetch examined (todo 480). A day outside it is '
+    'Per series: its declared unit and the span of observation dates any fetch has examined '
+    '(todo 480). The unit is declared by the provider (FRED metadata, or the NY Fed field map), '
+    'never inferred from a value, and a run fails if it changes. A day outside the span is '
     'unknown, not missing.';
 
 CREATE OR REPLACE VIEW economic_series_observation_current AS
-SELECT DISTINCT ON (series_id, observation_date)
-       source, series_id, observation_date, value, available_at, availability_basis
-FROM economic_series_observation
-ORDER BY series_id, observation_date, available_at DESC;
+SELECT DISTINCT ON (o.series_id, o.observation_date)
+       o.source, o.series_id, o.observation_date, o.value, c.unit, o.available_at,
+       o.availability_basis
+FROM economic_series_observation o
+JOIN economic_series_observation_coverage c USING (series_id)
+ORDER BY o.series_id, o.observation_date, o.available_at DESC;
 
 COMMENT ON VIEW economic_series_observation_current IS
     'Latest known value per series and observation date (todo 480). Not point in time: for a '

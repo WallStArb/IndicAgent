@@ -22,6 +22,7 @@ import asyncio
 import dataclasses
 import json
 from datetime import UTC, date, datetime, timedelta
+from typing import NamedTuple
 
 import asyncpg
 
@@ -60,6 +61,11 @@ class NewRow:
 class Plan:
     rows: list[NewRow]
     n_vanished: int  # stored days inside the fetched span that FRED did not serve
+
+
+class Series(NamedTuple):
+    unit: str  # declared by the provider, never inferred from a value
+    rows: list[tuple[date, float]]
 
 
 class _SeriesFailure(Exception):
@@ -168,9 +174,9 @@ class EconomicSeriesWriter(BaseBatch):
             source, entry_id = entry["source"], entry["series_id"]
             try:
                 fetched = await self._fetch(source, entry_id)
-                for series_id, rows in fetched.items():
+                for series_id, series in fetched.items():
                     n_new, n_revised, n_vanished = await self._write_series(
-                        pool, source, series_id, rows, lag_days
+                        pool, source, series_id, series, lag_days
                     )
                     totals["inserted"] += n_new
                     totals["revised"] += n_revised
@@ -195,29 +201,32 @@ class EconomicSeriesWriter(BaseBatch):
         if failed:
             raise RuntimeError(f"economic_series_writer: {len(failed)} failures: {failed}")
 
-    async def _fetch(self, source: str, entry_id: str) -> dict[str, list[tuple[date, float]]]:
-        """One entry's series as served today: {series id: rows}; raises _SeriesFailure."""
+    async def _fetch(self, source: str, entry_id: str) -> dict[str, Series]:
+        """One entry's series as served today: {series id: Series}; raises _SeriesFailure."""
         if source == nyfed.SOURCE:
             fetched, error = await nyfed.fetch_rate_series(entry_id, self._timeout_sec)
-        else:
-            rows, error = await fred.fetch_observations(
-                entry_id, self._settings.fred_api_key, self._timeout_sec
-            )
-            fetched = {entry_id: rows}
+            if error is not None:
+                raise _SeriesFailure(error)
+            return {sid: Series(nyfed.series_unit(sid), rows) for sid, rows in fetched.items()}
+        key = self._settings.fred_api_key
+        rows, error = await fred.fetch_observations(entry_id, key, self._timeout_sec)
+        if error is None:
+            unit, error = await fred.fetch_unit(entry_id, key, self._timeout_sec)
         if error is not None:
             raise _SeriesFailure(error)
-        return fetched
+        return {entry_id: Series(unit, rows)}
 
     async def _write_series(
         self,
         pool: asyncpg.Pool,
         source: str,
         series_id: str,
-        fetched: list[tuple[date, float]],
+        series: Series,
         lag_days: int,
     ) -> tuple[int, int, int]:
         """Append one series' new and revised days in one transaction; returns (new, revised,
         vanished)."""
+        fetched = series.rows
         now = datetime.now(UTC)
         async with pool.acquire() as conn, conn.transaction():
             stored = {
@@ -229,10 +238,13 @@ class EconomicSeriesWriter(BaseBatch):
                 )
             }
             coverage = await conn.fetchrow(
-                "SELECT covered_from, covered_to FROM economic_series_observation_coverage "
-                "WHERE series_id = $1",
+                "SELECT unit FROM economic_series_observation_coverage " "WHERE series_id = $1",
                 series_id,
             )
+            if coverage is not None and coverage["unit"] != series.unit:
+                raise _SeriesFailure(
+                    f"{series_id}: unit changed from {coverage['unit']} to {series.unit}"
+                )
             plan = plan_rows(fetched, stored, coverage is None, now, lag_days)
             if plan.n_vanished:
                 self.logger.warning(
@@ -257,14 +269,15 @@ class EconomicSeriesWriter(BaseBatch):
             )
             await conn.execute(
                 "INSERT INTO economic_series_observation_coverage "
-                "(series_id, covered_from, covered_to, checked_at) "
-                "VALUES ($1, $2, $3, $4) ON CONFLICT (series_id) DO UPDATE SET "
+                "(series_id, unit, covered_from, covered_to, checked_at) "
+                "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (series_id) DO UPDATE SET "
                 "covered_from = LEAST(economic_series_observation_coverage.covered_from, "
                 "EXCLUDED.covered_from), "
                 "covered_to = GREATEST(economic_series_observation_coverage.covered_to, "
                 "EXCLUDED.covered_to), "
                 "checked_at = EXCLUDED.checked_at",
                 series_id,
+                series.unit,
                 fetched[0][0],
                 fetched[-1][0],
                 now,

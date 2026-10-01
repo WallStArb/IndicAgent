@@ -47,6 +47,33 @@ FIELD_SUFFIX = {
     "index": "INDEX",
 }
 
+# The unit of each field, declared here once and never inferred from a value. Rates, percentiles,
+# the target range, intraday extremes, the standard deviation and the averages are percent
+# (percentage points); volume is US dollars in billions; the SOFR Index is an index level.
+SUFFIX_UNIT = {
+    "RATE": "percent",
+    "P01": "percent",
+    "P25": "percent",
+    "P75": "percent",
+    "P99": "percent",
+    "VOLUME_BN": "billions_usd",
+    "INTRADAY_HIGH": "percent",
+    "INTRADAY_LOW": "percent",
+    "STD_DEV": "percent",
+    "TARGET_FROM": "percent",
+    "TARGET_TO": "percent",
+    "AVG_30D": "percent",
+    "AVG_90D": "percent",
+    "AVG_180D": "percent",
+    "INDEX": "index_level",
+}
+
+
+def series_unit(series: str) -> str:
+    """The declared unit of a `NYFED_<TYPE>_<FIELD>` series id."""
+    suffix = next(s for s in SUFFIX_UNIT if series.endswith(f"_{s}"))
+    return SUFFIX_UNIT[suffix]
+
 
 def series_id(rate_type: str, suffix: str) -> str:
     return f"NYFED_{rate_type}_{suffix}"

@@ -13,6 +13,7 @@ import httpx
 
 SOURCE = "fred"
 _OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+_SERIES_URL = "https://api.stlouisfed.org/fred/series"
 # FRED marks a day with no observation as "."; that is missing, never zero (no_fill).
 _MISSING = "."
 
@@ -64,3 +65,19 @@ async def fetch_observations(
     if not rows:
         return [], "no observations returned"
     return rows, None
+
+
+async def fetch_unit(series_id: str, api_key: str, timeout_sec: float) -> tuple[str, str | None]:
+    """The unit FRED declares for a series ("Percent", "Index", ...), lower-cased with spaces
+    as underscores: (unit, None) or ("", error). Declared by the provider, never inferred from
+    a value."""
+    params = {"series_id": series_id, "api_key": api_key, "file_type": "json"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout_sec) as client:
+            response = await client.get(_SERIES_URL, params=params)
+        response.raise_for_status()
+        unit = response.json()["seriess"][0]["units"]
+    except Exception as error:
+        message = str(error).replace(api_key, "<redacted>") if api_key else str(error)
+        return "", f"{type(error).__name__}: {message}"[:200]
+    return unit.strip().lower().replace(" ", "_"), None

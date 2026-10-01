@@ -12,7 +12,7 @@ from services.economic_series_writer import (
     plan_rows,
 )
 from src.providers.fred import parse_observations
-from src.providers.nyfed import parse_rate_records
+from src.providers.nyfed import FIELD_SUFFIX, SUFFIX_UNIT, parse_rate_records, series_unit
 
 NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
 
@@ -135,3 +135,11 @@ def test_nyfed_not_published_marker_is_missing_and_other_text_fails():
     assert "NYFED_SOFR_P01" not in series and series["NYFED_SOFR_RATE"]
     with pytest.raises(ValueError):
         parse_rate_records("SOFR", [_sofr("2021-08-05", percentRate="oops")])
+
+
+def test_every_nyfed_field_has_a_declared_unit():
+    assert set(FIELD_SUFFIX.values()) == set(SUFFIX_UNIT)
+    assert series_unit("NYFED_SOFR_VOLUME_BN") == "billions_usd"
+    assert series_unit("NYFED_SOFRAI_INDEX") == "index_level"
+    assert series_unit("NYFED_SOFRAI_AVG_30D") == "percent"
+    assert series_unit("NYFED_EFFR_TARGET_FROM") == "percent"

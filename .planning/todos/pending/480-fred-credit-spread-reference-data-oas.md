@@ -62,6 +62,12 @@ Spot checks match the API (SOFR 3.90, P99 3.99, volume 3,230bn on 2026-09-30; EF
 4.00). The APR keys were generalized before the first push: `infra.economic_series.sources` and
 `infra.economic_series.assumed_lag_business_days`.
 
+A reuse from SSFI's canonical-unit contract (2026-10-01): each series' unit is declared (FRED's
+own metadata; a fixed field map for the NY Fed) and stored in `economic_series_observation_coverage`,
+the view `economic_series_observation_current` returns it, and a run fails if a series' unit changes.
+The daily path was also exercised: a rerun on 2026-10-01 appended 14 new observations with basis
+`fetch`.
+
 Left: install and enable the timer (needs sudo); register in the service docs; the NY Fed Primary
 Dealer and SOMA securities lending families (weekly and daily, different shape); remaining Tier 2
 FRED series; the glossary row for option-adjusted spread; first pre-registered use.
