@@ -28,6 +28,27 @@ os.environ["INDICAGENT_ENV"] = "test"
 os.environ["DATABASE_URL"] = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _contain_tempfile(tmp_path_factory):
+    """Route every bare `tempfile` call into pytest's own temp root.
+
+    Helpers that call `tempfile.mkdtemp()` without cleanup left about 10,000 directories in /tmp;
+    pytest keeps only its last three runs' roots. TMPDIR covers worker subprocesses.
+    """
+    import tempfile
+
+    root = str(tmp_path_factory.mktemp("tempfile"))
+    old_tempdir, old_env = tempfile.tempdir, os.environ.get("TMPDIR")
+    tempfile.tempdir = root
+    os.environ["TMPDIR"] = root
+    yield
+    tempfile.tempdir = old_tempdir
+    if old_env is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = old_env
+
+
 @pytest_asyncio.fixture
 async def mock_database_connection():
     """Mock database connection for testing."""

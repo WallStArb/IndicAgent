@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-07-13
 source: Fable review of todo 104 (calendar/OPEX primitives), `docs/research/signal-temporal-atomic-primitives.md`
@@ -42,3 +42,9 @@ Held, not closed: under the research methods plan (todo 436) per-feature IC is o
 ## Unified design adopted 2026-09-26
 
 Adopted unified design (todo 436): held under `corpus_family` and the missing-member rule (section 4.2); an exact affine duplicate should still be removed before the full feature recompute.
+
+## Closed 2026-10-01
+
+Plan 186-24 proved the duplicate (`days_to_month_end` equals `1 - month_position` to 1e-6 on SPY at
+5m, 15m, 1h and 1d) and dropped the column from `feature_vectors_v2` (migration 425); `month_position`
+is kept. 186-25 excludes it from the rebuilt writer explicitly (186-24 summary, deviation 2).

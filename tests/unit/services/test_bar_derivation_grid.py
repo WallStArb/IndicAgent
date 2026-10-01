@@ -107,11 +107,15 @@ class FakeConn:
         flags: dict[str, list[tuple]] | None = None,
         current_digests: dict[str, list[tuple]] | None = None,
         verify_row: dict[str, object] | None = None,
+        answered_windows: dict[str, list[tuple[datetime, datetime]]] | None = None,
+        answered_since: bool = False,
     ) -> None:
         self.bars = bars
         self.flags = flags or {}
         self.current_digests = current_digests or {}
         self.verify_row = verify_row
+        self.answered_windows = answered_windows or {}
+        self.answered_since = answered_since
         self.calls: list[tuple[str, str]] = []
         self.statements: list[tuple[str, tuple]] = []
         self.executemany_calls: list[tuple[str, list[tuple]]] = []
@@ -160,10 +164,18 @@ class FakeConn:
                 {"range_start": start, "digest": digest}
                 for start, digest in self.current_digests.get(str(args[0]), [])
             ]
+        if "ohlcv_request" in sql:
+            # The answered 5m SMART TRADES windows (task 1b's coverage read).
+            return [
+                {"window_start": start, "window_end": end}
+                for start, end in self.answered_windows.get(str(args[0]), [])
+            ]
         raise AssertionError(f"unexpected fetch: {sql}")
 
     async def fetchrow(self, sql: str, *args: object) -> object:
         self.calls.append(("fetchrow", sql))
+        if "answered_since" in sql:
+            return {"answered_since": self.answered_since}
         assert "ohlcv_intraday_raw_archive" in sql, f"unexpected fetchrow: {sql}"
         if self.verify_row is not None:
             return self.verify_row
@@ -428,3 +440,120 @@ def test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes():
     digest_5m = next(r for r in _derived_rows(conn, "bar_content_digest") if r[1] == "5m")
     assert digest_5m[7] == 77
     assert digest_5m[4] == expected[datetime(2024, 6, 1, tzinfo=UTC)][0]
+
+
+# ---------------------------------------------------------------------------
+# Task 1b: partial_constituents flags and the --changed-only answered-window
+# condition (todo 462: holes stop at the derivation edge).
+# ---------------------------------------------------------------------------
+
+
+def _flags_of(conn: FakeConn, rule: str) -> list[tuple]:
+    return [r for r in _derived_rows(conn, "bar_quality_flag") if r[3] == rule]
+
+
+def _answered_windows_for_slot(slot: datetime):
+    """A window generously covering `slot`'s [slot, slot+5m) interval."""
+    return {"SPY": [(slot - timedelta(minutes=5), slot + timedelta(minutes=10))]}
+
+
+def test_complete_bar_without_holes_gets_no_partial_flag():
+    fixture = _five_minute_fixture()
+    conn = FakeConn(bars={"SPY": fixture})
+    totals = _run(conn)
+    assert totals["derived"] == 1
+    assert _flags_of(conn, "partial_constituents") == []
+
+
+def test_hole_without_answered_window_is_flagged_partial():
+    """Bar 40's slot (16:50 UTC) is absent from the tradeable 5m rows and no
+    answered ohlcv_request window covers it: every derived bar over that slot
+    (the 15m bucket and the 1h bucket) carries partial_constituents."""
+    fixture = _five_minute_fixture()
+    holed = fixture[:40] + fixture[41:]
+    conn = FakeConn(bars={"SPY": holed})
+    totals = _run(conn)
+    assert totals["derived"] == 1
+
+    flag_rows = _flags_of(conn, "partial_constituents")
+    by_key = {(r[1], r[2]): r for r in flag_rows}
+    slot_40 = fixture[40][0]
+    hour_bucket = _SESSION_OPEN + timedelta(hours=3)  # the 16:30-17:30 bucket
+    assert set(by_key) == {
+        ("15m", slot_40 - timedelta(minutes=5)),  # the 16:45 15m bucket
+        ("1h", hour_bucket),
+    }
+    for row in flag_rows:
+        assert row[4] == GRID_RULE_VERSION and row[6] is False and row[8] == _BATCH_ID
+        detail = json.loads(row[7])
+        assert detail["missing_slots"] == 1
+
+
+def test_answered_window_covers_the_hole_and_no_flag_is_written():
+    """The same hole inside an answered SMART TRADES window (asked, nothing
+    traded) is a real observation: no partial flag anywhere."""
+    fixture = _five_minute_fixture()
+    holed = fixture[:40] + fixture[41:]
+    conn = FakeConn(
+        bars={"SPY": holed},
+        answered_windows=_answered_windows_for_slot(fixture[40][0]),
+    )
+    assert _run(conn)["derived"] == 1
+    assert _flags_of(conn, "partial_constituents") == []
+
+
+def test_partial_flag_does_not_change_the_digest():
+    """The flag is derived-bar metadata, never a digest input: the digest of a
+    month with the flag equals the digest of the same month without it."""
+    fixture = _five_minute_fixture()
+    holed = fixture[:40] + fixture[41:]
+
+    def _digests(answered: bool) -> dict[str, list[tuple]]:
+        conn = FakeConn(
+            bars={"SPY": holed},
+            answered_windows=_answered_windows_for_slot(fixture[40][0]) if answered else {},
+        )
+        assert _run(conn)["derived"] == 1
+        return {r[1]: r[4] for r in _derived_rows(conn, "bar_content_digest")}
+
+    assert _digests(answered=False) == _digests(answered=True)
+
+
+def test_rewrite_replaces_the_segments_partial_flags():
+    """A later answered window must clear a stale flag: the re-derive deletes
+    the segment's partial_constituents flags before writing the fresh set
+    (here: the hole is unanswered, so a fresh partial flag is written)."""
+    fixture = _five_minute_fixture()
+    holed = fixture[:40] + fixture[41:]
+    conn = FakeConn(bars={"SPY": holed})
+    assert _run(conn)["derived"] == 1
+    deletes = [
+        (sql, args)
+        for sql, args in conn.statements
+        if sql.lstrip().startswith("DELETE FROM bar_quality_flag")
+    ]
+    assert len(deletes) == 1
+    sql, args = deletes[0]
+    assert "partial_constituents" in sql
+    assert list(args[1]) == ["15m", "1h"]
+    i_delete = _first_index(conn, "DELETE FROM bar_quality_flag")
+    i_flags = _first_index(conn, "INSERT INTO bar_quality_flag", kind="executemany")
+    assert i_delete < i_flags  # the fresh set replaces, never accumulates onto
+
+
+def test_changed_only_selects_symbol_with_new_answered_window():
+    """A symbol whose 5m digests are unchanged is still re-derived when an
+    answered ohlcv_request window was recorded after its last derivation."""
+    expected = _expected_month_digests(_five_minute_fixture())
+    current = {"SPY": [(start, digest) for start, (digest, _n) in expected.items()]}
+    conn = FakeConn(bars={"SPY": _five_minute_fixture()}, current_digests=current)
+    totals = _run(conn, changed_only=True)  # answered_since defaults False
+    assert totals["unchanged"] == 1 and totals["derived"] == 0
+
+    conn = FakeConn(
+        bars={"SPY": _five_minute_fixture()},
+        current_digests=current,
+        answered_since=True,
+    )
+    totals = _run(conn, changed_only=True)
+    assert totals["derived"] == 1 and totals["unchanged"] == 0

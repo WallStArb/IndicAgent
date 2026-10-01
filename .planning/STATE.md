@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-09-30T04:40:00.000Z"
+last_updated: "2026-10-01T17:30:00.000Z"
 progress:
   total_phases: 6
   completed_phases: 1
@@ -67,7 +67,7 @@ bullets with current facts.
   names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 23 done (01 to 16, 18 to 22, 24, 29; waves 1-3 complete, 15, 18, 19 and 20 in wave 4; 186-20 parity gate accepted by the owner 2026-10-01 on the legacy-replica criterion, stored feature_ic_scores holds IC 0.0 for features with missing values); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); 186-22 dropped nine old-chain tables (migration 426, 50.7 GB freed); 186-29 landed after the owner released the research lane. Next: 186-25 (wave 6), then 186-23 (gated on 185 D-14), 26 (gated on todo 449), 27, 28; 186-24 made feature_vectors_v2 312 columns (Asian session pair kept), 186-25 and 186-27 plan literals updated.
+  sequential, one executor at a time). 23 done (01 to 16, 18 to 22, 24, 29; waves 1-3 complete, 15, 18, 19 and 20 in wave 4; 186-20 parity gate accepted by the owner 2026-10-01 on the legacy-replica criterion, stored feature_ic_scores holds IC 0.0 for features with missing values); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); 186-22 dropped nine old-chain tables (migration 426, 50.7 GB freed); 186-29 landed after the owner released the research lane. Next: 186-25 (wave 6, executing on branch `phase-186-25`), then 186-23 (gated on 185 D-14), 26 (gated on todo 449), 27, 28; 186-24 made feature_vectors_v2 312 columns (Asian session pair kept), 186-25 and 186-27 plan literals updated.
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
   rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
   `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
@@ -105,7 +105,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | Released by the owner 2026-10-01 for the one-line `HarnessConfig` import switch in the five research tests (186-29); otherwise the phase 183 session owns `src/intelligence/research/` and nobody else edits it |
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
-| Phase 186 | `/gsd-execute-phase 186` (coordinator indicagent-f3): 5/29 done; next 186-07, then wave 1 continues 07-10 and waves 2-10, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
+| Phase 186 | `/gsd-execute-phase 186`: 23/29 done plus 186-17 partial; 186-25 executing on branch `phase-186-25` (worktree `indicagent-186-25`), then 186-23, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
 | Phase 185 | `/gsd-execute-phase 185`: 14/24 done (01-11, 13, 14, 15); next 12 (wave 4), then 16-24 | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
@@ -113,19 +113,18 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 ## Decisions waiting on the owner
 
-- Long-history index levels (raised 2026-10-01): store FRED's Nasdaq Composite (daily since 1971) and
-  any free long S&P series as context-only economic series, never a tradeable price (the Yahoo
-  dividends precedent), or keep equity prices strictly IBKR. Needed for any test of equity behavior
-  before 2006 (`docs/ideas/signal-macro-context-layer.md`).
-- Midterm forward observation: if the post-midterm presidential-cycle effect is to be tested, its spec
-  must be committed before the 2026-11-03 election to count as a forward observation
-  (`docs/ideas/signal-political-policy-regime.md`). Otherwise nothing is lost.
+- None open. The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward
+  window (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`; todo 483
+  records its result after 2027-05-03.
 
 ## Open items that are not verdicts
 
 - Economic series (todo 480, 2026-10-01): `economic_series_observation` holds 10 FRED and 39 NY Fed
   series. Backfilled FRED availability times are assumed, not measured (THREEFYTP10 about a week
   early); todo 482 (deferred, gate: phase 184 B8) reloads them from ALFRED. No reader until B8.
+  Owner decided 2026-10-01: long-history index levels are stored as context-only series (migration
+  427: Yahoo S&P 500 from 1927 and Nasdaq 100 from 1985, FRED Nasdaq Composite from 1971); Nasdaq 100
+  sources disagree on 2003-2005 closes (recorded in todo 480).
 
 - Todo 248 (HMM per-symbol lookahead): walk-forward deployed 2026-08-12. Stored regime columns
   carry the todo 451 gate mask until the 186-26 rebuild; 186-13 made the HMM a registry kernel.

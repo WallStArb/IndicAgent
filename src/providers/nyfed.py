@@ -52,7 +52,8 @@ FIELD_SUFFIX = {
 
 # The unit of each field, declared here once and never inferred from a value. Rates, percentiles,
 # the target range, intraday extremes, the standard deviation and the averages are percent
-# (percentage points); volume is US dollars in billions; the SOFR Index is an index level.
+# (percentage points); volume is US dollars in billions; the SOFR Index is an index (`index`, FRED's code for the same
+# quantity).
 SUFFIX_UNIT = {
     "RATE": "percent",
     "P01": "percent",
@@ -68,7 +69,7 @@ SUFFIX_UNIT = {
     "AVG_30D": "percent",
     "AVG_90D": "percent",
     "AVG_180D": "percent",
-    "INDEX": "index_level",
+    "INDEX": "index",
 }
 
 

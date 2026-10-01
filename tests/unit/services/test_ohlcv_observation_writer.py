@@ -395,3 +395,49 @@ async def test_async_flush_refuses_an_open_caller_transaction():
     with pytest.raises(RuntimeError, match="idle connection"):
         await sink.flush(conn)
     assert conn.copies == []
+
+
+def test_take_requests_removes_only_the_wanted_rows_and_keeps_the_rest():
+    """The atomic persist helper (plan 12) commits a chunk's request rows
+    itself; take_requests hands them over without flushing, and the remaining
+    buffer (1d observations, failed requests) flushes afterwards as before."""
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="unit-test")
+    run = new_fetch_run_id()
+    chunk_a = _record(run, str(uuid.uuid4()), timeframe="15m")
+    chunk_b = _record(run, str(uuid.uuid4()), timeframe="15m")
+    daily = _record(run, str(uuid.uuid4()), timeframe="1d")
+    sink.on_request(chunk_a)
+    sink.on_request(chunk_b)
+    sink.on_request(daily)
+    sink.on_observation(daily, _bars(2))
+
+    taken = sink.take_requests([chunk_a.request_id])
+    assert [row[0] for row in taken] == [uuid.UUID(str(chunk_a.request_id))]
+    # The rest is still buffered: chunk_b's and daily's requests, daily's 2 rows.
+    assert sink.pending() == 4
+    assert sink.flush() == (2, 2)
+    copied_requests = conn.copies[0][1]
+    assert uuid.UUID(str(chunk_a.request_id)) not in {row[0] for row in copied_requests}
+    assert uuid.UUID(str(chunk_b.request_id)) in {row[0] for row in copied_requests}
+
+
+def test_take_requests_with_no_match_returns_empty_and_changes_nothing():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="unit-test")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    assert sink.take_requests([str(uuid.uuid4())]) == []
+    assert sink.pending() == 1
+    assert sink.flush() == (1, 0)
+
+
+def test_taken_requests_never_flush_twice():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="unit-test")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    taken = sink.take_requests([record.request_id])
+    assert len(taken) == 1
+    assert sink.flush() == (0, 0)  # nothing left: the taken rows are the helper's
+    assert conn.copies == []

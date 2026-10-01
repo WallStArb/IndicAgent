@@ -61,6 +61,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
@@ -74,6 +75,7 @@ from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline impo
     EXIT_LEASE_TIMEOUT,
     connect_db,
 )
+from scripts.ops.bars.ops_grid_lane_guard import write_exclude_file  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.core.integrity_monitor import emit_integrity_fact_sync  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
@@ -85,6 +87,10 @@ _logger = structlog.get_logger(__name__)
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
+_GRID_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
+# The lane guard's exclude file for the grid stage (symbols a running backfill
+# lane is writing are not derived mid-lane). Recreated fresh each run.
+_GRID_EXCLUDE_FILE = Path(tempfile.gettempdir()) / "indicagent-nightly-grid-exclude-symbols.txt"
 _NIGHTLY_LEASE_WAIT_KEY = "infra.ibkr_history_lease.nightly_wait_minutes"
 _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES = 60  # migration 380 APR seed
 
@@ -207,6 +213,39 @@ def _run_delegate(symbols: list[str], extra_args: tuple[str, ...]) -> int:
     return result.returncode
 
 
+def _prepare_grid_stage() -> Path:
+    """Write the lane guard's exclude file for the grid stage; raise RuntimeError
+    when a grid-timeframe lane runs without --symbols (the stage must not start
+    scoped only by hope)."""
+    write_exclude_file(_GRID_EXCLUDE_FILE)
+    return _GRID_EXCLUDE_FILE
+
+
+def _run_grid_stage(exclude_file: Path) -> int:
+    """Derive the 15m/1h grid for every symbol whose 5m changed (plan 12).
+
+    The legs fetch 1h/15m into ohlcv_intraday_raw_archive now, so symbols whose
+    5m arrived late (todo 449) get their derived rows from this stage, with the
+    lane guard's file keeping running lanes' symbols out. --changed-only means
+    a clean night costs a digest comparison per symbol, not a rewrite.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_GRID_SCRIPT),
+            "--stage",
+            "grid",
+            "--changed-only",
+            "--apply",
+            "--exclude-symbols-file",
+            str(exclude_file),
+        ],
+        cwd=str(project_root),
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    return result.returncode
+
+
 def _finish(status: str, message: str, returncode: int = 0) -> int:
     """Log, print, emit job_completed_total, flush OTel, and return the process exit code."""
     if status == "success":
@@ -254,6 +293,17 @@ def main() -> int:
         if returncode == EXIT_LEASE_TIMEOUT:
             lease_timeout_legs.append(leg.name)
             _emit_lease_timeout_fact(leg.name, settings)
+
+    # Plan 12: the legs' 1h/15m landed in the archive as raw observations; the
+    # grid stage derives 15m/1h from 5m for every symbol whose inputs changed.
+    # No skip path: it also runs after a leg that ended failed_lease_timeout
+    # (derived rows are exactly what a shortened fetch night still needs).
+    try:
+        exclude_file = _prepare_grid_stage()
+    except RuntimeError as error:
+        return _finish("failed", f"Grid stage not started: {error}", returncode=1)
+    returncodes.append(_run_grid_stage(exclude_file))
+    exclude_file.unlink(missing_ok=True)
 
     returncode = next((rc for rc in returncodes if rc != 0), 0)
     if lease_timeout_legs:

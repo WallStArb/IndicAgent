@@ -1,75 +1,98 @@
-# Grok review — Phase 185 (owner-run external)
+# Grok review — Phase 185 (fresh pass after the plan update)
 
-**Reviewer:** Grok (Cursor session on `\\192.168.68.60\dev\indicagent`)
-**Reviewed:** 2026-09-27
-**Plans:** all 24 (`185-01` through `185-24`)
-**Method:** same two passes as `186-REVIEW-GROK.md`. Consistency: `185-CONTEXT.md` (D-01..D-31, deferred list), the ROADMAP phase section, every plan's wave / `depends_on` / `requirements`, and the task text of the load-bearing plans (`04`, `09`, `10`, `11`, `12`, `16`, `17`, `18`, `19`). Council: one writer, one grid, flags that cannot hide a bar by accident, failures loud.
+**Reviewer:** Grok 4.7, four fresh-context passes (plans 01–06, 07–12, 13–18, 19–24), synthesized here
+**Reviewed:** 2026-09-29
+**Plans:** all 24 (`185-01` through `185-24`), current text
+**Method:** gsd-review prompt (summary, strengths, concerns, suggestions, risk) against `185-CONTEXT.md` D-01..D-31, the ROADMAP phase section, and spot-checks of cited files. Prior file (2026-09-27) was not shown to the reviewers. Council: one writer, one grid, flags that cannot hide a bar by accident, failures loud.
 
-Plans and `185` research docs were not edited.
+Plans were not edited.
+
+## What changed since 2026-09-27
+
+The previous HIGH is closed in the text. `185-12`'s objective no longer says the expansion lanes are never stopped. It now orders the cut-over: kill the pipeline by pid, sweep orphans, terminate leftover backends, let the lane resume, then rewrite. `185-16`'s success line now says D-04 is not met until the research lane applies the hand-off.
+
+The new defect is numbering. Phase 186 has already landed migrations `384` through `388`. Unexecuted plans 13, 15, 17, 19, and 21 still name those numbers in `files_modified`. Plans 20 and 22–24 reserve `389`–`392`, which is where a naive renumber of the earlier files would land. One remap of all nine files, then a re-check immediately before `psql -f`.
 
 ## Summary
 
-The 24 plans will deliver the phase goal if the task text is followed: raw IBKR answers land in an append-only store, one derivation writes canonical 1d bars, quarantine is a side table the tradeable view anti-joins, and the 15m/1h grid readers see is computed from 5m. Every locked decision D-01 through D-31 appears in at least one plan's `requirements`. Deferred work (D8, a vendor source, an intraday raw store, todo 438) is not pulled in. The dependency graph is acyclic and every wave number is one past the latest dependency wave. One instruction contradicts its own task and can leave two 1h grids in the table readers use. That is the defect to fix before execution. The rest is schedule coupling and a label that does not land on the attempt until another lane applies a hand-off.
+Waves 1–2 and plans 10–11 are the right architecture and are already checked off: append-only D1, quarantine as a side table, the tradeable view as the read boundary, the session lease, and archive-with-checksum before the stored 15m/1h leave `market_data_ohlcv`. The remaining plans will deliver the phase goal if the migration filenames are renumbered before anyone creates a file, and if plan 12 names a single insert path into the intraday archive and does not call `ObservationSink.flush()` inside the transaction that is supposed to commit the request and the bars together. Everything else is a verify command, a requirements tag, or a schedule coupling. Deferred work (D8, a vendor source, an intraday raw store, todo 438) stays out.
 
 ## Strengths
 
-- Flag, never delete, is structural. `bar_quality_flag` is an uncompressed side table. `185-10` forbids `INSERT`/`UPDATE` of `market_data_ohlcv` from the scrub path. The known-answer set (45 unflagged corrupt bars, 27 Flash Crash clears, 15 legacy rows, 1,864 edge bars that must stay) is a stop, not a report.
-- Venue volume is already the right predicate. Migration 374 filters `WHERE volume > 0` on the stored column, then projects `volume` as NULL when `source = 'ibkr_venue'`. Recovered bars stay in the tradeable view. Their volume cannot be summed as SMART volume. `185-19` checks that.
-- Lineage does not widen the compressed hypertable. `185-17` states that no provenance column is added to `market_data_ohlcv`. `canonical_bar_lineage` holds rule version and request ids. `185-18` makes the derivation the only 1d writer and fences the other writers in CI.
-- The grid switch keeps the raw bars. `185-11` archives stored IBKR 15m/1h, checks count and value checksum inside the same transaction, then deletes that segment and writes `derived_5m`. Synthetic fills are not archived. Readers of the canonical table see one grid per symbol.
-- The lease replaces a silent skip. `185-09` deletes the nightly `pgrep` path. A leg that cannot get the stream fails with `failed_lease_timeout` and an integrity fact. The lock is session-level, so a dead process cannot hold it.
-- D-11 is a known answer, not a comment. Cross-symbol corroboration must not clear a print past the magnitude threshold. The Flash Crash date is in the fixture the historical pass must quarantine.
+- Flag, never delete, is structural. `bar_quality_flag` is a side table. Plan 10 forbids `INSERT`/`UPDATE` of `market_data_ohlcv` from the scrub path. The known-answer set is a stop.
+- The lease replaced the nightly skip, and plan 09's summary records the cut-over: the todo 449 process restarted onto the lease on its next lane attempt (pid 1883343, `lease:ibkr_history_stream:bulk:historical-pipeline:46` in `pg_stat_activity`). No silent skip remains in that path.
+- Plan 11 archives stored IBKR 15m/1h with a count and value checksum in the same transaction, then deletes that segment. Synthetic fills are not archived.
+- Plan 12's current objective matches its task: the running pipeline is cut over before any symbol is rewritten, the nightly is checked with `systemctl is-active`, and `partial_constituents` is `quarantine=false` so a partial bar stays visible.
+- Plan 17 keeps rule version and request ids on `canonical_bar_lineage`, not on the compressed hypertable. Plan 18 fences the other 1d writers. Plan 20 refuses intraday recovery until phase 186 writes the unlock keys, and it does not start that rebuild.
+- Plan 21 freezes the dividend pure functions and hands disputed spanning returns to the research lane instead of editing `src/intelligence/research/dividends.py` while that lane is held.
 
 ## Concerns
 
-- **HIGH — `185-12` tells the executor two opposite things about the running pipeline.** The objective says the 1h/15m expansion lanes are never stopped; their names are excluded from the rewrite. Task 2 says to kill the pipeline process, the same way `185-09` task 4 does, before the rewrite, so no process is still running the pre-plan-12 code. That second cut-over is the one that matters. Plan 09 restarts the chain onto the lease. Plan 12 then changes the same file so 15m/1h writes go to the archive. A process restarted at plan 09 still has the old store path. If it keeps running, it inserts IBKR 15m/1h into `market_data_ohlcv` after derived rows exist. The live check looks for both `:00` and `:30` in one session. A writer that starts after the check, or a symbol the lane guard excluded and then finishes on old code, puts the second grid back. Readers of the tradeable view then mix session-anchored derived bars with IBKR's own clock. Phase 186's rebuild consumes that table. Follow task 2. Delete the objective sentence.
-- **MEDIUM — D-04 is a hand-off, and the phase can close without it.** `185-16` writes `load_label_inputs` and a data-bar check. The S0 manifest and runner evidence (rule version, digests, the data-quality block) are edited only if STATE.md shows the research lane released. Otherwise the plan writes `185-S0-HANDOFF.md` and stops. Attempts are paused until 185 and 186 land, so nothing is mislabeled today. The decision says every attempt carries the labels. A markdown file does not. The data-bar check should stay a hard gate in front of the next attempt, owned by whoever applies the hand-off, and `185-16`'s success line should say the labels are not on the runner until that happens.
-- **MEDIUM — migration numbers 380–392 collide with phase 186 wave 1.** This phase names `380_ohlcv_observation_store` through `392_listing_venue`. `186-05`, `186-06`, and `186-09` still describe 380 as the next free number after 379, with a re-check at write time. Parallel worktrees can take the same number between the check and `psql -f`. Same note as the 186 review. The rule is already "next free." It has to be re-checked immediately before apply, on both phases.
-- **MEDIUM — `market_data_ohlcv_scrub_input` shows quarantined bars and has no reader fence.** The view is for the scrub and seam stages, and the comment says so. It is granted to `bar_derivation_writer` and is not added to the raw-table allow-list, because it is not the raw table. A later script that selects from it treats flagged bars as eligible. The tradeable view is the boundary that makes D-09 true. This view is a hole beside it. A CI grep, the same shape as the raw-table boundary, limited to the scrub and seam modules, closes it.
-- **LOW — dropping a scrub rule does not clear its flags.** `write_flags` deletes and reinserts only the rules that run evaluated. A full pass replaces those. A later run that stops evaluating a rule leaves that rule's quarantine rows in place, and the view keeps hiding the bars. Raw rows are safe. The hide is not. A full pass should delete flags for rules no longer in the evaluated set, for the span it covers, and log the count.
+- **HIGH — migrations 384–388 are already phase 186's files.** On disk: `384_market_regimes_duplicate_index_drop.sql`, `385_primary_key_inventory.sql`, `386_provenance_batch.sql`, `387_feature_lifecycle_data_quality.sql`, `388_drop_ctx_tables.sql`. Still named in plans: `384_corporate_action` (15), `385_venue_study_switches` (13), `386_canonical_bar_lineage` (17), `387_dividend_date_dispute` (21), `388_venue_fallback_store_bars_retired` (19). Each objective says "next free if taken." `files_modified` does not. An executor who creates the named path fails the migration-number uniqueness check, or, if they ignore it, writes the wrong SQL under a taken number. Plans 20, 22, 23, and 24 already claim `389`–`392`. Renumbering only 13/15/17/19/21 into that range collides again. Next free after 388 is 389. All nine files move together.
+
+- **HIGH — `185-12` grows a second writer of `ohlcv_intraday_raw_archive` and a transaction that fights `ObservationSink.flush`.** Plan 11's derivation inserts archived IBKR 15m/1h. Plan 12 task 1a also routes pipeline fetches into that table. There is a writer-boundary test for `market_data_ohlcv` and none for the archive. Task 1b requires the `ohlcv_request` row and the archive rows in one transaction, with `SET LOCAL ROLE` in sequence. The live sink refuses `flush()` on a connection that is not idle, because an open transaction would trap `SET LOCAL ROLE`. An executor who calls `flush()` inside that transaction either aborts the write or recreates the todo 462 race: a recorded answer with no bars. One insert function, and an explicit ban on `flush()` inside the helper's transaction.
+
+- **MEDIUM — `185-18` task 1a deletes `tests/unit/scripts/test_request_coverage.py` and the verify line still runs it.** Acceptance says `_request_coverage.py` is gone. The automated verify includes `tests/unit/scripts/test_request_coverage.py`. A correct fold-in fails its own pytest. Loud, so it will not ship silently. The verify list should name `tests/unit/bars/test_gap_plan.py` and drop the deleted module.
+
+- **MEDIUM — `185-16` still lists D-04 in `requirements` after its success line says the labels are not on an attempt.** `STATE.md` still has the research lane held, so the plan writes `185-S0-HANDOFF.md` and leaves `snapshot.py` and `runner.py` untouched. That is the right stop. The requirements tag will let a later reader mark D-04 done. Drop D-04 from this plan's `requirements`. The data-bar check stays the gate for attempts 3, 3b, and 4, owned by whoever applies the hand-off. Plans 17 and 18 do not `depends_on` 16, so the sole 1d writer can land while the checker still exits non-zero. That is acceptable only if nothing starts those attempts on the strength of 17 or 18.
+
+- **MEDIUM — `185-15` runs the seam audit only after the D1 bootstrap.** D-27 step 2 and D-24 say the seam audit needs a fresh TRADES fetch and does not need D1. Plan 15 bootstraps D1, then audits, and depends on plan 14. Plan 16 depends on 15, so the data bar waits on the client-47 campaign. The audit can stay a direct fetch. The bootstrap stays D1.
+
+- **MEDIUM — ROADMAP wave 4 blocks plan 12 on plans 13 and 14. Plan 12's `depends_on` is 09, 10, and 11.** D-15 does not need the venue study or the 1d head re-run. Following the wave text holds the phase 186 precondition behind two campaigns. Following `depends_on` ignores the wave gate. Pick one sentence and put it in both places: 12 starts when 09–11 are done; 13 and 14 are parallel.
+
+- **MEDIUM — `185-17` allows `volume: int | None` on a canonical bar without saying a venue bar stores the fetched volume.** The tradeable view filters `volume > 0` on the stored column, then projects venue volume as NULL. A derived row written with SQL NULL volume never enters the view. Venue bars that should be visible have to store the provider volume. Only the view nulls it.
+
+- **MEDIUM — `185-19` acceptance, if the study switch is false: "no ibkr_venue rows exist."** Any row already stored under the old `store_bars` path fails that check even when this plan correctly refuses to apply venue bars. The check is: no new canonical venue apply, and the `ibkr_venue` 1d count is unchanged from the pre-task baseline.
+
+- **LOW — `185-02` still says "seed the five APR keys" and its acceptance counts a WHERE that misses the lease keys.** Migration `380_ohlcv_observation_store.sql` seeded the four keys the interfaces list. The plan is checked off. The text is stale. A re-executor who invents a fifth key to hit the count is inventing schema. Completed plans 01, 03, and 06 also cite line numbers that have moved (`ibkr.py`, `_batch_utils.py`, `aggregate_bars_from_1m`).
+
+- **LOW — `185-09`'s objective still says the running chain picks up the lease on its next attempt, and task 4 still says kill by pid.** The summary records that the next attempt did load the lease code, and no kill was required. The contradiction is closed in fact. Leave the summary as the record. Do not re-kill a process that already holds `lease:ibkr_history_stream`.
+
+- **LOW — `185-21` says to change `_reconcile` on a near miss.** The rollback lives in `DividendEventWriter.execute()`. Editing the pure `reconcile()` breaks the byte-identical must-have and misses the control point.
 
 ## Suggestions
 
-- In `185-12`, replace the objective sentence "lanes are never stopped" with the task-2 cut-over: kill the pipeline by pid, sweep orphans, terminate leftover backends, let the lane loop resume on the new code, then rewrite. The lane guard still excludes symbols a new process is writing.
-- In `185-16`, state that D-04 is unmet until the research lane applies the hand-off, and name the data-bar check as the gate that attempts 3, 3b, and 4 must pass.
-- In `185-02` (first migration) and `186-05`/`186-06`/`186-09`, one shared sentence: the other phase may have consumed the number; re-check after the file exists and again immediately before `psql -f`.
-- Add `market_data_ohlcv_scrub_input` to a reader allow-list: scrub, seam, and their tests only.
+- In one edit, point plans 13, 15, 17, 19, 20, 21, 22, 23, and 24 at migrations `389`–`397` (next free after `388`), same order as the current numbers `384`–`392`. State in each: re-check `ls production/migrations` after the file exists and again immediately before `psql -f`. Add the uniqueness test to each migration task's verify.
+- In `185-12`, name one function as the only `INSERT` into `ohlcv_intraday_raw_archive`, used by both the derivation's archive-from-table path and the fetch path. Add a writer-boundary test of the same shape as `test_market_data_ohlcv_writer_boundary.py`. In task 1b, forbid `ObservationSink.flush()` inside the shared transaction.
+- In `185-18`'s verify, drop `tests/unit/scripts/test_request_coverage.py`.
+- In `185-16`, remove `D-04` from `requirements`.
+- In `185-17`, one sentence: venue canonical rows store the fetched volume; `market_data_ohlcv_tradeable` is what nulls it.
+- In `185-19` task 2, replace "no ibkr_venue rows exist" with the unchanged-count baseline.
+- In the ROADMAP wave 4 line, say plan 12 is not blocked on 13 or 14.
 
 ## Risk assessment
 
-**MEDIUM, one HIGH.** The HIGH is an instruction conflict on the only step that keeps a single 15m/1h grid. Executed as task 2 is written, the phase does not write a silent second grid. Executed as the objective is written, it does, and phase 186 will rebuild features on it. The quarantine design, the venue-volume projection, the lineage side table, and the lease are the right architecture and should not be reopened.
+**HIGH until the nine migration filenames move, then MEDIUM.** The HIGH is a filename collision with files that are already applied. It does not change the design. Executed as the tasks are written after that remap, the phase keeps one 1d writer, one 15m/1h grid in the table readers use, and quarantine off the compressed hypertable. The archive's second insert path is the remaining way to get two owners of a raw row during the live rewrite. Fix that sentence before plan 12 runs. Do not reopen the lease, the side-table quarantine, or the lineage table.
 
 ## Cross-plan checks
 
-- **Coverage.** D-01..D-31 each appear in some plan's `requirements`. D8, stage V, the intraday observation store, and todo 438 do not.
-- **Waves.** `depends_on` matches the ROADMAP. Wave number is `max(dependency wave) + 1` for all 24. Plan 12 is wave 4 and plan 13 is wave 3; IDs are not execution order.
-- **D-27 order.** The 1d re-run (`185-14`), the venue study (`185-13`), and the scrub pass (`185-10`) do not wait on a full D1 bootstrap. They wait on the lease (`185-09`) where they fetch, which is D-29, not a hidden dependency on D1 contents. The seam audit (`185-15`) waits on a fresh TRADES fetch in D1. That is a data dependency, not a violation of "the audit can be computed without the derivation."
-- **Single 1d writer.** `185-17` dry-runs. `185-18` moves the backfill to D1-only and fences `backfill_feature_factory`, `bar_writer`, `bar_auditor`, and the cleanup script. `185-19` re-derives moved names through that stage only when the study switch is on.
-- **186 hand-off.** `185-12` records in STATE.md that D2b has landed and how many symbols still lack 5m. `185-20` stores recovered intraday only behind the content-digest gate and does not start the 186 rebuild.
-- **Research lane.** No plan edits `src/intelligence/research/` except `185-16`, and only when the lane has released. `185-21` checks `git diff` empty on `research/dividends.py` and leaves the dispute-window reader change as a hand-off.
+- **Coverage.** D-01..D-31 each appear in some plan. D-04 is claimed by 16 and then explicitly unmet while the research lane is held. D-20 is claimed early by 02 (request log only) and actually finished in 14 and 19. D-22 is claimed by 15 (the fetch) and finished in 21. D8, stage V, the intraday observation store, and todo 438 do not appear as work.
+- **Waves.** Frontmatter wave numbers match the ROADMAP. `depends_on` is narrower than the wave gates: 05 and 06 depend only on 01 while wave 2 waits on all of wave 1; 12 does not depend on 13 or 14 while wave 4 does. IDs are not execution order (12 is wave 4, 13 is wave 3).
+- **Prior HIGH.** Plan 12's objective and task 2 now agree on the cut-over. The mixed-minute check still has to be repeated after the resumed lane has written one symbol on the new code, not only at the end of the rewrite.
+- **186 hand-off.** Plan 12 records in STATE.md that D2b has landed. Plan 20 stores recovered intraday only behind the content-digest unlock and does not start the rebuild.
+- **Research lane.** No plan edits `src/intelligence/research/` except 16, and only when STATE.md shows the lane released. Plan 21 checks `git diff` empty on `research/dividends.py`.
 
-## Council pass (one grid, one writer, flags that fail loud)
+## Council pass
 
-Same standard as the 186 council pass. One direction of flow. A reader either sees a bar or does not, for one reason. A second clock in the table readers use is a wrong answer, not a scheduling note.
+One direction of flow. A reader either sees a bar or does not, for one reason. A second clock in the table readers use is a wrong answer. A migration file that reuses an applied number is a wrong answer of the same kind: the catalog says one thing and the plan says another.
 
 ### What already matches
 
-Raw observations are permanent: D1 is append-only, and stored 15m/1h are archived with a checksum before they leave `market_data_ohlcv`. Canonical 1d has one writer. Quarantine does not update the compressed hypertable. The tradeable view is the read boundary, and venue volume is nulled in the projection after a real `volume > 0` filter, so recovered history is visible and its volume is not usable. The nightly can no longer skip a day without a failed status. None of that should be redesigned.
+Raw 1d observations are append-only. Stored 15m/1h are archived with a checksum before they leave `market_data_ohlcv`. Quarantine does not update the compressed hypertable. The tradeable view is the read boundary. The nightly can no longer skip a day without a failed status. The plan 12 objective now cuts the running pipeline over before the rewrite. None of that should be redesigned.
 
 ### The defect
 
-`185-12` is about to make derived 15m/1h the only bars in the table phase 186 rebuilds from. The running todo 449 process is the other writer of those rows. Excluding its symbols from one rewrite does not change the code that process has loaded. When it next stores a 15m or 1h bar, it uses the binary it started with. After plan 12 is merged, that binary is the wrong writer.
+Nine unexecuted migrations still wear numbers phase 186 has used. The prose escape hatch ("next free if taken") is not what `files_modified` tells the executor to create. A desk that has watched two phases share a checkout does not leave both the number and the escape hatch in the plan. One number, taken at file-creation time, checked again at apply time.
 
-The task already specifies the cut-over. The objective forbids it. A desk that has watched a stale process keep writing after a code change does not leave both sentences in the plan. One writer means one process image.
-
-The check that fails the plan if any session has both `:00` and `:30` 1h bars is the right alarm. It has to be rerun after the lane has resumed and written at least one symbol on the new code, not only at the end of the rewrite. Otherwise the alarm fires before the old process has had a chance to prove it is gone.
+Beside that, plan 12 is about to make the archive the permanent store of IBKR 15m/1h while the derivation also writes it. Two insert sites and a flush that cannot run inside a transaction will either split the raw row from its request or fail loud in the middle of the rewrite. Name one writer before that plan starts.
 
 ### What not to add
 
-Do not put rule version or request ids on `market_data_ohlcv`. The side table is the lineage. Do not delete quarantined bars. Do not start a second IBKR history stream to "go faster"; the lease is the measurement. Do not block the scrub pass on D1. The known-answer flags are a property of the bars already stored.
+Do not put rule version or request ids on `market_data_ohlcv`. Do not delete quarantined bars. Do not store NULL volume on a venue bar so the view can null it again. Do not start a second IBKR history stream. Do not block plan 12 on the venue study. Do not re-kill the lease holder that plan 09 already cut over.
 
-### Before execution
+### Before the next unexecuted plan
 
-1. One sentence in `185-12`: the running pipeline is cut over onto the archive path before any symbol is rewritten, and the mixed-minute check is repeated after that process has written.
-2. D-04's success condition is the hand-off applied, not the hand-off written.
-3. `market_data_ohlcv_scrub_input` grows a reader allow-list before anyone imports it out of habit.
+1. Remap migrations `384`–`392` in plans 13, 15, 17, 19, 20, 21, 22, 23, and 24 onto `389`–`397`, and re-check at apply time.
+2. One insert function for `ohlcv_intraday_raw_archive`, and no `ObservationSink.flush()` inside its transaction.
+3. Plan 18's verify list matches the files that survive the fold-in.
+4. D-04 stays unmet in the requirements list until the hand-off is applied.

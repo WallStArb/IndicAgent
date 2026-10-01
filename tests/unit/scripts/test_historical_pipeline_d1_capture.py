@@ -68,6 +68,13 @@ class FakeSink:
     def on_request(self, record) -> None:
         self.requests.append(record)
 
+    def take_requests(self, request_ids) -> list:
+        """Plan 12: the atomic persist helper drains the chunk's requests."""
+        wanted = {str(rid) for rid in request_ids}
+        taken = [rec for rec in self.requests if str(rec.request_id) in wanted]
+        self.requests = [rec for rec in self.requests if str(rec.request_id) not in wanted]
+        return taken
+
     def on_observation(self, record, bars) -> None:
         self.observations.append((record, bars))
 
@@ -105,7 +112,7 @@ def _bars(symbol: str, tf: str, n: int = 4) -> list[OHLCVBar]:
 
 def _record(kwargs: dict, *, route: str = "SMART") -> SimpleNamespace:
     return SimpleNamespace(
-        request_id=f"{kwargs['symbol']}-{route}",
+        request_id=f"{kwargs['symbol']}-{route}-{kwargs['timeframe']}",
         fetch_run_id=kwargs.get("fetch_run_id"),
         symbol=kwargs["symbol"],
         timeframe=kwargs["timeframe"],
@@ -141,7 +148,10 @@ class FakeProvider:
         bars = _bars(kwargs["symbol"], kwargs["timeframe"])
         on_request = kwargs.get("on_request")
         on_observation = kwargs.get("on_observation")
+        on_chunk = kwargs.get("on_chunk")
         if on_request is None:
+            if on_chunk is not None:
+                await on_chunk(bars)
             return bars
         if kwargs["timeframe"] == "1d":
             # SMART answer then a former-venue recovery, two requests, two
@@ -157,6 +167,8 @@ class FakeProvider:
         else:
             # Intraday: request records only, never observations (D-02/D-20).
             on_request(_record(kwargs))
+        if on_chunk is not None:
+            await on_chunk(bars)  # the real walk fires it after the record (todo 462 order)
         return bars
 
 
@@ -225,6 +237,8 @@ def driven_main(monkeypatch, capsys):
         FakeProvider.instances = []
         marked: list[tuple[str, str]] = []
         normalized: list[tuple[str, str]] = []
+        stored: list[tuple[str, str, str]] = []  # (symbol, tf, destination)
+        atomic_calls: list[dict] = []
         gap_calls: list[tuple[str, str, object]] = []
         mod = pipeline
 
@@ -268,6 +282,18 @@ def driven_main(monkeypatch, capsys):
         monkeypatch.setattr(mod, "_acquire_history_lease", _fake_acquire)
         monkeypatch.setattr(mod, "ObservationSink", _sink_factory)
         monkeypatch.setattr(mod, "new_fetch_run_id", lambda: _TEST_RUN_ID)
+
+        def _fake_atomic(conn, *, request_rows, archive_rows, write_archive_rows):
+            atomic_calls.append(
+                {
+                    "requests": list(request_rows),
+                    "bars": list(archive_rows),
+                    "writer": write_archive_rows,
+                }
+            )
+            return len(request_rows), len(archive_rows)
+
+        monkeypatch.setattr(mod, "persist_chunk_atomically", _fake_atomic)
         monkeypatch.setattr(mod, "IBKRProvider", provider_cls or FakeProvider)
         monkeypatch.setattr(mod, "flush_and_shutdown_metrics", lambda: None)
         monkeypatch.setattr(mod, "JOB_COMPLETED_TOTAL", MagicMock())
@@ -289,7 +315,14 @@ def driven_main(monkeypatch, capsys):
             lambda bars, **k: (normalized.append((k["symbol"], k["timeframe"])), list(bars))[1],
         )
         monkeypatch.setattr(
-            mod, "store_bars", lambda conn, bars, symbol, tf, actual_symbol=None: len(bars)
+            mod,
+            "store_bars",
+            lambda conn, bars, symbol, tf, actual_symbol=None, write_rows=None: (
+                stored.append(
+                    (symbol, tf, "archive" if write_rows is not None else "market_data_ohlcv")
+                )
+                or len(bars)
+            ),
         )
         monkeypatch.setattr(
             mod,
@@ -326,6 +359,8 @@ def driven_main(monkeypatch, capsys):
             acquire_seen=_fake_acquire.seen,
             marked=marked,
             normalized=normalized,
+            stored=stored,
+            atomic_calls=atomic_calls,
             gap_calls=gap_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
@@ -360,10 +395,22 @@ def test_capture_and_checkpoint_wiring(driven_main):
             assert call.get("on_observation") is None
 
     # Sink saw both requests and both observation deliveries per 1d fetch, plus
-    # one request per intraday fetch, and flushed once per symbol.
-    assert result.sink.total_requests == 9  # 3 symbols x (2 SMART/venue + 1 intraday)
+    # one request per intraday fetch, and flushed once per symbol. The intraday
+    # requests are taken out of the buffer by the atomic persist (below), so the
+    # flush carries only the 1d pair per symbol.
+    assert result.sink.total_requests == 6  # 3 symbols x 2 (SMART/venue, 1d)
     assert result.sink.total_observations == 6  # 3 symbols x 2 observation deliveries
     assert result.sink.flushes == 3
+
+    # Plan 12: one atomic request-and-bars commit per intraday fetch, with the
+    # chunk's answer rows and its bars together, written by the archive's writer.
+    assert len(result.atomic_calls) == 3
+    for call in result.atomic_calls:
+        assert len(call["requests"]) == 1
+        assert len(call["bars"]) == 4
+        assert call["bars"][0][1] in ("AAA", "BBB", "CCC")
+        assert call["bars"][0][2] == "15m"
+        assert call["writer"] is pipeline._insert_archive_rows
 
     # fetch_run_id printed at start; every (symbol, tf) marked complete.
     assert _TEST_RUN_ID in result.output
@@ -377,12 +424,19 @@ def test_capture_and_checkpoint_wiring(driven_main):
     ]
 
 
-def test_default_keeps_the_placeholder_path(driven_main):
+def test_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(driven_main):
+    """Plan 12: 15m is a raw observation stored into the archive (no fill, with
+    answered-request coverage); 1d keeps the placeholder path until phase 185 D2."""
     result = driven_main(_BASE_ARGS)
-    assert sorted(result.normalized) == [
-        (symbol, tf) for symbol in ("AAA", "BBB", "CCC") for tf in ("15m", "1d")
-    ]
-    assert all(answered is None for _, _, answered in result.gap_calls)
+    assert sorted(result.normalized) == [(symbol, "1d") for symbol in ("AAA", "BBB", "CCC")]
+    answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
+    for symbol in ("AAA", "BBB", "CCC"):
+        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
+        assert answered[(symbol, "1d")] is None
+    destinations = {(symbol, tf): dest for symbol, tf, dest in result.stored}
+    for symbol in ("AAA", "BBB", "CCC"):
+        assert destinations[(symbol, "15m")] == "archive"
+        assert destinations[(symbol, "1d")] == "market_data_ohlcv"
 
 
 def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
@@ -398,11 +452,13 @@ def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_ma
     assert len(result.marked) == 6
 
 
-def test_real_bars_only_asks_through_the_last_slot_end(driven_main):
+def test_15m_always_asks_through_the_last_slot_end(driven_main):
     # The fake gap is (2024-01-01, 2024-01-15) at 15m: the last missing slot starts 2024-01-15.
+    # Since plan 12 15m is real-bars-only even without the flag, so the request
+    # runs through that slot's own end and the slot's bar can actually be asked for.
     default = driven_main(_BASE_ARGS)
     ends = {c["timeframe"]: c["end"] for c in default.provider.calls if c["symbol"] == "AAA"}
-    assert ends["15m"] == datetime(2024, 1, 15, tzinfo=UTC)
+    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)
 
     real = driven_main([*_BASE_ARGS, "--real-bars-only"])
     ends = {c["timeframe"]: c["end"] for c in real.provider.calls if c["symbol"] == "AAA"}

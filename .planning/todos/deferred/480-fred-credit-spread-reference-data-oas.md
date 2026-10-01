@@ -80,6 +80,24 @@ register in the service docs; the NY Fed Primary
 Dealer and SOMA securities lending families (weekly and daily, different shape); remaining Tier 2
 FRED series; the glossary row for option-adjusted spread; first pre-registered use.
 
+## Long-history index levels (2026-10-01, owner decision)
+
+Migration 427 adds context-only index levels, never a tradeable price: Yahoo `^GSPC` (S&P 500, from
+1927-12-30) and `^NDX` (Nasdaq 100, from 1985-10-01) through `YahooSource` (index tickers only;
+completed sessions only, today's provisional close is skipped), and FRED `NASDAQCOM` (from 1971-02-05),
+`NASDAQ100` (from 1986) and `SP500` (last ten years) as second sources. 61,943 rows. The Dow is left out
+(no free source before 1992; the S&P 500 covers US large caps). Levels are price-only.
+
+Reconciliation on the overlap, measured once: S&P 500 agrees on 2,510 of 2,512 days within 1 bp (worst
+0.12%). Nasdaq 100 agrees on 99% of 1986-2002 days and 100% from 2006, but only 34% of 2003-2005 days
+(496 mismatches, median 0.36%, no date shift and no repeated values in either source). Cause not
+established; one candidate is the two vendors using different closing prints in those years. Recorded,
+not repaired: a spec that uses NDX in 2003-2005 names its source. The standing audit (todo 482) reports
+it every run.
+
+Unit codes aligned the same day: our index series use FRED's code `index` (was `index_level`); the
+three coverage rows written under the old code were corrected in place.
+
 ## Naming and boundary
 
 The concept is `economic_series`: published economic and financial-conditions series used as model

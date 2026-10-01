@@ -42,9 +42,11 @@ from typing import Any, NamedTuple
 import asyncpg
 import numpy as np
 
+from scripts.infrastructure.backfill._request_coverage import AnsweredWindows
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
+from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
@@ -65,6 +67,11 @@ _OUTCOME_TOTAL = counter(
 )
 _WRITER_ROLE_SQL = "SET LOCAL ROLE bar_derivation_writer"
 _CONSTITUENT_RULE = "constituent_flag"
+# A derived bar whose constituent 5m slot is neither stored nor inside an
+# answered SMART TRADES request window (todo 462): the hole stops at the
+# derivation edge as a quarantine-false flag, never silently as a complete bar.
+_PARTIAL_RULE = "partial_constituents"
+_ANSWERED_OUTCOMES = ("bars", "no_data")
 _GRID_TF_LIST = sorted(GRID_TIMEFRAMES)
 _WRITE_METHOD = "segment_delete_copy"
 _DEFAULT_SYMBOL_BATCH = 10
@@ -92,16 +99,48 @@ SELECT range_start, digest FROM bar_content_digest_current
 WHERE symbol = $1 AND timeframe = '5m'
 """
 
-_INSERT_ARCHIVE_SQL = """
-INSERT INTO ohlcv_intraday_raw_archive
-    ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base,
-     price_sanity_status, batch_id)
-SELECT "timestamp", symbol, timeframe, open, high, low, close, volume, source, base,
-       price_sanity_status, $3::uuid
-FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source <> 'synthetic_fill'
-ON CONFLICT DO NOTHING
+# Answered SMART TRADES 5m windows (todo 462's coverage rule, same semantics as
+# _request_coverage's psycopg loader; this asyncpg form is local until plan 18's
+# shared gap planner replaces both). A `bars` answer counts only when a stored 5m
+# row corroborates it: the request record and the bars still commit separately at
+# 5m until plan 18 reuses the atomic persist helper, so a lost chunk must not
+# make a window look covered.
+_SELECT_ANSWERED_WINDOWS_SQL = """
+SELECT r.window_start, r.window_end
+FROM ohlcv_request r
+WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = 'SMART'
+  AND r.what_to_show = 'TRADES' AND r.outcome = ANY($2::text[])
+  AND r.window_start IS NOT NULL
+  AND (
+    r.outcome = 'no_data'
+    OR EXISTS (
+      SELECT 1 FROM market_data_ohlcv m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
+        AND m.timestamp >= r.window_start AND m.timestamp < r.window_end
+    )
+  )
+ORDER BY r.window_start
 """
+
+# --changed-only must also re-derive when an answered 5m window arrived after
+# the symbol's last derivation: the new answer can clear a stale
+# partial_constituents flag even though no stored bar changed.
+_SELECT_ANSWERED_SINCE_SQL = """
+SELECT EXISTS (
+    SELECT 1 FROM ohlcv_request r
+    WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = 'SMART'
+      AND r.what_to_show = 'TRADES' AND r.outcome = ANY($2::text[])
+      AND r.answered_at IS NOT NULL
+      AND r.answered_at > COALESCE(
+          (SELECT max(computed_at) FROM bar_content_digest WHERE symbol = $1),
+          '-infinity'::timestamptz)
+) AS answered_since
+"""
+
+# Moved byte-identical to services/intraday_raw_archive.py in plan 12 (the
+# table's single owner module; the archive writer-boundary CI test fails on
+# any other INSERT into it).
+_INSERT_ARCHIVE_SQL = ARCHIVE_FROM_TABLE_SQL
 
 # One row comparing the removable stored segment with the archive, key by key:
 # n_archived counts archive matches (NULL when a removable row was never
@@ -140,6 +179,13 @@ ON CONFLICT (symbol, timeframe, "timestamp", rule) DO UPDATE SET
     fields = EXCLUDED.fields,
     detail = EXCLUDED.detail,
     batch_id = EXCLUDED.batch_id
+"""
+
+# A rewrite replaces the segment's partial flags (a later answered window
+# clears a stale one); constituent flags are upserted, this one is scoped.
+_DELETE_PARTIAL_FLAGS_SQL = """
+DELETE FROM bar_quality_flag
+WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND rule = 'partial_constituents'
 """
 
 _INSERT_DIGEST_SQL = """
@@ -212,6 +258,32 @@ def _derive_for_tf(
             union.update(rules_per_row[i])
         constituent_rules.append(tuple(sorted(union)))
     return grid, constituent_rules
+
+
+def _missing_constituent_slots(
+    bar_ts_seconds: int,
+    minutes: int,
+    session_close: datetime | None,
+    stored_slots: frozenset[int],
+    answered: AnsweredWindows,
+) -> list[datetime]:
+    """The bar's expected 5m slots that are neither stored nor inside an
+    answered SMART TRADES window (todo 462). A stored-but-quarantined slot
+    counts as present (its absence from the aggregate is already flagged by
+    the constituent rules); a placeholder-shaped hole is not present."""
+    interval = 300
+    end = bar_ts_seconds + minutes * 60
+    if session_close is not None:
+        end = min(end, _epoch_seconds(session_close))
+    missing: list[datetime] = []
+    slot = bar_ts_seconds
+    while slot < end:
+        if slot not in stored_slots and not answered.covers(
+            datetime.fromtimestamp(slot, tz=UTC), timedelta(seconds=interval)
+        ):
+            missing.append(datetime.fromtimestamp(slot, tz=UTC))
+        slot += interval
+    return missing
 
 
 def _month_digest_rows(
@@ -351,6 +423,13 @@ class BarDerivation(BaseBatch):
             raise RuntimeError(f"bar_derivation: {len(failed)} symbol failure(s): {failed}")
         return {**totals, "derived_rows": n_derived_rows}
 
+    async def _load_answered_windows(
+        self, conn: asyncpg.Connection, symbol: str
+    ) -> AnsweredWindows:
+        """Answered SMART TRADES 5m windows for `symbol`, read once per symbol."""
+        rows = await conn.fetch(_SELECT_ANSWERED_WINDOWS_SQL, symbol, list(_ANSWERED_OUTCOMES))
+        return AnsweredWindows.from_rows([(r["window_start"], r["window_end"]) for r in rows])
+
     async def _run_symbol(
         self, conn: asyncpg.Connection, *, symbol: str, batch_id: str | None
     ) -> _SymbolResult:
@@ -394,7 +473,11 @@ class BarDerivation(BaseBatch):
                 for r in await conn.fetch(_SELECT_CURRENT_DIGESTS_SQL, symbol)
             }
             if current == {start: digest for start, _, digest, _ in digest_5m}:
-                return _SymbolResult("unchanged", None, 0)
+                answered_since = await conn.fetchrow(
+                    _SELECT_ANSWERED_SINCE_SQL, symbol, list(_ANSWERED_OUTCOMES)
+                )
+                if not answered_since["answered_since"]:
+                    return _SymbolResult("unchanged", None, 0)
 
         derived: dict[str, tuple[GridBars, list[tuple[str, ...]]]] = {
             tf: _derive_for_tf(
@@ -408,6 +491,44 @@ class BarDerivation(BaseBatch):
             self.logger.warning(
                 "bar_derivation.bars_outside_session", symbol=symbol, dropped=n_outside
             )
+
+        # Coverage-aware derivation (todo 462): flag bars over stored-but-
+        # unanswered 5m holes. The windows are read once per symbol; the pure
+        # merge/cover logic is _request_coverage's until plan 18's gap planner.
+        stored_slots = frozenset(_epoch_seconds(r["timestamp"]) for r in rows)
+        answered = await self._load_answered_windows(conn, symbol)
+        session_close_by_date = {day: close for day, (_open, close) in sessions.items()}
+        partial_flag_args: list[tuple] = []
+        for tf, (grid, _rules) in derived.items():
+            minutes = GRID_TIMEFRAMES[tf]
+            for i, ts in enumerate(grid.ts_seconds):
+                bar_dt = datetime.fromtimestamp(int(ts), tz=UTC)
+                missing = _missing_constituent_slots(
+                    int(ts),
+                    minutes,
+                    session_close_by_date.get(bar_dt.date()),
+                    stored_slots,
+                    answered,
+                )
+                if missing:
+                    partial_flag_args.append(
+                        (
+                            symbol,
+                            tf,
+                            bar_dt,
+                            _PARTIAL_RULE,
+                            GRID_RULE_VERSION,
+                            [],
+                            False,
+                            json.dumps(
+                                {
+                                    "missing_slots": len(missing),
+                                    "n_constituents": int(grid.n_constituents[i]),
+                                }
+                            ),
+                            batch_id,
+                        )
+                    )
         if not self._apply:
             return _SymbolResult("derived", None, n_derived)
 
@@ -428,6 +549,9 @@ class BarDerivation(BaseBatch):
                         f"v={verify['archived_value_sum']}, vol={verify['archived_volume_sum']})"
                     )
                 await conn.execute(_DELETE_SEGMENT_SQL, symbol, _GRID_TF_LIST)
+                # The rewrite replaces the segment's partial flags, so a later
+                # answered window clears a stale one (todo 462).
+                await conn.execute(_DELETE_PARTIAL_FLAGS_SQL, symbol, _GRID_TF_LIST)
 
                 flag_args: list[tuple] = []
                 for tf, (grid, constituent_rules) in derived.items():
@@ -479,8 +603,8 @@ class BarDerivation(BaseBatch):
                                 batch_id,
                             )
                         )
-                if flag_args:
-                    await conn.executemany(_INSERT_FLAG_SQL, flag_args)
+                if flag_args or partial_flag_args:
+                    await conn.executemany(_INSERT_FLAG_SQL, flag_args + partial_flag_args)
 
                 digest_args = [
                     (
