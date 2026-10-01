@@ -20,6 +20,8 @@ the APR-exempt derived-value rule; the module seeds no APR keys.
 from __future__ import annotations
 
 import dataclasses
+import os
+import subprocess
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -330,6 +332,22 @@ def fetch_coverage_inputs(
             for symbol, tf, first_text, last_text in cur.fetchall()
         ]
     return rows, spans
+
+
+def fetch_process_lines() -> list[str]:
+    """The measured input of check_no_live_run: `ps -eo pid,args` lines minus this process's
+    own. A launcher that wires the precheck into backfill_feature_factory itself (or imports
+    the writer module, as fetch_landed_markers does) would otherwise match
+    LIVE_RUN_PROCESS_PATTERN against its own command line and refuse every launch."""
+    completed = subprocess.run(
+        ["ps", "-eo", "pid,args"], capture_output=True, text=True, check=True
+    )
+    own_pid = str(os.getpid())
+    return [
+        line
+        for line in completed.stdout.splitlines()
+        if line.split() and line.split()[0] != own_pid
+    ]
 
 
 def fetch_landed_markers(conn: Any, state_path: Path | None = None) -> dict[str, bool]:

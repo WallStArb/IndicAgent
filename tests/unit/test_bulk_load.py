@@ -278,6 +278,18 @@ class TestBulkLoadClamping:
         assert written[3] == 0.0, "real column must carry the clamped value"
         assert written[4] == 1e-50, "double precision column must be unchanged"
 
+    def test_preclamped_real_trusts_the_callers_clamp(self) -> None:
+        conn = _conn(_fresh_happy_responses())
+        rows = [
+            ("SPY", "1d", datetime(2026, 1, 5, 14, 30, tzinfo=UTC), 1e-50, 1e-50),
+        ]
+        bulk_load(conn, _spec(), _COLUMNS_LIST, rows, preclamped_real=True)
+        (written,) = conn.copied_rows
+        # The whole-column producer (the rebuild writer) clamped upstream via
+        # clamp_to_real_range_array; bulk_load must not touch the row again.
+        assert written[3] == 1e-50, "preclamped_real=True must skip the per-row clamp"
+        assert written[4] == 1e-50
+
 
 # ---------------------------------------------------------------------------
 # Per-unit failure isolation (todo 343)

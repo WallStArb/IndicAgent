@@ -434,6 +434,7 @@ def bulk_load(
     rows: Iterable[Sequence[Any]],
     *,
     compress_before: datetime | None = None,
+    preclamped_real: bool = False,
 ) -> BulkLoadResult:
     """Load one (symbols x tf x time range) unit into spec.target_table (D-24).
 
@@ -465,6 +466,10 @@ def bulk_load(
       ValueError.
     - The float32 clamp is driven by the live information_schema types, never by a
       caller-supplied col_types (the todo 312 drift class cannot happen here).
+      `preclamped_real=True` is the whole-column producer's opt-out: the caller
+      guarantees every real-column value already satisfies the clamp (it ran
+      `clamp_to_real_range_array` over its columns before spooling), so the per-row
+      clamp is skipped. Time validation still runs on every row.
     - Append-only by default: a primary-key conflict on the target is a loud error,
       never ON CONFLICT DO NOTHING. A spec with `replace_where` is the explicit, atomic
       replacement of a unit's prior rows, used when a unit's identity changes (the IC
@@ -504,7 +509,9 @@ def bulk_load(
         raise BulkLoadRefused(f"another session is loading unit {batch_key}")
 
     try:
-        return _bulk_load_locked(conn, spec, columns, rows, time_idx, compress_before)
+        return _bulk_load_locked(
+            conn, spec, columns, rows, time_idx, compress_before, preclamped_real
+        )
     finally:
         # Session advisory locks survive commit/rollback, so the unlock is explicit;
         # the SELECT opens a read transaction that is rolled back immediately after.
@@ -527,6 +534,7 @@ def _bulk_load_locked(
     rows: Iterable[Sequence[Any]],
     time_idx: int,
     compress_before: datetime | None,
+    preclamped_real: bool,
 ) -> BulkLoadResult:
     """bulk_load's body, run under the batch key's session advisory lock."""
     batch_key = spec.batch_key
@@ -623,7 +631,7 @@ def _bulk_load_locked(
                             "(rows must stream in time order)"
                         )
                     last_time = time_value
-                    if real_positions:
+                    if real_positions and not preclamped_real:
                         row = tuple(
                             _clamp_to_real_range(v) if i in real_positions else v
                             for i, v in enumerate(row)
@@ -1516,8 +1524,19 @@ def limit_blas_threads(n_threads: int) -> None:
     threadpoolctl.threadpool_limits(n_threads)
 
 
+def _chained_worker_init(blas_threads_per_worker: int, initializer: Any, initargs: tuple) -> None:
+    """make_worker_pool's composition: the BLAS cap always runs first, then the caller's
+    initializer unchanged. Module-level so it pickles under forkserver/spawn contexts."""
+    limit_blas_threads(blas_threads_per_worker)
+    initializer(*initargs)
+
+
 def make_worker_pool(
-    n_workers: int, blas_threads_per_worker: int, **kwargs: Any
+    n_workers: int,
+    blas_threads_per_worker: int,
+    initializer: Any | None = None,
+    initargs: tuple = (),
+    **kwargs: Any,
 ) -> ProcessPoolExecutor:
     """ProcessPoolExecutor with the BLAS thread cap already wired in (todo 216).
 
@@ -1525,11 +1544,21 @@ def make_worker_pool(
     directly -- a bare ProcessPoolExecutor(...) silently reintroduces the OpenBLAS
     oversubscription bug limit_blas_threads() fixes, with no test to catch the omission.
     kwargs forward to ProcessPoolExecutor unchanged (e.g. mp_context=).
+
+    A caller initializer (e.g. the rebuild writer installing its shared macro externals
+    once per worker instead of pickling them into every task) runs AFTER the BLAS cap,
+    never instead of it.
     """
+    if initializer is None:
+        worker_init: Any = limit_blas_threads
+        worker_initargs: tuple = (blas_threads_per_worker,)
+    else:
+        worker_init = _chained_worker_init
+        worker_initargs = (blas_threads_per_worker, initializer, initargs)
     return ProcessPoolExecutor(
         max_workers=n_workers,
-        initializer=limit_blas_threads,
-        initargs=(blas_threads_per_worker,),
+        initializer=worker_init,
+        initargs=worker_initargs,
         **kwargs,
     )
 

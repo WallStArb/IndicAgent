@@ -7,6 +7,7 @@ connections. No database, no filesystem beyond a tmp STATE.md.
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -212,6 +213,31 @@ def test_disk_guard_fails_with_the_figures_in_gb():
 
 def test_no_live_run_passes_on_a_quiet_host():
     assert check_no_live_run([], "").ok
+
+
+def test_fetch_process_lines_drops_this_process_but_keeps_every_other(monkeypatch):
+    """A launcher importing the writer module would self-match
+    LIVE_RUN_PROCESS_PATTERN; the own-pid line must be filtered, every other line kept,
+    and a whitespace-only line dropped without crashing."""
+    from types import SimpleNamespace
+
+    own = str(os.getpid())
+    stdout = "\n".join(
+        [
+            "  PID COMMAND",
+            f"{own} python services/backfill_feature_factory.py --compute-only",
+            " 999 python services/ic_engine.py --corpus",
+            "1234 tail -f logs/app.log",
+            "   ",
+        ]
+    )
+    monkeypatch.setattr(rp.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=stdout))
+    # The ps header carries no pattern and is kept; only the own-pid and blank lines drop.
+    assert rp.fetch_process_lines() == [
+        "  PID COMMAND",
+        " 999 python services/ic_engine.py --corpus",
+        "1234 tail -f logs/app.log",
+    ]
 
 
 def test_no_live_run_fails_on_a_matching_process_or_resumable_evidence():

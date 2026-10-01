@@ -36,8 +36,8 @@ from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfi
 from src.intelligence.features.contract.registry import compute_kernels, default_registry
 from src.intelligence.features.feature_vector_persistence import (
     feature_vector_v2_row_values,
-    feature_vectors_v2_columns,
     feature_vectors_v2_numeric_columns,
+    feature_vectors_v2_output_columns,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.macro import (
@@ -1284,6 +1284,9 @@ class _InlinePool:
     def __exit__(self, *exc):
         return False
 
+    def shutdown(self, wait=True):
+        pass
+
     def submit(self, _fn, args):
         self.dispatched.append(args[0])
         return SimpleNamespace(result=lambda: self._worker(args))
@@ -1296,14 +1299,16 @@ class _BulkLoadRecorder:
     def __init__(self, fail_keys=(), wrong_counts=None):
         self.rows_by_key: dict[str, list[tuple]] = {}
         self.load_order: list[str] = []
+        self.preclamped_by_key: dict[str, bool] = {}
         self._fail_keys = set(fail_keys)
         self._wrong_counts = dict(wrong_counts or {})
 
-    def __call__(self, conn, spec, columns, rows):
+    def __call__(self, conn, spec, columns, rows, preclamped_real=False):
         rows = list(rows)
         for prev, curr in zip(rows, rows[1:]):
             assert prev[2] <= curr[2], f"rows out of time order in {spec.batch_key[:12]}"
         self.load_order.append(spec.batch_key)
+        self.preclamped_by_key[spec.batch_key] = preclamped_real
         if spec.batch_key in self._fail_keys:
             raise RuntimeError("simulated COPY failure")
         self.rows_by_key[spec.batch_key] = rows
@@ -1363,7 +1368,7 @@ def _run_rebuild_stage(
         "_completed_provenance_batch",
         lambda conn, spec: {"status": "completed"} if spec.batch_key in completed else None,
     )
-    monkeypatch.setattr(module, "_make_worker_pool", lambda n, blas: pool)
+    monkeypatch.setattr(module, "_make_worker_pool", lambda n, blas, **kw: pool)
     monkeypatch.setattr(module, "_bulk_load", recorder)
     monkeypatch.setattr(module, "psycopg", SimpleNamespace(connect=lambda url: _FakeWriteConn()))
     monkeypatch.setattr(
@@ -1399,6 +1404,8 @@ def test_resume_loads_only_the_incomplete_units(monkeypatch, tmp_path):
     )
     assert len(pool.dispatched) == 3  # one worker per symbol of the single chunk
     assert recorder.load_order == [u2.batch_key]
+    # The writer clamps whole columns upstream; bulk_load is told and skips its per-row clamp.
+    assert recorder.preclamped_by_key[u2.batch_key] is True
     assert summary["units_total"] == 2
     assert summary["units_skipped"] == 1
     assert summary["units_loaded"] == 1
@@ -1532,7 +1539,7 @@ def test_regime_comes_from_the_registry_in_the_same_pass():
     assert "compute_kernels(" in source
     # The regime columns are outputs of the same compute_kernels call as the numerics: the
     # worker builds every column of a series from the one call (see _compute_series_columns).
-    outputs = list(feature_vectors_v2_columns()[3:])
+    outputs = list(feature_vectors_v2_output_columns())
     assert "regime" in outputs and "regime_volatility" in outputs
     worker_source = inspect.getsource(module._compute_series_columns)
     assert worker_source.count("compute_kernels(") == 1
@@ -1695,6 +1702,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
     )
     monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
     unit_ranges = [(0, (times[0], horizon))]
+    module._rebuild_worker_init(cross, late["SPY"], late["TLT"])
     payload = module._rebuild_worker(
         (
             tma.SYMBOL,
@@ -1704,9 +1712,6 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
             horizon,
             unit_ranges,
             str(tmp_path),
-            cross,
-            late["SPY"],
-            late["TLT"],
             100,
         )
     )
@@ -1730,7 +1735,7 @@ def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_p
         default_registry(),
         inputs,
         _rebuild_config(),
-        outputs=list(feature_vectors_v2_columns()[3:]),
+        outputs=list(feature_vectors_v2_output_columns()),
     )
     names = feature_vectors_v2_numeric_columns()
     spooled: dict[str, list[tuple[int, float]]] = {c: [] for c in _CACHE_BACKED_COLUMNS}
@@ -1820,6 +1825,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
     monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
     spool_dir = tmp_path / "spool-group"
     spool_dir.mkdir()
+    module._rebuild_worker_init(cross, late["SPY"], late["TLT"])
     payload = module._rebuild_worker(
         (
             tma.SYMBOL,
@@ -1829,9 +1835,6 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
             horizon,
             [(0, (times[0], horizon))],
             str(spool_dir),
-            cross,
-            late["SPY"],
-            late["TLT"],
             100,
         )
     )
@@ -1876,7 +1879,7 @@ def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vector
         default_registry(),
         inputs,
         _rebuild_config(),
-        outputs=list(feature_vectors_v2_columns()[3:]),
+        outputs=list(feature_vectors_v2_output_columns()),
     )
     last_ts = times[-1]
     last = by_ts[last_ts]
@@ -1894,7 +1897,7 @@ def test_full_column_set_fetch_start_is_the_series_start():
     from services.backfill_feature_factory import path_dependent_contributors, unit_fetch_start
 
     registry = default_registry()
-    outputs = list(feature_vectors_v2_columns()[3:])
+    outputs = list(feature_vectors_v2_output_columns())
     series_start = datetime(2010, 1, 4, tzinfo=UTC)
     got = unit_fetch_start(
         registry, outputs, "5m", datetime(2020, 1, 1, tzinfo=UTC), series_start, tma.CONFIG

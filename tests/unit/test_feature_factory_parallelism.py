@@ -30,5 +30,5 @@ def test_rebuild_worker_never_writes_the_database():
     source = inspect.getsource(_rebuild_worker)
     for forbidden in ("INSERT INTO", "UPDATE ", "COPY ", ".commit(", "executemany"):
         assert forbidden not in source, forbidden
-    # The connection is opened for reads only and closed in finally.
-    assert "psycopg.connect(dsn)" in source
+    # The connection is opened for reads only and closed by its context manager.
+    assert "with _short_lived_conn(dsn) as conn:" in source

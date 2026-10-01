@@ -82,10 +82,12 @@ from services._batch_utils import get_list_config as _get_list_config
 from services._batch_utils import kernel_code_key as _kernel_code_key
 from services._batch_utils import load_config_service_sync as _load_config_service
 from services._batch_utils import make_worker_pool as _make_worker_pool
+from services._batch_utils import short_lived_conn as _short_lived_conn
+from services.rebuild_preconditions import CoverageRow
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
-from src.core.real_column_range import REAL_MAX_MAGNITUDE, REAL_MIN_MAGNITUDE
+from src.core.real_column_range import clamp_to_real_range_array
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
@@ -103,6 +105,7 @@ from src.intelligence.features.feature_vector_persistence import (
     feature_vector_v2_row_values,
     feature_vectors_v2_columns,
     feature_vectors_v2_numeric_columns,
+    feature_vectors_v2_output_columns,
 )
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import none_mask_name
@@ -235,19 +238,8 @@ WHERE symbol = %s AND timeframe = %s
 ORDER BY timestamp ASC
 """
 
-_FETCH_BARS_SINCE_SQL = """
-SELECT timestamp, open, high, low, close, volume
-FROM market_data_ohlcv_tradeable
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
-ORDER BY timestamp ASC
-"""
-
-_FETCH_BARS_UNTIL_SQL = """
-SELECT timestamp, open, high, low, close, volume
-FROM market_data_ohlcv_tradeable
-WHERE symbol = %s AND timeframe = %s AND timestamp < %s
-ORDER BY timestamp ASC
-"""
+_FETCH_BARS_SINCE_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp >= %s\nORDER BY")
+_FETCH_BARS_UNTIL_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp < %s\nORDER BY")
 
 _UPSERT_STATUS_SQL = """
 INSERT INTO backfill_status (symbol, tf, status, fetch_complete, started_at)
@@ -568,9 +560,9 @@ def _fetch_bars_from_db(
 ) -> list[dict]:
     """Fetch OHLCV bars from market_data_ohlcv_tradeable ordered oldest-first, optionally from
     `since` and strictly before `until` (the rebuild's data horizon; never both)."""
+    if since is not None and until is not None:
+        raise ValueError("_fetch_bars_from_db takes since or until, not both")
     with conn.cursor() as cur:
-        if since is not None and until is not None:
-            raise ValueError("_fetch_bars_from_db takes since or until, not both")
         if until is not None:
             cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, until))
         elif since is not None:
@@ -952,17 +944,6 @@ class SeriesColumns(NamedTuple):
     regime_volatility: np.ndarray
 
 
-def _clamp_real_array(column: np.ndarray) -> np.ndarray:
-    """Vectorized `clamp_to_real_range` over a float64 column: finite values beyond float32's
-    range clamp to +-max, nonzero values below its smallest magnitude become 0.0; NaN and
-    infinity are left as they are (Postgres accepts both in a real column)."""
-    finite = np.isfinite(column)
-    magnitude = np.abs(column)
-    clamped = np.where(finite, np.clip(column, -REAL_MAX_MAGNITUDE, REAL_MAX_MAGNITUDE), column)
-    tiny = finite & (magnitude > 0.0) & (magnitude < REAL_MIN_MAGNITUDE)
-    return np.where(tiny, 0.0, clamped)
-
-
 def column_warmup_bars(
     registry: KernelRegistry, columns: Sequence[str], config: FeatureFactoryConfig
 ) -> dict[str, int]:
@@ -999,7 +980,7 @@ def _compute_series_columns(
     """
     registry = registry if registry is not None else default_registry()
     numeric_names = feature_vectors_v2_numeric_columns()
-    outputs = list(feature_vectors_v2_columns()[3:])
+    outputs = list(feature_vectors_v2_output_columns())
     out = compute_kernels(registry, inputs, config, outputs=outputs)
     n = len(inputs["close"])
     warmups = column_warmup_bars(registry, numeric_names, config)
@@ -1013,7 +994,7 @@ def _compute_series_columns(
             warmup = warmups.get(name, 0)
             if warmup:
                 column[: min(warmup, n)] = np.nan
-            matrix[:, j] = _clamp_real_array(column)
+            matrix[:, j] = clamp_to_real_range_array(column)
     return SeriesColumns(
         numeric=matrix,
         regime=np.asarray(out["regime"], dtype=object),
@@ -1134,37 +1115,39 @@ def _write_unit_spool(
     the row count.
 
     Rows before `first_row` (the dominant-window warmup the old table also skipped) and bars the
-    market calendar does not call trading bars are left out. The rows go to disk in blocks of
-    `block_rows`, so the buffer is one block however long the symbol's history is (todo 339).
+    market calendar does not call trading bars are left out. The trading filter runs once over
+    the range's bar times; only the kept rows are converted to Python (a dropped row costs one
+    calendar call, not 307 float conversions). Kept rows go to disk in blocks of `block_rows`,
+    so the buffer is one block however long the symbol's history is (todo 339).
     """
     lo = max(int(np.searchsorted(row_ns, bar_ts_ns(range_start), side="left")), first_row)
     hi = int(np.searchsorted(row_ns, bar_ts_ns(range_end), side="left"))
     calendar = get_market_calendar()
-    written = 0
+    kept = [
+        k for k in range(lo, hi) if calendar.is_trading_bar(_TRADING_EXCHANGE, bar_times[k], tf)
+    ]
     with open(path, "w") as handle:
-        for start in range(lo, hi, block_rows):
-            stop = min(start + block_rows, hi)
-            values = series.numeric[start:stop].tolist()
-            lines = []
-            for k, numeric_row in enumerate(values):
-                bar_ts = bar_times[start + k]
-                if not calendar.is_trading_bar(_TRADING_EXCHANGE, bar_ts, tf):
-                    continue
-                lines.append(
+        for b in range(0, len(kept), block_rows):
+            block = kept[b : b + block_rows]
+            numeric_rows = series.numeric[block].tolist()
+            regime_rows = series.regime[block]
+            volatility_rows = series.regime_volatility[block]
+            handle.write(
+                "".join(
                     _spool_line(
                         feature_vector_v2_row_values(
                             symbol,
                             tf,
-                            bar_ts,
-                            series.regime[start + k],
-                            series.regime_volatility[start + k],
-                            numeric_row,
+                            bar_times[k],
+                            regime_rows[j],
+                            volatility_rows[j],
+                            numeric_rows[j],
                         )
                     )
+                    for j, k in enumerate(block)
                 )
-            handle.write("".join(lines))
-            written += len(lines)
-    return written
+            )
+    return len(kept)
 
 
 def _fetch_bar_arrays(
@@ -1182,10 +1165,12 @@ def _fetch_bar_arrays(
             block = cur.fetchmany(block_rows)
             if not block:
                 break
-            for row in block:
-                times.append(row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC))
-                for k in range(5):
-                    columns[k].append(float(row[k + 1]))
+            # zip(*block) transposes the block C-side; one extend per column replaces the
+            # five interpreted appends per row.
+            transposed = list(zip(*block))
+            times.extend(t if t.tzinfo else t.replace(tzinfo=UTC) for t in transposed[0])
+            for k, column in enumerate(transposed[1:]):
+                columns[k].extend(map(float, column))
     arrays = {
         "ts": np.array([bar_ts_ns(t) for t in times], dtype=np.int64),
         **{
@@ -1194,6 +1179,20 @@ def _fetch_bar_arrays(
         },
     }
     return arrays, times
+
+
+# The shared macro externals, installed once per worker by the pool initializer instead of
+# pickled into every task submit (they are identical for the whole run; a task carries only
+# its per-symbol work). None means the initializer has not run.
+_WORKER_EXTERNALS: tuple[dict, list[dict], list[dict]] | None = None
+
+
+def _rebuild_worker_init(
+    cross_asset_by_date: dict, spy_1d_bars: list[dict], tlt_1d_bars: list[dict]
+) -> None:
+    """Pool initializer payload: runs in each worker process before its first task."""
+    global _WORKER_EXTERNALS
+    _WORKER_EXTERNALS = (cross_asset_by_date, spy_1d_bars, tlt_1d_bars)
 
 
 def _rebuild_worker(args: tuple) -> dict:
@@ -1212,72 +1211,72 @@ def _rebuild_worker(args: tuple) -> dict:
         horizon,
         unit_ranges,
         spool_dir,
-        cross_asset_by_date,
-        spy_1d_bars,
-        tlt_1d_bars,
         block_rows,
     ) = args
     setup_service_logging("logs/backfill_feature_factory.log")
     worker_log = structlog.get_logger(__name__)
     result: dict = {"symbol": symbol, "units": {}, "error": None}
-    conn = None
+    if _WORKER_EXTERNALS is None:
+        raise RuntimeError(
+            "_rebuild_worker: macro externals not installed (the pool initializer "
+            "_rebuild_worker_init did not run)"
+        )
+    cross_asset_by_date, spy_1d_bars, tlt_1d_bars = _WORKER_EXTERNALS
     try:
-        conn = psycopg.connect(dsn)  # read only; a server cursor needs its transaction
-        bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows)
-        first_row = config.momentum_zscore_window
-        if len(bars["ts"]) < first_row + 2:
-            worker_log.warning(
-                "insufficient_bars", symbol=symbol, tf=tf, bars=len(bars["ts"]), need=first_row + 2
+        with _short_lived_conn(dsn) as conn:  # read only; a server cursor needs its transaction
+            bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows)
+            first_row = config.momentum_zscore_window
+            if len(bars["ts"]) < first_row + 2:
+                worker_log.warning(
+                    "insufficient_bars",
+                    symbol=symbol,
+                    tf=tf,
+                    bars=len(bars["ts"]),
+                    need=first_row + 2,
+                )
+                for index, _range in unit_ranges:
+                    path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
+                    path.write_text("")
+                    result["units"][index] = {"path": str(path), "rows": 0}
+                return result
+            symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d", until=horizon)
+            beta_by_date = build_symbol_beta_series(
+                symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
             )
-            for index, _range in unit_ranges:
+            htf_tf = config.ctf_higher_tf_map.get(tf)
+            htf_bars = (
+                symbol_1d_bars
+                if htf_tf == "1d"
+                else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon)
+            )
+            ltf_ret_by_ts: dict | None = None
+            if tf == "5m":
+                # ret_div_1m_5m reads 1m returns where 1m bars exist (a short, documented window).
+                ltf_bars = _fetch_bars_from_db(conn, symbol, "1m", until=horizon)
+                ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, bar_times) if ltf_bars else None
+            inputs = _series_kernel_inputs(
+                symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars, ltf_ret_by_ts
+            )
+            series = _compute_series_columns(inputs, config)
+            del inputs
+            for index, (range_start, range_end) in unit_ranges:
                 path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
-                path.write_text("")
-                result["units"][index] = {"path": str(path), "rows": 0}
-            return result
-        symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d", until=horizon)
-        beta_by_date = build_symbol_beta_series(
-            symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
-        )
-        htf_tf = config.ctf_higher_tf_map.get(tf)
-        htf_bars = (
-            symbol_1d_bars
-            if htf_tf == "1d"
-            else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon)
-        )
-        ltf_ret_by_ts: dict | None = None
-        if tf == "5m":
-            # ret_div_1m_5m reads 1m returns where 1m bars exist (a short, documented window).
-            ltf_bars = _fetch_bars_from_db(conn, symbol, "1m", until=horizon)
-            ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, bar_times) if ltf_bars else None
-        inputs = _series_kernel_inputs(
-            symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars, ltf_ret_by_ts
-        )
-        series = _compute_series_columns(inputs, config)
-        del inputs
-        for index, (range_start, range_end) in unit_ranges:
-            path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
-            rows = _write_unit_spool(
-                path,
-                symbol,
-                tf,
-                bars["ts"],
-                bar_times,
-                series,
-                range_start,
-                range_end,
-                first_row,
-                block_rows,
-            )
-            result["units"][index] = {"path": str(path), "rows": rows}
+                rows = _write_unit_spool(
+                    path,
+                    symbol,
+                    tf,
+                    bars["ts"],
+                    bar_times,
+                    series,
+                    range_start,
+                    range_end,
+                    first_row,
+                    block_rows,
+                )
+                result["units"][index] = {"path": str(path), "rows": rows}
     except Exception as error:
         result["error"] = f"{type(error).__name__}: {error}"
         worker_log.error("rebuild_worker_failed", symbol=symbol, tf=tf, error=str(error))
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
     return result
 
 
@@ -1291,10 +1290,10 @@ GROUP BY symbol, yr
 """
 
 
-class _SymbolStats(NamedTuple):
-    count: int
-    first: datetime
-    last: datetime
+def _year_span(range_start: datetime, range_end: datetime) -> range:
+    """The calendar years a half-open [range_start, range_end) touches: the end minus one
+    microsecond, so a Jan 1 00:00:00 end does not include that year."""
+    return range(range_start.year, (range_end - _ONE_MICROSECOND).year + 1)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1307,7 +1306,7 @@ class RebuildUnit:
     @property
     def years(self) -> range:
         """The calendar years of the hypertable chunks this unit writes into."""
-        return range(self.spec.range_start.year, (self.spec.range_end - _ONE_MICROSECOND).year + 1)
+        return _year_span(self.spec.range_start, self.spec.range_end)
 
 
 @dataclasses.dataclass
@@ -1319,7 +1318,7 @@ class _GroupPlan:
     blind_symbols: set[str]
 
 
-def _unit_input_digest(digests: Mapping[str, str], stats: Mapping[str, _SymbolStats]) -> str:
+def _unit_input_digest(digests: Mapping[str, str], stats: Mapping[str, CoverageRow]) -> str:
     """sha256 hex over, per symbol with bars in the unit, the month-composed content digest
     (phase 185's `bar_content_digest_current`, the one definition) and the bar count and first
     and last bar time. The counts are supplementary identity: while a symbol's digest is absent
@@ -1348,21 +1347,21 @@ def _plan_group(
         rows = cur.fetchall()
     if not rows:
         return None
-    by_year: dict[int, dict[str, _SymbolStats]] = {}
+    by_year: dict[int, dict[str, CoverageRow]] = {}
     for symbol, year, count, first, last in rows:
-        by_year.setdefault(year, {})[symbol] = _SymbolStats(int(count), first, last)
+        by_year.setdefault(year, {})[symbol] = CoverageRow(int(count), first, last)
     first_bar = min(stat.first for per_symbol in by_year.values() for stat in per_symbol.values())
     units: list[RebuildUnit] = []
     blind: set[str] = set()
     for range_start, range_end in rebuild_unit_ranges(tf, first_bar, horizon):
-        merged: dict[str, _SymbolStats] = {}
-        for year in range(range_start.year, (range_end - _ONE_MICROSECOND).year + 1):
+        merged: dict[str, CoverageRow] = {}
+        for year in _year_span(range_start, range_end):
             for symbol, stat in by_year.get(year, {}).items():
                 prior = merged.get(symbol)
                 merged[symbol] = (
                     stat
                     if prior is None
-                    else _SymbolStats(
+                    else CoverageRow(
                         prior.count + stat.count,
                         min(prior.first, stat.first),
                         max(prior.last, stat.last),
@@ -1404,7 +1403,7 @@ def _purge_spool_root(root: Path) -> None:
 
 
 def _write_group(
-    prepared: _GroupPlan | _PreparedGroup,
+    prepared: _PreparedGroup,
     write_conn: Any,
     max_unit_rows: int,
     summary: dict[str, Any],
@@ -1414,16 +1413,17 @@ def _write_group(
 
     One unit's failure leaves its provenance row failed and the group's other units loading; a
     worker that failed for any symbol fails every pending unit of the group (a unit's identity
-    is its whole symbol chunk, so it cannot complete without every symbol). Removes the group's
-    spool directory when done, whatever happened.
+    is its whole symbol chunk, so it cannot complete without every symbol). The spool values
+    are real-range clamped upstream (`clamp_to_real_range_array`), so bulk_load is told and
+    skips its per-row clamp. Removes the group's spool directory when done, whatever happened.
     """
-    group = prepared.plan  # type: ignore[union-attr]
+    group = prepared.plan
     columns = feature_vectors_v2_columns()
     try:
-        results = [future.result() for future in prepared.futures]  # type: ignore[union-attr]
+        results = [future.result() for future in prepared.futures]
         failures = [r for r in results if r["error"]]
         if failures:
-            for unit in prepared.pending:  # type: ignore[union-attr]
+            for unit in prepared.pending:
                 summary["units_failed"] += 1
                 summary["failed_units"].append(
                     {"batch_key": unit.spec.batch_key, "tf": group.tf, "reason": "worker_failed"}
@@ -1434,10 +1434,10 @@ def _write_group(
                 chunk_index=group.chunk_index,
                 failed_symbols=[r["symbol"] for r in failures],
                 errors=[r["error"] for r in failures][:3],
-                units=len(prepared.pending),  # type: ignore[union-attr]
+                units=len(prepared.pending),
             )
             return
-        for unit in prepared.pending:  # type: ignore[union-attr]
+        for unit in prepared.pending:
             declared = sum(r["units"][unit.index]["rows"] for r in results)
             if declared > max_unit_rows:
                 raise ValueError(
@@ -1454,6 +1454,7 @@ def _write_group(
                     unit.spec,
                     columns,
                     heapq.merge(*streams, key=_spool_row_time),
+                    preclamped_real=True,
                 )
             except Exception as error:
                 summary["units_failed"] += 1
@@ -1468,7 +1469,13 @@ def _write_group(
                     error=str(error)[:300],
                 )
                 continue
-            if loaded.status == "loaded" and loaded.row_count != declared:
+            if loaded.status == "skipped":
+                # A concurrent session completed the unit between planning and the load:
+                # it is complete, but this run wrote none of its rows.
+                summary["units_skipped"] += 1
+                completed_keys.add(unit.spec.batch_key)
+                continue
+            if loaded.row_count != declared:
                 raise RuntimeError(
                     f"rebuild unit {unit.spec.batch_key[:12]}: bulk_load wrote {loaded.row_count} "
                     f"rows but the spool declared {declared}"
@@ -1484,7 +1491,7 @@ def _write_group(
                 elapsed_s=round(time.monotonic() - started, 1),
             )
     finally:
-        shutil.rmtree(prepared.spool_dir, ignore_errors=True)  # type: ignore[union-attr]
+        shutil.rmtree(prepared.spool_dir, ignore_errors=True)
 
 
 def run_rebuild_stage(
@@ -1524,7 +1531,7 @@ def run_rebuild_stage(
     block_rows = int(cfg.get_sync(_REBUILD_BLOCK_ROWS_KEY, _REBUILD_BLOCK_ROWS_DEFAULT))
     blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
     registry = default_registry()
-    feature_outputs = list(feature_vectors_v2_columns()[3:])
+    feature_outputs = list(feature_vectors_v2_output_columns())
     code_key = unit_code_key(registry, feature_outputs)
     apr_snapshot = dataclasses.asdict(config)
     spool_root = spool_root or _SPOOL_ROOT_DEFAULT
@@ -1534,21 +1541,6 @@ def run_rebuild_stage(
     universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
     chunks = split_symbol_chunks(universe, symbols_per_chunk)
 
-    # The daily cross-asset records are shared by every symbol: built once from the reference
-    # ETFs' 1d bars before the horizon and passed to the workers.
-    reference = {
-        name: _fetch_bars_from_db(db_conn, name, "1d", until=horizon)
-        for name in (SPY, TLT, SHY, TIP, HYG, LQD)
-    }
-    cross_asset_by_date = build_cross_asset_series(
-        reference[SPY],
-        reference[TLT],
-        reference[SHY],
-        reference[TIP],
-        reference[HYG],
-        reference[LQD],
-        config,
-    )
     _logger.info(
         "backfill_feature_factory.rebuild_start",
         symbols=len(universe),
@@ -1578,64 +1570,82 @@ def run_rebuild_stage(
     expected: dict[tuple[str, int], set[str]] = {}
     completed_keys: set[str] = set()
     write_conn = psycopg.connect(settings.database_url)  # bulk_load commits; not autocommit
+    pool = None
     try:
-        with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
-            waiting: _PreparedGroup | None = None
-            for chunk_index, chunk in enumerate(chunks):
-                for tf in target_timeframes:
-                    plan = _plan_group(
-                        db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot
+        # The pool and its shared macro externals are built on the FIRST pending group, so a
+        # resume with nothing to do pays neither: the daily cross-asset records are built once
+        # from the reference ETFs' 1d bars before the horizon, installed per worker by the
+        # pool initializer (never pickled into every task submit), and shared by every symbol.
+        waiting: _PreparedGroup | None = None
+        for chunk_index, chunk in enumerate(chunks):
+            for tf in target_timeframes:
+                plan = _plan_group(db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot)
+                if plan is None:
+                    summary["empty_groups"] += 1
+                    continue
+                blind |= plan.blind_symbols
+                pending: list[RebuildUnit] = []
+                for unit in plan.units:
+                    summary["units_total"] += 1
+                    for year in unit.years:
+                        expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
+                    if _completed_provenance_batch(db_conn, unit.spec) is not None:
+                        summary["units_skipped"] += 1
+                        completed_keys.add(unit.spec.batch_key)
+                    else:
+                        pending.append(unit)
+                if not pending:
+                    continue
+                if pool is None:
+                    reference = {
+                        name: _fetch_bars_from_db(db_conn, name, "1d", until=horizon)
+                        for name in (SPY, TLT, SHY, TIP, HYG, LQD)
+                    }
+                    cross_asset_by_date = build_cross_asset_series(
+                        reference[SPY],
+                        reference[TLT],
+                        reference[SHY],
+                        reference[TIP],
+                        reference[HYG],
+                        reference[LQD],
+                        config,
                     )
-                    if plan is None:
-                        summary["empty_groups"] += 1
-                        continue
-                    blind |= plan.blind_symbols
-                    pending: list[RebuildUnit] = []
-                    for unit in plan.units:
-                        summary["units_total"] += 1
-                        for year in unit.years:
-                            expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
-                        if _completed_provenance_batch(db_conn, unit.spec) is not None:
-                            summary["units_skipped"] += 1
-                            completed_keys.add(unit.spec.batch_key)
-                        else:
-                            pending.append(unit)
-                    if not pending:
-                        continue
-                    spool_dir = Path(
-                        tempfile.mkdtemp(
-                            prefix=f"{_SPOOL_GROUP_PREFIX}{tf}-{chunk_index:04d}-", dir=spool_root
-                        )
+                    pool = _make_worker_pool(
+                        n_workers,
+                        blas_threads_per_worker,
+                        initializer=_rebuild_worker_init,
+                        initargs=(cross_asset_by_date, reference[SPY], reference[TLT]),
                     )
-                    unit_ranges = [
-                        (unit.index, (unit.spec.range_start, unit.spec.range_end))
-                        for unit in pending
-                    ]
-                    futures = [
-                        pool.submit(
-                            _rebuild_worker,
-                            (
-                                symbol,
-                                tf,
-                                settings.database_url,
-                                config,
-                                horizon,
-                                unit_ranges,
-                                str(spool_dir),
-                                cross_asset_by_date,
-                                reference[SPY],
-                                reference[TLT],
-                                block_rows,
-                            ),
-                        )
-                        for symbol in chunk
-                    ]
-                    prepared = _PreparedGroup(plan, pending, futures, spool_dir)
-                    if waiting is not None:
-                        _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
-                    waiting = prepared
-            if waiting is not None:
-                _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
+                spool_dir = Path(
+                    tempfile.mkdtemp(
+                        prefix=f"{_SPOOL_GROUP_PREFIX}{tf}-{chunk_index:04d}-", dir=spool_root
+                    )
+                )
+                unit_ranges = [
+                    (unit.index, (unit.spec.range_start, unit.spec.range_end)) for unit in pending
+                ]
+                futures = [
+                    pool.submit(
+                        _rebuild_worker,
+                        (
+                            symbol,
+                            tf,
+                            settings.database_url,
+                            config,
+                            horizon,
+                            unit_ranges,
+                            str(spool_dir),
+                            block_rows,
+                        ),
+                    )
+                    for symbol in chunk
+                ]
+                prepared = _PreparedGroup(plan, pending, futures, spool_dir)
+                if waiting is not None:
+                    _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
+                waiting = prepared
+        if waiting is not None:
+            _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
 
         summary["digest_blind_symbols"] = sorted(blind)
         if blind:
@@ -1662,6 +1672,8 @@ def run_rebuild_stage(
             )
             summary["compression"] = "done"
     finally:
+        if pool is not None:
+            pool.shutdown(wait=True)
         write_conn.close()
         shutil.rmtree(spool_root, ignore_errors=True)
     _logger.info(

@@ -1004,6 +1004,13 @@ def feature_vectors_v2_columns() -> tuple[str, ...]:
     )
 
 
+def feature_vectors_v2_output_columns() -> tuple[str, ...]:
+    """The non-key columns of feature_vectors_v2 (the two regime text outputs plus the numeric
+    columns): what a compute pass must produce for the table. Derived from the key-column
+    constant, never a hard-coded offset, so a key-column change cannot silently shift it."""
+    return feature_vectors_v2_columns()[len(FEATURE_VECTORS_V2_KEY_COLUMNS) :]
+
+
 def __getattr__(name: str) -> tuple[str, ...]:
     # Lazy module attribute (PEP 562): `from ... import FEATURE_VECTORS_V2_COLUMNS` works and
     # resolves the registry on first use, never at import (see feature_vectors_v2_numeric_columns).

@@ -56,3 +56,17 @@ def clamp_to_real_range(value: Any) -> Any:
     if magnitude < REAL_MIN_MAGNITUDE:
         return 0.0
     return math.copysign(REAL_MAX_MAGNITUDE, value)
+
+
+def clamp_to_real_range_array(column: np.ndarray) -> np.ndarray:
+    """Vectorized `clamp_to_real_range` over a float64 column: finite values beyond
+    float32's range clamp to +-max, nonzero values below its smallest magnitude become
+    0.0; NaN and infinity are left as they are (Postgres accepts both in a real
+    column). Lives next to its scalar sibling so the two cannot drift; the vectorized
+    form is what a whole-column producer (the feature_vectors_v2 rebuild) runs before
+    spooling, letting its bulk_load skip the per-row clamp."""
+    finite = np.isfinite(column)
+    magnitude = np.abs(column)
+    clamped = np.where(finite, np.clip(column, -REAL_MAX_MAGNITUDE, REAL_MAX_MAGNITUDE), column)
+    tiny = finite & (magnitude > 0.0) & (magnitude < REAL_MIN_MAGNITUDE)
+    return np.where(tiny, 0.0, clamped)
