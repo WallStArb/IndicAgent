@@ -68,6 +68,13 @@ class FakeSink:
     def on_request(self, record) -> None:
         self.requests.append(record)
 
+    def take_requests(self, request_ids) -> list:
+        """Plan 12: the atomic persist helper drains the chunk's requests."""
+        wanted = {str(rid) for rid in request_ids}
+        taken = [rec for rec in self.requests if str(rec.request_id) in wanted]
+        self.requests = [rec for rec in self.requests if str(rec.request_id) not in wanted]
+        return taken
+
     def on_observation(self, record, bars) -> None:
         self.observations.append((record, bars))
 
@@ -105,7 +112,7 @@ def _bars(symbol: str, tf: str, n: int = 4) -> list[OHLCVBar]:
 
 def _record(kwargs: dict, *, route: str = "SMART") -> SimpleNamespace:
     return SimpleNamespace(
-        request_id=f"{kwargs['symbol']}-{route}",
+        request_id=f"{kwargs['symbol']}-{route}-{kwargs['timeframe']}",
         fetch_run_id=kwargs.get("fetch_run_id"),
         symbol=kwargs["symbol"],
         timeframe=kwargs["timeframe"],
@@ -141,7 +148,10 @@ class FakeProvider:
         bars = _bars(kwargs["symbol"], kwargs["timeframe"])
         on_request = kwargs.get("on_request")
         on_observation = kwargs.get("on_observation")
+        on_chunk = kwargs.get("on_chunk")
         if on_request is None:
+            if on_chunk is not None:
+                await on_chunk(bars)
             return bars
         if kwargs["timeframe"] == "1d":
             # SMART answer then a former-venue recovery, two requests, two
@@ -157,6 +167,8 @@ class FakeProvider:
         else:
             # Intraday: request records only, never observations (D-02/D-20).
             on_request(_record(kwargs))
+        if on_chunk is not None:
+            await on_chunk(bars)  # the real walk fires it after the record (todo 462 order)
         return bars
 
 
@@ -226,6 +238,7 @@ def driven_main(monkeypatch, capsys):
         marked: list[tuple[str, str]] = []
         normalized: list[tuple[str, str]] = []
         stored: list[tuple[str, str, str]] = []  # (symbol, tf, destination)
+        atomic_calls: list[dict] = []
         gap_calls: list[tuple[str, str, object]] = []
         mod = pipeline
 
@@ -269,6 +282,18 @@ def driven_main(monkeypatch, capsys):
         monkeypatch.setattr(mod, "_acquire_history_lease", _fake_acquire)
         monkeypatch.setattr(mod, "ObservationSink", _sink_factory)
         monkeypatch.setattr(mod, "new_fetch_run_id", lambda: _TEST_RUN_ID)
+
+        def _fake_atomic(conn, *, request_rows, archive_rows, write_archive_rows):
+            atomic_calls.append(
+                {
+                    "requests": list(request_rows),
+                    "bars": list(archive_rows),
+                    "writer": write_archive_rows,
+                }
+            )
+            return len(request_rows), len(archive_rows)
+
+        monkeypatch.setattr(mod, "persist_chunk_atomically", _fake_atomic)
         monkeypatch.setattr(mod, "IBKRProvider", provider_cls or FakeProvider)
         monkeypatch.setattr(mod, "flush_and_shutdown_metrics", lambda: None)
         monkeypatch.setattr(mod, "JOB_COMPLETED_TOTAL", MagicMock())
@@ -335,6 +360,7 @@ def driven_main(monkeypatch, capsys):
             marked=marked,
             normalized=normalized,
             stored=stored,
+            atomic_calls=atomic_calls,
             gap_calls=gap_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
@@ -369,10 +395,22 @@ def test_capture_and_checkpoint_wiring(driven_main):
             assert call.get("on_observation") is None
 
     # Sink saw both requests and both observation deliveries per 1d fetch, plus
-    # one request per intraday fetch, and flushed once per symbol.
-    assert result.sink.total_requests == 9  # 3 symbols x (2 SMART/venue + 1 intraday)
+    # one request per intraday fetch, and flushed once per symbol. The intraday
+    # requests are taken out of the buffer by the atomic persist (below), so the
+    # flush carries only the 1d pair per symbol.
+    assert result.sink.total_requests == 6  # 3 symbols x 2 (SMART/venue, 1d)
     assert result.sink.total_observations == 6  # 3 symbols x 2 observation deliveries
     assert result.sink.flushes == 3
+
+    # Plan 12: one atomic request-and-bars commit per intraday fetch, with the
+    # chunk's answer rows and its bars together, written by the archive's writer.
+    assert len(result.atomic_calls) == 3
+    for call in result.atomic_calls:
+        assert len(call["requests"]) == 1
+        assert len(call["bars"]) == 4
+        assert call["bars"][0][1] in ("AAA", "BBB", "CCC")
+        assert call["bars"][0][2] == "15m"
+        assert call["writer"] is pipeline._insert_archive_rows
 
     # fetch_run_id printed at start; every (symbol, tf) marked complete.
     assert _TEST_RUN_ID in result.output

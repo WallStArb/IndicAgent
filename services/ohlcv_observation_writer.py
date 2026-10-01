@@ -84,6 +84,19 @@ def new_fetch_run_id() -> str:
     return str(uuid_module.uuid4())
 
 
+def write_request_rows(cur: Any, rows: list[tuple]) -> None:
+    """The one ohlcv_request row-writing shape: COPY under the writer role.
+
+    The sink's flush path and the backfill persist helper (plan 12's atomic
+    request-and-bars transaction) both go through this function, so the table
+    keeps exactly one INSERT definition (single_writer).
+    """
+    sql = f"COPY ohlcv_request ({', '.join(_REQUEST_COLUMNS)}) FROM STDIN"
+    with cur.copy(sql) as copy:
+        for row in rows:
+            copy.write_row(row)
+
+
 def _request_row(record: Any, *, caller: str, source: str) -> tuple:
     return (
         uuid_module.UUID(str(record.request_id)),
@@ -204,6 +217,24 @@ class _Buffer:
             )
         return self._requests, self._observations
 
+    def take_requests(self, request_ids: Any) -> list[tuple]:
+        """Remove and return the buffered request rows whose request_id is in
+        `request_ids`, keeping every other buffered row for the normal flush.
+
+        Plan 12's atomic persist helper commits a fetched chunk's request rows
+        together with that chunk's bars; the rows leave this buffer so a later
+        flush cannot write them twice. Seen ids stay seen (the orphan guard is
+        unaffected)."""
+        wanted = {str(rid) for rid in request_ids}
+        if not wanted:
+            return []
+        taken: list[tuple] = []
+        kept: list[tuple] = []
+        for row in self._requests:
+            (taken if str(row[0]) in wanted else kept).append(row)
+        self._requests = kept
+        return taken
+
     def clear(self) -> None:
         self._requests = []
         self._observations = []
@@ -239,6 +270,13 @@ class ObservationSink:
     def pending(self) -> int:
         return self._buffer.pending()
 
+    def take_requests(self, request_ids: Any) -> list[tuple]:
+        """Hand over the buffered request rows for `request_ids` WITHOUT
+        flushing (plan 12's atomic persist helper commits them with the
+        chunk's bars). Everything else stays buffered for the normal flush;
+        the existing flush path is unchanged."""
+        return self._buffer.take_requests(request_ids)
+
     def reconnect(self, conn: Any) -> None:
         """Swap in a fresh connection, keeping the buffered rows. The only
         buffer-preserving recovery when the old connection died mid-run (a new
@@ -271,10 +309,7 @@ class ObservationSink:
             with self._conn.cursor() as cur:
                 cur.execute(f"SET LOCAL ROLE {_ROLE}")
                 if requests:
-                    sql = f"COPY ohlcv_request ({', '.join(_REQUEST_COLUMNS)}) FROM STDIN"
-                    with cur.copy(sql) as copy:
-                        for row in requests:
-                            copy.write_row(row)
+                    write_request_rows(cur, requests)
                 if observations:
                     sql = (
                         f"COPY ohlcv_observation ({', '.join(_OBSERVATION_COLUMNS)}) " "FROM STDIN"

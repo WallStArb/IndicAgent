@@ -50,6 +50,7 @@ sys.path.insert(0, str(project_root))
 
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
+from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from scripts.infrastructure.backfill._request_coverage import (
     AnsweredWindows,
     load_answered_windows,
@@ -1844,14 +1845,69 @@ def main() -> None:
                         # full window's prev_close carried across chunk boundaries — see
                         # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
                         # later full-window pass re-affirming these rows a safe no-op.
+                        # Archive tfs record the request ids the provider reports,
+                        # so each chunk's bars and its answer commit atomically
+                        # (todo 462): the record fires before on_chunk, so by the
+                        # time _persist_chunk runs its ids are all captured.
+                        window_request_ids: list[Any] = []
+                        capture_kwargs = _capture_kwargs(tf, sink, fetch_run_id)
+                        if archive_tf:
+                            base_on_request = capture_kwargs["on_request"]
+
+                            def _recording_on_request(
+                                record: Any,
+                                _base: Any = base_on_request,
+                                _ids: list[Any] = window_request_ids,
+                            ) -> None:
+                                _base(record)
+                                _ids.append(record.request_id)
+
+                            capture_kwargs["on_request"] = _recording_on_request
+
                         async def _persist_chunk(
                             chunk_bars: list,
                             _tf: str = tf,
                             _symbol: str = instrument.symbol,
-                            _write_rows: Any | None = write_rows,
+                            _archive: bool = archive_tf,
+                            _request_ids: list[Any] = window_request_ids,
                         ) -> None:
                             nonlocal db_conn
                             if not chunk_bars:
+                                return
+                            try:
+                                db_conn.cursor().execute("SELECT 1")
+                            except Exception:
+                                try:
+                                    db_conn.close()
+                                except Exception:
+                                    pass
+                                db_conn = connect_db(settings)
+                            if _archive:
+                                # One transaction for the answer and its bars: a
+                                # recorded request never outruns its stored rows.
+                                archive_rows = [
+                                    (
+                                        b.timestamp,
+                                        _symbol,
+                                        _tf,
+                                        b.open,
+                                        b.high,
+                                        b.low,
+                                        b.close,
+                                        b.volume,
+                                        b.source,
+                                        None,
+                                    )
+                                    for b in chunk_bars
+                                ]
+                                request_rows = sink.take_requests(list(_request_ids))
+                                _request_ids.clear()
+                                persist_chunk_atomically(
+                                    db_conn,
+                                    request_rows=request_rows,
+                                    archive_rows=archive_rows,
+                                    write_archive_rows=_insert_archive_rows,
+                                )
                                 return
                             chunk_dicts = [
                                 {
@@ -1865,15 +1921,7 @@ def main() -> None:
                                 }
                                 for b in chunk_bars
                             ]
-                            try:
-                                db_conn.cursor().execute("SELECT 1")
-                            except Exception:
-                                try:
-                                    db_conn.close()
-                                except Exception:
-                                    pass
-                                db_conn = connect_db(settings)
-                            store_bars(db_conn, chunk_dicts, _symbol, _tf, write_rows=_write_rows)
+                            store_bars(db_conn, chunk_dicts, _symbol, _tf)
 
                         # Fetch each cluster's window separately — the provider still
                         # chunks each one at _MAX_CHUNK_DAYS[tf] internally with 10s
@@ -1910,7 +1958,7 @@ def main() -> None:
                                     continuous=use_cont,
                                     on_chunk=_persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,
-                                    **_capture_kwargs(tf, sink, fetch_run_id),
+                                    **capture_kwargs,
                                 )
                                 # A chunk that failed every retry does not raise; the
                                 # window is incomplete all the same.

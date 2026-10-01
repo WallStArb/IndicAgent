@@ -25,9 +25,9 @@ from types import SimpleNamespace
 
 import psycopg
 import pytest
-from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 
 from scripts.infrastructure.backfill import _intraday_persist
+from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_observation_writer import write_request_rows
 
 _REQUEST_ROW = (
@@ -96,8 +96,8 @@ class FakeConn:
             self._conn = conn
 
         def __enter__(self) -> FakeConn._Txn:
-            self._conn._in_txn = True
             self._conn.record("<begin>")
+            self._conn._in_txn = True
             return self
 
         def __exit__(self, *exc: object) -> bool:

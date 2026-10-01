@@ -414,8 +414,8 @@ def test_take_requests_removes_only_the_wanted_rows_and_keeps_the_rest():
 
     taken = sink.take_requests([chunk_a.request_id])
     assert [row[0] for row in taken] == [uuid.UUID(str(chunk_a.request_id))]
-    # The rest is still buffered: chunk_b's request and the 1d pair.
-    assert sink.pending() == 3
+    # The rest is still buffered: chunk_b's and daily's requests, daily's 2 rows.
+    assert sink.pending() == 4
     assert sink.flush() == (2, 2)
     copied_requests = conn.copies[0][1]
     assert uuid.UUID(str(chunk_a.request_id)) not in {row[0] for row in copied_requests}

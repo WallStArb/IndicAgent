@@ -521,13 +521,11 @@ def test_partial_flag_does_not_change_the_digest():
 
 def test_rewrite_replaces_the_segments_partial_flags():
     """A later answered window must clear a stale flag: the re-derive deletes
-    the segment's partial_constituents flags before writing the fresh set."""
+    the segment's partial_constituents flags before writing the fresh set
+    (here: the hole is unanswered, so a fresh partial flag is written)."""
     fixture = _five_minute_fixture()
     holed = fixture[:40] + fixture[41:]
-    conn = FakeConn(
-        bars={"SPY": holed},
-        answered_windows=_answered_windows_for_slot(fixture[40][0]),
-    )
+    conn = FakeConn(bars={"SPY": holed})
     assert _run(conn)["derived"] == 1
     deletes = [
         (sql, args)
