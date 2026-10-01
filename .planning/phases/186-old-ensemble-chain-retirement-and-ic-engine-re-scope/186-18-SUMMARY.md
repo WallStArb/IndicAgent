@@ -239,8 +239,8 @@ main and before the rebuild launch; the deferred rerun is owned by the 186-26 ex
 
 ## Verification
 
-- Worktree `pytest tests/unit/ -q -x`: exit 0, 4 skips (listed in the log), before the merge. Merged-main run recorded under
-  "Merged main" below.
+- Worktree `pytest tests/unit/ -q -x`: exit 0, 4 skips (listed in the log), before the merge. Merged main (`/home/bg/dev/indicagent`, tip
+  `4686cc010`, `.venv/bin/pytest tests/unit/ -q`): exit 0.
 - `repro_frozen`: not required; `git diff --stat main..HEAD -- src/intelligence/research src/intelligence/statistics services/regime_writer.py services/_batch_utils.py` is empty.
 - ruff and black clean on every touched Python file; `vulture` adds no finding (one new finding, `conn.read_only`, was
   removed by using `set_read_only`); mypy: `src/intelligence/features/kernels/_hmm.py` is the only touched file under `src/`,
