@@ -89,7 +89,7 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | Renaissance refinement ideas (105 across 48 sections) | `docs/research/archive/signal-06-renaissance-refinements.md`, `docs/plans/archive/2026-03-07-i7-i8-renaissance-refinement-design.md` | Written against the v2.x I7/I8 tiers; not yet read at v3 altitude, so unsorted |
 | Sensitivity x regime interaction primitives | `docs/ideas/signal-sensitivity-regime-interaction-primitives.md` | Revision required after its 2026-09-18 review |
 | Quarterly seasonality / OPEX risk-off | `docs/ideas/signal-quarterly-seasonality-opex-risk-off.md` | Overlaps families 5 and 8 |
-| Political / policy regime | `docs/ideas/signal-political-policy-regime.md` | Idea |
+| Political / policy regime (incl. post-midterm presidential-cycle seasonal) | `docs/ideas/signal-political-policy-regime.md` | Idea. Descriptive look 2026-10-01 on 5 midterms (SPY 2006+): +6m mean +8.5% vs +5.0% unconditional, no +12m edge; underpowered, needs pre-2006 history before any test |
 | Event catalog and impact measurement | `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md` | Idea |
 | Factor sensitivity, cross-asset regime levels | `docs/ideas/from-ssfi/signal-factor-sensitivity-cross-asset.md` | Idea |
 | Convolutional raw-window representation | `docs/ideas/signal-convolutional-raw-window-representation.md` | Idea, skeptical on arrival |

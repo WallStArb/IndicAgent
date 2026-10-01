@@ -162,6 +162,71 @@ all.
 
 ---
 
+## Presidential-cycle seasonal (post-midterm window)
+
+A third sub-hypothesis, kept apart from the two above: equity returns follow the four-year
+election cycle, with the strongest stretch starting at the midterm election. It is a calendar
+coordinate (years since the last presidential election), not a policy measurement, and needs
+no external feed.
+
+### Mechanism and confounds
+
+The usual story is that the midterm resolves policy uncertainty (sub-concept 1), after a
+weak midterm-year spring and summer. That makes three explanations that a raw "post-midterm
+returns are high" comparison cannot separate:
+
+1. A cycle effect proper (phase of the four-year cycle matters).
+2. Uncertainty resolution (the same bounce follows any resolved shock, election or not).
+3. Rebound after the midterm-year drawdown (plain short-horizon reversal, no politics).
+
+Only (1) is a seasonal. Explanations (2) and (3) are already testable with existing features
+(EPU, trailing drawdown), so the pre-registered spec conditions on the midterm-year drawdown
+depth and reports the cycle term net of it.
+
+### Descriptive look, 2026-10-01 (SPY daily, 2006-06 to 2026-09; one look at the vintage)
+
+Five midterms: 2006, 2010, 2014, 2018, 2022. Election day to +6 months: +9.0, +14.0, +5.1,
++6.4, +8.0 percent (mean +8.5), all positive. Election day to +12 months: mean +8.2 against
+an unconditional +10.2, so the effect is a 6-month one here, not a 12-month one.
+
+The right comparison is the same calendar window in the other cycle years, not the
+unconditional mean, because 2006-2026 is a strong-drift sample. Starting every year on 5
+November: midterm years +7.4% (n=5), other years +4.2% (n=15, sd 9.7%). The difference of
+3.2 points has a standard error near 5 points (t about 0.6). Unconditionally SPY is positive
+over 6 months about 73% of the time, so "five of five" is roughly a 20% event by chance.
+
+### Power
+
+The sd of a 6-month SPY return is about 11 points. With the roughly 18 midterms since 1950
+against 3 other-phase years each (SE of the difference near 3.1 points), the minimum
+detectable excess at 80% power is about 8.7 points. A cycle effect of the size usually
+quoted (3 to 4 points) is below that even on the full history, and adding names does not
+help: the cycle is a time-series broadcast with one observation per four years. The test can
+reject a large effect; it cannot confirm a small one. Treat the cycle as a conditioning
+variable or risk flag for a combiner, never as a standalone book.
+
+### Forward event
+
+The 3 November 2026 midterm falls inside the unsearched forward span. A spec committed
+(hash recorded) before that date turns the 2026-27 window into one clean forward
+observation under the evidence framework. One event confirms nothing statistically, but
+committing the spec costs almost nothing and the window cannot be recovered later.
+
+### Spec to pre-register
+
+- Outcome: SPY (and one broad equal-weight ETF, RSP) total return, election day to +6
+  months, minus the same-window return in the other three cycle years.
+- Control: midterm-year drawdown depth (peak to the 30 September close) as a covariate.
+- Null: block bootstrap over years, never one draw per event.
+- Data: pre-2006 index history as owner-approved reference data (todo 428 precedent);
+  without it the spec is refused as underpowered.
+- Feature, if the test survives: `presidential_cycle_sin`, `presidential_cycle_cos`
+  (period four years) beside the other cyclical coordinates in
+  `docs/research/signal-temporal-atomic-primitives.md`. The coordinate spans the cycle and
+  does not select the post-midterm point.
+
+---
+
 ## Open questions / cautions before promotion to `docs/research/`
 
 1. ~~Does this become a `market_regimes` group or a plain feature?~~ **Resolved above** — plain
