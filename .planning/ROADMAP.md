@@ -326,6 +326,15 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-18 regime bundle on the kernel: trend obs rows start after the nested vol_of_vol warmup
+  (RED test, golden regenerated in its own commit, volatility digests unchanged; todo 286), WR-01
+  pinned on both kernel families (292); a read-only coverage sweep decided by pre-registered rules:
+  `refit_every_bars.1d` kept at 252 (289; 1d regime_volatility is gated off for 98% of segments at
+  every schedule, todo 478 filed) and the five auditor symbols diagnosed, so the auditor fails only on
+  unregistered or expired gaps with APR exceptions expiring 2026-12-29 (341, migration 420);
+  `cross_sectional_regime_model` replaces each (group, tf) atomically with a shrink guard (420,
+  migration 419), cleanup run deferred behind 186-20 (J = 510,835); merged 2026-09-30 locally
+  (`a67b10a4f`, push held by the coordinator)
 - [x] 186-14 fresh IC writer: `services/ic_measure.py` writes `feature_ic_scores_v2` (migration 413, `regime_scope`
   in the PK, legacy table untouched) only through `bulk_load`, one provenance batch per unit, skipped
   before any IC when the identity (per-job code key, APR snapshot, per-symbol bar digests, block
