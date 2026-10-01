@@ -126,6 +126,7 @@ class Settings(BaseSettings):
         ),
     )
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    fred_api_key: str = Field(default="", validation_alias="FRED_API_KEY")
     openrouter_models: str = Field(
         default=(
             "openrouter/free,"

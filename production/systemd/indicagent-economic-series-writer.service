@@ -1,0 +1,17 @@
+[Unit]
+Description=IndicAgent Economic Series Writer (FRED, NY Fed) -- todo 480, services/economic_series_writer.py
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+# Full history of every series in APR infra.economic_series.sources each run (a few seconds); appends only
+# what is new or revised.
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/economic_series_writer.py
+
+[Install]
+WantedBy=multi-user.target

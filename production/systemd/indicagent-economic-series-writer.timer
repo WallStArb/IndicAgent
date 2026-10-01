@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily FRED and NY Fed economic series -- 12:30 UTC (FRED daily series post the next business day)
+
+[Timer]
+OnCalendar=*-*-* 12:30:00 UTC
+Persistent=true
+Unit=indicagent-economic-series-writer.service
+
+[Install]
+WantedBy=timers.target

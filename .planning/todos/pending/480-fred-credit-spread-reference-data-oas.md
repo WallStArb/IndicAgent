@@ -5,7 +5,7 @@ filed: 2026-10-01
 source: interactive session, crash-precursor check (HYG ratios are a coincident proxy only)
 ---
 
-# FRED credit spread and Treasury yield reference data
+# FRED credit spread and Treasury yield series (economic_series_observation)
 
 ## What
 
@@ -35,14 +35,55 @@ they are forward-only collection. `BAA10Y` starts 1986-01, `DGS10`/`DGS2`/`T10Y2
 `BAA10Y` plus the 3-year ICE window. indicagent needs its own key var in `Settings`
 (`FRED_API_KEY`); the secret is not copied into the repo.
 
+## Status 2026-10-01: Tier 1 built and loaded
+
+Landed: `src/providers/fred.py`, `services/economic_series_writer.py` (BaseBatch oneshot),
+migration 423 (`economic_series_observation` append-only by trigger, `economic_series_observation_coverage`,
+view `economic_series_observation_current`, APR `infra.economic_series.sources` and `infra.economic_series.assumed_lag_business_days`),
+`FRED_API_KEY` in `Settings` and `.env`, unit file and daily timer under `production/systemd/`
+(not yet installed or enabled). Backfilled 69,765 rows over the ten Tier 1 series; a rerun appends
+nothing; spot checks match FRED (BAA10Y 6.16 on 2008-12-04, DFII10 3.15 on 2008-11-21, DGS10 5.26
+on 2007-06-12).
+
+Decisions that differ from the steps below: the series list is the APR list only (no registry
+table); the key is (series_id, observation_date, available_at), with `availability_basis`
+`assumed_lag` for a series' first fetch (publication lag is an estimate; history of a
+`model_revised` series is as-revised, not point in time) and `fetch` for everything later. Backfilled
+rows carry no true vintage: `ssfi`'s `realtime_start` keying would need ALFRED vintage pulls, which
+this slice does not do and Tier 1 does not need (market-observed series).
+
+NY Fed reference rates landed the same day: `src/providers/nyfed.py` (no key; one call returns a
+rate type's full history), `source` widened to `fred`/`nyfed`, APR entries for SOFR, TGCR, BGCR,
+SOFRAI (30/90/180-day averages and the index), EFFR, OBFR. Each published field is its own series,
+`NYFED_<TYPE>_<FIELD>` (RATE, P01, P25, P75, P99, VOLUME_BN, and for EFFR INTRADAY_HIGH/LOW,
+STD_DEV, TARGET_FROM/TO): 39 series, 103,490 rows (EFFR from 2000-07, OBFR 2016-03, SOFR/TGCR/BGCR
+2018-04, SOFRAI 2020-03). The string `NA` (two SOFR percentile days in 2021) is stored as missing.
+Spot checks match the API (SOFR 3.90, P99 3.99, volume 3,230bn on 2026-09-30; EFFR target 3.75 to
+4.00). The APR keys were generalized before the first push: `infra.economic_series.sources` and
+`infra.economic_series.assumed_lag_business_days`.
+
+Left: install and enable the timer (needs sudo); register in the service docs; the NY Fed Primary
+Dealer and SOMA securities lending families (weekly and daily, different shape); remaining Tier 2
+FRED series; the glossary row for option-adjusted spread; first pre-registered use.
+
+## Naming and boundary
+
+The concept is `economic_series`: published economic and financial-conditions series used as model
+inputs, quant data with external provenance. It is not `macro_*` (that prefix already means
+context computed from our own bars: `macro_features`, `macro_analyzer`, `kernels/macro.py`) and
+not "reference data" (descriptive master data such as instruments and classifications). The key
+has no symbol, so per-symbol external data (FINRA short volume, fails-to-deliver, dividends) gets
+its own table, like `dividend_events`.
+
 ## Scope: registry-driven, tiered
 
 The provider and table are generic; what is stored is the APR list, so widening scope is a config
 change, not a migration. Raw is permanent (principles: never drop data that could contain signal).
-Tier 1 is the series above. Tier 2 candidates, to verify at fetch time: `VIXCLS`, `VXVCLS`
-(vol term), `NFCI`, `STLFSI4` (financial conditions), `T10YIE`, `T5YIFR` (breakevens), `WALCL`,
-`RRPONTSYD` (liquidity), `DFF`, `SOFR`, `DTB3` (policy rate and bills), `DTWEXBGS` (broad dollar),
-`DCOILWTICO`, `ICSA` (claims), `USREC` (recession dates, label only). Series that FRED revises
+Tier 1 is the series above. Tier 2 candidates, to verify at fetch time: `NFCI`, `STLFSI4` (financial
+conditions), `T10YIE`, `T5YIFR` (breakevens), `WALCL`, `RRPONTSYD` (liquidity), `DFF`, `SOFR`,
+`DTB3` (policy rate and bills), `ICSA` (claims), `USEPUINDXD` (policy uncertainty), `USREC`
+(recession dates, label only). VIX, broad dollar and oil are left out on purpose: the bars already
+hold VIX futures, dollar and oil instruments, and a FRED copy would be a second source of truth. Series that FRED revises
 (claims, CPI, payrolls, GDP) need vintage keys: use the ALFRED real-time parameters and key rows by
 (`series_id`, `observation_date`, `realtime_start`) so a read as of t sees only the value known at
 t. Precedent in the sibling project: `ssfi` migration 040 (vendor restatement, vintage keying);
@@ -57,9 +98,9 @@ this host), so there is no data to reuse; the value is design and source researc
 - Reuse the design: vintage keying (migration 040: key includes FRED `realtime_start`, or a fetch
   date for sources with no vintage; UPDATE/DELETE revoked so append-only is enforced by the
   database) and its vendor adapter and credential conventions (`docs/foundation/data-layer.md`).
-- Worth adding as Tier 2 here, free and daily, macro or market-wide: NY Fed Markets Data API
-  (SOFR and the other reference rates, Primary Dealer positions and financing, SOMA securities
-  lending): funding and repo stress, not in FRED at the same grain.
+- Worth adding as Tier 2 here, free and daily, market-wide: NY Fed Markets Data API. Reference
+  rates are done (see Status); Primary Dealer positions and financing and SOMA securities lending
+  remain: funding and repo stress, not in FRED at the same grain.
 - Worth a separate look, per-symbol and free: FINRA daily short-sale volume and SEC fails-to-deliver
   (both list ETFs; our universe is mostly ETFs), NYSE and Nasdaq trading halts.
 - Poor fit for this universe (single-stock): Form 4 insiders, 13F, 13D/G, XBRL fundamentals.
@@ -68,7 +109,7 @@ this host), so there is no data to reuse; the value is design and source researc
 ## Steps
 
 1. Done (see above). Re-run the length check before the backfill if the licence terms change.
-2. Series (APR JSON list `infra.fred.series`, behavioral list): `BAMLH0A0HYM2` (HY OAS),
+2. Series (APR JSON list `infra.economic_series.sources`, behavioral list): `BAMLH0A0HYM2` (HY OAS),
    `BAMLC0A0CM` (IG OAS), `BAMLH0A3HYC` (CCC), `BAMLC0A4CBBB` (BBB), `BAA10Y`, and the rate
    level set `DGS10`, `DGS2`, `T10Y2Y`, `DFII10` (10-year real yield), `THREEFYTP10` (term
    premium). Rates are in scope because no yield level is stored either: `macro_features`
@@ -77,7 +118,7 @@ this host), so there is no data to reuse; the value is design and source researc
    (`USEPUINDXD`) is the second consumer, owned by `docs/ideas/signal-political-policy-regime.md`;
    build the provider generic so adding it is a list change.
 3. `src/providers/fred.py`: plain HTTP GET per series, key via `Settings` (never `os.environ`).
-4. Table `macro_series_observations` (concept name derives layer names per `naming-system.md`):
+4. Table `economic_series_observation` (concept name derives layer names per `naming-system.md`):
    `series_id`, `observation_date`, `available_at`, `value`, append-only; a revised value is a new
    row, never an overwrite. `available_at` is the first fetch time or the publication lag (FRED
    daily series arrive one business day late), so reads honour `temporal_integrity`. Missing
