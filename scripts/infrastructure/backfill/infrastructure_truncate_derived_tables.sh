@@ -29,23 +29,11 @@ SELECT 'feature_ic_scores', count(*) FROM feature_ic_scores
 UNION ALL
 SELECT 'backfill_status',   count(*) FROM backfill_status
 UNION ALL
-SELECT 'ensemble_weights',  count(*) FROM ensemble_weights
-UNION ALL
-SELECT 'ensemble_alpha',    count(*) FROM ensemble_alpha
-UNION ALL
-SELECT 'alpha_events',      count(*) FROM alpha_events
-UNION ALL
 SELECT 'market_regimes',    count(*) FROM market_regimes
-UNION ALL
-SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
-UNION ALL
-SELECT 'alpha_frames',      count(*) FROM alpha_frames
-UNION ALL
-SELECT 'construction_spreads', count(*) FROM construction_spreads
 ORDER BY table_name;"
 
 echo
-read -r -p "Truncate all eleven tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
+read -r -p "Truncate all five tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Aborted."
     exit 0
@@ -54,22 +42,6 @@ fi
 echo
 echo "Truncating..."
 
-# construction_spreads (Phase 167) is derived entirely from feature_vectors and
-# forward_returns -- like alpha_frames, it has no FK to either source table, and becomes
-# silently stale (not wrong-looking, just wrong: leg membership/spread/turnover computed
-# from data a corpus rebuild has since replaced) if not truncated here. Truncate it before
-# alpha_frames so the derived-table order stays coarse-to-fine (widest-scope cross-sectional
-# construction first, narrower per-symbol/per-event derivations after).
-psql -c "TRUNCATE construction_spreads;" && echo "  - construction_spreads: done"
-
-# alpha_frames has no FK to alpha_events (Phase 142B review M1 -- an FK would either block
-# this TRUNCATE or CASCADE-wipe frames); truncate it explicitly alongside alpha_events so a
-# corpus rebuild never leaves stale frames pointing at a wiped alpha_events generation.
-psql -c "TRUNCATE alpha_frames;"      && echo "  - alpha_frames: done"
-psql -c "TRUNCATE alpha_ensemble_ic;" && echo "  - alpha_ensemble_ic: done"
-psql -c "TRUNCATE alpha_events;"      && echo "  - alpha_events: done"
-psql -c "TRUNCATE ensemble_alpha;"    && echo "  - ensemble_alpha: done"
-psql -c "TRUNCATE ensemble_weights;"  && echo "  - ensemble_weights: done"
 psql -c "TRUNCATE feature_ic_scores;" && echo "  - feature_ic_scores: done"
 psql -c "TRUNCATE forward_returns;"   && echo "  - forward_returns: done"
 psql -c "TRUNCATE market_regimes;"    && echo "  - market_regimes: done"
@@ -100,19 +72,7 @@ SELECT 'feature_ic_scores', count(*) FROM feature_ic_scores
 UNION ALL
 SELECT 'backfill_status',   count(*) FROM backfill_status
 UNION ALL
-SELECT 'ensemble_weights',  count(*) FROM ensemble_weights
-UNION ALL
-SELECT 'ensemble_alpha',    count(*) FROM ensemble_alpha
-UNION ALL
-SELECT 'alpha_events',      count(*) FROM alpha_events
-UNION ALL
 SELECT 'market_regimes',    count(*) FROM market_regimes
-UNION ALL
-SELECT 'alpha_ensemble_ic', count(*) FROM alpha_ensemble_ic
-UNION ALL
-SELECT 'alpha_frames',      count(*) FROM alpha_frames
-UNION ALL
-SELECT 'construction_spreads', count(*) FROM construction_spreads
 ORDER BY table_name;"
 
 echo
