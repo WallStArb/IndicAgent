@@ -259,6 +259,56 @@ main and before the rebuild launch; the deferred rerun is owned by the 186-26 ex
 - The todo 420 cleanup run is owned by the 186-26 executor (see above); `market_regimes` is untouched.
 - The ROADMAP tick for 186-18 is added on main after the merge.
 
+## Follow-up after the two /simplify reviews (2026-09-30)
+
+Commits on main: `e78502754` (H3), `fb970b7cd` (H4, H5), `53f9af42f` (H1, H2, migration 421), `ffdeaf025` (H6, migration 422).
+H7 skipped: the per-replace reconnect stays, because the dry-run feature_vectors cache lives in Python (`fv_ts_cache`) and
+does not depend on the connection.
+
+- H1 applied. `market_regimes` is not a hypertable (`timescaledb_information.hypertables`: 0 rows). A write deletes only the orphans
+  and upserts only the changed and new rows (`ON CONFLICT DO UPDATE ... WHERE ... IS DISTINCT FROM`), and the rows written must
+  equal the diff or the transaction rolls back. Equality evidence: `tests/integration/test_market_regimes_replace.py` on shadowed
+  temp tables, mixed unchanged, changed (label and vector), new and orphaned rows: the end table equals the staged run exactly,
+  `xmin` shows 6 untouched rows and 7 rewritten, other cells untouched, an identical rerun rewrites nothing. `ReplaceResult`
+  derives `rows_deleted`/`rows_upserted`; `_stage_and_diff`, `_dry_run_extras` and `_guard_verdict` are split out; the diff SQL is
+  shared; the probe timeout is APR `infra.regime_cross_sectional.feature_vectors_probe_timeout_ms`; the dry run reads
+  `feature_vectors` timestamps once per tf. The `get_sync` fallbacks repeat the seeded values (repo pattern). A live `--dry-run
+  --tf 1d` reproduced the earlier counts.
+- H2 applied. `pg_try_advisory_xact_lock(hashtext('market_regimes|group|tf'))` first in the transaction (a second connection is
+  refused, tested on two real connections); `--accept-orphan-delete=N` and `--accept-changed=N` are counts that must cover the cell's
+  orphaned and changed rows, `--reason` is required, and the decision (cell, stored, orphaned, changed, accepted counts, operator
+  from `getpass.getuser()`, reason, UTC time) is inserted into the new append-only `market_regimes_override` in the same
+  transaction (written on commit, absent on rollback, both tested). No existing ledger fits (`config_history` holds APR values,
+  `research_run` belongs to the research runner), so migration 421 creates the table with the repo's append-only triggers (verified
+  live: UPDATE and TRUNCATE refused). The new changed-fraction guard `alpha.regime.cross_sectional.max_changed_fraction` is seeded at
+  0.05. Observed changed fractions in the dry run: equity 5m 0.089, 15m 0.179, 1h 0.167, 1d 0.675; commodity 5m 0.0006, 15m 0.727, 1h
+  0.719, 1d 0.960; fx 1h 0.012; rates and the other fx cells 0. Consequence: the first reviewed run on equity and commodity needs
+  `--accept-changed`; the 186-26 plan's `--accept-orphan-delete` (no count) is outdated, see todo 420.
+- H3 applied. `_vol_of_vol_valid_start` is the one rule; the docstring warnings are gone. `_rolling` now pads with NaN and both
+  builders pass the matrix through `_require_complete`. Evidence it is safe: the only `_rolling` callers are the two builders
+  (the debug script has its own copy), every emitted row is bit-identical (regime golden `--verify`: 10 digests match, fixtures
+  untouched). RED: the poisoned-warmup property test fails on the pre-286 code (`assert np.isfinite(poisoned).all()` false for the
+  trend family), passes now for both families. Side effect: a non-finite close now raises instead of silently flowing.
+- H4 applied. `decide_refit_schedule` and `refit_decision` implement the rule text of `81c22910c`; the test reproduces the recorded
+  decision (0.9838, 0.9821, 0.9794 gives 252) plus the boundary cases (exactly 0.02 keeps, just above does not, larger family, tie
+  toward the smaller schedule); the script prints the rule and decision. RED: the tests need names the old module lacks
+  (`AttributeError`). Dropped `valid_start`, `skip_events`, first-labeled fields; kept `post_boundary_rows` (the evidence's labeled
+  fraction uses it).
+- H5 applied (a to g). One walk-forward pass per cell, taking segments from the kernel's own events (so no layout re-derivation;
+  a test pins event counts against the status array), the observation matrix built once per family, one job per (symbol, tf),
+  `regime_writer._fetch_bars`, shared `scripts/infrastructure/_capture_common.git_head`, `dataclasses.replace`, one `--sweep` axis
+  restricted to schedule fields, one `skip_fraction`. A 5-name 1d sweep gives identical cells and pooled output before and after.
+  The sweep no longer goes through `compute_kernels`; the registry kernels equal `compute_regime_columns` (tested in 186-13).
+- H6 applied. Entries carry `kind` (`rebuild_pending` needs `expires` and `clears_on`; `permanent_degenerate` needs a reason, no expiry,
+  is capped by APR `alpha.regime.coverage_auditor.max_permanent_exceptions`, listed in the log every run). Migration 422 (guarded,
+  420 untouched) sets the five entries to `rebuild_pending`, `clears_on` "186-26 rebuild", and seeds the cap. Gauges
+  `regime_coverage_auditor_exceptions_live` and `regime_coverage_auditor_days_to_earliest_expiry` are service-local instruments (the
+  `bar_aggregator` pattern), not added to Ring 0 `metrics.py` (todo 465). The facts stay out of the ITR: these entries are diagnosed
+  data controlling an alarm suppression with an expiry, not instrument behaviour tags.
+- Adjacent: `logs/regime_coverage_auditor.log` in the main checkout is root-owned (written by the timer), so
+  `pytest tests/unit/services/test_regime_coverage_auditor.py` alone fails at collection with PermissionError when it is the first
+  module to configure service logging; the full suite is fine because an earlier module configures logging first.
+
 ## Known Stubs
 
 None.
