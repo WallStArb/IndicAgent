@@ -326,6 +326,13 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-20 parity replay of stored pooled cells (D-21, R-06): read-only harness over 1,080 stored
+  POOLED cells; row sets reproduce exactly, a legacy-arithmetic replica reproduces 1,078 (2 are float32
+  noise in the stored value), every fresh-versus-stored difference is attributed (66 NaN-denominator
+  zeros, 68 rank-scope), owner accepted the restated criterion 2026-10-01; writer-path cell equals the
+  harness replay; report `186-20-PARITY-REPORT.md` on main; stored rows hold IC 0.0 for features with
+  missing values (false negatives only, relayed to the research lane); 186-18's orphan cleanup run is
+  unblocked
 - [x] 186-19 old-chain deletion (D-09): eight services (ensemble_trainer, ensemble_ic_engine,
   alpha_frame_writer, counterfactual_tracker, alpha_publisher, alpha_scorer, ic discovery report,
   cross_sectional_spread_tracker), `gate_math`, three ensemble modules, two unit files and 34 test
