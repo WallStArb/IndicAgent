@@ -14,6 +14,7 @@ from tests.unit.measure.parity_replay import (
     classify_target_diffs,
     compare_point_ic,
     float32_pipeline_tolerance,
+    legacy_arithmetic_ic,
     rebuild_observation_set,
     replay_kernel_targets,
     replay_table_targets,
@@ -232,3 +233,75 @@ def test_slotmap_present_is_what_the_kernel_replay_consumes():
     slots = SlotMap(ok=np.array([True, True, False]), rows=np.array([0, 1]), cols=np.array([0, 1]))
     present = slots.present(2, 2)
     assert present.tolist() == [[True, False], [False, True]]
+
+
+def test_legacy_arithmetic_ranks_before_the_mask_and_stores_zero_for_a_missing_column(params):
+    rng = np.random.default_rng(14)
+    r = 400
+    bar_ts = np.arange(r).astype("datetime64[D]").astype("datetime64[ns]")
+    x = np.column_stack([rng.normal(size=r), np.full(r, np.nan), np.full(r, 3.0)])
+    y = 0.3 * x[:, 0] + rng.normal(size=r)
+    complete = np.ones((r, 1), dtype=bool)
+    complete[rng.choice(r, 40, replace=False)] = False
+    obs = rebuild_observation_set(
+        list(bar_ts),
+        ["A"],
+        lambda ts, sy: _chunk(bar_ts, ["A"] * r, x, returns=y, complete=complete),
+        chunk_ts=r,
+    )
+    p = dataclasses.replace(params, min_stride=1, min_obs=10)
+    legacy = legacy_arithmetic_ic(obs, scale_idx=0, horizon=1, params=p)
+    assert legacy[1] == 0.0  # all-missing column: denominator NaN, `_vectorized_ic` returns 0.0
+    assert np.isnan(legacy[2])  # constant column: degenerate
+    valid = complete[:, 0]
+    rx = rankdata(x[:, 0].astype(np.float32))[valid]  # ranks over every strided row, then masked
+    ry = rankdata(y[valid])
+    rx, ry = rx - rx.mean(), ry - ry.mean()
+    expected = (rx * ry).sum() / np.sqrt((rx**2).sum() * (ry**2).sum())
+    assert legacy[0] == pytest.approx(expected, abs=1e-5)
+    fresh = replay_table_targets(obs, scale_idx=0, horizon=1, params=p)
+    assert np.isnan(fresh.ic[1]) and np.isnan(fresh.ic[2])
+    assert abs(fresh.ic[0] - legacy[0]) > 1e-7  # the rank scope differs when targets are masked
+
+
+def test_classify_attributes_a_refused_session_crossing_before_gap_and_other():
+    nan = np.nan
+    counts = classify_target_diffs(
+        np.array([1.0, 2.0, 3.0, 4.0]),
+        np.ones(4, dtype=bool),
+        np.array([1.0, nan, nan, nan]),
+        has_gap=np.array([False, False, True, False]),
+        in_grid=np.ones(4, dtype=bool),
+        grid_row=np.arange(4),
+        n_grid=50,
+        horizon=1,
+        session_cross=np.array([False, True, True, False]),
+    )
+    assert (counts.n_equal, counts.n_session_cross, counts.n_gap, counts.n_other) == (1, 2, 0, 1)
+    plain = classify_target_diffs(
+        np.array([1.0, 2.0]),
+        np.ones(2, dtype=bool),
+        np.array([1.0, nan]),
+        has_gap=np.zeros(2, dtype=bool),
+        in_grid=np.ones(2, dtype=bool),
+        grid_row=np.arange(2),
+        n_grid=50,
+        horizon=1,
+    )
+    assert plain.n_session_cross == 0 and plain.n_other == 1
+
+
+def test_classify_attributes_an_absent_tradeable_open_before_gap_and_other():
+    nan = np.nan
+    counts = classify_target_diffs(
+        np.array([1.0, 2.0, 3.0]),
+        np.ones(3, dtype=bool),
+        np.array([1.0, nan, nan]),
+        has_gap=np.zeros(3, dtype=bool),
+        in_grid=np.ones(3, dtype=bool),
+        grid_row=np.arange(3),
+        n_grid=50,
+        horizon=1,
+        open_missing=np.array([False, True, False]),
+    )
+    assert (counts.n_equal, counts.n_open_missing, counts.n_other) == (1, 1, 1)

@@ -150,19 +150,24 @@ def legacy_arithmetic_ic(
     obs: ObservationSet, *, scale_idx: int, horizon: int, params: MeasureParams
 ) -> np.ndarray:
     """ic_engine's own arithmetic, for attribution: features cast to float32 (the
-    `Float32ChunkAccumulator`), the stride slice, one `rankdata(axis=0)` over the strided rows BEFORE
-    the valid mask (`_subsample_and_rank` 2194-2196), float32 ranks, `_vectorized_ic`. Returns the
-    float32 IC per column; a column with a non-finite value in the strided rows has no rank and
-    returns NaN, as `rankdata` propagates it."""
+    `Float32ChunkAccumulator`), a column whose float64 std over every row is below
+    `params.degenerate_std` is NaN (3932-3939; a NaN std is not degenerate), the stride slice, one
+    `rankdata(axis=0)` over the strided rows BEFORE the valid mask (`_subsample_and_rank` 2194-2196),
+    float32 ranks, `_vectorized_ic` (which returns 0.0, not NaN, where the rank denominator is NaN:
+    an all-missing column stores IC 0.0). Returns the float32 IC per column."""
     from scipy.stats import rankdata
 
     stride = stride_for(horizon, params)
-    x = obs.X[0::stride].astype(np.float32)
+    x32 = obs.X.astype(np.float32)
+    std = np.std(x32.astype(np.float64), axis=0)
+    degenerate = std < params.degenerate_std
     y = np.where(obs.complete[:, scale_idx], obs.returns[:, scale_idx], np.nan)[0::stride]
     valid = obs.complete[0::stride, scale_idx] & np.isfinite(y)
-    ranks_x = rankdata(x, axis=0).astype(np.float32)[valid]
+    ranks_x = rankdata(x32[0::stride], axis=0).astype(np.float32)[valid]
     ranks_y = rankdata(y[valid]).astype(np.float32)
-    return _vectorized_ic(ranks_x, ranks_y)
+    ic = _vectorized_ic(ranks_x, ranks_y).astype(np.float64)
+    ic[degenerate] = np.nan
+    return ic
 
 
 @dataclasses.dataclass(frozen=True)
@@ -172,6 +177,8 @@ class DiffCounts:
     n_end_of_window: int
     n_gap: int
     n_other: int
+    n_session_cross: int
+    n_open_missing: int
     examples: dict[str, list[int]]  # cause -> up to 5 row indices
 
 
@@ -186,12 +193,18 @@ def classify_target_diffs(
     n_grid: int,
     horizon: int,
     atol: float = 1e-12,
+    session_cross: np.ndarray | None = None,
+    open_missing: np.ndarray | None = None,
 ) -> DiffCounts:
     """Attribute each row where the kernel target differs from the table target to one cause.
 
     A row agrees when both are missing or both finite within `atol`. Otherwise, in this order:
     `end_of_window` (the kernel leaves rows `>= n_grid - 1 - horizon` NaN, so no target reaches
-    oos_start), `gap` (the table row is flagged `has_gap_before_entry`, or its bar is absent from
+    oos_start), `session_cross` (intraday only: the caller flags rows whose entry and exit opens sit
+    in different sessions, which `panel.forward_returns(session=)` refuses by design, D-18; None
+    counts none), `open_missing` (the kernel target is NaN because the entry or exit open is absent on
+    the tradeable panel, a bar the table's forward_returns priced from a stored placeholder bar; None
+    counts none), `gap` (the table row is flagged `has_gap_before_entry`, or its bar is absent from
     the kernel grid), `other` (anything else, including a finite kernel target where the table has
     none). `grid_row` is the row's index on the kernel grid (ignored where `in_grid` is False)."""
     table_ok = table_complete & np.isfinite(table_y)
@@ -202,10 +215,23 @@ def classify_target_diffs(
     equal = both_missing | same
     differ = ~equal
     end_of_window = differ & in_grid & ~kernel_ok & table_ok & (grid_row >= n_grid - 1 - horizon)
-    gap = differ & ~end_of_window & (has_gap | ~in_grid)
-    other = differ & ~end_of_window & ~gap
+    crossed = (
+        np.zeros_like(differ)
+        if session_cross is None
+        else differ & ~end_of_window & session_cross & ~kernel_ok & table_ok
+    )
+    no_open = (
+        np.zeros_like(differ)
+        if open_missing is None
+        else differ & ~end_of_window & ~crossed & open_missing & ~kernel_ok & table_ok
+    )
+    explained = end_of_window | crossed | no_open
+    gap = differ & ~explained & (has_gap | ~in_grid)
+    other = differ & ~explained & ~gap
     examples = {
         "end_of_window": np.flatnonzero(end_of_window)[:_EXAMPLE_CAP].tolist(),
+        "session_cross": np.flatnonzero(crossed)[:_EXAMPLE_CAP].tolist(),
+        "open_missing": np.flatnonzero(no_open)[:_EXAMPLE_CAP].tolist(),
         "gap": np.flatnonzero(gap)[:_EXAMPLE_CAP].tolist(),
         "other": np.flatnonzero(other)[:_EXAMPLE_CAP].tolist(),
     }
@@ -215,6 +241,8 @@ def classify_target_diffs(
         n_end_of_window=int(end_of_window.sum()),
         n_gap=int(gap.sum()),
         n_other=int(other.sum()),
+        n_session_cross=int(crossed.sum()),
+        n_open_missing=int(no_open.sum()),
         examples=examples,
     )
 
