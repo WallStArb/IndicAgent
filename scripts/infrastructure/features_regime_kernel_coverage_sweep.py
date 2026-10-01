@@ -95,7 +95,8 @@ def summarize_segments(segment_status: np.ndarray, refit_every_bars: int) -> dic
 
 def classify_cell(cell: dict[str, Any]) -> str:
     """The todo 341 class of one cell result (rule fixed before the run):
-    (a) no segment attempted and the series has fewer observations than the first boundary;
+    (a) no segment attempted and the series has no row past the first boundary (a segment needs at
+    least one observation at or after it, so n_obs equal to the boundary counts);
     (b) attempts exist and every one is degenerate occupation; (c) every one is not converged;
     (d) at least one segment is written (the stored NULLs come from the old writer);
     (e) anything else, including an error, is a defect."""
@@ -107,7 +108,7 @@ def classify_cell(cell: dict[str, Any]) -> str:
     if counts["1"] > 0:
         return CLASS_LABELS_UNDER_KERNEL
     if attempted == 0:
-        return CLASS_HISTORY_SHORT if cell["n_obs"] < cell["first_boundary_obs"] else CLASS_DEFECT
+        return CLASS_HISTORY_SHORT if cell["n_obs"] <= cell["first_boundary_obs"] else CLASS_DEFECT
     if counts[str(int(STATUS_DEGENERATE_OCCUPATION))] == attempted:
         return CLASS_DEGENERATE
     if counts[str(int(STATUS_NOT_CONVERGED))] == attempted:
@@ -323,7 +324,7 @@ def main() -> None:
     started = time.monotonic()
     sets = override_sets(parse_override(args.override), args.sweep)
     with psycopg.connect(Settings().database_url) as conn:
-        conn.read_only = True
+        conn.set_read_only(True)
         cfg = load_config_service_sync(conn)
         base_hmm = HmmConfig.from_values(cfg.get_sync)
         symbols = resolve_symbols(conn, args.symbols, args.limit)

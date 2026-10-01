@@ -93,7 +93,8 @@ def _cell(counts, n_obs=1000, boundary=600, error=None):
     "cell,expected",
     [
         (_cell((0, 0, 0, 0), n_obs=100), sweep.CLASS_HISTORY_SHORT),
-        (_cell((0, 0, 0, 0), n_obs=900), sweep.CLASS_DEFECT),
+        (_cell((0, 0, 0, 0), n_obs=600), sweep.CLASS_HISTORY_SHORT),  # no row past the boundary
+        (_cell((0, 0, 0, 0), n_obs=601), sweep.CLASS_DEFECT),
         (_cell((0, 3, 0, 0)), sweep.CLASS_DEGENERATE),
         (_cell((0, 0, 2, 0)), sweep.CLASS_NOT_CONVERGED),
         (_cell((1, 5, 0, 0)), sweep.CLASS_LABELS_UNDER_KERNEL),

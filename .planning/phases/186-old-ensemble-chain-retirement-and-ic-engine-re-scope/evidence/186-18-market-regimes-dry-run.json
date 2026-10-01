@@ -1,0 +1,395 @@
+{
+ "run": "python services/cross_sectional_regime_model.py --dry-run, 2026-09-30 (commit of 186-18 task 3 step 1), read-only (temp stage only)",
+ "note": "extras.joins_feature_vectors counts timestamps with a feature_vectors row of the same tf; weekend counts are UTC Sat/Sun",
+ "cells": [
+  {
+   "group": "equity",
+   "tf": "5m",
+   "stored": 2084617,
+   "produced": 376494,
+   "orphaned": 1710775,
+   "changed": 186132,
+   "new": 2652,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 2652,
+     "weekend": 0,
+     "joins_feature_vectors": 2106
+    },
+    "changed": {
+     "rows": 186132,
+     "weekend": 0,
+     "joins_feature_vectors": 186132
+    },
+    "orphaned": {
+     "rows": 1710775,
+     "weekend": 595008,
+     "joins_feature_vectors": 16552
+    }
+   }
+  },
+  {
+   "group": "equity",
+   "tf": "15m",
+   "stored": 694855,
+   "produced": 125508,
+   "orphaned": 570231,
+   "changed": 124457,
+   "new": 884,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 884,
+     "weekend": 0,
+     "joins_feature_vectors": 702
+    },
+    "changed": {
+     "rows": 124457,
+     "weekend": 0,
+     "joins_feature_vectors": 123975
+    },
+    "orphaned": {
+     "rows": 570231,
+     "weekend": 198336,
+     "joins_feature_vectors": 5513
+    }
+   }
+  },
+  {
+   "group": "equity",
+   "tf": "1h",
+   "stored": 173605,
+   "produced": 29359,
+   "orphaned": 144500,
+   "changed": 29017,
+   "new": 254,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 254,
+     "weekend": 0,
+     "joins_feature_vectors": 205
+    },
+    "changed": {
+     "rows": 29017,
+     "weekend": 0,
+     "joins_feature_vectors": 28572
+    },
+    "orphaned": {
+     "rows": 144500,
+     "weekend": 49539,
+     "joins_feature_vectors": 1308
+    }
+   }
+  },
+  {
+   "group": "equity",
+   "tf": "1d",
+   "stored": 7067,
+   "produced": 4817,
+   "orphaned": 2283,
+   "changed": 4772,
+   "new": 33,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "changed": {
+     "rows": 4772,
+     "weekend": 0,
+     "joins_feature_vectors": 4772
+    },
+    "orphaned": {
+     "rows": 2283,
+     "weekend": 2012,
+     "joins_feature_vectors": 90
+    },
+    "new": {
+     "rows": 33,
+     "weekend": 0,
+     "joins_feature_vectors": 31
+    }
+   }
+  },
+  {
+   "group": "rates",
+   "tf": "5m",
+   "stored": 935042,
+   "produced": 174050,
+   "orphaned": 763644,
+   "changed": 0,
+   "new": 2652,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 2652,
+     "weekend": 0,
+     "joins_feature_vectors": 2106
+    },
+    "orphaned": {
+     "rows": 763644,
+     "weekend": 266454,
+     "joins_feature_vectors": 3800
+    }
+   }
+  },
+  {
+   "group": "rates",
+   "tf": "15m",
+   "stored": 311682,
+   "produced": 58035,
+   "orphaned": 254531,
+   "changed": 0,
+   "new": 884,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 884,
+     "weekend": 0,
+     "joins_feature_vectors": 702
+    },
+    "orphaned": {
+     "rows": 254531,
+     "weekend": 88818,
+     "joins_feature_vectors": 1251
+    }
+   }
+  },
+  {
+   "group": "rates",
+   "tf": "1h",
+   "stored": 80145,
+   "produced": 15629,
+   "orphaned": 64754,
+   "changed": 0,
+   "new": 238,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "new": {
+     "rows": 238,
+     "weekend": 0,
+     "joins_feature_vectors": 189
+    },
+    "orphaned": {
+     "rows": 64754,
+     "weekend": 22186,
+     "joins_feature_vectors": 337
+    }
+   }
+  },
+  {
+   "group": "rates",
+   "tf": "1d",
+   "stored": 3221,
+   "produced": 2230,
+   "orphaned": 1018,
+   "changed": 0,
+   "new": 27,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": true,
+    "orphaned": {
+     "rows": 1018,
+     "weekend": 912,
+     "joins_feature_vectors": 20
+    },
+    "new": {
+     "rows": 27,
+     "weekend": 0,
+     "joins_feature_vectors": 25
+    }
+   }
+  },
+  {
+   "group": "commodity",
+   "tf": "5m",
+   "stored": 392412,
+   "produced": 394830,
+   "orphaned": 0,
+   "changed": 234,
+   "new": 2418,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 2418,
+     "weekend": 0,
+     "joins_feature_vectors": 1872
+    },
+    "changed": {
+     "rows": 234,
+     "weekend": 0,
+     "joins_feature_vectors": 234
+    }
+   }
+  },
+  {
+   "group": "commodity",
+   "tf": "15m",
+   "stored": 130547,
+   "produced": 131535,
+   "orphaned": 0,
+   "changed": 94867,
+   "new": 988,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 988,
+     "weekend": 0,
+     "joins_feature_vectors": 624
+    },
+    "changed": {
+     "rows": 94867,
+     "weekend": 0,
+     "joins_feature_vectors": 94858
+    }
+   }
+  },
+  {
+   "group": "commodity",
+   "tf": "1h",
+   "stored": 37153,
+   "produced": 37530,
+   "orphaned": 0,
+   "changed": 26696,
+   "new": 377,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 377,
+     "weekend": 0,
+     "joins_feature_vectors": 168
+    },
+    "changed": {
+     "rows": 26696,
+     "weekend": 0,
+     "joins_feature_vectors": 26643
+    }
+   }
+  },
+  {
+   "group": "commodity",
+   "tf": "1d",
+   "stored": 5059,
+   "produced": 5092,
+   "orphaned": 0,
+   "changed": 4859,
+   "new": 33,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 33,
+     "weekend": 0,
+     "joins_feature_vectors": 31
+    },
+    "changed": {
+     "rows": 4859,
+     "weekend": 0,
+     "joins_feature_vectors": 4801
+    }
+   }
+  },
+  {
+   "group": "fx",
+   "tf": "5m",
+   "stored": 344480,
+   "produced": 346925,
+   "orphaned": 0,
+   "changed": 0,
+   "new": 2445,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 2445,
+     "weekend": 0,
+     "joins_feature_vectors": 1930
+    }
+   }
+  },
+  {
+   "group": "fx",
+   "tf": "15m",
+   "stored": 121544,
+   "produced": 122424,
+   "orphaned": 0,
+   "changed": 0,
+   "new": 880,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 880,
+     "weekend": 0,
+     "joins_feature_vectors": 698
+    }
+   }
+  },
+  {
+   "group": "fx",
+   "tf": "1h",
+   "stored": 28563,
+   "produced": 28817,
+   "orphaned": 0,
+   "changed": 354,
+   "new": 254,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 254,
+     "weekend": 0,
+     "joins_feature_vectors": 205
+    },
+    "changed": {
+     "rows": 354,
+     "weekend": 0,
+     "joins_feature_vectors": 354
+    }
+   }
+  },
+  {
+   "group": "fx",
+   "tf": "1d",
+   "stored": 4798,
+   "produced": 4829,
+   "orphaned": 0,
+   "changed": 0,
+   "new": 31,
+   "deleted": 0,
+   "inserted": 0,
+   "extras": {
+    "would_refuse": false,
+    "new": {
+     "rows": 31,
+     "weekend": 0,
+     "joins_feature_vectors": 29
+    }
+   }
+  }
+ ]
+}
