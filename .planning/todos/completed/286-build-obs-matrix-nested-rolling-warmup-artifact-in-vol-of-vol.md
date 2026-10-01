@@ -68,3 +68,17 @@ not rediscover it or "restore parity" from the volatility builder in the wrong d
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.
+
+## Closed 2026-09-30 (plan 186-18)
+
+Fixed in the kernel `_observations_trend` (`src/intelligence/features/kernels/_hmm.py`, moved there
+by 186-13): the trend start index is `max(max(windows) - 1, vol_window + vol_of_vol_window - 2)`
+and the short-series threshold follows it, so the first trend obs row is log-return row 38 at the
+live windows (it was 19). Applied regardless of the measured effect: in the walk-forward path every
+artifact row enters every expanding training slice and the scaler, so it was not latent even where
+no labeled bar maps to it. RED test `test_trend_vol_of_vol_never_reaches_the_zero_padded_realized_vol_warmup`
+failed on the old index (`first obs row is log-return row 19, but its vol_of_vol window reaches
+realized_vol warmup padding until row 38`); the fix is `f573aeab7`. Regime golden regenerated in its
+own commit `d396fc17a`: every volatility digest unchanged, five trend cases changed (SPY/1d, TLT/1d,
+LQD/1d, SPY/1h, synthetic). The stored trend columns keep the artifact until the 186-26 rebuild
+replaces them; the defect is on the `cache-feature-vectors-v1` card.

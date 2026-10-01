@@ -47,3 +47,15 @@ relabel — only `hmm_vol_churn` needs to change; `regime_volatility`/`hmm_vol_p
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.
+
+## Closed 2026-09-30 (plan 186-18)
+
+The 9.4M stored `hmm_vol_churn` rows are not recomputed in place. The only write path is
+`regime_writer`'s UPDATE, which the todo 426 guard refuses, and the 186-26 rebuild recomputes every
+regime column through the kernel. The WR-01 rule (duration and churn restart at the first written
+bar after a skipped gap, no label change counted across it) is pinned on the kernel for both
+families by `test_duration_and_churn_restart_across_a_skipped_segment` (`faeabc867`; new, the
+earlier tests drove the deleted writer functions). Research readers of `hmm_vol_churn` and
+`hmm_churn`: none in `src/intelligence/research/`, `scripts/research/` or
+`docs/research/construction-verdict-ledger.md` (grep 2026-09-30). The defect is recorded on the
+`cache-feature-vectors-v1` card (`b42fbdd3b`).
