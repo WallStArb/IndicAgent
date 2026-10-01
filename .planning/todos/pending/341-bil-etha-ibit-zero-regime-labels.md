@@ -70,3 +70,13 @@ it. An alarm that fires every day hides the next real gap. Resolve it one of two
 labels for these symbols (with the phase 186 regime work), or register them as known exceptions
 with an expiry date in APR so the auditor goes red only on new gaps. Until then the alarm carries
 no information.
+
+## 186-18 classification rule (written 2026-09-30 before the sweep)
+
+Each (symbol, tf, family) cell is run on the post-186-13 kernel from stored bars and classed:
+(a) history short: no segment attempted and fewer observations than the first boundary;
+(b) degenerate: attempts exist and every one is degenerate occupation; (c) not converged: attempts
+exist and every one is not converged; (d) labels under the kernel: at least one segment is written,
+so the stored NULLs come from the old writer and the rebuild labels it; (e) anything else,
+including an exception, is a defect to fix in the plan. For (b) and (c) the todo 168 precedent
+applies: record per-segment diagnostics, do not change global HMM parameters to rescue a symbol.

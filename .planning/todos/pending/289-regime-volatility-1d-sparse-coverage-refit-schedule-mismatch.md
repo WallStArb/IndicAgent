@@ -35,3 +35,21 @@ parameter and could affect trend-vintage labeling too.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Absorbed todo 427 (`completed/427-regime-volatility-1d-mostly-null-one-segment-per-symbol.md`): 1d regime_volatility on <=31% of rows for every symbol (SPY only 2010-11), same finding. Part of the regime refit bundle anchored on todo 248: one `regime_writer` refit lands 248, 286, 292, 289, 341 and 420 together. Order: 426 step 2 (per-chunk writes for UPDATE writers), then 290 (refit memory), then the refit, then 411's refresh. Regime columns can enter books as features (todo 435), so their correctness is on the feature path.
+
+## 186-18 decision rule (written 2026-09-30 before the measurement run)
+
+Measured on the post-186-13 kernel (training-slice gate) from stored bars only: no return or
+forward return is read, so this is not a look at outcomes and adds nothing to any vintage count.
+
+- Metric: the pooled 1d segment skip fraction per family, (degenerate + not converged + other gate
+  reason) / attempted segments, at each `hmm_refit_every_bars_1d` in {126, 252, 504}, over the
+  sample below. `hmm_initial_warmup_bars_1d` stays 504 at every schedule.
+- Deciding value per schedule: the larger of the two families' pooled skip fractions.
+- Rule: keep 252 if its deciding value is within 0.02 of the smallest deciding value across the
+  three schedules; otherwise pick the schedule with the smallest deciding value.
+- Reported, not used to decide: the labeled fraction of rows after the first boundary, and the
+  dominant skip reason.
+- Sample: all `compute_eligible_1d` names when the runtime estimate is at most 3 hours, else the
+  200 names first in sha256(symbol) order. Estimate from `manifest.json`'s measured 1d runtimes
+  (trend 1.6 to 5.8 s, volatility 0.1 to 0.4 s per name at 252, about 7x for the three schedules
+  together, 6 workers): at most about 43 s per name x 931 names / 6 = about 1.9 h, so all names.
