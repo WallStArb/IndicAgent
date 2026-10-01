@@ -341,6 +341,15 @@ def main() -> None:
         finally:
             post_dump.unlink(missing_ok=True)
         changed = {k: digests[k]["rows_written"] for k in digests if digests[k] != stored.get(k)}
+        if "regenerated_from" in manifest:
+            # keep every earlier regeneration record (186-13's, then 186-18's, ...)
+            manifest.setdefault("regeneration_history", []).append(
+                {
+                    "regenerated_from": manifest["regenerated_from"],
+                    "regeneration_reason": manifest["regeneration_reason"],
+                    "changed_cases": manifest.get("changed_cases", {}),
+                }
+            )
         manifest["regenerated_from"] = _git_head()
         manifest["regeneration_reason"] = args.reason
         manifest["changed_cases"] = {
