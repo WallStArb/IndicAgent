@@ -682,6 +682,13 @@ def main() -> None:
         help="one symbol per line to skip with outcome excluded_lane (plan 12's lane guard)",
     )
     args = parser.parse_args()
+    # Accept both `--symbols SPY,AAPL` (the pipeline/plan convention) and
+    # `--symbols SPY AAPL`; nargs="*" alone would take the comma form as one
+    # bogus symbol and skip it as no_5m.
+    if args.symbols:
+        args.symbols = [
+            sym for part in args.symbols for sym in (t.strip() for t in part.split(",")) if sym
+        ]
     try:
         init_otel_providers(f"indicagent-{_JOB}")
     except OTelInitError:
