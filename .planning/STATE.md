@@ -67,7 +67,7 @@ bullets with current facts.
   names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 14 done (01 to 13 and 16; 02, 11, 12 landed in wave 2, 13 and 16 in wave 3); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); resume with 186-14 (gated on 185-11).
+  sequential, one executor at a time). 17 done (01 to 16 and 18; waves 1-3 complete, 15 and 18 in wave 4); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); resume wave 4 with 186-19, 186-20 and 186-29.
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
   rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
   `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
@@ -85,7 +85,7 @@ bullets with current facts.
   185-09, D-29; its pipeline process has held the lease since 2026-09-28 08:10 EDT).
   Phase 186's rebuild gates on the 5m part.
 
-- **Alarm fatigue:** `regime_coverage_auditor` fails every night on 5 known symbols (todo 341).
+- **Regime coverage auditor:** fails only on unregistered or expired gaps; the 5 known symbols (BIL, EMLC, ETHA, IBIT, VIXY) are registered exceptions expiring 2026-12-29 (todo 341 closed by 186-18). 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (todo 478, P1, decision needed before the 186-25/26 rebuild).
 - **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
   `docs/foundation/instrument-onboarding-sop.md` (tooling gaps: todos 431, 444).
