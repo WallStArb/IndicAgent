@@ -126,6 +126,7 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
+| [483](pending/483-record-2026-midterm-forward-window-result.md) | New 2026-10-01. Due after 2027-05-03: record the pre-registered 2026 midterm forward window (S&P 500, election day to +6 months) in the idea doc and ledger, as one unsearched observation. Nothing else forces this step. |
 | [475](pending/475-macro-kernels-branch-on-symbol-and-timeframe-names.md) | New 2026-09-30, plan 186-15 review. `kernels/macro.py` names SPY/TLT and the six-symbol basket, `cross_tf.py` branches on `tf == "5m"`/`"1h"`; `asset_agnostic` and the ITR rule say data, not code. Recommendation: membership and the self-regression exclusion from `instrument_tags`, TF pairs from config; bit-identical. |
 | [476](pending/476-kernels-import-pure-helpers-from-legacy-feature-cache.md) | New 2026-09-30, plan 186-15 review. Six kernel modules import `FeatureCache`, `_HMM_K`, `_hmm_forward_step` from the legacy `feature_cache`, which 186-25 retires. Recommendation: move the pure helpers into the kernels package and have FeatureCache import from it (186-25 acceptance criterion added). |
 | [477](pending/477-pivot-detection-repeated-per-row-across-structure-kernels.md) | New 2026-09-30, plan 186-15 review. Pivot detection runs about five times per row across swing/sweep/pool/BOS (~10% of batch time). Optional: a shared derived input in `contract/derived_inputs.py`, bit-identical. |

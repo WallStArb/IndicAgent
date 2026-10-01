@@ -114,7 +114,8 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 ## Decisions waiting on the owner
 
 - None open. The midterm spec was committed 2026-10-01, before the 2026-11-03 election: its forward
-  window (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`.
+  window (to 2027-05-03) is recorded in `docs/ideas/signal-political-policy-regime.md`; todo 483
+  records its result after 2027-05-03.
 
 ## Open items that are not verdicts
 
