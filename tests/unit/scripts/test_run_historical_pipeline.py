@@ -951,3 +951,216 @@ def test_mark_fetch_complete_is_guarded_by_tradeable_bars():
     assert "timestamp >= %(since)s" in sql
     assert "WHERE EXISTS" in sql and "market_data_ohlcv_tradeable" in sql
     assert "fetch_complete = true" in sql and "status =" not in sql.split("DO UPDATE")[1]
+
+
+class TestArchiveGridRouting:
+    """Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Gap
+    detection reads ohlcv_intraday_raw_archive for them and expects IBKR's own
+    RTH grid (09:30 partial 1h bar then clock hours), and their store path goes
+    through services/intraday_raw_archive.insert_fetched_archive_rows -- never
+    market_data_ohlcv."""
+
+    def test_detect_gaps_15m_reads_the_archive_table(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
+
+        mock_conn, mock_cursor = _make_mock_conn([])
+        with patch(
+            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
+            ".expected_grid_slots",
+            return_value=[],
+        ):
+            detect_gaps(
+                mock_conn,
+                "SPY",
+                "15m",
+                datetime(2026, 1, 2, 14, 30, tzinfo=UTC),
+                datetime(2026, 1, 2, 20, 0, tzinfo=UTC),
+                "nyse",
+                "NYSE",
+            )
+        sql = mock_cursor.execute.call_args.args[0]
+        assert "ohlcv_intraday_raw_archive" in sql
+        assert "market_data_ohlcv" not in sql
+
+    def test_detect_gaps_5m_still_reads_market_data_ohlcv(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
+
+        mock_conn, mock_cursor = _make_mock_conn([])
+        with patch(
+            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
+            ".expected_grid_slots",
+            return_value=[],
+        ):
+            detect_gaps(
+                mock_conn,
+                "SPY",
+                "5m",
+                datetime(2026, 1, 2, 14, 30, tzinfo=UTC),
+                datetime(2026, 1, 2, 20, 0, tzinfo=UTC),
+                "nyse",
+                "NYSE",
+            )
+        sql = mock_cursor.execute.call_args.args[0]
+        assert "FROM market_data_ohlcv" in sql
+
+    def test_1h_nyse_expected_slots_are_ibkrs_rth_grid(self):
+        """IBKR serves 1h RTH as a 09:30 (13:30 UTC) partial bar then clock
+        hours; the old on-the-hour UTC slot generation never expected 13:30,
+        so the 42 names missing it were never refetched (plan 12 must-have)."""
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            expected_grid_slots,
+        )
+
+        slots = expected_grid_slots(
+            "nyse",
+            "NYSE",
+            "1h",
+            datetime(2024, 6, 3, 0, 0, tzinfo=UTC),
+            datetime(2024, 6, 3, 23, 59, tzinfo=UTC),
+        )
+        assert slots == [datetime(2024, 6, 3, h, 30, tzinfo=UTC) for h in range(13, 20)]
+
+    def test_15m_nyse_expected_slots_are_session_anchored_quarters(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            expected_grid_slots,
+        )
+
+        slots = expected_grid_slots(
+            "nyse",
+            "NYSE",
+            "15m",
+            datetime(2024, 6, 3, 0, 0, tzinfo=UTC),
+            datetime(2024, 6, 3, 23, 59, tzinfo=UTC),
+        )
+        assert slots[0] == datetime(2024, 6, 3, 13, 30, tzinfo=UTC)
+        assert slots[-1] == datetime(2024, 6, 3, 19, 45, tzinfo=UTC)
+        assert len(slots) == 26
+
+    def test_non_nyse_1h_still_uses_generate_session_slots(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            expected_grid_slots,
+        )
+
+        with patch(
+            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
+            ".generate_session_slots",
+            return_value=["slots"],
+        ) as mock_slots:
+            result = expected_grid_slots(
+                "futures_24_5",
+                "CME",
+                "1h",
+                datetime(2026, 1, 2, 0, 0, tzinfo=UTC),
+                datetime(2026, 1, 2, 23, 59, tzinfo=UTC),
+            )
+        assert result == ["slots"]
+        assert mock_slots.call_count == 1
+
+    def test_missing_1330_slot_is_detected_as_a_gap(self):
+        """The 42 names whose 09:30 1h bar is missing: with the RTH grid the
+        absent 13:30 slot is a gap and gets refetched (into the archive)."""
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            detect_gaps,
+        )
+
+        stored = [(datetime(2024, 6, 3, h, 30, tzinfo=UTC),) for h in range(14, 20)]
+        mock_conn = self._mock_conn_for(stored)
+        gaps = detect_gaps(
+            mock_conn,
+            "SPY",
+            "1h",
+            datetime(2024, 6, 3, 13, 30, tzinfo=UTC),
+            datetime(2024, 6, 3, 20, 0, tzinfo=UTC),
+            "nyse",
+            "NYSE",
+        )
+        assert gaps == [
+            (datetime(2024, 6, 3, 13, 30, tzinfo=UTC), datetime(2024, 6, 3, 13, 30, tzinfo=UTC))
+        ]
+
+    @staticmethod
+    def _mock_conn_for(fetchall_result):
+        mock_conn, _ = _make_mock_conn(fetchall_result)
+        return mock_conn
+
+    def test_store_bars_routes_to_the_injected_writer(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            store_bars,
+        )
+
+        bars = [
+            {
+                "timestamp": datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
+                "open": 600.0,
+                "high": 601.0,
+                "low": 599.0,
+                "close": 600.5,
+                "volume": 1000,
+                "source": "ibkr",
+            }
+        ]
+        mock_conn = MagicMock()
+        written = []
+
+        def fake_writer(cur, rows):
+            written.append(rows)
+            return len(rows)
+
+        n = store_bars(mock_conn, bars, "SPY", "1h", write_rows=fake_writer)
+        assert n == 1
+        assert written == [
+            [
+                (
+                    datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
+                    "SPY",
+                    "1h",
+                    600.0,
+                    601.0,
+                    599.0,
+                    600.5,
+                    1000,
+                    "ibkr",
+                )
+            ]
+        ]
+        # Nothing touched the raw table behind the caller's back.
+        mock_conn.cursor.return_value.__enter__.return_value.execute.assert_not_called()
+        mock_conn.commit.assert_called_once()
+
+    def test_store_bars_default_still_writes_market_data_ohlcv(self):
+        from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipe
+
+        bars = [
+            {
+                "timestamp": datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
+                "open": 600.0,
+                "high": 601.0,
+                "low": 599.0,
+                "close": 600.5,
+                "volume": 1000,
+                "source": "historical_backfill",
+            }
+        ]
+        mock_conn = MagicMock()
+        with patch.object(pipe, "_insert_market_data_rows", return_value=1) as mock_insert:
+            n = pipe.store_bars(mock_conn, bars, "SPY", "5m")
+        assert n == 1
+        assert mock_insert.call_count == 1
+
+    def test_real_bars_only_for_grid_tfs(self):
+        """15m/1h are archive-bound raw observations for every asset class (no
+        synthetic fill anywhere on their path); 5m keeps the flag semantics."""
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            real_bars_only_for,
+        )
+        from src.core.models import AssetClass
+
+        assert real_bars_only_for("1h", False, AssetClass.EQUITY) is True
+        assert real_bars_only_for("15m", False, AssetClass.FUTURES) is True
+        assert real_bars_only_for("5m", True, AssetClass.EQUITY) is True
+        assert real_bars_only_for("5m", False, AssetClass.EQUITY) is False
+        assert real_bars_only_for("1d", True, AssetClass.EQUITY) is False
