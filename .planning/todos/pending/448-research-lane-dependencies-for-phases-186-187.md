@@ -22,6 +22,9 @@ source: phase 183 session council review of the unified design against the resea
    longer exists; the bit-identity check is
    `python -m scripts.research.determinism.repro_frozen <scratch_out_dir>` (phase 183's D-16 and
    the multi-timeframe design's B7 guard run this), rerun bit-identical on the post-deletion tree.
+   2026-10-01, phase 186-29: sleeve directory fully removed (commit f418b9fd1); D-03 and D-11
+   closed; the bit-identity check is `python -m scripts.research.determinism.repro_frozen
+   <scratch_out_dir>`.
 2. **One source for E17 memory.** Phase 186's kernel registry declares each feature's memory.
    For feature members, that declared memory is `PredictorSource.memory`; with
    `Combiner.training_rows` (exists) and a `HorizonRule.reach` (kappa weight below 1e-3), one
