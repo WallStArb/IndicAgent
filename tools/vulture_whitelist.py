@@ -708,7 +708,6 @@ CONFIG_REVERT_TOTAL  # unused variable (src/observability/metrics.py:547)
 REMEDIATION_SUCCESS_RATE  # unused variable (src/observability/metrics.py:599)
 LLM_GUARDRAILS_REJECTIONS  # unused variable (src/observability/metrics.py:671)
 FEATURE_IC_PASSING_FDR_TOTAL  # unused variable (src/observability/metrics.py:1143)
-ALPHA_PUBLISHER_REJECTIONS_TOTAL  # unused variable (src/observability/metrics.py:1234)
 ATTR_PLUGIN_NAME  # unused variable (src/observability/spans.py:9)
 ATTR_TIER  # unused variable (src/observability/spans.py:10)
 ATTR_SIGNAL_ID  # unused variable (src/observability/spans.py:12)
@@ -928,7 +927,6 @@ _build_score_insert_params  # unused function (services/llm_writer.py:283)
 system_health  # unused function (src/api/routes/health.py:78)
 get_signals_heatmap  # unused function (src/api/routes/signals.py:612)
 _.embed_batch  # unused method (src/core/memory/embedding.py:232)
-evaluate_stratum_expectancy_gate  # unused function (src/intelligence/statistics/gate_math.py:188)
 _write_weights_to_db  # unused function (src/intelligence/weight_updater.py:310)
 StreamMerger  # unused class (src/persistence/logic/stream_merger.py:22)
 _._process_outcome_message  # unused method (services/llm_writer.py:729)
@@ -1045,3 +1043,5 @@ cross_asset_records  # unused function (src/intelligence/features/kernels/macro.
 beta_records  # unused function (src/intelligence/features/kernels/macro.py) - rebuilds the beta builder's dict from factor_beta_daily's outputs; tested; the rebuild writer (186-25) consumes it
 daily_reference_grid  # unused function (src/intelligence/features/kernels/macro.py) - builds the daily-grid kernels' inputs from 1d bars; tested; the rebuild writer (186-25) consumes it
 _.ctf  # unused attribute (src/core/memory/writer.py:326) - payload field of the memory writer; a local variable named ctf in the CTF recompute script used to mask it until 186-15 removed that copy of the join
+_.itersize  # unused attribute (services/ic_engine.py:3420) - psycopg named-cursor fetch size, read by the driver; the other setters were deleted by 186-19; ic_engine is deleted whole by 186-23
+set_config_service  # unused function (src/intelligence/trading/*.py) - the CLAUDE.md module-level APR injection hook; its only caller was alpha_frame_writer, deleted by 186-19; the v2.x trading tier's fate is todo 223

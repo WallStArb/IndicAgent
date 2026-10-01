@@ -18,7 +18,6 @@ from __future__ import annotations
 import abc
 import hashlib
 import time
-from collections.abc import Awaitable
 from typing import Any
 
 import asyncpg
@@ -26,7 +25,6 @@ import structlog
 
 from src.core.database_manager import create_pool
 from src.core.service_utils import setup_service_logging
-from src.observability.corpus_manifest import CorpusManifest
 from src.observability.metrics import (
     JOB_COMPLETED_TOTAL,
     JOB_DURATION_SECONDS,
@@ -78,24 +76,6 @@ class BaseBatch(abc.ABC):
     def _span_attrs(self) -> dict[str, Any]:
         """Extra attributes for the auto-created execute() span. Override in subclasses."""
         return {}
-
-    @staticmethod
-    async def _run_with_manifest_capture(manifest: CorpusManifest, coro: Awaitable[None]) -> None:
-        """Await `coro`, recording any exception onto `manifest` before re-raising.
-
-        Shared by subclasses that maintain their own CorpusManifest across a run
-        (alpha_publisher, ensemble_trainer): manifest.write() is best-effort — its own
-        failure must not mask the original error, hence the inner try/except.
-        """
-        try:
-            await coro
-        except Exception as error:
-            manifest.add_error(str(error))
-            try:
-                manifest.write()
-            except Exception:
-                pass
-            raise
 
     # -----------------------------------------------------------------------
     # Entry point

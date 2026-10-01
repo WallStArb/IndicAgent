@@ -1755,20 +1755,6 @@ def cfg(cfg_dict: dict[str, Any], key: str, default: Any) -> Any:
     return type(default)(val)
 
 
-def resolve_per_tf(cfg_dict: dict[str, Any], key_base: str, tf: str, default: Any) -> Any:
-    """Resolve a per-timeframe APR override, falling back to the global default.
-
-    Exact precedent: alpha.frame.hold_max_bars.<regime>.<tf> (services/alpha_frame_writer.py).
-    Relocated from services/ensemble_trainer.py (todo 009 Part D Item 4) — a pure,
-    generic one-liner whose only dependency (cfg() above) already lives here, so a
-    second consumer can use it without importing the whole ensemble_trainer service.
-    meta_eligible (BH-FDR eligibility, ensemble_trainer-specific domain logic) stays
-    in ensemble_trainer.py and calls this — only the generic resolver belongs in a
-    shared services-wide utils file, not the eligibility logic built on top of it.
-    """
-    return cfg(cfg_dict, f"{key_base}.{tf}", default)
-
-
 LOOKAHEAD_FALLBACKS_BY_TF: dict[str, dict[str, int]] = {
     "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
     "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},

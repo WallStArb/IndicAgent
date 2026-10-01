@@ -1109,7 +1109,6 @@ src/intelligence/services/ml_trainer.py:0: error: Argument 2 to
 src/intelligence/services/ml_trainer.py:0: error: Item "None" of
 src/intelligence/services/ml_trainer.py:0: error: Item "None" of "Any | None"
 src/intelligence/statistics/factor_math.py:0: error: Returning Any from
-src/intelligence/statistics/gate_math.py:0: error: Incompatible types in
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
