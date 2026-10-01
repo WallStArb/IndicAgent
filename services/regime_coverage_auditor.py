@@ -213,6 +213,8 @@ def main() -> None:
             )
             status = "gap_found"
             exit_code = 1
+        elif result.excepted:
+            _logger.info("regime_coverage_auditor.no_unregistered_gap_found")
         else:
             _logger.info("regime_coverage_auditor.no_gap_found")
 
