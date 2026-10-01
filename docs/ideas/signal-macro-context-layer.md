@@ -1,8 +1,9 @@
 # Macro context layer: market-wide series and events, point in time by measurement - Idea
 
-**Status:** Idea, design refined 2026-10-01 by a council pass (below). The series store exists
-(`economic_series_observation`, todo 480); the point-in-time corrections it needs are todo 482, deferred
-to the start of phase 184 B8.
+**Status:** Idea, design refined 2026-10-01 by a council pass (below), extended same day with the
+cross-timeframe stratification design. The series store exists (`economic_series_observation`,
+todo 480); the point-in-time corrections it needs are todo 482, deferred to the start of phase
+184 B8.
 Needs a rigor pass before promotion to `docs/research/`.
 **Author:** Claude (Opus 5.5), interactive session, 2026-10-01; first draft by Claude (Sonnet 5.5)
 the same day.
@@ -10,7 +11,9 @@ the same day.
 number below was measured then); `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md`
 (sections 3, 5, 6); `/home/bg/dev/ssfi` (migration 040, `docs/foundation/data-layer.md`,
 `docs/research/calendar-primitives.md`); `docs/research/signal-temporal-atomic-primitives.md`;
-`src/intelligence/research/snapshot.py`; todos 475, 480, 481.
+`src/intelligence/research/snapshot.py`; todos 475, 480, 481, 482; the owner's 2026-10-01
+question on stratifying the timeframe stack (5m/15m/1h/1d) by macro regime, which this
+revision's new section answers.
 
 ## The problem
 
@@ -176,6 +179,48 @@ join on observation date would use it at Monday's row, decided at Tuesday's open
 - **One mechanism.** This is the same causal alignment phase 184 builds for off-clock bar inputs
   (B3, the `align` node). Economic series are one more off-clock input, not a second join.
 
+## Stratifying the timeframe stack by macro regime
+
+Added 2026-10-01, owner question: can returns be stratified by macro concepts, and does that
+work the same way across 5m, 15m, 1h and 1d books. The answer follows from two already-decided
+rules rather than inventing a fifth join: macro series publish at daily cadence or slower
+(§ "Availability is measured, not assumed"), and the causal `align` node (phase 184 B3) is the
+one mechanism for off-clock inputs reaching any timeframe's panel row.
+
+**Broadcast, not refit.** A macro regime axis is computed once, at daily cadence, from the
+as-of read described above. Every intraday row in a session reads the same value — there is no
+5m-frequency or 1h-frequency version of a rates regime, because the underlying series has not
+moved intraday. This is the same broadcast pattern the kernel registry already uses for
+cross-timeframe features (`ctf_momentum`: one higher-timeframe value read by every lower-timeframe
+row in its window) and for the existing cross-sectional (systematic) equity regime. No new
+mechanism, one more consumer of `align`.
+
+**Age is sessions, not bars.** Because `available_at` lands at the end of a release day
+(requirement in the point-in-time section above), every intraday bar in the next session sees
+the value at the same age — age 0 sessions, regardless of whether the row is a 5m, 15m, 1h or 1d
+bar. A declared maximum age per series kind (APR, todo 482) is therefore one number per series,
+not one per timeframe.
+
+**Candidate regime axes.** None of these are built; each is a named next step with its source
+series and current state, so a future spec counts the right thing as its look.
+
+| Axis | Source series | Kernel (derived, pure) | State |
+|---|---|---|---|
+| Rate direction and level | `DGS10`, `DGS2` | Curve tier (sign of the 10-year change plus level bucket) | Todo 481: the current tier is mis-signed (tracks the 10-year change inverted); fix before use |
+| Curve shape | `T10Y2Y` | Slope regime (steepening/flattening/inverted) | Identity-checked against `DGS10 - DGS2` (3 days off, worst 2 bp); no kernel yet |
+| Credit stress | `HY`, `IG`, `CCC`, `BBB` OAS | Spread percentile (trailing window, per series) | Named in the deletion list above as a kernel to compute, not yet built |
+| Funding stress | `SOFR`, `EFFR`, `TGCR`, `BGCR` | Spread-to-policy-rate or dispersion across the four | Not yet built; SOFR vs. FRED's own series reconciles exactly (2,122 days, 0 mismatches), so the measure has a built-in standing check |
+| Real-yield shock | `DFII10` | Level change, z-scored | Named in the deletion list above; not yet built |
+| Event proximity | FRED release calendar (schedule series, not yet landed) | Days-to-next-FOMC/CPI/jobs | Needs the schedule-series piece (build order table, "Schedule series") before it exists at all |
+
+**What this is not.** These axes are an additional, orthogonal conditioning dimension — they do
+not replace or merge with the existing idiosyncratic (per-symbol HMM) or systematic
+(cross-sectional VIX x breadth) regime system. A family may stratify by symbol regime, market
+regime, and a macro regime axis at once; each is a separate declared dimension, and the ledger's
+look-counting discipline applies to each one independently (cautions section below). Todo 475
+moves the macro kernels onto the series registry; phase 184 B2's `kernel_source` adapter is where
+a macro regime kernel registers once one of the rows above is actually built.
+
 ## Hidden biases and edge cases, each with its guard
 
 | Risk | How it fails silently | Guard |
@@ -234,7 +279,7 @@ No doc is archived; each states its owner here.
 | Calendar coordinates and the point-selection rule | `docs/research/signal-temporal-atomic-primitives.md` | canonical |
 | Quarterly and opex seasonality | `signal-quarterly-seasonality-opex-risk-off.md` | idea |
 | Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | idea, refreshed 2026-10-01 |
-| Rate and credit regime axes | todo 481 | curve tier tracks the 10-year change with an inverted sign |
+| Rate, credit and funding regime axes, broadcast across the timeframe stack | "Stratifying the timeframe stack by macro regime" above; todo 481 | curve tier tracks the 10-year change with an inverted sign; the other candidate axes are unbuilt |
 | Sensitivity to market-wide factors or events | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | consumers of this layer |
 | `macro_features` / `macro_analyzer` | the dormant streaming path | no reader; if streaming returns, it computes from the same kernels rather than keep a second macro home |
 | Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not this layer |
