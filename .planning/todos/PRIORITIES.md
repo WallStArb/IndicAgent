@@ -176,6 +176,8 @@ until 185 and 186 land; session time goes to the build.
 | Todo | Why now |
 |---|---|
 | [483](pending/483-record-2026-midterm-forward-window-result.md) | New 2026-10-01. Due after 2027-05-03: record the pre-registered 2026 midterm forward window (S&P 500, election day to +6 months) in the idea doc and ledger, as one unsearched observation. Nothing else forces this step. |
+| [484](pending/484-htf-lane-honor-quarantined-symbols-file.md) | New 2026-10-01, from the reboot-day HOOD quarantine. A poisoned name costs ~18 min/attempt for up to 50 attempts; today's fix was sed-editing the tracked `all.symbols`. Lane scripts should subtract `quarantined.symbols` instead; lands at todo 452's cutover stop, never mid-loop. |
+| [485](pending/485-rate-limiter-wait-logging-in-ibkr-py.md) | New 2026-10-01, from reboot-day ops. `_hist_limiter_for().acquire()` logs nothing while a request waits for pacing budget, so normal throttle during rescan reads as a hang (caused one premature kill today). One `hist_pacing_wait` log line per blocked request. |
 
 **Kernel and feature code (phase 186 follow-ups)**
 
