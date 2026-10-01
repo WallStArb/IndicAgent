@@ -8,8 +8,16 @@ without anything else in the pipeline noticing (found by accident, todo 168, 7 s
 affected for years). This canary exists so the NEXT such gap is caught immediately
 instead of by accident during an unrelated investigation.
 
-Any non-empty result is alert-worthy. Deliberately zero new infrastructure: one query,
-run periodically (systemd timer or ad hoc), same pattern as the SQL in todo 169's filing.
+A gap is alert-worthy unless it is a registered exception. APR key
+`alpha.regime.coverage_auditor.known_exceptions` is a JSON list of `{symbol, reason, expires,
+todo}`: a symbol whose stored regime is all NULL for a diagnosed reason (history shorter than the
+walk-forward warmup, a degenerate fit; 186-18, todo 341). The job fails only on an unregistered
+gap or an exception past its `expires` date, so the nightly unit carries information again. An
+exception is added by an operator after a diagnosis (`scripts/infrastructure/
+features_regime_kernel_coverage_sweep.py` classifies the cell), always with an expiry: it is a
+review date, renewed with a fresh diagnosis or removed. A listed symbol that is no longer a gap
+logs a `stale_exception` warning and does not fail. A malformed list (missing symbol, reason or
+expires, or an unparseable date) fails the job at startup rather than hiding gaps.
 
 Usage:
     python services/regime_coverage_auditor.py
@@ -17,9 +25,13 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import sys
 import time
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 import psycopg
 import structlog
@@ -28,6 +40,7 @@ from psycopg.rows import dict_row
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from services._batch_utils import load_config_service_sync
 from src.config.settings import Settings
 from src.core.service_utils import setup_service_logging
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
@@ -38,6 +51,7 @@ setup_service_logging("logs/regime_coverage_auditor.log")
 _logger = structlog.get_logger(__name__)
 
 _JOB = "regime-coverage-auditor"
+_EXCEPTIONS_KEY = "alpha.regime.coverage_auditor.known_exceptions"
 
 _COVERAGE_GAP_SQL = """
     SELECT symbol, count(*) AS total_rows, count(regime) AS non_null_regime_rows
@@ -46,6 +60,90 @@ _COVERAGE_GAP_SQL = """
     HAVING count(regime) = 0
     ORDER BY symbol
 """
+
+
+@dataclass(frozen=True)
+class KnownException:
+    """One registered coverage gap: why it is expected, the todo that tracks it, the last day it
+    is honored (a review date)."""
+
+    symbol: str
+    reason: str
+    expires: date
+    todo: str | None
+
+
+@dataclass(frozen=True)
+class AuditResult:
+    """`unregistered` and `expired` fail the job; `excepted` and `stale_exceptions` do not."""
+
+    unregistered: list[str]
+    expired: list[str]
+    excepted: list[KnownException]
+    stale_exceptions: list[KnownException]
+
+    @property
+    def failed(self) -> bool:
+        return bool(self.unregistered or self.expired)
+
+
+def parse_known_exceptions(raw: Any) -> list[KnownException]:
+    """The APR value (a JSON string, or the list a json-typed key already parsed to) as
+    `KnownException`s. Raises ValueError on anything malformed: a missing or empty symbol,
+    reason or expires, an unparseable date, or a duplicate symbol."""
+    entries = json.loads(raw) if isinstance(raw, str) else raw
+    if not isinstance(entries, list):
+        raise ValueError(f"{_EXCEPTIONS_KEY} must be a JSON list, got {type(entries).__name__}")
+    parsed: list[KnownException] = []
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{_EXCEPTIONS_KEY}[{index}] must be an object")
+        missing = [
+            k for k in ("symbol", "reason", "expires") if not str(entry.get(k) or "").strip()
+        ]
+        if missing:
+            raise ValueError(f"{_EXCEPTIONS_KEY}[{index}] is missing {missing}")
+        try:
+            expires = date.fromisoformat(str(entry["expires"]))
+        except ValueError as error:
+            raise ValueError(
+                f"{_EXCEPTIONS_KEY}[{index}] expires {entry['expires']!r} is not an ISO date"
+            ) from error
+        todo = entry.get("todo")
+        parsed.append(
+            KnownException(
+                symbol=str(entry["symbol"]),
+                reason=str(entry["reason"]),
+                expires=expires,
+                todo=None if todo is None else str(todo),
+            )
+        )
+    symbols = [e.symbol for e in parsed]
+    if len(set(symbols)) != len(symbols):
+        raise ValueError(f"{_EXCEPTIONS_KEY} lists a symbol more than once")
+    return parsed
+
+
+def evaluate_gaps(
+    gap_symbols: list[str], exceptions: list[KnownException], today: date
+) -> AuditResult:
+    """Split the gap symbols into unregistered, expired (an exception whose `expires` is before
+    `today`), and excepted; exceptions for symbols that are no longer gaps are stale."""
+    by_symbol = {e.symbol: e for e in exceptions}
+    unregistered: list[str] = []
+    expired: list[str] = []
+    excepted: list[KnownException] = []
+    for symbol in gap_symbols:
+        entry = by_symbol.get(symbol)
+        if entry is None:
+            unregistered.append(symbol)
+        elif entry.expires < today:
+            expired.append(symbol)
+        else:
+            excepted.append(entry)
+    gaps = set(gap_symbols)
+    stale = [e for e in exceptions if e.symbol not in gaps]
+    return AuditResult(unregistered, expired, excepted, stale)
 
 
 def _connect_db(settings: Settings) -> psycopg.Connection:
@@ -77,18 +175,41 @@ def main() -> None:
     try:
         settings = Settings()
         conn = _connect_db(settings)
+        exceptions = parse_known_exceptions(
+            load_config_service_sync(conn).get_sync(_EXCEPTIONS_KEY, "[]")
+        )
         with conn.cursor(row_factory=dict_row) as cur:
             gap_symbols = _fetch_coverage_gaps(cur)
 
-        if gap_symbols:
+        result = evaluate_gaps(gap_symbols, exceptions, datetime.now(UTC).date())
+        if result.excepted:
+            _logger.info(
+                "regime_coverage_auditor.gap_excepted",
+                n_symbols=len(result.excepted),
+                excepted={
+                    e.symbol: f"{e.reason} (todo {e.todo}, until {e.expires})"
+                    for e in result.excepted
+                },
+            )
+        for entry in result.stale_exceptions:
+            _logger.warning(
+                "regime_coverage_auditor.stale_exception",
+                symbol=entry.symbol,
+                reason=entry.reason,
+                note="listed as a gap but feature_vectors.regime now has labels for it; "
+                "remove the entry from APR",
+            )
+        if result.failed:
             _logger.warning(
                 "regime_coverage_auditor.gap_found",
-                n_symbols=len(gap_symbols),
-                symbols=gap_symbols,
-                note="feature_vectors.regime is 100% NULL for these symbols — "
-                "regime_writer.py has never produced a usable label for them. "
-                "See todo 168 for the fix-direction precedent (near-miss vs true "
-                "degenerate-collapse split).",
+                n_symbols=len(result.unregistered) + len(result.expired),
+                unregistered=result.unregistered,
+                expired=result.expired,
+                note="feature_vectors.regime is 100% NULL for these symbols and no live "
+                "exception covers them. Diagnose with "
+                "scripts/infrastructure/features_regime_kernel_coverage_sweep.py, then register "
+                "an exception (with an expiry) or fix the cause. See todo 168 for the "
+                "fix-direction precedent (near-miss vs true degenerate-collapse split).",
             )
             status = "gap_found"
             exit_code = 1

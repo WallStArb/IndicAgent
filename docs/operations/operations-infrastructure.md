@@ -269,6 +269,23 @@ resume from the incremental mode against an empty table (it will correctly detec
 table and fall back to backfill mode automatically, but running `--backfill` explicitly makes
 the intent visible in the log).
 
+### Regime coverage auditor (nightly canary)
+
+`indicagent-regime-coverage-auditor.timer` (02:00) runs `services/regime_coverage_auditor.py`, which
+lists the symbols whose `feature_vectors.regime` is 100% NULL. The unit fails only on a gap that is
+not registered, or whose registration has expired. Registered gaps live in APR key
+`alpha.regime.coverage_auditor.known_exceptions`, a JSON list of `{symbol, reason, expires, todo}`.
+
+An exception means a diagnosed, expected gap (history shorter than the walk-forward warmup, a
+degenerate fit). An operator adds one only after classifying the symbol with
+`scripts/infrastructure/features_regime_kernel_coverage_sweep.py` (read-only), recording the todo
+that tracks it. Every entry carries an `expires` date (ISO), a review date: renew it with a fresh
+diagnosis or remove it, because an expired entry fails the job again. A listed symbol that is no
+longer a gap logs `regime_coverage_auditor.stale_exception` and does not fail; remove it. A
+malformed list (missing symbol, reason or expires, an unparseable date, a duplicate symbol) fails
+the job with status `failure`. Change the list through `config_state` with a `config_history` row
+(the `/config/parameters` page, or a migration).
+
 ### Service Management
 
 ```bash
