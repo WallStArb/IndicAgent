@@ -13,6 +13,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from services.cross_sectional_regime_model import (
+    ReplaceGuards,
+    ReplaceRefused,
     _assert_ascending_tiers,
     _assert_ascending_timestamps,
     _assign_labels,
@@ -698,7 +700,8 @@ class _FakeCopy:
 
 
 class _FakeCursor:
-    """Records SQL; serves the diff and extras queries; `fail_on` raises on a matching SQL."""
+    """Records SQL and serves the lock, diff and extras queries. Row counts of the delete and the
+    upsert come from `conn.diff` unless `conn.write_counts` overrides them."""
 
     def __init__(self, conn: _FakeConn):
         self._conn = conn
@@ -716,19 +719,26 @@ class _FakeCursor:
         return _FakeCopy(self._conn.staged)
 
     def execute(self, sql, params=None):
-        self._conn.executed.append(sql)
-        if self._conn.fail_on and self._conn.fail_on in sql:
+        conn = self._conn
+        conn.executed.append(sql)
+        if conn.fail_on and conn.fail_on in sql:
             raise RuntimeError("boom")
-        if "FULL OUTER JOIN" in sql and "GROUP BY category" in sql:
-            self._result = self._conn.extras_rows
+        if "pg_try_advisory_xact_lock" in sql:
+            self._result = [(conn.lock_free,)]
+            conn.lock_params = params
+        elif "GROUP BY category" in sql:
+            self._result = conn.extras_rows
         elif "FULL OUTER JOIN" in sql:
-            self._result = [self._conn.diff]
-        elif sql.startswith("DELETE FROM market_regimes"):
-            self.rowcount = self._conn.diff[0]
-            self._conn.pending_store = []
-        elif sql.startswith("INSERT INTO market_regimes"):
-            self.rowcount = len(self._conn.staged)
-            self._conn.pending_store = list(self._conn.staged)
+            self._result = [conn.diff]
+        elif sql.lstrip().startswith("DELETE FROM market_regimes"):
+            self.rowcount = conn.write_counts[0]
+        elif sql.lstrip().startswith("INSERT INTO market_regimes ("):
+            self.rowcount = conn.write_counts[1]
+        elif "INSERT INTO market_regimes_override" in sql:
+            conn.pending_overrides.append(params)
+        elif "SELECT DISTINCT bar_ts" in sql:
+            self._result = conn.fv_ts
+            conn.fv_scans += 1
 
     def fetchone(self):
         return self._result[0]
@@ -738,15 +748,20 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    def __init__(self, diff, *, stored_rows=("old",), fail_on=None, extras_rows=()):
+    def __init__(self, diff, *, fail_on=None, extras_rows=(), lock_free=True):
         self.diff = diff  # (stored, produced, orphaned, changed, new)
-        self.store = list(stored_rows)
-        self.pending_store = list(stored_rows)
+        self.write_counts = (diff[2], diff[3] + diff[4])
         self.fail_on = fail_on
         self.extras_rows = list(extras_rows)
+        self.lock_free = lock_free
+        self.lock_params = None
+        self.fv_ts = [(_TS,)]
+        self.fv_scans = 0
         self.executed: list[str] = []
         self.copy_sql: list[str] = []
         self.staged: list = []
+        self.pending_overrides: list = []
+        self.overrides: list = []
         self.commits = 0
         self.rollbacks = 0
 
@@ -755,55 +770,114 @@ class _FakeConn:
 
     def commit(self):
         self.commits += 1
-        self.store = list(self.pending_store)
+        self.overrides.extend(self.pending_overrides)
+        self.pending_overrides = []
 
     def rollback(self):
         self.rollbacks += 1
-        self.pending_store = list(self.store)
+        self.pending_overrides = []
 
 
 _ROWS = [("equity", "1d", _TS, "calm", {"a": 1.0}), ("equity", "1d", _TS, "stress", {"a": 0.0})]
+_GUARDS = ReplaceGuards(max_orphan_fraction=0.01, max_changed_fraction=0.05)
 
 
 def _replace(conn, **kwargs):
-    defaults = dict(max_orphan_fraction=0.01, accept_orphan_delete=False, dry_run=False)
-    return _replace_group_tf(conn, "equity", "1d", _ROWS, **{**defaults, **kwargs})
+    return _replace_group_tf(
+        conn, "equity", "1d", _ROWS, **{"guards": _GUARDS, "dry_run": False, **kwargs}
+    )
+
+
+def _wrote_nothing(conn):
+    return not any(
+        q.lstrip().startswith(("DELETE", "INSERT INTO market_regimes")) for q in conn.executed
+    )
 
 
 class TestReplaceGroupTf:
-    def test_replaces_the_history_in_one_transaction(self):
-        conn = _FakeConn((1000, 1002, 5, 3, 7), stored_rows=("a",) * 3)
-        result = _replace(conn, max_orphan_fraction=0.01)
+    def test_deletes_only_orphans_and_upserts_only_the_diff_in_one_transaction(self):
+        conn = _FakeConn((1000, 1002, 5, 3, 7))
+        result = _replace(conn)
         assert (result.stored, result.produced, result.orphaned) == (1000, 1002, 5)
-        assert (result.changed, result.new) == (3, 7)
-        assert result.inserted == len(_ROWS)
+        assert (result.changed, result.new, result.wrote) == (3, 7, True)
+        assert (result.rows_deleted, result.rows_upserted) == (5, 10)
         assert conn.commits == 1 and conn.rollbacks == 0
-        assert conn.store == conn.staged  # the history is exactly the staged rows
         sql = " ".join(conn.executed)
-        assert "CREATE TEMP TABLE" in sql and "ON COMMIT DROP" in sql
+        assert "pg_try_advisory_xact_lock" in sql and "ON COMMIT DROP" in sql
+        assert sql.index("pg_try_advisory_xact_lock") < sql.index("CREATE TEMP TABLE")
         assert sql.index("DELETE FROM market_regimes") < sql.index("INSERT INTO market_regimes")
+        assert "NOT EXISTS" in sql and "ON CONFLICT (regime_group, tf, ts) DO UPDATE" in sql
+        assert "IS DISTINCT FROM" in sql
         assert conn.staged[0][4] == json.dumps({"a": 1.0})
+        assert conn.overrides == []  # no limit exceeded, nothing to record
 
-    def test_refuses_an_unexpected_shrink_and_writes_nothing(self):
-        conn = _FakeConn((1000, 900, 100, 0, 0))
-        with pytest.raises(ValueError, match=r"equity, 1d.*100 of 1000"):
+    def test_a_write_that_moves_a_different_number_of_rows_than_the_diff_rolls_back(self):
+        conn = _FakeConn((1000, 1002, 5, 3, 7))
+        conn.write_counts = (5, 11)
+        with pytest.raises(ReplaceRefused, match="the diff said"):
             _replace(conn)
         assert conn.commits == 0 and conn.rollbacks == 1
-        assert conn.store == ["old"]
-        assert not any(q.startswith("DELETE") for q in conn.executed)
 
-    def test_accept_orphan_delete_overrides_the_guard(self):
+    def test_concurrent_run_on_the_cell_is_refused_before_anything_is_staged(self):
+        conn = _FakeConn((10, 10, 0, 0, 0), lock_free=False)
+        with pytest.raises(ReplaceRefused, match="another run holds the cell lock"):
+            _replace(conn)
+        assert conn.lock_params == ("market_regimes|equity|1d",)
+        assert not any("CREATE TEMP" in q for q in conn.executed) and _wrote_nothing(conn)
+        assert conn.commits == 0 and conn.rollbacks == 1
+
+    def test_refuses_an_orphan_share_above_the_limit_and_writes_nothing(self):
         conn = _FakeConn((1000, 900, 100, 0, 0))
-        result = _replace(conn, accept_orphan_delete=True)
-        assert result.orphaned == 100 and conn.commits == 1
+        with pytest.raises(ReplaceRefused, match=r"equity, 1d.*100 of 1000.*orphaned"):
+            _replace(conn)
+        assert conn.commits == 0 and conn.rollbacks == 1 and _wrote_nothing(conn)
 
-    def test_an_error_between_delete_and_commit_leaves_the_stored_rows_unchanged(self):
-        conn = _FakeConn((10, 10, 0, 0, 0), fail_on="INSERT INTO market_regimes")
+    def test_refuses_a_changed_share_above_the_limit_even_with_no_orphans(self):
+        conn = _FakeConn((1000, 1000, 0, 600, 0))
+        with pytest.raises(ReplaceRefused, match=r"600 of 1000.*changed"):
+            _replace(conn)
+        assert conn.commits == 0 and _wrote_nothing(conn)
+
+    def test_an_orphan_override_smaller_than_the_orphans_is_refused(self):
+        conn = _FakeConn((1000, 900, 100, 0, 0))
+        guards = _GUARDS._replace(accept_orphans=99, operator="op", reason="review")
+        with pytest.raises(ReplaceRefused, match="accepted count 99"):
+            _replace(conn, guards=guards)
+        assert conn.commits == 0 and conn.overrides == [] and _wrote_nothing(conn)
+
+    def test_a_changed_override_does_not_cover_the_orphans(self):
+        conn = _FakeConn((1000, 900, 100, 0, 0))
+        guards = _GUARDS._replace(accept_changed=10_000, operator="op", reason="review")
+        with pytest.raises(ReplaceRefused):
+            _replace(conn, guards=guards)
+
+    def test_an_override_covering_the_diff_writes_and_records_the_decision_atomically(self):
+        conn = _FakeConn((1000, 950, 100, 600, 50))
+        guards = _GUARDS._replace(
+            accept_orphans=100, accept_changed=600, operator="bg", reason="todo 420"
+        )
+        result = _replace(conn, guards=guards)
+        assert result.wrote and conn.commits == 1
+        (record,) = conn.overrides
+        _decided_at, group, tf, stored, orphaned, changed, acc_o, acc_c, operator, reason = record
+        assert (group, tf, stored, orphaned, changed) == ("equity", "1d", 1000, 100, 600)
+        assert (acc_o, acc_c, operator, reason) == (100, 600, "bg", "todo 420")
+        assert _decided_at.tzinfo is not None
+
+    def test_the_decision_is_not_recorded_when_the_write_rolls_back(self):
+        conn = _FakeConn((1000, 950, 100, 0, 50), fail_on="ON CONFLICT")
+        guards = _GUARDS._replace(accept_orphans=100, operator="bg", reason="todo 420")
         with pytest.raises(RuntimeError, match="boom"):
-            _replace(conn)
-        assert any(q.startswith("DELETE FROM market_regimes") for q in conn.executed)
+            _replace(conn, guards=guards)
         assert conn.commits == 0 and conn.rollbacks == 1
-        assert conn.store == ["old"] and conn.pending_store == ["old"]
+        assert conn.overrides == [] and conn.pending_overrides == []
+
+    def test_an_error_between_delete_and_commit_rolls_everything_back(self):
+        conn = _FakeConn((10, 10, 1, 0, 0), fail_on="ON CONFLICT")
+        with pytest.raises(RuntimeError, match="boom"):
+            _replace(conn, guards=_GUARDS._replace(max_orphan_fraction=1.0))
+        assert any(q.lstrip().startswith("DELETE FROM market_regimes") for q in conn.executed)
+        assert conn.commits == 0 and conn.rollbacks == 1
 
     def test_dry_run_reports_counts_and_extras_writes_nothing_and_rolls_back(self):
         conn = _FakeConn(
@@ -812,19 +886,24 @@ class TestReplaceGroupTf:
         )
         result = _replace(conn, dry_run=True)
         assert (result.orphaned, result.changed, result.new) == (100, 4, 2)
-        assert (result.deleted, result.inserted) == (0, 0)
+        assert (result.wrote, result.rows_deleted, result.rows_upserted) == (False, 0, 0)
         assert result.extras["orphaned"] == {"rows": 100, "weekend": 90, "joins_feature_vectors": 3}
         assert result.extras["would_refuse"] is True
-        assert conn.commits == 0 and conn.rollbacks == 1
-        assert not any(q.startswith(("DELETE", "INSERT")) for q in conn.executed)
+        assert conn.commits == 0 and conn.rollbacks == 1 and _wrote_nothing(conn)
         assert any("statement_timeout" in q for q in conn.executed)
+
+    def test_dry_run_reads_the_feature_vectors_timestamps_once_per_tf(self):
+        cache: dict = {}
+        first = _FakeConn((10, 10, 0, 0, 0), extras_rows=[("new", 1, 0, 1)])
+        _replace(first, dry_run=True, fv_ts_cache=cache)
+        second = _FakeConn((10, 10, 0, 0, 0), extras_rows=[("new", 1, 0, 1)])
+        _replace(second, dry_run=True, fv_ts_cache=cache)
+        assert first.fv_scans == 1 and second.fv_scans == 0
 
     def test_dry_run_survives_a_feature_vectors_probe_failure(self):
         conn = _FakeConn((10, 10, 0, 1, 0), fail_on="GROUP BY category")
         result = _replace(conn, dry_run=True)
-        assert result.changed == 1
-        assert "extras_error" in result.extras
-        assert conn.commits == 0
+        assert result.changed == 1 and "extras_error" in result.extras and conn.commits == 0
 
     def test_the_module_has_no_upsert_write_path_left(self):
         import services.cross_sectional_regime_model as module

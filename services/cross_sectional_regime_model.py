@@ -37,9 +37,9 @@ Data flow per group per TF:
   6. Call _assign_labels(...) -> list[tuple]
   7. Replace the (regime_group, tf) history atomically (`_replace_group_tf`): COPY the rows into
      a temp stage, diff it against the stored rows (orphaned, changed, new), refuse an
-     unexpected shrink, then DELETE + INSERT in one transaction (todo 420). A stored row the
-     run no longer produces (an orphan from an older writer, a weekend bar) is removed with the
-     rest of the history instead of surviving an upsert forever.
+     unexpected shrink or rewrite, then delete the orphans and upsert the changed and new rows in
+     one transaction (todo 420). A stored row the run no longer produces (an orphan from an older
+     writer, a weekend bar) is deleted instead of surviving an upsert forever.
 
 Not a real-time daemon — this is a batch/oneshot labeling tool exempt from the
 "only writer subclasses touch DB" rule, same as backfill_feature_factory.py.
@@ -50,21 +50,27 @@ Usage:
     python services/cross_sectional_regime_model.py
     python services/cross_sectional_regime_model.py --tf 5m 1h
     python services/cross_sectional_regime_model.py --dry-run
-    python services/cross_sectional_regime_model.py --accept-orphan-delete   # reviewed cleanup
+    python services/cross_sectional_regime_model.py \
+        --accept-orphan-delete 2500000 --accept-changed 400000 --reason "todo 420 cleanup"
 
 `--dry-run` stages and diffs without touching market_regimes (orphans split by weekday and
 weekend, and how many orphaned, changed and new timestamps join a feature_vectors row), and
-prints one JSON report. A run whose orphans exceed APR
-`alpha.regime.cross_sectional.max_orphan_delete_fraction` of a (group, tf)'s stored rows
-refuses; `--accept-orphan-delete` is the explicit override for a reviewed cleanup.
+prints one JSON report. A write takes the cell's advisory lock, deletes only the orphans and
+upserts only the changed and new rows. A cell whose orphans exceed APR
+`alpha.regime.cross_sectional.max_orphan_delete_fraction`, or whose changed rows exceed
+`alpha.regime.cross_sectional.max_changed_fraction`, of its stored rows refuses; the override is a
+reviewed count per limit (`--accept-orphan-delete=N`, `--accept-changed=N`, with `--reason`), and
+the decision is appended to `market_regimes_override` in the same transaction.
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -464,49 +470,60 @@ def _scale_window_params(params: dict[str, str], tf: str) -> dict[str, Any]:
 
 
 class ReplaceResult(NamedTuple):
-    """Counts of one (regime_group, tf) replace. `stored` and `produced` are the rows before and
-    in the new history; `orphaned` are stored timestamps the run no longer produces, `changed`
-    share a timestamp but differ in label or probability vector, `new` are produced and not
-    stored. `deleted` and `inserted` are what was written (0 and 0 for a dry run, which writes
-    nothing); `extras` carries the dry-run weekday split and feature_vectors join counts."""
+    """Counts of one (regime_group, tf) replace. `orphaned` are stored timestamps the run no
+    longer produces, `changed` share a timestamp but differ in label or probability vector, `new`
+    are produced and not stored. A write deletes exactly the orphans and upserts exactly the
+    changed and new rows (`rows_deleted`, `rows_upserted`); a dry run (`wrote` False) writes
+    nothing and carries the weekday split and feature_vectors joins in `extras`."""
 
     stored: int
     produced: int
     orphaned: int
     changed: int
     new: int
-    deleted: int
-    inserted: int
+    wrote: bool
     extras: dict[str, Any]
+
+    @property
+    def rows_deleted(self) -> int:
+        return self.orphaned if self.wrote else 0
+
+    @property
+    def rows_upserted(self) -> int:
+        return self.changed + self.new if self.wrote else 0
+
+
+class ReplaceRefused(RuntimeError):
+    """A replace the guards (or the cell lock) refused; nothing was written."""
 
 
 _STAGE_TABLE = "_market_regimes_stage"
+_FV_STAGE_TABLE = "_market_regimes_fv_ts"
 
-_STAGE_DIFF_SQL = f"""
-    SELECT count(m.ts) AS stored,
-           count(s.ts) AS produced,
-           count(*) FILTER (WHERE s.ts IS NULL) AS orphaned,
-           count(*) FILTER (
-               WHERE m.ts IS NOT NULL AND s.ts IS NOT NULL
-                 AND (m.regime_label IS DISTINCT FROM s.regime_label
-                      OR m.regime_prob_vector IS DISTINCT FROM s.regime_prob_vector)
-           ) AS changed,
-           count(*) FILTER (WHERE m.ts IS NULL) AS new
+# The full outer join of a cell's stored rows (m) against the staged run (s), shared by the diff
+# counts and the dry-run extras so they cannot disagree about what orphaned, changed and new mean.
+_DIFF_SOURCE = f"""
     FROM (SELECT ts, regime_label, regime_prob_vector FROM market_regimes
           WHERE regime_group = %s AND tf = %s) m
     FULL OUTER JOIN {_STAGE_TABLE} s ON s.ts = m.ts
 """
-
-# Dry run only. Per category (orphaned, changed, new): rows, rows on a UTC weekend, and rows whose
-# timestamp joins a feature_vectors row of the same tf (the cells ic_engine and 186-20's parity
-# harness replay are stratified by these labels). The distinct feature_vectors timestamps of the tf
-# are read once (a parallel scan of the (tf, bar_ts) primary key, about 5 s for the 75M 5m rows,
-# EXPLAIN ANALYZE 2026-09-30) and joined; a correlated EXISTS per row ran past 4 minutes on the
-# 5m equity cell. `statement_timeout` bounds the probe.
+_ROW_CHANGED = (
+    "m.ts IS NOT NULL AND s.ts IS NOT NULL AND "
+    "(m.regime_label IS DISTINCT FROM s.regime_label "
+    "OR m.regime_prob_vector IS DISTINCT FROM s.regime_prob_vector)"
+)
+_STAGE_DIFF_SQL = f"""
+    SELECT count(m.ts) AS stored,
+           count(s.ts) AS produced,
+           count(*) FILTER (WHERE s.ts IS NULL) AS orphaned,
+           count(*) FILTER (WHERE {_ROW_CHANGED}) AS changed,
+           count(*) FILTER (WHERE m.ts IS NULL) AS new
+    {_DIFF_SOURCE}
+"""
+# Dry run only: per category (orphaned, changed, new) the rows, rows on a UTC weekend, and rows
+# whose timestamp joins a feature_vectors row of the same tf (the cells ic_engine and 186-20's
+# parity harness replay are stratified by these labels).
 _DRY_RUN_EXTRAS_SQL = f"""
-    WITH fv_ts AS MATERIALIZED (
-        SELECT DISTINCT bar_ts FROM feature_vectors WHERE tf = %s
-    )
     SELECT category,
            count(*) AS n,
            count(*) FILTER (WHERE extract(isodow FROM x.ts) IN (6, 7)) AS weekend,
@@ -516,16 +533,149 @@ _DRY_RUN_EXTRAS_SQL = f"""
                CASE WHEN s.ts IS NULL THEN 'orphaned'
                     WHEN m.ts IS NULL THEN 'new'
                     ELSE 'changed' END AS category
-        FROM (SELECT ts, regime_label, regime_prob_vector FROM market_regimes
-              WHERE regime_group = %s AND tf = %s) m
-        FULL OUTER JOIN {_STAGE_TABLE} s ON s.ts = m.ts
-        WHERE s.ts IS NULL OR m.ts IS NULL
-           OR m.regime_label IS DISTINCT FROM s.regime_label
-           OR m.regime_prob_vector IS DISTINCT FROM s.regime_prob_vector
+        {_DIFF_SOURCE}
+        WHERE s.ts IS NULL OR m.ts IS NULL OR ({_ROW_CHANGED})
     ) x
-    LEFT JOIN fv_ts f ON f.bar_ts = x.ts
+    LEFT JOIN {_FV_STAGE_TABLE} f ON f.bar_ts = x.ts
     GROUP BY category
 """
+_DELETE_ORPHANS_SQL = f"""
+    DELETE FROM market_regimes m
+    WHERE m.regime_group = %s AND m.tf = %s
+      AND NOT EXISTS (SELECT 1 FROM {_STAGE_TABLE} s WHERE s.ts = m.ts)
+"""
+_UPSERT_DIFF_SQL = f"""
+    INSERT INTO market_regimes (regime_group, tf, ts, regime_label, regime_prob_vector)
+    SELECT regime_group, tf, ts, regime_label, regime_prob_vector FROM {_STAGE_TABLE} ORDER BY ts
+    ON CONFLICT (regime_group, tf, ts) DO UPDATE
+    SET regime_label = EXCLUDED.regime_label, regime_prob_vector = EXCLUDED.regime_prob_vector
+    WHERE (market_regimes.regime_label, market_regimes.regime_prob_vector)
+          IS DISTINCT FROM (EXCLUDED.regime_label, EXCLUDED.regime_prob_vector)
+"""
+_OVERRIDE_INSERT_SQL = """
+    INSERT INTO market_regimes_override
+        (decided_at, regime_group, tf, stored, orphaned, changed,
+         accepted_orphans, accepted_changed, operator, reason)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+"""
+
+
+class ReplaceGuards(NamedTuple):
+    """The limits of one replace: APR fractions of the stored rows a run may delete as orphans
+    and may rewrite as changed, and the operator's reviewed override (counts, never booleans, so
+    an approval cannot cover more rows than were reviewed; `operator` and `reason` are recorded
+    with the decision)."""
+
+    max_orphan_fraction: float
+    max_changed_fraction: float
+    accept_orphans: int = 0
+    accept_changed: int = 0
+    operator: str = ""
+    reason: str = ""
+
+
+def _lock_cell(cur: Any, group: str, tf: str) -> None:
+    """Hold the cell's advisory lock until the transaction ends; refuse when another run holds it,
+    so no row of the cell moves between the stage diff and the write."""
+    cur.execute("SELECT pg_try_advisory_xact_lock(hashtext(%s))", (f"market_regimes|{group}|{tf}",))
+    if not cur.fetchone()[0]:
+        raise ReplaceRefused(
+            f"market_regimes replace refused for ({group}, {tf}): another run holds the cell lock"
+        )
+
+
+def _stage_and_diff(
+    cur: Any, group: str, tf: str, rows: list[tuple]
+) -> tuple[int, int, int, int, int]:
+    """COPY the run into the temp stage and return (stored, produced, orphaned, changed, new)."""
+    cur.execute(
+        f"CREATE TEMP TABLE {_STAGE_TABLE} (LIKE market_regimes INCLUDING DEFAULTS) "
+        "ON COMMIT DROP"
+    )
+    with cur.copy(
+        f"COPY {_STAGE_TABLE} (regime_group, tf, ts, regime_label, regime_prob_vector) FROM STDIN"
+    ) as copy:
+        for r in rows:
+            copy.write_row((r[0], r[1], r[2], r[3], json.dumps(r[4])))
+    cur.execute(f"CREATE INDEX ON {_STAGE_TABLE} (ts)")
+    cur.execute(f"ANALYZE {_STAGE_TABLE}")
+    cur.execute(_STAGE_DIFF_SQL, (group, tf))
+    stored, produced, orphaned, changed, new = cur.fetchone()
+    return stored, produced, orphaned, changed, new
+
+
+def _dry_run_extras(
+    cur: Any,
+    group: str,
+    tf: str,
+    timeout_ms: int,
+    fv_ts_cache: dict[str, list[Any]],
+) -> dict[str, Any]:
+    """Weekday split and feature_vectors joins of the diff. The distinct feature_vectors
+    timestamps of a tf are read once per run (`fv_ts_cache`) and COPYed into a temp table; a
+    failure here leaves the counts standing and is reported, not raised."""
+    extras: dict[str, Any] = {}
+    try:
+        cur.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+        if tf not in fv_ts_cache:
+            cur.execute("SELECT DISTINCT bar_ts FROM feature_vectors WHERE tf = %s", (tf,))
+            fv_ts_cache[tf] = [row[0] for row in cur.fetchall()]
+        cur.execute(f"CREATE TEMP TABLE {_FV_STAGE_TABLE} (bar_ts timestamptz) ON COMMIT DROP")
+        with cur.copy(f"COPY {_FV_STAGE_TABLE} (bar_ts) FROM STDIN") as copy:
+            for ts in fv_ts_cache[tf]:
+                copy.write_row((ts,))
+        cur.execute(f"CREATE INDEX ON {_FV_STAGE_TABLE} (bar_ts)")
+        cur.execute(_DRY_RUN_EXTRAS_SQL, (group, tf))
+        for category, n, weekend, joins in cur.fetchall():
+            extras[category] = {"rows": n, "weekend": weekend, "joins_feature_vectors": joins}
+    except Exception as error:  # the transaction is aborted; the caller rolls back
+        extras["extras_error"] = str(error)
+    return extras
+
+
+def _guard_verdict(
+    group: str, tf: str, counts: tuple[int, int, int, int, int], guards: ReplaceGuards
+) -> tuple[str, bool]:
+    """(refusal message, override used). A limit is exceeded when the cell's orphaned (or
+    changed) rows exceed their fraction of the stored rows; an exceeded limit is covered only by
+    an override whose count is at least the rows affected. The message is empty unless refused."""
+    stored, produced, orphaned, changed, new = counts
+    refusals: list[str] = []
+    used = False
+    for what, n, fraction, accepted, flag in (
+        (
+            "orphaned",
+            orphaned,
+            guards.max_orphan_fraction,
+            guards.accept_orphans,
+            "--accept-orphan-delete",
+        ),
+        (
+            "changed",
+            changed,
+            guards.max_changed_fraction,
+            guards.accept_changed,
+            "--accept-changed",
+        ),
+    ):
+        if not stored or n / stored <= fraction:
+            continue
+        if n <= accepted:
+            used = True
+        else:
+            refusals.append(
+                f"{n} of {stored} stored rows ({n / stored:.4f}) would be {what}, above the "
+                f"{fraction} limit and the accepted count {accepted} (rerun after a --dry-run "
+                f"review with {flag}=N covering {n} and --reason)"
+            )
+    if refusals:
+        return (
+            f"market_regimes replace refused for ({group}, {tf}): "
+            + "; ".join(refusals)
+            + f"; produced {produced}, new {new}.",
+            False,
+        )
+    return "", used
 
 
 def _replace_group_tf(
@@ -534,79 +684,72 @@ def _replace_group_tf(
     tf: str,
     rows: list[tuple],
     *,
-    max_orphan_fraction: float,
-    accept_orphan_delete: bool,
+    guards: ReplaceGuards,
     dry_run: bool,
-    feature_vectors_timeout_ms: int = 600_000,
+    fv_probe_timeout_ms: int = 600_000,
+    fv_ts_cache: dict[str, list[Any]] | None = None,
 ) -> ReplaceResult:
     """Replace one (regime_group, tf) history with `rows` in a single transaction.
 
-    The rows are COPYed into a temp stage and diffed against the stored rows. A run that would
-    orphan more than `max_orphan_fraction` of the stored rows raises (nothing written) unless
-    `accept_orphan_delete`; otherwise the stored rows are deleted and the staged rows inserted,
-    and the transaction commits once, so a failure at any point leaves the stored history as it
-    was. A dry run writes nothing to market_regimes and always rolls back; it reports the same
-    counts plus the weekday split and feature_vectors joins in `extras`. `conn` is a psycopg
-    connection with autocommit off.
+    market_regimes is a plain table (not a hypertable). The run takes the cell's advisory lock,
+    COPYs into a temp stage and diffs it against the stored rows, applies the guards, then
+    deletes only the orphans and upserts only the changed and new rows (rows already equal to the
+    stage are not touched), so the write volume equals the diff and the end state is exactly the
+    staged run. A guard-exceeding replace needs a reviewed override whose counts cover the diff;
+    the decision is recorded in `market_regimes_override` in the same transaction. `conn` is a
+    psycopg connection with autocommit off; any error rolls everything back. A dry run writes
+    nothing and reports the same counts plus `extras`.
     """
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                f"CREATE TEMP TABLE {_STAGE_TABLE} "
-                "(LIKE market_regimes INCLUDING DEFAULTS) ON COMMIT DROP"
-            )
-            with cur.copy(
-                f"COPY {_STAGE_TABLE} (regime_group, tf, ts, regime_label, regime_prob_vector) "
-                "FROM STDIN"
-            ) as copy:
-                for r in rows:
-                    copy.write_row((r[0], r[1], r[2], r[3], json.dumps(r[4])))
-            cur.execute(f"CREATE INDEX ON {_STAGE_TABLE} (ts)")
-            cur.execute(f"ANALYZE {_STAGE_TABLE}")
-            cur.execute(_STAGE_DIFF_SQL, (group, tf))
-            stored, produced, orphaned, changed, new = cur.fetchone()
-            extras: dict[str, Any] = {}
+            _lock_cell(cur, group, tf)
+            counts = _stage_and_diff(cur, group, tf, rows)
+            stored, produced, orphaned, changed, new = counts
             if dry_run:
-                extras["would_refuse"] = bool(
-                    stored and orphaned / stored > max_orphan_fraction and not accept_orphan_delete
+                extras = _dry_run_extras(
+                    cur,
+                    group,
+                    tf,
+                    fv_probe_timeout_ms,
+                    fv_ts_cache if fv_ts_cache is not None else {},
                 )
-                try:
-                    cur.execute(f"SET LOCAL statement_timeout = {int(feature_vectors_timeout_ms)}")
-                    cur.execute(_DRY_RUN_EXTRAS_SQL, (tf, group, tf))
-                    for category, n, weekend, joins in cur.fetchall():
-                        extras[category] = {
-                            "rows": n,
-                            "weekend": weekend,
-                            "joins_feature_vectors": joins,
-                        }
-                except Exception as error:  # the counts above stand; the transaction is aborted
-                    extras["extras_error"] = str(error)
+                refusal, _used = _guard_verdict(group, tf, counts, guards)
+                extras["would_refuse"] = bool(refusal)
                 conn.rollback()
-                return ReplaceResult(stored, produced, orphaned, changed, new, 0, 0, extras)
-            if stored and orphaned / stored > max_orphan_fraction and not accept_orphan_delete:
-                raise ValueError(
-                    f"market_regimes replace refused for ({group}, {tf}): {orphaned} of {stored} "
-                    f"stored rows ({orphaned / stored:.4f}) would be orphaned, above "
-                    f"alpha.regime.cross_sectional.max_orphan_delete_fraction "
-                    f"{max_orphan_fraction}; produced {produced}, changed {changed}, new {new}. "
-                    "Rerun with --accept-orphan-delete after reviewing a --dry-run."
-                )
-            cur.execute(
-                "DELETE FROM market_regimes WHERE regime_group = %s AND tf = %s", (group, tf)
-            )
+                return ReplaceResult(*counts, False, extras)
+            refusal, override_used = _guard_verdict(group, tf, counts, guards)
+            if refusal:
+                raise ReplaceRefused(refusal)
+            cur.execute(_DELETE_ORPHANS_SQL, (group, tf))
             deleted = cur.rowcount
-            cur.execute(
-                "INSERT INTO market_regimes "
-                "(regime_group, tf, ts, regime_label, regime_prob_vector) "
-                "SELECT regime_group, tf, ts, regime_label, regime_prob_vector "
-                f"FROM {_STAGE_TABLE} ORDER BY ts"
-            )
-            inserted = cur.rowcount
+            cur.execute(_UPSERT_DIFF_SQL)
+            upserted = cur.rowcount
+            if (deleted, upserted) != (orphaned, changed + new):
+                raise ReplaceRefused(
+                    f"market_regimes replace for ({group}, {tf}) wrote {deleted} deletes and "
+                    f"{upserted} upserts, the diff said {orphaned} and {changed + new}"
+                )
+            if override_used:
+                cur.execute(
+                    _OVERRIDE_INSERT_SQL,
+                    (
+                        datetime.now(UTC),
+                        group,
+                        tf,
+                        stored,
+                        orphaned,
+                        changed,
+                        guards.accept_orphans,
+                        guards.accept_changed,
+                        guards.operator,
+                        guards.reason,
+                    ),
+                )
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    return ReplaceResult(stored, produced, orphaned, changed, new, deleted, inserted, {})
+    return ReplaceResult(*counts, True, {})
 
 
 # ---------------------------------------------------------------------------
@@ -622,10 +765,24 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--accept-orphan-delete",
-        action="store_true",
-        help="allow a replace that orphans more than the APR shrink guard (a reviewed cleanup)",
+        type=int,
+        default=0,
+        metavar="N",
+        help="approve deleting up to N orphaned rows per (group, tf) above the APR shrink guard",
     )
+    parser.add_argument(
+        "--accept-changed",
+        type=int,
+        default=0,
+        metavar="N",
+        help="approve rewriting up to N changed rows per (group, tf) above the APR rewrite guard",
+    )
+    parser.add_argument("--reason", default="", help="required with an override; recorded")
     args = parser.parse_args()
+    if (args.accept_orphan_delete or args.accept_changed) and not args.reason.strip():
+        parser.error("--accept-orphan-delete and --accept-changed need a --reason")
+    if args.accept_orphan_delete < 0 or args.accept_changed < 0:
+        parser.error("override counts must be >= 0")
 
     try:
         init_otel_providers(service_name=_JOB)
@@ -655,11 +812,24 @@ def main() -> None:
         # own description for why reusing that precedent rather than a fresh study is
         # the right call here.
         min_hold_bars = int(cfg.get_sync("alpha.regime.cross_sectional.min_hold_bars", 3))
-        # Todo 420, migration NNN: largest fraction of a (group, tf) history a run may delete
-        # as orphans without --accept-orphan-delete.
-        max_orphan_fraction = float(
-            cfg.get_sync("alpha.regime.cross_sectional.max_orphan_delete_fraction", 0.01)
+        # Todo 420, migrations 419 and 421: the shrink and rewrite limits of the replace. The
+        # fallbacks repeat the seeded values (the repo's get_sync pattern); a seeded key wins.
+        guards = ReplaceGuards(
+            max_orphan_fraction=float(
+                cfg.get_sync("alpha.regime.cross_sectional.max_orphan_delete_fraction", 0.01)
+            ),
+            max_changed_fraction=float(
+                cfg.get_sync("alpha.regime.cross_sectional.max_changed_fraction", 0.05)
+            ),
+            accept_orphans=args.accept_orphan_delete,
+            accept_changed=args.accept_changed,
+            operator=getpass.getuser(),
+            reason=args.reason,
         )
+        fv_probe_timeout_ms = int(
+            cfg.get_sync("infra.regime_cross_sectional.feature_vectors_probe_timeout_ms", 600_000)
+        )
+        fv_ts_cache: dict[str, list[Any]] = {}
         dry_run_report: list[dict[str, Any]] = []
 
         if not group_configs:
@@ -806,18 +976,23 @@ def main() -> None:
                     group_name,
                     tf,
                     rows,
-                    max_orphan_fraction=max_orphan_fraction,
-                    accept_orphan_delete=args.accept_orphan_delete,
+                    guards=guards,
                     dry_run=args.dry_run,
+                    fv_probe_timeout_ms=fv_probe_timeout_ms,
+                    fv_ts_cache=fv_ts_cache,
                 )
-                total_written += result_counts.inserted
+                total_written += result_counts.rows_upserted + result_counts.rows_deleted
                 # One line per (group, tf), never per row.
                 _logger.info(
                     "cross_sectional_regime_model.tf_replaced",
                     group=group_name,
                     tf=tf,
                     dry_run=args.dry_run,
-                    **{k: v for k, v in result_counts._asdict().items() if k != "extras"},
+                    **{
+                        k: v
+                        for k, v in result_counts._asdict().items()
+                        if k not in ("extras", "wrote")
+                    },
                 )
                 if args.dry_run:
                     dry_run_report.append(

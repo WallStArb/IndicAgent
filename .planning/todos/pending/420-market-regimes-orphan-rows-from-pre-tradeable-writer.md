@@ -72,3 +72,22 @@ cleanup run was not executed and the `market_regimes` rows are untouched. Rerun 
 186-26 executor runs `python services/cross_sectional_regime_model.py --accept-orphan-delete`, then
 `VACUUM (ANALYZE) market_regimes;`, after 186-20's parity report is on main and before the rebuild
 launch. This todo stays pending until that rerun lands.
+
+## Replace mechanics after the 186-18 review (2026-09-30, migration 421)
+
+The replace no longer deletes and reinserts a whole history: it takes the cell's advisory lock
+(a concurrent run on the same cell is refused), deletes only the orphans and upserts only the
+changed and new rows (market_regimes is a plain table, not a hypertable), and checks that the rows
+written equal the diff. Two guards: orphaned over `max_orphan_delete_fraction` (0.01) and changed
+over `alpha.regime.cross_sectional.max_changed_fraction` (0.05) of the stored rows. The cleanup run
+therefore needs reviewed counts, not a boolean:
+
+    python services/cross_sectional_regime_model.py --accept-orphan-delete N --accept-changed M \
+        --reason "todo 420 cleanup"
+
+N and M must cover every cell's orphaned and changed rows (take them from a fresh `--dry-run`; the
+largest orphaned cell is equity 5m, 1,710,775; the largest changed is equity 5m, 186,132); the
+decision is appended to `market_regimes_override` in the same transaction. Observed changed
+fractions today: equity 5m 0.089, 15m 0.179, 1h 0.167, 1d 0.675; commodity 15m 0.727, 1h 0.719, 1d
+0.960 (5m 0.0006); fx 1h 0.012; rates 0. The 186-26 executor's plan text still says
+`--accept-orphan-delete` without a count: use the form above.
