@@ -326,6 +326,10 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-24 feature_vectors_v2 schema (D-34, D-37, D-16): migration 425 creates the empty rebuilt
+  hypertable (312 columns derived from the registry, PK symbol/tf/bar_ts, 1-year chunks, compression
+  without a policy); Asian pair kept because the kernel computes it, 5 feature columns dropped by
+  counted proof; 186-25 and 186-27 must use 312, not 310; merged 2026-10-01 (`b0124e8cf`)
 - [x] 186-21 old-chain ops scripts and APR keys (D-10, D-08): seven ops scripts and four unit files
   deleted; the orchestrator is five steps ending at feature_lifecycle, the monitor and verifier drop
   the dead services; migration 424 retires 51 old-chain APR keys per key (kept: `mv_condition_max`,
