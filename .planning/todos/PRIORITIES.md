@@ -45,7 +45,7 @@ until 185 and 186 land; session time goes to the build.
 
 | Lane | Order |
 |---|---|
-| Build (phase 186, 24/29 done plus 186-17 partial) | 186-23 (gated on 185 D-14) -> 186-26 rebuild (gated on 449's coverage; decide 478 and 467 first, owns the 420 cleanup) -> 186-27 (closes 411, 426) -> 186-28 (471 decides its tf set). Then 435 S0 wiring and the first feature family; 390 before `illiq` enters any family |
+| Build (phase 186, 24/29 done plus 186-17 partial) | 186-17 Task 2 (tuned compose apply plus after measurement, in a 449 lane gap, before the rebuild) -> 186-23 (gated on 185 D-14) -> 186-26 rebuild (gated on 449's coverage and 185 D2b; decide 478 and 467 first, owns the 420 cleanup) -> 186-27 (closes 411, 426) -> 186-28 (471 decides its tf set). Then 435 S0 wiring and the first feature family; 390 before `illiq` enters any family |
 | Data (phase 185, 14/24 done) | 185-12 (wave 4, D2b; carries 462 and finishes 446) -> 16-24; 433 re-run and D3 study; D2a bundle (052, 155, 347); 395, 387 keep the nightly honest; 431 -> 444 |
 | Build (phase 187, not planned) | After 183 verification and family 2's evidence run: UCR recipe book, StepM (E18), construction rules, DAG manifest; 448's remaining items, 430 step 4, 459, 429 |
 | Research and alpha (paused until 185 and 186 land) | 442 -> 437 -> attempt 2; 441 + 423 + 440 once 185 clears the daily data bar; 460, 456, 457 after |
@@ -65,8 +65,8 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
-| [478](pending/478-regime-volatility-1d-three-state-fit-collapses-on-250-day-windows.md) | Decide before 186-25/26 rebuild the regimes: 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (the 3-state fit on 250-day windows leaves a state empty). The rebuild reproduces it unless the model configuration changes first. |
-| [467](pending/467-regime-kernel-raises-on-a-constant-training-slice.md) | The regime kernels raise (hmmlearn `ValueError`) on a constant training slice instead of reporting a degenerate segment. Matters for the 186-25 rebuild pass. |
+| [478](pending/478-regime-volatility-1d-three-state-fit-collapses-on-250-day-windows.md) | Decide before the 186-26 rebuild run: 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (the 3-state fit on 250-day windows leaves a state empty). The landed 186-25 writer reproduces it unless the model configuration changes first. |
+| [467](pending/467-regime-kernel-raises-on-a-constant-training-slice.md) | The regime kernels raise (hmmlearn `ValueError`) on a constant training slice instead of reporting a degenerate segment. Matters for the 186-26 rebuild run (the 186-25 writer is landed). |
 | [466](pending/466-regime-columns-lookahead-dependents-303-304-benchmark.md) | Stored regime columns carry the todo 451 label-mask lookahead until the 186-26 rebuild. Dependents: the DEAD 303/304 verdicts benchmarked against stored `regime_volatility`; `feature_matrix.py` does not exclude the numeric `hmm_*` columns. |
 | [461](pending/461-gap-z-read-the-next-bars-open.md) | `gap_z` read bar T+1's open (fixed in code in 186-12; stored rows fixed by the rebuild). Annotate the ledger's `gap_z` intraday IC read and the n1 combiner card's fold-1 G1 breach, then re-measure after the rebuild. |
 | [471](pending/471-ic-measure-intraday-full-universe-memory-and-time.md) | The fresh IC writer on 15m (40 symbols) takes 17 minutes and 6.9 GB; the full universe extrapolates past host memory at block width 32. Measure block widths 4 and 8 and decide before 186-28 names its tf set. |

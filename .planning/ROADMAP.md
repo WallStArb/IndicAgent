@@ -261,8 +261,28 @@ and todo 445's timeframe decision.
 
 Plans:
 
-- [ ] Plans 186-01 through 186-29 written 2026-09-27 (`09776c12c`); waves and dependencies in
-  `186-PLAN-OUTLINE.md`; per-plan checkboxes pending the 186 session's close-out
+Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTLINE.md`.
+
+- [ ] 186-17 Postgres tuning (D-38): Task 1 done (targets and the before baseline, `ce1c9686a`);
+  Task 2 (recreate the container with the tuned compose block, then the after measurement and the
+  baseline drift check) is refused while a todo 449 lane is live and runs in a lane gap before
+  186-26; the compose edit sits uncommitted in the `indicagent-wt/186-17` worktree by design,
+  committed in the same step as its apply (`186-17-SUMMARY.md`, PARTIAL)
+- [ ] 186-23 old IC stack one-change deletion (D-22): `ic_engine.py`, `forward_return_writer`, the
+  `forward_returns` table and the fixed `alpha.ic.lookahead.*` keys, orchestrator repointed at
+  `ic_measure`; gated on 185 D-14 (the 185-12 Task 2 bar-flag port); the 186-20 parity criterion
+  was accepted 2026-10-01
+- [ ] 186-26 feature_vectors rebuild run (D-32/D-32a): precondition checker, pilot chunk, R-09 disk
+  guard, then the full resumable background run with kill-and-resume proven once; gated on todo 449
+  coverage and 185 D2b (185-12), with todos 478 and 467 decided first; owns the todo 420
+  orphan-cleanup rerun
+- [ ] 186-27 rebuild close-out and name swap (D-34): unit-by-unit provenance verification, sampled
+  drift report, atomic swap to `feature_vectors`, compression policy re-enabled, old 89 GB table
+  dropped behind its dead-cache card; closes todos 411 and 426; behind 186-26
+- [ ] 186-28 ic_engine re-scope close (D-35): the 186-14 fresh IC writer run on the rebuilt table
+  (scopes `unstratified` and `regime_volatility` into `feature_ic_scores_v2`), legacy
+  `feature_ic_scores` dropped (R-07), D-19 bound verified on v2; its tf set waits on todo 471's
+  measurement
 - [x] 186-01 summary cards: card schema, card lint with drop-table coverage, 8 legacy_verdict
   cards, 6 dead_cache cards; lint green, merged 2026-09-27 (`42fb59427`)
 - [x] 186-02 ledger verdict cards: 18 legacy_verdict cards for the construction verdict ledger
