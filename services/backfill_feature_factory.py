@@ -31,7 +31,9 @@ workers running and a backend possibly mid-COPY:
 then relaunch the same command: completed units are skipped, a killed unit left a `started`
 provenance row and zero data rows (the COPY and the completed record commit together) and is
 retaken. Never edit this module, the kernels it runs or anything they import while a run is live
-or resumable: the unit code key hashes them, so one edit renames every unit.
+or resumable: the unit code key hashes them, so one edit renames every unit. Never launch a
+second run while one is live: startup purges every group-* spool directory, which would delete
+the live run's in-flight spools (186-26's precondition check enforces this).
 
 The data horizon (--data-horizon, default the first day of the current UTC month) is the exclusive
 end of every unit. It is pinned so nightly bars landing between a kill and its resume cannot move
@@ -645,7 +647,8 @@ def rebuild_unit_ranges(
     """Half-open UTC ranges covering [first_bar_ts, horizon) for one (symbol chunk, tf).
 
     Intraday tfs: one range per calendar year, Jan 1 UTC to Jan 1 UTC (the last one ends at
-    `horizon`), matching the 1-year hypertable chunks of feature_vectors_v2. Daily: one range
+    `horizon`). The ranges are unit identity keys, not chunk boundaries: the hypertable's chunk
+    interval is 360 days (TimescaleDB's 1-year interval), not Jan-1 aligned. Daily: one range
     for the whole span (RESEARCH "Unit design consequence": a 1d chunk is small, so a year split
     buys nothing). Both start on Jan 1 of the first bar's year, so a deeper backfill inside that
     year does not rename the unit (the input digest still moves, which is what should flip it).
@@ -1305,7 +1308,8 @@ class RebuildUnit:
 
     @property
     def years(self) -> range:
-        """The calendar years of the hypertable chunks this unit writes into."""
+        """The calendar years this unit's rows fall in (checklist identity; the hypertable's
+        360-day chunk interval is not year aligned, so this is not a chunk list)."""
         return _year_span(self.spec.range_start, self.spec.range_end)
 
 
@@ -1514,9 +1518,9 @@ def run_rebuild_stage(
     tf), and each unit takes its year of rows from that one pass.
 
     Compression runs once at the end, only for a full-scope run (no --symbols, no --tf) with
-    every unit completed: a hypertable chunk spans every symbol chunk and every tf of its year,
-    so compressing earlier would make bulk_load refuse the later units, and a chunk containing
-    the horizon stays open for later writes.
+    every unit completed: a chunk can hold rows from any symbol chunk and tf (the 360-day
+    interval is not year aligned), so compressing earlier could make bulk_load refuse later
+    units, and a chunk containing the horizon stays open for later writes.
 
     Returns the stage summary (units total, skipped, loaded, failed; rows; digest-blind symbols;
     the per (tf, year) chunk checklist; compression).
@@ -1692,6 +1696,12 @@ def run_rebuild_stage(
 # ---------------------------------------------------------------------------
 
 
+def _completion_status(summary: dict[str, Any]) -> str:
+    """The job_completed_total status label: a run whose units failed is not a success
+    (monitoring must distinguish it from a clean run; the nonzero exit makes it loud)."""
+    return "partial" if summary.get("units_failed") else "success"
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -1813,8 +1823,11 @@ def main() -> None:
                 rows_loaded=summary["rows_loaded"],
             )
 
-        JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"})
-        _logger.info("backfill_complete")
+        status = _completion_status(summary) if run_rebuild else "success"
+        JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
+        _logger.info("backfill_complete", status=status)
+        if status != "success":
+            raise SystemExit(1)
 
     except Exception as error:
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "failure"})

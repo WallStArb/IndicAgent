@@ -56,6 +56,14 @@ from tests.unit.intelligence.bar_builders import synthetic_daily_bars
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _reset_worker_externals():
+    """Keep the initializer-not-run guard meaningful in-process: no test inherits another's
+    installed macro externals (the pool initializer would set them in a real worker)."""
+    yield
+    module._WORKER_EXTERNALS = None
+
+
 def _make_config() -> FeatureFactoryConfig:
     """Minimal FeatureFactoryConfig with all fields for testing."""
     return FeatureFactoryConfig(
@@ -482,6 +490,12 @@ def _make_zero_vector() -> FeatureVector:
 
 # Test 1: Default client-id is 40
 # ---------------------------------------------------------------------------
+
+
+def test_a_run_with_failed_units_is_not_a_success() -> None:
+    """The job status label and the exit code must not report a clean run when units failed."""
+    assert module._completion_status({"units_failed": 0}) == "success"
+    assert module._completion_status({"units_failed": 3}) == "partial"
 
 
 def test_default_client_id_is_40() -> None:
@@ -1487,8 +1501,9 @@ def test_spool_row_count_mismatch_raises_loudly(monkeypatch, tmp_path):
 
 
 def test_compression_defers_to_a_clean_full_scope_run(monkeypatch, tmp_path):
-    """A hypertable chunk spans every symbol chunk and tf of its year, so nothing compresses
-    mid-run: a full-scope run with every unit completed compresses once at the end; a failed
+    """A chunk can hold rows from any symbol chunk and tf (360-day interval, not year
+    aligned), so nothing compresses mid-run: a full-scope run with every unit completed
+    compresses once at the end; a failed
     unit or a partial scope defers (resume traffic must never meet a compressed chunk)."""
     u1, u2 = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
     plan = _group_plan("1d", [u1, u2])

@@ -331,6 +331,9 @@ def fetch_coverage_inputs(
             (symbol, tf, f"{first_text}..{last_text}")
             for symbol, tf, first_text, last_text in cur.fetchall()
         ]
+        # Session-level setting: restore it so a caller reusing the connection for longer
+        # work does not inherit the cap.
+        cur.execute("RESET statement_timeout")
     return rows, spans
 
 
