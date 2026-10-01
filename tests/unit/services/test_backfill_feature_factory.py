@@ -1729,3 +1729,201 @@ class TestRestrictTimeframes:
 
         with pytest.raises(ValueError, match="1m"):
             _restrict_timeframes(["5m", "1d"], ["1m"])
+
+
+# ---------------------------------------------------------------------------
+# Rebuild unit design (186-25, D-32a, D-26)
+# ---------------------------------------------------------------------------
+
+
+class TestRebuildUnitDesign:
+    def test_split_symbol_chunks_is_sorted_deterministic_and_covers_all(self) -> None:
+        from services.backfill_feature_factory import split_symbol_chunks
+
+        symbols = ["QQQ", "SPY", "AAPL", "TLT", "IWM", "SPY"]
+        chunks = split_symbol_chunks(symbols, 2)
+        assert chunks == [("AAPL", "IWM"), ("QQQ", "SPY"), ("TLT",)]
+        assert split_symbol_chunks(list(reversed(symbols)), 2) == chunks
+        assert [s for chunk in chunks for s in chunk] == sorted(set(symbols))
+        with pytest.raises(ValueError, match="at least 1"):
+            split_symbol_chunks(symbols, 0)
+
+    def test_intraday_ranges_are_calendar_years_without_gaps_or_overlaps(self) -> None:
+        from services.backfill_feature_factory import rebuild_unit_ranges
+
+        first = datetime(2018, 6, 4, 13, 30, tzinfo=UTC)
+        horizon = datetime(2021, 3, 1, tzinfo=UTC)
+        ranges = rebuild_unit_ranges("5m", first, horizon)
+        assert ranges == [
+            (datetime(2018, 1, 1, tzinfo=UTC), datetime(2019, 1, 1, tzinfo=UTC)),
+            (datetime(2019, 1, 1, tzinfo=UTC), datetime(2020, 1, 1, tzinfo=UTC)),
+            (datetime(2020, 1, 1, tzinfo=UTC), datetime(2021, 1, 1, tzinfo=UTC)),
+            (datetime(2021, 1, 1, tzinfo=UTC), horizon),
+        ]
+        for (_, end), (start, _) in zip(ranges, ranges[1:], strict=False):
+            assert end == start
+        assert all(s.tzinfo is not None and e.tzinfo is not None for s, e in ranges)
+
+    def test_daily_is_one_range_per_chunk(self) -> None:
+        from services.backfill_feature_factory import rebuild_unit_ranges
+
+        first = datetime(2006, 6, 2, tzinfo=UTC)
+        horizon = datetime(2026, 10, 1, tzinfo=UTC)
+        assert rebuild_unit_ranges("1d", first, horizon) == [
+            (datetime(2006, 1, 1, tzinfo=UTC), horizon)
+        ]
+
+    def test_ranges_empty_when_first_bar_is_at_or_after_the_horizon(self) -> None:
+        from services.backfill_feature_factory import rebuild_unit_ranges
+
+        ts = datetime(2026, 10, 1, tzinfo=UTC)
+        assert rebuild_unit_ranges("5m", ts, ts) == []
+
+    def test_ranges_refuse_naive_datetimes(self) -> None:
+        from services.backfill_feature_factory import rebuild_unit_ranges
+
+        with pytest.raises(ValueError, match="tz-aware"):
+            rebuild_unit_ranges("5m", datetime(2020, 1, 1), datetime(2021, 1, 1, tzinfo=UTC))
+
+    def test_fetch_window_is_never_shorter_than_the_bars_it_must_hold(self) -> None:
+        from services.backfill_feature_factory import bars_to_fetch_window
+
+        # 5m: 78 regular-session bars a day, so 780 bars is at least 10 trading days; a bare
+        # 780 * 300 s would be 2.7 wall-clock hours and cover no more than one session.
+        window = bars_to_fetch_window("5m", 780)
+        assert window >= timedelta(days=14)
+        assert bars_to_fetch_window("1d", 5) >= timedelta(days=7)
+        assert bars_to_fetch_window("5m", 0) == timedelta(0)
+        with pytest.raises(ValueError, match="bars-per-day"):
+            bars_to_fetch_window("4h", 10)
+
+    def test_fetch_start_uses_declared_memory_for_stateless_contributors(self) -> None:
+        from services.backfill_feature_factory import bars_to_fetch_window, unit_fetch_start
+        from src.intelligence.features.contract.registry import default_registry
+
+        registry = default_registry()
+        config = _make_config()
+        series_start = datetime(2010, 1, 4, tzinfo=UTC)
+        range_start = datetime(2015, 1, 1, tzinfo=UTC)
+        # atr_z has a finite declared memory (no path-dependent upstream).
+        memory = registry.effective_memory_bars(registry.by_output("atr_z").name, config)
+        assert memory > 0
+        got = unit_fetch_start(registry, ["atr_z"], "5m", range_start, series_start, config)
+        assert got == range_start - bars_to_fetch_window("5m", memory)
+        assert series_start < got < range_start
+        # The deepest-memory column of a set wins.
+        deeper = unit_fetch_start(
+            registry, ["atr_z", "supply_dist_atr"], "5m", range_start, series_start, config
+        )
+        assert deeper < got
+
+    def test_fetch_start_never_precedes_the_series_start(self) -> None:
+        from services.backfill_feature_factory import unit_fetch_start
+        from src.intelligence.features.contract.registry import default_registry
+
+        series_start = datetime(2015, 1, 5, tzinfo=UTC)
+        got = unit_fetch_start(
+            default_registry(),
+            ["supply_dist_atr"],
+            "5m",
+            datetime(2015, 1, 6, tzinfo=UTC),
+            series_start,
+            _make_config(),
+        )
+        assert got == series_start
+
+    def test_fetch_start_is_the_series_start_for_a_path_dependent_contributor(self) -> None:
+        from services.backfill_feature_factory import (
+            path_dependent_contributors,
+            unit_fetch_start,
+        )
+        from src.intelligence.features.contract.registry import default_registry
+
+        registry = default_registry()
+        series_start = datetime(2010, 1, 4, tzinfo=UTC)
+        got = unit_fetch_start(
+            registry,
+            ["atr_z", "regime"],
+            "5m",
+            datetime(2020, 1, 1, tzinfo=UTC),
+            series_start,
+            _make_config(),
+        )
+        assert got == series_start
+        assert path_dependent_contributors(registry, ["atr_z"]) == ()
+        assert "hmm_trend_walk_forward" in path_dependent_contributors(registry, ["regime"])
+
+    def test_every_externally_fed_kernel_declares_memory_in_the_consuming_tf(self) -> None:
+        # D-26 denomination: a kernel reading a caller-supplied series (daily macro records, HTF
+        # values) is a pass-through on the row grid, so its declared memory is in the consuming
+        # tf's own bars (0, plus the lag chain it reads); the source-tf warmup lives in the
+        # external builders, which the writer feeds from the full source history. A kernel that
+        # computes from such a series is a daily-grid or HTF-source kernel and is not a v2 column
+        # contributor, or it is path dependent. A new kernel breaking this fails here.
+        from src.intelligence.features.contract.registry import default_registry
+
+        registry = default_registry()
+        config = _make_config()
+        grid_only = {"cross_asset_daily", "factor_beta_daily", "ctf_source"}
+        for kernel in registry.kernels:
+            externals = [n for n in kernel.inputs if n.startswith(("ext_", "ref_"))]
+            if not externals or kernel.name in grid_only:
+                continue
+            assert not kernel.path_dependent, kernel.name
+            assert kernel.memory(config) <= 3, (kernel.name, kernel.memory(config))
+
+    def test_unit_code_key_is_stable_hex_and_moves_with_a_contributing_kernel(
+        self, monkeypatch
+    ) -> None:
+        import re
+
+        from services import backfill_feature_factory as module
+        from src.intelligence.features.contract.registry import default_registry
+
+        registry = default_registry()
+        columns = ["atr_z", "rsi_fast"]
+        first = module.unit_code_key(registry, columns)
+        assert re.fullmatch(r"[0-9a-f]{64}", first)
+        assert module.unit_code_key(registry, columns) == first
+
+        real = module._kernel_module_key
+        target = registry.by_output("atr_z").module
+        monkeypatch.setattr(
+            module, "_kernel_module_key", lambda m: "changed" if m == target else real(m)
+        )
+        assert module.unit_code_key(registry, columns) != first
+        # A kernel that does not contribute to the columns does not move the key.
+        unrelated = "cmf"
+        assert registry.by_output(unrelated).module != target
+        monkeypatch.setattr(module, "_kernel_module_key", real)
+        before = module.unit_code_key(registry, ["atr_z"])
+        monkeypatch.setattr(
+            module,
+            "_kernel_module_key",
+            lambda m: "changed" if m == registry.by_output(unrelated).module else real(m),
+        )
+        assert module.unit_code_key(registry, ["atr_z"]) == before
+
+    def test_apr_reader_uses_the_fallbacks_and_refuses_nonsense(self) -> None:
+        from services.backfill_feature_factory import load_rebuild_unit_apr
+
+        class _Cfg:
+            def __init__(self, values: dict[str, object]) -> None:
+                self._values = values
+
+            def get_sync(self, key: str, default: object = None) -> object:
+                return self._values.get(key, default)
+
+        assert load_rebuild_unit_apr(_Cfg({})) == (25, 1_000_000)  # type: ignore[arg-type]
+        assert load_rebuild_unit_apr(
+            _Cfg(  # type: ignore[arg-type]
+                {
+                    "infra.feature_factory.rebuild_symbols_per_chunk": 10,
+                    "infra.feature_factory.max_unit_rows": 50_000,
+                }
+            )
+        ) == (10, 50_000)
+        with pytest.raises(ValueError, match="at least 1"):
+            load_rebuild_unit_apr(
+                _Cfg({"infra.feature_factory.rebuild_symbols_per_chunk": 0})  # type: ignore[arg-type]
+            )

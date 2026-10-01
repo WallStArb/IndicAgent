@@ -10,6 +10,14 @@ Both the live write path (FeatureVectorWriter, asyncpg) and the batch compute
 path (backfill_feature_factory, psycopg) import from here. One schema
 definition, two consumers — schema drift is structurally impossible.
 
+2026-10-01: feature_vectors_v2 row contract (phase 186 plan 25, D-28). The rebuilt table is
+written only by services/backfill_feature_factory.py through bulk_load(); its column list
+(`FEATURE_VECTORS_V2_COLUMNS`) is derived from the kernel registry, never typed, and
+`feature_vector_v2_row_values` is the one row constructor for it. The old feature_vectors
+INSERT/UPSERT SQL and `feature_vector_to_insert_params` below serve the live pipeline until the
+186-27 swap and must not be pointed at v2: they validate rows (a NaN raises) and carry
+pipeline_version, feature_vector_id and bar_close_ts, none of which v2 has.
+
 2026-07-08: extended from 70 to 161 columns. Phase 142.5 added 91 primitive
 fields to FeatureVector and the DB schema (migration 206) with compute logic
 fully wired, but this file was never updated to persist them -- the values
@@ -172,9 +180,11 @@ Do not import from Ring 2 (services/) or Ring 3 (api/, production/).
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import math
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 
 from src.core.real_column_range import clamp_to_real_range
@@ -943,3 +953,92 @@ def feature_vector_to_insert_params(
     # triggers Postgres's "value out of range: underflow" and aborts the whole
     # executemany() batch it's part of, not just the offending row.
     return tuple(clamp_to_real_range(v) for v in row)
+
+
+# ---------------------------------------------------------------------------
+# feature_vectors_v2 row contract (phase 186 plan 25, D-28)
+# ---------------------------------------------------------------------------
+
+# Registry feature columns the v2 table does not carry (186-24 migration 425, proofs in
+# .planning/phases/186-old-ensemble-chain-retirement-and-ic-engine-re-scope/evidence/
+# 186-24-feature-vectors-v2-schema.json). tests/unit/intelligence/test_feature_vectors_v2_rows.py
+# pins this tuple to that evidence file and to the migration. days_to_month_end is inside the
+# registry's feature_columns() and so must be excluded here; the three rank columns are in
+# UNOWNED_COLUMNS, not feature_columns(), so they never appear in the derivation below.
+FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "momentum_rank_z",
+        "volume_rank_z",
+        "volatility_rank_z",
+        "regime_rolling",
+        "days_to_month_end",
+    }
+)
+
+FEATURE_VECTORS_V2_KEY_COLUMNS: tuple[str, ...] = ("symbol", "tf", "bar_ts")
+FEATURE_VECTORS_V2_TEXT_COLUMNS: tuple[str, ...] = ("regime", "regime_volatility")
+
+
+@functools.cache
+def feature_vectors_v2_numeric_columns() -> tuple[str, ...]:
+    """The numeric (real) columns of feature_vectors_v2, in registry order (`feature_columns()`
+    is sorted by name), minus the dropped set and the two regime text outputs.
+
+    The registry is imported here, not at module import: a kernel module (`_hmm`) imports this
+    module, so a module-level `default_registry()` call would be a circular import.
+    """
+    from src.intelligence.features.contract.registry import default_registry
+
+    skip = FEATURE_VECTORS_V2_DROPPED_FEATURE_COLUMNS | set(FEATURE_VECTORS_V2_TEXT_COLUMNS)
+    return tuple(c for c in default_registry().feature_columns() if c not in skip)
+
+
+@functools.cache
+def feature_vectors_v2_columns() -> tuple[str, ...]:
+    """Column order of feature_vectors_v2 as migration 425 created it: keys, the two regime text
+    columns, then the numeric columns."""
+    return (
+        *FEATURE_VECTORS_V2_KEY_COLUMNS,
+        *FEATURE_VECTORS_V2_TEXT_COLUMNS,
+        *feature_vectors_v2_numeric_columns(),
+    )
+
+
+def __getattr__(name: str) -> tuple[str, ...]:
+    # Lazy module attribute (PEP 562): `from ... import FEATURE_VECTORS_V2_COLUMNS` works and
+    # resolves the registry on first use, never at import (see feature_vectors_v2_numeric_columns).
+    if name == "FEATURE_VECTORS_V2_COLUMNS":
+        return feature_vectors_v2_columns()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def feature_vector_v2_row_values(
+    symbol: str,
+    tf: str,
+    bar_ts: datetime,
+    regime: str | None,
+    regime_volatility: str | None,
+    numeric_values: Sequence[float],
+) -> tuple:
+    """One feature_vectors_v2 row in `feature_vectors_v2_columns()` order.
+
+    `numeric_values` are the numeric columns in `feature_vectors_v2_numeric_columns()` order. A
+    NaN is missing data (no_fill: a warmup row, a macro column before the first daily record, a
+    column a mask marks None) and is written as None, so the COPY stores NULL and never the text
+    NaN. The legacy row builders raise on NaN and re-fabricated 0.0 through `_guard`; neither
+    runs here. An infinite value is kept as it is (a loud value downstream, not a silent NULL).
+    """
+    n_numeric = len(feature_vectors_v2_numeric_columns())
+    if len(numeric_values) != n_numeric:
+        raise ValueError(
+            f"feature_vector_v2_row_values: got {len(numeric_values)} numeric values, "
+            f"the table has {n_numeric}"
+        )
+    return (
+        symbol,
+        tf,
+        bar_ts,
+        regime,
+        regime_volatility,
+        *(None if v != v else v for v in numeric_values),
+    )

@@ -28,7 +28,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
+import hashlib
+import math
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -44,6 +48,7 @@ sys.path.insert(0, str(project_root))
 from services._batch_utils import compressed_hypertable_write_session as _write_session
 from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import get_list_config as _get_list_config
+from services._batch_utils import kernel_code_key as _kernel_code_key
 from services._batch_utils import load_config_service_sync as _load_config_service
 from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.config_service import ConfigService
@@ -58,6 +63,7 @@ from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
 )
+from src.intelligence.features.contract.registry import Kernel, KernelRegistry
 from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
     FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
@@ -678,6 +684,158 @@ def _load_fv_row_counts(
         cur.execute(_SELECT_FV_ROW_COUNTS_SQL, (symbols, tfs))
         rows = cur.fetchall()
     return {(sym, tf): count for sym, tf, count in rows}
+
+
+# ---------------------------------------------------------------------------
+# Rebuild unit design (D-32a): a unit is (symbol chunk, tf, calendar-year range), keyed by a
+# provenance_batch record, so a kill-and-resume skips every completed unit.
+# ---------------------------------------------------------------------------
+
+# APR fallbacks: the live values are infra.feature_factory.rebuild_symbols_per_chunk and
+# infra.feature_factory.max_unit_rows (migration 428).
+_REBUILD_SYMBOLS_PER_CHUNK_KEY = "infra.feature_factory.rebuild_symbols_per_chunk"
+_REBUILD_SYMBOLS_PER_CHUNK_DEFAULT: int = 25
+_REBUILD_MAX_UNIT_ROWS_KEY = "infra.feature_factory.max_unit_rows"
+_REBUILD_MAX_UNIT_ROWS_DEFAULT: int = 1_000_000
+
+# Calendar slack when a memory in bars becomes a fetch window: weekends and holidays make a
+# trading-bar count span more wall-clock days than bars / bars-per-day.
+_FETCH_CALENDAR_SLACK_DAYS: int = 7
+
+
+def load_rebuild_unit_apr(cfg: ConfigService) -> tuple[int, int]:
+    """(symbols per chunk, max rows per unit) from APR, each at least 1."""
+    symbols_per_chunk = int(
+        cfg.get_sync(_REBUILD_SYMBOLS_PER_CHUNK_KEY, _REBUILD_SYMBOLS_PER_CHUNK_DEFAULT)
+    )
+    max_unit_rows = int(cfg.get_sync(_REBUILD_MAX_UNIT_ROWS_KEY, _REBUILD_MAX_UNIT_ROWS_DEFAULT))
+    if symbols_per_chunk < 1 or max_unit_rows < 1:
+        raise ValueError(
+            f"{_REBUILD_SYMBOLS_PER_CHUNK_KEY}={symbols_per_chunk} and "
+            f"{_REBUILD_MAX_UNIT_ROWS_KEY}={max_unit_rows} must both be at least 1"
+        )
+    return symbols_per_chunk, max_unit_rows
+
+
+def split_symbol_chunks(symbols: Sequence[str], chunk_size: int) -> list[tuple[str, ...]]:
+    """Sorted, de-duplicated symbols in consecutive chunks of `chunk_size` (the last may be
+    short). Deterministic, so a resumed run rebuilds the same chunks and the same unit keys."""
+    if chunk_size < 1:
+        raise ValueError(f"chunk_size must be at least 1, got {chunk_size}")
+    ordered = sorted(set(symbols))
+    return [tuple(ordered[i : i + chunk_size]) for i in range(0, len(ordered), chunk_size)]
+
+
+def rebuild_unit_ranges(
+    tf: str, first_bar_ts: datetime, horizon: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Half-open UTC ranges covering [first_bar_ts, horizon) for one (symbol chunk, tf).
+
+    Intraday tfs: one range per calendar year, Jan 1 UTC to Jan 1 UTC (the last one ends at
+    `horizon`), matching the 1-year hypertable chunks of feature_vectors_v2. Daily: one range
+    for the whole span (RESEARCH "Unit design consequence": a 1d chunk is small, so a year split
+    buys nothing). Both start on Jan 1 of the first bar's year, so a deeper backfill inside that
+    year does not rename the unit (the input digest still moves, which is what should flip it).
+    `horizon` is the data horizon the run pins: a unit never reads past it, so nightly bars
+    landing between a kill and its resume cannot change a completed unit's identity.
+    """
+    for name, value in (("first_bar_ts", first_bar_ts), ("horizon", horizon)):
+        if value.tzinfo is None:
+            raise ValueError(f"rebuild_unit_ranges: {name} must be tz-aware")
+    first = first_bar_ts.astimezone(UTC)
+    end = horizon.astimezone(UTC)
+    if first >= end:
+        return []
+    start_year = datetime(first.year, 1, 1, tzinfo=UTC)
+    if tf == "1d":
+        return [(start_year, end)]
+    ranges: list[tuple[datetime, datetime]] = []
+    year = first.year
+    while True:
+        range_start = datetime(year, 1, 1, tzinfo=UTC)
+        if range_start >= end:
+            break
+        ranges.append((range_start, min(datetime(year + 1, 1, 1, tzinfo=UTC), end)))
+        year += 1
+    return ranges
+
+
+def bars_to_fetch_window(tf: str, bars: int) -> timedelta:
+    """A wall-clock window guaranteed to hold at least `bars` bars of `tf` (never fewer).
+
+    Uses the regular-session bars per day, which is at most the real count (extended-hours bars
+    only add), so the window errs long: bars / per-day trading days, scaled by 7/5 for weekends,
+    plus a holiday slack. A bare `bars * tf_seconds` would cover a night and a weekend with no
+    bars and under-warm the first rows of a unit.
+    """
+    per_day = _BARS_PER_DAY.get(tf)
+    if per_day is None:
+        raise ValueError(f"no bars-per-day for timeframe {tf!r}; known: {sorted(_BARS_PER_DAY)}")
+    if bars <= 0:
+        return timedelta(0)
+    trading_days = math.ceil(bars / per_day)
+    return timedelta(days=math.ceil(trading_days * 7 / 5) + _FETCH_CALENDAR_SLACK_DAYS)
+
+
+def path_dependent_contributors(
+    registry: KernelRegistry, columns: Sequence[str]
+) -> tuple[str, ...]:
+    """Names of the kernels, among those contributing `columns` (upstream included), that are
+    declared path dependent: no finite memory reproduces their output (D-26)."""
+    return tuple(
+        sorted(k.name for k in registry.topological_order(list(columns)) if k.path_dependent)
+    )
+
+
+def unit_fetch_start(
+    registry: KernelRegistry,
+    columns: Sequence[str],
+    tf: str,
+    range_start: datetime,
+    series_start: datetime,
+    config: FeatureFactoryConfig,
+) -> datetime:
+    """Where a unit's bar fetch must start so its first row is as if computed from the series
+    start (D-26): `range_start` less the max declared memory over the kernels contributing
+    `columns`, never before `series_start`.
+
+    A contributing kernel that is path dependent (an expanding window, an accumulator anchored
+    at row 0, a refit cadence counted from the first bar) has no finite memory, so the answer is
+    `series_start`; `path_dependent_contributors` names them. With every column requested the
+    registry has 14 such contributing kernels (the HMM regime pair and their labels, session VP and
+    levels, AMD, the weekly VWAP, the statistics refresh and autocorrelation kernels, among
+    them), so a full rebuild unit computes from the series start and the memory branch serves a
+    subset of columns. External inputs (daily macro records, HTF
+    values) are built by the caller from the full source history on the row grid, so their
+    warmup is not the fetch start's concern; their pass-through kernels declare memory 0.
+    """
+    if path_dependent_contributors(registry, columns):
+        return series_start
+    contributors = registry.topological_order(list(columns))
+    memory = max((registry.effective_memory_bars(k.name, config) for k in contributors), default=0)
+    return max(series_start, range_start - bars_to_fetch_window(tf, memory))
+
+
+@functools.cache
+def _kernel_module_key(module: str) -> str:
+    """Code key of one kernel module and its first-party import closure (D-23)."""
+    return _kernel_code_key([module])
+
+
+# The writer's own identity: this module (hashed as a file, without its imports) and the row
+# contract with its import closure, so a change to how rows are built or spooled renames every
+# unit it would have produced differently.
+_WRITER_OWN_MODULE = "services.backfill_feature_factory"
+_ROW_CONTRACT_MODULE = "src.intelligence.features.feature_vector_persistence"
+
+
+def unit_code_key(registry: KernelRegistry, columns: Sequence[str]) -> str:
+    """sha256 hex over the sorted (kernel name, module code key) of every kernel contributing
+    `columns`, plus the writer's own modules; matches BulkLoadSpec.code_key's 32-64 hex rule."""
+    contributors: list[Kernel] = list(registry.topological_order(list(columns)))
+    lines = sorted(f"{k.name}:{_kernel_module_key(k.module)}" for k in contributors)
+    lines.append("writer:" + _kernel_code_key([_ROW_CONTRACT_MODULE], own=[_WRITER_OWN_MODULE]))
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
