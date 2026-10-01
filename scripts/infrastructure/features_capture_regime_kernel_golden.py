@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -48,6 +47,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.infrastructure._capture_common import git_head  # noqa: E402
 from src.intelligence.features.kernels._hmm import FAMILY_SPECS, HmmConfig  # noqa: E402
 from tests.unit.intelligence.regime_kernel_fixtures import (  # noqa: E402
     FAMILY_LABELS,
@@ -220,12 +220,6 @@ def _fetch_real_bars(dsn: str) -> dict[str, dict[str, np.ndarray]]:
     return out
 
 
-def _git_head() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO_ROOT, check=True
-    ).stdout.strip()
-
-
 def _case_digests(apr, bars_by_case, synthetic, *, twice: bool):
     """(digests per case/family, grids, runtimes)."""
     digests: dict[str, Any] = {}
@@ -350,7 +344,7 @@ def main() -> None:
                     "changed_cases": manifest.get("changed_cases", {}),
                 }
             )
-        manifest["regenerated_from"] = _git_head()
+        manifest["regenerated_from"] = git_head()
         manifest["regeneration_reason"] = args.reason
         manifest["changed_cases"] = {
             case: {"rows_written_now": rows, **report[case]} for case, rows in changed.items()
@@ -372,7 +366,7 @@ def main() -> None:
     synthetic = make_synthetic_regime_bars(3000, 42)
     digests, grids, runtimes = _case_digests(apr, bars_by_case, synthetic, twice=True)
     manifest = {
-        "capture_commit": _git_head(),
+        "capture_commit": git_head(),
         "captured_utc": datetime.now(UTC).isoformat(),
         "source": "kernel",
         "apr_snapshot": apr,

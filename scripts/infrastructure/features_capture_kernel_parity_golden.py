@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,6 +29,7 @@ import psycopg
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.infrastructure._capture_common import git_head  # noqa: E402
 from services.backfill_feature_factory import (  # noqa: E402
     _build_feature_factory_config,
     _load_config_service,
@@ -161,12 +161,6 @@ def _clear_caches() -> None:
     ref._load_npz.cache_clear()
 
 
-def _git_head() -> str:
-    return subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="tests/fixtures/kernel_parity")
@@ -193,7 +187,7 @@ def main() -> int:
     synthetic = _synthetic_inputs()
     cases = [{"kind": "synthetic", "symbol": "SPY", "tf": "5m"}] + real_cases
     manifest = {
-        "capture_commit": _git_head(),
+        "capture_commit": git_head(),
         "capture_utc": datetime.now(UTC).isoformat(),
         "pipeline_version": PIPELINE_VERSION,
         "warm_up_bars": warm_up_bars,
