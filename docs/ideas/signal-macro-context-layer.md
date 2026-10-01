@@ -1,114 +1,186 @@
-# Macro context layer: market-wide measurements and events in one place — Idea
+# Macro context layer: market-wide series and events, point in time by measurement - Idea
 
-**Status:** Idea, not planned. Needs a rigor pass before promotion to `docs/research/`.
-**Author:** Claude (Sonnet 5.5), interactive session, 2026-10-01.
-**Informed by:** the owner's question of 2026-10-01; `economic_series_observation` (migration 423,
-todo 480, built the same day); `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md`
-(sections 3, 5, 6); `docs/ideas/signal-political-policy-regime.md`; `docs/research/signal-temporal-atomic-primitives.md`;
-todos 475 and 481. FRED release counts and dates below were read live from the FRED API on
-2026-10-01.
+**Status:** Idea, design refined 2026-10-01 by a council pass (below). The series store exists
+(`economic_series_observation`, todo 480); the point-in-time corrections it needs are todo 482.
+Needs a rigor pass before promotion to `docs/research/`.
+**Author:** Claude (Opus 5.5), interactive session, 2026-10-01; first draft by Claude (Sonnet 5.5)
+the same day.
+**Informed by:** live FRED and ALFRED queries and checks against the stored table on 2026-10-01 (every
+number below was measured then); `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md`
+(sections 3, 5, 6); `/home/bg/dev/ssfi` (migration 040, `docs/foundation/data-layer.md`,
+`docs/research/calendar-primitives.md`); `docs/research/signal-temporal-atomic-primitives.md`;
+`src/intelligence/research/snapshot.py`; todos 475, 480, 481.
 
-## The idea
+## The problem
 
-Things that are true of the market or economy as a whole, not of one security, are scattered today:
-`macro_features` (dormant, bars-derived, keyed by a fake symbol), `kernels/macro.py` (names SPY and
-TLT in code, todo 475), calendar flags (opex, quad witching), roll events, a hand-kept midterm table,
-and the `rates` regime built from ETF returns (todo 481). The proposal is one layer for all of it, with
-three kinds of object that each have one home:
+Facts about the market or the economy as a whole (rates, spreads, funding, releases, policy dates)
+are useful only as conditioning inputs, and only if every value is used no earlier than it could have
+been known. The dominant risk in this layer is not a missing feature; it is a value that arrives in a
+backtest days or weeks before it existed. Everything below is organized around that.
 
-| Kind | Example | Home | Status |
-|---|---|---|---|
-| Measurement series | 10-year yield, HY spread, SOFR percentile | `economic_series_observation` | built 2026-10-01 |
-| Event | FOMC decision, CPI release, jobs report, auction, election | `economic_event` (not built) | idea |
-| Derived measure | real-yield shock, spread percentile, funding stress, days to the next FOMC | kernels, broadcast panel columns; never stored as truth | idea |
+## What the measurements showed
 
-One table for all three is the wrong shape: a series is dense numeric history, an event is a sparse
-row with a schedule and an outcome, and a derived measure is cache. What unifies them is one
-vocabulary (a CVR namespace for event types), one registry (UCR concepts with a market scope, no
-symbol), one rule (reads are as-of), and one read surface that returns the market-wide block for a
-date. The panel (S0) joins that block to every symbol, the `vix_z` pattern, never through
-`market_regimes` group routing.
+| Check (2026-10-01) | Result | Consequence |
+|---|---|---|
+| CPI January 2024 first release (ALFRED) | 2024-02-13 | a "1 business day after the observation date" rule puts it 2024-01-03: six weeks of lookahead. An assumed lag must never touch a non-daily series |
+| `THREEFYTP10` first release and revisions | 2024-01-02 value first published 2024-01-09 (weekly release); history revised 2024-08-12 | the stored rows are about a week early and hold revised values: a live lookahead in our table today |
+| Daily H.15 and Moody's series, first-release lag over Q1 2024 (61 days each) | `DGS10`, `DFII10`: 1 day (49), 3 (10), 4 (2). `BAA10Y`: 1 (47), 2 (1), 3 (10), 4 (3) | the assumed rule is right on most days and early on holiday weekends and on `BAA10Y`'s two-day days; measurement removes the guess |
+| ICE spread first release | same calendar day as the observation | conservative under the current rule |
+| SOFR, FRED against the NY Fed | 2,122 common days, 0 value mismatches; the NY Fed has 2018-04-02 (first day) only | two sources reconcile exactly: usable as a standing check |
+| Identity `T10Y2Y = DGS10 - DGS2` | 3 days off, worst 2 bp; 1 day with the slope but a missing leg | small, real defects: audit them, never patch values |
 
-## Events: the shape that earns its keep
+## Requirements
 
-- Same catalog for past and future (event-catalog doc section 3): one row, the question is as-of.
-- Convention from that doc's section 5: market-wide events carry no symbol; per-symbol events
-  (dividends, halts) keep their own tables with the same column names.
-- Two timestamps, not one. `occurs_at` is when it happens; `known_at` is when anyone could know the
-  date. FOMC and the BLS and BEA calendars are published a year ahead, so a countdown feature is
-  point in time; a backfilled date from a history feed is not, unless the lead time is declared. The
-  schema records the basis (`scheduled_in_advance` or `learned_at_occurrence`), the same honesty as
-  `availability_basis` on the series table.
-- An outcome, when the event has one, is a measurement: a release is an event whose outcome is an
-  observation in the series table. The event row points at the series; it does not copy the value.
+Each one exists because one of the failures above would otherwise pass silently.
 
-## A cheap, free source for most of it
+1. **Availability is measured, not assumed.** A row's `available_at` comes from the publisher's own
+   record where one exists (ALFRED first-release dates; vintage dates for revisions). An assumed rule
+   is allowed only where no record exists (the NY Fed today), is labeled as such, and is never applied
+   to a series whose observation date is a reference period (monthly, weekly, quarterly).
+2. **Revisions are rows.** The first published value is the first row; every later vintage is a new
+   row with its own `available_at`. The current value is never written backwards over history.
+3. **One store, one writer, append-only.** UPDATE and DELETE are blocked in the database. A research
+   snapshot is the table filtered on `available_at <= K` for a knowledge cutoff K, so a snapshot is
+   reproducible bit for bit by construction (the `determinism` invariant at no extra cost).
+4. **Declared units and declared publication rules.** Units come from the provider (FRED metadata,
+   a fixed NY Fed field map) and a run fails if one changes (in place since 2026-10-01). A source with
+   no vintage record declares its publication time (the NY Fed: 08:00 New York time on the next
+   business day) and forward fetches verify it.
+5. **Staleness is explicit.** An as-of read returns the value and its age. Beyond a declared maximum
+   age per series the value is missing, never carried (`no_fill`). An outage at the source must show
+   up as missing data, not as a flat line.
+6. **Every series has a role and a consumer, stated before its predictive value is looked at.** A
+   series picked because it is in the news is a look at the vintage and is counted.
+7. **Checks are standing, not one-off.** Cross-source agreement (SOFR, EFFR), identities (10s2s), and
+   gaps against the expected publication calendar run on every load and are reported, never repaired.
 
-The FRED API (the key we already hold) lists 333 releases, including `FOMC Press Release` (101),
-`Consumer Price Index` (10), `Employment Situation` (50), `Gross Domestic Product` (53), `Personal
-Income and Outlays` (54), `Job Openings and Labor Turnover Survey` (192), `Unemployment Insurance
-Weekly Claims Report` (180) and `H.15 Selected Interest Rates` (18). Release dates run back to 1949
-(CPI, 953 dates) and 1955 (Employment Situation, 867 dates) and include scheduled future dates (next
-jobs report 2026-10-02, CPI 2026-10-14). The same API serves first-release (vintage) values through
-its real-time parameters, so a surprise can be measured against a rule-based expectation (the prior
-print or a trailing median) without paid consensus data. Treasury auction and refunding calendars,
-the election calendar and exchange holidays come from other free sources and would be additions.
+## Deleted from the first draft
 
-## What to build, in order
+- **The `economic_event` table.** An event needs no second store:
+  - A release is the availability of its observation: CPI for August is a row with observation date
+    2026-08-01 and `available_at` at its release. The release time is already in the table.
+  - A scheduled date known in advance is a schedule series in the same table: observation date = the
+    scheduled day, `available_at` = when the schedule was published, value 1. A cancellation or a
+    move is a new row (value 0 for the old date, 1 for the new one). Append-only covers it.
+  - So the event layer is a set of series, read with the same as-of rule. One mechanism instead of
+    two.
+- **The `revision` field in the APR source list.** It is an assertion; vintages measure it.
+- **The assumed lag for FRED series.** Replaced by first-release dates. It stays only for sources
+  without vintages, labeled, and becomes a measured rule as forward fetches accumulate.
+- **Stored derived measures.** Real-yield shock, spread percentile, funding stress and days-to-FOMC are
+  pure kernels over as-of reads, computed in the panel and never persisted as truth.
 
-1. Nothing urgent is lost by waiting: release dates and vintages can be pulled later, unlike the ICE
-   spreads. Build `economic_event` with its first consumer, not ahead of one.
-2. Concrete consumers already exist: the presidential-cycle spec (election dates), the quarterly and
-   opex seasonality idea, a rate-direction and funding-stress macro state to replace the `rates`
-   regime's ETF proxies (todo 481), and FOMC and release-day behavior as a pre-registered event study.
-3. The generalized event-impact mechanism (event-catalog doc section 6) is the research tool: matched
-   controls, clustered bootstrap, run through the research runner so every look is counted. Each
-   event candidate is a hypothesis and gets its own pre-registered spec; the temporal-primitives
-   rule applies (a coordinate spans a cycle, a flag selects a point and needs a test).
-4. Derived macro measures wait for the 186 kernel work; the macro kernels move from symbol names to a
-   series registry when todo 475 lands.
+## The model, after deletion
+
+One table, three times per row, nothing else:
+
+| Column | Meaning |
+|---|---|
+| `observation_date` | what the value is about: a day for rates, a reference period for releases, the scheduled day for a schedule |
+| `available_at` | the earliest moment anyone could have known this value |
+| `fetched_at` | when we recorded it |
+
+Per-series facts live once, in the series row (today `economic_series_observation_coverage`; it is the
+series registry in all but name): unit, kind (`daily_level`, `reference_period`, `schedule`),
+availability basis (`vintage` or `declared_rule`), covered span. The APR list says what to collect; the
+registry says what each series is.
+
+## Data flow
+
+```
+FRED / ALFRED, NY Fed  ->  providers (fetch only)  ->  EconomicSeriesWriter (single writer, audits)
+   ->  economic_series_observation (append-only)
+   ->  S0 snapshot: as-of grid per session at cutoff K, value + age, content-hashed with the panel
+   ->  kernels (pure): derived macro measures as broadcast columns
+   ->  families and the combiner (conditioning inputs only)
+```
+
+S0 is already the only research node that reads Postgres and already pins dividends into the panel
+manifest (`src/intelligence/research/snapshot.py`); the economic block follows the same pattern. No
+Kafka, no cycle, no compute daemon persists anything. `market_regimes` group routing is not used: a
+macro value belongs to no symbol and joins every symbol, the `vix_z` pattern.
+
+## Hidden biases and edge cases, each with its guard
+
+| Risk | How it fails silently | Guard |
+|---|---|---|
+| Release lag | a monthly value is used weeks before release | requirement 1; never an assumed lag on a reference-period series |
+| Revisions | today's revised value is used for an old date | requirement 2 |
+| Time of day | a date-granular vintage is published late that day; a daily bar decided at the close cannot see it | `available_at` is the end (next 00:00 UTC) of the first-release date; the NY Fed uses its declared 08:00 rule |
+| Holidays | an assumed business-day rule is a day early around holidays | vintage dates for FRED; for the NY Fed, a declared calendar checked by forward fetches |
+| Stale carry | a source outage reads as an unchanged value | requirement 5 |
+| Truncated history | the ICE spreads are served for 3 years only; earlier days are filled from a proxy | days outside coverage are unknown; never back-filled from another series |
+| Series selection | series chosen because they are topical | requirement 6; every chosen series counts as a look |
+| Too few episodes | crash-like and event conditioning rests on about five independent episodes since 2006; FOMC gives about 8 events a year | every spec states its power before running; the sparse-flag test (matched controls, episode-clustered bootstrap) from `calendar-primitives.md` |
+| Unit or scale error | percent read as a fraction | declared units, a run fails on change |
+| Source disagreement | one source drifts or restates | requirement 7 |
+| Schedule hindsight | a historical countdown uses a schedule nobody had yet | schedule rows need a publication date; where history lacks one, the lead time is declared per event type and the spec must survive the shift test below |
+
+**Shift test.** Every result that uses this layer is re-run with every `available_at` moved one
+session later. A result that changes materially was depending on timing at the edge of knowability and
+is not trusted. It is cheap, mechanical, and catches every residual timing error the table above
+missed.
+
+## The four design questions
+
+1. **10x volume:** 49 series to 500 is a few hundred requests a day and tens of megabytes; full
+   history is refetched and diffed per series. ALFRED caps a request at 2,000 vintage dates, so long
+   daily series are fetched in windows.
+2. **Silent failure:** the table above; the shift test is the backstop.
+3. **DAG:** one direction, one writer, compute separate from persistence (diagram above).
+4. **Manual step eliminated:** none of the macro context is hand-maintained except declared
+   publication rules and lead times, which forward fetches verify.
+
+## Build order
+
+1. **Todo 482: point in time by measurement.** Load FRED series through ALFRED (first release plus
+   revision rows), drop the assumed lag for them, correct `THREEFYTP10`; add the standing audits
+   (SOFR and EFFR across sources, the 10s2s identity, gaps against the publication calendar). Nothing
+   reads the table yet, so a clean reload is safe now and expensive later.
+2. **S0 economic block:** as-of grid per session at cutoff K, value and age, maximum age per series,
+   hashed into the panel manifest. With the 186 work, after the kernel registry lands.
+3. **Schedule series** (FOMC, CPI, jobs report from FRED's release calendar: 333 releases, CPI dates
+   since 1949, jobs report since 1955, future dates included) only when the first pre-registered spec
+   needs them.
+4. **Derived kernels** after 186; the macro kernels move from symbol names to the series registry
+   (todo 475); the rates regime's curve axis takes the measured slope (todo 481).
 
 ## Family map: who owns what
 
-No doc is archived by this pass; each stays where it is and states its owner here.
+No doc is archived; each states its owner here.
 
-| Topic | Owner doc | State after the 2026-10-01 refresh |
+| Topic | Owner | State |
 |---|---|---|
-| Stored measurement series | `economic_series_observation`, todo 480 | built, backfilled, timer file not installed |
-| Market-wide events and the event study | this doc; basis in `from-ssfi/signal-event-catalog-and-impact-system.md` sections 3, 5, 6 | idea; corporate-event material in the SSFI copy is SSFI-only |
-| Calendar coordinates and the point-selection rule | `docs/research/signal-temporal-atomic-primitives.md` | canonical, unchanged |
-| Quarterly and opex seasonality | `signal-quarterly-seasonality-opex-risk-off.md` | idea, cross-linked here |
-| Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | refreshed: FRED plumbing exists, cycle section added |
-| Rate and credit regime axes (the `rates` group) | todo 481 | filed: curve tier tracks the 10-year change and has the wrong sign |
-| Sensitivity to a market-wide factor or event | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | unchanged; consumers of this layer |
-| Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not part of this layer |
+| Stored series and their point-in-time rules | `economic_series_observation`, todos 480 and 482 | built; corrections pending |
+| Market-wide events and the event study | this doc; basis in the SSFI event-catalog copy, sections 3, 5, 6 | idea; events are schedule series |
+| Calendar coordinates and the point-selection rule | `docs/research/signal-temporal-atomic-primitives.md` | canonical |
+| Quarterly and opex seasonality | `signal-quarterly-seasonality-opex-risk-off.md` | idea |
+| Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | idea, refreshed 2026-10-01 |
+| Rate and credit regime axes | todo 481 | curve tier tracks the 10-year change with an inverted sign |
+| Sensitivity to market-wide factors or events | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | consumers of this layer |
+| `macro_features` / `macro_analyzer` | the dormant live path | no reader; if the live path returns, it computes from the same kernels rather than keep a second macro home |
+| Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not this layer |
 
-## Reusable from SSFI (read 2026-10-01 at `/home/bg/dev/ssfi`)
+## Reused from SSFI
 
-SSFI has designed its data sources and written its methodology but collected no data (no ssfi database
-exists on this host). Its `indicagent-*` research docs were written from indicagent's own code, so most
-of their methods are already here (block bootstrap, embargo, BH-FDR, StepM, null-arm and e-value tests
-each appear in several indicagent docs). What is worth taking:
+SSFI has designed its sources and written its methods but collected no data. Its `indicagent-*`
+methodology docs were written from indicagent's own code, so their methods are already here.
 
-| Item | Where in SSFI | Use here | State |
-|---|---|---|---|
-| Vintage keying: a revision is a new row, UPDATE and DELETE blocked | migration 040, `data-model.md` | `economic_series_observation` | applied (append-only trigger, `available_at` and basis) |
-| Canonical-unit contract: a unit is a per-field declaration, never inferred from a value | `docs/foundation/data-layer.md` | the `unit` column in `economic_series_observation_coverage` (FRED's declared units, a fixed NY Fed field map, a run fails if a unit changes) | applied 2026-10-01 |
-| NY Fed Markets Data API (rates, primary dealer, SOMA lending) | migrations 027 to 029, `data-sources-candidates.md` | reference rates loaded; Primary Dealer and SOMA remain | partly applied |
-| Data due-diligence gate and vendor adapter boundary | `data-layer.md` (DATA-16 section) | a checklist for each new source in this layer | adopt when the next source lands |
-| Sparse-flag event test: per-episode matched-control comparison with an episode-clustered bootstrap, plus the power finding (quad witching underpowered by 2 to 5 times at about 80 episodes) | `calendar-primitives.md` | the event-study mechanism; FOMC gives about 8 events a year, so set expectations before any spec | method in this doc, spec later |
-| Holiday-adjacent thin trading as one curated hypothesis | `calendar-primitives.md` | a tier-1 candidate needing a stated hypothesis | idea only |
-| FINRA short-sale volume, SEC fails-to-deliver, trading halts | `data-sources-candidates.md` | per-symbol and free, ETFs included; a separate table family | not started |
+| Item | Use here | State |
+|---|---|---|
+| Vintage keying, append-only enforced in the database (migration 040) | requirements 2 and 3 | applied; vintages themselves are todo 482 |
+| Canonical-unit contract (`data-layer.md`) | requirement 4 | applied 2026-10-01 |
+| NY Fed Markets Data API | reference rates loaded; Primary Dealer and SOMA lending remain | partly applied |
+| Data due-diligence gate, vendor adapter boundary (`data-layer.md`) | checklist for the next source | adopt then |
+| Sparse-flag event test and its power warning (`calendar-primitives.md`) | the event study | adopt with the first event spec |
+| FINRA short volume, fails-to-deliver, halts | per-symbol family | not started |
 
-Not reusable for this universe: Form 4, 13F, 13D/G and XBRL (single-stock), the securities-lending
-methodology notes, and the Astec lending API material.
+Not reusable here: single-stock filings (Form 4, 13F, 13D/G, XBRL) and the securities-lending material.
 
 ## Cautions
 
-- A long list of possible consumers is a reason to design the layer, not to build all of it: most
-  ideas in this family have died on their first honest test (ledger), and every event feature
-  multiplies the looks counted against the vintage.
-- A countdown feature needs the lead-time assumption written down per event type.
-- First-print values are only point in time if the vintage keying is real: use the real-time
-  parameters, not the current revised history.
-- Per-symbol event tables (dividends, halts, short volume) are a separate family and stay separate.
+- This layer supplies conditioning inputs. It is not evidence of an edge, and the questions that
+  prompted it (a crash after an all-time high, the midterm effect) are narratives until a
+  pre-registered spec says otherwise.
+- Most ideas in this family have died on their first honest test (ledger). Each new series or event
+  is a look counted against the vintage.
