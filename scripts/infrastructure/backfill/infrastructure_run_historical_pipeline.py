@@ -1286,12 +1286,11 @@ def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
 def _insert_archive_rows(cur: Any, params: list[tuple]) -> int:
     """Archive destination for 15m/1h fetched chunks (plan 12): routes through
     services/intraday_raw_archive, the table's single writer (base is NULL on
-    fetched bars; batch_id stays NULL)."""
-    return insert_fetched_archive_rows(
-        cur,
-        [row + (None,) for row in params],
-        batch_size=_STORE_BATCH_SIZE,
-    )
+    fetched bars; batch_id stays NULL). Accepts both call shapes: store_bars'
+    9-column row tuples and the atomic persist helper's 10-column rows (base
+    already included)."""
+    rows = params if len(params[0]) == 10 else [row + (None,) for row in params]
+    return insert_fetched_archive_rows(cur, rows, batch_size=_STORE_BATCH_SIZE)
 
 
 def store_bars(
