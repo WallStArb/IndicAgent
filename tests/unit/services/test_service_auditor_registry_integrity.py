@@ -17,8 +17,9 @@ Writing this test's existence check (below) against the live registry surfaced t
 independently-verified findings, each recorded in _MISSING_UNIT_ALLOWLIST with its own
 reason rather than silently fixed here (out of this test-authoring task's scope):
 
-  - 6 Phase 138/142 IC-pipeline entries (regime-writer, forward-return-writer, ic-engine,
-    ensemble-ic-engine, alpha-frame-writer, counterfactual-tracker) have no systemd unit at
+  - Phase 138 IC-pipeline entries (regime-writer, forward-return-writer, ic-engine; the
+    Phase 142 ensemble-ic-engine, alpha-frame-writer and counterfactual-tracker entries were
+    deleted with their modules in phase 186 plan 19) have no systemd unit at
     all, live or checked-in -- confirmed via `systemctl list-units --all` (zero hits) and
     `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s header, which documents these as
     orchestrated by that shell script instead. PERMANENT, by design.
@@ -67,6 +68,31 @@ _ARCHIVED_UNIT_DENYLIST: dict[str, str] = {
         "publisher; wrote only ctx_events/ctx_snapshots (0 rows, dropped by the 186-11 "
         "migration); unit uninstalled from the host."
     ),
+    "indicagent-ensemble-trainer": (
+        "Old ensemble chain, deleted in phase 186 plan 19 (D-09); module, tests and any unit "
+        "file removed; the replacement route is research runner -> frozen book (design "
+        "2026-09-26)."
+    ),
+    "indicagent-alpha-publisher": (
+        "Old ensemble chain, deleted in phase 186 plan 19 (D-09); module, tests and any unit "
+        "file removed; the replacement route is research runner -> frozen book (design "
+        "2026-09-26)."
+    ),
+    "indicagent-ensemble-ic-engine": (
+        "Old ensemble chain, deleted in phase 186 plan 19 (D-09); module, tests and any unit "
+        "file removed; the replacement route is research runner -> frozen book (design "
+        "2026-09-26)."
+    ),
+    "indicagent-alpha-frame-writer": (
+        "Old ensemble chain, deleted in phase 186 plan 19 (D-09); module, tests and any unit "
+        "file removed; the replacement route is research runner -> frozen book (design "
+        "2026-09-26)."
+    ),
+    "indicagent-counterfactual-tracker": (
+        "Old ensemble chain, deleted in phase 186 plan 19 (D-09); module, tests and any unit "
+        "file removed; the replacement route is research runner -> frozen book (design "
+        "2026-09-26)."
+    ),
 }
 
 # Registry entries with no matching production/systemd/ file, confirmed real (not a typo/
@@ -91,18 +117,6 @@ _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
         "PERMANENT: todo 402 oneshot, same corpus-pipeline-script-only pattern as "
         "indicagent-ic-engine above -- takes the run's --training-window-end, so a static "
         "unit has nothing to pass it."
-    ),
-    "indicagent-ensemble-ic-engine": (
-        "PERMANENT: Phase 142A oneshot, same corpus-pipeline-script-only pattern as "
-        "indicagent-regime-writer above."
-    ),
-    "indicagent-alpha-frame-writer": (
-        "PERMANENT: Phase 142B oneshot, same corpus-pipeline-script-only pattern as "
-        "indicagent-regime-writer above."
-    ),
-    "indicagent-counterfactual-tracker": (
-        "PERMANENT: Phase 142B oneshot, same corpus-pipeline-script-only pattern as "
-        "indicagent-regime-writer above."
     ),
 }
 

@@ -108,12 +108,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ic-engine": 8,  # oneshot; Spearman IC -> feature_ic_scores
     "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
     "indicagent-feature-lifecycle": 8,  # oneshot (todo 402); feature_ic_scores -> concept_evaluation + concept_registry
-    # Phase 139 ensemble + alpha emission oneshots (inactive between IC pipeline runs is correct)
-    "indicagent-ensemble-trainer": 8,  # oneshot; feature_ic_scores -> ensemble_weights + ensemble_alpha
-    "indicagent-alpha-publisher": 8,  # oneshot; ensemble_alpha -> alpha_events + Kafka alpha.events
-    "indicagent-ensemble-ic-engine": 8,  # Phase 142A oneshot; alpha_events -> alpha_ensemble_ic; inactive between IC pipeline runs is correct
-    "indicagent-alpha-frame-writer": 8,  # Phase 142B oneshot; alpha_events -> alpha_frames; inactive between frame-writer runs is correct
-    "indicagent-counterfactual-tracker": 8,  # Phase 142B oneshot; alpha_frames geometry + exit scoring; inactive between tracker runs is correct
     # Phase 185 D2b derived grid (plan 11): tradeable 5m -> derived 15m/1h + digests.
     # Oneshot with no timer yet: plan 12 runs the universe rewrite and chains it
     # from the nightly backfill (D-31); inactive between runs is correct.
@@ -209,13 +203,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ic-engine",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct
         "indicagent-feature-lifecycle",  # todo 402; inactive between IC pipeline runs is correct
-        # Phase 139 ensemble + alpha emission oneshots + Phase 142A ensemble IC oneshot —
-        # inactive between IC pipeline runs is correct
-        "indicagent-ensemble-trainer",  # Type=oneshot; inactive between IC pipeline runs is correct
-        "indicagent-alpha-publisher",  # Type=oneshot; inactive between IC pipeline runs is correct
-        "indicagent-ensemble-ic-engine",  # Phase 142A oneshot; Type=oneshot; inactive between weekly IC runs is correct
-        "indicagent-alpha-frame-writer",  # Phase 142B oneshot; Type=oneshot; inactive between frame-writer runs is correct
-        "indicagent-counterfactual-tracker",  # Phase 142B oneshot; Type=oneshot; inactive between tracker runs is correct
         # Phase 185 D2b derived grid (plan 11): no timer yet, plan 12 chains it
         # from the nightly backfill (D-31); inactive between runs is correct.
         "indicagent-bar-derivation",  # Type=oneshot; inactive between runs is correct

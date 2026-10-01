@@ -17,7 +17,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 def read_source(*relative_parts: str) -> str:
     """Read a project source file by path parts relative to the repo root.
 
-    Example: read_source("services", "ensemble_ic_engine.py")
+    Example: read_source("services", "ic_measure.py")
     """
     path = _PROJECT_ROOT.joinpath(*relative_parts)
     assert path.exists(), f"{Path(*relative_parts)} not found at {path}"

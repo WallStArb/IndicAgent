@@ -72,10 +72,8 @@ def test_base_batch_run_still_wraps_execute_in_a_span():
     calls = _calls_containing(run_method, func_name="observed_span")
     assert calls, (
         "BaseBatch.run() no longer calls observed_span(...) around execute() -- this was the "
-        "todo 156 step 2 fix giving every BaseBatch subclass (ensemble_trainer, "
-        "alpha_publisher, cross_sectional_spread_tracker, counterfactual_tracker, "
-        "ensemble_ic_engine, alpha_scorer, alpha_frame_writer, tag_calibrator, and any future "
-        "subclass) automatic span coverage with zero per-service code. If this was removed "
+        "todo 156 step 2 fix giving every BaseBatch subclass (for example "
+        "tag_calibrator, feature_lifecycle, ic_measure) automatic span coverage with zero per-service code. If this was removed "
         "intentionally, each of those services now needs its own observed_span call restored."
     )
 

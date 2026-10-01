@@ -25,22 +25,10 @@ _REPO = Path(__file__).resolve().parents[2]
     [
         ("services/tag_calibrator.py", "dimension_where_clause('compute')"),
         ("services/ic_engine.py", "dimension_where_clause('compute', 'i')"),
-        ("services/cross_sectional_spread_tracker.py", 'dimension_where_clause("compute", "i")'),
     ],
 )
 def test_compute_universe_readers_use_the_shared_clause(rel_path, call):
     assert call in (_REPO / rel_path).read_text()
-
-
-def test_spread_tracker_panel_sql_renders_the_compute_clause():
-    import services.cross_sectional_spread_tracker as tracker
-
-    for sql in (
-        tracker._PANEL_SQL_BACKFILL,
-        tracker._PANEL_SQL_INCREMENTAL,
-        tracker._GATE_PANEL_SQL,
-    ):
-        assert "i.is_active = true AND i.compute_eligible = true" in sql
 
 
 def test_dimension_where_clause_qualifies_every_term():
