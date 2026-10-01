@@ -2,7 +2,13 @@
 
 Oneshot batch (todo 480). Fetches each entry of APR `infra.economic_series.sources` in full (a FRED
 series, or a NY Fed rate type that expands to one series per published field) and appends what
-is new or changed; it never updates or deletes (the table has a trigger). A series
+is new or changed; it never updates or deletes (the table has a trigger).
+
+Inside the run, one direction: sources fetch (I/O, concurrent up to
+`infra.economic_series.fetch_concurrency`, one shared HTTP client) -> `plan_rows` decides what to
+append (pure) -> this writer persists, one series at a time in arrival order (the table's only
+writer, never concurrent). Sources implement `EconomicSource` and are looked up by name, so a new
+source is a module and a registry line, not a branch here. A series
 with no coverage row is a first fetch: FRED serves today's values, so each stored row's
 available_at is the end of the business day `infra.economic_series.assumed_lag_business_days` after the
 observation date (basis assumed_lag), an estimate of publication; exchange holidays are not modeled,
@@ -21,10 +27,11 @@ import argparse
 import asyncio
 import dataclasses
 import json
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
-from typing import NamedTuple
 
 import asyncpg
+import httpx
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
@@ -32,7 +39,9 @@ from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
-from src.providers import fred, nyfed
+from src.providers.economic_source import EconomicSource, Series, SourceError
+from src.providers.fred import FredSource
+from src.providers.nyfed import NyFedSource
 
 _JOB = "economic-series-writer"
 # Per-run outcome counts, labeled {outcome} only: never per series (the detail stays in the log).
@@ -44,7 +53,6 @@ _OUTCOME_TOTAL = counter(
 BASIS_ASSUMED_LAG = "assumed_lag"
 BASIS_FETCH = "fetch"
 _REVISIONS = frozenset({"none", "model_revised", "revised"})
-_SOURCES = frozenset({fred.SOURCE, nyfed.SOURCE})
 _APR_KEY = "infra.economic_series.sources"
 
 
@@ -63,34 +71,28 @@ class Plan:
     n_vanished: int  # stored days inside the fetched span that FRED did not serve
 
 
-class Series(NamedTuple):
-    unit: str  # declared by the provider, never inferred from a value
-    rows: list[tuple[date, float]]
-
-
 class _SeriesFailure(Exception):
-    """One series' fetch failed (a database write error is handled the same way); the run continues
-    and fails at the end."""
+    """One series could not be written (a database error is handled the same way); the run
+    continues and fails at the end."""
 
 
-def parse_series_config(raw: str) -> list[dict]:
-    """The APR source list, validated, `source` defaulted to fred. Raises ValueError on a
-    malformed entry: a typo must stop the run, not silently drop a series."""
+def parse_series_config(raw: str, sources: Mapping[str, EconomicSource]) -> list[dict]:
+    """The APR source list, validated against the registered sources, `source` defaulted to fred.
+    Raises ValueError on a malformed entry: a typo must stop the run, not silently drop a series."""
     entries = json.loads(raw)
     if not isinstance(entries, list) or not entries:
         raise ValueError(f"{_APR_KEY} must be a non-empty JSON list")
     seen: set[tuple[str, str]] = set()
     out = []
     for entry in entries:
-        entry = {"source": fred.SOURCE, **entry}
+        entry = {"source": "fred", **entry}
         series_id = entry.get("series_id")
-        if entry["source"] not in _SOURCES:
-            raise ValueError(f"{entry}: source must be one of {sorted(_SOURCES)}")
+        if entry["source"] not in sources:
+            raise ValueError(f"{entry}: source must be one of {sorted(sources)}")
         if not series_id or (entry["source"], series_id) in seen:
             raise ValueError(f"missing or duplicate series_id in {entry}")
         seen.add((entry["source"], series_id))
-        if entry["source"] == nyfed.SOURCE and series_id not in nyfed.RATE_PATHS:
-            raise ValueError(f"{series_id}: not a NY Fed rate type {sorted(nyfed.RATE_PATHS)}")
+        sources[entry["source"]].validate(series_id)
         if entry.get("revision") not in _REVISIONS:
             raise ValueError(f"{series_id}: revision must be one of {sorted(_REVISIONS)}")
         if not entry.get("consumer"):
@@ -142,7 +144,7 @@ def plan_rows(
 
 
 class EconomicSeriesWriter(BaseBatch):
-    """Batch service: FRED -> economic_series_observation + economic_series_observation_coverage."""
+    """Batch service: registered sources -> economic_series_observation and its coverage."""
 
     job_name = _JOB
     compute_version = "1.0.0"
@@ -151,48 +153,74 @@ class EconomicSeriesWriter(BaseBatch):
         super().__init__(db_dsn)
         self._settings = settings
         self._only = only
-        self._timeout_sec = 0.0  # set from APR in execute
+
+    def _sources(self, max_attempts: int) -> dict[str, EconomicSource]:
+        """The source registry: adding a source is one line here and its module."""
+        registered: list[EconomicSource] = [
+            FredSource(self._settings.fred_api_key, max_attempts),
+            NyFedSource(max_attempts),
+        ]
+        return {source.name: source for source in registered}
 
     async def execute(self, pool: asyncpg.Pool) -> None:
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(conn, ["infra.economic_series.%"])
-        entries = parse_series_config(_cfg(apr, _APR_KEY, "[]"))
+        sources = self._sources(int(_cfg(apr, "infra.economic_series.http_max_attempts", 3)))
+        entries = parse_series_config(_cfg(apr, _APR_KEY, "[]"), sources)
         if self._only:
             unknown = set(self._only) - {e["series_id"] for e in entries}
             if unknown:
                 raise RuntimeError(f"economic_series_writer: not in {_APR_KEY}: {unknown}")
             entries = [e for e in entries if e["series_id"] in self._only]
-        if fred.SOURCE in {e["source"] for e in entries} and not self._settings.fred_api_key:
-            raise RuntimeError("economic_series_writer: FRED_API_KEY is not set")
         lag_days = int(_cfg(apr, "infra.economic_series.assumed_lag_business_days", 1))
-        self._timeout_sec = float(_cfg(apr, "infra.economic_series.http_timeout_sec", 60))
+        timeout_sec = float(_cfg(apr, "infra.economic_series.http_timeout_sec", 60))
+        gate = asyncio.Semaphore(int(_cfg(apr, "infra.economic_series.fetch_concurrency", 4)))
 
         totals = {"inserted": 0, "revised": 0, "vanished": 0}
         failed: list[str] = []
         n_series = 0
-        for entry in entries:
-            source, entry_id = entry["source"], entry["series_id"]
-            try:
-                fetched = await self._fetch(source, entry_id)
+        async with httpx.AsyncClient(timeout=timeout_sec) as client:
+
+            async def fetch(entry: dict) -> tuple[dict, dict[str, Series], str | None]:
+                async with gate:
+                    try:
+                        source = sources[entry["source"]]
+                        return entry, await source.fetch(entry["series_id"], client), None
+                    except SourceError as error:
+                        return entry, {}, str(error)
+                    except Exception as error:
+                        # A payload shape no parser expected (a null where a value belongs) fails
+                        # this entry, loudly, without aborting the entries still in flight.
+                        return entry, {}, f"unexpected {type(error).__name__}: {error}"[:200]
+
+            # Fetches overlap; writes do not: each completed fetch is written before the next is
+            # taken, so the table has one writer and one transaction at a time.
+            for completed in asyncio.as_completed([fetch(e) for e in entries]):
+                entry, fetched, error = await completed
+                if error is not None:
+                    failed.append(f"{entry['source']}/{entry['series_id']}: {error}")
+                    continue
                 for series_id, series in fetched.items():
-                    n_new, n_revised, n_vanished = await self._write_series(
-                        pool, source, series_id, series, lag_days
-                    )
+                    try:
+                        n_new, n_revised, n_vanished = await self._write_series(
+                            pool, entry["source"], series_id, series, lag_days
+                        )
+                    except (_SeriesFailure, asyncpg.PostgresError) as write_error:
+                        failed.append(f"{entry['source']}/{series_id}: {write_error}")
+                        continue
                     totals["inserted"] += n_new
                     totals["revised"] += n_revised
                     totals["vanished"] += n_vanished
                     n_series += 1
                     self.logger.info(
                         "economic_series_writer.series",
-                        source=source,
+                        source=entry["source"],
                         series_id=series_id,
                         inserted=n_new,
                         revised=n_revised,
                         vanished=n_vanished,
                         revision=entry["revision"],
                     )
-            except (_SeriesFailure, asyncpg.PostgresError) as error:
-                failed.append(f"{source}/{entry_id}: {error}")
         self.logger.info(
             "economic_series_writer.done", series=n_series, **totals, failed=len(failed)
         )
@@ -200,21 +228,6 @@ class EconomicSeriesWriter(BaseBatch):
             _OUTCOME_TOTAL.add(n, {"outcome": outcome})
         if failed:
             raise RuntimeError(f"economic_series_writer: {len(failed)} failures: {failed}")
-
-    async def _fetch(self, source: str, entry_id: str) -> dict[str, Series]:
-        """One entry's series as served today: {series id: Series}; raises _SeriesFailure."""
-        if source == nyfed.SOURCE:
-            fetched, error = await nyfed.fetch_rate_series(entry_id, self._timeout_sec)
-            if error is not None:
-                raise _SeriesFailure(error)
-            return {sid: Series(nyfed.series_unit(sid), rows) for sid, rows in fetched.items()}
-        key = self._settings.fred_api_key
-        rows, error = await fred.fetch_observations(entry_id, key, self._timeout_sec)
-        if error is None:
-            unit, error = await fred.fetch_unit(entry_id, key, self._timeout_sec)
-        if error is not None:
-            raise _SeriesFailure(error)
-        return {entry_id: Series(unit, rows)}
 
     async def _write_series(
         self,
@@ -238,7 +251,7 @@ class EconomicSeriesWriter(BaseBatch):
                 )
             }
             coverage = await conn.fetchrow(
-                "SELECT unit FROM economic_series_observation_coverage " "WHERE series_id = $1",
+                "SELECT unit FROM economic_series_observation_coverage WHERE series_id = $1",
                 series_id,
             )
             if coverage is not None and coverage["unit"] != series.unit:

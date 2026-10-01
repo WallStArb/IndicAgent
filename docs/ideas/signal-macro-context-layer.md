@@ -87,20 +87,75 @@ series registry in all but name): unit, kind (`daily_level`, `reference_period`,
 availability basis (`release_record` or `declared_rule`), covered span. The APR list says what to collect; the
 registry says what each series is.
 
-## Data flow
+## Architecture: components, one direction, reuse first
+
+### The DAG
 
 ```
-FRED / ALFRED, NY Fed  ->  providers (fetch only)  ->  EconomicSeriesWriter (single writer, audits)
-   ->  economic_series_observation (append-only)
-   ->  S0 snapshot: as-of grid per session at cutoff K, value + age, content-hashed with the panel
-   ->  kernels (pure): derived macro measures as broadcast columns
-   ->  families and the combiner (conditioning inputs only)
+            (one job, one direction, no cycles; Kafka is not involved: this is batch data)
+
+ APR infra.economic_series.sources ──┐
+                                     v
+ EconomicSource adapters ──> plan_rows ──> EconomicSeriesWriter ──> economic_series_observation
+ (FredSource, NyFedSource:    (pure:        (the only writer;         (append-only, trigger)
+  fetch + normalize, I/O)     what to       serial transactions)      + _coverage (series registry)
+                              append)                                        │
+                                                                             v
+                       S0 economic block (phase 184 B8): read-only, decision-time join, age,
+                       knowledge cutoff, hashed into the panel manifest
+                                                                             │
+                                                                             v
+                       kernels (pure): derived macro measures as broadcast columns
+                                                                             │
+                                                                             v
+                       families, combiner, book test (conditioning inputs only)
 ```
 
-S0 is already the only research node that reads Postgres and already pins dividends into the panel
-manifest (`src/intelligence/research/snapshot.py`); the economic block follows the same pattern. No
-Kafka, no cycle, no compute daemon persists anything. `market_regimes` group routing is not used: a
-macro value belongs to no symbol and joins every symbol, the `vix_z` pattern.
+Each node does one thing:
+
+| Node | Does | Does not | Where |
+|---|---|---|---|
+| `EconomicSource` adapter | fetch one entry, parse, declare units | decide availability, write, know other sources | `src/providers/fred.py`, `nyfed.py`, contract in `economic_source.py` |
+| `get_json` | one JSON GET with retries and secret redaction | know any source | `src/core/http_json.py` (Ring 0, reusable by any future source) |
+| `plan_rows` | decide which rows to append and with what availability time (pure) | I/O | `services/economic_series_writer.py` |
+| `EconomicSeriesWriter` | persist, coverage, unit guard; later the standing audits | fetch logic, source branching | same |
+| S0 economic block | the as-of join on decision time | write anything | phase 184 B8 |
+| kernels | derived measures over aligned arrays (pure) | read Postgres | the 186 kernel registry |
+
+### Reuse, not reinvention
+
+| Need | Reused component |
+|---|---|
+| Batch lifecycle, pool, tracing, `job_completed_total` | `BaseBatch` (`src/core/agent/base_batch.py`) |
+| Retries with backoff and jitter | `retry_with_backoff` (`src/core/retry_utils.py`) through `get_json` |
+| Tunable values | APR (`infra.economic_series.*`) via `load_apr_dict_async` |
+| Session and holiday calendars (todo 482's declared rule) | `src/core/market_calendar.py` (`pandas_market_calendars`; a bond-market calendar, not the exchange one) |
+| As-of alignment to the panel clock | phase 184's causal `align` node; no second join |
+| Derived measures | the 186 kernel registry; no bespoke builder |
+| Snapshot hashing | S0's content-hashed panel manifest, as dividends already do |
+
+A new source is a module implementing `EconomicSource` (`validate`, `fetch`) plus one line in the
+writer's registry. Nothing in the writer, the table or the reader branches on a source name, which is
+the `asset_agnostic` rule applied to sources.
+
+### Async model
+
+- **Fetches overlap, writes do not.** One `httpx.AsyncClient` (one connection pool) serves the run;
+  an `asyncio.Semaphore` caps concurrent fetches at `infra.economic_series.fetch_concurrency` (FRED
+  allows about 120 requests a minute); independent requests for one entry (FRED's data and its unit)
+  run together.
+- **One writer, one transaction at a time.** Completed fetches are taken with `asyncio.as_completed`
+  and written serially, so the table never sees two writers and a slow source never blocks a fast
+  one's write. Same rule as the batch services' "workers compute, main writes" pattern.
+- **Failures are per entry or per series, collected, and the run fails at the end.** A 4xx is never
+  retried; transport errors and 5xx are, up to `infra.economic_series.http_max_attempts`.
+- Measured 2026-10-01: a full run of 49 series (complete history refetched and diffed) takes 2.7 s
+  end to end.
+
+### Ring placement
+
+`src/core/http_json.py` is Ring 0 (portable, no domain words). Sources live in `src/providers/`. The
+writer is a Ring 2 service. The S0 block and kernels are Ring 1 research code. No arrow points back.
 
 ## Alignment to the panel clock
 

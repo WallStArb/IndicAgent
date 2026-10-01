@@ -30,7 +30,9 @@ No consumer reads the table yet, so a clean reload is cheap now.
    release dates (it calls them vintage dates; `vintage` means a research data span here), so fetch long daily series in windows.
 2. `available_at` = the end (next 00:00 UTC) of the release date; basis `release_record`. Keep the
    assumed rule only for the NY Fed, renamed `declared_rule` (08:00 New York time on the next
-   business day), and verify it from forward fetch times.
+   business day), and verify it from forward fetch times. Its business days come from
+   `src/core/market_calendar.py` with a bond-market calendar (the NY Fed does not publish on
+   bond-market holidays), not a new holiday list.
 3. Per-series `kind` (`daily_level`, `reference_period`, `schedule`) in the series registry
    (`economic_series_observation_coverage`); the writer refuses a declared rule on a
    `reference_period` series.

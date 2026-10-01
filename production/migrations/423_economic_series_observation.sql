@@ -113,13 +113,28 @@ VALUES
     'int', '60', 5, 600,
     '[initial_estimate] Per-request HTTP timeout for the FRED and NY Fed fetches in '
     'economic_series_writer.py (a full-history response is a few MB). Not an ML learning target.'
+),
+(
+    'infra.economic_series.fetch_concurrency',
+    'int', '4', 1, 32,
+    '[initial_estimate] Source fetches economic_series_writer.py runs at once (one shared HTTP '
+    'client). Writes stay serial whatever this is. FRED allows about 120 requests a minute. Not '
+    'an ML learning target.'
+),
+(
+    'infra.economic_series.http_max_attempts',
+    'int', '3', 1, 10,
+    '[conventional] Attempts per request on a transport error or a 5xx response (exponential '
+    'backoff with jitter, src/core/retry_utils.py); a 4xx is never retried. Not an ML learning '
+    'target.'
 )
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_state (config_key, config_value, version)
 SELECT config_key, default_value, 1 FROM config_schema
 WHERE config_key IN ('infra.economic_series.sources', 'infra.economic_series.assumed_lag_business_days',
-                    'infra.economic_series.http_timeout_sec')
+                    'infra.economic_series.http_timeout_sec', 'infra.economic_series.fetch_concurrency',
+                    'infra.economic_series.http_max_attempts')
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
@@ -127,7 +142,8 @@ SELECT NOW(), s.config_key, 1, s.default_value, 'migration_423',
        'Initial value [initial_estimate]: economic series reference data (todo 480)'
 FROM config_schema s
 WHERE s.config_key IN ('infra.economic_series.sources', 'infra.economic_series.assumed_lag_business_days',
-                    'infra.economic_series.http_timeout_sec')
+                    'infra.economic_series.http_timeout_sec', 'infra.economic_series.fetch_concurrency',
+                    'infra.economic_series.http_max_attempts')
   AND NOT EXISTS (
     SELECT 1 FROM config_history h
     WHERE h.config_key = s.config_key AND h.changed_by = 'migration_423'

@@ -11,8 +11,16 @@ from services.economic_series_writer import (
     parse_series_config,
     plan_rows,
 )
-from src.providers.fred import parse_observations
-from src.providers.nyfed import FIELD_SUFFIX, SUFFIX_UNIT, parse_rate_records, series_unit
+from src.providers.fred import FredSource, parse_observations
+from src.providers.nyfed import (
+    FIELD_SUFFIX,
+    SUFFIX_UNIT,
+    NyFedSource,
+    parse_rate_records,
+    series_unit,
+)
+
+SOURCES = {"fred": FredSource("key", 1), "nyfed": NyFedSource(1)}
 
 NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
 
@@ -82,25 +90,25 @@ def test_parse_observations_rejects_non_finite_values():
 
 def test_series_config_requires_revision_and_consumer():
     ok = [{"series_id": "DGS10", "revision": "none", "consumer": "rate_level_screen"}]
-    assert parse_series_config(json.dumps(ok)) == [{"source": "fred", **ok[0]}]
+    assert parse_series_config(json.dumps(ok), SOURCES) == [{"source": "fred", **ok[0]}]
     with pytest.raises(ValueError):
-        parse_series_config(json.dumps([{"series_id": "DGS10", "revision": "none"}]))
+        parse_series_config(json.dumps([{"series_id": "DGS10", "revision": "none"}]), SOURCES)
     with pytest.raises(ValueError):
-        parse_series_config(json.dumps([{**ok[0], "revision": "sometimes"}]))
+        parse_series_config(json.dumps([{**ok[0], "revision": "sometimes"}]), SOURCES)
     with pytest.raises(ValueError):
-        parse_series_config(json.dumps(ok + ok))
+        parse_series_config(json.dumps(ok + ok), SOURCES)
 
 
 def test_series_config_checks_source_and_nyfed_rate_type():
     nyfed = {"source": "nyfed", "series_id": "SOFR", "revision": "revised", "consumer": "c"}
-    assert parse_series_config(json.dumps([nyfed])) == [nyfed]
+    assert parse_series_config(json.dumps([nyfed]), SOURCES) == [nyfed]
     with pytest.raises(ValueError):
-        parse_series_config(json.dumps([{**nyfed, "series_id": "DGS10"}]))
+        parse_series_config(json.dumps([{**nyfed, "series_id": "DGS10"}]), SOURCES)
     with pytest.raises(ValueError):
-        parse_series_config(json.dumps([{**nyfed, "source": "bloomberg"}]))
+        parse_series_config(json.dumps([{**nyfed, "source": "bloomberg"}]), SOURCES)
     # the same id from two sources is two entries, not a duplicate
     fred = {**nyfed, "source": "fred"}
-    assert len(parse_series_config(json.dumps([nyfed, fred]))) == 2
+    assert len(parse_series_config(json.dumps([nyfed, fred]), SOURCES)) == 2
 
 
 def _sofr(day, **fields):

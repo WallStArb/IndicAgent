@@ -1,4 +1,4 @@
-"""NY Fed Markets Data API: published reference rates (todo 480). All NY Fed HTTP logic is here.
+"""NY Fed Markets Data API as an `EconomicSource`: published reference rates (todo 480).
 
 No key needed. One request returns a rate type's full history, one record per effective date with
 the rate, its distribution percentiles, volume and a revision flag. Each published field becomes
@@ -11,6 +11,9 @@ import math
 from datetime import UTC, date, datetime
 
 import httpx
+
+from src.core.http_json import HttpJsonError, get_json
+from src.providers.economic_source import Series, SourceError
 
 _BASE_URL = "https://markets.newyorkfed.org/api/rates"
 _HISTORY_START = "2000-01-01"  # before the earliest series (EFFR, 2000-07): everything
@@ -105,19 +108,26 @@ def parse_rate_records(rate_type: str, records: list[dict]) -> dict[str, list[tu
     return {sid: sorted(by_day.items()) for sid, by_day in out.items()}
 
 
-async def fetch_rate_series(
-    rate_type: str, timeout_sec: float
-) -> tuple[dict[str, list[tuple[date, float]]], str | None]:
-    """Full history of one rate type as served today: ({series id: rows}, None) or ({}, error)."""
-    url = f"{_BASE_URL}/{RATE_PATHS[rate_type]}/search.json"
-    params = {"startDate": _HISTORY_START, "endDate": datetime.now(UTC).date().isoformat()}
-    try:
-        async with httpx.AsyncClient(timeout=timeout_sec) as client:
-            response = await client.get(url, params=params)
-        response.raise_for_status()
-        series = parse_rate_records(rate_type, response.json()["refRates"])
-    except Exception as error:
-        return {}, f"{type(error).__name__}: {error}"[:200]
-    if not series:
-        return {}, "no records returned"
-    return series, None
+class NyFedSource:
+    """`EconomicSource` for the NY Fed: one entry is a rate type, expanded to a series per field."""
+
+    name = SOURCE
+
+    def __init__(self, max_attempts: int) -> None:
+        self._max_attempts = max_attempts
+
+    def validate(self, entry_id: str) -> None:
+        if entry_id not in RATE_PATHS:
+            raise ValueError(f"{entry_id}: not a NY Fed rate type {sorted(RATE_PATHS)}")
+
+    async def fetch(self, entry_id: str, client: httpx.AsyncClient) -> dict[str, Series]:
+        url = f"{_BASE_URL}/{RATE_PATHS[entry_id]}/search.json"
+        params = {"startDate": _HISTORY_START, "endDate": datetime.now(UTC).date().isoformat()}
+        try:
+            payload = await get_json(client, url, params, max_attempts=self._max_attempts)
+            series = parse_rate_records(entry_id, payload["refRates"])
+        except (HttpJsonError, ValueError, KeyError) as error:
+            raise SourceError(f"{type(error).__name__}: {error}"[:200]) from None
+        if not series:
+            raise SourceError("no records returned")
+        return {sid: Series(series_unit(sid), rows) for sid, rows in series.items()}
