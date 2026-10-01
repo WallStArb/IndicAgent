@@ -115,6 +115,10 @@ guards (prerequisite for feature books); B4 disclosure of the shrunk ic_engine's
 structure as a run record that feeds nothing, kappa included; B5 the fixed smoothing menu
 (half-lives 5, 21, 63 sessions); B6 the E16 book test holds size on synthetic persistent
 predictors; B7 `repro_frozen.py` bit-identical after each item.
+B8 (added 2026-10-01): economic series (`economic_series_observation`, todo 480) enter S0 through the
+same causal alignment, joined on decision time with an age and a maximum age, captured by a knowledge
+cutoff in the panel manifest, and every book using them passes the one-session shift test
+(`docs/ideas/signal-macro-context-layer.md`); needs todo 482 first.
 **Requirements**: TBD
 **Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session), phase 185's
 derived 15m and 1h grid (B1), phase 186's kernel registry and shrunk ic_engine (B2, B4). Daily books

@@ -102,6 +102,23 @@ manifest (`src/intelligence/research/snapshot.py`); the economic block follows t
 Kafka, no cycle, no compute daemon persists anything. `market_regimes` group routing is not used: a
 macro value belongs to no symbol and joins every symbol, the `vix_z` pattern.
 
+## Alignment to the panel clock
+
+The join is on decision time, never on the observation date. A panel row for session t is decided at
+the open of t+1 (Invariant 1: features at t, entry at the next open), so it may use an economic series
+row only if `available_at` is at or before that open. Worked example: the 10-year yield for Monday is
+first released on Tuesday (FRED records the date, not the time), so its availability time is
+Wednesday 00:00 UTC and the first row that may use it is Tuesday's, decided at Wednesday's open. A
+join on observation date would use it at Monday's row, decided at Tuesday's open: a day early.
+
+- **Age.** Each joined value carries its age in sessions. A declared maximum age per series kind (APR;
+  initial values to be set with todo 482) turns an older value into missing.
+- **Calendars differ.** Rates follow the bond-market calendar: on Columbus Day and Veterans Day
+  equities trade and no rate is published, so the age grows by one, which is correct and not a gap.
+  The NY Fed's declared rule uses the bond-market calendar, not the exchange calendar.
+- **One mechanism.** This is the same causal alignment phase 184 builds for off-clock bar inputs
+  (B3, the `align` node). Economic series are one more off-clock input, not a second join.
+
 ## Hidden biases and edge cases, each with its guard
 
 | Risk | How it fails silently | Guard |
@@ -133,19 +150,21 @@ missed.
 4. **Manual step eliminated:** none of the macro context is hand-maintained except declared
    publication rules and lead times, which forward fetches verify.
 
-## Build order
+## Build order and where each piece lands
 
-1. **Todo 482: point in time by measurement.** Load FRED series through ALFRED (first release plus
-   revision rows), drop the assumed lag for them, correct `THREEFYTP10`; add the standing audits
-   (SOFR and EFFR across sources, the 10s2s identity, gaps against the publication calendar). Nothing
-   reads the table yet, so a clean reload is safe now and expensive later.
-2. **S0 economic block:** as-of grid per session at cutoff K, value and age, maximum age per series,
-   hashed into the panel manifest. With the 186 work, after the kernel registry lands.
-3. **Schedule series** (FOMC, CPI, jobs report from FRED's release calendar: 333 releases, CPI dates
-   since 1949, jobs report since 1955, future dates included) only when the first pre-registered spec
-   needs them.
-4. **Derived kernels** after 186; the macro kernels move from symbol names to the series registry
-   (todo 475); the rates regime's curve axis takes the measured slope (todo 481).
+No new phase. Each piece has a natural owner:
+
+| Piece | Lands in | Gate |
+|---|---|---|
+| Release-record reload, audits, CVR namespaces | todo 482, now | nothing reads the table yet, so it is cheap now and costly later |
+| Daily timer installed and enabled | operator step (sudo) | the ICE spreads lose a day of history for every day it is off |
+| S0 economic block: decision-time join, age, maximum age, knowledge cutoff, hashed into the manifest; the shift test | phase 184 (scope item B8, beside the `align` node) | 482 done |
+| Derived macro measures as kernels | phase 184 B2 (`kernel_source` on the 186 registry); todo 475 moves the macro kernels to the series registry | 186 kernel registry |
+| Rates regime curve from the measured slope | todo 481, with the 186 regime rebuild | null-arm control |
+| Schedule series (FOMC, CPI, jobs report from FRED's release calendar: 333 releases, CPI dates since 1949, jobs report since 1955, future dates included) and the event study | the first pre-registered spec that needs them, through the phase 187 runner | a written spec with its power stated |
+| NY Fed Primary Dealer and SOMA lending, Tier 2 FRED series | todo 480 | a named consumer; monthly and weekly series only after 482 |
+
+If the 184 work grows past one scope item, split it then; it does not justify a phase on its own today.
 
 ## Family map: who owns what
 
