@@ -30,11 +30,17 @@ import pytest
 from services._batch_utils import load_config_service_sync
 from services.ic_measure import (
     apr_keys_read,
+    fetch_long_form,
     load_params,
+    make_tf_context,
 )
 from src.config.settings import dimension_where_clause
 from src.intelligence.measure.ic import (
+    align_features,
+    existing_rows,
     map_slots,
+    observation_rows,
+    pooled_rank_ic,
     scatter_features,
 )
 from src.intelligence.measure.params import MeasureParams
@@ -43,6 +49,7 @@ from src.intelligence.measure.targets import (
     stack_at_horizon,
     stack_grid,
 )
+from src.intelligence.measure.targets import stride as target_stride
 from src.intelligence.research import panel as research_panel
 from src.intelligence.schemas import FeatureVector
 from tests.unit.measure.parity_replay import (
@@ -645,13 +652,17 @@ def render_report(
     )
     if by_cause[UNEXPLAINED] or missing:
         verdict = "FAIL (unexplained differences or missing stored rows)"
-    elif n_differ:
-        verdict = (
-            f"GATE NOT MET AS WRITTEN: {n_differ} of {len(cells)} cells differ from the stored value; "
-            "every difference is attributed below"
-        )
+    elif n_legacy_ok != len(cells) - by_cause[FLOAT32_NOISE]:
+        verdict = "FAIL (the legacy-arithmetic replica does not reproduce every stored cell)"
     else:
-        verdict = "PASS"
+        verdict = (
+            "PASS under the restated criterion (owner decision 2026-10-01): the legacy-arithmetic "
+            f"replica reproduces the stored cells ({n_legacy_ok} of {len(cells)}; the "
+            f"{by_cause[FLOAT32_NOISE]} others are float32 summation noise in the stored value) and "
+            f"every fresh-versus-stored difference ({n_differ} cells) is attributed to a named cause: "
+            f"{by_cause[LEGACY_ZERO]} NaN-denominator zeros, {by_cause[RANK_SCOPE]} rank-scope, "
+            f"{by_cause[FLOAT32_NOISE]} float32 noise. pooled_rank_ic is unchanged"
+        )
     lines = [
         "# 186-20 parity report: stored POOLED cells versus the fresh IC function",
         "",
@@ -771,13 +782,21 @@ def render_report(
         "differ because ic_engine ranks X over every strided row before the target mask while the fresh "
         f"function ranks the complete rows (max {max_delta[RANK_SCOPE]:.3e}); {by_cause[FLOAT32_NOISE]} "
         "exceed the committed float32 bound by float32 summation noise (fresh and replica agree).",
-        "Whether the unstratified pooled cell is justified per R-06 on this evidence is the gate decision "
-        "the parity criterion leaves to the owner: the differences are defects of the stored legacy "
-        "values (a zero IC for a partly-missing feature, a rank scope that is not Spearman on the "
-        "complete sample), not of the fresh function, and the kernel-target differences are the causes "
-        f"counted above ({agg['end_of_window']} end-of-window, {agg['gap']} gap, "
-        f"{agg['session_cross']} session-crossing exits refused by design, {agg['open_missing']} "
-        f"entry or exit opens absent from the tradeable panel, {agg['other']} other).",
+        "Owner decision, 2026-10-01: the restated criterion is accepted (the replica reproduces every stored "
+        "cell, every fresh-versus-stored difference has a named cause) and `pooled_rank_ic` is not changed. "
+        "The differences are defects of the stored legacy values, not of the fresh function, so the "
+        "unstratified pooled cell is justified per R-06. Kernel-target differences: "
+        f"{agg['end_of_window']} end-of-window, {agg['gap']} gap, {agg['session_cross']} session-crossing "
+        f"exits refused by design, {agg['open_missing']} entry or exit opens absent from the tradeable "
+        f"panel, {agg['other']} other.",
+        "",
+        "## Relay for the research lane",
+        "",
+        "Stored `feature_ic_scores` POOLED rows hold `ic_value` 0.0 for any feature with a non-finite value "
+        f"among the strided rows ({by_cause[LEGACY_ZERO]} of the {len(cells)} sampled cells; a finite IC up to "
+        f"{lost_ic[LEGACY_ZERO]:.3e} existed on the complete rows). This can only produce false negatives "
+        "(a real IC shown as zero), never a false positive. Any research claim that cites a pooled row "
+        "should check that the feature is finite across the cell. The table is dropped whole by 186-28.",
         "",
         "## Re-deriving the stored numbers",
         "",
@@ -840,20 +859,114 @@ def test_table_targets_reproduce_stored_pooled_cells() -> None:
     REPORT_PATH.write_text(report)
     cells = [c for o in outcomes.values() for c in o.cells]
     missing = [m for o in outcomes.values() for m in o.missing_stored]
-    bad = [
-        f"{c.tf}/{c.label}/{c.feature}/{c.horizon}: stored {c.stored_ic} n {c.stored_n}; "
-        f"replay {c.table_ic} n {c.table_n}"
-        for c in cells
-        if not all(judge(c)[:2])
-    ]
     assert not missing, f"sampled stored rows missing: {missing[:10]}"
     unexplained = [c for c in cells if cause(c) == UNEXPLAINED]
     assert not unexplained, f"{len(unexplained)} cells differ for no known cause: {unexplained[:3]}"
-    assert (
-        not bad
-    ), f"{len(bad)} cells not reproduced (all attributed in the report); first: {bad[:5]}"
+    n_legacy_ok = sum(legacy_matches(c) for c in cells)
+    noise = sum(cause(c) == FLOAT32_NOISE for c in cells)
+    assert n_legacy_ok == len(cells) - noise, "the legacy-arithmetic replica misses stored cells"
 
 
 @pytest.mark.parity
 def test_writer_path_cell_matches_the_harness_replay() -> None:
-    pytest.skip("filled by task 3")
+    """One frozen stored pooled cell through ic_measure's own assembly versus the harness replay.
+
+    The writer-side calls are the writer's: `build_target_panels`, `make_tf_context` (its
+    `stack_grid`, `map_slots`, `SlotMap.present`), `fetch_long_form`, `ctx.stack`, `scatter_features`
+    (what `align_features` composes), `existing_rows`, `observation_rows`, `pooled_rank_ic`. The
+    only addition is the cell's label-bar row mask, which the writer's unstratified job lacks."""
+    tf = "1d"
+    with _connect() as conn:
+        candidates, _ = candidate_features(conn)
+        sample = random.Random(SAMPLE_SEED).sample(candidates, N_FEATURES)
+        harness = run_tf(conn, tf, sample)
+        reproduced = [
+            c for c in harness.cells if c.horizon == 1 and cause(c) == REPRODUCED and c.table_n > 0
+        ]
+        cell = max(reproduced, key=lambda c: (c.stored_n, c.feature, c.label))
+        params, cfg, oos = measure_params(conn, tf)
+        group = cell.group
+        bars = label_bars(conn, group, tf, cell.label, oos)
+        peers = peer_symbols(conn, group, datetime(2026, 9, 24, 23, 59, tzinfo=UTC))
+        start = datetime(1990, 1, 1, tzinfo=UTC)
+        keys = fetch_long_form(
+            conn, "feature_vectors", tf, peers, start, oos, [cell.feature], 200_000
+        )
+        used = sorted(set(keys.symbols.tolist()))
+        with tempfile.TemporaryDirectory(prefix="parity_writer_") as tmp:
+            first = keys.bar_ts.min().astype("datetime64[s]").astype(datetime).replace(tzinfo=UTC)
+            paths = asyncio.run(
+                build_target_panels(
+                    LIVE_DB_URL,
+                    Path(tmp),
+                    used,
+                    tf,
+                    first.isoformat(),
+                    oos.isoformat(),
+                    oos.isoformat(),
+                    params,
+                )
+            )
+            panels = [research_panel.load(p) for p in paths]
+        ctx = make_tf_context(
+            panels, oos.replace(tzinfo=None).isoformat(), keys.bar_ts, keys.symbols
+        )
+        stack = ctx.stack(1)
+        grid_a, _ = scatter_features(ctx.grid, ctx.slots, keys.values)
+        grid_b, _ = align_features(ctx.grid, keys.bar_ts, keys.symbols, keys.values)
+        assert np.array_equal(grid_a, grid_b, equal_nan=True)
+        in_label = np.isin(np.asarray(ctx.grid.timestamps), bars)
+        row_mask = existing_rows(stack.valid_grid(), ctx.present) & in_label[:, None]
+        x, y = observation_rows(grid_a, stack.targets, row_mask)
+        writer = pooled_rank_ic(
+            x,
+            y,
+            stride=target_stride(stack, params),
+            params=params,
+            feature_names=(cell.feature,),
+            bootstrap=False,
+        )
+    delta = float(writer.ic[0]) - cell.kernel_ic
+    verdict = abs(delta) <= STRICT_TOL and int(writer.n_independent[0]) == cell.kernel_n
+    key = f"{tf} / {cell.label} (group {group}) / {cell.feature} / horizon {cell.horizon}"
+    block = "\n".join(
+        [
+            f"Frozen stored cell (verbatim): `{key}`; stored ic_value {cell.stored_ic!r}, "
+            f"n_independent {cell.stored_n}.",
+            "",
+            "Production-assembly call sequence (landed signatures): "
+            "`build_target_panels(dsn, out_dir, symbols, tf, start, end_exclusive, oos_start, params)` -> "
+            "`research_panel.load` -> `make_tf_context(panels, end_exclusive, bar_ts, symbols)` "
+            "(`stack_grid`, `map_slots`, `SlotMap.present`) -> `fetch_long_form` for the feature -> "
+            "`ctx.stack(horizon)` (`stack_at_horizon`) -> `scatter_features` (checked equal to "
+            "`align_features(stack_grid, bar_ts, symbols, values)`) -> "
+            "`existing_rows(stack.valid_grid(), ctx.present)` and the cell's label-bar mask -> "
+            "`observation_rows` -> `pooled_rank_ic(X, y, stride=max(min_stride, horizon), params)`.",
+            "",
+            f"- Writer-path value: {float(writer.ic[0])!r} (n_independent {int(writer.n_independent[0])}).",
+            f"- Harness kernel replay (`replay_kernel_targets`): {cell.kernel_ic!r} "
+            f"(n_independent {cell.kernel_n}).",
+            f"- Delta {delta:.3e} against the float64 tolerance {STRICT_TOL:.0e}: "
+            f"{'PASS' if verdict else 'FAIL'}.",
+            f"- For reference: table-target replay {cell.table_ic!r}; stored {cell.stored_ic!r}.",
+            "- Peer-symbol source: labels and peers come from `market_regimes` plus "
+            "`alpha.regime.groups` (value `"
+            + _regime_groups_value()
+            + "`), both confirmed live at this "
+            "run. `alpha.regime.groups` must survive 186-21's APR deletion.",
+        ]
+    )
+    text = REPORT_PATH.read_text()
+    head, rest = text.split(WRITER_BEGIN, 1)
+    tail = rest.split(WRITER_END, 1)[1]
+    REPORT_PATH.write_text(head + WRITER_BEGIN + "\n" + block + "\n" + WRITER_END + tail)
+    assert verdict, f"writer path {writer.ic[0]!r} vs harness {cell.kernel_ic!r}, delta {delta:.3e}"
+
+
+def _regime_groups_value() -> str:
+    with _connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = 'alpha.regime.groups'"
+        )
+        value = cur.fetchone()[0]
+    return json.dumps(json.loads(value), separators=(",", ":"))[:240] + "..."

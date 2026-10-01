@@ -1,6 +1,6 @@
 # 186-20 parity report: stored POOLED cells versus the fresh IC function
 
-Verdict: GATE NOT MET AS WRITTEN: 136 of 1080 cells differ from the stored value; every difference is attributed below. Generated 2026-10-01T07:58:41+00:00 by `tests/integration/test_ic_parity_replay.py` (read-only).
+Verdict: PASS under the restated criterion (owner decision 2026-10-01): the legacy-arithmetic replica reproduces the stored cells (1078 of 1080; the 2 others are float32 summation noise in the stored value) and every fresh-versus-stored difference (136 cells) is attributed to a named cause: 66 NaN-denominator zeros, 68 rank-scope, 2 float32 noise. pooled_rank_ic is unchanged. Generated 2026-10-01T11:58:55+00:00 by `tests/integration/test_ic_parity_replay.py` (read-only).
 
 ## Stated sample (fixed before running)
 
@@ -53,7 +53,11 @@ Kernel targets are `panel.forward_returns` on S0 panels built with `end_exclusiv
 
 Row-set parity holds: 0 cells whose feature is finite on the strided rows disagree on n_independent, so the peer set, label bars, stride and target mask rebuild ic_engine's cells exactly, and the legacy-arithmetic replica reproduces 1078 of 1080 stored values within the float32 bound.
 Value parity as written (every sampled cell within tolerance) is NOT met: 136 of 1080 cells differ, all attributed. 66 stored ICs are 0.0 where a feature has a non-finite value among the strided rows (ic_engine's `rankdata` returns NaN for the column and `_vectorized_ic` maps a NaN denominator to 0.0; the fresh function drops the non-finite rows and the finite IC reaches 4.566e-02); 68 differ because ic_engine ranks X over every strided row before the target mask while the fresh function ranks the complete rows (max 1.083e-04); 2 exceed the committed float32 bound by float32 summation noise (fresh and replica agree).
-Whether the unstratified pooled cell is justified per R-06 on this evidence is the gate decision the parity criterion leaves to the owner: the differences are defects of the stored legacy values (a zero IC for a partly-missing feature, a rank scope that is not Spearman on the complete sample), not of the fresh function, and the kernel-target differences are the causes counted above (0 end-of-window, 0 gap, 2772485 session-crossing exits refused by design, 447977 entry or exit opens absent from the tradeable panel, 326224 other).
+Owner decision, 2026-10-01: the restated criterion is accepted (the replica reproduces every stored cell, every fresh-versus-stored difference has a named cause) and `pooled_rank_ic` is not changed. The differences are defects of the stored legacy values, not of the fresh function, so the unstratified pooled cell is justified per R-06. Kernel-target differences: 0 end-of-window, 0 gap, 2772485 session-crossing exits refused by design, 447977 entry or exit opens absent from the tradeable panel, 326224 other.
+
+## Relay for the research lane
+
+Stored `feature_ic_scores` POOLED rows hold `ic_value` 0.0 for any feature with a non-finite value among the strided rows (66 of the 1080 sampled cells; a finite IC up to 4.566e-02 existed on the complete rows). This can only produce false negatives (a real IC shown as zero), never a false positive. Any research claim that cites a pooled row should check that the feature is finite across the cell. The table is dropped whole by 186-28.
 
 ## Re-deriving the stored numbers
 
@@ -67,5 +71,13 @@ select ic_value, n_independent from feature_ic_scores where symbol='POOLED' and 
 ## Writer-path parity cell
 
 <!-- BEGIN writer-path parity cell -->
-(not yet computed)
+Frozen stored cell (verbatim): `1d / up_secondary_neutral (group commodity) / yield_slope_momentum_product / horizon 1`; stored ic_value 0.022089984267950058, n_independent 6168.
+
+Production-assembly call sequence (landed signatures): `build_target_panels(dsn, out_dir, symbols, tf, start, end_exclusive, oos_start, params)` -> `research_panel.load` -> `make_tf_context(panels, end_exclusive, bar_ts, symbols)` (`stack_grid`, `map_slots`, `SlotMap.present`) -> `fetch_long_form` for the feature -> `ctx.stack(horizon)` (`stack_at_horizon`) -> `scatter_features` (checked equal to `align_features(stack_grid, bar_ts, symbols, values)`) -> `existing_rows(stack.valid_grid(), ctx.present)` and the cell's label-bar mask -> `observation_rows` -> `pooled_rank_ic(X, y, stride=max(min_stride, horizon), params)`.
+
+- Writer-path value: 0.022089497508545795 (n_independent 6168).
+- Harness kernel replay (`replay_kernel_targets`): 0.022089497508545795 (n_independent 6168).
+- Delta 0.000e+00 against the float64 tolerance 1e-09: PASS.
+- For reference: table-target replay 0.022089497508545795; stored 0.022089984267950058.
+- Peer-symbol source: labels and peers come from `market_regimes` plus `alpha.regime.groups` (value `[{"name":"equity","enabled":true,"tag_filter":["eq_*","intl_*","single_name_equity"],"signal_type":"breadth_vol","params_prefix":"alpha.equity_regime","exclude_symbols":["AA","ADM","BHP","COIN","COP","CTVA","CVX","EPD","KMI","MARA","MSTR","...`), both confirmed live at this run. `alpha.regime.groups` must survive 186-21's APR deletion.
 <!-- END writer-path parity cell -->
