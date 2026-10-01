@@ -28,6 +28,7 @@ backtest days or weeks before it existed. Everything below is organized around t
 | Daily H.15 and Moody's series, first-release lag over Q1 2024 (61 days each) | `DGS10`, `DFII10`: 1 day (49), 3 (10), 4 (2). `BAA10Y`: 1 (47), 2 (1), 3 (10), 4 (3) | the assumed rule is right on most days and early on holiday weekends and on `BAA10Y`'s two-day days; measurement removes the guess |
 | ICE spread first release | same calendar day as the observation | conservative under the current rule |
 | SOFR, FRED against the NY Fed | 2,122 common days, 0 value mismatches; the NY Fed has 2018-04-02 (first day) only | two sources reconcile exactly: usable as a standing check |
+| S&P 500 and Nasdaq 100, Yahoo against FRED (migration 427) | S&P 500: 2 of 2,512 days off by more than 1 bp. Nasdaq 100: 99% agreement 1986-2002, 100% from 2006, 34% in 2003-2005 (median gap 0.36%, no date shift) | a disagreement is recorded, never repaired; a spec names its source for the disputed years |
 | Identity `T10Y2Y = DGS10 - DGS2` | 3 days off, worst 2 bp; 1 day with the slope but a missing leg | small, real defects: audit them, never patch values |
 
 ## Requirements

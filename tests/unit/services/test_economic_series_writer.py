@@ -148,6 +148,33 @@ def test_nyfed_not_published_marker_is_missing_and_other_text_fails():
 def test_every_nyfed_field_has_a_declared_unit():
     assert set(FIELD_SUFFIX.values()) == set(SUFFIX_UNIT)
     assert series_unit("NYFED_SOFR_VOLUME_BN") == "billions_usd"
-    assert series_unit("NYFED_SOFRAI_INDEX") == "index_level"
+    assert series_unit("NYFED_SOFRAI_INDEX") == "index"
     assert series_unit("NYFED_SOFRAI_AVG_30D") == "percent"
     assert series_unit("NYFED_EFFR_TARGET_FROM") == "percent"
+
+
+def test_yahoo_takes_completed_sessions_only_and_never_fills():
+    from src.providers.yahoo import index_close_rows, index_series_id
+
+    rows = index_close_rows(
+        [
+            (date(2026, 9, 29), 6500.0),
+            (date(2026, 9, 30), float("nan")),
+            (date(2026, 10, 1), 6510.0),
+        ],
+        before=date(2026, 10, 1),
+    )
+    assert rows == [
+        (date(2026, 9, 29), 6500.0)
+    ]  # NaN day absent, today's provisional close skipped
+    assert index_series_id("^GSPC") == "YAHOO_GSPC_CLOSE"
+    with pytest.raises(ValueError):
+        index_close_rows([(date(2026, 9, 29), 0.0)], before=date(2026, 10, 1))
+
+
+def test_yahoo_accepts_index_tickers_only():
+    from src.providers.yahoo import YahooSource
+
+    YahooSource(1).validate("^GSPC")
+    with pytest.raises(ValueError):
+        YahooSource(1).validate("SPY")

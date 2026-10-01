@@ -42,6 +42,7 @@ from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.economic_source import EconomicSource, Series, SourceError
 from src.providers.fred import FredSource
 from src.providers.nyfed import NyFedSource
+from src.providers.yahoo import YahooSource
 
 _JOB = "economic-series-writer"
 # Per-run outcome counts, labeled {outcome} only: never per series (the detail stays in the log).
@@ -159,6 +160,7 @@ class EconomicSeriesWriter(BaseBatch):
         registered: list[EconomicSource] = [
             FredSource(self._settings.fred_api_key, max_attempts),
             NyFedSource(max_attempts),
+            YahooSource(max_attempts),
         ]
         return {source.name: source for source in registered}
 
