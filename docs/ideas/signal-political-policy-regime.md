@@ -269,6 +269,51 @@ What the pass does and does not mean:
 defines the 2026 window (close at or before 2026-11-03 to close at or before 2027-05-03). Its result is
 recorded here in May 2027, unchanged by anything learned before then.
 
+### Window scan, look 3 (exploratory, run 2026-10-01 after the result above)
+
+Owner-requested, not pre-registered, and no evidence beyond look 2: it asks only where in the cycle the
+excess sits. Same data and event rule; 24 cells (entry 3, 2, 1 months before election day, on it, 1 and
+2 months after; horizon 3, 6, 9, 12 months). Each cell is the midterm-minus-other-years difference in
+log return over that cell's own horizon. Family-wise p compares each cell's permutation z against the
+maximum z over all 24 cells (20,000 draws, seed 20261002).
+
+| Entry | 3 months | 6 months | 9 months | 12 months |
+|---|---|---|---|---|
+| 2 months before | +3.2 | +8.1 (0.044) | +10.2 (0.059) | +10.8 (0.029) |
+| 1 month before | +3.8 | +9.3 (0.008) | +12.7 (0.007) | +11.0 (0.054) |
+| Election day | +4.0 | +8.1 (0.015) | +8.3 (0.047) | +7.4 |
+| 1 month after | +4.9 (0.014) | +7.0 (0.065) | +7.6 (0.051) | +6.4 |
+
+Points of log return over the cell's horizon; family-wise p shown where below 0.07. Rows for 3 months
+before and 2 months after are omitted.
+
+Monthly increments (midterm minus other years, points): negative through the midterm summer (-3.3 five
+months out, -1.6 three months out), +2.7 in the month before the election, positive in each of months 1
+to 6 after it (about +8 in total), +2.4 in month 8, flat to negative in months 9 to 12.
+
+Robustness (seed 20261003):
+
+| Cell | Mean excess | Median excess | Leave-one-out range | Drop top 3 midterms |
+|---|---|---|---|---|
+| Election day, 6 months (committed) | +8.1 | +8.6 | +7.6 to +9.3 (worst: drop 1942, p 0.002) | +6.5 |
+| 1 month before, 9 months (best) | +12.7 | +11.8 | +11.6 to +14.5 (worst: drop 1974, p 0.002) | +9.9 |
+| 1 month before, 6 months | +9.3 | +8.9 | +8.6 to +10.6 | +7.2 |
+| 2 months before, 12 months | +10.8 | +12.2 | +9.8 to +13.4 | +8.1 |
+
+No single cycle carries the result, and the median matches the mean, so it is not a few outlier years.
+
+Reading:
+- The excess sits from about a month before the election through roughly six to nine months after,
+  following a weak midterm summer. The breadth across cells is expected rather than confirming: adjacent
+  cells share most of the same 24 return paths. The evidence is look 2's p and the robustness rows.
+- The best cell (1 month before, 9 months) is the maximum of 24 searched cells and must not replace the
+  committed definition. The election-day 6-month window stays the definition, and the 2026 forward
+  window above is unchanged.
+- For use as an input, encode the cycle as a `_sin`/`_cos` pair on the four-year cycle (the calendar
+  primitive form) rather than a hand-picked window, and let the combiner fit the shape walk-forward
+  inside a counted attempt. Our own panel covers about six cycles, so that fit has little to learn from;
+  this is a slow prior, low priority under build first.
+
 ### Spec to pre-register
 
 - Outcome: SPY (and one broad equal-weight ETF, RSP) total return, election day to +6
