@@ -1,26 +1,46 @@
 #!/usr/bin/env python3
-"""Backfill Feature Factory — two-stage oneshot.
+"""Backfill Feature Factory: the IBKR fetch stage and the feature_vectors_v2 rebuild writer.
 
-Stage 1 (--fetch-only flag): Fetch IBKR OHLCV history for 58 active ETFs
-into market_data_ohlcv at target depths. Checkpointed per (symbol, tf) via
-backfill_status.fetch_complete.
+Stage 1 (--fetch-only): fetch IBKR OHLCV history into market_data_ohlcv at target depths,
+checkpointed per (symbol, tf) via backfill_status.fetch_complete. Phase 185 owns it.
 
-Stage 2 (--compute-only flag): Read market_data_ohlcv_tradeable in chunked sliding
-windows, call FeatureFactory.compute() per bar, batch-insert into
-feature_vectors. Checkpointed per (symbol, tf) via backfill_status.status.
+Stage 2 (--compute-only): the single rebuild writer for feature_vectors_v2 (phase 186, D-28).
+A unit of work is (symbol chunk, tf, calendar-year range), recorded as one provenance_batch row
+(D-24) with target_table feature_vectors_v2; a rerun after a kill skips every unit whose record is
+completed and recomputes the rest (D-32a). Workers are compute-only: one task per symbol runs the
+kernel registry ONCE over the symbol's whole history (regime and regime_volatility included, in
+the same pass: no UPDATE path exists, no separate regime pass, R-10) and writes one spool
+file per (symbol, unit) under a directory the main process owns; they return paths and row
+counts, never row lists (todo 339). The main process merges a unit's symbol spools in time order
+and streams them through bulk_load() on one serial writer connection. Nothing writes the old
+feature_vectors table.
 
-Default: both stages run in sequence.
+Default: both stages run in sequence. Source invariant (T1/D-05): only market_data_ohlcv (via the
+market_data_ohlcv_tradeable view, todo 124) is read for compute.
 
-IBKR client-id: 40 (provider uses 35; default 56 exceeds _MAX_CLIENT_ID=50).
+Kill and resume (CLAUDE.md orphan-worker rules). Killing the main process leaves its forkserver
+workers running and a backend possibly mid-COPY:
 
-Source invariant (T1/D-05): Only market_data_ohlcv (via the market_data_ohlcv_tradeable
-view -- todo 124) is read for compute. Never intelligence_features.
+    kill <main_pid>
+    ps -eo pid,cmd | awk '/backfill_feature_factory/ && !/awk/ {print $1}' | xargs kill
+    # confirm zero remain, then look for a leftover write backend and terminate it:
+    #   select pid, state, wait_event from pg_stat_activity
+    #    where state = 'active' and wait_event = 'ClientWrite' and query like 'COPY feature_vectors_v2%';
+    #   select pg_terminate_backend(<pid>);
+
+then relaunch the same command: completed units are skipped, a killed unit left a `started`
+provenance row and zero data rows (the COPY and the completed record commit together) and is
+retaken. Never edit this module, the kernels it runs or anything they import while a run is live
+or resumable: the unit code key hashes them, so one edit renames every unit.
+
+The data horizon (--data-horizon, default the first day of the current UTC month) is the exclusive
+end of every unit. It is pinned so nightly bars landing between a kill and its resume cannot move
+a completed unit's identity; a resume must pass the same horizon.
 
 Usage:
-    python services/backfill_feature_factory.py
+    python services/backfill_feature_factory.py --compute-only --data-horizon 2026-10-01
     python services/backfill_feature_factory.py --fetch-only
-    python services/backfill_feature_factory.py --compute-only
-    python services/backfill_feature_factory.py --symbols SPY,TLT
+    python services/backfill_feature_factory.py --symbols SPY,TLT --tf 1d --compute-only
     python services/backfill_feature_factory.py --client-id 40
 """
 
@@ -28,15 +48,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import functools
 import hashlib
+import heapq
 import math
+import operator
+import shutil
 import sys
-from collections.abc import Sequence
+import tempfile
+import time
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
+import numpy as np
 import psycopg
 import structlog
 
@@ -45,7 +72,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
-from services._batch_utils import compressed_hypertable_write_session as _write_session
+from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL, BulkLoadSpec
+from services._batch_utils import bar_content_digests as _bar_content_digests
+from services._batch_utils import bulk_load as _bulk_load
+from services._batch_utils import completed_provenance_batch as _completed_provenance_batch
+from services._batch_utils import compress_completed_chunks as _compress_completed_chunks
 from services._batch_utils import get_dict_config as _get_dict_config
 from services._batch_utils import get_list_config as _get_list_config
 from services._batch_utils import kernel_code_key as _kernel_code_key
@@ -54,24 +85,28 @@ from services._batch_utils import make_worker_pool as _make_worker_pool
 from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
+from src.core.real_column_range import REAL_MAX_MAGNITUDE, REAL_MIN_MAGNITUDE
 from src.core.service_utils import setup_service_logging
 from src.intelligence.feature_factory import (
-    FEATURE_FACTORY_VERSION,
-    FeatureFactory,
     FeatureFactoryConfig,
+    _batch_kernel_inputs,
+    _cross_tf_kernel_inputs,
+    _macro_kernel_inputs,
 )
-from src.intelligence.features.contract.registry import Kernel, KernelRegistry
+from src.intelligence.features.contract.registry import (
+    Kernel,
+    KernelRegistry,
+    compute_kernels,
+    default_registry,
+)
 from src.intelligence.features.feature_vector_persistence import (
-    FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
-    FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
-    feature_vector_to_insert_params,
-)
-from src.intelligence.features.kernels._cache_state import (
-    FeatureCache,
+    feature_vector_v2_row_values,
+    feature_vectors_v2_columns,
+    feature_vectors_v2_numeric_columns,
 )
 from src.intelligence.features.kernels._hmm import HmmConfig
+from src.intelligence.features.kernels._primitives import none_mask_name
 from src.intelligence.features.kernels.cross_tf import (
-    CtfSeries,
     _build_ctf_series,
     _build_ltf_return_series,
     _rekey_ctf_series_to_actual_close,
@@ -83,10 +118,10 @@ from src.intelligence.features.kernels.macro import (
     SPY,
     TIP,
     TLT,
+    bar_ts_ns,
     build_cross_asset_series,
     build_symbol_beta_series,
 )
-from src.intelligence.schemas import FeatureVector
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider
@@ -113,7 +148,7 @@ _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 
 def _restrict_timeframes(configured: list[str], only: list[str] | None) -> list[str]:
     """`only` (the --tf flag) narrows the APR set, keeping its order; a tf outside it raises
-    rather than being silently skipped (todo 421: refresh 1d alone without recomputing
+    rather than being silently skipped (todo 421: rebuild 1d alone without recomputing
     every intraday bar)."""
     if only is None:
         return configured
@@ -165,19 +200,11 @@ _BARS_PER_DAY: dict[str, int] = {
     "1d": 1,
 }
 
-_TRADING_DAYS_PER_YEAR: int = 252
-
-# Batch size for feature_vectors INSERT — APR fallback default, live value read from
-# infra.backfill.insert_batch_size (migration 275, todo 009 Part A).
-_INSERT_BATCH_SIZE_DEFAULT: int = 500
-
-# Chunk read size from market_data_ohlcv (T3: never load full history at once)
-_READ_CHUNK_BARS: int = 2000
-
-# Warm-up guard: number of bars needed before first valid feature vector.
-# Use the momentum_zscore_window (252) as the dominant window + headroom.
-# Read from config at runtime via FeatureFactoryConfig.
-_FALLBACK_WARM_UP_BARS: int = 252
+# Rows per memory block of the rebuild: one fetch round trip of a symbol's bars and one spool
+# write block. APR fallback; the live value is infra.feature_factory.rebuild_block_rows
+# (migration 429).
+_REBUILD_BLOCK_ROWS_KEY = "infra.feature_factory.rebuild_block_rows"
+_REBUILD_BLOCK_ROWS_DEFAULT: int = 10_000
 
 # Cross-asset symbols for FeatureCache.update_cross_asset() -- SPY/TLT/SHY/TIP/HYG/LQD
 # and CROSS_ASSET_SYMBOLS now live in src.intelligence.features.kernels.macro
@@ -215,11 +242,10 @@ WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
 ORDER BY timestamp ASC
 """
 
-_FETCH_BARS_WINDOW_SQL = """
+_FETCH_BARS_UNTIL_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv_tradeable
-WHERE symbol = %s AND timeframe = %s
-  AND timestamp >= %s AND timestamp < %s
+WHERE symbol = %s AND timeframe = %s AND timestamp < %s
 ORDER BY timestamp ASC
 """
 
@@ -238,68 +264,11 @@ VALUES (%s, %s, true, 'pending')
 ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true
 """
 
-_MARK_COMPUTE_STATUS_SQL = """
-INSERT INTO backfill_status (symbol, tf, status, started_at)
-VALUES (%s, %s, %s, NOW())
-ON CONFLICT (symbol, tf) DO UPDATE SET
-    status = EXCLUDED.status,
-    started_at = COALESCE(backfill_status.started_at, NOW())
-"""
-
-_MARK_COMPUTE_COMPLETE_SQL = """
-UPDATE backfill_status
-SET status = 'complete',
-    rows_written = %s,
-    theoretical_max = %s,
-    completed_at = NOW()
-WHERE symbol = %s AND tf = %s
-"""
-
-_MARK_COMPUTE_FAILED_SQL = """
-UPDATE backfill_status
-SET status = 'failed', error_msg = %s
-WHERE symbol = %s AND tf = %s
-"""
-
 _SELECT_STATUS_SQL = """
 SELECT symbol, tf, status, fetch_complete, rows_written, theoretical_max
 FROM backfill_status
 WHERE symbol = ANY(%s) AND tf = ANY(%s)
 """
-
-# todo 316: backfill_status.status='complete' is a side-table checkpoint with no
-# transactional or FK coupling to feature_vectors itself -- it can silently desync
-# from reality (confirmed live: 80 active symbols, computed successfully per
-# backfill_status in 2026-07, completely absent from feature_vectors as of
-# 2026-08-14, with zero errors/warnings anywhere in between). This query lets
-# run_compute_stage verify the checkpoint against the table it's actually a proxy
-# for, once per run (not per-pair), before trusting a 'complete' status to skip.
-# Counts, not just DISTINCT presence (code review finding, same session): a pair
-# that lost MOST but not all of its rows would still read as "present" under a
-# pure existence check, reproducing the exact silent-partial-gap failure mode
-# this fix exists to close, just below 100% instead of at 0%.
-_SELECT_FV_ROW_COUNTS_SQL = """
-SELECT symbol, tf, count(*)
-FROM feature_vectors
-WHERE symbol = ANY(%s) AND tf = ANY(%s)
-GROUP BY symbol, tf
-"""
-
-# Canonical INSERT/UPSERT SQL imported from shared persistence module.
-# Do not inline SQL here — feature_vector_persistence.py is the single source of truth.
-# DO NOTHING (default): idempotent gap-fill, never touches an existing row.
-# DO UPDATE (--refresh): todo 176's recompute escape hatch -- ON CONFLICT (symbol,
-# tf, bar_ts) DO NOTHING means a naive re-run silently skips every bar that already
-# exists, so new columns (e.g. Phase 163's 17 VP/SR fields) never populate on
-# pre-existing rows no matter how many times the backfill re-runs.
-_INSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_INSERT_SQL_PSYCOPG
-_UPSERT_FEATURE_VECTORS_SQL = FEATURE_VECTOR_UPSERT_SQL_PSYCOPG
-
-
-# _build_cross_asset_series/_safe_corr_np/_build_symbol_beta_series moved to
-# src.intelligence.features.kernels.macro (Plan 151-09 Task 1) as
-# build_cross_asset_series/build_symbol_beta_series, and the CTF and LTF return builders moved to
-# src.intelligence.features.kernels.cross_tf (186-15) -- imported above, no local definition here.
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -590,53 +559,21 @@ def _build_feature_factory_config(cfg: ConfigService) -> FeatureFactoryConfig:
     )
 
 
-def _theoretical_max(tf: str, depth_years: int, warm_up_bars: int) -> int:
-    """Compute theoretical max feature rows.
-
-    Formula: (depth_years * 252 * bars_per_trading_day(tf)) - warm_up_bars
-
-    Parameters
-    ----------
-    tf: Timeframe string (5m/15m/1h/1d)
-    depth_years: Fetch depth in years
-    warm_up_bars: Bars consumed by rolling window seed (dominant window)
-    """
-    bars_per_day = _BARS_PER_DAY[tf]
-    return max(0, depth_years * _TRADING_DAYS_PER_YEAR * bars_per_day - warm_up_bars)
-
-
-def _vector_to_params(
+def _fetch_bars_from_db(
+    conn: Any,
     symbol: str,
     tf: str,
-    bar_ts: datetime,
-    pipeline_version: str,
-    regime: str | None,
-    fv: FeatureVector,
-) -> tuple:
-    """Delegate to the canonical shared serializer.
-
-    Backfill rows always use regime_label_source='filtered': all rows are
-    computed from market_data_ohlcv with causal forward-filter HMM only (D-07).
-    FEATURE_FACTORY_VERSION is injected here so all batch rows are version-stamped.
-    """
-    return feature_vector_to_insert_params(
-        symbol=symbol,
-        tf=tf,
-        bar_ts=bar_ts,
-        pipeline_version=pipeline_version,
-        feature_factory_version=FEATURE_FACTORY_VERSION,
-        regime=regime,
-        regime_label_source="filtered",
-        vector=fv,
-    )
-
-
-def _fetch_bars_from_db(
-    conn: Any, symbol: str, tf: str, since: datetime | None = None
+    since: datetime | None = None,
+    until: datetime | None = None,
 ) -> list[dict]:
-    """Fetch OHLCV bars from market_data_ohlcv_tradeable ordered oldest-first."""
+    """Fetch OHLCV bars from market_data_ohlcv_tradeable ordered oldest-first, optionally from
+    `since` and strictly before `until` (the rebuild's data horizon; never both)."""
     with conn.cursor() as cur:
-        if since is not None:
+        if since is not None and until is not None:
+            raise ValueError("_fetch_bars_from_db takes since or until, not both")
+        if until is not None:
+            cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, until))
+        elif since is not None:
             cur.execute(_FETCH_BARS_SINCE_SQL, (symbol, tf, since))
         else:
             cur.execute(_FETCH_BARS_SQL, (symbol, tf))
@@ -668,22 +605,6 @@ def _load_status_map(conn: Any, symbols: list[str], tfs: list[str]) -> dict[tupl
             "theoretical_max": theoretical_max,
         }
     return result
-
-
-def _load_fv_row_counts(
-    conn: Any, symbols: list[str], tfs: list[str]
-) -> dict[tuple[str, str], int]:
-    """Load actual feature_vectors row counts per (symbol, tf) pair.
-
-    todo 316: the ground truth run_compute_stage's checkpoint must be verified
-    against — backfill_status.status='complete' alone is not sufficient proof.
-    A missing key means zero rows (total loss); a present key below
-    coverage_threshold * rows_written means partial loss — both are desyncs.
-    """
-    with conn.cursor() as cur:
-        cur.execute(_SELECT_FV_ROW_COUNTS_SQL, (symbols, tfs))
-        rows = cur.fetchall()
-    return {(sym, tf): count for sym, tf, count in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -998,685 +919,760 @@ async def run_fetch_stage(
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: FeatureFactory Compute
+# Stage 2: the rebuild writer (D-28). feature_vectors_v2 only, through bulk_load().
 # ---------------------------------------------------------------------------
 
+_V2_TABLE = "feature_vectors_v2"
+_V2_TIME_COLUMN = "bar_ts"
+# ETFs trade on NYSE/NASDAQ/ARCA with identical hours; the old table filtered non-trading bars at
+# source and the rebuilt one keeps the same row set so the swap's drift report compares like with
+# like.
+_TRADING_EXCHANGE = "NYSE"
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_ONE_MICROSECOND = timedelta(microseconds=1)
+_SPOOL_ROOT_DEFAULT = project_root / "logs" / "rebuild_spool"
+_SPOOL_GROUP_PREFIX = "group-"
 
-def _pct(rows_written: int, theoretical_max: int) -> float:
-    """rows_written / theoretical_max, or 0.0 when theoretical_max isn't positive.
 
-    Shared by both the checkpoint-skip path and the fresh-compute path in
-    run_compute_stage (/simplify pass, todo 318/300 session) -- same formula was
-    computed identically in two places with no shared helper.
+def default_data_horizon(now: datetime | None = None) -> datetime:
+    """The exclusive end of every rebuild unit when --data-horizon is not given: midnight UTC at
+    the start of the current month. Whole months only, because the bar content digest is
+    month-granular (`bar_content_digests`): a horizon inside a month would digest that month
+    whole and flip the unit's identity when later bars of it land."""
+    moment = (now or datetime.now(UTC)).astimezone(UTC)
+    return datetime(moment.year, moment.month, 1, tzinfo=UTC)
+
+
+class SeriesColumns(NamedTuple):
+    """One (symbol, tf) series' computed columns on the bar grid."""
+
+    # (n_bars, n_numeric) float32 in feature_vectors_v2_numeric_columns() order; NaN is missing.
+    numeric: np.ndarray
+    regime: np.ndarray  # object, None where unlabeled
+    regime_volatility: np.ndarray
+
+
+def _clamp_real_array(column: np.ndarray) -> np.ndarray:
+    """Vectorized `clamp_to_real_range` over a float64 column: finite values beyond float32's
+    range clamp to +-max, nonzero values below its smallest magnitude become 0.0; NaN and
+    infinity are left as they are (Postgres accepts both in a real column)."""
+    finite = np.isfinite(column)
+    magnitude = np.abs(column)
+    clamped = np.where(finite, np.clip(column, -REAL_MAX_MAGNITUDE, REAL_MAX_MAGNITUDE), column)
+    tiny = finite & (magnitude > 0.0) & (magnitude < REAL_MIN_MAGNITUDE)
+    return np.where(tiny, 0.0, clamped)
+
+
+def column_warmup_bars(
+    registry: KernelRegistry, columns: Sequence[str], config: FeatureFactoryConfig
+) -> dict[str, int]:
+    """Declared memory in bars per column, for the columns whose kernels have a finite memory.
+
+    Rows of a series before this index are not yet what a long-history computation gives
+    (the kernel's declared window has not filled): the rebuild writes them as missing. A
+    path-dependent column has no finite memory and is absent here (its kernel emits its own
+    NaN while it has no state, D-26).
     """
-    return rows_written / theoretical_max if theoretical_max > 0 else 0.0
+    warmups: dict[str, int] = {}
+    for column in columns:
+        kernel = registry.by_output(column)
+        if registry.is_path_dependent(column):
+            continue
+        warmups[column] = registry.effective_memory_bars(kernel.name, config)
+    return warmups
 
 
-def _mark_cell_failed(db_conn: Any, symbol: str, tf: str, error_str: str) -> None:
-    """Record one (symbol, tf) cell as failed in backfill_status.
+def _compute_series_columns(
+    inputs: Mapping[str, np.ndarray],
+    config: FeatureFactoryConfig,
+    registry: KernelRegistry | None = None,
+) -> SeriesColumns:
+    """Every feature_vectors_v2 feature column of one series from ONE `compute_kernels` call.
 
-    Shared by run_compute_stage's two failure paths (worker-reported compute error,
-    main-process write error) -- both previously repeated the identical mark-failed
-    try/except/rollback block (/simplify pass, todo 318/300 session). A pure DB
-    side-effect only -- deliberately does NOT touch the caller's coverage dict (split
-    out of an earlier version that fused the two, /simplify altitude-angle finding,
-    same session: mutating a caller-owned dict by reference inside a "write to the
-    DB" helper is a hidden side effect a reader has to open the function to discover).
-
-    Defensive by design, like the worker-side guard this replaces (todo 318 code
-    review): recording the failure must not itself crash the run. Logs (rather than
-    silently swallowing, as the pre-extraction code did in both call sites) if even
-    this best-effort recording fails -- a rare double-failure, but one that previously
-    left backfill_status silently stuck at 'in_progress' with zero signal anywhere.
+    The call runs from the series start over the registry's full output set, regime and
+    regime_volatility included (the HMM walk-forward kernels, R-10); the session VP, session
+    levels, AMD, weekly VWAP, hurst, shannon, garch, hma, adx and product columns are registry
+    kernels too, so no FeatureCache is built or read and a pre-warmed cache cannot change a row.
+    A nullable column's none mask turns its NaN into missing; a column with a finite declared
+    memory is missing for rows inside that memory (no_fill). The result is float32 (the table's
+    type) with out-of-range values clamped the way bulk_load clamps.
     """
-    try:
-        with db_conn.cursor() as cur:
-            cur.execute(_MARK_COMPUTE_FAILED_SQL, (error_str, symbol, tf))
-        db_conn.commit()
-    except Exception as mark_failed_error:
-        db_conn.rollback()
-        _logger.error(
-            "mark_cell_failed_itself_failed",
-            symbol=symbol,
-            tf=tf,
-            original_error=error_str,
-            mark_failed_error=str(mark_failed_error),
-        )
+    registry = registry if registry is not None else default_registry()
+    numeric_names = feature_vectors_v2_numeric_columns()
+    outputs = list(feature_vectors_v2_columns()[3:])
+    out = compute_kernels(registry, inputs, config, outputs=outputs)
+    n = len(inputs["close"])
+    warmups = column_warmup_bars(registry, numeric_names, config)
+    matrix = np.empty((n, len(numeric_names)), dtype=np.float32)
+    with np.errstate(over="ignore", under="ignore", invalid="ignore"):
+        for j, name in enumerate(numeric_names):
+            column = np.array(out[name], dtype=np.float64)
+            mask = out.get(none_mask_name(name))
+            if mask is not None:
+                column[np.asarray(mask) > 0.5] = np.nan
+            warmup = warmups.get(name, 0)
+            if warmup:
+                column[: min(warmup, n)] = np.nan
+            matrix[:, j] = _clamp_real_array(column)
+    return SeriesColumns(
+        numeric=matrix,
+        regime=np.asarray(out["regime"], dtype=object),
+        regime_volatility=np.asarray(out["regime_volatility"], dtype=object),
+    )
 
 
-def run_compute_stage(
-    settings: Settings,
-    symbols: list[str] | None,
-    db_conn: Any,
-    pipeline_version: str = "3.0.0",
-    n_workers: int = 1,
-    refresh: bool = False,
-    timeframes: list[str] | None = None,
-) -> tuple[dict[tuple[str, str], dict], float]:
-    """Compute FeatureVectors from market_data_ohlcv_tradeable and batch-insert into feature_vectors.
+def _series_kernel_inputs(
+    symbol: str,
+    tf: str,
+    bars: Mapping[str, np.ndarray],
+    config: FeatureFactoryConfig,
+    cross_asset_by_date: dict,
+    beta_by_date: dict,
+    htf_bars: list[dict],
+    ltf_ret_by_ts: dict | None,
+) -> dict[str, np.ndarray]:
+    """The bar arrays and every external input of one series, built as compute_batch builds them
+    (the same three helpers, so one definition of each alignment): the symbol and tf constants,
+    the ten daily macro columns as-of the bar end (NaN before the first record, no_fill), and the
+    higher-timeframe and 1m externals. `bars` holds ts (UTC nanoseconds), open, high, low, close
+    and volume arrays.
 
-    Reads bars in chunked sliding windows (T3: never full history at once).
-    Checkpointed per (symbol, tf): skips status='complete' pairs, unless refresh=True
-    (todo 176 recompute mode), which reprocesses every fetched pair regardless of
-    checkpoint status and upserts (DO UPDATE) instead of skip-inserting (DO NOTHING).
-    Records per-pair coverage vs theoretical_max (D-06 gate).
-    Uses ProcessPoolExecutor for symbol-level parallelism when n_workers > 1.
-
-    Returns coverage map: {(symbol, tf): {"rows_written": N, "theoretical_max": M, "pct": P}}
+    An empty `htf_bars` yields an empty CTF series (the kernels' own pre-first-HTF-close values),
+    never a fabricated record. The cache argument of the two helpers is read only on the live
+    path (no daily dicts), which this never takes, so it is None.
     """
-    cfg = _load_config_service(db_conn)
-    config = _build_feature_factory_config(cfg)
-    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
-    # todo 178 IN-01: was "threshold.backfill.coverage_threshold", which was never seeded --
-    # migration 153 only ever seeded "threshold.backfill.coverage_gate", so the read always
-    # fell through to the hardcoded 0.80 default and any dashboard edit to coverage_gate was
-    # silently ignored.
-    coverage_threshold = float(cfg.get_sync("threshold.backfill.coverage_gate", 0.80))
-    insert_batch_size = int(
-        cfg.get_sync("infra.backfill.insert_batch_size", _INSERT_BATCH_SIZE_DEFAULT)
+    htf_tf = config.ctf_higher_tf_map.get(tf)
+    if not htf_tf:
+        raise ValueError(f"no higher timeframe configured for {tf!r} in feature.ctf.higher_tf_map")
+    ctf_series = _rekey_ctf_series_to_actual_close(
+        _build_ctf_series(htf_bars, config) if htf_bars else {}, tf, htf_tf
     )
-    # todo 216: BLAS thread cap, see make_worker_pool()/limit_blas_threads().
-    blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
-
-    # Warm-up bars = dominant rolling window (momentum_zscore_window = 252)
-    warm_up_bars = config.momentum_zscore_window
-
-    # Pre-load cross-asset ETF bars and build incremental causal series (once for all symbols).
-    # TIP/HYG/LQD (Phase 151 Plan 04) added alongside SPY/TLT/SHY -- _fetch_bars_from_db
-    # already reads market_data_ohlcv_tradeable (post todo-124 fix), so extending it to
-    # these 3 new symbols inherits that correctness for free.
-    spy_bars = _fetch_bars_from_db(db_conn, SPY, "1d")
-    tlt_bars = _fetch_bars_from_db(db_conn, TLT, "1d")
-    shy_bars = _fetch_bars_from_db(db_conn, SHY, "1d")
-    tip_bars = _fetch_bars_from_db(db_conn, TIP, "1d")
-    hyg_bars = _fetch_bars_from_db(db_conn, HYG, "1d")
-    lqd_bars = _fetch_bars_from_db(db_conn, LQD, "1d")
-    _logger.info(
-        "cross_asset_loaded",
-        spy=len(spy_bars),
-        tlt=len(tlt_bars),
-        shy=len(shy_bars),
-        tip=len(tip_bars),
-        hyg=len(hyg_bars),
-        lqd=len(lqd_bars),
-    )
-    cross_asset_by_date = build_cross_asset_series(
-        spy_bars, tlt_bars, shy_bars, tip_bars, hyg_bars, lqd_bars, config
-    )
-    _logger.info("cross_asset_series_built", dates=len(cross_asset_by_date))
-
-    contracts = get_active_contracts(settings, dimension="compute")
-    etf_contracts = _filter_etf_contracts(contracts, symbols)
-    all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, target_timeframes)
-    # todo 316: backfill_status.status='complete' is not sufficient proof compute
-    # actually happened and landed — verify against feature_vectors itself before
-    # trusting the checkpoint enough to skip. See _load_fv_row_counts's docstring.
-    # Scoped to only the symbols/tfs actually marked 'complete' -- count data for
-    # a not-yet-complete pair is never consulted below, so fetching it would be pure
-    # waste against a 70M-row hypertable (measured ~7s/1.3GB for the full-universe
-    # query; smaller in partial-backfill scenarios where most pairs aren't complete).
-    # Skipped entirely under refresh=True (code review finding, same session): the
-    # skip branch below is already unconditionally False when refresh=True, so the
-    # desync check's result is never consulted -- computing it would pay the same
-    # query cost for nothing and log misleading "desynced" warnings that look like
-    # the real data-integrity alarm this check exists to raise, for what's actually
-    # just an operator-requested recompute.
-    complete_pairs = (
-        [] if refresh else [k for k, v in status_map.items() if v.get("status") == "complete"]
-    )
-    fv_row_counts = (
-        _load_fv_row_counts(
-            db_conn,
-            sorted({sym for sym, _tf in complete_pairs}),
-            sorted({tf for _sym, tf in complete_pairs}),
-        )
-        if complete_pairs
-        else {}
-    )
-    coverage: dict[tuple[str, str], dict] = {}
-    dsn = settings.database_url
-
-    # Collect symbols that need compute (skip already-complete and unfetched).
-    # refresh=True (todo 176) bypasses the status='complete' checkpoint skip --
-    # a pair already marked complete still gets reprocessed and upserted, since the
-    # whole point of recompute mode is to revisit rows a normal run would treat as done.
-    pending_symbols: list[str] = []
-    for instrument in etf_contracts:
-        symbol = instrument.symbol
-        needs_compute = False
-        for tf in target_timeframes:
-            key = (symbol, tf)
-            existing = status_map.get(key, {})
-            is_complete = existing.get("status") == "complete"
-            rows_written = existing.get("rows_written", 0) or 0
-            actual_fv_rows = fv_row_counts.get(key, 0)
-            # todo 316 + code review finding, same session: a pure existence check
-            # (any row present) missed partial data loss -- a pair that lost most but
-            # not all of its rows still read as "present" and got skipped forever,
-            # reproducing the exact silent-gap failure mode this fix exists to close,
-            # just below 100% instead of at 0%. Reuse the same coverage_threshold gate
-            # already applied to freshly-computed pairs (D-06) for consistency.
-            checkpoint_desynced = (
-                is_complete
-                and rows_written > 0
-                and actual_fv_rows < coverage_threshold * rows_written
-            )
-            if checkpoint_desynced:
-                _logger.warning(
-                    "compute_checkpoint_desynced",
-                    symbol=symbol,
-                    tf=tf,
-                    rows_written=rows_written,
-                    actual_fv_rows=actual_fv_rows,
-                    reason="backfill_status.status='complete' but feature_vectors holds "
-                    f"only {actual_fv_rows}/{rows_written} rows for this pair -- "
-                    "recomputing instead of trusting the stale checkpoint (todo 316)",
-                )
-            if is_complete and not refresh and not checkpoint_desynced:
-                theoretical = existing.get("theoretical_max", 0) or 0
-                pct = _pct(rows_written, theoretical)
-                coverage[key] = {
-                    "rows_written": rows_written,
-                    "theoretical_max": theoretical,
-                    "pct": pct,
-                }
-                _logger.info("compute_skip_complete", symbol=symbol, tf=tf)
-            elif not existing.get("fetch_complete"):
-                _logger.warning("compute_skip_no_fetch", symbol=symbol, tf=tf)
-            else:
-                needs_compute = True
-                # Mark in_progress on main connection before handing off to worker
-                with db_conn.cursor() as cur:
-                    cur.execute(_MARK_COMPUTE_STATUS_SQL, (symbol, tf, "in_progress"))
-                # db_conn.autocommit=True — no explicit commit needed
-
-        if needs_compute:
-            pending_symbols.append(symbol)
-
-    if not pending_symbols:
-        return coverage, coverage_threshold
-
-    worker_args = [
-        (
+    row_ns = bars["ts"]
+    return {
+        **_batch_kernel_inputs(
+            row_ns,
+            bars["open"],
+            bars["high"],
+            bars["low"],
+            bars["close"],
+            bars["volume"],
             symbol,
-            target_timeframes,
-            dsn,
-            config,
-            pipeline_version,
-            warm_up_bars,
+            tf,
+        ),
+        **_macro_kernel_inputs(
+            row_ns,
+            symbol,
+            tf,
+            None,  # type: ignore[arg-type]
             cross_asset_by_date,
-            spy_bars,
-            tlt_bars,
-            refresh,
-        )
-        for symbol in pending_symbols
-    ]
+            beta_by_date,
+        ),
+        **_cross_tf_kernel_inputs(
+            row_ns,
+            tf,
+            None,  # type: ignore[arg-type]
+            ctf_series,
+            ltf_ret_by_ts,
+        ),
+    }
 
-    _logger.info(
-        "compute_stage_parallel",
-        pending_symbols=len(pending_symbols),
-        n_workers=n_workers,
+
+def _spool_line(row: tuple) -> str:
+    """One feature_vectors_v2 row as a CSV line: bar_ts as epoch microseconds, a missing value
+    (None) as an empty field, floats with 9 significant digits (round-trips float32 exactly)."""
+    symbol, tf, bar_ts, regime, regime_volatility = row[:5]
+    for text in (symbol, tf, regime, regime_volatility):
+        if text and ("," in text or "\n" in text):
+            raise ValueError(f"cannot spool {text!r}: it holds a separator")
+    return (
+        ",".join(
+            (
+                symbol,
+                tf,
+                str((bar_ts - _EPOCH) // _ONE_MICROSECOND),
+                regime or "",
+                regime_volatility or "",
+                *("" if v is None else format(v, ".9g") for v in row[5:]),
+            )
+        )
+        + "\n"
     )
 
-    # Workers are compute-only (CLAUDE.md invariant, todo 318 Bug 2): each returns
-    # computed rows + status metadata, never writes to feature_vectors/backfill_status
-    # itself. All writes happen here, serially, on this single main-process connection,
-    # which stays open (not closed pre-spawn like before) for the whole pool span and is
-    # only closed after every result is written -- protected against idle-session-timeout
-    # by compressed_hypertable_write_session the same way Bug 1's fix protects the
-    # one-off remediation driver. Flipped to autocommit=False for this span (it was True
-    # for the cheap pre-spawn status-map reads/marks above) to match every other
-    # compressed_hypertable_write_session caller's contract (regime_writer.py, ic_engine.py
-    # both connect via connect_db_from_url's autocommit=False) -- the session's own
-    # entry-phase rollback-on-failure has nothing to roll back otherwise (code review,
-    # todo 318).
-    db_conn.autocommit = False
-    with (
-        # decompress=False (todo 426): these writes are INSERT/UPSERT, which TimescaleDB's
-        # native DML decompression handles per (symbol, tf) segment; decompress-all would
-        # need more disk than the host has. The session still pauses the compression job and
-        # lifts the idle timeouts for the long worker waits.
-        _write_session(db_conn, "feature_vectors", decompress=False),
-        _make_worker_pool(n_workers, blas_threads_per_worker) as pool,
-    ):
-        for result in pool.map(_run_compute_worker, worker_args, chunksize=1):
-            symbol = result["symbol"]
-            if result["error"]:
-                _logger.error(
-                    "compute_worker_failed",
-                    symbol=symbol,
-                    error=result["error"],
-                )
-            for cell in result["results"]:
-                tf = cell["tf"]
-                key = (symbol, tf)
-                theoretical = cell["theoretical_max"]
 
-                if cell.get("error"):
-                    _logger.error(
-                        "compute_cell_failed",
-                        symbol=symbol,
-                        tf=tf,
-                        error=cell["error"],
-                    )
-                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
-                    _mark_cell_failed(db_conn, symbol, tf, cell["error"])
+def read_spool_rows(path: Path) -> Iterator[tuple]:
+    """Stream a spool file back as the tuples bulk_load COPYs: a datetime bar_ts, None for an
+    empty field, floats otherwise. One row in memory at a time."""
+    with open(path) as handle:
+        for line in handle:
+            parts = line.rstrip("\n").split(",")
+            yield (
+                parts[0],
+                parts[1],
+                _EPOCH + timedelta(microseconds=int(parts[2])),
+                parts[3] or None,
+                parts[4] or None,
+                *(None if cell == "" else float(cell) for cell in parts[5:]),
+            )
+
+
+_spool_row_time = operator.itemgetter(2)
+
+
+def _write_unit_spool(
+    path: Path,
+    symbol: str,
+    tf: str,
+    row_ns: np.ndarray,
+    bar_times: Sequence[datetime],
+    series: SeriesColumns,
+    range_start: datetime,
+    range_end: datetime,
+    first_row: int,
+    block_rows: int,
+) -> int:
+    """Write one symbol's rows of the half-open range [range_start, range_end) to `path`; return
+    the row count.
+
+    Rows before `first_row` (the dominant-window warmup the old table also skipped) and bars the
+    market calendar does not call trading bars are left out. The rows go to disk in blocks of
+    `block_rows`, so the buffer is one block however long the symbol's history is (todo 339).
+    """
+    lo = max(int(np.searchsorted(row_ns, bar_ts_ns(range_start), side="left")), first_row)
+    hi = int(np.searchsorted(row_ns, bar_ts_ns(range_end), side="left"))
+    calendar = get_market_calendar()
+    written = 0
+    with open(path, "w") as handle:
+        for start in range(lo, hi, block_rows):
+            stop = min(start + block_rows, hi)
+            values = series.numeric[start:stop].tolist()
+            lines = []
+            for k, numeric_row in enumerate(values):
+                bar_ts = bar_times[start + k]
+                if not calendar.is_trading_bar(_TRADING_EXCHANGE, bar_ts, tf):
                     continue
-
-                rows = cell["rows"]
-                rows_written = len(rows)
-                pct = _pct(rows_written, theoretical)
-
-                # Per-cell isolation, mirroring regime_writer.py's write loop (code
-                # review, todo 318): one bad write must not abort the whole pool span
-                # and discard every other pending symbol's already-computed rows.
-                # _batch_insert no longer commits internally (/simplify pass, todo
-                # 318/300 session) -- every chunk plus the mark-complete SQL below
-                # now lands in the single db_conn.commit() call, so a failure partway
-                # through a multi-chunk cell rolls back everything already sent for
-                # that cell instead of leaving earlier chunks durably committed while
-                # this except branch marks the whole cell failed/rows_written=0.
-                try:
-                    for i in range(0, len(rows), insert_batch_size):
-                        _batch_insert(db_conn, rows[i : i + insert_batch_size], refresh=refresh)
-                    with db_conn.cursor() as cur:
-                        cur.execute(
-                            _MARK_COMPUTE_COMPLETE_SQL,
-                            (rows_written, theoretical, symbol, tf),
+                lines.append(
+                    _spool_line(
+                        feature_vector_v2_row_values(
+                            symbol,
+                            tf,
+                            bar_ts,
+                            series.regime[start + k],
+                            series.regime_volatility[start + k],
+                            numeric_row,
                         )
-                    db_conn.commit()
-                except Exception as error:
-                    db_conn.rollback()
-                    _logger.error(
-                        "compute_cell_write_failed",
-                        symbol=symbol,
-                        tf=tf,
-                        error=str(error),
-                        # rows_written here is the cell's full row count, not how many
-                        # were actually durably written -- the whole point of this
-                        # rollback is that NONE of them are (/simplify efficiency-angle
-                        # finding, todo 318/300 session): a late-chunk failure discards
-                        # every already-transmitted row in this cell, not just the
-                        # failing chunk, so surfacing that magnitude here is what makes
-                        # the cost of this atomicity trade-off observable to operators.
-                        rows_discarded=rows_written,
                     )
-                    coverage[key] = {"rows_written": 0, "theoretical_max": 0, "pct": 0.0}
-                    _mark_cell_failed(db_conn, symbol, tf, str(error))
-                    continue
-
-                coverage[key] = {
-                    "rows_written": rows_written,
-                    "theoretical_max": theoretical,
-                    "pct": pct,
-                }
-                if pct < coverage_threshold:
-                    _logger.warning(
-                        "coverage_below_threshold",
-                        symbol=symbol,
-                        tf=tf,
-                        rows_written=rows_written,
-                        theoretical_max=theoretical,
-                        pct=round(pct, 4),
-                        threshold=coverage_threshold,
-                    )
-                else:
-                    _logger.info(
-                        "compute_complete",
-                        symbol=symbol,
-                        tf=tf,
-                        rows_written=rows_written,
-                        theoretical_max=theoretical,
-                        pct=round(pct, 4),
-                    )
-
-    db_conn.close()
-    return coverage, coverage_threshold
+                )
+            handle.write("".join(lines))
+            written += len(lines)
+    return written
 
 
-def _run_compute_worker(args: tuple) -> dict:
-    """Worker function for ProcessPoolExecutor — runs in subprocess.
+def _fetch_bar_arrays(
+    conn: Any, symbol: str, tf: str, horizon: datetime, block_rows: int
+) -> tuple[dict[str, np.ndarray], list[datetime]]:
+    """One series' bars strictly before `horizon` from market_data_ohlcv_tradeable, streamed
+    through a server-side cursor in blocks (never a full-history fetchall), as numpy arrays plus
+    the aware bar times. `ts` is UTC int64 nanoseconds, the registry's timestamp input."""
+    times: list[datetime] = []
+    columns: list[list[float]] = [[], [], [], [], []]
+    with conn.cursor(name="rebuild_bars") as cur:
+        cur.itersize = block_rows
+        cur.execute(_FETCH_BARS_UNTIL_SQL, (symbol, tf, horizon))
+        while True:
+            block = cur.fetchmany(block_rows)
+            if not block:
+                break
+            for row in block:
+                times.append(row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC))
+                for k in range(5):
+                    columns[k].append(float(row[k + 1]))
+    arrays = {
+        "ts": np.array([bar_ts_ns(t) for t in times], dtype=np.int64),
+        **{
+            name: np.array(columns[k], dtype=np.float64)
+            for k, name in enumerate(("open", "high", "low", "close", "volume"))
+        },
+    }
+    return arrays, times
 
-    Opens its own psycopg connection for OHLCV/cross-asset reads only
-    (connections are not picklable and must not be shared across processes).
-    Compute-only (CLAUDE.md invariant, todo 318 Bug 2 fix) -- never writes to
-    feature_vectors or backfill_status itself; returns computed rows and status
-    metadata for the main process to write serially. No OTel tracer — workers
-    log only; main process aggregates results and emits metrics.
 
-    Args:
-        args: (symbol, tfs, dsn, config, pipeline_version, warm_up_bars,
-               cross_asset_by_date, spy_1d_bars, tlt_1d_bars, refresh)
-               Packed as a tuple for ProcessPoolExecutor.map compatibility.
-               spy_1d_bars/tlt_1d_bars are the SAME arrays run_compute_stage
-               already fetched once (to build cross_asset_by_date) -- passed
-               through rather than refetched per symbol (found during Phase
-               151's post-execution /simplify pass, 2026-08-05).
+def _rebuild_worker(args: tuple) -> dict:
+    """Compute one (symbol, tf) series and spool its units; runs in a pool subprocess.
 
-    Returns:
-        dict with keys: symbol, results (list of {tf, rows, theoretical_max, error?}
-        -- rows_written/pct are derived by the main process, not carried here),
-        error (str|None)
+    Compute-only (CLAUDE.md invariant): the connection is read-only, nothing is written to the
+    database. Returns {symbol, units: {unit_index: {path, rows}}, error}: spool paths and counts,
+    never rows, so the IPC payload does not grow with the symbol's history (todo 339). The spool
+    directory belongs to the main process, which removes it after the group's units load or fail.
     """
     (
         symbol,
-        tfs,
+        tf,
         dsn,
         config,
-        pipeline_version,
-        warm_up_bars,
+        horizon,
+        unit_ranges,
+        spool_dir,
         cross_asset_by_date,
         spy_1d_bars,
         tlt_1d_bars,
-        refresh,
+        block_rows,
     ) = args
-
-    # Initialize logging in subprocess (each process needs its own handler)
     setup_service_logging("logs/backfill_feature_factory.log")
     worker_log = structlog.get_logger(__name__)
-
+    result: dict = {"symbol": symbol, "units": {}, "error": None}
     conn = None
-    results = []
-    error_msg = None
-
     try:
-        conn = psycopg.connect(dsn)
-        # Read-only connection -- no writes issued against it, so autocommit's
-        # usual InFailedSqlTransaction concern doesn't apply here.
-        conn.autocommit = True
-        # No register_uuid() equivalent needed -- psycopg adapts uuid.UUID natively.
-
-        # Per-symbol factor-beta series (O(D) single pass over daily bars,
-        # Phase 151 Plan 04) -- built ONCE per symbol here, not once per tf
-        # inside _compute_symbol_tf (a prior version rebuilt it, plus a
-        # redundant SPY/TLT 1d refetch, on every one of the 4 tf calls).
-        # Daily grain, broadcast to all timeframes -- see _compute_symbol_tf's
-        # docstring.
-        symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d")
+        conn = psycopg.connect(dsn)  # read only; a server cursor needs its transaction
+        bars, bar_times = _fetch_bar_arrays(conn, symbol, tf, horizon, block_rows)
+        first_row = config.momentum_zscore_window
+        if len(bars["ts"]) < first_row + 2:
+            worker_log.warning(
+                "insufficient_bars", symbol=symbol, tf=tf, bars=len(bars["ts"]), need=first_row + 2
+            )
+            for index, _range in unit_ranges:
+                path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
+                path.write_text("")
+                result["units"][index] = {"path": str(path), "rows": 0}
+            return result
+        symbol_1d_bars = _fetch_bars_from_db(conn, symbol, "1d", until=horizon)
         beta_by_date = build_symbol_beta_series(
             symbol_1d_bars, spy_1d_bars, tlt_1d_bars, symbol, config
         )
-        # Period-start CTF series per higher tf, shared by every tf that maps to it (5m and 15m
-        # both read 1h); the cheap close re-key runs per tf inside _compute_symbol_tf.
-        ctf_period_start_by_htf: dict[str, dict] = {}
-
-        for tf in tfs:
-            try:
-                rows = _compute_symbol_tf(
-                    conn=conn,
-                    symbol=symbol,
-                    tf=tf,
-                    config=config,
-                    pipeline_version=pipeline_version,
-                    warm_up_bars=warm_up_bars,
-                    cross_asset_by_date=cross_asset_by_date,
-                    beta_by_date=beta_by_date,
-                    symbol_1d_bars=symbol_1d_bars,
-                    refresh=refresh,
-                    ctf_period_start_by_htf=ctf_period_start_by_htf,
-                )
-
-                depth_years = _DEPTH_YEARS[tf]
-                theoretical = _theoretical_max(tf, depth_years, warm_up_bars)
-
-                # rows_written/pct are derivable (len(rows), rows_written/theoretical_max)
-                # and deliberately NOT computed here -- the main process (the only
-                # consumer) computes them once from `rows`/`theoretical_max` instead of
-                # carrying two more fields across the pickling boundary that must always
-                # stay in lock-step with `rows` (simplify pass, todo 318).
-                results.append(
-                    {
-                        "tf": tf,
-                        "rows": rows,
-                        "theoretical_max": theoretical,
-                    }
-                )
-
-            except Exception as error:
-                error_str = str(error)
-                worker_log.error(
-                    "worker_cell_failed",
-                    symbol=symbol,
-                    tf=tf,
-                    error=error_str,
-                    exc_info=True,
-                )
-                results.append(
-                    {
-                        "tf": tf,
-                        "rows": [],
-                        "theoretical_max": 0,
-                        "error": error_str,
-                    }
-                )
-
+        htf_tf = config.ctf_higher_tf_map.get(tf)
+        htf_bars = (
+            symbol_1d_bars
+            if htf_tf == "1d"
+            else _fetch_bars_from_db(conn, symbol, htf_tf, until=horizon)
+        )
+        ltf_ret_by_ts: dict | None = None
+        if tf == "5m":
+            # ret_div_1m_5m reads 1m returns where 1m bars exist (a short, documented window).
+            ltf_bars = _fetch_bars_from_db(conn, symbol, "1m", until=horizon)
+            ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, bar_times) if ltf_bars else None
+        inputs = _series_kernel_inputs(
+            symbol, tf, bars, config, cross_asset_by_date, beta_by_date, htf_bars, ltf_ret_by_ts
+        )
+        series = _compute_series_columns(inputs, config)
+        del inputs
+        for index, (range_start, range_end) in unit_ranges:
+            path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
+            rows = _write_unit_spool(
+                path,
+                symbol,
+                tf,
+                bars["ts"],
+                bar_times,
+                series,
+                range_start,
+                range_end,
+                first_row,
+                block_rows,
+            )
+            result["units"][index] = {"path": str(path), "rows": rows}
     except Exception as error:
-        error_msg = str(error)
-        worker_log.error("worker_failed", symbol=symbol, error=error_msg, exc_info=True)
+        result["error"] = f"{type(error).__name__}: {error}"
+        worker_log.error("rebuild_worker_failed", symbol=symbol, tf=tf, error=str(error))
     finally:
         if conn is not None:
             try:
                 conn.close()
             except Exception:
                 pass
+    return result
 
-    return {"symbol": symbol, "results": results, "error": error_msg}
+
+_UNIT_STATS_SQL = """
+SELECT symbol,
+       (extract(year FROM timestamp AT TIME ZONE 'UTC'))::int AS yr,
+       count(*), min(timestamp), max(timestamp)
+FROM market_data_ohlcv_tradeable
+WHERE timeframe = %s AND symbol = ANY(%s) AND timestamp < %s
+GROUP BY symbol, yr
+"""
 
 
-def _compute_symbol_tf(
+class _SymbolStats(NamedTuple):
+    count: int
+    first: datetime
+    last: datetime
+
+
+@dataclasses.dataclass(frozen=True)
+class RebuildUnit:
+    """One unit of the rebuild: its position in the group and its provenance identity."""
+
+    index: int
+    spec: BulkLoadSpec
+
+    @property
+    def years(self) -> range:
+        """The calendar years of the hypertable chunks this unit writes into."""
+        return range(self.spec.range_start.year, (self.spec.range_end - _ONE_MICROSECOND).year + 1)
+
+
+@dataclasses.dataclass
+class _GroupPlan:
+    chunk_index: int
+    chunk: tuple[str, ...]
+    tf: str
+    units: list[RebuildUnit]
+    blind_symbols: set[str]
+
+
+def _unit_input_digest(digests: Mapping[str, str], stats: Mapping[str, _SymbolStats]) -> str:
+    """sha256 hex over, per symbol with bars in the unit, the month-composed content digest
+    (phase 185's `bar_content_digest_current`, the one definition) and the bar count and first
+    and last bar time. The counts are supplementary identity: while a symbol's digest is absent
+    (revision detection blind) a changed bar count still renames the unit."""
+    lines = [
+        f"{symbol}|{digests[symbol]}|{stat.count}|{stat.first.isoformat()}|{stat.last.isoformat()}"
+        for symbol, stat in sorted(stats.items())
+    ]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _plan_group(
     conn: Any,
-    symbol: str,
+    chunk_index: int,
+    chunk: tuple[str, ...],
     tf: str,
-    config: FeatureFactoryConfig,
-    pipeline_version: str,
-    warm_up_bars: int,
-    cross_asset_by_date: dict,
-    beta_by_date: dict,
-    symbol_1d_bars: list[dict],
-    refresh: bool = False,
-    ctf_period_start_by_htf: dict[str, dict] | None = None,
-) -> list[tuple]:
-    """Compute FeatureVectors for one (symbol, tf) pair.
-
-    Post-injects four groups of corrected values into every FeatureVector:
-      1. Cross-asset (vix_z, flight_quality, yield_slope_z, tip_tlt_ret_z,
-         hyg_lqd_ret_z, sb_corr_fast/slow/z): from pre-built incremental
-         causal series keyed by date.
-      2. Factor betas (equity_beta_z, rate_beta_z, Phase 151 Plan 04): from a
-         per-symbol O(D) incremental series keyed by date. Daily grain,
-         broadcast to all timeframes -- `beta_by_date`/`symbol_1d_bars` are
-         built ONCE per symbol by the caller (`_run_compute_worker`), not
-         rebuilt per tf here; a prior version rebuilt both plus a redundant
-         SPY/TLT 1d refetch on every one of the 4 tf calls (found during
-         Phase 151's post-execution /simplify pass, 2026-08-05 -- ~320
-         redundant DB round-trips + O(5000)-date Python loops across a
-         full corpus recompute).
-      3. CTF (ctf_momentum, ctf_vwap_align, ctf_regime_align): from O(n) single-pass
-         series keyed by HTF bar timestamp; looked up by bisect for each source bar.
-      4. VP/SR (poc_dist_atr, va_position, + 17 structural fields): computed from OHLCV
-         via FeatureCache.update_session_vp() / _compute_sr_dist_atr() (Phase 163), the
-         identical mechanism the live path uses (D-05 -- the prior claim that this group
-         was uncomputable in batch was a stale, never-verified assumption).
-      5. Named Interaction Primitives cross-TF divergences (ret_div_1m_5m/5m_1h/
-         1h_1d, Phase 151 Plan 05): ret_div_5m_1h/1h_1d reuse CtfRecord'
-         htf_last_log_ret (extended alongside CTF above); ret_div_1m_5m reads a
-         separate O(n+m) causal merge-walk series (ltf_ret_by_ts, tf=="5m" only).
-
-    Returns the computed row tuples ready for feature_vectors insertion --
-    compute-only (CLAUDE.md invariant, todo 318 Bug 2): the caller (a
-    ProcessPoolExecutor worker) never writes them; the main process does,
-    serially, via _batch_insert.
-    """
-    # CTF series for this symbol: the period-start build is O(n) over the HTF bars and is
-    # shared through `ctf_period_start_by_htf` (keyed by htf_tf) when the caller passes one; the
-    # re-key to each bar's close is per tf.
-    htf_tf = config.ctf_higher_tf_map.get(tf)
-    ctf_by_ts: CtfSeries | None = None
-    if htf_tf:
-        period_start = (ctf_period_start_by_htf or {}).get(htf_tf)
-        if period_start is None:
-            htf_bars = _fetch_bars_from_db(conn, symbol, htf_tf)
-            period_start = _build_ctf_series(htf_bars, config) if htf_bars else {}
-            if ctf_period_start_by_htf is not None:
-                ctf_period_start_by_htf[htf_tf] = period_start
-            _logger.debug(
-                "ctf_series_built", symbol=symbol, tf=tf, htf_tf=htf_tf, htf_bars=len(htf_bars)
-            )
-        if period_start:
-            ctf_by_ts = _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf)
-
-    cache = FeatureCache()
-    # tf=="1d" reuses the caller's already-fetched daily bars instead of an
-    # identical second fetch (same finding as above -- this was previously a
-    # duplicate query for exactly this one tf out of the 4).
-    bars = symbol_1d_bars if tf == "1d" else _fetch_bars_from_db(conn, symbol, tf)
-    total_bars = len(bars)
-
-    # ret_div_1m_5m's LTF series (Phase 151 Plan 05, todo 066): only built at
-    # tf=="5m" -- 1m OHLCV coverage is 2026-03-23..2026-06-23 versus 5m's
-    # 2006-06-02..2026-07-07, so this is a real, documented ~1% coverage
-    # limitation (migration comment + SUMMARY), not an implementation defect.
-    ltf_ret_by_ts: dict = {}
-    if tf == "5m":
-        ltf_bars = _fetch_bars_from_db(conn, symbol, "1m")
-        if ltf_bars:
-            ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, [b["ts"] for b in bars])
-
-    if total_bars < warm_up_bars + 2:
-        _logger.warning(
-            "insufficient_bars",
-            symbol=symbol,
-            tf=tf,
-            bars=total_bars,
-            warm_up_bars=warm_up_bars,
-        )
-        return []
-
-    _logger.info("compute_bars_loaded", symbol=symbol, tf=tf, total_bars=total_bars)
-
-    batch_results = FeatureFactory.compute_batch(
-        bars,
-        symbol,
-        tf,
-        cache,
-        config,
-        warm_up_bars=warm_up_bars,
-        cross_asset_by_date=cross_asset_by_date,
-        ctf_by_ts=ctf_by_ts,
-        beta_by_date=beta_by_date or None,
-        ltf_ret_by_ts=ltf_ret_by_ts or None,
-    )
-
-    # Coverage log (Phase 151 Plan 05): once per (symbol, tf), never per row
-    # (CLAUDE.md's never-log-per-row-over-the-corpus rule). Counts how many
-    # emitted vectors carry a non-None value for each of the 3 divergences.
-    _n_ret_div_1m_5m = sum(1 for _, fv in batch_results if fv.ret_div_1m_5m is not None)
-    _n_ret_div_5m_1h = sum(1 for _, fv in batch_results if fv.ret_div_5m_1h is not None)
-    _n_ret_div_1h_1d = sum(1 for _, fv in batch_results if fv.ret_div_1h_1d is not None)
-    _logger.info(
-        "cross_tf_divergence_coverage",
-        symbol=symbol,
-        tf=tf,
-        total_bars=len(batch_results),
-        ret_div_1m_5m_non_none=_n_ret_div_1m_5m,
-        ret_div_5m_1h_non_none=_n_ret_div_5m_1h,
-        ret_div_1h_1d_non_none=_n_ret_div_1h_1d,
-    )
-
-    rows: list[tuple] = []
-    skipped_non_trading = 0
-
-    # Market calendar for trading day filtering (Renaissance: filter at source)
-    calendar = get_market_calendar()
-    exchange = "NYSE"  # ETFs trade on NYSE/NASDAQ/ARCA with identical hours
-
-    for bar_ts, fv in batch_results:
-        if not calendar.is_trading_bar(exchange, bar_ts, tf):
-            skipped_non_trading += 1
-            continue
-
-        row = _vector_to_params(
-            symbol=symbol,
-            tf=tf,
-            bar_ts=bar_ts,
-            pipeline_version=pipeline_version,
-            regime=None,
-            fv=fv,
-        )
-        rows.append(row)
-
-    _logger.info(
-        "compute_complete",
-        symbol=symbol,
-        tf=tf,
-        total_bars=total_bars,
-        computed=len(rows),
-        skipped_non_trading=skipped_non_trading,
-        skip_pct=round(skipped_non_trading / total_bars * 100, 2) if total_bars > 0 else 0,
-    )
-
-    return rows
-
-
-def _batch_insert(conn: Any, rows: list[tuple], refresh: bool = False) -> None:
-    """Batch-insert feature_vectors rows via psycopg executemany().
-
-    refresh=True selects the DO UPDATE variant (todo 176 recompute mode) so
-    existing rows are actually overwritten instead of silently skipped.
-
-    Deliberately does NOT commit (/simplify pass, todo 318/300 session): this
-    function's sole caller (run_compute_stage) chunks one cell's rows across
-    multiple calls and must commit them together with that cell's
-    _MARK_COMPUTE_COMPLETE_SQL as one atomic unit -- a commit here, once
-    harmless under this function's original worker-owned autocommit=True
-    connection, became load-bearing-wrong once reused unmodified for the
-    main-process autocommit=False write path: a failure after chunk 1 of N
-    would leave chunk 1's rows durably committed while the caller's except
-    branch still marked the whole cell 'failed'/rows_written=0, silently
-    desyncing backfill_status from feature_vectors' real state.
-
-    CONTRACT FOR ANY FUTURE SECOND CALLER: this function's caller owns the
-    commit/rollback boundary, always. Do not add a `conn.commit()` here to
-    "fix" what looks like a missing commit in isolation -- that would silently
-    reopen the exact desync bug described above. If a new caller needs
-    autocommit-style per-call durability, give it that at the call site (e.g.
-    `conn.commit()` immediately after its own call), never inside this shared
-    function. Pinned by test_batch_insert_does_not_commit.
-    """
-    if not rows:
-        return
-    sql = _UPSERT_FEATURE_VECTORS_SQL if refresh else _INSERT_FEATURE_VECTORS_SQL
+    horizon: datetime,
+    code_key: str,
+    apr_snapshot: Mapping[str, Any],
+) -> _GroupPlan | None:
+    """The units of one (symbol chunk, tf) group with their provenance identities, or None when
+    the chunk has no bars before the horizon. Reads bar statistics and month digests only; no bar
+    is fetched and no kernel runs, so a fully completed group costs two cheap queries."""
     with conn.cursor() as cur:
-        cur.executemany(sql, rows)
+        cur.execute(_UNIT_STATS_SQL, (tf, list(chunk), horizon))
+        rows = cur.fetchall()
+    if not rows:
+        return None
+    by_year: dict[int, dict[str, _SymbolStats]] = {}
+    for symbol, year, count, first, last in rows:
+        by_year.setdefault(year, {})[symbol] = _SymbolStats(int(count), first, last)
+    first_bar = min(stat.first for per_symbol in by_year.values() for stat in per_symbol.values())
+    units: list[RebuildUnit] = []
+    blind: set[str] = set()
+    for range_start, range_end in rebuild_unit_ranges(tf, first_bar, horizon):
+        merged: dict[str, _SymbolStats] = {}
+        for year in range(range_start.year, (range_end - _ONE_MICROSECOND).year + 1):
+            for symbol, stat in by_year.get(year, {}).items():
+                prior = merged.get(symbol)
+                merged[symbol] = (
+                    stat
+                    if prior is None
+                    else _SymbolStats(
+                        prior.count + stat.count,
+                        min(prior.first, stat.first),
+                        max(prior.last, stat.last),
+                    )
+                )
+        if not merged:
+            continue
+        digests = _bar_content_digests(conn, tf, sorted(merged), range_start, range_end)
+        blind |= {s for s in merged if digests[s] == BAR_DIGEST_ABSENT_SYMBOL}
+        spec = BulkLoadSpec(
+            writer=_JOB,
+            target_table=_V2_TABLE,
+            time_column=_V2_TIME_COLUMN,
+            tf=tf,
+            range_start=range_start,
+            range_end=range_end,
+            symbols=chunk,
+            code_key=code_key,
+            apr_snapshot=apr_snapshot,
+            input_digest=_unit_input_digest(digests, merged),
+        )
+        units.append(RebuildUnit(len(units), spec))
+    return _GroupPlan(chunk_index, chunk, tf, units, blind)
 
 
-def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_threshold: float) -> None:
-    """Log per-pair coverage vs theoretical_max; flag pairs below the APR coverage threshold."""
-    below_threshold: list[tuple[str, str, int, int, float]] = []
-    for (symbol, tf), data in sorted(coverage.items()):
-        pct = data.get("pct", 0.0)
-        rows = data.get("rows_written", 0)
-        theoretical = data.get("theoretical_max", 0)
-        if pct < coverage_threshold:
-            below_threshold.append((symbol, tf, rows, theoretical, pct))
+@dataclasses.dataclass
+class _PreparedGroup:
+    plan: _GroupPlan
+    pending: list[RebuildUnit]
+    futures: list[Any]
+    spool_dir: Path
 
+
+def _purge_spool_root(root: Path) -> None:
+    """Remove the spool directories a killed run left behind (spools are derived, rebuildable)."""
+    root.mkdir(parents=True, exist_ok=True)
+    for stale in root.glob(f"{_SPOOL_GROUP_PREFIX}*"):
+        shutil.rmtree(stale, ignore_errors=True)
+
+
+def _write_group(
+    prepared: _GroupPlan | _PreparedGroup,
+    write_conn: Any,
+    max_unit_rows: int,
+    summary: dict[str, Any],
+    completed_keys: set[str],
+) -> None:
+    """Wait for a group's workers, then load its pending units one by one with bulk_load.
+
+    One unit's failure leaves its provenance row failed and the group's other units loading; a
+    worker that failed for any symbol fails every pending unit of the group (a unit's identity
+    is its whole symbol chunk, so it cannot complete without every symbol). Removes the group's
+    spool directory when done, whatever happened.
+    """
+    group = prepared.plan  # type: ignore[union-attr]
+    columns = feature_vectors_v2_columns()
+    try:
+        results = [future.result() for future in prepared.futures]  # type: ignore[union-attr]
+        failures = [r for r in results if r["error"]]
+        if failures:
+            for unit in prepared.pending:  # type: ignore[union-attr]
+                summary["units_failed"] += 1
+                summary["failed_units"].append(
+                    {"batch_key": unit.spec.batch_key, "tf": group.tf, "reason": "worker_failed"}
+                )
+            _logger.error(
+                "backfill_feature_factory.group_failed",
+                tf=group.tf,
+                chunk_index=group.chunk_index,
+                failed_symbols=[r["symbol"] for r in failures],
+                errors=[r["error"] for r in failures][:3],
+                units=len(prepared.pending),  # type: ignore[union-attr]
+            )
+            return
+        for unit in prepared.pending:  # type: ignore[union-attr]
+            declared = sum(r["units"][unit.index]["rows"] for r in results)
+            if declared > max_unit_rows:
+                raise ValueError(
+                    f"rebuild unit {unit.spec.batch_key[:12]} (tf {group.tf}, "
+                    f"{unit.spec.range_start:%Y-%m-%d} to {unit.spec.range_end:%Y-%m-%d}, "
+                    f"{len(group.chunk)} symbols) spooled {declared} rows, above "
+                    f"{_REBUILD_MAX_UNIT_ROWS_KEY}={max_unit_rows}; refusing before any write"
+                )
+            streams = [read_spool_rows(Path(r["units"][unit.index]["path"])) for r in results]
+            started = time.monotonic()
+            try:
+                loaded = _bulk_load(
+                    write_conn,
+                    unit.spec,
+                    columns,
+                    heapq.merge(*streams, key=_spool_row_time),
+                )
+            except Exception as error:
+                summary["units_failed"] += 1
+                summary["failed_units"].append(
+                    {"batch_key": unit.spec.batch_key, "tf": group.tf, "reason": str(error)[:300]}
+                )
+                _logger.error(
+                    "backfill_feature_factory.unit_failed",
+                    batch_key=unit.spec.batch_key[:12],
+                    tf=group.tf,
+                    range_start=unit.spec.range_start.isoformat(),
+                    error=str(error)[:300],
+                )
+                continue
+            if loaded.status == "loaded" and loaded.row_count != declared:
+                raise RuntimeError(
+                    f"rebuild unit {unit.spec.batch_key[:12]}: bulk_load wrote {loaded.row_count} "
+                    f"rows but the spool declared {declared}"
+                )
+            summary["units_loaded"] += 1
+            summary["rows_loaded"] += loaded.row_count
+            completed_keys.add(unit.spec.batch_key)
+            _logger.info(
+                "backfill_feature_factory.unit_loaded",
+                batch_key=unit.spec.batch_key[:12],
+                tf=group.tf,
+                rows=loaded.row_count,
+                elapsed_s=round(time.monotonic() - started, 1),
+            )
+    finally:
+        shutil.rmtree(prepared.spool_dir, ignore_errors=True)  # type: ignore[union-attr]
+
+
+def run_rebuild_stage(
+    settings: Settings,
+    symbols: list[str] | None,
+    db_conn: Any,
+    n_workers: int = 1,
+    timeframes: list[str] | None = None,
+    *,
+    horizon: datetime | None = None,
+    spool_root: Path | None = None,
+) -> dict[str, Any]:
+    """Rebuild feature_vectors_v2 for the compute_eligible_1d universe (D-28, D-32a).
+
+    Chunk-major: for each symbol chunk, for each tf, one group. A group is planned from bar
+    statistics and month digests alone, each unit's provenance row is consulted
+    (`completed_provenance_batch`), and only a group with a pending unit dispatches workers; the
+    next group's workers run while this group's units load. Compute reads the whole series from
+    its start (the path-dependent kernels need it, see `unit_fetch_start`), once per (symbol,
+    tf), and each unit takes its year of rows from that one pass.
+
+    Compression runs once at the end, only for a full-scope run (no --symbols, no --tf) with
+    every unit completed: a hypertable chunk spans every symbol chunk and every tf of its year,
+    so compressing earlier would make bulk_load refuse the later units, and a chunk containing
+    the horizon stays open for later writes.
+
+    Returns the stage summary (units total, skipped, loaded, failed; rows; digest-blind symbols;
+    the per (tf, year) chunk checklist; compression).
+    """
+    horizon = horizon or default_data_horizon()
+    if horizon.tzinfo is None:
+        raise ValueError("run_rebuild_stage: horizon must be tz-aware")
+    cfg = _load_config_service(db_conn)
+    config = _build_feature_factory_config(cfg)
+    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
+    symbols_per_chunk, max_unit_rows = load_rebuild_unit_apr(cfg)
+    block_rows = int(cfg.get_sync(_REBUILD_BLOCK_ROWS_KEY, _REBUILD_BLOCK_ROWS_DEFAULT))
+    blas_threads_per_worker = int(cfg.get_sync("infra.blas_threads_per_worker", 1))
+    registry = default_registry()
+    feature_outputs = list(feature_vectors_v2_columns()[3:])
+    code_key = unit_code_key(registry, feature_outputs)
+    apr_snapshot = dataclasses.asdict(config)
+    spool_root = spool_root or _SPOOL_ROOT_DEFAULT
+    _purge_spool_root(spool_root)
+
+    contracts = get_active_contracts(settings, dimension="compute_eligible_1d")
+    universe = [c.symbol for c in _filter_etf_contracts(contracts, symbols)]
+    chunks = split_symbol_chunks(universe, symbols_per_chunk)
+
+    # The daily cross-asset records are shared by every symbol: built once from the reference
+    # ETFs' 1d bars before the horizon and passed to the workers.
+    reference = {
+        name: _fetch_bars_from_db(db_conn, name, "1d", until=horizon)
+        for name in (SPY, TLT, SHY, TIP, HYG, LQD)
+    }
+    cross_asset_by_date = build_cross_asset_series(
+        reference[SPY],
+        reference[TLT],
+        reference[SHY],
+        reference[TIP],
+        reference[HYG],
+        reference[LQD],
+        config,
+    )
     _logger.info(
-        "coverage_report",
-        total_pairs=len(coverage),
-        below_threshold=len(below_threshold),
-        threshold=coverage_threshold,
+        "backfill_feature_factory.rebuild_start",
+        symbols=len(universe),
+        chunks=len(chunks),
+        tfs=target_timeframes,
+        horizon=horizon.isoformat(),
+        n_workers=n_workers,
+        code_key=code_key[:12],
+        path_dependent=list(path_dependent_contributors(registry, feature_outputs)),
     )
 
-    if below_threshold:
-        _logger.warning(
-            "coverage_below_threshold",
-            pairs=[
-                {"symbol": s, "tf": t, "rows": r, "theoretical": th, "pct": round(p, 4)}
-                for s, t, r, th, p in below_threshold
-            ],
-            threshold=coverage_threshold,
-        )
+    summary: dict[str, Any] = {
+        "units_total": 0,
+        "units_skipped": 0,
+        "units_loaded": 0,
+        "units_failed": 0,
+        "rows_loaded": 0,
+        "failed_units": [],
+        "empty_groups": 0,
+        "digest_blind_symbols": [],
+        "chunk_checklist": {},
+        "chunks_compressed": 0,
+        "compression": "not_run",
+        "horizon": horizon.isoformat(),
+    }
+    blind: set[str] = set()
+    expected: dict[tuple[str, int], set[str]] = {}
+    completed_keys: set[str] = set()
+    write_conn = psycopg.connect(settings.database_url)  # bulk_load commits; not autocommit
+    try:
+        with _make_worker_pool(n_workers, blas_threads_per_worker) as pool:
+            waiting: _PreparedGroup | None = None
+            for chunk_index, chunk in enumerate(chunks):
+                for tf in target_timeframes:
+                    plan = _plan_group(
+                        db_conn, chunk_index, chunk, tf, horizon, code_key, apr_snapshot
+                    )
+                    if plan is None:
+                        summary["empty_groups"] += 1
+                        continue
+                    blind |= plan.blind_symbols
+                    pending: list[RebuildUnit] = []
+                    for unit in plan.units:
+                        summary["units_total"] += 1
+                        for year in unit.years:
+                            expected.setdefault((tf, year), set()).add(unit.spec.batch_key)
+                        if _completed_provenance_batch(db_conn, unit.spec) is not None:
+                            summary["units_skipped"] += 1
+                            completed_keys.add(unit.spec.batch_key)
+                        else:
+                            pending.append(unit)
+                    if not pending:
+                        continue
+                    spool_dir = Path(
+                        tempfile.mkdtemp(
+                            prefix=f"{_SPOOL_GROUP_PREFIX}{tf}-{chunk_index:04d}-", dir=spool_root
+                        )
+                    )
+                    unit_ranges = [
+                        (unit.index, (unit.spec.range_start, unit.spec.range_end))
+                        for unit in pending
+                    ]
+                    futures = [
+                        pool.submit(
+                            _rebuild_worker,
+                            (
+                                symbol,
+                                tf,
+                                settings.database_url,
+                                config,
+                                horizon,
+                                unit_ranges,
+                                str(spool_dir),
+                                cross_asset_by_date,
+                                reference[SPY],
+                                reference[TLT],
+                                block_rows,
+                            ),
+                        )
+                        for symbol in chunk
+                    ]
+                    prepared = _PreparedGroup(plan, pending, futures, spool_dir)
+                    if waiting is not None:
+                        _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
+                    waiting = prepared
+            if waiting is not None:
+                _write_group(waiting, write_conn, max_unit_rows, summary, completed_keys)
+
+        summary["digest_blind_symbols"] = sorted(blind)
+        if blind:
+            _logger.warning(
+                "backfill_feature_factory.digest_blind",
+                symbols=len(blind),
+                reason="bar_content_digest_current has no row for these symbols, so a revised "
+                "bar inside a completed unit cannot be detected; the bar count and span still "
+                "name the unit",
+            )
+        for (tf, year), keys in sorted(expected.items()):
+            summary["chunk_checklist"][f"{tf}:{year}"] = {
+                "expected_units": len(keys),
+                "completed_units": len(keys & completed_keys),
+            }
+        full_scope = symbols is None and timeframes is None
+        if not full_scope:
+            summary["compression"] = "deferred: partial scope (--symbols or --tf)"
+        elif summary["units_failed"]:
+            summary["compression"] = "deferred: failed units"
+        else:
+            summary["chunks_compressed"] = _compress_completed_chunks(
+                write_conn, _V2_TABLE, datetime(horizon.year, 1, 1, tzinfo=UTC)
+            )
+            summary["compression"] = "done"
+    finally:
+        write_conn.close()
+        shutil.rmtree(spool_root, ignore_errors=True)
+    _logger.info(
+        "backfill_feature_factory.rebuild_complete",
+        **{
+            k: v
+            for k, v in summary.items()
+            if k not in ("failed_units", "chunk_checklist", "digest_blind_symbols")
+        },
+    )
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -1686,17 +1682,20 @@ def _log_coverage_report(coverage: dict[tuple[str, str], dict], coverage_thresho
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Backfill Feature Factory — two-stage IBKR fetch + FeatureFactory compute"
+        description=(
+            "Backfill Feature Factory: the IBKR fetch stage and the feature_vectors_v2 "
+            "rebuild writer"
+        )
     )
     parser.add_argument(
         "--fetch-only",
         action="store_true",
-        help="Only run Stage 1 (IBKR fetch into market_data_ohlcv), skip compute",
+        help="Only run Stage 1 (IBKR fetch into market_data_ohlcv), skip the rebuild",
     )
     parser.add_argument(
         "--compute-only",
         action="store_true",
-        help="Only run Stage 2 (FeatureFactory compute into feature_vectors), skip IBKR fetch",
+        help="Only run Stage 2 (the feature_vectors_v2 rebuild writer), skip IBKR fetch",
     )
     parser.add_argument(
         "--client-id",
@@ -1708,11 +1707,6 @@ def _parse_args() -> argparse.Namespace:
         "--symbols",
         default=None,
         help="Comma-separated symbols to limit scope, e.g. SPY,TLT (default: all active ETFs)",
-    )
-    parser.add_argument(
-        "--pipeline-version",
-        default="3.0.0",
-        help="Pipeline version string stamped on feature_vectors rows (default: 3.0.0)",
     )
     parser.add_argument(
         "--workers",
@@ -1727,17 +1721,12 @@ def _parse_args() -> argparse.Namespace:
         "feature.factory.target_timeframes; one outside it is an error)",
     )
     parser.add_argument(
-        "--refresh",
-        action="store_true",
+        "--data-horizon",
+        default=None,
         help=(
-            "Recompute mode (todo 176; naming matches ic_engine.py's --refresh, same "
-            "concept -- force full recompute, bypassing the checkpoint): overwrites "
-            "existing feature_vectors rows via ON CONFLICT DO UPDATE instead of the "
-            "default DO NOTHING skip, and ignores backfill_status.status='complete' "
-            "checkpoints so already-computed pairs are reprocessed too. Use when "
-            "feature-computation logic or the schema (new columns) changed since the "
-            "corpus was last built -- default mode will silently leave new columns "
-            "NULL on every pre-existing row otherwise."
+            "Exclusive end (UTC, YYYY-MM-DD) of every rebuild unit (default: the first day "
+            "of the current UTC month). A resume must pass the same horizon or the units' "
+            "identities change."
         ),
     )
     return parser.parse_args()
@@ -1750,36 +1739,35 @@ def main() -> None:
     if args.symbols:
         symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     timeframes = [t.strip() for t in args.tf.split(",") if t.strip()] if args.tf else None
+    horizon = (
+        datetime.strptime(args.data_horizon, "%Y-%m-%d").replace(tzinfo=UTC)
+        if args.data_horizon
+        else None
+    )
 
     settings = Settings()
     db_conn = _connect_db(settings)
 
     run_fetch = not args.compute_only
-    run_compute = not args.fetch_only
+    run_rebuild = not args.fetch_only
 
-    # Load n_workers from CLI arg or APR. Use a short-lived query on the main
-    # connection before workers spawn; run_compute_stage closes db_conn itself once
-    # every worker result has been written (todo 318 Bug 2 -- db_conn now stays open,
-    # not closed pre-spawn, for the whole pool span so it doubles as the single
-    # serial write connection).
+    # n_workers from the CLI arg or APR, read once on the main connection before the workers
+    # spawn. run_rebuild_stage opens its own serial writer connection and closes it.
     n_workers: int = 1
     if args.workers is not None:
         n_workers = args.workers
-    elif run_compute:
+    elif run_rebuild:
         cfg_tmp = _load_config_service(db_conn)
         n_workers = int(cfg_tmp.get_sync("infra.feature_factory.workers", 1))
 
     _logger.info(
         "backfill_start",
         run_fetch=run_fetch,
-        run_compute=run_compute,
+        run_rebuild=run_rebuild,
         client_id=args.client_id,
         symbols=symbols,
-        pipeline_version=args.pipeline_version,
         n_workers=n_workers,
     )
-
-    coverage: dict[tuple[str, str], dict] = {}
 
     try:
         if run_fetch:
@@ -1795,23 +1783,23 @@ def main() -> None:
             )
             _logger.info("stage1_complete")
 
-        if run_compute:
+        if run_rebuild:
             _logger.info("stage2_start")
-            # run_compute_stage closes db_conn itself, after writing every worker's
-            # result (not before spawning workers -- see todo 318 Bug 2). Do not close
-            # db_conn in finally when compute ran.
-            coverage, coverage_threshold = run_compute_stage(
+            summary = run_rebuild_stage(
                 settings=settings,
                 symbols=symbols,
                 db_conn=db_conn,
-                pipeline_version=args.pipeline_version,
                 n_workers=n_workers,
-                refresh=args.refresh,
                 timeframes=timeframes,
+                horizon=horizon,
             )
-            db_conn = None  # already closed inside run_compute_stage
-            _log_coverage_report(coverage, coverage_threshold)
-            _logger.info("stage2_complete", pairs_computed=len(coverage))
+            _logger.info(
+                "stage2_complete",
+                units_loaded=summary["units_loaded"],
+                units_skipped=summary["units_skipped"],
+                units_failed=summary["units_failed"],
+                rows_loaded=summary["rows_loaded"],
+            )
 
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": "success"})
         _logger.info("backfill_complete")
@@ -1821,8 +1809,7 @@ def main() -> None:
         _logger.error("backfill_failed", error=str(error))
         raise
     finally:
-        if db_conn is not None:
-            db_conn.close()
+        db_conn.close()
         flush_and_shutdown_metrics()
 
 

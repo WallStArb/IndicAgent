@@ -134,7 +134,7 @@ def _hourly_ltf(sessions: list[date], seed: int = 9) -> list[dict]:
 
 
 def _compute(bars: list[dict], tf: str, ctf, ltf_ret: dict | None = None):
-    """compute_batch as `_compute_symbol_tf` calls it for the CTF and ret_div inputs."""
+    """compute_batch as the legacy batch path calls it for the CTF and ret_div inputs."""
     results = FeatureFactory.compute_batch(
         bars,
         SYMBOL,
@@ -443,58 +443,6 @@ def test_an_empty_series_reads_zeros_and_nan():
     empty = CtfSeries.from_close_keyed({})
     out = ctf_row_inputs(np.array([1, 2, 3], dtype=np.int64), empty)
     assert not out["ext_ctf_momentum"].any() and np.isnan(out["ext_htf_last_log_ret"]).all()
-
-
-@pytest.mark.parametrize("tf", ["5m", "15m"])
-def test_the_backfill_shares_one_period_start_series_per_higher_tf(monkeypatch, tf):
-    """5m and 15m both map to 1h: the second (symbol, tf) call reuses the cached period-start
-    series instead of re-fetching and rebuilding, and gets the series the uncached call builds."""
-    import services.backfill_feature_factory as bff
-
-    hours, _ = _hour_bars(_sessions(4))
-    fetched: list[str] = []
-
-    def fake_fetch(conn, symbol, fetch_tf):
-        fetched.append(fetch_tf)
-        if fetch_tf == "1h":
-            return hours
-        return _five_minute_bars(_sessions(4)) if fetch_tf == tf else []
-
-    seen: list = []
-    monkeypatch.setattr(bff, "_fetch_bars_from_db", fake_fetch)
-    monkeypatch.setattr(
-        bff.FeatureFactory,
-        "compute_batch",
-        staticmethod(lambda *a, **kw: seen.append(kw["ctf_by_ts"]) or []),
-    )
-
-    def run(cache):
-        bff._compute_symbol_tf(
-            conn=None,
-            symbol=SYMBOL,
-            tf=tf,
-            config=CONFIG,
-            pipeline_version="t",
-            warm_up_bars=0,
-            cross_asset_by_date={},
-            beta_by_date={},
-            symbol_1d_bars=_day_bars(_sessions(4))[0],
-            ctf_period_start_by_htf=cache,
-        )
-
-    shared: dict = {}
-    run(shared)
-    n_fetched = fetched.count("1h")
-    run(shared)
-    assert fetched.count("1h") == n_fetched  # second call read the cache
-    run(None)
-    cached_first, cached_second, uncached = seen
-    for series in (cached_first, cached_second):
-        assert series.close_ns.tobytes() == uncached.close_ns.tobytes()
-        probe = uncached.close_ns
-        for left, right in zip(series.asof(probe), uncached.asof(probe), strict=True):
-            assert left.tobytes() == right.tobytes()
-    assert cached_first.close_ns.tobytes() == _by_close(hours, tf, "1h").close_ns.tobytes()
 
 
 # ---- Real data -----------------------------------------------------------------------------

@@ -1895,6 +1895,15 @@ regime-explained share reported on every book test; never gating. **Banned:** (n
 
 ---
 
+### `rebuild unit`
+
+One (symbol chunk, tf, time range) slice of the feature_vectors_v2 rebuild
+(services/backfill_feature_factory.py run_rebuild_stage), keyed by a provenance batch record so
+a kill-and-resume skips completed units and recomputes the rest. **Banned:** (none)
+**Status:** active (phase 186)
+
+---
+
 ### `provenance batch`
 
 The record of one write batch to a bulk table (writer, per-kernel code key, APR snapshot, input

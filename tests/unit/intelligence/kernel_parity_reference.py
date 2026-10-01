@@ -1,9 +1,9 @@
 """Reference compute path for the kernel parity fixture (186-08).
 
 `compute_reference(case)` is the one entry point the parity test and the capture script call.
-It runs today's compute path (`FeatureFactory.compute_batch`, and for real cases
-`services.backfill_feature_factory._compute_symbol_tf` over a fake connection serving the
-stored bars) and returns float32 columns in `_ALL_COLUMN_NAMES` order.
+It runs the legacy batch compute path (`FeatureFactory.compute_batch`; for real cases the
+steps the deleted `backfill_feature_factory._compute_symbol_tf` ran, inlined in
+`_compute_real`) and returns float32 columns in `_ALL_COLUMN_NAMES` order.
 
 186-12 and 186-15 repoint `compute_reference` at the registry path. The golden files never
 change in those plans: a behavior change is a separate commit that regenerates them with the
@@ -128,40 +128,6 @@ def _to_output(columns: tuple[str, ...], rows: list[tuple]) -> ReferenceOutput:
     return ReferenceOutput(bar_ts=bar_ts, columns=numeric, text_columns=text)
 
 
-class _FakeCursor:
-    def __init__(self, series: dict[tuple[str, str], list[dict]]):
-        self._series = series
-        self._result: list[tuple] = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def execute(self, sql, params):
-        if "market_data_ohlcv_tradeable" not in sql or len(params) != 2:
-            raise AssertionError(f"unexpected SQL or params: {sql!r} {params!r}")
-        key = (params[0], params[1])
-        if key not in self._series:
-            raise AssertionError(f"fixture holds no bars for {key}")
-        self._result = [
-            (b["ts"], b["open"], b["high"], b["low"], b["close"], b["volume"])
-            for b in self._series[key]
-        ]
-
-    def fetchall(self):
-        return self._result
-
-
-class _FakeConnection:
-    def __init__(self, series):
-        self._series = series
-
-    def cursor(self):
-        return _FakeCursor(self._series)
-
-
 def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
     from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
     from src.intelligence.features.feature_vector_persistence import (
@@ -192,8 +158,26 @@ def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> Referen
 
 
 def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
-    from services.backfill_feature_factory import _compute_symbol_tf
-    from src.intelligence.features.feature_vector_persistence import _ALL_COLUMN_NAMES
+    """The legacy batch path the golden fixture pins.
+
+    186-25 deleted `backfill_feature_factory._compute_symbol_tf` (the old compute stage the
+    fixture originally replayed); the same steps are inlined here against the still-live
+    legacy `FeatureFactory.compute_batch`, so the golden files never change (D-25). The
+    registry-parity fixture is a historical pin: the v2 rebuild computes through
+    `compute_kernels`, which 186-15's own tests pin separately.
+    """
+    from src.core.market_calendar import get_market_calendar
+    from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
+    from src.intelligence.features.feature_vector_persistence import (
+        _ALL_COLUMN_NAMES,
+        feature_vector_to_insert_params,
+    )
+    from src.intelligence.features.kernels._cache_state import FeatureCache
+    from src.intelligence.features.kernels.cross_tf import (
+        _build_ctf_series,
+        _build_ltf_return_series,
+        _rekey_ctf_series_to_actual_close,
+    )
     from src.intelligence.features.kernels.macro import (
         build_cross_asset_series,
         build_symbol_beta_series,
@@ -205,25 +189,51 @@ def _compute_real(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOut
     d1 = {s: _series_bars(npz, f"d1/{s}") for s in {symbol, *CROSS_ASSET_SYMBOLS}}
     cross_asset_by_date = build_cross_asset_series(*(d1[s] for s in CROSS_ASSET_SYMBOLS), config)
     beta_by_date = build_symbol_beta_series(d1[symbol], d1["SPY"], d1["TLT"], symbol, config)
-    series: dict[tuple[str, str], list[dict]] = {(symbol, "1d"): d1[symbol]}
     prefix = f"case/{symbol}/{tf}"
-    if tf != "1d":
-        series[(symbol, tf)] = _series_bars(npz, f"{prefix}/main")
-    if f"{prefix}/htf/ts" in npz.files:
-        series[(symbol, case["htf_tf"])] = _series_bars(npz, f"{prefix}/htf")
-    if f"{prefix}/ltf/ts" in npz.files:
-        series[(symbol, "1m")] = _series_bars(npz, f"{prefix}/ltf")
-    rows = _compute_symbol_tf(
-        conn=_FakeConnection(series),
-        symbol=symbol,
-        tf=tf,
-        config=config,
-        pipeline_version=manifest["pipeline_version"],
+    bars = d1[symbol] if tf == "1d" else _series_bars(npz, f"{prefix}/main")
+
+    htf_tf = config.ctf_higher_tf_map.get(tf)
+    htf_bars = (
+        d1[symbol]
+        if htf_tf == "1d"
+        else (_series_bars(npz, f"{prefix}/htf") if f"{prefix}/htf/ts" in npz.files else [])
+    )
+    period_start = _build_ctf_series(htf_bars, config) if htf_bars else {}
+    ctf_by_ts = (
+        _rekey_ctf_series_to_actual_close(period_start, tf, htf_tf) if period_start else None
+    )
+    ltf_ret_by_ts = None
+    if tf == "5m" and f"{prefix}/ltf/ts" in npz.files:
+        ltf_bars = _series_bars(npz, f"{prefix}/ltf")
+        ltf_ret_by_ts = _build_ltf_return_series(ltf_bars, [b["ts"] for b in bars])
+
+    results = FeatureFactory.compute_batch(
+        bars,
+        symbol,
+        tf,
+        FeatureCache(),
+        config,
         warm_up_bars=manifest["warm_up_bars"],
         cross_asset_by_date=cross_asset_by_date,
+        ctf_by_ts=ctf_by_ts,
         beta_by_date=beta_by_date,
-        symbol_1d_bars=d1[symbol],
+        ltf_ret_by_ts=ltf_ret_by_ts,
     )
+    calendar = get_market_calendar()
+    rows = [
+        feature_vector_to_insert_params(
+            symbol=symbol,
+            tf=tf,
+            bar_ts=ts,
+            pipeline_version=manifest["pipeline_version"],
+            feature_factory_version=FEATURE_FACTORY_VERSION,
+            regime=None,
+            regime_label_source="filtered",
+            vector=fv,
+        )
+        for ts, fv in results
+        if calendar.is_trading_bar("NYSE", ts, tf)
+    ]
     return _to_output(_ALL_COLUMN_NAMES, rows)
 
 

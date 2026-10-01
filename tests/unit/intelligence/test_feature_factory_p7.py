@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 
-from services.backfill_feature_factory import _vector_to_params
 from src.intelligence.feature_factory import (
     FEATURE_VECTOR_DOMAIN,
     FeatureFactory,
@@ -449,11 +448,12 @@ def test_feature_vector_domain_complete():
 
 
 # ---------------------------------------------------------------------------
-# _vector_to_params length
+# feature_vector_to_insert_params length (the row serializer; the rebuild writer's
+# _vector_to_params delegate was deleted with the old compute path in 186-25)
 # ---------------------------------------------------------------------------
 
 
-def test_vector_to_params_length():
+def test_feature_vector_to_insert_params_length():
     """Row width must match FEATURE_VECTOR_INSERT_SQL's placeholder count exactly.
 
     Deriving the expectation from the SQL contract (rather than a hardcoded
@@ -463,6 +463,7 @@ def test_vector_to_params_length():
     """
     from src.intelligence.features.feature_vector_persistence import (
         FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
+        feature_vector_to_insert_params,
     )
 
     cfg = _make_cfg()
@@ -470,7 +471,16 @@ def test_vector_to_params_length():
     bars = _bars(50)
     ts = datetime(2026, 1, 7, 14, 0, tzinfo=UTC)
     fv = FeatureFactory.compute(bars, "SPY", "1m", cache, cfg)
-    row = _vector_to_params("SPY", "1m", ts, "v3.0.0", None, fv)
+    row = feature_vector_to_insert_params(
+        symbol="SPY",
+        tf="1m",
+        bar_ts=ts,
+        pipeline_version="v3.0.0",
+        feature_factory_version="test",
+        regime=None,
+        regime_label_source="filtered",
+        vector=fv,
+    )
     expected = FEATURE_VECTOR_INSERT_SQL_PSYCOPG.count("%s")
     assert len(row) == expected, f"Expected {expected}, got {len(row)}"
 

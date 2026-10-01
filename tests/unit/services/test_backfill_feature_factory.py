@@ -1,50 +1,54 @@
-"""Unit tests for BackfillFeatureFactory — two-stage checkpoint/resume, coverage accounting.
+"""Unit tests for BackfillFeatureFactory: the fetch stage's helpers, the rebuild unit design
+(186-25, D-32a, D-26) and the feature_vectors_v2 rebuild writer (D-28, todo 339).
 
-CI-clean: no live IBKR, no live DB. All DB interactions mocked.
-Tests cover:
-- compute resume skips status='complete' pairs
-- fetch resume skips IBKR download for fetch_complete=true pairs
-- theoretical_max formula per TF/depth
-- coverage gate flags pairs below 80% of theoretical_max
-- feature_vectors params builder sets regime_label_source='filtered'
+CI-clean: no live IBKR, no live DB. All DB interactions are faked; the rebuild-writer tests
+run the stage's group flow over stub workers and spool files, never the real compute pool.
 """
 
 from __future__ import annotations
 
 import bisect
+import dataclasses
+import inspect
 import math
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 # Ensure project root on sys.path for direct import
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
 # Import only the pure-function helpers — no network, no DB
+from services import backfill_feature_factory as module
 from services.backfill_feature_factory import (
     _BARS_PER_DAY,
     _DEFAULT_CLIENT_ID,
-    _INSERT_FEATURE_VECTORS_SQL,
-    _MARK_COMPUTE_COMPLETE_SQL,
-    _MARK_COMPUTE_FAILED_SQL,
     _TARGET_TIMEFRAMES_DEFAULT,
-    _TRADING_DAYS_PER_YEAR,
-    _UPSERT_FEATURE_VECTORS_SQL,
-    _batch_insert,
     _get_target_timeframes,
-    _log_coverage_report,
-    _theoretical_max,
-    _vector_to_params,
-    run_compute_stage,
 )
 from src.config.config_service import ConfigService
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.contract.registry import compute_kernels, default_registry
+from src.intelligence.features.feature_vector_persistence import (
+    feature_vector_v2_row_values,
+    feature_vectors_v2_columns,
+    feature_vectors_v2_numeric_columns,
+)
 from src.intelligence.features.kernels._cache_state import FeatureCache
-from src.intelligence.features.kernels.macro import CrossAssetRecord
+from src.intelligence.features.kernels.macro import (
+    CROSS_ASSET_SYMBOLS,
+    CrossAssetRecord,
+    bar_ts_ns,
+    build_cross_asset_series,
+    build_symbol_beta_series,
+)
 from src.intelligence.schemas import FeatureVector
+from tests.unit.intelligence import test_macro_alignment as tma
 from tests.unit.intelligence.bar_builders import synthetic_daily_bars
 
 # ---------------------------------------------------------------------------
@@ -476,30 +480,6 @@ def _make_zero_vector() -> FeatureVector:
     )
 
 
-def _mock_worker_result(symbol: str) -> dict:
-    """Build one _run_compute_worker-shaped pool.map() result for `symbol` across the
-    default target timeframes.
-
-    Shared by the run_compute_stage tests below (/simplify pass, todo 318/300 session)
-    -- this exact literal was repeated identically across 4 tests; any future change to
-    the worker-result shape (already happened once this session, the rows_written/pct ->
-    rows-only change) previously had to be hand-applied to all 4 copies.
-
-    No tfs/theoretical_max params: an earlier version of this helper had both, but no
-    caller ever passed either (/simplify altitude-angle finding, same session) -- YAGNI,
-    re-add if a real test ever needs a different set.
-    """
-    return {
-        "symbol": symbol,
-        "error": None,
-        "results": [
-            {"tf": tf, "rows": [(f"row-{tf}",)], "theoretical_max": 1200}
-            for tf in _TARGET_TIMEFRAMES_DEFAULT
-        ],
-    }
-
-
-# ---------------------------------------------------------------------------
 # Test 1: Default client-id is 40
 # ---------------------------------------------------------------------------
 
@@ -507,50 +487,6 @@ def _mock_worker_result(symbol: str) -> dict:
 def test_default_client_id_is_40() -> None:
     """IBKR client-id must default to 40 (T2 mitigation)."""
     assert _DEFAULT_CLIENT_ID == 40
-
-
-# ---------------------------------------------------------------------------
-# Test 2: theoretical_max formula
-# ---------------------------------------------------------------------------
-
-
-def test_theoretical_max_5m_5y() -> None:
-    """5m over 5y: (5 * 252 * 78) - warm_up = 98280 - warm_up."""
-    warm_up = 252
-    expected = 5 * 252 * 78 - warm_up
-    result = _theoretical_max("5m", 5, warm_up)
-    assert result == expected, f"Expected {expected}, got {result}"
-
-
-def test_theoretical_max_1d_20y() -> None:
-    """1d over 20y: (20 * 252 * 1) - warm_up = 5040 - warm_up."""
-    warm_up = 252
-    expected = 20 * 252 * 1 - warm_up
-    result = _theoretical_max("1d", 20, warm_up)
-    assert result == expected, f"Expected {expected}, got {result}"
-
-
-def test_theoretical_max_15m_10y() -> None:
-    """15m over 10y: (10 * 252 * 26) - warm_up."""
-    warm_up = 100
-    expected = 10 * 252 * 26 - warm_up
-    result = _theoretical_max("15m", 10, warm_up)
-    assert result == expected
-
-
-def test_theoretical_max_1h_15y() -> None:
-    """1h over 15y: (15 * 252 * 6) - warm_up."""
-    warm_up = 252
-    expected = 15 * 252 * 6 - warm_up
-    result = _theoretical_max("1h", 15, warm_up)
-    assert result == expected
-
-
-def test_theoretical_max_no_negative() -> None:
-    """theoretical_max floors at 0 if warm_up exceeds raw bars."""
-    warm_up = 99999
-    result = _theoretical_max("1d", 1, warm_up)
-    assert result == 0
 
 
 def test_bars_per_day_values() -> None:
@@ -561,677 +497,8 @@ def test_bars_per_day_values() -> None:
     assert _BARS_PER_DAY["1d"] == 1
 
 
-def test_trading_days_per_year() -> None:
-    """Standard 252 trading days."""
-    assert _TRADING_DAYS_PER_YEAR == 252
-
-
 # ---------------------------------------------------------------------------
-# Test 3: params builder sets regime_label_source='filtered'
-# ---------------------------------------------------------------------------
-
-
-def test_vector_to_params_regime_label_source() -> None:
-    """Every feature_vectors INSERT must set regime_label_source='filtered' (SC-5/D-07)."""
-    fv = _make_zero_vector()
-    ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
-    params = _vector_to_params(
-        symbol="SPY",
-        tf="5m",
-        bar_ts=ts,
-        pipeline_version="3.0.0",
-        regime=None,
-        fv=fv,
-    )
-    # params[7] is regime_label_source in the INSERT column order (post migration 159).
-    # Column layout: [0]=feature_vector_id, [1]=symbol, [2]=tf, [3]=bar_ts,
-    #   [4]=pipeline_version, [5]=feature_factory_version, [6]=regime, [7]=regime_label_source
-    assert params[7] == "filtered", f"Expected 'filtered', got {params[7]!r}"
-
-
-def test_vector_to_params_all_features_present() -> None:
-    """All FeatureVector fields must appear in the INSERT params tuple (159 total
-    after migration 211, 2026-07-09 -- 161 after migration 206's 2026-07-08
-    persistence-wiring fix, then -2 for the redundant new_high_flag/new_low_flag
-    removal, 164 after migration 223's 5 canary columns, 181 after migration
-    255's 17 structural VP/SR columns (Phase 163 Plan 01), 217 after migration
-    266's 36 SMC institutional-footprint columns (Phase 164 Plan 01), 258
-    after migration 267's 41 swing/fib/trend/session structure columns
-    (Phase 165 Plan 01), 268 after migration 293's 10 calendar cycle/TDOM/
-    minute + velocity columns (Phase 151 Plan 01), 279 after migration 288's
-    11 recency/statistical atomics columns (Phase 151 Plan 03), 286 after
-    migration 289's 7 cross-asset spread/beta atomics columns (Phase 151
-    Plan 04), 291 after migration 290's 5 Named Interaction Primitives
-    columns (Phase 151 Plan 05), 301 after migration 291's 10
-    Theory-Motivated Interaction columns (Phase 151 Plan 06), 307 after
-    migration 316's 6 Velocity Primitives Extension columns (todo 320), 309
-    after migration 350's 2 Earnings-Season Calendar Primitive columns
-    (Phase 176 Plan 03, todo 353)."""
-    fv = _make_zero_vector()
-    ts = datetime(2025, 1, 2, 14, 30, 0, tzinfo=UTC)
-    params = _vector_to_params(
-        symbol="SPY",
-        tf="5m",
-        bar_ts=ts,
-        pipeline_version="3.0.0",
-        regime=None,
-        fv=fv,
-    )
-    # 1 content-key + 8 structural + 300 feature floats = 309 total
-    assert len(params) == 309, f"Expected 309 params, got {len(params)}"
-
-
-def test_vector_to_params_symbol_tf_ts() -> None:
-    """First three params are symbol, tf, bar_ts."""
-    fv = _make_zero_vector()
-    ts = datetime(2025, 6, 1, 13, 30, 0, tzinfo=UTC)
-    params = _vector_to_params(
-        symbol="TLT",
-        tf="1h",
-        bar_ts=ts,
-        pipeline_version="3.0.0",
-        regime=None,
-        fv=fv,
-    )
-    assert params[1] == "TLT"
-    assert params[2] == "1h"
-    assert params[3] == ts
-
-
-# ---------------------------------------------------------------------------
-# Test 4: coverage gate flags pairs below 80%
-# ---------------------------------------------------------------------------
-
-
-def test_coverage_gate_below_80pct_flagged(caplog: pytest.LogCaptureFixture) -> None:
-    """Pairs with rows_written < 80% theoretical_max must be flagged as warnings."""
-    import logging
-
-    coverage = {
-        ("SPY", "5m"): {
-            "rows_written": 500,
-            "theoretical_max": 1000,
-            "pct": 0.5,  # 50% — below gate
-        },
-        ("TLT", "1d"): {
-            "rows_written": 900,
-            "theoretical_max": 1000,
-            "pct": 0.9,  # 90% — above gate
-        },
-    }
-
-    with caplog.at_level(logging.WARNING):
-        _log_coverage_report(coverage, 0.80)
-
-    # The below-gate pair should appear in warning output
-    assert any(
-        "SPY" in record.message or "below" in record.message.lower()
-        for record in caplog.records
-        if record.levelno >= logging.WARNING
-    ), "Expected a warning for SPY/5m below 80% gate"
-
-
-def test_coverage_gate_above_80pct_no_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """Pairs with rows_written >= 80% theoretical_max should not trigger a D-06 gate warning."""
-    import logging
-
-    coverage = {
-        ("SPY", "1d"): {
-            "rows_written": 850,
-            "theoretical_max": 1000,
-            "pct": 0.85,  # 85% — above gate
-        },
-    }
-
-    with caplog.at_level(logging.WARNING):
-        _log_coverage_report(coverage, 0.80)
-
-    # No D-06 gate warning expected
-    gate_warnings = [
-        r for r in caplog.records if r.levelno >= logging.WARNING and "gate" in r.message.lower()
-    ]
-    assert not gate_warnings, f"Unexpected D-06 gate warnings: {gate_warnings}"
-
-
-# ---------------------------------------------------------------------------
-# Test 5: compute resume skips status='complete' pairs
-# ---------------------------------------------------------------------------
-
-
-def test_compute_resume_skips_complete_pairs() -> None:
-    """run_compute_stage must skip (symbol, tf) pairs where status='complete'."""
-    # Mock Settings
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-
-    # Mock DB connection
-    mock_conn = MagicMock()
-
-    # Stub get_active_contracts to return a single ETF
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    # Status: SPY/5m already complete
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch(
-            "services.backfill_feature_factory._load_config_service",
-        ) as mock_cfg_load,
-        patch(
-            "services.backfill_feature_factory._build_feature_factory_config",
-        ) as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("SPY", "5m"): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                },
-                ("SPY", "15m"): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 800,
-                    "theoretical_max": 900,
-                },
-                ("SPY", "1h"): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 200,
-                    "theoretical_max": 250,
-                },
-                ("SPY", "1d"): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 50,
-                    "theoretical_max": 60,
-                },
-            },
-        ),
-        # todo 316: checkpoint only trusted when feature_vectors actually holds the
-        # rows (at or above coverage_threshold of rows_written) -- this test's
-        # scenario is the correctly-synced case, unlike
-        # test_compute_resume_recomputes_when_status_complete_but_no_fv_rows.
-        patch(
-            "services.backfill_feature_factory._load_fv_row_counts",
-            return_value={
-                ("SPY", "5m"): 1000,
-                ("SPY", "15m"): 800,
-                ("SPY", "1h"): 200,
-                ("SPY", "1d"): 50,
-            },
-        ),
-        patch("services.backfill_feature_factory._compute_symbol_tf") as mock_compute,
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-
-        coverage, _ = run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-        )
-
-    # _compute_symbol_tf must never be called when all pairs are complete
-    mock_compute.assert_not_called()
-
-    # All 4 TFs returned in coverage
-    assert ("SPY", "5m") in coverage
-    assert ("SPY", "1d") in coverage
-
-
-def test_compute_resume_recomputes_when_status_complete_but_no_fv_rows() -> None:
-    """todo 316: a (symbol, tf) marked status='complete' in backfill_status but with
-    ZERO rows actually present in feature_vectors must NOT be skipped -- the checkpoint
-    desynced from reality (confirmed live: 80 active ETF symbols, computed successfully
-    per backfill_status in 2026-07, completely absent from feature_vectors as of
-    2026-08-14 with no error ever raised). Recompute, don't trust a stale flag blindly."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("SPY", tf): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-                for tf in _TARGET_TIMEFRAMES_DEFAULT
-            },
-        ),
-        # feature_vectors has ZERO rows for SPY on any tf -- the desync
-        patch(
-            "services.backfill_feature_factory._load_fv_row_counts",
-            return_value={},
-        ),
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [_mock_worker_result("SPY")]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-        )
-
-        # The stale 'complete' flag must NOT short-circuit compute when feature_vectors
-        # actually holds nothing for this pair -- a pool must still be spawned.
-        mock_pool.map.assert_called_once()
-
-
-def test_compute_resume_recomputes_on_partial_row_loss() -> None:
-    """Code review finding (todo 316, same session): a pure existence check missed
-    PARTIAL data loss -- a pair that lost most but not all of its rows still read as
-    'present' and got skipped forever, reproducing the exact silent-gap failure mode
-    this fix exists to close, just below 100% instead of at 0%. A count well under
-    coverage_threshold (default 0.80) of rows_written must also trigger recompute."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("SPY", tf): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-                for tf in _TARGET_TIMEFRAMES_DEFAULT
-            },
-        ),
-        # feature_vectors holds only 50/1000 rows for SPY on every tf -- well under
-        # the 80% default coverage_threshold, i.e. a real partial-loss desync.
-        patch(
-            "services.backfill_feature_factory._load_fv_row_counts",
-            return_value={("SPY", tf): 50 for tf in _TARGET_TIMEFRAMES_DEFAULT},
-        ),
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [_mock_worker_result("SPY")]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-        )
-
-        mock_pool.map.assert_called_once()
-
-
-def test_refresh_skips_fv_row_count_check_entirely() -> None:
-    """Code review finding (todo 316, same session): under refresh=True the skip
-    branch is already unconditionally bypassed, so computing the desync check's
-    result is pure waste (a real query against a 70M-row hypertable) plus misleading
-    'desynced' warnings for what's actually just an operator-requested recompute.
-    _load_fv_row_counts must not even be called when refresh=True."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("SPY", tf): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-                for tf in _TARGET_TIMEFRAMES_DEFAULT
-            },
-        ),
-        patch("services.backfill_feature_factory._load_fv_row_counts") as mock_fv_counts,
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [_mock_worker_result("SPY")]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-            refresh=True,
-        )
-
-        mock_fv_counts.assert_not_called()
-
-
-def test_refresh_reprocesses_complete_pairs() -> None:
-    """todo 176: refresh=True must bypass the status='complete' checkpoint skip --
-    otherwise a recompute run would never even reach the pairs it exists to fix."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("SPY", tf): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-                for tf in _TARGET_TIMEFRAMES_DEFAULT
-            },
-        ),
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [_mock_worker_result("SPY")]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-            refresh=True,
-        )
-
-        # A pool was actually spawned -- the complete-pair checkpoint did not short-circuit
-        mock_pool.map.assert_called_once()
-        worker_args = list(mock_pool.map.call_args[0][1])
-        assert len(worker_args) == 1
-        # Unpack by name (matches _run_compute_worker's documented args: order) rather
-        # than a magic tuple index -- stays correct if the tuple grows again.
-        (
-            _symbol,
-            _tfs,
-            _dsn,
-            _config,
-            _pipeline_version,
-            _warm_up_bars,
-            _cross_asset_by_date,
-            _spy_1d_bars,
-            _tlt_1d_bars,
-            refresh,
-        ) = worker_args[0]
-        assert refresh is True
-
-
-def test_compute_cell_write_failure_does_not_abort_remaining_cells() -> None:
-    """Code review finding (todo 318 Bug 2, /simplify pass): the main process now
-    does every worker's write serially in one pool.map loop -- a write failure for
-    one (symbol, tf) cell must not abort the whole run and discard every other
-    pending symbol's already-computed rows, mirroring regime_writer.py's per-cell
-    isolation. Verified by making _batch_insert raise for AAPL's cell only; MSFT's
-    cell (returned in the same pool.map iterable) must still get written and
-    recorded in coverage."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instruments = []
-    for sym in ("AAPL", "MSFT"):
-        inst = MagicMock()
-        inst.symbol = sym
-        inst.asset_class = "equity"
-        mock_instruments.append(inst)
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=mock_instruments,
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                (sym, tf): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-                for sym in ("AAPL", "MSFT")
-                for tf in _TARGET_TIMEFRAMES_DEFAULT
-            },
-        ),
-        # Empty feature_vectors -- todo 316's checkpoint-desync check forces both
-        # symbols into pending_symbols despite status='complete' above.
-        patch("services.backfill_feature_factory._load_fv_row_counts", return_value={}),
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-        patch("services.backfill_feature_factory._batch_insert") as mock_batch_insert,
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-
-        def _raise_for_aapl(conn, rows, refresh=False):
-            if rows and rows[0][0] == "AAPL-row":
-                raise RuntimeError("simulated write failure")
-
-        mock_batch_insert.side_effect = _raise_for_aapl
-
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "AAPL",
-                "error": None,
-                "results": [
-                    {"tf": "5m", "rows": [("AAPL-row",)], "theoretical_max": 1200},
-                ],
-            },
-            {
-                "symbol": "MSFT",
-                "error": None,
-                "results": [
-                    {"tf": "5m", "rows": [("MSFT-row",)], "theoretical_max": 1200},
-                ],
-            },
-        ]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        # Must not raise -- that's the whole point of the fix.
-        coverage, _ = run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-        )
-
-    # MSFT's cell was written despite AAPL's failing earlier in the same loop.
-    assert coverage[("MSFT", "5m")]["rows_written"] == 1
-    # AAPL's failed cell is recorded as zero, not silently dropped or left absent.
-    assert coverage[("AAPL", "5m")]["rows_written"] == 0
-
-
-def test_compute_cell_mid_chunk_failure_does_not_leave_partial_commit() -> None:
-    """/simplify altitude-angle finding, todo 318/300 session: every existing test
-    before this one only ever exercised a single-chunk cell (one row -> one
-    _batch_insert call), because int(MagicMock()) defaults to 1 for the mocked
-    insert_batch_size AND every mocked cell only ever had 1 row -- so
-    range(0, 1, N) never iterated more than once regardless of N. This test gives
-    one cell 3 rows so the chunk loop genuinely iterates 3 times (insert_batch_size
-    defaults to 1 via the same MagicMock behavior), and fails on the SECOND chunk --
-    the exact scenario _batch_insert's dropped internal commit() exists to fix.
-    Must not commit anything for this cell: _MARK_COMPUTE_COMPLETE_SQL must never
-    run, only _MARK_COMPUTE_FAILED_SQL, and the cell's coverage must read zero --
-    not a partial count reflecting the one chunk that succeeded before the failure."""
-    settings = MagicMock()
-    settings.database_url = "postgresql://fake"
-    mock_conn = MagicMock()
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "TSLA"
-    mock_instrument.asset_class = "equity"
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch("services.backfill_feature_factory._load_config_service") as mock_cfg_load,
-        patch("services.backfill_feature_factory._build_feature_factory_config") as mock_cfg_build,
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value={
-                ("TSLA", "5m"): {
-                    "status": "complete",
-                    "fetch_complete": True,
-                    "rows_written": 1000,
-                    "theoretical_max": 1200,
-                }
-            },
-        ),
-        patch("services.backfill_feature_factory._load_fv_row_counts", return_value={}),
-        patch("services.backfill_feature_factory._make_worker_pool") as mock_pool_cls,
-        patch("services.backfill_feature_factory._write_session"),
-        patch("services.backfill_feature_factory._batch_insert") as mock_batch_insert,
-    ):
-        mock_cfg_load.return_value = MagicMock()
-        mock_cfg_build.return_value = _make_config()
-
-        # Chunk 1 succeeds, chunk 2 raises -- chunk 3 is never reached.
-        call_count = {"n": 0}
-
-        def _raise_on_second_chunk(conn, rows, refresh=False):
-            call_count["n"] += 1
-            if call_count["n"] == 2:
-                raise RuntimeError("simulated mid-chunk failure")
-
-        mock_batch_insert.side_effect = _raise_on_second_chunk
-
-        mock_pool = MagicMock()
-        mock_pool.map.return_value = [
-            {
-                "symbol": "TSLA",
-                "error": None,
-                "results": [
-                    {
-                        "tf": "5m",
-                        "rows": [("TSLA-row-1",), ("TSLA-row-2",), ("TSLA-row-3",)],
-                        "theoretical_max": 1200,
-                    },
-                ],
-            },
-        ]
-        mock_pool_cls.return_value.__enter__.return_value = mock_pool
-
-        coverage, _ = run_compute_stage(
-            settings=settings,
-            symbols=None,
-            db_conn=mock_conn,
-        )
-
-    # The chunk loop actually iterated more than once -- confirms this test
-    # exercises the multi-chunk path, not a trivially-single-iteration one.
-    assert call_count["n"] >= 2
-
-    # Whole cell recorded as failed -- not a partial count from the one chunk
-    # that succeeded before the second chunk raised.
-    assert coverage[("TSLA", "5m")]["rows_written"] == 0
-
-    # The success-path SQL must never have run for this cell.
-    executed_sql = [c.args[0] for c in mock_conn.cursor().__enter__().execute.call_args_list]
-    assert _MARK_COMPUTE_COMPLETE_SQL not in executed_sql
-    assert _MARK_COMPUTE_FAILED_SQL in executed_sql
-
-
-def test_batch_insert_does_not_commit() -> None:
-    """/simplify altitude-angle finding, todo 318/300 session: pins the "does not
-    commit" contract _batch_insert's docstring documents but no test previously
-    verified -- a future change that reintroduces conn.commit() here would silently
-    reopen the mid-chunk-failure partial-commit bug this function's docstring exists
-    to prevent, with nothing in the suite catching it."""
-    mock_conn = MagicMock()
-    _batch_insert(mock_conn, [("row",)], refresh=False)
-    mock_conn.commit.assert_not_called()
-
-
-def test_batch_insert_default_uses_insert_sql() -> None:
-    """Default (refresh=False) must use the DO NOTHING statement -- never touches
-    an existing row, matching the live write path's idempotent-skip semantics."""
-    mock_conn = MagicMock()
-    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-    _batch_insert(mock_conn, [("row",)], refresh=False)
-    mock_cur.executemany.assert_called_once()
-    assert mock_cur.executemany.call_args[0][0] == _INSERT_FEATURE_VECTORS_SQL
-
-
-def test_batch_insert_refresh_uses_upsert_sql() -> None:
-    """refresh=True (todo 176) must use the DO UPDATE statement so existing rows
-    actually get overwritten with freshly computed values, including new columns."""
-    mock_conn = MagicMock()
-    mock_cur = mock_conn.cursor.return_value.__enter__.return_value
-    _batch_insert(mock_conn, [("row",)], refresh=True)
-    mock_cur.executemany.assert_called_once()
-    assert mock_cur.executemany.call_args[0][0] == _UPSERT_FEATURE_VECTORS_SQL
-
-
-# ---------------------------------------------------------------------------
-# Test 6: fetch resume skips IBKR download for fetch_complete=true pairs
+# Fetch resume: run_fetch_stage skips IBKR download for fetch_complete=true pairs
 # ---------------------------------------------------------------------------
 
 
@@ -1927,3 +1194,741 @@ class TestRebuildUnitDesign:
             load_rebuild_unit_apr(
                 _Cfg({"infra.feature_factory.rebuild_symbols_per_chunk": 0})  # type: ignore[arg-type]
             )
+
+
+# ---------------------------------------------------------------------------
+# The rebuild writer (186-25 Task 2): provenance-keyed units, spool IPC (todo 339),
+# bulk_load-only writes, regime in the same pass. DB interactions are stubbed; the
+# real compute pool never runs.
+# ---------------------------------------------------------------------------
+
+
+class _StubCfg:
+    """get_sync over a dict, falling through to the caller's default (the APR fallbacks)."""
+
+    def __init__(self, values: dict[str, object] | None = None):
+        self._values = values or {}
+
+    def get_sync(self, key: str, default: object = None) -> object:
+        return self._values.get(key, default)
+
+
+_NUMERIC_WIDTH = len(feature_vectors_v2_numeric_columns())
+
+
+def _unit_spec(range_start, range_end, tf="1d", symbols=("AAA", "BBB")):
+    from services._batch_utils import BulkLoadSpec
+
+    return BulkLoadSpec(
+        writer=module._JOB,
+        target_table="feature_vectors_v2",
+        time_column="bar_ts",
+        tf=tf,
+        range_start=range_start,
+        range_end=range_end,
+        symbols=list(symbols),
+        code_key="a" * 64,
+        apr_snapshot={"feature.momentum.window_fast": 5},
+        input_digest="b" * 64,
+    )
+
+
+def _group_plan(tf, specs, chunk=("AAA", "BBB"), chunk_index=0, blind=()):
+    return module._GroupPlan(
+        chunk_index=chunk_index,
+        chunk=tuple(chunk),
+        tf=tf,
+        units=[module.RebuildUnit(i, s) for i, s in enumerate(specs)],
+        blind_symbols=set(blind),
+    )
+
+
+def _write_spool(path: Path, symbol: str, tf: str, times, regime=None) -> int:
+    with open(path, "w") as handle:
+        for ts in times:
+            row = feature_vector_v2_row_values(symbol, tf, ts, regime, None, [0.0] * _NUMERIC_WIDTH)
+            handle.write(module._spool_line(row))
+    return len(times)
+
+
+def _stub_worker(times_by_symbol: dict[str, dict[int, list]]):
+    """A _rebuild_worker stand-in: writes each (symbol, unit) spool with the row times the
+    test prescribes (order preserved, so a test can interleave deliberately)."""
+
+    def worker(args: tuple) -> dict:
+        symbol, tf, _dsn, _config, _horizon, unit_ranges, spool_dir, *_ = args
+        planned = times_by_symbol.get(symbol, {})
+        result: dict = {"symbol": symbol, "units": {}, "error": None}
+        for index, (_start, _end) in unit_ranges:
+            path = Path(spool_dir) / f"u{index:05d}-{symbol}.csv"
+            times = planned.get(index, [])
+            result["units"][index] = {
+                "path": str(path),
+                "rows": _write_spool(path, symbol, tf, times),
+            }
+        return result
+
+    return worker
+
+
+class _InlinePool:
+    """submit() runs the stub worker in-process and records the dispatch order."""
+
+    def __init__(self, worker):
+        self._worker = worker
+        self.dispatched: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def submit(self, _fn, args):
+        self.dispatched.append(args[0])
+        return SimpleNamespace(result=lambda: self._worker(args))
+
+
+class _BulkLoadRecorder:
+    """A bulk_load stand-in: consumes the rows iterator (asserting time order), records them
+    per batch key, and can fail or miscount on chosen keys."""
+
+    def __init__(self, fail_keys=(), wrong_counts=None):
+        self.rows_by_key: dict[str, list[tuple]] = {}
+        self.load_order: list[str] = []
+        self._fail_keys = set(fail_keys)
+        self._wrong_counts = dict(wrong_counts or {})
+
+    def __call__(self, conn, spec, columns, rows):
+        rows = list(rows)
+        for prev, curr in zip(rows, rows[1:]):
+            assert prev[2] <= curr[2], f"rows out of time order in {spec.batch_key[:12]}"
+        self.load_order.append(spec.batch_key)
+        if spec.batch_key in self._fail_keys:
+            raise RuntimeError("simulated COPY failure")
+        self.rows_by_key[spec.batch_key] = rows
+        return SimpleNamespace(
+            batch_key=spec.batch_key,
+            status="loaded",
+            row_count=self._wrong_counts.get(spec.batch_key, len(rows)),
+            chunks_compressed=0,
+        )
+
+
+class _FakeWriteConn:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def _run_rebuild_stage(
+    monkeypatch,
+    tmp_path,
+    plans: dict,
+    *,
+    completed=(),
+    worker=None,
+    bulk_load=None,
+    symbols=("AAA", "BBB"),
+    timeframes=("1d",),
+    cfg_values=None,
+):
+    """Run run_rebuild_stage over canned group plans, a stub worker pool and a recording
+    bulk_load. Returns (summary, pool, recorder, compress_calls)."""
+    completed = set(completed)
+    worker = worker if worker is not None else _stub_worker({})
+    recorder = bulk_load if bulk_load is not None else _BulkLoadRecorder()
+    pool = _InlinePool(worker)
+    compress_calls: list = []
+
+    monkeypatch.setattr(module, "_load_config_service", lambda conn: _StubCfg(cfg_values))
+    monkeypatch.setattr(module, "_build_feature_factory_config", lambda cfg: tma.CONFIG)
+    monkeypatch.setattr(
+        module,
+        "get_active_contracts",
+        lambda settings, dimension=None: [SimpleNamespace(symbol=s) for s in ("AAA", "BBB", "CCC")],
+    )
+    monkeypatch.setattr(module, "_filter_etf_contracts", lambda contracts, symbols: contracts)
+    monkeypatch.setattr(module, "_fetch_bars_from_db", lambda *a, **k: [])
+    monkeypatch.setattr(module, "build_cross_asset_series", lambda *a, **k: {})
+    monkeypatch.setattr(
+        module,
+        "_plan_group",
+        lambda conn, chunk_index, chunk, tf, horizon, code_key, apr: plans.get((chunk_index, tf)),
+    )
+    monkeypatch.setattr(
+        module,
+        "_completed_provenance_batch",
+        lambda conn, spec: {"status": "completed"} if spec.batch_key in completed else None,
+    )
+    monkeypatch.setattr(module, "_make_worker_pool", lambda n, blas: pool)
+    monkeypatch.setattr(module, "_bulk_load", recorder)
+    monkeypatch.setattr(module, "psycopg", SimpleNamespace(connect=lambda url: _FakeWriteConn()))
+    monkeypatch.setattr(
+        module,
+        "_compress_completed_chunks",
+        lambda conn, table, before: compress_calls.append((table, before)) or 0,
+    )
+    summary = module.run_rebuild_stage(
+        settings=SimpleNamespace(database_url="postgresql://fake"),
+        symbols=list(symbols) if symbols is not None else None,
+        db_conn=object(),
+        n_workers=1,
+        timeframes=list(timeframes) if timeframes is not None else None,
+        horizon=datetime(2026, 10, 1, tzinfo=UTC),
+        spool_root=tmp_path / "spool",
+    )
+    return summary, pool, recorder, compress_calls
+
+
+_YEAR_2020 = (datetime(2020, 1, 1, tzinfo=UTC), datetime(2021, 1, 1, tzinfo=UTC))
+_YEAR_2021 = (datetime(2021, 1, 1, tzinfo=UTC), datetime(2022, 1, 1, tzinfo=UTC))
+# Distinct units are distinct years: two units of one group never share an identity.
+_YEAR = _YEAR_2020
+
+
+def test_resume_loads_only_the_incomplete_units(monkeypatch, tmp_path):
+    """u1 completed in provenance_batch: the group still dispatches (u2 is pending), but only
+    u2 is spooled and loaded."""
+    u1, u2 = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
+    plan = _group_plan("1d", [u1, u2])
+    summary, pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, completed={u1.batch_key}
+    )
+    assert len(pool.dispatched) == 3  # one worker per symbol of the single chunk
+    assert recorder.load_order == [u2.batch_key]
+    assert summary["units_total"] == 2
+    assert summary["units_skipped"] == 1
+    assert summary["units_loaded"] == 1
+    assert summary["rows_loaded"] == len(recorder.rows_by_key[u2.batch_key])
+
+
+def test_a_fully_completed_group_dispatches_no_worker_and_issues_no_copy(monkeypatch, tmp_path):
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1])
+    summary, pool, recorder, compress_calls = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, completed={u1.batch_key}
+    )
+    assert pool.dispatched == []
+    assert recorder.load_order == []
+    assert summary["units_skipped"] == 1
+    assert summary["units_loaded"] == 0
+    assert compress_calls == []
+
+
+def test_unit_row_bound_refuses_before_any_write(monkeypatch, tmp_path):
+    """A unit whose spooled rows exceed infra.feature_factory.max_unit_rows raises, naming the
+    unit and the counts, before any bulk_load (todo 339's guard)."""
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1])
+    worker = _stub_worker({"AAA": {0: [datetime(2020, 3, 1, tzinfo=UTC)] * 11}})
+    with pytest.raises(ValueError, match="above"):
+        _run_rebuild_stage(
+            monkeypatch,
+            tmp_path,
+            {(0, "1d"): plan},
+            worker=worker,
+            cfg_values={"infra.feature_factory.max_unit_rows": 10},
+        )
+
+
+def test_multi_symbol_unit_merges_interleaved_spools_in_time_order(monkeypatch, tmp_path):
+    """The per-symbol spools are deliberately out of order across symbols; heapq.merge must
+    hand bulk_load one non-decreasing stream (the recorder asserts it too)."""
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1])
+    worker = _stub_worker(
+        {
+            "AAA": {0: [datetime(2020, 3, 2, tzinfo=UTC), datetime(2020, 3, 4, tzinfo=UTC)]},
+            "BBB": {0: [datetime(2020, 3, 1, tzinfo=UTC), datetime(2020, 3, 3, tzinfo=UTC)]},
+        }
+    )
+    _summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, worker=worker
+    )
+    rows = recorder.rows_by_key[u1.batch_key]
+    times = [r[2] for r in rows]
+    assert times == sorted(times)
+    assert len(rows) == 4
+
+
+def test_one_failed_unit_does_not_block_its_group(monkeypatch, tmp_path):
+    """Unit 1's COPY fails: its provenance row is left failed by bulk_load, unit 2 still
+    loads, and the summary counts one failed unit."""
+    u1, u2 = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
+    plan = _group_plan("1d", [u1, u2])
+    summary, _pool, recorder, _ = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        {(0, "1d"): plan},
+        bulk_load=_BulkLoadRecorder(fail_keys={u1.batch_key}),
+    )
+    assert recorder.load_order == [u1.batch_key, u2.batch_key]
+    assert summary["units_failed"] == 1
+    assert summary["units_loaded"] == 1
+    assert summary["failed_units"][0]["batch_key"] == u1.batch_key
+
+
+def test_spool_row_count_mismatch_raises_loudly(monkeypatch, tmp_path):
+    u1 = _unit_spec(*_YEAR)
+    plan = _group_plan("1d", [u1])
+    recorder = _BulkLoadRecorder(wrong_counts={u1.batch_key: 999})
+    with pytest.raises(RuntimeError, match="declared"):
+        _run_rebuild_stage(monkeypatch, tmp_path, {(0, "1d"): plan}, bulk_load=recorder)
+
+
+def test_compression_defers_to_a_clean_full_scope_run(monkeypatch, tmp_path):
+    """A hypertable chunk spans every symbol chunk and tf of its year, so nothing compresses
+    mid-run: a full-scope run with every unit completed compresses once at the end; a failed
+    unit or a partial scope defers (resume traffic must never meet a compressed chunk)."""
+    u1, u2 = _unit_spec(*_YEAR_2020), _unit_spec(*_YEAR_2021)
+    plan = _group_plan("1d", [u1, u2])
+
+    clean, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=None, timeframes=None
+    )
+    assert len(calls) == 1 and calls[0][0] == "feature_vectors_v2"
+    assert clean["compression"] == "done"
+
+    failed, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch,
+        tmp_path,
+        {(0, "1d"): plan},
+        symbols=None,
+        timeframes=None,
+        bulk_load=_BulkLoadRecorder(fail_keys={u1.batch_key}),
+    )
+    assert calls == []
+    assert failed["compression"].startswith("deferred")
+
+    partial, _pool, _rec, calls = _run_rebuild_stage(
+        monkeypatch, tmp_path, {(0, "1d"): plan}, symbols=("AAA",), timeframes=("1d",)
+    )
+    assert calls == []
+    assert partial["compression"].startswith("deferred")
+
+
+def test_no_write_targets_the_old_feature_vectors_table():
+    """D-28/D-24: the module holds no INSERT/UPDATE/COPY against the old table (source grep)."""
+    import re
+
+    source = Path(module.__file__).read_text()
+    pattern = re.compile(r"(INSERT INTO|UPDATE|COPY)\s+feature_vectors([^_]|$)")
+    hits = [
+        line
+        for line in source.splitlines()
+        if pattern.search(line) and not line.lstrip().startswith("#")
+    ]
+    assert hits == []
+
+
+def test_regime_comes_from_the_registry_in_the_same_pass():
+    """R-10: the stage never imports regime_writer and never issues an UPDATE; the regime
+    columns come out of the one compute_kernels call."""
+    source = Path(module.__file__).read_text()
+    assert "regime_writer" not in source
+    assert "compute_kernels(" in source
+    # The regime columns are outputs of the same compute_kernels call as the numerics: the
+    # worker builds every column of a series from the one call (see _compute_series_columns).
+    outputs = list(feature_vectors_v2_columns()[3:])
+    assert "regime" in outputs and "regime_volatility" in outputs
+    worker_source = inspect.getsource(module._compute_series_columns)
+    assert worker_source.count("compute_kernels(") == 1
+
+
+def test_no_legacy_row_builder_or_validator_on_the_rebuild_path():
+    """The legacy row builders raise on NaN, so an early-history row would abort a unit; the
+    v2 row builder is the only row constructor here."""
+    source = Path(module.__file__).read_text()
+    for forbidden in ("validate_feature_vector", "build_feature_vector_row"):
+        assert forbidden not in source, forbidden
+
+
+def test_refresh_flag_is_gone():
+    """The old compute stage's recompute flag has no meaning on an append-only rebuild."""
+    source = Path(module.__file__).read_text()
+    assert "--refresh" not in source
+    assert "--pipeline-version" not in source
+
+
+# ---------------------------------------------------------------------------
+# The rebuild worker over real synthetic compute (no database): bounded payload,
+# cache-independence, early-history macro NULL.
+# ---------------------------------------------------------------------------
+
+
+class _ServerCursor:
+    """The named server cursor _fetch_bar_arrays reads through."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+        self.itersize = 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params):
+        pass
+
+    def fetchmany(self, n):
+        out, self._rows = self._rows[:n], self._rows[n:]
+        return out
+
+
+class _ListCursor:
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params):
+        pass
+
+    def fetchall(self):
+        return self._rows
+
+
+class _WorkerConn:
+    """Serves the worker's two read shapes: the named server cursor over the tf's bars, and
+    the plain cursor's fetchall over the 1d/htf/1m fetches, in call order."""
+
+    def __init__(self, tf_rows, list_fetches):
+        self._tf_rows = tf_rows
+        self._list_fetches = list(list_fetches)
+
+    def cursor(self, name=None):
+        if name is not None:
+            return _ServerCursor(self._tf_rows)
+        assert self._list_fetches, "unexpected plain-cursor fetch"
+        return _ListCursor(self._list_fetches.pop(0))
+
+    def close(self):
+        pass
+
+
+def _bar_tuples(bars: list[dict]) -> list[tuple]:
+    return [(b["ts"], b["open"], b["high"], b["low"], b["close"], b["volume"]) for b in bars]
+
+
+def _bar_arrays(bars: list[dict]):
+    times = [b["ts"] for b in bars]
+    arrays = {
+        "ts": np.array([bar_ts_ns(t) for t in times], dtype=np.int64),
+        **{
+            name: np.array([float(b[name]) for b in bars])
+            for name in ("open", "high", "low", "close", "volume")
+        },
+    }
+    return arrays, times
+
+
+def _rebuild_config():
+    """tma.CONFIG with the regime kernels' HMM loaded (the stage builds it through
+    _build_feature_factory_config, which merges HmmConfig.from_values in production)."""
+    from src.intelligence.features.kernels._hmm import HmmConfig
+    from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
+
+    return dataclasses.replace(tma.CONFIG, hmm=HmmConfig.from_values(SMALL_HMM_APR.get))
+
+
+_CACHE_BACKED_COLUMNS = (
+    "hurst",
+    "shannon",
+    "garch_ratio",
+    "hma_slope_z",
+    "adx",
+    "above_wk_vwap",
+    "momentum_trend_product",
+    "reversion_hurst_product",
+)
+
+
+def _macro_column_indices() -> dict[str, int]:
+    names = feature_vectors_v2_numeric_columns()
+    return {
+        name: names.index(name)
+        for name in (
+            "vix_z",
+            "flight_quality",
+            "yield_slope_z",
+            "tip_tlt_ret_z",
+            "hyg_lqd_ret_z",
+            "equity_beta_z",
+            "rate_beta_z",
+        )
+    }
+
+
+def test_rebuild_reads_cache_backed_columns_from_the_registry(monkeypatch, tmp_path):
+    """The eight cache-backed columns come out of the one compute_kernels call from the series
+    start: a deliberately pre-warmed FeatureCache (sentinel values) is never consulted -- the
+    worker takes no cache argument, and a pre-warmed cache cannot change a row."""
+    bars = tma._intraday()
+    daily = tma._daily_bars()
+    late = {s: series[tma.TARGET_SESSION :] for s, series in daily.items()}
+    cross = build_cross_asset_series(*(late[s] for s in CROSS_ASSET_SYMBOLS), _rebuild_config())
+    beta = build_symbol_beta_series(
+        late[tma.SYMBOL], late["SPY"], late["TLT"], tma.SYMBOL, _rebuild_config()
+    )
+
+    prewarmed = FeatureCache()
+    prewarmed.hurst = 9.99
+    prewarmed.shannon = 9.99
+    prewarmed.adx = 9.99
+    prewarmed.above_wk_vwap = 1.0
+    assert prewarmed.hurst == 9.99  # the sentinel cache exists and is never passed on
+
+    arrays, times = _bar_arrays(bars)
+    horizon = times[-1] + timedelta(days=2)
+    conn = _WorkerConn(
+        _bar_tuples(bars),
+        [_bar_tuples(late[tma.SYMBOL]), [], []],  # symbol 1d, htf 1h, ltf 1m
+    )
+    monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
+    unit_ranges = [(0, (times[0], horizon))]
+    payload = module._rebuild_worker(
+        (
+            tma.SYMBOL,
+            "5m",
+            "postgresql://fake",
+            _rebuild_config(),
+            horizon,
+            unit_ranges,
+            str(tmp_path),
+            cross,
+            late["SPY"],
+            late["TLT"],
+            100,
+        )
+    )
+    assert payload["error"] is None, payload["error"]
+    assert payload["symbol"] == tma.SYMBOL
+    # Bounded payload (todo 339): paths and counts only, no row tuples -- and its size does
+    # not grow with the series even though one block is a tenth of the series.
+    assert set(payload) == {"symbol", "units", "error"}
+    unit_payload = payload["units"][0]
+    assert set(unit_payload) == {"path", "rows"}
+    assert unit_payload["rows"] > 100  # several blocks were spooled
+    assert len(str(payload)) < 4096
+    spool_path = Path(unit_payload["path"])
+    assert spool_path.exists()
+
+    # Expected values: the same externals through one compute_kernels call from series start.
+    inputs = module._series_kernel_inputs(
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+    )
+    out = compute_kernels(
+        default_registry(),
+        inputs,
+        _rebuild_config(),
+        outputs=list(feature_vectors_v2_columns()[3:]),
+    )
+    names = feature_vectors_v2_numeric_columns()
+    spooled: dict[str, list[tuple[int, float]]] = {c: [] for c in _CACHE_BACKED_COLUMNS}
+    for row in module.read_spool_rows(spool_path):
+        bar_index = int(np.searchsorted(arrays["ts"], bar_ts_ns(row[2])))
+        assert arrays["ts"][bar_index] == bar_ts_ns(row[2])
+        for c in _CACHE_BACKED_COLUMNS:
+            v = row[5 + names.index(c)]
+            if v is not None:
+                spooled[c].append((bar_index, v))
+    for c in _CACHE_BACKED_COLUMNS:
+        pairs = spooled[c]
+        assert pairs, f"{c} spooled no values"
+        for bar_index, v in pairs:
+            expected = np.float32(out[c][bar_index])
+            assert v == pytest.approx(float(expected), rel=1e-6, abs=1e-9), (
+                c,
+                bar_index,
+                v,
+                expected,
+            )
+
+
+def test_early_macro_nan_is_spooled_as_null_and_does_not_raise(monkeypatch, tmp_path):
+    """Rows before the first daily record carry NaN macro columns; the spool writes them as
+    empty fields (NULL after COPY), never the text NaN, and nothing raises."""
+    bars = tma._intraday()
+    daily = tma._daily_bars()
+    late = {s: series[tma.TARGET_SESSION :] for s, series in daily.items()}
+    cross = build_cross_asset_series(*(late[s] for s in CROSS_ASSET_SYMBOLS), _rebuild_config())
+    beta = build_symbol_beta_series(
+        late[tma.SYMBOL], late["SPY"], late["TLT"], tma.SYMBOL, _rebuild_config()
+    )
+    arrays, times = _bar_arrays(bars)
+    inputs = module._series_kernel_inputs(
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+    )
+    series = module._compute_series_columns(inputs, _rebuild_config())
+
+    path = tmp_path / "unit0-QQQ.csv"
+    written = module._write_unit_spool(
+        path,
+        tma.SYMBOL,
+        "5m",
+        arrays["ts"],
+        times,
+        series,
+        times[0],
+        times[-1] + timedelta(minutes=5),
+        0,  # include the warmup rows: this test is about them
+        100,
+    )
+    assert written > 0
+    lines = path.read_text().splitlines()
+    assert not any("NaN" in line or "nan" in line for line in lines)
+    n_early = tma.BARS_PER_SESSION * (tma.TARGET_SESSION - tma.INTRADAY_SESSIONS.start)
+    names = feature_vectors_v2_numeric_columns()
+    macro_at = _macro_column_indices()
+    early = [line.split(",") for line in lines[:n_early]]
+    for cells in early:
+        for name, j in macro_at.items():
+            assert cells[5 + j] == "", (name, cells[2])
+    # The spool row builder is the only row constructor on this path (the legacy validator
+    # would have raised on the first NaN above).
+    assert Path(module.__file__).read_text().count("validate_feature_vector") == 0
+
+
+def test_rebuilt_early_history_macro_columns_are_null_not_zero_in_feature_vectors_v2(
+    monkeypatch, tmp_path
+):
+    """End to end through the write loop: early rows' macro columns load as None (NULL), none
+    is 0.0, and late rows keep their kernel values."""
+    bars = tma._intraday()
+    daily = tma._daily_bars()
+    late = {s: series[tma.TARGET_SESSION :] for s, series in daily.items()}
+    cross = build_cross_asset_series(*(late[s] for s in CROSS_ASSET_SYMBOLS), _rebuild_config())
+    beta = build_symbol_beta_series(
+        late[tma.SYMBOL], late["SPY"], late["TLT"], tma.SYMBOL, _rebuild_config()
+    )
+    arrays, times = _bar_arrays(bars)
+    horizon = times[-1] + timedelta(minutes=5)
+
+    conn = _WorkerConn(
+        _bar_tuples(bars),
+        [_bar_tuples(late[tma.SYMBOL]), [], []],
+    )
+    monkeypatch.setattr(module.psycopg, "connect", lambda url: conn)
+    spool_dir = tmp_path / "spool-group"
+    spool_dir.mkdir()
+    payload = module._rebuild_worker(
+        (
+            tma.SYMBOL,
+            "5m",
+            "postgresql://fake",
+            _rebuild_config(),
+            horizon,
+            [(0, (times[0], horizon))],
+            str(spool_dir),
+            cross,
+            late["SPY"],
+            late["TLT"],
+            100,
+        )
+    )
+    assert payload["error"] is None
+
+    plan = _group_plan("5m", [_unit_spec(times[0], horizon, tf="5m", symbols=(tma.SYMBOL,))])
+    recorder = _BulkLoadRecorder()
+    real_bulk_load = module._bulk_load
+    module._bulk_load = recorder  # the write loop's only write path; restored below
+    try:
+        summary: dict = {
+            "units_failed": 0,
+            "failed_units": [],
+            "units_loaded": 0,
+            "rows_loaded": 0,
+        }
+        prepared = module._PreparedGroup(
+            plan, plan.units, [SimpleNamespace(result=lambda: payload)], spool_dir
+        )
+        module._write_group(prepared, _FakeWriteConn(), 10**9, summary, set())
+    finally:
+        module._bulk_load = real_bulk_load
+    assert summary["units_loaded"] == 1 and summary["units_failed"] == 0
+    rows = recorder.rows_by_key[plan.units[0].spec.batch_key]
+
+    # Early rows (bar_ts before the first daily record's date) load NULL macro columns.
+    names = feature_vectors_v2_numeric_columns()
+    macro_at = _macro_column_indices()
+    first_record_ts = late[tma.SYMBOL][0]["ts"]
+    by_ts = {r[2]: r for r in rows}
+    early = [r for r in rows if r[2] < first_record_ts]
+    assert early, "expected early rows without a daily record"
+    for row in early:
+        for j in macro_at.values():
+            assert row[5 + j] is None
+            assert row[5 + j] != 0.0
+    # A late row keeps its value: vix_z equals the kernel output at that bar.
+    inputs = module._series_kernel_inputs(
+        tma.SYMBOL, "5m", arrays, _rebuild_config(), cross, beta, [], None
+    )
+    out = compute_kernels(
+        default_registry(),
+        inputs,
+        _rebuild_config(),
+        outputs=list(feature_vectors_v2_columns()[3:]),
+    )
+    last_ts = times[-1]
+    last = by_ts[last_ts]
+    bar_index = int(np.searchsorted(arrays["ts"], bar_ts_ns(last_ts)))
+    vix_j = 5 + macro_at["vix_z"]
+    expected = np.float32(out["vix_z"][bar_index])
+    assert last[vix_j] is not None
+    assert last[vix_j] == pytest.approx(float(expected), rel=1e-6)
+
+
+def test_full_column_set_fetch_start_is_the_series_start():
+    """D-26: the contributing set of the whole v2 column set includes path-dependent kernels
+    (the regime walk-forward, hurst, ...), so the unit fetch starts at the series start; the
+    worker's single compute pass therefore covers the full series."""
+    from services.backfill_feature_factory import path_dependent_contributors, unit_fetch_start
+
+    registry = default_registry()
+    outputs = list(feature_vectors_v2_columns()[3:])
+    series_start = datetime(2010, 1, 4, tzinfo=UTC)
+    got = unit_fetch_start(
+        registry, outputs, "5m", datetime(2020, 1, 1, tzinfo=UTC), series_start, tma.CONFIG
+    )
+    assert got == series_start
+    assert path_dependent_contributors(registry, outputs)
+
+
+def test_plan_group_builds_units_from_bar_stats_and_month_digests(tmp_path):
+    """The digest pass plans each unit from per-symbol bar statistics plus the month-composed
+    content digest, without fetching a bar or running a kernel; a symbol with no digest row at
+    all is flagged digest-blind, never silently skipped."""
+    from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL
+    from tests.unit._compressed_hypertable_write_session_fakes import ScriptedConn
+
+    stats = [
+        ("AAA", 2020, 100, datetime(2020, 1, 2, tzinfo=UTC), datetime(2020, 12, 31, tzinfo=UTC)),
+        ("BBB", 2020, 50, datetime(2020, 1, 2, tzinfo=UTC), datetime(2020, 12, 31, tzinfo=UTC)),
+    ]
+    digest_rows = [("AAA", datetime(2020, 1, 1, tzinfo=UTC), "d1")]
+    conn = ScriptedConn([{"fetchall": stats}, {"fetchall": digest_rows}])
+    horizon = datetime(2021, 1, 1, tzinfo=UTC)
+    plan = module._plan_group(conn, 0, ("AAA", "BBB"), "1d", horizon, "c" * 64, {"k": 1})
+    assert plan is not None
+    assert [(u.spec.range_start, u.spec.range_end) for u in plan.units] == [
+        (datetime(2020, 1, 1, tzinfo=UTC), horizon)
+    ]
+    assert plan.blind_symbols == {"BBB"}
+    unit = plan.units[0]
+    assert unit.spec.target_table == "feature_vectors_v2"
+    assert len(unit.spec.input_digest) == 64
+    assert unit.index == 0
+
+    # A chunk with no bars before the horizon plans nothing.
+    empty = ScriptedConn([{"fetchall": []}])
+    assert module._plan_group(empty, 0, ("AAA",), "1d", horizon, "c" * 64, {"k": 1}) is None
+    assert BAR_DIGEST_ABSENT_SYMBOL == "absent"
