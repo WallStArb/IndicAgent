@@ -738,7 +738,7 @@ class TestDetectGaps:
 
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".generate_session_slots",
+            ".expected_grid_slots",
             return_value=[],
         ):
             gaps = detect_gaps(
@@ -759,7 +759,7 @@ class TestDetectGaps:
 
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".generate_session_slots",
+            ".expected_grid_slots",
             return_value=[],
         ):
             gaps = detect_gaps(
@@ -786,7 +786,7 @@ class TestDetectGaps:
         )
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".generate_session_slots",
+            ".expected_grid_slots",
             return_value=slots,
         ):
             gaps = detect_gaps(
@@ -815,7 +815,7 @@ class TestDetectGaps:
         )
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".generate_session_slots",
+            ".expected_grid_slots",
             return_value=slots,
         ):
             gaps = detect_gaps(
@@ -969,7 +969,7 @@ class TestArchiveGridRouting:
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
             ".expected_grid_slots",
-            return_value=[],
+            return_value=[datetime(2026, 1, 2, 15, 0, tzinfo=UTC)],
         ):
             detect_gaps(
                 mock_conn,
@@ -993,7 +993,7 @@ class TestArchiveGridRouting:
         with patch(
             "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
             ".expected_grid_slots",
-            return_value=[],
+            return_value=[datetime(2026, 1, 2, 15, 0, tzinfo=UTC)],
         ):
             detect_gaps(
                 mock_conn,

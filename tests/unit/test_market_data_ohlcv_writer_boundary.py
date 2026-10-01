@@ -47,9 +47,12 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "TEMPORARY (1d): the historical backfill still writes provider 1d bars directly; "
-        "retired by plan 18's backfill rework. TEMPORARY (15m, 1h): provider bars at "
-        "derived timeframes; retired at plan 12's grid cutover. PERMANENT (5m, 1m): raw "
-        "provider observations the derivation never rewrites (D-15)."
+        "retired by plan 18's backfill rework. PERMANENT (5m, 1m): raw provider "
+        "observations the derivation never rewrites (D-15). Since plan 12 this "
+        "pipeline writes NO 15m/1h here: they are archive-bound raw observations "
+        "routed through services/intraday_raw_archive.py into "
+        "ohlcv_intraday_raw_archive, and the grid readers see is derived from 5m "
+        "by services/bar_derivation.py (chained from the nightly)."
     ),
     "services/backfill_feature_factory.py": (
         "TEMPORARY (1d, 15m, 1h): feature-factory backfill writes provider bars at "

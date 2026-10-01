@@ -94,28 +94,29 @@ class TestSelectStalest:
         assert _COHORT.delegate_args == ("--dimension", "compute_1d", "--timeframes", "1d")
 
 
-class TestMainDispatch:
-    def _run_main(self, batches, returncodes, grid_returncode=0):
-        mod = infrastructure_nightly_backfill
-        by_leg = dict(zip((leg.name for leg in mod._LEGS), batches, strict=True))
-        with (
-            patch.object(mod, "setup_service_logging"),
-            patch.object(mod, "Settings"),
-            patch.object(mod, "connect_db"),
-            patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
-            patch.object(mod, "_load_lease_wait_minutes", return_value=60),
-            patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
-            patch.object(mod, "_prepare_grid_stage") as mock_prepare,
-            patch.object(mod, "_run_grid_stage", return_value=grid_returncode) as mock_grid,
-            patch.object(mod, "emit_integrity_fact_sync"),
-            patch.object(mod, "flush_and_shutdown_metrics"),
-            patch.object(mod, "JOB_COMPLETED_TOTAL"),
-        ):
-            rc = mod.main()
-        return rc, mock_delegate, mock_grid, mock_prepare
+def _run_main(batches, returncodes, grid_returncode=0):
+    mod = infrastructure_nightly_backfill
+    by_leg = dict(zip((leg.name for leg in mod._LEGS), batches, strict=True))
+    with (
+        patch.object(mod, "setup_service_logging"),
+        patch.object(mod, "Settings"),
+        patch.object(mod, "connect_db"),
+        patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
+        patch.object(mod, "_load_lease_wait_minutes", return_value=60),
+        patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
+        patch.object(mod, "_prepare_grid_stage") as mock_prepare,
+        patch.object(mod, "_run_grid_stage", return_value=grid_returncode) as mock_grid,
+        patch.object(mod, "emit_integrity_fact_sync"),
+        patch.object(mod, "flush_and_shutdown_metrics"),
+        patch.object(mod, "JOB_COMPLETED_TOTAL"),
+    ):
+        rc = mod.main()
+    return rc, mock_delegate, mock_grid, mock_prepare
 
+
+class TestMainDispatch:
     def test_each_leg_dispatches_with_its_own_args(self):
-        rc, mock_delegate, _mock_grid, _mock_prepare = self._run_main(
+        rc, mock_delegate, _mock_grid, _mock_prepare = _run_main(
             [["AAA"], ["PIL1", "PIL2"]], [0, 0]
         )
         assert rc == 0
@@ -130,11 +131,11 @@ class TestMainDispatch:
 
     @pytest.mark.parametrize(("returncodes", "expected"), [([0, 3], 3), ([2, 0], 2)])
     def test_failure_in_either_leg_fails_the_job(self, returncodes, expected):
-        rc, _delegate, _grid, _prepare = self._run_main([["AAA"], ["PIL1"]], returncodes)
+        rc, _delegate, _grid, _prepare = _run_main([["AAA"], ["PIL1"]], returncodes)
         assert rc == expected
 
     def test_empty_leg_is_skipped(self):
-        rc, mock_delegate, _grid, _prepare = self._run_main([["AAA"], []], [0])
+        rc, mock_delegate, _grid, _prepare = _run_main([["AAA"], []], [0])
         assert rc == 0
         assert mock_delegate.call_count == 1
 
@@ -146,16 +147,16 @@ class TestGridStage:
     leg that ended failed_lease_timeout."""
 
     def test_grid_stage_runs_after_legs_even_after_lease_timeout(self):
-        rc, _delegate, mock_grid, mock_prepare = self._run_main([["AAA"], ["PIL1"]], [0, 3])
+        rc, _delegate, mock_grid, mock_prepare = _run_main([["AAA"], ["PIL1"]], [0, 3])
         assert mock_prepare.call_count == 1
         assert mock_grid.call_count == 1
         assert rc == 3  # the lease timeout still fails the job
 
     def test_grid_stage_failure_fails_the_job(self):
-        rc, _delegate, _grid, _prepare = self._run_main([["AAA"], []], [0], grid_returncode=2)
+        rc, _delegate, _grid, _prepare = _run_main([["AAA"], []], [0], grid_returncode=2)
         assert rc == 2
 
-    def test_grid_stage_refuses_on_an_unscoped_lane(self):
+    def test_grid_stage_refuses_on_an_unscoped_lane(self, capsys):
         mod = infrastructure_nightly_backfill
         with (
             patch.object(mod, "setup_service_logging"),
@@ -169,11 +170,10 @@ class TestGridStage:
             ),
             patch.object(mod, "flush_and_shutdown_metrics"),
             patch.object(mod, "JOB_COMPLETED_TOTAL"),
-            capture_logs() as cap_logs,
         ):
             rc = mod.main()
         assert rc == 1
-        assert any("lane without --symbols" in str(e) for e in cap_logs)
+        assert "lane without --symbols" in capsys.readouterr().out
 
     def test_grid_stage_invokes_bar_derivation_with_the_exclude_file(self, tmp_path):
         mod = infrastructure_nightly_backfill

@@ -225,6 +225,7 @@ def driven_main(monkeypatch, capsys):
         FakeProvider.instances = []
         marked: list[tuple[str, str]] = []
         normalized: list[tuple[str, str]] = []
+        stored: list[tuple[str, str, str]] = []  # (symbol, tf, destination)
         gap_calls: list[tuple[str, str, object]] = []
         mod = pipeline
 
@@ -289,7 +290,14 @@ def driven_main(monkeypatch, capsys):
             lambda bars, **k: (normalized.append((k["symbol"], k["timeframe"])), list(bars))[1],
         )
         monkeypatch.setattr(
-            mod, "store_bars", lambda conn, bars, symbol, tf, actual_symbol=None: len(bars)
+            mod,
+            "store_bars",
+            lambda conn, bars, symbol, tf, actual_symbol=None, write_rows=None: (
+                stored.append(
+                    (symbol, tf, "archive" if write_rows is not None else "market_data_ohlcv")
+                )
+                or len(bars)
+            ),
         )
         monkeypatch.setattr(
             mod,
@@ -326,6 +334,7 @@ def driven_main(monkeypatch, capsys):
             acquire_seen=_fake_acquire.seen,
             marked=marked,
             normalized=normalized,
+            stored=stored,
             gap_calls=gap_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
@@ -377,12 +386,19 @@ def test_capture_and_checkpoint_wiring(driven_main):
     ]
 
 
-def test_default_keeps_the_placeholder_path(driven_main):
+def test_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(driven_main):
+    """Plan 12: 15m is a raw observation stored into the archive (no fill, with
+    answered-request coverage); 1d keeps the placeholder path until phase 185 D2."""
     result = driven_main(_BASE_ARGS)
-    assert sorted(result.normalized) == [
-        (symbol, tf) for symbol in ("AAA", "BBB", "CCC") for tf in ("15m", "1d")
-    ]
-    assert all(answered is None for _, _, answered in result.gap_calls)
+    assert sorted(result.normalized) == [(symbol, "1d") for symbol in ("AAA", "BBB", "CCC")]
+    answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
+    for symbol in ("AAA", "BBB", "CCC"):
+        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
+        assert answered[(symbol, "1d")] is None
+    destinations = {(symbol, tf): dest for symbol, tf, dest in result.stored}
+    for symbol in ("AAA", "BBB", "CCC"):
+        assert destinations[(symbol, "15m")] == "archive"
+        assert destinations[(symbol, "1d")] == "market_data_ohlcv"
 
 
 def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
@@ -398,11 +414,13 @@ def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_ma
     assert len(result.marked) == 6
 
 
-def test_real_bars_only_asks_through_the_last_slot_end(driven_main):
+def test_15m_always_asks_through_the_last_slot_end(driven_main):
     # The fake gap is (2024-01-01, 2024-01-15) at 15m: the last missing slot starts 2024-01-15.
+    # Since plan 12 15m is real-bars-only even without the flag, so the request
+    # runs through that slot's own end and the slot's bar can actually be asked for.
     default = driven_main(_BASE_ARGS)
     ends = {c["timeframe"]: c["end"] for c in default.provider.calls if c["symbol"] == "AAA"}
-    assert ends["15m"] == datetime(2024, 1, 15, tzinfo=UTC)
+    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)
 
     real = driven_main([*_BASE_ARGS, "--real-bars-only"])
     ends = {c["timeframe"]: c["end"] for c in real.provider.calls if c["symbol"] == "AAA"}

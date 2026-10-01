@@ -45,6 +45,7 @@ import numpy as np
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
+from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
@@ -92,16 +93,10 @@ SELECT range_start, digest FROM bar_content_digest_current
 WHERE symbol = $1 AND timeframe = '5m'
 """
 
-_INSERT_ARCHIVE_SQL = """
-INSERT INTO ohlcv_intraday_raw_archive
-    ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base,
-     price_sanity_status, batch_id)
-SELECT "timestamp", symbol, timeframe, open, high, low, close, volume, source, base,
-       price_sanity_status, $3::uuid
-FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source <> 'synthetic_fill'
-ON CONFLICT DO NOTHING
-"""
+# Moved byte-identical to services/intraday_raw_archive.py in plan 12 (the
+# table's single owner module; the archive writer-boundary CI test fails on
+# any other INSERT into it).
+_INSERT_ARCHIVE_SQL = ARCHIVE_FROM_TABLE_SQL
 
 # One row comparing the removable stored segment with the archive, key by key:
 # n_archived counts archive matches (NULL when a removable row was never

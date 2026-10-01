@@ -130,6 +130,12 @@ _ALLOW_LIST: dict[str, str] = {
         "the tradeable view's WHERE volume > 0 filter would hide the placeholder rows "
         "the DELETE must remove and skew the checksums."
     ),
+    "services/intraday_raw_archive.py": (
+        "PERMANENT: the archive's single owner module (plan 12). Its "
+        "ARCHIVE_FROM_TABLE_SQL is bar_derivation's INSERT ... SELECT moved here "
+        "byte-identical; it reads exactly the stored 15m/1h segment being archived, "
+        "placeholders excluded by source <> 'synthetic_fill'."
+    ),
 }
 
 

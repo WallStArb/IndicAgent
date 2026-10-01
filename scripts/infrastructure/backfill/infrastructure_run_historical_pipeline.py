@@ -54,6 +54,7 @@ from scripts.infrastructure.backfill._request_coverage import (
     AnsweredWindows,
     load_answered_windows,
 )
+from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
@@ -71,6 +72,7 @@ from src.core.bar_normalizer import (
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
+from src.intelligence.bars.sessions import nyse_sessions
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
@@ -97,6 +99,12 @@ _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeli
 # Timeframes `--real-bars-only` covers, for equities only: intraday SMART TRADES bars, whose
 # coverage ohlcv_request records. 1d stays on the placeholder path until phase 185 D2 owns it.
 _REAL_BARS_ONLY_TFS = frozenset({"5m", "15m", "1h"})
+# Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Their fetches
+# persist into ohlcv_intraday_raw_archive through services/intraday_raw_archive's
+# single-writer module, gap detection reads that archive and expects IBKR's own RTH
+# grid, and no synthetic fill is ever produced for them -- the grid readers see is
+# derived from 5m by services/bar_derivation.py (the nightly chains it).
+_ARCHIVE_TFS = frozenset({"15m", "1h"})
 # Dimensions whose members may be deliberately scoped below the full timeframe stack.
 _DIMENSIONS_REQUIRING_EXPLICIT_TIMEFRAMES = frozenset({"backfill", "compute_1d"})
 
@@ -986,6 +994,55 @@ def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
+def real_bars_only_for(tf: str, flag: bool, asset_class: AssetClass) -> bool:
+    """Whether `tf`'s fetch persists real provider bars only (no synthetic fill).
+
+    15m/1h are archive-bound raw observations since plan 12 for every asset
+    class (a placeholder is never an observation, and the insert into the
+    archive refuses synthetic fills outright); 5m keeps the --real-bars-only
+    flag semantics for equities until plan 18 makes it the default; 1d stays
+    on the placeholder path until phase 185 D2 owns it.
+    """
+    if tf in _ARCHIVE_TFS:
+        return True
+    return flag and tf in _REAL_BARS_ONLY_TFS and asset_class == AssetClass.EQUITY
+
+
+def expected_grid_slots(
+    session_id: str,
+    exchange: str,
+    timeframe: str,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> list[datetime]:
+    """Expected stored timestamps for gap detection at `timeframe`.
+
+    15m/1h NYSE equities use IBKR's own RTH grid: a 09:30 partial 1h bar
+    (13:30 UTC) then clock hours; :00/:15/:30/:45 at 15m. The old on-the-hour
+    UTC generation never expected 13:30, so a missing 09:30 bar was never
+    refetched (the 42-name hole the plan 12 SUMMARY records). Other session
+    types and timeframes keep generate_session_slots. Plan 18's shared gap
+    planner (src/intelligence/bars/gap_plan.py) consumes this rule.
+    """
+    if timeframe in _ARCHIVE_TFS and session_id == "nyse":
+        return _rth_grid_slots(timeframe, start_dt, end_dt)
+    return generate_session_slots(session_id, exchange, timeframe, start_dt, end_dt)
+
+
+def _rth_grid_slots(timeframe: str, start_dt: datetime, end_dt: datetime) -> list[datetime]:
+    """Session-anchored RTH slots for every NYSE session overlapping the window."""
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
+    sessions = nyse_sessions(start_dt.date() - timedelta(days=1), end_dt.date() + timedelta(days=1))
+    slots: list[datetime] = []
+    for session_open, session_close in sessions.values():
+        slot = session_open
+        while slot < session_close:
+            if start_dt <= slot <= end_dt:
+                slots.append(slot)
+            slot += interval
+    return slots
+
+
 def detect_gaps(
     db_conn: Any,
     symbol: str,
@@ -1002,17 +1059,25 @@ def detect_gaps(
     closures are not reported as gaps.  Returns contiguous missing ranges
     ready for use as IBKR fetch windows.
 
+    15m/1h read the archive (plan 12): their stored bars live in
+    ohlcv_intraday_raw_archive, so market_data_ohlcv would report every slot
+    missing and refetch everything. Plan 18 replaces the stored-bars side of
+    this with the recorded-answer rule.
+
     `answered` is the provider-answered request coverage (todo 462). With no placeholder rows
     stored, a slot the provider answered "nothing traded" is otherwise indistinguishable from
     one never asked, and would be re-requested every run. A covered slot is not a gap.
     """
-    expected = generate_session_slots(session_id, exchange, timeframe, start_dt, end_dt)
+    expected = expected_grid_slots(session_id, exchange, timeframe, start_dt, end_dt)
     if not expected:
         return []
 
+    stored_table = (
+        "ohlcv_intraday_raw_archive" if timeframe in _ARCHIVE_TFS else "market_data_ohlcv"
+    )
     with db_conn.cursor() as cur:
         cur.execute(
-            """SELECT timestamp FROM market_data_ohlcv
+            f"""SELECT timestamp FROM {stored_table}
                WHERE symbol = %s AND timeframe = %s
                  AND timestamp >= %s AND timestamp <= %s""",
             (symbol, timeframe, start_dt, end_dt),
@@ -1206,14 +1271,37 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
     return bars
 
 
+def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
+    """Batched multi-row VALUES insert into market_data_ohlcv (the default
+    store_bars destination; 1d/5m/1m from plan 12 on, 15m/1h no longer)."""
+    for i in range(0, len(params), _STORE_BATCH_SIZE):
+        chunk = params[i : i + _STORE_BATCH_SIZE]
+        sql = _STORE_VALUES_SQL.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
+        flat_params = [value for row in chunk for value in row]
+        cur.execute(sql, flat_params)
+    return len(params)
+
+
+def _insert_archive_rows(cur: Any, params: list[tuple]) -> int:
+    """Archive destination for 15m/1h fetched chunks (plan 12): routes through
+    services/intraday_raw_archive, the table's single writer (base is NULL on
+    fetched bars; batch_id stays NULL)."""
+    return insert_fetched_archive_rows(
+        cur,
+        [row + (None,) for row in params],
+        batch_size=_STORE_BATCH_SIZE,
+    )
+
+
 def store_bars(
     conn: Any,
     bars: list[dict],
     symbol: str,
     timeframe: str,
     actual_symbol: str | None = None,
+    write_rows: Any | None = None,
 ) -> int:
-    """Upsert bars into market_data_ohlcv. Returns count inserted.
+    """Upsert bars into the destination for `timeframe`. Returns count inserted.
 
     Args:
         conn: psycopg connection
@@ -1222,9 +1310,16 @@ def store_bars(
         timeframe: Timeframe string
         actual_symbol: If provided, stores bars under this symbol instead of `symbol`.
             Enables per-contract storage when fetching historical contracts.
+        write_rows: (cur, params) -> int for the destination's own insert; defaults
+            to the market_data_ohlcv multi-row insert. 15m/1h callers pass the
+            archive writer (plan 12); plan 18's persist helper takes the same
+            function as a parameter, so this module owns no bar-table INSERT for
+            the archive path.
     """
     if not bars:
         return 0
+    if write_rows is None:
+        write_rows = _insert_market_data_rows
     # Use actual_symbol if provided (for historical contracts), otherwise use symbol
     store_symbol = actual_symbol or symbol
     params = [
@@ -1242,11 +1337,7 @@ def store_bars(
         for b in bars
     ]
     with conn.cursor() as cur:
-        for i in range(0, len(params), _STORE_BATCH_SIZE):
-            chunk = params[i : i + _STORE_BATCH_SIZE]
-            sql = _STORE_VALUES_SQL.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
-            flat_params = [value for row in chunk for value in row]
-            cur.execute(sql, flat_params)
+        write_rows(cur, params)
     conn.commit()
     return len(params)
 
@@ -1674,10 +1765,13 @@ def main() -> None:
                             start_dt = head_floor
                             n_head_floored += 1
                         interval = timedelta(minutes=_TF_MINUTES[tf])
-                        real_bars_only = (
-                            args.real_bars_only
-                            and tf in _REAL_BARS_ONLY_TFS
-                            and instrument.asset_class == AssetClass.EQUITY
+                        # Plan 12: 15m/1h persist into the archive through its
+                        # single-writer module; real-bars-only is forced for them
+                        # (no synthetic fill is ever produced for an archive tf).
+                        archive_tf = tf in _ARCHIVE_TFS
+                        write_rows = _insert_archive_rows if archive_tf else None
+                        real_bars_only = real_bars_only_for(
+                            tf, args.real_bars_only, instrument.asset_class
                         )
 
                         gaps = detect_gaps(
@@ -1751,7 +1845,10 @@ def main() -> None:
                         # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
                         # later full-window pass re-affirming these rows a safe no-op.
                         async def _persist_chunk(
-                            chunk_bars: list, _tf: str = tf, _symbol: str = instrument.symbol
+                            chunk_bars: list,
+                            _tf: str = tf,
+                            _symbol: str = instrument.symbol,
+                            _write_rows: Any | None = write_rows,
                         ) -> None:
                             nonlocal db_conn
                             if not chunk_bars:
@@ -1776,7 +1873,7 @@ def main() -> None:
                                 except Exception:
                                     pass
                                 db_conn = connect_db(settings)
-                            store_bars(db_conn, chunk_dicts, _symbol, _tf)
+                            store_bars(db_conn, chunk_dicts, _symbol, _tf, write_rows=_write_rows)
 
                         # Fetch each cluster's window separately — the provider still
                         # chunks each one at _MAX_CHUNK_DAYS[tf] internally with 10s
@@ -1850,7 +1947,13 @@ def main() -> None:
                                     except Exception:
                                         pass
                                     db_conn = connect_db(settings)
-                                n = store_bars(db_conn, canonical, instrument.symbol, tf)
+                                n = store_bars(
+                                    db_conn,
+                                    canonical,
+                                    instrument.symbol,
+                                    tf,
+                                    write_rows=write_rows,
+                                )
                                 total_bars += n
                                 if n > 0:
                                     fetched_tfs.add(tf)
@@ -1935,7 +2038,15 @@ def main() -> None:
                                 for derived_tf in missing_tfs:
                                     aggregated = aggregate_bars_from_1m(bars_1m, derived_tf)
                                     n = store_bars(
-                                        db_conn, aggregated, instrument.symbol, derived_tf
+                                        db_conn,
+                                        aggregated,
+                                        instrument.symbol,
+                                        derived_tf,
+                                        write_rows=(
+                                            _insert_archive_rows
+                                            if derived_tf in _ARCHIVE_TFS
+                                            else None
+                                        ),
                                     )
                                     total_bars += n
                                     sym = instrument.symbol

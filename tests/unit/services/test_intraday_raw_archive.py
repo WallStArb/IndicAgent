@@ -86,7 +86,8 @@ class TestArchiveFromTableSql:
         assert "$1" in ARCHIVE_FROM_TABLE_SQL and "$2" in ARCHIVE_FROM_TABLE_SQL
 
     def test_bar_derivation_imports_it_back_and_defines_no_insert_of_its_own(self):
-        bar_derivation = Path(__file__).parent.parent.parent / "services" / "bar_derivation.py"
-        text = bar_derivation.read_text()
+        import services.bar_derivation
+
+        text = Path(services.bar_derivation.__file__).read_text()
         assert "INSERT INTO ohlcv_intraday_raw_archive" not in text
         assert "ARCHIVE_FROM_TABLE_SQL" in text
