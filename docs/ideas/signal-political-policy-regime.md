@@ -1,6 +1,8 @@
 # Political/Policy Regime — Idea
 
 **Status:** Idea — not planned. Needs a Fable rigor pass before promotion to `docs/research/`.
+Refreshed 2026-10-01: FRED plumbing now exists, a presidential-cycle section was added, and the
+family this belongs to is mapped in `docs/ideas/signal-macro-context-layer.md`.
 **Author:** Claude (Sonnet 5), interactive session, 2026-08-19. Data-source specifics (FRED
 series IDs, current control-of-government facts) verified live via web search this session;
 not independently backtested.
@@ -88,9 +90,11 @@ required, matching this project's "data quality over model complexity" principle
   config change plus a new module under `src/intelligence/regime_signals/` (see
   `commodity_momentum_ts.py`/`fx_dollar_carry.py` for the pattern) — **no schema migration
   required.**
-- **No FRED integration exists anywhere in the codebase** — a repo-wide check for
-  `fred.stlouisfed`/`FRED_API`/`fredapi` returns zero hits. This would be new provider
-  plumbing, not a reuse of an existing ingestion path.
+- **FRED integration:** none existed when this was written (2026-08-19). It does since
+  2026-10-01: `src/providers/fred.py` and `services/economic_series_writer.py` store FRED series in
+  `economic_series_observation` (todo 480), and `USEPUINDXD` is a one-entry addition to the APR list
+  `infra.economic_series.sources`, not new plumbing. The Partisan Conflict Index (a CSV from the
+  Philadelphia Fed) is not FRED and still needs its own fetch.
 - **A political/policy regime_group does NOT fit the existing `tag_filter`-based symbol
   routing model — confirmed by reading the actual routing code, not just inferred.**
   `tag_filter` does double duty in this codebase: it selects the peer set a group's label is
@@ -119,7 +123,9 @@ on `FeatureVector`, a new symbol-independent builder, broadcast-join at scoring 
 mechanism invented, no touch to `market_regimes`/`ic_engine.py`'s routing/ambiguity code at
 all.
 
-1. **New provider plumbing (the one genuinely new piece).** No FRED client exists yet. Add a
+1. **Provider plumbing: done for FRED (see above).** The paragraph below is the original sketch,
+   kept for the parts still open (the Partisan Conflict Index fetch). Original text: no FRED client
+   existed; add a
    small fetch module — not a real-time `ib_async`-style stream, since FRED series update at
    most daily and this project's provider convention (`src/providers/ibkr.py`) is specific to
    IBKR — most naturally a `src/providers/fred.py` doing periodic pulls (a plain HTTP GET per

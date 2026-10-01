@@ -1,6 +1,9 @@
 # Quarterly Seasonality / OPEX Risk-Off — Idea
 
 **Status:** Idea — not planned. Needs a Fable rigor pass before promotion to `docs/research/`.
+Related 2026-10-01: the calendar and event family (this doc, the presidential-cycle section of
+`docs/ideas/signal-political-policy-regime.md`, FOMC and release days) is mapped in
+`docs/ideas/signal-macro-context-layer.md`; the event-study test it needs is described there.
 **Author:** Claude (Sonnet 5), interactive session, 2026-07-12 — not a Fable dispatch. Empirical
 claims below were verified live against the DB in this session; the pattern itself is
 **unvalidated** (see "What was actually tested" — the initial read was retracted the same

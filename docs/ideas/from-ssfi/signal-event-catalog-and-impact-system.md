@@ -13,6 +13,10 @@
 > concept" section — indicagent already has a proven, gated, more rigorous version
 > of this exact pattern (`shrink_ic`/`leave_one_out_group_prior`).
 
+**Indicagent note 2026-10-01:** market-wide events (FOMC, releases, auctions, elections) are
+carried forward in `docs/ideas/signal-macro-context-layer.md`; sections 3, 5 and 6 below are its
+basis. The corporate-event material is SSFI-only.
+
 **Status:** Idea — research/refinement done, not yet promoted. One narrow piece (§6) has a
 concrete "fold into Phase 3 now" recommendation; everything else stays deferred pending a
 decision.
