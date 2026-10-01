@@ -330,6 +330,10 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-29 sleeve directory removal (D-03, D-11): the five research tests import `HarnessConfig` from
+  `scripts.research.determinism.config` (owner-released lane, one line each), `scripts/analysis/` and
+  `tests/unit/sleeve_walk_forward/` deleted; the promoted determinism tool reports phase 179 S3 and
+  phase 181 S2/S3 bit-identical on the post-deletion tree; merged 2026-10-01 (`4dddba5b9`)
 - [x] 186-22 old-chain table drops (D-14, D-06, D-08, R-01): migration 426 drops ensemble_weights,
   ensemble_alpha, alpha_ensemble_ic, alpha_events, alpha_frames, alpha_strategy_scores, context_features,
   feature_ic_scores_history and construction_spreads (50.7 GB freed, jobs 1067-1070/1072/1073 gone, 1071
