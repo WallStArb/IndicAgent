@@ -37,8 +37,8 @@ The fitness signal for level 1 — IC (information coefficient) measured against
 ```
 1. CANDIDATE      — Concept exists in concept_registry, not yet measured against a baseline
 2. SHADOW_ONLY     — Measured, not yet winning consistently, or gate gap not yet met
-3. COMPARISON      — ops_ensemble_weight_compare.py (ensemble_strategy) or ic_engine.py's
-                      post-run lifecycle hook (feature) runs an A/B win-decision against the
+3. COMPARISON      — ic_engine.py's post-run lifecycle hook (feature; the
+                      ensemble_strategy driver was deleted in phase 186) runs an A/B win-decision against the
                       current baseline, deterministically -- no LLM in the path
 4. GATE            — min_promotion_consecutive wins in a row, AND min_new_observations of
                       fresh evidence since the last eval, AND (if the concept requires it)
@@ -58,7 +58,7 @@ The fitness signal for level 1 — IC (information coefficient) measured against
 **Key substrate (live now):**
 - `concept_registry` / `concept_gate` / `concept_transition_log` / `concept_annotation` / `concept_parent` tables
 - `ConceptRegistryService` (`src/intelligence/concept_registry_service.py`) — sole status-flip authority
-- `ops_ensemble_weight_compare.py` — drives `domain='ensemble_strategy'` comparisons (async)
+- `domain='ensemble_strategy'` comparisons had one driver, `ops_ensemble_weight_compare.py`, deleted in phase 186 (186-21); no live caller remains
 - `ic_engine.py`'s post-run lifecycle hook — drives `domain='feature'` comparisons (sync, `record_transition_sync()`)
 - `bootstrap_ci_lower()` / IC confidence-interval gating — statistical gate in `src/core/stats_utils.py`
 

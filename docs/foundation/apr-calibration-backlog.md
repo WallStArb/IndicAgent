@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Status:** current
-**Last Updated:** 2026-09-23
+**Last Updated:** 2026-10-01
 
 ## What this is
 
@@ -25,18 +25,14 @@ schema names, statistical concept definitions, DAG topology) — see the parent 
 
 Ordered by consequence: live `services/*.py` production path first, analysis-script-only last.
 **None of these should be casually changed** — several are frozen under a "no post-hoc gate
-renegotiation" discipline (same as `alpha.scoring.bootstrap_random_state`, WR-01) precisely
+renegotiation" discipline (same discipline as the retired `alpha.scoring.bootstrap_random_state`, WR-01) precisely
 because they gate already-recorded verdicts. Recalibrating any of them requires a dedicated
 empirical study committed *before* looking at whether it changes a pending decision, not a
 quick guess-swap.
 
 | Key | Value | Gates | Why it's a guess |
 |---|---|---|---|
-| `alpha.scoring.max_drawdown_ratio` | 0.25 | Gate 2 execution-proof ceiling (`alpha_scorer.py`, `counterfactual_tracker.py`) — the exact number Phase 148/166 failed against (9.6x-26.2x over) | Tagged `[conventional]` but migration 248 cites no external source, only "frozen, PRE-REGISTERED." Same epistemic status as `[initial_estimate]`, mistagged. |
-| `alpha.scoring.min_sharpe` | 0.5 | Same Gate 2 tables | Same pattern — pre-registered discipline is real, the number's origin isn't cited. |
 | `alpha.construction.attribution_max_static_r2` | 0.50 | Phase 167 Validation Gate 2 (`cross_sectional_spread_tracker.py`) — Phase 167's headline `gate2_passes_overall=true` rests on this number | `[initial_estimate]`, migration 260's own text: "No prior empirical basis exists in this codebase for this specific ceiling; treat as a starting point pending live measurement, not a settled statistical result." |
-| `alpha.ensemble.effective_n_gate` | 3.0 | Emission gate on every `alpha_events` row (`alpha_publisher.py`, `ensemble_trainer.py`) | `[initial_estimate]`: "ensures at least 3 effective independent predictors" — asserted, not measured. |
-| `alpha.ensemble.max_cluster_correlation` / `max_cluster_weight` | 0.80 / 0.40 | Cluster deflation before ensemble weighting (`ensemble_trainer.py`) | `[initial_estimate]`; migration says "recalibrate by examining the LW correlation matrix post corpus run" — never done. |
 | `alpha.ic.cluster_max_corr` | 0.70 | BH-FDR feature clustering (`ic_engine.py`) | `[initial_estimate]`, "candidate ML learning target" — no data behind 0.70 specifically. |
 | `alpha.ic.hac_max_lag` | 3 | Newey-West HAC correction on IC Sharpe (`ic_engine.py`) | `[initial_estimate]`: "revise upward if IC series autocorrelation extends beyond lag 3" — this corpus's actual autocorrelation has never been checked. |
 | `alpha.ensemble.mv_condition_max` / `alpha.ic.partial_control_condition_max` | 1000 (both) | Ill-conditioning guard on mean-variance/partial-IC solves | Both `[initial_estimate]`; the second migration admits it copied the first ("matching the E2 mean-variance path's precedent") — a guess citing a guess. |
@@ -70,9 +66,7 @@ gated yet (shadow mode, D-02/D-03) — see `175-03-PLAN.md` § R-07 for the orig
 failing candidates plus each gate's `sole_failure` count) that any future
 loosen/tighten/leave-alone decision should start from.
 | `alpha.concept_registry.ensemble_strategy_min_observations` / `ensemble_strategy_min_promotion_consecutive` | 1000 / 2 | Concept promotion gate | `[initial_estimate]` — the *shape* of the reasoning is documented (non-overlapping CIs are strict), the specific number isn't. |
-| `alpha.ensemble_ic.min_obs_per_regime` / `wf_stability_ratio` / `stop_target_min_qualifying_symbols` | 3000 / 3.0 / 3 | Data-sufficiency and fold-stability diagnostics (`ensemble_ic_engine.py`) | All `[initial_estimate]`, no empirical basis cited. |
 | `threshold.signal_audit.verifiable_population_floor` / `partial_population_floor` | 0.90 / 0.50 | Signal audit verdict tiers | `[initial_estimate]`, no data cited — consuming pipeline (I1-I7 signal audit) is part of the archived v2.x tier, not confirmed live; lower priority to recalibrate for that reason. |
-| `alpha.decay.demotion_min_consecutive` | 2 | `active → shadow_only` demotion hysteresis for the `feature` domain's sync (`ic_engine.py`) lifecycle path (migration 321, todo 323) — gates `ConceptRegistryService.is_demotion_eligible()` | `[initial_estimate]`: migration's own text picks 2 "as the most directly defensible symmetric starting point" by matching `alpha.concept_registry.ensemble_strategy_min_promotion_consecutive`'s value — a borrowed number, not a measurement against this project's own demotion history. |
 
 **Retired since the last pass:** `alpha.feature_registry.min_ic_sharpe_default` (seeded in
 migration 169, the old `feature_registry` system) no longer exists in `config_schema` —
@@ -99,9 +93,6 @@ Don't recalibrate these — the number is fine, only the tag undersells it.
   `[conventional]` tag for months afterward — pure documentation drift, now corrected to
   `[rca_analysis]` with the real citation. Worth checking for other keys with this same
   "migration fixed the value, description never caught up" pattern.
-- **`alpha.decay.guard_fail_rate_min/max`** (0.85/0.995): correctly tagged `[rca_analysis]`
-  already — the positive-contrast example the rest of this doc should look like ("grounded in
-  the 2026-07-19 RCA against EIC-04's established 96-98% normal failure-rate base").
 
 **Checked and confirmed NOT a gap despite superficially matching the pattern:**
 `alpha.equity_regime.vix_low_pct`/`vix_high_pct` (0.33/0.67) — an initial audit pass flagged
@@ -137,3 +128,5 @@ When picking up calibration work: prioritize Section 1 top-to-bottom (live produ
 first). When a key gets a real empirical study, move it to Section 2 with a one-line citation,
 same as `feature.hmm.n_components` above. Don't let this doc silently go stale — if you
 recalibrate something here, update this file in the same change, not later.
+
+Change note: the rows for the old chain keys (`alpha.scoring.*`, `alpha.ensemble.*` except `mv_condition_max`, `alpha.ensemble_ic.*`, `alpha.decay.*`) were removed; retired by migration 424 (186-21); readers were deleted with the old chain.

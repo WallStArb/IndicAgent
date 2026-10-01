@@ -54,7 +54,7 @@ Five tables (MVP + Phase 170 additions), two DB-level triggers, one service (`Co
 | `parent_concept_id` | UUID, self-FK | Single-parent lineage (legacy shape; `ensemble_strategy` may still use it) |
 | `redundancy_group` | TEXT | Displacement disabled for `ensemble_strategy` — competing strategies are the normal state, resolved per-stratum |
 | `is_control` / `control_expectation` | BOOLEAN / TEXT, CHECK | Control-canary marking (ported from `feature_registry`, Phase 170 L-10); `control_expectation ∈ {negative_control, positive_control}` |
-| `group_name` | TEXT (unconstrained) | Peer-group label, read by real `WHERE` filters in `ops_ic_shrinkage.py`/`ops_ensemble_ablation.py`/`ops_broadcast_feature_audit.py` — not decorative |
+| `group_name` | TEXT (unconstrained) | Peer-group label, read by real `WHERE` filters in `ops_broadcast_feature_audit.py` (the `ops_ic_shrinkage.py` and `ops_ensemble_ablation.py` readers were deleted in phase 186) — not decorative |
 | `metadata` | JSONB | Domain-specific fields (e.g. `feature` domain's `tier`) |
 | `added_phase`, `sensitivity` | TEXT | |
 | `created_at` | TIMESTAMPTZ | |
@@ -76,7 +76,7 @@ No ordinality column — no live consumer depends on parent order. A `BEFORE INS
 | `gate_metric_name`, `gate_eval_method` | TEXT, CHECK | `gate_eval_method ∈ {oos_holdout, walk_forward, bootstrap_ci}` |
 | `min_gate_metric`, `min_gate_n`, `min_promotion_consecutive`, `min_new_observations` | numeric | `NULL` inherits the per-domain APR default (`alpha.concept_registry.<domain>_*`) |
 | `demotion_threshold`, `decay_floor`, `regime_scope` | numeric/TEXT | |
-| `fdr_required`, `fdr_alpha` | BOOLEAN, numeric | **Advisory only** — `ConceptRegistryService` reads `fdr_required` to fail-closed-gate promotions (see Invariants), but BH-FDR correction itself is computed entirely upstream by the caller (`ops_ensemble_weight_compare.py`), never inside this service |
+| `fdr_required`, `fdr_alpha` | BOOLEAN, numeric | **Advisory only** — `ConceptRegistryService` reads `fdr_required` to fail-closed-gate promotions (see Invariants), but BH-FDR correction itself is computed entirely upstream by the caller, never inside this service (the one caller, `ops_ensemble_weight_compare.py`, was deleted in phase 186) |
 | `last_eval_metric`, `last_eval_n`, `last_eval_at`, `last_eval_corpus_build_ref` | | Folded eval-state cache |
 | `baseline_metric` | numeric | The **mean** of `promotion_eval_metrics` at promotion time — never the final (selection-inflated) value (winner's-curse guard) |
 | `promotion_consecutive`, `promotion_eval_metrics` | INT, numeric[] | Running win streak and its per-round metrics |
@@ -137,7 +137,7 @@ These are the stable mechanics — the part of this design meant to survive unch
 
 ### `record_comparison_outcome()`
 
-The **sole** status-flipping code path for `domain='ensemble_strategy'` (Invariant 1's deterministic engine, concretely). Called by `scripts/ops/alpha/ops_ensemble_weight_compare.py` after its own BH-FDR-corrected win decision. Runs read-decide-write inside one transaction with `FOR UPDATE` held throughout, so a concurrent evaluator for the same concept blocks rather than racing. Possible outcomes: `promote` (CAS `candidate→active`), `record_win`/`record_win_not_promotable`/`record_loss` (eval-cache bookkeeping only), or one of several `blocked_*`/`noop_*` results that write nothing — including `blocked_fdr_unverified`, which fails closed whenever `concept_gate.fdr_required=true` and the caller cannot prove FDR correction actually ran this round.
+The **sole** status-flipping code path for `domain='ensemble_strategy'` (Invariant 1's deterministic engine, concretely). Its only caller, `scripts/ops/alpha/ops_ensemble_weight_compare.py`, was deleted in phase 186 (186-21); the method keeps these semantics for any future caller. Runs read-decide-write inside one transaction with `FOR UPDATE` held throughout, so a concurrent evaluator for the same concept blocks rather than racing. Possible outcomes: `promote` (CAS `candidate→active`), `record_win`/`record_win_not_promotable`/`record_loss` (eval-cache bookkeeping only), or one of several `blocked_*`/`noop_*` results that write nothing — including `blocked_fdr_unverified`, which fails closed whenever `concept_gate.fdr_required=true` and the caller cannot prove FDR correction actually ran this round.
 
 ### `record_transition()`
 

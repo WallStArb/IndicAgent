@@ -115,7 +115,7 @@ below — a gap closed 2026-08-04 (todo 253): `_run_evaluate_gate`/
 `gate_evaluations` (`gate_id` = `gate{1,2}_{construction_name}`) and append
 to `.planning/gate_look_log.jsonl`, atomically refusing a second write for
 the same `gate_id` — the same D-04 mechanism `ops_oos_gate1_signal_eval.py`
-(Phase 148) and Phase 166's gates already use, not a fourth parallel
+(Phase 148; deleted in phase 186, see git history) and Phase 166's gates already use, not a fourth parallel
 convention. `--dry-run` runs the full computation without consuming the
 one-shot gate, for dev-time verification.
 
