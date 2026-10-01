@@ -67,10 +67,3 @@ class TestComputeShrinkageCovariance:
         X = np.random.default_rng(7).standard_normal((50, 4))
         cov, _ = compute_shrinkage_covariance(X)
         np.testing.assert_allclose(cov, cov.T, atol=1e-12)
-
-
-# ---------------------------------------------------------------------------
-# covariance_to_correlation tests -- extracted from ensemble_trainer.py's own inline
-# conversion (todo 240 follow-on, so scripts/analysis' new linear-ensemble comparison arm
-# could reuse it instead of a third ad hoc copy of the same guarded division).
-# ---------------------------------------------------------------------------
