@@ -144,29 +144,9 @@ sudo systemctl list-timers indicagent-shadow-validator.timer
 tail -50 logs/shadow_validator.log
 ```
 
-## Cross-Sectional Spread Tracker (Phase 167, manual/on-demand only, no timer)
+## Cross-sectional spread tracker (deleted)
 
-`services/cross_sectional_spread_tracker.py` -- cross_sectional_relative_value's dollar-neutral decile long-short
-construction. See `docs/operations/operations-infrastructure.md`'s "Manual/On-Demand Batch
-Services" section for why this has no systemd unit/timer.
-
-```bash
-# One-time full-corpus backfill (first run only, or after a construction_spreads truncate)
-.venv/bin/python services/cross_sectional_spread_tracker.py --backfill
-
-# Incremental compute-and-persist (the normal, repeatable invocation)
-.venv/bin/python services/cross_sectional_spread_tracker.py
-
-# Validation Gate 1 (shadow spread Sharpe), read-only
-.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-gate
-
-# Validation Gate 2 (attribution honesty), read-only
-.venv/bin/python services/cross_sectional_spread_tracker.py --evaluate-attribution
-
-# View last run logs / verdict artifacts
-tail -50 logs/cross_sectional_spread_tracker.log
-ls logs/construction_verdicts/
-```
+The cross_sectional_spread_tracker service was deleted in 186-19; the long-short construction role is the research package's R1 rule, and the decile spec is in `docs/research/summary-cards/legacy-ctf-momentum-decile-ls.md`.
 
 ## Kafka / Redpanda
 ```bash

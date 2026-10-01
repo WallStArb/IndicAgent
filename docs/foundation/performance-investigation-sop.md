@@ -92,7 +92,7 @@ story; ship one built on a measured, isolated delta.
   chunk-routing/exclusion overhead is a real cost for point UPDATEs/DELETEs, paid on every
   execution regardless of prepared-statement reuse across a client-side batch. Confirmed fix:
   resolve the target chunk once (`timescaledb_information.chunks`' `range_start`/`range_end`)
-  and write directly to `_timescaledb_internal.<chunk>` — see `services/counterfactual_tracker.py`'s
+  and write directly to `_timescaledb_internal.<chunk>` — see `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/counterfactual_tracker.py` (deleted in 186-19),
   `_load_chunk_index`/`_route_chunk` for the reusable pattern.
 - **Compression status on the target chunks.** `SELECT is_compressed FROM
   timescaledb_information.chunks WHERE hypertable_name = '...'`. Any compressed chunk in your

@@ -43,12 +43,9 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | v3.0 outcome labels (forward returns) | None (batch INSERT) | `forward_returns` | `ForwardReturnWriter` | Causal LEAD()-based log returns `ln(open[T+N+1]/open[T+1])` at 1/5/20/60 bar horizons. IC Engine reads; never writes. Immutable after insert — no updates. |
 | v3.0 IC scores (per feature×symbol×tf×regime×lookahead) | None (batch INSERT) | `feature_ic_scores` | `ICEngine` | Spearman IC + bootstrap CI + BH-FDR + walk-forward results. `AlphaDecayMonitor` (Phase 139) writes `is_decaying` flag only — ICEngine owns all other columns. |
 | v3.0 IC discovery report | None (file write) | `docs/analysis/ic-discovery-report-{date}.md` | `ICEngine` | Markdown report of features passing FDR + walk-forward gates by regime and TF. Written at end of each IC Engine run. Not a DB table — filesystem artifact. |
-| v3.0 ensemble IC scores (pooled + per-regime) | None (batch INSERT) | `alpha_ensemble_ic` | `EnsembleICEngine` (`services/ensemble_ic_engine.py`) | Oneshot batch: `ensemble_alpha` + `forward_returns` + `market_regimes` → `alpha_ensemble_ic`; aggregation rows use literal `symbol='POOLED'`, enforced by a `CHECK` constraint tying it to `is_pooled` (migration 190). `indicagent-ensemble-ic-engine` unit is inactive between runs — that is correct (oneshot). |
-| v3.0 ensemble alpha weights | None (batch, full replace) | `ensemble_alpha` | `EnsembleTrainer` (`services/ensemble_trainer.py`) | Sole writer; full-replace delete-then-insert per run, not incremental UPDATE. |
-| v3.0 published alpha events | `{env}.alpha.events` | `alpha_events` | `AlphaPublisher` (`services/alpha_publisher.py`) | Sole writer of `alpha_events`. Reads `ensemble_alpha`, enforces the effective-N gate, INSERTs qualifying rows (`ON CONFLICT (event_id, bar_ts) DO NOTHING`), and publishes the same payload to Kafka. This is the terminal node of the v3.0 pipeline — the only table/topic downstream trade-facing consumers should read. |
 
 <!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger view (renamed from signal_ledger_full, Phase 130) — verified 2026-09-04 -->
-<!-- src: alpha_ensemble_ic, ensemble_alpha, alpha_events tables; services/ensemble_ic_engine.py, services/ensemble_trainer.py, services/alpha_publisher.py — verified 2026-09-04 -->
+<!-- alpha_ensemble_ic, ensemble_alpha, alpha_events: no writer since 186-19; dropped by 186-22 -->
 <!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
 <!-- v3.0 rows added 2026-09-04: alpha_ensemble_ic, ensemble_alpha, alpha_events (previously undocumented terminal pipeline nodes) -->
 

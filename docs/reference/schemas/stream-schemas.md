@@ -38,34 +38,7 @@ class FeatureVectorRecord:
 
 **Topic:** `topic_feature_vectors(env)` → `{env}.intelligence.feature_vectors`. **Published by** `IntelligencePipeline`/`FeatureVectorPipeline` after `FeatureFactory.compute()`. **Consumed by** `FeatureVectorWriter` (batch INSERT to `feature_vectors` hypertable; consumer group `feature_vector_writer_group`). **Status: Operational, live.**
 
-### `alpha_events` — alpha emission events
-
-No dedicated Pydantic/dataclass schema — the Kafka payload mirrors the `alpha_events` DB row exactly (`services/alpha_publisher.py`'s `_INSERT_SQL` columns, live-verified against `\d alpha_events`):
-
-```python
-{
-    "event_id": str,
-    "symbol": str,
-    "tf": str,
-    "bar_ts": str,                # ISO-8601 UTC
-    "ensemble_version": str,
-    "weight_version": str,
-    "regime": str | None,
-    "alpha_score": float,
-    "alpha_ci_lower": float | None,
-    "alpha_ci_upper": float | None,
-    "effective_n": float | None,
-    "n_features_active": int | None,
-    "emission_threshold": float,
-    "direction": str,             # "long" | "short" (DB CHECK constraint)
-    "top_features": dict,         # JSONB — the only live JSONB payload field of note
-    "emitted_at": str,            # ISO-8601 UTC, DB default now()
-    "cost_hurdle": float,         # DB default 0.0
-    "is_shadow": bool,            # DB default true
-}
-```
-
-**Topic:** `topic_alpha_events(env)` → `{env}.alpha.events`. **Published by** `AlphaPublisher` (`services/alpha_publisher.py`) when the ensemble alpha score crosses the per-TF emission threshold (`alpha.quant.threshold.{tf}` APR key, e.g. 1.5/1.2/1.0/0.8 for 5m/15m/1h/1d) and the `effective_N` gate is met (`alpha.ensemble.effective_n_gate`). `AlphaPublisher` writes the DB row first (`INSERT ... ON CONFLICT (event_id, bar_ts) DO NOTHING`), then publishes the same shape to Kafka. **`alpha_publisher` is the sole writer of `alpha_events`** (DAG Invariant, root `CLAUDE.md`). **Status: Operational, live** (Kafka publish is best-effort alongside the authoritative DB write — the row lands in `alpha_events` regardless of whether the Kafka publish succeeds).
+The `alpha.events` topic and its `alpha_events` payload were removed in phase 186 plan 19 with `AlphaPublisher`; no publisher or consumer remains.
 
 ### `narrative.v1` — I8 AI signal narrative
 

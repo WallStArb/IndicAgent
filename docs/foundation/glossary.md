@@ -952,8 +952,8 @@ The gap between `counterfactual_pnl_r` (hypothesis layer) and `actual_pnl_r` (ex
   `CounterfactualTracker` daemon. No live consumer as of 2026-07-02 (see CLAUDE.md
   Architecture; SLA is archived).
 - **v3.0 (live):** on `alpha_frames` — the realized R-multiple of a hypothetical trade design
-  (entry/stop/target/hold-horizon) against actual subsequent price action, computed by the
-  live `services/counterfactual_tracker.py` (`CounterfactualTracker(BaseBatch)`). Full
+  (entry/stop/target/hold-horizon) against actual subsequent price action, computed by `CounterfactualTracker(BaseBatch)`
+  (deleted in phase 186 plan 19; read with `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/counterfactual_tracker.py`). Full
   mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`. This is
   the current meaning of the term going forward.
 
@@ -984,7 +984,7 @@ level.
   (checkpointed to file on shutdown), no DB reads in the hot path. Never shipped past
   "planned" (Phase 130); the whole v2.x SLA it belonged to has no live consumer as of
   2026-07-02.
-- **v3.0 (live):** `services/counterfactual_tracker.py`, a `BaseBatch` oneshot (not a daemon,
+- **v3.0 (deleted in phase 186 plan 19; read with `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/counterfactual_tracker.py`):** a `BaseBatch` oneshot (not a daemon,
   no Kafka) that fills `alpha_frames` entry/stop/target geometry at T+1 open and runs a
   bar-by-bar exit state machine (stop/target/max-hold/IC-decay) to close frames and compute
   realized R. Full mechanics: `docs/intelligence/intelligence-alpha-frames-and-feature-lifecycle.md`.
@@ -1006,7 +1006,7 @@ productionization of the cross_sectional_relative_value Edge Source Thesis falsi
 
 **Naming-system derivation chain** (`docs/foundation/naming-system.md`): concept
 `cross_sectional_spread` → class `CrossSectionalSpreadTracker` → module
-`services/cross_sectional_spread_tracker.py` → table `construction_spreads` → (if ever
+`services/cross_sectional_spread_tracker.py` (deleted in phase 186 plan 19; read with `git show 2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4:services/cross_sectional_spread_tracker.py`) → table `construction_spreads` → (if ever
 systemd-registered) unit `indicagent-cross-sectional-spread-tracker.service`.
 
 **Not:**

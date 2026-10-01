@@ -274,3 +274,5 @@ verbatim carryover of the original proposal.
 ## Unified design adopted 2026-09-26
 
 Item 4 (relocate `_meta_eligible` out of `ensemble_trainer`) is moot: the adopted unified design (todo 436, section 14) deletes `ensemble_trainer` in phase 186. The other items stand.
+
+2026-10-01: ensemble_trainer, ensemble_ic_engine and alpha_publisher deleted in phase 186 plan 19 (2d4c2e4e1 is the last commit holding them); the resolve_per_tf relocation (Item 4 follow-on) is gone with them; nothing here applies to live code for those modules.

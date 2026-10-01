@@ -97,18 +97,13 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 
 ## IC / Alpha Pipeline (Batch — orchestrator-driven, not systemd units)
 
-The v3.0 alpha chain (`FeatureVectorWriter → forward_return_writer → ic_engine → ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events`, per root `CLAUDE.md`) runs as sequential batch steps invoked by `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04).
+The v3.0 alpha chain (`FeatureVectorWriter → forward_return_writer → ic_engine`; the old ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events tail was deleted in 186-19, per root `CLAUDE.md`) runs as sequential batch steps invoked by `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04).
 
 | Step | File | Writes To |
 |------|------|-----------|
 | Regime Writer | `services/regime_writer.py` | `feature_vectors.regime*` |
 | Forward Return Writer | `services/forward_return_writer.py` | `forward_returns` |
 | IC Engine | `services/ic_engine.py` | `feature_ic_scores` |
-| Ensemble Trainer | `services/ensemble_trainer.py` | `ensemble_weights`, `ensemble_alpha` |
-| Alpha Publisher | `services/alpha_publisher.py` | `alpha_events` (DB + Kafka; sole `alpha_events` writer) |
-| Ensemble IC Engine | `services/ensemble_ic_engine.py` | `alpha_ensemble_ic` |
-| Alpha Frame Writer | `services/alpha_frame_writer.py` | `alpha_frames` |
-| Counterfactual Tracker | `services/counterfactual_tracker.py` | counterfactual PnL scoring on `alpha_frames` |
 
 ## AI / LLM Tier (dormant, see root CLAUDE.md)
 

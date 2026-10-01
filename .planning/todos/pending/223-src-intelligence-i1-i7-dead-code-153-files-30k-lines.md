@@ -170,3 +170,5 @@ point for this todo's own dead-code sweep of `src/intelligence/pipeline/` specif
 -- worth checking those 12 names first rather than starting the package's audit from
 scratch. See `tools/vulture_whitelist.py`'s entries citing "todo 328"/"todo 223" and
 `completed/328-...md` for the full list.
+
+2026-10-01: alpha_frame_writer and counterfactual_tracker deleted in phase 186 plan 19 (2d4c2e4e1 is the last commit holding them); structural_confluence.py and trade_framer.py lost their only live caller, and the set_config_service hooks in src/intelligence/trading/ are whitelisted in vulture pending this todo.

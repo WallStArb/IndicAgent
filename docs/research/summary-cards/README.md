@@ -91,3 +91,5 @@ dropping it, and write its card first.
 `920f8e2b36b305f8c46069d8a91d326e6b1244db`; read any cited path with
 `git show 920f8e2b36b305f8c46069d8a91d326e6b1244db:<path>`. A card's own `recipe_commit` is
 authoritative for that card.
+
+The old-chain services, `gate_math.py` and the ensemble `alpha_score`/`feature_selector`/`stratum_fit` modules were deleted in 186-19; the last commit containing them is `2d4c2e4e13980202ad2e06e0cb44dfd049aa41c4`.

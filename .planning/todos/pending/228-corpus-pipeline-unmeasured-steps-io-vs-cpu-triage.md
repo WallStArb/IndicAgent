@@ -46,3 +46,5 @@ entirely on what step turns out to dominate and whether it's I/O- or CPU-bound.
 ## Unified design adopted 2026-09-26
 
 Steps 6-8 (`ic_shrinkage`, `ensemble_trainer`, `alpha_publisher`) leave the corpus pipeline in phase 186 (adopted unified design, todo 436, section 14); measure the remaining steps only.
+
+2026-10-01: ensemble_trainer and alpha_publisher deleted in phase 186 plan 19 (2d4c2e4e1 is the last commit holding them); steps 7-8 in ops_corpus_pipeline_run.sh are removed by 186-21; nothing applies to live code for those two.
