@@ -18,6 +18,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -518,3 +519,51 @@ def test_trend_vol_of_vol_never_reaches_the_zero_padded_realized_vol_warmup():
     }
     window_vols = [realized[i] for i in range(start - vol_of_vol_window + 1, start + 1)]
     assert obs[0, 3] == pytest.approx(float(np.std(window_vols)), rel=1e-12)
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_duration_and_churn_restart_across_a_skipped_segment(family):
+    """Todo 292 / Phase 172 WR-01, pinned on the kernel for both families. Segment 1 ends in
+    label A, segment 2 is skipped by the gate, segment 3 opens with label A again (so a carried
+    duration would read 5) and later switches to B. The first written row after the gap has
+    duration 1 and churn 0, with no label change counted across the gap."""
+    spec = FAMILY_SPECS[family]
+    label_a, label_b = spec.labels[0], spec.labels[1]
+    width, n_rows = 4, 12
+
+    def segment(start, label_codes, degenerate):
+        w = len(label_codes)
+        return {
+            "seg_start": start,
+            "seg_end": start + w,
+            "states": np.array(label_codes),
+            "state_labels": (label_a, label_b),
+            "p_up": np.full(w, 0.5),
+            "p_ranging": np.full(w, 0.3),
+            "p_down": np.full(w, 0.2),
+            "prob_val": np.full(w, 0.5),
+            "entropy_val": np.full(w, 0.5),
+            "converged": True,
+            "iters_used": 7,
+            "n_iter_cap": 50,
+            "is_degenerate": degenerate,
+            "gate_info": {"reason": "degenerate_occupation"} if degenerate else {},
+        }
+
+    fake = [
+        segment(0, [0, 0, 0, 0], False),
+        segment(width, [1, 1, 1, 1], True),
+        segment(2 * width, [0, 0, 1, 1], False),
+    ]
+    obs = np.zeros((n_rows, 5 if family == "trend" else 2))
+    with patch.object(_hmm, "_walk_forward_hmm_full", return_value=fake):
+        result = _hmm.walk_forward_family_arrays(obs, 0, n_rows, _config().hmm, "1d", spec)
+
+    assert list(result.status[width : 2 * width]) == [_hmm.STATUS_DEGENERATE_OCCUPATION] * width
+    assert not np.isnan(result.code[width - 1]) and np.isnan(result.code[width])
+    duration, churn = result.numeric[5], result.numeric[6]
+    assert duration[width - 1] == width  # segment 1: A held four bars
+    assert duration[2 * width] == 1.0  # first bar after the gap restarts, not 5
+    assert duration[2 * width + 1] == 2.0
+    assert churn[2 * width] == 0.0
+    assert churn[2 * width + 2] > 0.0  # a real A to B change inside segment 3 is counted
