@@ -190,9 +190,9 @@ Plans:
 - [x] 185-13-PLAN.md - D3 venue validation study and verdict (wave 3)
 - [x] 185-14-PLAN.md - 1d head re-run and moved-name inventory (wave 3)
 
-**Wave 4** *(blocked on Wave 3 completion)*
+**Wave 4** *(185-15 blocked on Wave 3 completion; 185-12 gated only on 09-11, its `depends_on`: 13 and 14 may run in parallel, D-15 needs neither)*
 
-- [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, 186 precondition (wave 4)
+- [ ] 185-12-PLAN.md - D2b live rewrite, write-path switch, single archive writer, 186 precondition (wave 4)
 - [x] 185-15-PLAN.md - D1 bootstrap and split-seam audit (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
