@@ -404,9 +404,11 @@ def test_blocked_rolling_is_bitwise_equal_to_unblocked(window, block_rows, fn):
 def test_blocked_rolling_short_series_and_no_block_are_unchanged():
     series = np.arange(30, dtype=float)
     assert np.array_equal(
-        _hmm._rolling(series, 20, np.std, block_rows=3), _hmm._rolling(series, 20, np.std)
+        _hmm._rolling(series, 20, np.std, block_rows=3),
+        _hmm._rolling(series, 20, np.std),
+        equal_nan=True,
     )
-    # the series is exactly one window long: one real value, window - 1 zeros
+    # the series is exactly one window long: one real value, window - 1 NaN
     assert _hmm._rolling(series[:20], 20, np.sum, block_rows=4)[-1] == series[:20].sum()
 
 
@@ -567,3 +569,30 @@ def test_duration_and_churn_restart_across_a_skipped_segment(family):
     assert duration[2 * width + 1] == 2.0
     assert churn[2 * width] == 0.0
     assert churn[2 * width + 2] > 0.0  # a real A to B change inside segment 3 is counted
+
+
+def _nan_padded_rolling(arr, window, fn, block_rows=None):
+    """A `_rolling` whose warmup rows are poisoned with NaN, whatever the production padding is."""
+    windows = np.lib.stride_tricks.sliding_window_view(arr, window)
+    return np.concatenate([np.full(window - 1, np.nan), fn(windows, axis=1)])
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_no_observation_row_depends_on_the_padded_warmup(family, monkeypatch):
+    """Todo 286, as a property of both builders: poison every padded warmup entry of `_rolling`
+    with NaN and no emitted observation row is NaN, and the matrix equals the unpoisoned one bit
+    for bit. A start index too early for the nested vol_of_vol window fails this."""
+    rng = np.random.default_rng(286)
+    n = 400
+    closes = 100.0 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    volumes = np.exp(rng.normal(13.0, 0.3, n))
+    args = {
+        "trend": lambda: _hmm._observations_trend(closes, volumes, 20, 20, 20, None, 1e-8),
+        "volatility": lambda: _hmm._observations_volatility(closes, 20, 60),
+    }[family]
+    clean, clean_start = args()
+    monkeypatch.setattr(_hmm, "_rolling", _nan_padded_rolling)
+    poisoned, poisoned_start = args()
+    assert poisoned_start == clean_start
+    assert np.isfinite(poisoned).all()
+    assert np.array_equal(poisoned.view(np.uint64), clean.view(np.uint64))

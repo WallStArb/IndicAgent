@@ -232,7 +232,12 @@ def load_rolling_block_rows(get: Callable[[str, Any], Any]) -> int:
 
 
 def _rolling(arr: np.ndarray, window: int, fn, block_rows: int | None = None) -> np.ndarray:
-    """Apply fn over a sliding window, zero-padding the warm-up prefix.
+    """Apply fn over a sliding window; the first `window - 1` rows (no full window yet) are NaN.
+
+    NaN, not zero: a padded row is "no value", and any row built from one stays NaN, so a
+    start index that is too early shows up as a NaN in an emitted observation instead of a
+    plausible fabricated number (no_fill; todo 286). The observation builders slice the padded
+    rows off at `valid_start` and `_require_complete` refuses any NaN that survives.
 
     With `block_rows`, `fn` runs over that many windows at a time and the results are
     concatenated. `np.std` and `np.mean` allocate an (n_windows, window) float64 intermediate
@@ -243,11 +248,28 @@ def _rolling(arr: np.ndarray, window: int, fn, block_rows: int | None = None) ->
     """
     windows = np.lib.stride_tricks.sliding_window_view(arr, window)
     if block_rows is None or block_rows >= len(windows):
-        return np.concatenate([np.zeros(window - 1), fn(windows, axis=1)])
-    parts = [np.zeros(window - 1)]
+        return np.concatenate([np.full(window - 1, np.nan), fn(windows, axis=1)])
+    parts = [np.full(window - 1, np.nan)]
     for start in range(0, len(windows), block_rows):
         parts.append(fn(windows[start : start + block_rows], axis=1))
     return np.concatenate(parts)
+
+
+def _vol_of_vol_valid_start(vol_window: int, vol_of_vol_window: int) -> int:
+    """First log-return row whose vol_of_vol window lies entirely in real data.
+
+    vol_of_vol is a rolling std of realized_vol, itself a rolling std over `vol_window` returns,
+    so its first complete row is `vol_window + vol_of_vol_window - 2` (todo 286). The single
+    source of this index for both observation builders."""
+    return vol_window + vol_of_vol_window - 2
+
+
+def _require_complete(obs: np.ndarray) -> np.ndarray:
+    """The observation matrix, or ValueError when any emitted value is not finite: a row built
+    from a padded warmup entry or a bad input must stop the run, not reach the fit."""
+    if not np.isfinite(obs).all():
+        raise ValueError("observation matrix has a non-finite value after the warmup rows")
+    return obs
 
 
 def _observations_trend(
@@ -270,13 +292,9 @@ def _observations_trend(
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
     log_volumes = np.log(volumes_arr[1:])  # aligned to log_returns
 
-    # vol_of_vol is a rolling std of realized_vol, whose own first `vol_window - 1` rows are zero
-    # padding from `_rolling`, so its first clean row is `vol_window + vol_of_vol_window - 2`
-    # (todo 286). The volatility builder follows the same rule; the two must never be
-    # "re-aligned" back to `max(windows) - 1`, which feeds padded windows to the model.
     valid_start = max(
         max(vol_window, momentum_window, vol_of_vol_window) - 1,
-        vol_window + vol_of_vol_window - 2,
+        _vol_of_vol_valid_start(vol_window, vol_of_vol_window),
     )
     if len(log_returns) < valid_start + 1:
         return np.empty((0, 5), dtype=float), 0
@@ -297,7 +315,7 @@ def _observations_trend(
             rel_volume[valid_start:],
         ]
     )
-    return obs, valid_start
+    return _require_complete(obs), valid_start
 
 
 def _build_obs_matrix(
@@ -323,10 +341,9 @@ def _build_obs_matrix(
       [4] rel_volume   = log(volume[t]) - rolling mean(log(volume), vol_window)
                          Volume anomaly relative to recent baseline.
 
-    valid_start = max(max(vol_window, momentum_window, vol_of_vol_window) - 1,
-                      vol_window + vol_of_vol_window - 2)
+    valid_start = max(max(windows) - 1, _vol_of_vol_valid_start(vol_window, vol_of_vol_window))
     All rows before valid_start are discarded (insufficient window history, and for vol_of_vol
-    the zero-padded realized_vol warmup; todo 286).
+    the padded realized_vol warmup; todo 286).
     Returns (obs_matrix, valid_timestamps).
     """
     obs, valid_start = _observations_trend(
@@ -356,20 +373,20 @@ def _observations_volatility(
 
     log_returns = np.log(closes_arr[1:] / np.maximum(closes_arr[:-1], 1e-12))
 
-    if len(log_returns) < vol_window + vol_of_vol_window - 1:
+    valid_start = _vol_of_vol_valid_start(vol_window, vol_of_vol_window)
+    if len(log_returns) < valid_start + 1:
         return np.empty((0, 2), dtype=float), 0
 
     realized_vol = _rolling(log_returns, vol_window, np.std, block_rows)
     vol_of_vol = _rolling(realized_vol, vol_of_vol_window, np.std, block_rows)
 
-    valid_start = vol_window + vol_of_vol_window - 2
     obs = np.column_stack(
         [
             realized_vol[valid_start:],
             vol_of_vol[valid_start:],
         ]
     )
-    return obs, valid_start
+    return _require_complete(obs), valid_start
 
 
 def _build_obs_matrix_volatility(
@@ -399,12 +416,7 @@ def _build_obs_matrix_volatility(
     rolling-mean-of-log-volume pass) and makes column-index confusion between the two
     matrices' different semantics impossible. `volumes` is never read.
 
-    valid_start = vol_window + vol_of_vol_window - 2: vol_of_vol is a rolling std of
-    realized_vol, which `_rolling` itself zero-pads for its first vol_window - 1 entries,
-    so this is the first index at which the entire vol_of_vol lookback window lies inside
-    real data and no emitted vol_of_vol value is ever computed over a zero-padded
-    realized_vol entry. `_build_obs_matrix` follows the same rule since todo 286 (it
-    took `max(windows) - 1` before, which fed padded windows to the trend model).
+    valid_start = `_vol_of_vol_valid_start(vol_window, vol_of_vol_window)`.
 
     Returns (obs_matrix, valid_timestamps). Insufficient input (fewer than
     vol_window + vol_of_vol_window - 1 log returns) returns
