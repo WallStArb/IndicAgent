@@ -18,12 +18,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from src.intelligence.feature_cache import (
+from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.kernels._cache_state import (
     FeatureCache,
     _compute_session_value_area,
     _compute_session_vp_profile,
 )
-from src.intelligence.features.contract.registry import Kernel
 from src.intelligence.features.kernels._primitives import (
     ATR_RAW_PADDED,
     KeyGroup,

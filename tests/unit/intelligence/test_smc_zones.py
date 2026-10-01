@@ -16,12 +16,12 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
     _compute_supply_demand_zones,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 
 _ZONE_FIELDS = (
     "demand_dist_atr",

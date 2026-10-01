@@ -10,12 +10,12 @@ import numpy as np
 import pytest
 
 from services.backfill_feature_factory import _vector_to_params
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FEATURE_VECTOR_DOMAIN,
     FeatureFactory,
     FeatureFactoryConfig,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import _pearson_acf1, _skewness
 from src.intelligence.features.kernels.calendar import (
     _days_since_quarter_end,

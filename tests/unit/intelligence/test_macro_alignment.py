@@ -12,9 +12,9 @@ from datetime import UTC, date, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,
     MACRO_COLUMNS,

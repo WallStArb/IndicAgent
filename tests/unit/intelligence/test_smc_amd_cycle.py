@@ -19,12 +19,12 @@ import pytest
 
 from services import feature_vector_pipeline
 from src.intelligence import feature_factory
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
     _derive_amd_cycle,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 
 _AMD_FIELDS = (
     "amd_phase",

@@ -7,7 +7,7 @@ from collections import deque
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import _zscore_from_deque
+from src.intelligence.features.kernels._cache_state import _zscore_from_deque
 
 
 def _former_body(history: deque, window: int) -> float:

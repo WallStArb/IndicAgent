@@ -16,12 +16,12 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
     _compute_bos_choch,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 
 _BOS_FIELDS = (
     "bos_strength",

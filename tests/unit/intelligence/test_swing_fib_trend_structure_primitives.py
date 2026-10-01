@@ -20,7 +20,6 @@ import numpy as np
 import psycopg
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FEATURE_VECTOR_DOMAIN,
     FeatureFactory,
@@ -29,6 +28,7 @@ from src.intelligence.feature_factory import (
     _compute_swing_momentum,
     _compute_swing_structure,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.schemas import FeatureVector
 
 N = 250

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence.test_volume_profile_primitives import _make_cfg
 
 

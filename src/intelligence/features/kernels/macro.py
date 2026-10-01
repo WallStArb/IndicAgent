@@ -28,8 +28,8 @@ import structlog
 
 from src.core.bar_accumulator import _RTH_CLOSE_ET
 from src.core.service_utils import TF_DURATIONS
-from src.intelligence.feature_cache import _zscore_from_deque
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
+from src.intelligence.features.kernels._cache_state import _zscore_from_deque
 from src.intelligence.features.kernels._primitives import constant_value
 from src.intelligence.utils import safe_corr
 

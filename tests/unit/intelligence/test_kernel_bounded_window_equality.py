@@ -9,8 +9,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.kernels import price
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.price import (
     _aroon_osc,
     _cci,

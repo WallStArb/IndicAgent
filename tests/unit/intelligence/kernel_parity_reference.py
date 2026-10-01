@@ -163,12 +163,12 @@ class _FakeConnection:
 
 
 def _compute_synthetic(case: dict, manifest: dict, fixture_dir: Path) -> ReferenceOutput:
-    from src.intelligence.feature_cache import FeatureCache
     from src.intelligence.feature_factory import FEATURE_FACTORY_VERSION, FeatureFactory
     from src.intelligence.features.feature_vector_persistence import (
         _ALL_COLUMN_NAMES,
         feature_vector_to_insert_params,
     )
+    from src.intelligence.features.kernels._cache_state import FeatureCache
 
     inputs, config = synthetic_inputs(fixture_dir)
     bars = _bars_from_arrays(*(inputs[f] for f in ("ts", "open", "high", "low", "close", "volume")))

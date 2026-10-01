@@ -21,13 +21,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
     _compute_liquidity_pools,
     _compute_liquidity_sweeps,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 
 _SWEEP_FIELDS = ("sweep_detected", "sweep_strength", "reclaim_velocity", "bars_since_last_sweep")
 _POOL_FIELDS = ("bsl_dist_atr", "ssl_dist_atr", "bsl_touches", "ssl_touches", "pool_count")

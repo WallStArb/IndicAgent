@@ -122,8 +122,8 @@ class TestMinWindowDerived:
         """
         import math
 
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
@@ -139,7 +139,7 @@ class TestMinWindowDerived:
 class TestWilderRsiSeries:
     def test_terminal_value_matches_rsi_simple(self) -> None:
         """_wilder_rsi_series[-1] must equal _rsi_simple for every prefix length."""
-        from src.intelligence.feature_cache import _rsi_simple, _wilder_rsi_series
+        from src.intelligence.features.kernels._cache_state import _rsi_simple, _wilder_rsi_series
 
         rng = np.random.default_rng(42)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.01, 200))
@@ -162,7 +162,7 @@ class TestWilderRsiSeries:
         the average loss 1/3, RS = 3 and RSI = 100 - 100 / 4 = 75.0 at index 3. Bars 0-2 have
         fewer than `period` changes and stay at the 50.0 cold start.
         """
-        from src.intelligence.feature_cache import _rsi_simple, _wilder_rsi_series
+        from src.intelligence.features.kernels._cache_state import _rsi_simple, _wilder_rsi_series
         from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         closes = np.array([10.0, 11.0, 10.0, 12.0])
@@ -172,7 +172,7 @@ class TestWilderRsiSeries:
         assert _rsi_simple(closes, 3) == 75.0
 
     def test_cache_wrapper_is_the_kernel_primitive(self) -> None:
-        from src.intelligence.feature_cache import _wilder_rsi_series
+        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
         from src.intelligence.features.kernels._primitives import wilder_rsi_series
 
         rng = np.random.default_rng(3)
@@ -184,7 +184,7 @@ class TestWilderRsiSeries:
                 )
 
     def test_cold_start_returns_50(self) -> None:
-        from src.intelligence.feature_cache import _wilder_rsi_series
+        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
 
         closes = np.array([100.0, 101.0, 102.0], dtype=float)
         series = _wilder_rsi_series(closes, period=14)
@@ -193,7 +193,7 @@ class TestWilderRsiSeries:
         assert series[2] == 50.0  # only 3 bars, period=14 → all cold
 
     def test_values_in_range(self) -> None:
-        from src.intelligence.feature_cache import _wilder_rsi_series
+        from src.intelligence.features.kernels._cache_state import _wilder_rsi_series
 
         rng = np.random.default_rng(7)
         closes = 100.0 * np.cumprod(1 + rng.normal(0, 0.02, 500))
@@ -367,8 +367,8 @@ class TestPhase151BatchLiveParity:
     compute()'s output on the same bar window."""
 
     def test_last_bar_parity(self) -> None:
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
 
         config = _make_config_for_min_window()
         bars = _make_bars_dicts(80)
@@ -575,8 +575,8 @@ class TestPhase151CrossTfDivergences:
     respectively and None everywhere else -- even with a populated ctf_by_ts."""
 
     def test_15m_never_populates_5m_1h_or_1h_1d_divergence(self) -> None:
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
         from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
 
         config = _make_config_for_min_window()
@@ -607,8 +607,8 @@ class TestPhase151CrossTfDivergences:
             assert fv.ret_div_1h_1d is None
 
     def test_5m_ret_div_5m_1h_matches_own_return_minus_htf_last_log_ret(self) -> None:
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
         from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
         from src.intelligence.features.kernels.price import _ret_lag_1
 
@@ -652,8 +652,8 @@ class TestPhase151CrossTfDivergences:
         """CtfRecord extended ctf_by_ts's payload from a 3-tuple to a 4-field
         NamedTuple (Phase 151 Plan 05) -- the 3 pre-existing CTF features must
         still read identically off the same source, byte-for-byte."""
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
         from src.intelligence.features.kernels.cross_tf import CtfRecord, CtfSeries
 
         config = _make_config_for_min_window()
@@ -709,8 +709,8 @@ class TestTheoryMotivatedInteractionProducts:
     }
 
     def test_live_path_products_match_parents(self) -> None:
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
@@ -725,8 +725,8 @@ class TestTheoryMotivatedInteractionProducts:
             ), f"{compound}: expected {p1}*{p2}={expected}, got {actual}"
 
     def test_batch_path_products_match_parents(self) -> None:
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
 
         config = _make_config_for_min_window()
         cache = FeatureCache()
@@ -851,8 +851,8 @@ class TestGuardCountedReport:
         direct-unit-test content coverage above."""
         from structlog.testing import capture_logs
 
-        from src.intelligence.feature_cache import FeatureCache
         from src.intelligence.feature_factory import FeatureFactory
+        from src.intelligence.features.kernels._cache_state import FeatureCache
 
         config = _make_config_for_min_window()
         cache = FeatureCache()

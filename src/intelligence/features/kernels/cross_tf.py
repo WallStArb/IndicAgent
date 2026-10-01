@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import numpy as np
 from numpy.typing import ArrayLike
 
-from src.intelligence.feature_cache import _HMM_K, _hmm_forward_step
 from src.intelligence.features.contract.registry import Alignment, ExternalInput, Kernel
+from src.intelligence.features.kernels._cache_state import _HMM_K, _hmm_forward_step
 from src.intelligence.features.kernels._primitives import constant_tf, wilder_rsi_series
 from src.intelligence.features.kernels.macro import bar_ts_ns
 

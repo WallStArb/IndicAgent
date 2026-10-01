@@ -1,5 +1,11 @@
 """FeatureCache — mutable state container for slow-changing features.
 
+Lives in the kernels package since phase 186 plan 25 (todo 476): the registry kernels replay a
+fresh FeatureCache and read these pure helpers (`_HMM_K`, `_hmm_forward_step`,
+`_zscore_from_deque`, the session value-area and profile helpers), so the kernels are the base
+and the legacy cache-driven loop imports from here, not the reverse. No kernel module imports
+anything from outside the kernels package for this state.
+
 Holds regime-level, session-level, cross-asset, and CTF state that
 compute() reads per bar. Updated by the caller (IntelligencePipeline or
 backfill job), never mutated inside FeatureFactory.compute().
@@ -224,7 +230,7 @@ class FeatureCache:
         """Recompute regime-level features from bars and update cache.
 
         Called by the pipeline every config.regime_cache_refresh_bars bars.
-        Extracts forward-only cores (no backward smoother, D-07).
+        Extracts forward-only cores (forward pass only, D-07).
 
         Parameters
         ----------
@@ -1088,7 +1094,7 @@ _HMM_K = 3
 
 
 def _hmm_forward_step(obs: np.ndarray, alpha: np.ndarray) -> None:
-    """In-place forward algorithm step. No backward smoother (D-07).
+    """In-place forward algorithm step. Forward pass only (D-07).
 
     Parameters
     ----------

@@ -17,7 +17,6 @@ from functools import lru_cache
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     _cross_tf_kernel_inputs,
@@ -41,6 +40,7 @@ from src.intelligence.features.feature_vector_persistence import (
     REGIME_VOLATILITY_WRITER_OWNED_COLUMN_NAMES,
     REGIME_WRITER_OWNED_COLUMN_NAMES,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence import kernel_parity_reference as ref
 from tests.unit.intelligence.daily_grid_fixtures import (
     DAILY_GRID_KERNELS,

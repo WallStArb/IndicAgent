@@ -9,7 +9,7 @@ import math
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from src.intelligence.feature_cache import FeatureCache
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence.test_swing_fib_trend_structure_primitives import (
     _make_cfg,
 )

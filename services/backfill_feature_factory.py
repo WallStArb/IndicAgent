@@ -55,9 +55,6 @@ from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.service_utils import setup_service_logging
-from src.intelligence.feature_cache import (
-    FeatureCache,
-)
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
@@ -68,6 +65,9 @@ from src.intelligence.features.feature_vector_persistence import (
     FEATURE_VECTOR_INSERT_SQL_PSYCOPG,
     FEATURE_VECTOR_UPSERT_SQL_PSYCOPG,
     feature_vector_to_insert_params,
+)
+from src.intelligence.features.kernels._cache_state import (
+    FeatureCache,
 )
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels.cross_tf import (

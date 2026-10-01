@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.contract.registry import Kernel
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._primitives import unique_datetimes
 
 if TYPE_CHECKING:

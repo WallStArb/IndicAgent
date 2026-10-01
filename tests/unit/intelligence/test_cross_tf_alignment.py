@@ -21,8 +21,8 @@ from datetime import UTC, date, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.cross_tf import (
     CtfRecord,
     CtfSeries,

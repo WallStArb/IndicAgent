@@ -20,12 +20,12 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import (
     FeatureFactory,
     FeatureFactoryConfig,
     _cold_start_vector,
 )
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.control import (
     _CANARY_CONSTANT_VALUE,
     _canary_acausal_placebo,

@@ -36,8 +36,8 @@ from typing import Any
 import numpy as np
 import structlog
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.features.contract.registry import Alignment, compute_kernels, default_registry
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels._primitives import KeyGroup, none_mask_name
 from src.intelligence.features.kernels.calendar import (

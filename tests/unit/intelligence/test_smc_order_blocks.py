@@ -16,8 +16,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.schemas import FeatureVector
 
 _OB_FIELDS = (

@@ -41,8 +41,8 @@ from services.backfill_feature_factory import (
     run_compute_stage,
 )
 from src.config.config_service import ConfigService
-from src.intelligence.feature_cache import FeatureCache
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.features.kernels.macro import CrossAssetRecord
 from src.intelligence.schemas import FeatureVector
 from tests.unit.intelligence.bar_builders import synthetic_daily_bars

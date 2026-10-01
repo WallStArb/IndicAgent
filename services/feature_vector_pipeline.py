@@ -54,10 +54,6 @@ from src.core.stream_keys import (
     topic_signal_dlq,
     topic_system_events,
 )
-from src.intelligence.feature_cache import (
-    FeatureCache,
-    _rsi_simple,
-)
 from src.intelligence.feature_factory import (
     FEATURE_FACTORY_VERSION,
     FeatureFactory,
@@ -66,6 +62,10 @@ from src.intelligence.feature_factory import (
 )
 from src.intelligence.features.contract.registry import registry_column_gaps
 from src.intelligence.features.feature_vector_persistence import NUMERIC_COLUMN_NAMES
+from src.intelligence.features.kernels._cache_state import (
+    FeatureCache,
+    _rsi_simple,
+)
 from src.intelligence.features.kernels._hmm import HmmConfig
 from src.intelligence.features.kernels.macro import (
     CROSS_ASSET_SYMBOLS,

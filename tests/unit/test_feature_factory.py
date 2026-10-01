@@ -17,10 +17,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.intelligence.feature_cache import CrossAssetState, FeatureCache
-
 # These imports will fail RED until implementation exists.
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
+from src.intelligence.features.kernels._cache_state import CrossAssetState, FeatureCache
 from src.intelligence.features.kernels._primitives import (
     _atr_series_full,
     _is_valid_atr,
