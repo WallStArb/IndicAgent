@@ -13,7 +13,7 @@
 
 The **Unified Concept Registry (UCR)** is the system-wide home for evidence-gated lifecycle governance of research artifacts — features, ensemble weighting strategies, and (eventually) other recipe-shaped candidates like HMM variants or confluence patterns. It answers a different question than APR or ITR: not "what value should this parameter hold" or "what is this instrument," but **"does this recipe deserve to keep running, based on what it has actually proven."**
 
-UCR governs **recipes, not their outputs.** A feature definition is governed here; a bar's computed feature value in `feature_vectors` is a fact table, untouched by this system. An `ensemble_strategy` concept is governed here; the ensemble weights it produces live in `ensemble_weights`, a separate fact table. This separation is load-bearing — conflating "is this recipe valid" with "what did this recipe compute" is exactly the confusion this registry exists to prevent.
+UCR governs **recipes, not their outputs.** A feature definition is governed here; a bar's computed feature value in `feature_vectors` is a fact table, untouched by this system. A concept of any domain is governed here; what it computes lives in that domain's own fact table. This separation is load-bearing — conflating "is this recipe valid" with "what did this recipe compute" is exactly the confusion this registry exists to prevent.
 
 Every concept moves through the same four-state lifecycle, proven or disproven by a deterministic evaluation engine that no proposer — human or AI — can short-circuit:
 
@@ -167,7 +167,7 @@ A domain is added to the live `domain` CHECK only once it has real candidates �
 
 | Category | Where it lives | Why |
 |----------|-----------------|-----|
-| A recipe's computed output (a bar's feature value, an ensemble's emitted weights) | The domain's own fact table (`feature_vectors`, `ensemble_weights`) | UCR governs the recipe, not its results |
+| A recipe's computed output (a bar's feature value) | The domain's own fact table (`feature_vectors`) | UCR governs the recipe, not its results |
 | Tunable numeric values, including UCR's own gate defaults | APR (`config_state`, `alpha.concept_registry.*`) | UCR consumes APR, doesn't duplicate it |
 | Falsifiable instrument classification | ITR | Different subject entirely — instruments, not research artifacts |
 | Fixed symbolic code definitions | CVR | Different epistemic kind of row (definitional vs. evidence-gated) |
