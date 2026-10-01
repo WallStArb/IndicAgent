@@ -5,7 +5,7 @@ filed: 2026-10-01
 source: macro context layer council pass (docs/ideas/signal-macro-context-layer.md)
 ---
 
-# Economic series: availability and revisions from ALFRED vintages, not an assumed lag
+# Economic series: availability and revisions from ALFRED release records, not an assumed lag
 
 ## What
 
@@ -26,25 +26,29 @@ No consumer reads the table yet, so a clean reload is cheap now.
 ## Recommendation
 
 1. Fetch FRED series through ALFRED: `output_type=4` (initial release) for each observation's first
-   value and first-release date, and the vintage rows for revisions; ALFRED caps a request at 2,000
-   vintage dates, so fetch long daily series in windows.
-2. `available_at` = the end (next 00:00 UTC) of the vintage date; basis `vintage`. Keep the
+   value and first-release date, and the revision rows; ALFRED caps a request at 2,000
+   release dates (it calls them vintage dates; `vintage` means a research data span here), so fetch long daily series in windows.
+2. `available_at` = the end (next 00:00 UTC) of the release date; basis `release_record`. Keep the
    assumed rule only for the NY Fed, renamed `declared_rule` (08:00 New York time on the next
    business day), and verify it from forward fetch times.
 3. Per-series `kind` (`daily_level`, `reference_period`, `schedule`) in the series registry
    (`economic_series_observation_coverage`); the writer refuses a declared rule on a
    `reference_period` series.
-4. Drop the APR `revision` field (vintages measure it).
+4. Drop the APR `revision` field (release records measure it).
 5. Standing audits in the writer run, reported and never repaired: SOFR and EFFR across FRED and the
    NY Fed (2026-10-01: SOFR agrees on all 2,122 common days), the identity `T10Y2Y = DGS10 - DGS2`
    (2026-10-01: 3 days off, worst 2 bp; 1 day with a missing leg), and gaps against the publication
    calendar.
-6. Truncate and reload, verify the vintage-based `available_at` against the measured lags above,
+6. Conventions that land with the schema change: the fixed code sets (`source`, `availability_basis`,
+   series `kind`) are hardcoded in the migration and in Python, so they become CVR namespaces
+   (`docs/foundation/controlled-vocabulary-registry.md`, path D-07); the glossary's
+   `availability time` entry moves to the new basis values.
+7. Truncate and reload, verify the release-record `available_at` against the measured lags above,
    then re-run the writer twice (the second appends nothing).
 
 ## Acceptance
 
-- No FRED row has basis other than `vintage`; `THREEFYTP10` first rows match its first-release
+- No FRED row has basis other than `release_record`; `THREEFYTP10` first rows match its first-release
   values.
 - A unit test per availability rule, including a Friday, a holiday weekend and a monthly series.
 - Audit counts appear in the run log and the outcome counter.

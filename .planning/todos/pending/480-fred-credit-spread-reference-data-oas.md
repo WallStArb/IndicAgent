@@ -27,7 +27,7 @@ and cannot be built from what we store. No FRED client exists anywhere in the co
 
 Option 2. A single new reference table with a dedicated writer, no change to `market_data_ohlcv`.
 
-Step 0 is resolved (2026-10-01, live FRED pull with the key from the sibling `ssfi` project's
+Step 0 is resolved (2026-10-01, FRED pull with the key from the sibling `ssfi` project's
 `.env`, var `SSFI_FRED_API_KEY`, provisioned 2026-08-31): the ICE BofA OAS series are limited to a
 trailing 3 years (BAMLH0A0HYM2, BAMLC0A0CM, BAMLH0A3HYC, BAMLC0A4CBBB all start 2023-10-02), so
 they are forward-only collection. `BAA10Y` starts 1986-01, `DGS10`/`DGS2`/`T10Y2Y` 1980-01,
@@ -49,7 +49,7 @@ Decisions that differ from the steps below: the series list is the APR list only
 table); the key is (series_id, observation_date, available_at), with `availability_basis`
 `assumed_lag` for a series' first fetch (publication lag is an estimate; history of a
 `model_revised` series is as-revised, not point in time) and `fetch` for everything later. Backfilled
-rows carry no true vintage: `ssfi`'s `realtime_start` keying would need ALFRED vintage pulls, which
+rows carry no release record: `ssfi`'s `realtime_start` keying would need ALFRED release-record pulls, which
 this slice does not do and Tier 1 does not need (market-observed series).
 
 NY Fed reference rates landed the same day: `src/providers/nyfed.py` (no key; one call returns a
@@ -90,9 +90,9 @@ conditions), `T10YIE`, `T5YIFR` (breakevens), `WALCL`, `RRPONTSYD` (liquidity), 
 `DTB3` (policy rate and bills), `ICSA` (claims), `USEPUINDXD` (policy uncertainty), `USREC`
 (recession dates, label only). VIX, broad dollar and oil are left out on purpose: the bars already
 hold VIX futures, dollar and oil instruments, and a FRED copy would be a second source of truth. Series that FRED revises
-(claims, CPI, payrolls, GDP) need vintage keys: use the ALFRED real-time parameters and key rows by
+(claims, CPI, payrolls, GDP) need revision keys: use the ALFRED real-time parameters and key rows by
 (`series_id`, `observation_date`, `realtime_start`) so a read as of t sees only the value known at
-t. Precedent in the sibling project: `ssfi` migration 040 (vendor restatement, vintage keying);
+t. Precedent in the sibling project: `ssfi` migration 040 (vendor restatement, revision keying);
 read it before designing the key. Tier 2 enters only with a named consumer, so the store does not
 become a dump; the registry row records provider, frequency, revision behavior and consumer.
 
@@ -101,8 +101,8 @@ become a dump; the registry row records provider, frequency, revision behavior a
 `ssfi` has decided and designed its data sources but collected nothing (no ssfi database exists on
 this host), so there is no data to reuse; the value is design and source research.
 `docs/research/data-sources-candidates.md` there holds verified API mechanics.
-- Reuse the design: vintage keying (migration 040: key includes FRED `realtime_start`, or a fetch
-  date for sources with no vintage; UPDATE/DELETE revoked so append-only is enforced by the
+- Reuse the design: revision keying (migration 040: key includes FRED `realtime_start`, or a fetch
+  date for sources with no release record; UPDATE/DELETE revoked so append-only is enforced by the
   database) and its vendor adapter and credential conventions (`docs/foundation/data-layer.md`).
 - Worth adding as Tier 2 here, free and daily, market-wide: NY Fed Markets Data API. Reference
   rates are done (see Status); Primary Dealer positions and financing and SOMA securities lending

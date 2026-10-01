@@ -5,7 +5,7 @@
 Needs a rigor pass before promotion to `docs/research/`.
 **Author:** Claude (Opus 5.5), interactive session, 2026-10-01; first draft by Claude (Sonnet 5.5)
 the same day.
-**Informed by:** live FRED and ALFRED queries and checks against the stored table on 2026-10-01 (every
+**Informed by:** FRED and ALFRED queries and checks against the stored table on 2026-10-01 (every
 number below was measured then); `docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md`
 (sections 3, 5, 6); `/home/bg/dev/ssfi` (migration 040, `docs/foundation/data-layer.md`,
 `docs/research/calendar-primitives.md`); `docs/research/signal-temporal-atomic-primitives.md`;
@@ -23,7 +23,7 @@ backtest days or weeks before it existed. Everything below is organized around t
 | Check (2026-10-01) | Result | Consequence |
 |---|---|---|
 | CPI January 2024 first release (ALFRED) | 2024-02-13 | a "1 business day after the observation date" rule puts it 2024-01-03: six weeks of lookahead. An assumed lag must never touch a non-daily series |
-| `THREEFYTP10` first release and revisions | 2024-01-02 value first published 2024-01-09 (weekly release); history revised 2024-08-12 | the stored rows are about a week early and hold revised values: a live lookahead in our table today |
+| `THREEFYTP10` first release and revisions | 2024-01-02 value first published 2024-01-09 (weekly release); history revised 2024-08-12 | the stored rows are about a week early and hold revised values: a lookahead present in our table today |
 | Daily H.15 and Moody's series, first-release lag over Q1 2024 (61 days each) | `DGS10`, `DFII10`: 1 day (49), 3 (10), 4 (2). `BAA10Y`: 1 (47), 2 (1), 3 (10), 4 (3) | the assumed rule is right on most days and early on holiday weekends and on `BAA10Y`'s two-day days; measurement removes the guess |
 | ICE spread first release | same calendar day as the observation | conservative under the current rule |
 | SOFR, FRED against the NY Fed | 2,122 common days, 0 value mismatches; the NY Fed has 2018-04-02 (first day) only | two sources reconcile exactly: usable as a standing check |
@@ -34,17 +34,19 @@ backtest days or weeks before it existed. Everything below is organized around t
 Each one exists because one of the failures above would otherwise pass silently.
 
 1. **Availability is measured, not assumed.** A row's `available_at` comes from the publisher's own
-   record where one exists (ALFRED first-release dates; vintage dates for revisions). An assumed rule
+   record where one exists: ALFRED's release records (first-release dates and revision dates). ALFRED
+   calls these vintages; in this project `vintage` means a research data span (glossary), so this doc
+   says release record. An assumed rule
    is allowed only where no record exists (the NY Fed today), is labeled as such, and is never applied
    to a series whose observation date is a reference period (monthly, weekly, quarterly).
-2. **Revisions are rows.** The first published value is the first row; every later vintage is a new
+2. **Revisions are rows.** The first published value is the first row; every later revision is a new
    row with its own `available_at`. The current value is never written backwards over history.
 3. **One store, one writer, append-only.** UPDATE and DELETE are blocked in the database. A research
    snapshot is the table filtered on `available_at <= K` for a knowledge cutoff K, so a snapshot is
    reproducible bit for bit by construction (the `determinism` invariant at no extra cost).
 4. **Declared units and declared publication rules.** Units come from the provider (FRED metadata,
    a fixed NY Fed field map) and a run fails if one changes (in place since 2026-10-01). A source with
-   no vintage record declares its publication time (the NY Fed: 08:00 New York time on the next
+   no release record declares its publication time (the NY Fed: 08:00 New York time on the next
    business day) and forward fetches verify it.
 5. **Staleness is explicit.** An as-of read returns the value and its age. Beyond a declared maximum
    age per series the value is missing, never carried (`no_fill`). An outage at the source must show
@@ -64,9 +66,9 @@ Each one exists because one of the failures above would otherwise pass silently.
     move is a new row (value 0 for the old date, 1 for the new one). Append-only covers it.
   - So the event layer is a set of series, read with the same as-of rule. One mechanism instead of
     two.
-- **The `revision` field in the APR source list.** It is an assertion; vintages measure it.
+- **The `revision` field in the APR source list.** It is an assertion; release records measure it.
 - **The assumed lag for FRED series.** Replaced by first-release dates. It stays only for sources
-  without vintages, labeled, and becomes a measured rule as forward fetches accumulate.
+  without release records, labeled, and becomes a measured rule as forward fetches accumulate.
 - **Stored derived measures.** Real-yield shock, spread percentile, funding stress and days-to-FOMC are
   pure kernels over as-of reads, computed in the panel and never persisted as truth.
 
@@ -80,9 +82,9 @@ One table, three times per row, nothing else:
 | `available_at` | the earliest moment anyone could have known this value |
 | `fetched_at` | when we recorded it |
 
-Per-series facts live once, in the series row (today `economic_series_observation_coverage`; it is the
+Per-series facts are stored once, in the series row (today `economic_series_observation_coverage`; it is the
 series registry in all but name): unit, kind (`daily_level`, `reference_period`, `schedule`),
-availability basis (`vintage` or `declared_rule`), covered span. The APR list says what to collect; the
+availability basis (`release_record` or `declared_rule`), covered span. The APR list says what to collect; the
 registry says what each series is.
 
 ## Data flow
@@ -106,8 +108,8 @@ macro value belongs to no symbol and joins every symbol, the `vix_z` pattern.
 |---|---|---|
 | Release lag | a monthly value is used weeks before release | requirement 1; never an assumed lag on a reference-period series |
 | Revisions | today's revised value is used for an old date | requirement 2 |
-| Time of day | a date-granular vintage is published late that day; a daily bar decided at the close cannot see it | `available_at` is the end (next 00:00 UTC) of the first-release date; the NY Fed uses its declared 08:00 rule |
-| Holidays | an assumed business-day rule is a day early around holidays | vintage dates for FRED; for the NY Fed, a declared calendar checked by forward fetches |
+| Time of day | a release record carries a date, not a time, and the value may post late that day; a daily bar decided at the close cannot see it | `available_at` is the end (next 00:00 UTC) of the first-release date; the NY Fed uses its declared 08:00 rule |
+| Holidays | an assumed business-day rule is a day early around holidays | release records for FRED; for the NY Fed, a declared calendar checked by forward fetches |
 | Stale carry | a source outage reads as an unchanged value | requirement 5 |
 | Truncated history | the ICE spreads are served for 3 years only; earlier days are filled from a proxy | days outside coverage are unknown; never back-filled from another series |
 | Series selection | series chosen because they are topical | requirement 6; every chosen series counts as a look |
@@ -124,7 +126,7 @@ missed.
 ## The four design questions
 
 1. **10x volume:** 49 series to 500 is a few hundred requests a day and tens of megabytes; full
-   history is refetched and diffed per series. ALFRED caps a request at 2,000 vintage dates, so long
+   history is refetched and diffed per series. ALFRED caps a request at 2,000 release dates, so long
    daily series are fetched in windows.
 2. **Silent failure:** the table above; the shift test is the backstop.
 3. **DAG:** one direction, one writer, compute separate from persistence (diagram above).
@@ -158,7 +160,7 @@ No doc is archived; each states its owner here.
 | Policy uncertainty, divided government, presidential cycle | `signal-political-policy-regime.md` | idea, refreshed 2026-10-01 |
 | Rate and credit regime axes | todo 481 | curve tier tracks the 10-year change with an inverted sign |
 | Sensitivity to market-wide factors or events | `signal-sensitivity-regime-interaction-primitives.md`, `from-ssfi/signal-factor-sensitivity-cross-asset.md` | consumers of this layer |
-| `macro_features` / `macro_analyzer` | the dormant live path | no reader; if the live path returns, it computes from the same kernels rather than keep a second macro home |
+| `macro_features` / `macro_analyzer` | the dormant streaming path | no reader; if streaming returns, it computes from the same kernels rather than keep a second macro home |
 | Per-symbol external data (short volume, fails-to-deliver, dividends, halts) | separate family | not this layer |
 
 ## Reused from SSFI
@@ -168,7 +170,7 @@ methodology docs were written from indicagent's own code, so their methods are a
 
 | Item | Use here | State |
 |---|---|---|
-| Vintage keying, append-only enforced in the database (migration 040) | requirements 2 and 3 | applied; vintages themselves are todo 482 |
+| Revision keying, append-only enforced in the database (migration 040) | requirements 2 and 3 | applied; vintages themselves are todo 482 |
 | Canonical-unit contract (`data-layer.md`) | requirement 4 | applied 2026-10-01 |
 | NY Fed Markets Data API | reference rates loaded; Primary Dealer and SOMA lending remain | partly applied |
 | Data due-diligence gate, vendor adapter boundary (`data-layer.md`) | checklist for the next source | adopt then |

@@ -46,5 +46,5 @@ control before IC stratification uses it (ledger: regime-conditioned use is a po
 ## Related
 
 - Todo 480 (the stored series this check used).
-- `market_regimes` `rates` group last written 2026-08-11 (live path down), so nothing downstream
+- `market_regimes` `rates` group last written 2026-08-11 (streaming path down), so nothing downstream
   currently moves with these labels.

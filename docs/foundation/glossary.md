@@ -1310,6 +1310,82 @@ A monotonically increasing integer that identifies a specific set of ensemble we
 
 ---
 
+### `economic series`
+
+A published time series about the market or the economy as a whole (a rate, a spread, a funding
+statistic, a release, a schedule) from an external source (FRED, the NY Fed), stored append-only in
+`economic_series_observation` with a declared unit. It belongs to no symbol and joins every symbol as
+of a date.
+
+**Not:** `macro_features`, which is computed from our own bars, and not a feature: a derived measure
+computed from economic series by a kernel is a feature.
+**Banned:** (none)
+**Status:** active (todo 480)
+**Code surface:** `economic_series_observation`, `services/economic_series_writer.py`,
+`src/providers/fred.py`, `src/providers/nyfed.py`
+
+---
+
+### `availability time`
+
+The earliest moment a value could have been known: a row's `available_at`. A read for t uses only rows
+whose availability time is at or before t (`temporal_integrity`). Each row records its basis:
+`release_record` (the publisher's dated record), `declared_rule` (a declared publication time where no
+record exists) or `fetch` (when we fetched a new or changed value, an upper bound).
+
+**Not:** the observation date (what the value is about) or the fetch time (when we stored it).
+**Banned:** (none)
+**Status:** active; basis values today are `assumed_lag` and `fetch`, and todo 482 replaces
+`assumed_lag` with `release_record` and `declared_rule`
+**Code surface:** `economic_series_observation.available_at`, `availability_basis`
+
+---
+
+### `release record`
+
+A publisher's dated record of the value published for an observation and when it was published, and
+of each later revision: FRED's ALFRED archive. The source of availability times and revision rows for
+FRED series.
+
+**Not:** `vintage`. ALFRED calls these vintages; in this project `vintage` is a research data span.
+**Banned:** (none)
+**Status:** design (todo 482)
+
+---
+
+### `knowledge cutoff`
+
+The availability-time bound K of a research snapshot: the snapshot reads economic series rows whose
+availability time is at or before K, so a snapshot of an append-only store reproduces bit for bit.
+
+**Banned:** (none)
+**Status:** design (`docs/ideas/signal-macro-context-layer.md`, S0 economic block)
+
+---
+
+### `shift test`
+
+A robustness check every result that uses economic series must pass: re-run it with every availability
+time moved one session later. A result that changes materially depended on timing at the edge of
+knowability and is not trusted.
+
+**Banned:** (none)
+**Status:** design (`docs/ideas/signal-macro-context-layer.md`)
+
+---
+
+### `schedule series`
+
+An economic series that records scheduled days (an FOMC meeting, a release date): observation date =
+the scheduled day, availability time = when the schedule was published, value 1, and value 0 in a
+later row when the day is cancelled or moved. Market-wide events are stored this way; there is no
+separate event table.
+
+**Banned:** (none)
+**Status:** design (`docs/ideas/signal-macro-context-layer.md`)
+
+---
+
 ## AlphaEngine Functional Layer Vocabulary
 
 Generic names for the functional slots within Layer 1 (Prediction), ordered by pipeline
