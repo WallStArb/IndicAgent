@@ -203,6 +203,7 @@ class _SymbolResult(NamedTuple):
     outcome: str
     error: str | None
     n_derived: int
+    n_archived: int = 0
 
 
 def _rowcount(status: str) -> int:
@@ -376,6 +377,7 @@ class BarDerivation(BaseBatch):
             totals = dict.fromkeys(("derived", "unchanged", "no_5m", "excluded_lane", "failed"), 0)
             totals["excluded_lane"] = len(symbols) - len(targets)
             n_derived_rows = 0
+            n_archived_rows = 0
             failed: list[str] = []
             try:
                 for offset in range(0, len(targets), symbol_batch):
@@ -384,6 +386,7 @@ class BarDerivation(BaseBatch):
                         result = await self._run_symbol(conn, symbol=symbol, batch_id=batch_id)
                         totals[result.outcome] += 1
                         n_derived_rows += result.n_derived
+                        n_archived_rows += result.n_archived
                         if result.error:
                             failed.append(result.error)
                     self.logger.info(
@@ -402,6 +405,10 @@ class BarDerivation(BaseBatch):
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
                             "n_derived_rows": n_derived_rows,
+                            # Removable (stored non-synthetic) 15m/1h rows the
+                            # archive step verified and the segment DELETE took;
+                            # plan 12's live check compares it with the archive.
+                            "n_archive_rows": n_archived_rows,
                             "apply": self._apply,
                             "changed_only": self._changed_only,
                         },
@@ -647,7 +654,7 @@ class BarDerivation(BaseBatch):
                     await conn.executemany(_INSERT_DIGEST_SQL, digest_args)
         except Exception as error:
             return _SymbolResult("failed", f"{symbol}: {error}", 0)
-        return _SymbolResult("derived", None, n_derived)
+        return _SymbolResult("derived", None, n_derived, int(verify["n_removable"]))
 
 
 def main() -> None:
