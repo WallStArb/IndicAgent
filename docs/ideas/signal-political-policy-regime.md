@@ -271,6 +271,9 @@ recorded here in May 2027, unchanged by anything learned before then.
 
 ### Window scan, look 3 (exploratory, run 2026-10-01 after the result above)
 
+Looks 2 and 3 and the robustness rows reproduce exactly from `scripts/research/midterm_cycle_looks.py`
+(`look2`, `look3`, `robust`; seeds fixed in the script).
+
 Owner-requested, not pre-registered, and no evidence beyond look 2: it asks only where in the cycle the
 excess sits. Same data and event rule; 24 cells (entry 3, 2, 1 months before election day, on it, 1 and
 2 months after; horizon 3, 6, 9, 12 months). Each cell is the midterm-minus-other-years difference in
