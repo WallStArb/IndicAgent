@@ -326,6 +326,10 @@ Plans:
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+- [x] 186-21 old-chain ops scripts and APR keys (D-10, D-08): seven ops scripts and four unit files
+  deleted; the orchestrator is five steps ending at feature_lifecycle, the monitor and verifier drop
+  the dead services; migration 424 retires 51 old-chain APR keys per key (kept: `mv_condition_max`,
+  `cluster_regime_conditioned`, `alpha.ic.*`); merged 2026-10-01 (`9b37c754e`)
 - [x] 186-20 parity replay of stored pooled cells (D-21, R-06): read-only harness over 1,080 stored
   POOLED cells; row sets reproduce exactly, a legacy-arithmetic replica reproduces 1,078 (2 are float32
   noise in the stored value), every fresh-versus-stored difference is attributed (66 NaN-denominator
