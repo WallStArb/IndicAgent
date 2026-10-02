@@ -305,7 +305,12 @@ def test_differing_close_and_missing_date_each_write_once():
     assert written_dates == [_D3, _D4]
     d3_row = next(r for r in conn.bar_write_rows if r[0].date() == _D3)
     assert d3_row[6] == 12.0 and d3_row[9] == "USD"
-    assert result["reasons"] == {"d1_value_differs": 1, "missing": 1, "split_rescale": 0}
+    assert result["reasons"] == {
+        "d1_value_differs": 1,
+        "missing": 1,
+        "volume_differs": 0,
+        "split_rescale": 0,
+    }
     assert len(conn.lineage_rows) == 4
 
 

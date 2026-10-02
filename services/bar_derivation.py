@@ -357,7 +357,7 @@ class _DailyResult(NamedTuple):
     reasons: dict[str, int]
     n_pre_split: int
     n_no_volume: int
-    sample_diffs: tuple[tuple[date, float, float, str], ...] = ()
+    sample_diffs: tuple[tuple[date, float, float, str, str], ...] = ()
 
 
 def _rowcount(status: str) -> int:
@@ -368,20 +368,18 @@ def _rowcount(status: str) -> int:
         raise ValueError(f"cannot parse rowcount from status {status!r}") from error
 
 
-def _bar_differs(stored: Any, bar: CanonicalBar) -> bool:
-    """Exact value comparison of a stored 1d row against the canonical bar.
+def _diff_fields(stored: Any, bar: CanonicalBar) -> tuple[str, ...]:
+    """The fields where a stored 1d row differs from the canonical bar.
 
     Bit-exact on purpose: the same provider re-fetching an unchanged bar must
     compare equal, and any drift (the seam audit's 74 unexplained days) must
-    surface as a change, not be rounded away.
+    surface as a change, not be rounded away. Empty tuple means equal.
     """
-    return (
-        stored["open"] != bar.open
-        or stored["high"] != bar.high
-        or stored["low"] != bar.low
-        or stored["close"] != bar.close
-        or stored["volume"] != bar.volume
-    )
+    fields = []
+    for name in ("open", "high", "low", "close", "volume"):
+        if stored[name] != getattr(bar, name):
+            fields.append(name)
+    return tuple(fields)
 
 
 def _epoch_seconds(dt: datetime) -> int:
@@ -882,7 +880,7 @@ class BarDerivation(BaseBatch):
             reasons_total: dict[str, int] = {}
             n_canonical = n_stored = n_changed = n_pre_split = n_no_volume = 0
             per_symbol: dict[str, dict[str, int]] = {}
-            samples: list[tuple[str, date, float, float, str]] = []
+            samples: list[tuple[str, date, float, float, str, str]] = []
             failed: list[str] = []
             derived_symbols: list[str] = []
             try:
@@ -913,14 +911,15 @@ class BarDerivation(BaseBatch):
                                 "changed": result.n_changed,
                                 "missing": result.reasons.get("missing", 0),
                                 "d1_value_differs": result.reasons.get("d1_value_differs", 0),
+                                "volume_differs": result.reasons.get("volume_differs", 0),
                                 "split_rescale": result.reasons.get("split_rescale", 0),
                                 "pre_split": result.n_pre_split,
                                 "canonical": result.n_canonical,
                                 "stored": result.n_stored,
                             }
-                            for bar_date, stored_close, close, reason in result.sample_diffs:
+                            for diff in result.sample_diffs:
                                 if len(samples) < 30:
-                                    samples.append((symbol, bar_date, stored_close, close, reason))
+                                    samples.append((symbol, *diff))
                         if result.error:
                             failed.append(result.error)
                     self.logger.info(
@@ -1050,17 +1049,21 @@ class BarDerivation(BaseBatch):
 
         stored_rows = await conn.fetch(_SELECT_STORED_1D_SQL, symbol)
         stored = {r["timestamp"].date(): r for r in stored_rows}
+        # base is NULL across market_data_ohlcv today (the grid stage writes
+        # the same NULL), so the upsert carries the symbol's stored value or
+        # NULL -- never a failure; base is provenance the table does not hold.
         base = (
             stored_rows[0]["base"] if stored_rows else await conn.fetchval(_SELECT_BASE_SQL, symbol)
         )
-        if not base:
-            return _DailyResult(
-                "failed", f"{symbol}: no base currency in stored rows", 0, 0, 0, {}, 0, 0
-            )
 
-        reasons = {"split_rescale": 0, "d1_value_differs": 0, "missing": 0}
+        reasons = {
+            "split_rescale": 0,
+            "d1_value_differs": 0,
+            "volume_differs": 0,
+            "missing": 0,
+        }
         changes: list[tuple[CanonicalBar, str]] = []
-        sample_diffs: list[tuple[date, float, float, str]] = []
+        sample_diffs: list[tuple[date, float, float, str, str]] = []
         n_pre_split = n_no_volume = 0
         for bar in canonical:
             if _PRE_SPLIT_RULE in bar.flags:
@@ -1071,18 +1074,32 @@ class BarDerivation(BaseBatch):
             if srow is None:
                 reasons["missing"] += 1
                 changes.append((bar, "missing"))
-            elif _bar_differs(srow, bar):
-                affects_split = split_staleness_threshold(bar.bar_date, splits) is not None
-                if affects_split and _PRE_SPLIT_RULE not in bar.flags:
-                    reason = "split_rescale"
-                else:
-                    reason = "d1_value_differs"
-                reasons[reason] += 1
-                changes.append((bar, reason))
-                if len(sample_diffs) < 10:
-                    sample_diffs.append(
-                        (bar.bar_date, float(srow["close"]), float(bar.close), reason)
-                    )
+            else:
+                fields = _diff_fields(srow, bar)
+                if fields:
+                    affects_split = split_staleness_threshold(bar.bar_date, splits) is not None
+                    if affects_split and _PRE_SPLIT_RULE not in bar.flags:
+                        reason = "split_rescale"
+                    elif fields == ("volume",):
+                        # IBKR daily volume is not stable across fetches
+                        # (late odd-lot corrections; measured 2026-10-02:
+                        # 1-share drift on AAPL 2026-07-29). Prices equal,
+                        # volume only: still written, reported as what it is.
+                        reason = "volume_differs"
+                    else:
+                        reason = "d1_value_differs"
+                    reasons[reason] += 1
+                    changes.append((bar, reason))
+                    if len(sample_diffs) < 10:
+                        sample_diffs.append(
+                            (
+                                bar.bar_date,
+                                float(srow["close"]),
+                                float(bar.close),
+                                reason,
+                                ",".join(fields),
+                            )
+                        )
 
         if not self._apply:
             return _DailyResult(
@@ -1258,7 +1275,7 @@ class BarDerivation(BaseBatch):
         n_pre_split: int,
         n_no_volume: int,
         per_symbol: dict[str, dict[str, int]],
-        samples: list[tuple[str, date, float, float, str]],
+        samples: list[tuple[str, date, float, float, str, str]],
         venue_enabled: bool,
         failed: list[str],
     ) -> None:
@@ -1296,22 +1313,23 @@ class BarDerivation(BaseBatch):
             "| reason | bars |",
             "|---|---|",
         ]
-        for reason in ("missing", "d1_value_differs", "split_rescale"):
+        for reason in ("missing", "d1_value_differs", "volume_differs", "split_rescale"):
             lines.append(f"| {reason} | {reasons.get(reason, 0)} |")
         lines.extend(
             [
                 "",
                 "## Top 20 symbols by changed bars",
                 "",
-                "| symbol | changed | missing | d1_value_differs | split_rescale | pre_split |",
-                "|---|---|---|---|---|---|",
+                "| symbol | changed | missing | d1_value_differs | volume_differs | split_rescale | pre_split |",
+                "|---|---|---|---|---|---|---|",
             ]
         )
         top = sorted(per_symbol.items(), key=lambda kv: (-kv[1]["changed"], kv[0]))[:20]
         for symbol, stats in top:
             lines.append(
                 f"| {symbol} | {stats['changed']} | {stats['missing']} "
-                f"| {stats['d1_value_differs']} | {stats['split_rescale']} | {stats['pre_split']} |"
+                f"| {stats['d1_value_differs']} | {stats['volume_differs']} "
+                f"| {stats['split_rescale']} | {stats['pre_split']} |"
             )
         lines.extend(["", "## Symbols with pre_split_unrefetched bars", ""])
         flagged = [(s, k) for s, k in sorted(per_symbol.items()) if k["pre_split"]]
@@ -1325,16 +1343,17 @@ class BarDerivation(BaseBatch):
                 "",
                 "## Sample differing bars (up to 30)",
                 "",
-                "| symbol | date | stored close | canonical close | reason |",
-                "|---|---|---|---|---|",
+                "| symbol | date | stored close | canonical close | reason | fields |",
+                "|---|---|---|---|---|---|",
             ]
         )
-        for symbol, bar_date, stored_close, close, reason in samples:
+        for symbol, bar_date, stored_close, close, reason, fields in samples:
             lines.append(
-                f"| {symbol} | {bar_date.isoformat()} | {stored_close} | {close} | {reason} |"
+                f"| {symbol} | {bar_date.isoformat()} | {stored_close} | {close} "
+                f"| {reason} | {fields} |"
             )
         if not samples:
-            lines.append("| (none) | | | | |")
+            lines.append("| (none) | | | | | |")
         if failed:
             lines.extend(["", "## Failures", ""])
             lines.extend(f"- {error}" for error in failed[:20])
