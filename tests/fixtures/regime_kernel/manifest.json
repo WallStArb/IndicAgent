@@ -10,9 +10,9 @@
     "alpha.hmm.walk_forward.refit_every_bars.1h": 1650,
     "alpha.hmm.walk_forward.refit_every_bars.5m": 19800,
     "alpha.hmm_volatility.covariance_type": "full",
-    "alpha.hmm_volatility.n_components": 3,
-    "alpha.hmm_volatility.vol_of_vol_window": 250,
-    "alpha.hmm_volatility.vol_window": 250,
+    "alpha.hmm_volatility.n_components": 2,
+    "alpha.hmm_volatility.vol_of_vol_window": 60,
+    "alpha.hmm_volatility.vol_window": 60,
     "feature.hmm.churn_window": 10,
     "feature.hmm.covariance_type": "full",
     "feature.hmm.full_cov_min_obs": 500,
@@ -34,219 +34,433 @@
   "capture_commit": "ec3d8a814933595814c13239665da407ddc192da",
   "captured_utc": "2026-09-30T04:57:29.369308+00:00",
   "changed_cases": {
-    "LQD/1d/trend": {
+    "LQD/1d/volatility": {
       "columns_changed_rows_total_and_outside_flipped": [
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4438,
+          252
         ],
         [
-          252,
-          233
+          4196,
+          134
         ]
       ],
       "flipped_segments": [
         [
-          4052,
-          4304,
-          "skipped->written"
-        ]
-      ],
-      "rows_gained_label": 252,
-      "rows_lost_label": 0,
-      "rows_written_now": 252
-    },
-    "SPY/1d/trend": {
-      "columns_changed_rows_total_and_outside_flipped": [
-        [
-          4385,
-          4385
-        ],
-        [
-          4498,
-          4498
-        ],
-        [
-          4476,
-          4476
-        ],
-        [
-          4384,
-          4384
-        ],
-        [
-          4504,
-          4504
-        ],
-        [
-          3466,
-          3466
-        ],
-        [
-          1843,
-          1843
-        ]
-      ],
-      "flipped_segments": [],
-      "rows_gained_label": 0,
-      "rows_lost_label": 0,
-      "rows_written_now": 4545
-    },
-    "SPY/1h/trend": {
-      "columns_changed_rows_total_and_outside_flipped": [
-        [
-          27489,
-          25839
-        ],
-        [
-          27146,
-          25803
-        ],
-        [
-          26877,
-          25227
-        ],
-        [
-          26801,
-          25815
-        ],
-        [
-          27796,
-          26208
-        ],
-        [
-          15307,
-          13957
-        ],
-        [
-          6264,
-          5926
-        ]
-      ],
-      "flipped_segments": [
-        [
-          3320,
-          4970,
-          "written->skipped"
-        ]
-      ],
-      "rows_gained_label": 0,
-      "rows_lost_label": 1650,
-      "rows_written_now": 27915
-    },
-    "TLT/1d/trend": {
-      "columns_changed_rows_total_and_outside_flipped": [
-        [
-          972,
-          468
-        ],
-        [
-          989,
-          485
-        ],
-        [
-          989,
-          485
-        ],
-        [
-          970,
-          466
-        ],
-        [
-          973,
-          469
-        ],
-        [
-          989,
-          485
-        ],
-        [
-          983,
-          479
-        ]
-      ],
-      "flipped_segments": [
-        [
-          776,
-          1028,
+          623,
+          875,
           "skipped->written"
         ],
         [
-          1280,
-          1532,
-          "written->skipped"
+          875,
+          1127,
+          "skipped->written"
+        ],
+        [
+          1127,
+          1379,
+          "skipped->written"
+        ],
+        [
+          1379,
+          1631,
+          "skipped->written"
+        ],
+        [
+          1631,
+          1883,
+          "skipped->written"
+        ],
+        [
+          1883,
+          2135,
+          "skipped->written"
+        ],
+        [
+          2135,
+          2387,
+          "skipped->written"
+        ],
+        [
+          2387,
+          2639,
+          "skipped->written"
+        ],
+        [
+          2639,
+          2891,
+          "skipped->written"
+        ],
+        [
+          2891,
+          3143,
+          "skipped->written"
+        ],
+        [
+          3143,
+          3395,
+          "skipped->written"
+        ],
+        [
+          3647,
+          3899,
+          "skipped->written"
+        ],
+        [
+          3899,
+          4151,
+          "skipped->written"
+        ],
+        [
+          4151,
+          4403,
+          "skipped->written"
+        ],
+        [
+          4403,
+          4655,
+          "skipped->written"
+        ],
+        [
+          4655,
+          4907,
+          "skipped->written"
+        ],
+        [
+          4907,
+          5061,
+          "skipped->written"
         ]
       ],
-      "rows_gained_label": 252,
-      "rows_lost_label": 252,
-      "rows_written_now": 504
+      "rows_gained_label": 4186,
+      "rows_lost_label": 0,
+      "rows_written_now": 4438
     },
-    "synthetic/trend": {
+    "SPY/1d/volatility": {
       "columns_changed_rows_total_and_outside_flipped": [
         [
-          2331,
-          1737
+          4465,
+          0
         ],
         [
-          2380,
-          1780
+          4465,
+          0
         ],
         [
-          2369,
-          1769
+          4465,
+          0
         ],
         [
-          2320,
-          1724
+          4465,
+          0
         ],
         [
-          2380,
-          1780
+          4465,
+          0
         ],
         [
-          1380,
-          969
+          4465,
+          0
         ],
         [
-          545,
-          423
+          4465,
+          0
         ]
       ],
       "flipped_segments": [
         [
-          620,
-          920,
-          "written->skipped"
+          623,
+          875,
+          "skipped->written"
         ],
         [
-          1520,
-          1820,
-          "written->skipped"
+          875,
+          1127,
+          "skipped->written"
+        ],
+        [
+          1127,
+          1379,
+          "skipped->written"
+        ],
+        [
+          1379,
+          1631,
+          "skipped->written"
+        ],
+        [
+          1631,
+          1883,
+          "skipped->written"
+        ],
+        [
+          1883,
+          2135,
+          "skipped->written"
+        ],
+        [
+          2135,
+          2387,
+          "skipped->written"
+        ],
+        [
+          2387,
+          2639,
+          "skipped->written"
+        ],
+        [
+          2639,
+          2891,
+          "skipped->written"
+        ],
+        [
+          2891,
+          3143,
+          "skipped->written"
+        ],
+        [
+          3143,
+          3395,
+          "skipped->written"
+        ],
+        [
+          3395,
+          3647,
+          "skipped->written"
+        ],
+        [
+          3647,
+          3899,
+          "skipped->written"
+        ],
+        [
+          3899,
+          4151,
+          "skipped->written"
+        ],
+        [
+          4151,
+          4403,
+          "skipped->written"
+        ],
+        [
+          4403,
+          4655,
+          "skipped->written"
+        ],
+        [
+          4655,
+          4907,
+          "skipped->written"
+        ],
+        [
+          4907,
+          5088,
+          "skipped->written"
         ]
       ],
-      "rows_gained_label": 0,
-      "rows_lost_label": 600,
-      "rows_written_now": 2061
+      "rows_gained_label": 4465,
+      "rows_lost_label": 0,
+      "rows_written_now": 4465
+    },
+    "SPY/1h/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          27759,
+          8035
+        ],
+        [
+          27835,
+          8035
+        ],
+        [
+          27693,
+          8035
+        ],
+        [
+          27693,
+          8035
+        ],
+        [
+          27835,
+          8035
+        ],
+        [
+          27835,
+          8035
+        ],
+        [
+          19552,
+          4224
+        ]
+      ],
+      "flipped_segments": [
+        [
+          3419,
+          5069,
+          "skipped->written"
+        ],
+        [
+          5069,
+          6719,
+          "skipped->written"
+        ],
+        [
+          6719,
+          8369,
+          "skipped->written"
+        ],
+        [
+          8369,
+          10019,
+          "skipped->written"
+        ],
+        [
+          13319,
+          14969,
+          "skipped->written"
+        ],
+        [
+          14969,
+          16619,
+          "skipped->written"
+        ],
+        [
+          16619,
+          18269,
+          "skipped->written"
+        ],
+        [
+          18269,
+          19919,
+          "skipped->written"
+        ],
+        [
+          21569,
+          23219,
+          "skipped->written"
+        ],
+        [
+          23219,
+          24869,
+          "skipped->written"
+        ],
+        [
+          26519,
+          28169,
+          "skipped->written"
+        ],
+        [
+          28169,
+          29819,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 19800,
+      "rows_lost_label": 0,
+      "rows_written_now": 27835
+    },
+    "TLT/1d/volatility": {
+      "columns_changed_rows_total_and_outside_flipped": [
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ],
+        [
+          2050,
+          0
+        ]
+      ],
+      "flipped_segments": [
+        [
+          623,
+          875,
+          "skipped->written"
+        ],
+        [
+          875,
+          1127,
+          "skipped->written"
+        ],
+        [
+          1127,
+          1379,
+          "skipped->written"
+        ],
+        [
+          1379,
+          1631,
+          "skipped->written"
+        ],
+        [
+          1631,
+          1883,
+          "skipped->written"
+        ],
+        [
+          1883,
+          2135,
+          "skipped->written"
+        ],
+        [
+          2135,
+          2387,
+          "skipped->written"
+        ],
+        [
+          2387,
+          2639,
+          "skipped->written"
+        ],
+        [
+          2639,
+          2673,
+          "skipped->written"
+        ]
+      ],
+      "rows_gained_label": 2050,
+      "rows_lost_label": 0,
+      "rows_written_now": 2050
     }
   },
   "family_labels": {
@@ -263,7 +477,7 @@
       "turbulent"
     ]
   },
-  "regenerated_from": "b42fbdd3b763b0c5f728fc61b52b3f0f37695065",
+  "regenerated_from": "5c1c4c7c54a207fa1fddb23c3b63cd3314030d83",
   "regeneration_history": [
     {
       "changed_cases": {
@@ -808,18 +1022,238 @@
       },
       "regenerated_from": "e24427178e3dc60036eb30b66dfca791926f6a4a",
       "regeneration_reason": "186-13 causal segment gate and length gate (todo 451): the occupation gate reads the training slice, the first boundary no longer depends on series length"
+    },
+    {
+      "changed_cases": {
+        "LQD/1d/trend": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ],
+            [
+              252,
+              233
+            ]
+          ],
+          "flipped_segments": [
+            [
+              4052,
+              4304,
+              "skipped->written"
+            ]
+          ],
+          "rows_gained_label": 252,
+          "rows_lost_label": 0,
+          "rows_written_now": 252
+        },
+        "SPY/1d/trend": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              4385,
+              4385
+            ],
+            [
+              4498,
+              4498
+            ],
+            [
+              4476,
+              4476
+            ],
+            [
+              4384,
+              4384
+            ],
+            [
+              4504,
+              4504
+            ],
+            [
+              3466,
+              3466
+            ],
+            [
+              1843,
+              1843
+            ]
+          ],
+          "flipped_segments": [],
+          "rows_gained_label": 0,
+          "rows_lost_label": 0,
+          "rows_written_now": 4545
+        },
+        "SPY/1h/trend": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              27489,
+              25839
+            ],
+            [
+              27146,
+              25803
+            ],
+            [
+              26877,
+              25227
+            ],
+            [
+              26801,
+              25815
+            ],
+            [
+              27796,
+              26208
+            ],
+            [
+              15307,
+              13957
+            ],
+            [
+              6264,
+              5926
+            ]
+          ],
+          "flipped_segments": [
+            [
+              3320,
+              4970,
+              "written->skipped"
+            ]
+          ],
+          "rows_gained_label": 0,
+          "rows_lost_label": 1650,
+          "rows_written_now": 27915
+        },
+        "TLT/1d/trend": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              972,
+              468
+            ],
+            [
+              989,
+              485
+            ],
+            [
+              989,
+              485
+            ],
+            [
+              970,
+              466
+            ],
+            [
+              973,
+              469
+            ],
+            [
+              989,
+              485
+            ],
+            [
+              983,
+              479
+            ]
+          ],
+          "flipped_segments": [
+            [
+              776,
+              1028,
+              "skipped->written"
+            ],
+            [
+              1280,
+              1532,
+              "written->skipped"
+            ]
+          ],
+          "rows_gained_label": 252,
+          "rows_lost_label": 252,
+          "rows_written_now": 504
+        },
+        "synthetic/trend": {
+          "columns_changed_rows_total_and_outside_flipped": [
+            [
+              2331,
+              1737
+            ],
+            [
+              2380,
+              1780
+            ],
+            [
+              2369,
+              1769
+            ],
+            [
+              2320,
+              1724
+            ],
+            [
+              2380,
+              1780
+            ],
+            [
+              1380,
+              969
+            ],
+            [
+              545,
+              423
+            ]
+          ],
+          "flipped_segments": [
+            [
+              620,
+              920,
+              "written->skipped"
+            ],
+            [
+              1520,
+              1820,
+              "written->skipped"
+            ]
+          ],
+          "rows_gained_label": 0,
+          "rows_lost_label": 600,
+          "rows_written_now": 2061
+        }
+      },
+      "regenerated_from": "b42fbdd3b763b0c5f728fc61b52b3f0f37695065",
+      "regeneration_reason": "186-18 todo 286 nested vol_of_vol start: trend obs rows begin 19 bars later (vol_window + vol_of_vol_window - 2), every trend training slice changed"
     }
   ],
-  "regeneration_reason": "186-18 todo 286 nested vol_of_vol start: trend obs rows begin 19 bars later (vol_window + vol_of_vol_window - 2), every trend training slice changed",
+  "regeneration_reason": "todo 478: volatility family seeds 250/250/3 -> 60/60/2 (stage-1 arm E, stage-2 intraday non-regression PASS; migration 433)",
   "runtime_seconds": {
-    "LQD/1d/trend": 5.79,
-    "LQD/1d/volatility": 0.31,
-    "SPY/1d/trend": 5.59,
-    "SPY/1d/volatility": 0.4,
-    "SPY/1h/trend": 33.07,
-    "SPY/1h/volatility": 3.82,
-    "TLT/1d/trend": 1.63,
-    "TLT/1d/volatility": 0.08,
+    "LQD/1d/trend": 5.54,
+    "LQD/1d/volatility": 0.32,
+    "SPY/1d/trend": 5.64,
+    "SPY/1d/volatility": 0.36,
+    "SPY/1h/trend": 34.48,
+    "SPY/1h/volatility": 1.96,
+    "TLT/1d/trend": 1.58,
+    "TLT/1d/volatility": 0.07,
     "synthetic/trend": 0.5,
     "synthetic/volatility": 0.15
   },
