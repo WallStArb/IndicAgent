@@ -9,9 +9,9 @@ Each case uses its own synthetic symbol (ZZ189 + random hex) at the current UTC 
 archive rows land in an uncompressed chunk and no real series is touched. ohlcv_request has an
 FK to instruments, so the case registers the symbol as an inactive instrument first.
 
-Cleanup: ohlcv_request is append-only by trigger (migration 380), so removing the synthetic
-answer needs session_replication_role = replica for that one DELETE, inside a transaction
-scoped to the test symbol. That bypass is test-only; production code never deletes a request.
+Cleanup: ohlcv_request (migration 380) and ohlcv_intraday_raw_archive (migration 383) are
+append-only by trigger, so removing the synthetic rows needs session_replication_role = replica
+for those two DELETEs, inside a transaction scoped to the test symbol. That bypass is test-only; production code never deletes a request.
 """
 
 from __future__ import annotations
@@ -60,8 +60,8 @@ def _register(conn: psycopg.Connection, symbol: str) -> None:
 def _cleanup(conn: psycopg.Connection, symbol: str) -> None:
     with conn.transaction():
         conn.execute("DELETE FROM ohlcv_coverage WHERE symbol = %s", (symbol,))
-        conn.execute("DELETE FROM ohlcv_intraday_raw_archive WHERE symbol = %s", (symbol,))
         conn.execute("SET LOCAL session_replication_role = replica")
+        conn.execute("DELETE FROM ohlcv_intraday_raw_archive WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM ohlcv_request WHERE symbol = %s", (symbol,))
         conn.execute("SET LOCAL session_replication_role = origin")
         conn.execute("DELETE FROM instruments WHERE symbol = %s", (symbol,))
