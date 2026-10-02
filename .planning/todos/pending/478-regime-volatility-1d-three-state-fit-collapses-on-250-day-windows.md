@@ -71,3 +71,33 @@ bars over 20 keeps the axis slow (monthly, not weekly, realized vol). If no arm 
 from the volatility family in the 186-26 rebuild and measure the family's intraday coverage in a
 follow-up all-tf pass for the record; forcing labels out of a degenerate configuration is not an
 option.
+
+## Stage-1 result (run 2026-10-02, after the rule above was committed as b1e4463a5)
+
+| Arm | Config | skip | labeled | written segs | Verdict |
+|---|---|---|---|---|---|
+| A | 250/250 K=3 (live) | 0.9821 | 0.0177 | 215 | instrument check pass (reproduces 186-18 exactly) |
+| B | 60/60 K=3 | 0.7512 | 0.2436 | 3358 | fails 0.50 |
+| C | 20/20 K=3 | 0.6048 | 0.3916 | 5403 | fails 0.50 |
+| D | 60/120 K=3 | 0.8264 | 0.1673 | 2328 | fails 0.50 |
+| E | 60/60 K=2 | 0.0029 | 0.9970 | 13457 | qualifies |
+| F | 20/20 K=2 | 0.0025 | 0.9974 | 13639 | qualifies |
+
+Zero errored cells in every arm. Decision by the rule: **E (vol_window 60, vol_of_vol_window 60,
+n_components 2)**. The three-state fit is structurally degenerate at 1d (best K=3 arm reaches
+0.39); K=2 eliminates the collapse (39 degenerate segments of 13,496 attempted). `elevated`
+becomes a label the 1d axis never emits; the CVR codes stay seeded, K=2 is the 171-FINAL
+validated pair.
+
+## Stage-2 rule (preregistered 2026-10-02, before the intraday verification run)
+
+`alpha.hmm_volatility.n_components` and the window seeds are family-global, but stage 1 measured
+1d only. Before any seed change lands, E must not regress the intraday tfs: on each tf with
+coverage, E's `labeled_fraction_after_first_boundary` >= control's minus 0.02, and E's skip
+fraction <= control's plus 0.02 (reports `evidence/478-verify-*-intraday.json`). If any tf
+regresses beyond tolerance, the global seed change is refused: n_components becomes per-tf (new
+APR key plus a `model_fields` change, owned by the 186-26 executor), and the 1d verdict E stands
+either way. Follow-through on a pass: one migration (250/250/3 -> 60/60/2, provenance
+`[rca_analysis]`, cross-referencing this todo and the evidence files), then the golden
+regeneration (`features_capture_regime_kernel_golden.py --regenerate` with a pre-change `--dump`)
+in its own commit.
