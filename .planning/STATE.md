@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-01T23:33:44.893Z"
+last_updated: "2026-10-02T09:37:19.959Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 50
+  completed_plans: 51
   percent: 17
 ---
 
@@ -48,8 +48,9 @@ bullets with current facts.
 Phase: 185 (daily-data-foundation) — EXECUTING
 Plan: 16 of 24 (12 done 2026-10-02; next 16, wave 5)
 
-- **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26), phase verification
-  pending. Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
+- **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
+  2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
+  invocation gotchas in its test-10 note, todo 487). Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
@@ -108,7 +109,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 
 | Lane | Start with | Owner and boundary |
 |---|---|---|
-| Research (phase 183) | Phase 183 verification; attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27) | Released by the owner 2026-10-01 for the one-line `HarnessConfig` import switch in the five research tests (186-29); otherwise the phase 183 session owns `src/intelligence/research/` and nobody else edits it |
+| Research (phase 183) | Attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27); phase UAT complete 2026-10-02 | Released by the owner 2026-10-01 for the one-line `HarnessConfig` import switch in the five research tests (186-29); otherwise the phase 183 session owns `src/intelligence/research/` and nobody else edits it |
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186`: 23/29 done plus 186-17 partial; 186-25 executing on branch `phase-186-25` (worktree `indicagent-186-25`), then 186-23, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
