@@ -12,8 +12,10 @@ holes are visible from its own data.
 
 Source "yahoo": declared cash dividends by ex-date with the split-adjusted close, full history.
 
-Source "ibkr_adjusted_last_ratio": IBKR's ADJUSTED_LAST close is the TRADES close times a
-cumulative dividend factor; with r_t = adjusted_t / close_t, an ex-date t steps the ratio by
+Source "ibkr_adjusted_last_ratio" (D5, phase 185 plan 21): derived from the paired TRADES and
+ADJUSTED_LAST closes D1 stored for one fetch run (ohlcv_observation, route SMART), never from a
+live IBKR fetch. IBKR's ADJUSTED_LAST close is the TRADES close times a cumulative dividend
+factor; with r_t = adjusted_t / close_t, an ex-date t steps the ratio by
 r_t / r_{t-1} = 1 / (1 - amount / close_{t-1}). ADJUSTED_LAST is quoted to the cent, so with no
 dividend r moves by at most 0.005/close_t + 0.005/close_{t-1} when both series use the same
 close. They do not always: in parts of IBKR's early history the two series use different
@@ -29,15 +31,17 @@ logged, not overwritten. Readers use amount / prev_close (the yield on the ex-da
 split re-scales both, so only the ratio is stable.
 
 Reconciliation (inside each symbol's write transaction, over everything stored for it): the
-same dividend reported on different dates by the two sources would be counted twice by the
-reconciled view, so a near-miss rolls the symbol back and fails the run. Yield disagreements beyond
+same dividend reported 1-5 days apart by the two sources would be counted twice by the
+reconciled view, so it becomes a dividend_date_dispute record (both dates, both sources) in the
+same transaction and both events stand; the research reader marks returns spanning the disputed
+window unknown (the reader change is the phase 183 hand-off). Yield disagreements beyond
 threshold.dividend_event.source_yield_rel_tolerance and each source's holes are logged and
 counted.
 
 Usage:
     python services/dividend_event_writer.py                          # both sources
     python services/dividend_event_writer.py --sources yahoo          # nightly-cheap
-    python services/dividend_event_writer.py --sources ibkr --years 25 --symbols SPY
+    python services/dividend_event_writer.py --sources ibkr --fetch-run-id <uuid>
 """
 
 from __future__ import annotations
@@ -45,9 +49,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import json
 import math
+import uuid
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 
 import asyncpg
 
@@ -56,11 +62,11 @@ from services._batch_utils import load_apr_dict_async
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base_batch import BaseBatch
 from src.core.models import AssetClass
+from src.intelligence.bars.corporate_actions import disputed_dates
 from src.intelligence.research.dividends import DisputeRule, ibkr_rounding_bound
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import yahoo
-from src.providers.ibkr import HIST_RATE_LIMIT_KEYS, IBKRProvider, apply_hist_rate_limit_config
 
 _JOB = "dividend-event-writer"
 # Per-run reconciliation outcomes, labeled {sources, outcome} only: never per symbol (cardinality),
@@ -79,6 +85,23 @@ _HALF_TICK = 0.005
 # The rounding bound is attained exactly when an unrounded adjusted close ends in half a cent;
 # this relative slack keeps floating-point error at that tie from reading as a step.
 _FLOAT_SLACK = 1e-9
+# One D1 series (TRADES or ADJUSTED_LAST closes) for one symbol and fetch run: the two series
+# pair only within one fetch_run_id, because IBKR re-bases ADJUSTED_LAST on every new dividend.
+_D1_SERIES_SQL = (
+    "SELECT r.fetch_run_id, o.bar_date, o.close FROM ohlcv_observation o "
+    "JOIN ohlcv_request r ON r.request_id = o.request_id "
+    "WHERE o.symbol = $1 AND r.timeframe = '1d' AND r.route = 'SMART' "
+    "AND r.what_to_show = $2 AND r.outcome = 'bars' AND r.fetch_run_id = $3 "
+    "ORDER BY o.bar_date"
+)
+# The latest fetch run holding both series for a symbol (the --fetch-run-id default).
+_D1_LATEST_RUN_SQL = (
+    "SELECT r.fetch_run_id FROM ohlcv_request r "
+    "WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.route = 'SMART' "
+    "AND r.outcome = 'bars' AND r.what_to_show IN ('TRADES', 'ADJUSTED_LAST') "
+    "GROUP BY r.fetch_run_id HAVING count(DISTINCT r.what_to_show) = 2 "
+    "ORDER BY max(r.answered_at) DESC LIMIT 1"
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -130,6 +153,31 @@ def join_adjustment_pairs(
             f"TRADES and ADJUSTED_LAST disagree on {len(t_days ^ a_days)} days in {lo}..{hi}"
         )
     return [(d, trades[d], adjusted[d]) for d in sorted(t_days)]
+
+
+def d1_close_series(
+    rows: Sequence[tuple[uuid.UUID, date, float]], fetch_run_id: uuid.UUID
+) -> dict[date, float]:
+    """{bar_date: close} from one D1 series (fetch_run_id, bar_date, close rows). Pure.
+
+    Refuses a row from any other fetch run: TRADES and ADJUSTED_LAST pair only within
+    one run, and a cross-run pair would step the ratio at re-basing seams, not dividends.
+    Refuses an empty series and a duplicate bar_date (two requests of one run answering
+    the same day would silently pick one close).
+    """
+    if not rows:
+        raise ValueError(f"no observations in fetch run {fetch_run_id}")
+    closes: dict[date, float] = {}
+    for run_id, bar_date, close in rows:
+        if run_id != fetch_run_id:
+            raise ValueError(
+                f"observation from fetch run {run_id} inside series for {fetch_run_id}: "
+                "TRADES and ADJUSTED_LAST pair only within one fetch run"
+            )
+        if bar_date in closes:
+            raise ValueError(f"duplicate observation for {bar_date} in fetch run {fetch_run_id}")
+        closes[bar_date] = close
+    return closes
 
 
 def vanished_ex_dates(stored: set[date], derivation: Derivation) -> list[date]:
@@ -281,36 +329,29 @@ class DividendEventWriter(BaseBatch):
     """Batch service: IBKR and Yahoo -> dividend_events + dividend_event_coverage, reconciled."""
 
     job_name = _JOB
-    compute_version = "1.0.0"
+    compute_version = "1.1.0"  # 1.1.0: IBKR source reads D1 (185-21); 1.0.0 fetched live
 
     def __init__(
         self,
         db_dsn: str,
         settings: Settings,
         sources: list[str],
-        client_id: int,
-        years: int | None,
+        fetch_run_id: uuid.UUID | None,
         symbols: list[str],
     ) -> None:
         super().__init__(db_dsn)
         self._settings = settings
         self._sources = sources
-        self._client_id = client_id
-        self._years = years
+        self._fetch_run_id = fetch_run_id
         self._symbols = symbols
 
     async def execute(self, pool: asyncpg.Pool) -> None:
         async with pool.acquire() as conn:
-            apr = await load_apr_dict_async(
-                conn,
-                ["threshold.dividend_event.%", "infra.dividend_event.%", "infra.ibkr.rate_limit%"],
-            )
-        apply_hist_rate_limit_config({k: apr[k] for k in HIST_RATE_LIMIT_KEYS if k in apr})
+            apr = await load_apr_dict_async(conn, ["threshold.dividend_event.%"])
         margin = float(_cfg(apr, "threshold.dividend_event.noise_margin", 1.25))
         stable = int(_cfg(apr, "threshold.dividend_event.stable_sessions", 3))
         match_days = int(_cfg(apr, "threshold.dividend_event.ex_date_match_days", 5))
         rel_tol = float(_cfg(apr, "threshold.dividend_event.source_yield_rel_tolerance", 0.10))
-        years = self._years or int(_cfg(apr, "infra.dividend_event.lookback_years", 1))
 
         instruments = [
             i
@@ -318,15 +359,6 @@ class DividendEventWriter(BaseBatch):
             if i.asset_class == AssetClass.EQUITY
             and (not self._symbols or i.symbol in self._symbols)
         ]
-        provider = None
-        if SOURCE_IBKR in self._sources:
-            provider = IBKRProvider(
-                host=self._settings.ib_host,
-                port=self._settings.ib_port,
-                client_id=self._client_id,
-            )
-            if not await provider.connect():
-                raise RuntimeError("dividend_event_writer: cannot connect to IBKR")
 
         failed: list[str] = []
         totals = dict.fromkeys(
@@ -335,76 +367,90 @@ class DividendEventWriter(BaseBatch):
                 "downward",
                 "unstable",
                 "rederived_moved",
+                "disputes",
                 "yield_disagreements",
                 "ibkr_holes",
                 "yahoo_holes",
             ),
             0,
         )
-        try:
-            for instrument in instruments:
-                symbol = instrument.symbol
-                derivations: dict[str, Derivation] = {}
-                for source in self._sources:
-                    try:
-                        derivations[source] = await self._derive(
-                            provider, instrument, source, years, margin, stable
-                        )
-                    except _SymbolFailure as error:
-                        failed.append(f"{symbol}/{source}: {error}")
-                if not derivations:
-                    continue
-                # One transaction per symbol, reconciliation included: a near-miss (one
-                # dividend on two dates) rolls the symbol back before the view can see it.
+        for instrument in instruments:
+            symbol = instrument.symbol
+            derivations: dict[str, Derivation] = {}
+            run_id = self._fetch_run_id
+            for source in self._sources:
                 try:
-                    async with pool.acquire() as conn, conn.transaction():
-                        moved = 0
-                        for source, derivation in derivations.items():
-                            moved += await self._write(conn, symbol, source, derivation)
-                        rec = await self._reconcile(
-                            conn, symbol, match_days, DisputeRule(rel_tol, margin)
-                        )
-                        if rec.near_misses:
-                            raise _SymbolFailure(
-                                "one dividend on two dates (ibkr, yahoo): "
-                                + ", ".join(f"{i} / {y}" for i, y in rec.near_misses)
+                    if source == SOURCE_IBKR:
+                        async with pool.acquire() as conn:
+                            run_id = await self._resolve_fetch_run(conn, symbol, self._fetch_run_id)
+                            derivations[source] = await self._derive(
+                                conn, instrument, source, run_id, margin, stable
                             )
-                except _SymbolFailure as error:
-                    failed.append(f"{symbol}: {error}")
-                    continue
-                for derivation in derivations.values():
-                    totals["events"] += len(derivation.events)
-                    totals["downward"] += derivation.n_downward_steps
-                    totals["unstable"] += derivation.n_unstable_steps
-                    if derivation.n_downward_steps or derivation.n_unstable_steps:
-                        self.logger.warning(
-                            "dividend_event_writer.rejected_steps",
-                            symbol=symbol,
-                            downward=derivation.n_downward_steps,
-                            unstable=derivation.n_unstable_steps,
+                    else:
+                        derivations[source] = await self._derive(
+                            None, instrument, source, None, margin, stable
                         )
-                totals["rederived_moved"] += moved
-                totals["yield_disagreements"] += len(rec.yield_disagreements)
-                totals["ibkr_holes"] += len(rec.ibkr_holes)
-                totals["yahoo_holes"] += len(rec.yahoo_holes)
-                if rec.yield_disagreements or rec.yahoo_holes:
-                    self.logger.warning(
-                        "dividend_event_writer.reconciliation",
-                        symbol=symbol,
-                        yield_disagreements=[str(d) for d in rec.yield_disagreements],
-                        yahoo_holes=[str(d) for d in rec.yahoo_holes],
-                        ibkr_holes=len(rec.ibkr_holes),
+                except _SymbolFailure as error:
+                    failed.append(f"{symbol}/{source}: {error}")
+            if not derivations:
+                continue
+            # One transaction per symbol, reconciliation included: a near miss (one
+            # dividend on two dates) becomes a dispute record here, keeping both events.
+            try:
+                async with pool.acquire() as conn, conn.transaction():
+                    moved = 0
+                    for source, derivation in derivations.items():
+                        moved += await self._write(conn, symbol, source, derivation)
+                    rec = await self._reconcile(
+                        conn, symbol, match_days, DisputeRule(rel_tol, margin)
                     )
-        finally:
-            if provider is not None:
-                await provider.disconnect()
+                    disputes = disputed_dates(symbol, rec.near_misses) if rec.near_misses else []
+                    if disputes:
+                        await self._write_disputes(conn, disputes, run_id)
+            except _SymbolFailure as error:
+                failed.append(f"{symbol}: {error}")
+                continue
+            for derivation in derivations.values():
+                totals["events"] += len(derivation.events)
+                totals["downward"] += derivation.n_downward_steps
+                totals["unstable"] += derivation.n_unstable_steps
+                if derivation.n_downward_steps or derivation.n_unstable_steps:
+                    self.logger.warning(
+                        "dividend_event_writer.rejected_steps",
+                        symbol=symbol,
+                        downward=derivation.n_downward_steps,
+                        unstable=derivation.n_unstable_steps,
+                    )
+            totals["rederived_moved"] += moved
+            totals["disputes"] += len(disputes)
+            if disputes:
+                self.logger.warning(
+                    "dividend_event_writer.date_disputes",
+                    symbol=symbol,
+                    disputes=[
+                        f"{d.first_date}..{d.last_date} "
+                        + "/".join(f"{s}={day}" for s, day in sorted(d.dates_by_source.items()))
+                        for d in disputes
+                    ],
+                )
+            totals["yield_disagreements"] += len(rec.yield_disagreements)
+            totals["ibkr_holes"] += len(rec.ibkr_holes)
+            totals["yahoo_holes"] += len(rec.yahoo_holes)
+            if rec.yield_disagreements or rec.yahoo_holes:
+                self.logger.warning(
+                    "dividend_event_writer.reconciliation",
+                    symbol=symbol,
+                    yield_disagreements=[str(d) for d in rec.yield_disagreements],
+                    yahoo_holes=[str(d) for d in rec.yahoo_holes],
+                    ibkr_holes=len(rec.ibkr_holes),
+                )
 
         self.logger.info(
             "dividend_event_writer.done",
             symbols=len(instruments),
             sources=self._sources,
             failed=len(failed),
-            years=years,
+            fetch_run_id=str(self._fetch_run_id) if self._fetch_run_id else "latest-per-symbol",
             **totals,
         )
         sources = ",".join(self._sources)
@@ -414,15 +460,32 @@ class DividendEventWriter(BaseBatch):
             raise RuntimeError(f"dividend_event_writer: {len(failed)} failures: {failed}")
 
     @staticmethod
+    async def _resolve_fetch_run(
+        conn: asyncpg.Connection, symbol: str, requested: uuid.UUID | None = None
+    ) -> uuid.UUID:
+        """The D1 fetch run to read for `symbol`: the requested one, or the latest run
+        holding both a TRADES and an ADJUSTED_LAST answer. Raises _SymbolFailure."""
+        if requested is not None:
+            return requested
+        row = await conn.fetchrow(_D1_LATEST_RUN_SQL, symbol)
+        if row is None:
+            raise _SymbolFailure("no fetch run with both TRADES and ADJUSTED_LAST observations")
+        return row["fetch_run_id"]
+
+    @staticmethod
     async def _derive(
-        provider: IBKRProvider | None,
+        conn: asyncpg.Connection | None,
         instrument,
         source: str,
-        years: int,
+        run_id: uuid.UUID | None,
         margin: float,
         stable: int,
     ) -> Derivation:
-        """Fetch one source for one symbol and derive its events; raises _SymbolFailure."""
+        """Read one source for one symbol and derive its events; raises _SymbolFailure.
+
+        The IBKR branch reads the paired TRADES and ADJUSTED_LAST closes D1 holds for
+        `run_id` (route SMART) instead of fetching them: both series come from one fetch
+        run, because IBKR re-bases ADJUSTED_LAST on every new dividend."""
         symbol = instrument.symbol
         if source == SOURCE_YAHOO:
             rows, error = await yahoo.fetch_daily_close_and_dividends(symbol)
@@ -432,24 +495,51 @@ class DividendEventWriter(BaseBatch):
                 return derive_yahoo_events(rows)
             except ValueError as invalid:
                 raise _SymbolFailure(str(invalid)) from invalid
-        assert provider is not None
-        if not await provider.qualify_instrument(instrument):
-            raise _SymbolFailure("qualify failed")
-        # Both series in the same run: IBKR re-bases ADJUSTED_LAST on every new dividend.
-        now = datetime.now(UTC)
-        trades = await provider.fetch_historical_bars(
-            symbol, "1d", start=now - timedelta(days=365 * years), end=now
-        )
-        if provider.last_fetch_failed_chunks:
-            raise _SymbolFailure(f"TRADES: {provider.last_fetch_failed_chunks} chunks failed")
-        adjusted, error = await provider.fetch_adjusted_daily_closes(symbol, years)
-        if error is not None:
-            raise _SymbolFailure(error)
-        closes = {bar.timestamp.date(): bar.close for bar in trades}
+        assert conn is not None and run_id is not None
+        trades_rows = await conn.fetch(_D1_SERIES_SQL, symbol, "TRADES", run_id)
+        if not trades_rows:
+            raise _SymbolFailure(f"no TRADES observations for {symbol} in fetch run {run_id}")
+        adjusted_rows = await conn.fetch(_D1_SERIES_SQL, symbol, "ADJUSTED_LAST", run_id)
+        if not adjusted_rows:
+            raise _SymbolFailure(
+                f"no ADJUSTED_LAST observations for {symbol} in fetch run {run_id}"
+            )
         try:
-            return derive_ibkr_events(join_adjustment_pairs(closes, adjusted), margin, stable)
+            return derive_ibkr_events(
+                join_adjustment_pairs(
+                    d1_close_series(trades_rows, run_id),
+                    d1_close_series(adjusted_rows, run_id),
+                ),
+                margin,
+                stable,
+            )
         except ValueError as invalid:
             raise _SymbolFailure(str(invalid)) from invalid
+
+    async def _write_disputes(
+        self,
+        conn: asyncpg.Connection,
+        disputes: Sequence,
+        run_id: uuid.UUID | None,
+    ) -> None:
+        """Record near-miss pairs as dividend_date_dispute rows in the caller's
+        transaction. First recording wins (ON CONFLICT DO NOTHING): a dispute replayed
+        on a rerun keeps its original recorded_at."""
+        await conn.executemany(
+            "INSERT INTO dividend_date_dispute "
+            "(symbol, first_date, last_date, dates_by_source, fetch_run_id) "
+            "VALUES ($1, $2, $3, $4::text::jsonb, $5) ON CONFLICT DO NOTHING",
+            [
+                (
+                    d.symbol,
+                    d.first_date,
+                    d.last_date,
+                    json.dumps({s: day.isoformat() for s, day in d.dates_by_source.items()}),
+                    run_id,
+                )
+                for d in disputes
+            ],
+        )
 
     async def _write(
         self, conn: asyncpg.Connection, symbol: str, source: str, derivation: Derivation
@@ -554,9 +644,13 @@ def main() -> None:
     parser.add_argument(
         "--sources", nargs="+", choices=sorted(_CLI_SOURCES), default=sorted(_CLI_SOURCES)
     )
-    parser.add_argument("--years", type=int, default=None, help="IBKR history (default APR)")
+    parser.add_argument(
+        "--fetch-run-id",
+        type=uuid.UUID,
+        default=None,
+        help="D1 fetch run to read the IBKR series from (default: latest paired run per symbol)",
+    )
     parser.add_argument("--symbols", nargs="*", default=[], help="limit to these symbols")
-    parser.add_argument("--client-id", type=int, default=45)
     args = parser.parse_args()
     try:
         init_otel_providers(f"indicagent-{_JOB}")
@@ -565,9 +659,7 @@ def main() -> None:
     settings = Settings()
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     sources = [_CLI_SOURCES[s] for s in args.sources]
-    writer = DividendEventWriter(
-        db_dsn, settings, sources, args.client_id, args.years, args.symbols
-    )
+    writer = DividendEventWriter(db_dsn, settings, sources, args.fetch_run_id, args.symbols)
     asyncio.run(writer.run())
 
 

@@ -404,7 +404,7 @@ def _run_writer(conn, instruments, sources=("ibkr",), fetch_run_id=_RUN):
 def test_d1_close_series_pairs_one_run_and_refuses_mixing():
     rows = [(_RUN, _START, 10.0), (_RUN, _START + timedelta(1), 11.0)]
     assert d1_close_series(rows, _RUN) == {_START: 10.0, _START + timedelta(1): 11.0}
-    with pytest.raises(ValueError, match="another fetch run"):
+    with pytest.raises(ValueError, match="within one fetch run"):
         d1_close_series([(_RUN, _START, 10.0), (_RUN_OTHER, _START + timedelta(1), 11.0)], _RUN)
     with pytest.raises(ValueError, match="duplicate"):
         d1_close_series([(_RUN, _START, 10.0), (_RUN, _START, 10.1)], _RUN)
@@ -449,7 +449,7 @@ def test_d1_route_nvr_2004_wander_derives_nothing():
         }
     )
     _run_writer(conn, [_equity("NVR")])
-    assert conn.events[("NVR", SOURCE_IBKR)] == {}
+    assert conn.events.get(("NVR", SOURCE_IBKR), {}) == {}
     assert conn.disputes == []
 
 

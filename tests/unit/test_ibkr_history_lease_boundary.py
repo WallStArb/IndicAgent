@@ -39,10 +39,6 @@ _ALLOW_LIST: dict[str, str] = {
         "services/ibkr_provider.py, inactive since the IBKR live feed went down "
         "(check `systemctl status` before citing it as live)."
     ),
-    "services/dividend_event_writer.py": (
-        "TEMPORARY: fetches TRADES/ADJUSTED_LAST directly; phase 185 plan 15 (D5) "
-        "swaps the IBKR branch to D1 reads and this entry goes."
-    ),
     "services/backfill_feature_factory.py": (
         "TEMPORARY: corpus feature backfill fetches 1d bars lease-free; wiring the "
         "lease through it needs its own change (tracked in the phase 185 deferred "
