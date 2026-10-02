@@ -6,7 +6,10 @@ the tf's horizons, regime_volatility disclosure, member monitoring) and writes
 feature_ic_scores_v2 only through bulk_load(), one provenance batch per unit. A unit is
 (job, tf): it owns every row of its scope (unstratified, regime_volatility or member_window) in
 that tf, so the replace DELETE and the provenance supersede flip share one definition, the
-BulkLoadSpec unit_key, and a change of family, symbols or window replaces the unit.
+BulkLoadSpec unit_key, and a change of family, symbols or window replaces the unit. A real run
+also records .planning/corpus_manifests/ic_measure.json (CorpusManifest: inputs plus the table's
+per-tf coverage after the run) so the corpus verification gate can check step completeness; a
+dry run writes no rows and records no manifest.
 
 Blocking is a memory matter only. The feature family of a tf is fetched and measured in blocks of
 alpha.ic.feature_block_columns, but the row completeness, the bootstrap draws and the
@@ -132,6 +135,7 @@ from src.intelligence.measure.term_structure import (  # noqa: E402
 from src.intelligence.research import panel as research_panel  # noqa: E402
 from src.intelligence.research import snapshot  # noqa: E402
 from src.intelligence.schemas import FeatureVector  # noqa: E402
+from src.observability.corpus_manifest import CorpusManifest  # noqa: E402
 from src.observability.metrics import (  # noqa: E402
     JOB_COMPLETED_TOTAL,
     flush_and_shutdown_metrics,
@@ -1087,6 +1091,12 @@ class IcMeasure:
         self.dsn = dsn
         self.outcomes: list[UnitOutcome] = []
         self.failures: list[str] = []
+        # Run identity for the step manifest, recorded by run() as soon as APR resolves
+        # it; main() reads these only after run() returned, so they are the real values
+        # there and the defaults never reach a manifest.
+        self.tfs: list[str] = []
+        self.jobs: list[str] = []
+        self.oos_start_iso: str = ""
         # The one place the absent-digest tolerance is decided: a dry run writes nothing, so it
         # tolerates symbols with no bar_content_digest row; a real run refuses them unless the
         # flag says otherwise (186-28's acceptance forbids the flag on the live run).
@@ -1105,6 +1115,11 @@ class IcMeasure:
             oos_start = _parse_oos(apr.get(_OOS_START_KEY))
             table_column_types(read_conn, self.args.feature_table)  # a missing table raises here
             jobs = active_jobs(self.args.jobs, self.args.members)
+            self.tfs, self.jobs, self.oos_start_iso = (
+                list(tfs),
+                list(jobs),
+                format_iso_ts(oos_start),
+            )
             if not jobs:
                 _logger.warning("ic_measure.no_active_jobs", jobs=self.args.jobs)
             write = _WriteSession(self.dsn)
@@ -1439,6 +1454,18 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def table_rows_by_tf(dsn: str) -> dict[str, int]:
+    """Per-tf row counts of feature_ic_scores_v2 -- the manifest's coverage numbers are
+    the table's state after the run, not the run's own writes: a fully skipped tf
+    (identity match on every unit) writes zero rows while its rows from the prior run
+    are exactly what a completeness gate must still see."""
+    with short_lived_conn(dsn) as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT tf, COUNT(*) FROM {TARGET_TABLE} GROUP BY tf")
+            return {tf: int(count) for tf, count in cur.fetchall()}
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     setup_service_logging("logs/ic_measure.log")
     args = _parse_args(argv)
@@ -1446,21 +1473,41 @@ def main(argv: Sequence[str] | None = None) -> None:
         init_otel_providers(service_name=_JOB)
     except OTelInitError as error:
         _logger.warning("ic_measure.otel_init_failed", error=str(error))
+    # The corpus verification gate (ops_corpus_final_verification.py) reads
+    # ic_measure.json -- the same step-manifest contract the deleted ic_engine honored.
+    # A dry run writes no rows and records no manifest: one would claim a completion
+    # that never happened.
+    manifest = (
+        None if args.dry_run else CorpusManifest("ic_measure", CorpusManifest.DEFAULT_MANIFEST_DIR)
+    )
+    dsn = Settings().database_url
     status = "success"
     try:
-        runner = IcMeasure(args, Settings().database_url)
+        runner = IcMeasure(args, dsn)
         runner.run()
+        if manifest is not None:
+            manifest.set_inputs(tfs=runner.tfs, jobs=runner.jobs, oos_start=runner.oos_start_iso)
         for outcome in runner.outcomes:
             print(f"{outcome.status:14s} {outcome.writer:40s} rows={outcome.rows}")
         if runner.failures:
             status = "failure"
             for failure in runner.failures:
                 print(f"FAILED {failure}", file=sys.stderr)
+                if manifest is not None:
+                    manifest.add_error(failure)
     except Exception as error:
         status = "failure"
         _logger.error("ic_measure.fatal_error", error=str(error))
+        if manifest is not None:
+            manifest.add_error(str(error))
         raise
     finally:
+        if manifest is not None and status == "success":
+            counts = table_rows_by_tf(dsn)
+            manifest.add_output(TARGET_TABLE, sum(counts.values()), rows_by_tf=counts)
+            manifest.mark_success()
+        if manifest is not None:
+            manifest.write()
         JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
         flush_and_shutdown_metrics()
         if status == "failure":

@@ -1032,10 +1032,10 @@ _DEFAULT_STATEMENT_TIMEOUT_MS = 14_400_000  # 4h -- see migration 314 for proven
 # Also applied to idle_in_transaction_session_timeout (same APR key, same value) as
 # defense-in-depth, NOT because the live incident hit it -- it didn't (this session's own
 # conn.commit() right before yield means there is no open transaction during the idle gap
-# unless the caller opens one itself, unconfirmed live). regime_writer.py and
-# forward_return_writer.py already disable this specific GUC at connect time
+# unless the caller opens one itself, unconfirmed live). regime_writer.py
+# already disables this specific GUC at connect time
 # (`options="-c idle_in_transaction_session_timeout=0"`), making this override redundant
-# for them specifically -- kept anyway because compressed_hypertable_write_session is
+# for it specifically -- kept anyway because compressed_hypertable_write_session is
 # shared infrastructure serving callers that don't all follow that convention (e.g. a bare
 # `psycopg.connect()`, todo 316's own one-off remediation script). See also
 # src/intelligence/pipeline/cache_manager.py's independent `SET idle_session_timeout = 0`
@@ -1598,7 +1598,7 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
     extra_like_patterns: additional SQL LIKE patterns (e.g. "infra.ic_measure.%"),
         OR'd in alongside the default "alpha.%". Bound as a single array parameter via
         LIKE ANY($1::text[]) -- the codebase's established idiom for a dynamic-length
-        pattern list (see ic_engine.py, bar_auditor.py, signal_probe_auditor.py), not a
+        pattern list (see bar_auditor.py, signal_probe_auditor.py), not a
         hand-rolled OR-chain of positional placeholders.
 
     Returns a plain dict, not a ConfigService -- callers cast values with cfg().

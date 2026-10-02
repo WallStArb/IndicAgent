@@ -7,7 +7,9 @@ Strictly READ-ONLY: this module issues SELECT statements only -- it never mutate
 corpus table. The only output is a markdown report file.
 
 Per docs/plans/OOS-EVAL-PROTOCOL.md, this harness is DIAGNOSTIC ONLY. It is never a
-promotion gate — the authoritative OOS scorer is EnsembleICEngine (Phase 142A/144).
+promotion gate — promotion evidence is the research runner's book test on each book's
+own unsearched forward span (E15-E18); the former authoritative scorer (EnsembleICEngine,
+Phase 142A/144) retired with the old chain (phase 186 plan 19).
 
 Composes existing machinery rather than reimplementing it:
   - forward_returns() from src.intelligence.research.panel -- the canonical executable

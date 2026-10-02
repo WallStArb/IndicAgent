@@ -170,7 +170,7 @@ check_canary_integrity() {
         echo "  leakage), or per-symbol false clears exceeded the"
         echo "  pre-committed Binomial tail bound."
         echo
-        echo "  Pipeline halted. Do not use this run's feature_ic_scores"
+        echo "  Pipeline halted. Do not use this run's feature_ic_scores_v2"
         echo "  with unverified measurement integrity."
         echo
         exit 1
@@ -350,9 +350,10 @@ run_step 4 "ic_measure" \
 # pipeline is broken (see check_canary_integrity() for the full rule).
 check_canary_integrity
 
-# Step 4 (cont.) — Feature Lifecycle (feature_ic_scores → concept_evaluation + concept_registry,
-# todo 402). Shares step 4 so --from-step 4 re-runs it with ic_measure. Governs
-# feature status (a data-quality role) from this window's persisted IC.
+# Step 4 (cont.) — Feature Lifecycle (feature_vectors coverage + concept_registry →
+# concept_evaluation, todo 402). Shares step 4 so --from-step 4 re-runs it with
+# ic_measure. Governs feature status (a data-quality role: computed, valid, covered)
+# from this window's feature_vectors coverage.
 run_step 4 "feature_lifecycle" \
     "$PYTHON" services/feature_lifecycle.py \
     --training-window-end "$TRAINING_WINDOW_END"

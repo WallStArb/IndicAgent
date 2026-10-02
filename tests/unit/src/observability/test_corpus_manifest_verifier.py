@@ -7,7 +7,7 @@ read a single global "expected lookaheads" set off a phantom alpha.ic.lookaheads
 used the hardcoded [1, 5, 20, 60] fallback, applied uniformly to every tf. Todo 146's
 fix read the real 16 alpha.ic.lookahead.{tf}.{scale} keys with no cross-tf leakage.
 Those keys retired with the old ic_engine stack (phase 186 plan 23), so the verifier's
-per-tf grid now comes from the by-value mirror _APR_DEFAULT_LOOKAHEADS_BY_TF (the
+per-tf grid now comes from the by-value mirror _LOOKAHEADS_BY_TF (the
 documented source); the tests below prove the mirror is used per-tf and that stray
 rows for the retired keys cannot leak into the expected set.
 """
@@ -20,7 +20,7 @@ from typing import Any
 import pytest
 
 from src.observability.corpus_manifest_verifier import (
-    _APR_DEFAULT_LOOKAHEADS_BY_TF,
+    _LOOKAHEADS_BY_TF,
     CorpusManifestVerifier,
     _load_apr_values,
 )
@@ -76,7 +76,7 @@ def test_load_apr_values_uses_mirror_not_retired_keys():
         ]
     )
     apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["5m"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["5m"].values())
+    assert apr["lookaheads_by_tf"]["5m"] == set(_LOOKAHEADS_BY_TF["5m"].values())
 
 
 def test_load_apr_values_falls_back_per_tf_when_keys_absent():
@@ -84,7 +84,7 @@ def test_load_apr_values_falls_back_per_tf_when_keys_absent():
     not a single shared default applied uniformly."""
     conn = _FakeConn(config_rows=[])
     apr = _load_apr_values(conn)
-    for tf, defaults in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
+    for tf, defaults in _LOOKAHEADS_BY_TF.items():
         if tf == "1h":
             continue  # 1h's active_scales excludes slow/extended -- asserted separately below
         assert apr["lookaheads_by_tf"][tf] == set(defaults.values())
@@ -110,8 +110,8 @@ def test_load_apr_values_ignores_stray_rows_for_retired_keys_per_tf():
     apr = _load_apr_values(conn)
     assert 99 not in apr["lookaheads_by_tf"]["1d"]
     assert 99 not in apr["lookaheads_by_tf"]["15m"]
-    assert apr["lookaheads_by_tf"]["1d"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["1d"].values())
-    assert apr["lookaheads_by_tf"]["15m"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["15m"].values())
+    assert apr["lookaheads_by_tf"]["1d"] == set(_LOOKAHEADS_BY_TF["1d"].values())
+    assert apr["lookaheads_by_tf"]["15m"] == set(_LOOKAHEADS_BY_TF["15m"].values())
 
 
 def test_verify_data_quality_check3_no_cross_tf_leakage(monkeypatch, tmp_path):

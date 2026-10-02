@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-ops_corpus_final_verification.py — crash-loud gate before Phase 141
+ops_corpus_final_verification.py — crash-loud corpus completeness gate
 
-Verifies corpus pipeline completeness and data quality: all steps emitted manifests,
+Verifies corpus pipeline completeness and data quality: all steps emitted manifests
+(ic_measure writes .planning/corpus_manifests/ic_measure.json on every real run),
 all TFs present in outputs, and CORPUS-01 data quality checks passed.
-Run after corpus_pipeline_run.py completes to validate before consuming alpha_events.
-Requires TimescaleDB with corpus_manifests and output tables populated.
+Run after ops_corpus_pipeline_run.sh completes to validate the corpus before
+research consumes it. Requires the manifest dir and output tables populated.
 """
 
 from __future__ import annotations
@@ -49,8 +50,7 @@ def main() -> None:
         verifier.verify_all(REQUIRED_STEPS, REQUIRED_TFS)
         _logger.info("corpus_verification.all_manifests_verified")
     except RuntimeError as error:
-        verifier.print_recovery(failed_step="unknown", missing_items=str(error))
-        print(f"\nError: {error}")
+        print(f"\nFAIL: {error}")
         sys.exit(1)
 
     db_dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
@@ -69,9 +69,9 @@ def main() -> None:
     print("=" * 70)
     print(f"\nAll {len(REQUIRED_TFS)} TFs ({', '.join(REQUIRED_TFS)}) verified with:")
     print("  - POOLED rows present for all TFs")
-    print("  - All lookaheads [1, 5, 20, 60] present")
+    print("  - Per-TF lookahead grids present")
     print("  - Data quality checks passed")
-    print("\nSafe to proceed to Phase 141.")
+    print("\nCorpus is safe to consume.")
     print("=" * 70)
 
 

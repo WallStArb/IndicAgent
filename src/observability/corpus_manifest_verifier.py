@@ -349,24 +349,6 @@ class CorpusManifestVerifier:
 
         _logger.info("corpus_verification.data_quality_verified")
 
-    def print_recovery(self, failed_step: str | None = None, missing_items: Any = None) -> None:
-        """Print clear recovery instructions for human execution."""
-        if failed_step == "ic_measure" and isinstance(missing_items, set):
-            print("\n" + "=" * 70)
-            print("FAIL: Corpus incomplete - missing cross-sectional IC data")
-            print("=" * 70)
-            print(f"\nMissing TFs: {missing_items}")
-            print("\nTo fix:")
-            print("  1. Re-run the IC measurement writer for the missing TFs only:")
-            tf_flags = " ".join(f"--tf {tf}" for tf in sorted(missing_items))
-            print(f"     python services/ic_measure.py {tf_flags}")
-            print("     (oneshot unit: systemctl start indicagent-ic-measure)")
-            print("  2. Re-run verification:")
-            print("     python scripts/ops/corpus/ops_corpus_final_verification.py")
-            print("\n" + "=" * 70)
-        else:
-            print("\nFAIL: Corpus verification failed - check logs for details")
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers

@@ -5,18 +5,18 @@ Phase 143.1-02).
 
 Expectation-aware, false-halt-aware assertion over the 5 canary/control predictors
 (concept_registry domain='feature', is_control=true rows; migrations 283/284). Queries
-feature_ic_scores for
+feature_ic_scores_v2 (ic_measure's table; the legacy feature_ic_scores is frozen at
+the last ic_engine vintage and drops in phase 186 plan 28) for
 every canary x stratum cell in the latest training_window_end vintage and evaluates
 each against its control_expectation ('negative_control' | 'positive_control').
 
 HARD-halt (loud, non-zero exit / raised error) if:
   - Negative-control canary clears in the POOLED family (symbol='POOLED',
     is_pooled=true) exceed a pre-committed Binomial tail bound (todo 230, 2026-08-02
-    addendum to E7 -- see below). POOLED is the family ensemble_trainer.py's
-    eligibility query reads, gated further on concept_registry status = 'active' --
-    a POOLED clear alone does not reach the live ensemble (canaries are permanently
-    `status='candidate'` in concept_registry), but is still tracked far more
-    conservatively than per-symbol clears since it is the eligibility-relevant family.
+    addendum to E7 -- see below). POOLED is the eligibility-relevant family for any
+    downstream promotion gate -- a POOLED clear alone still does not reach one
+    (canaries are permanently `status='candidate'` in concept_registry), but is
+    tracked far more conservatively than per-symbol clears.
   - The acausal-placebo positive control does NOT clear that same gate in POOLED --
     proves this pipeline fails to detect look-ahead leakage when genuinely present
     (the whole point of carrying a positive control at all).
@@ -40,8 +40,8 @@ The chosen quantitative rule (POOLED hard-halt scope + Binomial bound) is record
 in docs/plans/methodology-change-ledger.md (entry E7, and its 2026-08-02 addendum)
 per this project's pre-commitment convention for gate-affecting decisions.
 
-Wired into scripts/ops/corpus/ops_corpus_pipeline_run.sh immediately after Step 5
-(ic_engine) -- feature_ic_scores must exist before this gate has anything to read.
+Wired into scripts/ops/corpus/ops_corpus_pipeline_run.sh immediately after Step 4
+(ic_measure) -- feature_ic_scores_v2 must exist before this gate has anything to read.
 
 Usage:
     python scripts/ops/alpha/ops_canary_integrity_assert.py
@@ -71,30 +71,41 @@ _BINOMIAL_TAIL_ALPHA_DEFAULT = 0.01
 # bound than per-symbol, but not zero-tolerance. See 2026-08-02 E7 addendum.
 _POOLED_TAIL_ALPHA_DEFAULT = 0.001
 
+# Phase 186 repoint: ic_measure (writer of feature_ic_scores_v2) replaced ic_engine as
+# the pipeline's IC step, so the gate must score the vintage the run it guards just
+# wrote; reading the legacy table would evaluate a frozen corpse instead.
+# regime_scope = 'unstratified' is the v2 translation of the old "<> 'earnings_season'"
+# filter: the proposer's family measurement, not a stratified overlay scope.
 _LATEST_VINTAGE_SQL = (
-    "SELECT MAX(training_window_end) FROM feature_ic_scores "
-    "WHERE regime_scope <> 'earnings_season'"
+    "SELECT MAX(training_window_end) FROM feature_ic_scores_v2 "
+    "WHERE regime_scope = 'unstratified'"
 )
 
 _CANARY_ROWS_SQL = """
     SELECT
         s.feature_name, s.symbol, s.tf, s.regime, s.is_pooled,
-        s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr, s.cumulative_e_value,
+        s.ic_ci_lower, s.ic_ci_upper, s.passes_fdr,
+        NULL::double precision AS cumulative_e_value,
         r.control_expectation
-    FROM feature_ic_scores s
+    FROM feature_ic_scores_v2 s
     JOIN concept_registry r ON r.name = s.feature_name AND r.domain = 'feature'
     JOIN concept_gate cg ON cg.concept_id = r.concept_id
     WHERE r.is_control = true
       AND s.training_window_end = $1
-      AND s.regime_scope <> 'earnings_season'
+      AND s.regime_scope = 'unstratified'
 """
+# cumulative_e_value is selected as NULL: the e-value pilot (Component C, todo 079) was
+# an ic_engine experiment and v2 has no such column, so evaluate_e_value_decay sees no
+# coverage and reports it (its empty-scope path reports, never hard-fails).
 # concept_gate is INNER JOINed for consistency with every other Phase 170-repointed
 # ops_* script's tombstone defense (ops_broadcast_feature_audit.py et al.) -- a no-op
 # today since migration 284 hardcodes is_control=false on both gate-less tombstone
 # rows, but this keeps the exclusion structural rather than incidental to that value.
 
 # e-value pilot scope (Component C, todo 079, Phase 143.1 Plan 06): tf=5m only, matching
-# services/ic_engine.py's _e_value_pilot_active gate.
+# the deleted ic_engine's _e_value_pilot_active gate. With v2 carrying no e-value column
+# (see the _CANARY_ROWS_SQL comment) this scope evaluates zero rows today; it stays so
+# the check reactivates unchanged if a v2 e-value column ever lands.
 _E_VALUE_PILOT_TFS = frozenset({"5m"})
 
 
@@ -103,9 +114,10 @@ class CanaryIntegrityViolation(RuntimeError):
 
 
 def _clears_gate(row: dict[str, Any]) -> bool:
-    """The exact eligibility predicate _ELIGIBILITY_BASE_WHERE (ensemble_trainer.py)
-    reads: ic_ci_lower > 0 AND passes_fdr. A canary clearing this is exactly what
-    would let it reach ensemble weighting if it weren't excluded via status='candidate'."""
+    """The significance-gate shape a downstream weighting path reads (the deleted
+    ensemble_trainer's _ELIGIBILITY_BASE_WHERE was the original referent):
+    ic_ci_lower > 0 AND passes_fdr. A canary clearing this is exactly what would let
+    it reach a weighting path if it weren't excluded via status='candidate'."""
     ci_lower = row["ic_ci_lower"]
     return bool(ci_lower is not None and ci_lower > 0 and row["passes_fdr"])
 
@@ -267,15 +279,15 @@ def evaluate_e_value_decay(
     Pure evaluation function -- no IO, fully unit-testable without a DB.
 
     Scope: only rows within the e-value pilot's tf scope (5m, matching
-    services/ic_engine.py's _e_value_pilot_active) AND with a non-NULL
+    the deleted ic_engine's _e_value_pilot_active) AND with a non-NULL
     cumulative_e_value are evaluated -- everything else (other timeframes, or
-    rows from before any corpus rerun has populated the column) is silently
+    rows with no e-value column at all) is silently
     excluded from n_rows_evaluated, not treated as a violation. Unlike
     evaluate()'s base canary integrity check, an empty result (no e-value
-    coverage yet) is NOT a hard-halt condition here: the e-value pilot's
-    column only starts populating after Plan 07's corpus rerun actually
-    exercises services/ic_engine.py's tf=5m cross-sectional path, and this
-    self-verification must not fail before that has ever happened.
+    coverage yet) is NOT a hard-halt condition here: the e-value column
+    belonged to the ic_engine era and feature_ic_scores_v2 does not carry it
+    (it is selected as NULL, see _CANARY_ROWS_SQL), so this self-verification
+    reports zero coverage until a v2 e-value column ever lands.
 
     The acausal-placebo positive control's cumulative e-value crossing the
     promotion threshold is the EXPECTED healthy behavior (it should grow --
