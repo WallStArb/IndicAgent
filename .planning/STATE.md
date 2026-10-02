@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-02T09:37:19.959Z"
+last_updated: "2026-10-02T14:32:10.059Z"
 progress:
-  total_phases: 6
+  total_phases: 7
   completed_phases: 1
   total_plans: 63
-  completed_plans: 51
-  percent: 17
+  completed_plans: 53
+  percent: 14
 ---
 
 # Project State
@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: 16 of 24 (12 done 2026-10-02; next 16, wave 5)
+Plan: 18 of 24 (wave 5 complete 2026-10-02; next 18, wave 6)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -58,13 +58,16 @@ Plan: 16 of 24 (12 done 2026-10-02; next 16, wave 5)
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 24 plans in 10 waves; 15 done (01-12, 13, 14, 15), waves 1-4 complete. D2b landed
+- **Phase 185:** 24 plans in 10 waves; 18 done (01-17, 21), waves 1-5 complete. D2b landed
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
-  precondition. The remaining ~700 names derive as todo 449's 5m backfill reaches them (7 lane
-  symbols excluded at rewrite time; 1 no_5m). Next: 16 (wave 5), then 17-24. Plans 10, 14, 15 and
-  16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5.
+  precondition. D2 1d derivation rule landed (185-17: migration 402, dry run 931 names, 5,733
+  would-change bars; apply is 185-18). D5's IBKR dividend route reads D1 (185-21: migration 403,
+  26 date disputes on 18 names, verdict "not usable alone; Yahoo stays reference"; reader
+  hand-off to phase 183 in the phase dir). The remaining ~700 names derive as todo 449's 5m
+  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 18 (wave 6),
+  then 19-24.
   Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
@@ -162,3 +165,10 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").
+
+## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 189 edited: edited fields: depends_on
+- Phase 189 added: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts
