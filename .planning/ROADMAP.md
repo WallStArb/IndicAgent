@@ -199,7 +199,7 @@ Plans:
 
 - [x] 185-16-PLAN.md - D-28 data bar check, D0 read helper, S0 hand-off (wave 5)
 - [x] 185-17-PLAN.md - D2 1d derivation rule and stage, dry run (wave 5)
-- [ ] 185-21-PLAN.md - D5 IBKR dividend route from D1, date disputes (wave 5)
+- [x] 185-21-PLAN.md - D5 IBKR dividend route from D1, date disputes (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
