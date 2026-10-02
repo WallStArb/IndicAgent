@@ -29,6 +29,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -51,6 +53,7 @@ sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
 from scripts.infrastructure.backfill._d1_gaps import (
+    detect_gaps_1d_from_d1,
     detect_gaps_from_record,
     load_answered_windows,
 )
@@ -73,6 +76,7 @@ from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
 from src.intelligence.bars.gap_plan import AnsweredWindows, expected_grid_slots
+from src.intelligence.bars.sessions import nyse_sessions
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
@@ -99,13 +103,15 @@ _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeli
 # Timeframes whose fetch persists real provider bars only, every asset class (todo 462,
 # plan 185-18): no synthetic fill ever reaches market_data_ohlcv from this pipeline at
 # 5m or 1m, and 15m/1h are archive-bound raw observations (plan 12). The interim flag
-# that gated this is retired -- it is the default behavior now. 1d and 4h keep the
-# placeholder path until phase 185 D2 / the futures rework.
-_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h"})
+# that gated this is retired -- it is the default behavior now. 1d joined in task 1b
+# (its fetch captures into D1 and stores no bar here at all); 4h alone keeps the
+# placeholder path until the futures rework.
+_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h", "1d"})
 # Timeframes whose gap detection comes from the shared record planner
 # (detect_gaps_from_record): expected slots minus stored observations minus recorded
 # coverage, with the provider-verified empty span folded in. 1m stays on the legacy
-# grid difference until its own record migration; 1d migrates in task 1b.
+# grid difference until its own record migration; 1d moved to D1 in task 1b
+# (detect_gaps_1d_from_d1), so it is planned but never stored.
 _RECORD_PLAN_TFS = frozenset({"5m", "15m", "1h"})
 # Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Their fetches
 # persist into ohlcv_intraday_raw_archive through services/intraday_raw_archive's
@@ -1035,8 +1041,10 @@ def real_bars_only_for(tf: str) -> bool:
     15m/1h are archive-bound raw observations since plan 12 (a placeholder is
     never an observation, and the archive insert refuses synthetic fills
     outright); plan 185-18 made 5m and 1m real bars only for every asset class
-    (todo 462), retiring the interim flag that used to gate it. 1d and 4h keep
-    the placeholder path until phase 185 D2 / the futures rework.
+    (todo 462), retiring the interim flag that used to gate it. Task 1b took 1d
+    further still: its answers are captured into D1 and nothing is stored here
+    at all (store_bars refuses 1d). 4h alone keeps the placeholder path until
+    the futures rework.
     """
     return tf in _REAL_BARS_ONLY_TFS
 
@@ -1273,7 +1281,8 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
 
 def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
     """Batched multi-row VALUES insert into market_data_ohlcv (the default
-    store_bars destination; 1d/5m/1m from plan 12 on, 15m/1h no longer)."""
+    store_bars destination; 5m/1m from plan 185-18 on. 15m/1h route to the
+    archive, and 1d is refused outright in task 1b)."""
     for i in range(0, len(params), _STORE_BATCH_SIZE):
         chunk = params[i : i + _STORE_BATCH_SIZE]
         sql = _STORE_VALUES_SQL.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
@@ -1314,9 +1323,21 @@ def store_bars(
             archive writer (plan 12); plan 18's persist helper takes the same
             function as a parameter, so this module owns no bar-table INSERT for
             the archive path.
+
+    Refuses timeframe "1d" outright (plan 185-18 task 1b): market_data_ohlcv's
+    1d rows belong to services/bar_derivation's daily stage (D-06/D-15 single
+    writer); this pipeline captures 1d answers into D1 only. The per-contract
+    opt-in mode is the one remaining caller that can hit this -- its per-
+    contract except prints the refusal.
     """
     if not bars:
         return 0
+    if timeframe == "1d":
+        raise RuntimeError(
+            "store_bars refuses timeframe 1d: market_data_ohlcv 1d rows are owned by "
+            "services/bar_derivation's daily stage (plan 185-18 task 1b); this "
+            "pipeline captures 1d answers into D1 only"
+        )
     if write_rows is None:
         write_rows = _insert_market_data_rows
     # Use actual_symbol if provided (for historical contracts), otherwise use symbol
@@ -1402,6 +1423,38 @@ def run_normalize(
             )
 
     print(f"\nNormalization complete: {total_inserted} synthetic fills inserted")
+
+
+# ---------------------------------------------------------------------------
+# Daily derivation stage (plan 185-18 task 1b)
+# ---------------------------------------------------------------------------
+
+_DAILY_STAGE_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
+
+
+def _run_daily_stage(symbols: list[str]) -> int:
+    """Derive the 1d grid rows for `symbols` through services/bar_derivation.py.
+
+    Since task 1b this pipeline's 1d fetch captures answers into D1 and stores
+    no bar; bar_derivation's daily stage is the single writer of 1d rows in
+    market_data_ohlcv (D-06/D-15). main() invokes it once per run, over every
+    symbol whose 1d windows were asked, and a nonzero return code fails the
+    run loudly -- a silent skip would leave the run "complete" with no 1d rows.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_DAILY_STAGE_SCRIPT),
+            "--stage",
+            "daily",
+            "--symbols",
+            ",".join(symbols),
+            "--apply",
+        ],
+        cwd=str(project_root),
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    return result.returncode
 
 
 # ---------------------------------------------------------------------------
@@ -1619,7 +1672,7 @@ def main() -> None:
     )
     print(f"  fetch_run_id: {fetch_run_id} (lease tier {args.lease_tier})")
 
-    async def _run_fetch_stage() -> tuple[int, int, list[str]]:
+    async def _run_fetch_stage() -> tuple[int, int, list[str], dict[str, datetime]]:
         nonlocal db_conn, n_head_floored, n_empty_history_skipped
         provider = IBKRProvider(
             host=settings.ib_host,
@@ -1628,7 +1681,7 @@ def main() -> None:
         )
         if not await provider.connect():
             print("Cannot connect to TWS — aborting fetch stage")
-            return -1, 0, []
+            return -1, 0, [], {}
 
         end_dt = datetime.now(tz=UTC)
         total_bars = 0
@@ -1642,6 +1695,11 @@ def main() -> None:
         # tracked separately from fetch_errors so the final summary can name them,
         # not just count them.
         skipped_symbols: list[str] = []
+        # Task 1b: symbols whose 1d windows were asked this run, with the 1d
+        # fetch start per symbol. The daily derivation stage runs over these
+        # after a clean fetch, and fetch_complete is marked per symbol only
+        # once the stage wrote its rows.
+        touched_1d: dict[str, datetime] = {}
         fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
         print(f"  Fetching TFs: {fetch_tfs}")
         print()
@@ -1773,27 +1831,56 @@ def main() -> None:
                         real_bars_only = real_bars_only_for(tf)
                         empty = empty_ranges.get((instrument.symbol, tf))
 
-                        if tf in _RECORD_PLAN_TFS:
+                        def _note_empty_skip(
+                            skipped: Any,
+                            _symbol: str = instrument.symbol,
+                            _tf: str = tf,
+                        ) -> None:
+                            nonlocal n_empty_history_skipped
+                            n_empty_history_skipped += 1
+                            print(
+                                f"  {_symbol}/{_tf}: skipping provider-verified "
+                                f"empty history {skipped.empty_from.date()} to "
+                                f"{skipped.empty_through.date()} (verified "
+                                f"{skipped.verified_at.date()})"
+                            )
+
+                        if tf == "1d":
+                            # Plan 185-18 task 1b: 1d asks come from D1 -- session
+                            # dates with neither a TRADES observation nor a covering
+                            # definitive no_data window -- through the same plan_gaps
+                            # rule every other timeframe uses. The wrapper returns
+                            # end-exclusive (date, date) ranges; widened here to
+                            # midnight-UTC datetimes so the window loop, the
+                            # clustering and the provider call stay timeframe-
+                            # agnostic. Nothing from these fetches is stored: the
+                            # answers are D1 rows, and the daily derivation stage
+                            # (chained after a clean run) writes the grid rows.
+                            gaps_d = detect_gaps_1d_from_d1(
+                                db_conn,
+                                instrument.symbol,
+                                start_dt.date(),
+                                end_dt.date(),
+                                nyse_sessions(start_dt.date(), end_dt.date()),
+                                empty=empty,
+                                now=run_started_at,
+                                reverify_days=empty_reverify_days,
+                                min_confirmations=ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+                                on_skip=_note_empty_skip,
+                            )
+                            gaps = [
+                                (
+                                    datetime(s.year, s.month, s.day, tzinfo=UTC),
+                                    datetime(e.year, e.month, e.day, tzinfo=UTC),
+                                )
+                                for s, e in gaps_d
+                            ]
+                        elif tf in _RECORD_PLAN_TFS:
                             # Plan 185-18: the shared planner decides the asks --
                             # expected slots minus stored observations minus
                             # recorded coverage, with the provider-verified empty
                             # span folded in under the same freshness gate the
                             # legacy path applies.
-
-                            def _note_empty_skip(
-                                skipped: Any,
-                                _symbol: str = instrument.symbol,
-                                _tf: str = tf,
-                            ) -> None:
-                                nonlocal n_empty_history_skipped
-                                n_empty_history_skipped += 1
-                                print(
-                                    f"  {_symbol}/{_tf}: skipping provider-verified "
-                                    f"empty history {skipped.empty_from.date()} to "
-                                    f"{skipped.empty_through.date()} (verified "
-                                    f"{skipped.verified_at.date()})"
-                                )
-
                             gaps = detect_gaps_from_record(
                                 db_conn,
                                 instrument.symbol,
@@ -2027,7 +2114,11 @@ def main() -> None:
                                     start=gap_start,
                                     end=fetch_end,
                                     continuous=use_cont,
-                                    on_chunk=_persist_chunk,
+                                    # Task 1b: a 1d fetch persists nothing per chunk
+                                    # -- its answers are D1 rows (requests recorded,
+                                    # observations delivered); every other timeframe
+                                    # keeps its atomic (or store) chunk persist.
+                                    on_chunk=None if tf == "1d" else _persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,
                                     **capture_kwargs,
                                 )
@@ -2047,39 +2138,56 @@ def main() -> None:
                                     }
                                     for b in ohlcv_bars
                                 ]
-                                canonical = (
-                                    bar_dicts
-                                    if real_bars_only
-                                    else normalize_bars(
-                                        bar_dicts,
-                                        symbol=instrument.symbol,
-                                        timeframe=tf,
-                                        start=gap_start,
-                                        end=gap_end,
+                                if tf == "1d":
+                                    # Task 1b: D1-only. The provider delivered the
+                                    # answers as recorded requests and observations;
+                                    # no bar is stored here -- the daily derivation
+                                    # stage owns the 1d grid rows. Count the bars so
+                                    # the run summary still reflects what arrived.
+                                    total_bars += len(bar_dicts)
+                                    if bar_dicts:
+                                        fetched_tfs.add(tf)
+                                    touched_1d[instrument.symbol] = start_dt
+                                    print(
+                                        f"  {instrument.symbol}/1d: {len(bar_dicts)} bars "
+                                        f"captured to D1 (window {gap_start.date()} to "
+                                        f"{gap_end.date()}; grid rows owned by the daily "
+                                        f"derivation stage)"
                                     )
-                                )
-                                try:
-                                    db_conn.cursor().execute("SELECT 1")
-                                except Exception:
+                                else:
+                                    canonical = (
+                                        bar_dicts
+                                        if real_bars_only
+                                        else normalize_bars(
+                                            bar_dicts,
+                                            symbol=instrument.symbol,
+                                            timeframe=tf,
+                                            start=gap_start,
+                                            end=gap_end,
+                                        )
+                                    )
                                     try:
-                                        db_conn.close()
+                                        db_conn.cursor().execute("SELECT 1")
                                     except Exception:
-                                        pass
-                                    db_conn = connect_db(settings)
-                                n = store_bars(
-                                    db_conn,
-                                    canonical,
-                                    instrument.symbol,
-                                    tf,
-                                    write_rows=write_rows,
-                                )
-                                total_bars += n
-                                if n > 0:
-                                    fetched_tfs.add(tf)
-                                print(
-                                    f"  {instrument.symbol}/{tf}: stored {n} bars "
-                                    f"(window {gap_start.date()} to {gap_end.date()})"
-                                )
+                                        try:
+                                            db_conn.close()
+                                        except Exception:
+                                            pass
+                                        db_conn = connect_db(settings)
+                                    n = store_bars(
+                                        db_conn,
+                                        canonical,
+                                        instrument.symbol,
+                                        tf,
+                                        write_rows=write_rows,
+                                    )
+                                    total_bars += n
+                                    if n > 0:
+                                        fetched_tfs.add(tf)
+                                    print(
+                                        f"  {instrument.symbol}/{tf}: stored {n} bars "
+                                        f"(window {gap_start.date()} to {gap_end.date()})"
+                                    )
                                 if is_oldest_window and not use_cont:
                                     empty_history.reconcile(
                                         db_conn,
@@ -2101,16 +2209,20 @@ def main() -> None:
                                 )
                         if tf_window_failed:
                             fetched_tfs.discard(tf)
-                        else:
+                        elif tf != "1d":
                             mark_fetch_complete(db_conn, instrument.symbol, tf, start_dt)
+                        # 1d marks after the daily derivation stage wrote its rows:
+                        # the EXISTS guard reads market_data_ohlcv_tradeable, which
+                        # this run populates only through the stage (task 1b).
                         lease.checkpoint()
 
                     # FX and crypto: fetch deeper 1m window and derive any TFs
                     # that IBKR didn't return bars for in the named fetch above.
+                    # 1d left this fallback in task 1b: the daily grid rows are
+                    # the derivation's (store_bars refuses 1d), reached through
+                    # D1 and the daily stage like every other asset class.
                     if instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO):
-                        missing_tfs = [
-                            tf for tf in ("5m", "15m", "1h", "1d") if tf not in fetched_tfs
-                        ]
+                        missing_tfs = [tf for tf in ("5m", "15m", "1h") if tf not in fetched_tfs]
                         if missing_tfs:
                             deep_days = (
                                 _1M_DAYS_FX
@@ -2209,10 +2321,10 @@ def main() -> None:
                 await asyncio.sleep(2)  # IBKR pacing between instruments
         finally:
             await provider.disconnect()
-        return total_bars, fetch_errors, skipped_symbols
+        return total_bars, fetch_errors, skipped_symbols, touched_1d
 
     try:
-        total_bars, fetch_errors, skipped_symbols = asyncio.run(_run_fetch_stage())
+        total_bars, fetch_errors, skipped_symbols, touched_1d = asyncio.run(_run_fetch_stage())
         if total_bars == -1:
             # IBKR connect failed before any fetch was attempted. A bare `return` here
             # exits 0 (main() is called plainly, not via sys.exit(main())) -- the nightly
@@ -2250,6 +2362,26 @@ def main() -> None:
                 1,
             )
             return
+
+        if touched_1d:
+            # Task 1b: the 1d answers above went to D1 only. The daily derivation
+            # stage writes the 1d grid rows for exactly the symbols whose windows
+            # were asked; a failure here fails the run loudly (exit 1) so a silent
+            # skip can never declare "complete" with no 1d rows. fetch_complete is
+            # marked per symbol only after the stage succeeded -- the EXISTS guard
+            # reads the rows the stage just wrote.
+            daily_symbols = sorted(touched_1d)
+            print(f"\nStage 2: daily derivation stage for {len(daily_symbols)} symbol(s)")
+            if _run_daily_stage(daily_symbols) != 0:
+                _finish(
+                    "failed",
+                    "Backfill FAILED: the daily derivation stage failed, so no 1d rows "
+                    "were written for this run's fetches. See its output above.",
+                    1,
+                )
+                return
+            for symbol in daily_symbols:
+                mark_fetch_complete(db_conn, symbol, "1d", touched_1d[symbol])
 
         _finish("success", "\nBackfill complete.", None)
     except LeaseTimeout as error:

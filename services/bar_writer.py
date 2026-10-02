@@ -56,6 +56,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
+# Timeframes whose market_data_ohlcv rows are owned by services/bar_derivation
+# (D-06/D-15 single writer, plan 185-18 task 1b): the streaming writer refuses
+# them with a logged warning instead of silently racing the derivation. The
+# live feed only ever publishes 1m/5m today; the fence is for the day the HTF
+# stream returns.
+_DERIVATION_OWNED_TFS: frozenset[str] = frozenset({"1d", "15m", "1h"})
+
 # Module-level OTel instruments — single meter, no prometheus_client
 _bw_meter = _otel_metrics.get_meter("indicagent")
 
@@ -168,12 +175,24 @@ class BarWriter(BaseWriter):
     def _parse_payload(self, payload: dict) -> tuple[list, list]:
         """Parse a bar payload into a buffer row tuple.
 
-        Returns (valid_rows, invalid_rows).
+        Returns (valid_rows, invalid_rows). Derivation-owned timeframes are
+        refused with a logged warning and counted as neither valid nor invalid
+        (plan 185-18 task 1b): the message is well-formed, its destination is
+        simply not this writer's to write.
         """
         if not isinstance(payload, dict) or not payload:
             return [], [payload]
         bar = self._parse_bar(payload)
         if bar is None:
+            return [], []
+        if bar.tf in _DERIVATION_OWNED_TFS:
+            self.logger.warning(
+                "bar_writer.refuses_derivation_owned_timeframe",
+                symbol=bar.symbol,
+                tf=bar.tf,
+                reason="market_data_ohlcv rows at this timeframe are owned by "
+                "services/bar_derivation (plan 185-18 task 1b)",
+            )
             return [], []
 
         base = self._contract_cache.get(bar.symbol, bar.symbol)

@@ -150,6 +150,28 @@ _DEFAULT_CLIENT_ID: int = 40
 # below (todo 199: behavioral-list APR migration, CLAUDE.md APR mandate category 2).
 _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 
+# Timeframes whose market_data_ohlcv rows are owned by services/bar_derivation
+# (D-06/D-15 single writer, plan 185-18 task 1b): the fetch stage refuses them
+# outright instead of racing the derivation. The APR key above may still list
+# them (older deployments, onboarding cohorts); the fence narrows at runtime.
+_DERIVATION_OWNED_TFS: frozenset[str] = frozenset({"1d", "15m", "1h"})
+
+
+def _refuse_derivation_owned_tfs(timeframes: list[str]) -> list[str]:
+    """Drop derivation-owned timeframes from a fetch target list, logging one
+    warning per refusal (plan 185-18 task 1b). Their grid rows come from
+    bar_derivation; a fetch here would write a second writer's rows."""
+    kept = [tf for tf in timeframes if tf not in _DERIVATION_OWNED_TFS]
+    for tf in timeframes:
+        if tf in _DERIVATION_OWNED_TFS:
+            _logger.warning(
+                "fetch_stage_refuses_derivation_owned_tf",
+                tf=tf,
+                reason="market_data_ohlcv rows at this timeframe are owned by "
+                "services/bar_derivation (plan 185-18 task 1b)",
+            )
+    return kept
+
 
 def _restrict_timeframes(configured: list[str], only: list[str] | None) -> list[str]:
     """`only` (the --tf flag) narrows the APR set, keeping its order; a tf outside it raises
@@ -778,7 +800,9 @@ async def run_fetch_stage(
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
     cfg = _load_config_service(db_conn)
-    target_timeframes = _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
+    target_timeframes = _refuse_derivation_owned_tfs(
+        _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
+    )
 
     # Load existing status to skip already-fetched pairs
     all_symbols = [c.symbol for c in etf_contracts]

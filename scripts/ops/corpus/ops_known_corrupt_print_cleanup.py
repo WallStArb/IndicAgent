@@ -39,22 +39,19 @@ Design (see .planning/todos/pending/151-known-corrupt-ohlcv-print-cleanup.md and
    When the bar is implausible but the neighbors themselves disagree by more than the
    agreement threshold (untrustworthy reference -- could be a genuine continuation of
    an already-volatile move), classified AMBIGUOUS rather than forcing a call.
-3. Correction (--apply only): for CONFIRMED_CORRUPT rows, set price_sanity_status='confirmed_corrupt'.
-   Per Renaissance data-retention principle, the row itself is NEVER deleted and price
-   columns are NEVER modified. The price_sanity_status column (added in todo 149's
-   migration) provides the single, unified signal for "known bad bar," replacing the
-   prior volume=0 mechanism, and only after an `integrity_monitor` audit record
-   captures the original volume plus full OHLC logged via structlog.
+3. Correction: owned by services/bar_scrub.py (plan 185). This script is report-only
+   (plan 185-18 task 1b): its apply mode is retired and raises the supersession fence
+   if invoked. Per Renaissance data-retention principle the row itself is NEVER deleted
+   and price columns are NEVER modified; the scrub pipeline stamps
+   price_sanity_status='confirmed_corrupt' and writes its own audit trail.
 
-Safety (non-negotiable): defaults to --dry-run behavior (report only, zero DB writes).
-Mutating a row or writing an integrity_monitor record REQUIRES the explicit --apply
-flag. This script must never be invoked with --apply by an unsupervised agent -- a
-human reviews the CONFIRMED_CORRUPT table in the dry-run report first.
+Safety (non-negotiable): report only, zero DB writes, every invocation. A human
+reviews the CONFIRMED_CORRUPT table here and then drives services/bar_scrub.py;
+this script no longer has any mutating path to guard.
 
 Usage:
     python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py
     python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --symbols UUP XRT --tf 5m
-    python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --apply   # human-reviewed only
 """
 
 from __future__ import annotations
@@ -64,7 +61,7 @@ import asyncio
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
@@ -80,7 +77,6 @@ from src.intelligence.statistics.price_sanity import (
     _NEIGHBOR_AGREEMENT_THRESHOLD_DEFAULT,
     CandidateVerdict,
     apply_cross_symbol_downgrade,
-    build_subject_key,
     classify_candidate_bar,
     count_corroborating_symbols_batch,
 )
@@ -92,10 +88,13 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "known-corrupt-print-cleanup"
 
-_MONITOR_TYPE = "price_sanity_ohlcv_correction"
-_METRIC_NAME = "original_volume"
-
 _ALL_TFS = ("5m", "15m", "1h", "1d")
+
+
+def _refuse_apply() -> NoReturn:
+    """Fence (plan 185-18 task 1b): this script's apply mode is retired; the
+    corrupt-bar scrub is owned by services/bar_scrub.py (phase 185)."""
+    raise RuntimeError("--apply is superseded by services/bar_scrub.py (phase 185)")
 
 
 # ---------------------------------------------------------------------------
@@ -118,29 +117,6 @@ class CandidateRow:
     next_open: float | None
     verdict: CandidateVerdict
 
-
-# Stamps price_sanity_status directly (todo 149) -- price columns are NEVER modified
-# (Renaissance retention: never delete the row, never touch price data) and volume is
-# no longer touched either as of todo 149's unification: a corrected row now carries
-# exactly one signal (price_sanity_status), the same one BarAuditor's live audit task
-# writes, so there is one query surface for "which bars are known bad" rather than two
-# independent, divergence-prone mechanisms for the same fact.
-_CORRECTION_UPDATE_SQL = """
-UPDATE market_data_ohlcv
-SET price_sanity_status = 'confirmed_corrupt'
-WHERE symbol = $1 AND timeframe = $2 AND timestamp = $3
-"""
-
-# monitor_type='price_sanity_ohlcv_correction', threshold_value=NULL (a correction
-# record, not a threshold gate), passed=true (always -- this fact records what WAS
-# corrected, it is not a pass/fail check). training_window_end=NULL -- this
-# correction is not tied to any specific corpus run/vintage.
-_AUDIT_INSERT_SQL = """
-INSERT INTO integrity_monitor
-    (monitor_type, subject, metric_name, metric_value, threshold_value, passed, training_window_end)
-VALUES ($1, $2, $3, $4, NULL, true, NULL)
-ON CONFLICT (monitor_type, training_window_end, metric_name, COALESCE(subject, ''), evaluated_at) DO NOTHING
-"""
 
 # Todo 160: the prior version of this query drew candidates from forward_returns
 # suspect flags -- a proxy blind to corruption confined to high/low with a sane
@@ -239,10 +215,9 @@ def render_followup_commands(confirmed: list[CandidateRow]) -> str:
     lines = [
         "## Recommended Follow-Up (human review required -- NOT executed by this script)",
         "",
-        "1. Review the CONFIRMED_CORRUPT table above, then apply the corrections:",
-        "",
-        "   python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --apply "
-        f"--symbols {' '.join(symbols)} --tf {' '.join(tfs)}",
+        "1. Review the CONFIRMED_CORRUPT table above, then drive the corrections through",
+        "   services/bar_scrub.py (plan 185): the scrub pipeline owns marking corrupt bars",
+        "   now, and this script's apply mode is retired (it refuses to run).",
         "",
         "2. IMPORTANT -- feature_vectors inserts with "
         "ON CONFLICT DO NOTHING (idempotent-replay semantics): re-running the writer "
@@ -359,32 +334,6 @@ async def _scan_and_classify_all_pairs(
     return all_rows
 
 
-async def _apply_correction(conn: asyncpg.Connection, row: CandidateRow, bar_ts) -> None:
-    """Write the integrity_monitor audit record BEFORE mutating, then mark price_sanity_status.
-
-    Full original OHLC logged via structlog (metric_value only fits one number --
-    the audit trail's human-readable detail lives in the log line, not the column).
-    """
-    subject = build_subject_key(row.symbol, row.tf, row.timestamp)
-    await conn.execute(_AUDIT_INSERT_SQL, _MONITOR_TYPE, subject, _METRIC_NAME, row.volume)
-    _logger.info(
-        "known_corrupt_print_cleanup.correcting_row",
-        symbol=row.symbol,
-        tf=row.tf,
-        timestamp=row.timestamp,
-        original_open=row.open,
-        original_high=row.high,
-        original_low=row.low,
-        original_close=row.close,
-        original_volume=row.volume,
-        prev_close=row.prev_close,
-        next_open=row.next_open,
-        max_ratio=row.verdict.max_ratio,
-        implausible_fields=row.verdict.implausible_fields,
-    )
-    await conn.execute(_CORRECTION_UPDATE_SQL, row.symbol, row.tf, bar_ts)
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -416,14 +365,16 @@ def _parse_args() -> argparse.Namespace:
         "--apply",
         action="store_true",
         default=False,
-        help="Mutate CONFIRMED_CORRUPT rows (price_sanity_status='confirmed_corrupt') and write integrity_monitor audit "
-        "records. DEFAULT IS DRY-RUN (report only, zero DB writes). A human must review "
-        "the dry-run's CONFIRMED_CORRUPT table before ever passing this flag.",
+        help="Retired (plan 185-18 task 1b): the corrupt-bar scrub is owned by "
+        "services/bar_scrub.py. Passing this flag raises the supersession fence; "
+        "this script is report-only.",
     )
     return parser.parse_args()
 
 
 async def _run(args: argparse.Namespace) -> int:
+    if args.apply:
+        _refuse_apply()
     settings = Settings()
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     pool = await asyncpg.create_pool(dsn=dsn)
@@ -500,35 +451,11 @@ async def _run(args: argparse.Namespace) -> int:
         print(report)  # noqa: T201
 
         confirmed = [r for r in all_rows if r.verdict.verdict == "CONFIRMED_CORRUPT"]
-
-        if not args.apply:
-            print(render_followup_commands(confirmed))  # noqa: T201
-            print(  # noqa: T201
-                "\nDRY-RUN MODE (default) -- zero DB writes made. Pass --apply after "
-                "reviewing the CONFIRMED_CORRUPT table above to mutate rows."
-            )
-            return 0
-
-        # --apply: mutate only CONFIRMED_CORRUPT rows. AMBIGUOUS rows are never
-        # auto-corrected -- they require human judgment (see module docstring).
-        if not confirmed:
-            print(
-                "--apply passed but zero CONFIRMED_CORRUPT rows found -- nothing to do."
-            )  # noqa: T201
-            return 0
-
-        n_corrected = 0
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                for row in confirmed:
-                    await _apply_correction(conn, row, row.bar_ts)
-                    n_corrected += 1
-
-        _logger.info("known_corrupt_print_cleanup.apply_complete", n_corrected=n_corrected)
-        print(
-            f"\nAPPLIED: {n_corrected} row(s) corrected (price_sanity_status set to 'confirmed_corrupt')."
-        )  # noqa: T201
         print(render_followup_commands(confirmed))  # noqa: T201
+        print(  # noqa: T201
+            "\nReport-only by design (plan 185-18 task 1b): this script made zero DB "
+            "writes. Corrections are services/bar_scrub.py's to apply."
+        )
         return 0
     finally:
         await pool.close()

@@ -4,21 +4,22 @@ todo 462; design: docs/plans/2026-09-29-intraday-bar-store-redesign.md).
 plan_gaps (src/intelligence/bars/gap_plan.py) is the one pure definition of a
 missing bar. This module is its psycopg SQL-reading wrapper for the pipeline's
 synchronous connection: it loads the stored observations (the archive for the
-archive-bound 15m/1h, market_data_ohlcv for 5m), the answered SMART TRADES
-request windows, and folds in a provider-verified ohlcv_empty_history span when
-it is fresh and sufficiently confirmed. services/ cannot import from scripts/,
-so bar_auditor keeps its own asyncpg readers around the same pure planner --
-the SQL stays local per driver, the rule does not.
+archive-bound 15m/1h, market_data_ohlcv for 5m, D1's ohlcv_observation for 1d),
+the answered request windows, and folds in a provider-verified
+ohlcv_empty_history span when it is fresh and sufficiently confirmed.
+services/ cannot import from scripts/, so bar_auditor keeps its own asyncpg
+readers around the same pure planner -- the SQL stays local per driver, the
+rule does not.
 
 The legacy grid-difference detect_gaps in the pipeline remains the fallback
-for 1m/4h (and 1d until task 1b).
+for 1m/4h; 1d moved to D1 in task 1b.
 """
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -155,3 +156,98 @@ def detect_gaps_from_record(
         if without_spans != plan:
             on_skip(empty)
     return plan
+
+
+# 1d (plan 185-18 task 1b): the answers live in D1, not in any bar table. A
+# session is covered by a stored TRADES observation on its bar_date (route-
+# agnostic: a former-venue recovery observation covers its session exactly
+# like a SMART one, D-20), or by a definitive no_data window containing the
+# whole session day. Written out per query (not .format-built) so the boundary
+# scans see every raw-table read.
+_1D_OBSERVED_SESSIONS_SQL = """
+SELECT o.bar_date FROM ohlcv_observation o
+WHERE o.symbol = %s AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
+  AND o.bar_date >= %s AND o.bar_date <= %s
+"""
+_1D_NO_DATA_WINDOWS_SQL = """
+SELECT r.window_start, r.window_end FROM ohlcv_request r
+WHERE r.symbol = %s AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
+  AND r.outcome = 'no_data' AND r.window_start IS NOT NULL
+ORDER BY r.window_start
+"""
+_1D_INTERVAL = timedelta(days=1)
+
+
+def _midnight_utc(day: date | datetime) -> datetime:
+    """A 1d slot is its session date stamped at midnight UTC (the grid's 1d
+    convention); bar_date rows arrive as dates from psycopg."""
+    if isinstance(day, datetime):
+        return day.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=UTC)
+    return datetime(day.year, day.month, day.day, tzinfo=UTC)
+
+
+def detect_gaps_1d_from_d1(
+    conn: Any,
+    symbol: str,
+    start: date,
+    end: date,
+    sessions: Mapping[date, Any],
+    *,
+    empty: EmptyRange | None = None,
+    now: datetime | None = None,
+    reverify_days: int | None = None,
+    min_confirmations: int | None = None,
+    on_skip: Callable[[EmptyRange], None] | None = None,
+) -> list[tuple[date, date]]:
+    """The 1d gap plan for `symbol` over [start, end], from D1 (task 1b).
+
+    `sessions` is the NYSE session map (src.intelligence.bars.sessions.
+    nyse_sessions) over the window; a session date whose day has no observation
+    and no covering no_data window is a gap. One rule for every timeframe:
+    plan_gaps with a one-day interval over session-midnight slots. Windows come
+    back as contiguous end-exclusive (date, date) ranges -- the range ends at
+    the last missing session's own day end, so the ask covers that whole day.
+
+    `now` caps the horizon exactly as the intraday readers cap theirs: a
+    session still forming is planned capped at now, so a no_data answer for the
+    truncated window cannot cover the completed day and the next run re-asks
+    it. Without `now` the horizon is the whole requested window. The
+    empty-history gate mirrors detect_gaps_from_record.
+    """
+    if end < start:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(_1D_OBSERVED_SESSIONS_SQL, (symbol, start, end))
+        observed_rows = cur.fetchall()
+    with conn.cursor() as cur:
+        cur.execute(_1D_NO_DATA_WINDOWS_SQL, (symbol,))
+        window_rows = cur.fetchall()
+
+    stored = [_midnight_utc(r[0]) for r in observed_rows]
+    answered = AnsweredWindows.from_rows(
+        (
+            r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0],
+            r[1].replace(tzinfo=UTC) if r[1].tzinfo is None else r[1],
+        )
+        for r in window_rows
+    )
+    slots = [_midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
+    run_end = now if now is not None else _midnight_utc(end) + _1D_INTERVAL
+
+    spans: list[tuple[datetime, datetime]] = []
+    if (
+        empty is not None
+        and now is not None
+        and reverify_days is not None
+        and min_confirmations is not None
+        and empty.n_confirming_chunks >= min_confirmations
+        and is_fresh(empty.verified_at, now, reverify_days)
+    ):
+        spans = [(empty.empty_from, empty.empty_through)]
+
+    plan = plan_gaps(slots, stored, answered, _1D_INTERVAL, run_end=run_end, empty_ranges=spans)
+    if spans and on_skip is not None:
+        without_spans = plan_gaps(slots, stored, answered, _1D_INTERVAL, run_end=run_end)
+        if without_spans != plan:
+            on_skip(empty)
+    return [(window_start.date(), window_end.date()) for window_start, window_end in plan]

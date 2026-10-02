@@ -87,7 +87,7 @@ _logger = structlog.get_logger(__name__)
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
-_GRID_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
+_DERIVATION_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
 # The lane guard's exclude file for the grid stage (symbols a running backfill
 # lane is writing are not derived mid-lane). Recreated fresh each run.
 _GRID_EXCLUDE_FILE = Path(tempfile.gettempdir()) / "indicagent-nightly-grid-exclude-symbols.txt"
@@ -221,6 +221,31 @@ def _prepare_grid_stage() -> Path:
     return _GRID_EXCLUDE_FILE
 
 
+def _run_daily_stage() -> int:
+    """Derive the 1d grid rows for every symbol whose inputs changed (plan
+    185-18 task 1b).
+
+    The legs' 1d fetches capture into D1 and store no bar, so the nightly
+    derives the daily grid itself. Runs before the grid stage: a symbol's
+    fresh 1d rows are inputs the 15m/1h derivation wants present. --changed-
+    only means a clean night costs a digest comparison per symbol. No lane
+    guard file: the derivation owns its own changed-set scoping.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_DERIVATION_SCRIPT),
+            "--stage",
+            "daily",
+            "--changed-only",
+            "--apply",
+        ],
+        cwd=str(project_root),
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    return result.returncode
+
+
 def _run_grid_stage(exclude_file: Path) -> int:
     """Derive the 15m/1h grid for every symbol whose 5m changed (plan 12).
 
@@ -232,7 +257,7 @@ def _run_grid_stage(exclude_file: Path) -> int:
     result = subprocess.run(
         [
             sys.executable,
-            str(_GRID_SCRIPT),
+            str(_DERIVATION_SCRIPT),
             "--stage",
             "grid",
             "--changed-only",
@@ -293,6 +318,12 @@ def main() -> int:
         if returncode == EXIT_LEASE_TIMEOUT:
             lease_timeout_legs.append(leg.name)
             _emit_lease_timeout_fact(leg.name, settings)
+
+    # Plan 185-18 task 1b: the legs' 1d answers landed in D1; the daily stage
+    # derives the 1d grid for every symbol whose inputs changed. Runs before
+    # the grid stage, same no-skip reasoning: derived rows are exactly what a
+    # shortened fetch night still needs.
+    returncodes.append(_run_daily_stage())
 
     # Plan 12: the legs' 1h/15m landed in the archive as raw observations; the
     # grid stage derives 15m/1h from 5m for every symbol whose inputs changed.
