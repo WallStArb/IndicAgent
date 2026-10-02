@@ -27,3 +27,12 @@ Catch the fit failure inside `_walk_forward_hmm_full`, report the segment as deg
 reason `fit_failed` (status 4, `segment_status` already has an "other gate reason" code), and
 add a test on a constant close after a valid warmup. Check whether any live universe name has a
 constant 600-bar prefix before deciding it is worth doing before 186-25.
+
+## Measured (2026-10-02, against `market_data_ohlcv_tradeable`)
+
+No trigger exists in stored data: zero (symbol, tf) pairs have a constant close prefix reaching
+the first refit boundary (warmup 39,600 at 5m, 13,200 at 15m, 3,300 at 1h, 504 at 1d; per-symbol
+window query), and zero series are fully constant (min(close) = max(close) per symbol and tf).
+The exception is therefore unreachable on today's universe; the fix is hardening for the one-shot
+186-26 rebuild (where a raise loses a whole (symbol, tf) unit with no recorded reason), not a
+live defect. Cheap insurance if the executor has room; no evidence-based urgency.
