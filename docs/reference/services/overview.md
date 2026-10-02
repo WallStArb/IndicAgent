@@ -97,13 +97,12 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 
 ## IC / Alpha Pipeline (Batch — orchestrator-driven, not systemd units)
 
-The v3.0 alpha chain (`FeatureVectorWriter → forward_return_writer → ic_engine`; the old ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events tail was deleted in 186-19, per root `CLAUDE.md`) runs as sequential batch steps invoked by `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04).
+The v3.0 alpha chain (`FeatureVectorWriter → ic_measure`; the old ensemble_trainer/EnsembleICEngine → alpha_publisher → alpha_events tail was deleted in 186-19 and the old ic_engine, forward_return_writer and the `forward_returns` table in 186-23, per root `CLAUDE.md`) runs as sequential batch steps invoked by `scripts/ops/corpus/ops_corpus_pipeline_run.sh`, **not** as always-on or timer-triggered systemd units — no `production/systemd/indicagent-*.service` file exists for any of these (verified 2026-09-04; the `indicagent-ic-measure` oneshot unit is checked in but not deployed).
 
 | Step | File | Writes To |
 |------|------|-----------|
 | Regime Writer | `services/regime_writer.py` | `feature_vectors.regime*` |
-| Forward Return Writer | `services/forward_return_writer.py` | `forward_returns` |
-| IC Engine | `services/ic_engine.py` | `feature_ic_scores` |
+| IC Measure | `services/ic_measure.py` | `feature_ic_scores_v2` (kernel forward returns; the legacy `feature_ic_scores` is frozen until 186-28) |
 
 ## AI / LLM Tier (dormant, see root CLAUDE.md)
 

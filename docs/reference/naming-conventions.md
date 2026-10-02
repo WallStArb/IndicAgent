@@ -51,7 +51,7 @@ For the full spec — governing tests, taxonomy governance, ring architecture, a
 |----------|------|---------|----------|-------------------|
 | `FeatureFactory` | 1 | `PascalCase(concept)` — no suffix | `src/intelligence/feature_factory.py` | Pure function library, no daemon loop |
 | `FeatureCache` | 1 | `PascalCase(concept)` | `src/intelligence/feature_cache.py` | State container, not autonomous |
-| `ICEngine` | 2 | `PascalCase(concept)` + `Engine` | `services/ic_engine.py` | Batch compute service, autonomous |
+| `ICMeasure` | 2 | `PascalCase(concept)` + role suffix | `services/ic_measure.py` | Batch compute service, autonomous (the old `ICEngine`/`services/ic_engine.py` was deleted in phase 186 plan 23) |
 | `AlphaEngine` | 2 (plain role noun) | `PascalCase(concept)` | Architecture concept (not a class) | The overall IC + ensemble system, entirety of v3.0 Layer 1 (Prediction) |
 | `BaseBatch` | 0 | `Base` + `PascalCase(role)` | `src/core/agent/base_batch.py` | Infrastructure base for batch services |
 | `AlphaEventEmitter` | 2 | `PascalCase(concept)` + `Emitter` | `services/alpha_event_emitter.py` | Future Phase C daemon — not yet built |
