@@ -47,9 +47,11 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "TEMPORARY (1d): the historical backfill still writes provider 1d bars directly; "
-        "retired by plan 18's backfill rework. PERMANENT (5m, 1m): raw provider "
-        "observations the derivation never rewrites (D-15). Since plan 12 this "
-        "pipeline writes NO 15m/1h here: they are archive-bound raw observations "
+        "retired by plan 18's task 1b. PERMANENT (5m, 1m): raw provider "
+        "observations the derivation never rewrites (D-15); since plan 185-18 task 1a "
+        "they are real-bars-only (todo 462) -- no synthetic fill reaches the table at "
+        "5m or 1m, and 5m chunks commit through the atomic persist helper. Since plan "
+        "12 this pipeline writes NO 15m/1h here: they are archive-bound raw observations "
         "routed through services/intraday_raw_archive.py into "
         "ohlcv_intraday_raw_archive, and the grid readers see is derived from 5m "
         "by services/bar_derivation.py (chained from the nightly)."

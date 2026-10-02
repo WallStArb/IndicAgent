@@ -774,10 +774,10 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_answered_window_slots_are_not_gaps(self):
-        from scripts.infrastructure.backfill._request_coverage import AnsweredWindows
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             detect_gaps,
         )
+        from src.intelligence.bars.gap_plan import AnsweredWindows
 
         slots = [datetime(2026, 1, 2, h, 0, tzinfo=UTC) for h in range(15, 19)]
         # 15:00 stored; the provider answered [16:00, 18:00) with nothing for 16:00 and 17:00.
@@ -1046,8 +1046,7 @@ class TestArchiveGridRouting:
         )
 
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".generate_session_slots",
+            "src.intelligence.bars.gap_plan.generate_session_slots",
             return_value=["slots"],
         ) as mock_slots:
             result = expected_grid_slots(
@@ -1152,15 +1151,45 @@ class TestArchiveGridRouting:
         assert mock_insert.call_count == 1
 
     def test_real_bars_only_for_grid_tfs(self):
-        """15m/1h are archive-bound raw observations for every asset class (no
-        synthetic fill anywhere on their path); 5m keeps the flag semantics."""
+        """Plan 185-18: 5m and 1m join the archive timeframes as real-bars-only
+        for every asset class (no synthetic fill reaches market_data_ohlcv from
+        this pipeline at those timeframes); 1d and 4h keep the placeholder path
+        until phase 185 D2 / the futures rework."""
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             real_bars_only_for,
         )
-        from src.core.models import AssetClass
 
-        assert real_bars_only_for("1h", False, AssetClass.EQUITY) is True
-        assert real_bars_only_for("15m", False, AssetClass.FUTURES) is True
-        assert real_bars_only_for("5m", True, AssetClass.EQUITY) is True
-        assert real_bars_only_for("5m", False, AssetClass.EQUITY) is False
-        assert real_bars_only_for("1d", True, AssetClass.EQUITY) is False
+        for tf in ("5m", "1m", "15m", "1h"):
+            assert real_bars_only_for(tf) is True
+        assert real_bars_only_for("1d") is False
+        assert real_bars_only_for("4h") is False
+
+
+def test_the_interim_flag_and_module_are_gone():
+    """Plan 185-18 task 1a acceptance, CI-enforced: no --real-bars-only flag and
+    no _request_coverage reference survive in the pipeline, and the interim
+    module and its test are deleted (AnsweredWindows lives in gap_plan.py)."""
+    source = Path(
+        "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
+    ).read_text()
+    assert "real-bars-only" not in source
+    assert "_request_coverage" not in source
+    assert not Path("scripts/infrastructure/backfill/_request_coverage.py").exists()
+    assert not Path("tests/unit/scripts/test_request_coverage.py").exists()
+
+
+def test_run_normalize_refuses_real_bars_timeframes(capsys):
+    """The normalization pass fills only placeholder-path timeframes: a synthetic
+    fill at 5m/1m (or the archive-bound 15m/1h) would violate the real-bars rule
+    (todo 462) or corrupt the derived grid."""
+    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        run_normalize,
+    )
+
+    instrument = MagicMock()
+    instrument.symbol = "SPY"
+    for tf in ("5m", "1m", "15m", "1h"):
+        run_normalize(MagicMock(), [instrument], [tf])
+        out = capsys.readouterr().out
+        assert "refuses synthetic fill" in out
+        assert "already canonical" not in out

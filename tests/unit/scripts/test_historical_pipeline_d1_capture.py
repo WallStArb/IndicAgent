@@ -230,6 +230,7 @@ def driven_main(monkeypatch, capsys):
         sink: FakeSink | None = None,
         provider_cls=None,
         acquire_raises: Exception | None = None,
+        tf_config: dict | None = None,
     ):
         symbols = symbols or ["AAA", "BBB", "CCC"]
         lease = lease or FakeLease()
@@ -273,7 +274,9 @@ def driven_main(monkeypatch, capsys):
         )
         monkeypatch.setattr(mod, "_reorder_contracts_by_gap", lambda contracts, s, t: contracts)
         monkeypatch.setattr(
-            mod, "_load_tf_fetch_config", lambda s: {"1d": (10, False), "15m": (10, False)}
+            mod,
+            "_load_tf_fetch_config",
+            lambda s: tf_config or {"1d": (10, False), "15m": (10, False)},
         )
         for name in _NO_OP_LOADERS:
             monkeypatch.setattr(mod, name, lambda *a, **k: None)
@@ -303,6 +306,21 @@ def driven_main(monkeypatch, capsys):
             lambda conn, symbol, tf, start, end, **k: (
                 gap_calls.append((symbol, tf, k.get("answered")))
                 or [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC))]
+            ),
+        )
+        record_calls: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            mod,
+            "expected_grid_slots",
+            lambda session_id, exchange, tf, start, end: [datetime(2024, 1, 2, tzinfo=UTC)],
+        )
+        monkeypatch.setattr(
+            mod,
+            "detect_gaps_from_record",
+            lambda conn, symbol, tf, start, end, expected_slots, **k: (
+                record_calls.append((symbol, tf))
+                # End-exclusive: asks through the last missing slot's own end.
+                or [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, 0, 15, tzinfo=UTC))]
             ),
         )
         monkeypatch.setattr(
@@ -362,6 +380,7 @@ def driven_main(monkeypatch, capsys):
             stored=stored,
             atomic_calls=atomic_calls,
             gap_calls=gap_calls,
+            record_calls=record_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
         )
@@ -429,9 +448,11 @@ def test_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(driven_m
     answered-request coverage); 1d keeps the placeholder path until phase 185 D2."""
     result = driven_main(_BASE_ARGS)
     assert sorted(result.normalized) == [(symbol, "1d") for symbol in ("AAA", "BBB", "CCC")]
+    # 15m plans its gaps from the record (coverage read inside the wrapper); 1d
+    # stays on legacy detect_gaps with no answered windows.
+    assert sorted(result.record_calls) == [(symbol, "15m") for symbol in ("AAA", "BBB", "CCC")]
     answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
     for symbol in ("AAA", "BBB", "CCC"):
-        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
         assert answered[(symbol, "1d")] is None
     destinations = {(symbol, tf): dest for symbol, tf, dest in result.stored}
     for symbol in ("AAA", "BBB", "CCC"):
@@ -439,29 +460,46 @@ def test_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(driven_m
         assert destinations[(symbol, "1d")] == "market_data_ohlcv"
 
 
-def test_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
-    result = driven_main([*_BASE_ARGS, "--real-bars-only"])
+def test_real_bars_by_default_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
+    """Plan 185-18: the interim --real-bars-only flag is gone; real bars at the
+    record-planner timeframes are the default."""
+    result = driven_main(_BASE_ARGS)
     assert result.exit_code is None
     # 15m is stored as the provider returned it; 1d still goes through the fill (phase 185 D2).
     assert sorted(result.normalized) == [("AAA", "1d"), ("BBB", "1d"), ("CCC", "1d")]
-    answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
-    for symbol in ("AAA", "BBB", "CCC"):
-        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
-        assert answered[(symbol, "1d")] is None
+    assert sorted(result.record_calls) == [(symbol, "15m") for symbol in ("AAA", "BBB", "CCC")]
     # Every (symbol, tf) still completes: the store path reports the real bars it wrote.
     assert len(result.marked) == 6
 
 
+def test_5m_chunks_persist_atomically_into_the_grid(driven_main):
+    """Plan 185-18: 5m joins the archive timeframes on the atomic
+    request-and-bars persist, with the pipeline's own market_data_ohlcv insert
+    as the destination writer, and no synthetic fill anywhere on its path."""
+    result = driven_main(
+        ["--symbols", "AAA", "--timeframes", "5m", "--client-id", "47"],
+        tf_config={"5m": (10, False)},
+    )
+    assert result.exit_code is None
+    assert sorted(result.record_calls) == [("AAA", "5m")]
+    assert len(result.atomic_calls) == 1
+    call = result.atomic_calls[0]
+    assert call["writer"] is pipeline._insert_market_data_rows
+    assert call["bars"][0][1] == "AAA"
+    assert call["bars"][0][2] == "5m"
+    assert len(call["bars"][0]) == 9  # the grid row shape (no base column)
+    assert len(call["requests"]) == 1  # the chunk's answer committed with its bars
+    assert result.marked == [("AAA", "5m")]
+    # No fill: normalize_bars is never called at 5m.
+    assert result.normalized == []
+
+
 def test_15m_always_asks_through_the_last_slot_end(driven_main):
-    # The fake gap is (2024-01-01, 2024-01-15) at 15m: the last missing slot starts 2024-01-15.
-    # Since plan 12 15m is real-bars-only even without the flag, so the request
-    # runs through that slot's own end and the slot's bar can actually be asked for.
+    # The fake record-planned gap is (2024-01-01, 2024-01-15 00:15) at 15m:
+    # end-exclusive, so the request runs through the last missing slot's own end
+    # and the slot's bar can actually be asked for.
     default = driven_main(_BASE_ARGS)
     ends = {c["timeframe"]: c["end"] for c in default.provider.calls if c["symbol"] == "AAA"}
-    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)
-
-    real = driven_main([*_BASE_ARGS, "--real-bars-only"])
-    ends = {c["timeframe"]: c["end"] for c in real.provider.calls if c["symbol"] == "AAA"}
     assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)  # through the slot's own end
     assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)  # 1d stays on the placeholder path
 

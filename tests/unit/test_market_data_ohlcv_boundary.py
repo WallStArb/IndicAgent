@@ -69,11 +69,12 @@ _ALLOW_LIST: dict[str, str] = {
         "oversight -- migrating these to the tradeable view would break the idempotent "
         "re-run behavior the tool depends on."
     ),
-    "scripts/infrastructure/backfill/_request_coverage.py": (
-        "PERMANENT (todo 462): checks that a `bars` ohlcv_request answer has at least one stored "
-        "row in its window, so a failed bar insert never leaves a window that looks covered. It "
-        "must see every stored provider bar, zero-volume ones included, which the tradeable "
-        "view's WHERE volume > 0 filter would drop and turn into endless re-requests."
+    "scripts/infrastructure/backfill/_d1_gaps.py": (
+        "PERMANENT (todo 462, plan 185-18): reads stored slot timestamps for gap planning "
+        "(zero-volume provider bars count as covered, which the tradeable view's WHERE "
+        "volume > 0 filter would drop and turn into endless re-requests) and checks that a "
+        "`bars` ohlcv_request answer has at least one stored row in its window, so a failed "
+        "bar insert never leaves a window that looks covered."
     ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "PERMANENT (todo 462, plan 185-12): counts the synthetic_fill rows of a coarse timeframe "

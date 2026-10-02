@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from services.bar_derivation import BarDerivation
+from src.intelligence.bars import gap_plan
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
 from src.intelligence.bars.sources import GRID_RULE_VERSION, SOURCE_DERIVED_5M
 
@@ -557,3 +558,27 @@ def test_changed_only_selects_symbol_with_new_answered_window():
     )
     totals = _run(conn, changed_only=True)
     assert totals["derived"] == 1 and totals["unchanged"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 185-18 task 1a: the coverage rule is the shared planner's, not a local
+# copy (one definition of a missing bar for the fetcher, the derivation and the
+# auditor).
+# ---------------------------------------------------------------------------
+
+
+def test_coverage_rule_comes_from_the_shared_planner():
+    from services import bar_derivation
+
+    assert bar_derivation.AnsweredWindows is gap_plan.AnsweredWindows
+    assert set(bar_derivation.ANSWERED_OUTCOMES) == {"bars", "no_data"}
+
+
+def test_answered_windows_sql_parameterizes_the_route():
+    """route/what_to_show reach the query as parameters ($3/$4), so D-20's
+    every-configured-route-answered rule widens coverage without SQL edits."""
+    from services import bar_derivation
+
+    sql = bar_derivation._SELECT_ANSWERED_WINDOWS_SQL
+    assert "r.route = $3" in sql
+    assert "r.what_to_show = $4" in sql
