@@ -241,7 +241,7 @@ def _canonical_fixture_stored() -> dict[str, dict[date, dict]]:
 
 
 def _observations_fixture() -> dict[str, list[dict]]:
-    return _obs_rows({_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0})
+    return {"TEST": _obs_rows({_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0})}
 
 
 def _run(conn: FakeConn, **overrides: object):
@@ -305,7 +305,7 @@ def test_differing_close_and_missing_date_each_write_once():
     assert written_dates == [_D3, _D4]
     d3_row = next(r for r in conn.bar_write_rows if r[0].date() == _D3)
     assert d3_row[6] == 12.0 and d3_row[9] == "USD"
-    assert result["reasons"] == {"d1_value_differs": 1, "missing": 1}
+    assert result["reasons"] == {"d1_value_differs": 1, "missing": 1, "split_rescale": 0}
     assert len(conn.lineage_rows) == 4
 
 
@@ -331,10 +331,12 @@ def test_dry_run_writes_nothing_and_reports_reasons(tmp_path):
 
 def test_pre_split_flags_written_via_write_flags_shape():
     conn = FakeConn(
-        observations=_obs_rows(
-            {_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0},
-            fetched_at=datetime(2024, 6, 1, tzinfo=UTC),
-        ),
+        observations={
+            "TEST": _obs_rows(
+                {_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0},
+                fetched_at=datetime(2024, 6, 1, tzinfo=UTC),
+            )
+        },
         stored=_canonical_fixture_stored(),
         splits={
             "TEST": [
@@ -404,7 +406,7 @@ def test_venue_observations_gated_by_apr_flag():
         "legacy": False,
     }
     # SMART coverage starts at _D2, so venue_day is strictly pre-head.
-    observations = _obs_rows({_D2: 11.0, _D3: 12.0, _D4: 13.0})
+    observations = {"TEST": _obs_rows({_D2: 11.0, _D3: 12.0, _D4: 13.0})}
     observations["TEST"].append(venue_obs)
     stored = {
         "TEST": {
