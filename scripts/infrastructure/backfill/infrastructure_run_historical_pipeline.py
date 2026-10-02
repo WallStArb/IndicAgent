@@ -758,11 +758,21 @@ def _reorder_contracts_by_gap(
     each symbol's own deepest timeframe stands in for its true available history:
     shortfall = that proven depth minus a TF's actual depth. Young-ETF shortfalls
     collapse to ~0 (all TFs equally shallow); the 44-symbol 5m/15m split does not.
+
+    Depth sources (todo 449, 2026-10-01): archive-bound TFs (15m/1h) are read from
+    ohlcv_intraday_raw_archive, where the lane has written since 185-12; grid TFs keep
+    the tradeable view. The 1d depth joins the proven floor, so a name with no intraday
+    data anywhere still ranks by the history its own 1d series proves fetchable.
     """
     gap_tfs = [tf for tf in ("5m", "15m", "1h") if tf in timeframes]
     if not gap_tfs:
         return contracts
 
+    # Archive-bound TFs track their depth in the raw archive (185-12), not the grid, and a
+    # name with no intraday data anywhere scores 0 against a 0-day "proven" floor; its own
+    # 1d history stands in instead, so never-touched names rank by real available depth.
+    archive_tfs = [tf for tf in gap_tfs if tf in _ARCHIVE_TFS]
+    grid_tfs = [tf for tf in gap_tfs if tf not in _ARCHIVE_TFS]
     tf_fetch_config = _load_tf_fetch_config(settings)
     now = datetime.now(UTC)
     gaps: dict[str, float] = {}
@@ -770,16 +780,30 @@ def _reorder_contracts_by_gap(
         conn = connect_db(settings)
         try:
             with conn.cursor() as cur:
-                # Tradeable view, not the raw table (todo 124) -- purely for clarity, not
-                # a behavior change: normalize_bars() never fabricates a synthetic fill
-                # before a symbol's first real bar (needs a prev_close to seed from), so
-                # min(timestamp) is identical either way.
+                rows = []
+                if archive_tfs:
+                    cur.execute(
+                        "SELECT symbol, timeframe, min(timestamp) FROM ohlcv_intraday_raw_archive "
+                        "WHERE timeframe = ANY(%s) GROUP BY symbol, timeframe",
+                        (archive_tfs,),
+                    )
+                    rows += cur.fetchall()
+                if grid_tfs:
+                    # Tradeable view, not the raw table (todo 124) -- purely for clarity, not
+                    # a behavior change: normalize_bars() never fabricates a synthetic fill
+                    # before a symbol's first real bar (needs a prev_close to seed from), so
+                    # min(timestamp) is identical either way.
+                    cur.execute(
+                        "SELECT symbol, timeframe, min(timestamp) FROM market_data_ohlcv_tradeable "
+                        "WHERE timeframe = ANY(%s) GROUP BY symbol, timeframe",
+                        (grid_tfs,),
+                    )
+                    rows += cur.fetchall()
                 cur.execute(
-                    "SELECT symbol, timeframe, min(timestamp) FROM market_data_ohlcv_tradeable "
-                    "WHERE timeframe = ANY(%s) GROUP BY symbol, timeframe",
-                    (gap_tfs,),
+                    "SELECT symbol, min(timestamp) FROM market_data_ohlcv_tradeable "
+                    "WHERE timeframe = '1d' GROUP BY symbol"
                 )
-                rows = cur.fetchall()
+                rows += [(r[0], "1d", r[1]) for r in cur.fetchall()]
         finally:
             conn.close()
         earliest: dict[tuple[str, str], datetime] = {(r[0], r[1]): r[2] for r in rows}
@@ -788,7 +812,10 @@ def _reorder_contracts_by_gap(
             for tf in gap_tfs:
                 actual = earliest.get((c.symbol, tf))
                 actual_days[tf] = (now - actual).days if actual else 0
-            proven_days = max(actual_days.values())
+            first_1d = earliest.get((c.symbol, "1d"))
+            proven_days = max(
+                list(actual_days.values()) + [(now - first_1d).days if first_1d else 0]
+            )
             gap_days = 0.0
             for tf in gap_tfs:
                 target_days = tf_fetch_config.get(tf, (0, False))[0]

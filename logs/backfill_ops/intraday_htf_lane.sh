@@ -10,7 +10,10 @@
 # "Backfill complete." and skipped no symbol: the script exits 0 even when a reconnect failure
 # skipped names outright, so the skip lines are checked here.
 #
-# Heartbeat: the lane's own 15m+1h row count, so one lane's stall is not masked by another's writes.
+# Heartbeat: the lane's run-log mtime (one line per stored window; the fetch runs python -u, so
+# lines land as printed). 15m/1h are archive-bound (_ARCHIVE_TFS in the pipeline), so the old grid
+# row count never moved and the watchdog false-killed every attempt at the threshold; an archive
+# row count would not be attributable either (the D-15 grid batch writes the same timeframes).
 # STALL_THRESHOLD_SEC covers a worst-case chunk (rate-limiter wait + 3 timed-out retries with
 # backoff, ~1065s, see backfill_retry_loop.sh).
 set -u
@@ -41,25 +44,19 @@ except Exception:
 " 2>/dev/null
 }
 
-lane_bar_count() {
-  PGPASSWORD=postgres psql -tA -U postgres -h localhost -d indicagent -c \
-    "SELECT count(*) FROM market_data_ohlcv WHERE timeframe IN ('15m', '1h')
-     AND symbol = ANY(string_to_array('$SYMBOLS', ','))" 2>/dev/null
-}
-
 watchdog() {
-  local fetch_pid="$1" watchdog_log="$2" last_count="" last_change_ts
+  local fetch_pid="$1" watchdog_log="$2" run_log="$3" last_mtime="" last_change_ts
   last_change_ts=$(date +%s)
   while kill -0 "$fetch_pid" 2>/dev/null; do
     sleep "$STALL_POLL_INTERVAL_SEC"
     kill -0 "$fetch_pid" 2>/dev/null || break
-    local current_count now
-    current_count=$(lane_bar_count)
+    local current_mtime now
+    current_mtime=$(stat -c %Y "$run_log" 2>/dev/null)
     now=$(date +%s)
-    [ -z "$current_count" ] && continue
-    echo "$(date -u +%FT%TZ) count=$current_count" >> "$watchdog_log"
-    if [ "$current_count" != "$last_count" ]; then
-      last_count="$current_count"
+    [ -z "$current_mtime" ] && continue
+    echo "$(date -u +%FT%TZ) run_log_mtime=$current_mtime" >> "$watchdog_log"
+    if [ "$current_mtime" != "$last_mtime" ]; then
+      last_mtime="$current_mtime"
       last_change_ts=$now
     elif [ $((now - last_change_ts)) -ge "$STALL_THRESHOLD_SEC" ]; then
       echo "$(date -u +%FT%TZ) WATCHDOG_STALL_DETECTED killing pid $fetch_pid" >> "$watchdog_log"
@@ -91,7 +88,7 @@ for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
     --dimension backfill --timeframes 1h,15m --real-bars-only --client-id "$CLIENT_ID" --symbols "$SYMBOLS" \
     > "$RUN_LOG" 2>&1 &
   FETCH_PID=$!
-  watchdog "$FETCH_PID" "$WATCHDOG_LOG" &
+  watchdog "$FETCH_PID" "$WATCHDOG_LOG" "$RUN_LOG" &
   WATCHDOG_PID=$!
   wait "$FETCH_PID"
   rc=$?
