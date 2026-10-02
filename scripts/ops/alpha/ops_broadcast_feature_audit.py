@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -105,10 +106,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 import asyncpg
 import numpy as np
 
-from services.ic_engine import _FEATURE_NAMES
 from src.config.config_service import ConfigService
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts
+from src.intelligence.schemas import FeatureVector
+
+# Feature columns of feature_vectors, in schema order (the deleted ic_engine's
+# _FEATURE_NAMES was exactly this list; phase 186 plan 23 cut the import).
+_FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
 
 _TFS = ("5m", "15m", "1h", "1d")
 _DEFAULT_N_TIMESTAMPS = 20

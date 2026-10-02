@@ -2,8 +2,9 @@
 #
 # ops_corpus_pipeline_run.sh — v3.0 corpus pipeline orchestrator
 #
-# Runs feature_factory → regime_writer → forward_return_writer → cross_sectional_regime_model →
-# ic_engine → feature_lifecycle sequence for corpus generation.
+# Runs feature_factory → regime_writer → cross_sectional_regime_model → ic_measure +
+# feature_lifecycle sequence for corpus generation (phase 186 plan 23 renumbering; the
+# old forward_return_writer step and the ic_engine step are gone).
 # Use for initial population or incremental updates.
 # Requires market_data_ohlcv populated and Redpanda + TimescaleDB running.
 #
@@ -75,7 +76,7 @@ banner() {
     local status=$3
     echo
     echo "======================================"
-    printf " Step %d/5 — %s\n" "$step" "$name"
+    printf " Step %d/4 — %s\n" "$step" "$name"
     echo " Status: $status"
     echo " $(date)"
     echo "======================================"
@@ -89,7 +90,7 @@ elapsed_since() {
 }
 
 check_regime_consistency() {
-    if (( FROM_STEP > 5 )); then
+    if (( FROM_STEP > 4 )); then
         return 0
     fi
 
@@ -142,11 +143,11 @@ check_regime_consistency() {
 }
 
 check_canary_integrity() {
-    # Skip once resuming from a step past the last one (5 is the final step) --
+    # Skip once resuming from a step past the last one (4 is the final step) --
     # mirrors check_regime_consistency's pattern: if we're resuming that far
-    # into a run, ic_engine (5, this check's dependency) already completed in a
+    # into a run, ic_measure (4, this check's dependency) already completed in a
     # prior invocation and this gate already evaluated its output then.
-    if (( FROM_STEP > 5 )); then
+    if (( FROM_STEP > 4 )); then
         return 0
     fi
 
@@ -226,7 +227,7 @@ if [[ -n "$SYMBOLS_FLAG" ]]; then
     FF_SYMBOLS=(--symbols "$SYMBOLS_FLAG")
 fi
 
-# regime_writer / forward_return_writer / ic_engine: --symbols SPY TLT  (space-sep, nargs=*)
+# regime_writer / ic_measure: --symbols SPY TLT  (space-sep, nargs=*)
 SPACE_SYMBOLS=()
 if [[ -n "$SYMBOLS_FLAG" ]]; then
     IFS=',' read -ra _syms <<< "$SYMBOLS_FLAG"
@@ -250,8 +251,9 @@ run_step 1 "feature_factory" \
     "${FF_SYMBOLS[@]}"
 
 # Capture freeze point after step 1 — always executed so --from-step N resumes still lock it.
-# This value is passed explicitly to forward_return_writer and ic_engine to stabilize PKs
-# across multi-run builds (avoids training_window_end drift if new bars arrive mid-pipeline).
+# Displayed for the operator and used by feature_lifecycle (step 4); ic_measure derives its
+# own window internally and enforces alpha.validation.oos_start itself (D-19 write gate), so
+# the freeze point is no longer handed to the IC step.
 #
 # OOS holdout enforcement (alpha.validation.oos_start): TRAINING_WINDOW_END must never cross
 # the pre-committed OOS boundary, or training/IC/ensemble would see held-out data — the exact
@@ -306,8 +308,8 @@ run_step 2 "regime_writer" \
 # One regime_writer.py invocation writes exactly one column family (--regime-column
 # defaults to "regime"; "regime_volatility" is a second, separate pass) -- this
 # script previously only ran the legacy-family pass, which left
-# feature_vectors.regime_volatility all-NULL going into step 5. ic_engine.py's
-# startup gate hard-fails on that ("IC Engine startup gate FAILED:
+# feature_vectors.regime_volatility all-NULL going into the IC step. The old
+# ic_engine startup gate hard-failed on that ("IC Engine startup gate FAILED:
 # feature_vectors.regime_volatility is all-NULL") -- found 2026-08-12 reading the
 # gate before launching a full-corpus run, previously undocumented (see todo 285).
 # Reuses step number 2 (not a new numbered step) so --from-step semantics and
@@ -320,41 +322,38 @@ run_step 2 "regime_writer_volatility" \
 # Corpus consistency gate — abort if symbols have divergent regime label sets
 check_regime_consistency
 
-# Step 3 — Forward Return Writer (feature_vectors → forward_returns)
-# forward_returns must be truncated and re-run after the ET session-boundary fix
-# (complete_{scale} flags changed for intraday TFs — 5m, 15m, 1h).
-run_step 3 "forward_return_writer" \
-    "$PYTHON" services/forward_return_writer.py \
-    "${SPACE_SYMBOLS[@]}" \
-    --training-window-end "$TRAINING_WINDOW_END"
-
-# Step 4 — Cross-Sectional Regime Model (market_data_ohlcv → market_regimes, one
+# Step 3 — Cross-Sectional Regime Model (market_data_ohlcv → market_regimes, one
 # cross-sectional regime label per enabled alpha.regime.groups entry — equity via
 # breadth_vol, rates via curve_credit; commodity/fx ship disabled). Generalizes the
 # prior equity-only equity regime model (Phase 144; that module was deleted as dead
 # code once confirmed to have no callers and a write path broken against the current
 # schema — see todo 381).
 # Independent of feature_vectors/regime_writer — reads raw bars only — but must land
-# before ic_engine, whose startup gate FAILs immediately if market_regimes is empty
-# and alpha.regime.equity_model_enabled=true. No --symbols arg: always computes
+# before the IC step: the old ic_engine startup gate FAILed immediately if
+# market_regimes was empty and alpha.regime.equity_model_enabled=true, and ic_measure
+# reads market_regimes as its peer source. No --symbols arg: always computes
 # across the full active-instrument universe per TF.
-run_step 4 "cross_sectional_regime_model" \
+run_step 3 "cross_sectional_regime_model" \
     "$PYTHON" services/cross_sectional_regime_model.py
 
-# Step 5 — IC Engine (feature_vectors + forward_returns → feature_ic_scores)
-run_step 5 "ic_engine" \
-    "$PYTHON" services/ic_engine.py \
-    "${SPACE_SYMBOLS[@]}" \
-    --training-window-end "$TRAINING_WINDOW_END"
+# Step 4 — IC Measure (feature_vectors + market_regimes → feature_ic_scores_v2;
+# phase 186 D-17/D-22: the old ic_engine and the forward_returns table are deleted,
+# targets come from the panel.forward_returns kernel inside ic_measure). ic_measure
+# computes its own training window and enforces alpha.validation.oos_start itself
+# (D-19), so no --training-window-end hand-off. Default --jobs is
+# proposer,regime_volatility; default --tf covers every tf in alpha.ic_measure.horizons.
+run_step 4 "ic_measure" \
+    "$PYTHON" services/ic_measure.py \
+    "${SPACE_SYMBOLS[@]}"
 
 # Canary integrity gate — abort if a control feature proves the measurement
 # pipeline is broken (see check_canary_integrity() for the full rule).
 check_canary_integrity
 
-# Step 5 (cont.) — Feature Lifecycle (feature_ic_scores → concept_evaluation + concept_registry,
-# todo 402). Shares step 5 so --from-step 5 re-runs it with ic_engine. Governs
+# Step 4 (cont.) — Feature Lifecycle (feature_ic_scores → concept_evaluation + concept_registry,
+# todo 402). Shares step 4 so --from-step 4 re-runs it with ic_measure. Governs
 # feature status (a data-quality role) from this window's persisted IC.
-run_step 5 "feature_lifecycle" \
+run_step 4 "feature_lifecycle" \
     "$PYTHON" services/feature_lifecycle.py \
     --training-window-end "$TRAINING_WINDOW_END"
 

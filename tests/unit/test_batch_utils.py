@@ -35,7 +35,6 @@ from services._batch_utils import (
     _validate_compressed_hypertable,
     async_compressed_hypertable_write_session,
     async_compressed_hypertable_write_session_or_noop,
-    bars_to_scale_map,
     bulk_update_by_key,
     cfg,
     compressed_hypertable_write_session,
@@ -45,25 +44,6 @@ from services._batch_utils import (
     load_apr_dict_async,
     make_worker_pool,
 )
-
-
-class TestBarsToScaleMap:
-    def test_inverts_scale_to_bars(self) -> None:
-        result = bars_to_scale_map({"fast": 1, "mid": 6, "slow": 12, "extended": 39})
-        assert result == {1: "fast", 6: "mid", 12: "slow", 39: "extended"}
-
-    def test_raises_on_collision(self) -> None:
-        """Todo 211 part 2: this collision check was missing from two prior
-        independent reimplementations of this reverse-map (ops_ic_shrinkage.py,
-        ops_ic_null_calibration.py), which would silently drop a cell (last write
-        wins) instead of failing loudly -- CLAUDE.md: silent wrong answers are worse
-        than loud crashes."""
-        with pytest.raises(ValueError, match="collides"):
-            bars_to_scale_map({"fast": 5, "mid": 5})
-
-    def test_collision_error_includes_context_label(self) -> None:
-        with pytest.raises(ValueError, match="tf='1h'"):
-            bars_to_scale_map({"fast": 5, "mid": 5}, context="1h")
 
 
 class TestCfg:
@@ -169,12 +149,12 @@ class TestLoadAprDictAsync:
         conn = MagicMock()
         conn.fetch = AsyncMock(return_value=[])
 
-        await load_apr_dict_async(conn, extra_like_patterns=["infra.ensemble_ic_engine.%"])
+        await load_apr_dict_async(conn, extra_like_patterns=["infra.ic_measure.%"])
 
         args, _ = conn.fetch.call_args
         sql, params = args[0], args[1:]
         assert "config_key LIKE ANY($1::text[])" in sql
-        assert params == (["alpha.%", "infra.ensemble_ic_engine.%"],)
+        assert params == (["alpha.%", "infra.ic_measure.%"],)
 
     @pytest.mark.asyncio
     async def test_returns_key_value_dict_from_fetched_rows(self) -> None:

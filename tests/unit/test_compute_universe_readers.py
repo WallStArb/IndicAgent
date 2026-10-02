@@ -24,7 +24,6 @@ _REPO = Path(__file__).resolve().parents[2]
     ("rel_path", "call"),
     [
         ("services/tag_calibrator.py", "dimension_where_clause('compute')"),
-        ("services/ic_engine.py", "dimension_where_clause('compute', 'i')"),
     ],
 )
 def test_compute_universe_readers_use_the_shared_clause(rel_path, call):

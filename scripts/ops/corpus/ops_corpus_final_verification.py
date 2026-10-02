@@ -33,7 +33,7 @@ structlog.configure(
 
 _logger = structlog.get_logger(__name__)
 
-REQUIRED_STEPS = ["ic_engine"]
+REQUIRED_STEPS = ["ic_measure"]
 REQUIRED_TFS = ["5m", "15m", "1h", "1d"]
 
 

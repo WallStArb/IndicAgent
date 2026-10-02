@@ -17,9 +17,10 @@ Writing this test's existence check (below) against the live registry surfaced t
 independently-verified findings, each recorded in _MISSING_UNIT_ALLOWLIST with its own
 reason rather than silently fixed here (out of this test-authoring task's scope):
 
-  - Phase 138 IC-pipeline entries (regime-writer, forward-return-writer, ic-engine; the
-    Phase 142 ensemble-ic-engine, alpha-frame-writer and counterfactual-tracker entries were
-    deleted with their modules in phase 186 plan 19) have no systemd unit at
+  - Phase 138 IC-pipeline entries (regime-writer; the Phase 142 ensemble-ic-engine,
+    alpha-frame-writer and counterfactual-tracker entries were deleted with their modules
+    in phase 186 plan 19, and the forward-return-writer and ic-engine entries went with
+    their modules in phase 186 plan 23) have no systemd unit at
     all, live or checked-in -- confirmed via `systemctl list-units --all` (zero hits) and
     `scripts/ops/corpus/ops_corpus_pipeline_run.sh`'s header, which documents these as
     orchestrated by that shell script instead. PERMANENT, by design.
@@ -105,17 +106,9 @@ _MISSING_UNIT_ALLOWLIST: dict[str, str] = {
         "scripts/ops/corpus/ops_corpus_pipeline_run.sh, never deployed as a systemd unit by "
         "design -- confirmed zero hits in `systemctl list-units --all` (2026-07-31)."
     ),
-    "indicagent-forward-return-writer": (
-        "PERMANENT: same as indicagent-regime-writer above -- corpus-pipeline-script-only, "
-        "confirmed no live or checked-in systemd unit."
-    ),
-    "indicagent-ic-engine": (
-        "PERMANENT: same as indicagent-regime-writer above -- corpus-pipeline-script-only, "
-        "confirmed no live or checked-in systemd unit."
-    ),
     "indicagent-feature-lifecycle": (
         "PERMANENT: todo 402 oneshot, same corpus-pipeline-script-only pattern as "
-        "indicagent-ic-engine above -- takes the run's --training-window-end, so a static "
+        "indicagent-regime-writer above -- takes the run's --training-window-end, so a static "
         "unit has nothing to pass it."
     ),
 }

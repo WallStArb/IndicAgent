@@ -1,6 +1,5 @@
 expected_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:33)
 actual_ms  # unused variable (scripts/infrastructure/kafka/infrastructure_enforce_topic_retention.py:34)
-shapiro_stat  # unused variable (scripts/ops/alpha/ops_ic_null_calibration.py:319)
 _._demotion_streak  # unused attribute (services/alpha_swarm.py:95)
 _._last_reset  # unused attribute (services/bar_aggregator.py:99)
 _._last_reset  # unused attribute (services/bar_aggregator.py:121)
@@ -8,10 +7,6 @@ _._write_errors_attrs  # unused attribute (services/bar_writer.py:119)
 _._producer_client  # unused attribute (services/cross_asset_analyzer.py:185)
 _._live_quotes  # unused attribute (services/feature_vector_pipeline.py:186)
 _._feature_factory  # unused attribute (services/feature_vector_pipeline.py:208)
-attributes  # unused variable (services/ic_engine.py:418)
-min_observations  # unused variable (services/ic_engine.py:491)
-refresh_min_new_fraction  # unused variable (services/ic_engine.py:652)
-n_raw_bars  # unused variable (services/ic_engine.py:2644)
 CONSUMER_NAME  # unused variable (services/llm_writer.py:48)
 _._last_score_recompute  # unused attribute (services/llm_writer.py:414)
 _.i8_update_miss_total  # unused attribute (services/llm_writer.py:452)
@@ -908,7 +903,6 @@ SubscriptionManager  # unused class (src/providers/base.py:171)
 get_signals_edge_series  # unused function (src/api/routes/signals.py:664)
 _.recall_regime_history  # unused method (src/core/memory/client.py:284)
 _.get_lead  # unused method (src/intelligence/ai/context.py:381)
-_cross_sectional_vol_normalized_target  # unused function (services/ic_engine.py:3119)
 webhook_alertmanager  # unused function (services/self_healer.py:51)
 load_quality_floor  # unused function (src/intelligence/pipeline/quality_gate.py:49)
 _.run_forever  # unused method (src/monitoring/cusum_monitor.py:253)
@@ -1036,15 +1030,21 @@ equal_weight_arm  # unused function (src/intelligence/portfolio/weighting.py:113
 ic_proportional_arm  # unused function (src/intelligence/portfolio/weighting.py:127) - tested public API of portfolio weighting, same as standardize_scores
 mean_variance_arm  # unused function (src/intelligence/portfolio/weighting.py:146) - tested public API of portfolio weighting, same as standardize_scores
 portfolio_exposure_stats  # unused function (src/intelligence/portfolio/weighting.py:184) - tested public API of portfolio weighting, same as standardize_scores
-circular_block_bootstrap_ic_serial  # unused function (src/intelligence/statistics/ic_math.py:328) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
-causal_entity_expanding_mean  # unused function (src/intelligence/statistics/ic_math.py:621) - ic_math is in ic_engine's import closure (D-01); only caller was a script deleted by 186-16; 186-10/186-23 decide
+circular_block_bootstrap_ic_serial  # unused function (src/intelligence/statistics/ic_math.py:328) - tested public statistic; only caller was a script deleted by 186-16; ic_engine (last D-01 reason to edit ic_math) deleted by 186-23; ic_math stays untouched (research lane, D-02)
+causal_entity_expanding_mean  # unused function (src/intelligence/statistics/ic_math.py:621) - tested public statistic; only caller was a script deleted by 186-16; ic_engine (last D-01 reason to edit ic_math) deleted by 186-23; ic_math stays untouched (research lane, D-02)
 cross_asset_records  # unused function (src/intelligence/features/kernels/macro.py) - rebuilds the builder's dict from cross_asset_daily's outputs; tested; the rebuild writer (186-25) consumes it
 beta_records  # unused function (src/intelligence/features/kernels/macro.py) - rebuilds the beta builder's dict from factor_beta_daily's outputs; tested; the rebuild writer (186-25) consumes it
 daily_reference_grid  # unused function (src/intelligence/features/kernels/macro.py) - builds the daily-grid kernels' inputs from 1d bars; tested; the rebuild writer (186-25) consumes it
 _.ctf  # unused attribute (src/core/memory/writer.py:326) - payload field of the memory writer; a local variable named ctf in the CTF recompute script used to mask it until 186-15 removed that copy of the join
-_.itersize  # unused attribute (services/ic_engine.py:3420) - psycopg named-cursor fetch size, read by the driver; the other setters were deleted by 186-19; ic_engine is deleted whole by 186-23
 set_config_service  # unused function (src/intelligence/trading/*.py) - the CLAUDE.md module-level APR injection hook; its only caller was alpha_frame_writer, deleted by 186-19; the v2.x trading tier's fate is todo 223
 feature_to_group  # unused variable (scripts/research/determinism/results.py:40) - snapshot dataclass field, round-tripped by snapshot_io and tests; its only reader was ops_ic_shrinkage, deleted by 186-21; the research lane owns the file (D-02)
-fisher_z_difference_p  # unused function (src/intelligence/statistics/ic_math.py:507) - tested public statistic; its only caller was ops_ensemble_ablation, deleted by 186-21; ic_math is in ic_engine's import closure (D-01), 186-10/186-23 decide
-ensure_success_for  # unused method (src/observability/corpus_manifest.py:163) - tested shared prerequisite-gate primitive; its only caller was ops_ensemble_ablation, deleted by 186-21; fate with the corpus manifest (186-23)
+fisher_z_difference_p  # unused function (src/intelligence/statistics/ic_math.py:507) - tested public statistic; its only caller was ops_ensemble_ablation, deleted by 186-21; ic_math stays untouched after 186-23 (research lane, D-02)
+ensure_success_for  # unused method (src/observability/corpus_manifest.py:163) - tested shared prerequisite-gate primitive; its only caller was ops_ensemble_ablation, deleted by 186-21; corpus_manifest survives 186-23 (the manifest system stays with ic_measure's pipeline)
 record_comparison_outcome  # unused method (src/intelligence/concept_registry_service.py:349) - tested concept-status transaction; its only caller was ops_ensemble_weight_compare, deleted by 186-21; the UCR spec keeps its semantics, fate with the registry service
+content_key  # unused method (src/core/agent/base_batch.py:119) - static SHA-256 content-key utility; its only caller was ic_engine, deleted by 186-23; kept on BaseBatch for the 186-25/26 rebuild writer's fingerprinting
+canonicalize_active_scales  # unused function (services/_batch_utils.py) - tested normalizer behind alpha.ic.active_scales.{tf}; its production readers (ic_engine, forward_return_writer) were deleted by 186-19/186-23; the keys and the verifier's Check-3 contract stay until 186-28 drops the legacy table
+ACTIVE_SCALES_FALLBACKS_BY_TF  # unused variable (services/_batch_utils.py) - fallback mirror behind alpha.ic.active_scales.{tf}; same disposition as canonicalize_active_scales (readers deleted by 186-19/186-23; src/observability/corpus_manifest_verifier.py mirrors it by value)
+append_row  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - disk-backed cell accumulator; only caller was ic_engine's memmap path, deleted by 186-23; kept for the 186-25/26 rebuild writer's disk-headroom option
+append_chunk  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
+finalize  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
+window_minutes  # unused parameter (src/intelligence/statistics/price_sanity.py:171) - optional kwarg of count_corroborating_symbols_batch; its only passing caller was forward_return_writer, deleted by 186-23; the statistics dir is frozen for this plan (determinism rules), live callers (bar_auditor, ops_known_corrupt_print_cleanup) use the default
