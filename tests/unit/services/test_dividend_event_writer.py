@@ -5,14 +5,21 @@ factor that multiplies in (1 - amount / prior close) for every ex-date after the
 rounded to the cent.
 """
 
+import asyncio
+import json
+import uuid
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+import services.dividend_event_writer as dividend_event_writer
 from services.dividend_event_writer import (
+    SOURCE_IBKR,
     Derivation,
     DividendEvent,
+    d1_close_series,
     derive_ibkr_events,
     derive_yahoo_events,
     disagreeing_yields,
@@ -20,6 +27,7 @@ from services.dividend_event_writer import (
     reconcile,
     vanished_ex_dates,
 )
+from src.core.models import AssetClass
 from src.intelligence.research.dividends import DisputeRule
 
 MARGIN = 1.25
@@ -229,3 +237,284 @@ def test_a_disagreement_inside_ibkr_rounding_is_not_reported():
         {D: yahoo_y * 1.15}, {D: yahoo_y}, None, None, 5, RULE, pc
     ).yield_disagreements
     assert reconcile({D: yahoo_y * 1.6}, {D: yahoo_y}, None, None, 5, RULE, pc).yield_disagreements
+
+
+# ---------------------------------------------------------------------------
+# D1 route (phase 185 plan 21): the IBKR branch reads the paired TRADES and
+# ADJUSTED_LAST closes ohlcv_observation holds for one fetch_run_id instead of
+# fetching them, and near misses become dividend_date_dispute rows inside the
+# per-symbol transaction instead of rolling the symbol back.
+# ---------------------------------------------------------------------------
+
+_RUN = uuid.UUID("33333333-3333-3333-3333-333333333333")
+_RUN_OTHER = uuid.UUID("44444444-4444-4444-4444-444444444444")
+_START = date(2010, 1, 4)
+
+
+def _d1_fixture(closes, dividends):
+    """(TRADES, ADJUSTED_LAST) D1 row lists for _RUN, built from _series output."""
+    rows = _series(closes, dividends)
+    return [(_RUN, d, c) for d, c, _ in rows], [(_RUN, d, a) for d, _, a in rows]
+
+
+def _equity(symbol):
+    return SimpleNamespace(symbol=symbol, asset_class=AssetClass.EQUITY)
+
+
+class FakeDividendConn:
+    """asyncpg.Connection-shaped fake over D1 rows and in-memory dividend stores.
+
+    Applies the same first-derivation-wins and ON CONFLICT DO NOTHING semantics
+    the live tables carry, so a test can assert what a run leaves behind.
+    """
+
+    def __init__(self, d1, latest_run=None):
+        self.d1 = d1  # symbol -> {(what_to_show, run_id): [(run_id, bar_date, close)]}
+        self.latest_run = latest_run
+        self.events = {}  # (symbol, source) -> {ex_date: (amount, prev_close)}
+        self.coverage = {}  # (symbol, source) -> (covered_from, covered_to)
+        self.disputes = []  # dividend_date_dispute rows as executemany received them
+        self.dispute_sql = ""
+
+    class _Txn:
+        def __init__(self, outer):
+            self.outer = outer
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def transaction(self):
+        return FakeDividendConn._Txn(self)
+
+    async def fetch(self, sql, *args):
+        if "config_state" in sql:
+            return [
+                {"config_key": "threshold.dividend_event.noise_margin", "config_value": "1.25"},
+                {"config_key": "threshold.dividend_event.stable_sessions", "config_value": "3"},
+                {"config_key": "threshold.dividend_event.ex_date_match_days", "config_value": "5"},
+                {
+                    "config_key": "threshold.dividend_event.source_yield_rel_tolerance",
+                    "config_value": "0.10",
+                },
+            ]
+        if "ohlcv_observation" in sql:
+            symbol, what_to_show, run_id = args
+            return self.d1.get(symbol, {}).get((what_to_show, run_id), [])
+        if "AS dividend_yield" in sql:  # _write: this source's stored events
+            symbol, source = args
+            return [
+                {"ex_date": ex, "dividend_yield": amount / prev_close}
+                for ex, (amount, prev_close) in sorted(
+                    self.events.get((symbol, source), {}).items()
+                )
+            ]
+        if " AS y" in sql:  # _reconcile: every stored event for the symbol
+            (symbol,) = args
+            return [
+                {
+                    "source": source,
+                    "ex_date": ex,
+                    "y": amount / prev_close,
+                    "prev_close": prev_close,
+                }
+                for (sym, source), events in sorted(self.events.items())
+                if sym == symbol
+                for ex, (amount, prev_close) in sorted(events.items())
+            ]
+        if "covered_from, covered_to FROM dividend_event_coverage" in sql:
+            (symbol,) = args
+            return [
+                {"source": source, "covered_from": lo, "covered_to": hi}
+                for (sym, source), (lo, hi) in sorted(self.coverage.items())
+                if sym == symbol
+            ]
+        raise AssertionError(f"unexpected fetch: {sql}")
+
+    async def fetchrow(self, sql, *args):
+        if "GROUP BY" in sql:  # _resolve_fetch_run: latest run with both series
+            return {"fetch_run_id": self.latest_run} if self.latest_run else None
+        if "dividend_event_coverage" in sql:  # _write: this source's stored span
+            span = self.coverage.get((args[0], args[1]))
+            return {"covered_from": span[0], "covered_to": span[1]} if span is not None else None
+        raise AssertionError(f"unexpected fetchrow: {sql}")
+
+    async def execute(self, sql, *args):
+        if "dividend_event_coverage" in sql:
+            symbol, source, lo, hi, _checked = args
+            old = self.coverage.get((symbol, source), (lo, hi))
+            self.coverage[(symbol, source)] = (min(old[0], lo), max(old[1], hi))
+            return "INSERT 0 1"
+        raise AssertionError(f"unexpected execute: {sql}")
+
+    async def executemany(self, sql, args_seq):
+        if "INSERT INTO dividend_events" in sql:
+            for symbol, ex_date, source, amount, prev_close, _version in args_seq:
+                self.events.setdefault((symbol, source), {}).setdefault(
+                    ex_date, (amount, prev_close)
+                )
+            return "INSERT 0 0"
+        if "dividend_date_dispute" in sql:
+            self.dispute_sql = sql
+            for symbol, first, last, dates_json, run_id in args_seq:
+                if not any(
+                    r[0] == symbol and r[1] == first and r[2] == last for r in self.disputes
+                ):
+                    self.disputes.append((symbol, first, last, dates_json, run_id))
+            return "INSERT 0 0"
+        raise AssertionError(f"unexpected executemany: {sql}")
+
+
+class FakePool:
+    def __init__(self, conn):
+        self.conn = conn
+
+    class _Acquire:
+        def __init__(self, conn):
+            self.conn = conn
+
+        async def __aenter__(self):
+            return self.conn
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def acquire(self):
+        return FakePool._Acquire(self.conn)
+
+
+def _run_writer(conn, instruments, sources=("ibkr",), fetch_run_id=_RUN):
+    writer = dividend_event_writer.DividendEventWriter(
+        "postgresql://unused",
+        None,
+        [dividend_event_writer._CLI_SOURCES[s] for s in sources],
+        fetch_run_id,
+        [i.symbol for i in instruments],
+    )
+    original = dividend_event_writer.get_active_contracts
+    dividend_event_writer.get_active_contracts = lambda settings, dimension: list(instruments)
+    try:
+        asyncio.run(writer.execute(FakePool(conn)))
+    finally:
+        dividend_event_writer.get_active_contracts = original
+
+
+def test_d1_close_series_pairs_one_run_and_refuses_mixing():
+    rows = [(_RUN, _START, 10.0), (_RUN, _START + timedelta(1), 11.0)]
+    assert d1_close_series(rows, _RUN) == {_START: 10.0, _START + timedelta(1): 11.0}
+    with pytest.raises(ValueError, match="another fetch run"):
+        d1_close_series([(_RUN, _START, 10.0), (_RUN_OTHER, _START + timedelta(1), 11.0)], _RUN)
+    with pytest.raises(ValueError, match="duplicate"):
+        d1_close_series([(_RUN, _START, 10.0), (_RUN, _START, 10.1)], _RUN)
+    with pytest.raises(ValueError, match="no observations"):
+        d1_close_series([], _RUN)
+
+
+@pytest.mark.parametrize(
+    "price,seed,dividends",
+    [
+        (470.0, 1, {60: 1.91, 123: 1.60, 186: 1.76, 249: 1.74, 312: 1.97}),  # JPM-shaped
+        (75.0, 7, {i: 0.38 for i in range(21, 480, 21)}),  # KO-shaped high yield
+        (25.0, 11, {i: 0.05 for i in range(10, 400, 5)}),  # XLU-shaped low price
+    ],
+)
+def test_d1_route_reproduces_the_interim_derivation(price, seed, dividends):
+    closes = _walk(520, price, seed=seed)
+    trades, adjusted = _d1_fixture(closes, dividends)
+    conn = FakeDividendConn({"JPM": {("TRADES", _RUN): trades, ("ADJUSTED_LAST", _RUN): adjusted}})
+    _run_writer(conn, [_equity("JPM")])
+    expected = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
+    stored = conn.events[("JPM", SOURCE_IBKR)]
+    assert sorted(stored) == [e.ex_date for e in expected.events]
+    for event in expected.events:
+        assert stored[event.ex_date] == (event.amount, event.prev_close)
+    assert conn.coverage[("JPM", SOURCE_IBKR)] == (expected.covered_from, expected.covered_to)
+
+
+def test_d1_route_nvr_2004_wander_derives_nothing():
+    rng = np.random.default_rng(3)
+    closes = _walk(500, 450.0, seed=3)
+    other = closes * (1 + rng.uniform(-0.003, 0.003, len(closes)))
+    rows = _series(closes, {})
+    conn = FakeDividendConn(
+        {
+            "NVR": {
+                ("TRADES", _RUN): [(_RUN, d, c) for d, c, _ in rows],
+                ("ADJUSTED_LAST", _RUN): [
+                    (_RUN, d, round(float(a), 2)) for (d, _, _), a in zip(rows, other, strict=True)
+                ],
+            }
+        }
+    )
+    _run_writer(conn, [_equity("NVR")])
+    assert conn.events[("NVR", SOURCE_IBKR)] == {}
+    assert conn.disputes == []
+
+
+def test_d1_route_refuses_series_from_two_fetch_runs():
+    closes = _walk(400, 470.0, seed=1)
+    trades, _adjusted_other_run = _d1_fixture(closes, {100: 1.90})
+    rows = _series(closes, {})
+    conn = FakeDividendConn(
+        {
+            "JPM": {
+                ("TRADES", _RUN): trades,
+                ("ADJUSTED_LAST", _RUN_OTHER): [(_RUN_OTHER, d, a) for d, _, a in rows],
+            }
+        }
+    )
+    with pytest.raises(RuntimeError, match="no ADJUSTED_LAST observations"):
+        _run_writer(conn, [_equity("JPM")])
+    assert conn.events == {} and conn.disputes == []
+
+
+def test_near_misses_record_disputes_and_keep_the_events():
+    closes = _walk(200, 470.0, seed=2)
+    dividends = {100: 1.90}
+    trades, adjusted = _d1_fixture(closes, dividends)
+    conn = FakeDividendConn({"JPM": {("TRADES", _RUN): trades, ("ADJUSTED_LAST", _RUN): adjusted}})
+    ibkr_ex = _START + timedelta(days=100)
+    yahoo_ex = ibkr_ex + timedelta(days=2)  # one dividend, two dates: a near miss
+    conn.events[("JPM", "yahoo")] = {yahoo_ex: (1.90, closes[99])}
+    conn.coverage[("JPM", "yahoo")] = (ibkr_ex - timedelta(days=150), ibkr_ex + timedelta(days=90))
+    _run_writer(conn, [_equity("JPM")])
+    assert sorted(conn.events[("JPM", SOURCE_IBKR)]) == [ibkr_ex]  # no rollback
+    assert conn.disputes == [
+        (
+            "JPM",
+            ibkr_ex,
+            yahoo_ex,
+            json.dumps(
+                {"ibkr_adjusted_last_ratio": ibkr_ex.isoformat(), "yahoo": yahoo_ex.isoformat()}
+            ),
+            _RUN,
+        )
+    ]
+    assert "ON CONFLICT DO NOTHING" in conn.dispute_sql
+
+
+def test_dispute_replay_on_a_rerun_writes_nothing_new():
+    closes = _walk(200, 470.0, seed=2)
+    trades, adjusted = _d1_fixture(closes, {100: 1.90})
+    conn = FakeDividendConn({"JPM": {("TRADES", _RUN): trades, ("ADJUSTED_LAST", _RUN): adjusted}})
+    ibkr_ex = _START + timedelta(days=100)
+    conn.events[("JPM", "yahoo")] = {ibkr_ex + timedelta(days=2): (1.90, closes[99])}
+    conn.coverage[("JPM", "yahoo")] = (ibkr_ex - timedelta(days=150), ibkr_ex + timedelta(days=90))
+    _run_writer(conn, [_equity("JPM")])
+    _run_writer(conn, [_equity("JPM")])  # the same dispute again on a rerun
+    assert len(conn.disputes) == 1
+
+
+def test_default_fetch_run_is_the_latest_paired_run():
+    closes = _walk(400, 470.0, seed=1)
+    dividends = {100: 1.90, 200: 1.60}
+    trades, adjusted = _d1_fixture(closes, dividends)
+    conn = FakeDividendConn(
+        {"JPM": {("TRADES", _RUN): trades, ("ADJUSTED_LAST", _RUN): adjusted}},
+        latest_run=_RUN,
+    )
+    _run_writer(conn, [_equity("JPM")], fetch_run_id=None)
+    expected = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
+    assert sorted(conn.events[("JPM", SOURCE_IBKR)]) == [e.ex_date for e in expected.events]
