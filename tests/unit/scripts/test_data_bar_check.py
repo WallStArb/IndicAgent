@@ -9,6 +9,7 @@ SQL and replays canned rows.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 
@@ -86,7 +87,7 @@ def test_scrub_condition_requires_fact_quarantined_keys_and_legacy_keys() -> Non
 def test_seam_condition_missing_fact_fails_and_actions_need_split_seam_coverage() -> None:
     assert not mod.seam_condition(
         fact_passed=False, actions=(), split_seam_bars={}, daily_batches=()
-    )
+    ).ok
 
     ok_empty = mod.seam_condition(
         fact_passed=True, actions=(), split_seam_bars={}, daily_batches=()
@@ -170,9 +171,13 @@ def test_summarize_exits_zero_only_when_every_condition_passes() -> None:
 
 
 class FakeCursor:
-    def __init__(self, replies: dict[str, object]) -> None:
-        self._replies = replies
-        self.statements: list[tuple[str, tuple]] = []
+    """Replies are per-marker queues: consecutive queries on the same tables
+    (the venue flag and the survivorship keys both read config_state) get
+    consecutive replies in execution order."""
+
+    def __init__(self, queues: dict[str, list[object]]) -> None:
+        self._queues = queues
+        self._next: object = None
 
     def __enter__(self):
         return self
@@ -181,15 +186,15 @@ class FakeCursor:
         return None
 
     def execute(self, sql: str, params: tuple | dict = ()) -> None:
-        self.statements.append((sql, params))
-        self._next = self._replies[_marker(sql)]
+        self._next = self._queues[_marker(sql)].pop(0)
 
     def fetchall(self):
         return self._next if isinstance(self._next, list) else []
 
     def fetchone(self):
-        rows = self._next if isinstance(self._next, list) else []
-        return rows[0] if rows else self._next
+        if isinstance(self._next, list):
+            return self._next[0] if self._next else None
+        return self._next
 
 
 def _marker(sql: str) -> str:
@@ -211,36 +216,46 @@ def _marker(sql: str) -> str:
     raise AssertionError(f"unexpected SQL in fake: {sql}")
 
 
-class FakeConn:
-    """Two cursors: first the fact/flag reads, then the plan-14 loaders see it too."""
+_SIX_KEYS = [
+    ("alpha.survivorship.delisting_return.nasdaq",),
+    ("alpha.survivorship.delisting_return.nyse_amex",),
+    ("alpha.survivorship.hazard.nasdaq_annual",),
+    ("alpha.survivorship.hazard.nyse_amex_annual",),
+    ("alpha.survivorship.haircut.small_cap_annual",),
+    ("alpha.survivorship.trading_days_per_year",),
+]
 
-    def __init__(self, replies: dict[str, object]) -> None:
-        self.replies = replies
+
+def _replies() -> dict[str, list[object]]:
+    return {
+        "integrity_monitor": [(True,), (True,)],  # scrub fact, then seam fact
+        "unnest": [(72,)],  # all fixture keys quarantined
+        "legacy_price_sanity_status": [(15,)],
+        "corporate_action": [[]],  # no seam-audit splits
+        "split_seam": [[]],
+        "bar_derivation_batch": [[]],  # no daily batches
+        "market_data_ohlcv_tradeable": [(0,)],  # no pre-move bars visible
+        "config_state": [("false",), list(_SIX_KEYS)],  # venue flag, then keys
+        "instruments": [(925, 931, 0)],  # covered, eligible, deactivated
+        "ohlcv_request": [[]],  # no stored requests
+    }
+
+
+class FakeConn:
+    def __init__(self, replies: dict[str, list[object]]) -> None:
+        self._queues = {marker: list(items) for marker, items in replies.items()}
 
     def cursor(self) -> FakeCursor:
-        return FakeCursor(self.replies)
+        return FakeCursor(self._queues)
 
 
 def test_main_prints_one_line_per_condition_and_exits_1_on_fail(monkeypatch, capsys) -> None:
-    conn_replies: dict[str, object] = {
-        "integrity_monitor": [(True,)],  # every fact present and passed
-        "unnest": [(72,)],  # all fixture keys quarantined
-        "legacy_price_sanity_status": [(15,)],
-        "corporate_action": [],  # no seam-audit splits
-        "split_seam": [],
-        "bar_derivation_batch": [],  # no daily batches
-        "market_data_ohlcv_tradeable": [(0,)],  # no pre-move bars visible
-        "config_state": [("false",)],
-        "instruments": [(925, 931, 0)],  # covered, eligible, deactivated
-        "ohlcv_request": [],  # no stored requests: every late name unresolved
-        "dividend_event_coverage": [],
-    }
-    conn = FakeConn(conn_replies)
+    conn = FakeConn(_replies())
     monkeypatch.setattr(mod, "_connect", lambda: _fake_ctx(conn))
     monkeypatch.setattr(mod, "_late_names", lambda conn: {"AMD": date(2015, 10, 1)})
     monkeypatch.setattr(mod, "_load_apr", lambda conn: {})
     monkeypatch.setattr(mod, "_total_return_importable", lambda: True)
-    monkeypatch.setattr(mod, "_FIXTURE_PATH", _FIXTURE)
+    monkeypatch.setattr(mod, "_FIXTURE_PATH", Path(_FIXTURE))
 
     with pytest.raises(SystemExit) as excinfo:
         mod.main()
@@ -248,31 +263,18 @@ def test_main_prints_one_line_per_condition_and_exits_1_on_fail(monkeypatch, cap
     lines = [line for line in capsys.readouterr().out.splitlines() if line[:4] in ("PASS", "FAIL")]
     assert len(lines) == 7  # one line per D-28 condition
     fails = [line for line in lines if line.startswith("FAIL")]
-    # The only failing condition is the unresolved late name.
+    # The only failing condition: no stored requests, so AMD stays unresolved.
     assert len(fails) == 1
     assert "unresolved" in fails[0]
 
 
 def test_main_exits_0_when_every_condition_holds(monkeypatch, capsys) -> None:
-    conn_replies: dict[str, object] = {
-        "integrity_monitor": [(True,)],
-        "unnest": [(72,)],
-        "legacy_price_sanity_status": [(15,)],
-        "corporate_action": [],
-        "split_seam": [],
-        "bar_derivation_batch": [],
-        "market_data_ohlcv_tradeable": [(0,)],
-        "config_state": [("false",)],
-        "instruments": [(925, 931, 0)],
-        "ohlcv_request": [],
-        "dividend_event_coverage": [],
-    }
-    conn = FakeConn(conn_replies)
+    conn = FakeConn(_replies())
     monkeypatch.setattr(mod, "_connect", lambda: _fake_ctx(conn))
     monkeypatch.setattr(mod, "_late_names", lambda conn: {})
     monkeypatch.setattr(mod, "_load_apr", lambda conn: {})
     monkeypatch.setattr(mod, "_total_return_importable", lambda: True)
-    monkeypatch.setattr(mod, "_FIXTURE_PATH", _FIXTURE)
+    monkeypatch.setattr(mod, "_FIXTURE_PATH", Path(_FIXTURE))
 
     with pytest.raises(SystemExit) as excinfo:
         mod.main()
