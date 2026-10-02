@@ -10,11 +10,12 @@ Per docs/plans/OOS-EVAL-PROTOCOL.md, this harness is DIAGNOSTIC ONLY. It is neve
 promotion gate — the authoritative OOS scorer is EnsembleICEngine (Phase 142A/144).
 
 Composes existing machinery rather than reimplementing it:
-  - forward_log_return() from services.forward_return_writer -- the canonical executable
-    return formula (CLAUDE.md Invariant 1: ln(open[T+N+1] / open[T+1])).
+  - forward_returns() from src.intelligence.research.panel -- the canonical executable
+    return kernel (CLAUDE.md Invariant 1: ln(open[T+N+1] / open[T+1]); the legacy
+    forward_returns table and its writer were deleted in phase 186 plan 23).
   - _vectorized_ic / _fisher_z_ci / _p_values_from_ic / _nan_to_none from
     src.intelligence.statistics.ic_math -- the same IC math used for in-sample
-    feature_ic_scores (also used by services.ic_engine and services.ensemble_ic_engine).
+    feature_ic_scores.
 
 Usage:
     python scripts/ops/corpus/ops_oos_holdout_eval.py
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import hashlib
 import json
 import sys
@@ -45,16 +47,27 @@ sys.path.insert(0, str(project_root))
 
 from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, load_apr_dict_async
 from services._batch_utils import cfg as _cfg
-from services.forward_return_writer import forward_log_return
-from services.ic_engine import _FEATURE_NAMES
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import format_iso_ts, setup_service_logging
+from src.intelligence.research.panel import forward_returns as _forward_returns_kernel
+from src.intelligence.schemas import FeatureVector
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
 )
+
+# Feature columns of feature_vectors, in schema order (the deleted ic_engine's
+# _FEATURE_NAMES was exactly this list; derived from the FeatureVector dataclass).
+_FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
+
+
+def forward_log_return(opens: np.ndarray, n: int) -> np.ndarray:
+    """The executable open-to-open target (CLAUDE.md Invariant 1), computed with the
+    panel kernel: y[T] = ln(open[T+n+1] / open[T+1]), NaN past the last complete row."""
+    return _forward_returns_kernel(opens, horizon=n)
+
 
 setup_service_logging("logs/oos_holdout_eval.log")
 

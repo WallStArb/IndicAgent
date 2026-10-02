@@ -23,8 +23,6 @@ echo "Current row counts:"
 psql -c "
 SELECT 'feature_vectors'    AS table_name, count(*) AS rows FROM feature_vectors
 UNION ALL
-SELECT 'forward_returns',   count(*) FROM forward_returns
-UNION ALL
 SELECT 'feature_ic_scores', count(*) FROM feature_ic_scores
 UNION ALL
 SELECT 'backfill_status',   count(*) FROM backfill_status
@@ -33,7 +31,7 @@ SELECT 'market_regimes',    count(*) FROM market_regimes
 ORDER BY table_name;"
 
 echo
-read -r -p "Truncate all five tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
+read -r -p "Truncate all four tables and re-seed backfill_status? This cannot be undone. [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Aborted."
     exit 0
@@ -43,7 +41,6 @@ echo
 echo "Truncating..."
 
 psql -c "TRUNCATE feature_ic_scores;" && echo "  - feature_ic_scores: done"
-psql -c "TRUNCATE forward_returns;"   && echo "  - forward_returns: done"
 psql -c "TRUNCATE market_regimes;"    && echo "  - market_regimes: done"
 psql -c "TRUNCATE feature_vectors;"   && echo "  - feature_vectors: done"
 psql -c "TRUNCATE backfill_status;"   && echo "  - backfill_status: done"
@@ -65,8 +62,6 @@ echo
 echo "Verifying..."
 psql -c "
 SELECT 'feature_vectors'    AS table_name, count(*) AS rows FROM feature_vectors
-UNION ALL
-SELECT 'forward_returns',   count(*) FROM forward_returns
 UNION ALL
 SELECT 'feature_ic_scores', count(*) FROM feature_ic_scores
 UNION ALL

@@ -40,15 +40,17 @@ _APR_DEFAULT_MIN_ROWS_PER_SYMBOL_REGIME = 9
 _APR_DEFAULT_MAX_NULL_RATE = 0.05
 _APR_DEFAULT_NULL_RATE_SAMPLE_SIZE = 10000
 
-# Todo 146: alpha.ic.lookahead.{tf}.{scale} is per-tf, not a single shared grid -- a bar
+# Todo 146: the per-tf lookahead grid is per-tf, not a single shared grid -- a bar
 # count means a different scale on different tfs (e.g. 5 is 15m's old slow AND part of
-# nothing consistent post-146). The old alpha.ic.lookaheads (plural) APR key this file
-# previously read was never actually seeded in any migration; every lookup silently used
-# the hardcoded fallback below, uniformly across all 4 tfs. This mirrors the Ring 2
-# services layer's LOOKAHEAD_FALLBACKS_BY_TF dict (services package, _batch_utils
-# module) BY VALUE, not by import -- src/observability/ is Ring 0 and must not import
-# the services layer, per this repo's pre-commit Ring 0 boundary check. Keep in sync
-# with that dict by hand if the grid ever changes.
+# nothing consistent post-146). This file previously read the alpha.ic.lookahead.{tf}.{scale}
+# APR keys, which retired with the old ic_engine stack (phase 186 plan 23, migration 431).
+# The hardcoded mirror below is the documented source of the expected grid: at retirement
+# it equaled the APR values bytewise (verified in 186-23 Task 1), so the conversion is
+# deliberate, not a silent fallback. It mirrors the Ring 2 services layer's
+# LOOKAHEAD_FALLBACKS_BY_TF dict (services package, _batch_utils module) BY VALUE, not by
+# import -- src/observability/ is Ring 0 and must not import the services layer, per this
+# repo's pre-commit Ring 0 boundary check. Keep in sync with that dict by hand if the grid
+# ever changes.
 _LOOKAHEAD_SCALES = ("fast", "mid", "slow", "extended")
 _APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
     "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
@@ -58,9 +60,9 @@ _APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
 }
 
 # Todo 208/per-tf-active-scale-set design (2026-07-30): alpha.ic.active_scales.{tf}
-# controls WHICH of the 4 scales ic_engine actually attempts per tf -- 1h excludes
-# slow/extended (0.000 measured forward_returns completeness under the same-session
-# gate). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
+# controls WHICH of the 4 scales the IC measurement attempts per tf -- 1h excludes
+# slow/extended (0.000 measured target completeness under the same-session gate that
+# todo 208 later removed). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
 # by import -- src/observability/ is Ring 0, see this file's Ring-0-boundary comment
 # above for _LOOKAHEAD_SCALES. Keep in sync with that dict by hand if it ever changes.
 _APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
@@ -80,16 +82,13 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
     """Load APR-controlled thresholds from config_state.
 
     Falls back to hardcoded defaults when keys are absent (e.g., before
-    migration adds them). Always returns a complete dict.
+    migration adds them). Always returns a complete dict. The per-tf lookahead
+    grid is not APR-backed anymore: the alpha.ic.lookahead.* keys retired with
+    the old ic_engine stack (phase 186 plan 23), so _APR_DEFAULT_LOOKAHEADS_BY_TF
+    above is the source (see its comment).
     """
-    lookahead_keys = [
-        f"alpha.ic.lookahead.{tf}.{scale}"
-        for tf in _APR_DEFAULT_LOOKAHEADS_BY_TF
-        for scale in _LOOKAHEAD_SCALES
-    ]
     active_scales_keys = [f"alpha.ic.active_scales.{tf}" for tf in _APR_DEFAULT_ACTIVE_SCALES_BY_TF]
     keys = [
-        *lookahead_keys,
         *active_scales_keys,
         _APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME,
         _APR_KEY_MAX_NULL_RATE,
@@ -123,11 +122,7 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         for scale, default in defaults_by_scale.items():
             if scale not in active_scales:
                 continue
-            raw = rows.get(f"alpha.ic.lookahead.{tf}.{scale}")
-            try:
-                bars.add(int(raw) if raw is not None else default)
-            except (ValueError, TypeError):
-                bars.add(default)
+            bars.add(int(default))
         lookaheads_by_tf[tf] = bars
 
     raw_min_rows = rows.get(_APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME)
@@ -360,19 +355,17 @@ class CorpusManifestVerifier:
 
     def print_recovery(self, failed_step: str | None = None, missing_items: Any = None) -> None:
         """Print clear recovery instructions for human execution."""
-        if failed_step == "ic_engine" and isinstance(missing_items, set):
+        if failed_step == "ic_measure" and isinstance(missing_items, set):
             print("\n" + "=" * 70)
             print("FAIL: Corpus incomplete - missing cross-sectional IC data")
             print("=" * 70)
             print(f"\nMissing TFs: {missing_items}")
             print("\nTo fix:")
-            print("  1. Re-run cross-sectional IC:")
-            print(
-                "     python services/ic_engine.py --cross-sectional-only --tf 5m 15m 1h "
-                "--training-window-end <ISO8601 UTC>"
-            )
+            print("  1. Re-run the IC measurement writer:")
+            print("     python services/ic_measure.py --tf 5m --tf 15m --tf 1h --tf 1d")
+            print("     (oneshot unit: systemctl start indicagent-ic-measure)")
             print("  2. Re-run verification:")
-            print("     python scripts/corpus_final_verification.py")
+            print("     python scripts/ops/corpus/ops_corpus_final_verification.py")
             print("\n" + "=" * 70)
         else:
             print("\nFAIL: Corpus verification failed - check logs for details")

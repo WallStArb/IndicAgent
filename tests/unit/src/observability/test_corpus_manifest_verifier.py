@@ -4,9 +4,12 @@ Todo 146 replaced the single global alpha.ic.lookahead.{scale} grid with a per-t
 alpha.ic.lookahead.{tf}.{scale} grid. This file's Check 3 (verify_data_quality) used to
 read a single global "expected lookaheads" set off a phantom alpha.ic.lookaheads
 (plural) APR key that was never actually seeded in any migration -- it always silently
-used the hardcoded [1, 5, 20, 60] fallback, applied uniformly to every tf. These tests
-cover the fix: per-tf expected lookaheads, read from the real 16 alpha.ic.lookahead.
-{tf}.{scale} keys, with no cross-tf leakage.
+used the hardcoded [1, 5, 20, 60] fallback, applied uniformly to every tf. Todo 146's
+fix read the real 16 alpha.ic.lookahead.{tf}.{scale} keys with no cross-tf leakage.
+Those keys retired with the old ic_engine stack (phase 186 plan 23), so the verifier's
+per-tf grid now comes from the by-value mirror _APR_DEFAULT_LOOKAHEADS_BY_TF (the
+documented source); the tests below prove the mirror is used per-tf and that stray
+rows for the retired keys cannot leak into the expected set.
 """
 
 from __future__ import annotations
@@ -60,9 +63,10 @@ class _FakeConn:
         return _FakeCursor(self._config_rows, self._fetch_results)
 
 
-def test_load_apr_values_reads_real_per_tf_keys_not_phantom_plural_key():
-    """The old code read alpha.ic.lookaheads (plural), a key never seeded by any
-    migration. The fix reads the real per-tf alpha.ic.lookahead.{tf}.{scale} keys."""
+def test_load_apr_values_uses_mirror_not_retired_keys():
+    """The alpha.ic.lookahead.{tf}.{scale} keys retired with the old ic_engine stack
+    (phase 186 plan 23). Stray config rows under those names must be ignored: the
+    per-tf mirror is the documented source, and a leftover row can never leak in."""
     conn = _FakeConn(
         config_rows=[
             ("alpha.ic.lookahead.5m.fast", "1"),
@@ -72,7 +76,7 @@ def test_load_apr_values_reads_real_per_tf_keys_not_phantom_plural_key():
         ]
     )
     apr = _load_apr_values(conn)
-    assert apr["lookaheads_by_tf"]["5m"] == {1, 6, 12, 39}
+    assert apr["lookaheads_by_tf"]["5m"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["5m"].values())
 
 
 def test_load_apr_values_falls_back_per_tf_when_keys_absent():
@@ -92,8 +96,9 @@ def test_load_apr_values_falls_back_per_tf_when_keys_absent():
     assert apr["lookaheads_by_tf"]["1h"] == {1, 2}
 
 
-def test_load_apr_values_partial_override_only_affects_that_tf():
-    """Overriding one tf's keys must not leak into another tf's expected set."""
+def test_load_apr_values_ignores_stray_rows_for_retired_keys_per_tf():
+    """A leftover row for a retired per-tf key (here 1d mid=99) must not leak into any
+    tf's expected set -- every tf's grid comes from the mirror alone."""
     conn = _FakeConn(
         config_rows=[
             ("alpha.ic.lookahead.1d.fast", "1"),
@@ -103,8 +108,9 @@ def test_load_apr_values_partial_override_only_affects_that_tf():
         ]
     )
     apr = _load_apr_values(conn)
-    assert 99 in apr["lookaheads_by_tf"]["1d"]
+    assert 99 not in apr["lookaheads_by_tf"]["1d"]
     assert 99 not in apr["lookaheads_by_tf"]["15m"]
+    assert apr["lookaheads_by_tf"]["1d"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["1d"].values())
     assert apr["lookaheads_by_tf"]["15m"] == set(_APR_DEFAULT_LOOKAHEADS_BY_TF["15m"].values())
 
 

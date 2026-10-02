@@ -7,7 +7,7 @@
 
 TimescaleDB handles most routine maintenance automatically (compression, retention). This doc covers what is automated, what requires manual intervention, and the scheduled cadence for health checks. Compressed-hypertable column type migrations follow a separate, mandatory pattern — see `docs/foundation/timescaledb-compressed-column-migration.md` (the `VACUUM` after recompress step) — this doc does not duplicate that content. Diagnosing a slow batch job against a hypertable (chunk count, compression status) follows `docs/foundation/performance-investigation-sop.md` — this doc covers scheduled/routine maintenance, not incident diagnosis.
 
-**v2.x/v3.0 note:** `intelligence_features`, `signal_events`, `trade_frames`, `trade_executions`, and the `signal_ledger` view are the v2.x Signal Ledger Architecture — **archived, no live consumer as of 2026-07-02** (per root `CLAUDE.md`), confirmed empty (0 rows, live-checked 2026-09-04). Their compression/retention jobs are still scheduled (harmless no-ops on empty tables) but the maintenance guidance below focuses on the live v3.0 tables: `market_data_ohlcv`, `feature_vectors`, `alpha_events`, `forward_returns`, `llm_calls`.
+**v2.x/v3.0 note:** `intelligence_features`, `signal_events`, `trade_frames`, `trade_executions`, and the `signal_ledger` view are the v2.x Signal Ledger Architecture — **archived, no live consumer as of 2026-07-02** (per root `CLAUDE.md`), confirmed empty (0 rows, live-checked 2026-09-04). Their compression/retention jobs are still scheduled (harmless no-ops on empty tables) but the maintenance guidance below focuses on the live v3.0 tables: `market_data_ohlcv`, `feature_vectors`, `alpha_events`, `llm_calls` (`forward_returns` was dropped by migration 430, phase 186 plan 23).
 
 ## Data Retention Philosophy
 
@@ -24,7 +24,6 @@ Live-verified 2026-09-04 (`timescaledb_information.jobs`/`hypertables`):
 | `market_data_ohlcv` | policy_compression (12h check) | **none — keep forever** | Ground truth; needed for feature re-derivation |
 | `feature_vectors` | policy_compression (12h check) | **none — keep forever** | The ML training dataset (298 primitives/bar, v3.0) |
 | `alpha_events` | policy_compression (12h check) | **none — keep forever** | Sole `AlphaPublisher` output; emission audit trail |
-| `forward_returns` | policy_compression (12h check) | **none — keep forever** | IC measurement inputs |
 | `llm_calls` | policy_compression (12h check) | **none — keep forever** | Model performance history |
 | `intelligence_features`, `signal_events`, `signal_lineage`, `signal_transform_log`, `alpha_multiplier_shadow`, `macro_features`, `ml_signal_training`, `config_history`, `remediation_ledger`, `dlq_events`, `service_health_events` | policy_compression (12h) | `policy_retention` (1 day, several of these) | Infra/audit tables or archived v2.x — 1-day retention is correct for these, not a violation of the "keep forever" rule |
 
@@ -196,7 +195,7 @@ Live-verified 2026-09-04 via `pg_class.reloptions` (tighter than Postgres defaul
 | `llm_calls` | 5% | 2% | |
 | `market_data_ohlcv` | 5% | 2% | |
 | `intelligence_features` | 1% | 0.5% (+ `vacuum_cost_delay=2`) | Archived v2.x, 0 rows — tuning is now moot but harmless |
-| `alpha_events`, `forward_returns` | *(none set — Postgres defaults)* | | Not yet tuned; candidates if vacuum lag shows up on these under live write load |
+| `alpha_events` | *(none set — Postgres defaults)* | | Not yet tuned; a candidate if vacuum lag shows up under live write load (`forward_returns` was dropped by migration 430, 186-23) |
 
 This ensures stats stay fresh as these tables grow rapidly during live market hours. `signal_ledger` is a view, not a table, so it carries no `reloptions` of its own — the row in a prior version of this doc was never valid.
 
@@ -236,7 +235,6 @@ Live-verified against `\dt`/`\dv` and row counts, 2026-09-04. v3.0 tables are th
 |-------|---------|-----------|--------|--------|
 | `feature_vectors` | 298 orthogonal feature primitives/bar (`FeatureVector`, `src/intelligence/schemas.py`) | Yes (85 chunks) | `FeatureVectorWriter`, every bar | **Live v3.0** — 106M+ rows |
 | `alpha_events` | Alpha emission events (sole writer: `AlphaPublisher`) | Yes (81 chunks) | Per qualifying ensemble score | **Live v3.0** — 70M+ rows |
-| `forward_returns` | Executable open-to-open forward returns for IC measurement | Yes (85 chunks) | `forward_return_writer` | **Live v3.0** — 103M+ rows |
 | `market_data_ohlcv` | Raw OHLCV cold storage (calendar grid; use `market_data_ohlcv_tradeable` view for compute/measurement — see root `CLAUDE.md`) | Yes (258 chunks) | Backfill + live ingestion | **Live v3.0** — 640M+ rows |
 | `llm_calls` | LLM audit log, outcome backfill | Yes (1 chunk) | Per LLM call | Low volume (39 rows) — I8 AI stack is dormant-pending-design, not actively firing |
 | `setup_performance` | Adaptive aggregator weights (v2.x plugin system) | No | Nightly (job) | Archived alongside I1-I7 |

@@ -11,7 +11,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, nullcontext
 from contextvars import ContextVar
@@ -1595,7 +1595,7 @@ async def load_apr_dict_async(conn: Any, extra_like_patterns: list[str] | None =
     APR keys via asyncpg into a raw {config_key: config_value} dict.
 
     conn: open asyncpg connection or pool-acquired connection.
-    extra_like_patterns: additional SQL LIKE patterns (e.g. "infra.ensemble_ic_engine.%"),
+    extra_like_patterns: additional SQL LIKE patterns (e.g. "infra.ic_measure.%"),
         OR'd in alongside the default "alpha.%". Bound as a single array parameter via
         LIKE ANY($1::text[]) -- the codebase's established idiom for a dynamic-length
         pattern list (see ic_engine.py, bar_auditor.py, signal_probe_auditor.py), not a
@@ -1797,71 +1797,10 @@ counts were never the problem; the now-removed same-ET-session completeness gate
 (todo 208) was. Whether 20/60 bars is still the *right* grid for 1h once measured
 under the corrected, session-agnostic completeness definition is a separate, open
 tier-count/spacing question (todo 208's Step 3, deliberately deferred, not settled
-by this table). Single source of truth for ICEngineConfig, EnsembleICConfig, and
-forward_return_writer.py's from_apr()/loading logic -- do not re-literal this grid
-in any of those files; import it from here."""
-
-
-def lookahead_by_scale_from_apr(get: Callable[[str, Any], Any]) -> dict[str, dict[str, int]]:
-    """Build the {scale: {tf: lookahead_bars}} config-derived dict (todo 146), shared
-    by ICEngineConfig.from_apr, EnsembleICConfig.from_apr, and AblationConfig.from_apr.
-    `get(key, default)` abstracts over ConfigService.get_sync (ic_engine.py, wrapped
-    in int() by the caller) vs. the dict-based cfg() helper above (ensemble_ic_engine.py,
-    ops_ensemble_ablation.py) -- the two getter shapes those three from_apr()s use."""
-    return {
-        scale: {
-            tf: get(f"alpha.ic.lookahead.{tf}.{scale}", fb[scale])
-            for tf, fb in LOOKAHEAD_FALLBACKS_BY_TF.items()
-        }
-        for scale in _CANONICAL_SCALE_ORDER
-    }
-
-
-def lookaheads_for_tf(
-    lookahead_fast: dict[str, int],
-    lookahead_mid: dict[str, int],
-    lookahead_slow: dict[str, int],
-    lookahead_extended: dict[str, int],
-    tf: str,
-) -> dict[str, int]:
-    """Shared resolver behind ICEngineConfig.lookaheads_for/EnsembleICConfig.lookaheads_for
-    (todo 146). Both classes stay independent frozen+picklable dataclasses (separate
-    ProcessPoolExecutor pools) -- only the per-tf lookup logic itself is shared."""
-    return {
-        "fast": lookahead_fast[tf],
-        "mid": lookahead_mid[tf],
-        "slow": lookahead_slow[tf],
-        "extended": lookahead_extended[tf],
-    }
-
-
-def bars_to_scale_map(scale_to_bars: dict[str, int], *, context: str = "") -> dict[int, str]:
-    """Invert a {scale: lookahead_bars} mapping (e.g. one tf's `lookaheads_for_tf()`
-    output) into {lookahead_bars: scale}, raising loudly on a collision (two scales
-    resolving to the same bar count) instead of silently letting the second overwrite
-    the first -- an uncaught collision would slice a cell against the wrong scale's
-    return_{scale}/complete_{scale} columns with no error. Single source of truth for
-    this reverse-lookup, shared by every ops script that maps a `feature_ic_scores.
-    lookahead_bars` DB value back to a scale name (todo 211 part 2's own fix
-    surfaced two prior independent reimplementations, `ops_ic_shrinkage.py`'s
-    `_lookahead_bars_to_scale_by_tf` and `ops_ic_null_calibration.py`'s inline
-    comprehension, neither of which had this collision check).
-
-    `context` is an optional caller-supplied label (e.g. a tf name) included only in
-    the error message, for a clearer failure.
-    """
-    bars_to_scale: dict[int, str] = {}
-    for scale, bars in scale_to_bars.items():
-        if bars in bars_to_scale:
-            label = f" (tf={context!r})" if context else ""
-            raise ValueError(
-                f"lookahead_bars={bars} for scale={scale!r} collides with scale "
-                f"{bars_to_scale[bars]!r}{label}, already mapped to that same "
-                "lookahead_bars value -- two lookahead APR keys must not resolve to "
-                "the same lookahead_bars."
-            )
-        bars_to_scale[bars] = scale
-    return bars_to_scale
+by this table). The alpha.ic.lookahead.* APR keys retired with the old ic_engine
+stack (phase 186 plan 23), so this dict is the grid's source; ops_oos_holdout_eval.py
+falls back to it per tf, and src/observability/corpus_manifest_verifier.py mirrors it
+BY VALUE (Ring 0 must not import the services layer)."""
 
 
 def _get_json_typed_config(cfg_service: ConfigService, key: str, default: dict | list) -> Any:

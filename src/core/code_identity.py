@@ -21,9 +21,9 @@ I/O-boundary modules (`IO_BOUNDARY_MODULES`): a reviewed, named list of infrastr
 closure by name, so importing one still moves a key, but only its name is hashed, not its source,
 and its own imports are not followed: an infrastructure edit must not recompute every result.
 
-services/ic_engine.py keeps a verbatim copy of `normalized_source_for_hash` (its
+The old services/ic_engine.py kept a verbatim copy of `normalized_source_for_hash` (its
 `_normalized_source_for_hash`) because editing ic_engine would move its own
-`code_content_key`; that copy is deleted with ic_engine in phase 186 plan 23.
+`code_content_key`; that copy was deleted with ic_engine in phase 186 plan 23.
 """
 
 from __future__ import annotations

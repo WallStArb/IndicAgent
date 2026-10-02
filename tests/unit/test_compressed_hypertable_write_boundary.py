@@ -52,12 +52,6 @@ _ALLOW_LIST: dict[str, str] = {
         "scope, not a per-row batch. Wrapped in async_compressed_hypertable_write_session "
         "2026-08-14 (todo 306 follow-up)."
     ),
-    "scripts/ops/alpha/ops_interaction_primitives_pilot.py": (
-        "PERMANENT: per-row $-placeholder values via asyncpg's executemany() -- doesn't fit "
-        "bulk_update_by_key's psycopg/COPY-based shape without a larger rewrite of this "
-        "pilot script's DB layer. Wrapped in async_compressed_hypertable_write_session "
-        "2026-08-14 (todo 306 follow-up)."
-    ),
     "src/intelligence/features/feature_vector_persistence.py": (
         "PERMANENT: comment only (documents regime_writer.py's write behavior for the "
         "column-ownership manifest this module owns), not executable SQL -- there is no "

@@ -75,15 +75,6 @@ def test_nothing_imports_services_or_asyncpg_writers():
             assert not module.startswith("services"), (path.name, module)
 
 
-def test_ic_engine_does_not_import_measure():
-    tree = ast.parse((ROOT / "services" / "ic_engine.py").read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            assert "src.intelligence.measure" not in (node.module or "")
-        elif isinstance(node, ast.Import):
-            assert all("src.intelligence.measure" not in a.name for a in node.names)
-
-
 def test_no_generic_regime_stratifier():
     for path in FILES:
         for node in ast.walk(ast.parse(path.read_text())):

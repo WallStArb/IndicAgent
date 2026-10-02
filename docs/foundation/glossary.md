@@ -707,7 +707,7 @@ code; do not conflate the two when reading history.
 
 ### `AlphaEngine`
 
-**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: the unified research-to-production pipeline (no single system name); IC measurement is `ic_engine`, combination is the research layer's combiner.
+**Legacy (retired 2026-09-26, unified design section 15.2):** belongs to the deleted ensemble chain; frozen tables and verdicts still use it. Replacement: the unified research-to-production pipeline (no single system name); IC measurement is `ic_measure`, combination is the research layer's combiner.
 
 The v3.0 prediction engine: FeatureFactory → IC Engine → Ensemble → alpha emission. The full Layer 1 (Prediction) of the four-layer architecture — Layer 0 (Data) → Layer 1 (Prediction) → Layer 2 (Portfolio) → Layer 3 (Execution); see `docs/intelligence/intelligence-alphaengine.md` "Three-Layer Architecture" (name kept for continuity, now describes four layers with Layer 0 made explicit). Parametric — measures Spearman IC between each `FeatureVector` column and subsequent forward returns, derives Ledoit-Wolf ensemble weights, scores every bar, emits `alpha_events` when `|alpha_score| > threshold AND ci_lower > 0`.
 
@@ -720,9 +720,9 @@ Runs entirely in the cold batch layer (weekly IC Engine, nightly Ensemble Builde
 **Plain role noun.** Services prefixed `alpha-`. APR namespace: `alpha.*`.
 
 **Status:** active — live (v3.0 Phases A-C shipped). `feature_vectors` (106M+ rows),
-`forward_returns` (103M+ rows), `feature_ic_scores` (1.9M+ rows), `ensemble_alpha` (88M+ rows),
-and `alpha_events` (70M+ rows) all confirmed populated 2026-09-04; `indicagent-feature-vector-pipeline`
-and `indicagent-feature-vector-writer` confirmed `active running` same date. IC Engine, Ensemble
+`feature_ic_scores` (1.9M+ rows), `ensemble_alpha` (88M+ rows),
+and `alpha_events` (70M+ rows) all confirmed populated 2026-09-04 (`forward_returns`, 103M+ rows then, was dropped in phase 186 plan 23); `indicagent-feature-vector-pipeline`
+and `indicagent-feature-vector-writer` confirmed `active running` same date. IC measurement, Ensemble
 Builder, and Alpha Emitter run as batch jobs (no persistent systemd unit — see CLAUDE.md ML batch
 services note), not daemons.
 
@@ -840,7 +840,7 @@ Emitter component is one mechanism fulfilling it.
 
 ### `PrecedentEngine`
 
-The non-parametric pgvector retrieval substrate (v3.0). Embeds `FeatureVector` states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index (cosine similarity). Returns what price did after each retrieved precedent at the canonical gradient horizons (fast/mid/slow/extended), joined from the existing `forward_returns` table. The null result ("no close precedents exist") is a first-class output and drives the OOD monitor.
+The non-parametric pgvector retrieval substrate (v3.0). Embeds `FeatureVector` states as L2-normalized vectors in pgvector. Finds K nearest historical neighbors via HNSW index (cosine similarity). Returns what price did after each retrieved precedent at the canonical gradient horizons (fast/mid/slow/extended), joined from forward returns (the `forward_returns` table at design time; deleted 2026-10 by phase 186 plan 23 — a revival computes them with the `panel.forward_returns` kernel). The null result ("no close precedents exist") is a first-class output and drives the OOD monitor.
 
 A nightly `BaseBatch` job turns retrieved neighbor sets into ordinary predictor columns (`precedent_expected_r`, `precedent_hit_rate`, `precedent_ret_dispersion`, `precedent_nn_dist`, plus a conviction envelope and horizon-profile label) — there is no separate scoring/combiner system; this replaced the pre-rescope design's standalone Scoring Engine.
 
@@ -860,11 +860,11 @@ A nightly `BaseBatch` job turns retrieved neighbor sets into ordinary predictor 
 
 **Status: a resolved question, not a pending build — correcting an earlier draft of this entry that called it "proposed, not built."** `intel-12` (`stratification-dimension-unification.md`) and `intel-13` (`intel-precedent-engine.md`) both build on "the Measurement Engine" as a settled arrival without either one defining it. It sounds like an unbuilt future concept; it is actually the *name for a question that was asked and answered* in `docs/research/measurement-ic-engine.md`, whose own header states **"D1's fallback is the landed state"** — not "D1 is pending."
 
-**The question `MeasurementEngine` names:** should feature-level measurement (`ic_engine.py`), ensemble-level measurement (`ensemble_ic_engine.py`), and any future precedent-level measurement merge into *one* service/table, rather than staying separate? D1 (`.planning/research/2026-07-02-v3-topdown-architecture.md`) proposed this. The answer, re-verified twice (2026-07-03, 2026-07-06): **no — kernel-sharing is the permanent design, not an interim one.** `ic_math.py` already holds the shared stats primitives (Fisher-z/bootstrap CI, vectorized Spearman IC, HAC-corrected Sharpe); the two services stay separate on purpose (their walk-forward fold-stability gates deliberately differ per D-142A-R1 — that's divergence by decision, not drift waiting to be fixed). Full service/table unification remains available if a new argument justifies it, but nothing is currently driving toward it.
+**The question `MeasurementEngine` names:** should feature-level measurement (`ic_engine.py`, deleted 186-23; `ic_measure.py` now), ensemble-level measurement (`ensemble_ic_engine.py`, deleted 186-19), and any future precedent-level measurement merge into *one* service/table, rather than staying separate? D1 (`.planning/research/2026-07-02-v3-topdown-architecture.md`) proposed this. The answer, re-verified twice (2026-07-03, 2026-07-06): **no — kernel-sharing is the permanent design, not an interim one.** `ic_math.py` already holds the shared stats primitives (Fisher-z/bootstrap CI, vectorized Spearman IC, HAC-corrected Sharpe); the two services stay separate on purpose (their walk-forward fold-stability gates deliberately differ per D-142A-R1 — that's divergence by decision, not drift waiting to be fixed). Full service/table unification remains available if a new argument justifies it, but nothing is currently driving toward it.
 
 **Naming implication:** `ICEngine` is correctly named for what it does today — it computes IC (Information Coefficient, Spearman correlation), specifically, not a generalized measurement abstraction. `IC` is genuine, whiteboard-testable quant vocabulary (Grinold & Kahn), not a placeholder. Do not rename it to `MeasurementEngine`, and do not build a `MeasurementEngine` class on the strength of the name being used loosely elsewhere — the doc that would justify it already said no.
 
-**Relationship to `predictive measurement` (below) — related but not the same question, and the two docs that define them never cross-reference each other.** `predictive measurement` is a real, built, named *slot* in the AlphaEngine Functional Layer Vocabulary — one stage of the Layer 1 pipeline, implemented today by `ic_engine.py`. Its own definition is already generic over *method* (IC is one of several it can hold); it recurs a second time at ensemble grain (Phase 142A's EIC, `ensemble_ic_engine.py` → `alpha_ensemble_ic`, measuring whether the ensemble's own combined `alpha_score` predicts returns) — same slot, same operation, different input and pipeline position, not a second slot needing its own name (see todo 114). `MeasurementEngine` is neither of these — it's the now-answered question of whether the *services implementing* recurrences of this slot should be one thing instead of several.
+**Relationship to `predictive measurement` (below) — related but not the same question, and the two docs that define them never cross-reference each other.** `predictive measurement` is a real, built, named *slot* in the AlphaEngine Functional Layer Vocabulary — one stage of the Layer 1 pipeline, implemented today by `ic_measure.py` (by `ic_engine.py` until phase 186 plan 23 deleted it). Its own definition is already generic over *method* (IC is one of several it can hold); it recurs a second time at ensemble grain (Phase 142A's EIC, `ensemble_ic_engine.py` → `alpha_ensemble_ic`, measuring whether the ensemble's own combined `alpha_score` predicts returns) — same slot, same operation, different input and pipeline position, not a second slot needing its own name (see todo 114). `MeasurementEngine` is neither of these — it's the now-answered question of whether the *services implementing* recurrences of this slot should be one thing instead of several.
 
 **Canonical doc:** `docs/research/measurement-ic-engine.md`. See also `predictive measurement` below (AlphaEngine Functional Layer Vocabulary).
 
@@ -1119,7 +1119,7 @@ IC is regime-conditional: the same plugin may have IC = 0.07 in trending regimes
 
 **Not:** mutual information (a different information-theoretic measure — though a candidate for a future *additional* Stage 2 mechanism; see `docs/intelligence/intelligence-layer-architecture.md` Stage 2). Not `calibrated_confidence` (v2.x post-calibration output probability). Not the Edge Measurement stage itself — IC is today's mechanism for that stage's contract, not a synonym for it.
 **Banned:** predictive power score, signal quality score
-**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by `services/ic_engine.py`; the table is frozen and dropped whole by plan 186-28 (fresh rows go to `feature_ic_scores_v2`)
+**Status:** active — live (v3.0 Phase B shipped); `feature_ic_scores` table holds 1.9M+ rows (verified 2026-09-04), computed by the old `services/ic_engine.py` (deleted, phase 186 plan 23); the table is frozen and dropped whole by plan 186-28 (fresh rows go to `feature_ic_scores_v2`)
 
 ---
 
@@ -1145,14 +1145,14 @@ The per-bar table that stores `alpha_raw` and `alpha_score` for every (symbol, t
 
 The empirical process of measuring Information Coefficient for each `FeatureVector` column against subsequent forward returns, across regimes, timeframes, and lookahead windows. The mechanism by which edges are found rather than assumed.
 
-IC discovery runs on `feature_vectors` × `forward_returns`. Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
+IC discovery runs on `feature_vectors` against forward returns (historically the deleted `forward_returns` table; today the `panel.forward_returns` kernel via `services/ic_measure.py`). Output is persisted to `feature_ic_scores`. Features with `ic_ci_lower <= 0.0` at sufficient N are down-weighted to zero in the ensemble — they contribute nothing regardless of how theoretically compelling they seem.
 
 The feature universe is fully pre-specified before any IC is measured. Adding features after observing results is p-hacking.
 
 **Not:** shadow mode (shadow measures P&L after signal emission; IC discovery measures raw feature predictiveness before any emission threshold is applied). Not backtesting (IC is measured on a held-out walk-forward window, not the training window).
 
 **Banned:** signal discovery, edge discovery, alpha discovery
-**Status:** active — live (v3.0 Phase B shipped); input: `feature_vectors` (106M+ rows) + `forward_returns` (103M+ rows); output: `feature_ic_scores` (1.9M+ rows), all verified 2026-09-04
+**Status:** active — live (v3.0 Phase B shipped); input: `feature_vectors` (106M+ rows, verified 2026-09-04) + kernel forward returns (the `forward_returns` table deleted in phase 186 plan 23); output: `feature_ic_scores` (1.9M+ rows, verified 2026-09-04)
 
 ---
 
@@ -1244,14 +1244,13 @@ FeatureFactory is organized into cadence-matched tiers: bar-level (I1, I2, most 
 
 ### `forward_returns`
 
-The table of executable forward returns computed from `market_data_ohlcv` via LEAD() window functions. One row per (symbol, tf, bar_ts). Stores log returns at four lookahead windows (1/5/20/60 bars), completeness flags (was the return window complete or did we hit end-of-data?), and gap flags (was there a market-hours gap before the entry bar?).
+**Retired (phase 186 plan 23, migration 430):** the table and its writer (`forward_return_writer.py`) are deleted; the bar-describing flags it used to originate live in bar flags (`src/intelligence/bars/scrub_rules.py`), and measurement targets come from the `panel.forward_returns` kernel (`src/intelligence/research/panel.py`) computed by `services/ic_measure.py`.
 
-The return formula is executable: `ln(open[T+N+1] / open[T+1])` — entry at open of T+1 (first executable bar), exit at open of T+N+1. Not `close[T] to close[T+N]`, which includes the unexecutable observation price as the entry.
+The table held executable forward returns computed from `market_data_ohlcv` via LEAD() window functions. One row per (symbol, tf, bar_ts). Stored log returns at four lookahead windows (1/5/20/60 bars), completeness flags (was the return window complete or did we hit end-of-data?), and gap flags (was there a market-hours gap before the entry bar?).
 
-**Table:** `forward_returns`
-**Populated by:** `forward_return_writer.py`
+The return formula is executable and survives in the kernel: `ln(open[T+N+1] / open[T+1])` — entry at open of T+1 (first executable bar), exit at open of T+N+1. Not `close[T] to close[T+N]`, which includes the unexecutable observation price as the entry.
+
 **Not:** a backtest. Labels are computed on actual historical prices, not simulated fills.
-**Status:** active — live; 103M+ rows (verified 2026-09-04)
 
 ---
 
@@ -1488,11 +1487,11 @@ different grains, not just once:
 
 - **Feature grain** (pre-weighting, between `regime classifier` and `ensemble optimizer`):
   measures whether each individual feature in the `FeatureVector` predicts forward returns.
-  **Current implementation:** Spearman IC (`ic_engine.py`) → `feature_ic_scores`
+  **Current implementation:** Spearman IC (`ic_measure.py`, kernel forward returns) → `feature_ic_scores_v2` (the deleted `ic_engine.py` wrote the frozen `feature_ic_scores`)
 - **Ensemble grain** (post-scoring, after `alpha scorer`): the same operation applied to
   the ensemble's own combined `alpha_score` instead of a single feature column -- does the
   *ensemble's* prediction predict returns, not just its inputs.
-  **Current implementation:** Phase 142A's EIC, `ensemble_ic_engine.py` → `alpha_ensemble_ic`
+  **Current implementation:** Phase 142A's EIC, `ensemble_ic_engine.py` (deleted 186-19) → `alpha_ensemble_ic`
 
 Both recurrences are the same slot doing the same job at a different point in the
 pipeline -- not two separate slots each needing their own name (see todo 114, which

@@ -178,24 +178,6 @@ class TestUpdateCumulativeEValue:
 
 
 # ---------------------------------------------------------------------------
-# Task 2: pilot-scope gate (services/ic_engine.py's _e_value_pilot_active)
-# ---------------------------------------------------------------------------
-
-
-class TestEValuePilotScopeGate:
-    def test_5m_is_pilot_active(self):
-        from services.ic_engine import _e_value_pilot_active
-
-        assert _e_value_pilot_active("5m") is True
-
-    def test_other_timeframes_are_not_pilot_active(self):
-        from services.ic_engine import _e_value_pilot_active
-
-        for tf in ("15m", "1h", "1d"):
-            assert _e_value_pilot_active(tf) is False
-
-
-# ---------------------------------------------------------------------------
 # Task 2: canary-decay self-verification
 # (scripts/ops/alpha/ops_canary_integrity_assert.py's evaluate_e_value_decay)
 # ---------------------------------------------------------------------------

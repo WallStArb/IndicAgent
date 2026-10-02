@@ -216,15 +216,3 @@ class TestImportClosure:
         (tree / "broken.py").write_text("import kpkg_closure.gone\n")
         with pytest.raises(ModuleNotFoundError, match="gone"):
             kernel_code_modules(["kpkg_closure.broken"], packages=("kpkg_closure",))
-
-    def test_normalizer_matches_ic_engine_copy(self) -> None:
-        """services/ic_engine.py keeps a verbatim copy until 186-23 deletes it; the two must
-        agree or the two engines' keys are not comparable. Delete with ic_engine."""
-        ic_engine = pytest.importorskip("services.ic_engine")
-        from src.core.code_identity import normalized_source_for_hash
-
-        for path in (Path(__file__), Path(ic_engine.__file__).with_name("_batch_utils.py")):
-            source = path.read_bytes()
-            assert normalized_source_for_hash(source) == ic_engine._normalized_source_for_hash(
-                source
-            )

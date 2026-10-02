@@ -238,9 +238,6 @@ def render_followup_commands(confirmed: list[CandidateRow], training_window_end:
 
     symbols = sorted({r.symbol for r in confirmed})
     tfs = sorted({r.tf for r in confirmed})
-    twe = training_window_end or (
-        "<none found -- run: SELECT max(training_window_end) FROM feature_ic_scores>"
-    )
     symbols_sql_list = ", ".join(f"'{s}'" for s in symbols)
     tfs_sql_list = ", ".join(f"'{t}'" for t in tfs)
 
@@ -252,27 +249,26 @@ def render_followup_commands(confirmed: list[CandidateRow], training_window_end:
         "   python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --apply "
         f"--symbols {' '.join(symbols)} --tf {' '.join(tfs)}",
         "",
-        "2. IMPORTANT -- forward_returns and feature_vectors both insert with "
-        "ON CONFLICT DO NOTHING (idempotent-replay semantics): re-running the writers "
+        "2. IMPORTANT -- feature_vectors inserts with "
+        "ON CONFLICT DO NOTHING (idempotent-replay semantics): re-running the writer "
         "below will NOT overwrite rows that already exist for the corrected "
         "neighborhood. Delete the stale rows first (widen the timestamp window to "
-        "cover the corrected bar's forward-return lookahead plus any feature "
-        "rolling-window lookback -- review before running):",
+        "cover any feature rolling-window lookback -- review before running). The old "
+        "forward_returns table was deleted in phase 186 plan 23; measurement targets "
+        "are computed from the corrected bars by ic_measure, nothing to purge there:",
         "",
-        f"   DELETE FROM forward_returns WHERE symbol IN ({symbols_sql_list}) "
-        f"AND tf IN ({tfs_sql_list}) AND bar_ts BETWEEN <window_start> AND <window_end>;",
         f"   DELETE FROM feature_vectors WHERE symbol IN ({symbols_sql_list}) "
         f"AND tf IN ({tfs_sql_list}) AND bar_ts BETWEEN <window_start> AND <window_end>;",
         "",
-        "3. Re-run forward_return_writer for the affected symbols/tfs:",
-        "",
-        f"   python services/forward_return_writer.py --symbols {' '.join(symbols)} "
-        f"--tf {' '.join(tfs)} --training-window-end {twe}",
-        "",
-        "4. Re-run feature computation (compute-only, no live IBKR fetch):",
+        "3. Re-run feature computation (compute-only, no live IBKR fetch):",
         "",
         "   python services/backfill_feature_factory.py --compute-only "
         f"--symbols {','.join(symbols)}",
+        "",
+        "4. Re-run IC measurement for the affected symbols/tfs (targets come from the "
+        "panel.forward_returns kernel over the corrected bars):",
+        "",
+        f"   python services/ic_measure.py --symbols {' '.join(symbols)}",
         "",
     ]
     return "\n".join(lines)

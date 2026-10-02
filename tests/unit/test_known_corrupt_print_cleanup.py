@@ -143,14 +143,14 @@ class TestRenderFollowupCommands:
         assert "--apply" in text
         assert "UUP" in text
         assert "5m" in text
-        assert "forward_return_writer.py" in text
-        assert "2025-12-24T05:15:00+00:00" in text
+        assert "ic_measure.py" in text
         assert "backfill_feature_factory.py" in text
 
     def test_delete_gotcha_note_present(self) -> None:
-        # ON CONFLICT DO NOTHING on both forward_returns and feature_vectors means
-        # re-running the writers alone will NOT overwrite pre-existing rows for the
-        # corrected neighborhood -- the follow-up text must warn about this.
+        # ON CONFLICT DO NOTHING on feature_vectors means re-running the writer alone
+        # will NOT overwrite pre-existing rows for the corrected neighborhood -- the
+        # follow-up text must warn about this. (The old forward_returns purge line
+        # went with the table, deleted in phase 186 plan 23.)
         confirmed = _make_row(
             "UUP",
             "5m",
@@ -162,7 +162,6 @@ class TestRenderFollowupCommands:
             [confirmed], training_window_end="2025-12-24T05:15:00+00:00"
         )
         assert "ON CONFLICT DO NOTHING" in text
-        assert "DELETE FROM forward_returns" in text
         assert "DELETE FROM feature_vectors" in text
 
 

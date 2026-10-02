@@ -100,28 +100,6 @@ def test_thread_count_is_restored():
     assert numba.get_num_threads() == before
 
 
-@pytest.mark.parametrize("early_stop", [False, True])
-def test_ic_engine_blocked_bootstrap_ci_kernel_matches_scipy_path(early_stop):
-    """ic_engine._blocked_bootstrap_ci with numba_threads>0 equals its scipy path on float64
-    input, including the early-stop chunking (same chunk boundaries, same stop decision)."""
-    from services.ic_engine import _blocked_bootstrap_ci
-
-    X, Y, starts, offsets = _case(800, 9, 10, 600, seed=5, dtype=np.float64)
-    kwargs = dict(
-        early_stop_enabled=early_stop,
-        early_stop_check_interval=200,
-        early_stop_tol=0.002,
-        early_stop_min_resamples=200,
-        early_stop_stable_checks=2,
-    )
-    scipy_lo, scipy_hi = _blocked_bootstrap_ci(X, Y, starts, offsets, 800, None, **kwargs)
-    jit_lo, jit_hi = _blocked_bootstrap_ci(
-        X, Y, starts, offsets, 800, None, numba_threads=4, **kwargs
-    )
-    np.testing.assert_array_equal(jit_lo, scipy_lo)
-    np.testing.assert_array_equal(jit_hi, scipy_hi)
-
-
 def test_nan_row_drawn_by_only_some_resamples():
     """A NaN feature row zeroes the IC only in resamples that draw it; others rank normally."""
     X, Y, starts, offsets = _case(40, 3, 4, 200, seed=13, dtype=np.float64)

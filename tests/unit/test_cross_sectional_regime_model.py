@@ -631,55 +631,6 @@ def test_signal_tag_filter_and_exclude_freeze_peer_resolution():
     assert sorted(p for p in peers if p not in {"VNQ"}) == ["SPY"]
 
 
-def test_build_symbol_regime_class_full_universe_routing():
-    """The 331 config shape: single names route to equity, dual-category names
-    stay in their commodity/fx/rates groups via exclude_symbols, and the
-    uranium pair is unambiguous."""
-    from services.ic_engine import _build_symbol_regime_class
-
-    groups = [
-        {
-            "name": "equity",
-            "tag_filter": ["eq_*", "intl_*", "single_name_equity"],
-            "signal_tag_filter": ["eq_*", "intl_*"],
-            "signal_exclude_symbols": ["VNQ"],
-            "exclude_symbols": ["XOM", "COIN", "NLY"],
-            "enabled": True,
-        },
-        {
-            "name": "commodity",
-            "tag_filter": [
-                "commodity_energy_crude",
-                "commodity_metals_industrial",
-                "commodity_uranium",
-            ],
-            "exclude_symbols": ["CCJ"],
-            "enabled": True,
-        },
-        {"name": "fx", "tag_filter": ["fx_*", "crypto"], "enabled": True},
-        {"name": "rates", "tag_filter": ["fi_*"], "enabled": True},
-    ]
-    tags = {
-        "SPY": {"eq_broad"},
-        "AAPL": {"single_name_equity"},
-        "XOM": {"commodity_energy_crude", "single_name_equity"},
-        "COIN": {"crypto", "single_name_equity"},
-        "NLY": {"fi_credit_hy", "single_name_equity"},
-        "URA": {"commodity_uranium"},
-        "CCJ": {"commodity_uranium", "single_name_equity"},
-    }
-    routing = _build_symbol_regime_class(tags, groups)
-    assert routing == {
-        "SPY": "equity",
-        "AAPL": "equity",
-        "XOM": "commodity",
-        "COIN": "fx",
-        "NLY": "rates",
-        "URA": "commodity",
-        "CCJ": "equity",
-    }
-
-
 # ---------------------------------------------------------------------------
 # Atomic (regime_group, tf) replace (todo 420)
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 """Unit tests: OOS holdout eval harness pure helpers + canonical return reuse.
 
 Tests verify:
-  1. The harness reuses the canonical forward_log_return() from
-     services.forward_return_writer (Invariant 1: ln(open[T+N+1] / open[T+1])) rather
-     than reimplementing the executable-return formula.
+  1. The harness reuses the canonical executable-return kernel
+     (src.intelligence.research.panel.forward_returns; Invariant 1:
+     ln(open[T+N+1] / open[T+1])) rather than reimplementing the formula.
   2. _oos_mask() selects only bars with bar_ts >= a given boundary.
   3. _count_qualifying() counts cells where ic_ci_lower > 0 AND passes_fdr is true.
 
@@ -26,14 +26,13 @@ _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from services.forward_return_writer import forward_log_return
-from services.ic_engine import _FEATURE_NAMES
+from scripts.ops.corpus.ops_oos_holdout_eval import _FEATURE_NAMES, forward_log_return
 
 
 def test_forward_log_return_matches_executable_formula():
     """forward_log_return must yield ln(open[T+N+1] / open[T+1]) to within 1e-9.
 
-    This documents that the OOS harness reuses the canonical helper rather than
+    This documents that the OOS harness reuses the canonical kernel rather than
     reimplementing the executable-return formula (CLAUDE.md Invariant 1).
     """
     opens = np.array([100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0])
