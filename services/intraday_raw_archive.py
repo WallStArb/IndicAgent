@@ -63,7 +63,8 @@ INSERT INTO ohlcv_intraday_raw_archive
 SELECT "timestamp", symbol, timeframe, open, high, low, close, volume, source, base,
        price_sanity_status, $3::uuid
 FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source <> 'synthetic_fill'
+WHERE symbol = $1 AND timeframe = ANY($2::text[])
+  AND source <> 'synthetic_fill' AND source <> 'derived_5m'
 ON CONFLICT DO NOTHING
 """
 

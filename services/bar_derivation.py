@@ -146,6 +146,11 @@ _INSERT_ARCHIVE_SQL = ARCHIVE_FROM_TABLE_SQL
 # n_archived counts archive matches (NULL when a removable row was never
 # archived), and the archived sums skip unmatched rows, so any missing or
 # value-drifted archive row breaks the equality before the DELETE runs.
+# Removable means original observations only: derived_5m rows are rebuildable
+# cache (a re-derivation deletes and regenerates them), so they are excluded —
+# otherwise the second pass compares its derived values against the archived
+# originals under the same keys and the equality can never hold (plan 12 live
+# run, 2026-10-01).
 _ARCHIVE_VERIFY_SQL = """
 SELECT count(*)::bigint AS n_removable,
        count(a."timestamp")::bigint AS n_archived,
@@ -156,7 +161,8 @@ SELECT count(*)::bigint AS n_removable,
 FROM market_data_ohlcv m
 LEFT JOIN ohlcv_intraday_raw_archive a
     ON a.symbol = m.symbol AND a.timeframe = m.timeframe AND a."timestamp" = m."timestamp"
-WHERE m.symbol = $1 AND m.timeframe = ANY($2::text[]) AND m.source <> 'synthetic_fill'
+WHERE m.symbol = $1 AND m.timeframe = ANY($2::text[])
+  AND m.source <> 'synthetic_fill' AND m.source <> 'derived_5m'
 """
 
 _DELETE_SEGMENT_SQL = """

@@ -202,8 +202,16 @@ def test_archive_holds_the_removed_observations(conn):
         """)
     n_archive, n_symbols = cur.fetchone()
     assert n_archive > 0
-    # The latest completed grid batch recorded the same removal total it
-    # verified inside its per-symbol transactions.
+    assert n_symbols > 0
+    # The archive holds observations only: no placeholder ever leaks in.
+    cur.execute("""
+        SELECT count(*) FROM ohlcv_intraday_raw_archive
+        WHERE timeframe IN ('15m', '1h') AND source = 'synthetic_fill'
+        """)
+    assert cur.fetchone()[0] == 0, "synthetic_fill rows in the raw archive"
+    # The latest completed grid batch recorded the removal total it verified;
+    # rows it newly tagged with its batch_id are a subset of that total (earlier
+    # batches' rows keep their own tag under ON CONFLICT DO NOTHING).
     cur.execute("""
         SELECT detail FROM bar_derivation_batch
         WHERE stage = 'grid' AND status = 'completed'
@@ -214,10 +222,15 @@ def test_archive_holds_the_removed_observations(conn):
     detail = row[0] if isinstance(row[0], dict) else json.loads(row[0])
     recorded = detail.get("n_archive_rows")
     assert recorded is not None, "grid batch detail lacks n_archive_rows"
-    assert recorded == n_archive, (
-        f"batch recorded {recorded} archived rows; the archive holds {n_archive} "
-        f"across {n_symbols} derived symbols"
-    )
+    assert recorded > 0
+    cur.execute("""
+        SELECT count(*) FROM ohlcv_intraday_raw_archive a
+        JOIN bar_derivation_batch b ON b.batch_id = a.batch_id
+        WHERE b.started_at = (SELECT max(started_at) FROM bar_derivation_batch
+                              WHERE stage = 'grid' AND status = 'completed')
+        """)
+    tagged = cur.fetchone()[0]
+    assert tagged <= recorded, f"batch tagged {tagged} archive rows but recorded {recorded}"
 
 
 def test_digest_current_covers_5m_15m_1h_for_derived_symbols(conn):
