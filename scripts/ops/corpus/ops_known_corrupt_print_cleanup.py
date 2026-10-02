@@ -171,11 +171,6 @@ _NEIGHBOR_SCAN_SQL = """
     SELECT * FROM ordered ORDER BY timestamp
 """
 
-_LATEST_TRAINING_WINDOW_END_SQL = (
-    "SELECT max(training_window_end) FROM feature_ic_scores "
-    "WHERE regime_scope <> 'earnings_season'"
-)
-
 
 # ---------------------------------------------------------------------------
 # Report rendering -- unit-tested without a DB
@@ -232,7 +227,7 @@ def render_dry_run_report(rows: list[CandidateRow]) -> str:
     return "\n".join(lines)
 
 
-def render_followup_commands(confirmed: list[CandidateRow], training_window_end: str | None) -> str:
+def render_followup_commands(confirmed: list[CandidateRow]) -> str:
     if not confirmed:
         return "No CONFIRMED_CORRUPT rows -- no follow-up needed."
 
@@ -505,11 +500,9 @@ async def _run(args: argparse.Namespace) -> int:
         print(report)  # noqa: T201
 
         confirmed = [r for r in all_rows if r.verdict.verdict == "CONFIRMED_CORRUPT"]
-        training_window_end = await pool.fetchval(_LATEST_TRAINING_WINDOW_END_SQL)
-        twe_str = format_iso_ts(training_window_end) if training_window_end is not None else None
 
         if not args.apply:
-            print(render_followup_commands(confirmed, twe_str))  # noqa: T201
+            print(render_followup_commands(confirmed))  # noqa: T201
             print(  # noqa: T201
                 "\nDRY-RUN MODE (default) -- zero DB writes made. Pass --apply after "
                 "reviewing the CONFIRMED_CORRUPT table above to mutate rows."
@@ -535,7 +528,7 @@ async def _run(args: argparse.Namespace) -> int:
         print(
             f"\nAPPLIED: {n_corrected} row(s) corrected (price_sanity_status set to 'confirmed_corrupt')."
         )  # noqa: T201
-        print(render_followup_commands(confirmed, twe_str))  # noqa: T201
+        print(render_followup_commands(confirmed))  # noqa: T201
         return 0
     finally:
         await pool.close()

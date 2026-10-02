@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import dataclasses
 import sys
 from pathlib import Path
 
@@ -57,11 +56,9 @@ import asyncpg
 import numpy as np
 
 from src.config.settings import Settings
-from src.intelligence.schemas import FeatureVector
-
-# Feature columns of feature_vectors, in schema order (the deleted ic_engine's
-# _FEATURE_NAMES was exactly this list; phase 186 plan 23 cut the import).
-_FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
+from src.intelligence.features.feature_vector_persistence import (
+    _ALL_FEATURE_VECTOR_FIELD_NAMES as _FEATURE_NAMES,
+)
 
 _TFS = ("5m", "15m", "1h", "1d")
 _DEFAULT_MAX_SYMBOLS = 30

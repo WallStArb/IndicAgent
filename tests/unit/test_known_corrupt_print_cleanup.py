@@ -126,7 +126,7 @@ class TestRenderDryRunReport:
 
 class TestRenderFollowupCommands:
     def test_no_confirmed_returns_no_followup_message(self) -> None:
-        text = render_followup_commands([], training_window_end=None)
+        text = render_followup_commands([])
         assert "No CONFIRMED_CORRUPT rows" in text
 
     def test_confirmed_rows_produce_apply_and_writer_commands(self) -> None:
@@ -137,9 +137,7 @@ class TestRenderFollowupCommands:
                 "CONFIRMED_CORRUPT", ("open", "high"), 40.7, 1.04, "isolated_spike_neighbors_agree"
             ),
         )
-        text = render_followup_commands(
-            [confirmed], training_window_end="2025-12-24T05:15:00+00:00"
-        )
+        text = render_followup_commands([confirmed])
         assert "--apply" in text
         assert "UUP" in text
         assert "5m" in text
@@ -158,9 +156,7 @@ class TestRenderFollowupCommands:
                 "CONFIRMED_CORRUPT", ("open", "high"), 40.7, 1.04, "isolated_spike_neighbors_agree"
             ),
         )
-        text = render_followup_commands(
-            [confirmed], training_window_end="2025-12-24T05:15:00+00:00"
-        )
+        text = render_followup_commands([confirmed])
         assert "ON CONFLICT DO NOTHING" in text
         assert "DELETE FROM feature_vectors" in text
 

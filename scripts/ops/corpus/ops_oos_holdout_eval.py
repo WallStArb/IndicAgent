@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import dataclasses
 import hashlib
 import json
 import sys
@@ -49,25 +48,16 @@ from services._batch_utils import LOOKAHEAD_FALLBACKS_BY_TF, load_apr_dict_async
 from services._batch_utils import cfg as _cfg
 from src.config.settings import Settings, get_active_contracts
 from src.core.service_utils import format_iso_ts, setup_service_logging
-from src.intelligence.research.panel import forward_returns as _forward_returns_kernel
-from src.intelligence.schemas import FeatureVector
+from src.intelligence.features.feature_vector_persistence import (
+    _ALL_FEATURE_VECTOR_FIELD_NAMES as _FEATURE_NAMES,
+)
+from src.intelligence.research.panel import forward_returns as forward_log_return
 from src.intelligence.statistics.ic_math import (
     _fisher_z_ci,
     _nan_to_none,
     _p_values_from_ic,
     _vectorized_ic,
 )
-
-# Feature columns of feature_vectors, in schema order (the deleted ic_engine's
-# _FEATURE_NAMES was exactly this list; derived from the FeatureVector dataclass).
-_FEATURE_NAMES: list[str] = [f.name for f in dataclasses.fields(FeatureVector)]
-
-
-def forward_log_return(opens: np.ndarray, n: int) -> np.ndarray:
-    """The executable open-to-open target (CLAUDE.md Invariant 1), computed with the
-    panel kernel: y[T] = ln(open[T+n+1] / open[T+1]), NaN past the last complete row."""
-    return _forward_returns_kernel(opens, horizon=n)
-
 
 setup_service_logging("logs/oos_holdout_eval.log")
 
@@ -205,7 +195,7 @@ def _score_symbol_tf(
         return results
 
     for scale, n_bars in lookaheads.items():
-        y = forward_log_return(opens_arr, n_bars)
+        y = forward_log_return(opens_arr, horizon=n_bars)
         valid = ~np.isnan(y)
         n_valid = int(np.sum(valid))
         if n_valid < 4:
@@ -383,16 +373,12 @@ async def main() -> None:
         significant_drop_fraction = float(
             _cfg(apr, "alpha.validation.oos_significant_drop_fraction", 0.5)
         )
-        # Todo 146/202: lookahead grid is per-tf now -- scoring OOS IC at a single shared
+        # Todo 146/202: lookahead grid is per-tf -- scoring OOS IC at a single shared
         # grid for every tf would compare against horizons the corpus doesn't actually
-        # use for that tf, silently decoupling the OOS-vs-in-sample comparison.
-        lookaheads_by_tf = {
-            tf: {
-                scale: int(_cfg(apr, f"alpha.ic.lookahead.{tf}.{scale}", default))
-                for scale, default in fallbacks.items()
-            }
-            for tf, fallbacks in LOOKAHEAD_FALLBACKS_BY_TF.items()
-        }
+        # use for that tf, silently decoupling the OOS-vs-in-sample comparison. The
+        # alpha.ic.lookahead.* APR keys retired with the old stack (migration 430);
+        # LOOKAHEAD_FALLBACKS_BY_TF is the grid's source.
+        lookaheads_by_tf = LOOKAHEAD_FALLBACKS_BY_TF
 
         oos_start = await _read_oos_start(pool)
         _logger.info("oos_holdout_eval.oos_start", value=str(oos_start))

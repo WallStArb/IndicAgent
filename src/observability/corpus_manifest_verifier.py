@@ -51,8 +51,7 @@ _APR_DEFAULT_NULL_RATE_SAMPLE_SIZE = 10000
 # import -- src/observability/ is Ring 0 and must not import the services layer, per this
 # repo's pre-commit Ring 0 boundary check. Keep in sync with that dict by hand if the grid
 # ever changes.
-_LOOKAHEAD_SCALES = ("fast", "mid", "slow", "extended")
-_APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
+_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
     "5m": {"fast": 1, "mid": 6, "slow": 12, "extended": 39},
     "15m": {"fast": 1, "mid": 2, "slow": 5, "extended": 10},
     "1h": {"fast": 1, "mid": 2, "slow": 20, "extended": 60},
@@ -63,8 +62,8 @@ _APR_DEFAULT_LOOKAHEADS_BY_TF: dict[str, dict[str, int]] = {
 # controls WHICH of the 4 scales the IC measurement attempts per tf -- 1h excludes
 # slow/extended (0.000 measured target completeness under the same-session gate that
 # todo 208 later removed). Mirrors services/_batch_utils.py's ACTIVE_SCALES_FALLBACKS_BY_TF BY VALUE, not
-# by import -- src/observability/ is Ring 0, see this file's Ring-0-boundary comment
-# above for _LOOKAHEAD_SCALES. Keep in sync with that dict by hand if it ever changes.
+# by import -- src/observability/ is Ring 0, see the Ring-0-boundary comment above
+# _LOOKAHEADS_BY_TF. Keep in sync with that dict by hand if it ever changes.
 _APR_DEFAULT_ACTIVE_SCALES_BY_TF: dict[str, tuple[str, ...]] = {
     "5m": ("fast", "mid", "slow", "extended"),
     "15m": ("fast", "mid", "slow", "extended"),
@@ -84,7 +83,7 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
     Falls back to hardcoded defaults when keys are absent (e.g., before
     migration adds them). Always returns a complete dict. The per-tf lookahead
     grid is not APR-backed anymore: the alpha.ic.lookahead.* keys retired with
-    the old ic_engine stack (phase 186 plan 23), so _APR_DEFAULT_LOOKAHEADS_BY_TF
+    the old ic_engine stack (phase 186 plan 23), so _LOOKAHEADS_BY_TF
     above is the source (see its comment).
     """
     active_scales_keys = [f"alpha.ic.active_scales.{tf}" for tf in _APR_DEFAULT_ACTIVE_SCALES_BY_TF]
@@ -115,15 +114,12 @@ def _load_apr_values(conn: Any) -> dict[str, Any]:
         except (ValueError, TypeError):
             active_scales_by_tf[tf] = default_scales
 
-    lookaheads_by_tf: dict[str, set[int]] = {}
-    for tf, defaults_by_scale in _APR_DEFAULT_LOOKAHEADS_BY_TF.items():
-        bars: set[int] = set()
-        active_scales = active_scales_by_tf.get(tf, tuple(defaults_by_scale.keys()))
-        for scale, default in defaults_by_scale.items():
-            if scale not in active_scales:
-                continue
-            bars.add(int(default))
-        lookaheads_by_tf[tf] = bars
+    # active_scales_by_tf is unconditionally populated for the same four tfs the
+    # lookahead dict iterates, so direct indexing cannot miss.
+    lookaheads_by_tf: dict[str, set[int]] = {
+        tf: {bars for scale, bars in defaults.items() if scale in active_scales_by_tf[tf]}
+        for tf, defaults in _LOOKAHEADS_BY_TF.items()
+    }
 
     raw_min_rows = rows.get(_APR_KEY_MIN_ROWS_PER_SYMBOL_REGIME)
     if raw_min_rows is not None:
@@ -361,8 +357,9 @@ class CorpusManifestVerifier:
             print("=" * 70)
             print(f"\nMissing TFs: {missing_items}")
             print("\nTo fix:")
-            print("  1. Re-run the IC measurement writer:")
-            print("     python services/ic_measure.py --tf 5m --tf 15m --tf 1h --tf 1d")
+            print("  1. Re-run the IC measurement writer for the missing TFs only:")
+            tf_flags = " ".join(f"--tf {tf}" for tf in sorted(missing_items))
+            print(f"     python services/ic_measure.py {tf_flags}")
             print("     (oneshot unit: systemctl start indicagent-ic-measure)")
             print("  2. Re-run verification:")
             print("     python scripts/ops/corpus/ops_corpus_final_verification.py")
