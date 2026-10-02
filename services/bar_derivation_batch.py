@@ -7,8 +7,13 @@ before writing and close it with completed/failed, so every bar_quality_flag
 row's batch_id answers "which code and which thresholds produced this
 verdict" (D-08).
 
-JSON parameters are passed as json.dumps strings with explicit ::jsonb casts:
-bare asyncpg/psycopg connections carry no jsonb codec (CLAUDE.md asyncpg rule).
+JSON parameters are passed as json.dumps strings with explicit ::text::jsonb
+casts: bare asyncpg/psycopg connections carry no jsonb codec (CLAUDE.md asyncpg
+rule), while BaseBatch's pooled connections DO register one (encoder=json.dumps)
+- there a str parameter already typed jsonb would double-encode as a JSON string
+scalar, and jsonb || jsonb on two scalars concatenates into an array (seen live:
+the plan 12 grid batches wrote detail ["{}", "{...}"]). Casting through text
+sends the parameter as text on both connection kinds, and the cast parses it.
 """
 
 from __future__ import annotations
@@ -63,7 +68,7 @@ async def open_batch(
             INSERT INTO bar_derivation_batch
                 (batch_id, stage, rule_version, code_commit, apr_snapshot,
                  n_symbols, status, started_at, detail)
-            VALUES (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5, 'running', now(), $6::jsonb)
+            VALUES (gen_random_uuid(), $1, $2, $3, $4::text::jsonb, $5, 'running', now(), $6::text::jsonb)
             RETURNING batch_id::text
             """,
             stage,
@@ -90,7 +95,7 @@ async def close_batch(
         await conn.execute(
             """
             UPDATE bar_derivation_batch
-            SET status = $2, finished_at = now(), detail = detail || $3::jsonb
+            SET status = $2, finished_at = now(), detail = detail || $3::text::jsonb
             WHERE batch_id = $1::uuid
             """,
             batch_id,

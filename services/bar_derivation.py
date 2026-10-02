@@ -179,7 +179,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 _INSERT_FLAG_SQL = """
 INSERT INTO bar_quality_flag
     (symbol, timeframe, "timestamp", rule, rule_version, fields, quarantine, detail, batch_id)
-VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8::jsonb, $9::uuid)
+VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8::text::jsonb, $9::uuid)
 ON CONFLICT (symbol, timeframe, "timestamp", rule) DO UPDATE SET
     rule_version = EXCLUDED.rule_version,
     fields = EXCLUDED.fields,
