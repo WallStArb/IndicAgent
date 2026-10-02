@@ -200,7 +200,7 @@ def test_deterministic_tie_break_under_shuffling():
 
 def test_ranked_items_report_components():
     row = _row("AAA", "15m", earliest_days=3000, latest_days=5)
-    (item,) = fq.ranked_items([row], CONFIG, TODAY, {"AAA": 7300})
+    (item,) = fq.queue_items([row], CONFIG, TODAY, {"AAA": 7300})
     assert item.sla_breach is True
     assert item.tf_class == -1
     assert item.gap_days == 4300
