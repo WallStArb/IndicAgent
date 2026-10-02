@@ -177,6 +177,7 @@ until 185 and 186 land; session time goes to the build.
 | [483](pending/483-record-2026-midterm-forward-window-result.md) | New 2026-10-01. Due after 2027-05-03: record the pre-registered 2026 midterm forward window (S&P 500, election day to +6 months) in the idea doc and ledger, as one unsearched observation. Nothing else forces this step. |
 | [484](pending/484-htf-lane-honor-quarantined-symbols-file.md) | New 2026-10-01, from the reboot-day HOOD quarantine. A poisoned name costs ~18 min/attempt for up to 50 attempts; today's fix was sed-editing the tracked `all.symbols`. Lane scripts should subtract `quarantined.symbols` instead; lands at todo 452's cutover stop, never mid-loop. |
 | [485](pending/485-rate-limiter-wait-logging-in-ibkr-py.md) | New 2026-10-01, from reboot-day ops. `_hist_limiter_for().acquire()` logs nothing while a request waits for pacing budget, so normal throttle during rescan reads as a hang (caused one premature kill today). One `hist_pacing_wait` log line per blocked request. |
+| [486](pending/486-integration-conftest-replay-fails-on-migration-426.md) | New 2026-10-02, from 185-12 D-15. The whole `pytest -m integration` suite errors at the session rebuild: replaying `426_drop_old_chain_tables.sql` on `indicagent_test` fails because baseline-restored old-chain chunks depend on their parent without being attached partitions. Fix is the conftest's own prescribed baseline regen + cutoff bump to current head. |
 
 **Kernel and feature code (phase 186 follow-ups)**
 

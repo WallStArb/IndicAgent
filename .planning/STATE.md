@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-01T17:30:00.000Z"
+last_updated: "2026-10-01T23:33:44.893Z"
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 63
-  completed_plans: 37
+  completed_plans: 50
   percent: 17
 ---
 
@@ -45,6 +45,9 @@ bullets with current facts.
 
 ## Current position
 
+Phase: 185 (daily-data-foundation) — EXECUTING
+Plan: 16 of 24 (12 done 2026-10-02; next 16, wave 5)
+
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26), phase verification
   pending. Family 1 evidence done (HAC t 13-19 gross, biased toward zero under E16; about 26x
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
@@ -54,11 +57,14 @@ bullets with current facts.
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 24 plans in 10 waves; 14 done (01-11, 13, 14, 15), waves 1-3 complete with 185-09 (the
-  `ibkr_history_stream` lease, D1 capture in the backfill, the nightly waiting instead of skipping).
-  Next: 12 (wave 4), then 16-24. Plans 10, 14, 15 and 16 clear the
-  minimum data bar for daily attempts 3, 3b and 4 by wave 5; D2b (plans 11-12) is in place by
-  wave 4 for 186. Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
+- **Phase 185:** 24 plans in 10 waves; 15 done (01-12, 13, 14, 15), waves 1-4 complete. D2b landed
+  2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
+  33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
+  rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
+  precondition. The remaining ~700 names derive as todo 449's 5m backfill reaches them (7 lane
+  symbols excluded at rewrite time; 1 no_5m). Next: 16 (wave 5), then 17-24. Plans 10, 14, 15 and
+  16 clear the minimum data bar for daily attempts 3, 3b and 4 by wave 5.
+  Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
   number plus 16, because phase 186 took 384 to 389); other phases keep taking the next free number below 400.
