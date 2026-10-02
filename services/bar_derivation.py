@@ -58,7 +58,6 @@ from typing import Any, NamedTuple
 import asyncpg
 import numpy as np
 
-from scripts.infrastructure.backfill._request_coverage import AnsweredWindows
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
@@ -75,6 +74,12 @@ from src.intelligence.bars.derivation import (
     split_staleness_threshold,
 )
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
+from src.intelligence.bars.gap_plan import (
+    ANSWERED_OUTCOMES,
+    COVERAGE_ROUTE,
+    COVERAGE_WHAT_TO_SHOW,
+    AnsweredWindows,
+)
 from src.intelligence.bars.session_grid import GridBars, aggregate_session_grid
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import GRID_RULE_VERSION, GRID_TIMEFRAMES, SOURCE_DERIVED_5M
@@ -96,7 +101,6 @@ _CONSTITUENT_RULE = "constituent_flag"
 # answered SMART TRADES request window (todo 462): the hole stops at the
 # derivation edge as a quarantine-false flag, never silently as a complete bar.
 _PARTIAL_RULE = "partial_constituents"
-_ANSWERED_OUTCOMES = ("bars", "no_data")
 _GRID_TF_LIST = sorted(GRID_TIMEFRAMES)
 _WRITE_METHOD = "segment_delete_copy"
 _DEFAULT_SYMBOL_BATCH = 10
@@ -124,17 +128,17 @@ SELECT range_start, digest FROM bar_content_digest_current
 WHERE symbol = $1 AND timeframe = '5m'
 """
 
-# Answered SMART TRADES 5m windows (todo 462's coverage rule, same semantics as
-# _request_coverage's psycopg loader; this asyncpg form is local until plan 18's
-# shared gap planner replaces both). A `bars` answer counts only when a stored 5m
-# row corroborates it: the request record and the bars still commit separately at
-# 5m until plan 18 reuses the atomic persist helper, so a lost chunk must not
-# make a window look covered.
+# Answered SMART TRADES 5m windows (todo 462's coverage rule, plan 185-18: the
+# outcome set, the covered route and the merge/cover semantics all come from the
+# shared planner module, src/intelligence/bars/gap_plan.py). A `bars` answer
+# counts only when a stored 5m row corroborates it: the request record and the
+# bars still commit separately at 5m in this daemon's read path, so a lost
+# chunk must not make a window look covered.
 _SELECT_ANSWERED_WINDOWS_SQL = """
 SELECT r.window_start, r.window_end
 FROM ohlcv_request r
-WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = 'SMART'
-  AND r.what_to_show = 'TRADES' AND r.outcome = ANY($2::text[])
+WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = $3
+  AND r.what_to_show = $4 AND r.outcome = ANY($2::text[])
   AND r.window_start IS NOT NULL
   AND (
     r.outcome = 'no_data'
@@ -153,8 +157,8 @@ ORDER BY r.window_start
 _SELECT_ANSWERED_SINCE_SQL = """
 SELECT EXISTS (
     SELECT 1 FROM ohlcv_request r
-    WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = 'SMART'
-      AND r.what_to_show = 'TRADES' AND r.outcome = ANY($2::text[])
+    WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = $3
+      AND r.what_to_show = $4 AND r.outcome = ANY($2::text[])
       AND r.answered_at IS NOT NULL
       AND r.answered_at > COALESCE(
           (SELECT max(computed_at) FROM bar_content_digest WHERE symbol = $1),
@@ -612,7 +616,13 @@ class BarDerivation(BaseBatch):
         self, conn: asyncpg.Connection, symbol: str
     ) -> AnsweredWindows:
         """Answered SMART TRADES 5m windows for `symbol`, read once per symbol."""
-        rows = await conn.fetch(_SELECT_ANSWERED_WINDOWS_SQL, symbol, list(_ANSWERED_OUTCOMES))
+        rows = await conn.fetch(
+            _SELECT_ANSWERED_WINDOWS_SQL,
+            symbol,
+            list(ANSWERED_OUTCOMES),
+            COVERAGE_ROUTE,
+            COVERAGE_WHAT_TO_SHOW,
+        )
         return AnsweredWindows.from_rows([(r["window_start"], r["window_end"]) for r in rows])
 
     async def _run_symbol(
@@ -659,7 +669,11 @@ class BarDerivation(BaseBatch):
             }
             if current == {start: digest for start, _, digest, _ in digest_5m}:
                 answered_since = await conn.fetchrow(
-                    _SELECT_ANSWERED_SINCE_SQL, symbol, list(_ANSWERED_OUTCOMES)
+                    _SELECT_ANSWERED_SINCE_SQL,
+                    symbol,
+                    list(ANSWERED_OUTCOMES),
+                    COVERAGE_ROUTE,
+                    COVERAGE_WHAT_TO_SHOW,
                 )
                 if not answered_since["answered_since"]:
                     return _SymbolResult("unchanged", None, 0)
@@ -679,7 +693,7 @@ class BarDerivation(BaseBatch):
 
         # Coverage-aware derivation (todo 462): flag bars over stored-but-
         # unanswered 5m holes. The windows are read once per symbol; the pure
-        # merge/cover logic is _request_coverage's until plan 18's gap planner.
+        # merge/cover logic is the shared planner's (gap_plan, plan 185-18).
         stored_slots = frozenset(_epoch_seconds(r["timestamp"]) for r in rows)
         answered = await self._load_answered_windows(conn, symbol)
         session_close_by_date = {day: close for day, (_open, close) in sessions.items()}

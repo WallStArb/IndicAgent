@@ -1,0 +1,157 @@
+"""Record-backed gap detection for the fetch pipeline (plan 185-18 task 1a,
+todo 462; design: docs/plans/2026-09-29-intraday-bar-store-redesign.md).
+
+plan_gaps (src/intelligence/bars/gap_plan.py) is the one pure definition of a
+missing bar. This module is its psycopg SQL-reading wrapper for the pipeline's
+synchronous connection: it loads the stored observations (the archive for the
+archive-bound 15m/1h, market_data_ohlcv for 5m), the answered SMART TRADES
+request windows, and folds in a provider-verified ohlcv_empty_history span when
+it is fresh and sufficiently confirmed. services/ cannot import from scripts/,
+so bar_auditor keeps its own asyncpg readers around the same pure planner --
+the SQL stays local per driver, the rule does not.
+
+The legacy grid-difference detect_gaps in the pipeline remains the fallback
+for 1m/4h (and 1d until task 1b).
+"""
+
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
+from scripts.infrastructure.backfill._empty_history import EmptyRange, is_fresh
+from src.intelligence.bars.gap_plan import (
+    ANSWERED_OUTCOMES,
+    COVERAGE_ROUTE,
+    COVERAGE_WHAT_TO_SHOW,
+    AnsweredWindows,
+    plan_gaps,
+)
+
+_TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
+# Where a timeframe's stored observations live: the archive for the
+# archive-bound 15m/1h (their market_data_ohlcv rows are derived cache,
+# services/bar_derivation), the canonical grid table for 5m. The SQL is
+# written out per table (not .format-built) so the boundary scan in
+# tests/unit/test_market_data_ohlcv_boundary.py sees every raw-table read.
+_ARCHIVE_SLOTS_SQL = """
+SELECT timestamp FROM ohlcv_intraday_raw_archive
+WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+"""
+_GRID_SLOTS_SQL = """
+SELECT timestamp FROM market_data_ohlcv
+WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+"""
+_STORED_SLOTS_SQL: dict[str, str] = {
+    "5m": _GRID_SLOTS_SQL,
+    "15m": _ARCHIVE_SLOTS_SQL,
+    "1h": _ARCHIVE_SLOTS_SQL,
+}
+
+
+def _answered_windows_sql(table: str) -> str:
+    return (
+        """
+SELECT r.window_start, r.window_end
+FROM ohlcv_request r
+WHERE r.symbol = %s AND r.timeframe = %s AND r.route = %s AND r.what_to_show = %s
+  AND r.outcome = ANY(%s) AND r.window_start IS NOT NULL
+  AND (
+    r.outcome = 'no_data'
+    OR EXISTS (
+      SELECT 1 FROM """
+        + table
+        + """ m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
+        AND m."timestamp" >= r.window_start AND m."timestamp" < r.window_end
+    )
+  )
+ORDER BY r.window_start
+"""
+    )
+
+
+# The corroboration subquery reads the series' own table; the literals keep
+# the raw market_data_ohlcv read visible to the boundary scan.
+_ANSWERED_WINDOWS_SQL: dict[str, str] = {
+    "5m": _answered_windows_sql("market_data_ohlcv"),
+    "15m": _answered_windows_sql("ohlcv_intraday_raw_archive"),
+    "1h": _answered_windows_sql("ohlcv_intraday_raw_archive"),
+}
+
+
+def load_answered_windows(conn: Any, symbol: str, timeframe: str) -> AnsweredWindows:
+    """Answered SMART TRADES windows for (symbol, timeframe) (todo 462).
+
+    A `bars` answer counts only when the series' own table has a stored row in
+    its window, so a failed bar insert never leaves a window that looks
+    covered; `no_data` is the provider's definitive nothing-traded. timeout and
+    failed outcomes never reach the window set.
+    """
+    sql = _ANSWERED_WINDOWS_SQL[timeframe]
+    with conn.cursor() as cur:
+        cur.execute(
+            sql,
+            (symbol, timeframe, COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW, list(ANSWERED_OUTCOMES)),
+        )
+        rows = cur.fetchall()
+    return AnsweredWindows.from_rows([(r[0], r[1]) for r in rows])
+
+
+def detect_gaps_from_record(
+    conn: Any,
+    symbol: str,
+    timeframe: str,
+    start_dt: datetime,
+    end_dt: datetime,
+    expected_slots: Sequence[datetime],
+    *,
+    empty: EmptyRange | None = None,
+    now: datetime | None = None,
+    reverify_days: int | None = None,
+    min_confirmations: int | None = None,
+    on_skip: Callable[[EmptyRange], None] | None = None,
+) -> list[tuple[datetime, datetime]]:
+    """The gap plan for (symbol, timeframe) over [start_dt, end_dt].
+
+    `expected_slots` come from gap_plan.expected_grid_slots. The empty-history
+    gate mirrors empty_history.apply_empty_range: a range suppresses slots only
+    when it is fresh (`now` within `reverify_days` of verified_at) and
+    confirmed by at least `min_confirmations` chunks. When a gated range
+    changes the plan, `on_skip` receives it (the pipeline prints its skip line
+    and counts it there).
+    """
+    if timeframe not in _TF_MINUTES:
+        raise ValueError(
+            f"detect_gaps_from_record covers 5m/15m/1h (plan 185-18); "
+            f"{timeframe!r} stays on the legacy detect_gaps fallback"
+        )
+    interval = timedelta(minutes=_TF_MINUTES[timeframe])
+    with conn.cursor() as cur:
+        cur.execute(_STORED_SLOTS_SQL[timeframe], (symbol, timeframe, start_dt, end_dt))
+        rows = cur.fetchall()
+    stored = [r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0] for r in rows]
+    answered = load_answered_windows(conn, symbol, timeframe)
+
+    spans: list[tuple[datetime, datetime]] = []
+    if (
+        empty is not None
+        and now is not None
+        and reverify_days is not None
+        and min_confirmations is not None
+        and empty.n_confirming_chunks >= min_confirmations
+        and is_fresh(empty.verified_at, now, reverify_days)
+    ):
+        spans = [(empty.empty_from, empty.empty_through)]
+
+    plan = plan_gaps(expected_slots, stored, answered, interval, run_end=end_dt, empty_ranges=spans)
+    if spans and on_skip is not None:
+        without_spans = plan_gaps(expected_slots, stored, answered, interval, run_end=end_dt)
+        if without_spans != plan:
+            on_skip(empty)
+    return plan

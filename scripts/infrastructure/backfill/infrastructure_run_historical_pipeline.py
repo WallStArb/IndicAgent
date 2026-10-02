@@ -50,11 +50,11 @@ sys.path.insert(0, str(project_root))
 
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
-from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
-from scripts.infrastructure.backfill._request_coverage import (
-    AnsweredWindows,
+from scripts.infrastructure.backfill._d1_gaps import (
+    detect_gaps_from_record,
     load_answered_windows,
 )
+from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
@@ -67,13 +67,12 @@ from src.config.settings import Settings, get_active_contracts, get_all_futures_
 from src.core.bar_normalizer import (
     SOURCE_DERIVED_1M,
     SOURCE_SYNTHETIC_FILL,
-    generate_session_slots,
     normalize_bars,
 )
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
-from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.bars.gap_plan import AnsweredWindows, expected_grid_slots
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers import IBKRProvider, ibkr
@@ -97,9 +96,17 @@ _logger = structlog.get_logger(__name__)
 
 _DEFAULT_TIMEFRAMES = "1d,1h,15m,5m,1m"
 _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeline's fetches
-# Timeframes `--real-bars-only` covers, for equities only: intraday SMART TRADES bars, whose
-# coverage ohlcv_request records. 1d stays on the placeholder path until phase 185 D2 owns it.
-_REAL_BARS_ONLY_TFS = frozenset({"5m", "15m", "1h"})
+# Timeframes whose fetch persists real provider bars only, every asset class (todo 462,
+# plan 185-18): no synthetic fill ever reaches market_data_ohlcv from this pipeline at
+# 5m or 1m, and 15m/1h are archive-bound raw observations (plan 12). The interim flag
+# that gated this is retired -- it is the default behavior now. 1d and 4h keep the
+# placeholder path until phase 185 D2 / the futures rework.
+_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h"})
+# Timeframes whose gap detection comes from the shared record planner
+# (detect_gaps_from_record): expected slots minus stored observations minus recorded
+# coverage, with the provider-verified empty span folded in. 1m stays on the legacy
+# grid difference until its own record migration; 1d migrates in task 1b.
+_RECORD_PLAN_TFS = frozenset({"5m", "15m", "1h"})
 # Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Their fetches
 # persist into ohlcv_intraday_raw_archive through services/intraday_raw_archive's
 # single-writer module, gap detection reads that archive and expects IBKR's own RTH
@@ -1022,53 +1029,16 @@ def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
-def real_bars_only_for(tf: str, flag: bool, asset_class: AssetClass) -> bool:
+def real_bars_only_for(tf: str) -> bool:
     """Whether `tf`'s fetch persists real provider bars only (no synthetic fill).
 
-    15m/1h are archive-bound raw observations since plan 12 for every asset
-    class (a placeholder is never an observation, and the insert into the
-    archive refuses synthetic fills outright); 5m keeps the --real-bars-only
-    flag semantics for equities until plan 18 makes it the default; 1d stays
-    on the placeholder path until phase 185 D2 owns it.
+    15m/1h are archive-bound raw observations since plan 12 (a placeholder is
+    never an observation, and the archive insert refuses synthetic fills
+    outright); plan 185-18 made 5m and 1m real bars only for every asset class
+    (todo 462), retiring the interim flag that used to gate it. 1d and 4h keep
+    the placeholder path until phase 185 D2 / the futures rework.
     """
-    if tf in _ARCHIVE_TFS:
-        return True
-    return flag and tf in _REAL_BARS_ONLY_TFS and asset_class == AssetClass.EQUITY
-
-
-def expected_grid_slots(
-    session_id: str,
-    exchange: str,
-    timeframe: str,
-    start_dt: datetime,
-    end_dt: datetime,
-) -> list[datetime]:
-    """Expected stored timestamps for gap detection at `timeframe`.
-
-    15m/1h NYSE equities use IBKR's own RTH grid: a 09:30 partial 1h bar
-    (13:30 UTC) then clock hours; :00/:15/:30/:45 at 15m. The old on-the-hour
-    UTC generation never expected 13:30, so a missing 09:30 bar was never
-    refetched (the 42-name hole the plan 12 SUMMARY records). Other session
-    types and timeframes keep generate_session_slots. Plan 18's shared gap
-    planner (src/intelligence/bars/gap_plan.py) consumes this rule.
-    """
-    if timeframe in _ARCHIVE_TFS and session_id == "nyse":
-        return _rth_grid_slots(timeframe, start_dt, end_dt)
-    return generate_session_slots(session_id, exchange, timeframe, start_dt, end_dt)
-
-
-def _rth_grid_slots(timeframe: str, start_dt: datetime, end_dt: datetime) -> list[datetime]:
-    """Session-anchored RTH slots for every NYSE session overlapping the window."""
-    interval = timedelta(minutes=_TF_MINUTES[timeframe])
-    sessions = nyse_sessions(start_dt.date() - timedelta(days=1), end_dt.date() + timedelta(days=1))
-    slots: list[datetime] = []
-    for session_open, session_close in sessions.values():
-        slot = session_open
-        while slot < session_close:
-            if start_dt <= slot <= end_dt:
-                slots.append(slot)
-            slot += interval
-    return slots
+    return tf in _REAL_BARS_ONLY_TFS
 
 
 def detect_gaps(
@@ -1087,10 +1057,12 @@ def detect_gaps(
     closures are not reported as gaps.  Returns contiguous missing ranges
     ready for use as IBKR fetch windows.
 
-    15m/1h read the archive (plan 12): their stored bars live in
+    Plan 185-18 task 1a moved 5m/15m/1h to the shared record planner
+    (detect_gaps_from_record, fed by gap_plan.plan_gaps); this grid
+    difference stays as the legacy fallback for 1m, 4h and 1d (1d migrates
+    in task 1b). 15m/1h read the archive (plan 12): their stored bars live in
     ohlcv_intraday_raw_archive, so market_data_ohlcv would report every slot
-    missing and refetch everything. Plan 18 replaces the stored-bars side of
-    this with the recorded-answer rule.
+    missing and refetch everything.
 
     `answered` is the provider-answered request coverage (todo 462). With no placeholder rows
     stored, a slot the provider answered "nothing traded" is otherwise indistinguishable from
@@ -1391,6 +1363,15 @@ def run_normalize(
 
     for instrument in contracts:
         for tf in timeframes:
+            if real_bars_only_for(tf):
+                # Plan 185-18 (todo 462): a synthetic fill at 5m/1m would write
+                # placeholder bars the real-bars rule forbids, and at the
+                # archive-bound 15m/1h it would corrupt the derived grid's
+                # source. The fill only covers placeholder-path timeframes.
+                print(
+                    f"  {instrument.symbol}/{tf}: refuses synthetic fill (real bars only, todo 462)"
+                )
+                continue
             rows = fetch_bars(db_conn, instrument.symbol, tf)
             if not rows:
                 print(f"  {instrument.symbol}/{tf}: no existing rows — skipping")
@@ -1512,14 +1493,6 @@ def main() -> None:
         default=False,
         help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
         "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
-    )
-    parser.add_argument(
-        "--real-bars-only",
-        action="store_true",
-        default=False,
-        help="Store only bars the provider returned for 5m, 15m and 1h: no synthetic flat fill, "
-        "and gap detection skips windows ohlcv_request records as answered (todo 462). "
-        "Default off keeps the placeholder path.",
     )
     args = parser.parse_args()
 
@@ -1793,46 +1766,88 @@ def main() -> None:
                             n_head_floored += 1
                         interval = timedelta(minutes=_TF_MINUTES[tf])
                         # Plan 12: 15m/1h persist into the archive through its
-                        # single-writer module; real-bars-only is forced for them
+                        # single-writer module; real bars only is forced for them
                         # (no synthetic fill is ever produced for an archive tf).
                         archive_tf = tf in _ARCHIVE_TFS
                         write_rows = _insert_archive_rows if archive_tf else None
-                        real_bars_only = real_bars_only_for(
-                            tf, args.real_bars_only, instrument.asset_class
-                        )
-
-                        gaps = detect_gaps(
-                            db_conn,
-                            instrument.symbol,
-                            tf,
-                            start_dt,
-                            end_dt,
-                            session_id=instrument.session_id,
-                            exchange=instrument.exchange,
-                            answered=(
-                                load_answered_windows(db_conn, instrument.symbol, tf)
-                                if real_bars_only
-                                else None
-                            ),
-                        )
+                        real_bars_only = real_bars_only_for(tf)
                         empty = empty_ranges.get((instrument.symbol, tf))
-                        kept = empty_history.apply_empty_range(
-                            gaps,
-                            empty,
-                            run_started_at,
-                            empty_reverify_days,
-                            interval,
-                            ibkr._NO_DATA_CONFIRMATION_CHUNKS,
-                        )
-                        if kept != gaps:
-                            n_empty_history_skipped += 1
-                            print(
-                                f"  {instrument.symbol}/{tf}: skipping provider-verified "
-                                f"empty history {empty.empty_from.date()} to "
-                                f"{empty.empty_through.date()} (verified "
-                                f"{empty.verified_at.date()})"
+
+                        if tf in _RECORD_PLAN_TFS:
+                            # Plan 185-18: the shared planner decides the asks --
+                            # expected slots minus stored observations minus
+                            # recorded coverage, with the provider-verified empty
+                            # span folded in under the same freshness gate the
+                            # legacy path applies.
+
+                            def _note_empty_skip(
+                                skipped: Any,
+                                _symbol: str = instrument.symbol,
+                                _tf: str = tf,
+                            ) -> None:
+                                nonlocal n_empty_history_skipped
+                                n_empty_history_skipped += 1
+                                print(
+                                    f"  {_symbol}/{_tf}: skipping provider-verified "
+                                    f"empty history {skipped.empty_from.date()} to "
+                                    f"{skipped.empty_through.date()} (verified "
+                                    f"{skipped.verified_at.date()})"
+                                )
+
+                            gaps = detect_gaps_from_record(
+                                db_conn,
+                                instrument.symbol,
+                                tf,
+                                start_dt,
+                                end_dt,
+                                expected_grid_slots(
+                                    instrument.session_id,
+                                    instrument.exchange,
+                                    tf,
+                                    start_dt,
+                                    end_dt,
+                                ),
+                                empty=empty,
+                                now=run_started_at,
+                                reverify_days=empty_reverify_days,
+                                min_confirmations=ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+                                on_skip=_note_empty_skip,
                             )
-                        gaps = kept
+                        else:
+                            gaps = detect_gaps(
+                                db_conn,
+                                instrument.symbol,
+                                tf,
+                                start_dt,
+                                end_dt,
+                                session_id=instrument.session_id,
+                                exchange=instrument.exchange,
+                                answered=(
+                                    # 1m is real bars only (todo 462): its answered
+                                    # windows are the only thing standing between a
+                                    # definitive no_data span and re-asking it forever.
+                                    load_answered_windows(db_conn, instrument.symbol, tf)
+                                    if real_bars_only
+                                    else None
+                                ),
+                            )
+                            kept = empty_history.apply_empty_range(
+                                gaps,
+                                empty,
+                                run_started_at,
+                                empty_reverify_days,
+                                interval,
+                                ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+                            )
+                            if kept != gaps:
+                                n_empty_history_skipped += 1
+                                print(
+                                    f"  {instrument.symbol}/{tf}: skipping provider-verified "
+                                    f"empty history {empty.empty_from.date()} to "
+                                    f"{empty.empty_through.date()} (verified "
+                                    f"{empty.verified_at.date()})"
+                                )
+                            gaps = kept
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
                             fetched_tfs.add(tf)
@@ -1877,7 +1892,13 @@ def main() -> None:
                         # time _persist_chunk runs its ids are all captured.
                         window_request_ids: list[Any] = []
                         capture_kwargs = _capture_kwargs(tf, sink, fetch_run_id)
-                        if archive_tf:
+                        # Plan 185-18: 5m joins the archive timeframes on the atomic
+                        # request-and-bars persist -- its rows land in the canonical
+                        # grid through the pipeline's own market_data_ohlcv insert,
+                        # so a recorded 5m answer never outruns its stored rows
+                        # either (todo 462).
+                        atomic_chunk_tf = archive_tf or tf == "5m"
+                        if atomic_chunk_tf:
                             base_on_request = capture_kwargs["on_request"]
 
                             def _recording_on_request(
@@ -1894,6 +1915,7 @@ def main() -> None:
                             chunk_bars: list,
                             _tf: str = tf,
                             _symbol: str = instrument.symbol,
+                            _atomic: bool = atomic_chunk_tf,
                             _archive: bool = archive_tf,
                             _request_ids: list[Any] = window_request_ids,
                         ) -> None:
@@ -1908,10 +1930,35 @@ def main() -> None:
                                 except Exception:
                                     pass
                                 db_conn = connect_db(settings)
-                            if _archive:
+                            if _atomic:
                                 # One transaction for the answer and its bars: a
                                 # recorded request never outruns its stored rows.
-                                archive_rows = [
+                                request_rows = sink.take_requests(list(_request_ids))
+                                _request_ids.clear()
+                                if _archive:
+                                    archive_rows = [
+                                        (
+                                            b.timestamp,
+                                            _symbol,
+                                            _tf,
+                                            b.open,
+                                            b.high,
+                                            b.low,
+                                            b.close,
+                                            b.volume,
+                                            b.source,
+                                            None,
+                                        )
+                                        for b in chunk_bars
+                                    ]
+                                    persist_chunk_atomically(
+                                        db_conn,
+                                        request_rows=request_rows,
+                                        archive_rows=archive_rows,
+                                        write_archive_rows=_insert_archive_rows,
+                                    )
+                                    return
+                                grid_rows = [
                                     (
                                         b.timestamp,
                                         _symbol,
@@ -1922,17 +1969,14 @@ def main() -> None:
                                         b.close,
                                         b.volume,
                                         b.source,
-                                        None,
                                     )
                                     for b in chunk_bars
                                 ]
-                                request_rows = sink.take_requests(list(_request_ids))
-                                _request_ids.clear()
                                 persist_chunk_atomically(
                                     db_conn,
                                     request_rows=request_rows,
-                                    archive_rows=archive_rows,
-                                    write_archive_rows=_insert_archive_rows,
+                                    archive_rows=grid_rows,
+                                    write_archive_rows=_insert_market_data_rows,
                                 )
                                 return
                             chunk_dicts = [
@@ -1967,14 +2011,15 @@ def main() -> None:
                             # definitive no-data answers is what ohlcv_empty_history records.
                             observed: list[EmptyHistory] = []
                             is_oldest_window = (gap_start, gap_end) == windows[0]
-                            # A gap range ends at its last missing slot's START, but a request
-                            # ending there returns bars that finish by then, so that slot's bar
-                            # is never asked for (and a one-slot gap issues no request at all).
-                            # The placeholder path hid this by filling the slot. Ask through
-                            # the slot's end, capped at now so a bar still forming stays a gap.
-                            fetch_end = (
-                                min(gap_end + interval, end_dt) if real_bars_only else gap_end
-                            )
+                            # A legacy (inclusive) gap range ends at its last missing
+                            # slot's START, but a request ending there returns bars
+                            # that finish by then, so that slot's bar is never asked
+                            # for (and a one-slot gap issues no request at all).
+                            # 1m keeps the extension through the slot's end, capped
+                            # at now so a bar still forming stays a gap. The record
+                            # planner's windows (5m/15m/1h) are already end-exclusive:
+                            # gap_end IS the last missing slot's end, asked for as-is.
+                            fetch_end = min(gap_end + interval, end_dt) if tf == "1m" else gap_end
                             try:
                                 ohlcv_bars = await provider.fetch_historical_bars(
                                     symbol=instrument.symbol,
@@ -2095,14 +2140,11 @@ def main() -> None:
                                     }
                                     for b in deep_bars
                                 ]
-                                canonical_1m = normalize_bars(
-                                    deep_dicts,
-                                    symbol=instrument.symbol,
-                                    timeframe="1m",
-                                    start=deep_start,
-                                    end=end_dt,
-                                )
-                                n = store_bars(db_conn, canonical_1m, instrument.symbol, "1m")
+                                # 1m is real bars only (todo 462, plan 185-18): the
+                                # deep window's real bars are stored as returned --
+                                # no synthetic fill reaches market_data_ohlcv at 1m
+                                # from here either.
+                                n = store_bars(db_conn, deep_dicts, instrument.symbol, "1m")
                                 print(f"  {instrument.symbol}/1m (deep {deep_days}d): {n} bars")
                             except Exception as e:
                                 fetch_errors += 1

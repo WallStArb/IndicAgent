@@ -44,6 +44,14 @@ from src.core.stream_keys import (
     topic_gap_fill_dlq,
     topic_gap_requests,
 )
+from src.intelligence.bars.gap_plan import (
+    ANSWERED_OUTCOMES,
+    COVERAGE_ROUTE,
+    COVERAGE_WHAT_TO_SHOW,
+    AnsweredWindows,
+    expected_grid_slots,
+    plan_gaps,
+)
 from src.intelligence.statistics.price_sanity import (
     CandidateVerdict,
     apply_cross_symbol_downgrade,
@@ -68,6 +76,51 @@ _HTF_TIMEFRAME_MINUTES: dict[str, int] = {k: v for k, v in _TF_MINUTES.items() i
 _HTF_TF_NAMES_LIST: list[str] = list(_HTF_TIMEFRAME_MINUTES.keys())
 # All timeframes queried in the bulk audit — 1m for gap detection + HTF for metrics.
 _ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
+
+# Plan 185-18 task 1a: these HTF timeframes' gap alarms come from the shared
+# planner (src/intelligence/bars/gap_plan.py) -- the same plan the fetch
+# pipeline computes over its psycopg readers, so the auditor's count IS the
+# planner's count for the same record. 4h stays on the count-only warning
+# until its own migration.
+_HTF_PLAN_TFS = ("5m", "15m", "1h")
+# Where each planner tf's stored observations live (mirrors _d1_gaps'
+# _SERIES_TABLE: the archive for the archive-bound 15m/1h, the grid for 5m).
+_HTF_STORED_TABLES = {
+    "5m": "market_data_ohlcv",
+    "15m": "ohlcv_intraday_raw_archive",
+    "1h": "ohlcv_intraday_raw_archive",
+}
+_SELECT_HTF_STORED_SQL = """
+SELECT timestamp FROM {table}
+WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp <= $4
+"""
+_SELECT_HTF_ANSWERED_SQL = """
+SELECT r.window_start, r.window_end
+FROM ohlcv_request r
+WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $4
+  AND r.outcome = ANY($5::text[]) AND r.window_start IS NOT NULL
+  AND (
+    r.outcome = 'no_data'
+    OR EXISTS (
+      SELECT 1 FROM {table} m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
+        AND m.timestamp >= r.window_start AND m.timestamp < r.window_end
+    )
+  )
+ORDER BY r.window_start
+"""
+_SELECT_HTF_EMPTY_SPAN_SQL = """
+SELECT empty_from, empty_through, verified_at, n_confirming_chunks
+FROM ohlcv_empty_history
+WHERE symbol = $1 AND timeframe = $2 AND provider = 'ibkr'
+"""
+# The two APR keys the planner's span gate reads -- the same keys the
+# pipeline's loaders overlay (empty-history reverify age; the provider's own
+# no-data confirmation threshold).
+_HTF_SPAN_APR_KEYS = [
+    "infra.backfill.empty_history_reverify_days",
+    "infra.ibkr.no_data_confirmation_chunks",
+]
 
 # Retry schedule: after N-th attempt, wait this many seconds before re-emitting.
 # Index 0 = after 1st attempt (5 min), index 1 = after 2nd attempt (30 min).
@@ -313,6 +366,65 @@ class BarAuditor(BaseDaemon):
                 error=str(error),
             )
 
+    async def _plan_htf_gaps(
+        self,
+        conn: asyncpg.Connection,
+        instrument: Any,
+        tf: str,
+        win_start: datetime,
+        win_end: datetime,
+        *,
+        now: datetime,
+        reverify_days: int,
+        min_confirmations: int,
+    ) -> list[tuple[datetime, datetime]]:
+        """The shared planner's gap plan for (symbol, tf) over one audit window.
+
+        Plan 185-18 task 1a: the auditor's HTF alarm count IS plan_gaps' output
+        for the same inputs the fetch pipeline reads -- expected slots minus
+        stored observations minus recorded coverage, the provider-verified
+        empty span folded in under its freshness gate. Same rule as the
+        pipeline's _d1_gaps wrapper; these asyncpg readers are local because
+        services/ does not import from scripts/.
+        """
+        table = _HTF_STORED_TABLES[tf]
+        stored_rows = await conn.fetch(
+            _SELECT_HTF_STORED_SQL.format(table=table),
+            instrument.symbol,
+            tf,
+            win_start,
+            win_end,
+        )
+        stored = [r[0] for r in stored_rows]
+        answered_rows = await conn.fetch(
+            _SELECT_HTF_ANSWERED_SQL.format(table=table),
+            instrument.symbol,
+            tf,
+            COVERAGE_ROUTE,
+            COVERAGE_WHAT_TO_SHOW,
+            list(ANSWERED_OUTCOMES),
+        )
+        answered = AnsweredWindows.from_rows([(r[0], r[1]) for r in answered_rows])
+        spans: list[tuple[datetime, datetime]] = []
+        empty_rows = await conn.fetch(_SELECT_HTF_EMPTY_SPAN_SQL, instrument.symbol, tf)
+        if empty_rows:
+            empty_from, empty_through, verified_at, n_confirming = empty_rows[0]
+            if n_confirming >= min_confirmations and now - verified_at < timedelta(
+                days=reverify_days
+            ):
+                spans = [(empty_from, empty_through)]
+        slots = expected_grid_slots(
+            instrument.session_id, instrument.exchange, tf, win_start, win_end
+        )
+        return plan_gaps(
+            slots,
+            stored,
+            answered,
+            timedelta(minutes=_TF_MINUTES[tf]),
+            run_end=win_end,
+            empty_ranges=spans,
+        )
+
     async def _detect_gaps(
         self,
         instruments: list,
@@ -379,6 +491,30 @@ class BarAuditor(BaseDaemon):
             counts: dict[tuple[str, datetime, str], int] = {
                 (r["sym"], r["win_start"], r["timeframe"]): r["cnt"] for r in rows
             }
+
+            # Plan 185-18: the shared planner's span gate reads the same two APR
+            # keys the pipeline's loaders overlay. A read failure degrades to
+            # (0, 0) -- nothing is ever suppressed, so the worst case is a false
+            # alarm, never a silent miss.
+            now_utc = datetime.now(UTC)
+            try:
+                apr_rows = await conn.fetch(
+                    "SELECT config_key, config_value FROM config_state "
+                    "WHERE config_key = ANY($1::text[])",
+                    _HTF_SPAN_APR_KEYS,
+                )
+                apr = {r["config_key"]: r["config_value"] for r in apr_rows}
+                span_reverify_days = int(apr[_HTF_SPAN_APR_KEYS[0]])
+                span_min_confirmations = int(apr[_HTF_SPAN_APR_KEYS[1]])
+            except Exception as error:
+                span_reverify_days = 0
+                span_min_confirmations = 0
+                self.logger.warning(
+                    "bar_auditor.htf_span_apr_unavailable",
+                    error=str(error),
+                    reverify_days=span_reverify_days,
+                    min_confirmations=span_min_confirmations,
+                )
 
             gaps: list[BarGapRequest] = []
             for w in windows:
@@ -447,16 +583,52 @@ class BarAuditor(BaseDaemon):
                         completeness_htf, {"agent": self.name, "symbol": sym, "tf": tf_name}
                     )
                     if completeness_htf < threshold:
-                        self.logger.warning(
-                            "bar_auditor.htf_gap_detected",
-                            symbol=sym,
-                            tf=tf_name,
-                            date=str(w.target_date),
-                            actual=actual_htf,
-                            expected=expected_htf,
-                            completeness=round(completeness_htf, 3),
-                            threshold=round(threshold, 3),
-                        )
+                        if tf_name in _HTF_PLAN_TFS:
+                            # Plan 185-18: the alarm comes from the shared
+                            # planner -- n_gaps IS len(plan_gaps(...)) for the
+                            # same record the fetch pipeline reads, so a
+                            # covered hole (answered window, verified empty
+                            # span) is not an alarm.
+                            plan = await self._plan_htf_gaps(
+                                conn,
+                                w.instrument,
+                                tf_name,
+                                w.date_start_utc,
+                                w.date_end_utc,
+                                now=now_utc,
+                                reverify_days=span_reverify_days,
+                                min_confirmations=span_min_confirmations,
+                            )
+                            if plan:
+                                self.logger.warning(
+                                    "bar_auditor.htf_gap_plan",
+                                    symbol=sym,
+                                    tf=tf_name,
+                                    date=str(w.target_date),
+                                    n_gaps=len(plan),
+                                    first_gap=format_iso_ts(plan[0][0]),
+                                    last_gap_end=format_iso_ts(plan[-1][1]),
+                                    completeness=round(completeness_htf, 3),
+                                    threshold=round(threshold, 3),
+                                )
+                            else:
+                                self.logger.info(
+                                    "bar_auditor.htf_gaps_all_covered",
+                                    symbol=sym,
+                                    tf=tf_name,
+                                    date=str(w.target_date),
+                                )
+                        else:
+                            self.logger.warning(
+                                "bar_auditor.htf_gap_detected",
+                                symbol=sym,
+                                tf=tf_name,
+                                date=str(w.target_date),
+                                actual=actual_htf,
+                                expected=expected_htf,
+                                completeness=round(completeness_htf, 3),
+                                threshold=round(threshold, 3),
+                            )
 
         return gaps
 
