@@ -10,7 +10,8 @@
     "research_enabled": true,
     "_auto_chain_active": false,
     "nyquist_validation": true,
-    "plan_review_convergence": true
+    "plan_review_convergence": true,
+    "use_worktrees": false
   },
   "granularity": "standard",
   "review": {
