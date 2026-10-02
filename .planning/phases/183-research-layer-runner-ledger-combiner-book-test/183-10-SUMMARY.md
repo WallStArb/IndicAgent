@@ -26,6 +26,9 @@ was made under heavier load).
 Turnover about 26x gross per session; the cost band (diagnostic only) puts 1 bp per side at
 about 65% a year against about 4.7% gross. Evidence JSON:
 `logs/phase183/runs/b828c285a369b97f_<member>.json`.
+(2026-10-02 note: the `logs/phase183/` paths above and in task 2 were worktree-relative and
+the worktree is deleted; the canonical records are the `research_run.evidence` rows, run group
+`5a564f09` and run `ba36e5b7`.)
 
 ## Task 2: book v1 screen test (refused, uncharged)
 
