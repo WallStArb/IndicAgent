@@ -96,7 +96,7 @@ for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
   RUN_LOG="$LOG_DIR/${LANE}_attempt${ATTEMPT}.log"
   WATCHDOG_LOG="$LOG_DIR/${LANE}_watchdog_attempt${ATTEMPT}.log"
   .venv/bin/python -u scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
-    --dimension backfill --timeframes 5m --real-bars-only --client-id "$CLIENT_ID" --symbols "$SYMBOLS" \
+    --dimension backfill --timeframes 5m --client-id "$CLIENT_ID" --symbols "$SYMBOLS" \
     > "$RUN_LOG" 2>&1 &
   FETCH_PID=$!
   watchdog "$FETCH_PID" "$WATCHDOG_LOG" &
