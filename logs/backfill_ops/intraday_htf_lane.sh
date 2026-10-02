@@ -44,6 +44,13 @@ except Exception:
 " 2>/dev/null
 }
 
+lease_wait_count() {
+  PGPASSWORD=postgres psql -tA -U postgres -h localhost -d indicagent -c \
+    "SELECT 1 FROM pg_stat_activity WHERE application_name LIKE
+     'lease:ibkr_history_stream:%:historical-pipeline:$CLIENT_ID'
+     AND state = 'active' AND wait_event_type = 'Lock' LIMIT 1" 2>/dev/null
+}
+
 watchdog() {
   local fetch_pid="$1" watchdog_log="$2" run_log="$3" last_mtime="" last_change_ts
   last_change_ts=$(date +%s)
@@ -59,11 +66,19 @@ watchdog() {
       last_mtime="$current_mtime"
       last_change_ts=$now
     elif [ $((now - last_change_ts)) -ge "$STALL_THRESHOLD_SEC" ]; then
-      echo "$(date -u +%FT%TZ) WATCHDOG_STALL_DETECTED killing pid $fetch_pid" >> "$watchdog_log"
-      kill "$fetch_pid" 2>/dev/null
-      sleep 10
-      kill -0 "$fetch_pid" 2>/dev/null && kill -9 "$fetch_pid" 2>/dev/null
-      break
+      if lease_wait_count >/dev/null; then
+        # Bulk-tier yield while the nightly priority lease runs is healthy waiting, not a
+        # stall; killing it just burns an attempt per 25 min of nightly runtime (and the
+        # killed attempt's lease-wait backend lingers as an orphan claimant).
+        echo "$(date -u +%FT%TZ) lease_wait (priority holder active), staying alive" >> "$watchdog_log"
+        last_change_ts=$now
+      else
+        echo "$(date -u +%FT%TZ) WATCHDOG_STALL_DETECTED killing pid $fetch_pid" >> "$watchdog_log"
+        kill "$fetch_pid" 2>/dev/null
+        sleep 10
+        kill -0 "$fetch_pid" 2>/dev/null && kill -9 "$fetch_pid" 2>/dev/null
+        break
+      fi
     fi
   done
 }
