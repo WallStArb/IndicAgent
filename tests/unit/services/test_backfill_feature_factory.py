@@ -1012,6 +1012,40 @@ class TestRestrictTimeframes:
             _restrict_timeframes(["5m", "1d"], ["1m"])
 
 
+class TestRefuseDerivationOwnedTfs:
+    """Plan 185-18 task 1b: the fetch stage refuses 1d/15m/1h (their grid rows
+    belong to services/bar_derivation, D-06/D-15) with one logged warning per
+    refused timeframe, and keeps everything else unchanged."""
+
+    def test_refuses_daily_and_derivation_grid_tfs(self):
+        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+
+        assert _refuse_derivation_owned_tfs(["5m", "15m", "1h", "1d"]) == ["5m"]
+
+    def test_keeps_streaming_tfs_untouched(self):
+        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+
+        assert _refuse_derivation_owned_tfs(["5m", "1m"]) == ["5m", "1m"]
+
+    def test_one_warning_per_refused_timeframe(self):
+        from structlog.testing import capture_logs
+
+        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+
+        with capture_logs() as logs:
+            kept = _refuse_derivation_owned_tfs(["5m", "15m", "1h", "1d"])
+        assert kept == ["5m"]
+        warnings = [e for e in logs if e.get("log_level") == "warning"]
+        assert [e.get("tf") for e in warnings] == ["15m", "1h", "1d"]
+
+    def test_run_fetch_stage_narrows_through_the_fence(self):
+        """The composed entry point narrows through the fence before any fetch,
+        so a config that still lists the derivation-owned timeframes fetches
+        5m only."""
+        source = inspect.getsource(module.run_fetch_stage)
+        assert "_refuse_derivation_owned_tfs" in source
+
+
 # ---------------------------------------------------------------------------
 # Rebuild unit design (186-25, D-32a, D-26)
 # ---------------------------------------------------------------------------

@@ -1151,17 +1151,17 @@ class TestArchiveGridRouting:
         assert mock_insert.call_count == 1
 
     def test_real_bars_only_for_grid_tfs(self):
-        """Plan 185-18: 5m and 1m join the archive timeframes as real-bars-only
-        for every asset class (no synthetic fill reaches market_data_ohlcv from
-        this pipeline at those timeframes); 1d and 4h keep the placeholder path
-        until phase 185 D2 / the futures rework."""
+        """Plan 185-18 task 1b: 1d joins the real-bars-only set with the rest of
+        the fetch stack (no synthetic fill reaches market_data_ohlcv from this
+        pipeline anywhere except 4h, which keeps the placeholder path until the
+        futures rework); 1d's store path is refused outright -- its answers go
+        to D1 and the derivation's daily stage owns the grid rows."""
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             real_bars_only_for,
         )
 
-        for tf in ("5m", "1m", "15m", "1h"):
+        for tf in ("5m", "1m", "15m", "1h", "1d"):
             assert real_bars_only_for(tf) is True
-        assert real_bars_only_for("1d") is False
         assert real_bars_only_for("4h") is False
 
 

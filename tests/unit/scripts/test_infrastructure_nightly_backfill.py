@@ -6,6 +6,7 @@ covered by test_nightly_lease.py."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -94,7 +95,7 @@ class TestSelectStalest:
         assert _COHORT.delegate_args == ("--dimension", "compute_1d", "--timeframes", "1d")
 
 
-def _run_main(batches, returncodes, grid_returncode=0):
+def _run_main(batches, returncodes, grid_returncode=0, daily_returncode=0):
     mod = infrastructure_nightly_backfill
     by_leg = dict(zip((leg.name for leg in mod._LEGS), batches, strict=True))
     with (
@@ -104,6 +105,7 @@ def _run_main(batches, returncodes, grid_returncode=0):
         patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
         patch.object(mod, "_load_lease_wait_minutes", return_value=60),
         patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
+        patch.object(mod, "_run_daily_stage", return_value=daily_returncode) as mock_daily,
         patch.object(mod, "_prepare_grid_stage") as mock_prepare,
         patch.object(mod, "_run_grid_stage", return_value=grid_returncode) as mock_grid,
         patch.object(mod, "emit_integrity_fact_sync"),
@@ -111,12 +113,12 @@ def _run_main(batches, returncodes, grid_returncode=0):
         patch.object(mod, "JOB_COMPLETED_TOTAL"),
     ):
         rc = mod.main()
-    return rc, mock_delegate, mock_grid, mock_prepare
+    return rc, mock_delegate, mock_grid, mock_prepare, mock_daily
 
 
 class TestMainDispatch:
     def test_each_leg_dispatches_with_its_own_args(self):
-        rc, mock_delegate, _mock_grid, _mock_prepare = _run_main(
+        rc, mock_delegate, _mock_grid, _mock_prepare, _mock_daily = _run_main(
             [["AAA"], ["PIL1", "PIL2"]], [0, 0]
         )
         assert rc == 0
@@ -131,13 +133,60 @@ class TestMainDispatch:
 
     @pytest.mark.parametrize(("returncodes", "expected"), [([0, 3], 3), ([2, 0], 2)])
     def test_failure_in_either_leg_fails_the_job(self, returncodes, expected):
-        rc, _delegate, _grid, _prepare = _run_main([["AAA"], ["PIL1"]], returncodes)
+        rc, _delegate, _grid, _prepare, _daily = _run_main([["AAA"], ["PIL1"]], returncodes)
         assert rc == expected
 
     def test_empty_leg_is_skipped(self):
-        rc, mock_delegate, _grid, _prepare = _run_main([["AAA"], []], [0])
+        rc, mock_delegate, _grid, _prepare, _daily = _run_main([["AAA"], []], [0])
         assert rc == 0
         assert mock_delegate.call_count == 1
+
+
+class TestDailyStage:
+    """Plan 185-18 task 1b: 1d answers land in D1 only (the pipeline no longer
+    writes 1d rows to market_data_ohlcv), so the nightly derives the 1d grid
+    itself: after the backfill legs and before the grid stage, the daily stage
+    runs with --changed-only --apply for exactly the symbols whose inputs
+    changed. No lane guard file: the 1d derivation is not a lane-timeframe."""
+
+    def test_daily_stage_invokes_bar_derivation_changed_only(self):
+        mod = infrastructure_nightly_backfill
+        with patch.object(mod.subprocess, "run", return_value=MagicMock(returncode=0)) as mock_run:
+            rc = mod._run_daily_stage()
+        assert rc == 0
+        argv = mock_run.call_args.args[0]
+        assert argv[0].endswith("python") or argv[0].endswith("python3")
+        assert argv[1].endswith("services/bar_derivation.py")
+        assert argv[2:] == ["--stage", "daily", "--changed-only", "--apply"]
+
+    def test_daily_stage_runs_between_legs_and_grid_stage(self):
+        mod = infrastructure_nightly_backfill
+        order: list[str] = []
+        with (
+            patch.object(mod, "setup_service_logging"),
+            patch.object(mod, "Settings"),
+            patch.object(mod, "connect_db"),
+            patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: ["AAA"]),
+            patch.object(mod, "_load_lease_wait_minutes", return_value=60),
+            patch.object(
+                mod, "_run_delegate", side_effect=lambda *_a, **_k: order.append("legs") or 0
+            ),
+            patch.object(mod, "_run_daily_stage", side_effect=lambda: order.append("daily") or 0),
+            patch.object(mod, "_prepare_grid_stage", return_value=Path("/tmp/x.txt")),
+            patch.object(
+                mod, "_run_grid_stage", side_effect=lambda *_a, **_k: order.append("grid") or 0
+            ),
+            patch.object(mod, "emit_integrity_fact_sync"),
+            patch.object(mod, "flush_and_shutdown_metrics"),
+            patch.object(mod, "JOB_COMPLETED_TOTAL"),
+        ):
+            rc = mod.main()
+        assert rc == 0
+        assert order == ["legs", "legs", "daily", "grid"]
+
+    def test_daily_stage_failure_fails_the_job(self):
+        rc, _delegate, _grid, _prepare, _daily = _run_main([["AAA"], []], [0], daily_returncode=2)
+        assert rc == 2
 
 
 class TestGridStage:
@@ -147,13 +196,13 @@ class TestGridStage:
     leg that ended failed_lease_timeout."""
 
     def test_grid_stage_runs_after_legs_even_after_lease_timeout(self):
-        rc, _delegate, mock_grid, mock_prepare = _run_main([["AAA"], ["PIL1"]], [0, 3])
+        rc, _delegate, mock_grid, mock_prepare, _daily = _run_main([["AAA"], ["PIL1"]], [0, 3])
         assert mock_prepare.call_count == 1
         assert mock_grid.call_count == 1
         assert rc == 3  # the lease timeout still fails the job
 
     def test_grid_stage_failure_fails_the_job(self):
-        rc, _delegate, _grid, _prepare = _run_main([["AAA"], []], [0], grid_returncode=2)
+        rc, _delegate, _grid, _prepare, _daily = _run_main([["AAA"], []], [0], grid_returncode=2)
         assert rc == 2
 
     def test_grid_stage_refuses_on_an_unscoped_lane(self, capsys):
@@ -165,6 +214,7 @@ class TestGridStage:
             patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: ["AAA"]),
             patch.object(mod, "_load_lease_wait_minutes", return_value=60),
             patch.object(mod, "_run_delegate", return_value=0),
+            patch.object(mod, "_run_daily_stage", return_value=0),
             patch.object(
                 mod, "_prepare_grid_stage", side_effect=RuntimeError("lane without --symbols")
             ),

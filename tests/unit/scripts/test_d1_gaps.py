@@ -11,14 +11,15 @@ no ranges; the same name with the no_data row deleted returns the head.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
+
 from scripts.infrastructure.backfill._d1_gaps import (
+    detect_gaps_1d_from_d1,
     detect_gaps_from_record,
     load_answered_windows,
 )
-
 from scripts.infrastructure.backfill._empty_history import EmptyRange
 
 _Q = timedelta(minutes=15)
@@ -192,6 +193,144 @@ class TestDetectGapsFromRecord:
         conn = _FakeConn()
         with pytest.raises(ValueError, match="1m"):
             detect_gaps_from_record(conn, "SPY", "1m", _t(14, 30), _t(15, 30), [], now=_NOW)
+
+
+class TestDetectGaps1dFromD1:
+    """Plan 185-18 task 1b: 1d asks come from D1, through the same plan_gaps rule
+    every other timeframe uses. A NYSE session with a TRADES observation (SMART or
+    venue, D-20) is covered; a definitive no_data window containing the whole
+    session day is covered; the rest come back as contiguous end-exclusive
+    (date, date) ranges whose end is the last missing session's day end."""
+
+    _D1 = date(2026, 1, 5)  # Monday
+    _D2 = date(2026, 1, 6)  # Tuesday
+    _D3 = date(2026, 1, 7)  # Wednesday
+    # After every session in the window: all three session slots are plannable.
+    _NOW_1D = datetime(2026, 1, 8, 2, 0, tzinfo=UTC)
+
+    def _sessions(self) -> dict[date, tuple[datetime, datetime]]:
+        def _sess(d: date) -> tuple[datetime, datetime]:
+            return (
+                datetime(d.year, d.month, d.day, 14, 30, tzinfo=UTC),
+                datetime(d.year, d.month, d.day, 21, 0, tzinfo=UTC),
+            )
+
+        return {d: _sess(d) for d in (self._D1, self._D2, self._D3)}
+
+    @staticmethod
+    def _midnight(d: date) -> datetime:
+        return datetime(d.year, d.month, d.day, tzinfo=UTC)
+
+    def test_sessions_with_observations_are_not_gaps(self):
+        conn = _FakeConn([(self._D1,), (self._D2,), (self._D3,)], [])
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+        )
+        assert plan == []
+
+    def test_a_no_data_window_spanning_whole_session_days_is_not_a_gap(self):
+        conn = _FakeConn([(self._D3,)], [(self._midnight(self._D1), self._midnight(self._D3))])
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+        )
+        assert plan == []
+
+    def test_missing_sessions_come_back_as_one_contiguous_end_exclusive_range(self):
+        conn = _FakeConn([(self._D3,)], [])
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+        )
+        # End-exclusive: the range ends at the last missing session's own day end.
+        assert plan == [(self._D1, self._D3)]
+
+    def test_a_session_still_forming_is_not_planned_and_the_window_caps_at_now(self):
+        # Mid-session on the 6th: the 7th's slot has not started (not planned), and
+        # the 6th's ask is capped at now so the half-formed session is re-asked
+        # once its day completes -- a no_data answer for the capped window cannot
+        # cover the whole day.
+        early = datetime(2026, 1, 6, 2, 0, tzinfo=UTC)
+        conn = _FakeConn([(self._D1,)], [])
+        plan = detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=early)
+        assert plan == [(self._D2, self._D2)]
+
+    def test_sessions_outside_the_requested_window_are_ignored(self):
+        sessions = self._sessions()
+        sessions[date(2026, 1, 9)] = (  # a Friday outside [start, end]
+            datetime(2026, 1, 9, 14, 30, tzinfo=UTC),
+            datetime(2026, 1, 9, 21, 0, tzinfo=UTC),
+        )
+        conn = _FakeConn([], [])
+        plan = detect_gaps_1d_from_d1(conn, "SPY", self._D2, self._D3, sessions, now=self._NOW_1D)
+        assert plan == [(self._D2, date(2026, 1, 8))]
+
+    def test_observed_query_reads_ohlcv_observation_trades_and_is_route_agnostic(self):
+        conn = _FakeConn([], [])
+        detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D)
+        sql, params = conn.queries[0]
+        assert "FROM ohlcv_observation" in sql
+        assert "timeframe = '1d'" in sql
+        assert "what_to_show = 'TRADES'" in sql
+        # D-20: a former-venue observation covers its session exactly like a SMART
+        # one, so the query must not filter on route.
+        assert "route" not in sql
+        assert params == ("SPY", self._D1, self._D3)
+
+    def test_no_data_query_reads_definitive_no_data_windows_only(self):
+        conn = _FakeConn([], [])
+        detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D)
+        sql, params = conn.queries[1]
+        assert "FROM ohlcv_request" in sql
+        assert "outcome = 'no_data'" in sql
+        assert "window_start IS NOT NULL" in sql
+        assert params == ("SPY",)
+
+    def test_a_fresh_confirmed_empty_span_suppresses_the_pre_listing_head(self):
+        empty = EmptyRange(
+            empty_from=self._midnight(self._D1),
+            empty_through=datetime(2026, 1, 6, 14, 30, tzinfo=UTC),
+            verified_at=self._NOW_1D - timedelta(days=1),
+            n_confirming_chunks=3,
+        )
+        conn = _FakeConn([(self._D3,)], [])
+        skipped: list[EmptyRange] = []
+        plan = detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            empty=empty,
+            now=self._NOW_1D,
+            reverify_days=7,
+            min_confirmations=2,
+            on_skip=skipped.append,
+        )
+        assert plan == []
+        assert skipped == [empty]
+
+    def test_a_stale_empty_span_suppresses_nothing(self):
+        empty = EmptyRange(
+            empty_from=self._midnight(self._D1),
+            empty_through=datetime(2026, 1, 6, 14, 30, tzinfo=UTC),
+            verified_at=self._NOW_1D - timedelta(days=30),
+            n_confirming_chunks=3,
+        )
+        conn = _FakeConn([(self._D3,)], [])
+        skipped: list[EmptyRange] = []
+        plan = detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            empty=empty,
+            now=self._NOW_1D,
+            reverify_days=7,
+            min_confirmations=2,
+            on_skip=skipped.append,
+        )
+        assert plan == [(self._D1, self._D3)]
+        assert skipped == []
 
 
 class TestLoadAnsweredWindows:

@@ -1,7 +1,7 @@
-"""CI guard: no new raw `UPDATE feature_vectors`/`UPDATE feature_ic_scores` outside this
-checked-in allow-list.
+"""CI guard: no new raw `UPDATE feature_vectors`/`UPDATE feature_ic_scores`/
+`UPDATE market_data_ohlcv` outside this checked-in allow-list.
 
-Both are compressed TimescaleDB hypertables. Proven 2026-08-14 (see
+All three are compressed TimescaleDB hypertables. Proven 2026-08-14 (see
 services/_batch_utils.py's `compressed_hypertable_write_session` docstring for the full
 writeup): a compressed chunk has no usable per-row index at all, so ANY row-level UPDATE
 against one -- regardless of how selective its WHERE/JOIN predicate is -- forces a full
@@ -10,10 +10,16 @@ decompressed chunk. `bulk_update_by_key`'s callers can't be told apart from a ha
 UPDATE by grepping the table name (bulk_update_by_key's own SQL is built as
 `f"UPDATE {table} ..."`, so the literal text `UPDATE feature_vectors` never appears in its
 call sites' source) -- so this guard's job is narrower than "wrap every write": it exists
-to force any NEW raw, hand-rolled UPDATE against one of these two tables through the same
+to force any NEW raw, hand-rolled UPDATE against one of these tables through the same
 "why does this need to bypass bulk_update_by_key" justification `test_market_data_ohlcv_
 boundary.py` already established for a structurally similar problem, at review time, in
 the diff, rather than relying on someone remembering the incident later.
+
+`UPDATE market_data_ohlcv` joined the pattern in plan 185-18 task 1b: the two writers
+that still hand-rolled it (bar_auditor's price-sanity verdicts and the known-corrupt
+print cleanup) were fenced off in favor of services/bar_scrub.py, so the expected
+allow-list for that table is empty -- a new raw UPDATE against the OHLCV hypertable has
+no precedent to lean on at all.
 
 CI-clean: no DB, no network -- pure filesystem grep.
 """
@@ -30,13 +36,16 @@ from tests.unit._source_grep_helpers import (
 )
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_RAW_UPDATE_PATTERN = re.compile(r"\bUPDATE\s+(?:feature_vectors|feature_ic_scores)\b")
+_RAW_UPDATE_PATTERN = re.compile(
+    r"\bUPDATE\s+(?:feature_vectors|feature_ic_scores|market_data_ohlcv)\b"
+)
 _SEARCH_DIRS = ("services", "src", "scripts")
 
-# (file, reason) -- every raw UPDATE feature_vectors/feature_ic_scores reference in the
-# tree must appear here. Adding a new call site requires adding a row here with a real
-# reason (ideally: wrap it in compressed_hypertable_write_session /
-# async_compressed_hypertable_write_session instead of writing a new raw UPDATE at all).
+# (file, reason) -- every raw UPDATE feature_vectors/feature_ic_scores/
+# market_data_ohlcv reference in the tree must appear here. Adding a new call site
+# requires adding a row here with a real reason (ideally: wrap it in
+# compressed_hypertable_write_session / async_compressed_hypertable_write_session
+# instead of writing a new raw UPDATE at all).
 _ALLOW_LIST: dict[str, str] = {
     "scripts/ops/corpus/ops_regime_null_out_and_verify.py": (
         "PERMANENT: raw UPDATE retained (not migrated to bulk_update_by_key) because "
@@ -71,15 +80,20 @@ def test_every_raw_compressed_hypertable_update_is_on_the_allow_list():
     assert_no_unlisted_references(
         hits,
         _ALLOW_LIST,
-        what="raw `UPDATE feature_vectors`/`UPDATE feature_ic_scores` reference(s)",
+        what=(
+            "raw `UPDATE feature_vectors`/`UPDATE feature_ic_scores`/"
+            "`UPDATE market_data_ohlcv` reference(s)"
+        ),
         remedy=(
             "If this is a genuine new write, prefer routing it through "
             "bulk_update_by_key + compressed_hypertable_write_session (or the async "
             "sibling) in services/_batch_utils.py rather than a hand-rolled UPDATE -- see "
-            "that function's docstring for why a raw UPDATE against either table is "
-            "~1000x more expensive than it looks. If a raw UPDATE is genuinely necessary, "
-            "bracket it in the session helper and add a row to _ALLOW_LIST here with a "
-            "one-line reason."
+            "that function's docstring for why a raw UPDATE against these tables is "
+            "~1000x more expensive than it looks. For market_data_ohlcv specifically, "
+            "bar_derivation owns all derived-row writes and bar_scrub owns corrections "
+            "(phase 185) -- a new raw UPDATE there is wrong, not just expensive. If a "
+            "raw UPDATE is genuinely necessary against a feature table, bracket it in "
+            "the session helper and add a row to _ALLOW_LIST here with a one-line reason."
         ),
     )
 

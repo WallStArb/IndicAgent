@@ -169,11 +169,33 @@ def test_parse_payload_source_tagging():
 
     valid_1m, _ = agent._parse_payload(_make_bar_payload(tf="1m"))
     valid_5m, _ = agent._parse_payload(_make_bar_payload(tf="5m"))
-    valid_1h, _ = agent._parse_payload(_make_bar_payload(tf="1h"))
+    valid_4h, _ = agent._parse_payload(_make_bar_payload(tf="4h"))
 
     assert valid_1m[0][9] == "live_1m"
     assert valid_5m[0][9] == "live_htf"
-    assert valid_1h[0][9] == "live_htf"
+    assert valid_4h[0][9] == "live_htf"
+
+
+class TestDerivationOwnedTimeframeFence:
+    """Plan 185-18 task 1b: 1d/15m/1h grid rows belong to services/bar_derivation
+    (D-06/D-15 single-writer). The streaming writer refuses them with a logged
+    warning instead of silently racing the derivation."""
+
+    @pytest.mark.parametrize("tf", ["1d", "15m", "1h"])
+    def test_derivation_owned_tfs_are_refused_with_a_logged_warning(self, tf):
+        agent = _make_agent()
+        valid, invalid = agent._parse_payload(_make_bar_payload(tf=tf))
+        assert valid == []
+        assert invalid == []
+        assert agent.logger.warning.call_count == 1
+
+    @pytest.mark.parametrize("tf", ["1m", "5m"])
+    def test_streaming_tfs_still_parse_to_one_row(self, tf):
+        agent = _make_agent()
+        valid, invalid = agent._parse_payload(_make_bar_payload(tf=tf))
+        assert len(valid) == 1
+        assert invalid == []
+        assert agent.logger.warning.call_count == 0
 
 
 # ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ def _drive_main(monkeypatch, returncodes, wait_minutes=60):
         patch.object(nightly, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
         patch.object(nightly, "_load_lease_wait_minutes", return_value=wait_minutes),
         patch.object(nightly, "_run_delegate", side_effect=_fake_delegate),
+        patch.object(nightly, "_run_daily_stage", return_value=0),
         patch.object(nightly, "emit_integrity_fact_sync", side_effect=_fake_emit),
         patch.object(nightly, "flush_and_shutdown_metrics"),
         patch.object(nightly, "JOB_COMPLETED_TOTAL", job_counter),

@@ -1,12 +1,12 @@
 """CI guard: no new raw `market_data_ohlcv` writes outside this checked-in allow-list.
 
 Single-writer fence for phase 185 D2b (migration 383's header names this test): after
-plan 11, services/bar_derivation.py is the only PERMANENT writer of derived 15m/1h (and
-later, plan 17, canonical 1d) rows into the raw table; every other write path that
-remains on disk is TEMPORARY and owned by a later plan in the phase (the backfill
-rework). A new file writing the raw table now fails CI immediately unless this
-allow-list is also edited -- which forces a "who owns this segment after phase 185"
-justification into the diff itself, at review time.
+plan 185-18, services/bar_derivation.py is the only writer of derived grid rows (the
+quarter-hour and hourly grid, and the canonical daily rows) into the raw table; every
+other write path on disk is a raw provider observation the derivation never rewrites.
+A new file writing the raw table now fails CI immediately unless this allow-list is
+also edited -- which forces a "who owns this segment" justification into the diff
+itself, at review time.
 
 The read boundary is separate and stays in test_market_data_ohlcv_boundary.py (raw
 READS, the synthetic-fill grid); this guard owns INSERT/UPDATE/DELETE/COPY only.
@@ -34,8 +34,7 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 
 # (file, reason) -- every raw `market_data_ohlcv` write in the tree must appear here.
 # Adding a new writer requires adding a row here with a real reason, not just silencing
-# the test. PERMANENT means the write survives phase 185; TEMPORARY names the plan that
-# retires it.
+# the test.
 _ALLOW_LIST: dict[str, str] = {
     "services/bar_derivation.py": (
         "PERMANENT: the D2b derivation writer (phase 185 plan 11, D-06/D-15) -- the only "
@@ -46,35 +45,27 @@ _ALLOW_LIST: dict[str, str] = {
         "and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "TEMPORARY (1d): the historical backfill still writes provider 1d bars directly; "
-        "retired by plan 18's task 1b. PERMANENT (5m, 1m): raw provider "
-        "observations the derivation never rewrites (D-15); since plan 185-18 task 1a "
-        "they are real-bars-only (todo 462) -- no synthetic fill reaches the table at "
-        "5m or 1m, and 5m chunks commit through the atomic persist helper. Since plan "
-        "12 this pipeline writes NO 15m/1h here: they are archive-bound raw observations "
-        "routed through services/intraday_raw_archive.py into "
-        "ohlcv_intraday_raw_archive, and the grid readers see is derived from 5m "
-        "by services/bar_derivation.py (chained from the nightly)."
+        "PERMANENT: raw provider observations at the five- and one-minute timeframes "
+        "only -- the derivation never rewrites those (D-15); real-bars-only since plan "
+        "185-18 (todo 462), so no synthetic fill reaches the table, and five-minute "
+        "chunks commit through the atomic persist helper. Daily bars stopped landing "
+        "here in plan 185-18 task 1b: the fetch captures them into D1 and "
+        "services/bar_derivation.py owns the daily rows. The hourly and quarter-hour "
+        "fetches are archive-bound raw observations (plan 12) routed through "
+        "services/intraday_raw_archive.py; the grid readers see them derived from "
+        "five-minute bars by bar_derivation (chained from the nightly)."
     ),
     "services/backfill_feature_factory.py": (
-        "TEMPORARY (1d, 15m, 1h): feature-factory backfill writes provider bars at "
-        "these timeframes; retired by plan 18's backfill rework. PERMANENT (5m, 1m): "
-        "its --fetch-only stage survives the phase 186 rebuild per 186-06/186-25; only "
-        "the raw 5m/1m fetch remains, and the derivation never rewrites those (D-15)."
+        "PERMANENT: its --fetch-only stage survives the phase 186 rebuild per "
+        "186-06/186-25; only the raw five- and one-minute provider fetch remains, and "
+        "the derivation never rewrites those (D-15). Plan 185-18 task 1b fenced the "
+        "daily and derived-grid timeframes out of the fetch stage entirely."
     ),
     "services/bar_writer.py": (
-        "TEMPORARY: the streaming-path bar writer persists provider bars for the live "
-        "feed; retired from derived timeframes by plan 18's backfill rework (the live "
-        "path is dormant while the IBKR feed is down)."
-    ),
-    "services/bar_auditor.py": (
-        "TEMPORARY: UPDATE market_data_ohlcv AS m writes price_sanity_status audit "
-        "verdicts; moves to its own audited surface in plan 18's backfill rework."
-    ),
-    "scripts/ops/corpus/ops_known_corrupt_print_cleanup.py": (
-        "TEMPORARY: UPDATE market_data_ohlcv sets price_sanity_status on the known-corrupt "
-        "print set (one-time corpus cleanup); retired with the bar_auditor write path in "
-        "plan 18's backfill rework."
+        "PERMANENT: the streaming-path bar writer persists provider bars at the one- "
+        "and five-minute timeframes only (the live path is dormant while the IBKR feed "
+        "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
+        "(daily, hourly, quarter-hour) with a logged warning."
     ),
 }
 
@@ -93,10 +84,11 @@ def test_every_raw_market_data_ohlcv_writer_is_on_the_allow_list():
         _ALLOW_LIST,
         what="raw `market_data_ohlcv` write(s)",
         remedy=(
-            "After phase 185 plan 11, services/bar_derivation.py is the only permanent "
-            "writer of derived 15m/1h (later 1d) rows. If this is a genuine new write "
-            "path, add it to _ALLOW_LIST in this file with a PERMANENT/TEMPORARY reason "
-            "naming the plan that owns or retires it."
+            "After phase 185 plan 18, services/bar_derivation.py is the only writer of "
+            "derived grid rows into market_data_ohlcv; every other writer on the list "
+            "is a raw provider observation path. If this is a genuine new write path, "
+            "add it to _ALLOW_LIST in this file with a reason naming the plan that "
+            "owns it."
         ),
     )
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, date, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -295,111 +296,25 @@ def test_topics_consumed_includes_contract_updates():
     assert expected_topic in topics
 
 
-class TestPriceSanityAudit:
-    def _make_agent_with_price_sanity_pool(self, candidate_rows, corroboration_result=None):
+class TestPriceSanityFence:
+    """Plan 185-18 task 1b: bar_auditor's price-sanity UPDATE is superseded by
+    services/bar_scrub.py (driven from bar_derivation). The method stays as a
+    raising fence so any forgotten caller fails loudly instead of silently
+    writing a second writer's rows."""
+
+    def test_price_sanity_audit_raises_the_supersession_fence(self):
         from services.bar_auditor import BarAuditor
 
         agent = BarAuditor.__new__(BarAuditor)
-        agent.settings = MagicMock(env_name="development")
-        agent.logger = MagicMock()
-        agent.logger.info = MagicMock()
-        agent.logger.error = MagicMock()
-        agent._agent_attrs = {"agent": "bar_auditor_agent"}
-
-        mock_conn = AsyncMock()
-        mock_conn.fetch = AsyncMock(return_value=candidate_rows)
-        mock_conn.execute = AsyncMock()
-        agent._price_sanity_pool = _wire_pool_acquire(mock_conn)
-        return agent, mock_conn
-
-    def test_price_sanity_audit_empty_candidates_is_noop(self):
-        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows=[])
-
-        with patch(
-            "services.bar_auditor.load_apr_dict_async",
-            new=AsyncMock(return_value={}),
+        with pytest.raises(
+            RuntimeError, match=r"superseded by services/bar_scrub\.py \(phase 185\)"
         ):
             asyncio.run(agent._run_price_sanity_audit())
 
-        mock_conn.execute.assert_not_called()
+    def test_the_price_sanity_update_sql_is_gone(self):
+        import services.bar_auditor as bar_auditor_module
 
-    def test_price_sanity_audit_writes_confirmed_corrupt_status(self):
-        candidate_rows = [
-            {
-                "symbol": "UUP",
-                "tf": "5m",
-                "bar_ts": "2007-06-20T19:05:00+00:00",
-                "open": 1000.0,
-                "high": 1000.0,
-                "low": 1000.0,
-                "close": 1000.0,
-                "prev_close": 28.97,
-                "next_open": 24.08,
-            }
-        ]
-        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows)
-
-        with (
-            patch(
-                "services.bar_auditor.load_apr_dict_async",
-                new=AsyncMock(return_value={}),
-            ),
-            patch(
-                "services.bar_auditor.count_corroborating_symbols_batch",
-                new=AsyncMock(return_value={("UUP", "5m", "2007-06-20T19:05:00+00:00"): 0}),
-            ),
-        ):
-            asyncio.run(agent._run_price_sanity_audit())
-
-        # One UPDATE call writing the classified status back
-        assert mock_conn.execute.call_count == 1
-        call_args = mock_conn.execute.call_args
-        assert "confirmed_corrupt" in str(call_args)
-
-    def test_price_sanity_audit_batches_multiple_rows_into_single_update(self):
-        """Multiple classified rows must be written via ONE batched UPDATE (UNNEST),
-        not one execute() call per row — the per-row loop this replaces would
-        issue N round trips for N candidates."""
-        candidate_rows = [
-            {
-                "symbol": "UUP",
-                "tf": "5m",
-                "bar_ts": "2007-06-20T19:05:00+00:00",
-                "open": 1000.0,
-                "high": 1000.0,
-                "low": 1000.0,
-                "close": 1000.0,
-                "prev_close": 28.97,
-                "next_open": 24.08,
-            },
-            {
-                "symbol": "XRT",
-                "tf": "5m",
-                "bar_ts": "2007-06-20T19:10:00+00:00",
-                "open": 1.0,
-                "high": 1.05,
-                "low": 0.99,
-                "close": 1.02,
-                "prev_close": 1.0,
-                "next_open": 1.01,
-            },
-        ]
-        agent, mock_conn = self._make_agent_with_price_sanity_pool(candidate_rows)
-
-        with (
-            patch(
-                "services.bar_auditor.load_apr_dict_async",
-                new=AsyncMock(return_value={}),
-            ),
-            patch(
-                "services.bar_auditor.count_corroborating_symbols_batch",
-                new=AsyncMock(return_value={("UUP", "5m", "2007-06-20T19:05:00+00:00"): 0}),
-            ),
-        ):
-            asyncio.run(agent._run_price_sanity_audit())
-
-        assert mock_conn.execute.call_count == 1
-        call_args = mock_conn.execute.call_args
-        _, symbols, tfs, bar_tss, statuses = call_args[0]
-        assert set(symbols) == {"UUP", "XRT"}
-        assert len(symbols) == len(tfs) == len(bar_tss) == len(statuses) == 2
+        source = Path(bar_auditor_module.__file__).read_text()
+        assert "_PRICE_SANITY_CANDIDATES_SQL" not in source
+        assert "_PRICE_SANITY_STATUS_UPDATE_SQL" not in source
+        assert "load_apr_dict_async" not in source

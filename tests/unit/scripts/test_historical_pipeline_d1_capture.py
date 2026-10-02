@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -231,6 +231,7 @@ def driven_main(monkeypatch, capsys):
         provider_cls=None,
         acquire_raises: Exception | None = None,
         tf_config: dict | None = None,
+        daily_stage_rc: int = 0,
     ):
         symbols = symbols or ["AAA", "BBB", "CCC"]
         lease = lease or FakeLease()
@@ -241,6 +242,8 @@ def driven_main(monkeypatch, capsys):
         stored: list[tuple[str, str, str]] = []  # (symbol, tf, destination)
         atomic_calls: list[dict] = []
         gap_calls: list[tuple[str, str, object]] = []
+        d1_gap_calls: list[tuple[str, date, date]] = []
+        daily_stage_calls: list[tuple[tuple[str, ...], int]] = []
         mod = pipeline
 
         def _fake_acquire(settings, args):
@@ -316,6 +319,21 @@ def driven_main(monkeypatch, capsys):
         )
         monkeypatch.setattr(
             mod,
+            "detect_gaps_1d_from_d1",
+            lambda conn, symbol, start, end, sessions, **k: (
+                d1_gap_calls.append((symbol, start, end))
+                # A fixed end-exclusive date pair, like the real wrapper returns.
+                or [(date(2024, 1, 1), date(2024, 1, 15))]
+            ),
+        )
+
+        def _fake_daily_stage(daily_symbols: list[str]) -> int:
+            daily_stage_calls.append((tuple(daily_symbols), daily_stage_rc))
+            return daily_stage_rc
+
+        monkeypatch.setattr(mod, "_run_daily_stage", _fake_daily_stage)
+        monkeypatch.setattr(
+            mod,
             "detect_gaps_from_record",
             lambda conn, symbol, tf, start, end, expected_slots, **k: (
                 record_calls.append((symbol, tf))
@@ -381,6 +399,8 @@ def driven_main(monkeypatch, capsys):
             atomic_calls=atomic_calls,
             gap_calls=gap_calls,
             record_calls=record_calls,
+            d1_gap_calls=d1_gap_calls,
+            daily_stage_calls=daily_stage_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
         )
@@ -443,33 +463,77 @@ def test_capture_and_checkpoint_wiring(driven_main):
     ]
 
 
-def test_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(driven_main):
-    """Plan 12: 15m is a raw observation stored into the archive (no fill, with
-    answered-request coverage); 1d keeps the placeholder path until phase 185 D2."""
+def test_15m_is_archive_bound_and_1d_is_d1_only(driven_main):
+    """Plan 12 + plan 185-18 task 1b: 15m is a raw observation stored into the
+    archive (no fill, coverage from the record planner); 1d writes nothing to
+    market_data_ohlcv -- its answers go to D1 and the daily derivation stage
+    owns the grid rows."""
     result = driven_main(_BASE_ARGS)
-    assert sorted(result.normalized) == [(symbol, "1d") for symbol in ("AAA", "BBB", "CCC")]
-    # 15m plans its gaps from the record (coverage read inside the wrapper); 1d
-    # stays on legacy detect_gaps with no answered windows.
+    # No normalize anywhere: 15m is real-bars-only, 1d never reaches the store path.
+    assert result.normalized == []
+    # 15m plans from the record wrapper; 1d plans from the D1 wrapper.
     assert sorted(result.record_calls) == [(symbol, "15m") for symbol in ("AAA", "BBB", "CCC")]
-    answered = {(symbol, tf): windows for symbol, tf, windows in result.gap_calls}
-    for symbol in ("AAA", "BBB", "CCC"):
-        assert answered[(symbol, "1d")] is None
+    assert sorted(call[0] for call in result.d1_gap_calls) == ["AAA", "BBB", "CCC"]
+    # The legacy grid-difference planner is not called at 1d anymore.
+    assert all(tf != "1d" for _symbol, tf, _windows in result.gap_calls)
     destinations = {(symbol, tf): dest for symbol, tf, dest in result.stored}
     for symbol in ("AAA", "BBB", "CCC"):
         assert destinations[(symbol, "15m")] == "archive"
-        assert destinations[(symbol, "1d")] == "market_data_ohlcv"
+        assert (symbol, "1d") not in destinations
 
 
-def test_real_bars_by_default_skips_the_fill_and_reads_coverage_for_intraday(driven_main):
-    """Plan 185-18: the interim --real-bars-only flag is gone; real bars at the
-    record-planner timeframes are the default."""
+def test_1d_fetch_captures_to_d1_and_persists_no_chunk(driven_main):
+    """The 1d fetch passes no on_chunk (nothing persists bars outside D1) while
+    15m keeps its atomic chunk persist; observations still flow to the sink."""
+    result = driven_main(_BASE_ARGS)
+    on_chunk_by_tf: dict[str, object] = {
+        c["timeframe"]: c.get("on_chunk") for c in result.provider.calls if c["symbol"] == "AAA"
+    }
+    assert callable(on_chunk_by_tf["15m"])
+    assert on_chunk_by_tf["1d"] is None
+    # Only the 15m fetches produced an atomic persist call; 1d produced none.
+    assert [call["bars"][0][2] for call in result.atomic_calls] == ["15m"] * 3
+    # D1 still saw the 1d pair of requests and observation deliveries per symbol.
+    assert result.sink.total_observations == 6
+
+
+def test_daily_stage_runs_for_touched_symbols_on_the_clean_path(driven_main):
+    """A run that fetched 1d chains the derivation's daily stage for exactly the
+    symbols whose 1d windows were asked, then marks 1d fetch-complete (the
+    EXISTS guard needs the rows the stage just wrote)."""
     result = driven_main(_BASE_ARGS)
     assert result.exit_code is None
-    # 15m is stored as the provider returned it; 1d still goes through the fill (phase 185 D2).
-    assert sorted(result.normalized) == [("AAA", "1d"), ("BBB", "1d"), ("CCC", "1d")]
-    assert sorted(result.record_calls) == [(symbol, "15m") for symbol in ("AAA", "BBB", "CCC")]
-    # Every (symbol, tf) still completes: the store path reports the real bars it wrote.
-    assert len(result.marked) == 6
+    assert result.daily_stage_calls == [(("AAA", "BBB", "CCC"), 0)]
+    assert sorted(result.marked) == [
+        ("AAA", "15m"),
+        ("AAA", "1d"),
+        ("BBB", "15m"),
+        ("BBB", "1d"),
+        ("CCC", "15m"),
+        ("CCC", "1d"),
+    ]
+
+
+def test_daily_stage_failure_fails_the_run_loudly(driven_main):
+    result = driven_main(_BASE_ARGS, daily_stage_rc=1)
+    assert result.exit_code == 1
+    assert "daily derivation" in result.output.lower()
+    # 1d is not marked fetch-complete: no derived rows were written.
+    assert all(tf != "1d" for _symbol, tf in result.marked)
+
+
+def test_store_bars_refuses_1d():
+    """store_bars is the fence behind the D1-only path: a forgotten 1d caller
+    fails loudly instead of silently writing a non-canonical grid row."""
+    with pytest.raises(RuntimeError, match="1d"):
+        pipeline.store_bars(MagicMock(), _bars("SPY", "1d"), "SPY", "1d")
+
+
+def test_real_bars_only_now_covers_1d():
+    """1d joins the real-bars-only set (no synthetic fill at any timeframe the
+    pipeline fetches except 4h); its store path is refused outright."""
+    assert pipeline.real_bars_only_for("1d") is True
+    assert pipeline.real_bars_only_for("4h") is False
 
 
 def test_5m_chunks_persist_atomically_into_the_grid(driven_main):
@@ -501,7 +565,9 @@ def test_15m_always_asks_through_the_last_slot_end(driven_main):
     default = driven_main(_BASE_ARGS)
     ends = {c["timeframe"]: c["end"] for c in default.provider.calls if c["symbol"] == "AAA"}
     assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)  # through the slot's own end
-    assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)  # 1d stays on the placeholder path
+    # The D1 plan is end-exclusive too: its window ends at the last missing
+    # session's own day end and is asked for as-is.
+    assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)
 
 
 def test_priority_tier_flag_reaches_the_lease(driven_main):

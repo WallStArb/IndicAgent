@@ -1,32 +1,25 @@
 """Unit tests for known-corrupt-OHLCV-print cleanup (todo 151) script functions.
 
-Pure-function tests only -- no DB, no live asyncpg connection. Tests the SQL
-builders, report rendering, and `_apply_correction` function. The classification
-logic (classify_candidate_bar, apply_cross_symbol_downgrade, build_subject_key) is
-tested separately in tests/unit/intelligence/test_price_sanity.py since those
-functions are now shared with todo 149's bar_auditor service.
+Pure-function tests only -- no DB, no live asyncpg connection. Tests the report
+rendering and the pair-scan concurrency. The classification logic
+(classify_candidate_bar, apply_cross_symbol_downgrade) is tested separately in
+tests/unit/intelligence/test_price_sanity.py.
 
-The script's DB-touching code path is exercised via `_apply_correction`'s
-SQL-execution order (audit fact written BEFORE the row is mutated), tested
-against a mocked asyncpg connection (AsyncMock), mirroring
-test_forward_return_writer.py's _mock_conn_with_precheck_result pattern for the
-sync/psycopg2 case.
+Plan 185-18 task 1b: the script's apply mode is refused outright (the corrupt-bar
+scrub belongs to services/bar_scrub.py, driven from bar_derivation), so the
+correction SQL and its audit insert are gone; what remains pinned here is the
+fence and the dry-run surface.
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from scripts.ops.corpus.ops_known_corrupt_print_cleanup import (
-    _AUDIT_INSERT_SQL,
-    _CORRECTION_UPDATE_SQL,
-    _METRIC_NAME,
-    _MONITOR_TYPE,
     CandidateRow,
-    _apply_correction,
     _scan_and_classify_all_pairs,
     render_dry_run_report,
     render_followup_commands,
@@ -34,38 +27,6 @@ from scripts.ops.corpus.ops_known_corrupt_print_cleanup import (
 from src.intelligence.statistics.price_sanity import (
     CandidateVerdict,
 )
-
-
-class TestCorrectionSqlShape:
-    def test_correction_update_sql_shape(self) -> None:
-        assert "UPDATE market_data_ohlcv" in _CORRECTION_UPDATE_SQL
-        assert "SET price_sanity_status = 'confirmed_corrupt'" in _CORRECTION_UPDATE_SQL
-        assert "$1" in _CORRECTION_UPDATE_SQL
-        assert "$2" in _CORRECTION_UPDATE_SQL
-        assert "$3" in _CORRECTION_UPDATE_SQL
-        # Never touch price columns -- Renaissance retention, never modify OHLC.
-        assert "open" not in _CORRECTION_UPDATE_SQL.lower().split("where")[0]
-
-    def test_correction_update_sql_targets_price_sanity_status_not_volume(self) -> None:
-        """Todo 149's reconciliation migration unified corrupt-bar marking onto
-        price_sanity_status -- this correction tool must not reintroduce a second,
-        competing signal (volume=0) for the same job going forward."""
-        assert "price_sanity_status" in _CORRECTION_UPDATE_SQL
-        assert "= 'confirmed_corrupt'" in _CORRECTION_UPDATE_SQL
-        assert "volume" not in _CORRECTION_UPDATE_SQL
-
-    def test_audit_insert_sql_shape(self) -> None:
-        assert "INSERT INTO integrity_monitor" in _AUDIT_INSERT_SQL
-        assert "monitor_type" in _AUDIT_INSERT_SQL
-        assert "subject" in _AUDIT_INSERT_SQL
-        assert "metric_name" in _AUDIT_INSERT_SQL
-        assert "metric_value" in _AUDIT_INSERT_SQL
-        assert "threshold_value" in _AUDIT_INSERT_SQL
-        assert "NULL" in _AUDIT_INSERT_SQL
-        assert "true" in _AUDIT_INSERT_SQL
-        assert "ON CONFLICT" in _AUDIT_INSERT_SQL
-        assert "$1" in _AUDIT_INSERT_SQL
-        assert "$4" in _AUDIT_INSERT_SQL
 
 
 def _make_row(symbol: str, tf: str, verdict: CandidateVerdict) -> CandidateRow:
@@ -129,7 +90,10 @@ class TestRenderFollowupCommands:
         text = render_followup_commands([])
         assert "No CONFIRMED_CORRUPT rows" in text
 
-    def test_confirmed_rows_produce_apply_and_writer_commands(self) -> None:
+    def test_confirmed_rows_point_at_the_scrub_pipeline_not_this_script(self) -> None:
+        """Plan 185-18 task 1b: this script never mutates rows anymore; the
+        follow-up points at services/bar_scrub.py (driven from bar_derivation)
+        and must not suggest its own retired apply mode."""
         confirmed = _make_row(
             "UUP",
             "5m",
@@ -138,9 +102,9 @@ class TestRenderFollowupCommands:
             ),
         )
         text = render_followup_commands([confirmed])
-        assert "--apply" in text
+        assert "bar_scrub" in text
+        assert "--apply" not in text
         assert "UUP" in text
-        assert "5m" in text
         assert "ic_measure.py" in text
         assert "backfill_feature_factory.py" in text
 
@@ -161,51 +125,25 @@ class TestRenderFollowupCommands:
         assert "DELETE FROM feature_vectors" in text
 
 
-class TestApplyCorrectionMockedConnection:
-    """`_apply_correction` is the only function in this script that ever mutates the
-    DB or writes an integrity_monitor row -- exercised here ONLY against a mocked
-    asyncpg connection (AsyncMock), never a live database. No test in this file
-    passes --apply to the real script or opens a real connection."""
+class TestApplyFence:
+    """Plan 185-18 task 1b: the script's apply mode raises the supersession
+    fence instead of mutating rows -- services/bar_scrub.py owns the scrub."""
 
-    def test_writes_audit_fact_before_mutating_row(self) -> None:
-        conn = AsyncMock()
-        row = CandidateRow(
-            symbol="UUP",
-            tf="5m",
-            bar_ts="2007-06-20T19:00:00+00:00",
-            timestamp="2007-06-20T19:00:00Z",
-            open=1000.0,
-            high=1000.0,
-            low=28.97,
-            close=28.97,
-            volume=200.0,
-            prev_close=25.07,
-            next_open=24.08,
-            verdict=CandidateVerdict(
-                "CONFIRMED_CORRUPT", ("open", "high"), 40.7, 1.04, "isolated_spike_neighbors_agree"
-            ),
-        )
-        bar_ts = "2007-06-20T19:00:00+00:00"  # sentinel -- opaque to _apply_correction
+    def test_apply_is_refused_with_the_supersession_fence(self) -> None:
+        from scripts.ops.corpus.ops_known_corrupt_print_cleanup import _refuse_apply
 
-        asyncio.run(_apply_correction(conn, row, bar_ts))
+        with pytest.raises(
+            RuntimeError, match=r"superseded by services/bar_scrub\.py \(phase 185\)"
+        ):
+            _refuse_apply()
 
-        assert conn.execute.call_count == 2
-        audit_call, update_call = conn.execute.call_args_list
+    def test_the_correction_sql_is_gone(self) -> None:
+        from pathlib import Path
 
-        # Audit fact (original volume) is written FIRST, before the mutation --
-        # non-negotiable per todo 151's "audit trail before mutating" spec.
-        assert audit_call.args[0] == _AUDIT_INSERT_SQL
-        assert audit_call.args[1:] == (
-            _MONITOR_TYPE,
-            "symbol=UUP|tf=5m|ts=2007-06-20T19:00:00Z",
-            _METRIC_NAME,
-            200.0,
-        )
-
-        # The correction UPDATE runs second, keyed on symbol/tf/bar_ts (not the
-        # display ISO string -- bar_ts is the raw DB timestamp value).
-        assert update_call.args[0] == _CORRECTION_UPDATE_SQL
-        assert update_call.args[1:] == ("UUP", "5m", bar_ts)
+        source = Path("scripts/ops/corpus/ops_known_corrupt_print_cleanup.py").read_text()
+        assert "_CORRECTION_UPDATE_SQL" not in source
+        assert "_AUDIT_INSERT_SQL" not in source
+        assert "_apply_correction" not in source
 
 
 class TestScanAndClassifyAllPairsConcurrency:
