@@ -28,6 +28,7 @@ import pytest
 
 from scripts.infrastructure.backfill import _intraday_persist
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
+from services.ohlcv_coverage_writer import FETCH_STATUSES, CoverageDelta, record_fetch_outcome
 from services.ohlcv_observation_writer import write_request_rows
 
 _REQUEST_ROW = (
@@ -74,6 +75,8 @@ class FakeConn:
         self.statements: list[tuple[str, bool]] = []
         self.copies: list[tuple[str, list[tuple]]] = []
         self.fail_on = fail_on
+        self.existing: list[datetime] = []  # timestamps the destination already stores
+        self.params: dict[str, object] = {}
         self._in_txn = False
         self.transaction_status = (
             psycopg.pq.TransactionStatus.IDLE if idle else psycopg.pq.TransactionStatus.INTRANS
@@ -112,6 +115,10 @@ class FakeConn:
 class FakeCursor:
     def __init__(self, conn: FakeConn) -> None:
         self._conn = conn
+        self.rowcount = 0
+
+    def fetchall(self) -> list[tuple]:
+        return [(ts,) for ts in self._conn.existing]
 
     def __enter__(self) -> FakeCursor:
         return self
@@ -121,6 +128,7 @@ class FakeCursor:
 
     def execute(self, sql: str, params: object = None) -> None:
         self._conn.record(sql)
+        self._conn.params[sql] = params
 
     def copy(self, sql: str) -> _RecordingCopy:
         self._conn.record(sql)
@@ -273,3 +281,192 @@ def test_empty_chunk_is_a_noop(archive_writer):
         conn, request_rows=[], archive_rows=[], write_archive_rows=archive_writer
     ) == (0, 0)
     assert conn.statements == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage: the third write (phase 189 plan 01, CD-03/CD-04)
+# ---------------------------------------------------------------------------
+
+
+def _bar(ts: datetime, volume: int = 1000, *, symbol: str = "SPY", tf: str = "15m") -> tuple:
+    return (ts, symbol, tf, 600.0, 601.0, 599.0, 600.5, volume, "ibkr", None)
+
+
+_T0 = datetime(2026, 9, 27, 13, 30, tzinfo=UTC)
+_T1 = datetime(2026, 9, 27, 13, 45, tzinfo=UTC)
+_T2 = datetime(2026, 9, 27, 14, 0, tzinfo=UTC)
+_FETCHED_AT = datetime(2026, 9, 27, 14, 30, tzinfo=UTC)
+
+
+def _delta(destination: str = "archive") -> CoverageDelta:
+    return CoverageDelta(
+        symbol="SPY", timeframe="15m", destination=destination, fetched_at=_FETCHED_AT
+    )
+
+
+@pytest.fixture()
+def recorded_upserts(monkeypatch):
+    calls: list[dict] = []
+
+    def _record(cur, delta, *, earliest, latest, n_new_rows):
+        cur.execute("INSERT INTO ohlcv_coverage <recorded>", None)
+        calls.append(
+            {"delta": delta, "earliest": earliest, "latest": latest, "n_new_rows": n_new_rows}
+        )
+
+    monkeypatch.setattr(_intraday_persist, "upsert_coverage", _record)
+    return calls
+
+
+def test_coverage_write_is_the_third_write_inside_the_same_transaction(archive_writer):
+    conn = FakeConn()
+    assert persist_chunk_atomically(
+        conn,
+        request_rows=[_REQUEST_ROW],
+        archive_rows=[_ARCHIVE_ROW],
+        write_archive_rows=archive_writer,
+        coverage=_delta(),
+    ) == (1, 1)
+    kinds = [sql for sql, _ in conn.statements]
+    assert kinds[0] == "<begin>" and kinds[-1] == "<commit>"
+    inside = [sql for sql, inside_flag in conn.statements if inside_flag]
+    assert inside[:4] == [
+        "SET LOCAL ROLE ohlcv_observation_writer",
+        conn.copies[0][0],
+        "<copy done>",
+        "SET LOCAL ROLE bar_derivation_writer",
+    ]
+    assert inside[4].lstrip().startswith("SELECT timestamp FROM ohlcv_intraday_raw_archive")
+    assert inside[5] == "INSERT INTO ohlcv_intraday_raw_archive (...)"
+    assert inside[6].lstrip().startswith("INSERT INTO ohlcv_coverage")
+    assert len(inside) == 7
+
+
+def test_no_coverage_means_no_coverage_sql(archive_writer):
+    conn = FakeConn()
+    persist_chunk_atomically(
+        conn,
+        request_rows=[_REQUEST_ROW],
+        archive_rows=[_ARCHIVE_ROW],
+        write_archive_rows=archive_writer,
+    )
+    assert not any("ohlcv_coverage" in sql for sql, _ in conn.statements)
+    assert not any(sql.lstrip().startswith("SELECT") for sql, _ in conn.statements)
+
+
+def test_failure_in_the_coverage_upsert_rolls_back_everything(archive_writer):
+    conn = FakeConn(fail_on="ohlcv_coverage")
+    with pytest.raises(RuntimeError, match="forced failure"):
+        persist_chunk_atomically(
+            conn,
+            request_rows=[_REQUEST_ROW],
+            archive_rows=[_ARCHIVE_ROW],
+            write_archive_rows=archive_writer,
+            coverage=_delta(),
+        )
+    kinds = [sql for sql, _ in conn.statements]
+    assert kinds[-1] == "<rollback>"
+    assert "<commit>" not in kinds
+    assert archive_writer.calls  # the bars were offered, and roll back with the coverage
+
+
+def test_archive_counts_only_timestamps_not_already_stored(archive_writer, recorded_upserts):
+    conn = FakeConn()
+    conn.existing = [_T0]
+    persist_chunk_atomically(
+        conn,
+        request_rows=[],
+        archive_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
+        write_archive_rows=archive_writer,
+        coverage=_delta("archive"),
+    )
+    (call,) = recorded_upserts
+    # archive: every new row counts, zero-volume included
+    assert call["n_new_rows"] == 2
+    assert (call["earliest"], call["latest"]) == (_T1, _T2)
+
+
+def test_grid_counts_only_new_tradeable_rows(archive_writer, recorded_upserts):
+    conn = FakeConn()
+    conn.existing = [_T0]
+    persist_chunk_atomically(
+        conn,
+        request_rows=[],
+        archive_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
+        write_archive_rows=archive_writer,
+        coverage=_delta("grid"),
+    )
+    (call,) = recorded_upserts
+    assert call["n_new_rows"] == 1
+    assert (call["earliest"], call["latest"]) == (_T2, _T2)
+    assert "FROM market_data_ohlcv" in conn.statements[2][0]
+
+
+def test_bounds_fall_back_to_offered_rows_when_nothing_new(archive_writer, recorded_upserts):
+    conn = FakeConn()
+    conn.existing = [_T0, _T1]
+    persist_chunk_atomically(
+        conn,
+        request_rows=[],
+        archive_rows=[_bar(_T0), _bar(_T1)],
+        write_archive_rows=archive_writer,
+        coverage=_delta(),
+    )
+    (call,) = recorded_upserts
+    assert call["n_new_rows"] == 0
+    assert (call["earliest"], call["latest"]) == (_T0, _T1)
+
+
+def test_duplicate_timestamps_in_a_chunk_count_once(archive_writer, recorded_upserts):
+    conn = FakeConn()
+    persist_chunk_atomically(
+        conn,
+        request_rows=[],
+        archive_rows=[_bar(_T0), _bar(_T0)],
+        write_archive_rows=archive_writer,
+        coverage=_delta(),
+    )
+    assert recorded_upserts[0]["n_new_rows"] == 1
+
+
+def test_rows_for_another_series_are_refused_before_any_sql(archive_writer):
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="series"):
+        persist_chunk_atomically(
+            conn,
+            request_rows=[_REQUEST_ROW],
+            archive_rows=[_bar(_T0, symbol="QQQ")],
+            write_archive_rows=archive_writer,
+            coverage=_delta(),
+        )
+    assert conn.statements == []
+
+
+def test_coverage_delta_rejects_an_unknown_destination():
+    with pytest.raises(ValueError, match="destination"):
+        CoverageDelta(symbol="SPY", timeframe="15m", destination="nowhere", fetched_at=_FETCHED_AT)
+
+
+def test_record_fetch_outcome_rejects_an_unknown_status_before_sql():
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="status"):
+        record_fetch_outcome(conn.cursor(), "SPY", "15m", "timeout", _FETCHED_AT)
+    assert conn.statements == []
+
+
+def test_record_fetch_outcome_never_increments_on_no_data():
+    """CD-05 at the SQL level: only an error adds to consecutive_failures."""
+    conn = FakeConn()
+    record_fetch_outcome(conn.cursor(), "SPY", "15m", "no_data", _FETCHED_AT)
+    ((sql, _),) = conn.statements
+    params = conn.params[sql]
+    assert "WHEN EXCLUDED.last_fetch_status = 'error'" in sql
+    assert "ohlcv_coverage.consecutive_failures + 1" in sql
+    assert params[-1] == 0  # insert path: no_data starts at zero
+    conn = FakeConn()
+    record_fetch_outcome(conn.cursor(), "SPY", "15m", "error", _FETCHED_AT)
+    assert conn.params[conn.statements[0][0]][-1] == 1
+
+
+def test_fetch_statuses_are_the_ledger_check_values():
+    assert FETCH_STATUSES == ("ok", "no_data", "error")
