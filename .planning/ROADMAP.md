@@ -211,7 +211,7 @@ Plans:
 
 **Wave 8** *(blocked on Wave 7 completion)*
 
-- [ ] 185-20-PLAN.md - intraday verify-only, empty history, gated recovery (wave 8)
+- [x] 185-20-PLAN.md - intraday verify-only, empty history, gated recovery (wave 8)
 - [ ] 185-22-PLAN.md - D5 nightly overlap split detection (wave 8)
 
 **Wave 9** *(blocked on Wave 8 completion)*

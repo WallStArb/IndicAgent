@@ -19,6 +19,9 @@ pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 _LIVE_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _PROVIDER = "ibkr"
 _SLACK = timedelta(days=2)
+# A pipeline started before plan 185-19 landed writes a 1d row from its in-memory walk before it
+# flushes D1 at the end of the symbol; rows younger than this are judged on a later run.
+_IN_FLIGHT = timedelta(minutes=30)
 
 # Stored ibkr_venue 1d rows in market_data_ohlcv before plan 185-19 ran. The retired
 # store_bars path never wrote any (the switch was false throughout).
@@ -45,8 +48,8 @@ def _venue_gate(conn) -> bool:
 def _unbacked(conn, timeframe: str) -> list[str]:
     rows = conn.execute(
         "SELECT symbol, empty_through, verified_from FROM ohlcv_empty_history "
-        "WHERE timeframe = %s AND provider = %s",
-        (timeframe, _PROVIDER),
+        "WHERE timeframe = %s AND provider = %s AND verified_at < now() - %s",
+        (timeframe, _PROVIDER, _IN_FLIGHT),
     ).fetchall()
     return [
         symbol
@@ -58,7 +61,7 @@ def _unbacked(conn, timeframe: str) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("timeframe", ["1d", "5m"])
+@pytest.mark.parametrize("timeframe", ["1d"])
 def test_every_empty_history_row_of_a_venue_fallback_timeframe_is_backed(conn, timeframe):
     unbacked = _unbacked(conn, timeframe)
     assert (
@@ -66,7 +69,9 @@ def test_every_empty_history_row_of_a_venue_fallback_timeframe_is_backed(conn, t
     ), f"{len(unbacked)} {timeframe} rows no recorded answer backs: {unbacked[:10]}"
 
 
-# 15m and 1h are not asserted: the grid is derived from 5m, so a false empty there cannot
+# 5m, 15m and 1h are not asserted: venue fallback is 1d-only (migration 437: a verify-only 5m walk
+# downloads and discards years of venue bars), so no recorded answer can back an intraday row, and
+# the intraday rows that remain are SMART-only records. For 15m and 1h: the grid is derived from 5m, so a false empty there cannot
 # reach a feature, and the fetch walk still writes those rows from SMART's answer alone.
 # reconcile_empty_history supports them (they inherit 5m's confirmation) for the day the
 # walk stops writing them.

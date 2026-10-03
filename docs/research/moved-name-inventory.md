@@ -433,3 +433,25 @@ answering no_data in one run), 89 deleted, 0 inserted, 0 extended. The 89 predat
 (verified 2026-09-24 to 2026-09-29, before the answers were recorded, and the bootstrap imported
 stored bars as `legacy_import`, never as no_data windows), so nothing confirms them; their pre-listing spans are
 asked again at the next 1d fetch of each name, about 12 requests per name.
+
+## Intraday (plan 185-20, 2026-10-03)
+
+Venue fallback stays 1d-only (migration 437 reverts 405's 5m entry). A verify-only 5m walk
+retrieves and discards the venue's whole pre-move 5m history, measured against IBKR on client 49:
+XEL at ARCA 2016 returned 11,550 bars in 46 s for one 150-day chunk, TMUS at NYSE 2012 returned
+11,664 bars in 52 s (TMUS genuinely traded on NYSE before its move) and 2008 returned 11,624 in
+18 s, and the first live re-ask's TMUS@NYSE request timed out on all retries. A name that moved in
+2013 costs on the order of ten minutes per venue for data nothing reads before phase 186's rebuild
+completes (D-19), and a resumed 5m lane would pay it for every late name. The switch is APR:
+adding "5m" to `infra.ibkr.venue_fallback.timeframes` restores verify-only recording.
+
+Intraday empty history: the 90 5m rows were deleted (no recorded answer could confirm them; D1
+holds no intraday no_data or venue head answers, only the venue study's 180 recent-window
+requests). The 5m lane re-records them SMART-only when it resumes. The 174 15m and 174 1h rows stay:
+the grid is derived from 5m, so a false empty there cannot reach a feature, and the fetch walk
+still writes them from SMART's answer.
+
+Intraday moved names and pre-move spans: none recorded; the intraday inventory needs the venue
+walk this plan chose not to run. Recovery status: refused. `ops_intraday_venue_recovery.py --check`
+exits 1 with three reasons (the venue study's 5m verdict has not passed, phase 186's rebuild has
+not completed, `rebuild_state_table` is empty). Nothing intraday is stored under `ibkr_venue`.
