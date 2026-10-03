@@ -13,7 +13,7 @@ results. This file holds lineage only; process changes go in the SOP.
 | 1. Stocks and size-style, country, equal-weight ETFs | 2026-09-26 | 546 | `expansion_2026_09_26.csv` | onboarded, 1d |
 | 1b. Small-cap draws the history screen dropped | 2026-09-26 | 70 | `expansion_smallcaps_2026_09_26.csv` | onboarded, 1d |
 | 2. Industry, EM country, commodity, fixed-income ETFs | 2026-09-26 | 43 | `expansion_etfs_2026_09_26.csv` | onboarded, 1d |
-| 3. Wave 2: stocks and ETFs | 2026-10-03 | 568 stocks, 29 ETFs | `wave2_stocks_2026_10_03.csv`, `wave2_etfs_2026_10_03.csv` | manifests committed, dry run clean, not written |
+| 3. Wave 2: stocks and ETFs | 2026-10-03 | 568 stocks, 29 ETFs | `wave2_stocks_2026_10_03.csv`, `wave2_etfs_2026_10_03.csv` | onboarded 2026-10-03 13:47 UTC, 1d fetch running |
 
 Batches 1, 1b and 2 took the universe from 273 to 932 active names. Source holdings snapshots
 and drawn lists sit beside the manifests with their dates.
@@ -149,5 +149,7 @@ Deviations from a clean draw and facts to carry:
 - Survivorship, venue truncation, unscrubbed prints and price-only bars apply as in every batch
   (see the SOP). The holdings are current members only.
 
-Pending: stage 5-6 commit, the 1d fetch (one IBKR stream, so after the todo 449 lane) and
-promote. This entry gets the fetch, held-name and verify results when they run.
+Onboarded (stage 6) at 13:47 UTC: 597 rows, 568 stocks and 29 ETFs, all with
+`compute_eligible_1d = false`. The stage 7 1d fetch started 09:54 EDT on client 41 under the bulk
+tier of the `ibkr_history_stream` lease (log `logs/backfill_ops/wave2_1d_fetch.log`). This entry
+gets the held-name and verify results (stage 8) and the promote count (stage 9) when they run.
