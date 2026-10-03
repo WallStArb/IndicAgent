@@ -57,8 +57,9 @@ from src.providers.ibkr import IBKRProvider  # noqa: E402
 
 _logger = structlog.get_logger(__name__)
 
-# Shares 46 with universe_expansion_onboard_gap_fill_etfs.py: both are operator-run one-offs
-# that qualify contracts, never run concurrently (src/providers/ibkr.py _MAX_CLIENT_ID=50).
+# Default shares 46 with universe_expansion_onboard_gap_fill_etfs.py: both are operator-run
+# one-offs that qualify contracts, never run concurrently (src/providers/ibkr.py
+# _MAX_CLIENT_ID=50). Pass --client-id when a backfill lane already holds 46.
 _QUALIFIER_CLIENT_ID = 46
 
 # A long-listed equity ETF that must always qualify; its failure means the gateway, not the
@@ -226,9 +227,7 @@ async def _async_main(args: argparse.Namespace) -> int:
         raise ValueError(f"--timeframes must be non-empty with no repeats, got {args.timeframes!r}")
     settings = Settings()
 
-    provider = IBKRProvider(
-        host=settings.ib_host, port=settings.ib_port, client_id=_QUALIFIER_CLIENT_ID
-    )
+    provider = IBKRProvider(host=settings.ib_host, port=settings.ib_port, client_id=args.client_id)
     if not await provider.connect():
         raise RuntimeError("could not connect to ib-gateway")
     try:
@@ -268,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Comma-separated timeframes seeded into backfill_status (e.g. 1d).",
     )
+    parser.add_argument("--client-id", type=int, default=_QUALIFIER_CLIENT_ID)
     add_write_mode_args(
         parser,
         dry_run="Dry run (default): qualify every symbol, write nothing.",

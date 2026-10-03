@@ -1,0 +1,15 @@
+{
+  "holdings_file": "config/universe/iwv_holdings_2026_09_14.csv",
+  "holdings_sha256": "f143e656387a1628578a268dcdf6c81947df6fbe6ba14113bb5a24820b038f44",
+  "stratified_sample_random_state": 42,
+  "cap_bucket_count": 10,
+  "depth_size_per_sector": 25,
+  "held_at_selection": 954,
+  "selected": 569,
+  "by_cohort": {
+    "r3k_501_1000": 410,
+    "r3k_depth_draw": 75,
+    "r3k_top500_fill": 66,
+    "r3k_utilities_depth": 18
+  }
+}

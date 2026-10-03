@@ -81,3 +81,60 @@ Migration 372 added the fixed-income nodes these needed (FI.SECURITIZED, FI.INTL
 FI.CREDIT.LOANS) and the `fi_mbs` and `fi_intl` exposure tags. Migration 373 paired the
 commodity curve funds (USO/USL, UNG/UNL). IGOV was left out as a near-duplicate of BWX; BNDX
 and BWX are not paired because BNDX also holds corporate bonds.
+
+## Wave 2 (2026-10-03): stocks and ETFs
+
+Author: Claude Sonnet 5.5 (session 2026-10-03)
+
+Rationale, written before any bar of these names is fetched. The 932-name universe holds nearly
+every top-500 Russell 3000 name but only about a quarter of ranks 501-1000, and the thin
+sectors are Energy (0 of 19 in that band), Utilities (3 of 15), Materials (4 of 22) and
+Communication (4 of 16). Outside equities it has no managed-futures or merger-arbitrage fund,
+credit only at long duration and high yield, no softs, refined energy, CHF or GBP exposure,
+and no regional developed-market or international small-cap fund. The cohorts below close
+those gaps by rule, not by name. No candidate was chosen or dropped on returns, volatility,
+history length or data availability.
+
+Source: `iwv_holdings_2026_09_14.csv` (SHA-256 `f143e656...` in the provenance JSON). Selection
+script: `scripts/infrastructure/universe_expansion_wave2_select.py`, seed 42 and 10 cap
+buckets from APR. Output: `wave2_selection_2026_10_03.csv` plus its provenance JSON.
+
+| Manifest | Cohort | Rows | Rule |
+|---|---|---|---|
+| `wave2_stocks_2026_10_03.csv` | `r3k_top500_fill` | 66 | ranks 1-500 by holdings market value, not held |
+| | `r3k_501_1000` | 410 | ranks 501-1000, not held (band taken whole) |
+| | `r3k_utilities_depth` | 18 | Utilities at rank 1001+, not held (the rest of the sector) |
+| | `r3k_depth_draw` | 74 | Energy, Materials, Communication at rank 1001+: 25 per sector, cap-stratified draw |
+| `wave2_etfs_2026_10_03.csv` | `etf_alternatives` | 4 | DBMF, KMLM, CTA, MNA |
+| | `etf_credit_duration` | 5 | VCIT, VCSH, FLOT, JAAA, LTPZ |
+| | `etf_currency` | 2 | FXB, FXF |
+| | `etf_commodity_gap` | 3 | CANE, UGA, BNO |
+| | `etf_industry_gap` | 6 | SIL, COPX, REMX, URNM, LIT, TAN |
+| | `etf_international_gap` | 5 | VGK, SCZ, EPI, GREK, EIS |
+| | `etf_real_assets_gap` | 4 | VNQI, REET, IGF, PSP |
+
+Left out as near-duplicates of held funds, the IGOV precedent: JNK and USHY (HYG, SJNK, ANGL),
+IGSB (VCSH), SGOV (SHV, BIL), VMBS (MBB), SOXX (SMH), VEA and VXUS (EFA, EEM), ACWI and VT,
+VSS (SCZ), CEW (EMLC covers EM local currency). Second share classes of an issuer already held
+or selected are excluded (GOOG, BRK B, FWONK, NWS, LLYVK, LBTYK and similar).
+
+Deviations from a clean draw and facts to carry:
+
+- P5N994 is a ticker in the holdings file with no IBKR contract and no name. It fell into the
+  Energy depth draw and was dropped from the manifest, not replaced, so that cohort holds 74
+  names, not 75. `wave2_selection_2026_10_03.csv` still lists it.
+- JO, BAL, NIB and COW (iPath softs and livestock ETNs) did not qualify on IBKR and were not
+  written; they are not in the committed ETF manifest. CANE is the only softs fund.
+- 568 of 568 stocks and 29 of 33 ETF rows qualified in the dry run (client 41, 2026-10-03).
+- Stock classifications: IBKR industry, category and subcategory were fetched for every row
+  and mapped to a level-4 node by the majority node among held names with the same IBKR triple
+  inside the same sector (the holdings file's sector sets the level-2 node). A person reviewed
+  every row whose mapping was not unanimous and overrode the ones that disagreed with the GICS-style industry by hand.
+- Migration 436 added the `managed_futures` exposure tag for DBMF, KMLM and CTA. MNA carries
+  `factor_market_neutral`. JAAA carries `credit_risk`; the vocabulary has no CLO tag.
+- Survivorship, venue truncation, unscrubbed prints and price-only bars apply as in every batch
+  (see the SOP). The holdings are current members only.
+
+Status: manifests committed, qualify dry run clean, nothing written to `instruments`. Stage 5-6
+commit, the 1d fetch (one IBKR stream, so after the todo 449 lane) and promote are pending; this
+entry gets the fetch, held-name and verify results when they run.
