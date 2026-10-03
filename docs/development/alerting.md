@@ -1,6 +1,7 @@
 # Alerting Runbook
 
 **Version:** 2.8
+**Status:** draft — no Status line existed (last updated 2026-05-28); not re-verified against current code as of 2026-10-03, see `docs/foundation/documentation-system.md` §6
 **Last Updated:** 2026-05-28
 
 ---

@@ -1,6 +1,7 @@
 # Disaster Recovery Procedures
 
 **Version:** 2.9
+**Status:** stale (v2.x, see banner)
 **Last Updated:** 2026-06-07
 
 ---
