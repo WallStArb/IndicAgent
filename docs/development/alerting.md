@@ -354,7 +354,7 @@ journalctl -u indicagent-intelligence-pipeline | grep <plugin-name>
 
 ## See Also
 
-- **Self-healing architecture:** `docs/architecture/self-healing.md`
+- **Self-healing architecture:** `docs/concepts/autonomous-resilience.md`
 - **Observability:** `docs/platform/platform-observability.md`
 - **Grafana dashboards:** `docs/operations/operations-observability.md`
 - **Deployment:** `docs/operations/operations-infrastructure.md`

@@ -16,7 +16,7 @@ record what those tables taught.
 
 ## Lifecycle state machine
 
-**Base migration:** `production/migrations/172_feature_registry.sql` (Phase 140.5), since
+**Base migration:** `production/migrations/169_feature_registry.sql` (Phase 140.5), since
 superseded by `concept_registry`; lifecycle evidence lives in `concept_evaluation` (migration 357).
 
 **States:** `candidate`, `active`, `shadow_only`, `deprecated`.
@@ -73,7 +73,7 @@ clock, only evidence. `--dry-run` logs the transitions it would make without wri
 
 ## `integrity_monitor`: decision audit trail
 
-`integrity_monitor` is a table (`production/migrations/218_integrity_monitor.sql`), not a
+`integrity_monitor` is a table (`production/migrations/211_integrity_monitor.sql`), not a
 service. Its `ic_lifecycle` facts are written by `feature_lifecycle.py` through
 `emit_integrity_facts_async`. They are observability only; `concept_transition_log` is the
 authoritative record of what transitioned. Schema (selected): `monitor_type`, `subject`

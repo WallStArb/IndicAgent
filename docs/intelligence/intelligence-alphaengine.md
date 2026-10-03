@@ -181,7 +181,7 @@ Every traceability mechanism that exists in v2.x is load-bearing. None is droppe
 | **SHA-256 content key** (`signal_id`) | `signal_schema.py:make_signal_id()` | Extended to all new tables - each keyed on its natural identity inputs |
 | **Pipeline version stamp** (`pipeline_version`, `signal_schema_version`) | `feature_vectors`, `signal_events` | Mandatory on every new table. `compute_version` stamped per service. |
 | **Signal lineage** (`LineageEvent` → `signal_lineage`) | `src/core/ai/lineage.py` | Pattern reused for alpha lineage: which features fired which alpha_events |
-| **BaseDaemon mandatory OTel** (5 signals: crash, DLQ, last message, watchdog) | `src/core/agent/base_daemon.py` | All new daemons inherit; all new oneshots emit D-06 `job_completed_total` |
+| **BaseDaemon mandatory OTel** (5 signals: crash, DLQ, last message, watchdog) | `src/core/agent/base.py` | All new daemons inherit; all new oneshots emit D-06 `job_completed_total` |
 | **BaseWriter DLQ routing** | `src/core/agent/base_writer.py` | All new writers extend BaseWriter; parse failures → `{service}.dlq` topic |
 | **Drift detection** (`drift_state`, KS + CUSUM) | migration 030 | Extended to feature distributions: KS per feature column, not just per symbol/tf |
 | **Bar gap detection** (`gap_preceding` flag) | `bar_message.py` | Feature gap detection added: coverage gate (≥80% theoretical max per symbol/tf) |
@@ -318,7 +318,7 @@ Nothing in Phase C or beyond starts before IC is measured and positive. Shadow m
 - **IC + ensemble methodology (canonical, current):** `docs/intelligence/intelligence-alphaengine-methodology.md` — IC estimation, IC shrinkage, weight combination methods, ensemble output validation, weighting recipe governance. Self-contained; no need to read `ensemble_trainer.py`/`ops_ic_shrinkage.py` or historical plan docs to understand how the live ensemble is computed.
 - **Live weighting recipe state:** `concept_registry` table, `domain='ensemble_strategy'` — query directly rather than trusting any doc's snapshot of "what's active."
 - **Architecture spec (historical):** `docs/plans/archive/2026-06-20-alphaengine-architecture.md` — full design with feature list
-- **IC methodology (historical, superseded by the methodology doc above):** `docs/plans/2026-06-20-alphaengine-ic-spec.md`
+- **IC methodology (historical, superseded by the methodology doc above):** the 2026-06-20 IC spec plan, folded into that doc and deleted in commit `3cc05accf`
 - **PrecedentEngine** (renamed from AnalogEngine 2026-07-09): `docs/research/intel-precedent-engine.md` — current design, deferred; pgvector similarity search. `docs/plans/archive/2026-06-20-analogengine-design.md` is the archived pre-rescope version, history only.
 - **Feature Factory foundation:** `src/intelligence/features/` (Phase A implementation)
 - **Prior art:** `docs/research/archive/renaissance-alpha-pipeline.md`

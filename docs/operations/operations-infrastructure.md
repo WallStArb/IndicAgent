@@ -602,5 +602,5 @@ docker exec redpanda rpk group describe <group-name>
 - **Observability:** `docs/operations/operations-observability.md` -- Metrics, tracing, dashboards
 - **Security:** `docs/operations/operations-security.md` -- Security procedures
 - **Deployment:** `docs/development/setup.md` -- Initial machine setup
-- **Self-healing:** `docs/architecture/self-healing.md` -- Self-healing architecture
+- **Self-healing:** `docs/concepts/autonomous-resilience.md` -- Self-healing architecture
 - **Unit files:** `production/systemd/*.service` -- Service templates
