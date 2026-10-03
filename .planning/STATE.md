@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: 22 of 24 (185-20 landed 2026-10-03; 22 code landed, measured nightly run pending; next 23, 24)
+Plan: 23 of 24 (185-22 landed 2026-10-03; next 23, 24)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -58,7 +58,7 @@ Plan: 22 of 24 (185-20 landed 2026-10-03; 22 code landed, measured nightly run p
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 24 plans in 10 waves; 21 done (01-20, 21), waves 1-5 complete. D2b landed
+- **Phase 185:** 24 plans in 10 waves; 22 done (01-22), waves 1-5 complete. D2b landed
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
@@ -70,7 +70,7 @@ Plan: 22 of 24 (185-20 landed 2026-10-03; 22 code landed, measured nightly run p
   115 rows deleted for want of recorded confirmation, re-asked at each name's next 1d fetch). D5's IBKR dividend route reads D1 (185-21: migration 403,
   26 date disputes on 18 names, verdict "not usable alone; Yahoo stays reference"; reader
   hand-off to phase 183 in the phase dir). The remaining ~700 names derive as todo 449's 5m
-  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 22 (live measured run), 23, 24.
+  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 23, 24.
   Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
@@ -119,7 +119,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186`: 25/29 done plus 186-17 partial, no executor live; remaining 17 Task 2, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | `/gsd-execute-phase 185`: 21/24 done (01-20, 21); 22 in progress; next 23, 24 | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 185 | `/gsd-execute-phase 185`: 22/24 done (01-22); next 23, 24 | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
