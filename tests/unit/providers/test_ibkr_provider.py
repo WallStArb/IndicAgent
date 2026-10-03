@@ -646,6 +646,37 @@ class TestPreMoveHistory:
         assert set(asked) == {"SMART"}
 
     @pytest.mark.asyncio
+    async def test_5m_is_verify_only_when_the_apr_timeframes_include_it(self, provider, mock_ib):
+        """Plan 185-20 (migration 405): with 5m in infra.ibkr.venue_fallback.timeframes the
+        uncovered 5m head is asked of every former venue and nothing is returned for
+        storage; a venue that has history blocks the empty record."""
+        smart = self._bars(datetime(2018, 9, 10), 5, 1000)
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        with (
+            patch.object(ibkr_module, "_MAX_CHUNK_DAYS", {"5m": 7300}),
+            patch.object(ibkr_module, "_VENUE_FALLBACK_TIMEFRAMES", {"1d", "5m"}),
+        ):
+            bars, persisted, reports, asked = await self._fetch(
+                provider, mock_ib, {"SMART": smart, "NYSE": nyse}, timeframe="5m"
+            )
+        assert {"NYSE", "ARCA", "AMEX", "BATS"} <= set(asked) and "ISLAND" not in asked
+        assert len(bars) == 5 and all(b.volume == 1000 for b in bars)
+        assert persisted == [b for b in persisted if b.volume == 1000]
+        assert reports == []
+
+    @pytest.mark.asyncio
+    async def test_5m_head_empty_on_every_route_is_recorded(self, provider, mock_ib):
+        with (
+            patch.object(ibkr_module, "_MAX_CHUNK_DAYS", {"5m": 7300}),
+            patch.object(ibkr_module, "_VENUE_FALLBACK_TIMEFRAMES", {"1d", "5m"}),
+        ):
+            bars, _, reports, asked = await self._fetch(provider, mock_ib, {}, timeframe="5m")
+        assert bars == []
+        (report,) = reports
+        assert report.n_confirming_chunks == 5
+        assert set(asked) == {"SMART", "NYSE", "ARCA", "AMEX", "BATS"}
+
+    @pytest.mark.asyncio
     async def test_verify_only_stores_nothing_but_blocks_empty_record(self, provider, mock_ib):
         nyse = self._bars(datetime(2012, 1, 3), 4, 400)
         bars, persisted, reports, asked = await self._fetch(

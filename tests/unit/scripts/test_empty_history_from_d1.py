@@ -26,7 +26,10 @@ def _dt(y, m, d):
 class FakeConn:
     """Scripts the handful of statements _empty_history issues, keyed by SQL text."""
 
-    def __init__(self, *, requests, rows=(), first_bar_exists=False, venues=_VENUES):
+    def __init__(
+        self, *, requests, rows=(), first_bar_exists=False, venues=_VENUES, timeframes=("1d", "5m")
+    ):
+        self.timeframes = list(timeframes)
         self.requests = requests  # symbol -> [(run, route, primary, start, end)]
         self.rows = list(rows)  # (symbol, empty_from, empty_through, verified_from)
         self.first_bar_exists = first_bar_exists
@@ -50,7 +53,8 @@ class FakeConn:
     def execute(self, sql, params=()):
         text = " ".join(sql.split())
         if "FROM config_state" in text:
-            self._last = [(json.dumps(self.venues),)]
+            value = self.timeframes if "timeframes" in params[0] else self.venues
+            self._last = [(json.dumps(value),)]
         elif "SELECT DISTINCT symbol FROM ohlcv_request" in text:
             self._last = [(s,) for s in self.requests]
         elif "FROM ohlcv_request" in text:
@@ -165,6 +169,50 @@ def test_symbols_scope_limits_the_rows_considered():
     assert counts["deleted"] == 1
 
 
-def test_only_the_daily_timeframe_is_defined():
-    with pytest.raises(ValueError, match="1d"):
-        eh.reconcile_empty_history(FakeConn(requests={}), "15m", "ibkr")
+def test_a_timeframe_the_venue_fallback_does_not_cover_is_refused():
+    with pytest.raises(ValueError, match="4h"):
+        eh.reconcile_empty_history(FakeConn(requests={}), "4h", "ibkr")
+
+
+def test_5m_rows_are_judged_by_5m_answers_like_1d():
+    row = ("XYZ", _dt(2006, 1, 1), _dt(2012, 1, 1), _dt(2010, 1, 1))
+    backed = FakeConn(
+        requests={"XYZ": _answers("r1", _dt(2010, 1, 1), _dt(2012, 1, 1), skip=("ISLAND",))},
+        rows=[row],
+    )
+    assert eh.reconcile_empty_history(backed, "5m", "ibkr")["kept"] == 1
+    unbacked = FakeConn(requests={}, rows=[row])
+    assert eh.reconcile_empty_history(unbacked, "5m", "ibkr")["deleted"] == 1
+
+
+@pytest.mark.parametrize("derived_tf", ["15m", "1h"])
+def test_derived_grid_rows_inherit_the_5m_confirmation(derived_tf):
+    row = ("XYZ", _dt(2006, 1, 1), _dt(2012, 1, 1), _dt(2010, 1, 1))
+    backed = FakeConn(
+        requests={"XYZ": _answers("r1", _dt(2010, 1, 1), _dt(2012, 1, 1), skip=("ISLAND",))},
+        rows=[row],
+    )
+    counts = eh.reconcile_empty_history(backed, derived_tf, "ibkr")
+    assert counts == {"kept": 1, "deleted": 0, "inserted": 0, "extended": 0}
+    assert backed.writes == []
+    unbacked = FakeConn(requests={}, rows=[row])
+    assert eh.reconcile_empty_history(unbacked, derived_tf, "ibkr")["deleted"] == 1
+
+
+def test_a_derived_grid_timeframe_never_inserts_or_extends_rows():
+    shorter = ("XYZ", _dt(2006, 1, 1), _dt(2011, 1, 1), _dt(2010, 1, 1))
+    conn = FakeConn(
+        requests={
+            "XYZ": _answers("r1", _dt(2010, 1, 1), _dt(2012, 1, 1), skip=("ISLAND",)),
+            "NEW": _answers("r2", _dt(2010, 1, 1), _dt(2012, 1, 1), skip=("ISLAND",)),
+        },
+        rows=[shorter],
+    )
+    counts = eh.reconcile_empty_history(conn, "1h", "ibkr")
+    assert counts == {"kept": 1, "deleted": 0, "inserted": 0, "extended": 0}
+    assert conn.writes == []
+
+
+def test_a_derived_timeframe_needs_its_source_in_the_venue_fallback_timeframes():
+    with pytest.raises(ValueError, match="5m"):
+        eh.reconcile_empty_history(FakeConn(requests={}, timeframes=("1d",)), "15m", "ibkr")

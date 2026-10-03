@@ -31,14 +31,13 @@ from src.intelligence.bars.gap_plan import (
 from src.intelligence.bars.gap_plan import (
     confirmed_empty_spans as _confirmed,
 )
+from src.intelligence.bars.sources import GRID_SOURCE_TF, GRID_TIMEFRAMES
 from src.providers.base import VENUE_ROUTE_ALIASES, EmptyHistory
 
 _REVERIFY_DAYS_KEY = "infra.backfill.empty_history_reverify_days"
 _VENUE_EXCHANGES_KEY = "infra.ibkr.venue_fallback.exchanges"
+_VENUE_TIMEFRAMES_KEY = "infra.ibkr.venue_fallback.timeframes"
 _SMART_ROUTE = "SMART"
-# Venue fallback (and so every-route confirmation) exists for 1d only (APR
-# infra.ibkr.venue_fallback.timeframes, migration 374).
-_D1_TIMEFRAME = "1d"
 
 
 @dataclass(frozen=True)
@@ -292,24 +291,37 @@ def reconcile(
         drop(conn, symbol, timeframe, provider)
 
 
-def load_venue_routes(conn: Any) -> list[str]:
-    """The former-venue routes the provider asks (APR infra.ibkr.venue_fallback.exchanges)."""
+def _load_apr_list(conn: Any, key: str) -> list[str]:
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT config_value FROM config_state WHERE config_key = %s", (_VENUE_EXCHANGES_KEY,)
-        )
+        cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (key,))
         row = cur.fetchone()
     if row is None:
-        raise RuntimeError(f"APR key {_VENUE_EXCHANGES_KEY!r} is not set (migration 374)")
+        raise RuntimeError(f"APR key {key!r} is not set (migration 374)")
     return [str(v) for v in json.loads(row[0])]
 
 
-def _interval(timeframe: str) -> timedelta:
-    if timeframe != _D1_TIMEFRAME:
+def load_venue_routes(conn: Any) -> list[str]:
+    """The former-venue routes the provider asks (APR infra.ibkr.venue_fallback.exchanges)."""
+    return _load_apr_list(conn, _VENUE_EXCHANGES_KEY)
+
+
+def _confirmation_timeframe(conn: Any, timeframe: str) -> str:
+    """The timeframe whose recorded answers confirm `timeframe`'s empty history.
+
+    A venue-fallback timeframe (APR infra.ibkr.venue_fallback.timeframes) is confirmed by its
+    own answers; a derived grid timeframe (15m, 1h) inherits its source's, because the grid
+    is derived from that source and has no provider-side truth of its own.
+    """
+    source = GRID_SOURCE_TF if timeframe in GRID_TIMEFRAMES else timeframe
+    if source not in _load_apr_list(conn, _VENUE_TIMEFRAMES_KEY):
         raise ValueError(
-            f"empty history is derived from D1 for {_D1_TIMEFRAME!r} only (venue fallback is "
-            f"1d-only); got {timeframe!r}"
+            f"empty history for {timeframe!r} is confirmed by {source!r} answers, which "
+            f"{_VENUE_TIMEFRAMES_KEY} does not cover"
         )
+    return source
+
+
+def _interval(timeframe: str) -> timedelta:
     return timedelta(minutes=_TF_MINUTES[timeframe])
 
 
@@ -358,10 +370,15 @@ def confirmed_empty_spans(
 ) -> list[tuple[datetime, datetime]]:
     """Spans where SMART and every former venue other than the primary answered no_data
     within one fetch run, read from ohlcv_request (D-20). A timeout or failure on any
-    route leaves that run's span unconfirmed."""
-    interval = _interval(timeframe)
+    route leaves that run's span unconfirmed. Derived grid timeframes read their source's
+    answers."""
+    confirm_tf = _confirmation_timeframe(conn, timeframe)
     spans = _confirmed_spans(
-        conn, symbol, timeframe, load_venue_routes(conn), timedelta(days=1) + interval
+        conn,
+        symbol,
+        confirm_tf,
+        load_venue_routes(conn),
+        timedelta(days=1) + _interval(confirm_tf),
     )
     return [(s.start, s.end) for s in spans]
 
@@ -392,16 +409,19 @@ def _record_span(
 def reconcile_empty_history(
     conn: Any, timeframe: str, provider: str, *, symbols: list[str] | None = None
 ) -> dict[str, int]:
-    """Make ohlcv_empty_history agree with the recorded answers (D-20, 1d).
+    """Make ohlcv_empty_history agree with the recorded answers (D-20).
 
     A row whose verified span is not covered by a confirmed span is deleted, so the
     range is asked again; a row the answers extend is extended; a confirmed span that
-    precedes the symbol's first real bar and has no row is inserted. `symbols` limits
+    precedes the symbol's first real bar and has no row is inserted. A derived grid
+    timeframe (15m, 1h) is judged by its source's answers and only ever deleted or
+    kept: its rows are written by the fetch walk, not derived here. `symbols` limits
     the pass (the pipeline passes its run's names); None considers every row and every
     symbol with a recorded venue no_data answer.
     """
-    interval = _interval(timeframe)
-    slack = timedelta(days=1) + interval
+    confirm_tf = _confirmation_timeframe(conn, timeframe)
+    derived = timeframe != confirm_tf
+    slack = timedelta(days=1) + _interval(confirm_tf)
     venues = load_venue_routes(conn)
     sql = (
         "SELECT symbol, empty_from, empty_through, verified_from FROM ohlcv_empty_history "
@@ -416,6 +436,8 @@ def reconcile_empty_history(
         rows = {r[0]: r for r in cur.fetchall()}
     if symbols is not None:
         candidates = set(symbols)
+    elif derived:
+        candidates = set(rows)
     else:
         with conn.cursor() as cur:
             cur.execute(
@@ -428,7 +450,7 @@ def reconcile_empty_history(
 
     counts = {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0}
     for symbol in sorted(candidates):
-        spans = _confirmed_spans(conn, symbol, timeframe, venues, slack)
+        spans = _confirmed_spans(conn, symbol, confirm_tf, venues, slack)
         row = rows.get(symbol)
         if row is not None:
             _, empty_from, empty_through, verified_from = row
@@ -441,7 +463,7 @@ def reconcile_empty_history(
                 None,
             )
             if cover is not None:
-                if cover.end > empty_through or cover.start < verified_from:
+                if not derived and (cover.end > empty_through or cover.start < verified_from):
                     _record_span(
                         conn, symbol, timeframe, provider, cover, min(cover.start, empty_from)
                     )
@@ -451,6 +473,8 @@ def reconcile_empty_history(
                 continue
             drop(conn, symbol, timeframe, provider)
             counts["deleted"] += 1
+        if derived:
+            continue
         pre_history = [s for s in spans if not has_bar_before(conn, symbol, timeframe, s.start)]
         if pre_history:
             span = max(pre_history, key=lambda s: s.end)

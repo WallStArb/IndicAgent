@@ -20,6 +20,9 @@ from __future__ import annotations
 SOURCE_DERIVED_5M = "derived_5m"
 GRID_RULE_VERSION = "grid-v1"
 GRID_TIMEFRAMES: dict[str, int] = {"15m": 15, "1h": 60}
+# The stored timeframe the grid timeframes are derived from (D2b, plan 185-12); a derived
+# timeframe has no independent provider-side truth, so it inherits this one's.
+GRID_SOURCE_TF = "5m"
 
 # Timeframes whose market_data_ohlcv rows services/bar_derivation owns
 # (D-06/D-15 single writer, plan 185-18 task 1b): the daily stage writes 1d,
