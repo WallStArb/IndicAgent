@@ -246,14 +246,21 @@ ORDER BY symbol
 
 # All TRADES observations of the symbol: SMART, venue routes and the legacy
 # import (legacy flag derived from the route). ohlcv_observation carries its
-# own route/what_to_show/fetched_at, so no join is needed; observation rows
-# exist only for requests that returned bars.
+# own route/what_to_show/fetched_at; observation rows exist only for requests
+# that returned bars. The request join exists for one reason: D1 is append-only,
+# so a fixture row a test appended on a real symbol and date can never be
+# removed, and the latest observation wins a bar. Requests whose caller is a
+# test ('test-' prefix) are provenance-excluded here and in the changed-since
+# probe, so they can never become a canonical bar (2026-10-03: fixture rows on
+# SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5).
 _SELECT_DAILY_OBSERVATIONS_SQL = """
 SELECT o.request_id::text AS request_id, o.route, o.bar_date,
        o.open, o.high, o.low, o.close, o.volume, o.fetched_at,
        o.what_to_show, (o.route = 'LEGACY_IMPORT') AS legacy
 FROM ohlcv_observation o
+JOIN ohlcv_request q ON q.request_id = o.request_id
 WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
+  AND q.caller NOT LIKE 'test-%'
 ORDER BY o.bar_date, o.fetched_at, o.request_id
 """
 
@@ -295,12 +302,15 @@ _SELECT_DAILY_CHANGED_SINCE_SQL = """
 /* changed_since */
 SELECT EXISTS (
     SELECT 1 FROM ohlcv_observation o
+    JOIN ohlcv_request q ON q.request_id = o.request_id
     WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
+      AND q.caller NOT LIKE 'test-%'
 ) AS has_obs,
 EXISTS (
     SELECT 1 FROM ohlcv_request r
     WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
       AND r.outcome IN ('bars', 'legacy_import')
+      AND r.caller NOT LIKE 'test-%'
       AND r.answered_at > COALESCE(
           (SELECT max(finished_at) FROM bar_derivation_batch
            WHERE stage = 'daily' AND status = 'completed'),

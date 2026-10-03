@@ -1,11 +1,14 @@
-"""Integration: D1 append-only guards and writer role against the live indicagent DB.
+"""Integration: D1 append-only guards and writer role against the replayed indicagent_test DB.
 
-Runs against the production database (not indicagent_test) because the point is the
-live schema's triggers and grants. Appends a tiny, clearly tagged set through the real
-ObservationSink: 2 requests and 3 observations, symbol SPY, caller 'test-185-02', one
-dedicated fetch_run_id per run. These rows are permanent by design and are never
-cleaned up: D1 has no UPDATE, DELETE or TRUNCATE, which is exactly what this test
-proves. Every later run appends its own fetch_run_id and passes the same assertions.
+Runs against indicagent_test, never the production database: the schema (triggers,
+grants) comes from the migration replay, and the rows this test appends are permanent
+by design (D1 has no UPDATE, DELETE or TRUNCATE, which is exactly what it proves). On
+production they are not inert: bar_derivation derives each 1d bar from the latest
+TRADES observation, so fixture rows on real SPY dates become canonical bars. This test
+did that until 2026-10-03 (27 fixture rows on SPY 2024-01-02 to 01-04); the session
+rebuild of indicagent_test discards them each run. Appends a tiny, clearly tagged set
+through the real ObservationSink: 2 requests and 3 observations, symbol SPY, caller
+'test-185-02', one dedicated fetch_run_id per run.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import pytest
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.providers.base import OHLCVBar
 
-_LIVE_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
+_TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 
 
 def _record(fetch_run_id: str, request_id: str, *, what_to_show: str, outcome: str, n_bars: int):
@@ -68,7 +71,7 @@ def _bars() -> list[OHLCVBar]:
 
 def test_sink_append_then_guards_and_cross_role_refusal():
     fetch_run_id = uuid.UUID(new_fetch_run_id())
-    with psycopg.connect(_LIVE_DB_URL) as conn:
+    with psycopg.connect(_TEST_DB_URL) as conn:
         sink = ObservationSink(conn, caller="test-185-02")
         trades = _record(
             str(fetch_run_id), str(uuid.uuid4()), what_to_show="TRADES", outcome="bars", n_bars=3
