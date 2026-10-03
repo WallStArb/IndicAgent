@@ -143,3 +143,24 @@ daily attempts 3, 3b and 4 come first because research waits on them.
 
 *Phase: 185-daily-data-foundation*
 *Context gathered: 2026-09-26 via PRD express path*
+
+## Decisions after 2026-10-03 (owner)
+
+Nothing in phase 185 is canonical; the design changes as measurements arrive.
+
+- **Tradier is the primary daily source** (migration 438, `src/providers/tradier.py`,
+  `scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py`). One request returns a
+  name's whole history in about 0.45 s against IBKR's pacing-bound days. This supersedes "IBKR is the
+  only price source" for 1d. A name keeps one daily source for its whole history (Tradier volume is
+  about 1.25x IBKR SMART volume): the loader refuses a short or source-changing history, and D2's
+  daily stage skips a symbol whose latest `ohlcv_load` is `loaded`. IBKR stays the source for
+  intraday (Tradier's intraday history is short) and the fallback for names Tradier cannot serve
+  cleanly (reused tickers, holes; 75 of the 598 wave 2 names).
+- **D1 is no longer append-only** (D-05 superseded by migration 438): the writer role may UPDATE and
+  DELETE, and `ohlcv_request.source` admits `tradier`. Raw Tradier answers for every active equity
+  (7.1M bars) sit beside IBKR's in D1 so the vendors compare by (symbol, date, source). Measured
+  2026-10-03 over 3.9M overlapping bars and 989 names: 6.5% of closes differ, falling from 18.6% in
+  2006 to 1.0% in 2026; median IBKR/Tradier volume 0.80 (0.96 in 2006, 0.55 in 2026). Which vendor's
+  closes are right is open.
+- **Plan 185-25** rebuilds `market_data_ohlcv` from its real rows and drops the synthetic fill.
+

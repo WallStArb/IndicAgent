@@ -49,10 +49,13 @@ partial versions of it.
    exchange session calendar; derived, rebuildable, never stored.
 5. Stop calling `normalize_bars()` in the backfill paths (`infrastructure_run_historical_pipeline.py`
    store pass and the one-time normalization pass, `backfill_feature_factory.py`).
-6. Migration deleting `source = 'synthetic_fill'` rows: compressed hypertable, so
-   decompress, delete, recompress, then a bare `VACUUM market_data_ohlcv;` last (CI-enforced,
-   `docs/foundation/timescaledb-compressed-column-migration.md`). Measure chunk count and disk
-   headroom first (performance SOP).
+6. Remove the existing `source = 'synthetic_fill'` rows by copy and swap, not an in-place delete
+   (owner decision 2026-10-03; phase 185 plan 25): build `market_data_ohlcv` anew from its real
+   rows (about 26% of the table), verify per (symbol, timeframe) count and content digest, swap in
+   one transaction, keep the old table as the rollback, drop it after the post-swap checks, then a
+   bare `VACUUM market_data_ohlcv;`. Measure chunk count and disk headroom first (performance SOP).
+   This replaces the decompress, delete, recompress plan (about 548M rows deleted out of
+   compressed chunks).
 
 ## Timing
 
