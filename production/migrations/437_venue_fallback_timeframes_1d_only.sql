@@ -1,4 +1,4 @@
--- 436: venue fallback stays 1d-only (phase 185 plan 20 measurement, supersedes 405's timeframes).
+-- 437: venue fallback stays 1d-only (phase 185 plan 20 measurement, supersedes 405's timeframes).
 --
 -- Migration 405 added 5m to infra.ibkr.venue_fallback.timeframes. Measured 2026-10-03 against IBKR
 -- (client 49): a verify-only 5m walk retrieves and discards the venue's whole pre-move 5m history,
@@ -18,14 +18,14 @@ UPDATE config_state
    AND config_value = '["1d", "5m"]';
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
-SELECT NOW(), 'infra.ibkr.venue_fallback.timeframes', version, config_value, 'migration_436',
+SELECT NOW(), 'infra.ibkr.venue_fallback.timeframes', version, config_value, 'migration_437',
        'Back to 1d only: verify-only 5m walks fetch and discard years of venue bars (plan 185-20 measurement)'
   FROM config_state
  WHERE config_key = 'infra.ibkr.venue_fallback.timeframes'
    AND config_value = '["1d"]'
    AND NOT EXISTS (
        SELECT 1 FROM config_history
-        WHERE config_key = 'infra.ibkr.venue_fallback.timeframes' AND changed_by = 'migration_436'
+        WHERE config_key = 'infra.ibkr.venue_fallback.timeframes' AND changed_by = 'migration_437'
    );
 
 COMMIT;
