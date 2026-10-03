@@ -32,9 +32,9 @@ def test_null_price_drops_the_day_and_never_fills():
 
 
 @pytest.mark.parametrize("bad", [0, -1.0])
-def test_non_positive_price_raises(bad):
-    with pytest.raises(TradierError):
-        parse_daily_history({"history": {"day": [_day("2026-01-02", close=bad)]}})
+def test_non_positive_price_drops_the_day(bad):
+    payload = {"history": {"day": [_day("2026-01-02", close=bad), _day("2026-01-05")]}}
+    assert [b.timestamp.day for b in parse_daily_history(payload)] == [5]
 
 
 def test_duplicate_day_raises():

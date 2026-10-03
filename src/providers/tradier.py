@@ -37,8 +37,7 @@ def tradier_symbol(symbol: str) -> str:
 
 
 def parse_daily_history(payload: dict) -> list[DailyBar]:
-    """Bars in date order. A null or NaN OHLC field drops that day (never filled); a non-positive
-    price, or two bars for one day, raises TradierError."""
+    """Bars in date order. A null, NaN or non-positive OHLC field drops that day (never filled); two bars for one day, raises TradierError."""
     history = payload.get("history")
     days = history.get("day") if isinstance(history, dict) else None
     if days is None:
@@ -55,8 +54,9 @@ def parse_daily_history(payload: dict) -> list[DailyBar]:
         # Tradier sends the string "NaN" for OHLC on some days (GME 2025-03-06); missing stays missing.
         if not all(math.isfinite(price) for price in (open_, high, low, close)):
             continue
+        # A zero price is a missing print (MTCH 2014-03-12, all zeros); the coverage check judges the gap.
         if not all(price > 0 for price in (open_, high, low, close)):
-            raise TradierError(f"invalid price on {day}: {prices}")
+            continue
         if day in bars:
             raise TradierError(f"two bars for {day}")
         volume = row.get("volume")
