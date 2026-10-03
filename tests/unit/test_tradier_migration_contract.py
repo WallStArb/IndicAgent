@@ -20,7 +20,11 @@ def test_writer_role_gains_update_delete_derivation_role_untouched():
         "GRANT UPDATE, DELETE ON ohlcv_request, ohlcv_observation TO ohlcv_observation_writer"
         in _CODE
     )
-    assert "bar_derivation_writer" not in _CODE
+    # the derivation role stays read-only: SELECT on ohlcv_load only
+    assert "GRANT SELECT ON ohlcv_load TO bar_derivation_writer" in _CODE
+    assert "bar_derivation_writer" not in _CODE.replace(
+        "GRANT SELECT ON ohlcv_load TO bar_derivation_writer", ""
+    )
 
 
 def test_request_source_check_admits_tradier():

@@ -323,7 +323,14 @@ EXISTS (
           (SELECT max(finished_at) FROM bar_derivation_batch
            WHERE stage = 'daily' AND status = 'completed'),
           '-infinity'::timestamptz)
-) AS action_since
+) AS action_since,
+-- A name whose latest daily load came from Tradier keeps that source for its whole history
+-- (migration 438); D2 never overwrites it with IBKR observations.
+EXISTS (
+    SELECT 1 FROM ohlcv_load l
+    WHERE l.symbol = $1 AND l.outcome = 'loaded'
+      AND l.loaded_at = (SELECT max(loaded_at) FROM ohlcv_load WHERE symbol = $1)
+) AS tradier_owned
 """
 
 # Native upsert, 185-01 measurement b; the ON CONFLICT arm also replaces a
@@ -904,7 +911,9 @@ class BarDerivation(BaseBatch):
                     apr_snapshot=apr_snapshot,
                     n_symbols=len(targets),
                 )
-            totals = dict.fromkeys(("derived", "unchanged", "no_observations", "failed"), 0)
+            totals = dict.fromkeys(
+                ("derived", "unchanged", "no_observations", "tradier_owned", "failed"), 0
+            )
             reasons_total: dict[str, int] = {}
             n_canonical = n_stored = n_changed = n_pre_split = n_no_volume = 0
             per_symbol: dict[str, dict[str, int]] = {}
@@ -1016,7 +1025,7 @@ class BarDerivation(BaseBatch):
             pre_split_bars=n_pre_split,
             **totals,
         )
-        for outcome in ("derived", "unchanged", "no_observations", "failed"):
+        for outcome in ("derived", "unchanged", "no_observations", "tradier_owned", "failed"):
             if totals[outcome]:
                 _OUTCOME_TOTAL.add(totals[outcome], {"stage": self._stage, "outcome": outcome})
         if failed:
@@ -1047,6 +1056,8 @@ class BarDerivation(BaseBatch):
         # the no_observations-vs-unchanged distinction; n_canonical is 0 for
         # unchanged symbols by construction (nothing was derived).
         probe = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
+        if probe["tradier_owned"]:
+            return _DailyResult("tradier_owned", None, 0, 0, 0, {}, 0, 0)
         if not probe["has_obs"]:
             return _DailyResult("no_observations", None, 0, 0, 0, {}, 0, 0)
         if self._changed_only and not (probe["obs_since"] or probe["action_since"]):

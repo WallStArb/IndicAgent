@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS ohlcv_load (
     loaded_at       timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_ohlcv_load_symbol ON ohlcv_load (symbol, loaded_at DESC);
+-- D2 reads the latest load to skip names that Tradier owns (services/bar_derivation.py).
+GRANT SELECT ON ohlcv_load TO bar_derivation_writer;
 
 CREATE TABLE IF NOT EXISTS ohlcv_revision (
     load_id     uuid NOT NULL REFERENCES ohlcv_load(load_id) ON DELETE CASCADE,

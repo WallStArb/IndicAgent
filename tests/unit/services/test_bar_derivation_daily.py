@@ -84,7 +84,9 @@ class FakeConn:
         flag_rules: dict[str, list[tuple[datetime, str, bool]]] | None = None,
         changed_since: dict[str, bool] | None = None,
         venue_enabled: bool = False,
+        tradier_owned: frozenset[str] = frozenset(),
     ) -> None:
+        self.tradier_owned = tradier_owned
         self.observations = observations
         self.stored = stored or {}
         self.synthetic = synthetic or {}
@@ -173,6 +175,7 @@ class FakeConn:
                 "has_obs": bool(self.observations.get(str(args[0]))),
                 "obs_since": since,
                 "action_since": False,
+                "tradier_owned": str(args[0]) in self.tradier_owned,
             }
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
@@ -460,3 +463,11 @@ def test_report_lists_top_symbols_and_pre_split(tmp_path):
     assert "TEST" in text
     assert "pre_split_unrefetched" in text
     assert "top 20" in text.lower()
+
+
+def test_tradier_owned_symbol_is_skipped_even_with_observations():
+    # Migration 438: a name whose latest daily load came from Tradier is never re-derived from IBKR.
+    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
+
+    assert "FROM ohlcv_load" in _SELECT_DAILY_CHANGED_SINCE_SQL
+    assert "tradier_owned" in _SELECT_DAILY_CHANGED_SINCE_SQL
