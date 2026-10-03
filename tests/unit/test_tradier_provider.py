@@ -31,8 +31,8 @@ def test_null_price_drops_the_day_and_never_fills():
     assert [b.timestamp.day for b in bars] == [5]
 
 
-@pytest.mark.parametrize("bad", [0, -1.0, float("inf")])
-def test_non_positive_or_non_finite_price_raises(bad):
+@pytest.mark.parametrize("bad", [0, -1.0])
+def test_non_positive_price_raises(bad):
     with pytest.raises(TradierError):
         parse_daily_history({"history": {"day": [_day("2026-01-02", close=bad)]}})
 
@@ -44,3 +44,9 @@ def test_duplicate_day_raises():
 
 def test_share_class_symbol_mapping():
     assert tradier_symbol("BRK.B") == "BRK/B"
+
+
+@pytest.mark.parametrize("missing", ["NaN", float("nan"), float("inf")])
+def test_non_finite_ohlc_drops_the_day_like_a_null(missing):
+    payload = {"history": {"day": [_day("2026-01-02", open=missing), _day("2026-01-05")]}}
+    assert [b.timestamp.day for b in parse_daily_history(payload)] == [5]
