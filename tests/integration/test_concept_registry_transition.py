@@ -22,7 +22,7 @@ import asyncpg
 import psycopg
 import pytest
 
-from src.intelligence.concept_registry_service import ConceptRegistryService
+from src.intelligence.concept_registry_service import ConceptRegistryService, TransitionResult
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 
@@ -157,7 +157,7 @@ def test_demotion_flips_status_and_enabled_and_logs(db: _Db) -> None:
         gate_n=4000.0,
         ci_lower=-0.03,
     )
-    assert applied is True
+    assert applied is TransitionResult.APPLIED
     assert db.fetch_registry_row(name) == ("shadow_only", False)
     assert db.transition_log_rows(name) == [
         ("active", "shadow_only", "demotion_performance", -0.2, 4000.0, -0.03)
@@ -169,7 +169,7 @@ def test_stale_from_status_is_noop(db: _Db) -> None:
     applied = _transition(
         name=name, from_status="active", to_status="shadow_only", reason="demotion_performance"
     )
-    assert applied is False
+    assert applied is TransitionResult.LOCK_MISS
     assert db.fetch_registry_row(name) == ("shadow_only", False)
     assert db.transition_log_rows(name) == []
 
@@ -178,7 +178,7 @@ def test_promotion_blocked_when_fdr_required_and_unproven(db: _Db) -> None:
     name = db.make_concept(status="shadow_only", fdr_required=True)
     assert (
         _transition(name=name, from_status="shadow_only", to_status="active", reason="promotion")
-        is False
+        is TransitionResult.FDR_BLOCKED
     )
     assert db.fetch_registry_row(name) == ("shadow_only", False)
     assert (
@@ -189,7 +189,7 @@ def test_promotion_blocked_when_fdr_required_and_unproven(db: _Db) -> None:
             reason="promotion",
             fdr_passed=True,
         )
-        is True
+        is TransitionResult.APPLIED
     )
     assert db.fetch_registry_row(name) == ("active", True)
 

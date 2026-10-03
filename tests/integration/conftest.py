@@ -65,11 +65,12 @@ TEST_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent_test"
 _TEST_DB_NAME = "indicagent_test"
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
-_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-09-27.sql"
-_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-09-27_hypertables.sql"
-_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-09-27.sql"
-_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-09-27.sql"
-_SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-09-27.sql"
+_BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02.sql"
+_BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02_hypertables.sql"
+_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-10-02.sql"
+_SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-10-02.sql"
+_SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-10-02.sql"
+_SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
 
 # Highest migration number folded into the baseline snapshot above. Only migrations
 # numbered above this need to be replayed on top - everything <= this is already
@@ -85,7 +86,23 @@ _SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_20
 # after 2026-07-18, e.g. VIXY), so the replay chain broke in three places by
 # 2026-09-27. Also fixed in the same pass: migration 328's INSERT needed the domain
 # CHECK widened in 329 (numbered after it), duplicated idempotently into 328.
-_BASELINE_MIGRATION_CUTOFF = 380
+#
+# 2026-10-02: bumped 380 -> 433 (all six baseline/seed files regenerated from
+# production, config_schema/config_state added as a fourth seed in the same class
+# as instruments/tag_vocabulary/controlled_vocabulary above). Trigger: migration 426
+# replay failure - the old baseline dump left old-chain hypertable chunks carrying
+# auto pg_depend entries on their parents without being attached partitions in
+# pg_inherits, so 426's plain DROP TABLE refused where production's live catalog
+# dropped cleanly (discovered 2026-10-02 running 185-12's D-15 checks, todo 486).
+# Applied migrations are immutable, so the fix is regenerating from current
+# production (old-chain tables absent post-426) rather than editing 426 or
+# accepting CASCADE semantics. The hypertables file also gained explicit
+# chunk_time_interval/compression re-registration (previously bare create_hypertable
+# calls with no compression at all), which uncovered a second dump artifact: the
+# schema-only dump restores every production _compressed_hypertable_N storage table
+# as an orphaned stub, colliding with the compression re-registration's own next-free
+# N (fixed in the hypertables file itself, not here).
+_BASELINE_MIGRATION_CUTOFF = 433
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
 
@@ -189,6 +206,16 @@ def _apply_baseline() -> None:
     # DO NOTHING (migration 233's pattern), so seeding the full current snapshot is
     # safe -- those migrations' own inserts simply no-op on replay.
     _run_psql_file(_SEED_CONTROLLED_VOCABULARY_SQL)
+    # Fourth table in the same class, discovered regenerating the baseline at cutoff
+    # 433: config_schema/config_state (the APR registry) are seeded as data by
+    # pre-cutoff migrations (e.g. 366's research-ledger budget keys), so the
+    # schema-only baseline leaves both empty and every APR-reading integration test
+    # (ic_measure, instrument_registry's get_active_contracts, research_ledger) fails
+    # or silently no-ops against zero config rows. Every post-cutoff config_schema/
+    # config_state INSERT in the migrations directory carries ON CONFLICT DO NOTHING
+    # or DO UPDATE (the APR migration convention), so seeding the full current
+    # snapshot here is safe.
+    _run_psql_file(_SEED_CONFIG_SQL)
 
 
 def _replay_post_baseline_migrations() -> None:

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict M0T3bfTdFeqznL4czDL5VEQsxQxDYSUATQO16GzbV2YjBZMIRvPI4OUziZUW0OL
+\restrict gIq1Mrp9gdE2WiRfTrWY9dMzepuelhpNxm9TSESPrNXwPHzfBEWHzddqUAmH2C9
 
 -- Dumped from database version 18.4
 -- Dumped by pg_dump version 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1)
@@ -134,5 +134,5 @@ INSERT INTO public.vocabulary_group_member VALUES ('timeframe', 'intraday_plus_h
 -- PostgreSQL database dump complete
 --
 
-\unrestrict M0T3bfTdFeqznL4czDL5VEQsxQxDYSUATQO16GzbV2YjBZMIRvPI4OUziZUW0OL
+\unrestrict gIq1Mrp9gdE2WiRfTrWY9dMzepuelhpNxm9TSESPrNXwPHzfBEWHzddqUAmH2C9
 

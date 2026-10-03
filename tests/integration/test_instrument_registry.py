@@ -19,7 +19,7 @@ pytestmark = pytest.mark.integration
 def test_get_active_contracts_returns_nonzero():
     """get_active_contracts() returns at least one instrument from the live DB."""
     settings = get_settings()
-    result = get_active_contracts(settings)
+    result = get_active_contracts(settings, dimension="backfill")
     assert (
         len(result) > 0
     ), "No active contracts returned — DB unreachable or instruments table empty"
@@ -32,7 +32,7 @@ def test_all_required_symbols_present():
     production - FX is not currently traded - so they are not asserted here.
     """
     settings = get_settings()
-    symbols = {c.symbol for c in get_active_contracts(settings)}
+    symbols = {c.symbol for c in get_active_contracts(settings, dimension="backfill")}
     assert "SPY" in symbols, f"SPY not found in active contracts: {symbols}"
 
 
