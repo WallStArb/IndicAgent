@@ -207,7 +207,7 @@ Plans:
 
 **Wave 7** *(blocked on Wave 6 completion)*
 
-- [ ] 185-19-PLAN.md - D3 rebase and D4 from recorded answers, 1d (wave 7)
+- [x] 185-19-PLAN.md - D3 rebase and D4 from recorded answers, 1d (wave 7)
 
 **Wave 8** *(blocked on Wave 7 completion)*
 

@@ -414,3 +414,22 @@ Failed-request outcomes seen: failed (error -): 13
 | XYZ | 2015-11-19 | reached_window_start |  |
 | XZO | 2025-11-05 | reached_window_start |  |
 | ZTS | 2013-02-01 | reached_window_start |  |
+
+## Recovery applied (plan 185-19, 2026-10-03)
+
+The venue study failed both criteria at 1d and 5m (`config/bars/venue_study_verdict.json`) and
+`infra.bar_derivation.venue_bars_1d` is false, so no venue bar became a canonical 1d bar. The 39
+moved names keep their pre-move history as venue observations in D1 (`ohlcv_observation`, routes
+NYSE, ARCA, AMEX, BATS, ISLAND), stored and unused: the derivation ignores venue observations
+while the gate is false. Baseline taken before any step ran: 0 stored `ibkr_venue` 1d rows in
+`market_data_ohlcv` and 0 rows with venue volume in `market_data_ohlcv_tradeable`; both are
+unchanged. The per-name recovered spans are the table above. Enabling the gate later needs the
+seam and volume checks recorded in `tests/integration/test_d3_d4_live.py`, which fails loudly
+until they exist.
+
+1d empty history reconciled from recorded answers (`reconcile_empty_history(conn, "1d", "ibkr")`):
+115 rows considered, 26 kept (backed by SMART plus every former venue except the primary
+answering no_data in one run), 89 deleted, 0 inserted, 0 extended. The 89 predate D1 capture
+(verified 2026-09-24 to 2026-09-29, before the answers were recorded, and the bootstrap imported
+stored bars as `legacy_import`, never as no_data windows), so nothing confirms them; their pre-listing spans are
+asked again at the next 1d fetch of each name, about 12 requests per name.
