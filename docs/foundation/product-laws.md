@@ -130,4 +130,4 @@ These six laws form a philosophical boundary around the codebase:
 
 - [Renaissance Principles](principles.md) — What we fight for
 - [Architecture DAG Topology](../architecture/architecture-dag-topology.md) — Conway in practice
-- [Plugin System](../intelligence/CLAUDE.md) — Pareto and Sturgeon in signal selection
+- [Plugin System](../../src/intelligence/CLAUDE.md) — Pareto and Sturgeon in signal selection

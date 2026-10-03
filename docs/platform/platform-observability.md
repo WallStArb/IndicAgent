@@ -316,4 +316,4 @@ For manual tracking outside `call()`, use `allow_request()` (time-based `OPEN �
 - **[agents-foundation.md](../agents/agents-foundation.md)** — Mandatory OTel signals, agent lifecycle
 - **[platform-foundation.md](platform-foundation.md)** — Infrastructure model, Docker containers, systemd
 - **[platform-api.md](platform-api.md)** — FastAPI service, SSE streaming, health endpoints
-- **[operations/observability.md](../operations/observability.md)** — Operational runbook: Grafana dashboards, dashboard catalog, PromQL patterns, troubleshooting
+- **[operations/observability.md](../operations/operations-observability.md)** — Operational runbook: Grafana dashboards, dashboard catalog, PromQL patterns, troubleshooting

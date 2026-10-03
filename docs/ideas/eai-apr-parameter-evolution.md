@@ -135,6 +135,6 @@ exact mechanism this project spent this session diagnosing, applied one level de
   this idea's "Phase 3, adapted" sketch is grounded in.
 - `docs/foundation/adaptive-parameter-registry.md` — the `ml_learned` provenance category this
   idea would be the first real implementation of.
-- [todo 245](../../.planning/todos/pending/245-nonlinear-interaction-combiner-trains-on-lookahead-contaminated-ctf-momentum.md),
-  [todo 243](../../.planning/todos/pending/243-ctf-momentum-batch-join-lookahead-bias.md) — the
+- [todo 245](../../.planning/todos/completed/245-nonlinear-interaction-combiner-trains-on-lookahead-contaminated-ctf-momentum.md),
+  [todo 243](../../.planning/todos/completed/243-ctf-momentum-batch-join-lookahead-bias.md) — the
   precondition this idea is gated on, and the live demonstration of why the gating matters.

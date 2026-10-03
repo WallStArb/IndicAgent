@@ -67,7 +67,3 @@ data: {"topic": "<full topic string>", "key": <string|null>, "payload": <topic-s
 ## Failure mode
 
 If the Kafka broadcaster failed to initialize at API startup, the endpoint still returns `200` with a `text/event-stream` body containing a single `event:error` frame (`{"error":"kafka broadcaster not ready"}`) rather than an HTTP error status — clients must handle an `error` event on the stream, not just a non-2xx response.
-
----
-
-**Guide:** [Dashboard Development](../../guides/dashboard-development.md)

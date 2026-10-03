@@ -194,6 +194,6 @@ signal_ledger (cold)
 - **Reference data & roll logic:** `data-foundation.md` — instruments, contract_metadata, roll lifecycle
 - **Provider layer:** `data-provider.md` — provider isolation, failover, IBKR dual streams, bar normalization
 - [DAG Execution](../concepts/dag-execution.md) — how plugin dependencies are ordered
-- [Intelligence Tiers](../concepts/intelligence-tiers.md) — what each processing stage computes
+- [Intelligence Tiers](../concepts/progressive-intelligence-extraction.md) — what each processing stage computes
 - [Signal Lifecycle](../signals/signals-lifecycle.md) — how signals are tracked after signal generation (I7) fires them
 - **Code:** `src/core/stream_keys.py`, `src/core/database_manager.py`

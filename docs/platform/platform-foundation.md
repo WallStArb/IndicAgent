@@ -298,4 +298,4 @@ Fix: grep all unit files for `INDICAGENT_ENV`, ensure all match.
 - **[agents-operations.md](../agents/agents-operations.md)** — Service registry DAG, role taxonomy
 - **[platform-observability.md](platform-observability.md)** — OTel metrics, Grafana SLOs, circuit breakers
 - **[platform-api.md](platform-api.md)** — FastAPI service, SSE streaming, health endpoints
-- **[operations/infrastructure.md](../operations/infrastructure.md)** — Production procedures, deployment runbook
+- **[operations/infrastructure.md](../operations/operations-infrastructure.md)** — Production procedures, deployment runbook

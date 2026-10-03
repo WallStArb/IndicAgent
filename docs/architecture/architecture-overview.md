@@ -290,7 +290,7 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | API health | `api_health` | Alert on DB disconnect |
 | Watchdog suppression | `watchdog_notify_suppressed_total` | Alert on config error |
 
-**See:** `docs/concepts/autonomous-resilience.md`
+**See:** `docs/platform/platform-self-healing.md`
 
 ---
 
@@ -364,7 +364,7 @@ When a service stalls (no message for 60s), systemd auto-restarts.
 | Data pipeline | `docs/data/data-pipeline.md` |
 | Intelligence tiers & plugin inventory | `docs/intelligence/intelligence-plugins.md` |
 | Observability | `docs/platform/platform-observability.md` |
-| Self-healing | `docs/concepts/autonomous-resilience.md` |
+| Self-healing | `docs/platform/platform-self-healing.md` |
 | API design | `docs/platform/platform-api.md` |
 | Data streaming (Kafka) | `docs/data/data-streaming.md` |
 | Systemd supervision | `docs/operations/operations-infrastructure.md` |

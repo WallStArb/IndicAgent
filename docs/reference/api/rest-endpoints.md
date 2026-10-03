@@ -101,7 +101,3 @@ All query `signal_ledger`/`setup_performance` (v2.x Signal Ledger Architecture â
 ## SSE
 
 `GET /api/sse/events` â€” see [SSE Protocol](sse-protocol.md) for the full streaming contract.
-
----
-
-**Guide:** [Dashboard Development](../../guides/dashboard-development.md)

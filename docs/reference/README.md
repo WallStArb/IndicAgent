@@ -59,8 +59,6 @@ Settings.py, environment variables, contract definitions
 ## Next Steps
 
 - **Understand why:** [Concepts](../concepts/) for architectural context
-- **Learn how:** [Guides](../guides/) for task-oriented how-tos
-- **Check status:** [STATUS.md](../STATUS.md)
 
 ---
 

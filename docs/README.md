@@ -20,7 +20,7 @@ The `intelligence/` folder is the gold standard — four files, each a distinct 
 **→ [Unified research-to-production design](plans/2026-09-26-unified-research-to-production-design.md)**: the governing design (adopted 2026-09-26, E18)
 **→ [Roadmap](../.planning/ROADMAP.md)** — What's next
 **→ [Ideas](ideas/)** — Research and strategy docs (living workspace)
-**→ [AI Ideas Index](ideas/ai-index.md)** — Standardized AI / ML / agentic idea cluster
+**→ [AI Ideas Index](research/archive/ai-index.md)** — Standardized AI / ML / agentic idea cluster
 
 ---
 
