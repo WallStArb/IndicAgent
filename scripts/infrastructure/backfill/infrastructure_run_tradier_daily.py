@@ -12,6 +12,9 @@ Every answer lands in D1 first (ohlcv_request/ohlcv_observation, source tradier,
 including null volume), beside IBKR's observations, so the two vendors compare by (symbol, date, source).
 The canonical write is planned from the fetched bars.
 
+--raw-only lands D1 and stops: no canonical write and no ohlcv_load row, so D2 does not treat the
+name as Tradier-owned. Used to backfill raw Tradier for comparison against IBKR.
+
 Usage:
   python scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py            # names with no 1d bars
   python scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py --symbols AAPL,SPY [--rebase]
@@ -144,6 +147,14 @@ WHERE i.is_active AND i.contract_details->>'asset_class' = 'equity'
 ORDER BY i.symbol
 """
 
+_SELECT_NO_RAW_SQL = """
+SELECT i.symbol FROM instruments i
+WHERE i.is_active AND i.contract_details->>'asset_class' = 'equity'
+  AND NOT EXISTS (SELECT 1 FROM ohlcv_request r
+                  WHERE r.symbol = i.symbol AND r.source = 'tradier' AND r.outcome = 'bars')
+ORDER BY i.symbol
+"""
+
 _INSERT_LOAD_SQL = """
 INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, outcome,
                         n_bars, n_new, n_changed, first_bar, last_bar, detail, caller)
@@ -249,7 +260,7 @@ async def _land_in_d1(
     await sink.flush(conn)
 
 
-async def run(symbols: list[str] | None, rebase: bool) -> int:
+async def run(symbols: list[str] | None, rebase: bool, raw_only: bool) -> int:
     settings = get_settings()
     conn = await asyncpg.connect(settings.database_url)
     try:
@@ -262,7 +273,8 @@ async def run(symbols: list[str] | None, rebase: bool) -> int:
         )
         start = date.fromisoformat(apr["infra.tradier.history_start"])
         end = datetime.now(UTC).date() - timedelta(days=1)  # completed sessions only
-        todo = symbols or [r["symbol"] for r in await conn.fetch(_SELECT_MISSING_SQL)]
+        default_sql = _SELECT_NO_RAW_SQL if raw_only else _SELECT_MISSING_SQL
+        todo = symbols or [r["symbol"] for r in await conn.fetch(default_sql)]
         logger.info(
             "tradier_daily.start",
             n_symbols=len(todo),
@@ -293,6 +305,10 @@ async def run(symbols: list[str] | None, rebase: bool) -> int:
                 await _land_in_d1(
                     conn, sink, fetch_run_id, symbol, end, start, result, datetime.now(UTC)
                 )
+                if raw_only:
+                    outcome = "failed" if isinstance(result, str) else "raw_landed"
+                    counts[outcome] = counts.get(outcome, 0) + 1
+                    continue
                 if isinstance(result, str):
                     plan = LoadPlan("failed", result)
                     await _record_load(conn, symbol, start, end, plan, 0)
@@ -323,7 +339,7 @@ async def run(symbols: list[str] | None, rebase: bool) -> int:
                 )
         logger.info("tradier_daily.done", **counts)
         print(f"tradier daily load: {counts}")
-        return 0 if set(counts) <= {"loaded"} else 1
+        return 0 if set(counts) <= {"loaded", "raw_landed"} else 1
     finally:
         await conn.close()
 
@@ -336,10 +352,15 @@ def main() -> int:
     parser.add_argument(
         "--rebase", action="store_true", help="deliberate source change: skip the changed-bar gate"
     )
+    parser.add_argument(
+        "--raw-only",
+        action="store_true",
+        help="land D1 raw observations only: no canonical write, no ohlcv_load row",
+    )
     args = parser.parse_args()
     setup_service_logging("logs/tradier_daily_loader.log")
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-    return asyncio.run(run(symbols, args.rebase))
+    return asyncio.run(run(symbols, args.rebase, args.raw_only))
 
 
 if __name__ == "__main__":
