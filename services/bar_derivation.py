@@ -294,6 +294,10 @@ WHERE symbol = $1 AND timeframe = '1d'
 _SELECT_DAILY_CHANGED_SINCE_SQL = """
 /* changed_since */
 SELECT EXISTS (
+    SELECT 1 FROM ohlcv_observation o
+    WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
+) AS has_obs,
+EXISTS (
     SELECT 1 FROM ohlcv_request r
     WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
       AND r.outcome IN ('bars', 'legacy_import')
@@ -1026,6 +1030,17 @@ class BarDerivation(BaseBatch):
         venue_enabled: bool,
         quarantine_rules: set[str],
     ) -> _DailyResult:
+        # Probe first (cheap EXISTS, one round trip): the nightly --changed-only
+        # pass skips the observation load and the whole derivation for symbols
+        # with nothing new since the last completed daily batch. has_obs mirrors
+        # _SELECT_DAILY_OBSERVATIONS_SQL's WHERE so the probe alone preserves
+        # the no_observations-vs-unchanged distinction; n_canonical is 0 for
+        # unchanged symbols by construction (nothing was derived).
+        probe = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
+        if not probe["has_obs"]:
+            return _DailyResult("no_observations", None, 0, 0, 0, {}, 0, 0)
+        if self._changed_only and not (probe["obs_since"] or probe["action_since"]):
+            return _DailyResult("unchanged", None, 0, 0, 0, {}, 0, 0)
         obs_rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol)
         if not obs_rows:
             return _DailyResult("no_observations", None, 0, 0, 0, {}, 0, 0)
@@ -1055,11 +1070,6 @@ class BarDerivation(BaseBatch):
             for r in obs_rows
         ]
         canonical = derive_daily(observations, splits, venue_bars_enabled=venue_enabled)
-
-        if self._changed_only:
-            changed = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
-            if not (changed["obs_since"] or changed["action_since"]):
-                return _DailyResult("unchanged", None, len(canonical), 0, 0, {}, 0, 0)
 
         stored_rows = await conn.fetch(_SELECT_STORED_1D_SQL, symbol)
         stored = {r["timestamp"].date(): r for r in stored_rows}

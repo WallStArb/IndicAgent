@@ -197,6 +197,15 @@ class TestDerivationOwnedTimeframeFence:
         assert invalid == []
         assert agent.logger.warning.call_count == 0
 
+    def test_refusal_logs_once_per_timeframe_not_per_bar(self):
+        """A returned HTF stream republishes owned tfs at bar cadence; the
+        warning fires once per distinct timeframe, never per bar."""
+        agent = _make_agent()
+        for _ in range(3):
+            assert agent._parse_payload(_make_bar_payload(tf="1d")) == ([], [])
+        assert agent._parse_payload(_make_bar_payload(tf="15m")) == ([], [])
+        assert agent.logger.warning.call_count == 2  # one per distinct owned tf
+
 
 # ---------------------------------------------------------------------------
 # Test 6: _flush_batch calls executemany and increments counters

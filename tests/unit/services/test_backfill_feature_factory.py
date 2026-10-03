@@ -1015,35 +1015,125 @@ class TestRestrictTimeframes:
 class TestRefuseDerivationOwnedTfs:
     """Plan 185-18 task 1b: the fetch stage refuses 1d/15m/1h (their grid rows
     belong to services/bar_derivation, D-06/D-15) with one logged warning per
-    refused timeframe, and keeps everything else unchanged."""
+    refused timeframe, and keeps everything else unchanged. The fence lives in
+    _restrict_timeframes(refuse_derivation_owned=True); the rebuild stage
+    shares the narrowing without the fence (it reads stored bars, the derived
+    grid included, and writes none of them)."""
 
     def test_refuses_daily_and_derivation_grid_tfs(self):
-        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+        from services.backfill_feature_factory import _restrict_timeframes
 
-        assert _refuse_derivation_owned_tfs(["5m", "15m", "1h", "1d"]) == ["5m"]
+        kept = _restrict_timeframes(["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True)
+        assert kept == ["5m"]
 
     def test_keeps_streaming_tfs_untouched(self):
-        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+        from services.backfill_feature_factory import _restrict_timeframes
 
-        assert _refuse_derivation_owned_tfs(["5m", "1m"]) == ["5m", "1m"]
+        kept = _restrict_timeframes(["5m", "1m"], None, refuse_derivation_owned=True)
+        assert kept == ["5m", "1m"]
 
     def test_one_warning_per_refused_timeframe(self):
         from structlog.testing import capture_logs
 
-        from services.backfill_feature_factory import _refuse_derivation_owned_tfs
+        from services.backfill_feature_factory import _restrict_timeframes
 
         with capture_logs() as logs:
-            kept = _refuse_derivation_owned_tfs(["5m", "15m", "1h", "1d"])
+            kept = _restrict_timeframes(
+                ["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True
+            )
         assert kept == ["5m"]
         warnings = [e for e in logs if e.get("log_level") == "warning"]
         assert [e.get("tf") for e in warnings] == ["15m", "1h", "1d"]
 
+    def test_explicit_owned_tf_raises_instead_of_narrowing_to_nothing(self):
+        """--tf 1d is an operator request the fetch stage can never satisfy;
+        a silent narrowing to an empty run would be a no-op disguised as
+        success, so it raises (plan 185-18 task 1b)."""
+        import pytest
+
+        from services.backfill_feature_factory import _restrict_timeframes
+
+        with pytest.raises(ValueError, match="bar_derivation"):
+            _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d"], refuse_derivation_owned=True)
+
+    def test_rebuild_narrowing_keeps_owned_tfs(self):
+        """The rebuild path shares _restrict_timeframes without the fence: a
+        rebuild may legitimately target 1d alone (todo 421)."""
+        from services.backfill_feature_factory import _restrict_timeframes
+
+        assert _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d", "5m"]) == ["5m", "1d"]
+
     def test_run_fetch_stage_narrows_through_the_fence(self):
-        """The composed entry point narrows through the fence before any fetch,
-        so a config that still lists the derivation-owned timeframes fetches
-        5m only."""
-        source = inspect.getsource(module.run_fetch_stage)
-        assert "_refuse_derivation_owned_tfs" in source
+        """The composed entry point narrows through the fence before any fetch:
+        a config that still lists the derivation-owned timeframes reaches the
+        status map (and so the fetch loop) with 5m only."""
+        import asyncio
+
+        settings = MagicMock()
+        settings.ib_host = "127.0.0.1"
+        settings.ib_port = 7497
+
+        mock_instrument = MagicMock()
+        mock_instrument.symbol = "SPY"
+        mock_instrument.asset_class = "equity"
+
+        status_map = {
+            ("SPY", tf): {"fetch_complete": True, "status": "complete"}
+            for tf in ["5m", "15m", "1h", "1d"]
+        }
+        seen_timeframes: list[list[str]] = []
+
+        def _capture_status_map(_conn, _symbols, timeframes):
+            seen_timeframes.append(list(timeframes))
+            return status_map
+
+        async def _async_true() -> bool:
+            return True
+
+        async def _async_none() -> None:
+            return None
+
+        mock_provider = MagicMock()
+        mock_provider.connect = MagicMock(side_effect=_async_true)
+        mock_provider.disconnect = MagicMock(side_effect=_async_none)
+        mock_provider.fetch_historical_bars = MagicMock(
+            side_effect=AssertionError("every pair is fetch_complete; no fetch may run")
+        )
+
+        from services.backfill_feature_factory import run_fetch_stage
+
+        with (
+            patch(
+                "services.backfill_feature_factory.get_active_contracts",
+                return_value=[mock_instrument],
+            ),
+            patch(
+                "services.backfill_feature_factory._load_config_service",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "services.backfill_feature_factory._get_target_timeframes",
+                return_value=["5m", "15m", "1h", "1d"],
+            ),
+            patch(
+                "services.backfill_feature_factory._load_status_map",
+                side_effect=_capture_status_map,
+            ),
+            patch(
+                "services.backfill_feature_factory.IBKRProvider",
+                return_value=mock_provider,
+            ),
+        ):
+            asyncio.run(
+                run_fetch_stage(
+                    settings=settings,
+                    client_id=_DEFAULT_CLIENT_ID,
+                    symbols=["SPY"],
+                    db_conn=MagicMock(),
+                )
+            )
+
+        assert seen_timeframes == [["5m"]]
 
 
 # ---------------------------------------------------------------------------

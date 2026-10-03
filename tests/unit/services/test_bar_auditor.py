@@ -11,7 +11,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -298,18 +297,9 @@ def test_topics_consumed_includes_contract_updates():
 
 class TestPriceSanityFence:
     """Plan 185-18 task 1b: bar_auditor's price-sanity UPDATE is superseded by
-    services/bar_scrub.py (driven from bar_derivation). The method stays as a
-    raising fence so any forgotten caller fails loudly instead of silently
-    writing a second writer's rows."""
-
-    def test_price_sanity_audit_raises_the_supersession_fence(self):
-        from services.bar_auditor import BarAuditor
-
-        agent = BarAuditor.__new__(BarAuditor)
-        with pytest.raises(
-            RuntimeError, match=r"superseded by services/bar_scrub\.py \(phase 185\)"
-        ):
-            asyncio.run(agent._run_price_sanity_audit())
+    services/bar_scrub.py (driven from bar_derivation). The path is gone from
+    the module entirely; the classifier lives on in
+    src/intelligence/statistics/price_sanity.py for the scrub pipeline."""
 
     def test_the_price_sanity_update_sql_is_gone(self):
         import services.bar_auditor as bar_auditor_module
@@ -318,3 +308,4 @@ class TestPriceSanityFence:
         assert "_PRICE_SANITY_CANDIDATES_SQL" not in source
         assert "_PRICE_SANITY_STATUS_UPDATE_SQL" not in source
         assert "load_apr_dict_async" not in source
+        assert "_run_price_sanity_audit" not in source

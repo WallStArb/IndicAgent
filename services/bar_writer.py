@@ -43,6 +43,7 @@ from src.core.stream_keys import (
     topic_market_bars,
     topic_market_bars_htf,
 )
+from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -57,11 +58,9 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
 # Timeframes whose market_data_ohlcv rows are owned by services/bar_derivation
-# (D-06/D-15 single writer, plan 185-18 task 1b): the streaming writer refuses
-# them with a logged warning instead of silently racing the derivation. The
-# live feed only ever publishes 1m/5m today; the fence is for the day the HTF
-# stream returns.
-_DERIVATION_OWNED_TFS: frozenset[str] = frozenset({"1d", "15m", "1h"})
+# (D-06/D-15 single writer, plan 185-18 task 1b): DERIVATION_OWNED_TIMEFRAMES
+# in src/intelligence/bars/sources.py is the single definition; the streaming
+# writer imports the fence instead of restating the set.
 
 # Module-level OTel instruments — single meter, no prometheus_client
 _bw_meter = _otel_metrics.get_meter("indicagent")
@@ -185,14 +184,20 @@ class BarWriter(BaseWriter):
         bar = self._parse_bar(payload)
         if bar is None:
             return [], []
-        if bar.tf in _DERIVATION_OWNED_TFS:
-            self.logger.warning(
-                "bar_writer.refuses_derivation_owned_timeframe",
-                symbol=bar.symbol,
-                tf=bar.tf,
-                reason="market_data_ohlcv rows at this timeframe are owned by "
-                "services/bar_derivation (plan 185-18 task 1b)",
-            )
+        if bar.tf in DERIVATION_OWNED_TIMEFRAMES:
+            # Log once per timeframe, not per refused bar: a returned HTF
+            # stream republishes owned timeframes at bar cadence. Service
+            # tests build BarWriter via __new__ (no __init__), so the
+            # refusal memory is created lazily at the use site.
+            refusals = self.__dict__.setdefault("_owned_tf_refusals", set())
+            if bar.tf not in refusals:
+                refusals.add(bar.tf)
+                self.logger.warning(
+                    "bar_writer.refuses_derivation_owned_timeframe",
+                    tf=bar.tf,
+                    reason="market_data_ohlcv rows at this timeframe are owned by "
+                    "services/bar_derivation (plan 185-18 task 1b)",
+                )
             return [], []
 
         base = self._contract_cache.get(bar.symbol, bar.symbol)

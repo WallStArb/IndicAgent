@@ -91,6 +91,7 @@ from src.config.settings import Settings, get_active_contracts
 from src.core.market_calendar import get_market_calendar
 from src.core.real_column_range import clamp_to_real_range_array
 from src.core.service_utils import setup_service_logging
+from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 from src.intelligence.feature_factory import (
     FeatureFactoryConfig,
     _batch_kernel_inputs,
@@ -152,18 +153,47 @@ _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 
 # Timeframes whose market_data_ohlcv rows are owned by services/bar_derivation
 # (D-06/D-15 single writer, plan 185-18 task 1b): the fetch stage refuses them
-# outright instead of racing the derivation. The APR key above may still list
-# them (older deployments, onboarding cohorts); the fence narrows at runtime.
-_DERIVATION_OWNED_TFS: frozenset[str] = frozenset({"1d", "15m", "1h"})
+# outright instead of racing the derivation. DERIVATION_OWNED_TIMEFRAMES in
+# src/intelligence/bars/sources.py is the single definition; this module
+# imports the fence instead of restating the set.
 
 
-def _refuse_derivation_owned_tfs(timeframes: list[str]) -> list[str]:
-    """Drop derivation-owned timeframes from a fetch target list, logging one
-    warning per refusal (plan 185-18 task 1b). Their grid rows come from
-    bar_derivation; a fetch here would write a second writer's rows."""
-    kept = [tf for tf in timeframes if tf not in _DERIVATION_OWNED_TFS]
-    for tf in timeframes:
-        if tf in _DERIVATION_OWNED_TFS:
+def _restrict_timeframes(
+    configured: list[str],
+    only: list[str] | None,
+    *,
+    refuse_derivation_owned: bool = False,
+) -> list[str]:
+    """`only` (the --tf flag) narrows the APR set, keeping its order; a tf outside it raises
+    rather than being silently skipped (todo 421: rebuild 1d alone without recomputing
+    every intraday bar).
+
+    With refuse_derivation_owned=True (the fetch stage, plan 185-18 task 1b):
+    an owned tf named explicitly by `only` raises -- the operator asked for a
+    timeframe this stage never writes -- while owned tfs arriving via the
+    configured list are dropped with one warning per tf (older deployments,
+    onboarding cohorts). The rebuild stage passes the default: it reads
+    stored bars, the derived grid included, and writes none of them."""
+    if only is None:
+        narrowed = configured
+    else:
+        unknown = [tf for tf in only if tf not in configured]
+        if unknown:
+            raise ValueError(
+                f"--tf {unknown!r} not in feature.factory.target_timeframes {configured!r}"
+            )
+        narrowed = [tf for tf in configured if tf in only]
+    if not refuse_derivation_owned:
+        return narrowed
+    explicit_owned = [tf for tf in (only or []) if tf in DERIVATION_OWNED_TIMEFRAMES]
+    if explicit_owned:
+        raise ValueError(
+            f"--tf {explicit_owned!r} is owned by services/bar_derivation "
+            "(plan 185-18 task 1b): the fetch stage never writes 15m/1h/1d"
+        )
+    kept = [tf for tf in narrowed if tf not in DERIVATION_OWNED_TIMEFRAMES]
+    for tf in narrowed:
+        if tf in DERIVATION_OWNED_TIMEFRAMES:
             _logger.warning(
                 "fetch_stage_refuses_derivation_owned_tf",
                 tf=tf,
@@ -171,20 +201,6 @@ def _refuse_derivation_owned_tfs(timeframes: list[str]) -> list[str]:
                 "services/bar_derivation (plan 185-18 task 1b)",
             )
     return kept
-
-
-def _restrict_timeframes(configured: list[str], only: list[str] | None) -> list[str]:
-    """`only` (the --tf flag) narrows the APR set, keeping its order; a tf outside it raises
-    rather than being silently skipped (todo 421: rebuild 1d alone without recomputing
-    every intraday bar)."""
-    if only is None:
-        return configured
-    unknown = [tf for tf in only if tf not in configured]
-    if unknown:
-        raise ValueError(
-            f"--tf {unknown!r} not in feature.factory.target_timeframes {configured!r}"
-        )
-    return [tf for tf in configured if tf in only]
 
 
 def _get_target_timeframes(cfg: ConfigService) -> list[str]:
@@ -800,8 +816,8 @@ async def run_fetch_stage(
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
 
     cfg = _load_config_service(db_conn)
-    target_timeframes = _refuse_derivation_owned_tfs(
-        _restrict_timeframes(_get_target_timeframes(cfg), timeframes)
+    target_timeframes = _restrict_timeframes(
+        _get_target_timeframes(cfg), timeframes, refuse_derivation_owned=True
     )
 
     # Load existing status to skip already-fetched pairs

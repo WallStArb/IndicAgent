@@ -169,7 +169,11 @@ class FakeConn:
         self.calls.append(("fetchrow", sql))
         if "changed_since" in sql:
             since = (self.changed_since or {}).get(str(args[0]), True)
-            return {"obs_since": since, "action_since": False}
+            return {
+                "has_obs": bool(self.observations.get(str(args[0]))),
+                "obs_since": since,
+                "action_since": False,
+            }
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
     async def fetchval(self, sql: str, *args: object) -> object:
@@ -393,6 +397,14 @@ def test_changed_only_skips_symbol_without_new_answers():
     assert result["totals"]["unchanged"] == 1
     assert conn.bar_write_rows == []
     assert conn.lineage_rows == []
+    # The probe runs before the observation load: an unchanged symbol never
+    # fetches observations, splits, or stored rows (the derivation it would
+    # feed is skipped). n_canonical is 0 by construction. The probe itself is
+    # a fetchrow; the observation load would be a fetch.
+    obs_kinds = [kind for kind, sql in conn.calls if "ohlcv_observation" in sql]
+    assert obs_kinds == ["fetchrow"]
+    assert not any("corporate_action_current" in sql for kind, sql in conn.calls if kind == "fetch")
+    assert result["canonical_bars"] == 0
 
 
 def test_venue_observations_gated_by_apr_flag():

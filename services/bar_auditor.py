@@ -48,6 +48,7 @@ from src.intelligence.bars.gap_plan import (
     COVERAGE_WHAT_TO_SHOW,
     AnsweredWindows,
     expected_grid_slots,
+    fresh_empty_span,
     plan_gaps,
 )
 from src.observability.metrics import BAR_AUDITOR_GAP_FILL_DLQ_DEPTH
@@ -324,10 +325,17 @@ class BarAuditor(BaseDaemon):
         empty_rows = await conn.fetch(_SELECT_HTF_EMPTY_SPAN_SQL, instrument.symbol, tf)
         if empty_rows:
             empty_from, empty_through, verified_at, n_confirming = empty_rows[0]
-            if n_confirming >= min_confirmations and now - verified_at < timedelta(
-                days=reverify_days
-            ):
-                spans = [(empty_from, empty_through)]
+            span = fresh_empty_span(
+                empty_from,
+                empty_through,
+                verified_at,
+                n_confirming,
+                now=now,
+                reverify_days=reverify_days,
+                min_confirmations=min_confirmations,
+            )
+            if span is not None:
+                spans = [span]
         slots = expected_grid_slots(
             instrument.session_id, instrument.exchange, tf, win_start, win_end
         )
@@ -586,17 +594,6 @@ class BarAuditor(BaseDaemon):
                 error=str(error),
             )
             # Do not re-raise — audit loop must continue on transient failures
-
-    async def _run_price_sanity_audit(self) -> None:
-        """Fence (plan 185-18 task 1b): the price-sanity UPDATE path is superseded
-        by services/bar_scrub.py (phase 185). Kept as a raising stub so any caller
-        still reaching for it fails loudly instead of silently no-oping; the
-        classifier itself lives on in src/intelligence/statistics/price_sanity.py
-        for the scrub pipeline to drive.
-        """
-        raise RuntimeError(
-            "bar_auditor price-sanity UPDATE is superseded by services/bar_scrub.py (phase 185)"
-        )
 
     # -- market_data_gaps write path -------------------------------------------
 
