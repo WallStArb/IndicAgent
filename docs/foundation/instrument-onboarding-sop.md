@@ -48,6 +48,10 @@ State them in the README entry for the batch; research discloses them through ph
   the selection date, and their history back to 2006 is history of survivors (todo 376). IBKR
   serves no delisted names. Forward capture of delistings (185 D8) was descoped by the owner
   2026-09-26: few names in this universe delist, and rule 6 keeps any that do in the panels.
+- **Current-cap selection.** Batch 1 and wave 2 chose names by today's market-cap rank from
+  current index holdings. Today's rank reflects past returns, so it is an outcome-conditioned
+  selector. A size or momentum claim needs point-in-time cap, never the holdings rank (todo 491 adds
+  the entry date and cohort research needs to see it).
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
   A moved name looks like a late listing until 185 D3 recovers the earlier years.
 - **Unscrubbed prints.** Bars arrive unscrubbed. The 1d dry run on 2026-09-26 found 45 corrupt
@@ -178,7 +182,7 @@ If the run dies, rerun the same command: gap detection skips what is stored.
 
 ### 8. Verify
 
-Four checks, all read-only. Record the results in the README entry.
+Five checks, all read-only. Record the results in the README entry.
 
 1. **Held names.** The promote dry run lists every name whose gate fails:
    ```
@@ -206,7 +210,10 @@ Four checks, all read-only. Record the results in the README entry.
    with `--apply` after reading every row. The classifier's cross-symbol corroboration clears
    Flash Crash stub prints (2010-05-06) that are wrong; do not read its `MARKET_EVENT` section as
    clean.
-4. **Classification coverage.** Every active name has one open classification row:
+4. **Gap closure.** The batch README claims the gaps it closes (sectors, rank bands, asset
+   classes). Count them against the holdings file after promote and write the before and after
+   numbers in the entry, so the claim is measured rather than assumed.
+5. **Classification coverage.** Every active name has one open classification row:
    ```sql
    SELECT count(*) FROM instruments i
    WHERE i.is_active AND NOT EXISTS (
