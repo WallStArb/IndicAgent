@@ -1,7 +1,7 @@
 """D-32 rebuild preconditions, checked before the feature_vectors_v2 rebuild is launched.
 
 Consumed by 186-26's first task: it calls `fetch_coverage_inputs` and
-`fetch_landed_markers`, passes the measured inputs (plus the pilot disk figures and the
+`fetch_landed_markers` (and `fetch_d2_inputs` for the 1d symbols), passes the measured inputs (plus the pilot disk figures and the
 owner's margin) to `run_all`, and refuses to launch the rebuild on
 `RebuildPreconditionFailure`. Every check records a `CheckResult` even when an earlier one
 fails, and the raised failure names EVERY violated gate, so one run reports the whole gap
@@ -11,7 +11,7 @@ The D-32 owner rule (2026-09-26), quoted: "Complete" means what todo 449's backf
 fetch; phase 185 D3's venue-move recovery is not a precondition (recovered history enters
 afterwards through content-digest keys and recomputes only affected ranges).
 
-Every check is pure over its measured inputs; the only I/O lives in the two thin fetch
+Every check is pure over its measured inputs; the only I/O lives in the thin fetch
 helpers at the bottom, each tested against fakes. The module writes nothing. The disk
 margin is a parameter of `check_disk_guard` supplied by the caller (186-26 states it), per
 the APR-exempt derived-value rule; the module seeds no APR keys.
@@ -112,7 +112,7 @@ class RebuildPreconditionFailure(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# The seven checks (pure)
+# The eight checks (pure)
 # ---------------------------------------------------------------------------
 
 
@@ -156,6 +156,31 @@ def check_derived_grid_landed(marker_present: bool, marker_detail: str) -> Check
         bool(marker_present),
         marker_detail or "no D2b landing marker found",
     )
+
+
+def check_d2_landed(
+    symbols_missing_lineage: Sequence[str], symbols_missing_digest: Sequence[str]
+) -> CheckResult:
+    """Phase 185's D2 (the sole 1d writer and its historical apply) must have landed: every
+    1d rebuild symbol has `canonical_bar_lineage` rows at the d2-v1 rule and a
+    `bar_content_digest_current` row for every month it has tradeable 1d bars. A rebuild
+    launched on pre-D2 1d bars keeps them until someone re-runs it (todo 489)."""
+    lines = []
+    if symbols_missing_lineage:
+        lines.append(f"no d2-v1 canonical_bar_lineage for {_name_list(symbols_missing_lineage)}")
+    if symbols_missing_digest:
+        lines.append(
+            f"no bar_content_digest_current month row for {_name_list(symbols_missing_digest)}"
+        )
+    if lines:
+        return CheckResult("d2_landed", False, "; ".join(lines))
+    return CheckResult("d2_landed", True, "every 1d rebuild symbol has d2-v1 lineage and digests")
+
+
+def _name_list(symbols: Sequence[str], limit: int = 10) -> str:
+    names = sorted(symbols)
+    shown = ", ".join(names[:limit])
+    return f"{len(names)} symbols ({shown}{', ...' if len(names) > limit else ''})"
 
 
 def check_todo445_decision(
@@ -264,6 +289,8 @@ def run_all(
     empty_history_spans: Sequence[tuple[str, str, str]],
     grid_marker_present: bool,
     grid_marker_detail: str,
+    d2_symbols_missing_lineage: Sequence[str],
+    d2_symbols_missing_digest: Sequence[str],
     todo445_decision: Mapping[str, Any] | None,
     configured_tfs: Sequence[str],
     dependency_markers: Mapping[str, bool],
@@ -277,6 +304,7 @@ def run_all(
     results = [
         check_bar_coverage(coverage_rows, expected_spans, empty_history_spans),
         check_derived_grid_landed(grid_marker_present, grid_marker_detail),
+        check_d2_landed(d2_symbols_missing_lineage, d2_symbols_missing_digest),
         check_todo445_decision(todo445_decision, configured_tfs),
         check_dependencies_landed(dependency_markers),
         check_drops_landed(present_relations),
@@ -295,7 +323,7 @@ def run_all(
 
 
 # ---------------------------------------------------------------------------
-# The two thin fetch helpers (the only I/O; tested against fakes)
+# The thin fetch helpers (the only I/O; tested against fakes)
 # ---------------------------------------------------------------------------
 
 _COVERAGE_SQL = """
@@ -335,6 +363,45 @@ def fetch_coverage_inputs(
         # work does not inherit the cap.
         cur.execute("RESET statement_timeout")
     return rows, spans
+
+
+_D2_MISSING_LINEAGE_SQL = """
+SELECT s.symbol
+FROM unnest(%s::text[]) AS s(symbol)
+WHERE NOT EXISTS (
+    SELECT 1 FROM canonical_bar_lineage l
+    WHERE l.symbol = s.symbol AND l.timeframe = '1d' AND l.rule_version = %s
+)
+"""
+
+_D2_MISSING_DIGEST_SQL = """
+SELECT DISTINCT b.symbol
+FROM (
+    SELECT symbol, date_trunc('month', timestamp, 'UTC') AS month
+    FROM market_data_ohlcv_tradeable
+    WHERE timeframe = '1d' AND symbol = ANY(%s)
+    GROUP BY 1, 2
+) b
+WHERE NOT EXISTS (
+    SELECT 1 FROM bar_content_digest_current d
+    WHERE d.symbol = b.symbol AND d.timeframe = '1d' AND d.range_start = b.month
+)
+"""
+
+
+def fetch_d2_inputs(
+    conn: Any, symbols: Sequence[str], rule_version: str = "d2-v1"
+) -> tuple[list[str], list[str]]:
+    """The measured inputs of check_d2_landed: the 1d symbols with no lineage row at
+    `rule_version`, and those with a tradeable 1d month that has no digest row. Read-only."""
+    with conn.cursor() as cur:
+        cur.execute("SET statement_timeout = '10min'")
+        cur.execute(_D2_MISSING_LINEAGE_SQL, (list(symbols), rule_version))
+        missing_lineage = [row[0] for row in cur.fetchall()]
+        cur.execute(_D2_MISSING_DIGEST_SQL, (list(symbols),))
+        missing_digest = [row[0] for row in cur.fetchall()]
+        cur.execute("RESET statement_timeout")
+    return missing_lineage, missing_digest
 
 
 def fetch_process_lines() -> list[str]:

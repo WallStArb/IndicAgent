@@ -28,6 +28,7 @@ from services.rebuild_preconditions import (
     check_no_live_run,
     check_todo445_decision,
     fetch_coverage_inputs,
+    fetch_d2_inputs,
     fetch_landed_markers,
     run_all,
 )
@@ -250,6 +251,22 @@ def test_no_live_run_fails_on_a_matching_process_or_resumable_evidence():
     assert check_no_live_run(["tail -f logs/app.log"], "").ok
 
 
+def test_d2_landed_passes_when_nothing_is_missing():
+    assert rp.check_d2_landed([], []).ok
+
+
+def test_d2_landed_fails_naming_missing_lineage_and_missing_digest_separately():
+    result = rp.check_d2_landed(["ZZZ", "AAA"], ["BBB"])
+    assert not result.ok
+    assert "d2-v1 canonical_bar_lineage for 2 symbols (AAA, ZZZ)" in result.detail
+    assert "bar_content_digest_current month row for 1 symbols (BBB)" in result.detail
+
+
+def test_d2_landed_truncates_a_long_symbol_list():
+    result = rp.check_d2_landed([f"S{i:02d}" for i in range(25)], [])
+    assert "25 symbols" in result.detail and "..." in result.detail
+
+
 # ---------------------------------------------------------------------------
 # run_all
 # ---------------------------------------------------------------------------
@@ -263,6 +280,8 @@ def _all_passing_inputs():
         "empty_history_spans": [],
         "grid_marker_present": True,
         "grid_marker_detail": "D2b landed 2026-09-30",
+        "d2_symbols_missing_lineage": [],
+        "d2_symbols_missing_digest": [],
         "todo445_decision": _todo445_decision(),
         "configured_tfs": ["5m", "15m", "1h", "1d"],
         "dependency_markers": {name: True for name in rp.REQUIRED_DEPENDENCY_MARKERS},
@@ -282,7 +301,7 @@ def _all_passing_inputs():
 def test_run_all_returns_every_result_and_raises_nothing_when_clean():
     results = run_all(**_all_passing_inputs())
     names = [r.name for r in results]
-    assert len(names) == 7 and len(set(names)) == 7
+    assert len(names) == 8 and len(set(names)) == 8
     assert all(r.ok for r in results)
     assert all(isinstance(r, CheckResult) for r in results)
 
@@ -293,6 +312,7 @@ def test_run_all_raises_naming_every_failed_check():
     del rows[("SPY", "5m")]
     inputs["coverage_rows"] = rows
     inputs["grid_marker_present"] = False
+    inputs["d2_symbols_missing_lineage"] = ["SPY"]
     inputs["present_relations"] = frozenset({"alpha_events"})
     inputs["disk"]["free_bytes"] = 500 * _GB
     with pytest.raises(RebuildPreconditionFailure) as excinfo:
@@ -301,6 +321,7 @@ def test_run_all_raises_naming_every_failed_check():
     for name in (
         "bar_coverage",
         "derived_grid_landed",
+        "d2_landed",
         "drops_landed",
         "disk_guard",
     ):
@@ -359,6 +380,17 @@ def test_fetch_coverage_inputs_reads_only_the_tradeable_view_and_sets_a_timeout(
     assert "market_data_ohlcv_tradeable" in sqls[1]
     assert "ohlcv_empty_history" in sqls[2]
     assert not any("market_data_ohlcv " in sql for sql in sqls)
+
+
+def test_fetch_d2_inputs_reads_lineage_and_digest_for_the_1d_symbols_with_a_timeout():
+    conn = _FakeConn([[("NEW1",)], [("OLD1",), ("OLD2",)]])
+    lineage, digest = fetch_d2_inputs(conn, ["SPY", "NEW1"])
+    assert lineage == ["NEW1"] and digest == ["OLD1", "OLD2"]
+    sqls = [sql for sql, _params in conn.calls]
+    assert sqls[0].startswith("SET statement_timeout") and sqls[-1] == "RESET statement_timeout"
+    assert "canonical_bar_lineage" in sqls[1] and "bar_content_digest_current" in sqls[2]
+    assert "market_data_ohlcv_tradeable" in sqls[2]
+    assert conn.calls[1][1] == (["SPY", "NEW1"], "d2-v1")
 
 
 def test_fetch_landed_markers_gathers_every_required_marker(tmp_path):

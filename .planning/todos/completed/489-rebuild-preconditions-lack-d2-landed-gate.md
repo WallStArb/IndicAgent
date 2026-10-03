@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: P1
 filed: 2026-10-03
 source: interactive session (186 session), review of 186-26 before launch
@@ -37,3 +37,12 @@ a multi-day, 105-338 GB run.
 
 Do not edit `services/rebuild_preconditions.py` while a rebuild run is live or resumable (none is
 today). 185-18 is held by another session; this todo does not touch its files.
+
+## Resolution (2026-10-03)
+
+`check_d2_landed` and `fetch_d2_inputs` are in `services/rebuild_preconditions.py` (eight checks now),
+with unit tests. Run against the live DB the same day: 931 of 931 `compute_eligible_1d` names have
+`d2-v1` lineage (3.88M rows) and a digest row for every tradeable month, so the gate passes today.
+186-26 task 1 calls it before any pilot; 186-27 step 1(e) re-plans against current digests and expects
+zero pending units. Promoting new names (wave 2, 597 rows) makes the gate fail until their 1d bars are
+derived, which is the intended behavior.
