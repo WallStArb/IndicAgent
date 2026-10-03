@@ -40,6 +40,16 @@ test can find. Six rules follow from that.
    (`snapshot.py::universe_symbols`), so deactivating a dead name would erase it from every later
    panel and bring survivorship bias back.
 
+## Universe dimensions
+
+`is_active` alone conflates three scopes, so eligibility is three columns (migration 337, phase 174;
+read through `get_active_contracts(dimension=)`):
+
+- `compute_eligible_1d`: the name enters 1d research. Set by stage 9's promote after the 1d fetch.
+- `compute_eligible`: the name carries the intraday stack (233 names). Out of scope for this SOP.
+- `live_tradeable`: the name may receive capital. False for every name today; no rule sets it yet
+  (todo 492).
+
 ## Known biases every onboarding carries
 
 State them in the README entry for the batch; research discloses them through phase 185 D0.

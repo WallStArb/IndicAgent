@@ -5,7 +5,7 @@ filed: 2026-10-03
 source: interactive session (universe wave 2 review)
 ---
 
-# Universe vintage: a stored entry date and selection cohort per name, hashed into the S0 snapshot
+# Universe membership: a stored entry date and cohort per name, with the symbol set hashed into the S0 snapshot
 
 ## What
 
@@ -27,7 +27,10 @@ Two selection biases need to be visible to research, not only to the README:
    one writer, set by the onboarding script).
 2. Hash the promoted symbol set into the S0 snapshot key and record it on `research_run`, so a
    changed universe changes the run's identity (E18 counting, `determinism`, `point_in_time`).
-3. Add the cap-rank bias to the SOP's "Known biases" list (done with this todo's filing).
+   Not called a vintage: the glossary defines `vintage` as a dated data span counted for the
+   selection test, and this is membership.
+3. Add the cap-rank bias to the SOP's "Known biases" list (done with this todo's filing), and
+   put the membership rule in the unified design's S0 section when this lands.
 
 ## Gate
 
