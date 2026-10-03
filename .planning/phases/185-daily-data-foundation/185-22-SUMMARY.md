@@ -59,5 +59,4 @@ date, and a constant ratio is recorded, re-fetched and re-derived.
 
 ## Open
 
-- The added nightly time (about 3 hours) is real; if it matters, lower `infra.bar_derivation.overlap_sessions`
-  does not reduce requests, only shrinking the symbol set would. Revisit with 185-23's duration metrics.
+- The added nightly time (about 3 hours) is real. Lowering `infra.bar_derivation.overlap_sessions` does not cut it: the overlap is one request per name whatever its size, so only a smaller symbol set would. Revisit with 185-23's duration metrics.
