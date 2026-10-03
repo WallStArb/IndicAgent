@@ -203,7 +203,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 185-18-PLAN.md - D2 sole 1d writer and historical apply (wave 6)
+- [x] 185-18-PLAN.md - D2 sole 1d writer and historical apply (wave 6)
 
 **Wave 7** *(blocked on Wave 6 completion)*
 

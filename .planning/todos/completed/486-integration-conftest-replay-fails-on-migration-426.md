@@ -1,7 +1,7 @@
 ---
 id: 486
 title: Integration conftest migration replay fails on 426 (unattached chunk dependencies block DROP)
-status: pending
+status: done
 priority: high
 owner: unassigned
 created: 2026-10-02
@@ -37,3 +37,15 @@ migration head. Verify the full `pytest -m integration` session rebuild goes gre
 
 Interim workaround used by 185-12: the D-15 checks were executed directly against the live DB
 (test-module assertions invoked over a real psycopg connection).
+
+## Closed 2026-10-03 (plan 185-18)
+
+Baseline regenerated at cutoff 433 (`tests/integration/fixtures/*_2026-10-02.sql`). The schema-only
+dump drops pre-cutoff data and restores production's `_compressed_hypertable_N` tables as orphan
+stubs, so the fix needed more than a regeneration: a fourth seed (`config_schema` and
+`config_state`, wired into `_apply_baseline`), a stub-drop block in the hypertables file, and three
+stale tests updated (`get_active_contracts(dimension=)`, `TransitionResult`, the 185-18 fences).
+`pytest -m integration` is green apart from four tests that read the live database and are broken
+for unrelated reasons: `test_ic_parity_replay` (reads the `forward_returns` table dropped by
+186-23) and `test_bar_quality_flag_quarantine` (a migration 381 one-time snapshot compared with
+data that moved in 185-12).

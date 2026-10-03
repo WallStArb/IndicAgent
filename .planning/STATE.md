@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: 18 of 24 (wave 5 complete 2026-10-02; next 18, wave 6)
+Plan: 19 of 24 (185-18 landed 2026-10-03; next 19)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -58,16 +58,17 @@ Plan: 18 of 24 (wave 5 complete 2026-10-02; next 18, wave 6)
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 24 plans in 10 waves; 18 done (01-17, 21), waves 1-5 complete. D2b landed
+- **Phase 185:** 24 plans in 10 waves; 19 done (01-18, 21), waves 1-5 complete. D2b landed
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
-  precondition. D2 1d derivation rule landed (185-17: migration 402, dry run 931 names, 5,733
-  would-change bars; apply is 185-18). D5's IBKR dividend route reads D1 (185-21: migration 403,
+  precondition. D2 is the sole 1d writer and derived the whole history (185-17 rule, 185-18 apply
+  2026-10-03: 931 names, 3,877,335 lineage rows at d2-v1; migration 435 gave the writer UPDATE; one
+  pre-fence orphan bar, TLT 2026-10-01, heals at the next 1d fetch). Todo 490 (P1): the grid stage
+  fails nightly for 7 symbols whose recent bars were observed twice; decide before 189-04. D5's IBKR dividend route reads D1 (185-21: migration 403,
   26 date disputes on 18 names, verdict "not usable alone; Yahoo stays reference"; reader
   hand-off to phase 183 in the phase dir). The remaining ~700 names derive as todo 449's 5m
-  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 18 (wave 6),
-  then 19-24.
+  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 19, 20, 22-24.
   Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old
@@ -77,7 +78,7 @@ Plan: 18 of 24 (wave 5 complete 2026-10-02; next 18, wave 6)
   names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
-  sequential, one executor at a time). 23 done (01 to 16, 18 to 22, 24, 29; waves 1-3 complete, 15, 18, 19 and 20 in wave 4; 186-20 parity gate accepted by the owner 2026-10-01 on the legacy-replica criterion, stored feature_ic_scores holds IC 0.0 for features with missing values); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); 186-22 dropped nine old-chain tables (migration 426, 50.7 GB freed); 186-29 landed after the owner released the research lane. Next: 186-25 (wave 6, executing on branch `phase-186-25`), then 186-23 (gated on 185 D-14), 26 (gated on todo 449), 27, 28; 186-24 made feature_vectors_v2 312 columns (Asian session pair kept), 186-25 and 186-27 plan literals updated.
+  sequential, one executor at a time). 25 of 29 done (01 to 16, 18 to 25, 29; waves 1-3 complete, 15, 18, 19 and 20 in wave 4; 186-20 parity gate accepted by the owner 2026-10-01 on the legacy-replica criterion, stored feature_ic_scores holds IC 0.0 for features with missing values); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); 186-22 dropped nine old-chain tables (migration 426, 50.7 GB freed); 186-29 landed after the owner released the research lane. No executor live; remaining 17 Task 2, 26, 27, 28. 186-26 was held for 185-18's historical 1d D2 apply (landed 2026-10-03); it still needs todo 489's `check_d2_landed` gate and todo 449's 5m coverage; 186-24 made feature_vectors_v2 312 columns (Asian session pair kept), 186-25 and 186-27 plan literals updated.
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
   rebuild covers 15m, 1h, 1d and 5m (todo 445 decided keep_5m, 2026-09-28); the 5m name set is
   `ret_autocorr_1` and `sweep_detected` at the 233 `compute_eligible` names, and still needs
@@ -115,8 +116,8 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Research (phase 183) | Attempts (todo 442) paused until 185 and 186 land (owner, 2026-09-27); phase UAT complete 2026-10-02 | Released by the owner 2026-10-01 for the one-line `HarnessConfig` import switch in the five research tests (186-29); otherwise the phase 183 session owns `src/intelligence/research/` and nobody else edits it |
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
-| Phase 186 | `/gsd-execute-phase 186`: 23/29 done plus 186-17 partial; 186-25 executing on branch `phase-186-25` (worktree `indicagent-186-25`), then 186-23, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | `/gsd-execute-phase 185`: 14/24 done (01-11, 13, 14, 15); next 12 (wave 4), then 16-24 | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 186 | `/gsd-execute-phase 186`: 25/29 done plus 186-17 partial, no executor live; remaining 17 Task 2, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
+| Phase 185 | `/gsd-execute-phase 185`: 19/24 done (01-18, 21); next 19, 20, 22-24 | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
