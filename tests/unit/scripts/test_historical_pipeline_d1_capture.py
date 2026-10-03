@@ -658,3 +658,35 @@ def test_1d_empty_history_is_reconciled_from_d1_after_the_flush_not_from_the_wal
         ("1d", "ibkr", ["BBB"]),
         ("1d", "ibkr", ["CCC"]),
     ]
+
+
+def _1d_window_starts(result, symbol="AAA"):
+    return [
+        c["start"].date()
+        for c in result.provider.calls
+        if c["symbol"] == symbol and c["timeframe"] == "1d"
+    ]
+
+
+def _third_last_session():
+    from datetime import timedelta
+
+    from src.intelligence.bars.sessions import nyse_sessions
+
+    today = datetime.now(UTC).date()
+    return sorted(nyse_sessions(today - timedelta(days=30), today))[-3]
+
+
+def test_overlap_sessions_adds_the_recent_sessions_window_to_each_1d_symbol(driven_main):
+    """Plan 185-22 (D-21): the nightly asks the last N sessions again so a fresh observation
+    overlaps an earlier one; the planned gap still gets its own request."""
+    result = driven_main([*_BASE_ARGS, "--overlap-sessions", "3"])
+    assert result.exit_code is None
+    starts = _1d_window_starts(result)
+    assert _third_last_session() in starts
+    assert date(2024, 1, 1) in starts
+
+
+def test_no_overlap_by_default(driven_main):
+    result = driven_main(_BASE_ARGS)
+    assert _third_last_session() not in _1d_window_starts(result)

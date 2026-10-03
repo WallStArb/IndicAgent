@@ -55,6 +55,7 @@ from scripts.infrastructure.backfill._d1_gaps import (
     detect_gaps_from_record,
     load_answered_windows,
     midnight_utc,
+    with_overlap_window,
 )
 from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
@@ -1470,6 +1471,17 @@ def main() -> None:
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
+        "--overlap-sessions",
+        type=int,
+        default=0,
+        help=(
+            "1d only: also re-ask the last N sessions D1 already answers, so a fresh "
+            "observation overlaps an earlier one and a split shows as a constant price "
+            "ratio (plan 185-22, D-21). The nightly passes APR "
+            "infra.bar_derivation.overlap_sessions; 0 (default) asks gaps only."
+        ),
+    )
+    parser.add_argument(
         "--lease-tier",
         choices=("bulk", "priority"),
         default="bulk",
@@ -1873,6 +1885,19 @@ def main() -> None:
                                 min_confirmations=ibkr._NO_DATA_CONFIRMATION_CHUNKS,
                                 on_skip=_note_empty_skip,
                             )
+                            if args.overlap_sessions > 0:
+                                # Sessions back from end, with calendar slack for
+                                # weekends and holidays (about 1.6 calendar days each).
+                                overlap_days = int(args.overlap_sessions * 1.6) + 10
+                                gaps_d = with_overlap_window(
+                                    gaps_d,
+                                    nyse_sessions(
+                                        end_dt.date() - timedelta(days=overlap_days),
+                                        end_dt.date(),
+                                    ),
+                                    end_dt.date(),
+                                    args.overlap_sessions,
+                                )
                             gaps = [(midnight_utc(s), midnight_utc(e)) for s, e in gaps_d]
                         elif tf in _RECORD_PLAN_TFS:
                             # Plan 185-18: the shared planner decides the asks --

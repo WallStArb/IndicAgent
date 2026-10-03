@@ -18,7 +18,7 @@ for 1m/4h; 1d moved to D1 in task 1b.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -293,3 +293,34 @@ def detect_gaps_1d_from_d1(
         on_skip=on_skip,
     )
     return [(window_start.date(), window_end.date()) for window_start, window_end in plan]
+
+
+def with_overlap_window(
+    gaps: Sequence[tuple[date, date]],
+    sessions: Iterable[date],
+    end: date,
+    overlap_sessions: int,
+) -> list[tuple[date, date]]:
+    """`gaps` plus a window over the last `overlap_sessions` sessions up to `end`, merged (D-21).
+
+    The nightly re-asks sessions D1 already answers so a fresh observation overlaps an
+    earlier one and a split shows as a constant price ratio (services/split_detection.py).
+    The planner never asks an answered session, so the overlap is added after planning, in
+    the planner's own (first session, last session) window shape; windows that touch or
+    overlap merge into one request. `overlap_sessions` of 0 returns the plan unchanged.
+    """
+    planned = list(gaps)
+    if overlap_sessions <= 0:
+        return planned
+    eligible = sorted(day for day in sessions if day <= end)
+    if not eligible:
+        return planned
+    windows = sorted([*planned, (eligible[-overlap_sessions:][0], eligible[-1])])
+    merged: list[tuple[date, date]] = [windows[0]]
+    for start, last in windows[1:]:
+        prev_start, prev_last = merged[-1]
+        if start <= prev_last + timedelta(days=1):
+            merged[-1] = (prev_start, max(prev_last, last))
+        else:
+            merged.append((start, last))
+    return merged
