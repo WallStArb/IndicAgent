@@ -31,3 +31,7 @@ Impact, the borrow constraint and the capacity curve are added in phase 188.
 
 The function exists with tests, the validation of the spread estimator is recorded, and family 1's
 net expectation can be computed (its members turn over about 26x gross per session).
+
+## Also (2026-10-03)
+
+Once spread and dollar volume are measured, derive `instruments.live_tradeable` by a written rule from them (APR keys, one writer). It is false for all 1,529 names and nothing sets it; phase 188's capacity curve and the capital tier need the rule.

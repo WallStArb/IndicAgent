@@ -171,7 +171,6 @@ until 185 and 186 land; session time goes to the build.
 |---|---|
 | [420](pending/420-market-regimes-orphan-rows-from-pre-tradeable-writer.md) | Triage 2026-09-26: regime refit bundle anchored on 248. New 2026-09-24 (179 V4). 186-18 landed the atomic per-(group, tf) replace with a shrink guard and measured it: 3.51M orphans (1.22M weekend, 2.29M weekday), J = 510,835 join feature_vectors, so the cleanup run (`--accept-orphan-delete=N --accept-changed=M --reason`, then VACUUM) waits for 186-20's parity report and is owned by the 186-26 executor. |
 | [406](pending/406-ic-math-1087-invalid-divide-warning-unexamined.md) | **Re-tiered P3->P2 2026-09-26 (triage): see the todo triage note.** New 2026-09-24, carried out of closed todo 386. Unexamined `invalid value encountered in divide` warning in ic_math's downside-deviation line; check the next corpus run log and whether a NaN reaches `ic_sortino`. |
-| [492](pending/492-live-tradeable-rule-from-adv-and-spread.md) | New 2026-10-03. `instruments.live_tradeable` is false for all 1,529 names and nothing sets it. Derive it by a written rule from median dollar volume and quoted spread (APR keys, one writer), after 437's spread measurement exists. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
@@ -234,6 +233,5 @@ until 185 and 186 land; session time goes to the build.
 | [056](pending/056-phase146-147-v2x-retirement-stale.md) | v2.x decommission in fact (archive, not delete, per the dual intelligence-path plan): git mv the code to archive/, disable dead units, rename-not-drop the frozen tables. Needs a clean git state. |
 | [223](pending/223-src-intelligence-i1-i7-dead-code-153-files-30k-lines.md) | `src/intelligence/`'s I1-I7 tree (~153 files, ~30k lines) has no live entry point. Needs the archive-versus-delete call (dual intelligence-path plan: archive) and a matching call on the dead-pipeline and SLA/I7 tests. With 056. |
 | [275](pending/275-v3-north-star-precedentengine-mechanics-predate-d4-rescope.md) | New 2026-08-06, found while doing the AnalogEngine→PrecedentEngine naming correction during a Phase 145 discuss-phase session. `docs/foundation/v3-north-star.md`'s PrecedentEngine mechanics (Score Object, independent-annotator framing, `signal_events` target) predate the D4 rescope that corrected exactly this framing elsewhere (glossary, `intel-precedent-engine.md`). Naming fixed inline + flagged; the mechanics reconciliation itself is real design work, not done here. No live consumer reads this doc's mechanics section today. |
-| [493](pending/493-independent-price-cross-check-sample.md) | New 2026-10-03. Prices have one source (IBKR). A seeded, read-only sample of closes against Yahoo, reported at SOP stage 8, catches systematic problems the corrupt-print scan misses. |
 
 **Not in this list:** `deferred/` (phase-gated or recompute-batched) and `completed/`.

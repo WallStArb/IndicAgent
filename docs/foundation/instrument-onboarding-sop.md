@@ -48,7 +48,7 @@ read through `get_active_contracts(dimension=)`):
 - `compute_eligible_1d`: the name enters 1d research. Set by stage 9's promote after the 1d fetch.
 - `compute_eligible`: the name carries the intraday stack (233 names). Out of scope for this SOP.
 - `live_tradeable`: the name may receive capital. False for every name today; no rule sets it yet
-  (todo 492).
+  (a note on todo 437).
 
 ## Known biases every onboarding carries
 
