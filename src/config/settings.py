@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     fred_api_key: str = Field(default="", validation_alias="FRED_API_KEY")
+    tradier_api_token: str = Field(default="", validation_alias="TRADIER_API_TOKEN")
+    tradier_base_url: str = Field(
+        default="https://sandbox.tradier.com", validation_alias="TRADIER_BASE_URL"
+    )
     openrouter_models: str = Field(
         default=(
             "openrouter/free,"

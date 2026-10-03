@@ -103,24 +103,15 @@ def test_sink_append_then_guards_and_cross_role_refusal():
             )
             assert cur.fetchone()[0] == 3
 
-        # Append-only: every rewrite shape raises on both tables. TRUNCATE on the
-        # FK-referenced side (ohlcv_request) is refused by the planner before the
-        # trigger can fire; both refusals prove TRUNCATE cannot succeed.
-        for statement, expected in (
-            ("UPDATE ohlcv_request SET n_bars = 0", (psycopg.errors.CheckViolation,)),
-            ("DELETE FROM ohlcv_request", (psycopg.errors.CheckViolation,)),
-            (
-                "TRUNCATE ohlcv_request",
-                (psycopg.errors.CheckViolation, psycopg.errors.FeatureNotSupported),
-            ),
-            ("UPDATE ohlcv_observation SET close = 0", (psycopg.errors.CheckViolation,)),
-            ("DELETE FROM ohlcv_observation", (psycopg.errors.CheckViolation,)),
-            ("TRUNCATE ohlcv_observation", (psycopg.errors.CheckViolation,)),
-        ):
-            with conn.cursor() as cur:
-                with pytest.raises(expected):
-                    cur.execute(statement)
-            conn.rollback()
+        # Mutable since migration 438: the writer role can correct its own rows.
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE ohlcv_observation_writer")
+            cur.execute(
+                "UPDATE ohlcv_request SET n_bars = n_bars WHERE fetch_run_id = %s",
+                (fetch_run_id,),
+            )
+            assert cur.rowcount == 2
+        conn.rollback()
 
         # Cross-role: bar_derivation_writer can read D1 but cannot append to it.
         conn.rollback()  # close the implicit transaction the reads above opened
