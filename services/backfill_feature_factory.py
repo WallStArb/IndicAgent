@@ -156,6 +156,12 @@ _TARGET_TIMEFRAMES_DEFAULT: list[str] = ["5m", "15m", "1h", "1d"]
 # outright instead of racing the derivation. DERIVATION_OWNED_TIMEFRAMES in
 # src/intelligence/bars/sources.py is the single definition; this module
 # imports the fence instead of restating the set.
+#
+# The refusal warning fires once per timeframe per process: the APR default
+# list legitimately still names the owned timeframes (the rebuild stage reads
+# the same key and processes them), so every fetch run narrows through this
+# fence -- per-run warnings would be noise, not signal.
+_OWNED_TF_WARNED: set[str] = set()
 
 
 def _restrict_timeframes(
@@ -193,7 +199,8 @@ def _restrict_timeframes(
         )
     kept = [tf for tf in narrowed if tf not in DERIVATION_OWNED_TIMEFRAMES]
     for tf in narrowed:
-        if tf in DERIVATION_OWNED_TIMEFRAMES:
+        if tf in DERIVATION_OWNED_TIMEFRAMES and tf not in _OWNED_TF_WARNED:
+            _OWNED_TF_WARNED.add(tf)
             _logger.warning(
                 "fetch_stage_refuses_derivation_owned_tf",
                 tf=tf,

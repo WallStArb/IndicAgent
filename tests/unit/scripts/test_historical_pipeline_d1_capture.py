@@ -199,7 +199,9 @@ class FakeConn:
 
 def _instruments(symbols: list[str]) -> list[SimpleNamespace]:
     return [
-        SimpleNamespace(symbol=s, asset_class=AssetClass.EQUITY, session_id=None, exchange="NASDAQ")
+        SimpleNamespace(
+            symbol=s, asset_class=AssetClass.EQUITY, session_id="nyse", exchange="NASDAQ"
+        )
         for s in symbols
     ]
 

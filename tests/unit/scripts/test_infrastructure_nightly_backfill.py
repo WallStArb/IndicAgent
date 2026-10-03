@@ -149,15 +149,24 @@ class TestDailyStage:
     runs with --changed-only --apply for exactly the symbols whose inputs
     changed. No lane guard file: the 1d derivation is not a lane-timeframe."""
 
-    def test_daily_stage_invokes_bar_derivation_changed_only(self):
+    def test_daily_stage_invokes_bar_derivation_changed_only(self, tmp_path):
         mod = infrastructure_nightly_backfill
+        exclude = tmp_path / "exclude.txt"
+        exclude.write_text("")
         with patch.object(mod.subprocess, "run", return_value=MagicMock(returncode=0)) as mock_run:
-            rc = mod._run_daily_stage()
+            rc = mod._run_daily_stage(exclude)
         assert rc == 0
         argv = mock_run.call_args.args[0]
         assert argv[0].endswith("python") or argv[0].endswith("python3")
         assert argv[1].endswith("services/bar_derivation.py")
-        assert argv[2:] == ["--stage", "daily", "--changed-only", "--apply"]
+        assert argv[2:] == [
+            "--stage",
+            "daily",
+            "--changed-only",
+            "--apply",
+            "--exclude-symbols-file",
+            str(exclude),
+        ]
 
     def test_daily_stage_runs_between_legs_and_grid_stage(self):
         mod = infrastructure_nightly_backfill
@@ -171,7 +180,9 @@ class TestDailyStage:
             patch.object(
                 mod, "_run_delegate", side_effect=lambda *_a, **_k: order.append("legs") or 0
             ),
-            patch.object(mod, "_run_daily_stage", side_effect=lambda: order.append("daily") or 0),
+            patch.object(
+                mod, "_run_daily_stage", side_effect=lambda *_a, **_k: order.append("daily") or 0
+            ),
             patch.object(mod, "_prepare_grid_stage", return_value=Path("/tmp/x.txt")),
             patch.object(
                 mod, "_run_grid_stage", side_effect=lambda *_a, **_k: order.append("grid") or 0

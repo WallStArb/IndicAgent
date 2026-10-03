@@ -307,5 +307,4 @@ class TestPriceSanityFence:
         source = Path(bar_auditor_module.__file__).read_text()
         assert "_PRICE_SANITY_CANDIDATES_SQL" not in source
         assert "_PRICE_SANITY_STATUS_UPDATE_SQL" not in source
-        assert "load_apr_dict_async" not in source
         assert "_run_price_sanity_audit" not in source

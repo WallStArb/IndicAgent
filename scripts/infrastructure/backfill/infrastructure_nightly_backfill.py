@@ -230,7 +230,7 @@ def _run_derivation_stage(stage: str, *extra_args: str) -> int:
     return run_derivation_stage(stage, "--changed-only", "--apply", *extra_args)
 
 
-def _run_daily_stage() -> int:
+def _run_daily_stage(exclude_file: Path) -> int:
     """Derive the 1d grid rows for every symbol whose inputs changed (plan
     185-18 task 1b).
 
@@ -238,10 +238,13 @@ def _run_daily_stage() -> int:
     derives the daily grid itself. Serialized before the grid stage so the
     two derivation writers never overlap (the grid stage reads only 5m
     inputs; the order is convention, not a data dependency). --changed-only
-    means a clean night costs a change probe per symbol. No lane guard
-    file: the derivation owns its own changed-set scoping.
+    means a clean night costs a change probe per symbol. The lane guard's
+    exclude file applies here too: changed-set scoping does not exclude a
+    lane mid-fetch -- a running lane's fresh 1d observations make obs_since
+    true, and the lane runs its own daily stage at exit, so without the
+    guard two daily derivations could write one symbol's 1d rows.
     """
-    return _run_derivation_stage("daily")
+    return _run_derivation_stage("daily", "--exclude-symbols-file", str(exclude_file))
 
 
 def _run_grid_stage(exclude_file: Path) -> int:
@@ -303,20 +306,24 @@ def main() -> int:
             lease_timeout_legs.append(leg.name)
             _emit_lease_timeout_fact(leg.name, settings)
 
+    # Lane guard first: the exclude file covers both derivation stages (the
+    # daily stage needs it for exactly the same reason the grid stage does --
+    # a lane mid-fetch owns its symbols' derivations at lane exit).
+    try:
+        exclude_file = _prepare_grid_stage()
+    except RuntimeError as error:
+        return _finish("failed", f"Derivation stages not started: {error}", returncode=1)
+
     # Plan 185-18 task 1b: the legs' 1d answers landed in D1; the daily stage
     # derives the 1d grid for every symbol whose inputs changed. Runs before
     # the grid stage, same no-skip reasoning: derived rows are exactly what a
     # shortened fetch night still needs.
-    returncodes.append(_run_daily_stage())
+    returncodes.append(_run_daily_stage(exclude_file))
 
     # Plan 12: the legs' 1h/15m landed in the archive as raw observations; the
     # grid stage derives 15m/1h from 5m for every symbol whose inputs changed.
     # No skip path: it also runs after a leg that ended failed_lease_timeout
     # (derived rows are exactly what a shortened fetch night still needs).
-    try:
-        exclude_file = _prepare_grid_stage()
-    except RuntimeError as error:
-        return _finish("failed", f"Grid stage not started: {error}", returncode=1)
     returncodes.append(_run_grid_stage(exclude_file))
     exclude_file.unlink(missing_ok=True)
 

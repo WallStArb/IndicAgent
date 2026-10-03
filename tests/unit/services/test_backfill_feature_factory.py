@@ -1032,11 +1032,17 @@ class TestRefuseDerivationOwnedTfs:
         kept = _restrict_timeframes(["5m", "1m"], None, refuse_derivation_owned=True)
         assert kept == ["5m", "1m"]
 
-    def test_one_warning_per_refused_timeframe(self):
+    def test_one_warning_per_refused_timeframe_per_process(self):
+        """The refusal warning fires once per timeframe per process (every
+        fetch run narrows through this fence, so per-run repeats would be
+        noise): the first call warns for each refused tf, a later call in the
+        same process does not repeat them."""
         from structlog.testing import capture_logs
 
+        import services.backfill_feature_factory as factory
         from services.backfill_feature_factory import _restrict_timeframes
 
+        factory._OWNED_TF_WARNED.clear()
         with capture_logs() as logs:
             kept = _restrict_timeframes(
                 ["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True
@@ -1044,6 +1050,10 @@ class TestRefuseDerivationOwnedTfs:
         assert kept == ["5m"]
         warnings = [e for e in logs if e.get("log_level") == "warning"]
         assert [e.get("tf") for e in warnings] == ["15m", "1h", "1d"]
+
+        with capture_logs() as logs_again:
+            _restrict_timeframes(["5m", "15m", "1h", "1d"], None, refuse_derivation_owned=True)
+        assert [e for e in logs_again if e.get("log_level") == "warning"] == []
 
     def test_explicit_owned_tf_raises_instead_of_narrowing_to_nothing(self):
         """--tf 1d is an operator request the fetch stage can never satisfy;

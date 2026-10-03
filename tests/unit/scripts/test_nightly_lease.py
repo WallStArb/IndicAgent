@@ -26,8 +26,17 @@ def test_pgrep_skip_is_gone():
     assert "skipped_concurrent_run" not in source
 
 
-def _drive_main(monkeypatch, returncodes, wait_minutes=60):
-    """Run nightly.main() with both legs non-empty and patched dispatch."""
+def _drive_main(monkeypatch, returncodes, tmp_path, wait_minutes=60):
+    """Run nightly.main() with both legs non-empty and patched dispatch.
+
+    _prepare_grid_stage/_run_grid_stage must be patched same as _run_daily_stage:
+    unpatched, _prepare_grid_stage writes the real lane-guard file at a hardcoded
+    /tmp path shared with production coordination, and _run_grid_stage spawns a
+    real bar_derivation.py --apply subprocess against the live indicagent database
+    with no --symbols scope (discovered running the full suite together, 2026-10-03
+    - it found and rolled back a genuine archive-verify mismatch on 7 real symbols,
+    harmless only because that check sits inside the same transaction as the write
+    it would otherwise have committed)."""
     statuses: list[str] = []
     facts: list[tuple] = []
     delegate_calls: list[tuple] = []
@@ -51,7 +60,9 @@ def _drive_main(monkeypatch, returncodes, wait_minutes=60):
         patch.object(nightly, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
         patch.object(nightly, "_load_lease_wait_minutes", return_value=wait_minutes),
         patch.object(nightly, "_run_delegate", side_effect=_fake_delegate),
+        patch.object(nightly, "_prepare_grid_stage", return_value=tmp_path / "exclude.txt"),
         patch.object(nightly, "_run_daily_stage", return_value=0),
+        patch.object(nightly, "_run_grid_stage", return_value=0),
         patch.object(nightly, "emit_integrity_fact_sync", side_effect=_fake_emit),
         patch.object(nightly, "flush_and_shutdown_metrics"),
         patch.object(nightly, "JOB_COMPLETED_TOTAL", job_counter),
@@ -65,8 +76,8 @@ class SimpleResult(dict):  # attribute access on a dict, keeps _drive_main reada
     __getattr__ = dict.__getitem__
 
 
-def test_legs_run_at_priority_tier_with_apr_wait_bound(monkeypatch):
-    result = _drive_main(monkeypatch, [0, 0], wait_minutes=45)
+def test_legs_run_at_priority_tier_with_apr_wait_bound(monkeypatch, tmp_path):
+    result = _drive_main(monkeypatch, [0, 0], tmp_path, wait_minutes=45)
     assert result.rc == 0
     # Every delegate dispatch carries the priority tier and the APR wait bound.
     for _symbols, extra_args in result.delegate_calls:
@@ -78,8 +89,8 @@ def test_legs_run_at_priority_tier_with_apr_wait_bound(monkeypatch):
     assert len(result.delegate_calls) == 2
 
 
-def test_lease_timeout_leg_fails_loudly_and_later_legs_still_run(monkeypatch):
-    result = _drive_main(monkeypatch, [EXIT_LEASE_TIMEOUT, 0])
+def test_lease_timeout_leg_fails_loudly_and_later_legs_still_run(monkeypatch, tmp_path):
+    result = _drive_main(monkeypatch, [EXIT_LEASE_TIMEOUT, 0], tmp_path)
     # Non-zero exit, failed_lease_timeout status, an integrity fact recorded.
     assert result.rc == EXIT_LEASE_TIMEOUT
     assert result.statuses == ["failed_lease_timeout"]
@@ -91,8 +102,8 @@ def test_lease_timeout_leg_fails_loudly_and_later_legs_still_run(monkeypatch):
     assert len(result.delegate_calls) == 2
 
 
-def test_plain_failure_is_not_a_lease_timeout(monkeypatch):
-    result = _drive_main(monkeypatch, [2, 0])
+def test_plain_failure_is_not_a_lease_timeout(monkeypatch, tmp_path):
+    result = _drive_main(monkeypatch, [2, 0], tmp_path)
     assert result.rc == 2
     assert result.statuses == ["failed"]
     assert result.facts == []

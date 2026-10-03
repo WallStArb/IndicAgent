@@ -30,6 +30,7 @@ import _path_bootstrap  # noqa: F401 — project root on sys.path
 import asyncpg
 from opentelemetry import metrics as _otel_metrics
 
+from services._batch_utils import load_apr_dict_async
 from src.config.settings import get_active_contracts, invalidate_active_contracts_cache
 from src.core.agent.base import BaseDaemon
 from src.core.bar_accumulator import _TF_MINUTES
@@ -421,12 +422,7 @@ class BarAuditor(BaseDaemon):
             # alarm, never a silent miss.
             now_utc = datetime.now(UTC)
             try:
-                apr_rows = await conn.fetch(
-                    "SELECT config_key, config_value FROM config_state "
-                    "WHERE config_key = ANY($1::text[])",
-                    _HTF_SPAN_APR_KEYS,
-                )
-                apr = {r["config_key"]: r["config_value"] for r in apr_rows}
+                apr = await load_apr_dict_async(conn, list(_HTF_SPAN_APR_KEYS))
                 span_reverify_days = int(apr[_HTF_SPAN_APR_KEYS[0]])
                 span_min_confirmations = int(apr[_HTF_SPAN_APR_KEYS[1]])
             except Exception as error:

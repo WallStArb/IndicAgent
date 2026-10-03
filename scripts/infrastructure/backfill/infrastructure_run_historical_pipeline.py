@@ -1429,8 +1429,6 @@ def run_normalize(
 # Daily derivation stage (plan 185-18 task 1b)
 # ---------------------------------------------------------------------------
 
-_DAILY_STAGE_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
-
 
 def _run_daily_stage(symbols: list[str]) -> int:
     """Derive the 1d grid rows for `symbols` through services/bar_derivation.py.
@@ -1838,6 +1836,18 @@ def main() -> None:
                             )
 
                         if d1_capture:
+                            # 1d planning is defined on the NYSE session grid
+                            # (sessions.py has one calendar). A non-NYSE name
+                            # here would get NYSE- holidays planned as gaps --
+                            # permanent silent holes -- so refuse loudly until
+                            # a second calendar exists (asset_agnostic: the
+                            # calendar is data dispatched by session_id, and
+                            # today the dispatch table has exactly one row).
+                            if getattr(instrument, "session_id", "nyse") != "nyse":
+                                raise ValueError(
+                                    f"1d gap planning is NYSE-only; {instrument.symbol} "
+                                    f"has session_id={instrument.session_id!r}"
+                                )
                             # Plan 185-18 task 1b: 1d asks come from D1 -- session
                             # dates with neither a TRADES observation nor a covering
                             # definitive no_data window -- through the same plan_gaps

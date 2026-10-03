@@ -267,7 +267,15 @@ def detect_gaps_1d_from_d1(
         cur.execute(_1D_NO_DATA_WINDOWS_SQL, (symbol,))
         window_rows = cur.fetchall()
 
-    stored = [midnight_utc(r[0]) for r in observed_rows]
+    # A forming session's partial bar must not suppress its own slot: an
+    # observation on bar_date == now's date was fetched mid-session (the
+    # capped window asks it), and treating it as stored would pin the partial
+    # bar forever -- the completed session's real bar would never be re-asked.
+    # Same intent as the no_data capping in the docstring: a still-forming
+    # session stays a gap until a later run sees it whole. Historical runs
+    # (now=None) plan only completed sessions and keep every observation.
+    forming = now.date() if now is not None else None
+    stored = [midnight_utc(r[0]) for r in observed_rows if forming is None or r[0] < forming]
     answered = AnsweredWindows.from_rows((_aware(r[0]), _aware(r[1])) for r in window_rows)
     slots = [midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
     run_end = now if now is not None else midnight_utc(end) + _1D_INTERVAL
