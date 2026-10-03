@@ -44,7 +44,7 @@ time goes to the build. STATE.md holds current position only; PRIORITIES.md tier
 | Order | Phase | Lever | Status |
 |---|---|---|---|
 | 1 | 183 Research layer: runner, ledger, combiner, book test | Spec-as-pre-registration runner, S6 ledger, S7 combiner, S8 book test; every real-data number recorded | All 11 plans done (plan 10 2026-09-26); phase verification pending; E17 precondition built (todo 447, 2026-09-27); attempts (442) continue in this lane |
-| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. IBKR-only. Clears the data bar for daily attempts | Planned 2026-09-27, plan 25 added 2026-10-03: 25 plans in 11 waves; plan-checker passed (`959ec85ea`) before plan 25; ready to execute |
+| 2 | 185 Daily data foundation | Raw IBKR observations kept apart from derived daily bars; scrubbing with validated rules (flag, never delete); venue-move recovery (433); splits and dividends point in time. Tradier is the primary 1d source from 2026-10-03 (IBKR serves intraday and the names Tradier cannot). Clears the data bar for daily attempts | Planned 2026-09-27, plan 25 added 2026-10-03: 26 plans in 12 waves; plan-checker passed (`959ec85ea`) before plan 25; ready to execute |
 | 3 | 186 Old ensemble chain retirement and ic_engine re-scope | Delete the old chain; summarize then drop dead tables (174 GB to about 60 GB); rebuild `feature_vectors`; refactor map items 1-6 | Planned 2026-09-27: 29 plans written; plan-checker pass in progress (186 session); no live ic_engine run |
 | 4 | 187 Research core: recipe book, selection, construction | UCR recipe book, StepM selection (E18), construction rules, pod books, costed horizon rule, `generated_family`, DAG manifest, per-writer DB roles | Not planned; waits on family 2's evidence run (183 plan 10 done) |
 | 5 | 184 Multi-timeframe research inputs | Causal alignment node; S0 reads `feature_vectors` (revised by 435); prerequisite for feature books | Not planned; waits on 183 |
@@ -164,7 +164,7 @@ suspect, corroboration and gap flags as flags on bars.
 **Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
 through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
 Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 17/25 plans executed
+**Plans:** 22/26 plans executed
 
 Plans:
 
@@ -224,7 +224,11 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 11)
+- [ ] 185-26-PLAN.md - nightly Tradier 1d leg and the Tradier-owned skip (wave 11)
+
+**Wave 12** *(blocked on Wave 11 completion)*
+
+- [ ] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 12)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
