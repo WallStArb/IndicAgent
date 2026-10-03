@@ -62,6 +62,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
@@ -76,6 +77,7 @@ from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline impo
     connect_db,
 )
 from scripts.ops.bars.ops_grid_lane_guard import write_exclude_file  # noqa: E402
+from services.ohlcv_observation_writer import new_fetch_run_id  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.core.integrity_monitor import emit_integrity_fact_sync  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
@@ -96,6 +98,9 @@ from scripts.infrastructure.backfill._derivation_stage import (  # noqa: E402
 _GRID_EXCLUDE_FILE = Path(tempfile.gettempdir()) / "indicagent-nightly-grid-exclude-symbols.txt"
 _NIGHTLY_LEASE_WAIT_KEY = "infra.ibkr_history_lease.nightly_wait_minutes"
 _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES = 60  # migration 380 APR seed
+_OVERLAP_SESSIONS_KEY = "infra.bar_derivation.overlap_sessions"
+_OVERLAP_SESSIONS_FALLBACK = 20  # migration 406 APR seed
+_SPLIT_DETECT_SCRIPT = Path(__file__).resolve().parents[2] / "ops" / "bars" / "ops_split_detect.py"
 
 
 def _load_lease_wait_minutes(conn: psycopg.Connection) -> int:
@@ -113,6 +118,42 @@ def _load_lease_wait_minutes(conn: psycopg.Connection) -> int:
     except Exception as error:
         _logger.warning("nightly_backfill.lease_wait_lookup_failed", error=str(error))
     return _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES
+
+
+def _load_overlap_sessions(conn: psycopg.Connection) -> int:
+    """Sessions each nightly 1d fetch re-asks beyond what D1 holds (plan 185-22, D-21), from
+    APR. The fallback is the migration 406 seed."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT config_value FROM config_state WHERE config_key = %s",
+                (_OVERLAP_SESSIONS_KEY,),
+            )
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(float(row[0]))
+    except Exception as error:
+        _logger.warning("nightly_backfill.overlap_sessions_lookup_failed", error=str(error))
+    return _OVERLAP_SESSIONS_FALLBACK
+
+
+def _run_split_detect(run_ids: Sequence[str]) -> int:
+    """Judge the legs' 1d overlap for splits: record, re-fetch, re-derive (plan 185-22).
+
+    Runs after the legs and before the daily stage, so a split crossed today is on one scale
+    in D1 before the stage derives it.
+    """
+    if not run_ids:
+        return 0
+    command = [sys.executable, str(_SPLIT_DETECT_SCRIPT), "--client-id", str(_NIGHTLY_CLIENT_ID)]
+    for run_id in run_ids:
+        command += ["--fetch-run-id", run_id]
+    result = subprocess.run(
+        command,
+        cwd=str(project_root),
+        env={**os.environ, "PYTHONPATH": str(project_root)},
+    )
+    return result.returncode
 
 
 def _emit_lease_timeout_fact(leg_name: str, settings: Settings) -> None:
@@ -278,6 +319,7 @@ def main() -> int:
     try:
         batches = [(leg, _select_stalest(conn, leg)) for leg in _LEGS]
         lease_wait_minutes = _load_lease_wait_minutes(conn)
+        overlap_sessions = _load_overlap_sessions(conn)
     finally:
         conn.close()
 
@@ -293,6 +335,7 @@ def main() -> int:
 
     returncodes: list[int] = []
     lease_timeout_legs: list[str] = []
+    run_ids: list[str] = []
     for leg, symbols in batches:
         if not symbols:
             continue
@@ -300,7 +343,15 @@ def main() -> int:
         _logger.info(
             "nightly_backfill.batch_selected", leg=leg.name, symbols=symbols, n_symbols=len(symbols)
         )
-        returncode = _run_delegate(symbols, leg.delegate_args + lease_args)
+        # The nightly names the run so split detection can judge exactly its overlap (D-21).
+        run_id = new_fetch_run_id()
+        run_ids.append(run_id)
+        returncode = _run_delegate(
+            symbols,
+            leg.delegate_args
+            + lease_args
+            + ("--fetch-run-id", run_id, "--overlap-sessions", str(overlap_sessions)),
+        )
         returncodes.append(returncode)
         if returncode == EXIT_LEASE_TIMEOUT:
             lease_timeout_legs.append(leg.name)
@@ -313,6 +364,10 @@ def main() -> int:
         exclude_file = _prepare_grid_stage()
     except RuntimeError as error:
         return _finish("failed", f"Derivation stages not started: {error}", returncode=1)
+
+    # Plan 185-22: judge the legs' overlap for splits first (record, re-fetch, re-derive), so
+    # the daily stage below derives a split symbol's history on one scale.
+    returncodes.append(_run_split_detect(run_ids))
 
     # Plan 185-18 task 1b: the legs' 1d answers landed in D1; the daily stage
     # derives the 1d grid for every symbol whose inputs changed. Runs before

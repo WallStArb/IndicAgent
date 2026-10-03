@@ -690,3 +690,13 @@ def test_overlap_sessions_adds_the_recent_sessions_window_to_each_1d_symbol(driv
 def test_no_overlap_by_default(driven_main):
     result = driven_main(_BASE_ARGS)
     assert _third_last_session() not in _1d_window_starts(result)
+
+
+def test_a_caller_supplied_fetch_run_id_labels_every_request(driven_main):
+    """Plan 185-22: the nightly assigns the run id so the split-detect step knows which
+    run's overlap to judge without scraping the pipeline's output."""
+    result = driven_main([*_BASE_ARGS, "--fetch-run-id", "nightly-leg-1d"])
+    assert result.exit_code is None
+    ids = {c["fetch_run_id"] for c in result.provider.calls if "fetch_run_id" in c}
+    assert ids == {"nightly-leg-1d"}
+    assert "nightly-leg-1d" in result.output

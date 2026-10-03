@@ -95,7 +95,11 @@ class TestSelectStalest:
         assert _COHORT.delegate_args == ("--dimension", "compute_1d", "--timeframes", "1d")
 
 
-def _run_main(batches, returncodes, grid_returncode=0, daily_returncode=0):
+_SPLIT_CALLS: list[list[str]] = []
+
+
+def _run_main(batches, returncodes, grid_returncode=0, daily_returncode=0, split_returncode=0):
+    _SPLIT_CALLS.clear()
     mod = infrastructure_nightly_backfill
     by_leg = dict(zip((leg.name for leg in mod._LEGS), batches, strict=True))
     with (
@@ -105,6 +109,12 @@ def _run_main(batches, returncodes, grid_returncode=0, daily_returncode=0):
         patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
         patch.object(mod, "_load_lease_wait_minutes", return_value=60),
         patch.object(mod, "_run_delegate", side_effect=returncodes) as mock_delegate,
+        patch.object(mod, "_load_overlap_sessions", return_value=20),
+        patch.object(
+            mod,
+            "_run_split_detect",
+            side_effect=lambda ids: _SPLIT_CALLS.append(list(ids)) or split_returncode,
+        ),
         patch.object(mod, "_run_daily_stage", return_value=daily_returncode) as mock_daily,
         patch.object(mod, "_prepare_grid_stage") as mock_prepare,
         patch.object(mod, "_run_grid_stage", return_value=grid_returncode) as mock_grid,
@@ -123,7 +133,14 @@ class TestMainDispatch:
         )
         assert rc == 0
         lease_args = ("--lease-tier", "priority", "--lease-wait-minutes", "60")
-        assert [c.args for c in mock_delegate.call_args_list] == [
+        calls = [c.args for c in mock_delegate.call_args_list]
+        # every leg also carries its own run id and the overlap (plan 185-22)
+        assert all(
+            extra[-4] == "--fetch-run-id" and extra[-2:] == ("--overlap-sessions", "20")
+            for _symbols, extra in calls
+        )
+        assert len({extra[-3] for _symbols, extra in calls}) == len(calls)
+        assert [(symbols, extra[:-4]) for symbols, extra in calls] == [
             (["AAA"], lease_args),
             (
                 ["PIL1", "PIL2"],
@@ -180,6 +197,10 @@ class TestDailyStage:
             patch.object(
                 mod, "_run_delegate", side_effect=lambda *_a, **_k: order.append("legs") or 0
             ),
+            patch.object(mod, "_load_overlap_sessions", return_value=20),
+            patch.object(
+                mod, "_run_split_detect", side_effect=lambda *_a, **_k: order.append("split") or 0
+            ),
             patch.object(
                 mod, "_run_daily_stage", side_effect=lambda *_a, **_k: order.append("daily") or 0
             ),
@@ -193,7 +214,7 @@ class TestDailyStage:
         ):
             rc = mod.main()
         assert rc == 0
-        assert order == ["legs", "legs", "daily", "grid"]
+        assert order == ["legs", "legs", "split", "daily", "grid"]
 
     def test_daily_stage_failure_fails_the_job(self):
         rc, _delegate, _grid, _prepare, _daily = _run_main([["AAA"], []], [0], daily_returncode=2)
@@ -296,3 +317,73 @@ class TestFinishLogLevel:
     def test_non_success_logs_at_error(self, status):
         events = self._finish_events(status)
         assert events == [{"event": f"nightly_backfill.{status}", "log_level": "error"}]
+
+
+class TestSplitDetectStage:
+    """Plan 185-22 (D-21): the nightly names each leg's run, overlaps the last N sessions, and
+    judges that overlap for splits after the legs and before the daily stage."""
+
+    def test_each_leg_gets_a_run_id_and_the_overlap_and_split_detect_judges_those_ids(self):
+        mod = infrastructure_nightly_backfill
+        delegate_args: list[tuple[str, ...]] = []
+        by_leg = {leg.name: [f"{leg.name.upper()}1"] for leg in mod._LEGS}
+        with (
+            patch.object(mod, "setup_service_logging"),
+            patch.object(mod, "Settings"),
+            patch.object(mod, "connect_db"),
+            patch.object(mod, "_select_stalest", side_effect=lambda _c, leg: by_leg[leg.name]),
+            patch.object(mod, "_load_lease_wait_minutes", return_value=60),
+            patch.object(mod, "_load_overlap_sessions", return_value=20),
+            patch.object(
+                mod,
+                "_run_delegate",
+                side_effect=lambda symbols, extra: delegate_args.append(tuple(extra)) or 0,
+            ),
+            patch.object(
+                mod,
+                "_run_split_detect",
+                side_effect=lambda ids: _SPLIT_CALLS.append(list(ids)) or 0,
+            ),
+            patch.object(mod, "_prepare_grid_stage", return_value=Path("/tmp/x.txt")),
+            patch.object(mod, "_run_daily_stage", return_value=0),
+            patch.object(mod, "_run_grid_stage", return_value=0),
+            patch.object(mod, "emit_integrity_fact_sync"),
+            patch.object(mod, "flush_and_shutdown_metrics"),
+            patch.object(mod, "JOB_COMPLETED_TOTAL"),
+        ):
+            _SPLIT_CALLS.clear()
+            assert mod.main() == 0
+        ids = [a[a.index("--fetch-run-id") + 1] for a in delegate_args]
+        assert len(ids) == 2 and len(set(ids)) == 2
+        assert all(a[a.index("--overlap-sessions") + 1] == "20" for a in delegate_args)
+        assert _SPLIT_CALLS == [ids]
+
+    def test_a_split_detect_failure_fails_the_job(self):
+        rc, _delegate, _grid, _prepare, _daily = _run_main([["AAA"], []], [0], split_returncode=4)
+        assert rc == 4
+        assert len(_SPLIT_CALLS) == 1 and len(_SPLIT_CALLS[0]) == 1
+
+    def test_the_overlap_loader_reads_the_apr_key_and_falls_back_to_the_seed(self):
+        mod = infrastructure_nightly_backfill
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = ("30",)
+        assert mod._load_overlap_sessions(conn) == 30
+        assert cursor.execute.call_args[0][1] == ("infra.bar_derivation.overlap_sessions",)
+        cursor.fetchone.return_value = None
+        assert mod._load_overlap_sessions(conn) == 20
+
+    def test_run_split_detect_with_no_runs_does_nothing(self):
+        mod = infrastructure_nightly_backfill
+        with patch.object(mod.subprocess, "run") as mock_run:
+            assert mod._run_split_detect([]) == 0
+        mock_run.assert_not_called()
+
+    def test_run_split_detect_passes_every_run_id_and_the_nightly_client(self):
+        mod = infrastructure_nightly_backfill
+        with patch.object(mod.subprocess, "run", return_value=MagicMock(returncode=0)) as mock_run:
+            assert mod._run_split_detect(["r1", "r2"]) == 0
+        argv = mock_run.call_args.args[0]
+        assert argv[1].endswith("ops_split_detect.py")
+        assert argv[argv.index("--client-id") + 1] == "45"
+        assert [argv[i + 1] for i, v in enumerate(argv) if v == "--fetch-run-id"] == ["r1", "r2"]

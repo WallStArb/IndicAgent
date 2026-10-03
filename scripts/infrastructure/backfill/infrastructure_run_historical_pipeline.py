@@ -1471,6 +1471,14 @@ def main() -> None:
     )
     parser.add_argument("--client-id", type=int, default=40, help="IBKR client ID (default: 40)")
     parser.add_argument(
+        "--fetch-run-id",
+        default=None,
+        help=(
+            "Label every D1 request of this invocation with this id instead of a new one, so "
+            "the caller (the nightly) can name the run it asks split detection to judge."
+        ),
+    )
+    parser.add_argument(
         "--overlap-sessions",
         type=int,
         default=0,
@@ -1660,7 +1668,7 @@ def main() -> None:
     # D-05/D-16 capture: one fetch_run_id per invocation, one dedicated
     # connection for D1 so a capture failure never leaves a half-committed
     # market_data_ohlcv write behind it.
-    fetch_run_id = new_fetch_run_id()
+    fetch_run_id = args.fetch_run_id or new_fetch_run_id()
     sink_conn = connect_db(settings)
     sink = ObservationSink(
         sink_conn,
