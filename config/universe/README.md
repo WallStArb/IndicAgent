@@ -1,8 +1,24 @@
-# Universe expansion 2026-09-26: file lineage
+# Universe expansion: file lineage
 
-Author: Claude Opus 5.5 (session 2026-09-26)
+Author: Claude Opus 5.5 (batches 1 and 2, session 2026-09-26); Claude Sonnet 5.5 (batch 3,
+session 2026-10-03)
 
-Process: `docs/foundation/instrument-onboarding-sop.md`. Each batch gets an entry here (stage 10).
+Process: `docs/foundation/instrument-onboarding-sop.md`, which also lists the biases every batch
+carries (survivorship, venue truncation, unscrubbed prints, price-only bars). Each batch gets an
+entry here (stage 10): its rationale, source files, selection rule, deviations and verify
+results. This file holds lineage only; process changes go in the SOP.
+
+| Batch | Date | Names | Manifests | State |
+|---|---|---|---|---|
+| 1. Stocks and size-style, country, equal-weight ETFs | 2026-09-26 | 546 | `expansion_2026_09_26.csv` | onboarded, 1d |
+| 1b. Small-cap draws the history screen dropped | 2026-09-26 | 70 | `expansion_smallcaps_2026_09_26.csv` | onboarded, 1d |
+| 2. Industry, EM country, commodity, fixed-income ETFs | 2026-09-26 | 43 | `expansion_etfs_2026_09_26.csv` | onboarded, 1d |
+| 3. Wave 2: stocks and ETFs | 2026-10-03 | 568 stocks, 29 ETFs | `wave2_stocks_2026_10_03.csv`, `wave2_etfs_2026_10_03.csv` | manifests committed, dry run clean, not written |
+
+Batches 1, 1b and 2 took the universe from 273 to 932 active names. Source holdings snapshots
+and drawn lists sit beside the manifests with their dates.
+
+## Batch 1: stocks (2026-09-26)
 
 546 equity instruments onboarded at 1d only on 2026-09-26 04:04 UTC, all with
 `compute_eligible_1d = false` until their 1d backfill lands and
@@ -25,7 +41,7 @@ migration 371 added the pairs. A manifest row cannot express a pair, so any futu
 | `dow_industrials` | 4 | AMGN, CSCO, IBM, NKE |
 | `etf_treasury` | 3 | SHV, IEI, TLH |
 
-## Small-cap draws
+### Small-cap draws
 
 Both draws come from `universe_expansion_holdings_draw.py`: seed 42, 10 cap buckets,
 100 names, `--min-price 5`, excluding the 295 symbols in `instruments` at draw time. One
@@ -47,7 +63,7 @@ Deviations from a clean stratified sample:
   the key `r2k_sample_size` (now `sample_size`), and their `holdings_file` paths are
   relative to a sibling worktree. They are kept as generated.
 
-## History screen (deleted)
+### History screen (deleted)
 
 `history_screen_2026_09_26.csv` records the screen that dropped drawn names with no IBKR
 daily bar in the two weeks before 2016-09-26: 125 passed and 70 failed. The screen was
@@ -65,7 +81,7 @@ panel's coverage rules handle short histories. The 70 were onboarded the same da
 195 names both draws produced are now in `instruments`. CLBK is held out of `compute_eligible_1d`: IBKR
 serves no daily history for its current conId (902968711), so it has no bars.
 
-## ETF batch (second manifest)
+## Batch 2: ETFs (2026-09-26)
 
 `expansion_etfs_2026_09_26.csv`: 44 ETFs approved the same day, onboarded 1d-only at about
 12:10 UTC. 43 went in; XWEB (SPDR S&P Internet) did not qualify on IBKR and was not written.
@@ -82,9 +98,7 @@ FI.CREDIT.LOANS) and the `fi_mbs` and `fi_intl` exposure tags. Migration 373 pai
 commodity curve funds (USO/USL, UNG/UNL). IGOV was left out as a near-duplicate of BWX; BNDX
 and BWX are not paired because BNDX also holds corporate bonds.
 
-## Wave 2 (2026-10-03): stocks and ETFs
-
-Author: Claude Sonnet 5.5 (session 2026-10-03)
+## Batch 3: wave 2, stocks and ETFs (2026-10-03)
 
 Rationale, written before any bar of these names is fetched. The 932-name universe holds nearly
 every top-500 Russell 3000 name but only about a quarter of ranks 501-1000, and the thin
@@ -135,6 +149,5 @@ Deviations from a clean draw and facts to carry:
 - Survivorship, venue truncation, unscrubbed prints and price-only bars apply as in every batch
   (see the SOP). The holdings are current members only.
 
-Status: manifests committed, qualify dry run clean, nothing written to `instruments`. Stage 5-6
-commit, the 1d fetch (one IBKR stream, so after the todo 449 lane) and promote are pending; this
-entry gets the fetch, held-name and verify results when they run.
+Pending: stage 5-6 commit, the 1d fetch (one IBKR stream, so after the todo 449 lane) and
+promote. This entry gets the fetch, held-name and verify results when they run.
