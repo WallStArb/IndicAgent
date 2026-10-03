@@ -99,7 +99,7 @@ Plan: 20 of 24 (185-19 landed 2026-10-03; next 20)
   Phase 186's rebuild gates on the 5m part.
 
 - **Regime coverage auditor:** fails only on unregistered or expired gaps; the 5 known symbols (BIL, EMLC, ETHA, IBIT, VIXY) are registered exceptions expiring 2026-12-29 (todo 341 closed by 186-18). 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (todo 478, P1, decision needed before the 186-25/26 rebuild).
-- **Universe:** 932 active; 931 `compute_eligible_1d`; 233 carry the intraday stack and
+- **Universe:** 1,529 active (932 plus wave 2's 597, onboarded 2026-10-03 with the 1d fetch running); 931 `compute_eligible_1d` until wave 2 is promoted; 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
   `docs/foundation/instrument-onboarding-sop.md` (tooling gaps: todos 431, 444).
 
