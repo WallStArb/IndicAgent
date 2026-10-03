@@ -558,7 +558,7 @@ docker exec redpanda rpk topic stats <topic-name>
 - **Stream schemas reference:** `docs/reference/schemas/stream-schemas.md`
 - **Infrastructure operations:** `docs/operations/operations-infrastructure.md`
 - **Self-healing and service auditor:** `docs/architecture/self-healing.md`
-- **Auth design and ML export API (planned):** `docs/platform-api.md` (planned)
+- **Auth design and ML export API (planned):** `docs/platform/platform-api.md` (planned)
 - **Redpanda docs:** https://docs.redpanda.com/
 
 **ADRs 16-19 — cross-domain topics** (these decisions involve other subsystems; their authoritative docs are linked below):
@@ -566,7 +566,7 @@ docker exec redpanda rpk topic stats <topic-name>
 - **ADR-16: LLM audit trail** — every LLM call is a labeled training sample; full design at `docs/intelligence/` (LLM chain, llm_calls hypertable, per-model scoring, outcome back-fill). Design principle: once gone, the outcome cannot be recovered.
 - **ADR-17: Historical backfill — replay fidelity tradeoff** — Stage 2 replay writes `source='backfill'`. First ~50 bars have degraded quality (Kalman/GARCH warm-up). Accepted tradeoff. See `docs/data/data-pipeline.md`.
 - **ADR-18: ServiceAuditor — pipeline health and self-healing** — monitors all active services, publishes typed health state transitions to `system.health.events`, can trigger restarts on breach of lag/error thresholds. Escalation DLQ: `intelligence.service_auditor.journal.dlq`. See `docs/architecture/self-healing.md`.
-- **ADR-19: Roll batch — nightly timer replaces 24/7 daemons** — `production/scripts/roll_batch.py` runs as a nightly systemd timer at 8pm. Detects calendar-based rolls, promotes front-month contracts in `contract_metadata`, broadcasts updates via Kafka. `inactive (dead)` between runs is correct. See `docs/ideas/futures-roll-simplification.md`.
+- **ADR-19: Roll batch — nightly timer replaces 24/7 daemons** — `production/scripts/roll_batch.py` runs as a nightly systemd timer at 8pm. Detects calendar-based rolls, promotes front-month contracts in `contract_metadata`, broadcasts updates via Kafka. `inactive (dead)` between runs is correct. See `docs/research/archive/futures-roll-simplification.md`.
 
 **API-layer ADRs (not streaming concerns — moved to See Also):**
 

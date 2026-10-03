@@ -90,7 +90,7 @@ When designing an adaptive system:
 ## See Also
 
 - Live substrate: `docs/foundation/unified-concept-registry.md` — full UCR spec, invariants, domain coverage
-- Research vision (dormant tier): `docs/research/ai-03-evolvable-ai-agents.md` — full eAI design
-- v2.8 roadmap (dormant tier): `docs/research/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
+- Research vision (dormant tier): `docs/research/archive/ai-03-evolvable-ai-agents.md` — full eAI design
+- v2.8 roadmap (dormant tier): `docs/research/archive/eai-phase-recommendations.md` — genome mutations, fitness function, Phase 101-103
 - Related concept: `docs/concepts/evidence-graded-signals.md` — evidence-gated promotion
 - Related concept: `docs/concepts/swarm-intelligence.md` — agent shadow governance (dormant)

@@ -124,4 +124,4 @@ grows significantly beyond the seeded 100 rows — benchmark with production-sca
 - `src/core/memory/client.py` - MemoryClient.recall() implementation
 - `src/core/memory/backends/episodic.py` - PgvectorEpisodicBackend (HNSW + rerank)
 - `config/memory.yaml` - all tunable parameters
-- `docs/plans/2026-06-02-agent-memory-design.md` - D-13 (timeout budget), D-11 (ef_search)
+- `docs/plans/archive/2026-06-02-agent-memory-design.md` - D-13 (timeout budget), D-11 (ef_search)

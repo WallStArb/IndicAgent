@@ -164,7 +164,7 @@ feature.<indicator>.period            # int parameter — user or ML learning ta
 ui.<screen>.default_view              # str user preference — never an ML target
 ```
 
-Maintain a single reference doc (e.g. `docs/platform-config.md`) listing the complete namespace registry — all prefixes, their natural writers, ML-target status, and live key counts. Don't duplicate that list here; this doc describes the mechanism, that doc describes current state.
+Maintain a single reference doc (e.g. `docs/platform/platform-config.md`) listing the complete namespace registry — all prefixes, their natural writers, ML-target status, and live key counts. Don't duplicate that list here; this doc describes the mechanism, that doc describes current state.
 
 ---
 
@@ -301,5 +301,5 @@ For `config_history` detail: clicking any row should show the full change histor
 
 1. Copy the four table schemas and the read/write flow diagrams verbatim — the mechanism is domain-agnostic.
 2. Replace every `threshold.<component>.<gate_name>`-style example with your own real namespace once you have a handful of parameters actually living in the store. Don't pre-populate this doc with invented namespaces.
-3. Write your own namespace-registry doc (the `docs/platform-config.md` this doc points to) and keep it separate from this one — this doc is mechanism, that doc is current state, and they drift at different rates.
+3. Write your own namespace-registry doc (the `docs/platform/platform-config.md` this doc points to) and keep it separate from this one — this doc is mechanism, that doc is current state, and they drift at different rates.
 4. If your domain has no equivalent to "indicator period," delete the "Feature Indicator Periods" section rather than leaving a trading-specific example in a project that isn't trading.

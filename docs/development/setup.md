@@ -247,4 +247,4 @@ then `sudo systemctl restart indicagent-<name>`
 **Ollama GPU not detected:** Check ROCm device access — `docker exec ollama ollama list`
 should show `gemma4:e4b`. If blank, repull: `docker exec ollama ollama pull gemma4:e4b`
 
-**Full reference:** `docs/operations/operations-infrastructure.md` · `docs/cheatsheet.md`
+**Full reference:** `docs/operations/operations-infrastructure.md` · `docs/reference/cheatsheet.md`

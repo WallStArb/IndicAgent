@@ -71,7 +71,7 @@ disproportionately discount-rate-sensitive" — rather than a measured quantity.
 against a rate-proxy series — `TLT` or the `real_rate` DTB3/DTB4WK series itself) would
 replace that assumption with the actual measured sensitivity, and the same primitive
 becomes the multiplier for the political/policy-EPU interaction candidate too
-(`docs/research/signal-political-policy-regime.md`) — one mechanism serving multiple
+(`docs/ideas/signal-political-policy-regime.md`) — one mechanism serving multiple
 Level-0/1 factors, not a new beta invented per macro series.
 
 ## Architecturally, not an 8th theme — same shape as Velocity
@@ -102,7 +102,7 @@ every other Calc-layer batch job SSFI already has designed.
 **This doc's mechanism (rolling OLS beta) is for continuous macro series — it doesn't
 directly work for discrete, sparse event classes** (FOMC decisions, sector-wide regulatory
 shocks), where there isn't enough occurrence density for a meaningful regression.
-`docs/research/signal-event-catalog-and-impact-system.md` §7 proposes the event-shaped
+`docs/ideas/from-ssfi/signal-event-catalog-and-impact-system.md` §7 proposes the event-shaped
 analog: average a security's own historical event-impact readings (its §6 event-study
 mechanism) across occurrences of an event type, with class/sector-level pooling as the
 fallback when individual history is too thin — same four-level hierarchy (universal →
@@ -128,7 +128,7 @@ estimation mechanism because the input is sparse/discrete rather than continuous
 - `docs/research/primitive-catalog.md` — `iv_dispersion_rate_interaction` (the interaction
   this would strengthen with a measured beta instead of an assumed proxy), the `vix_z`
   rejection this hierarchy's Level-0 treatment already matches
-- `docs/research/signal-political-policy-regime.md` — the companion candidate this
+- `docs/ideas/signal-political-policy-regime.md` — the companion candidate this
   factor-sensitivity mechanism would generalize to (EPU-beta, not just rate-beta)
 - `docs/research/data-sources-candidates.md` — FRED's existing Gateway scope
   (`DTB3`/`DTB4WK`), where yield-curve/credit-spread/real-yield series would land as
