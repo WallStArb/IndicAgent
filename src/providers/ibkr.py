@@ -67,7 +67,13 @@ from src.observability.metrics import (  # noqa: E402
     IBKR_ERROR_326_TOTAL,
     PROVIDER_BARS_DROPPED_TOTAL,
 )
-from src.providers.base import EmptyHistory, OHLCVBar, RequestRecord, Tick  # noqa: E402
+from src.providers.base import (  # noqa: E402
+    VENUE_ROUTE_ALIASES,
+    EmptyHistory,
+    OHLCVBar,
+    RequestRecord,
+    Tick,
+)
 
 logger = logging.getLogger(__name__)
 slog = structlog.get_logger(__name__)
@@ -226,11 +232,11 @@ _RETRY_BACKOFF_BASE_S = 65
 _VENUE_FALLBACK_EXCHANGES: list[str] = ["NYSE", "ARCA", "ISLAND", "AMEX", "BATS"]
 _VENUE_FALLBACK_TIMEFRAMES: set[str] = {"1d"}
 _VENUE_FALLBACK_MIN_GAP_DAYS = 7
-# False (verify-only): former venues are still asked, and any bars they return block an
-# empty-history record and are logged, but none are returned for storage. Stays False until the
-# listing-venue validation study passes (docs/plans/2026-09-26-daily-data-foundation.md, D3).
+# Retired (plan 185-19, migration 404): venue answers reach D1 through on_observation and
+# D2 decides whether they ever become bars, so the provider never returns venue bars. The APR
+# key is still read (the pipeline loader sets this global) only so a true value logs its
+# retirement; it governs nothing.
 _VENUE_FALLBACK_STORE_BARS = False
-_VENUE_ALIASES = {"ISLAND": "NASDAQ"}
 
 
 class _SlidingWindowRateLimiter:
@@ -818,10 +824,11 @@ class IBKRProvider:
                 venue-routed request, every back-from-now request), at each
                 outcome point: bars, no_data, timeout or failed (D-05, D-20).
             on_observation: Optional sync callback receiving (record, bars) for
-                every request that answered bars, SMART and venue alike — venue
-                bars are reported even when infra.ibkr.venue_fallback.store_bars
-                is false, so verify-only runs stop discarding the moved-name
-                inventory (D-16). Bars here are the parsed OHLCVBar list.
+                every request that answered bars, SMART and venue alike. Venue
+                bars are reported here and nowhere else (the retired
+                infra.ibkr.venue_fallback.store_bars switch governs nothing), so
+                D2 alone decides whether they become bars (D-16). Bars here are
+                the parsed OHLCVBar list.
             fetch_run_id: Shared run id across every record this fetch emits; a
                 fresh uuid4 per call when omitted and a callback is given. Pass
                 one explicitly to pair requests across calls (e.g. TRADES and
@@ -1263,12 +1270,14 @@ class IBKRProvider:
         it does not list, and only the listing venue's auctions give the official open and
         close. Venue bars count that venue's trades only (SOURCE_IBKR_VENUE).
 
-        Returns (venue bars, empty-history span). Venue bars are returned only when
-        _VENUE_FALLBACK_STORE_BARS is set; in verify-only mode they still block the span. The
-        span is reported only when every venue also answered a definitive "no data", with
+        Returns ([], empty-history span): venue bars are never returned for storage (their
+        answers reach D1 through on_observation, D2 decides), but any bars found still block
+        the span. The span is reported only when every venue also answered a definitive "no data", with
         their confirmations added to SMART's; any venue that failed ambiguously leaves the
         head unverified (None), so it is asked again next run instead of recorded empty.
         """
+        if _VENUE_FALLBACK_STORE_BARS:
+            slog.warning("ibkr.venue_fallback_store_bars_retired", store_bars=True)
         head_end = min(b.timestamp for b in smart_bars) - timedelta(days=1) if smart_bars else end
         if head_end - start < timedelta(days=_VENUE_FALLBACK_MIN_GAP_DAYS):
             return [], smart_empty
@@ -1278,7 +1287,7 @@ class IBKRProvider:
         verified_empty = True
         venue_empties: list[EmptyHistory] = []
         for venue in _VENUE_FALLBACK_EXCHANGES:
-            if _VENUE_ALIASES.get(venue, venue) == current:
+            if VENUE_ROUTE_ALIASES.get(venue, venue) == current:
                 continue
             venue_contract = copy.copy(contract)
             venue_contract.exchange = venue
@@ -1303,10 +1312,9 @@ class IBKRProvider:
                 first=min(b.timestamp for b in best).isoformat(),
                 last=max(b.timestamp for b in best).isoformat(),
                 n_bars=len(best),
-                stored=_VENUE_FALLBACK_STORE_BARS,
             )
-            # Either way the head is not empty: history exists on a former venue.
-            return (best if _VENUE_FALLBACK_STORE_BARS else []), None
+            # The head is not empty (history exists on a former venue); D1 holds the answer.
+            return [], None
         if not verified_empty:
             # Asked again next run; a symbol logging this every run is stuck, not recovering.
             logger.warning(

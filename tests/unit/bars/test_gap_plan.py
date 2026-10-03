@@ -148,3 +148,62 @@ def test_plan_gaps_interval_scales_with_timeframe(timeframe: str, interval: time
     slot = _t(2, 15)
     plan = plan_gaps([slot], [], AnsweredWindows(), interval, run_end=slot + 3 * interval)
     assert plan == [(slot, slot + interval)]
+
+
+class TestConfirmedEmptySpans:
+    """Plan 185-19 (D-20): a span is empty only when SMART and every required venue
+    answered no_data for it; the rule is pure, over one fetch run's no_data windows."""
+
+    _DAY = timedelta(days=1)
+
+    @staticmethod
+    def _w(a, b):
+        return (datetime(2012, 1, a, tzinfo=UTC), datetime(2012, 1, b, tzinfo=UTC))
+
+    def test_the_span_every_route_answered_is_confirmed_with_its_answer_count(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        windows = {
+            "SMART": [self._w(1, 10)],
+            "NYSE": [self._w(1, 10)],
+            "ARCA": [self._w(1, 10)],
+        }
+        (span,) = confirmed_empty_spans(windows, ["SMART", "NYSE", "ARCA"], slack=self._DAY)
+        assert (span.start, span.end) == self._w(1, 10)
+        assert span.n_confirming == 3
+
+    def test_only_the_intersection_of_the_routes_is_confirmed(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        windows = {"SMART": [self._w(1, 20)], "NYSE": [self._w(5, 30)]}
+        (span,) = confirmed_empty_spans(windows, ["SMART", "NYSE"], slack=self._DAY)
+        assert (span.start, span.end) == self._w(5, 20)
+
+    def test_a_required_route_with_no_answer_confirms_nothing(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        windows = {"SMART": [self._w(1, 10)], "NYSE": [self._w(1, 10)]}
+        assert confirmed_empty_spans(windows, ["SMART", "NYSE", "ARCA"], slack=self._DAY) == []
+
+    def test_adjacent_chunks_merge_within_the_slack_and_count_every_answer(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        windows = {
+            "SMART": [self._w(1, 5), self._w(6, 10)],
+            "NYSE": [self._w(1, 10)],
+        }
+        (span,) = confirmed_empty_spans(windows, ["SMART", "NYSE"], slack=self._DAY)
+        assert (span.start, span.end) == self._w(1, 10)
+        assert span.n_confirming == 3
+
+    def test_a_gap_wider_than_the_slack_leaves_two_spans(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        windows = {"SMART": [self._w(1, 3), self._w(9, 12)], "NYSE": [self._w(1, 12)]}
+        spans = confirmed_empty_spans(windows, ["SMART", "NYSE"], slack=self._DAY)
+        assert [(s.start, s.end) for s in spans] == [self._w(1, 3), self._w(9, 12)]
+
+    def test_no_required_routes_confirms_nothing(self):
+        from src.intelligence.bars.gap_plan import confirmed_empty_spans
+
+        assert confirmed_empty_spans({"SMART": [self._w(1, 5)]}, [], slack=self._DAY) == []

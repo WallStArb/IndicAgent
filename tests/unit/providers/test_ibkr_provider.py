@@ -581,21 +581,41 @@ class TestPreMoveHistory:
         return bars, persisted, reports, asked
 
     @pytest.mark.asyncio
-    async def test_keeps_highest_volume_venue_for_the_head(self, provider, mock_ib):
+    @pytest.mark.parametrize("switch", [True, False])
+    async def test_venue_bars_are_never_returned_whatever_the_retired_switch(
+        self, provider, mock_ib, switch
+    ):
+        """Plan 185-19 (D3 rebased on D1): the venue answer reaches D1 through
+        on_observation and D2 decides whether it ever becomes a bar, so the provider
+        returns and persists SMART's bars only, even with the retired store_bars
+        switch true. The current primary is still never asked as a former venue."""
         from src.core.bar_normalizer import SOURCE_IBKR_VENUE
 
         smart = self._bars(datetime(2018, 9, 10), 5, 1000)
         nyse = self._bars(datetime(2012, 1, 3), 4, 400)
         arca = self._bars(datetime(2012, 1, 3), 4, 50)
         bars, persisted, reports, asked = await self._fetch(
-            provider, mock_ib, {"SMART": smart, "NYSE": nyse, "ARCA": arca}
+            provider, mock_ib, {"SMART": smart, "NYSE": nyse, "ARCA": arca}, store=switch
         )
-        venue = [b for b in bars if b.source == SOURCE_IBKR_VENUE]
-        assert len(venue) == 4 and all(b.volume == 400 for b in venue)
-        assert [b for b in persisted if b.source == SOURCE_IBKR_VENUE] == venue
-        assert reports == []
-        assert "ISLAND" not in asked  # the current primary is never asked as a former venue
-        assert bars == sorted(bars, key=lambda b: b.timestamp)
+        assert [b for b in bars if b.source == SOURCE_IBKR_VENUE] == []
+        assert [b for b in persisted if b.source == SOURCE_IBKR_VENUE] == []
+        assert len(bars) == 5 and all(b.volume == 1000 for b in bars)
+        assert reports == []  # history exists on a former venue: the head is not empty
+        assert "NYSE" in asked and "ISLAND" not in asked
+
+    @pytest.mark.asyncio
+    async def test_a_true_store_bars_switch_logs_its_retirement(self, provider, mock_ib):
+        from structlog.testing import capture_logs
+
+        smart = self._bars(datetime(2018, 9, 10), 5, 1000)
+        nyse = self._bars(datetime(2012, 1, 3), 4, 400)
+        with capture_logs() as logs:
+            await self._fetch(provider, mock_ib, {"SMART": smart, "NYSE": nyse}, store=True)
+        events = [e["event"] for e in logs]
+        assert "ibkr.venue_fallback_store_bars_retired" in events
+        with capture_logs() as logs_off:
+            await self._fetch(provider, mock_ib, {"SMART": smart, "NYSE": nyse}, store=False)
+        assert "ibkr.venue_fallback_store_bars_retired" not in [e["event"] for e in logs_off]
 
     @pytest.mark.asyncio
     async def test_head_empty_everywhere_is_recorded(self, provider, mock_ib):

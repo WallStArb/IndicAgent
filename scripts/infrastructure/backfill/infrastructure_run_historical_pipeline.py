@@ -1685,6 +1685,9 @@ def main() -> None:
         # after a clean fetch, and fetch_complete is marked per symbol only
         # once the stage wrote its rows.
         touched_1d: dict[str, datetime] = {}
+        # Symbols whose oldest 1d window was asked this run: their ohlcv_empty_history row
+        # is reconciled from the recorded answers once D1 holds them (plan 185-19, D-20).
+        reconcile_1d: set[str] = set()
         fetch_tfs = [tf for tf in timeframes if tf in tf_fetch_config]
         print(f"  Fetching TFs: {fetch_tfs}")
         print()
@@ -2185,17 +2188,23 @@ def main() -> None:
                                         f"(window {gap_start.date()} to {gap_end.date()})"
                                     )
                                 if is_oldest_window and not use_cont:
-                                    empty_history.reconcile(
-                                        db_conn,
-                                        instrument.symbol,
-                                        tf,
-                                        _EMPTY_HISTORY_PROVIDER,
-                                        (gap_start, gap_end),
-                                        observed[-1] if observed else None,
-                                        empty,
-                                        # chunk boundaries sit a day apart
-                                        timedelta(days=1) + interval,
-                                    )
+                                    if d1_capture:
+                                        # D4 is a derived fact: the answers are D1 rows
+                                        # after the flush, so the 1d row is reconciled
+                                        # from ohlcv_request, not the in-memory walk.
+                                        reconcile_1d.add(instrument.symbol)
+                                    else:
+                                        empty_history.reconcile(
+                                            db_conn,
+                                            instrument.symbol,
+                                            tf,
+                                            _EMPTY_HISTORY_PROVIDER,
+                                            (gap_start, gap_end),
+                                            observed[-1] if observed else None,
+                                            empty,
+                                            # chunk boundaries sit a day apart
+                                            timedelta(days=1) + interval,
+                                        )
                             except Exception as e:
                                 fetch_errors += 1
                                 tf_window_failed = True
@@ -2301,6 +2310,16 @@ def main() -> None:
                             f"  {instrument.symbol}: D1 capture {n_requests} request(s), "
                             f"{n_observations} observation(s)"
                         )
+                    if instrument.symbol in reconcile_1d:
+                        counts = empty_history.reconcile_empty_history(
+                            db_conn, "1d", _EMPTY_HISTORY_PROVIDER, symbols=[instrument.symbol]
+                        )
+                        if any(counts.values()):
+                            _logger.info(
+                                "historical_pipeline.empty_history_reconciled",
+                                symbol=instrument.symbol,
+                                **counts,
+                            )
 
                 except Exception as e:
                     fetch_errors += 1

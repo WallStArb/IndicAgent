@@ -165,6 +165,13 @@ class DataProviderAdapter(Protocol):
         ...
 
 
+# A venue's routing code mapped to the name IBKR reports as a contract's primaryExchange
+# (ISLAND is Nasdaq's routing code). One definition for the provider's venue walk and for
+# the D1-derived empty-history confirmation, which both need to know which route is the
+# current primary.
+VENUE_ROUTE_ALIASES: dict[str, str] = {"ISLAND": "NASDAQ"}
+
+
 @dataclass(frozen=True)
 class EmptyHistory:
     """A fetch's backward walk ended in IBKR's definitive "no data" answers.

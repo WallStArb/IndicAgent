@@ -27,7 +27,7 @@ the rules):
 
 Listing venues arrive as IBKR primaryExchange values; ISLAND is Nasdaq's
 routing code, so NASDAQ is normalized to ISLAND exactly as
-src/providers/ibkr.py's _VENUE_ALIASES does (the alias table is mirrored here
+src/providers/base.py's VENUE_ROUTE_ALIASES does (inverted) (the alias table is mirrored here
 because this module is pure and must not import the provider).
 
 Pure: dicts and the pre-registration mapping in, verdicts out; no database, no
@@ -41,7 +41,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-# Mirror of src/providers/ibkr.py _VENUE_ALIASES: a contract's primaryExchange
+# Inverse mirror of src/providers/base.py VENUE_ROUTE_ALIASES: a contract's primaryExchange
 # reads NASDAQ while ISLAND is the routing code.
 _VENUE_ALIASES: dict[str, str] = {"NASDAQ": "ISLAND"}
 

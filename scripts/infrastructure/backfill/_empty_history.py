@@ -17,14 +17,28 @@ It never deletes or hides a bar; it only decides which requests to skip.
 
 from __future__ import annotations
 
+import json
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from src.intelligence.bars.gap_plan import fresh_empty_span
-from src.providers.base import EmptyHistory
+from src.core.bar_accumulator import _TF_MINUTES
+from src.intelligence.bars.gap_plan import (
+    ConfirmedSpan,
+    fresh_empty_span,
+)
+from src.intelligence.bars.gap_plan import (
+    confirmed_empty_spans as _confirmed,
+)
+from src.providers.base import VENUE_ROUTE_ALIASES, EmptyHistory
 
 _REVERIFY_DAYS_KEY = "infra.backfill.empty_history_reverify_days"
+_VENUE_EXCHANGES_KEY = "infra.ibkr.venue_fallback.exchanges"
+_SMART_ROUTE = "SMART"
+# Venue fallback (and so every-route confirmation) exists for 1d only (APR
+# infra.ibkr.venue_fallback.timeframes, migration 374).
+_D1_TIMEFRAME = "1d"
 
 
 @dataclass(frozen=True)
@@ -276,3 +290,170 @@ def reconcile(
         # now serves (part of) it, or the walk ended on a non-definitive failure. A window
         # elsewhere (e.g. the sliver after the range) says nothing about the range.
         drop(conn, symbol, timeframe, provider)
+
+
+def load_venue_routes(conn: Any) -> list[str]:
+    """The former-venue routes the provider asks (APR infra.ibkr.venue_fallback.exchanges)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = %s", (_VENUE_EXCHANGES_KEY,)
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise RuntimeError(f"APR key {_VENUE_EXCHANGES_KEY!r} is not set (migration 374)")
+    return [str(v) for v in json.loads(row[0])]
+
+
+def _interval(timeframe: str) -> timedelta:
+    if timeframe != _D1_TIMEFRAME:
+        raise ValueError(
+            f"empty history is derived from D1 for {_D1_TIMEFRAME!r} only (venue fallback is "
+            f"1d-only); got {timeframe!r}"
+        )
+    return timedelta(minutes=_TF_MINUTES[timeframe])
+
+
+def _union(spans: list[ConfirmedSpan], slack: timedelta) -> list[ConfirmedSpan]:
+    merged: list[ConfirmedSpan] = []
+    for span in sorted(spans, key=lambda s: s.start):
+        last = merged[-1] if merged else None
+        if last is not None and span.start <= last.end + slack:
+            merged[-1] = ConfirmedSpan(
+                last.start, max(last.end, span.end), last.n_confirming + span.n_confirming
+            )
+        else:
+            merged.append(span)
+    return merged
+
+
+def _confirmed_spans(
+    conn: Any, symbol: str, timeframe: str, venues: list[str], slack: timedelta
+) -> list[ConfirmedSpan]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT fetch_run_id, route, primary_exchange, window_start, window_end "
+            "FROM ohlcv_request WHERE symbol = %s AND timeframe = %s "
+            "AND what_to_show = 'TRADES' AND outcome = 'no_data' AND window_start IS NOT NULL",
+            (symbol, timeframe),
+        )
+        rows = cur.fetchall()
+    runs: dict[Any, dict[str, list[tuple[datetime, datetime]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    primaries: dict[Any, str | None] = {}
+    for run, route, primary, window_start, window_end in rows:
+        runs[run][route].append((window_start, window_end))
+        if route == _SMART_ROUTE and primary:
+            primaries[run] = primary
+    spans: list[ConfirmedSpan] = []
+    for run, windows in runs.items():
+        primary = primaries.get(run)
+        required = [_SMART_ROUTE] + [v for v in venues if VENUE_ROUTE_ALIASES.get(v, v) != primary]
+        spans.extend(_confirmed(windows, required, slack=slack))
+    return _union(spans, slack)
+
+
+def confirmed_empty_spans(
+    conn: Any, symbol: str, timeframe: str
+) -> list[tuple[datetime, datetime]]:
+    """Spans where SMART and every former venue other than the primary answered no_data
+    within one fetch run, read from ohlcv_request (D-20). A timeout or failure on any
+    route leaves that run's span unconfirmed."""
+    interval = _interval(timeframe)
+    spans = _confirmed_spans(
+        conn, symbol, timeframe, load_venue_routes(conn), timedelta(days=1) + interval
+    )
+    return [(s.start, s.end) for s in spans]
+
+
+def _record_span(
+    conn: Any,
+    symbol: str,
+    timeframe: str,
+    provider: str,
+    span: ConfirmedSpan,
+    window_start: datetime,
+) -> None:
+    record(
+        conn,
+        symbol,
+        timeframe,
+        provider,
+        window_start,
+        EmptyHistory(
+            verified_from=span.start,
+            empty_through=span.end,
+            n_confirming_chunks=span.n_confirming,
+            reached_request_start=False,
+        ),
+    )
+
+
+def reconcile_empty_history(
+    conn: Any, timeframe: str, provider: str, *, symbols: list[str] | None = None
+) -> dict[str, int]:
+    """Make ohlcv_empty_history agree with the recorded answers (D-20, 1d).
+
+    A row whose verified span is not covered by a confirmed span is deleted, so the
+    range is asked again; a row the answers extend is extended; a confirmed span that
+    precedes the symbol's first real bar and has no row is inserted. `symbols` limits
+    the pass (the pipeline passes its run's names); None considers every row and every
+    symbol with a recorded venue no_data answer.
+    """
+    interval = _interval(timeframe)
+    slack = timedelta(days=1) + interval
+    venues = load_venue_routes(conn)
+    sql = (
+        "SELECT symbol, empty_from, empty_through, verified_from FROM ohlcv_empty_history "
+        "WHERE timeframe = %s AND provider = %s"
+    )
+    params: tuple[Any, ...] = (timeframe, provider)
+    if symbols is not None:
+        sql += " AND symbol = ANY(%s)"
+        params += (list(symbols),)
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = {r[0]: r for r in cur.fetchall()}
+    if symbols is not None:
+        candidates = set(symbols)
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT symbol FROM ohlcv_request WHERE timeframe = %s "
+                "AND what_to_show = 'TRADES' AND outcome = 'no_data' "
+                "AND window_start IS NOT NULL AND route <> 'SMART'",
+                (timeframe,),
+            )
+            candidates = {r[0] for r in cur.fetchall()} | set(rows)
+
+    counts = {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0}
+    for symbol in sorted(candidates):
+        spans = _confirmed_spans(conn, symbol, timeframe, venues, slack)
+        row = rows.get(symbol)
+        if row is not None:
+            _, empty_from, empty_through, verified_from = row
+            cover = next(
+                (
+                    s
+                    for s in spans
+                    if s.start - slack <= verified_from and s.end + slack >= empty_through
+                ),
+                None,
+            )
+            if cover is not None:
+                if cover.end > empty_through or cover.start < verified_from:
+                    _record_span(
+                        conn, symbol, timeframe, provider, cover, min(cover.start, empty_from)
+                    )
+                    counts["extended"] += 1
+                else:
+                    counts["kept"] += 1
+                continue
+            drop(conn, symbol, timeframe, provider)
+            counts["deleted"] += 1
+        pre_history = [s for s in spans if not has_bar_before(conn, symbol, timeframe, s.start)]
+        if pre_history:
+            span = max(pre_history, key=lambda s: s.end)
+            _record_span(conn, symbol, timeframe, provider, span, span.start)
+            counts["inserted"] += 1
+    return counts

@@ -31,7 +31,7 @@ here too so services/ reaches it without a pipeline import.
 from __future__ import annotations
 
 from bisect import bisect_right
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -107,6 +107,88 @@ def fresh_empty_span(
     if now - verified_at >= timedelta(days=reverify_days):
         return None
     return (empty_from, empty_through)
+
+
+@dataclass(frozen=True)
+class ConfirmedSpan:
+    """A span every required route answered no_data for, with the answers behind it."""
+
+    start: datetime
+    end: datetime
+    n_confirming: int
+
+
+def _merge_windows(
+    windows: Sequence[tuple[datetime, datetime]], slack: timedelta
+) -> list[tuple[datetime, datetime]]:
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(windows):
+        if merged and start <= merged[-1][1] + slack:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _intersect_windows(
+    left: Sequence[tuple[datetime, datetime]], right: Sequence[tuple[datetime, datetime]]
+) -> list[tuple[datetime, datetime]]:
+    out: list[tuple[datetime, datetime]] = []
+    i = j = 0
+    while i < len(left) and j < len(right):
+        start = max(left[i][0], right[j][0])
+        end = min(left[i][1], right[j][1])
+        if start <= end:
+            out.append((start, end))
+        if left[i][1] <= right[j][1]:
+            i += 1
+        else:
+            j += 1
+    return out
+
+
+def confirmed_empty_spans(
+    windows_by_route: Mapping[str, Sequence[tuple[datetime, datetime]]],
+    required_routes: Sequence[str],
+    *,
+    slack: timedelta,
+) -> list[ConfirmedSpan]:
+    """The spans every required route answered no_data for, from one fetch run (D-20).
+
+    `windows_by_route` holds the run's definitive no_data request windows per
+    route. Chunks of one route that touch within `slack` form one answered run
+    (chunk boundaries sit a day apart); a span is confirmed only where every
+    required route's runs overlap. A required route with no no_data window
+    (a timeout or failure never is one) confirms nothing. `n_confirming` counts
+    the no_data requests across the required routes that overlap the span,
+    the same count the provider's walk reports as n_confirming_chunks.
+    """
+    if not required_routes:
+        return []
+    per_route: list[list[tuple[datetime, datetime]]] = []
+    for route in required_routes:
+        windows = windows_by_route.get(route)
+        if not windows:
+            return []
+        per_route.append(_merge_windows(windows, slack))
+    spans = per_route[0]
+    for other in per_route[1:]:
+        spans = _intersect_windows(spans, other)
+        if not spans:
+            return []
+    return [
+        ConfirmedSpan(
+            start,
+            end,
+            sum(
+                1
+                for route in required_routes
+                for w_start, w_end in windows_by_route[route]
+                if w_start <= end and w_end >= start
+            ),
+        )
+        for start, end in spans
+    ]
 
 
 def expected_grid_slots(

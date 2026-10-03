@@ -372,7 +372,21 @@ def driven_main(monkeypatch, capsys):
         monkeypatch.setattr(empty_history, "load_fresh_heads", lambda conn, provider, days: {})
         monkeypatch.setattr(empty_history, "load_first_bars", lambda conn, symbols: {})
         monkeypatch.setattr(empty_history, "record_head", lambda *a, **k: None)
-        monkeypatch.setattr(empty_history, "reconcile", lambda *a, **k: None)
+        reconcile_calls: list[tuple] = []
+        reconcile_1d_calls: list[tuple] = []
+        monkeypatch.setattr(
+            empty_history,
+            "reconcile",
+            lambda conn, symbol, tf, *a, **k: reconcile_calls.append((symbol, tf)),
+        )
+        monkeypatch.setattr(
+            empty_history,
+            "reconcile_empty_history",
+            lambda conn, tf, provider, symbols=None: reconcile_1d_calls.append(
+                (tf, provider, symbols)
+            )
+            or {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0},
+        )
 
         def _keep_gaps(gaps, empty, started, reverify, interval, chunks):
             return gaps
@@ -403,6 +417,8 @@ def driven_main(monkeypatch, capsys):
             record_calls=record_calls,
             d1_gap_calls=d1_gap_calls,
             daily_stage_calls=daily_stage_calls,
+            reconcile_calls=reconcile_calls,
+            reconcile_1d_calls=reconcile_1d_calls,
             exit_code=exit_code,
             output=capsys.readouterr().out,
         )
@@ -628,3 +644,17 @@ class TestLeaseWaitSeconds:
         monkeypatch.setattr(pipeline, "_load_lease_apr_minutes", lambda s: 240.0)
         assert pipeline._lease_wait_seconds(None, self._args("bulk", 5.0)) == 300.0
         assert pipeline._lease_wait_seconds(None, self._args("priority", 5.0)) == 300.0
+
+
+def test_1d_empty_history_is_reconciled_from_d1_after_the_flush_not_from_the_walk(driven_main):
+    """Plan 185-19 (D-20, D4 a derived fact): the in-memory walk never writes a 1d
+    ohlcv_empty_history row; each symbol's oldest 1d window triggers a reconcile from the
+    recorded answers once D1 holds them."""
+    result = driven_main(_BASE_ARGS)
+    assert result.exit_code is None
+    assert [tf for _symbol, tf in result.reconcile_calls if tf == "1d"] == []
+    assert sorted(result.reconcile_1d_calls) == [
+        ("1d", "ibkr", ["AAA"]),
+        ("1d", "ibkr", ["BBB"]),
+        ("1d", "ibkr", ["CCC"]),
+    ]
