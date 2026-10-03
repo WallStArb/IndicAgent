@@ -71,6 +71,8 @@ class LoadPlan:
     revisions: list[tuple[datetime, StoredBar]] = field(default_factory=list)
     n_new: int = 0
     n_changed: int = 0
+    n_orphan: int = 0  # existing bars on dates Tradier does not have
+    first_bar: date | None = None
 
 
 def _differs(bar: DailyBar, stored: StoredBar) -> bool:
@@ -129,7 +131,9 @@ def plan_symbol_load(
             f"{len(revisions)} of {n_overlap} existing bars change ({changed_ratio:.3f} > "
             f"{params.max_changed_bar_ratio}); pass --rebase for a deliberate source change",
         )
-    return LoadPlan("loaded", detail, bars, revisions, n_new, len(revisions))
+    returned = {bar.timestamp for bar in bars}
+    n_orphan = sum(1 for ts in existing if ts not in returned)
+    return LoadPlan("loaded", detail, bars, revisions, n_new, len(revisions), n_orphan, first)
 
 
 _SELECT_EXISTING_SQL = """
@@ -260,7 +264,7 @@ async def _land_in_d1(
     await sink.flush(conn)
 
 
-async def run(symbols: list[str] | None, rebase: bool, raw_only: bool) -> int:
+async def run(symbols: list[str] | None, rebase: bool, raw_only: bool, dry_run: bool) -> int:
     settings = get_settings()
     conn = await asyncpg.connect(settings.database_url)
     try:
@@ -297,11 +301,32 @@ async def run(symbols: list[str] | None, rebase: bool, raw_only: bool) -> int:
                     return symbol, str(error)
 
         counts: dict[str, int] = {}
+        totals = {"new": 0, "changed": 0, "orphan": 0, "extended_back": 0}
         sink = AsyncObservationSink(caller=_CALLER, source=SOURCE)
         fetch_run_id = new_fetch_run_id()
         async with client:
             for pending in asyncio.as_completed([fetch(s) for s in todo]):
                 symbol, result = await pending
+                if dry_run:
+                    outcome = "failed"
+                    if not isinstance(result, str):
+                        rows = await conn.fetch(_SELECT_EXISTING_SQL, symbol)
+                        existing = {
+                            r["timestamp"]: tuple(
+                                r[k] for k in ("open", "high", "low", "close", "volume", "source")
+                            )
+                            for r in rows
+                        }
+                        plan = plan_symbol_load(result, existing, params)
+                        outcome = plan.outcome
+                        if plan.outcome == "loaded":
+                            totals["new"] += plan.n_new
+                            totals["changed"] += plan.n_changed
+                            totals["orphan"] += plan.n_orphan
+                            if existing and plan.first_bar < min(existing).date():
+                                totals["extended_back"] += 1
+                    counts[outcome] = counts.get(outcome, 0) + 1
+                    continue
                 await _land_in_d1(
                     conn, sink, fetch_run_id, symbol, end, start, result, datetime.now(UTC)
                 )
@@ -338,7 +363,8 @@ async def run(symbols: list[str] | None, rebase: bool, raw_only: bool) -> int:
                     detail=plan.detail,
                 )
         logger.info("tradier_daily.done", **counts)
-        print(f"tradier daily load: {counts}")
+        label = " (dry run)" if dry_run else ""
+        print(f"tradier daily load{label}: {counts}" + (f" totals {totals}" if dry_run else ""))
         return 0 if set(counts) <= {"loaded", "raw_landed"} else 1
     finally:
         await conn.close()
@@ -357,10 +383,15 @@ def main() -> int:
         action="store_true",
         help="land D1 raw observations only: no canonical write, no ohlcv_load row",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="fetch and plan only: print outcome counts and totals, write nothing",
+    )
     args = parser.parse_args()
     setup_service_logging("logs/tradier_daily_loader.log")
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
-    return asyncio.run(run(symbols, args.rebase, args.raw_only))
+    return asyncio.run(run(symbols, args.rebase, args.raw_only, args.dry_run))
 
 
 if __name__ == "__main__":
