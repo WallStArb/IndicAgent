@@ -1,4 +1,4 @@
-"""Integration: D3 and D4 run on D1 for 1d (plan 185-19).
+"""Integration: D3 and D4 run on D1 for 1d and 5m (plans 185-19 and 185-20).
 
 Runs against the production database (not indicagent_test) because the point is the live
 ohlcv_empty_history rows and the live venue state. Strictly read-only: SELECTs only.
@@ -12,6 +12,7 @@ import psycopg
 import pytest
 
 from scripts.infrastructure.backfill import _empty_history as eh
+from scripts.ops.bars import ops_intraday_venue_recovery as recovery
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 
@@ -41,23 +42,34 @@ def _venue_gate(conn) -> bool:
     return row is not None and row[0] == "true"
 
 
-def test_every_1d_empty_history_row_is_backed_by_confirmed_spans(conn):
+def _unbacked(conn, timeframe: str) -> list[str]:
     rows = conn.execute(
         "SELECT symbol, empty_through, verified_from FROM ohlcv_empty_history "
-        "WHERE timeframe = '1d' AND provider = %s",
-        (_PROVIDER,),
+        "WHERE timeframe = %s AND provider = %s",
+        (timeframe, _PROVIDER),
     ).fetchall()
-    unbacked = [
+    return [
         symbol
         for symbol, empty_through, verified_from in rows
         if not any(
             start - _SLACK <= verified_from and end + _SLACK >= empty_through
-            for start, end in eh.confirmed_empty_spans(conn, symbol, "1d")
+            for start, end in eh.confirmed_empty_spans(conn, symbol, timeframe)
         )
     ]
+
+
+@pytest.mark.parametrize("timeframe", ["1d", "5m"])
+def test_every_empty_history_row_of_a_venue_fallback_timeframe_is_backed(conn, timeframe):
+    unbacked = _unbacked(conn, timeframe)
     assert (
         not unbacked
-    ), f"{len(unbacked)} empty-history rows no recorded answer backs: {unbacked[:10]}"
+    ), f"{len(unbacked)} {timeframe} rows no recorded answer backs: {unbacked[:10]}"
+
+
+# 15m and 1h are not asserted: the grid is derived from 5m, so a false empty there cannot
+# reach a feature, and the fetch walk still writes those rows from SMART's answer alone.
+# reconcile_empty_history supports them (they inherit 5m's confirmation) for the day the
+# walk stops writing them.
 
 
 def test_venue_bars_never_became_canonical_while_the_gate_is_false(conn):
@@ -77,3 +89,20 @@ def test_venue_bars_never_became_canonical_while_the_gate_is_false(conn):
         "WHERE source = 'ibkr_venue' AND volume IS NOT NULL"
     ).fetchone()[0]
     assert leaked == 0
+
+
+def test_no_intraday_venue_bars_are_stored_before_the_recovery_unlocks(conn):
+    stored = conn.execute(
+        "SELECT count(*) FROM market_data_ohlcv "
+        "WHERE timeframe IN ('5m', '15m', '1h') AND source = 'ibkr_venue'"
+    ).fetchone()[0]
+    assert stored == 0
+
+
+def test_intraday_recovery_refuses_while_its_locks_are_closed(conn):
+    apr = recovery._load_apr(conn)
+    if recovery._is_true(apr.get(recovery._KEY_UNLOCKED)):
+        pytest.skip("intraday recovery is unlocked; the refusal test no longer applies")
+    refusals = recovery.recovery_refusals(conn, apr, [])
+    assert any("rebuild" in reason for reason in refusals)
+    assert any("verdict" in reason for reason in refusals)

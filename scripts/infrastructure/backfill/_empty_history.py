@@ -114,6 +114,17 @@ def has_bar_before(conn: Any, symbol: str, timeframe: str, ts: datetime) -> bool
         return bool(cur.fetchone()[0])
 
 
+def has_bar_between(conn: Any, symbol: str, timeframe: str, start: datetime, end: datetime) -> bool:
+    """True if a real bar lies inside [start, end]: the span is not empty."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable "
+            "WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s)",
+            (symbol, timeframe, start, end),
+        )
+        return bool(cur.fetchone()[0])
+
+
 def record(
     conn: Any,
     symbol: str,
@@ -345,7 +356,8 @@ def _confirmed_spans(
         cur.execute(
             "SELECT fetch_run_id, route, primary_exchange, window_start, window_end "
             "FROM ohlcv_request WHERE symbol = %s AND timeframe = %s "
-            "AND what_to_show = 'TRADES' AND outcome = 'no_data' AND window_start IS NOT NULL",
+            "AND what_to_show = 'TRADES' AND window_start IS NOT NULL "
+            "AND (outcome = 'no_data' OR (route = 'SMART' AND outcome = 'bars'))",
             (symbol, timeframe),
         )
         rows = cur.fetchall()
@@ -362,16 +374,23 @@ def _confirmed_spans(
         primary = primaries.get(run)
         required = [_SMART_ROUTE] + [v for v in venues if VENUE_ROUTE_ALIASES.get(v, v) != primary]
         spans.extend(_confirmed(windows, required, slack=slack))
-    return _union(spans, slack)
+    # SMART answers a 1d head with one request that returns bars from the listing on, so the
+    # empty span before it is implied, not a SMART no_data window: SMART counts as answered
+    # with either outcome, and the span is confirmed only where no real bar sits inside it.
+    return [
+        span
+        for span in _union(spans, slack)
+        if not has_bar_between(conn, symbol, timeframe, span.start, span.end)
+    ]
 
 
 def confirmed_empty_spans(
     conn: Any, symbol: str, timeframe: str
 ) -> list[tuple[datetime, datetime]]:
-    """Spans where SMART and every former venue other than the primary answered no_data
-    within one fetch run, read from ohlcv_request (D-20). A timeout or failure on any
-    route leaves that run's span unconfirmed. Derived grid timeframes read their source's
-    answers."""
+    """Spans where SMART answered and every former venue other than the primary answered
+    no_data within one fetch run, with no real bar inside, read from ohlcv_request (D-20).
+    A timeout or failure on any route leaves that run's span unconfirmed. Derived grid
+    timeframes read their source's answers."""
     confirm_tf = _confirmation_timeframe(conn, timeframe)
     spans = _confirmed_spans(
         conn,

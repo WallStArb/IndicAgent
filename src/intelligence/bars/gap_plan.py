@@ -155,8 +155,9 @@ def confirmed_empty_spans(
 ) -> list[ConfirmedSpan]:
     """The spans every required route answered no_data for, from one fetch run (D-20).
 
-    `windows_by_route` holds the run's definitive no_data request windows per
-    route. Chunks of one route that touch within `slack` form one answered run
+    `windows_by_route` holds the run's answered-empty request windows per
+    route (SMART's may be a `bars` answer whose first bar lies after the span:
+    the caller checks no real bar sits inside). Chunks of one route that touch within `slack` form one answered run
     (chunk boundaries sit a day apart); a span is confirmed only where every
     required route's runs overlap. A required route with no no_data window
     (a timeout or failure never is one) confirms nothing. `n_confirming` counts

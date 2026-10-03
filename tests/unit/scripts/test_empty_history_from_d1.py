@@ -30,7 +30,7 @@ class FakeConn:
         self, *, requests, rows=(), first_bar_exists=False, venues=_VENUES, timeframes=("1d", "5m")
     ):
         self.timeframes = list(timeframes)
-        self.requests = requests  # symbol -> [(run, route, primary, start, end)]
+        self.requests = requests  # symbol -> [(run, route, primary, start, end, outcome)]
         self.rows = list(rows)  # (symbol, empty_from, empty_through, verified_from)
         self.first_bar_exists = first_bar_exists
         self.venues = venues
@@ -58,7 +58,13 @@ class FakeConn:
         elif "SELECT DISTINCT symbol FROM ohlcv_request" in text:
             self._last = [(s,) for s in self.requests]
         elif "FROM ohlcv_request" in text:
-            self._last = list(self.requests.get(params[0], []))
+            # the module's SQL: venues must have answered no_data; SMART may also have
+            # answered bars (it serves a 1d head as one request that returns bars)
+            self._last = [
+                r[:5]
+                for r in self.requests.get(params[0], [])
+                if r[5] == "no_data" or (r[1] == "SMART" and r[5] == "bars")
+            ]
         elif "FROM ohlcv_empty_history" in text and text.startswith("SELECT"):
             wanted = params[2] if len(params) > 2 else None
             self._last = [r for r in self.rows if wanted is None or r[0] in wanted]
@@ -75,9 +81,13 @@ class FakeConn:
         return self._last[0] if self._last else None
 
 
-def _answers(run, start, end, *, skip=(), primary="NASDAQ"):
+def _answers(run, start, end, *, skip=(), primary="NASDAQ", smart_outcome="no_data"):
     routes = ["SMART", *_VENUES]
-    return [(run, route, primary, start, end) for route in routes if route not in skip]
+    return [
+        (run, route, primary, start, end, smart_outcome if route == "SMART" else "no_data")
+        for route in routes
+        if route not in skip
+    ]
 
 
 def test_confirmed_spans_require_smart_and_every_non_primary_venue():
@@ -104,12 +114,46 @@ def test_a_venue_that_did_not_answer_no_data_confirms_nothing():
 def test_answers_from_different_runs_never_combine():
     smart = _answers("r1", _dt(2010, 1, 1), _dt(2012, 1, 1), skip=_VENUES)
     venues = [
-        ("r2", route, "NASDAQ", _dt(2010, 1, 1), _dt(2012, 1, 1))
+        ("r2", route, "NASDAQ", _dt(2010, 1, 1), _dt(2012, 1, 1), "no_data")
         for route in _VENUES
         if route != "ISLAND"
     ]
     conn = FakeConn(requests={"XYZ": smart + venues})
     assert eh.confirmed_empty_spans(conn, "XYZ", "1d") == []
+
+
+def test_smart_answering_bars_for_the_window_confirms_an_empty_head():
+    """VCIT on 2026-10-03: SMART's one 1d request (2006 to 2026) returned bars from
+    2009-11-23 and every venue answered no_data for the head before it."""
+    conn = FakeConn(
+        requests={
+            "XYZ": _answers(
+                "r1", _dt(2006, 10, 9), _dt(2009, 11, 22), skip=("ISLAND",), smart_outcome="bars"
+            )
+        }
+    )
+    (span,) = eh.confirmed_empty_spans(conn, "XYZ", "1d")
+    assert span == (_dt(2006, 10, 9), _dt(2009, 11, 22))
+
+
+def test_a_real_bar_inside_the_span_means_it_is_not_empty():
+    conn = FakeConn(
+        requests={
+            "XYZ": _answers(
+                "r1", _dt(2006, 10, 9), _dt(2009, 11, 22), skip=("ISLAND",), smart_outcome="bars"
+            )
+        },
+        first_bar_exists=True,
+    )
+    assert eh.confirmed_empty_spans(conn, "XYZ", "1d") == []
+
+
+def test_a_venue_that_has_bars_for_the_head_never_confirms_it():
+    requests = _answers("r1", _dt(2006, 10, 9), _dt(2009, 11, 22), skip=("ISLAND",))
+    requests = [
+        (*r[:5], "bars") if r[1] == "NYSE" else r for r in requests
+    ]  # NYSE served history for the head
+    assert eh.confirmed_empty_spans(FakeConn(requests={"XYZ": requests}), "XYZ", "1d") == []
 
 
 def test_an_unbacked_row_is_deleted():
