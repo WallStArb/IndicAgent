@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from src.intelligence.bars.gap_plan import fresh_empty_span
 from src.providers.base import EmptyHistory
 
 _REVERIFY_DAYS_KEY = "infra.backfill.empty_history_reverify_days"
@@ -39,7 +40,12 @@ class EmptyRange:
 
 
 def is_fresh(verified_at: datetime, now: datetime, reverify_days: int) -> bool:
-    """A record younger than the APR re-verification age still suppresses requests."""
+    """A record younger than the APR re-verification age still suppresses requests.
+
+    Thin alias of the freshness half of gap_plan.fresh_empty_span, kept for the
+    unit test that pins the boundary; production readers decide through
+    fresh_empty_span so freshness and confirmations can never diverge.
+    """
     return now - verified_at < timedelta(days=reverify_days)
 
 
@@ -212,16 +218,22 @@ def apply_empty_range(
 ) -> list[tuple[datetime, datetime]]:
     """Gaps with a fresh, sufficiently confirmed range removed; otherwise unchanged.
 
-    `min_confirmations` is the provider's own no-data confirmation threshold
-    (infra.ibkr.no_data_confirmation_chunks): a single "no data" answer is not trusted
-    (todo 049), so a range confirmed by fewer answers keeps being asked until it is.
+    The freshness/confirmation decision is gap_plan.fresh_empty_span, the one
+    rule every reader applies; `min_confirmations` is the provider's own
+    no-data confirmation threshold (infra.ibkr.no_data_confirmation_chunks).
     """
-    if (
-        not gaps
-        or empty is None
-        or empty.n_confirming_chunks < min_confirmations
-        or not is_fresh(empty.verified_at, now, reverify_days)
-    ):
+    if not gaps or empty is None:
+        return gaps
+    span = fresh_empty_span(
+        empty.empty_from,
+        empty.empty_through,
+        empty.verified_at,
+        empty.n_confirming_chunks,
+        now=now,
+        reverify_days=reverify_days,
+        min_confirmations=min_confirmations,
+    )
+    if span is None:
         return gaps
     return subtract(gaps, empty, interval)
 

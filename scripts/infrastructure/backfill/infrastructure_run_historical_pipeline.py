@@ -29,8 +29,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
-import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -56,7 +54,9 @@ from scripts.infrastructure.backfill._d1_gaps import (
     detect_gaps_1d_from_d1,
     detect_gaps_from_record,
     load_answered_windows,
+    midnight_utc,
 )
+from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
@@ -1441,20 +1441,7 @@ def _run_daily_stage(symbols: list[str]) -> int:
     symbol whose 1d windows were asked, and a nonzero return code fails the
     run loudly -- a silent skip would leave the run "complete" with no 1d rows.
     """
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(_DAILY_STAGE_SCRIPT),
-            "--stage",
-            "daily",
-            "--symbols",
-            ",".join(symbols),
-            "--apply",
-        ],
-        cwd=str(project_root),
-        env={**os.environ, "PYTHONPATH": str(project_root)},
-    )
-    return result.returncode
+    return run_derivation_stage("daily", "--symbols", ",".join(symbols), "--apply")
 
 
 # ---------------------------------------------------------------------------
@@ -1829,6 +1816,11 @@ def main() -> None:
                         archive_tf = tf in _ARCHIVE_TFS
                         write_rows = _insert_archive_rows if archive_tf else None
                         real_bars_only = real_bars_only_for(tf)
+                        # Task 1b: 1d answers are D1 captures (no bar store, no
+                        # fetch-complete mark; the daily derivation stage owns
+                        # both). Every 1d special case below derives from this
+                        # one property, like archive_tf and real_bars_only.
+                        d1_capture = tf == "1d"
                         empty = empty_ranges.get((instrument.symbol, tf))
 
                         def _note_empty_skip(
@@ -1845,7 +1837,7 @@ def main() -> None:
                                 f"{skipped.verified_at.date()})"
                             )
 
-                        if tf == "1d":
+                        if d1_capture:
                             # Plan 185-18 task 1b: 1d asks come from D1 -- session
                             # dates with neither a TRADES observation nor a covering
                             # definitive no_data window -- through the same plan_gaps
@@ -1868,13 +1860,7 @@ def main() -> None:
                                 min_confirmations=ibkr._NO_DATA_CONFIRMATION_CHUNKS,
                                 on_skip=_note_empty_skip,
                             )
-                            gaps = [
-                                (
-                                    datetime(s.year, s.month, s.day, tzinfo=UTC),
-                                    datetime(e.year, e.month, e.day, tzinfo=UTC),
-                                )
-                                for s, e in gaps_d
-                            ]
+                            gaps = [(midnight_utc(s), midnight_utc(e)) for s, e in gaps_d]
                         elif tf in _RECORD_PLAN_TFS:
                             # Plan 185-18: the shared planner decides the asks --
                             # expected slots minus stored observations minus
@@ -1927,13 +1913,7 @@ def main() -> None:
                                 ibkr._NO_DATA_CONFIRMATION_CHUNKS,
                             )
                             if kept != gaps:
-                                n_empty_history_skipped += 1
-                                print(
-                                    f"  {instrument.symbol}/{tf}: skipping provider-verified "
-                                    f"empty history {empty.empty_from.date()} to "
-                                    f"{empty.empty_through.date()} (verified "
-                                    f"{empty.verified_at.date()})"
-                                )
+                                _note_empty_skip(empty)
                             gaps = kept
                         if not gaps:
                             print(f"  {instrument.symbol}/{tf}: no gaps found.")
@@ -2118,7 +2098,7 @@ def main() -> None:
                                     # -- its answers are D1 rows (requests recorded,
                                     # observations delivered); every other timeframe
                                     # keeps its atomic (or store) chunk persist.
-                                    on_chunk=None if tf == "1d" else _persist_chunk,
+                                    on_chunk=None if d1_capture else _persist_chunk,
                                     on_empty_history=observed.append if is_oldest_window else None,
                                     **capture_kwargs,
                                 )
@@ -2138,7 +2118,7 @@ def main() -> None:
                                     }
                                     for b in ohlcv_bars
                                 ]
-                                if tf == "1d":
+                                if d1_capture:
                                     # Task 1b: D1-only. The provider delivered the
                                     # answers as recorded requests and observations;
                                     # no bar is stored here -- the daily derivation
@@ -2147,7 +2127,13 @@ def main() -> None:
                                     total_bars += len(bar_dicts)
                                     if bar_dicts:
                                         fetched_tfs.add(tf)
-                                    touched_1d[instrument.symbol] = start_dt
+                                        # Only a window that delivered bars owes a
+                                        # derivation pass: an all-no_data symbol
+                                        # has no observations to derive (and the
+                                        # changed-since probe agrees it is not
+                                        # due), so routing it into --symbols
+                                        # would pay a full derive for nothing.
+                                        touched_1d[instrument.symbol] = start_dt
                                     print(
                                         f"  {instrument.symbol}/1d: {len(bar_dicts)} bars "
                                         f"captured to D1 (window {gap_start.date()} to "
@@ -2209,7 +2195,7 @@ def main() -> None:
                                 )
                         if tf_window_failed:
                             fetched_tfs.discard(tf)
-                        elif tf != "1d":
+                        elif not d1_capture:
                             mark_fetch_complete(db_conn, instrument.symbol, tf, start_dt)
                         # 1d marks after the daily derivation stage wrote its rows:
                         # the EXISTS guard reads market_data_ohlcv_tradeable, which

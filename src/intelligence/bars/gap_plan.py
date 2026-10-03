@@ -14,7 +14,8 @@ is covered when:
   the loaders' SQL, so a lost insert never looks covered) or a definitive
   `no_data` (timeout and failed never cover), or
 - its start lies inside a provider-verified ohlcv_empty_history span that is
-  fresh and sufficiently confirmed (gated by the readers).
+  fresh and sufficiently confirmed (decided by fresh_empty_span below, which
+  every reader calls; the SQL that loads the span stays per-driver).
 
 Everything else is a gap. Contiguous missing slots form one end-exclusive
 window: a window covering a slot ends at the slot's end, so a one-slot gap is
@@ -80,6 +81,32 @@ class AnsweredWindows:
             return False
         i = bisect_right(self.starts, slot) - 1
         return i >= 0 and slot + interval <= self.ends[i]
+
+
+def fresh_empty_span(
+    empty_from: datetime,
+    empty_through: datetime,
+    verified_at: datetime,
+    n_confirming_chunks: int,
+    *,
+    now: datetime,
+    reverify_days: int,
+    min_confirmations: int,
+) -> tuple[datetime, datetime] | None:
+    """The span an ohlcv_empty_history row suppresses slots in, or None.
+
+    One rule for every reader: a recorded span gates expected slots only
+    while it is fresh (verified within `reverify_days` of `now`) and
+    confirmed by at least `min_confirmations` independent provider chunks
+    (a single no-data answer is not trusted, todo 049). The pipeline's
+    psycopg wrappers, the auditor's asyncpg reader, and
+    empty_history.apply_empty_range all decide through this function.
+    """
+    if n_confirming_chunks < min_confirmations:
+        return None
+    if now - verified_at >= timedelta(days=reverify_days):
+        return None
+    return (empty_from, empty_through)
 
 
 def expected_grid_slots(

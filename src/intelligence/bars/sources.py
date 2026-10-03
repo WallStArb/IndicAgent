@@ -20,3 +20,10 @@ from __future__ import annotations
 SOURCE_DERIVED_5M = "derived_5m"
 GRID_RULE_VERSION = "grid-v1"
 GRID_TIMEFRAMES: dict[str, int] = {"15m": 15, "1h": 60}
+
+# Timeframes whose market_data_ohlcv rows services/bar_derivation owns
+# (D-06/D-15 single writer, plan 185-18 task 1b): the daily stage writes 1d,
+# the grid stage writes 15m/1h. Streaming and fetch writers import this fence
+# instead of restating the set; when 4h joins the derivation (futures rework)
+# this is the only definition that changes.
+DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"}

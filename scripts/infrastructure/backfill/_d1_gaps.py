@@ -25,12 +25,13 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from scripts.infrastructure.backfill._empty_history import EmptyRange, is_fresh
+from scripts.infrastructure.backfill._empty_history import EmptyRange
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
     AnsweredWindows,
+    fresh_empty_span,
     plan_gaps,
 )
 
@@ -136,26 +137,21 @@ def detect_gaps_from_record(
     with conn.cursor() as cur:
         cur.execute(_STORED_SLOTS_SQL[timeframe], (symbol, timeframe, start_dt, end_dt))
         rows = cur.fetchall()
-    stored = [r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0] for r in rows]
+    stored = [_aware(r[0]) for r in rows]
     answered = load_answered_windows(conn, symbol, timeframe)
 
-    spans: list[tuple[datetime, datetime]] = []
-    if (
-        empty is not None
-        and now is not None
-        and reverify_days is not None
-        and min_confirmations is not None
-        and empty.n_confirming_chunks >= min_confirmations
-        and is_fresh(empty.verified_at, now, reverify_days)
-    ):
-        spans = [(empty.empty_from, empty.empty_through)]
-
-    plan = plan_gaps(expected_slots, stored, answered, interval, run_end=end_dt, empty_ranges=spans)
-    if spans and on_skip is not None:
-        without_spans = plan_gaps(expected_slots, stored, answered, interval, run_end=end_dt)
-        if without_spans != plan:
-            on_skip(empty)
-    return plan
+    return _plan_with_empty_gate(
+        expected_slots,
+        stored,
+        answered,
+        interval,
+        run_end=end_dt,
+        empty=empty,
+        now=now,
+        reverify_days=reverify_days,
+        min_confirmations=min_confirmations,
+        on_skip=on_skip,
+    )
 
 
 # 1d (plan 185-18 task 1b): the answers live in D1, not in any bar table. A
@@ -178,12 +174,60 @@ ORDER BY r.window_start
 _1D_INTERVAL = timedelta(days=1)
 
 
-def _midnight_utc(day: date | datetime) -> datetime:
+def midnight_utc(day: date) -> datetime:
     """A 1d slot is its session date stamped at midnight UTC (the grid's 1d
     convention); bar_date rows arrive as dates from psycopg."""
-    if isinstance(day, datetime):
-        return day.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=UTC)
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
+
+
+def _aware(ts: datetime) -> datetime:
+    """psycopg naive timestamps are UTC by contract; stamp them."""
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+
+
+def _gated_spans(
+    empty: EmptyRange | None,
+    now: datetime | None,
+    reverify_days: int | None,
+    min_confirmations: int | None,
+) -> list[tuple[datetime, datetime]]:
+    """The empty-history spans the shared freshness gate admits (one rule,
+    gap_plan.fresh_empty_span, shared with bar_auditor and apply_empty_range)."""
+    if empty is None or now is None or reverify_days is None or min_confirmations is None:
+        return []
+    span = fresh_empty_span(
+        empty.empty_from,
+        empty.empty_through,
+        empty.verified_at,
+        empty.n_confirming_chunks,
+        now=now,
+        reverify_days=reverify_days,
+        min_confirmations=min_confirmations,
+    )
+    return [span] if span is not None else []
+
+
+def _plan_with_empty_gate(
+    slots: list[datetime],
+    stored: list[datetime],
+    answered: AnsweredWindows,
+    interval: timedelta,
+    *,
+    run_end: datetime,
+    empty: EmptyRange | None,
+    now: datetime | None,
+    reverify_days: int | None,
+    min_confirmations: int | None,
+    on_skip: Callable[[EmptyRange], None] | None,
+) -> list[tuple[datetime, datetime]]:
+    """plan_gaps with the shared empty-history gate folded in; `on_skip` fires
+    when the gated span actually changed the plan (double-plan comparison)."""
+    spans = _gated_spans(empty, now, reverify_days, min_confirmations)
+    plan = plan_gaps(slots, stored, answered, interval, run_end=run_end, empty_ranges=spans)
+    if spans and on_skip is not None:
+        if plan_gaps(slots, stored, answered, interval, run_end=run_end) != plan:
+            on_skip(empty)
+    return plan
 
 
 def detect_gaps_1d_from_d1(
@@ -223,31 +267,21 @@ def detect_gaps_1d_from_d1(
         cur.execute(_1D_NO_DATA_WINDOWS_SQL, (symbol,))
         window_rows = cur.fetchall()
 
-    stored = [_midnight_utc(r[0]) for r in observed_rows]
-    answered = AnsweredWindows.from_rows(
-        (
-            r[0].replace(tzinfo=UTC) if r[0].tzinfo is None else r[0],
-            r[1].replace(tzinfo=UTC) if r[1].tzinfo is None else r[1],
-        )
-        for r in window_rows
+    stored = [midnight_utc(r[0]) for r in observed_rows]
+    answered = AnsweredWindows.from_rows((_aware(r[0]), _aware(r[1])) for r in window_rows)
+    slots = [midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
+    run_end = now if now is not None else midnight_utc(end) + _1D_INTERVAL
+
+    plan = _plan_with_empty_gate(
+        slots,
+        stored,
+        answered,
+        _1D_INTERVAL,
+        run_end=run_end,
+        empty=empty,
+        now=now,
+        reverify_days=reverify_days,
+        min_confirmations=min_confirmations,
+        on_skip=on_skip,
     )
-    slots = [_midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
-    run_end = now if now is not None else _midnight_utc(end) + _1D_INTERVAL
-
-    spans: list[tuple[datetime, datetime]] = []
-    if (
-        empty is not None
-        and now is not None
-        and reverify_days is not None
-        and min_confirmations is not None
-        and empty.n_confirming_chunks >= min_confirmations
-        and is_fresh(empty.verified_at, now, reverify_days)
-    ):
-        spans = [(empty.empty_from, empty.empty_through)]
-
-    plan = plan_gaps(slots, stored, answered, _1D_INTERVAL, run_end=run_end, empty_ranges=spans)
-    if spans and on_skip is not None:
-        without_spans = plan_gaps(slots, stored, answered, _1D_INTERVAL, run_end=run_end)
-        if without_spans != plan:
-            on_skip(empty)
     return [(window_start.date(), window_end.date()) for window_start, window_end in plan]

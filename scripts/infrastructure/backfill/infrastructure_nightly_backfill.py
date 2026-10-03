@@ -87,7 +87,10 @@ _logger = structlog.get_logger(__name__)
 _JOB = "nightly-backfill"
 _NIGHTLY_CLIENT_ID = 45  # dedicated lane; ibkr.py auto-rotates on Error 326 collision
 _DELEGATE_SCRIPT = (Path(__file__).parent / "infrastructure_run_historical_pipeline.py").resolve()
-_DERIVATION_SCRIPT = (project_root / "services" / "bar_derivation.py").resolve()
+from scripts.infrastructure.backfill._derivation_stage import (  # noqa: E402
+    run_derivation_stage,
+)
+
 # The lane guard's exclude file for the grid stage (symbols a running backfill
 # lane is writing are not derived mid-lane). Recreated fresh each run.
 _GRID_EXCLUDE_FILE = Path(tempfile.gettempdir()) / "indicagent-nightly-grid-exclude-symbols.txt"
@@ -221,29 +224,24 @@ def _prepare_grid_stage() -> Path:
     return _GRID_EXCLUDE_FILE
 
 
+def _run_derivation_stage(stage: str, *extra_args: str) -> int:
+    """Run bar_derivation's `stage` with --changed-only --apply (shared runner,
+    _derivation_stage.py holds the cwd/PYTHONPATH convention once)."""
+    return run_derivation_stage(stage, "--changed-only", "--apply", *extra_args)
+
+
 def _run_daily_stage() -> int:
     """Derive the 1d grid rows for every symbol whose inputs changed (plan
     185-18 task 1b).
 
     The legs' 1d fetches capture into D1 and store no bar, so the nightly
-    derives the daily grid itself. Runs before the grid stage: a symbol's
-    fresh 1d rows are inputs the 15m/1h derivation wants present. --changed-
-    only means a clean night costs a digest comparison per symbol. No lane
-    guard file: the derivation owns its own changed-set scoping.
+    derives the daily grid itself. Serialized before the grid stage so the
+    two derivation writers never overlap (the grid stage reads only 5m
+    inputs; the order is convention, not a data dependency). --changed-only
+    means a clean night costs a change probe per symbol. No lane guard
+    file: the derivation owns its own changed-set scoping.
     """
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(_DERIVATION_SCRIPT),
-            "--stage",
-            "daily",
-            "--changed-only",
-            "--apply",
-        ],
-        cwd=str(project_root),
-        env={**os.environ, "PYTHONPATH": str(project_root)},
-    )
-    return result.returncode
+    return _run_derivation_stage("daily")
 
 
 def _run_grid_stage(exclude_file: Path) -> int:
@@ -254,21 +252,7 @@ def _run_grid_stage(exclude_file: Path) -> int:
     lane guard's file keeping running lanes' symbols out. --changed-only means
     a clean night costs a digest comparison per symbol, not a rewrite.
     """
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(_DERIVATION_SCRIPT),
-            "--stage",
-            "grid",
-            "--changed-only",
-            "--apply",
-            "--exclude-symbols-file",
-            str(exclude_file),
-        ],
-        cwd=str(project_root),
-        env={**os.environ, "PYTHONPATH": str(project_root)},
-    )
-    return result.returncode
+    return _run_derivation_stage("grid", "--exclude-symbols-file", str(exclude_file))
 
 
 def _finish(status: str, message: str, returncode: int = 0) -> int:
