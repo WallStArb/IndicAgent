@@ -692,3 +692,50 @@ async def test_failed_daily_stage_skips_the_ledger_refresh_and_is_partial(
     assert status == "partial"
     assert _no_side_effects.refreshed == []
     assert _no_side_effects.marked == []
+
+
+# ---------------------------------------------------------------------------
+# --rebuild-coverage (189-06: the ledger rebuild before the first real run)
+# ---------------------------------------------------------------------------
+
+
+class _CountingLock:
+    def __init__(self, grant: bool) -> None:
+        self.grant = grant
+        self.closed = False
+
+    def acquire(self) -> bool:
+        return self.grant
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize("granted", [True, False])
+async def test_rebuild_coverage_runs_under_the_lock_without_ibkr(tmp_path, monkeypatch, granted):
+    calls: list[Any] = []
+    monkeypatch.setattr(
+        hf, "rebuild_from_stored_state", lambda cur, symbols=None: calls.append(symbols) or 7
+    )
+    lock = _CountingLock(granted)
+    conn = _FakeConn()
+    conn.close = lambda: None  # type: ignore[attr-defined]
+    fetcher, seen = _fetcher(
+        tmp_path,
+        _plan([_ranked("AAA")]),
+        args=_args("--rebuild-coverage"),
+        lock_factory=lambda: lock,
+        connect=lambda: conn,
+    )
+    status, error = await _run(fetcher)
+    assert error is None
+    assert seen["providers"] == 0 and "prepared" not in seen
+    assert not (tmp_path / "status.json").exists()
+    if granted:
+        assert status == "success"
+        assert calls == [None]  # every series
+        assert conn.log == ["SET LOCAL ROLE bar_derivation_writer"]
+        assert lock.closed
+    else:
+        assert status == "lock_held"
+        assert calls == []

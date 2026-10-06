@@ -13,7 +13,9 @@ tests/unit/test_ohlcv_coverage_writer_boundary.py), from two places:
 - record_fetch_outcome / reset_failures, from the fetcher's per-item outcome write and its
   --reset-failures flag, so operators never hand-write the table;
 - refresh_1d_bounds, from the fetcher after the daily derivation stage (1d bars are D2's,
-  never a fetched chunk's, so their bounds are recomputed from the canonical rows).
+  never a fetched chunk's, so their bounds are recomputed from the canonical rows);
+- rebuild_from_stored_state, from the fetcher's --rebuild-coverage flag under its lock, which
+  recomputes every row from the stored bars when another writer stored bars around the ledger.
 
 Every function takes a psycopg cursor whose transaction has already run
 SET LOCAL ROLE bar_derivation_writer (the only role granted SELECT, INSERT, UPDATE here).
@@ -166,6 +168,114 @@ def refresh_1d_bounds(cur: Any, symbols: Iterable[str]) -> int:
     if not symbol_list:
         return 0
     cur.execute(_REFRESH_1D_SQL, (symbol_list,))
+    return int(cur.rowcount)
+
+
+# Migration 432's bootstrap aggregate, as an update-in-place. {where} is either empty or a
+# symbol filter; it is spliced into every source scan so a scoped rebuild reads only its rows.
+_REBUILD_SQL = """
+INSERT INTO ohlcv_coverage (
+    symbol, timeframe, earliest_timestamp, latest_timestamp, row_count,
+    last_fetched_at, last_fetch_status
+)
+WITH grid AS (
+    SELECT symbol, timeframe,
+           min("timestamp") AS earliest, max("timestamp") AS latest, count(*) AS n
+    FROM market_data_ohlcv_tradeable
+    {where}
+    GROUP BY symbol, timeframe
+),
+archive AS (
+    SELECT symbol, timeframe,
+           min("timestamp") AS earliest, max("timestamp") AS latest, count(*) AS n
+    FROM ohlcv_intraday_raw_archive
+    {where}
+    GROUP BY symbol, timeframe
+),
+bars AS (
+    SELECT coalesce(g.symbol, a.symbol) AS symbol,
+           coalesce(g.timeframe, a.timeframe) AS timeframe,
+           LEAST(g.earliest, a.earliest) AS earliest,
+           GREATEST(g.latest, a.latest) AS latest,
+           GREATEST(coalesce(g.n, 0), coalesce(a.n, 0)) AS n
+    FROM grid g
+    FULL OUTER JOIN archive a
+      ON a.symbol = g.symbol AND a.timeframe = g.timeframe
+    WHERE coalesce(g.timeframe, a.timeframe) IN ('15m', '1h')
+    UNION ALL
+    SELECT symbol, timeframe, earliest, latest, n
+    FROM grid
+    WHERE timeframe NOT IN ('15m', '1h')
+),
+requests AS (
+    SELECT DISTINCT ON (symbol, timeframe)
+           symbol, timeframe, answered_at,
+           CASE outcome
+               WHEN 'bars' THEN 'ok'
+               WHEN 'no_data' THEN 'no_data'
+               ELSE 'error'
+           END AS status
+    FROM ohlcv_request
+    {request_where}
+    ORDER BY symbol, timeframe, answered_at DESC
+)
+SELECT coalesce(b.symbol, r.symbol),
+       coalesce(b.timeframe, r.timeframe),
+       b.earliest,
+       b.latest,
+       coalesce(b.n, 0),
+       r.answered_at,
+       r.status
+FROM bars b
+FULL OUTER JOIN requests r
+  ON r.symbol = b.symbol AND r.timeframe = b.timeframe
+ON CONFLICT (symbol, timeframe) DO UPDATE SET
+    earliest_timestamp = EXCLUDED.earliest_timestamp,
+    latest_timestamp = EXCLUDED.latest_timestamp,
+    row_count = EXCLUDED.row_count,
+    last_fetched_at = GREATEST(ohlcv_coverage.last_fetched_at, EXCLUDED.last_fetched_at),
+    last_fetch_status = CASE
+        WHEN EXCLUDED.last_fetched_at IS NOT NULL
+             AND (ohlcv_coverage.last_fetched_at IS NULL
+                  OR EXCLUDED.last_fetched_at > ohlcv_coverage.last_fetched_at)
+        THEN EXCLUDED.last_fetch_status
+        ELSE ohlcv_coverage.last_fetch_status
+    END
+"""
+_REQUEST_FILTER = (
+    "WHERE route = 'SMART' AND what_to_show = 'TRADES' "
+    "AND outcome IN ('bars', 'no_data', 'timeout', 'failed')"
+)
+
+
+def rebuild_from_stored_state(cur: Any, symbols: Iterable[str] | None = None) -> int:
+    """Recompute every ledger row's bounds and row count from the stored bars, in place.
+
+    Migration 432 bootstrapped the ledger once with ON CONFLICT DO NOTHING, so a writer that
+    stored bars without going through persist_chunk_atomically (the todo 449 lane, which ran
+    with coverage=None from 2026-10-02 to the 189-06 cutover) leaves rows stale or missing.
+    This is the same aggregate as that bootstrap, with DO UPDATE: earliest, latest and
+    row_count are recomputed (not widened) from market_data_ohlcv_tradeable and, for 15m/1h,
+    the raw archive; missing series are inserted. The latest SMART TRADES request advances
+    last_fetched_at and last_fetch_status only when it is newer than what the ledger holds.
+    consecutive_failures is never touched: it counts the fetcher's own item outcomes.
+
+    `symbols` scopes the rebuild (tests use a synthetic symbol); None rebuilds every series.
+    Run under SET LOCAL ROLE bar_derivation_writer while holding the fetcher lock, so no
+    persist_chunk_atomically delta can interleave. Returns rows inserted or updated.
+    """
+    if symbols is None:
+        sql = _REBUILD_SQL.format(where="", request_where=_REQUEST_FILTER)
+        cur.execute(sql)
+        return int(cur.rowcount)
+    symbol_list = sorted(set(symbols))
+    if not symbol_list:
+        return 0
+    sql = _REBUILD_SQL.format(
+        where="WHERE symbol = ANY(%(symbols)s)",
+        request_where=f"{_REQUEST_FILTER} AND symbol = ANY(%(symbols)s)",
+    )
+    cur.execute(sql, {"symbols": symbol_list})
     return int(cur.rowcount)
 
 

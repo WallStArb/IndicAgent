@@ -28,6 +28,7 @@ from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atom
 from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_coverage_writer import (
     CoverageDelta,
+    rebuild_from_stored_state,
     record_fetch_outcome,
     refresh_1d_bounds,
 )
@@ -207,3 +208,57 @@ def test_refresh_1d_bounds_with_no_symbols_issues_no_sql():
             raise AssertionError("no SQL expected")
 
     assert refresh_1d_bounds(_NoSql(), []) == 0
+
+
+def test_rebuild_from_stored_state_recomputes_stale_rows_in_place(live):
+    """189-06: a writer that stored bars around the ledger (the todo 449 lane, coverage=None)
+    leaves the row stale; the rebuild recomputes its bounds and count from the stored bars
+    and keeps the failure counter, and a scoped rebuild touches only its symbol."""
+    conn, symbol = live
+    _persist(conn, symbol)  # ledger row: _N_BARS archive rows, ok, 0 failures
+    hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    extra = [
+        (hour + timedelta(minutes=15 * i), symbol, "15m", 10.0, 11.0, 9.0, 10.5, 100, "ibkr", None)
+        for i in range(_N_BARS, _N_BARS + 2)
+    ]
+    # Bars stored with no coverage delta, as the lane did, plus one charged failure.
+    with conn.transaction():
+        with conn.cursor() as cur:
+            insert_fetched_archive_rows(cur, extra)
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            record_fetch_outcome(cur, symbol, "15m", "error", datetime.now(UTC))
+    before = conn.execute(
+        "SELECT row_count, latest_timestamp FROM ohlcv_coverage "
+        "WHERE symbol = %s AND timeframe = '15m'",
+        (symbol,),
+    ).fetchone()
+    assert before[0] == _N_BARS
+    other_before = conn.execute(
+        "SELECT count(*), sum(row_count) FROM ohlcv_coverage WHERE symbol <> %s", (symbol,)
+    ).fetchone()
+
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            assert rebuild_from_stored_state(cur, [symbol]) == 1
+            assert rebuild_from_stored_state(cur, []) == 0
+
+    row = conn.execute(
+        "SELECT earliest_timestamp, latest_timestamp, row_count, consecutive_failures, "
+        "last_fetch_status FROM ohlcv_coverage WHERE symbol = %s AND timeframe = '15m'",
+        (symbol,),
+    ).fetchone()
+    assert row[0] == hour
+    assert row[1] == hour + timedelta(minutes=15 * (_N_BARS + 1))
+    assert row[2] == _N_BARS + 2
+    # The failure counter is the fetcher's own; the request (older) does not override the
+    # newer error outcome.
+    assert row[3:] == (1, "error")
+    assert (
+        conn.execute(
+            "SELECT count(*), sum(row_count) FROM ohlcv_coverage WHERE symbol <> %s", (symbol,)
+        ).fetchone()
+        == other_before
+    )

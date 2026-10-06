@@ -92,6 +92,7 @@ from services.bar_derivation import (  # noqa: E402
 )
 from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
 from services.ohlcv_coverage_writer import (  # noqa: E402
+    rebuild_from_stored_state,
     record_fetch_outcome,
     refresh_1d_bounds,
     reset_failures,
@@ -228,6 +229,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="SYMBOL[:TF]",
         help="Zero consecutive_failures through the ledger writer and exit.",
+    )
+    parser.add_argument(
+        "--rebuild-coverage",
+        action="store_true",
+        help=(
+            "Recompute every ohlcv_coverage row's bounds and row count from the stored bars "
+            "(under the lock, no IBKR) and exit. For a ledger another writer bypassed."
+        ),
     )
     return parser
 
@@ -573,9 +582,25 @@ class IbkrHistoryFetcher(BaseBatch):
             self.completion_status = "lock_held"
             return
         try:
-            await self._locked_run(pool)
+            if self.args.rebuild_coverage:
+                self._rebuild_coverage()
+            else:
+                await self._locked_run(pool)
         finally:
             lock.close()
+
+    def _rebuild_coverage(self) -> None:
+        """Recompute the ledger from stored state under the lock, so no fetch interleaves."""
+        conn = self._connect()
+        try:
+            with conn.transaction():
+                cur = conn.cursor()
+                cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
+                n_rows = rebuild_from_stored_state(cur)
+        finally:
+            conn.close()
+        print(f"rebuilt {n_rows} ohlcv_coverage row(s) from stored state")
+        logger.info("ibkr_history_fetcher.coverage_rebuilt", n_rows=n_rows)
 
     def _reset_failures(self, target: str) -> None:
         symbol, timeframe = parse_reset_target(target)
