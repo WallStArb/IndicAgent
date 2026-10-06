@@ -235,28 +235,29 @@ Plans:
 Exit notes: success criterion 8 (reopened ideas re-evaluated on canonical bars) is an obligation on
 the first reopened idea, not a 185 deliverable (owner, 2026-10-06). D0's S0 application
 (`185-S0-HANDOFF.md`) belongs to the phase 183 research lane through the todo 185-29 files, ranked
-in front of daily attempts 3, 3b and 4.
+in front of daily attempts 3, 3b and 4; D-04 stays unmet at close and re-verification records an
+explicit override for it.
 
 **Wave 13**
 
-- [ ] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, D1 elision of unchanged refetches, scrub and digests in the loader (wave 13)
-- [ ] 185-28-PLAN.md - IBKR-only venue view, 8 late names re-asked, 6 contradicted empty-history rows reconciled (wave 13)
-- [ ] 185-29-PLAN.md - D0 label inputs name both rules; S0 hand-off todo for the research lane; owner decisions recorded (wave 13)
+- [ ] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, new-and-changed-only writes to D1 and market_data_ohlcv, scrub and digests in the loader, lineage/digest writer boundary (wave 13)
+- [ ] 185-29-PLAN.md - D0 label inputs name both rules; S0 hand-off todo for the research lane; owner answers and orchestrator calls recorded apart (wave 13)
 
 **Wave 14** *(blocked on Wave 13 completion)*
 
-- [ ] 185-30-PLAN.md - lineage and digest backfill for 1,266 Tradier-owned names; retire replaced legacy flags (wave 14)
-- [ ] 185-31-PLAN.md - todo 490: intraday raw revision table, value-match archive verify, 7 grid symbols derived (wave 14)
-- [ ] 185-32-PLAN.md - alignment sweep: fill paths removed, no-synthetic DB guard and CI test, provider matrix (wave 14)
+- [ ] 185-28-PLAN.md - IBKR-only venue view, 7 IBKR-sourced late names re-asked, 6 contradicted empty-history rows reconciled (wave 14)
+- [ ] 185-30-PLAN.md - lineage for 1,266 Tradier-owned names, digests for every canonical 1d name, 31 untraced IBKR bars re-asked, replaced 1d legacy flags retired (wave 14)
+- [ ] 185-31-PLAN.md - todo 490: intraday raw revision table, value-match archive verify, 7 grid symbols derived (861,047 rows) (wave 14)
 
 **Wave 15** *(blocked on Wave 14 completion)*
 
-- [ ] 185-33-PLAN.md - D7 lineage and digest checks; content-aware check_d2_landed (186 file); live D2 test (wave 15)
-- [ ] 185-34-PLAN.md - D-28 gate conditions 1 and 4 source-aware (wave 15)
+- [ ] 185-32-PLAN.md - alignment sweep: fill paths removed or fenced, no-synthetic DB guard and AST CI test, provider matrix (wave 15)
+- [ ] 185-33-PLAN.md - D7 lineage, digest, untraced-quarantined and mixed-source checks; content-aware check_d2_landed (186 file, note in the 186 dir); live D2 test (wave 15)
+- [ ] 185-34-PLAN.md - D-28 gate conditions 1, 3 and 4 source-aware (wave 15)
 
 **Wave 16** *(blocked on Wave 15 completion)*
 
-- [ ] 185-35-PLAN.md - nightly timer restarted, first night measured, ETHA split, closing checks, todo 490 closed (wave 16)
+- [ ] 185-35-PLAN.md - nightly timer restarted, first night measured, ETHA checked, closing checks, todo 490 closed (wave 16)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
