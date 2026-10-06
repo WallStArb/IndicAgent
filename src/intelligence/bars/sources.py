@@ -30,3 +30,12 @@ GRID_SOURCE_TF = "5m"
 # instead of restating the set; when 4h joins the derivation (futures rework)
 # this is the only definition that changes.
 DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"}
+
+# The 1d market_data_ohlcv sources that are canonical bars (plan 185-27): D2's IBKR named and
+# venue sources plus Tradier, the primary 1d source of the names it owns (migration 438). The
+# 1d content digest reads every one of them; D2's own value comparison keeps its IBKR-only list
+# because a Tradier-owned name never reaches it.
+CANONICAL_1D_SOURCES: tuple[str, ...] = ("ibkr_named", "ibkr_venue", "tradier")
+# The rule the Tradier daily loader stamps on canonical_bar_lineage and bar_content_digest: a
+# stored bar is the latest non-test TRADIER observation of its date with equal values.
+TRADIER_RULE_VERSION = "tradier-v1"

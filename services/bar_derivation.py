@@ -7,14 +7,12 @@ aggregate_session_grid), and in one transaction per symbol, under SET LOCAL
 ROLE bar_derivation_writer (185-01 A7 measured the role CAN DML compressed
 chunks):
 
-1. archive the stored IBKR 15m/1h rows into ohlcv_intraday_raw_archive
-   (synthetic-fill placeholders are never archived; they are not observations);
+1. archive the stored IBKR 15m/1h rows into ohlcv_intraday_raw_archive;
 2. verify count and value checksums of the removable rows against the archive
    inside the same transaction -- a mismatch rolls the symbol back and nothing
    leaves market_data_ohlcv (D-09 flag-never-delete spirit: the raw answer is
    kept before the canonical row is replaced);
-3. DELETE the (symbol, 15m/1h) segment, placeholders included, so readers see
-   only derived rows;
+3. DELETE the (symbol, 15m/1h) segment so readers see only derived rows;
 4. write the derived rows (source derived_5m), the constituent_flag
    bar_quality_flag rows listing each derived bar's constituent 5m flag rules,
    and one bar_content_digest row per (tf, calendar month) for 5m, 15m and 1h
@@ -23,13 +21,12 @@ chunks):
 Daily stage (plan 17). Per symbol: load the D1 TRADES observations and the
 corporate_action_current splits, run the pure derive_daily rule (Ring 1), and
 upsert into market_data_ohlcv only the rows that differ from or are missing in
-the stored canonical-source 1d rows (185-01 measurement b, native upsert);
-synthetic_fill placeholders never enter the comparison, and an upsert whose
-key holds a placeholder replaces it with the real observation. Lineage for
-EVERY canonical bar goes to canonical_bar_lineage (side table, design 12.1),
-pre_split_unrefetched / no_provider_volume flags go through bar_scrub's
-write_flags, the D2a rules are rerun through bar_scrub.scrub_symbols (one
-call for the run's symbols so cross-symbol corroboration spans them), and a
+the stored IBKR-source 1d rows (185-01 measurement b, native upsert).
+Lineage for EVERY canonical bar goes to canonical_bar_lineage (side table,
+design 12.1), pre_split_unrefetched / no_provider_volume flags go through
+bar_scrub's write_flags, the D2a rules are rerun through
+bar_scrub.scrub_symbols (one call for the run's symbols so cross-symbol
+corroboration spans them), and after that scrub (plan 185-27) a
 bar_content_digest row lands for each 1d month whose digest differs from
 bar_content_digest_current (first run: every month). Default is a dry run:
 same computation, zero writes, no batch row, and a report by reason.
@@ -82,7 +79,12 @@ from src.intelligence.bars.gap_plan import (
 )
 from src.intelligence.bars.session_grid import GridBars, aggregate_session_grid
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.bars.sources import GRID_RULE_VERSION, GRID_TIMEFRAMES, SOURCE_DERIVED_5M
+from src.intelligence.bars.sources import (
+    CANONICAL_1D_SOURCES,
+    GRID_RULE_VERSION,
+    GRID_TIMEFRAMES,
+    SOURCE_DERIVED_5M,
+)
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
 
@@ -271,13 +273,22 @@ WHERE symbol = $1
 ORDER BY effective_date
 """
 
-# Stored canonical-source 1d rows only: synthetic_fill placeholders never
-# enter the comparison (a canonical bar over a placeholder key is "missing").
+# D2's value comparison: the stored IBKR-source 1d rows (a Tradier-owned name never
+# reaches the comparison, so Tradier rows stay out of it).
 _SELECT_STORED_1D_SQL = """
 SELECT "timestamp", open, high, low, close, volume, base
 FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d'
   AND source IN ('ibkr_named', 'ibkr_venue')
+ORDER BY "timestamp"
+"""
+
+# The 1d digest's content: stored rows of every canonical 1d source ($2 =
+# CANONICAL_1D_SOURCES), so the digest covers a Tradier-owned name's bars too.
+_SELECT_DIGEST_1D_SQL = """
+SELECT "timestamp", open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($2::text[])
 ORDER BY "timestamp"
 """
 
@@ -332,8 +343,7 @@ EXISTS (
 EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = $1 AND l.outcome = 'loaded') AS tradier_owned
 """
 
-# Native upsert, 185-01 measurement b; the ON CONFLICT arm also replaces a
-# synthetic_fill placeholder sitting on the key with the real observation.
+# Native upsert, 185-01 measurement b.
 _UPSERT_1D_SQL = """
 INSERT INTO market_data_ohlcv
     ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base)
@@ -411,6 +421,70 @@ def _epoch_seconds(dt: datetime) -> int:
     if dt.tzinfo is None:
         return calendar.timegm(dt.timetuple())
     return int(dt.timestamp())
+
+
+async def write_1d_digests(
+    conn: Any, *, symbol: str, batch_id: str | None, rule_version: str
+) -> int:
+    """Insert a bar_content_digest row for each 1d month whose digest changed (D-07).
+
+    Content is read back from the stored rows of every canonical 1d source
+    (CANONICAL_1D_SOURCES, so a Tradier-owned name digests its Tradier bars), with
+    each row's non-quarantine flag rules beside it (the grid convention). Callers
+    run it after their scrub so the flags it adds or clears are in the digest.
+    Shared by D2's daily stage (rule d2-v1) and the Tradier daily loader
+    (tradier-v1, plan 185-27); returns the number of rows inserted.
+    """
+    rows = await conn.fetch(_SELECT_DIGEST_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
+    if not rows:
+        return 0
+    flag_rows = await conn.fetch(_SELECT_1D_FLAG_RULES_SQL, symbol)
+    rules_by_ts: dict[int, set[str]] = {}
+    for r in flag_rows:
+        if not r["quarantine"]:
+            rules_by_ts.setdefault(_epoch_seconds(r["timestamp"]), set()).add(r["rule"])
+    ts_seconds = np.array([_epoch_seconds(r["timestamp"]) for r in rows], dtype=np.int64)
+    open_ = np.array([r["open"] for r in rows], dtype=np.float64)
+    high = np.array([r["high"] for r in rows], dtype=np.float64)
+    low = np.array([r["low"] for r in rows], dtype=np.float64)
+    close = np.array([r["close"] for r in rows], dtype=np.float64)
+    volume = np.array([r["volume"] for r in rows], dtype=np.float64)
+    rules_per_row = [tuple(sorted(rules_by_ts.get(int(ts), ()))) for ts in ts_seconds]
+    current = {
+        r["range_start"]: r["digest"]
+        for r in await conn.fetch(_SELECT_CURRENT_1D_DIGESTS_SQL, symbol)
+    }
+    digest_args: list[tuple] = []
+    for start, end in month_ranges(ts_seconds):
+        mask = (ts_seconds >= int(start.timestamp())) & (ts_seconds < int(end.timestamp()))
+        digest = bar_content_digest(
+            ts_seconds[mask],
+            open_[mask],
+            high[mask],
+            low[mask],
+            close[mask],
+            volume[mask],
+            [rules_per_row[i] for i in np.flatnonzero(mask)],
+        )
+        if current.get(start) != digest:
+            digest_args.append(
+                (
+                    symbol,
+                    "1d",
+                    start,
+                    end,
+                    digest,
+                    DIGEST_ALGORITHM,
+                    rule_version,
+                    int(mask.sum()),
+                    batch_id,
+                )
+            )
+    if digest_args:
+        async with conn.transaction():
+            await conn.execute(_WRITER_ROLE_SQL)
+            await conn.executemany(_INSERT_DIGEST_SQL, digest_args)
+    return len(digest_args)
 
 
 def _read_exclude_file(path: str | None, logger: Any) -> frozenset[str]:
@@ -607,7 +681,7 @@ class BarDerivation(BaseBatch):
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
                             "n_derived_rows": n_derived_rows,
-                            # Removable (stored non-synthetic) 15m/1h rows the
+                            # Removable (stored original) 15m/1h rows the
                             # archive step verified and the segment DELETE took;
                             # plan 12's live check compares it with the archive.
                             "n_archive_rows": n_archived_rows,
@@ -981,6 +1055,15 @@ class BarDerivation(BaseBatch):
                         )
                     except Exception as error:
                         failed.append(f"scrub: {error}")
+                    # Digests after the scrub (plan 185-27), so a flag the scrub
+                    # adds or clears is inside the digest this run writes.
+                    for symbol in derived_symbols:
+                        try:
+                            await write_1d_digests(
+                                conn, symbol=symbol, batch_id=batch_id, rule_version=RULE_VERSION
+                            )
+                        except Exception as error:
+                            failed.append(f"digest {symbol}: {error}")
             finally:
                 if batch_id is not None:
                     await close_batch(
@@ -1224,7 +1307,6 @@ class BarDerivation(BaseBatch):
                 end=None,
                 batch_id=batch_id,
             )
-            await self._write_daily_digests(conn, symbol=symbol, batch_id=batch_id)
         except Exception as error:
             return _DailyResult(
                 "failed",
@@ -1247,65 +1329,6 @@ class BarDerivation(BaseBatch):
             n_no_volume,
             tuple(sample_diffs),
         )
-
-    async def _write_daily_digests(
-        self, conn: asyncpg.Connection, *, symbol: str, batch_id: str | None
-    ) -> int:
-        """Insert a digest row for each 1d month whose digest changed (D-07).
-
-        Content is read back post-write from the canonical-source rows, with
-        each row's non-quarantine flag rules beside it (the grid convention).
-        """
-        rows = await conn.fetch(_SELECT_STORED_1D_SQL, symbol)
-        if not rows:
-            return 0
-        flag_rows = await conn.fetch(_SELECT_1D_FLAG_RULES_SQL, symbol)
-        rules_by_ts: dict[int, set[str]] = {}
-        for r in flag_rows:
-            if not r["quarantine"]:
-                rules_by_ts.setdefault(_epoch_seconds(r["timestamp"]), set()).add(r["rule"])
-        ts_seconds = np.array([_epoch_seconds(r["timestamp"]) for r in rows], dtype=np.int64)
-        open_ = np.array([r["open"] for r in rows], dtype=np.float64)
-        high = np.array([r["high"] for r in rows], dtype=np.float64)
-        low = np.array([r["low"] for r in rows], dtype=np.float64)
-        close = np.array([r["close"] for r in rows], dtype=np.float64)
-        volume = np.array([r["volume"] for r in rows], dtype=np.float64)
-        rules_per_row = [tuple(sorted(rules_by_ts.get(int(ts), ()))) for ts in ts_seconds]
-        current = {
-            r["range_start"]: r["digest"]
-            for r in await conn.fetch(_SELECT_CURRENT_1D_DIGESTS_SQL, symbol)
-        }
-        digest_args: list[tuple] = []
-        for start, end in month_ranges(ts_seconds):
-            mask = (ts_seconds >= int(start.timestamp())) & (ts_seconds < int(end.timestamp()))
-            digest = bar_content_digest(
-                ts_seconds[mask],
-                open_[mask],
-                high[mask],
-                low[mask],
-                close[mask],
-                volume[mask],
-                [rules_per_row[i] for i in np.flatnonzero(mask)],
-            )
-            if current.get(start) != digest:
-                digest_args.append(
-                    (
-                        symbol,
-                        "1d",
-                        start,
-                        end,
-                        digest,
-                        DIGEST_ALGORITHM,
-                        RULE_VERSION,
-                        int(mask.sum()),
-                        batch_id,
-                    )
-                )
-        if digest_args:
-            async with conn.transaction():
-                await conn.execute(_WRITER_ROLE_SQL)
-                await conn.executemany(_INSERT_DIGEST_SQL, digest_args)
-        return len(digest_args)
 
     def _write_daily_report(
         self,
