@@ -216,3 +216,82 @@ def test_job_status_counts_refusals_as_partial_not_failure():
     assert job_status(0) == "success"
     assert job_status(EXIT_REFUSED) == "partial"
     assert job_status(1) == "failure"
+
+
+# Plan 185-27: the canonical write carries only new and changed bars, and D1 lands only bars that
+# are new or differ from the latest TRADIER observation of their date.
+
+
+def _latest(bars: list[DailyBar]) -> dict:
+    return {b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume) for b in bars}
+
+
+def test_plan_writes_only_new_and_changed_bars():
+    bars = _weekday_bars(300)
+    existing = {b.timestamp: _stored(b) for b in bars[:299]}
+    existing[bars[5].timestamp] = _stored(bars[5], c=99.0)
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "loaded" and (plan.n_new, plan.n_changed) == (1, 1)
+    assert [b.timestamp for b in plan.writes] == [bars[5].timestamp, bars[299].timestamp]
+    assert len(plan.bars) == 300  # the full answer is still the load's bar count
+
+
+def test_identical_refetch_writes_no_bar():
+    bars = _weekday_bars(300)
+    plan = plan_symbol_load(bars, {b.timestamp: _stored(b) for b in bars}, _PARAMS)
+    assert plan.writes == []
+
+
+def test_split_refetch_writes_every_changed_bar():
+    bars = _weekday_bars(301)
+    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:300]}
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.split is not None and len(plan.writes) == 301
+
+
+def test_d1_identical_refetch_lands_nothing():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
+
+    bars = _weekday_bars(300)
+    assert d1_bars_to_land(bars, _latest(bars)) == []
+
+
+def test_d1_first_load_lands_every_bar():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
+
+    bars = _weekday_bars(300)
+    assert d1_bars_to_land(bars, {}) == bars
+
+
+def test_d1_lands_new_and_changed_bars_only():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
+
+    bars = _weekday_bars(300)
+    latest = _latest(bars[:299])
+    changed = replace(bars[7], close=bars[7].close + 0.01)
+    fresh = bars[:7] + [changed] + bars[8:]
+    landed = d1_bars_to_land(fresh, latest)
+    assert landed == [changed, bars[299]]
+
+
+def test_d1_null_volume_compares_as_a_value():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
+
+    bars = _weekday_bars(10)
+    null_bar = replace(bars[3], volume=None)
+    fresh = bars[:3] + [null_bar] + bars[4:]
+    # Stored null, refetched null: equal. Stored 100, refetched null (or the reverse): differs.
+    assert d1_bars_to_land(fresh, _latest(fresh)) == []
+    assert d1_bars_to_land(fresh, _latest(bars)) == [null_bar]
+    assert d1_bars_to_land(bars, _latest(fresh)) == [bars[3]]
+
+
+def test_d1_split_back_adjustment_lands_every_changed_bar():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
+
+    bars = _weekday_bars(301)
+    old = {
+        b.timestamp.date(): (b.open * 2, b.high * 2, b.low * 2, b.close * 2, b.volume // 2)
+        for b in bars[:300]
+    }
+    assert d1_bars_to_land(bars, old) == bars
