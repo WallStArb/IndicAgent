@@ -19,9 +19,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-import scripts.ops.bars.ops_tradier_lineage_backfill as ops
 
 import scripts.infrastructure.backfill.infrastructure_run_tradier_daily as loader
+import scripts.ops.bars.ops_tradier_lineage_backfill as ops
 import services.bar_derivation as bar_derivation
 from src.intelligence.bars.derivation import RULE_VERSION
 from src.intelligence.bars.sources import TRADIER_RULE_VERSION
@@ -212,7 +212,8 @@ def test_lineage_dry_run_reports_and_writes_nothing(batches, capsys):
     )
     rc = _run(conn, lineage=True)
     out = capsys.readouterr().out
-    assert rc == 0
+    # an unmatched bar is a finding in a dry run too
+    assert rc == 1
     assert batches["opened"] == [] and batches["closed"] == []
     assert not [e for e in conn.events if e[0] == "execute"]
     assert "AAA" in out and "40" in out
