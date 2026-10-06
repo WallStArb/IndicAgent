@@ -193,3 +193,26 @@ def test_too_short_a_changed_prefix_is_gated():
     existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:3]}  # 3 < min_run 5
     plan = plan_symbol_load(bars, existing, _PARAMS)
     assert plan.outcome == "gated" and plan.split is None
+
+
+def test_nightly_switch_reads_the_apr_value_and_a_missing_key_raises():
+    import pytest
+
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import nightly_enabled
+
+    assert nightly_enabled({"infra.tradier.nightly_enabled": "true"})
+    assert nightly_enabled({"infra.tradier.nightly_enabled": " True "})
+    assert not nightly_enabled({"infra.tradier.nightly_enabled": "false"})
+    with pytest.raises(KeyError):
+        nightly_enabled({})
+
+
+def test_job_status_counts_refusals_as_partial_not_failure():
+    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
+        EXIT_REFUSED,
+        job_status,
+    )
+
+    assert job_status(0) == "success"
+    assert job_status(EXIT_REFUSED) == "partial"
+    assert job_status(1) == "failure"

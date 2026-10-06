@@ -59,6 +59,7 @@ from src.config.settings import get_settings
 from src.core.service_utils import setup_service_logging
 from src.intelligence.bars.corporate_actions import SplitInference, infer_split
 from src.intelligence.bars.seams import Seam
+from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics
 from src.providers.base import RequestRecord
 from src.providers.tradier import SOURCE, DailyBar, TradierError, fetch_daily_history, make_client
 
@@ -77,6 +78,29 @@ EXIT_REFUSED = 4
 TRADIER_OWNED_SQL = (
     "EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = {col} AND l.outcome = 'loaded')"
 )
+
+# The systemd unit's %n suffix (indicagent-tradier-daily.service, plan 189-06): the D-06
+# job_completed_total label. The nightly ran this leg until the 189 cutover; the unit is its
+# own caller now.
+JOB = "tradier-daily"
+_NIGHTLY_ENABLED_KEY = "infra.tradier.nightly_enabled"
+_TRUTHY = ("true", "1", "t", "yes")
+
+
+def nightly_enabled(apr: dict[str, str]) -> bool:
+    """The operator switch for the --nightly leg (migration 440). A missing key raises: the
+    migration seeds it, and a silent default would hide a lost switch."""
+    return str(apr[_NIGHTLY_ENABLED_KEY]).strip().lower() in _TRUTHY
+
+
+def job_status(returncode: int) -> str:
+    """job_completed_total status for an exit code: refusals are findings, not failures."""
+    if returncode == 0:
+        return "success"
+    if returncode == EXIT_REFUSED:
+        return "partial"
+    return "failure"
+
 
 # (open, high, low, close, volume, source) of one stored bar
 StoredBar = tuple[float, float, float, float, int, str]
@@ -395,6 +419,10 @@ async def run(
     conn = await asyncpg.connect(settings.database_url)
     try:
         apr = await load_apr_dict_async(conn, ["infra.tradier.%", "threshold.seam.%"])
+        if nightly and not nightly_enabled(apr):
+            logger.info("tradier_daily.nightly_disabled", key=_NIGHTLY_ENABLED_KEY)
+            print(f"tradier daily load: --nightly skipped, {_NIGHTLY_ENABLED_KEY} is off")
+            return 0
         params = LoadParams(
             min_session_ratio=float(apr["infra.tradier.min_session_ratio"]),
             first_date_tolerance_days=int(apr["infra.tradier.first_date_tolerance_days"]),
@@ -536,8 +564,23 @@ def main() -> int:
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] if args.symbols else None
     if args.nightly and (symbols or args.raw_only or args.rebase):
         parser.error("--nightly takes no --symbols, --raw-only or --rebase")
-    return asyncio.run(run(symbols, args.rebase, args.raw_only, args.dry_run, args.nightly))
+    returncode = 1
+    try:
+        returncode = asyncio.run(
+            run(symbols, args.rebase, args.raw_only, args.dry_run, args.nightly)
+        )
+        return returncode
+    finally:
+        if not args.dry_run:
+            JOB_COMPLETED_TOTAL.add(1, {"job": JOB, "status": job_status(returncode)})
+        flush_and_shutdown_metrics()
 
 
 if __name__ == "__main__":
+    from src.observability.otel import OTelInitError, init_otel_providers
+
+    try:
+        init_otel_providers(JOB)
+    except OTelInitError as error:
+        print(f"[warn] OTel init failed, metrics disabled: {error}")
     sys.exit(main())
