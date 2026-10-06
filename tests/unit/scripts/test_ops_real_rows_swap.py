@@ -44,7 +44,7 @@ def test_any_writer_refuses(state, fragment):
 
 def test_verify_refuses_before_reading_while_a_writer_runs(monkeypatch):
     held = swap.WriterState(lock_holders=("1 lease:ibkr_history_stream:bulk:x:46",))
-    monkeypatch.setattr(swap, "load_writer_state", lambda conn: held)
+    monkeypatch.setattr(swap, "load_writer_state", lambda conn, *a, **k: held)
 
     class _NoReads:
         def cursor(self):  # pragma: no cover - reaching it is the failure
@@ -309,3 +309,197 @@ def test_apr_seed_migration_matches_the_defaults():
     for key, default in swap.APR_DEFAULTS.items():
         assert f"'{key}'" in text
         assert f"('{key}', '{default:g}'" in text
+
+
+# --- write path: state -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("tables", "state"),
+    [
+        ({"market_data_ohlcv": False}, swap.ABSENT),
+        ({"market_data_ohlcv": False, "market_data_ohlcv_new": True}, swap.PRE),
+        ({"market_data_ohlcv": True, "market_data_ohlcv_old": False}, swap.SWAPPED),
+        ({"market_data_ohlcv": True}, swap.DONE),
+        # anything else refuses every step
+        ({"market_data_ohlcv": False, "market_data_ohlcv_new": False}, swap.INCONSISTENT),
+        ({"market_data_ohlcv": True, "market_data_ohlcv_new": True}, swap.INCONSISTENT),
+        ({"market_data_ohlcv_new": True}, swap.INCONSISTENT),
+        (
+            {
+                "market_data_ohlcv": True,
+                "market_data_ohlcv_new": True,
+                "market_data_ohlcv_old": False,
+            },
+            swap.INCONSISTENT,
+        ),
+        ({}, swap.INCONSISTENT),
+    ],
+)
+def test_classify_state(tables, state):
+    assert swap.classify_state(tables) == state
+
+
+# --- write path: copy windows ------------------------------------------------------------------
+
+
+def test_chunk_windows_align_to_the_epoch_grid():
+    # The live 90-day chunk 2026-09-04 .. 2026-12-03 sits on the Unix-epoch grid.
+    lo = datetime(2026, 9, 20, tzinfo=UTC)
+    hi = datetime(2026, 12, 10, tzinfo=UTC)
+    windows = swap.chunk_windows(lo, hi, timedelta(days=90))
+    assert [w.start for w in windows] == [
+        datetime(2026, 9, 4, tzinfo=UTC),
+        datetime(2026, 12, 3, tzinfo=UTC),
+    ]
+    assert all(w.end - w.start == timedelta(days=90) for w in windows)
+    with pytest.raises(ValueError):
+        swap.chunk_windows(lo, hi, timedelta(0))
+
+
+def test_window_chunk_refuses_a_misaligned_grid():
+    w = swap.Window(datetime(2026, 9, 4, tzinfo=UTC), datetime(2026, 12, 3, tzinfo=UTC))
+    assert swap.window_chunk([], w) is None
+    exact = swap.ChunkRange("_ti", "c", w.start, w.end, False)
+    assert swap.window_chunk([exact], w) is exact
+    shifted = swap.ChunkRange("_ti", "c", w.start + timedelta(days=1), w.end, False)
+    with pytest.raises(swap.SwapAborted, match="misaligned"):
+        swap.window_chunk([shifted], w)
+    with pytest.raises(swap.SwapAborted):
+        swap.window_chunk([exact, exact], w)
+
+
+def test_copy_sql_moves_every_column_and_keeps_null_source_rows():
+    for column in swap.COPY_COLUMNS:
+        assert column in swap._COPY_WINDOW_SQL
+    assert "INSERT INTO market_data_ohlcv_new" in swap._COPY_WINDOW_SQL
+    assert "FROM market_data_ohlcv\n" in swap._COPY_WINDOW_SQL
+    assert "source IS DISTINCT FROM 'synthetic_fill'" in swap._COPY_WINDOW_SQL
+    assert "DELETE FROM market_data_ohlcv_new " in swap._CLEAR_WINDOW_SQL
+
+
+def test_count_differences():
+    original = {"5m": swap.TfCount(100, 70, 0, 0), "1d": swap.TfCount(10, 0, 0, 0)}
+    assert (
+        swap.count_differences(
+            original, {"5m": swap.TfCount(30, 0, 0, 0), "1d": swap.TfCount(10, 0, 0, 0)}
+        )
+        == []
+    )
+    diffs = swap.count_differences(original, {"5m": swap.TfCount(31, 1, 0, 0)})
+    assert any("synthetic_fill" in d for d in diffs)
+    assert any(d.startswith("5m: rebuilt 31") for d in diffs)
+    assert any(d.startswith("1d: rebuilt 0") for d in diffs)
+
+
+# --- write path: exchange ----------------------------------------------------------------------
+
+
+def test_plan_index_renames_both_directions():
+    live = ["idx_ohlcv_symbol_tf_time", "market_data_ohlcv_pkey_idx"]
+    incoming = [n + swap.SUFFIX_REBUILT for n in live]
+    out, into = swap.plan_index_renames(live, incoming, swap.SUFFIX_ORIGINAL, swap.SUFFIX_REBUILT)
+    assert out == [(n, n + swap.SUFFIX_ORIGINAL) for n in live]
+    assert into == [(n + swap.SUFFIX_REBUILT, n) for n in live]
+    with pytest.raises(swap.SwapAborted, match="index sets differ"):
+        swap.plan_index_renames(live, incoming[:1], swap.SUFFIX_ORIGINAL, swap.SUFFIX_REBUILT)
+    with pytest.raises(swap.SwapAborted, match="out of pattern"):
+        swap.plan_index_renames(live, live, swap.SUFFIX_ORIGINAL, swap.SUFFIX_REBUILT)
+
+
+def _shape(**over):
+    base = dict(
+        columns=(("timestamp", "timestamp with time zone", True),),
+        constraints=(("market_data_ohlcv_timestamp_not_null", 'NOT NULL "timestamp"'),),
+        indexes=(("market_data_ohlcv_pkey_idx", "UNIQUE btree (...)"),),
+        dimensions=(("timestamp", "timestamp with time zone", "Time", "90 days", "", ""),),
+        columnstore=("symbol,timeframe", '"timestamp"', "", "[]"),
+        acl=(("bar_derivation_writer", "SELECT"),),
+        reloptions=("autovacuum_vacuum_scale_factor=0.05",),
+        owner="postgres",
+    )
+    base.update(over)
+    return swap.TableShape(**base)
+
+
+def test_shape_differences_name_each_drift():
+    assert swap.shape_differences(_shape(), _shape()) == []
+    diffs = swap.shape_differences(_shape(), _shape(acl=(), reloptions=()))
+    assert [d.split(":")[0] for d in diffs] == ["acl", "reloptions"]
+
+
+def test_index_names_compare_without_swap_suffixes():
+    assert swap.index_base("market_data_ohlcv_pkey_idx_rebuilt") == "market_data_ohlcv_pkey_idx"
+    assert swap.index_base("idx_ohlcv_symbol_tf_time_original") == "idx_ohlcv_symbol_tf_time"
+    a = swap.index_signature(True, "CREATE UNIQUE INDEX a ON public.t USING btree (x)")
+    b = swap.index_signature(True, "CREATE UNIQUE INDEX b ON public.u USING btree (x)")
+    assert a == b == "UNIQUE btree (x)"
+
+
+def test_policy_differences():
+    live = [swap.Policy(2, "30 days", "12:00:00", True, "{}")]
+    kept = [swap.Policy(1, "30 days", "12:00:00", False, "{}")]
+    assert swap.policy_differences(live, kept) == []
+    assert swap.policy_differences(live, [swap.Policy(1, "30 days", "12:00:00", True, "{}")])
+    assert swap.policy_differences([], kept)
+    assert swap.policy_differences(live, [swap.Policy(1, "7 days", "12:00:00", False, "{x}")])
+
+
+# --- write path: post-swap checks --------------------------------------------------------------
+
+_TRADEABLE_DEF = """ SELECT "timestamp" FROM market_data_ohlcv WHERE volume > 0 AND NOT (EXISTS (
+ SELECT 1 FROM bar_quality_flag q WHERE q.symbol = market_data_ohlcv.symbol));"""
+
+
+def test_rebind_view_sql_rewrites_every_whole_word_reference():
+    out = swap.rebind_view_sql(_TRADEABLE_DEF, "market_data_ohlcv_old")
+    assert out.count("market_data_ohlcv_old") == 2
+    assert not out.endswith(";")
+    assert "bar_quality_flag" in out
+
+
+def test_real_rows_view_sql_shadows_the_table_with_a_cte():
+    out = swap.real_rows_view_sql(_TRADEABLE_DEF, "market_data_ohlcv_old")
+    assert out.startswith(
+        "WITH market_data_ohlcv AS (SELECT * FROM market_data_ohlcv_old "
+        "WHERE source IS DISTINCT FROM 'synthetic_fill') "
+    )
+    assert "market_data_ohlcv.symbol" in out  # qualified references resolve to the CTE
+
+
+def test_view_blockers():
+    live = {"5m": 10}
+    # placeholders leave a grid view: allowed, as long as the real rows match
+    assert swap.view_blockers("public.market_data_5m", live, {"5m": 10}, {"5m": 40}) == []
+    assert swap.view_blockers("public.market_data_5m", live, {"5m": 11}, {"5m": 40})
+    # the tradeable view must not change at all
+    name = "public.market_data_ohlcv_tradeable"
+    assert swap.view_blockers(name, live, {"5m": 10}, {"5m": 10}) == []
+    assert "changed" in swap.view_blockers(name, live, {"5m": 10}, {"5m": 12})[0]
+
+
+# --- write path: gates and CLI -----------------------------------------------------------------
+
+
+def test_accept_placeholder_coverage_drops_only_those_blockers():
+    consumers = [
+        {"path": "g.py", "category": swap.PLACEHOLDER_COVERAGE, "blocks": True},
+        {"path": "c.py", "category": swap.CONTIGUOUS, "blocks": True},
+    ]
+    blockers = [
+        "consumer g.py: placeholder_coverage on 5m",
+        "consumer c.py: contiguous",
+        "lock held: 1 lease",
+    ]
+    kept, accepted = swap.accept_placeholder_coverage(consumers, blockers, accept=True)
+    assert accepted == ["consumer g.py: placeholder_coverage on 5m"]
+    assert kept == ["consumer c.py: contiguous", "lock held: 1 lease"]
+    assert swap.accept_placeholder_coverage(consumers, blockers, accept=False) == (blockers, [])
+    assert swap.accept_placeholder_coverage([], blockers, accept=True) == (blockers, [])
+
+
+def test_cli_modes_are_exclusive():
+    assert swap._mode(swap._parse_args([])) == "dry_run"
+    assert swap._mode(swap._parse_args(["--drop-old"])) == "drop_old"
+    with pytest.raises(SystemExit):
+        swap._parse_args(["--copy", "--swap"])
