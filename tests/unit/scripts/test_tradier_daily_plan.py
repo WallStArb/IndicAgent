@@ -1,3 +1,5 @@
+import random
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
@@ -6,8 +8,15 @@ from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
 )
 from src.providers.tradier import DailyBar
 
+# Split parameters mirror the live threshold.seam.* seeds (rel_tol 0.002, min_run 5, snap 0.01).
 _PARAMS = LoadParams(
-    min_session_ratio=0.95, first_date_tolerance_days=7, max_changed_bar_ratio=0.02, rebase=False
+    min_session_ratio=0.95,
+    first_date_tolerance_days=7,
+    max_changed_bar_ratio=0.02,
+    rebase=False,
+    split_rel_tol=0.002,
+    split_min_run=5,
+    ratio_snap_tol=0.01,
 )
 
 
@@ -61,7 +70,7 @@ def test_changed_bars_beyond_ratio_are_gated_unless_rebase():
     bars = _weekday_bars(300)
     existing = {b.timestamp: _stored(b, source="ibkr_named", v=80) for b in bars}
     assert plan_symbol_load(bars, existing, _PARAMS).outcome == "gated"
-    rebased = plan_symbol_load(bars, existing, LoadParams(0.95, 7, 0.02, rebase=True))
+    rebased = plan_symbol_load(bars, existing, replace(_PARAMS, rebase=True))
     assert rebased.outcome == "loaded"
     assert rebased.n_changed == 300 and len(rebased.revisions) == 300
 
@@ -80,3 +89,106 @@ def test_small_revision_under_the_ratio_loads_and_records_old_values():
     plan = plan_symbol_load(bars, existing, _PARAMS)
     assert plan.outcome == "loaded" and plan.n_changed == 1
     assert plan.revisions[0][1][3] == 99.0
+
+
+# Plan 185-26 task 1: a nightly refetch whose changes are one constant close ratio across every
+# earlier bar is a split the vendor back-adjusted; anything else above the gate stays gated.
+
+
+def _old_scale(bar: DailyBar, factor: float) -> tuple:
+    """The stored bar before a split of `factor` (stored/fresh): prices times factor."""
+    return _stored(
+        bar,
+        o=bar.open * factor,
+        h=bar.high * factor,
+        l=bar.low * factor,
+        c=bar.close * factor,
+        v=round(bar.volume / factor),
+    )
+
+
+def test_two_for_one_back_adjustment_is_a_split():
+    bars = _weekday_bars(301)
+    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:300]}
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "loaded"
+    assert plan.split is not None
+    assert (plan.split.factor, plan.split.kind) == (2.0, "split")
+    assert plan.split.effective_date == bars[299].timestamp.date()
+    assert plan.split.evidence_days == 300
+    assert (plan.n_new, plan.n_changed, len(plan.revisions)) == (1, 300, 300)
+    assert plan.revisions[0][1][3] == 21.0  # ohlcv_revision keeps the old-scale close
+
+
+def test_one_for_ten_reverse_split_is_a_split():
+    bars = _weekday_bars(301)
+    existing = {b.timestamp: _old_scale(b, 0.1) for b in bars[:300]}
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "loaded"
+    assert plan.split is not None
+    assert plan.split.kind == "reverse_split"
+    assert abs(plan.split.factor - 0.1) < 1e-12
+
+
+def test_split_crossed_after_missed_nights_keeps_the_new_scale_suffix():
+    # Stored bars after the ex-date were already on the new scale: only the prefix changes.
+    bars = _weekday_bars(300)
+    existing = {b.timestamp: _old_scale(b, 3.0) for b in bars[:250]}
+    existing.update({b.timestamp: _stored(b) for b in bars[250:]})
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "loaded" and plan.split is not None
+    assert plan.split.factor == 3.0
+    assert plan.split.effective_date == bars[249].timestamp.date()
+    assert plan.n_changed == 250
+
+
+def test_noisy_partial_change_is_gated():
+    rng = random.Random(185)
+    bars = _weekday_bars(300)
+    existing = {b.timestamp: _stored(b) for b in bars}
+    for b in bars[:150]:
+        existing[b.timestamp] = _stored(b, c=b.close * rng.uniform(0.8, 1.2))
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "gated" and plan.split is None
+
+
+def test_identical_refetch_is_no_change_and_no_split():
+    bars = _weekday_bars(300)
+    existing = {b.timestamp: _stored(b) for b in bars}
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert (plan.outcome, plan.n_changed, plan.split) == ("loaded", 0, None)
+
+
+def test_constant_ratio_inside_one_section_only_is_gated_not_a_split():
+    bars = _weekday_bars(300)
+    existing = {b.timestamp: _stored(b) for b in bars}
+    existing.update({b.timestamp: _old_scale(b, 2.0) for b in bars[100:150]})
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "gated" and plan.split is None
+
+
+def test_ratio_that_snaps_to_no_split_factor_is_gated():
+    bars = _weekday_bars(301)
+    existing = {b.timestamp: _old_scale(b, 1.731) for b in bars[:300]}
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "gated" and plan.split is None
+
+
+def test_constant_ratio_over_another_vendors_bars_is_a_source_change_not_a_split():
+    # A first load over IBKR bars is a source change: --rebase, never an inferred split.
+    bars = _weekday_bars(301)
+    existing = {
+        b.timestamp: _stored(
+            b, source="ibkr_named", o=b.open * 2, h=b.high * 2, l=b.low * 2, c=b.close * 2
+        )
+        for b in bars[:300]
+    }
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "gated" and plan.split is None
+
+
+def test_too_short_a_changed_prefix_is_gated():
+    bars = _weekday_bars(303)
+    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:3]}  # 3 < min_run 5
+    plan = plan_symbol_load(bars, existing, _PARAMS)
+    assert plan.outcome == "gated" and plan.split is None
