@@ -246,7 +246,7 @@ run_all's landed-marker check from 185-41).
 **Wave 13**
 
 - [x] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, new-and-changed-only writes to D1 and market_data_ohlcv, scrub and digests in the loader, lineage/digest writer boundary (wave 13)
-- [ ] 185-44-PLAN.md - complexity baseline census; CI guards for TEMPORARY and pending-retirement expiry, single_writer registry, reader-less tables and APR keys (wave 13, runs first)
+- [x] 185-44-PLAN.md - complexity baseline census; CI guards for TEMPORARY and pending-retirement expiry, single_writer registry, reader-less tables and APR keys (wave 13, runs first)
 
 **Wave 14** *(blocked on Wave 13 completion)*
 
