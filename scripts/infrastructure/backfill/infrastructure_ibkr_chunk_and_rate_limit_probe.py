@@ -28,6 +28,9 @@ Usage: .venv/bin/python scripts/infrastructure/backfill/infrastructure_ibkr_chun
 --only restricts Phase 1 to the given comma-separated timeframes (still one bounded tier
 each, edit _CHUNK_TEST_TIERS to change the tier itself) -- for targeted follow-up escalation
 without re-running already-confirmed timeframes. --skip-rate-limit omits Phase 2 entirely.
+
+The probe shares the single IBKR history fetcher lock (phase 189, CD-09): it takes the lock
+before its first IBKR connection and exits 2 at once while the fetcher or any other holder runs.
 """
 
 from __future__ import annotations
@@ -44,6 +47,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(message)s")
 
+from scripts.infrastructure.backfill._fetcher_lock import (  # noqa: E402
+    LOCK_HELD_MESSAGE,
+    FetcherLock,
+)
 from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
     _load_ibkr_rate_limit_config,
     connect_db,
@@ -350,6 +357,18 @@ async def main() -> None:
         tiers = {tf: d for tf, d in tiers.items() if tf in wanted}
 
     settings = Settings()
+    # Fail fast, never wait (CD-09): the fetcher or another tool holds the one stream.
+    lock = FetcherLock(settings.database_url, holder="ibkr-rate-limit-probe")
+    if not lock.acquire():
+        print(LOCK_HELD_MESSAGE)
+        sys.exit(2)
+    try:
+        await _probe(args, settings, tiers)
+    finally:
+        lock.close()
+
+
+async def _probe(args: argparse.Namespace, settings: Settings, tiers: dict[str, int]) -> None:
     conn = connect_db(settings)
     provider = IBKRProvider(
         host=settings.ib_host, port=settings.ib_port, client_id=_PROBE_CLIENT_ID
@@ -359,6 +378,7 @@ async def main() -> None:
     connected = await provider.connect()
     if not connected:
         print("FAILED to connect to IBKR Gateway -- aborting probe.")
+        conn.close()
         return
 
     try:
