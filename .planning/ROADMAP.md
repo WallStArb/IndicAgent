@@ -228,7 +228,7 @@ Plans:
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
-- [ ] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 12)
+- [x] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 12)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
