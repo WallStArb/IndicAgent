@@ -131,3 +131,30 @@ its 4:1 split). Returns and ratios are unaffected. Anything that depends on the 
 level at the time (option strikes, round-number levels, tick-size regimes, "price below $5"
 filters) is wrong for every name that later split, unless it un-adjusts with a split history
 first. The project holds no split history yet (found 2026-09-25, research architecture family 8).
+
+## Tests must never append to D1 or spawn derivation against the live database
+
+`ohlcv_request` and `ohlcv_observation` (D1) are append-only, and `bar_derivation` takes the latest
+observation per bar, so a fixture row a test appends on a real symbol and date can never be removed and
+becomes a canonical bar (27 rows on SPY 2024-01-02 to 01-04 would have stored close 100.5 for 472.65;
+found 2026-10-03). D2 now excludes requests whose caller starts with `test-`, but the rows stay: point
+every test that appends at `indicagent_test`. A unit test that drives `infrastructure_nightly_backfill.main()`
+must patch every stage it calls (`_run_split_detect`, `_run_daily_stage`, `_prepare_grid_stage`,
+`_run_grid_stage`); an unpatched stage spawns a real `bar_derivation --apply` against production. Todo 494
+tracks the CI guard.
+
+## Grants are invisible to unit tests
+
+`bar_derivation_writer` had SELECT, INSERT, DELETE on `market_data_ohlcv`; the daily stage's
+`INSERT ... ON CONFLICT DO UPDATE` needs UPDATE and every unit test passed while the first apply failed on
+all symbols (migration 435). On a compressed hypertable grant at table level: a column grant propagates to
+the compressed hypertable, which has no such columns. Cover a new write path with an integration test that
+runs the real statement under the real role on `indicagent_test`.
+
+## The integration baseline lags the migrations above its cutoff
+
+`tests/integration/conftest.py` replays only migrations above `_BASELINE_MIGRATION_CUTOFF`, and its dump is
+schema-only. Data seeded by a migration at or below the cutoff (APR rows, vocabulary, tags) is absent unless a
+seed file carries it (`seed_config_*.sql`), and a migration numbered below the cutoff but written later (phase 185's
+reserved 404 to 408) never reaches the test database. Check this before trusting a green integration run
+(todo 495).
