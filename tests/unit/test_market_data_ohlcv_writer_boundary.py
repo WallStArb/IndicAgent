@@ -62,10 +62,12 @@ _ALLOW_LIST: dict[str, str] = {
         "daily and derived-grid timeframes out of the fetch stage entirely."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
-        "PERMANENT: the Tradier daily loader (owner decision 2026-10-03, migration 438: "
+        "TEMPORARY: the Tradier daily loader (owner decision 2026-10-03, migration 438: "
         "Tradier is the primary 1d source). It lands raw observations in D1 and writes the "
         "canonical 1d bars it plans, refusing short or source-changing loads; plan 185-26 "
-        "chains it as the nightly's Tradier 1d leg."
+        "chains it as the nightly's Tradier 1d leg. A second 1d writer with no disjoint "
+        "segment: the data layer integrity design makes the daily stage the only 1d writer "
+        "(retire: 185-38)."
     ),
     "services/bar_writer.py": (
         "PERMANENT: the streaming-path bar writer persists provider bars at the one- "

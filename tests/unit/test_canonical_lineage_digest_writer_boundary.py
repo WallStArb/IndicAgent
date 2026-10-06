@@ -43,9 +43,10 @@ _ALLOW_LISTS: dict[str, dict[str, str]] = {
             "(rule d2-v1, plan 185-17)."
         ),
         "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
-            "PERMANENT: the second 1d writer (owner decision 2026-10-03) traces every bar it "
+            "TEMPORARY: the second 1d writer (owner decision 2026-10-03) traces every bar it "
             "stores to its TRADIER D1 observation (TRADIER_LINEAGE_UPSERT_SQL, rule tradier-v1, "
-            "plan 185-27) inside the bar write's transaction."
+            "plan 185-27) inside the bar write's transaction. The loader's canonical write and "
+            "this table give way to the lineage view (retire: 185-38)."
         ),
     },
     "bar_content_digest": {
