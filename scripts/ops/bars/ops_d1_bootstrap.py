@@ -10,10 +10,14 @@ Two subcommands:
   fresh-fetch    IBKR, campaign client id 47. One fetch_run_id; for every 1d-eligible name
                  (MRNA and ALMS first), TRADES then ADJUSTED_LAST back from now for
                  infra.bar_campaign.bootstrap_years, so D5 can pair the series inside one
-                 run. Both halves of a pair are flushed together and the lease is
-                 checkpointed only after a full pair (D-22, D-29). Resumable with
+                 run. Both halves of a pair are flushed together (D-22). Resumable with
                  --resume-run <fetch_run_id>: a symbol counts done only when both series
                  have a bars or no_data request in the run.
+
+fresh-fetch shares the single IBKR history fetcher lock (phase 189, CD-09) with the
+ibkr_history_fetcher and every other manual IBKR history tool: it takes the lock before
+connecting and refuses at once (exit 4, resume hint printed) while the fetcher or any other
+holder runs, instead of queueing.
 
 Every write after a long fetch opens a fresh connection (idle-session timeout, plan 13),
 and progress is appended to a file as the run goes.
@@ -36,6 +40,7 @@ import asyncpg
 import psycopg
 import structlog
 
+from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE, FetcherLock
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from services.ohlcv_observation_writer import (
     AsyncObservationSink,
@@ -43,20 +48,17 @@ from services.ohlcv_observation_writer import (
     new_fetch_run_id,
 )
 from src.config.settings import Settings, get_active_contracts
-from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
 from src.providers.ibkr import HIST_RATE_LIMIT_KEYS, IBKRProvider, apply_hist_rate_limit_config
 
 _logger = structlog.get_logger(__name__)
 
 _CALLER = "d1-bootstrap"
 _CLIENT_ID = 47
-_LEASE_NAME = "ibkr_history_stream"
 _LEGACY_ROUTE = "LEGACY_IMPORT"
 _FIRST_NAMES = ("MRNA", "ALMS")
 _SERIES = ("TRADES", "ADJUSTED_LAST")
 _CLEAN = ("bars", "no_data")
 _APR_YEARS = "infra.bar_campaign.bootstrap_years"
-_APR_LEASE_WAIT = "infra.ibkr_history_lease.priority_wait_minutes"
 _APR_BATCH_ROWS = "infra.ohlcv_observation.copy_batch_rows"
 _PROGRESS_DIR = Path(__file__).resolve().parents[3] / "logs" / "d1_bootstrap"
 _REFUSED_EXIT = 3
@@ -173,7 +175,6 @@ def _load_apr(conn: Any) -> dict[str, str]:
             (
                 [
                     "infra.bar_campaign.%",
-                    "infra.ibkr_history_lease.%",
                     "infra.ohlcv_observation.%",
                     "infra.ibkr.rate_limit%",
                 ],
@@ -301,17 +302,12 @@ async def _fresh_fetch(args: argparse.Namespace) -> int:
     _append_progress(progress, {"event": "start", "todo": len(todo), "done": len(done)})
     apply_hist_rate_limit_config({k: apr[k] for k in HIST_RATE_LIMIT_KEYS if k in apr})
 
-    lease = ResourceLease(
-        settings.database_url,
-        _LEASE_NAME,
-        tier=Tier.PRIORITY,
-        holder=f"{_CALLER}:{_CLIENT_ID}",
-    )
-    try:
-        lease.acquire(float(apr.get(_APR_LEASE_WAIT, 240)) * 60.0)
-    except LeaseTimeout:
-        lease.close()
-        print("lease timeout: nothing fetched; rerun with --resume-run", run_id)
+    # Fail fast, never wait (CD-09): the fetcher or another tool holds the one stream.
+    lock = FetcherLock(settings.database_url, holder=f"{_CALLER}:{_CLIENT_ID}")
+    if not lock.acquire():
+        print(LOCK_HELD_MESSAGE)
+        print(f"nothing fetched; rerun with --resume-run {run_id}")
+        _append_progress(progress, {"event": "lock_held"})
         return _INTERRUPTED_EXIT
 
     sink = AsyncObservationSink(
@@ -339,9 +335,8 @@ async def _fresh_fetch(args: argparse.Namespace) -> int:
                         fetch_run_id=run_id,
                         what_to_show=series,
                     )
-                # Both halves flush together, then the lease checkpoint (D-22, D-29).
+                # Both halves flush together (D-22).
                 await _flush_fresh(sink, dsn)
-                lease.checkpoint()
                 hard = {s: e for s, e in errors.items() if e and "returned no bars" not in e}
                 _append_progress(progress, {"event": "pair", "symbol": symbol, "errors": errors})
                 consecutive = consecutive + 1 if hard else 0
@@ -363,8 +358,7 @@ async def _fresh_fetch(args: argparse.Namespace) -> int:
         try:
             await provider.disconnect()
         finally:
-            lease.release()
-            lease.close()
+            lock.close()
     _append_progress(progress, {"event": "end", "exit": exit_code})
     return exit_code
 

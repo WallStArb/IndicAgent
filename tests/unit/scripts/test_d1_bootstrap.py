@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
+import asyncio
 from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
+from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
 from scripts.ops.bars import ops_d1_bootstrap as mod
 from services.ohlcv_observation_writer import _observation_rows, _request_row
 
@@ -57,3 +63,108 @@ def test_resume_refetches_a_symbol_missing_either_series() -> None:
     assert done == {"BOTH", "RETRIED"}
     todo = mod.pending_symbols(["BOTH", "ONLY_TRADES", "FAILED_ADJ", "RETRIED", "MRNA"], done)
     assert todo == ["MRNA", "FAILED_ADJ", "ONLY_TRADES"]
+
+
+# --- fresh-fetch on the shared fetcher lock (phase 189 plan 05, CD-09) -----------
+
+
+class _FakeDbConn:
+    def __enter__(self) -> _FakeDbConn:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+class _FakeLock:
+    instances: list[_FakeLock] = []
+
+    def __init__(self, dsn: str, holder: str, granted: bool, events: list[str]) -> None:
+        self.dsn = dsn
+        self.holder = holder
+        self._granted = granted
+        self._events = events
+        self.closed = False
+        _FakeLock.instances.append(self)
+
+    def acquire(self) -> bool:
+        self._events.append("lock.acquire")
+        return self._granted
+
+    def close(self) -> None:
+        self._events.append("lock.close")
+        self.closed = True
+
+
+class _FakeProvider:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    async def connect(self) -> bool:
+        self._events.append("provider.connect")
+        return False
+
+    async def disconnect(self) -> None:
+        self._events.append("provider.disconnect")
+
+
+def _wire_fresh_fetch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, granted: bool
+) -> list[str]:
+    events: list[str] = []
+    _FakeLock.instances = []
+    settings = SimpleNamespace(database_url="postgresql://fake/db", ib_host="h", ib_port=1)
+    monkeypatch.setattr(mod, "Settings", lambda: settings)
+    monkeypatch.setattr(mod, "psycopg", SimpleNamespace(connect=lambda *a, **k: _FakeDbConn()))
+    monkeypatch.setattr(mod, "_load_apr", lambda conn: {})
+    monkeypatch.setattr(mod, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(mod, "_eligible_instruments", lambda s: {"AAA": object()})
+    monkeypatch.setattr(mod, "apply_hist_rate_limit_config", lambda cfg: None)
+    monkeypatch.setattr(mod, "_PROGRESS_DIR", tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "FetcherLock",
+        lambda dsn, holder: _FakeLock(dsn, holder, granted, events),
+    )
+    monkeypatch.setattr(mod, "AsyncObservationSink", lambda **kwargs: SimpleNamespace())
+
+    def _provider(**kwargs: Any) -> _FakeProvider:
+        events.append("provider.init")
+        return _FakeProvider(events)
+
+    monkeypatch.setattr(mod, "IBKRProvider", _provider)
+    return events
+
+
+def _fresh_args() -> argparse.Namespace:
+    return argparse.Namespace(resume_run=None, symbols=None, max_consecutive_failures=5)
+
+
+def test_fresh_fetch_refuses_fast_when_the_fetcher_lock_is_held(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    events = _wire_fresh_fetch(monkeypatch, tmp_path, granted=False)
+    exit_code = asyncio.run(mod._fresh_fetch(_fresh_args()))
+    out = capsys.readouterr().out
+    assert exit_code == mod._INTERRUPTED_EXIT
+    assert LOCK_HELD_MESSAGE in out
+    assert "rerun with --resume-run" in out
+    assert "provider.init" not in events
+    assert events == ["lock.acquire"]
+    assert _FakeLock.instances[0].holder == "d1-bootstrap:47"
+    assert _FakeLock.instances[0].dsn == "postgresql://fake/db"
+
+
+def test_fresh_fetch_takes_the_lock_before_connecting_and_closes_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    events = _wire_fresh_fetch(monkeypatch, tmp_path, granted=True)
+    exit_code = asyncio.run(mod._fresh_fetch(_fresh_args()))
+    assert exit_code == mod._INTERRUPTED_EXIT  # the fake gateway refuses the connection
+    assert events == [
+        "lock.acquire",
+        "provider.init",
+        "provider.connect",
+        "provider.disconnect",
+        "lock.close",
+    ]

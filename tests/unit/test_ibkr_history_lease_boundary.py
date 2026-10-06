@@ -1,11 +1,13 @@
-"""CI guard: every IBKR historical fetch goes through the ResourceLease (D-29).
+"""CI guard: every IBKR historical fetch holds the one IBKR history stream.
 
 Todo 449 measured that concurrent history streams add no throughput and mostly
-time out: one stream per account is the resource, and the lease is how it is
-shared. Any module that calls fetch_historical_bars or fetch_adjusted_daily_closes
-must therefore also reference ResourceLease (the historical pipeline and every
-phase 185 campaign acquire it before fetching), unless it is on the allow-list
-below with a reason and an expiry.
+time out: one stream per account is the resource. Phase 189 enforces it with the
+fetcher's fail-fast advisory lock (FetcherLock, CD-09), taken by the fetcher and
+every manual IBKR history tool; until plan 189-08 retires it, the historical
+pipeline and the nightly still hold the legacy ResourceLease (D-29). Any module
+that calls fetch_historical_bars or fetch_adjusted_daily_closes must therefore
+reference one of _HOLDS_STREAM_MARKERS, unless it is on the allow-list below with
+a reason and an expiry.
 
 CI-clean: no DB, no network -- pure filesystem grep, same mechanics as
 tests/unit/test_market_data_ohlcv_boundary.py.
@@ -23,9 +25,12 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 # are not call sites; defs and calls always continue with an argument.
 _FETCH_CALL_PATTERN = re.compile(r"\b(?:fetch_historical_bars|fetch_adjusted_daily_closes)\((?!\))")
 _SEARCH_DIRS = ("services", "src", "scripts")
+# A module referencing any of these holds the stream: the phase 189 fetcher lock, or the
+# legacy lease until plan 189-08 retires it.
+_HOLDS_STREAM_MARKERS = ("ResourceLease", "FetcherLock")
 
-# (file, reason) -- every fetch call site that does not (yet) hold the lease.
-# Entries whose file gains a ResourceLease reference must be removed here.
+# (file, reason) -- every fetch call site that does not (yet) hold the stream.
+# Entries whose file gains a _HOLDS_STREAM_MARKERS reference must be removed here.
 _ALLOW_LIST: dict[str, str] = {
     "src/providers/ibkr.py": (
         "PERMANENT: the provider itself implements the IBKR wire calls; the lease "
@@ -55,6 +60,10 @@ _ALLOW_LIST: dict[str, str] = {
 }
 
 
+def _holds_stream(text: str) -> bool:
+    return any(marker in text for marker in _HOLDS_STREAM_MARKERS)
+
+
 def _fetch_callers() -> dict[str, int]:
     return find_pattern_references(
         _REPO_ROOT, _SEARCH_DIRS, _FETCH_CALL_PATTERN, file_globs=("*.py",)
@@ -64,13 +73,13 @@ def _fetch_callers() -> dict[str, int]:
 def test_every_fetch_caller_holds_the_lease_or_is_allow_listed():
     for path in _fetch_callers():
         text = read_source(*Path(path).parts)
-        if "ResourceLease" in text:
+        if _holds_stream(text):
             continue
         assert path in _ALLOW_LIST, (
             f"{path} calls fetch_historical_bars/fetch_adjusted_daily_closes without "
-            "acquiring the ResourceLease (D-29: one IBKR history stream per account). "
-            "Acquire src.core.resource_lease.ResourceLease before fetching, or add an "
-            "allow-list row here with a real reason and an expiry."
+            "holding the IBKR history stream (CD-09: one stream per account). Take "
+            "scripts.infrastructure.backfill._fetcher_lock.FetcherLock before connecting, "
+            "or add an allow-list row here with a real reason and an expiry."
         )
 
 
@@ -79,6 +88,6 @@ def test_lease_allow_list_has_no_stale_entries():
     for path in _ALLOW_LIST:
         assert path in hits, f"{path} no longer calls fetch directly; remove its allow-list entry."
         text = read_source(*Path(path).parts)
-        assert (
-            "ResourceLease" not in text
-        ), f"{path} now references ResourceLease; its allow-list entry is obsolete."
+        assert not _holds_stream(
+            text
+        ), f"{path} now holds the stream ({_HOLDS_STREAM_MARKERS}); its allow-list entry is obsolete."

@@ -10,8 +10,13 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
+from scripts.infrastructure.backfill import _fetcher_lock
+from scripts.ops.bars import _campaign
 from scripts.ops.bars import ops_intraday_venue_recovery as rec
+from src import providers
+from src.config import settings as settings_module
 
 _STATE = json.dumps(
     {"table": "provenance_batch", "target_tables": ["feature_vectors_v2", "feature_vectors"]}
@@ -163,3 +168,75 @@ def test_recover_runs_no_grid_stage_when_nothing_was_fetched():
         )
     )
     assert calls == [] and report["stored"] == {}
+
+
+# --- the shared fetcher lock (phase 189 plan 05, CD-09) --------------------------
+
+
+class _FakeLock:
+    def __init__(self, granted, events):
+        self._granted = granted
+        self._events = events
+
+    def acquire(self):
+        self._events.append("lock.acquire")
+        return self._granted
+
+    def close(self):
+        self._events.append("lock.close")
+
+
+class _FakeProvider:
+    def __init__(self, events):
+        self._events = events
+
+    async def connect(self):
+        self._events.append("provider.connect")
+        return False
+
+    async def disconnect(self):
+        self._events.append("provider.disconnect")
+
+
+def _wire_apply(monkeypatch, *, granted):
+    events: list[str] = []
+    holders: list[str] = []
+
+    def _lock(dsn, holder):
+        holders.append(holder)
+        return _FakeLock(granted, events)
+
+    def _provider(**kwargs):
+        events.append("provider.init")
+        return _FakeProvider(events)
+
+    monkeypatch.setattr(_fetcher_lock, "FetcherLock", _lock)
+    monkeypatch.setattr(providers, "IBKRProvider", _provider)
+    monkeypatch.setattr(_campaign, "preflight", lambda **kwargs: None)
+    monkeypatch.setattr(settings_module, "get_active_contracts", lambda *a, **k: [])
+    return events, holders
+
+
+def _settings():
+    return SimpleNamespace(database_url="postgresql://fake/db", ib_host="h", ib_port=1)
+
+
+def test_apply_refuses_fast_when_the_fetcher_lock_is_held(monkeypatch, capsys):
+    events, holders = _wire_apply(monkeypatch, granted=False)
+    exit_code = asyncio.run(rec._apply(_settings(), FakeConn(), _OPEN, []))
+    assert exit_code == 1
+    assert _fetcher_lock.LOCK_HELD_MESSAGE in capsys.readouterr().out
+    assert events == ["lock.acquire"]
+    assert holders == ["intraday-venue-recovery:49"]
+
+
+def test_apply_takes_the_lock_before_connecting_and_closes_it(monkeypatch):
+    events, _ = _wire_apply(monkeypatch, granted=True)
+    assert asyncio.run(rec._apply(_settings(), FakeConn(), _OPEN, [])) == 2
+    assert events == [
+        "lock.acquire",
+        "provider.init",
+        "provider.connect",
+        "provider.disconnect",
+        "lock.close",
+    ]

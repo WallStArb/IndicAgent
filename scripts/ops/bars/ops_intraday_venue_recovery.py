@@ -16,7 +16,9 @@ provider's explicit venue-routed path (route=), written with source ibkr_venue t
 pipeline's store function, and the grid stage re-derives 15m/1h with --changed-only so
 bar_content_digest moves only for the affected ranges and phase 186 recomputes only those cells.
 
-IBKR client id 49 through the campaign preflight (D-30); the lease is held at priority tier (D-29).
+IBKR client id 49 through the campaign preflight (D-30). --apply shares the single IBKR history
+fetcher lock (phase 189, CD-09) with the ibkr_history_fetcher and every other manual IBKR history
+tool: it takes the lock before connecting and refuses at once (exit 1) while another holder runs.
 """
 
 from __future__ import annotations
@@ -42,15 +44,13 @@ _logger = structlog.get_logger(__name__)
 _JOB = "intraday-venue-recovery"
 _CLIENT_ID = 49
 _TIMEFRAME = "5m"
-_LEASE_NAME = "ibkr_history_stream"
 _STUDY_CALLER = "venue-study"
 
 _KEY_STUDY_PASSED = "infra.bar_derivation.venue_bars_intraday"
 _KEY_UNLOCKED = "infra.bar_derivation.intraday_recovery_unlocked"
 _KEY_STATE_TABLE = "infra.bar_derivation.rebuild_state_table"
-_KEY_LEASE_WAIT = "infra.ibkr_history_lease.priority_wait_minutes"
 _KEY_CLIENT_IDS = "infra.bar_campaign.client_ids"
-_APR_KEYS = (_KEY_STUDY_PASSED, _KEY_UNLOCKED, _KEY_STATE_TABLE, _KEY_LEASE_WAIT, _KEY_CLIENT_IDS)
+_APR_KEYS = (_KEY_STUDY_PASSED, _KEY_UNLOCKED, _KEY_STATE_TABLE, _KEY_CLIENT_IDS)
 
 _RUN_MARKERS = ("ic_engine", "backfill_feature_factory", "rebuild")
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -190,18 +190,19 @@ async def _apply(
     settings: Any, conn: Any, apr: Mapping[str, Any], targets: list[RecoveryTarget]
 ) -> int:
     from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
+    from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE, FetcherLock
     from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import store_bars
     from scripts.ops.bars._campaign import preflight
     from src.config.settings import get_active_contracts
-    from src.core.resource_lease import ResourceLease, Tier
     from src.providers import IBKRProvider
 
     preflight(client_id=_CLIENT_ID, apr=apr)
     instruments = {i.symbol: i for i in get_active_contracts(settings, dimension="compute_1d")}
-    lease = ResourceLease(
-        settings.database_url, _LEASE_NAME, tier=Tier.PRIORITY, holder=f"{_JOB}:{_CLIENT_ID}"
-    )
-    lease.acquire(float(apr.get(_KEY_LEASE_WAIT, 240.0)) * 60.0)
+    # Fail fast, never wait (CD-09): the fetcher or another tool holds the one stream.
+    lock = FetcherLock(settings.database_url, holder=f"{_JOB}:{_CLIENT_ID}")
+    if not lock.acquire():
+        print(LOCK_HELD_MESSAGE)
+        return 1
     provider = IBKRProvider(host=settings.ib_host, port=settings.ib_port, client_id=_CLIENT_ID)
     try:
         if not await provider.connect():
@@ -215,7 +216,6 @@ async def _apply(
             bars = await provider.fetch_historical_bars(
                 target.symbol, _TIMEFRAME, target.start, target.end, route=target.route
             )
-            lease.checkpoint()
             return [
                 {
                     "timestamp": b.timestamp,
@@ -240,8 +240,10 @@ async def _apply(
         print(json.dumps(report, default=str))
         return int(report["grid_returncode"])
     finally:
-        await provider.disconnect()
-        lease.close()
+        try:
+            await provider.disconnect()
+        finally:
+            lock.close()
 
 
 def main() -> int:

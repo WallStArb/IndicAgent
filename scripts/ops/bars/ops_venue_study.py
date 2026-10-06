@@ -13,9 +13,11 @@ Discipline:
 - Refuses to run unless the pre-registration file is committed, clean, not dated
   in the future, and older than the first recorded 'venue-study' request (the
   thresholds cannot be set after seeing data).
-- Holds the ibkr_history_stream lease at PRIORITY tier for the whole run and
-  checkpoints after each (symbol, route) so the todo 449 chain and other
-  campaigns yield at unit boundaries (D-29). IBKR client id 48 (D-30 preflight).
+- Shares the single IBKR history fetcher lock (phase 189, CD-09) with the
+  ibkr_history_fetcher and every other manual IBKR history tool: it takes the
+  lock before connecting, holds it for the whole run, and refuses at once
+  (exit 3) while the fetcher or any other holder runs. IBKR client id 48 (D-30
+  preflight).
 - 1d answers land in D1 (ohlcv_request + ohlcv_observation) through the plan 02
   sink; 5m requests land in ohlcv_request and the 5m bars are kept in a gzip CSV
   artifact under data/venue_study/ (not committed) whose sha256 goes in the
@@ -42,10 +44,10 @@ from typing import Any
 import psycopg
 import structlog
 
+from scripts.infrastructure.backfill._fetcher_lock import FetcherLock, FetcherLockHeld
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.settings import Settings, get_active_contracts
-from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
 from src.intelligence.bars.venue_study import (
     _VENUE_ALIASES,
     NameEvaluation,
@@ -61,7 +63,6 @@ _logger = structlog.get_logger(__name__)
 
 _JOB = "venue-study"
 _CALLER = "venue-study"
-_LEASE_NAME = "ibkr_history_stream"
 _CLIENT_ID = 48
 _CHANGED_BY = "venue_study_185"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -71,7 +72,6 @@ _REPORT_PATH = _REPO_ROOT / "docs" / "research" / "venue-validation-study.md"
 _ARTIFACT_DIR = _REPO_ROOT / "data" / "venue_study"
 
 _APR_CLIENT_IDS = "infra.bar_campaign.client_ids"
-_APR_LEASE_WAIT = "infra.ibkr_history_lease.priority_wait_minutes"
 _APR_BATCH_ROWS = "infra.ohlcv_observation.copy_batch_rows"
 _SWITCH_KEYS = {
     "1d": "infra.bar_derivation.venue_bars_1d",
@@ -318,7 +318,7 @@ def _load_apr(conn: Any) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-            ([_APR_CLIENT_IDS, _APR_LEASE_WAIT, _APR_BATCH_ROWS],),
+            ([_APR_CLIENT_IDS, _APR_BATCH_ROWS],),
         )
         return {k: v for k, v in cur.fetchall()}
 
@@ -383,17 +383,12 @@ async def _run(args: argparse.Namespace) -> int:
     ordered = order_candidates(list(instruments), prereg["selection"]["seed"])
     print(f"eligible candidates: {len(ordered)}")
 
-    lease = ResourceLease(
-        settings.database_url,
-        _LEASE_NAME,
-        tier=Tier.PRIORITY,
-        holder=f"{_CALLER}:{_CLIENT_ID}",
-    )
-    wait_s = float(apr.get(_APR_LEASE_WAIT, 240.0)) * 60.0
+    # Fail fast, never wait (CD-09): FetcherLockHeld is reported as a refusal by main().
+    lock = FetcherLock(settings.database_url, holder=f"{_CALLER}:{_CLIENT_ID}")
     try:
-        lease.acquire(wait_s)
-    except LeaseTimeout:
-        lease.close()
+        lock.hold_or_refuse()
+    except FetcherLockHeld:
+        conn.close()
         raise
 
     fetch_run_id = new_fetch_run_id()
@@ -423,7 +418,6 @@ async def _run(args: argparse.Namespace) -> int:
                 contract = provider._qualified_contracts.get(symbol)
                 venue = getattr(contract, "primaryExchange", "") or ""
                 primary[symbol] = venue
-            lease.checkpoint()
         selected = select_names(primary, prereg)
         print(f"selected: {json.dumps({k: len(v) for k, v in selected.items()})}")
 
@@ -480,8 +474,6 @@ async def _run(args: argparse.Namespace) -> int:
                                     _day_key(tf, b.timestamp): (b.close, b.volume) for b in bars
                                 }
                             sink.flush()
-                            if lease.checkpoint():
-                                print(f"  yielded lease at {symbol}/{tf}/{route}")
                         if failed is None and not smart_close:
                             failed = "SMART returned no bars"
                         if failed:
@@ -495,9 +487,11 @@ async def _run(args: argparse.Namespace) -> int:
         try:
             sink.flush()
         finally:
-            await provider.disconnect()
-            lease.release()
-            sink_conn.close()
+            try:
+                await provider.disconnect()
+            finally:
+                lock.close()
+                sink_conn.close()
 
     results = {tf: evaluate_study(evals[tf], prereg, tf) for tf in _TIMEFRAMES}
     artifact_sha = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
@@ -559,7 +553,7 @@ def main() -> None:
     status = "success"
     try:
         exit_code = asyncio.run(_run(args))
-    except (PreregistrationRefused, CampaignRefused, LeaseTimeout) as error:
+    except (PreregistrationRefused, CampaignRefused, FetcherLockHeld) as error:
         status = "refused"
         print(f"REFUSED: {error}")
         exit_code = 3
