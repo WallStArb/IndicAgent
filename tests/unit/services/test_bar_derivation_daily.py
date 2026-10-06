@@ -102,6 +102,7 @@ class FakeConn:
         self.bar_write_rows: list[tuple] = []
         self.digest_rows: list[tuple] = []
         self.flag_inserts: list[tuple] = []
+        self.digest_read_sources: list[tuple] = []
 
     class _Txn:
         def __init__(self, outer: FakeConn) -> None:
@@ -152,6 +153,16 @@ class FakeConn:
             return [
                 {**row, "timestamp": _ts(day)}
                 for day, row in sorted(self.stored.get(symbol, {}).items())
+                if row.get("source", "ibkr_named") in ("ibkr_named", "ibkr_venue")
+            ]
+        if "source = ANY($2" in sql:
+            # write_1d_digests' read: every canonical 1d source.
+            symbol, sources = str(args[0]), tuple(args[1])  # type: ignore[arg-type]
+            self.digest_read_sources.append(sources)
+            return [
+                {**row, "timestamp": _ts(day)}
+                for day, row in sorted(self.stored.get(symbol, {}).items())
+                if row.get("source", "ibkr_named") in sources
             ]
         if "base IS NOT NULL" in sql:
             return [("USD",)]
@@ -253,9 +264,13 @@ def _observations_fixture() -> dict[str, list[dict]]:
 
 def _run(conn: FakeConn, **overrides: object):
     scrub_calls: list[dict] = []
+    scrub_effect = overrides.pop("scrub_effect", None)
 
     async def fake_scrub(pool, **kwargs):
         scrub_calls.append(kwargs)
+        pool.conn.calls.append(("scrub", ""))
+        if scrub_effect is not None:
+            scrub_effect(pool.conn)  # type: ignore[operator]
         return {}
 
     report = overrides.pop("report_path", None)
@@ -472,3 +487,82 @@ def test_tradier_owned_symbol_is_skipped_even_with_observations():
 
     assert "FROM ohlcv_load" in _SELECT_DAILY_CHANGED_SINCE_SQL
     assert "tradier_owned" in _SELECT_DAILY_CHANGED_SINCE_SQL
+
+
+def test_digest_written_after_the_scrub_includes_its_flags():
+    # Plan 185-27: D2 digests each derived symbol after the run's scrub_symbols call, so a
+    # flag the scrub adds is inside the digest written in the same run.
+    conn = FakeConn(observations=_observations_fixture(), stored=_canonical_fixture_stored())
+
+    def add_flag(c: FakeConn) -> None:
+        c.flag_rules.setdefault("TEST", []).append((_ts(_D1), "volume_spike", False))
+
+    _run(conn, scrub_effect=add_flag)
+    kinds = [kind for kind, sql in conn.calls if kind == "scrub" or "bar_content_digest" in sql]
+    assert kinds.index("scrub") < kinds.index("executemany")
+    may = [r for r in conn.digest_rows if r[2].month == 5]
+    assert len(may) == 1
+    ts = np.array([int(_ts(d).timestamp()) for d in (_D1, _D2)], dtype=np.int64)
+    arr = np.array([10.0, 11.0], dtype=np.float64)
+    vol = np.array([100.0, 100.0], dtype=np.float64)
+    with_flag = bar_content_digest(ts, arr, arr, arr, arr, vol, [("volume_spike",), ()])
+    assert may[0][4] == with_flag
+    assert may[0][4] != _digest([_D1, _D2], [10.0, 11.0])[0]
+
+
+def test_digest_failure_fails_the_run_after_the_scrub():
+    conn = FakeConn(observations=_observations_fixture(), stored=_canonical_fixture_stored())
+    original = bar_derivation_module.write_1d_digests
+
+    async def boom(conn, **kwargs):
+        raise RuntimeError("digest write refused")
+
+    bar_derivation_module.write_1d_digests = boom
+    try:
+        try:
+            _run(conn)
+        except RuntimeError as error:
+            assert "digest TEST" in str(error)
+        else:
+            raise AssertionError("a digest failure must fail the run")
+    finally:
+        bar_derivation_module.write_1d_digests = original
+
+
+def test_write_1d_digests_reads_every_canonical_source_including_tradier():
+    from services.bar_derivation import write_1d_digests
+    from src.intelligence.bars.sources import CANONICAL_1D_SOURCES, TRADIER_RULE_VERSION
+
+    assert "tradier" in CANONICAL_1D_SOURCES
+    stored = {
+        _D1: {**_stored_row(10.0, source="tradier"), "timestamp": _ts(_D1)},
+        _D2: {**_stored_row(11.0, source="tradier"), "timestamp": _ts(_D2)},
+    }
+    conn = FakeConn(observations={}, stored={"TEST": stored})
+    n = asyncio.run(
+        write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=TRADIER_RULE_VERSION)
+    )
+    assert n == 1
+    assert conn.digest_read_sources == [CANONICAL_1D_SOURCES]
+    (row,) = conn.digest_rows
+    assert row[4] == _digest([_D1, _D2], [10.0, 11.0])[0]
+    assert row[6] == TRADIER_RULE_VERSION and row[7] == 2 and row[8] == _BATCH_ID
+    # Under the writer role, inside its own transaction.
+    assert ("execute", "SET LOCAL ROLE bar_derivation_writer") in conn.calls
+    # Unchanged content writes nothing on the next call.
+    conn.current_digests = {"TEST": [(row[2], row[4])]}
+    assert (
+        asyncio.run(
+            write_1d_digests(
+                conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=TRADIER_RULE_VERSION
+            )
+        )
+        == 0
+    )
+
+
+def test_d2_value_comparison_reads_ibkr_sources_only():
+    from services.bar_derivation import _SELECT_STORED_1D_SQL
+
+    assert "'ibkr_named', 'ibkr_venue'" in _SELECT_STORED_1D_SQL
+    assert "tradier" not in _SELECT_STORED_1D_SQL
