@@ -1,0 +1,35 @@
+[Unit]
+Description=IndicAgent IBKR History Fetcher -- phase 189 single fetcher (docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md)
+After=network.target indicagent-infrastructure.target
+Requires=indicagent-infrastructure.target
+
+# External safety net (todo 488 fix item 3). src/providers/ibkr.py records that its in-process
+# asyncio timers were observed not to fire (2026-07-05 and 2026-10-02 hangs), so the fetcher's
+# own stall bound cannot be the last line of defence. This unit replaces the deleted bash lane
+# watchdogs: the process pings WATCHDOG=1 only from its live event loop (after each item, on
+# every in-item stall check, while awaiting a stage subprocess), and systemd kills it when the
+# pings stop or the run outlives RuntimeMaxSec. The advisory lock is a session lock, so it dies
+# with the process and the next timer fire can take it.
+
+[Service]
+# Type=exec, not oneshot: systemd arms the watchdog only once start-up completes, which for
+# Type=oneshot is process exit, so WatchdogSec would never fire.
+Type=exec
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python scripts/infrastructure/backfill/ibkr_history_fetcher.py
+NotifyAccess=main
+# Must exceed the gap between pings with margin: the in-item stall check pings every
+# infra.ibkr.history_request_timeout / 3 (300 s at the 900 s seed), and also cover the longest
+# synchronous DB call between pings. Raise it if that APR value is raised.
+WatchdogSec=1200
+# Run budget (infra.backfill.run_budget_minutes, 240 min seed) plus 60 min for the run-end
+# stages. A hard bound independent of the event loop; keep it above the APR budget when that
+# value changes.
+RuntimeMaxSec=18000
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

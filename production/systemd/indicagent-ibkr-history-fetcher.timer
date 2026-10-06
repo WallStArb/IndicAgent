@@ -1,0 +1,15 @@
+[Unit]
+Description=IBKR History Fetcher Timer -- recurring; the queue, not the clock, decides what runs
+
+# Nightly freshness falls out of staleness ranking (CD-06): there is no separate nightly
+# schedule. A gateway outage (the 23:59 UTC gateway restart, a 2FA wait) costs at most one
+# failed fire per 15 minutes. OnUnitInactiveSec never fires over a running unit; a fire
+# while another holder (a manual run) has the lock exits lock_held.
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=15min
+Unit=indicagent-ibkr-history-fetcher.service
+
+[Install]
+WantedBy=timers.target

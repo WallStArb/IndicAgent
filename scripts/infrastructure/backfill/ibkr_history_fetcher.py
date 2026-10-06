@@ -399,7 +399,7 @@ class IbkrHistoryFetcher(BaseBatch):
     """The single IBKR history fetcher oneshot (CD-01/CD-02/CD-07).
 
     Constructor seams exist for tests and replace exactly one dependency each: the provider
-    factory (IBKRProvider), the lock name, the item fetch (fetch_item_with_retries), the run
+    factory (IBKRProvider), the lock name or the whole lock, the item fetch (fetch_item_with_retries), the run
     plan (reads), the stage runner (subprocess), the psycopg connect, the contract source,
     the watchdog notifier, and the status file path.
     """
@@ -415,6 +415,7 @@ class IbkrHistoryFetcher(BaseBatch):
         settings: Settings | None = None,
         provider_factory: Callable[[], Any] | None = None,
         lock_name: str = FETCHER_LOCK_NAME,
+        lock_factory: Callable[[], Any] | None = None,
         fetch_fn: Callable[..., Awaitable[ItemOutcome]] = fetch_item_with_retries,
         prepare: Callable[[Any], Awaitable[RunPlan]] | None = None,
         context_factory: Callable[[Any, RunPlan, str], Any] | None = None,
@@ -429,6 +430,13 @@ class IbkrHistoryFetcher(BaseBatch):
         self.settings = settings or Settings()
         self._provider_factory = provider_factory or self._default_provider
         self._lock_name = lock_name
+        self._lock_factory = lock_factory or (
+            lambda: FetcherLock(
+                self.settings.database_url,
+                holder=f"{JOB}:{self.args.client_id}",
+                name=self._lock_name,
+            )
+        )
         self._fetch_fn = fetch_fn
         self._prepare = prepare or self.prepare
         self._context_factory = context_factory or self._default_context
@@ -558,11 +566,7 @@ class IbkrHistoryFetcher(BaseBatch):
             await self._dry_run(pool)
             self.completion_status = "dry_run"
             return
-        lock = FetcherLock(
-            self.settings.database_url,
-            holder=f"{JOB}:{self.args.client_id}",
-            name=self._lock_name,
-        )
+        lock = self._lock_factory()
         if not lock.acquire():
             print(LOCK_HELD_MESSAGE)
             logger.info("ibkr_history_fetcher.lock_held", lock=self._lock_name)
