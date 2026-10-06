@@ -61,6 +61,12 @@ _ALLOW_LIST: dict[str, str] = {
         "the derivation never rewrites those (D-15). Plan 185-18 task 1b fenced the "
         "daily and derived-grid timeframes out of the fetch stage entirely."
     ),
+    "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
+        "PERMANENT: the Tradier daily loader (owner decision 2026-10-03, migration 438: "
+        "Tradier is the primary 1d source). It lands raw observations in D1 and writes the "
+        "canonical 1d bars it plans, refusing short or source-changing loads; plan 185-26 "
+        "chains it as the nightly's Tradier 1d leg."
+    ),
     "services/bar_writer.py": (
         "PERMANENT: the streaming-path bar writer persists provider bars at the one- "
         "and five-minute timeframes only (the live path is dormant while the IBKR feed "
