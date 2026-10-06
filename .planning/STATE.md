@@ -65,7 +65,7 @@ Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
   precondition. D2 is the sole 1d writer and derived the whole history (185-17 rule, 185-18 apply
   2026-10-03: 931 names, 3,877,335 lineage rows at d2-v1; migration 435 gave the writer UPDATE; one
   pre-fence orphan bar, TLT 2026-10-01, heals at the next 1d fetch). Todo 490 (P1): the grid stage
-  fails nightly for 7 symbols whose recent bars were observed twice; decide before 189-04. D3 is on D1 (185-19,
+  fails nightly for 7 symbols whose recent bars were observed twice; until fixed, every 189 fetcher run that lands 5m rows ends `partial`. D3 is on D1 (185-19,
   migration 404): the provider never returns venue bars, 1d empty history is derived from recorded answers (89 of
   115 rows deleted for want of recorded confirmation, re-asked at each name's next 1d fetch). D5's IBKR dividend route reads D1 (185-21: migration 403,
   26 date disputes on 18 names, verdict "not usable alone; Yahoo stays reference"; reader
@@ -79,6 +79,18 @@ Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
   Plan 13's venue study failed both timeframes, so venue bars stay stored and unused; plan 14 left 42 late
   names unresolved because the ISLAND route never answers (`docs/research/moved-name-inventory.md`).
 
+- **Phase 189 (IBKR history fetch consolidation, independent of 183-188):** 9 plans; 01 to 05 done,
+  06 cutover executed 2026-10-06 (wrap-up and SUMMARY remain), 07 to 09 pending (delete nightly and
+  lane scripts; absorb the pipeline into `_history_fetch.py` and retire the lease APR keys; docs and
+  close todos 488, 452, 387, 455, 484). Live now: oneshot `indicagent-ibkr-history-fetcher` (timer,
+  15 minutes after each run, client 40, systemd watchdog 20 min, advisory lock
+  `lock:ibkr_history_fetcher:*`), the `ohlcv_coverage` ledger (migration 432, written in the same
+  transaction as bars and requests, rebuilt in place at cutover), the Tradier daily loader and the D7
+  audit on their own timers. The nightly timer is disabled (stopped 2026-10-02), the lease and lane
+  scripts are off the live path but still on disk until 189-07 and 189-08. Handoff:
+  `.planning/phases/189-*/.continue-here.md`. Open: todo 490 (runs ending `partial`), todo 498
+  (the OTel collector drops every `job`-labelled metric).
+
 - **Phase 186:** 29 plans, executing since 2026-09-27 (`/gsd-execute-phase 186`, waves 1-10
   sequential, one executor at a time). 25 of 29 done (01 to 16, 18 to 25, 29; waves 1-3 complete, 15, 18, 19 and 20 in wave 4; 186-20 parity gate accepted by the owner 2026-10-01 on the legacy-replica criterion, stored feature_ic_scores holds IC 0.0 for features with missing values); 186-17 partial (Task 1 done, Task 2 Postgres restart refused while the todo 449 backfill is live; unblocks in a backfill lane gap or after 449 and before 186-26); 186-22 dropped nine old-chain tables (migration 426, 50.7 GB freed); 186-29 landed after the owner released the research lane. No executor live; remaining 17 Task 2, 26, 27, 28. 186-26 was held for 185-18's historical 1d D2 apply (landed 2026-10-03); it still needs todo 489's `check_d2_landed` gate and todo 449's 5m coverage; 186-24 made feature_vectors_v2 312 columns (Asian session pair kept), 186-25 and 186-27 plan literals updated.
   Cross-AI review closed with all HIGHs integrated (`186-REVIEWS.md`). The `feature_vectors`
@@ -91,12 +103,10 @@ Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
 - **Quick, independent todos:** 443 (exporter scrape cost, idle-in-transaction timeout), 439
   (write-once `oos_start`), 438 (daily borrow snapshots; standalone again since D8 was descoped).
 
-- **Intraday backfill (todo 449, running since 2026-09-27):** one IBKR stream via
-  `logs/backfill_ops/intraday_chain.sh`: 15m+1h for the 698 names first (client 46), then 5m
-  (client 40, about two weeks). Parallel lanes do not add throughput. The chain yields to the
-  nightly 1d backfill and to phase 185 campaigns through the `ibkr_history_stream` lease (plan
-  185-09, D-29; its pipeline process has held the lease since 2026-09-28 08:10 EDT).
-  Phase 186's rebuild gates on the 5m part.
+- **Intraday backfill (todo 449):** carried by the phase 189 fetcher queue since the 2026-10-06
+  cutover (the old chain and HTF lane, client 46, were stopped 12:33Z). The queue ranks by coverage
+  gap and staleness: zero-coverage names first, 15m and 1h before 5m, 5m scope per
+  `infra.backfill.default_scopes` (backfill 5m stays gated by todo 462). Phase 186's rebuild still gates on the 5m part.
 
 - **Regime coverage auditor:** fails only on unregistered or expired gaps; the 5 known symbols (BIL, EMLC, ETHA, IBIT, VIXY) are registered exceptions expiring 2026-12-29 (todo 341 closed by 186-18). 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (todo 478, P1, decision needed before the 186-25/26 rebuild).
 - **Universe:** 1,529 active (932 plus wave 2's 597, onboarded 2026-10-03 with the 1d fetch running); 931 `compute_eligible_1d` until wave 2 is promoted; 233 carry the intraday stack and

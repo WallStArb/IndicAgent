@@ -489,18 +489,18 @@ Plans:
 
 ### Phase 189: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts
 
-**Goal:** Exactly one process fetches IBKR history: a timeframe- and dimension-agnostic oneshot fetcher ranks work from an atomically maintained `ohlcv_coverage` ledger (migration 430) with a deterministic SLA-banded priority queue, holds a fail-fast advisory lock shared by every IBKR history tool, and replaces the nightly timer, lane scripts and two-tier lease.
+**Goal:** Exactly one process fetches IBKR history: a timeframe- and dimension-agnostic oneshot fetcher ranks work from an atomically maintained `ohlcv_coverage` ledger (migration 432) with a deterministic SLA-banded priority queue, holds a fail-fast advisory lock shared by every IBKR history tool, and replaces the nightly timer, lane scripts and two-tier lease.
 **Requirements**: none (infra phase; decisions CD-01..CD-14 from 189-CONTEXT.md)
 **Depends on:** None
 **Plans:** 9 plans
 
 Plans:
-- [ ] 189-01-PLAN.md - migration 430 ohlcv_coverage + APR keys + bootstrap; coverage writer; atomic three-way persist
-- [ ] 189-02-PLAN.md - pure priority queue over the ledger; fetcher advisory lock
-- [ ] 189-03-PLAN.md - per-(symbol, timeframe) item fetch with stall bound, retries, atomic coverage persistence
-- [ ] 189-04-PLAN.md - IbkrHistoryFetcher oneshot, systemd units, service registry, read-only dry-run gate
-- [ ] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
-- [ ] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer
+- [x] 189-01-PLAN.md - migration 430 ohlcv_coverage + APR keys + bootstrap; coverage writer; atomic three-way persist
+- [x] 189-02-PLAN.md - pure priority queue over the ledger; fetcher advisory lock
+- [x] 189-03-PLAN.md - per-(symbol, timeframe) item fetch with stall bound, retries, atomic coverage persistence
+- [x] 189-04-PLAN.md - IbkrHistoryFetcher oneshot, systemd units, service registry, read-only dry-run gate
+- [x] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
+- [ ] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
 - [ ] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests
 - [ ] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484
