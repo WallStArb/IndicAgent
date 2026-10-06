@@ -44,6 +44,10 @@ _ALLOW_LIST: dict[str, str] = {
         "lease through it needs its own change (tracked in the phase 185 deferred "
         "items), not a rider on plan 09."
     ),
+    "scripts/infrastructure/backfill/_history_fetch_item.py": (
+        "TEMPORARY: library invoked only by ibkr_history_fetcher.py under FetcherLock; "
+        "plan 189-08 rewrites this guard around FetcherLock."
+    ),
     "scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py": (
         "TEMPORARY: one-off diagnostic probe (measured chunking/rate limits before "
         "todo 449); must hold the lease before its next use, see deferred items."

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -329,9 +329,16 @@ def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
 # ---------------------------------------------------------------------------
 # Part 2: fetch_item
 # ---------------------------------------------------------------------------
+# Rules as they stand after plans 185-18 (shared gap planner; 1d is D1-only and stores no
+# bar), 185-19 (1d empty history reconciled from D1 after the flush) and 185-22 (1d overlap).
 
 _END = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
-_GAP = (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC))
+# What the record planner (5m/15m/1h) returns: end-exclusive, through the last slot's end.
+_RECORD_GAP = (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, 0, 15, tzinfo=UTC))
+# What the legacy grid difference (1m, 4h) returns: inclusive, ends at the last slot's start.
+_LEGACY_GAP = (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC))
+# What the D1 planner returns: an end-exclusive (date, date) pair.
+_D1_GAP = (date(2024, 1, 1), date(2024, 1, 15))
 _RUN_ID = "item-test-run-id"
 
 
@@ -498,9 +505,12 @@ def env(monkeypatch):
         normalized=[],
         gap_calls=[],
         reconciled=[],
+        reconciled_1d=[],
         heads_recorded=[],
         per_contract=[],
-        gaps=[_GAP],
+        record_gaps=[_RECORD_GAP],
+        legacy_gaps=[_LEGACY_GAP],
+        d1_gaps=[_D1_GAP],
         synthetic=False,
         bars_1m=[],
     )
@@ -516,11 +526,30 @@ def env(monkeypatch):
         )
         return len(request_rows), len(archive_rows)
 
-    def fake_detect_gaps(conn, symbol, tf, start, end, **kwargs):
+    def fake_record_planner(conn, symbol, tf, start, end, expected_slots, **kwargs):
         rec.gap_calls.append(
-            SimpleNamespace(symbol=symbol, tf=tf, start=start, end=end, answered=kwargs["answered"])
+            SimpleNamespace(symbol=symbol, tf=tf, start=start, end=end, planner="record")
         )
-        return list(rec.gaps)
+        return list(rec.record_gaps)
+
+    def fake_d1_planner(conn, symbol, start, end, sessions, **kwargs):
+        rec.gap_calls.append(
+            SimpleNamespace(symbol=symbol, tf="1d", start=start, end=end, planner="d1")
+        )
+        return list(rec.d1_gaps)
+
+    def fake_legacy_planner(conn, symbol, tf, start, end, **kwargs):
+        rec.gap_calls.append(
+            SimpleNamespace(
+                symbol=symbol,
+                tf=tf,
+                start=start,
+                end=end,
+                planner="legacy",
+                answered=kwargs["answered"],
+            )
+        )
+        return list(rec.legacy_gaps)
 
     def fake_normalize(bars, **kwargs):
         rec.normalized.append((kwargs["symbol"], kwargs["timeframe"]))
@@ -545,10 +574,14 @@ def env(monkeypatch):
 
     async def fake_per_contract(**kwargs):
         rec.per_contract.append(kwargs)
-        return 12, []
+        return rec.per_contract_bars, []
 
+    rec.per_contract_bars = 12
     monkeypatch.setattr(item_mod, "persist_chunk_atomically", fake_persist)
-    monkeypatch.setattr(item_mod, "detect_gaps", fake_detect_gaps)
+    monkeypatch.setattr(item_mod, "detect_gaps_from_record", fake_record_planner)
+    monkeypatch.setattr(item_mod, "detect_gaps_1d_from_d1", fake_d1_planner)
+    monkeypatch.setattr(item_mod, "detect_gaps", fake_legacy_planner)
+    monkeypatch.setattr(item_mod, "expected_grid_slots", lambda *a: [])
     monkeypatch.setattr(
         item_mod, "load_answered_windows", lambda conn, symbol, tf: ("answered", symbol, tf)
     )
@@ -570,6 +603,12 @@ def env(monkeypatch):
         item_mod.empty_history, "reconcile", lambda *a, **k: rec.reconciled.append(a)
     )
     monkeypatch.setattr(
+        item_mod.empty_history,
+        "reconcile_empty_history",
+        lambda conn, tf, provider, symbols=None: rec.reconciled_1d.append((tf, provider, symbols))
+        or {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0},
+    )
+    monkeypatch.setattr(
         item_mod.empty_history, "record_head", lambda *a, **k: rec.heads_recorded.append(a)
     )
     return rec
@@ -588,6 +627,7 @@ def _ctx(provider: FakeProvider, **overrides) -> FetchContext:
             "15m": (7300, True),
             "5m": (7300, True),
             "1m": (90, True),
+            "4h": (730, True),
         },
         end_dt=_END,
         run_started_at=_END,
@@ -656,9 +696,40 @@ def test_fully_covered_series_scans_only_from_its_latest_bar(env):
     assert env.gap_calls[0].start == datetime(2026, 9, 30, tzinfo=UTC)
 
 
+def test_fully_covered_1d_series_plans_d1_from_its_latest_session(env):
+    row = _row("1d", latest=datetime(2026, 10, 1, tzinfo=UTC), status="ok")
+    _fetch(_ctx(FakeProvider()), row, gap_days=0)
+    assert (env.gap_calls[0].planner, env.gap_calls[0].start) == ("d1", date(2026, 10, 1))
+
+
 def test_days_override_caps_the_depth(env):
     _fetch(_ctx(FakeProvider(), days_override=10), _row("15m"))
     assert env.gap_calls[0].start == pipeline._fetch_start(_END, 10)
+
+
+def test_each_timeframe_plans_through_its_shared_planner(env):
+    ctx = _ctx(FakeProvider())
+    for tf in ("1d", "5m", "15m", "1h", "1m", "4h"):
+        _fetch(ctx, _row(tf))
+    planners = {c.tf: c.planner for c in env.gap_calls}
+    assert planners == {
+        "1d": "d1",
+        "5m": "record",
+        "15m": "record",
+        "1h": "record",
+        "1m": "legacy",
+        "4h": "legacy",
+    }
+    answered = {c.tf: c.answered for c in env.gap_calls if c.planner == "legacy"}
+    assert answered == {"1m": ("answered", "AAA", "1m"), "4h": None}
+
+
+def test_non_nyse_1d_is_refused_loudly(env):
+    instrument = SimpleNamespace(
+        symbol="AAA", asset_class=AssetClass.EQUITY, session_id="lse", exchange="LSE"
+    )
+    with pytest.raises(ValueError, match="NYSE-only"):
+        _fetch(_ctx(FakeProvider()), _row("1d"), instrument=instrument)
 
 
 # --- persistence routing (CD-04) -------------------------------------------
@@ -680,7 +751,7 @@ def test_15m_chunks_persist_atomically_into_the_archive_with_coverage(env):
     assert env.stored == [] and env.normalized == []
 
 
-@pytest.mark.parametrize("tf", ["5m", "1d"])
+@pytest.mark.parametrize("tf", ["5m", "1m"])
 def test_grid_timeframe_chunks_persist_atomically_into_the_grid_with_coverage(env, tf):
     ctx = _ctx(FakeProvider())
     outcome = _fetch(ctx, _row(tf))
@@ -693,15 +764,29 @@ def test_grid_timeframe_chunks_persist_atomically_into_the_grid_with_coverage(en
     assert all(len(r) == 9 and r[2] == tf for r in call.rows)
     assert call.requests  # grid timeframes record their answers atomically too
     assert outcome.n_grid_source_rows == (4 if tf == "5m" else 0)
+    assert env.stored == [] and env.normalized == []
+
+
+def test_1d_captures_to_d1_and_persists_nothing(env):
+    ctx = _ctx(FakeProvider())
+    outcome = _fetch(ctx, _row("1d"))
+    assert outcome.status == "ok" and outcome.n_bars == 4
+    assert env.persist == [] and env.stored == [] and env.normalized == []
+    assert ctx.provider.calls[0]["on_chunk"] is None
+    assert ctx.sink.total_observations == 2 and ctx.sink.total_requests == 2
+    # D2 owns the 1d grid: the caller derives, then marks fetch_complete from this start.
+    assert env.marked == []
+    assert outcome.derive_1d_since == pipeline._fetch_start(_END, 7300)
+    assert outcome.n_grid_source_rows == 0
 
 
 def test_placeholder_fill_is_stored_without_coverage(env):
-    """1d keeps the placeholder path: the synthetic fill is not a provider bar, so it goes
-    through store_bars and never through the coverage write."""
+    """4h alone keeps the placeholder path: real bars persist atomically with coverage, the
+    synthetic fill (not a provider bar) goes through store_bars and never touches coverage."""
     env.synthetic = True
-    ctx = _ctx(FakeProvider())
-    _fetch(ctx, _row("1d"))
+    _fetch(_ctx(FakeProvider()), _row("4h"))
     assert len(env.persist) == 1 and len(env.persist[0].rows) == 4
+    assert env.persist[0].coverage.destination == "grid"
     assert len(env.stored) == 1
     stored = env.stored[0]
     assert stored.writer is None  # default grid insert, outside the atomic coverage path
@@ -725,11 +810,17 @@ def test_clock_is_touched_by_requests_and_persisted_chunks(env):
     assert clock.touches >= 2  # one request record, one persisted chunk
 
 
+def test_clock_is_touched_by_1d_requests(env):
+    clock = SpyClock()
+    _fetch(_ctx(FakeProvider()), _row("1d"), clock=clock)
+    assert clock.touches >= 2  # two 1d answers (SMART + venue)
+
+
 # --- outcome classification (CD-05) -----------------------------------------
 
 
 def test_no_gaps_is_ok_without_a_fetch(env):
-    env.gaps = []
+    env.record_gaps = []
     provider = FakeProvider()
     outcome = _fetch(_ctx(provider), _row("15m"))
     assert outcome.status == "ok" and outcome.n_bars == 0
@@ -742,6 +833,12 @@ def test_answered_with_zero_bars_is_no_data(env):
     assert outcome.status == "no_data"
     assert outcome.error is None
     assert env.persist == []
+
+
+def test_1d_answered_with_zero_bars_is_no_data_and_owes_no_derivation(env):
+    outcome = _fetch(_ctx(FakeProvider(bars_by_tf={})), _row("1d"))
+    assert outcome.status == "no_data"
+    assert outcome.derive_1d_since is None
 
 
 def test_failed_chunks_are_an_error_and_skip_mark_fetch_complete(env):
@@ -835,6 +932,13 @@ def test_no_head_lookup_for_single_request_timeframes_futures_or_tail_windows(en
     assert provider.head_calls == []
 
 
+def test_no_head_lookup_when_stored_history_reaches_the_window_start(env):
+    provider = FakeProvider()
+    ctx = _ctx(provider, first_bars={"AAA": datetime(2000, 1, 3, tzinfo=UTC)})
+    _fetch(ctx, _row("15m"))
+    assert provider.head_calls == []
+
+
 def test_fresh_stored_head_floors_without_a_lookup(env):
     provider = FakeProvider()
     ctx = _ctx(provider, fresh_heads={"AAA": datetime(2015, 3, 2, 14, 30, tzinfo=UTC)})
@@ -843,9 +947,8 @@ def test_fresh_stored_head_floors_without_a_lookup(env):
     assert env.gap_calls[0].start == datetime(2015, 3, 2, tzinfo=UTC)
 
 
-def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
-    provider = FakeProvider(bars_by_tf={"1m": _bars("EURUSD", "1m", 6)})
-    env.bars_1m = [
+def _fx_1m_rows() -> list[dict]:
+    return [
         {
             "timestamp": datetime(2026, 9, 1, 10, m, tzinfo=UTC),
             "open": 1.1,
@@ -857,6 +960,11 @@ def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
         }
         for m in range(30)
     ]
+
+
+def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
+    provider = FakeProvider(bars_by_tf={"1m": _bars("EURUSD", "1m", 6)})
+    env.bars_1m = _fx_1m_rows()
     ctx = _ctx(provider)
     fx = _instrument("EURUSD", AssetClass.FX)
     first = _fetch(ctx, _row("5m", symbol="EURUSD"), instrument=fx)
@@ -867,11 +975,13 @@ def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
     assert deep_calls[0]["start"] == (_END - timedelta(days=pipeline._1M_DAYS_FX)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
+    assert deep_calls[0]["on_request"] is not None  # the deep fetch's answers are recorded
     by_series = {(p.coverage.timeframe, p.coverage.destination) for p in env.persist}
     assert ("1m", "grid") in by_series  # the deep fetch's own chunks
     assert ("5m", "grid") in by_series  # derived grid timeframe
     assert ("15m", "archive") in by_series  # derived archive timeframe
     assert first.status == second.status == "ok"
+    assert first.n_grid_source_rows > 0  # derived 5m rows still promote the grid
 
 
 def test_fx_fallback_skipped_when_the_direct_fetch_stored_bars(env):
@@ -882,6 +992,18 @@ def test_fx_fallback_skipped_when_the_direct_fetch_stored_bars(env):
         instrument=_instrument("EURUSD", AssetClass.FX),
     )
     assert [c["timeframe"] for c in provider.calls] == ["5m"]
+
+
+def test_fx_fallback_never_derives_1d(env):
+    provider = FakeProvider(bars_by_tf={"1m": _bars("EURUSD", "1m", 6)})
+    env.bars_1m = _fx_1m_rows()
+    outcome = _fetch(
+        _ctx(provider),
+        _row("1d", symbol="EURUSD"),
+        instrument=_instrument("EURUSD", AssetClass.FX),
+    )
+    assert [c["timeframe"] for c in provider.calls] == ["1d"]
+    assert outcome.status == "no_data"
 
 
 def test_per_contract_futures_route_through_fetch_per_contract(env):
@@ -899,6 +1021,17 @@ def test_per_contract_futures_route_through_fetch_per_contract(env):
     assert outcome.status == "ok" and outcome.n_bars == 12
 
 
+def test_per_contract_storing_nothing_is_an_error_not_no_data(env):
+    """fetch_per_contract swallows per-contract errors, so zero bars is not a clean answer."""
+    env.per_contract_bars = 0
+    outcome = _fetch(
+        _ctx(FakeProvider(), per_contract=True),
+        _row("1h", symbol="ESZ6"),
+        instrument=_instrument("ESZ6", AssetClass.FUTURES),
+    )
+    assert outcome.status == "error"
+
+
 def test_continuous_contract_only_for_deep_futures_windows(env):
     provider = FakeProvider()
     ctx = _ctx(provider)
@@ -908,7 +1041,7 @@ def test_continuous_contract_only_for_deep_futures_windows(env):
 
 
 def test_reconcile_runs_on_the_oldest_window_only(env):
-    env.gaps = [
+    env.record_gaps = [
         (datetime(2010, 1, 4, tzinfo=UTC), datetime(2010, 1, 8, tzinfo=UTC)),
         (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 15, tzinfo=UTC)),
     ]
@@ -918,12 +1051,16 @@ def test_reconcile_runs_on_the_oldest_window_only(env):
     assert provider.calls[0]["on_empty_history"] is not None
     assert provider.calls[1]["on_empty_history"] is None
     assert len(env.reconciled) == 1
+    assert env.reconciled_1d == []
 
 
 # --- ports of tests/unit/scripts/test_historical_pipeline_d1_capture.py ------
 # Named test_port_<source test name> so plan 08 can confirm coverage before deleting the
-# source file. The lease cases (priority tier, lease timeout) are not ported: the lease is
-# retired by plan 08 and the fetcher's singleton is FetcherLock (plan 02).
+# source file. Not ported: the lease cases (priority tier, lease timeout; the lease is
+# retired by plan 08 and the fetcher's singleton is FetcherLock), the daily-stage run and
+# its failure exit (run-level, plan 04's main loop owns them), and the helper unit tests
+# (store_bars refusing 1d, real_bars_only_for, _capture_kwargs, lease wait seconds), which
+# test pipeline helpers rather than the loop body and move with them in plan 08.
 
 
 def _run_symbols(env, timeframes=("1d", "15m"), symbols=("AAA", "BBB", "CCC"), **ctx_kw):
@@ -944,51 +1081,81 @@ def test_port_capture_and_checkpoint_wiring(env):
             assert call["on_observation"] == ctx.sink.on_observation
         else:
             assert call.get("on_observation") is None
-    # Every request is committed with its chunk; observations (1d only) flush per item.
+    # Intraday requests commit with their chunk; the 1d pair and its observations flush
+    # once per item.
     assert ctx.sink.total_observations == 6
+    assert ctx.sink.total_requests == 6
     assert ctx.sink.flushes == 6
-    taken = sum(len(p.requests) for p in env.persist)
-    assert taken + ctx.sink.total_requests == 3 * 2 + 3  # 1d: SMART + venue, 15m: one
+    assert sum(len(p.requests) for p in env.persist) == 3
+    for call in env.persist:
+        assert len(call.requests) == 1 and len(call.rows) == 4
+        assert call.rows[0][2] == "15m"
+        assert call.writer is pipeline._insert_archive_rows
+    # 15m marks complete per item; 1d is marked by the caller after the daily stage.
     assert sorted((s, tf) for s, tf, _ in env.marked) == [
         ("AAA", "15m"),
-        ("AAA", "1d"),
         ("BBB", "15m"),
-        ("BBB", "1d"),
         ("CCC", "15m"),
-        ("CCC", "1d"),
     ]
 
 
-def test_port_default_15m_is_archive_bound_and_1d_keeps_the_placeholder_path(env):
+def test_port_15m_is_archive_bound_and_1d_is_d1_only(env):
     _run_symbols(env)
-    assert sorted(env.normalized) == [(s, "1d") for s in ("AAA", "BBB", "CCC")]
-    answered = {(c.symbol, c.tf): c.answered for c in env.gap_calls}
-    for symbol in ("AAA", "BBB", "CCC"):
-        assert answered[(symbol, "15m")] == ("answered", symbol, "15m")
-        assert answered[(symbol, "1d")] is None
-    destinations = {(p.coverage.symbol, p.coverage.timeframe): p.writer for p in env.persist}
-    for symbol in ("AAA", "BBB", "CCC"):
-        assert destinations[(symbol, "15m")] is pipeline._insert_archive_rows
-        assert destinations[(symbol, "1d")] is pipeline._insert_market_data_rows
+    assert env.normalized == []
+    planners = sorted((c.symbol, c.tf, c.planner) for c in env.gap_calls)
+    assert planners == sorted(
+        [(s, "15m", "record") for s in ("AAA", "BBB", "CCC")]
+        + [(s, "1d", "d1") for s in ("AAA", "BBB", "CCC")]
+    )
+    assert {p.coverage.timeframe for p in env.persist} == {"15m"}
+    assert env.stored == []
 
 
-def test_port_real_bars_only_skips_the_fill_and_reads_coverage_for_intraday(env):
-    _, _, outcomes = _run_symbols(env, timeframes=("1d", "5m"), real_bars_only=True)
-    # 5m is stored as the provider returned it; 1d still goes through the fill.
-    assert sorted(env.normalized) == [("AAA", "1d"), ("BBB", "1d"), ("CCC", "1d")]
-    answered = {(c.symbol, c.tf): c.answered for c in env.gap_calls}
-    for symbol in ("AAA", "BBB", "CCC"):
-        assert answered[(symbol, "5m")] == ("answered", symbol, "5m")
-        assert answered[(symbol, "1d")] is None
-    assert len(env.marked) == 6
-    assert all(o.status == "ok" for o in outcomes)
+def test_port_1d_fetch_captures_to_d1_and_persists_no_chunk(env):
+    provider, ctx, _ = _run_symbols(env)
+    on_chunk_by_tf = {
+        c["timeframe"]: c.get("on_chunk") for c in provider.calls if c["symbol"] == "AAA"
+    }
+    assert callable(on_chunk_by_tf["15m"])
+    assert on_chunk_by_tf["1d"] is None
+    assert [p.rows[0][2] for p in env.persist] == ["15m"] * 3
+    assert ctx.sink.total_observations == 6
+
+
+def test_port_daily_stage_runs_for_touched_symbols_on_the_clean_path(env):
+    """The item reports what the run-level daily stage needs: every 1d item that delivered
+    bars returns its window start; the caller derives those symbols, then marks 1d."""
+    _, _, outcomes = _run_symbols(env)
+    touched = {o.symbol: o.derive_1d_since for o in outcomes if o.timeframe == "1d"}
+    assert touched == {s: pipeline._fetch_start(_END, 7300) for s in ("AAA", "BBB", "CCC")}
+    assert all(o.derive_1d_since is None for o in outcomes if o.timeframe == "15m")
+
+
+def test_port_5m_chunks_persist_atomically_into_the_grid(env):
+    outcome = _fetch(_ctx(FakeProvider(), tf_fetch_config={"5m": (10, False)}), _row("5m"))
+    assert outcome.status == "ok"
+    assert [(c.symbol, c.tf, c.planner) for c in env.gap_calls] == [("AAA", "5m", "record")]
+    assert len(env.persist) == 1
+    call = env.persist[0]
+    assert call.writer is pipeline._insert_market_data_rows
+    assert call.rows[0][1] == "AAA" and call.rows[0][2] == "5m"
+    assert len(call.rows[0]) == 9  # the grid row shape (no base column)
+    assert len(call.requests) == 1
+    assert [(s, tf) for s, tf, _ in env.marked] == [("AAA", "5m")]
+    assert env.normalized == []
 
 
 def test_port_15m_always_asks_through_the_last_slot_end(env):
     provider, _, _ = _run_symbols(env, symbols=("AAA",))
     ends = {c["timeframe"]: c["end"] for c in provider.calls}
-    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)
-    assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)  # 1d stays on the placeholder path
+    assert ends["15m"] == datetime(2024, 1, 15, 0, 15, tzinfo=UTC)  # through the slot's own end
+    assert ends["1d"] == datetime(2024, 1, 15, tzinfo=UTC)  # the D1 plan, asked as-is
+
+
+def test_1m_asks_through_the_legacy_slot_end(env):
+    provider = FakeProvider()
+    _fetch(_ctx(provider), _row("1m"))
+    assert provider.calls[0]["end"] == datetime(2024, 1, 15, 0, 1, tzinfo=UTC)
 
 
 def test_port_flush_failure_fails_the_symbol_loudly(env):
@@ -1011,3 +1178,45 @@ def test_port_flush_failure_fails_the_symbol_loudly(env):
     )
     assert outcome.status == "error"
     assert "D1 flush failed" in (outcome.error or "")
+
+
+def test_port_1d_empty_history_is_reconciled_from_d1_after_the_flush_not_from_the_walk(env):
+    _run_symbols(env)
+    assert [a for a in env.reconciled if a[2] == "1d"] == []
+    assert sorted(env.reconciled_1d) == [
+        ("1d", "ibkr", ["AAA"]),
+        ("1d", "ibkr", ["BBB"]),
+        ("1d", "ibkr", ["CCC"]),
+    ]
+
+
+def _1d_window_starts(provider, symbol="AAA"):
+    return [
+        c["start"].date()
+        for c in provider.calls
+        if c["symbol"] == symbol and c["timeframe"] == "1d"
+    ]
+
+
+def _third_last_session():
+    from src.intelligence.bars.sessions import nyse_sessions
+
+    return sorted(nyse_sessions(_END.date() - timedelta(days=30), _END.date()))[-3]
+
+
+def test_port_overlap_sessions_adds_the_recent_sessions_window_to_each_1d_symbol(env):
+    provider, _, outcomes = _run_symbols(env, overlap_sessions=3)
+    assert all(o.status == "ok" for o in outcomes)
+    starts = _1d_window_starts(provider)
+    assert _third_last_session() in starts
+    assert date(2024, 1, 1) in starts
+
+
+def test_port_no_overlap_by_default(env):
+    provider, _, _ = _run_symbols(env)
+    assert _third_last_session() not in _1d_window_starts(provider)
+
+
+def test_port_a_caller_supplied_fetch_run_id_labels_every_request(env):
+    provider, _, _ = _run_symbols(env, fetch_run_id="nightly-leg-1d")
+    assert {c["fetch_run_id"] for c in provider.calls} == {"nightly-leg-1d"}
