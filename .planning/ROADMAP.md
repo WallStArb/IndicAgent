@@ -240,7 +240,7 @@ explicit override for it.
 
 **Wave 13**
 
-- [ ] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, new-and-changed-only writes to D1 and market_data_ohlcv, scrub and digests in the loader, lineage/digest writer boundary (wave 13)
+- [x] 185-27-PLAN.md - Tradier write path: tradier-v1 lineage to D1, new-and-changed-only writes to D1 and market_data_ohlcv, scrub and digests in the loader, lineage/digest writer boundary (wave 13)
 - [ ] 185-29-PLAN.md - D0 label inputs name both rules; S0 hand-off todo for the research lane; owner answers and orchestrator calls recorded apart (wave 13)
 
 **Wave 14** *(blocked on Wave 13 completion)*
