@@ -89,3 +89,13 @@ TimescaleDB cost traps to avoid re-discovering empirically.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.
+
+## Closed 2026-10-06 (phase 185 plan 24)
+
+Replaced, not built as asked: plan 185-10's historical scrub pass ran every D2a rule over all
+1d bars in minutes (`services/bar_scrub.py` via `scripts/ops/bars/ops_scrub_historical_pass.py`,
+run log in `docs/research/scrub-historical-pass.md`), writing `bar_quality_flag` rows, never
+UPDATEs on compressed chunks (migration 381 chose a side table because of this todo's
+7.55 s per 500-row measurement). The legacy `price_sanity_status` verdicts were copied into
+`bar_quality_flag` as `legacy_price_sanity_status` (567 rows, 67 quarantined), and the daily
+derivation reruns the rules on every changed symbol each night, so no backlog can regrow.

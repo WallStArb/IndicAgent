@@ -1,8 +1,8 @@
 # Canonical Truth Registry
 
-**Version:** 3.0
+**Version:** 3.1
 **Status:** current
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-10-06
 **Tags:** data-ownership, canonical-source, streams, persistence, writer-agents, kafka
 
 **Archival note:** Rows describing the I1-I7 plugin tier, the typed intelligence bus
@@ -23,8 +23,16 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Entity | Canonical stream | Canonical table | Canonical writer | Notes |
 |---|---|---|---|---|
 | Raw provider bars | `{env}.market.bars.raw.{provider}` | None | Provider-specific `Provider` | Provider payloads are immutable protocol translations. |
-| Canonical 1m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. |
-| Higher-timeframe bars | `{env}.market.bars.htf` | `market_data_ohlcv` | `BarWriter` | HTF bars are computed from canonical 1m bars. |
+| Streaming 1m/5m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. Limited to 1m and 5m, and dormant while the IBKR live feed is down. Never writes 1d, 15m or 1h (phase 185). |
+| Historical 1m/5m bars | None (batch) | `market_data_ohlcv` | `infrastructure_run_historical_pipeline.py` (`backfill_feature_factory.py --fetch-only` for the rebuild) | Provider bars as fetched, real rows only (no synthetic fill since 185-18; table rebuilt from real rows by 185-25). |
+| Daily observations (D1) | None (batch) | `ohlcv_request`, `ohlcv_observation` | `services/ohlcv_observation_writer.py` under role `ohlcv_observation_writer`, called by the fetch paths (IBKR historical pipeline, Tradier loader) | Every provider answer, per route and what_to_show; requests log no_data/timeout/failed too. Mutable since migration 438. Test callers (`test-...`) are provenance-excluded by every reader. |
+| Canonical 1d bars | None (batch) | `market_data_ohlcv` (timeframe 1d) | `bar_derivation` (`services/bar_derivation.py --stage daily`) for IBKR-sourced names; Tradier loader (`infrastructure_run_tradier_daily.py`) for Tradier-owned names | One daily source per name for its whole history; Tradier owns a name once any load was accepted (`TRADIER_OWNED_SQL`). Lineage in `canonical_bar_lineage` (bar_derivation); Tradier loads in `ohlcv_load`, replaced values in `ohlcv_revision` (Tradier loader). |
+| Canonical 15m/1h bars (derived grid) | None (batch) | `market_data_ohlcv` (source `derived_5m`) | `bar_derivation` (`--stage grid`) | Rebuilt from tradeable 5m bars on session edges; the IBKR 15m/1h answers go to `ohlcv_intraday_raw_archive` (same writer). Single-writer CI fence: `tests/unit/test_market_data_ohlcv_writer_boundary.py`. |
+| Bar scrub flags and quarantine | None (batch) | `bar_quality_flag` | `services/bar_scrub.py` (run by bar_derivation's daily stage and the historical pass) and bar_derivation (constituent and split flags) | Flag, never delete (D-09): quarantine rules hide a bar from `market_data_ohlcv_tradeable`; the bar is never edited. |
+| Corporate actions (splits) | None (batch) | `corporate_action` (read `corporate_action_current`) | `ops_seam_audit.py`, `ops_split_detect.py` (nightly overlap), Tradier loader (refetch split) | Append-only; one fact type with three inference paths, each tagged by `inferred_by`, corrections supersede. All write under `bar_derivation_writer`. |
+| Listing venue (D6) | None (batch) | `listing_venue` | `services/listing_venue_writer.py` | Point-in-time `[valid_from, valid_to)` spans, no overlap; reconstructed history, the only update closes an open span (migration 408). |
+| Bar content digest | None (batch) | `bar_content_digest` (read `bar_content_digest_current`) | `bar_derivation` | Per (symbol, timeframe, month) checksum with the rule version; append-only. |
+| Derivation provenance | None (batch) | `bar_derivation_batch` | `services/bar_derivation_batch.py` (`open_batch`/`close_batch`, called by every derivation-side writer) | One row per run: stage, rule version, code commit, APR snapshot. |
 | Roll events | `{env}.market.events.roll` | `contract_metadata` | `roll-batch` nightly timer (`scripts/ops/roll/ops_roll_batch.py`) | Calendar-based roll detection; promotes front-month contract; broadcasts Kafka update events. |
 | Full I1-I7 feature record *(v2.x, archived)* | `{env}.intelligence.journal` | `intelligence_features` | `FeatureWriter` | Canonical per-bar feature persistence unit. No live consumer as of 2026-07-02. |
 | Signal detection (SLA) *(v2.x, archived)* | `{env}.intelligence.i7.signals` | `signal_events` | `SignalWriter` | Detection layer: one row per I7 plugin fire. Fields: `raw_confidence`, `factor_scores`, `context_features`, `ctf_score`, `ctf_confirmed`, `zone_friction_score`, `status`. |
@@ -48,6 +56,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 <!-- src: signal_events table, trade_frames table, trade_executions table, signal_ledger view (renamed from signal_ledger_full, Phase 130) — verified 2026-09-04 -->
 <!-- alpha_ensemble_ic, ensemble_alpha, alpha_events: rows removed; tables dropped by migration 426 (186-22) -->
 <!-- forward_returns row repointed at the kernel; table dropped by migration 430 (186-23) -->
+<!-- bar rows rewritten 2026-10-06 (phase 185 plan 24): BarWriter limited to streaming 1m/5m; bar_derivation owns 1d, 15m, 1h -->
 <!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
 
 ## Signal Ledger Architecture (SLA) Note *(v2.x — archived, no live consumer as of 2026-07-02)*

@@ -116,3 +116,32 @@ Absorbed todo 302 (`completed/302-ibkr-pre-listing-void-query-cancelled-not-fast
 ## Planned (2026-09-27)
 
 Phase 185 plans 03 and 09 (capture every route in D1), 14 (1d head re-run for the 381 late names, client 49), 13 (listing-venue study), 19 (D3 rebased on D1, D4 from recorded answers) and 20 (intraday verify-only; intraday recovery stored only after phase 186's rebuild).
+
+## Status after phase 185 (2026-10-06, plan 185-24)
+
+Stays pending: 1d is done, intraday storage is gated on phase 186.
+
+- **1d: inventory and record done; recovery by another vendor, not by venue bars.** The 1d head
+  re-run (185-14) found 39 moved names among the 382 late names (45 moved names among active
+  names today, 39 of them 1d-eligible). Their pre-move venue answers are kept in D1
+  (`ohlcv_observation`, routes NYSE/ARCA/AMEX/BATS/ISLAND). The venue study (185-13) failed both
+  criteria at 1d and 5m, so `infra.bar_derivation.venue_bars_1d` stays false and no venue bar
+  is canonical (185-19). Tradier became the primary daily source instead (migration 438): 30 of
+  the 39 moved 1d names are Tradier-owned and carry full daily history from Tradier, which is
+  not venue-truncated (AMD from 2000). On 2026-10-06, 29 of the 39 have tradeable 1d bars from
+  their first D1 bar; the 9 IBKR-sourced moved names (CSX, LDOS, MATX, MPB, NEXT, PEP, RIOT,
+  RSPR, SVRA) keep SMART-only history from the move, and D7's `late_heads` check reports them
+  every night. 1d empty history was reconciled from recorded answers (185-19: 26 kept, 89
+  deleted).
+- **D6 records the moves.** `listing_venue` (migration 408, `services/listing_venue_writer.py`)
+  holds point-in-time spans for all 931 1d-eligible names; each of the 39 moved names has a
+  closed former-venue span. D7's `listing_venue_coverage` check watches it (0 findings).
+- **Intraday: gated.** Venue fallback is 1d-only again (migration 437, 185-20, after measuring the
+  5m venue walk at about ten minutes per venue per moved name). Intraday recovery is refused by
+  `ops_intraday_venue_recovery.py --check` until the venue study's 5m verdict passes and phase
+  186's rebuild completes (`infra.bar_derivation.intraday_recovery_unlocked` and
+  `rebuild_state_table`, set by 186-27; todo 497). Intraday empty-history rows for 5m were
+  deleted and are re-recorded SMART-only; derived 15m/1h empty rows are SMART-only.
+- **Item 4 of Next** (head-timestamp "Query failed" on 112 names) was not checked separately;
+  the head re-run asked every late name directly, so it no longer blocks anything.
+

@@ -89,3 +89,9 @@ compressed chunks.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.
+
+## Closed 2026-10-06 (phase 185 plan 24)
+
+Dropped, as planned: migration 381 (plan 185-04) removed
+`idx_market_data_ohlcv_price_sanity_unaudited` once the batch pass replaced the scan it was
+meant to serve (`pg_indexes` count 0, rechecked 2026-10-06). No reader needed it.

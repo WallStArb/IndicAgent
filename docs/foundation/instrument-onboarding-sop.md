@@ -63,9 +63,12 @@ State them in the README entry for the batch; research discloses them through ph
   selector. A size or momentum claim needs point-in-time cap, never the holdings rank (todo 491 adds
   the entry date and cohort research needs to see it).
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
-  A moved name looks like a late listing until 185 D3 recovers the earlier years.
-- **Unscrubbed prints.** Bars arrive unscrubbed. The 1d dry run on 2026-09-26 found 45 corrupt
-  bars across the 932 names (185 D2a).
+  The former venues' answers are kept in D1 but stay out of canonical bars (the 185 D3 venue
+  study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6) records
+  the move. A Tradier-owned name's daily history does not have this truncation.
+- **Scrubbed, not cleaned.** Bad prints are flagged, never edited: the daily derivation runs the
+  D2a scrub rules and a quarantined bar disappears from `market_data_ohlcv_tradeable` while the
+  stored bar stays. The 1d dry run on 2026-09-26 found 45 corrupt bars across the 932 names.
 - **Price-only bars.** Stored bars are split-adjusted, not dividend-adjusted. Dividends live in
   `dividend_events` (Yahoo, refreshed daily for every active equity; todo 428), and a research
   spec gets total-return prices only if it declares `panel.total_return`. A newly onboarded name
@@ -76,9 +79,9 @@ State them in the README entry for the batch; research discloses them through ph
 
 ```
 source snapshot ─> select ─> classify ─> manifest ─> qualify ─> write ─> fetch 1d ─> verify ─> promote ─> record
- (holdings CSV)   (draw,     (IBKR       (reviewed   (IBKR,     (one     (historical (holds,    (compute_  (README,
-                  read-only)  details +   CSV)        no txn)    txn)     pipeline)   heads,     eligible_  commit)
-                              review)                                                 scrub)     1d)
+ (holdings CSV)   (draw,     (IBKR       (reviewed   (IBKR,     (one     (D1, then  (holds,    (compute_  (README,
+                  read-only)  details +   CSV)        no txn)    txn)     derive,    heads,     eligible_  commit)
+                              review)                                     scrub)     flags)     1d)
 ```
 
 Stages 1-4 write no database table. Stages 5-6 are one script. Nothing downstream of `promote`
@@ -184,11 +187,31 @@ applies.
 
 One 20-year request per name, rate-limited by `infra.ibkr.rate_limit_max_requests_by_tf`
 (`{"1d": 200}` per window). About 100 names take 45 to 60 minutes. On a clean fetch the pipeline
-sets `backfill_status.fetch_complete`. Former listing venues are asked in verify-only mode
-(`infra.ibkr.venue_fallback.store_bars` false): recovered history is logged, not stored, until
-185 D3's validation study passes. Keep the log; stage 8 reads it.
+sets `backfill_status.fetch_complete`. Former listing venues are asked too and their answers land
+in D1 as venue observations, unused by the derivation (stage 8 reads them). Keep the log.
 
 If the run dies, rerun the same command: gap detection skips what is stored.
+
+The fetch writes observations, not bars. Scrubbing is part of the chain, not a person's step,
+and the chain is one direction:
+
+1. **1d backfill into D1.** The command above, or for an equity the nightly Tradier leg, which
+   loads every active equity with no 1d bars from Tradier (Tradier then owns the name's daily
+   history; IBKR stops fetching its 1d).
+2. **Daily derivation (D2).** `services/bar_derivation.py --stage daily` turns the IBKR SMART
+   TRADES observations into canonical 1d bars with lineage; Tradier-owned names are skipped
+   (their loader wrote the bars).
+3. **Scrub (D2a).** The same daily stage reruns the scrub rules over the symbols it touched and
+   writes `bar_quality_flag`; quarantined bars leave the tradeable view.
+4. **Grid (D2b).** For intraday names, `--stage grid` derives 15m/1h from tradeable 5m.
+
+The stage 7 command runs steps 2 and 3 itself at exit, over every symbol whose 1d windows it
+asked, and fails loudly if the derivation fails; the nightly backfill runs 1 to 4 for promoted
+names. After a failed derivation, rerun it by hand (idempotent):
+
+```
+PYTHONPATH=. .venv/bin/python services/bar_derivation.py --stage daily --symbols <comma-separated batch> --apply
+```
 
 ### 8. Verify
 
@@ -210,16 +233,17 @@ Five checks, all read-only. Record the results in the README entry.
    ORDER BY first_bar;
    ```
    Cross them with the fetch log's `ibkr.hist_venue_fallback_recovered` and "Query failed" lines:
-   a name in both lists is a venue move and belongs in the 185 D3/D6 inventory.
-3. **Corrupt prints.**
+   a name in both lists is a venue move. After promote, record it in `listing_venue` (D6):
+   `.venv/bin/python -m services.listing_venue_writer --apply` (dry run without `--apply`;
+   append-only, skips names already recorded). The nightly D7 audit's `listing_venue_coverage`
+   check reports a moved 1d name with no closed former-venue span.
+3. **Scrub flags.** Read what the derivation's scrub wrote; never flag by hand:
+   ```sql
+   SELECT rule, quarantine, count(*) FROM bar_quality_flag
+   WHERE timeframe = '1d' AND symbol = ANY(:batch) GROUP BY 1, 2 ORDER BY 3 DESC;
    ```
-   .venv/bin/python scripts/ops/corpus/ops_known_corrupt_print_cleanup.py --tf 1d --symbols <space-separated batch>
-   ```
-   Dry run only. Record the confirmed-corrupt count. Flagging goes through 185 D2a, not by hand,
-   so the flags are versioned with the derivation; until D2a lands, a person may apply the flag
-   with `--apply` after reading every row. The classifier's cross-symbol corroboration clears
-   Flash Crash stub prints (2010-05-06) that are wrong; do not read its `MARKET_EVENT` section as
-   clean.
+   Record the quarantine count. A quarantined bar stays stored and is hidden from research; a
+   wrong flag is fixed by a rule or APR change and a rerun, never by an edit.
 4. **Gap closure.** The batch README claims the gaps it closes (sectors, rank bands, asset
    classes). Count them against the holdings file after promote and write the before and after
    numbers in the entry, so the claim is measured rather than assumed.
@@ -257,7 +281,7 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 | Name with no data passes the fetch "clean" | Promote gate counts real bars | Stage 9 |
 | Selection biased by data availability | Rule 1; no screens on history | Stages 2, 8 |
 | Venue-truncated history read as a late listing | Head check plus fetch log; 185 D3 | Stage 8 |
-| Corrupt prints reach research | Dry-run scan; 185 D2a flags | Stage 8 |
+| Corrupt prints reach research | D2a scrub in the daily derivation; quarantine hides the bar | Stages 7-8 |
 | Dead name deactivated, history erased from panels | Rule 6 (no automated guard; 185 D8 descoped) | After onboarding |
 | Two draws overlap | Exclude every draw of the batch | Stage 2 |
 | Two manual backfills share a client ID | Check running processes; pick a free ID | Stage 7 |
@@ -265,21 +289,22 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 
 ## Gaps, in the order they matter
 
-1. **No delisting guard** (185 D8 descoped 2026-09-26). Never soft-delete a name through the API
-   (`DELETE /instruments/{symbol}` sets `is_active = false`); rule 6 is the only protection.
-2. **Scrubbing in the chain** (185 D2a). Stage 8's scan is a dry run and a person decides.
-3. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
+1. **No delisting guard** (185 D8 descoped 2026-09-26; D-03). A delisted name is never
+   soft-deleted or deactivated: not through the API (`DELETE /instruments/{symbol}` sets
+   `is_active = false`), not by hand. Its bars stop and it stays in every panel; rule 6 is the
+   only protection.
+2. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
    would make stage 3 a command.
-4. **Second writer.** `universe_expansion_stratified_sourcing.py` and
+3. **Second writer.** `universe_expansion_stratified_sourcing.py` and
    `universe_expansion_pilot_draw.py` still carry a `--commit` path that writes instruments
    directly (todo 431). Do not use it.
-5. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
+4. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
    remove the hand-written migration.
-6. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
+5. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly
    through this SOP, one resumable command (`universe_onboard.py --manifest ...`) that runs
    stages 5-9 in order, stops at every hold, and writes the verify report is the automation
    step. Build it from the scripts above; do not reimplement them.
-7. **Point-in-time membership.** Holdings snapshots are downloaded when a draw needs one, and
+6. **Point-in-time membership.** Holdings snapshots are downloaded when a draw needs one, and
    kept in `config/universe/` with their date. Scheduled snapshots (185 D8) were descoped
    2026-09-26.

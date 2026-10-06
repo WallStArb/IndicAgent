@@ -1970,7 +1970,8 @@ open, high, low and close equal to the previous close, volume 0, `source = 'synt
 is not an observation, and it makes a missing bar look handled. **Not:** a derived bar (`source = 'derived_5m'`).
 **Banned:** (none)
 **Avoid:** "placeholder bar", an informal name for the same thing
-**Status:** being retired (todo 462; plans 185-12 and 185-18 stop it at 5m, 15m and 1h, 1d follows D2)
+**Status:** retired (todo 462; plans 185-12 and 185-18 stopped writing it, and plan 185-25 rebuilt
+`market_data_ohlcv` from real rows on 2026-10-06, so the table holds none)
 **Code surface:** `src/core/bar_normalizer.py` (`SOURCE_SYNTHETIC_FILL`, `normalize_bars`)
 
 ---
@@ -2004,6 +2005,102 @@ inside fetch coverage. Reported by the daily audit with the threshold in APR.
 **Not:** row count.
 **Banned:** (none)
 **Status:** design (todo 462; plan 185-23)
+
+---
+
+## Bar data layer terms (phase 185)
+
+The daily data foundation: provider answers are kept as observations (D1), canonical bars are
+derived from them (D2), and side tables record what is wrong with a bar or why it moved, never by
+editing the bar itself. Operations view: `docs/operations/operations-database.md`.
+
+### `observation`
+
+One daily bar exactly as a provider answered it: a row of `ohlcv_observation` (D1), keyed by the
+request that fetched it (`ohlcv_request`, which also logs no_data, timeout and failed answers),
+with its route (`SMART`, a venue such as `NYSE`, `TRADIER`) and what_to_show. The same date can
+hold several observations; the latest per route is what the derivation reads. Daily only;
+intraday answers are stored as bars directly. **Not:** a sample in a statistic ("n
+observations"), and not a canonical bar. **Banned:** (none)
+**Status:** active (migration 380, phase 185 D1; mutable since migration 438)
+**Code surface:** `ohlcv_request`, `ohlcv_observation`; writer role `ohlcv_observation_writer`
+
+### `canonical bar`
+
+The one bar per (symbol, timeframe, timestamp) that research reads, stored in
+`market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar comes
+from a name's one daily source for its whole history: the Tradier loader for Tradier-owned names
+(some Tradier load ever accepted), otherwise D2's derivation from IBKR SMART TRADES observations,
+with its lineage in `canonical_bar_lineage`. 15m and 1h canonical bars are the derived grid; 5m
+and 1m are the provider's bars as fetched. **Not:** an observation (raw answer) or a quarantined
+bar (stored, hidden from readers). **Banned:** (none)
+**Status:** active (phase 185 plans 17, 18, 25, 26)
+**Code surface:** `services/bar_derivation.py`, `scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py`
+
+### `derived grid`
+
+The 15m and 1h bars rebuilt from a name's tradeable 5m bars on session-anchored edges (a 1h bar
+of a 16:00 close ends at 15:30-16:00), `source = 'derived_5m'`. The IBKR 15m/1h answers they
+replace are kept in `ohlcv_intraday_raw_archive`. A derived bar with an unanswered constituent
+slot carries a `partial_constituents` flag. **Not:** a provider 15m/1h bar, and not a synthetic
+fill. **Banned:** (none)
+**Status:** active (D2b, phase 185 plans 11 and 12)
+**Code surface:** `services/bar_derivation.py --stage grid`
+
+### `scrub flag`
+
+A row of `bar_quality_flag` naming one rule (D2a: `ohlc_invariant`, `price_sanity`, `stale_print`,
+`vol_scaled_jump` and the rest of `scrub_rules.py`) that fired on one stored bar, with the rule version and the batch that
+wrote it. A flag describes the bar; it never edits or deletes it. Most flags are informational;
+the ones on the quarantine rule list also hide the bar. **Not:** a quarantine, which is a flag
+with `quarantine = true`. **Banned:** (none)
+**Status:** active (migration 381, phase 185 plans 05 and 10)
+**Code surface:** `src/intelligence/bars/scrub_rules.py`, `services/bar_scrub.py`
+
+### `quarantine`
+
+A scrub flag whose rule is on the APR quarantine list
+(`threshold.bar_scrub.quarantine_rules`): the bar stays in `market_data_ohlcv` but
+`market_data_ohlcv_tradeable` anti-joins it out, so no research read sees it. The scrub stage
+itself reads `market_data_ohlcv_scrub_input`, which keeps quarantined bars. Clearing a
+quarantine is a new scrub run, not an edit. **Not:** a deletion, and not a missing bar (a no-trade
+slot). **Banned:** (none)
+**Status:** active (D-09 flag-never-delete, migration 381; `pre_split_unrefetched` added by 402)
+**Code surface:** `bar_quality_flag.quarantine`, `market_data_ohlcv_tradeable`
+
+### `corporate action`
+
+A split or reverse split recorded in `corporate_action` with its factor (stored / fresh close on
+the old scale), its effective date (the last day on the old scale) and the requests that evidence
+it; inferred by the seam audit, the nightly overlap or a Tradier refetch. Append-only: a
+correction is a new row that supersedes the old one, read through `corporate_action_current`.
+Dividends are not corporate actions here; they live in `dividend_events`. **Not:** a dividend, a
+symbol change or a listing-venue move. **Banned:** (none)
+**Status:** active (migration 400; `tradier_refetch` admitted by 440)
+**Code surface:** `scripts/ops/bars/ops_seam_audit.py`, `scripts/ops/bars/ops_split_detect.py`
+
+### `listing venue`
+
+The exchange a name was listed on over a date range, in IBKR primary-exchange codes (`NYSE`,
+`NASDAQ`, `ARCA`, `AMEX`, `BATS`), stored point in time in `listing_venue` with
+`[valid_from, valid_to)` spans that never overlap. From the SMART head on it is SMART's current
+primary exchange; before a move it is inferred from the former-venue observations (the venue
+whose close is most often the nearest to the official close, then volume). Reconstructed history:
+past dates are allowed on insert, and the only update closes an open span. It explains why a
+moved name's SMART history starts late (todo 433). **Not:** a route (`ISLAND` is the route,
+`NASDAQ` the venue) or the `SMART` router. **Banned:** (none)
+**Status:** active (D6, migration 408, phase 185 plan 24)
+**Code surface:** `services/listing_venue_writer.py`
+
+### `bar content digest`
+
+A checksum of a (symbol, timeframe, calendar month) slice of canonical bars, with the rule
+version beside it, in `bar_content_digest` (append-only; `bar_content_digest_current` is the
+latest per slice). `--changed-only` derivation runs skip a symbol whose month digests are all
+unchanged, and phase 186 reads the digests to know which feature units must be recomputed. **Not:** the provenance batch's input
+digest (a feature-side record). **Banned:** (none)
+**Status:** active (migration 383, phase 185 plans 11 and 17)
+**Code surface:** `services/bar_derivation.py`
 
 ---
 

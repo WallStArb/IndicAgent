@@ -1,7 +1,7 @@
 # Database — TimescaleDB Operations
 
-**Version:** 2.9
-**Last Updated:** 2026-06-07
+**Version:** 2.10
+**Last Updated:** 2026-10-06 (phase 185 section only)
 **Status:** stale (v2.x, see banner)
 
 ---
@@ -51,6 +51,85 @@ TimescaleDB operations: tables, migrations, backfill, compression, backup, and a
 | `intelligence_features` | `ts` | Not `feature_ts` |
 | `signal_ledger` | `timestamp` | JOIN via `(symbol, feature_ts, feature_tf)` |
 | `llm_calls` | `called_at` | Composite PK with `call_id` |
+
+---
+
+## Daily data foundation (phase 185, current as of 2026-10-06)
+
+This section is current; the banner above applies to the rest of the file. Terms (observation,
+canonical bar, scrub flag, quarantine, corporate action, listing venue, bar content digest,
+derived grid) are defined in `docs/foundation/glossary.md`; owners are in
+`docs/foundation/canonical-truth-registry.md`.
+
+### Tables
+
+| Table | Holds | Writer |
+|-------|-------|--------|
+| `ohlcv_request` | Every provider history request and its outcome (`bars`, `no_data`, `timeout`, `failed`, `legacy_import`), any timeframe, with route, `primary_exchange` and `caller` | `services/ohlcv_observation_writer.py` |
+| `ohlcv_observation` | Every 1d bar answered (D1), per request, route (`SMART`, `NYSE`, `ARCA`, `ISLAND`, `AMEX`, `BATS`, `TRADIER`, `LEGACY_IMPORT`) and what_to_show | same |
+| `ohlcv_load`, `ohlcv_revision` | One row per Tradier daily load of one symbol; the old values of any canonical bar a load changed | Tradier loader |
+| `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25). 1d: `ibkr_named` (D2) or `tradier`; 15m/1h: `derived_5m`; 5m/1m: provider bars | D2, Tradier loader, historical pipeline (5m/1m) |
+| `canonical_bar_lineage` | Which observation each D2 1d bar came from | `bar_derivation --stage daily` |
+| `ohlcv_intraday_raw_archive` | The IBKR 15m/1h answers the derived grid replaced (hypertable) | `bar_derivation --stage grid` |
+| `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
+| `corporate_action` | Splits and reverse splits, append-only, `supersedes` for corrections | seam audit, nightly split detect, Tradier loader |
+| `listing_venue` | Point-in-time listing venue spans per symbol (D6) | `services/listing_venue_writer.py` (manual run) |
+| `bar_content_digest` | Per (symbol, timeframe, month) checksum, append-only | `bar_derivation` |
+| `bar_derivation_batch` | One row per derivation-side run: stage, rule version, code commit, APR snapshot | every derivation-side writer |
+| `ohlcv_empty_history` | Spans every required route answered no_data for | historical pipeline (`_empty_history.py`) |
+
+D1 tables are plain tables (not hypertables). `ohlcv_request` and `ohlcv_observation` are mutable
+since migration 438; `corporate_action`, `bar_content_digest` and `listing_venue` refuse rewrites
+in a trigger (superuser included).
+
+### Roles
+
+Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
+`SET LOCAL ROLE <role>` inside each write transaction, so grants are the fence.
+
+- `ohlcv_observation_writer`: INSERT (and since 438 UPDATE, DELETE) on the D1 tables.
+- `bar_derivation_writer`: DML on `market_data_ohlcv` and the derivation side tables; read-only on
+  D1; INSERT and `UPDATE (valid_to)` only on `listing_venue`.
+
+### Views
+
+- `market_data_ohlcv_tradeable`: `volume > 0` and no quarantine flag. Every research and compute
+  read goes through it (`tests/unit/test_market_data_ohlcv_boundary.py`).
+- `market_data_ohlcv_scrub_input`: every traded bar, quarantined included; the scrub stage's
+  input.
+- `corporate_action_current`, `bar_content_digest_current`: rows nothing later supersedes.
+- `ohlcv_venue_head`: per (symbol, route) first and last venue bar and the SMART head;
+  `pre_move` marks venue history before the head (the moved-name inventory). It also lists
+  the `TRADIER` route; filter routes to the venue list.
+
+Readers of D1 exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'` (todo 494).
+
+### Nightly chain
+
+`scripts/infrastructure/backfill/infrastructure_nightly_backfill.py`, in order:
+
+1. Status file `logs/nightly_backfill_status.json` set to `started`.
+2. Tradier daily leg (`infrastructure_run_tradier_daily.py --nightly`, APR
+   `infra.tradier.nightly_enabled`): refetches every Tradier-owned name in full and loads any
+   active equity with no 1d bars. A refetch carrying a split back-adjustment records a
+   `corporate_action`; other refusals keep the stored bars.
+3. IBKR legs under the `ibkr_history_stream` lease: `compute` (full stack), `compute_tradier_owned`
+   (intraday only) and `compute_1d_only` (non-owned names). 1d answers land in D1.
+4. Split detection over the run's overlap (`ops_split_detect.py`), then re-fetch and re-derive.
+5. Daily stage (`bar_derivation --stage daily --changed-only --apply`): D2 canonical 1d plus the
+   D2a scrub rules.
+6. Grid stage (`bar_derivation --stage grid --changed-only --apply`): D2b 15m/1h.
+7. Status file `success` or `failed`, `job_completed_total`, then the D7 audit
+   (`services/bar_reconciliation_audit.py`) on every path.
+
+D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
+`route_disagreement`, `adjusted_vs_trades`, `daily_vs_intraday`, `unexplained_seams`,
+`late_heads`, `listing_venue_coverage`, `unconfirmed_empty`, `partial_daily`,
+`dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `tradier_refused`,
+`completeness`, `masked_slots`, plus vendor agreement per year.
+
+Not in the nightly: `services/listing_venue_writer.py` (run after an onboarding batch is
+promoted; append-only, idempotent) and the seam audit.
 
 ---
 

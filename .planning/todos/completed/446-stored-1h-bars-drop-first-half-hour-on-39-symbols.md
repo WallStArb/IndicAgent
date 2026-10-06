@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 priority: P1
 filed: 2026-09-26
 source: forward-return parity check (2026-09-26 session); feeds phase 185 (intraday derivation) and the phase 186 feature_vectors rebuild
@@ -41,3 +41,12 @@ and whether the 39 share a fetch path (client, exchange routing, request type).
 ## Planned (2026-09-27)
 
 Phase 185 plans 06 (session grid and digest), 11 (writer, raw archive, single-writer CI) and 12 (live rewrite, IBKR 15m/1h kept as raw observations with a parity check, the 42-name 09:30 refetch).
+
+## Closed 2026-10-06 (phase 185 plan 24)
+
+Fixed by the derived grid (D2b): plan 185-11 built the writer (15m/1h from tradeable 5m on
+session-anchored edges, IBKR answers archived in `ohlcv_intraday_raw_archive`), plan 185-12
+rewrote the stored grid and chained it into the nightly, and plan 185-25 removed every
+placeholder row. SPY now holds 5,086 1h bars starting 09:30 ET (2006-07-07 to 2026-09-29). The
+185-23 audit's `masked_slots` check reports zero masked 15m and 1h slots on derived symbols.
+Phase 186's rebuild computes 1h features on these bars.

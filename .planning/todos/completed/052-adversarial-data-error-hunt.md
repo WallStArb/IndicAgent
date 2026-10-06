@@ -78,3 +78,16 @@ their effect on `feature_ic_scores`.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 OHLCV data-quality bundle (with 052, 155, 347), linked from phase 185 (`docs/plans/2026-09-26-daily-data-foundation.md`). Bars are the input to everything.
+
+## Closed 2026-10-06 (phase 185 plan 24)
+
+Done inside phase 185's D2a scrub. Plan 185-01 restored this body and pinned the known answers
+(the 2026-09-26 dry run's 45 corrupt 1d bars, 27 and 1,864-row sets, 15 legacy
+`confirmed_corrupt` rows, SPY/MRNA/ALMS fixtures) under `tests/fixtures/bars`; plan 185-05 built
+the eight scrub rules plus the two ported flags as pure APR functions in
+`src/intelligence/bars/scrub_rules.py` and proved them against that set; plan 185-10 ran the
+historical pass (`services/bar_scrub.py`, results in `docs/research/scrub-historical-pass.md`)
+and the daily derivation reruns the rules every night (185-17/18). The search for new error
+classes found one, ultra-thin series (RCAT), filed as todo 454. Live flags 2026-10-06: 14,984
+`ohlc_invariant`, 67 legacy and 48 `price_sanity`, 1 `non_positive_price` quarantined; the
+informational rules carry the rest.
