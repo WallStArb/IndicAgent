@@ -17,7 +17,8 @@ Definitions (the baseline states the same text):
 - apr_keys_without_reader: config_state keys with no reader in services/, src/ or scripts/
   (*.py, *.sh, *.sql). A reader is the literal key, or, for a key built in code, a dotted
   prefix of the key followed by a `{` placeholder, a `%` format or a closing quote (the
-  registry's naming rule: `<prefix>.{tf}`, `<prefix>_{tf}`, `"alert.lag." + unit`).
+  registry's naming rule: `<prefix>.{tf}`, `<prefix>_{tf}`, a quoted `<prefix>.` joined to a
+  unit name). This file names no real key, so it is never a reader itself.
   Migrations and tests are not readers.
 - services_without_live_consumer: _DAG_ORDER units (services/service_auditor.py) whose systemd
   unit is failed, missing, or inactive without being Type=oneshot or having a loaded timer,
