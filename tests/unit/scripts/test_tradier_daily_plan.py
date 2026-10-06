@@ -167,9 +167,10 @@ def test_constant_ratio_inside_one_section_only_is_gated_not_a_split():
     assert plan.outcome == "gated" and plan.split is None
 
 
-def test_ratio_that_snaps_to_no_split_factor_is_gated():
+def test_constant_ratio_that_snaps_to_one_is_gated_not_a_split():
+    # A uniform 0.4% rescale of the whole history (a bad payload) snaps to 1/1: refused.
     bars = _weekday_bars(301)
-    existing = {b.timestamp: _old_scale(b, 1.731) for b in bars[:300]}
+    existing = {b.timestamp: _old_scale(b, 1.004) for b in bars[:300]}
     plan = plan_symbol_load(bars, existing, _PARAMS)
     assert plan.outcome == "gated" and plan.split is None
 
