@@ -58,7 +58,7 @@ Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 26 plans in 12 waves; all 26 executed 2026-10-06 (23 D7 audit, 25 real-rows swap, 26 nightly Tradier leg, 24 listing_venue); phase verification and UAT pending. D7 (185-23) runs as the nightly's last step on every path and reports to integrity_monitor and Prometheus (`bar_reconciliation_findings_total`). Owner decisions 2026-10-03: Tradier is the primary 1d source (migration 438; raw in D1 for all 1,529 names, 1,266 canonical, 188 equity names stay IBKR), D1 is mutable, `market_data_ohlcv` was rebuilt from real rows on 2026-10-06 (no synthetic fill; the 449 HTF lane was relaunched after), and the nightly 1d leg is Tradier (185-26). Todo 492 holds the vendor reconciliation. D2b landed
+- **Phase 185:** original 26 plans executed 2026-10-06; verification found gaps (`185-VERIFICATION.md`), so gap closure plans 27-44 and 189-07..11 implement the approved data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`: Tradier primary 1d with IBKR fallback via `bar_source_policy`, one daily rule d2-v2, lineage as a view, one write contract, 15m/1h/4h derived from 5m, raw 5m only for the promoted names, verdict-based gates, then cleanup). Done: 185-27, 185-30, 185-44 (complexity baseline plus three CI guards). 1,502 names are promoted `compute_eligible_1d`, 27 held. The IBKR fetcher service and timer are stopped and disabled until the 189-10 pilot passes. Order: ROADMAP.md; handoff: `.planning/phases/185-daily-data-foundation/.continue-here.md`.
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
@@ -129,7 +129,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186`: 25/29 done plus 186-17 partial, no executor live; remaining 17 Task 2, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | all 26 plans executed; next `/gsd-verify-work 185` | Owns `src/providers/ibkr.py` changes and todo 433 |
+| Phase 185 | gap closure under way (185-44 done); next 189-07, then 185-28, 185-31 | Owns `src/providers/ibkr.py` changes and todo 433 |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
