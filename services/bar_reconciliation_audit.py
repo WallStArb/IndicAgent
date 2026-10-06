@@ -24,6 +24,8 @@ with the venue study):
   and the 15m/1h slots that hide real 5m volume behind a placeholder or a hole.
 - vendor_agreement: Tradier vs IBKR SMART TRADES closes and volumes in D1, per year
   (Tradier is the primary 1d source since migration 438).
+- tradier_refused: a Tradier-owned name whose latest daily load was refused (gated,
+  short_history, no_data or failed; plan 185-26). Its stored bars stay as they were.
 
 Observability only, the classification-coverage contract: a finding is reported loudly
 (an integrity_monitor fact, an OTel metric labeled by check, and by timeframe or year
@@ -372,6 +374,21 @@ def check_nightly_skipped(
     if finished is None or now - finished > timedelta(hours=max_age_hours):
         return CheckResult(1, (f"stale|finished_at={finished_raw}",))
     return CheckResult(0, ())
+
+
+def check_tradier_refused(latest: Mapping[str, tuple[str, str | None]]) -> CheckResult:
+    """Tradier-owned names whose latest daily load was not accepted (plan 185-26).
+
+    latest: symbol -> (outcome, detail) of its most recent ohlcv_load row, for names some
+    load was accepted for. A refusal keeps the stored bars; it is reported here, never
+    applied and never a nightly failure.
+    """
+    samples = [
+        f"{symbol}|{outcome}|{detail or ''}"
+        for symbol, (outcome, detail) in sorted(latest.items())
+        if outcome != "loaded"
+    ]
+    return CheckResult(len(samples), tuple(samples))
 
 
 # ---------------------------------------------------------------------------
@@ -837,6 +854,13 @@ WITH i AS (
 SELECT extract(year FROM i.bar_date)::int AS year, i.close, t.close, i.volume, t.volume
 FROM i JOIN t USING (bar_date)
 """
+# The latest load of every Tradier-owned name (the ever-loaded predicate D2 uses).
+_TRADIER_LATEST_LOAD_SQL = """
+SELECT DISTINCT ON (l.symbol) l.symbol, l.outcome, l.detail
+FROM ohlcv_load l
+WHERE EXISTS (SELECT 1 FROM ohlcv_load o WHERE o.symbol = l.symbol AND o.outcome = 'loaded')
+ORDER BY l.symbol, l.loaded_at DESC
+"""
 _ALREADY_RECORDED_SQL = """
 SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end = $2 LIMIT 1
 """
@@ -980,6 +1004,7 @@ class BarReconciliationAudit(BaseBatch):
                 "nightly_skipped": self._nightly_skipped(params, now),
                 "stray_sources": await self._stray_sources(conn, window),
                 "switches": self._switches(params),
+                "tradier_refused": await self._tradier_refused(conn),
             }
             grid = await self._grid_checks(conn, params, window, compute)
             checks["completeness"] = grid.completeness
@@ -1190,6 +1215,14 @@ class BarReconciliationAudit(BaseBatch):
         if stray:
             logger.error("bar_reconciliation.stray_source_symbols", symbols_by_source=stray)
         return _Judged(result, sum(counts.values()))
+
+    @staticmethod
+    async def _tradier_refused(conn: Any) -> _Judged:
+        latest = {
+            r["symbol"]: (r["outcome"], r["detail"])
+            for r in await conn.fetch(_TRADIER_LATEST_LOAD_SQL)
+        }
+        return _Judged(check_tradier_refused(latest), len(latest))
 
     @staticmethod
     def _switches(params: _Params) -> _Judged:

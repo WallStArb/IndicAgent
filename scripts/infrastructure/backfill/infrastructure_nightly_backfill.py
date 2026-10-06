@@ -50,6 +50,16 @@ logs/nightly_backfill_status.json ('started' at entry, the final status from _fi
 then runs services/bar_reconciliation_audit.py as its last step, on every path including a
 lease timeout and a crash, so a skipped or failed night is itself an audit finding.
 
+Tradier 1d leg, added 2026-10-06 (phase 185 plan 26, D-21): behind the APR switch
+infra.tradier.nightly_enabled, the nightly first runs infrastructure_run_tradier_daily.py
+--nightly, which refetches every Tradier-owned name in full and loads new names with no 1d
+bars. Its refusals (gated, short_history, failed) are findings the D7 audit reports
+(tradier_refused), never a nightly failure; only a runtime error is. The IBKR legs are then
+selected, and every Tradier-owned name (TRADIER_OWNED_SQL, the same predicate as the D2
+guard) is dispatched without 1d: in compute_1d_only it drops out, in compute it moves to a
+compute_tradier_owned leg with the stack minus 1d. IBKR pacing is spent only on the names
+Tradier cannot serve and on intraday.
+
 Ranking heuristic note: _select_stalest's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
 against its own proven-depth ceiling and can find gaps earlier in a symbol's history even
@@ -80,8 +90,13 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
+    _DEFAULT_TIMEFRAMES,
     EXIT_LEASE_TIMEOUT,
     connect_db,
+)
+from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (  # noqa: E402
+    EXIT_REFUSED,
+    TRADIER_OWNED_SQL,
 )
 from scripts.ops.bars.ops_grid_lane_guard import write_exclude_file  # noqa: E402
 from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
@@ -108,6 +123,11 @@ _NIGHTLY_LEASE_WAIT_KEY = "infra.ibkr_history_lease.nightly_wait_minutes"
 _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES = 60  # migration 380 APR seed
 _OVERLAP_SESSIONS_KEY = "infra.bar_derivation.overlap_sessions"
 _OVERLAP_SESSIONS_FALLBACK = 20  # migration 406 APR seed
+_TRADIER_SCRIPT = (Path(__file__).parent / "infrastructure_run_tradier_daily.py").resolve()
+_TRADIER_ENABLED_KEY = "infra.tradier.nightly_enabled"
+_TRADIER_ENABLED_FALLBACK = True  # migration 440 APR seed
+_DAILY_TF = "1d"
+_TRADIER_OWNED_SUFFIX = "_tradier_owned"
 _SPLIT_DETECT_SCRIPT = Path(__file__).resolve().parents[2] / "ops" / "bars" / "ops_split_detect.py"
 # D7 (plan 185-23): the reconciliation audit runs as the last step of every run, and reads the
 # run's final status from this file (path is service identity, APR-exempt).
@@ -147,6 +167,99 @@ def _load_overlap_sessions(conn: psycopg.Connection) -> int:
     except Exception as error:
         _logger.warning("nightly_backfill.overlap_sessions_lookup_failed", error=str(error))
     return _OVERLAP_SESSIONS_FALLBACK
+
+
+def _load_tradier_enabled(conn: psycopg.Connection) -> bool:
+    """The nightly Tradier 1d leg and the IBKR Tradier-owned skip (plan 185-26), from APR.
+    The fallback is the migration 440 seed."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT config_value FROM config_state WHERE config_key = %s",
+                (_TRADIER_ENABLED_KEY,),
+            )
+            row = cur.fetchone()
+        if row and row[0] is not None:
+            return str(row[0]).strip().lower() in ("true", "1", "t", "yes")
+    except Exception as error:
+        _logger.warning("nightly_backfill.tradier_enabled_lookup_failed", error=str(error))
+    return _TRADIER_ENABLED_FALLBACK
+
+
+def _select_tradier_owned(conn: psycopg.Connection) -> set[str]:
+    """Every name Tradier owns, in one query (the D2 guard's predicate)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT i.symbol FROM instruments i WHERE {TRADIER_OWNED_SQL.format(col='i.symbol')}"
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
+def _run_tradier_leg() -> int:
+    """Run the Tradier 1d leg (plan 185-26) and return 0 unless it hit a runtime error.
+
+    EXIT_REFUSED means some names were refused or failed: each is an ohlcv_load row the D7
+    audit reports (tradier_refused), and the name keeps its stored bars, so it never fails
+    the nightly. Any other nonzero code is the loader's own error and is returned.
+    """
+    started = datetime.now(UTC)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_TRADIER_SCRIPT), "--nightly"],
+            cwd=str(project_root),
+            env={**os.environ, "PYTHONPATH": str(project_root)},
+        )
+    except OSError as error:
+        _logger.error("nightly_backfill.tradier_leg_not_started", error=str(error))
+        return 1
+    seconds = (datetime.now(UTC) - started).total_seconds()
+    _logger.info(
+        "nightly_backfill.tradier_leg_done", returncode=result.returncode, seconds=round(seconds)
+    )
+    print(f"Nightly backfill (tradier_daily): returncode={result.returncode} in {seconds:.0f}s")
+    if result.returncode == EXIT_REFUSED:
+        _logger.warning("nightly_backfill.tradier_leg_refusals")
+        return 0
+    return result.returncode
+
+
+def _leg_timeframes(delegate_args: tuple[str, ...]) -> list[str]:
+    """The timeframes a leg's delegate fetches: its --timeframes, else the delegate default."""
+    args = list(delegate_args)
+    value = args[args.index("--timeframes") + 1] if "--timeframes" in args else _DEFAULT_TIMEFRAMES
+    return [tf.strip() for tf in value.split(",") if tf.strip()]
+
+
+def _without_daily(delegate_args: tuple[str, ...]) -> tuple[str, ...] | None:
+    """The leg's args with 1d removed from its timeframes; None when 1d was all it fetched."""
+    timeframes = [tf for tf in _leg_timeframes(delegate_args) if tf != _DAILY_TF]
+    if not timeframes:
+        return None
+    args = list(delegate_args)
+    if "--timeframes" in args:
+        args[args.index("--timeframes") + 1] = ",".join(timeframes)
+    else:
+        args += ["--timeframes", ",".join(timeframes)]
+    return tuple(args)
+
+
+def split_tradier_owned(
+    batches: Sequence[tuple[_Leg, list[str]]], owned: set[str]
+) -> list[tuple[str, list[str], tuple[str, ...]]]:
+    """IBKR dispatches with 1d skipped for every Tradier-owned name (plan 185-26).
+
+    Each leg keeps its non-owned names (staleness order kept). Its owned names go to a
+    `<leg>_tradier_owned` dispatch with the leg's timeframes minus 1d, or drop out when the
+    leg fetches 1d only. With no owned names the dispatches equal the legs.
+    """
+    dispatches: list[tuple[str, list[str], tuple[str, ...]]] = []
+    for leg, symbols in batches:
+        dispatches.append((leg.name, [s for s in symbols if s not in owned], leg.delegate_args))
+        moved = [s for s in symbols if s in owned]
+        args = _without_daily(leg.delegate_args) if moved else None
+        if args is not None:
+            dispatches.append((leg.name + _TRADIER_OWNED_SUFFIX, moved, args))
+    return dispatches
 
 
 def _run_split_detect(run_ids: Sequence[str]) -> int:
@@ -382,13 +495,51 @@ def _run_nightly() -> int:
 
     conn = connect_db(settings)
     try:
+        tradier_enabled = _load_tradier_enabled(conn)
+    finally:
+        conn.close()
+
+    returncodes: list[int] = []
+    # Plan 185-26: Tradier first, so names it loads tonight are already owned when the IBKR
+    # legs are selected below.
+    if tradier_enabled:
+        returncodes.append(_run_tradier_leg())
+
+    conn = connect_db(settings)
+    try:
         batches = [(leg, _select_stalest(conn, leg)) for leg in _LEGS]
+        owned = _select_tradier_owned(conn) if tradier_enabled else set()
         lease_wait_minutes = _load_lease_wait_minutes(conn)
         overlap_sessions = _load_overlap_sessions(conn)
     finally:
         conn.close()
 
-    if not any(symbols for _leg, symbols in batches):
+    dispatches = split_tradier_owned(batches, owned)
+    n_skipped = {
+        name: len(symbols)
+        for name, symbols, _ in dispatches
+        if name.endswith(_TRADIER_OWNED_SUFFIX)
+    }
+    n_dropped = sum(len(symbols) for _, symbols in batches) - sum(
+        len(symbols) for _, symbols, _ in dispatches
+    )
+    # Each skipped name is one 1d request (or more) the IBKR pacing budget no longer spends.
+    _logger.info(
+        "nightly_backfill.tradier_owned_skip",
+        enabled=tradier_enabled,
+        n_owned=len(owned),
+        n_1d_skipped=sum(n_skipped.values()) + n_dropped,
+        moved_by_leg=n_skipped,
+        n_dropped_1d_only=n_dropped,
+    )
+
+    if not any(symbols for _name, symbols, _args in dispatches):
+        if returncodes and returncodes[0] != 0:
+            return _finish(
+                "failed",
+                f"Tradier leg failed (returncode={returncodes[0]}); no IBKR names tonight.",
+                returncode=returncodes[0],
+            )
         return _finish(
             "nothing_to_do",
             "No active instruments found -- nothing to do tonight.",
@@ -398,29 +549,28 @@ def _run_nightly() -> int:
     # it (bounded by APR) instead of the nightly skipping when a backfill runs.
     lease_args = ("--lease-tier", "priority", "--lease-wait-minutes", str(lease_wait_minutes))
 
-    returncodes: list[int] = []
     lease_timeout_legs: list[str] = []
     run_ids: list[str] = []
-    for leg, symbols in batches:
+    for name, symbols, delegate_args in dispatches:
         if not symbols:
             continue
-        print(f"Nightly backfill ({leg.name}): {len(symbols)} symbols -- {', '.join(symbols)}")
+        print(f"Nightly backfill ({name}): {len(symbols)} symbols -- {', '.join(symbols)}")
         _logger.info(
-            "nightly_backfill.batch_selected", leg=leg.name, symbols=symbols, n_symbols=len(symbols)
+            "nightly_backfill.batch_selected", leg=name, symbols=symbols, n_symbols=len(symbols)
         )
         # The nightly names the run so split detection can judge exactly its overlap (D-21).
         run_id = new_fetch_run_id()
         run_ids.append(run_id)
         returncode = _run_delegate(
             symbols,
-            leg.delegate_args
+            delegate_args
             + lease_args
             + ("--fetch-run-id", run_id, "--overlap-sessions", str(overlap_sessions)),
         )
         returncodes.append(returncode)
         if returncode == EXIT_LEASE_TIMEOUT:
-            lease_timeout_legs.append(leg.name)
-            _emit_lease_timeout_fact(leg.name, settings)
+            lease_timeout_legs.append(name)
+            _emit_lease_timeout_fact(name, settings)
 
     # Lane guard first: the exclude file covers both derivation stages (the
     # daily stage needs it for exactly the same reason the grid stage does --

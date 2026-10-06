@@ -324,13 +324,12 @@ EXISTS (
            WHERE stage = 'daily' AND status = 'completed'),
           '-infinity'::timestamptz)
 ) AS action_since,
--- A name whose latest daily load came from Tradier keeps that source for its whole history
--- (migration 438); D2 never overwrites it with IBKR observations.
-EXISTS (
-    SELECT 1 FROM ohlcv_load l
-    WHERE l.symbol = $1 AND l.outcome = 'loaded'
-      AND l.loaded_at = (SELECT max(loaded_at) FROM ohlcv_load WHERE symbol = $1)
-) AS tradier_owned
+-- A name some Tradier daily load was accepted for keeps that source for its whole history
+-- (migration 438); D2 never overwrites it with IBKR observations. A later refused load
+-- (gated, short_history, failed; plan 185-26) does not hand it back: its stored bars stay.
+-- Same predicate as TRADIER_OWNED_SQL in infrastructure_run_tradier_daily.py (the nightly's
+-- IBKR 1d skip).
+EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = $1 AND l.outcome = 'loaded') AS tradier_owned
 """
 
 # Native upsert, 185-01 measurement b; the ON CONFLICT arm also replaces a

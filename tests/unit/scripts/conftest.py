@@ -5,6 +5,10 @@ reconciliation audit as a subprocess against the live database on every main() p
 185-23). Every test in this package that drives the nightly gets the status file redirected
 to a temp dir and the audit replaced by a mock, so no test writes the production status file
 or spawns a live audit. Tests that assert on the audit call request `nightly_audit` by name.
+
+The nightly's Tradier 1d leg (plan 185-26) is a subprocess that writes the live D1 and
+market_data_ohlcv; it is replaced by a mock (exposed as `nightly_audit.tradier_leg`) so no
+test spawns a live load.
 """
 
 from __future__ import annotations
@@ -26,4 +30,7 @@ def nightly_audit(monkeypatch, tmp_path):
     audit = MagicMock(return_value=0)
     monkeypatch.setattr(module, "_STATUS_FILE", tmp_path / "nightly_backfill_status.json")
     monkeypatch.setattr(module, "_run_reconciliation_audit", audit)
+    if hasattr(module, "_run_tradier_leg"):
+        audit.tradier_leg = MagicMock(return_value=0)
+        monkeypatch.setattr(module, "_run_tradier_leg", audit.tradier_leg)
     yield audit

@@ -466,7 +466,8 @@ def test_report_lists_top_symbols_and_pre_split(tmp_path):
 
 
 def test_tradier_owned_symbol_is_skipped_even_with_observations():
-    # Migration 438: a name whose latest daily load came from Tradier is never re-derived from IBKR.
+    # Migration 438: a name Tradier has loaded is never re-derived from IBKR, even after a later
+    # refused load (plan 185-26).
     from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
 
     assert "FROM ohlcv_load" in _SELECT_DAILY_CHANGED_SINCE_SQL
