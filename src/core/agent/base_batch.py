@@ -43,7 +43,7 @@ class BaseBatch(abc.ABC):
 
     Lifecycle (run()):
       1. _setup_pool()
-      2. execute(pool)  →  status = "success"
+      2. execute(pool)  →  status = completion_status or "success"
          or exception  →  status = "failure", re-raise
       3. _emit_completion(status, elapsed_s)
       4. _teardown_pool()  (always, even on failure)
@@ -55,6 +55,11 @@ class BaseBatch(abc.ABC):
     def __init__(self, db_dsn: str) -> None:
         self._db_dsn = db_dsn
         self._pool: asyncpg.Pool | None = None
+        # execute() may set this to report a normal finish that is not plain "success"
+        # (e.g. "partial" for a run whose per-item failures are recorded elsewhere, or
+        # "lock_held" for a singleton that found another holder). Ignored when execute()
+        # raises: an exception is always "failure".
+        self.completion_status: str | None = None
         # Auto-derive log path from job_name (kebab → snake) if available,
         # otherwise fall back to class name.
         log_name = getattr(self, "job_name", type(self).__name__).replace("-", "_")
@@ -98,6 +103,7 @@ class BaseBatch(abc.ABC):
             span_name = f"{self.job_name.replace('-', '_')}.execute"
             async with observed_span(span_name, **self._span_attrs()):
                 await self.execute(self._pool)
+            status = self.completion_status or "success"
         except Exception as error:
             status = "failure"
             self.logger.error(

@@ -11,7 +11,9 @@ tests/unit/test_ohlcv_coverage_writer_boundary.py), from two places:
   insert (request rows -> bars -> coverage, one COMMIT), so the ledger can never describe bars
   that did not land;
 - record_fetch_outcome / reset_failures, from the fetcher's per-item outcome write and its
-  --reset-failures flag, so operators never hand-write the table.
+  --reset-failures flag, so operators never hand-write the table;
+- refresh_1d_bounds, from the fetcher after the daily derivation stage (1d bars are D2's,
+  never a fetched chunk's, so their bounds are recomputed from the canonical rows).
 
 Every function takes a psycopg cursor whose transaction has already run
 SET LOCAL ROLE bar_derivation_writer (the only role granted SELECT, INSERT, UPDATE here).
@@ -134,6 +136,37 @@ def record_fetch_outcome(
         raise ValueError(f"unknown fetch status {status!r}; expected one of {FETCH_STATUSES}")
     initial_failures = 1 if status == _ERROR_STATUS else 0
     cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures))
+
+
+_REFRESH_1D_SQL = """
+INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, row_count)
+SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(*)
+FROM market_data_ohlcv_tradeable
+WHERE symbol = ANY(%s) AND timeframe = '1d'
+GROUP BY symbol
+ON CONFLICT (symbol, timeframe) DO UPDATE SET
+    earliest_timestamp = EXCLUDED.earliest_timestamp,
+    latest_timestamp = EXCLUDED.latest_timestamp,
+    row_count = EXCLUDED.row_count
+"""
+
+
+def refresh_1d_bounds(cur: Any, symbols: Iterable[str]) -> int:
+    """Recompute the 1d bounds and row count of `symbols` from the canonical 1d rows.
+
+    A 1d fetch stores no bar (the daily derivation stage is the sole 1d writer, plan 185-18
+    task 1b), so no persist_chunk_atomically call ever moves a 1d series' bounds. The fetcher
+    calls this after the daily stage derived the symbols it fetched, so the queue's 1d
+    staleness reads the rows D2 wrote rather than the migration 432 bootstrap. Recomputed,
+    not widened: D2 may rewrite a 1d history (split re-derivation). Fetch status and the
+    failure counter are left to record_fetch_outcome. A symbol with no tradeable 1d row is
+    left untouched. Runs under SET LOCAL ROLE bar_derivation_writer. Returns rows written.
+    """
+    symbol_list = sorted(set(symbols))
+    if not symbol_list:
+        return 0
+    cur.execute(_REFRESH_1D_SQL, (symbol_list,))
+    return int(cur.rowcount)
 
 
 def reset_failures(cur: Any, symbol: str, timeframe: str | None) -> int:

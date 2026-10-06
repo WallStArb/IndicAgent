@@ -350,7 +350,7 @@ def _pool(coverage, heads=(), empty=(), config=None):
     )
 
 
-def _cov(symbol, timeframe, earliest_days, latest_days, status="ok", failures=0):
+def _cov(symbol, timeframe, earliest_days, latest_days, status="ok", failures=0, fetched=None):
     return {
         "symbol": symbol,
         "timeframe": timeframe,
@@ -358,6 +358,7 @@ def _cov(symbol, timeframe, earliest_days, latest_days, status="ok", failures=0)
         "latest_timestamp": None if latest_days is None else _days_ago(latest_days),
         "last_fetch_status": status,
         "consecutive_failures": failures,
+        "last_fetched_at": fetched,
     }
 
 
@@ -416,3 +417,52 @@ async def test_priority_queue_raises_without_reverify_days():
     queue = fq.PriorityQueue(CONFIG, [("AAA", "15m")], TODAY)
     with pytest.raises(RuntimeError, match="empty_history_reverify_days"):
         await queue.load(pool)
+
+
+# ---------------------------------------------------------------------------
+# Current hold (phase 189 plan 04): nothing new to ask before the next session close
+# ---------------------------------------------------------------------------
+
+_CLOSE = datetime(2026, 9, 30, 20, 0, tzinfo=UTC)
+
+
+def _fetched_row(status, fetched):
+    return fq.CoverageRow("AAA", "15m", None, None, status, 0, None, fetched)
+
+
+def test_is_current_needs_a_settled_fetch_at_or_after_the_close():
+    after, before = _CLOSE + timedelta(minutes=5), _CLOSE - timedelta(minutes=5)
+    assert fq.is_current(_fetched_row("ok", after), _CLOSE)
+    assert fq.is_current(_fetched_row("no_data", _CLOSE), _CLOSE)
+    assert not fq.is_current(_fetched_row("error", after), _CLOSE)
+    assert not fq.is_current(_fetched_row("ok", before), _CLOSE)
+    assert not fq.is_current(_fetched_row(None, None), _CLOSE)
+    assert not fq.is_current(_fetched_row("ok", after), None)
+
+
+async def test_priority_queue_holds_current_series_and_reports_held_reasons():
+    after = _CLOSE + timedelta(hours=1)
+    pool = _pool(
+        [
+            _cov("AAA", "15m", 7300, 1, fetched=after),
+            _cov("BBB", "15m", 7300, 1, fetched=_CLOSE - timedelta(hours=1)),
+            _cov("CCC", "15m", 7300, 1, status="error", failures=99, fetched=after),
+            _cov("DDD", "15m", 7300, 1, status="error", fetched=after),
+        ]
+    )
+    candidates = [("AAA", "15m"), ("BBB", "15m"), ("CCC", "15m"), ("DDD", "15m")]
+    queue = fq.PriorityQueue(CONFIG, candidates, TODAY, current_after=_CLOSE)
+    await queue.load(pool)
+    assert [(i.row.symbol) for i in queue.ranked_snapshot()] == ["BBB", "DDD"]
+    held = {(i.row.symbol, reason) for i, reason in queue.held_snapshot()}
+    assert held == {("AAA", "current"), ("CCC", "excluded")}
+    visited: set[tuple[str, str]] = set()
+    assert (await queue.next(pool, visited)).symbol == "BBB"
+
+
+async def test_priority_queue_without_current_after_holds_nothing_current():
+    pool = _pool([_cov("AAA", "15m", 7300, 1, fetched=_CLOSE + timedelta(hours=1))])
+    queue = fq.PriorityQueue(CONFIG, [("AAA", "15m")], TODAY)
+    await queue.load(pool)
+    assert [i.row.symbol for i in queue.ranked_snapshot()] == ["AAA"]
+    assert queue.held_snapshot() == []

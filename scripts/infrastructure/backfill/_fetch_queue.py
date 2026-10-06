@@ -118,6 +118,30 @@ class CoverageRow:
     last_fetch_status: str | None
     consecutive_failures: int
     floor_timestamp: datetime | None
+    last_fetched_at: datetime | None = None
+
+
+# Outcomes after which a series has nothing new to ask until the next session closes.
+_SETTLED_STATUSES = frozenset({"ok", "no_data"})
+
+
+def is_current(row: CoverageRow, current_after: datetime | None) -> bool:
+    """True when the series' last fetch settled (ok or no_data) at or after `current_after`,
+    the latest completed session close (phase 189 plan 04).
+
+    Such a series has nothing new to ask: its last item planned every fetchable window and
+    no session has closed since. Without this hold, a recurring fetcher re-asks every
+    gap-free series on every fire (every intraday series' newest slots during market hours,
+    every 1d series' overlap window), spending the one IBKR stream on answers it already
+    has. An 'error' series is never current, so it is retried until excluded. Parameter-
+    free: the session calendar, not a tunable interval, decides when new data can exist.
+    """
+    return (
+        current_after is not None
+        and row.last_fetched_at is not None
+        and row.last_fetch_status in _SETTLED_STATUSES
+        and row.last_fetched_at >= current_after
+    )
 
 
 @dataclass(frozen=True)
@@ -280,7 +304,7 @@ def order_queue(
 
 _COVERAGE_SQL = (
     "SELECT symbol, timeframe, earliest_timestamp, latest_timestamp, last_fetch_status, "
-    "consecutive_failures FROM ohlcv_coverage WHERE symbol = ANY($1::text[])"
+    "consecutive_failures, last_fetched_at FROM ohlcv_coverage WHERE symbol = ANY($1::text[])"
 )
 _CONFIG_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY($1::text[])"
 _HEADS_SQL = (
@@ -302,12 +326,17 @@ class PriorityQueue:
     sees 1d even when 1d is out of scope) plus fresh provider floors; next() reloads and
     returns the first unvisited item. Reloading per item is cheap (a few thousand rows) and
     keeps the order in step with what the previous fetch just wrote.
+
+    `current_after` (the latest completed session close) holds back series that are current
+    (is_current); held_snapshot() reports them and the excluded series for the dry run.
     """
 
     config: QueueConfig
     candidates: Sequence[tuple[str, str]]
     today: date
+    current_after: datetime | None = None
     _items: list[RankedItem] = field(default_factory=list, init=False, repr=False)
+    _held: list[tuple[RankedItem, str]] = field(default_factory=list, init=False, repr=False)
 
     async def load(self, pool: Any) -> None:
         symbols = sorted({s for s, _ in self.candidates})
@@ -344,6 +373,7 @@ class PriorityQueue:
                 last_fetch_status=r["last_fetch_status"],
                 consecutive_failures=int(r["consecutive_failures"]),
                 floor_timestamp=floor(r["symbol"], r["timeframe"]),
+                last_fetched_at=r["last_fetched_at"],
             )
             for r in coverage
         }
@@ -352,7 +382,18 @@ class PriorityQueue:
             all_rows.get((s, tf)) or CoverageRow(s, tf, None, None, None, 0, floor(s, tf))
             for s, tf in dict.fromkeys(self.candidates)
         ]
-        self._items = queue_items(candidate_rows, self.config, self.today, proven)
+        due = [r for r in candidate_rows if not is_current(r, self.current_after)]
+        self._items = queue_items(due, self.config, self.today, proven)
+        queued = {(i.row.symbol, i.row.timeframe) for i in self._items}
+        held = [
+            _components(r, proven.get(r.symbol), self.config, self.today)
+            for r in candidate_rows
+            if (r.symbol, r.timeframe) not in queued
+        ]
+        self._held = sorted(
+            ((i, "excluded" if i.rank[0] else "current") for i in held),
+            key=lambda pair: pair[0].rank,
+        )
 
     async def next(self, pool: Any, visited: set[tuple[str, str]]) -> CoverageRow | None:
         """The highest-ranked item not yet visited this run; None when exhausted."""
@@ -365,3 +406,8 @@ class PriorityQueue:
     def ranked_snapshot(self) -> list[RankedItem]:
         """The order from the last load(), with rank tuples and components (dry run)."""
         return list(self._items)
+
+    def held_snapshot(self) -> list[tuple[RankedItem, str]]:
+        """Candidates the last load() kept out of the order, each with its reason:
+        'excluded' (past the failure threshold) or 'current' (is_current)."""
+        return list(self._held)

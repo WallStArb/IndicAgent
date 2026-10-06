@@ -18,6 +18,7 @@ import pytest
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from src.core.agent.base_batch import BaseBatch
 from tests.unit.test_base_batch_jsonb import _ConcreteBaseBatch
 
 
@@ -65,3 +66,55 @@ async def test_emit_completion_records_duration_on_failure():
     elapsed_s, attrs = args
     assert elapsed_s >= 0
     assert attrs == {"job": "test-job", "status": "failure"}
+
+
+class _StatusBatch(BaseBatch):
+    """execute() reports a normal finish that is not plain success (phase 189 plan 04)."""
+
+    job_name = "status-job"
+    compute_version = "0.0.1"
+
+    def __init__(self, db_dsn: str, status: str | None, fail: bool = False) -> None:
+        super().__init__(db_dsn)
+        self._status = status
+        self._fail = fail
+
+    async def execute(self, pool) -> None:
+        self.completion_status = self._status
+        if self._fail:
+            raise RuntimeError("boom")
+
+
+async def _run_capturing(batch: BaseBatch) -> MagicMock:
+    with (
+        patch("src.core.agent.base_batch.create_pool", new_callable=AsyncMock) as mock_pool,
+        patch("src.core.agent.base_batch.JOB_COMPLETED_TOTAL") as mock_completed,
+        patch("src.core.agent.base_batch.JOB_DURATION_SECONDS"),
+        patch("src.core.agent.base_batch.flush_and_shutdown_metrics"),
+    ):
+        mock_pool.return_value = MagicMock(close=AsyncMock())
+        try:
+            await batch.run()
+        except RuntimeError:
+            pass
+    return mock_completed
+
+
+@pytest.mark.asyncio
+async def test_completion_status_defaults_to_success_when_unset():
+    mock_completed = await _run_capturing(_StatusBatch("postgresql://test/db", None))
+    mock_completed.add.assert_called_once_with(1, {"job": "status-job", "status": "success"})
+
+
+@pytest.mark.asyncio
+async def test_completion_status_set_by_execute_is_emitted():
+    mock_completed = await _run_capturing(_StatusBatch("postgresql://test/db", "lock_held"))
+    mock_completed.add.assert_called_once_with(1, {"job": "status-job", "status": "lock_held"})
+
+
+@pytest.mark.asyncio
+async def test_completion_status_is_ignored_when_execute_raises():
+    mock_completed = await _run_capturing(
+        _StatusBatch("postgresql://test/db", "partial", fail=True)
+    )
+    mock_completed.add.assert_called_once_with(1, {"job": "status-job", "status": "failure"})

@@ -26,7 +26,11 @@ import pytest
 from scripts.infrastructure.backfill import _intraday_persist
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
-from services.ohlcv_coverage_writer import CoverageDelta, record_fetch_outcome
+from services.ohlcv_coverage_writer import (
+    CoverageDelta,
+    record_fetch_outcome,
+    refresh_1d_bounds,
+)
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _N_BARS = 3
@@ -60,6 +64,7 @@ def _register(conn: psycopg.Connection, symbol: str) -> None:
 def _cleanup(conn: psycopg.Connection, symbol: str) -> None:
     with conn.transaction():
         conn.execute("DELETE FROM ohlcv_coverage WHERE symbol = %s", (symbol,))
+        conn.execute("DELETE FROM market_data_ohlcv WHERE symbol = %s", (symbol,))
         conn.execute("SET LOCAL session_replication_role = replica")
         conn.execute("DELETE FROM ohlcv_intraday_raw_archive WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM ohlcv_request WHERE symbol = %s", (symbol,))
@@ -168,3 +173,37 @@ def test_no_data_never_increments_consecutive_failures(live):
             ).fetchone()[0]
         )
     assert observed == [1, 2, 0, 1]
+
+
+def test_refresh_1d_bounds_recomputes_from_the_canonical_rows(live):
+    """Phase 189 plan 04: 1d bars are the daily stage's, so the fetcher recomputes the 1d
+    ledger row from them; the fetch status and failure counter are left alone."""
+    conn, symbol = live
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    days = [today - timedelta(days=d) for d in (3, 2, 1)]
+    with conn.transaction():
+        conn.execute("SET LOCAL ROLE bar_derivation_writer")
+        cur = conn.cursor()
+        record_fetch_outcome(cur, symbol, "1d", "error", datetime.now(UTC))
+        cur.executemany(
+            "INSERT INTO market_data_ohlcv "
+            '("timestamp", symbol, timeframe, open, high, low, close, volume, source) '
+            "VALUES (%s, %s, '1d', 10, 11, 9, 10.5, %s, 'ibkr')",
+            # The zero-volume row is not tradeable and must not count.
+            [(days[0], symbol, 100), (days[1], symbol, 100), (days[2], symbol, 0)],
+        )
+        assert refresh_1d_bounds(cur, [symbol, symbol]) == 1
+    row = conn.execute(
+        "SELECT earliest_timestamp, latest_timestamp, row_count, last_fetch_status, "
+        "consecutive_failures FROM ohlcv_coverage WHERE symbol = %s AND timeframe = '1d'",
+        (symbol,),
+    ).fetchone()
+    assert row == (days[0], days[1], 2, "error", 1)
+
+
+def test_refresh_1d_bounds_with_no_symbols_issues_no_sql():
+    class _NoSql:
+        def execute(self, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("no SQL expected")
+
+    assert refresh_1d_bounds(_NoSql(), []) == 0

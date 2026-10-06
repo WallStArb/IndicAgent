@@ -475,6 +475,14 @@ JOB_DURATION_SECONDS = _meter.create_histogram(
     ],
 )
 
+# Todo 387 staleness observability (phase 189 plan 04), recorded by the IBKR history fetcher
+# at run end with attribute job.
+OHLCV_COVERAGE_SLA_BREACHED_SERIES = point_gauge(
+    "ohlcv_coverage_sla_breached_series",
+    "In-scope (symbol, timeframe) series whose staleness exceeds "
+    "infra.backfill.max_staleness_days_before_preempt, at fetcher run end",
+)
+
 # ---------------------------------------------------------------------------
 # API health gauge (Phase 108)
 # ---------------------------------------------------------------------------
