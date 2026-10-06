@@ -13,6 +13,8 @@ with the venue study):
 - unexplained_seams: a close-to-close jump beyond the robust-scale threshold with no
   corporate action and no quarantine flag.
 - late_heads: a moved name whose canonical history starts after its first known trade.
+- listing_venue_coverage: a moved 1d-eligible name with no listing_venue rows or no closed
+  former-venue span (D6, plan 185-24).
 - unconfirmed_empty: an ohlcv_empty_history row no set of every-route answers confirms.
 - dividend_freshness: Yahoo dividend coverage trailing the last session.
 - nightly_skipped: the nightly did not finish with success recently (D-29 lease timeout
@@ -269,6 +271,24 @@ def check_late_heads(inventory: Mapping[str, date], lineage: Mapping[str, date])
         if head is None or head > first:
             shown = head.isoformat() if head is not None else "none"
             samples.append(f"{symbol}|first_trade={first.isoformat()}|head={shown}")
+    return CheckResult(len(samples), tuple(samples))
+
+
+def check_listing_venue_coverage(
+    inventory: Iterable[str], stored: Mapping[str, tuple[int, int]]
+) -> CheckResult:
+    """Moved names (the inventory: former-venue spans before the SMART head) that D6's
+    listing_venue does not explain: no rows at all, or no closed former-venue span.
+
+    stored: symbol -> (n_rows, n_closed_spans) in listing_venue (plan 185-24, D-25).
+    """
+    samples: list[str] = []
+    for symbol in sorted(set(inventory)):
+        n_rows, n_closed = stored.get(symbol, (0, 0))
+        if n_rows == 0:
+            samples.append(f"{symbol}|no_rows")
+        elif n_closed == 0:
+            samples.append(f"{symbol}|no_closed_span")
     return CheckResult(len(samples), tuple(samples))
 
 
@@ -734,7 +754,7 @@ ORDER BY p.symbol, a.bar_date
 _LISTING_SQL = """
 SELECT DISTINCT ON (symbol) symbol, primary_exchange FROM ohlcv_request
 WHERE symbol = ANY($1::text[]) AND timeframe = '1d' AND source = 'ibkr' AND route = 'SMART'
-  AND what_to_show = 'TRADES' AND primary_exchange IS NOT NULL
+  AND what_to_show = 'TRADES' AND primary_exchange IS NOT NULL AND caller NOT LIKE 'test-%'
 ORDER BY symbol, answered_at DESC
 """
 _EXPLAINED_DATES_SQL = """
@@ -773,6 +793,19 @@ WHERE symbol = $1 AND source = 'ibkr' AND route = 'SMART' AND what_to_show = 'TR
 _CANONICAL_HEAD_SQL = """
 SELECT min(timestamp) FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND source IS DISTINCT FROM 'synthetic_fill'
+"""
+# The moved-name inventory restricted to the 1d-eligible names D6 writes, and what
+# listing_venue holds for each.
+_LISTING_COVERAGE_SQL = """
+WITH moved AS (
+    SELECT DISTINCT h.symbol FROM ohlcv_venue_head h
+    JOIN instruments i ON i.symbol = h.symbol
+    WHERE {clause} AND h.route = ANY($1::text[]) AND h.pre_move
+      AND h.smart_head_date IS NOT NULL
+)
+SELECT m.symbol, count(lv.symbol) AS n_rows, count(lv.valid_to) AS n_closed
+FROM moved m LEFT JOIN listing_venue lv ON lv.symbol = m.symbol
+GROUP BY m.symbol
 """
 _EMPTY_HISTORY_SQL = """
 SELECT symbol, timeframe, verified_from, empty_through FROM ohlcv_empty_history
@@ -998,6 +1031,7 @@ class BarReconciliationAudit(BaseBatch):
                 "daily_vs_intraday": await self._daily_vs_intraday(conn, params, window, compute),
                 "unexplained_seams": await self._seams(conn, params, window, compute_1d),
                 "late_heads": await self._late_heads(conn, params),
+                "listing_venue_coverage": await self._listing_venue_coverage(conn, params),
                 "unconfirmed_empty": await self._unconfirmed_empty(conn, params),
                 "partial_daily": await self._partial_daily(conn, window, active),
                 "dividend_freshness": await self._dividend_freshness(conn, params, window),
@@ -1135,6 +1169,15 @@ class BarReconciliationAudit(BaseBatch):
             if head is not None:
                 lineage[symbol] = head.date()
         return _Judged(check_late_heads(inventory, lineage), len(inventory))
+
+    @staticmethod
+    async def _listing_venue_coverage(conn: Any, params: _Params) -> _Judged:
+        rows = await conn.fetch(
+            _LISTING_COVERAGE_SQL.format(clause=dimension_where_clause("compute_1d", "i")),
+            list(params.venues),
+        )
+        stored = {r["symbol"]: (r["n_rows"], r["n_closed"]) for r in rows}
+        return _Judged(check_listing_venue_coverage(stored, stored), len(stored))
 
     @staticmethod
     async def _unconfirmed_empty(conn: Any, params: _Params) -> _Judged:
