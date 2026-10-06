@@ -224,7 +224,7 @@ Plans:
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
-- [ ] 185-26-PLAN.md - nightly Tradier 1d leg and the Tradier-owned skip (wave 11)
+- [x] 185-26-PLAN.md - nightly Tradier 1d leg and the Tradier-owned skip (wave 11)
 
 **Wave 12** *(blocked on Wave 11 completion)*
 
