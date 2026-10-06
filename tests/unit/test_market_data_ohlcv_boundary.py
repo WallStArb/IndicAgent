@@ -76,6 +76,18 @@ _ALLOW_LIST: dict[str, str] = {
         "`bars` ohlcv_request answer has at least one stored row in its window, so a failed "
         "bar insert never leaves a window that looks covered."
     ),
+    "services/bar_reconciliation_audit.py": (
+        "PERMANENT: D7 counts rows by source, including sources the tradeable view hides "
+        "(D-26); its completeness and masked-slot checks (todo 462) classify placeholder and "
+        "zero-volume rows, and its late-heads check reads the earliest canonical row of any "
+        "real source."
+    ),
+    "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
+        "PERMANENT (phase 185, Tradier primary 1d source): the loader writes canonical 1d rows "
+        "and diffs them against the existing rows of every real source, zero-volume provider "
+        "bars included, to record revisions and gate a source change; the tradeable view would "
+        "hide those rows and turn a revision into a silent new bar."
+    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "PERMANENT (todo 462, plan 185-12): counts the synthetic_fill rows of a coarse timeframe "
         "and compares them with the tradeable 5m volume over the same slots; the synthetic rows "

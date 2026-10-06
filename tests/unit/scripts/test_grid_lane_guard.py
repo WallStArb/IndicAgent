@@ -16,6 +16,7 @@ Pure parsing tests: ps output is injected as text, never executed.
 from __future__ import annotations
 
 import pytest
+
 from scripts.ops.bars.ops_grid_lane_guard import running_lane_symbols, write_exclude_file
 
 _HTF_LANE = (

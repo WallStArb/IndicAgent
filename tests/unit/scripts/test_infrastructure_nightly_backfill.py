@@ -6,6 +6,7 @@ covered by test_nightly_lease.py."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -387,3 +388,62 @@ class TestSplitDetectStage:
         assert argv[1].endswith("ops_split_detect.py")
         assert argv[argv.index("--client-id") + 1] == "45"
         assert [argv[i + 1] for i, v in enumerate(argv) if v == "--fetch-run-id"] == ["r1", "r2"]
+
+
+# Captured at import, before the autouse fixture (tests/unit/scripts/conftest.py) replaces it.
+_REAL_RUN_AUDIT = infrastructure_nightly_backfill._run_reconciliation_audit
+
+
+class TestReconciliationAuditChaining:
+    """Plan 185-23 (D7, D-29): the audit runs as the last step on every path and reads the
+    run's final status from the status file _finish writes."""
+
+    def _status(self) -> dict:
+        return json.loads(infrastructure_nightly_backfill._STATUS_FILE.read_text())
+
+    def test_audit_runs_after_a_successful_night_and_the_status_records_success(
+        self, nightly_audit
+    ):
+        rc, *_ = _run_main([["AAA"], ["PIL1"]], [0, 0])
+        assert rc == 0
+        assert nightly_audit.call_count == 1
+        status = self._status()
+        assert status["status"] == "success"
+        assert status["finished_at"]
+
+    def test_audit_runs_after_a_lease_timeout_and_the_status_names_the_leg(self, nightly_audit):
+        rc, *_ = _run_main([["AAA"], ["PIL1"]], [0, 3])
+        assert rc == 3
+        assert nightly_audit.call_count == 1
+        status = self._status()
+        assert status["status"] == "failed_lease_timeout"
+        assert status["lease_timeout_legs"] == ["compute_1d_only"]
+
+    def test_audit_runs_when_there_is_nothing_to_do(self, nightly_audit):
+        rc, *_ = _run_main([[], []], [])
+        assert rc == 0
+        assert nightly_audit.call_count == 1
+        assert self._status()["status"] == "nothing_to_do"
+
+    def test_audit_runs_after_a_crash_and_the_status_still_says_started(self, nightly_audit):
+        mod = infrastructure_nightly_backfill
+        with (
+            patch.object(mod, "setup_service_logging"),
+            patch.object(mod, "Settings"),
+            patch.object(mod, "connect_db", side_effect=RuntimeError("db down")),
+            pytest.raises(RuntimeError),
+        ):
+            mod.main()
+        assert nightly_audit.call_count == 1
+        assert self._status()["status"] == "started"
+
+    def test_audit_subprocess_runs_the_audit_script_and_never_raises_on_findings(self):
+        mod = infrastructure_nightly_backfill
+        with (
+            patch.object(mod.subprocess, "run", return_value=MagicMock(returncode=1)) as mock_run,
+            patch.object(mod, "_logger") as mock_logger,
+        ):
+            rc = _REAL_RUN_AUDIT()
+        assert rc == 1
+        assert mock_run.call_args.args[0][-1].endswith("services/bar_reconciliation_audit.py")
+        mock_logger.error.assert_called_once()

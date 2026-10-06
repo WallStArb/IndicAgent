@@ -45,6 +45,11 @@ bound fails loudly: status failed_lease_timeout, an integrity fact
 (nightly_lease_timeout), and a nonzero exit. Delegate exit code 3 (EXIT_LEASE_TIMEOUT in
 infrastructure_run_historical_pipeline.py) is that signal.
 
+Reconciliation, added 2026-10-03 (phase 185 plan 23, D7): every run records its status in
+logs/nightly_backfill_status.json ('started' at entry, the final status from _finish) and
+then runs services/bar_reconciliation_audit.py as its last step, on every path including a
+lease timeout and a crash, so a skipped or failed night is itself an audit finding.
+
 Ranking heuristic note: _select_stalest's MAX(timestamp) is still a proxy, not the
 delegate's own more accurate _reorder_contracts_by_gap() (which nets each symbol's shortfall
 against its own proven-depth ceiling and can find gaps earlier in a symbol's history even
@@ -58,11 +63,13 @@ check and no-ops instantly on anything already covered.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -77,6 +84,7 @@ from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline impo
     connect_db,
 )
 from scripts.ops.bars.ops_grid_lane_guard import write_exclude_file  # noqa: E402
+from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
 from services.ohlcv_observation_writer import new_fetch_run_id  # noqa: E402
 from src.config.settings import Settings, dimension_where_clause  # noqa: E402
 from src.core.integrity_monitor import emit_integrity_fact_sync  # noqa: E402
@@ -101,6 +109,10 @@ _NIGHTLY_LEASE_WAIT_FALLBACK_MINUTES = 60  # migration 380 APR seed
 _OVERLAP_SESSIONS_KEY = "infra.bar_derivation.overlap_sessions"
 _OVERLAP_SESSIONS_FALLBACK = 20  # migration 406 APR seed
 _SPLIT_DETECT_SCRIPT = Path(__file__).resolve().parents[2] / "ops" / "bars" / "ops_split_detect.py"
+# D7 (plan 185-23): the reconciliation audit runs as the last step of every run, and reads the
+# run's final status from this file (path is service identity, APR-exempt).
+_AUDIT_SCRIPT = project_root / "services" / "bar_reconciliation_audit.py"
+_STATUS_FILE = NIGHTLY_STATUS_FILE
 
 
 def _load_lease_wait_minutes(conn: psycopg.Connection) -> int:
@@ -299,20 +311,73 @@ def _run_grid_stage(exclude_file: Path) -> int:
     return _run_derivation_stage("grid", "--exclude-symbols-file", str(exclude_file))
 
 
-def _finish(status: str, message: str, returncode: int = 0) -> int:
-    """Log, print, emit job_completed_total, flush OTel, and return the process exit code."""
+def _write_status(status: str, **fields: object) -> None:
+    """Record the run's status for the D7 audit (nightly_skipped check). Written as
+    'started' at entry and replaced by _finish, so a run that dies in between is visible
+    as one that never finished. Never raises: the file is observability."""
+    payload = {"status": status, **fields}
+    try:
+        _STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _STATUS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, default=str))
+        tmp.replace(_STATUS_FILE)
+    except OSError as error:
+        _logger.warning("nightly_backfill.status_file_write_failed", error=str(error))
+
+
+def _run_reconciliation_audit() -> int:
+    """Run the D7 audit (services/bar_reconciliation_audit.py). Its findings never fail
+    it; a nonzero code is the audit's own runtime error, logged here and visible through
+    its job_completed_total, and never changes the nightly's own exit code."""
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_AUDIT_SCRIPT)],
+            cwd=str(project_root),
+            env={**os.environ, "PYTHONPATH": str(project_root)},
+        )
+    except OSError as error:  # runs in main()'s finally: never mask the nightly's outcome
+        _logger.error("nightly_backfill.reconciliation_audit_not_started", error=str(error))
+        return 1
+    if result.returncode != 0:
+        _logger.error("nightly_backfill.reconciliation_audit_failed", returncode=result.returncode)
+    return result.returncode
+
+
+def _finish(
+    status: str, message: str, returncode: int = 0, *, lease_timeout_legs: Sequence[str] = ()
+) -> int:
+    """Log, print, record the status file, emit job_completed_total, flush OTel, and return
+    the process exit code."""
     if status == "success":
         _logger.info(f"nightly_backfill.{status}")
     else:
         _logger.error(f"nightly_backfill.{status}")
     print(message)
+    _write_status(
+        status,
+        finished_at=datetime.now(UTC).isoformat(),
+        returncode=returncode,
+        lease_timeout_legs=list(lease_timeout_legs),
+        message=message,
+    )
     JOB_COMPLETED_TOTAL.add(1, {"job": _JOB, "status": status})
     flush_and_shutdown_metrics()
     return returncode
 
 
 def main() -> int:
+    """Run the nightly, then the D7 audit on every path (D-29): success, a failed or
+    lease-timed-out leg, nothing to do, a refused derivation stage, and a crash (the
+    status file then still says 'started', which the audit reports)."""
     setup_service_logging("logs/infrastructure_nightly_backfill.log")
+    _write_status("started", started_at=datetime.now(UTC).isoformat(), finished_at=None)
+    try:
+        return _run_nightly()
+    finally:
+        _run_reconciliation_audit()
+
+
+def _run_nightly() -> int:
     settings = Settings()
 
     conn = connect_db(settings)
@@ -390,11 +455,7 @@ def main() -> int:
     message = f"Nightly backfill delegate(s) finished: returncodes={returncodes}"
     if lease_timeout_legs:
         message += f" (lease timeout in leg(s): {', '.join(lease_timeout_legs)})"
-    return _finish(
-        status,
-        message,
-        returncode=returncode,
-    )
+    return _finish(status, message, returncode=returncode, lease_timeout_legs=lease_timeout_legs)
 
 
 if __name__ == "__main__":

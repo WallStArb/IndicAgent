@@ -14,6 +14,7 @@ import pytest
 from services import bar_reconciliation_audit as audit
 from services.bar_reconciliation_audit import (
     VendorAgreementAccumulator,
+    aggregate_sessions,
     bucket_fine_volume,
     check_adjusted_vs_trades,
     check_completeness,
@@ -22,12 +23,14 @@ from services.bar_reconciliation_audit import (
     check_late_heads,
     check_masked_slots,
     check_nightly_skipped,
+    check_partial_daily,
     check_route_disagreement,
     check_stray_sources,
     check_switches,
     check_unconfirmed_empty,
     check_unexplained_seams,
     completeness_cells,
+    confirmed_spans_from_requests,
     session_slots,
 )
 from src.intelligence.bars.gap_plan import AnsweredWindows
@@ -54,6 +57,17 @@ class TestRouteDisagreement:
         result = check_route_disagreement(rows, 0.0005)
         assert result.n_findings == 1
         assert result.samples == ("ABC|2026-09-22|ARCA",)
+
+    def test_with_listing_only_the_listing_venue_is_judged(self):
+        rows = [
+            ("ABC", D0, "SMART", 100.0),
+            ("ABC", D0, "NYSE", 101.0),  # listing venue: judged, differs
+            ("ABC", D0, "ARCA", 101.0),  # non-listing: expected to differ, not judged
+            ("XYZ", D0, "SMART", 50.0),
+            ("XYZ", D0, "ISLAND", 51.0),  # ISLAND is the NASDAQ listing route
+        ]
+        result = check_route_disagreement(rows, 0.0005, listing={"ABC": "NYSE", "XYZ": "NASDAQ"})
+        assert result.samples == ("ABC|2026-09-21|NYSE", "XYZ|2026-09-21|ISLAND")
 
     def test_venue_row_without_a_smart_answer_is_not_judged(self):
         assert check_route_disagreement([("ABC", D0, "NYSE", 1.0)], 0.0005).n_findings == 0
@@ -82,6 +96,12 @@ class TestAdjustedVsTrades:
         result = check_adjusted_vs_trades(self._pairs(step), set(), 0.02)
         assert result.n_findings == 1
         assert result.samples == ("ABC|2026-09-16",)
+
+    def test_split_recorded_on_the_last_old_scale_day_explains_the_next_days_step(self):
+        step = date(2026, 9, 16)
+        old_scale_last = date(2026, 9, 15)
+        pairs = self._pairs(step)
+        assert check_adjusted_vs_trades(pairs, {("ABC", old_scale_last)}, 0.02).n_findings == 0
 
     def test_step_below_the_threshold_is_not_a_finding(self):
         days = [date(2026, 9, 14), date(2026, 9, 15)]
@@ -165,6 +185,24 @@ class TestUnexplainedSeams:
         )
         assert result.n_findings == 0
 
+    def test_split_effective_date_is_the_last_old_scale_day(self):
+        closes, jump_day = self._closes(12.0)
+        prev_day = closes["ABC"][-2][0]
+        result = check_unexplained_seams(
+            closes, {("ABC", prev_day)}, set(), 8.0, judge_from=jump_day
+        )
+        assert result.n_findings == 0
+
+    def test_quarantined_bar_dropped_between_the_pair_explains_the_jump(self):
+        closes, jump_day = self._closes(12.0)
+        # The tradeable view drops a quarantined bar, so the pair spans its day.
+        gap_day = jump_day - timedelta(days=1)
+        series = closes["ABC"][:-2] + [closes["ABC"][-1]]
+        result = check_unexplained_seams(
+            {"ABC": series}, set(), {("ABC", gap_day)}, 8.0, judge_from=jump_day
+        )
+        assert result.n_findings == 0
+
     def test_ordinary_move_passes(self):
         closes, jump_day = self._closes(3.0)
         assert (
@@ -202,6 +240,63 @@ class TestUnconfirmedEmpty:
         result = check_unconfirmed_empty(rows, confirmed, slack=timedelta(days=1))
         assert result.n_findings == 1
         assert result.samples == ("XYZ|2010-01-01",)
+
+
+class TestConfirmedSpansFromRequests:
+    T = datetime(2010, 1, 1, tzinfo=UTC)
+    SLACK = timedelta(days=2)
+
+    def _rows(self, routes, primary="NYSE"):
+        end = self.T + timedelta(days=100)
+        rows = [("run", "SMART", primary, self.T, end)]
+        rows += [("run", route, None, self.T, end) for route in routes]
+        return rows
+
+    def test_span_confirmed_when_every_non_primary_venue_answered_no_data(self):
+        venues = ["NYSE", "ARCA", "ISLAND"]
+        (span,) = confirmed_spans_from_requests(
+            self._rows(["ARCA", "ISLAND"]), venues, slack=self.SLACK
+        )
+        assert span == (self.T, self.T + timedelta(days=100))
+
+    def test_span_unconfirmed_when_a_required_venue_is_silent(self):
+        venues = ["NYSE", "ARCA", "ISLAND"]
+        assert confirmed_spans_from_requests(self._rows(["ARCA"]), venues, slack=self.SLACK) == []
+
+    def test_island_is_the_nasdaq_primary(self):
+        venues = ["NYSE", "ISLAND"]
+        rows = self._rows(["NYSE"], primary="NASDAQ")
+        assert len(confirmed_spans_from_requests(rows, venues, slack=self.SLACK)) == 1
+
+
+class TestAggregateSessions:
+    def test_first_open_last_close_summed_volume_inside_the_session(self):
+        sessions = nyse_sessions(D0, D0)
+        fine = [
+            ("ABC", OPEN - FIVE, 9.0, 9.0, 999),  # pre-market: dropped
+            ("ABC", OPEN, 10.0, 10.5, 100),
+            ("ABC", OPEN + FIVE, 10.5, 11.0, 50),
+            ("ABC", OPEN + FIVE * 77, 11.0, 12.0, 25),  # 15:55 ET, the last bar
+        ]
+        assert aggregate_sessions(fine, sessions, FIVE) == {("ABC", D0): (10.0, 12.0, 175)}
+
+    def test_session_whose_feed_stops_before_the_final_slot_is_dropped(self):
+        sessions = nyse_sessions(D0, D0)
+        fine = [("ABC", OPEN, 10.0, 10.5, 100), ("ABC", OPEN + FIVE * 60, 10.5, 11.0, 50)]
+        assert aggregate_sessions(fine, sessions, FIVE) == {}
+
+
+class TestPartialDaily:
+    def test_latest_answer_fetched_before_the_close_is_partial(self):
+        sessions = nyse_sessions(D0, D1)
+        close_d0 = sessions[D0][1]
+        latest = [
+            ("NVR", D0, close_d0 - timedelta(minutes=51)),  # fetched 19:09 UTC: partial
+            ("LLY", D0, close_d0 + timedelta(hours=12)),  # re-fetched next morning: final
+        ]
+        result = check_partial_daily(latest, sessions)
+        assert result.n_findings == 1
+        assert result.samples[0].startswith("NVR|2026-09-21|")
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +444,20 @@ class TestCompleteness:
         assert (cell.year, cell.n_expected, cell.n_complete) == (2026, 4, 3)
         assert cell.share == pytest.approx(0.75)
 
+    def test_last_1h_slot_ends_at_the_close_so_an_answered_window_to_the_close_covers_it(self):
+        sessions = nyse_sessions(D0, D0)
+        close = sessions[D0][1]
+        last_hour = close - timedelta(minutes=30)  # 15:30 ET, a 30-minute slot
+        answered = AnsweredWindows.from_rows([(OPEN, close)])
+        (cell,) = completeness_cells(
+            "ABC", "1h", [last_hour], [], answered, timedelta(hours=1), sessions
+        )
+        assert cell.n_complete == 1
+        (no_sessions,) = completeness_cells(
+            "ABC", "1h", [last_hour], [], answered, timedelta(hours=1)
+        )
+        assert no_sessions.n_complete == 0
+
     def test_a_full_unanswered_year_is_reported_by_symbol_and_year_metric_by_timeframe(self):
         year_2025 = [datetime(2025, 3, 3, 14, 30, tzinfo=UTC) + FIVE * i for i in range(10)]
         year_2026 = [OPEN + FIVE * i for i in range(10)]
@@ -424,6 +533,14 @@ class TestVendorAgreement:
 
 def test_metrics_are_never_labeled_by_symbol():
     source = read_source("services", "bar_reconciliation_audit.py")
-    for line in source.splitlines():
-        if ".add(" in line or ".set(" in line:
-            assert "symbol" not in line, line
+    metric_names = ("FINDINGS_TOTAL", "COMPLETENESS_SHARE", "VENDOR_")
+    emits = [
+        line
+        for line in source.splitlines()
+        if any(name in line for name in metric_names) and (".add(" in line or ".set(" in line)
+    ]
+    assert emits, "no metric emission found"
+    for line in emits:
+        assert "symbol" not in line, line
+    # The plan's acceptance grep: no line naming a symbol calls add(.
+    assert not [line for line in source.splitlines() if "symbol" in line and "add(" in line.lower()]
