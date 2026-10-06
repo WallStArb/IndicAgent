@@ -133,3 +133,14 @@ Onboarded (stage 6) at 13:47 UTC: 597 rows, all `compute_eligible_1d = false`. T
 fetch started 09:54 EDT on client 41 under the bulk tier of the `ibkr_history_stream` lease (log
 `logs/backfill_ops/wave2_1d_fetch.log`). This entry gets the held-name and verify results (stage 8)
 and the promote count (stage 9) when they run.
+
+Stages 8 and 9 (2026-10-06): the 1d source for this batch was the Tradier loader (owner decision
+2026-10-03, migration 438), not the IBKR fetch. The promote gate held 550 of 598 names because the
+Tradier loader did not set `backfill_status.fetch_complete`; the loader now sets it through
+`mark_fetch_complete` and `ops_tradier_fetch_complete_repair.py` repaired 523 names. Promote
+(`--dimension compute_1d --commit`) then moved 571 names to `compute_eligible_1d = true` (1,502
+promoted, 233 also `compute_eligible`). 27 names stay held, no 1d bars: APG, AU, BJ, BORR, CANE,
+CORZ, CRCL, EIS, ELAN, EVER, FIGR, H, IOT, KNSL, MNA, NIQ, NU, OWL, PINS, PNFP, REMX, RPRX, SHEN,
+SNOW, SUNB, WMS, ZIP. Metadata checked at promote: classification, tags and dividend coverage are
+present for all 571; `canonical_bar_lineage` and 1d digests exist for 48 of 571 (plan 185-30
+backfills the rest) and `listing_venue` rows for none (the D6 writer ran on the 931 only).
