@@ -1,0 +1,35 @@
+{
+ "version": "1.0",
+ "timestamp": "2026-10-06T13:00:24Z",
+ "phase": "185",
+ "phase_name": "daily-data-foundation",
+ "phase_dir": ".planning/phases/185-daily-data-foundation",
+ "plan": "27 (gap closure, in progress)",
+ "status": "paused",
+ "completed_tasks": [
+  {
+   "id": "185-27",
+   "name": "partial: migration 441, digest writer, loader lineage/scrub (4 commits, may be unfinished)",
+   "status": "in_progress"
+  }
+ ],
+ "remaining_tasks": [
+  "185-27 finish",
+  "185-29",
+  "185-28",
+  "185-30",
+  "185-31",
+  "185-32",
+  "185-33",
+  "185-34",
+  "185-35"
+ ],
+ "blockers": [],
+ "human_actions_pending": [],
+ "decisions": [],
+ "uncommitted_files": [
+  "check git status; other sessions' files only (ledger doc, ideas doc, evidence/, 189 deferred-items.md)"
+ ],
+ "next_action": "git log -8; read 185-27-RESUME.md; finish 185-27; /gsd-execute-phase 185 --gaps-only",
+ "context_notes": "See .continue-here.md in the phase dir. HTF lane running since the 185-25 swap."
+}
