@@ -290,7 +290,14 @@ def _install(
     *,
     scrub_error: Exception | None = None,
 ) -> dict[str, list]:
-    seen: dict[str, list] = {"open": [], "close": [], "scrub": [], "digest": [], "pool": []}
+    seen: dict[str, list] = {
+        "open": [],
+        "close": [],
+        "scrub": [],
+        "digest": [],
+        "pool": [],
+        "marked": [],
+    }
 
     async def connect(_url: str) -> FakeConn:
         return conn
@@ -344,6 +351,11 @@ def _install(
     monkeypatch.setattr(loader, "create_pool", create_pool)
     monkeypatch.setattr(loader, "scrub_symbols", scrub)
     monkeypatch.setattr(loader, "write_1d_digests", digests)
+    monkeypatch.setattr(
+        loader,
+        "mark_loaded_fetch_complete",
+        lambda url, symbols, since: seen["marked"].append((url, symbols, since)),
+    )
     return seen
 
 
@@ -438,3 +450,73 @@ def test_raw_only_lands_every_bar_and_opens_no_batch(monkeypatch):
     observations = [r for table, rows in conn.copies if table == "ohlcv_observation" for r in rows]
     assert len(observations) == len(answers["SAME"])
     assert seen["open"] == [] and conn.upsert_rows() == []
+
+
+def test_accepted_loads_mark_1d_fetch_complete_after_the_loop(monkeypatch):
+    conn, answers, _ = _two_names()
+    seen = _install(monkeypatch, conn, answers)
+    assert asyncio.run(loader.run(["SAME", "MOVED"], False, False, False)) == 0
+    # One call for every accepted load, from the requested start (infra.tradier.history_start).
+    assert seen["marked"] == [("postgresql://unused", ["MOVED", "SAME"], date(2024, 1, 1))]
+    assert seen["close"][0][1]["detail"]["n_fetch_complete_marked"] == 2
+
+
+def test_a_failed_load_is_not_marked_fetch_complete(monkeypatch):
+    conn, answers, _ = _two_names()
+    conn.unmatched = {"MOVED": [date(2024, 1, 2)]}
+    seen = _install(monkeypatch, conn, answers)
+    asyncio.run(loader.run(["SAME", "MOVED"], False, False, False))
+    assert [symbols for _url, symbols, _since in seen["marked"]] == [["SAME"]]
+
+
+def test_dry_run_and_raw_only_mark_nothing(monkeypatch):
+    conn, answers, _ = _two_names()
+    seen = _install(monkeypatch, conn, answers)
+    asyncio.run(loader.run(["SAME", "MOVED"], False, False, True))
+    asyncio.run(loader.run(["SAME"], False, True, False))
+    assert seen["marked"] == []
+
+
+def test_fetch_complete_failure_fails_the_batch_and_exits_1(monkeypatch):
+    conn, answers, _ = _two_names()
+    seen = _install(monkeypatch, conn, answers)
+
+    def boom(*_args: Any) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(loader, "mark_loaded_fetch_complete", boom)
+    assert asyncio.run(loader.run(["SAME", "MOVED"], False, False, False)) == 1
+    assert seen["close"][0][1]["status"] == "failed"
+
+
+def test_mark_loaded_fetch_complete_goes_through_the_one_writer(monkeypatch):
+    """No restated SQL: each name goes to mark_fetch_complete on one psycopg connection."""
+    calls: list[tuple] = []
+
+    class _Pg:
+        def __enter__(self) -> _Pg:
+            return self
+
+        def __exit__(self, *_exc: Any) -> None:
+            calls.append(("exit",))
+
+    monkeypatch.setattr(
+        loader.psycopg, "connect", lambda url: calls.append(("connect", url)) or _Pg()
+    )
+    monkeypatch.setattr(
+        loader, "mark_fetch_complete", lambda conn, *args: calls.append(("mark", *args))
+    )
+    loader.mark_loaded_fetch_complete("postgresql://x", ["AAA", "BBB"], date(2000, 1, 1))
+    since = datetime(2000, 1, 1, tzinfo=UTC)
+    assert calls == [
+        ("connect", "postgresql://x"),
+        ("mark", "AAA", "1d", since),
+        ("mark", "BBB", "1d", since),
+        ("exit",),
+    ]
+
+
+def test_the_loader_uses_the_pipeline_writer_itself():
+    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipeline
+
+    assert loader.mark_fetch_complete is pipeline.mark_fetch_complete

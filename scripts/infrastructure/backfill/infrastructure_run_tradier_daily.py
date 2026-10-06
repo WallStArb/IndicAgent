@@ -37,6 +37,11 @@ with no equal observation aborts the load (recorded failed). A write run is one
 bar_derivation_batch (stage tradier); after the fetch loop it reruns the D2a scrub over the
 names it changed and writes fresh 1d content digests for every loaded name.
 
+An accepted load also sets backfill_status.fetch_complete for the name's 1d through the one
+writer of that flag (mark_fetch_complete in infrastructure_run_historical_pipeline.py, whose
+EXISTS guard needs stored tradeable bars). The compute_1d promotion predicate requires it, so a
+name onboarded through this loader needs no manual bookkeeping step before promotion.
+
 --raw-only lands D1 and stops: every bar lands, no canonical write, no ohlcv_load row and no
 batch, so D2 does not treat the name as Tradier-owned. Used to backfill raw Tradier for
 comparison against IBKR.
@@ -63,11 +68,15 @@ from typing import Any
 
 import asyncpg
 import numpy as np
+import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    mark_fetch_complete,
+)
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import write_1d_digests
 from services.bar_derivation_batch import close_batch, open_batch
@@ -575,6 +584,19 @@ async def _existing_bars(conn: Any, symbol: str) -> dict[datetime, StoredBar]:
     }
 
 
+def mark_loaded_fetch_complete(database_url: str, symbols: list[str], since: date) -> None:
+    """Set 1d fetch_complete for each accepted load through the flag's one writer.
+
+    mark_fetch_complete takes a psycopg connection, so this opens one (committed on exit) rather
+    than restating its SQL for asyncpg. `since` is the load's requested start: every bar the
+    load stored is at or after it, which bounds the writer's EXISTS guard.
+    """
+    since_dt = datetime(since.year, since.month, since.day, tzinfo=UTC)
+    with psycopg.connect(database_url) as pg:
+        for symbol in symbols:
+            mark_fetch_complete(pg, symbol, "1d", since_dt)
+
+
 async def _scrub_and_digest(
     conn: Any,
     database_url: str,
@@ -785,6 +807,14 @@ async def run(
                 loaded=sorted(loaded),
                 batch_id=batch_id,
             )
+            if loaded:
+                try:
+                    await asyncio.to_thread(
+                        mark_loaded_fetch_complete, settings.database_url, sorted(loaded), start
+                    )
+                    post_detail["n_fetch_complete_marked"] = len(loaded)
+                except Exception as error:
+                    post_failed.append(f"fetch_complete: {error}")
             batch_detail = {
                 "counts": counts,
                 "d1_observations_landed": n_landed,
