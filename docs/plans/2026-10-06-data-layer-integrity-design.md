@@ -184,7 +184,8 @@ rows (about 1.6 GB), plus 185-31's seven names.
 - 150-day chunks (`infra.ibkr.chunk_days.5m`), so at most 49 requests per name over the 20-year
   depth. That is at most about 61,800 requests.
 - Two bounds, each about 8,400 requests a day: pacing (58 per 10 minutes) and latency (median 10.2
-  s per measured 5m request). Floor about 7.5 days; plan 10 to 14 days at the fetcher's 240-minute
+  s per measured 5m request). Corrected 2026-10-06 from 1,012 measured 5m requests (mean 14.0 s, p90 34 s): floor about 10.6
+  days; expect 12 to 18 days at the fetcher's 240-minute
   budget with a 15-minute gap, plus gateway outages.
 - Pilot of 20 names spanning wave 1 and wave 2 first. Measure requests per hour, rows per name,
   revisions and parity. Extrapolate before the full run (performance SOP).
