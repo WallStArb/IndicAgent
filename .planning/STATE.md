@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: 23 of 26 (185-22 landed 2026-10-03; 185-23 executing; then 25 and 26, then 24)
+Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -58,7 +58,7 @@ Plan: 23 of 26 (185-22 landed 2026-10-03; 185-23 executing; then 25 and 26, then
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** 26 plans in 12 waves; 22 done (01-22), waves 1-5 complete. Owner decisions 2026-10-03: Tradier is the primary 1d source (migration 438; raw in D1 for all 1,529 names, 1,266 canonical, 188 equity names stay IBKR), D1 is mutable, and plan 185-25 rebuilds `market_data_ohlcv` from real rows (drops the synthetic fill; needs the 449 HTF lane stopped). 185-26 moves the nightly 1d leg to Tradier. Todo 492 holds the vendor reconciliation. D2b landed
+- **Phase 185:** 26 plans in 12 waves; 23 done (01-23), waves 1-5 complete. D7 (185-23) runs as the nightly's last step on every path and reports to integrity_monitor and Prometheus (`bar_reconciliation_findings_total`). Owner decisions 2026-10-03: Tradier is the primary 1d source (migration 438; raw in D1 for all 1,529 names, 1,266 canonical, 188 equity names stay IBKR), D1 is mutable, and plan 185-25 rebuilds `market_data_ohlcv` from real rows (drops the synthetic fill; needs the 449 HTF lane stopped). 185-26 moves the nightly 1d leg to Tradier. Todo 492 holds the vendor reconciliation. D2b landed
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
@@ -70,7 +70,7 @@ Plan: 23 of 26 (185-22 landed 2026-10-03; 185-23 executing; then 25 and 26, then
   115 rows deleted for want of recorded confirmation, re-asked at each name's next 1d fetch). D5's IBKR dividend route reads D1 (185-21: migration 403,
   26 date disputes on 18 names, verdict "not usable alone; Yahoo stays reference"; reader
   hand-off to phase 183 in the phase dir). The remaining ~700 names derive as todo 449's 5m
-  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 23, 24.
+  backfill reaches them (7 lane symbols excluded at rewrite time; 1 no_5m). Next: 25, 26, 24.
   Price-integrity layer (D2a scrubbing, flag never delete; D7 reconciliation).
   Owns todo 433 (P0). Lease-free fetch callers still allow-listed: `185-daily-data-foundation/deferred-items.md`.
   Migration numbers 400 to 408 are reserved for 185's plans 15, 13, 17, 21, 19, 20, 22, 23, 24 (their old

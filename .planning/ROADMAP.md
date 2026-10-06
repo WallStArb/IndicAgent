@@ -216,7 +216,7 @@ Plans:
 
 **Wave 9** *(blocked on Wave 8 completion)*
 
-- [ ] 185-23-PLAN.md - D7 nightly reconciliation audit (wave 9)
+- [x] 185-23-PLAN.md - D7 nightly reconciliation audit (wave 9)
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
