@@ -220,7 +220,7 @@ Plans:
 
 **Wave 10** *(blocked on Wave 9 completion)*
 
-- [ ] 185-25-PLAN.md - rebuild market_data_ohlcv from real rows, drop the synthetic fill (wave 10)
+- [x] 185-25-PLAN.md - rebuild market_data_ohlcv from real rows, drop the synthetic fill (wave 10)
 
 **Wave 11** *(blocked on Wave 10 completion)*
 
