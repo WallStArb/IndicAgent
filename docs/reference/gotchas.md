@@ -134,14 +134,14 @@ first. The project holds no split history yet (found 2026-09-25, research archit
 
 ## Tests must never append to D1 or spawn derivation against the live database
 
-`ohlcv_request` and `ohlcv_observation` (D1) are append-only, and `bar_derivation` takes the latest
-observation per bar, so a fixture row a test appends on a real symbol and date can never be removed and
-becomes a canonical bar (27 rows on SPY 2024-01-02 to 01-04 would have stored close 100.5 for 472.65;
-found 2026-10-03). D2 now excludes requests whose caller starts with `test-`, but the rows stay: point
-every test that appends at `indicagent_test`. A unit test that drives `infrastructure_nightly_backfill.main()`
-must patch every stage it calls (`_run_split_detect`, `_run_daily_stage`, `_prepare_grid_stage`,
-`_run_grid_stage`); an unpatched stage spawns a real `bar_derivation --apply` against production. Todo 494
-tracks the CI guard.
+`bar_derivation` takes the latest observation per bar from D1 (`ohlcv_request`, `ohlcv_observation`), so a
+fixture row a test appends on a real symbol and date becomes a canonical bar (27 rows on SPY 2024-01-02 to
+01-04 would have stored close 100.5 for 472.65; found 2026-10-03). D1 was append-only then and those rows stayed;
+the owner has since made D1 mutable (migration 438, 2026-10-03), so such rows are removable now, but the
+exposure is the same until D2 reads them. D2 excludes requests whose caller starts with `test-`; point every
+test that appends at `indicagent_test`. A unit test that drives `infrastructure_nightly_backfill.main()` must
+patch every stage it calls (`_run_split_detect`, `_run_daily_stage`, `_prepare_grid_stage`, `_run_grid_stage`);
+an unpatched stage spawns a real `bar_derivation --apply` against production. Todo 494 tracks the CI guard.
 
 ## Grants are invisible to unit tests
 
