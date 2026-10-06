@@ -143,6 +143,12 @@ _ALLOW_LIST: dict[str, str] = {
         "the tradeable view's WHERE volume > 0 filter would hide the placeholder rows "
         "the DELETE must remove and skew the checksums."
     ),
+    "scripts/ops/bars/ops_real_rows_swap.py": (
+        "PERMANENT until the swap lands (todo 462 step 6, plan 185-25): the real-rows swap "
+        "compares the raw table's real rows (source IS DISTINCT FROM 'synthetic_fill', "
+        "zero-volume provider bars included) with the new table's per (symbol, timeframe); the "
+        "tradeable view would hide zero-volume real rows and let a lost one pass the digest."
+    ),
     "services/intraday_raw_archive.py": (
         "PERMANENT: the archive's single owner module (plan 12). Its "
         "ARCHIVE_FROM_TABLE_SQL is bar_derivation's INSERT ... SELECT moved here "
