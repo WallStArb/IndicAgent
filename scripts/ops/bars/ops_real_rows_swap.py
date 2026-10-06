@@ -298,6 +298,9 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
         REAL_ROWS, "archive SELECT excludes synthetic_fill"
     ),
     _SELF: ConsumerVerdict(SELF, "this preflight"),
+    "scripts/ops/bars/ops_tradier_lineage_backfill.py": ConsumerVerdict(
+        REAL_ROWS, "counts stored Tradier 1d bars against D1; placeholders never exist there"
+    ),
 }
 
 
