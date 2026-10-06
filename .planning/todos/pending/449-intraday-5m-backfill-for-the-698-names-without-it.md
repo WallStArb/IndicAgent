@@ -5,7 +5,7 @@ filed: 2026-09-26
 source: owner, phase 186 planning (2026-09-26): the feature_vectors rebuild is multiday and runs once, on full bar history
 ---
 
-# Backfill 5m bars for the 698 names without intraday history
+# Backfill raw 5m bars for the 698 names without intraday history (5m only)
 
 ## What
 
@@ -14,14 +14,20 @@ names. 1d history exists for all 931; 5m does not exist for the other 698. The p
 `feature_vectors` rebuild covers all 931 names and cannot start until this backfill is complete
 (186-CONTEXT D-32).
 
-Fetch 5m, 15m and 1h (owner decision, 2026-09-27). Phase 185 D2b still derives the 15m and 1h
-readers see from 5m on session-anchored edges (todo 446); the fetched IBKR 15m and 1h are kept as
-raw observations and are the independent check on that derivation (185-12 parity check). They
-cost little: IBKR chunks are 730 days (15m) and 1095 days (1h) against 150 days for 5m.
+Scope decision (owner, 2026-10-06, replaces the 2026-09-27 "fetch 5m, 15m and 1h" decision): fetch raw 5m only.
+Research features need 5m through 1d on every name, and 15m and 1h are derived from 5m (phase 185 D2b, todo 446;
+docs/plans/2026-09-29-intraday-bar-store-redesign.md) so every timeframe a feature sees comes from the same bars.
+Fetching 15m and 1h from IBKR as well costs the single history stream days that 5m needs. Which names get 5m:
+all 931 `compute_eligible_1d` names (the 698 missing 5m plus the 233 that have it); the rebuild's scope is the
+promoted set, chosen by promotion state and never by screening on history or returns. The 598 active names that are
+not yet promoted are outside this todo until the SOP promotes them.
 
-Status 2026-09-27: IBKR serves one heavy history stream at a time; 4 parallel 5m lanes (plus 3 15m/1h lanes) produced no more throughput than one and mostly timed out (5m done for 4 names in 6 hours). Now one stream: `logs/backfill_ops/intraday_chain.sh` runs 15m+1h for all 698 names first (client 46, `logs/backfill_ops/intraday_htf/`), then 5m (client 40, `logs/backfill_ops/intraday_5m/solo_*`). 15m/1h go first because the strategy families read them and they need about a third of 5m's requests. Solo 5m rate was about 2 minutes per year of history, so 5m is roughly two weeks. The nightly 1d backfill skips while any backfill runs. The phase 186 rebuild gates on the 5m part only, since it reads derived 15m/1h.
-
-The chain, both lane scripts, the original `backfill_retry_loop.sh` (their pattern source) and the two symbol lists are force-added to git (2026-09-27); everything else under `logs/` stays ignored. Never edit or move a lane script while its loop runs (bash reads scripts incrementally). Todo 452 (deferred) tracks the end-of-campaign tooling cleanup.
+State 2026-10-06 (measured): IBKR 15m/1h vendor bars were fetched for 296 names that have no 5m; they stay as raw
+data and as the parity check against derived bars, and they are not deleted before that name's 5m lands and its
+derived 15m/1h pass parity. The old chain (`intraday_chain.sh`) is stopped; the phase 189 fetcher
+(`indicagent-ibkr-history-fetcher`) is stopped until its queue is 5m only. The `PAUSE_5M` marker is a leftover of
+todo 462, whose blocker (the synthetic fill) ended with the 185-25 real-rows swap. IBKR serves one heavy history
+stream at a time; 5m chunks are 150 days (about 49 requests for 20 years) under 58 requests per 10 minutes.
 
 ## Constraints
 
@@ -32,12 +38,12 @@ The chain, both lane scripts, the original `backfill_retry_loop.sh` (their patte
   the gap later through content-digest keys.
 - IBKR pacing and client-id limits (`_MAX_CLIENT_ID=50`); check for other running backfills
   first.
-- Measure a pilot (for example 10 names) for wall-clock time and rows before launching the rest,
+- Measure a pilot (for example 10 names, 5m only) for wall-clock time and rows before launching the rest,
   and state the expected duration.
 
 ## Done when
 
-5m, 15m and 1h coverage per name matches its expected span (first available bar to today), provider-empty
+5m coverage per name matches its expected span (first available bar to today), provider-empty
 spans are recorded in `ohlcv_empty_history`, and the names are promoted per the SOP. The coverage
 query and its output are recorded here.
 
