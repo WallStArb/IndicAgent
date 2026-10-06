@@ -246,7 +246,7 @@ explicit override for it.
 **Wave 14** *(blocked on Wave 13 completion)*
 
 - [ ] 185-28-PLAN.md - IBKR-only venue view, 7 IBKR-sourced late names re-asked, 6 contradicted empty-history rows reconciled (wave 14)
-- [ ] 185-30-PLAN.md - lineage for 1,266 Tradier-owned names, digests for every canonical 1d name, 31 untraced IBKR bars re-asked, replaced 1d legacy flags retired (wave 14)
+- [x] 185-30-PLAN.md - lineage for 1,266 Tradier-owned names, digests for every canonical 1d name, 31 untraced IBKR bars re-asked, replaced 1d legacy flags retired (wave 14)
 - [ ] 185-31-PLAN.md - todo 490: intraday raw revision table, value-match archive verify, 7 grid symbols derived (861,047 rows) (wave 14)
 
 **Wave 15** *(blocked on Wave 14 completion)*
