@@ -88,6 +88,12 @@ _ALLOW_LIST: dict[str, str] = {
         "bars included, to record revisions and gate a source change; the tradeable view would "
         "hide those rows and turn a revision into a silent new bar."
     ),
+    "scripts/ops/bars/ops_tradier_lineage_backfill.py": (
+        "ONE-TIME (plan 185-30): the 1d lineage, digest and legacy-flag repair counts every "
+        "stored canonical 1d bar, zero-volume provider bars included, and joins a legacy flag "
+        "to its stored bar's source; lineage and digests cover those rows, so the tradeable "
+        "view would hide exactly the bars being traced."
+    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "PERMANENT (todo 462, plan 185-12): counts the synthetic_fill rows of a coarse timeframe "
         "and compares them with the tradeable 5m volume over the same slots; the synthetic rows "
