@@ -21,6 +21,7 @@ from services.bar_reconciliation_audit import (
     check_daily_vs_intraday,
     check_dividend_freshness,
     check_late_heads,
+    check_listing_venue_coverage,
     check_masked_slots,
     check_nightly_skipped,
     check_partial_daily,
@@ -230,6 +231,22 @@ class TestLateHeads:
 
     def test_inventory_name_without_canonical_rows_fails(self):
         assert check_late_heads({"XYZ": D0}, {}).n_findings == 1
+
+
+class TestListingVenueCoverage:
+    def test_moved_names_without_rows_or_without_a_closed_span_are_findings(self):
+        inventory = ["AMD", "CSX", "TLT", "PEP"]
+        stored = {
+            "AMD": (2, 1),  # closed former span + open current span
+            "CSX": (1, 0),  # one open span: the former venue never got recorded
+            "PEP": (3, 2),
+        }
+        result = check_listing_venue_coverage(inventory, stored)
+        assert result.n_findings == 2
+        assert result.samples == ("CSX|no_closed_span", "TLT|no_rows")
+
+    def test_empty_inventory_is_clean(self):
+        assert check_listing_venue_coverage([], {}).n_findings == 0
 
 
 class TestUnconfirmedEmpty:
