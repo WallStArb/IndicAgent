@@ -14,13 +14,22 @@ D-15 identity checks after the rewrite:
   session may aggregate fewer than the full 3/12 constituents - missing is
   missing, the no_fill invariant - and unanswered holes are the
   partial_constituents flag's to mark, not this check's);
-- per sampled session, the first derived 1h open equals the 1d open exactly,
-  and the derived 1h volume sums to the 1d volume within 1%: the official 1d
-  volume and the 5m-grid sum differ by closing-auction prints and odd-lot
-  reporting on some sessions (measured over all 1.03M derived sessions
-  2026-10-02: 90.3% exact, p99 relative deficit 0.26%, both directions occur),
-  so equality is the common case, not a structural invariant (the 1d close
-  differs by the auction too, so close is not compared);
+- the first derived 1h open of every session equals the session's first
+  non-quarantined 5m open, exactly (an internal identity of the grid; it holds
+  for every name, whichever source its canonical 1d comes from);
+- the derived 1h volume, close and first open agree with IBKR's own SMART
+  TRADES 1d observation in D1 (the latest per symbol and date), never with
+  canonical 1d: canonical 1d is Tradier for most names and its consolidated
+  volume is a different basis (data layer integrity design section 7, volume
+  definitions). Agreement is a rate, not an identity: closing-auction prints,
+  odd lots, half days and vendor adjustment runs move single sessions. Measured
+  2026-10-07 over 1,041,534 sessions on 239 names (plan 185-31): volume within
+  1% on 99.30%, 1h volume above 1d by more than 1% on 0.007% (the 5m sum cannot
+  structurally exceed the day), close within 1% on 99.78%, first open exact on
+  99.86%, largest per-name median volume deficit 0.17%. The thresholds below sit
+  under those rates; the worst names (VIXY volume 66%, GE open 88% through its
+  2021-2024 corporate actions) are vendor-basis findings for 185-37 and D7, and
+  pass only as part of the aggregate;
 - the archive holds the stored observations the rewrite removed (per derived
   symbol the archived 15m/1h rows are non-zero, and the latest completed grid
   batch's detail records the same total it verified and removed);
@@ -163,66 +172,108 @@ def test_derived_bars_equal_direct_5m_aggregation(conn):
     assert checked > 0
 
 
-def test_session_identities_hold_1h_volume_equals_1d_and_first_open(conn):
+# Thresholds committed with plan 185-31 from the 2026-10-07 measurement in the module docstring.
+_MIN_VOLUME_WITHIN_1PCT = 0.99
+_MAX_VOLUME_EXCESS_OVER_1PCT = 0.001
+_MIN_CLOSE_WITHIN_1PCT = 0.995
+_MIN_OPEN_EXACT = 0.995
+_MAX_ABS_MEDIAN_VOLUME_DEFICIT = 0.005
+
+
+def test_first_1h_open_equals_the_first_5m_open_of_every_session(conn):
     cur = conn.cursor()
     symbols = _derived_symbols(cur)
     if not symbols:
         pytest.skip("no derived 1h symbols yet (rewrite has not run)")
-    rng = random.Random(18512)
-    for symbol in rng.sample(symbols, min(5, len(symbols))):
-        cur.execute(
-            """
-            SELECT DISTINCT date_trunc('day', "timestamp")
+    sampled = random.Random(18512).sample(symbols, min(5, len(symbols)))
+    cur.execute(
+        """
+        WITH h AS (
+            SELECT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d,
+                   min("timestamp") AS t0, (array_agg(open ORDER BY "timestamp"))[1] AS o1
             FROM market_data_ohlcv
-            WHERE symbol = %s AND timeframe = '1h' AND source = 'derived_5m'
-            ORDER BY 1
-            """,
-            (symbol,),
+            WHERE symbol = ANY(%s) AND timeframe = '1h' AND source = 'derived_5m'
+            GROUP BY 1, 2
+        ), f AS (
+            SELECT DISTINCT ON (t.symbol, h.d) t.symbol, h.d, t.open
+            FROM market_data_ohlcv_tradeable t
+            JOIN h ON h.symbol = t.symbol
+                  AND h.d = (t."timestamp" AT TIME ZONE 'America/New_York')::date
+                  AND t."timestamp" >= h.t0
+            WHERE t.symbol = ANY(%s) AND t.timeframe = '5m'
+              AND NOT EXISTS (
+                  SELECT 1 FROM bar_quality_flag q
+                  WHERE q.symbol = t.symbol AND q.timeframe = '5m'
+                    AND q."timestamp" = t."timestamp" AND q.quarantine)
+            ORDER BY t.symbol, h.d, t."timestamp"
         )
-        sessions = [r[0] for r in cur.fetchall()]
-        if not sessions:
-            continue
-        for session in rng.sample(sessions, min(5, len(sessions))):
-            cur.execute(
-                """
-                SELECT
-                  (SELECT sum(volume) FROM market_data_ohlcv
-                   WHERE symbol = %s AND timeframe = '1h' AND source = 'derived_5m'
-                     AND "timestamp" >= %s AND "timestamp" < %s + interval '1 day'),
-                  (SELECT volume FROM market_data_ohlcv
-                   WHERE symbol = %s AND timeframe = '1d'
-                     AND "timestamp" >= %s AND "timestamp" < %s + interval '1 day'),
-                  (SELECT (array_agg(open ORDER BY "timestamp"))[1] FROM market_data_ohlcv
-                   WHERE symbol = %s AND timeframe = '1h' AND source = 'derived_5m'
-                     AND "timestamp" >= %s AND "timestamp" < %s + interval '1 day'),
-                  (SELECT open FROM market_data_ohlcv
-                   WHERE symbol = %s AND timeframe = '1d'
-                     AND "timestamp" >= %s AND "timestamp" < %s + interval '1 day')
-                """,
-                (
-                    symbol,
-                    session,
-                    session,
-                    symbol,
-                    session,
-                    session,
-                    symbol,
-                    session,
-                    session,
-                    symbol,
-                    session,
-                    session,
-                ),
-            )
-            vol_1h, vol_1d, open_1h, open_1d = cur.fetchone()
-            assert vol_1d is not None, f"{symbol} {session.date()}: no 1d row"
-            assert abs(vol_1h - vol_1d) <= 0.01 * vol_1d, (
-                f"{symbol} {session.date()}: 1h volume {vol_1h} vs 1d {vol_1d} "
-                f"(deficit {(vol_1d - vol_1h) / vol_1d:.4%} beyond the 1% auction/odd-lot band)"
-            )
-            assert (
-                open_1h == open_1d
-            ), f"{symbol} {session.date()}: first 1h open {open_1h} != 1d open {open_1d}"
+        SELECT count(*), count(*) FILTER (WHERE f.open IS DISTINCT FROM h.o1)
+        FROM h LEFT JOIN f USING (symbol, d)
+        """,
+        (sampled, sampled),
+    )
+    n_sessions, n_mismatched = cur.fetchone()
+    assert n_sessions > 0
+    assert n_mismatched == 0, f"{n_mismatched} of {n_sessions} sessions on {sampled}"
+
+
+def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
+    cur = conn.cursor()
+    if not _derived_symbols(cur):
+        pytest.skip("no derived 1h symbols yet (rewrite has not run)")
+    cur.execute(
+        """
+        WITH derived AS (
+            SELECT DISTINCT symbol FROM market_data_ohlcv
+            WHERE timeframe = '1h' AND source = 'derived_5m'
+        ), obs AS (
+            SELECT DISTINCT ON (o.symbol, o.bar_date)
+                   o.symbol, o.bar_date, o.open, o.close, o.volume
+            FROM ohlcv_observation o
+            JOIN ohlcv_request q ON q.request_id = o.request_id
+            WHERE o.timeframe = '1d' AND o.route = 'SMART' AND o.what_to_show = 'TRADES'
+              AND q.source = 'ibkr' AND q.caller NOT LIKE 'test-%%'
+              AND o.symbol IN (SELECT symbol FROM derived)
+            ORDER BY o.symbol, o.bar_date, o.fetched_at DESC, o.request_id DESC
+        ), h AS (
+            SELECT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d,
+                   sum(volume) AS vol,
+                   (array_agg(open ORDER BY "timestamp"))[1] AS o1,
+                   (array_agg(close ORDER BY "timestamp" DESC))[1] AS c1
+            FROM market_data_ohlcv
+            WHERE timeframe = '1h' AND source = 'derived_5m'
+            GROUP BY 1, 2
+        ), j AS (
+            SELECT h.symbol, h.vol, obs.volume, h.o1, obs.open, h.c1, obs.close
+            FROM h JOIN obs ON obs.symbol = h.symbol AND obs.bar_date = h.d
+            WHERE obs.volume > 0
+        ), per AS (
+            SELECT symbol,
+                   percentile_cont(0.5) WITHIN GROUP (
+                       ORDER BY (volume - vol)::float8 / volume) AS median_deficit
+            FROM j GROUP BY 1
+        )
+        SELECT count(*),
+               avg((abs(vol - volume) <= 0.01 * volume)::int),
+               avg((vol > 1.01 * volume)::int),
+               avg((abs(c1 - close) <= 0.01 * close)::int),
+               avg((o1 = open)::int),
+               (SELECT max(abs(median_deficit)) FROM per),
+               (SELECT array_agg(symbol ORDER BY symbol) FROM per
+                WHERE abs(median_deficit) > %s)
+        FROM j
+        """,
+        (_MAX_ABS_MEDIAN_VOLUME_DEFICIT,),
+    )
+    n, vol_within, vol_excess, close_within, open_exact, worst_median, off_names = cur.fetchone()
+    assert n > 0, "no derived session has an IBKR SMART TRADES 1d observation"
+    assert float(vol_within) >= _MIN_VOLUME_WITHIN_1PCT, f"volume within 1%: {vol_within} of {n}"
+    assert float(vol_excess) <= _MAX_VOLUME_EXCESS_OVER_1PCT, f"1h above 1d: {vol_excess}"
+    assert float(close_within) >= _MIN_CLOSE_WITHIN_1PCT, f"close within 1%: {close_within}"
+    assert float(open_exact) >= _MIN_OPEN_EXACT, f"first open exact: {open_exact}"
+    assert (
+        not off_names
+    ), f"median 1h volume deficit beyond {_MAX_ABS_MEDIAN_VOLUME_DEFICIT}: {off_names} (worst {worst_median})"
 
 
 def test_archive_holds_the_removed_observations(conn):
