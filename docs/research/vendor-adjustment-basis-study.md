@@ -1,7 +1,9 @@
 # Vendor adjustment basis study: IBKR SMART vs Tradier 1d
 
 **Author:** Claude (Opus 5.5), 2026-10-07, at Brandon's request (plan 185-37)
-**Status:** in progress (decision rule committed before any result is computed)
+**Status:** complete 2026-10-07: rule pre-registered (a2d9ca6e1), results (038a5774c), 30 IBKR
+exception rows written and 25 names re-derived; vendor_basis_run blockers 46 to 31, each named
+under "Undecided runs" (owner decisions in todo 508)
 **Informed by:** docs/plans/2026-10-06-data-layer-integrity-design.md (sections 2, 6, 7, open
 risks; spec step 5); summaries of plans 185-33 (vendor_basis_run verdict, 46 blockers), 185-38
 (74 IBKR-primary exception rows, 113 names routed here, VMRK) and 185-46
@@ -117,7 +119,7 @@ percentile of the surrounding 250 sessions.
 Why runs are undecided: in 1,978 of the 2,044 every boundary has both vendors inside their
 ordinary range (a gradual drift, a dividend-adjustment difference accumulating over time); in 64 at
 least one boundary has both vendors outside it (a market shock on the boundary day, or a real
-corporate-action price move such as KDP's special dividend); 2 carry conflicting votes. 1,814 of
+corporate-action price move such as KDP on 2018-07-10); 2 carry conflicting votes. 1,814 of
 them are shorter than 20 sessions, and 1,759 have a median ratio within 1% of 1 (159 within 10 bp,
 126 beyond 1%).
 
@@ -143,15 +145,15 @@ stepping vendor's own series jumps by that factor on that date. Two families dom
   a later split or reverse split that IBKR's are. 25 decided runs end on 2011-05-20 (the first
   Tradier session on the current scale is 2011-05-23; ABT, BAX, CHD, EBAY, ROST, VIXM and VIXY among
   them); 8 span 2011-05-23 to 2015-09-10 (the SPDR sector ETFs XBI, XHE, XPH, XSD, XTN among them);
-  6 end 2016-11-04, the iShares country ETFs EWI, EWJ, EWM, EWS, EWT, EWU (their 2016-11-07 reverse
-  splits). Example, CHD: Tradier 41.08 on 2011-05-20 then 20.465 on 2011-05-23, IBKR 20.54 then
+  6 end 2016-11-04, the iShares country ETFs EWI, EWJ, EWM, EWS, EWT, EWU (Tradier steps by a
+  factor of 2 or 4 on 2016-11-07). Example, CHD: Tradier 41.08 on 2011-05-20 then 20.465 on 2011-05-23, IBKR 20.54 then
   20.47. Canonical 1d is Tradier on these names, so it carries a false log return of about ln(ratio)
   at the boundary: +1.39 on EWJ, -0.69 on CHD, -3.19 on VIXY. The same stale scale holds in Tradier's
   volume: inside these runs the IBKR/Tradier volume ratio is the inverse of the price ratio (BIL
   0.486, COPX 0.324, VIXY 29.0), and it returns to about 0.92 to 0.97 after the boundary.
-- IBKR answers unadjusted for a distribution that Tradier adjusts (IBM, LEN; KDP's special
-  dividend), or on a pre-split fetch vintage (RJF before 2021-09-22, PATK before 2017-12-11). Here
-  IBKR steps and Tradier is continuous.
+- IBKR answers unadjusted for a distribution that Tradier adjusts (IBM and LEN, checked against the
+  record below), or on another scale before a fixed date (RJF before 2021-09-22, PATK before
+  2017-12-11). Here IBKR steps and Tradier is continuous.
 
 Two decided runs rest on a single bad Tradier print at the boundary rather than a basis: DOV
 2018-05-08 (Tradier 60.33 against IBKR 75.67, with both within 1.3% on either side) and YUM
@@ -285,6 +287,74 @@ Volume inside each range becomes IBKR's, which on the stale-basis names repairs 
 29 volume step; at the range ends IBKR volume runs about 3 to 11% under Tradier's in these years
 (DNTH 21%, YUM 16%).
 
+## Applied
+
+2026-10-07, 18:57 to 19:15 UTC, outside the 00:30 to 03:00 and 05:30 to 06:30 UTC windows; the
+IBKR fetcher and the Tradier loader stopped and disabled throughout.
+
+1. Rows. `ops_source_policy.py --add --symbol S --valid-from <run start> --valid-to <run end + 1>
+   --primary ibkr --reason "..." --evidence "$(cat logs/185-37/evidence/S_<start>.json)"`, a dry run
+   of all 30 first (`logs/185-37/policy_add_dryrun.log`), then `--apply`
+   (`logs/185-37/policy_add_apply.log`): 30 inserted, 0 refused, recorded 18:57:38 to 18:57:58
+   UTC. 1d symbol rows 75 to 105.
+2. Re-derivation. A daily dry run of the 25 names before the rows showed 0 new, changed or removed
+   (`logs/185-37/daily_dryrun_before_rows.tsv`). With the rows, the dry run showed exactly the
+   study's sessions (`daily_dryrun_after_rows.tsv`), and `python -m services.bar_derivation --stage
+   daily --symbols <25 names> --apply` (6.1 s, exit 0, `daily_apply.tsv`) wrote one ohlcv_load row
+   per name, outcome applied, every revision-ratio breach waived because the policy row is newer
+   than the name's last load. A dry run afterwards shows 0 new, 0 changed, 0 removed.
+
+| symbol | bars after | new | changed | removed | revision rows |
+|---|---|---|---|---|---|
+| BIL | 4,870 | 2 | 2,644 | 0 | 2,644 |
+| BNO | 4,111 | 28 | 788 | 0 | 788 |
+| BWX | 4,780 | 0 | 2,261 | 0 | 2,261 |
+| CHTR | 4,040 | 0 | 174 | 0 | 174 |
+| COPX | 4,142 | 3 | 1,404 | 0 | 1,404 |
+| DNTH | 2,084 | 0 | 1,314 | 0 | 1,314 |
+| GDXJ | 4,250 | 0 | 529 | 0 | 529 |
+| HYG | 4,904 | 0 | 5 | 0 | 5 |
+| IWC | 5,182 | 0 | 5 | 0 | 5 |
+| NVDA | 6,730 | 0 | 51 | 0 | 51 |
+| SIL | 3,866 | 1 | 1,130 | 0 | 1,130 |
+| THC | 6,730 | 0 | 7 | 0 | 7 |
+| UNG | 4,893 | 0 | 975 | 6 | 981 |
+| URA | 4,002 | 0 | 1,267 | 0 | 1,267 |
+| VCIT | 4,242 | 0 | 85 | 0 | 85 |
+| VCSH | 4,242 | 0 | 244 | 0 | 244 |
+| VIXM | 3,962 | 0 | 96 | 0 | 96 |
+| VIXY | 3,962 | 0 | 96 | 0 | 96 |
+| XBI | 5,199 | 0 | 1,083 | 0 | 1,083 |
+| XHE | 3,907 | 14 | 1,033 | 0 | 1,033 |
+| XLB | 6,730 | 0 | 19 | 0 | 19 |
+| XPH | 5,080 | 0 | 1,083 | 0 | 1,083 |
+| XSD | 5,195 | 0 | 1,083 | 0 | 1,083 |
+| XTN | 3,913 | 1 | 1,052 | 0 | 1,052 |
+| YUM | 6,730 | 0 | 494 | 0 | 494 |
+
+Totals: 18,922 changed (every session of the 30 runs), 49 new, 6 removed, 18,928 revision rows.
+The 49 new bars are IBKR interior dates d2-v2 had refused against Tradier's stale basis (BNO 28,
+XHE 14, COPX 3, BIL 2, SIL 1, XTN 1). The 6 removed are UNG's Tradier-only dates inside its run
+(2007-07-02, 2008-11-25, 2008-11-26, 2008-11-28, 2008-12-01, 2008-12-02), on the stale half scale,
+with no IBKR answer; their old values are in ohlcv_revision.
+
+3. D7 by hand (`services/bar_reconciliation_audit.py`, 18:59 to 19:10 UTC, 709 s wall, exit 0;
+   `logs/185-37/d7_run.out`). Across all 1,502 compute_1d names: vendor_basis_run 1,471 pass and 31
+   fail (46 before); policy_conformance, lineage_missing, canonical_recompute and digest_fresh 0
+   fail; session_coverage 240 fail (240 before); unexplained_seam 8 (8 before). On the 25
+   re-derived names: vendor_basis_run, canonical_recompute and policy_conformance 25 of 25 pass.
+   session_coverage fails on 4 of them: UNG newly (1.00000 to 0.99878, its 6 holes; the 189-10
+   gap-fill lane asks IBKR for them), XHE (0.98657 to 0.99012), XPH (0.99530, unchanged) and XTN
+   (0.99138 to 0.99164).
+
+Rollback. The plan assumed `--close` reverses an exception row. That holds only for an open row:
+the table's trigger lets an UPDATE close an open row and refuses every change to a closed one, and
+a row bounded by the pre-registered rule is closed from insertion. These 30 rows are therefore
+permanent decisions; no other row can cover their dates (exclusion constraint), and DELETE raises.
+Reversing one needs a migration that supersedes the append-only rule for that row. The bars
+themselves are recoverable: the old values are in ohlcv_revision, and re-derivation is the same
+daily command.
+
 ## Undecided runs
 
 Remaining blocking vendor_basis_run names after the rows, each with the reason no pre-registered
@@ -296,9 +366,10 @@ rule writes a row for it:
 - EWT: undecided. Tradier's 2x step on 2016-11-07 is unambiguous, but IBKR's boundary move 0.033085
   sits just above its 99th percentile 0.032910, so both vendors are out of range and the boundary
   casts no vote; it would be withheld for its 1,563-date head anyway.
-- KDP: undecided. On 2018-07-10 (the special dividend) IBKR moves 1.718 and Tradier 0.108 in log
-  terms, both above their 0.049 percentiles; D7 says Tradier is continuous. Canonical is IBKR under
-  the 185-38 symbol row. Rule 3 writes only IBKR rows.
+- KDP: undecided. On 2018-07-10 IBKR moves 1.718 and Tradier 0.108 in log terms, both above their
+  0.049 percentiles; D7 says Tradier is continuous. The corporate action behind the date was not
+  checked against the record. Canonical is IBKR under the 185-38 symbol row. Rule 3 writes only
+  IBKR rows.
 - PATK: decided tradier (IBKR jumps 2.5x on 2017-12-11, log 0.914; Tradier moves 0.2%). Canonical
   is IBKR under the 185-38 symbol row, so canonical PATK carries that false return on 2017-12-11.
   Rule 3 writes only IBKR rows.
@@ -310,7 +381,7 @@ rows.
 Not blocking, withheld for the same head seam: AAON, ADP, BDX, BNY, CVBF, DRI, IRM, KMB, MAS, MS,
 OUT, PPL, SPG, TT, VTR, VZ, WMB (17); withheld for no-trade prints: WBD.
 
-Owner decisions these leave open (todo filed):
+Owner decisions these leave open (todo 508):
 1. The 45 stale-basis heads. Options: a row from the name's first observation (the 185-38
    precedent; the Tradier head becomes holes, 67,209 head dates, keeping returns correct and levels
    absent), or a vendor scale correction of the Tradier head by the measured factor (new mechanism),
@@ -318,3 +389,5 @@ Owner decisions these leave open (todo filed):
 2. PATK, KDP, FTV, IP and STE: the 185-38 admission sweep gave them IBKR rows because Tradier
    disagreed; the continuity evidence says Tradier is the continuous side on those runs. Closing a
    whole-history row can only shorten it to its first day.
+
+undecided_blocking: 31
