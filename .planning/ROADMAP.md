@@ -252,7 +252,7 @@ run_all's landed-marker check from 185-41).
 
 - [x] 185-28-PLAN.md - IBKR-only venue view, 7 IBKR-sourced late names re-asked, 6 contradicted empty-history rows reconciled (wave 14)
 - [x] 185-30-PLAN.md - lineage for 1,266 Tradier-owned names, digests for every canonical 1d name, 31 untraced IBKR bars re-asked, replaced 1d legacy flags retired (wave 14)
-- [ ] 185-31-PLAN.md - amended: ohlcv_load/ohlcv_revision for every writer (migration 443), pure write contract with a min-stored floor, grid stage compare-and-write, todo 490's 7 symbols derived (wave 14)
+- [x] 185-31-PLAN.md - amended: ohlcv_load/ohlcv_revision for every writer (migration 443), pure write contract with a min-stored floor, grid stage compare-and-write, todo 490's 7 symbols derived (wave 14)
 
 **Wave 15** *(blocked on Wave 14 completion)*
 
