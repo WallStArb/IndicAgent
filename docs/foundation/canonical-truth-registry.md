@@ -1,8 +1,8 @@
 # Canonical Truth Registry
 
-**Version:** 3.1
+**Version:** 3.2
 **Status:** current
-**Last Updated:** 2026-10-06
+**Last Updated:** 2026-10-07
 **Tags:** data-ownership, canonical-source, streams, persistence, writer-agents, kafka
 
 **Archival note:** Rows describing the I1-I7 plugin tier, the typed intelligence bus
@@ -26,7 +26,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 | Streaming 1m/5m bars | `{env}.market.bars` | `market_data_ohlcv` | `BarWriter` | `ProviderMerger` selects the authoritative stream event; writer persists. Limited to 1m and 5m, and dormant while the IBKR live feed is down. Never writes 1d, 15m or 1h (phase 185). |
 | Historical 1m/5m bars | None (batch) | `market_data_ohlcv` | `infrastructure_run_historical_pipeline.py` (`backfill_feature_factory.py --fetch-only` for the rebuild) | Provider bars as fetched, real rows only (no synthetic fill since 185-18; table rebuilt from real rows by 185-25). |
 | Daily observations (D1) | None (batch) | `ohlcv_request`, `ohlcv_observation` | `services/ohlcv_observation_writer.py` under role `ohlcv_observation_writer`, called by the fetch paths (IBKR historical pipeline, Tradier loader) | Every provider answer, per route and what_to_show; requests log no_data/timeout/failed too. Mutable since migration 438. Test callers (`test-...`) are provenance-excluded by every reader. |
-| Canonical 1d bars | None (batch) | `market_data_ohlcv` (timeframe 1d) | `bar_derivation` (`services/bar_derivation.py --stage daily`) for IBKR-sourced names; Tradier loader (`infrastructure_run_tradier_daily.py`) for Tradier-owned names | One daily source per name for its whole history; Tradier owns a name once any load was accepted (`TRADIER_OWNED_SQL`). Lineage in `canonical_bar_lineage` (bar_derivation); Tradier loads in `ohlcv_load`, replaced values in `ohlcv_revision` (Tradier loader). |
+| Canonical 1d bars | None (batch) | `market_data_ohlcv` (timeframe 1d) | `bar_derivation` (`services/bar_derivation.py --stage daily`) for IBKR-sourced names; Tradier loader (`infrastructure_run_tradier_daily.py`) for Tradier-owned names | One daily source per name for its whole history; Tradier owns a name once any load was accepted (`TRADIER_OWNED_SQL`). Lineage in `canonical_bar_lineage` under two rules: `d2-v1` (bar_derivation, IBKR-sourced names) and `tradier-v1` (Tradier loader, the latest equal TRADIER observation of the date). Loads in `ohlcv_load`, replaced values in `ohlcv_revision`. |
 | Canonical 15m/1h bars (derived grid) | None (batch) | `market_data_ohlcv` (source `derived_5m`) | `bar_derivation` (`--stage grid`) | Rebuilt from tradeable 5m bars on session edges; the IBKR 15m/1h answers go to `ohlcv_intraday_raw_archive` (same writer). Single-writer CI fence: `tests/unit/test_market_data_ohlcv_writer_boundary.py`. |
 | Bar scrub flags and quarantine | None (batch) | `bar_quality_flag` | `services/bar_scrub.py` (run by bar_derivation's daily stage and the historical pass) and bar_derivation (constituent and split flags) | Flag, never delete (D-09): quarantine rules hide a bar from `market_data_ohlcv_tradeable`; the bar is never edited. |
 | Corporate actions (splits) | None (batch) | `corporate_action` (read `corporate_action_current`) | `ops_seam_audit.py`, `ops_split_detect.py` (nightly overlap), Tradier loader (refetch split) | Append-only; one fact type with three inference paths, each tagged by `inferred_by`, corrections supersede. All write under `bar_derivation_writer`. |
@@ -58,6 +58,30 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 <!-- forward_returns row repointed at the kernel; table dropped by migration 430 (186-23) -->
 <!-- bar rows rewritten 2026-10-06 (phase 185 plan 24): BarWriter limited to streaming 1m/5m; bar_derivation owns 1d, 15m, 1h -->
 <!-- v3.0 rows added 2026-06-21: feature_vectors, regime labels, forward_returns, feature_ic_scores, IC discovery report -->
+
+## Provider matrix
+
+Two price providers (IBKR, Tradier) and one reference-data provider (Yahoo). Each row is one (provider, timeframe): the request route and stored source values, the tables it writes and the writer. Plan 185-32, 2026-10-07; 185-43 rewrites it for d2-v2.
+
+| Provider, timeframe | Route and source | D1 (`ohlcv_request`, `ohlcv_observation`) | `ohlcv_load`, `ohlcv_revision` | `market_data_ohlcv` | `ohlcv_intraday_raw_archive` | Writer |
+|---|---|---|---|---|---|---|
+| IBKR 1d | Routes `SMART`, the former listing venues (`NYSE`, `ARCA`, `ISLAND`, `AMEX`, `BATS`) and `LEGACY_IMPORT`; what_to_show `TRADES` and `ADJUSTED_LAST`; observation source `ibkr` | Every answer, through `services/ohlcv_observation_writer.py` | Not yet: bar_derivation's daily stage records a load from 185-38 | Canonical source `ibkr_named` (or `ibkr_venue` for a pre-venue-move span) for names Tradier does not own; lineage rule `d2-v1` | No | Fetch: the IBKR history fetcher (phase 189; stopped and disabled, owner decision). Bars: `bar_derivation --stage daily` |
+| Tradier 1d | Route `TRADIER`, what_to_show `TRADES`; source `tradier` | Every answer, through the observation writer | One `ohlcv_load` row per load; replaced values in `ohlcv_revision` (origin `load`); refetch splits in `corporate_action` | Canonical source `tradier` for the names it owns (primary 1d source, migration 438); lineage rule `tradier-v1` | No | `infrastructure_run_tradier_daily.py` |
+| IBKR 5m | `SMART` `TRADES`; source `ibkr_named` | Request record only (`ohlcv_request`, answered windows) | No | Real provider bars only, stored as fetched (no fill) | No | The IBKR history fetcher (paused, todo 462); `backfill_feature_factory.py --fetch-only` for the rebuild (raw bars, 5m and 1m only) |
+| IBKR 1m | `SMART` `TRADES`; source `ibkr_named` | Request record only | No | Real provider bars only | No | Same as 5m; dormant (not in the fetcher's default scopes) |
+| IBKR 15m and 1h | `SMART` `TRADES`; vendor observations | Request record only | Differing observations of an archived bar in `ohlcv_revision`, origin `archive_segment` (185-31) | Readers see source `derived_5m` from `bar_derivation --stage grid`; vendor `ibkr_named` rows remain only for names the grid stage has not yet replaced, and leave the table after a value match against the archive | Every vendor answer, through `services/intraday_raw_archive.py` | No longer fetched (migration 445: default scopes stop vendor 15m and 1h); the archive is frozen as the parity reference |
+| IBKR 4h | `SMART` `TRADES`; source `ibkr_named` | No | No | Real provider bars only since 185-32 (2,184 legacy rows); the design derives 4h from 5m | No | No default scope fetches it |
+| Yahoo | Dividends only, never a price | No | No | No | No | `dividend_events` (read through `dividend_events_reconciled`) |
+
+**No synthetic_fill exists.** The store holds real rows only since the 185-25 swap (zero synthetic_fill rows). Two fences keep it so: migration 444's CHECK constraint `market_data_ohlcv_no_synthetic_fill` refuses an insert or update with that source (NOT VALID in the catalog, because TimescaleDB refuses VALIDATE on a columnstore hypertable; the ADD checked every chunk), and `tests/unit/test_market_data_ohlcv_no_synthetic_fill.py` fails CI on any new `normalize_bars` call or synthetic_fill row build. The last allow-listed caller is phase 189's `_history_fetch_item.py`, whose fill branch is unreachable since 4h joined the pipeline's real-bars-only set (todo 499 deletes it).
+
+**Placeholder-coverage gap readers.** Three readers once counted stored placeholders as coverage; they now see real rows only, so a slot with no real bar reads as a gap (185-25 accepted the one-time re-asks). None needs a code change today; phase 189's `ohlcv_coverage` ledger replaces gap planning (todo 499):
+
+| Reader | Timeframe | State |
+|---|---|---|
+| `scripts/infrastructure/backfill/_d1_gaps.py` (`detect_gaps_from_record`) | 5m (also 15m, 1h) | Paused with the 5m fetch (todo 462); answered windows stop a definitive no_data span from being re-asked |
+| `infrastructure_run_historical_pipeline.py` `detect_gaps` (legacy grid difference) | 1m | Dormant: 1m is not in any default scope |
+| `services/bar_auditor.py` | 1m | Unit disabled |
 
 ## Signal Ledger Architecture (SLA) Note *(v2.x — archived, no live consumer as of 2026-07-02)*
 
