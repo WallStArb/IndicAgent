@@ -62,11 +62,17 @@ class Observation:
 
 @dataclass(frozen=True)
 class SplitRecord:
-    """One recorded corporate action that rescales earlier observations."""
+    """One recorded corporate action that rescales earlier observations.
+
+    evidence_request_ids names the requests whose answers showed the new scale (a Tradier
+    refetch records the split after its own fetch, so its observations predate recorded_at by
+    milliseconds yet carry the new scale). d2-v2 counts them as current; d2-v1 ignores them.
+    """
 
     effective_date: date
     recorded_at: datetime
     factor: float
+    evidence_request_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
