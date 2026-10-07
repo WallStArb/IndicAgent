@@ -172,3 +172,121 @@ def test_sweep_apply_never_rewrites_a_name_that_already_has_a_symbol_row():
     admit = _sweep(_series(300, 1.0, 1.0), incumbent=False)
     assert policy.rows_to_write([write, admit], decided=frozenset({"X"})) == []
     assert policy.rows_to_write([write, admit], decided=frozenset()) == [write]
+
+
+def test_add_refuses_an_empty_evidence_object():
+    with pytest.raises(SystemExit):
+        policy.main(
+            [
+                "--add",
+                "--symbol",
+                "REX",
+                "--valid-from",
+                "2004-01-01",
+                "--primary",
+                "ibkr",
+                "--reason",
+                "basis run",
+                "--evidence",
+                "{}",
+            ]
+        )
+
+
+class _CliConn:
+    """Records every statement; the --close UPDATE reports `closed` rows (185-37 Task 1)."""
+
+    def __init__(self, closed: int = 1) -> None:
+        self.statements: list[str] = []
+        self.closed = closed
+
+    class _Txn:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    def transaction(self):
+        return self._Txn()
+
+    async def fetchval(self, sql, *args):
+        self.statements.append(sql)
+        return None
+
+    async def execute(self, sql, *args):
+        self.statements.append(sql)
+        return f"UPDATE {self.closed}" if sql.lstrip().startswith("UPDATE") else "INSERT 0 1"
+
+    async def close(self):
+        return None
+
+
+def _run_cli(monkeypatch, conn: _CliConn, argv: list[str]) -> int:
+    class _Settings:
+        database_url = "postgresql+asyncpg://fake/fake"
+
+    async def _connect(dsn):
+        return conn
+
+    monkeypatch.setattr(policy, "Settings", _Settings)
+    monkeypatch.setattr(policy.asyncpg, "connect", _connect)
+    return policy.main(argv)
+
+
+_ADD = [
+    "--add",
+    "--symbol",
+    "RJF",
+    "--valid-from",
+    "2006-01-03",
+    "--valid-to",
+    "2010-01-04",
+    "--primary",
+    "ibkr",
+    "--reason",
+    "basis run",
+    "--evidence",
+    '{"run": {"start": "2006-01-03"}}',
+]
+
+
+def test_add_dry_run_prints_the_row_and_writes_nothing(monkeypatch, capsys):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, _ADD) == 0
+    assert conn.statements == []
+    assert "dry run: would insert" in capsys.readouterr().out
+
+
+def test_add_apply_inserts_one_row_with_the_database_recorded_at(monkeypatch):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, [*_ADD, "--apply"]) == 0
+    inserts = [s for s in conn.statements if "INSERT INTO bar_source_policy" in s]
+    assert len(inserts) == 1
+    # recorded_at is the column default now(); the CLI never supplies it.
+    assert "recorded_at" not in inserts[0]
+
+
+_CLOSE = [
+    "--close",
+    "--symbol",
+    "RJF",
+    "--valid-to",
+    "2026-10-07",
+    "--reason",
+    "rollback",
+]
+
+
+def test_close_dry_run_writes_nothing(monkeypatch):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, _CLOSE) == 0
+    assert conn.statements == []
+
+
+def test_close_targets_only_the_open_row_and_refuses_when_none_is_open(monkeypatch):
+    assert "valid_to IS NULL" in policy._CLOSE_POLICY_SQL
+    conn = _CliConn(closed=1)
+    assert _run_cli(monkeypatch, conn, [*_CLOSE, "--apply"]) == 0
+    conn = _CliConn(closed=0)  # the name's row is already closed
+    assert _run_cli(monkeypatch, conn, [*_CLOSE, "--apply"]) == 2
