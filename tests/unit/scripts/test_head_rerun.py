@@ -79,6 +79,59 @@ def test_pending_skips_resolved_unless_force() -> None:
     assert pending_symbols(["A", "B", "C"], dispositions, force=True) == ["A", "B", "C"]
 
 
+class _FakeCursor:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self._rows = rows
+        self.executed: list[tuple[str, Any]] = []
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        return None
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self.executed.append((sql, params))
+
+    def fetchall(self) -> list[tuple[Any, ...]]:
+        return self._rows
+
+
+class _FakeConn:
+    def __init__(self, rows: list[tuple[Any, ...]]) -> None:
+        self.cur = _FakeCursor(rows)
+
+    def cursor(self) -> _FakeCursor:
+        return self.cur
+
+
+def _row(route: str, outcome: str, first_bar: date | None, source: str) -> tuple[Any, ...]:
+    ws = datetime(2006, 10, 5, tzinfo=UTC)
+    we = datetime(2016, 2, 2, tzinfo=UTC)
+    return ("XYZ", route, outcome, ws, we, first_bar, _T0, source, None)
+
+
+def test_load_requests_excludes_tradier_answers() -> None:
+    """185-28: a TRADIER bars answer before the SMART head is not a venue move. Only IBKR
+    routes reach classify_head, so the name is not 'moved' on Tradier's account."""
+    rows = [_row("SMART", "no_data", None, "ibkr")]
+    rows += [_row(v, "no_data", None, "ibkr") for v in _VENUES]
+    rows.append(_row("TRADIER", "bars", date(2000, 1, 3), "tradier"))
+    loaded = mod._load_requests(_FakeConn(rows), ["XYZ"])
+    assert {r.route for r in loaded["XYZ"]} == {"SMART", *_VENUES}
+    assert classify_head(loaded["XYZ"], date(2015, 1, 2), _VENUES) == "verified_empty"
+
+
+def test_load_requests_excludes_any_non_ibkr_source() -> None:
+    rows = [
+        _row("NYSE", "bars", date(2009, 3, 2), "tradier"),
+        _row("SMART", "no_data", None, "ibkr"),
+    ]
+    loaded = mod._load_requests(_FakeConn(rows), ["XYZ"])
+    assert [r.route for r in loaded["XYZ"]] == ["SMART"]
+    assert classify_head(loaded["XYZ"], date(2015, 1, 2), _VENUES) != "moved"
+
+
 def test_refuses_when_preflight_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
     def _refuse(**_: Any) -> None:
         raise CampaignRefused("client id outside lanes")
