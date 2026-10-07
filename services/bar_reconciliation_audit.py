@@ -892,7 +892,9 @@ FROM i JOIN t USING (bar_date)
 _TRADIER_LATEST_LOAD_SQL = """
 SELECT DISTINCT ON (l.symbol) l.symbol, l.outcome, l.detail
 FROM ohlcv_load l
-WHERE EXISTS (SELECT 1 FROM ohlcv_load o WHERE o.symbol = l.symbol AND o.outcome = 'loaded')
+WHERE l.source = 'tradier'
+  AND EXISTS (SELECT 1 FROM ohlcv_load o
+              WHERE o.symbol = l.symbol AND o.source = 'tradier' AND o.outcome = 'loaded')
 ORDER BY l.symbol, l.loaded_at DESC
 """
 _ALREADY_RECORDED_SQL = """

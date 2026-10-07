@@ -43,7 +43,6 @@ _TABLES = {
 }
 
 _LOADER = "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py"
-_DERIVATION = "services/bar_derivation.py"
 
 # table -> module -> (owned ohlcv_load.source values, reason)
 _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
@@ -53,25 +52,12 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
             "PERMANENT: the Tradier daily loader records every load attempt of one symbol "
             "(plan 185-27; outcome loaded, short_history, no_data, failed or gated).",
         ),
-        _DERIVATION: (
-            frozenset({"derived"}),
-            "PERMANENT: the grid stage records one load per (symbol, 15m/1h) it derives, with "
-            "its new, changed, unchanged and removed counts (outcome applied or refused, "
-            "plan 185-31).",
-        ),
     },
     "ohlcv_revision": {
         _LOADER: (
             frozenset({"tradier"}),
             "PERMANENT: the old value of each canonical 1d bar a Tradier load changed, under "
             "that load's row (plan 185-27).",
-        ),
-        _DERIVATION: (
-            frozenset({"derived"}),
-            "PERMANENT: the grid stage's old values under its own load rows: changed or "
-            "removed derived rows (origin load) and stored vendor rows the archive does not "
-            "hold equal (origin archive_segment) before they leave market_data_ohlcv "
-            "(plan 185-31).",
         ),
     },
 }

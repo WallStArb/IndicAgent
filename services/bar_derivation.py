@@ -339,8 +339,11 @@ EXISTS (
 -- (migration 438); D2 never overwrites it with IBKR observations. A later refused load
 -- (gated, short_history, failed; plan 185-26) does not hand it back: its stored bars stay.
 -- Same predicate as TRADIER_OWNED_SQL in infrastructure_run_tradier_daily.py (the nightly's
--- IBKR 1d skip).
-EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = $1 AND l.outcome = 'loaded') AS tradier_owned
+-- IBKR 1d skip). source = 'tradier' because ohlcv_load records every canonical writer since
+-- migration 443 (plan 185-31): a grid or ingress load row never makes a name Tradier-owned.
+-- The IBKR history fetcher imports this statement, so it inherits the predicate.
+EXISTS (SELECT 1 FROM ohlcv_load l
+        WHERE l.symbol = $1 AND l.source = 'tradier' AND l.outcome = 'loaded') AS tradier_owned
 """
 
 # Native upsert, 185-01 measurement b.

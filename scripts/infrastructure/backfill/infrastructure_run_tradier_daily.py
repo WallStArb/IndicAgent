@@ -105,7 +105,8 @@ EXIT_REFUSED = 4
 # tradier_owned) and the nightly's IBKR 1d skip use the same predicate; a later refused load
 # (gated, short_history, failed) does not hand the name back to IBKR, so its stored bars stay.
 TRADIER_OWNED_SQL = (
-    "EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = {col} AND l.outcome = 'loaded')"
+    "EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = {col} AND l.source = 'tradier'"
+    " AND l.outcome = 'loaded')"
 )
 
 # The systemd unit's %n suffix (indicagent-tradier-daily.service, plan 189-06): the D-06
@@ -302,7 +303,8 @@ SELECT i.symbol FROM instruments i
 WHERE i.is_active AND i.contract_details->>'asset_class' = 'equity'
   AND NOT EXISTS (SELECT 1 FROM market_data_ohlcv m
                   WHERE m.symbol = i.symbol AND m.timeframe = '1d')
-  AND NOT EXISTS (SELECT 1 FROM ohlcv_load l WHERE l.symbol = i.symbol AND l.outcome = 'loaded')
+  AND NOT EXISTS (SELECT 1 FROM ohlcv_load l
+                  WHERE l.symbol = i.symbol AND l.source = 'tradier' AND l.outcome = 'loaded')
 ORDER BY i.symbol
 """
 

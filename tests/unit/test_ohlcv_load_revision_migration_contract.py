@@ -59,10 +59,12 @@ def test_both_apr_keys_are_seeded_with_provenance():
         ("threshold.bar_integrity.max_revision_ratio", "float", "0.02"),
         ("threshold.bar_integrity.revision_ratio_min_stored", "int", "500"),
     ):
-        schema = re.search(rf"\('{re.escape(key)}', '{value_type}', '{value}',[^;]*?\)", _FLAT)
+        schema = re.search(
+            rf"\('{re.escape(key)}', '{value_type}', '{value}', [^,]+, [^,]+, '([^']*)'\)", _FLAT
+        )
         assert schema, key
-        assert "[initial_estimate]" in schema.group(0)
-        assert "Not an ML learning target." in schema.group(0)
+        assert schema.group(1).startswith("[initial_estimate]")
+        assert schema.group(1).endswith("Not an ML learning target.")
         assert f"('{key}', '{value}', 1)" in _FLAT
     assert "ON CONFLICT (config_key) DO NOTHING" in _FLAT
 
