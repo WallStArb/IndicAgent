@@ -4,12 +4,10 @@ The store holds real rows only since the 185-25 swap (sources ibkr_named, derive
 zero synthetic_fill). Migration 444 makes the database refuse a synthetic_fill row; this test
 fences the code side, so a new fill path fails CI before it ever reaches the database:
 
-1. normalize_bars, the calendar-grid fill, has no caller outside the allow-list below. Calls are
-   found by AST (a call whose function is the name or attribute `normalize_bars`), so comments
-   and docstrings that mention it do not count.
-2. No module builds a row whose `source` is synthetic_fill (a dict entry `"source": ...`, a
-   `source=` keyword, or a `["source"] = ...` assignment) outside the builder allow-list.
-3. Every other module that names SOURCE_SYNTHETIC_FILL or the literal 'synthetic_fill' (outside
+1. No module builds a row whose `source` is synthetic_fill (a dict entry `"source": ...`, a
+   `source=` keyword, or a `["source"] = ...` assignment). The builder allow-list is empty since
+   plan 185-42 deleted normalize_bars, the calendar-grid fill, and may only stay empty.
+2. Every other module that names SOURCE_SYNTHETIC_FILL or the literal 'synthetic_fill' (outside
    docstrings) is on an allow-list with the reason it is a read, a refusal or a comparison.
 
 Every allow-list fails when stale (file gone or reference gone). CI-clean: no DB, no network.
@@ -27,22 +25,17 @@ _SYNTHETIC = "synthetic_fill"
 _SYNTHETIC_NAME = "SOURCE_SYNTHETIC_FILL"
 _MIGRATION = _REPO_ROOT / "production/migrations/444_market_data_ohlcv_no_synthetic_fill.sql"
 
-# file -> reason. The only production callers of normalize_bars.
-# Empty since plan 189-08 dropped the fetcher item's unreachable fill branch; may only stay
-# empty (185-42 deletes normalize_bars' fill path).
-_NORMALIZE_CALLERS: dict[str, str] = {}
-
-# file -> reason. The only modules that build a row with source synthetic_fill.
-_SYNTHETIC_BUILDERS: dict[str, str] = {
-    "src/core/bar_normalizer.py": (
-        "TEMPORARY (retire: todo 499): normalize_bars itself, retired for market_data_ohlcv; deleted "
-        "with its last caller. Its output is refused by migration 444."
-    ),
-}
+# file -> reason. The only modules that build a row with source synthetic_fill. Empty since plan
+# 185-42 deleted normalize_bars; may only stay empty.
+_SYNTHETIC_BUILDERS: dict[str, str] = {}
 
 # file -> reason. Every module that names synthetic_fill, builders included.
 _SYNTHETIC_REFERENCES: dict[str, str] = {
     **_SYNTHETIC_BUILDERS,
+    "src/core/bar_normalizer.py": (
+        "Definition only: SOURCE_SYNTHETIC_FILL, the label the archive refuses and D7 compares "
+        "against; nothing builds a row with it (plan 185-42 deleted the fill path)."
+    ),
     "services/intraday_raw_archive.py": (
         "Refusal and read filter: the archive insert raises on a synthetic_fill row and its "
         "copy statement excludes the source (the filter goes with 185-39's archive statements)."
@@ -104,18 +97,6 @@ def _is_source_key(node: ast.AST | None) -> bool:
     return isinstance(node, ast.Constant) and node.value == "source"
 
 
-def normalize_bars_calls(tree: ast.AST) -> int:
-    count = 0
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if (isinstance(func, ast.Name) and func.id == "normalize_bars") or (
-                isinstance(func, ast.Attribute) and func.attr == "normalize_bars"
-            ):
-                count += 1
-    return count
-
-
 def synthetic_builds(tree: ast.AST) -> int:
     count = 0
     for node in ast.walk(tree):
@@ -170,12 +151,6 @@ def _assert_matches_allow_list(hits: dict[str, int], allow: dict[str, str], what
     ), f"Stale allow-list entries (file gone or reference gone): {stale}. Remove them here."
 
 
-def test_normalize_bars_has_no_unlisted_caller():
-    _assert_matches_allow_list(
-        _hits(normalize_bars_calls), _NORMALIZE_CALLERS, "normalize_bars calls"
-    )
-
-
 def test_no_unlisted_module_builds_a_synthetic_fill_row():
     _assert_matches_allow_list(
         _hits(synthetic_builds), _SYNTHETIC_BUILDERS, "synthetic_fill row builds"
@@ -189,20 +164,17 @@ def test_every_synthetic_fill_reference_is_a_listed_read_or_refusal():
 
 
 def test_the_scanners_see_what_they_claim():
-    """The detectors themselves: calls, not mentions; every build form; docstrings skipped."""
+    """The detectors themselves: every build form; docstrings skipped."""
     tree = ast.parse(
-        '"""normalize_bars( in a docstring; synthetic_fill too."""\n'
-        "# normalize_bars(bars) in a comment\n"
+        '"""synthetic_fill in a docstring."""\n'
+        "# synthetic_fill in a comment\n"
         "import x\n"
         "from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL\n"
-        "a = normalize_bars(bars)\n"
-        "b = x.normalize_bars(bars)\n"
         "c = {'source': SOURCE_SYNTHETIC_FILL}\n"
         "d = dict(source='synthetic_fill')\n"
         "row['source'] = x.SOURCE_SYNTHETIC_FILL\n"
         "e = \"SELECT 1 WHERE source <> 'synthetic_fill'\"\n"
     )
-    assert normalize_bars_calls(tree) == 2
     assert synthetic_builds(tree) == 3
     # alias + two value references + two string constants (the docstring is skipped)
     assert synthetic_references(tree) == 5

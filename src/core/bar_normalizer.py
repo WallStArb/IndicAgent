@@ -23,7 +23,9 @@ SOURCE_IBKR_GENERIC = "ibkr"  # Generic IBKR fetch (RTB / fallback)
 SOURCE_IBKR_SEED = "ibkr_seed"  # Historical seed bar from DB backfill (BarMessage bus)
 SOURCE_HTF_DERIVED = "htf_derived"  # Aggregated from 1m bars by BarAccumulator (BarMessage bus)
 SOURCE_DERIVED_1M = "derived_1m"  # Aggregated from 1m bars in DB (market_data_ohlcv)
-SOURCE_SYNTHETIC_FILL = "synthetic_fill"  # Flat fill for canonical grid gaps
+# The retired calendar-grid fill's label. Never written (migration 444 refuses it; the fill path
+# was deleted in plan 185-42); kept as the value the archive refuses and D7 compares against.
+SOURCE_SYNTHETIC_FILL = "synthetic_fill"
 # IBKR bars routed to a former primary listing venue, for the span before a venue move
 # (todo 433): official open and close, but that venue's volume only, not consolidated.
 # market_data_ohlcv_tradeable reports their volume as NULL (migration 374).
@@ -333,81 +335,3 @@ def _slots_futures(
         windows.append((win_open, win_close))
 
     return _slots_from_windows(windows, start, end, interval)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
-def normalize_bars(
-    bars: list[dict],
-    symbol: str,
-    timeframe: str,
-    start: datetime,
-    end: datetime,
-    session_id: str = "",
-    exchange: str = "",
-) -> list[dict]:
-    """Return bars with synthetic flat fills for every interval slot in [start, end].
-
-    Retired for market_data_ohlcv (plan 185-32): the store holds real rows only and
-    migration 444 refuses a synthetic_fill row. The last production caller is phase
-    189's _history_fetch_item.py, unreachable since 4h joined the pipeline's
-    real-bars-only set; todo 499 drops it and deletes this fill path. CI guard:
-    tests/unit/test_market_data_ohlcv_no_synthetic_fill.py.
-
-    Canonical grid: every interval boundary gets a bar — real or synthetic.
-    Synthetic bars: OHLC = prev_close, volume = 0, source = "synthetic_fill".
-    If no prev_close is available at the start of a gap, that slot is skipped —
-    prices are never fabricated from nothing.
-
-    Args:
-        bars:      Sorted list of OHLCV dicts. Each must have keys:
-                   timestamp (datetime, UTC-aware), open, high, low, close,
-                   volume, source.
-        symbol:    Base symbol. Used for logging only.
-        timeframe: "1m" | "5m" | "15m" | "1h" | "4h" | "1d"
-        start:     Range start, UTC-aware.
-        end:       Range end, UTC-aware.
-        session_id, exchange: Unused — kept for call-site compatibility.
-
-    Returns:
-        Complete list ordered by timestamp. Real bars preserve source.
-        Synthetic bars have source="synthetic_fill".
-    """
-    interval = timedelta(minutes=_TF_MINUTES[timeframe])
-
-    # Build index of incoming bars
-    bar_index: dict[datetime, dict] = {}
-    for b in bars:
-        t = b["timestamp"]
-        if t.tzinfo is None:
-            t = t.replace(tzinfo=UTC)
-        bar_index[t.replace(microsecond=0)] = b
-
-    result: list[dict] = []
-    prev_close: float | None = None
-    slot = start.replace(microsecond=0)
-
-    while slot <= end:
-        if slot in bar_index:
-            bar = bar_index[slot]
-            result.append(bar)
-            prev_close = float(bar["close"])
-        else:
-            if prev_close is not None:
-                result.append(
-                    {
-                        "timestamp": slot,
-                        "open": prev_close,
-                        "high": prev_close,
-                        "low": prev_close,
-                        "close": prev_close,
-                        "volume": 0,
-                        "source": SOURCE_SYNTHETIC_FILL,
-                    }
-                )
-        slot += interval
-
-    return result

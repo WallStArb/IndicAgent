@@ -57,3 +57,10 @@ were built around placeholder coverage should read the coverage ledger, not infe
   the todo now would fail the 185-44 expiry guard on that entry. Step 3 (move the 5m/1m
   placeholder-coverage gap readers onto `ohlcv_coverage`) has no plan yet.
 
+## Progress (plan 185-42, 2026-10-07)
+
+- Fix step 2 done: `normalize_bars` and its tests are deleted, `_SYNTHETIC_BUILDERS` is empty,
+  and `src/core/bar_normalizer.py` stays in the reference allow-list as the definition of
+  `SOURCE_SYNTHETIC_FILL` only (the archive refuses it and D7 compares against it).
+- Only step 3 remains (move the 5m/1m placeholder-coverage gap readers onto `ohlcv_coverage`);
+  it has no plan yet. No TEMPORARY entry names this todo any more, so closing it later trips no guard.

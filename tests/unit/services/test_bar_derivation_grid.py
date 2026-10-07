@@ -247,7 +247,6 @@ def _run(conn: FakeConn, **overrides: object) -> dict[str, int]:
         symbols=overrides.pop("symbols", None),
         changed_only=overrides.pop("changed_only", False),
         apply=overrides.pop("apply", True),
-        exclude_symbols_file=overrides.pop("exclude_symbols_file", None),
     )
     return asyncio.run(writer.execute(FakePool(conn)))
 
@@ -723,15 +722,6 @@ def test_dry_run_reads_and_classifies_but_writes_nothing():
     assert not conn.statements, conn.statements
     assert not conn.executemany_calls
     assert not any(k == "fetchval" for k, _ in conn.calls)
-
-
-def test_excluded_lane_symbol_is_skipped(tmp_path):
-    lane_file = tmp_path / "lanes.txt"
-    lane_file.write_text("# lane guard\nSPY\n")
-    conn = FakeConn(bars={"SPY": _five_minute_fixture(), "QQQ": _five_minute_fixture()})
-    totals = _run(conn, exclude_symbols_file=str(lane_file))
-    assert totals["excluded_lane"] == 1 and totals["derived"] == 1
-    assert {r[1] for r in _inserted_bars(conn)} == {"QQQ"}
 
 
 def test_constituent_flags_list_kept_bar_rules_and_quarantine_excludes():

@@ -52,8 +52,8 @@ scrub_symbols call over the run's symbols and write_1d_digests at rule d2-v2. A 
 above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
 rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
 bar_source_policy row was recorded after the symbol's previous applied daily load, or no such
-load exists. No canonical_bar_lineage row is written: apply refuses to start while that table
-exists (185-38 replaces it with the lineage view and makes this stage the single 1d writer).
+load exists. No canonical_bar_lineage row is written (185-38 replaced the table with the
+lineage view and made this stage the single 1d writer).
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ _JOB = "bar-derivation"
 _OUTCOME_TOTAL = counter(
     "bar_derivation_outcome_total",
     "bar_derivation per-run outcome counts: symbols derived, skipped unchanged by "
-    "--changed-only, skipped with no tradeable 5m, skipped as an excluded lane, and "
+    "--changed-only, skipped with no tradeable 5m, refused and "
     "failed. Never labeled by symbol.",
 )
 _WRITER_ROLE_SQL = "SET LOCAL ROLE bar_derivation_writer"
@@ -142,7 +142,7 @@ _DEFAULT_REVISION_MIN_STORED = 500
 _GRID_LOAD_SOURCE = "derived"
 _GRID_LOAD_CALLER = "bar_derivation-grid"
 _GRID_LOAD_DESTINATION = "market_data_ohlcv"
-_GRID_OUTCOMES = ("derived", "unchanged", "no_5m", "excluded_lane", "refused", "failed")
+_GRID_OUTCOMES = ("derived", "unchanged", "no_5m", "refused", "failed")
 _GRID_ROW_COUNTS = (
     "rows_new",
     "rows_changed",
@@ -545,12 +545,6 @@ SELECT (SELECT at FROM last_load) IS NULL
                  AND r.loaded_at > l.at)
 """
 
-# 185-38 drops the table for a view of the same name; until then apply refuses ('r' = table).
-_SELECT_LINEAGE_RELKIND_SQL = """
-SELECT relkind::text FROM pg_class
-WHERE relname = 'canonical_bar_lineage' AND relnamespace = 'public'::regnamespace
-"""
-
 # Native upsert, 185-01 measurement b; the changed set only.
 _UPSERT_1D_SQL = """
 INSERT INTO market_data_ohlcv
@@ -777,24 +771,6 @@ async def write_1d_digests(
     return len(digest_args)
 
 
-def _read_exclude_file(path: str | None, logger: Any) -> frozenset[str]:
-    """Symbols one-per-line from an operator exclude list; a missing file excludes nothing."""
-    if not path:
-        return frozenset()
-    exclude_path = Path(path)
-    if not exclude_path.exists():
-        logger.info("bar_derivation.no_exclude_file", path=path)
-        return frozenset()
-    symbols = {
-        line.strip()
-        for line in exclude_path.read_text().splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    }
-    if symbols:
-        logger.info("bar_derivation.excluded_lanes", n=len(symbols))
-    return frozenset(symbols)
-
-
 def _derive_for_tf(
     ts_seconds: np.ndarray,
     open_: np.ndarray,
@@ -892,7 +868,6 @@ class BarDerivation(BaseBatch):
         symbols: list[str] | None,
         changed_only: bool,
         apply: bool,
-        exclude_symbols_file: str | None,
         report_path: str | None = None,
         rewrite_digests: bool = False,
         restore_snapshot: str | None = None,
@@ -904,7 +879,6 @@ class BarDerivation(BaseBatch):
         self._symbols = symbols
         self._changed_only = changed_only
         self._apply = apply
-        self._exclude_symbols_file = exclude_symbols_file
         self._report_path = report_path
         self._rewrite_digests = rewrite_digests
         self._restore_snapshot = restore_snapshot
@@ -952,13 +926,11 @@ class BarDerivation(BaseBatch):
                     )
                 ),
             )
-            symbols = (
+            targets = (
                 list(self._symbols)
                 if self._symbols
                 else [r[0] for r in await conn.fetch(_DISCOVER_SYMBOLS_SQL)]
             )
-            excluded = _read_exclude_file(self._exclude_symbols_file, self.logger)
-            targets = [s for s in symbols if s not in excluded]
 
             apr_snapshot = {
                 k: v
@@ -975,7 +947,6 @@ class BarDerivation(BaseBatch):
                     n_symbols=len(targets),
                 )
             totals = dict.fromkeys(_GRID_OUTCOMES, 0)
-            totals["excluded_lane"] = len(symbols) - len(targets)
             rows = dict.fromkeys(_GRID_ROW_COUNTS, 0)
             n_derived_rows = 0
             failed: list[str] = []
@@ -1020,7 +991,7 @@ class BarDerivation(BaseBatch):
         self.logger.info(
             "bar_derivation.done",
             stage=self._stage,
-            symbols=len(symbols),
+            symbols=len(targets),
             apply=self._apply,
             changed_only=self._changed_only,
             **totals,
@@ -1526,13 +1497,11 @@ class BarDerivation(BaseBatch):
                     for r in await conn.fetch(_SELECT_POLICY_1D_SQL)
                 ),
             )
-            symbols = (
+            targets = (
                 list(self._symbols)
                 if self._symbols
                 else [r[0] for r in await conn.fetch(_DISCOVER_DAILY_SYMBOLS_SQL)]
             )
-            excluded = _read_exclude_file(self._exclude_symbols_file, self.logger)
-            targets = [s for s in symbols if s not in excluded]
 
             batch_id: str | None = None
             if self._apply:
@@ -1610,7 +1579,7 @@ class BarDerivation(BaseBatch):
         self.logger.info(
             "bar_derivation.done",
             stage=self._stage,
-            symbols=len(symbols),
+            symbols=len(targets),
             apply=self._apply,
             changed_only=self._changed_only,
             **totals,
@@ -1833,13 +1802,6 @@ class BarDerivation(BaseBatch):
             )
 
     async def _open_daily_batch(self, conn: asyncpg.Connection, apr: dict, n: int) -> str:
-        relkind = await conn.fetchval(_SELECT_LINEAGE_RELKIND_SQL)
-        if relkind == "r":
-            raise RuntimeError(
-                "daily --apply refused: canonical_bar_lineage is still a table. d2-v2 "
-                "writes no lineage row; 185-38 replaces the table with the lineage view "
-                "and makes this stage the single 1d writer"
-            )
         return await open_batch(
             conn,
             stage="daily",
@@ -2154,11 +2116,6 @@ def main() -> None:
         help="write the replacement (default: dry run, compute and report only)",
     )
     parser.add_argument(
-        "--exclude-symbols-file",
-        default=None,
-        help="operator exclude list: one symbol per line to skip with outcome excluded_lane",
-    )
-    parser.add_argument(
         "--report",
         default=None,
         help="daily stage: write the per-symbol TSV report (d2-v2 dry run measurement) to this path",
@@ -2193,7 +2150,6 @@ def main() -> None:
         symbols=args.symbols,
         changed_only=args.changed_only,
         apply=args.apply,
-        exclude_symbols_file=args.exclude_symbols_file,
         report_path=args.report,
         rewrite_digests=args.rewrite_digests,
         restore_snapshot=args.restore_snapshot,

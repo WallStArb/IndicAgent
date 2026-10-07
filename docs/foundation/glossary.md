@@ -1972,7 +1972,7 @@ is not an observation, and it makes a missing bar look handled. **Not:** a deriv
 **Avoid:** "placeholder bar", an informal name for the same thing
 **Status:** retired (todo 462; plans 185-12 and 185-18 stopped writing it, and plan 185-25 rebuilt
 `market_data_ohlcv` from real rows on 2026-10-06, so the table holds none)
-**Code surface:** `src/core/bar_normalizer.py` (`SOURCE_SYNTHETIC_FILL`, `normalize_bars`)
+**Code surface:** `src/core/bar_normalizer.py` (`SOURCE_SYNTHETIC_FILL`, the refused label; plan 185-42 deleted the `normalize_bars` fill path)
 
 ---
 

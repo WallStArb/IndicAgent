@@ -103,8 +103,8 @@ def subtract(
 
 def has_bar_before(conn: Any, symbol: str, timeframe: str, ts: datetime) -> bool:
     """True if any real bar is older than `ts`, i.e. a window starting there is not
-    pre-history. The tradeable view is exact here: normalize_bars() never fabricates a
-    synthetic fill before a symbol's first real bar."""
+    pre-history. The tradeable view is exact here: the store holds real rows only
+    (migration 444 refuses synthetic_fill)."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable "

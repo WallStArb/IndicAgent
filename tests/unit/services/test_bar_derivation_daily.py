@@ -3,13 +3,13 @@
 Fakes only, no DB (todo 494): a fake pool answering the daily stage's reads (APR rows,
 1d-eligible instruments, bar_source_policy, D1 TRADIER/SMART/LEGACY_IMPORT TRADES
 observations, splits with their evidence, stored 1d rows of every canonical source, the
-lineage relkind, the revision waiver, bar_content_digest_current, flag rules) and a fake
+revision waiver, bar_content_digest_current, flag rules) and a fake
 connection that applies bar writes to an in-memory store. The contract under test: every name
 runs d2-v2 (Tradier-owned names are no longer skipped); stored rows are classified by the write
 contract with removal inside the name's derived span; a dry run writes nothing and reports per
 name; the apply path writes one ohlcv_load row, old values to ohlcv_revision before any bar
 change, new rows by insert and changed rows by the upsert, never canonical_bar_lineage; the
-revision-ratio refusal and its waiver; apply refuses while canonical_bar_lineage is a table.
+revision-ratio refusal and its waiver.
 """
 
 from __future__ import annotations
@@ -119,7 +119,6 @@ class FakeConn:
         flag_rules: dict[str, list[tuple[datetime, str, bool]]] | None = None,
         changed_since: dict[str, bool] | None = None,
         tradier_owned: frozenset[str] = frozenset(),
-        lineage_relkind: str = "v",
         waived: bool = False,
         apr: dict[str, str] | None = None,
     ) -> None:
@@ -131,7 +130,6 @@ class FakeConn:
         self.flag_rules = flag_rules or {}
         self.changed_since = changed_since
         self.tradier_owned = tradier_owned
-        self.lineage_relkind = lineage_relkind
         self.waived = waived
         self.apr = {
             "infra.bar_derivation.daily_symbol_batch": "25",
@@ -226,8 +224,6 @@ class FakeConn:
 
     async def fetchval(self, sql: str, *args: object) -> object:
         self.calls.append(("fetchval", sql))
-        if "pg_class" in sql:
-            return self.lineage_relkind
         if "/* revision_waiver */" in sql:
             return self.waived
         assert "bar_derivation_batch" in sql, f"unexpected fetchval: {sql}"
@@ -314,7 +310,6 @@ def _run(conn: FakeConn, **overrides: object):
         symbols=overrides.pop("symbols", None),
         changed_only=overrides.pop("changed_only", False),
         apply=overrides.pop("apply", True),
-        exclude_symbols_file=None,
         report_path=overrides.pop("report_path", None),
         rewrite_digests=overrides.pop("rewrite_digests", False),
         restore_snapshot=overrides.pop("restore_snapshot", None),
@@ -416,14 +411,6 @@ def test_a_missing_policy_row_fails_the_symbol_loud():
 
 
 # --- apply -----------------------------------------------------------------------------------
-
-
-def test_apply_refuses_while_canonical_bar_lineage_is_a_table():
-    observations, stored = _fixture()
-    conn = FakeConn(observations=observations, stored=stored, lineage_relkind="r")
-    with pytest.raises(RuntimeError, match="185-38"):
-        _run(conn)
-    assert conn.statements == [] and conn.executemany_calls == []
 
 
 def test_apply_writes_the_contract_and_no_lineage():
@@ -676,25 +663,23 @@ def test_observation_read_takes_the_d2v2_routes():
 
 def test_write_1d_digests_reads_every_canonical_source():
     from services.bar_derivation import write_1d_digests
-    from src.intelligence.bars.sources import CANONICAL_1D_SOURCES, TRADIER_RULE_VERSION
+    from src.intelligence.bars.sources import CANONICAL_1D_SOURCES
 
     stored = {_D1: _row(10.0), _D2: _row(11.0)}
     conn = FakeConn(observations={}, stored={"TEST": stored})
     n = asyncio.run(
-        write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=TRADIER_RULE_VERSION)
+        write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=RULE_VERSION)
     )
     assert n == 1
     assert conn.digest_read_sources == [CANONICAL_1D_SOURCES]
     (row,) = conn.digest_rows
     assert row[4] == _digest([_D1, _D2], [10.0, 11.0])
-    assert row[6] == TRADIER_RULE_VERSION and row[7] == 2 and row[8] == _BATCH_ID
+    assert row[6] == RULE_VERSION and row[7] == 2 and row[8] == _BATCH_ID
     assert ("execute", "SET LOCAL ROLE bar_derivation_writer") in conn.calls
     conn.current_digests = {"TEST": [(row[2], row[4])]}
     assert (
         asyncio.run(
-            write_1d_digests(
-                conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=TRADIER_RULE_VERSION
-            )
+            write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=RULE_VERSION)
         )
         == 0
     )
