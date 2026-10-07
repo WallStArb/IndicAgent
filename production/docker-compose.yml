@@ -139,6 +139,10 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
+    # statio walks every TimescaleDB chunk and nothing reads it (todo 443). stat_user_tables stays on:
+    # alertmanager-rules.yml DeadTupleRatioHigh reads it; its chunk-walk cost needs a custom query.
+    command:
+      - "--no-collector.statio_user_tables"
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:postgres@timescaledb:5432/indicagent?sslmode=disable"
       PG_EXPORTER_DISABLE_DEFAULT_METRICS: "false"
