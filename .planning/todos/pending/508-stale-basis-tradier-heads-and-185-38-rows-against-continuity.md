@@ -51,3 +51,7 @@ table allows, as VMRK) and write IBKR rows only where the evidence says IBKR is 
 
 Before the 186-26 rebuild: the stale heads put false returns of log 0.5 to 3.2 into every feature
 whose window spans the boundary.
+
+## Decision 2026-10-07 (orchestrator recommendation, owner may override)
+
+Option 1 for all 45 stale heads, including exact-factor ones: a head row from the name's first observation through the run's end, so the Tradier head becomes holes (missing is NaN, no_fill) and the raw observations stay in D1. Option 2 adds a vendor rescale mechanism to d2-v2 to save pre-2006 history that no current spec reads; delete before accelerating. Revisit only if a research spec needs 2000 to 2006 on these names. The five 185-38 rows follow the todo's own plan (close at first day plus one, IBKR rows only where the evidence says IBKR is continuous). One policy plan through ops_source_policy.py with a dry run per name, before 186-26.
