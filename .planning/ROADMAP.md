@@ -295,7 +295,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 23** *(blocked on Wave 22 completion)*
 
-- [ ] 185-45-PLAN.md - dormant v2.x and AI stack archived then removed: ollama and its volume, langfuse, unused tempo volume, I1-I7 code, units and tables; Redpanda by a pre-registered rule (wave 23)
+- [x] 185-45-PLAN.md - dormant v2.x and AI stack archived then removed: ollama and its volume, langfuse, unused tempo volume, I1-I7 code, units and tables; Redpanda by a pre-registered rule (wave 23)
 
 **Wave 24** *(blocked on Wave 23 completion)*
 
