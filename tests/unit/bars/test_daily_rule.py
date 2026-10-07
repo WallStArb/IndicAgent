@@ -159,8 +159,9 @@ def test_head_is_admitted_as_fallback_with_a_seam_flag_on_the_first_tradier_bar(
     days = _sessions(date(2024, 1, 2), 30)
     head, rest = days[:3], days[3:]
     observations = [_obs("SMART", d, 10.0, request_id=f"s{d}") for d in days]
-    # IBKR sits 0.8% above Tradier over the overlap: the seam records it.
-    observations += [_obs("TRADIER", d, 10.0 / 1.008, request_id=f"t{d}") for d in rest]
+    # IBKR sits 8 bp above Tradier over the overlap (inside the 10 bp head gate): the seam
+    # records it.
+    observations += [_obs("TRADIER", d, 10.0 / 1.0008, request_id=f"t{d}") for d in rest]
     result = _derive(observations)
     by_day = {b.bar_date: b for b in result.bars}
     assert [by_day[d].source for d in head] == [SOURCE_IBKR_FALLBACK] * 3
@@ -169,7 +170,7 @@ def test_head_is_admitted_as_fallback_with_a_seam_flag_on_the_first_tradier_bar(
     assert (seam.bar_date, seam.rule) == (rest[0], FLAG_FALLBACK_SEAM)
     assert seam.detail["n_common"] == _WINDOW
     assert seam.detail["window_sessions"] == _WINDOW
-    assert seam.detail["median_ratio"] == pytest.approx(1.008)
+    assert seam.detail["median_ratio"] == pytest.approx(1.0008)
     assert seam.detail["n_head_bars"] == 3
     assert seam.detail["head_first"] == head[0].isoformat()
     assert FLAG_FALLBACK_SEAM in by_day[rest[0]].flags
@@ -404,3 +405,42 @@ def test_a_non_positive_tradier_close_measures_no_basis():
     result = _derive(observations)
     # The only common session with a usable ratio is none: the interior hole is refused.
     assert result.refused_interior == [days[1]]
+
+
+def _headed(ratio: float):
+    days = _sessions(date(2024, 1, 2), 30)
+    head, rest = days[:3], days[3:]
+    observations = [_obs("SMART", d, 10.0 * ratio, request_id=f"s{d}") for d in days]
+    observations += [_obs("TRADIER", d, 10.0, request_id=f"t{d}") for d in rest]
+    return head, rest, _derive(observations)
+
+
+def test_head_with_a_seam_beyond_tolerance_is_refused():
+    # XLY-like: IBKR sits at twice Tradier over the overlap, a 2:1 basis (185-36 finding 2).
+    head, rest, result = _headed(2.0)
+    assert result.head == [] and result.refused_head == head
+    assert {b.bar_date for b in result.bars} == set(rest)
+    assert all(b.source == "tradier" for b in result.bars)
+    assert result.flags == []
+
+
+def test_head_with_a_seam_within_tolerance_is_admitted_with_its_seam_flag():
+    head, rest, result = _headed(1.0005)
+    assert result.head == head and result.refused_head == []
+    assert [f.rule for f in result.flags] == [FLAG_FALLBACK_SEAM]
+    assert result.flags[0].bar_date == rest[0]
+    assert result.flags[0].detail["deviation_bp"] == pytest.approx(5.0)
+
+
+def test_head_with_no_common_session_is_refused():
+    days = _sessions(date(2024, 1, 2), 10)
+    observations = [_obs("SMART", d, 10.0, request_id=f"s{d}") for d in days[:5]]
+    observations += [_obs("TRADIER", d, 10.0, request_id=f"t{d}") for d in days[5:]]
+    result = _derive(observations)
+    assert result.refused_head == days[:5] and result.head == []
+
+
+def test_dal_head_seam_is_within_tolerance_and_stays_admitted():
+    observations, splits = _case("DAL")
+    result = _derive(observations, splits=splits, symbol="DAL")
+    assert result.refused_head == [] and len(result.head) == 5

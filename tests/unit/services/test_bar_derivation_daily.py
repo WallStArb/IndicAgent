@@ -384,6 +384,23 @@ def test_dry_run_reports_refused_interior_dates_and_groups(tmp_path):
     assert result["refused_interior"] == 1
 
 
+def test_dry_run_reports_refused_heads(tmp_path):
+    # 2:1 basis between the vendors over the overlap (XLY-like): the IBKR head is refused.
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)]
+    obs = [_obs(d, 100.0) for d in days[2:]]
+    obs += [_obs(d, 200.0, route="SMART") for d in days]
+    conn = FakeConn(
+        observations={"TEST": obs},
+        stored={"TEST": {d: _row(200.0, source="ibkr_named") for d in days}},
+    )
+    report = tmp_path / "dryrun.tsv"
+    result, _ = _run(conn, apply=False, report_path=str(report))
+    (row,) = csv.DictReader(report.open(), delimiter="\t")
+    assert row["head"] == "0" and row["refused_head"] == "2"
+    assert row["removed"] == "2"
+    assert result["refused_head"] == 2
+
+
 def test_a_missing_policy_row_fails_the_symbol_loud():
     observations, stored = _fixture()
     conn = FakeConn(observations=observations, stored=stored, policy=[])
