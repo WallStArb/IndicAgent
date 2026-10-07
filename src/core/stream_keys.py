@@ -114,11 +114,6 @@ def topic_narratives_group(env_name: str) -> str:
     return f"{env_prefix(env_name)}narratives.group"
 
 
-def topic_llm_outcomes(env_name: str) -> str:
-    """Kafka topic for signal lifecycle exits with outcome/pnl_r/mae/mfe."""
-    return f"{env_prefix(env_name)}llm.outcomes"
-
-
 def topic_system_events(env_name: str) -> str:
     """Kafka topic for system-level events (roll detection, pipeline control)."""
     return f"{env_prefix(env_name)}system.events"
@@ -194,25 +189,6 @@ def topic_signal_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.signal.dlq"
 
 
-def topic_signal_audit(env_name: str) -> str:
-    """Audit events from signal_auditor_agent.
-
-    Receives SignalCoverageGapEvent payloads when a (symbol, tf) pair had
-    zero signals in the last completed trading session. Future: intelligence
-    pipeline subscribes to trigger bar replay for covered symbols.
-    """
-    return f"{env_prefix(env_name)}intelligence.signal.audit"
-
-
-def topic_signal_metrics(env_name: str) -> str:
-    """Kafka topic for SignalMetricsAnalyzer output events.
-
-    Consumed by SignalMetricsWriter to upsert signal_metrics,
-    signal_metrics_ic, and signal_metrics_dq_failures tables.
-    """
-    return f"{env_prefix(env_name)}intelligence.signal_metrics"
-
-
 def topic_market_data_quality(env_name: str) -> str:
     """ProviderQualityEvent side-channel: provider latency, gaps, failovers.
 
@@ -221,25 +197,6 @@ def topic_market_data_quality(env_name: str) -> str:
     for SLA monitoring and ML training signals.
     """
     return f"{env_prefix(env_name)}market.data.quality"
-
-
-def topic_lifecycle_transitions(env_name: str) -> str:
-    """Kafka topic for signal lifecycle transition events.
-
-    Published by IntelligencePipeline on each signal state change
-    (activation, exit, MAE/MFE update, shadow outcome, chandelier update).
-    Consumed by LifecycleWriter for atomic persistence to signal_ledger.
-    """
-    return f"{env_prefix(env_name)}lifecycle.transitions"
-
-
-def topic_transform_graduation(env_name: str) -> str:
-    """Kafka topic for transform graduation evaluation results.
-
-    Published by GraduationAnalyzer on each evaluation event.
-    Consumed by GraduationWriter for upsert into transform_graduation table.
-    """
-    return f"{env_prefix(env_name)}intelligence.transform.graduation"
 
 
 # ---------------------------------------------------------------------------

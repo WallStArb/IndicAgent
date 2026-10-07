@@ -73,23 +73,10 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-feature-vector-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
     # Layer 4 — persistence writers (parallel, all consume pipeline output)
     "indicagent-feature-vector-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    "indicagent-signal-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    "indicagent-lifecycle-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
-    "indicagent-signal-metrics-compute": 8,  # priority 8: downstream of signal-writer (7)
-    "indicagent-signal-metrics-writer": 8,  # priority 8: downstream of signal-metrics-compute (8)
-    "indicagent-graduation-compute": 8,  # priority 8: downstream of signal-ledger writes (7)
-    "indicagent-graduation-writer": 8,  # priority 8: downstream of graduation-compute (8)
+    # ML batch oneshot
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
-    "indicagent-ml-signal-training-materialize": 8,  # oneshot timer service; no lag threshold needed
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
-    "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-shadow-validator": 8,  # oneshot: weekly Mon 07:00 UTC, promotion-only
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-confidence-calibration-monitor": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-signal-probe-auditor": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
@@ -115,8 +102,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ibkr-history-fetcher": 8,  # Type=exec oneshot run; inactive between fires is correct
     "indicagent-tradier-daily": 8,  # oneshot; daily 01:30 UTC; inactive between runs is correct
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
-    "indicagent-signal-auditor": 9,  # priority 9: observes signals written by layer 7 writers
-    "indicagent-signal-replay": 9,  # priority 9: observes signal-ledger state
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
     "indicagent-compression-auditor": 9,  # priority 9: DB-only, no pipeline dependency beyond TimescaleDB (tier 0); todo 233
@@ -147,20 +132,11 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "bar_aggregator": "indicagent-bar-aggregator",
     "feature_vector_pipeline": "indicagent-feature-vector-pipeline",
     "feature_vector_writer": "indicagent-feature-vector-writer",
-    "signal_tracker": "indicagent-signal-tracker-compute",
-    "signal_writer": "indicagent-signal-writer",
     "cross_asset_analyzer": "indicagent-cross-asset",
     "bar_auditor": "indicagent-bar-auditor",
     "provider_merger": "indicagent-provider-merger",
-    "lifecycle_writer": "indicagent-lifecycle-writer",
-    "signal_metrics_analyzer": "indicagent-signal-metrics-compute",
-    "signal_metrics_writer": "indicagent-signal-metrics-writer",
     "macro_analyzer": "indicagent-macro-compute",
-    "signal_auditor": "indicagent-signal-auditor",
-    "graduation_analyzer": "indicagent-graduation-compute",
-    "graduation_writer": "indicagent-graduation-writer",
     "bar_replay_provider": "indicagent-bar-replay",
-    "signal_replay_auditor": "indicagent-signal-replay",
     "dlq_writer": "indicagent-dlq-drain",
     "compression_auditor": "indicagent-compression-auditor",  # todo 233
     # Phase 109 services (config foundation + self-healing engine).
@@ -179,20 +155,14 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-redpanda-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
-        "indicagent-weight-updater",
-        "indicagent-shadow-auditor",
-        "indicagent-shadow-validator",  # weekly Mon 07:00 UTC, 5-gate promotion check
-        "indicagent-signal-probe-auditor",
         "indicagent-ml-orchestrator",
         "indicagent-ml-data-quality",
         "indicagent-ml-discovery",
         "indicagent-ml-training",
-        "indicagent-ml-signal-training-materialize",
         "indicagent-roll-batch",
         "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
         "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
-        "indicagent-confidence-calibration-monitor",  # Type=oneshot, timer-triggered
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct

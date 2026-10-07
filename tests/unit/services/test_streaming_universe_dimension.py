@@ -25,7 +25,6 @@ _EXPECTED_DIMENSION = {
     "src/providers/base_provider_agent.py": "live",
     "services/feature_vector_pipeline.py": "live",
     "services/bar_auditor.py": "live",
-    "services/signal_auditor.py": "live",
     "services/service_auditor.py": "live",
     "services/provider_merger.py": "backfill",
 }

@@ -7,7 +7,6 @@ from src.core.stream_keys import (
     system_events,
     topic_intelligence,
     topic_intelligence_i8,
-    topic_llm_outcomes,
     topic_market_bars,
     topic_market_ticks,
     topic_narratives,
@@ -79,10 +78,6 @@ def test_topic_signals_aggregated_with_env() -> None:
 
 def test_topic_narratives_with_env() -> None:
     assert topic_narratives("dev") == "dev.narratives"
-
-
-def test_topic_llm_outcomes_with_env() -> None:
-    assert topic_llm_outcomes("dev") == "dev.llm.outcomes"
 
 
 def test_message_key_with_timeframe() -> None:
@@ -196,18 +191,6 @@ def test_topic_gap_fill_dlq_with_env():
 # ---------------------------------------------------------------------------
 # Phase 72: Transform graduation topic stream keys
 # ---------------------------------------------------------------------------
-
-
-def test_topic_transform_graduation_with_env():
-    from src.core.stream_keys import topic_transform_graduation
-
-    assert topic_transform_graduation("dev") == "dev.intelligence.transform.graduation"
-
-
-def test_topic_transform_graduation_no_env():
-    from src.core.stream_keys import topic_transform_graduation
-
-    assert topic_transform_graduation("") == "intelligence.transform.graduation"
 
 
 def test_topic_transform_graduation_dlq_with_env():

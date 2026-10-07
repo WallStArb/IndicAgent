@@ -147,7 +147,18 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
 # Tables kept by rule although nothing in services/, src/ or scripts/ reads them (raw market
 # data is permanent; a table written here and read by another surface). Each needs a reason.
 # Empty on 2026-10-06: every raw market data table has a reader today.
-_KEEP_TABLES: dict[str, str] = {}
+_KEEP_TABLES: dict[str, str] = {
+    "ml_models": (
+        "written by ModelRegistry.register (ml_trainer, the ML batch chain, out of 185-45's "
+        "scope); its only reader, the alpha swarm's ML scorer, left with the AI stack in plan "
+        "185-45. Kept until todo 509 decides the ML batch chain"
+    ),
+    "roll_events": (
+        "futures roll record written by scripts/ops/roll/ops_roll_batch.py; its only readers were "
+        "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "
+        "reader is owed"
+    ),
+}
 
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
@@ -235,10 +246,81 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
         "runtime_defaults fallback went with it) (retire: 185-43)"
     ),
-    "signal_narratives": (
-        "narrative store of the I8 narrative swarm (migration 086), absent from the live DB; its "
-        "writer left with the AI stack in plan 185-45. Dropped IF EXISTS by 185-45's v2.x "
-        "migration (retire: 185-45)"
+    "alpha.frame.cluster_radius_atr": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "alpha.frame.min_width_atr": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "alpha.frame.proximity_weight": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "alpha.frame.single_level_radius_atr": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "alpha.frame.strength_weight": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "alpha.frame.zone_buffer_atr": (
+        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
+        "module deleted in plan 185-45 (retire: 185-43)"
+    ),
+    "feature.lifecycle_writer.batch_size": (
+        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.lifecycle_writer.flush_interval_secs": (
+        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.lifecycle_writer.max_buffer_size": (
+        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_writer.batch_size": (
+        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_writer.flush_interval_secs": (
+        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_writer.max_buffer_size": (
+        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_tracker.bootstrap_active_window_days": (
+        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_tracker.bootstrap_dedup_window_days": (
+        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_tracker.bootstrap_max_attempts": (
+        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_tracker.bootstrap_pending_window_days": (
+        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "feature.signal_auditor.audit_lookback_hours": (
+        "read only by services/signal_auditor.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "infra.signal_auditor.audit_interval_seconds": (
+        "read only by services/signal_auditor.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
+    ),
+    "threshold.signal_tracker.staleness_score": (
+        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
+        "(retire: 185-43)"
     ),
 }
 

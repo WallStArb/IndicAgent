@@ -134,18 +134,6 @@ PLUGIN_CONFIDENCE_HISTOGRAM = _meter.create_histogram(
 # Plugin validator metrics — absorbed from plugin_validator.py inline block (Task 2)
 # ---------------------------------------------------------------------------
 
-PLUGIN_VALIDATOR_REGISTERED_PLUGINS = _meter.create_up_down_counter(
-    "plugin_validator_registered_plugins_total",
-    description="Total registered plugins per tier",
-)
-PLUGIN_VALIDATOR_VALIDATION_STATUS = _meter.create_up_down_counter(
-    "plugin_validator_validation_status",
-    description="Validation result status",
-)
-PLUGIN_VALIDATOR_ERRORS = _meter.create_counter(
-    "plugin_validator_validation_errors_total",
-    description="Total validation errors",
-)
 
 LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = _meter.create_counter(
     "langgraph_workflow_executions_total",
@@ -280,35 +268,6 @@ SHADOW_TAIL_GATE_DB_ERROR = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Shadow validation metrics (Phase 120)
-# ---------------------------------------------------------------------------
-
-SHADOW_VALIDATION_N = point_gauge(
-    "shadow_validation_n",
-    "Resolved shadow outcome count per setup (weekly validator run)",
-)
-SHADOW_VALIDATION_WIN_RATE = point_gauge(
-    "shadow_validation_win_rate",
-    "Fraction of resolved shadow outcomes with pnl_r > 0",
-)
-SHADOW_VALIDATION_P_VALUE = point_gauge(
-    "shadow_validation_p_value",
-    "Binomial test p-value (win rate vs 50% baseline, one-sided)",
-)
-SHADOW_VALIDATION_AVG_PNL_R = point_gauge(
-    "shadow_validation_avg_pnl_r",
-    "Average pnl_r across resolved shadow outcomes",
-)
-SHADOW_VALIDATION_CALIBRATION = point_gauge(
-    "shadow_validation_calibration",
-    "CORR(cis_score, (pnl_r > 0)::int) — confidence predicts profitable outcomes",
-)
-SHADOW_VALIDATION_PROMOTED = point_gauge(
-    "shadow_validation_promoted",
-    "1=promoted to live this run, 0=still in shadow",
-)
-
-# ---------------------------------------------------------------------------
 # Feature parity auditor (Phase 117)
 # ---------------------------------------------------------------------------
 
@@ -319,28 +278,6 @@ FEATURE_PARITY_NULL_FIELDS_TOTAL = point_gauge(
 FEATURE_PARITY_AUDITS_RUN_TOTAL = _meter.create_counter(
     "feature_parity_audits_run_total",
     description="Feature-parity audit runs completed",
-)
-
-# ---------------------------------------------------------------------------
-# Confidence calibration monitor (Phase 117)
-# ---------------------------------------------------------------------------
-
-SIGNAL_CONFIDENCE_CALIBRATION = point_gauge(
-    "signal_confidence_calibration",
-    "Per-setup correlation between cis_score and aggregator selection (was_selected)",
-)
-CONFIDENCE_CALIBRATION_ALERTS_TOTAL = _meter.create_counter(
-    "confidence_calibration_alerts_total",
-    description="Per-setup low-calibration alerts (correlation < 0.3 at N>=100)",
-)
-
-# ---------------------------------------------------------------------------
-# Signal probe auditor (Phase 117)
-# ---------------------------------------------------------------------------
-
-SIGNAL_PROBE_ACTIVATIONS_TOTAL = _meter.create_counter(
-    "signal_probe_activations_total",
-    description="Simulated activations from SignalProbeAuditor, labeled by setup_plugin",
 )
 
 # ---------------------------------------------------------------------------
@@ -644,15 +581,6 @@ def record_langgraph_workflow(
 
 
 # ---------------------------------------------------------------------------
-# Signal quality metrics
-# ---------------------------------------------------------------------------
-
-SIGNAL_OUTCOME_TOTAL = _meter.create_counter(
-    "signal_outcome_total",
-    description="Signal outcomes by plugin and result",
-)
-
-# ---------------------------------------------------------------------------
 # Zone engine metrics
 # ---------------------------------------------------------------------------
 
@@ -693,20 +621,6 @@ INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Signal tracker intake metrics (Phase 81)
-# ---------------------------------------------------------------------------
-
-SIGNAL_TRACKER_INVALID_SIGNAL_TOTAL = _meter.create_counter(
-    "signal_tracker_invalid_signal_total",
-    description="Signals rejected by _load_signal() (missing/invalid required fields) and routed to DLQ",
-)
-
-SIGNAL_TRACKER_BACKFILL_FAST_PATH_TOTAL = _meter.create_counter(
-    "signal_tracker_backfill_fast_path_total",
-    description="Backfill signals where TTL elapsed at ingest; published TTL-expired and skipped active index",
-)
-
-# ---------------------------------------------------------------------------
 # Bar replay provider metrics (Phase 81 — Plan 04)
 # ---------------------------------------------------------------------------
 
@@ -725,44 +639,6 @@ BAR_REPLAY_PROVIDER_LAG_SECONDS = _meter.create_up_down_counter(
 # North-star metric: signal_replay_unresolved_gauge should converge to 0.
 # ---------------------------------------------------------------------------
 
-SIGNAL_REPLAY_UNRESOLVED_GAUGE = _meter.create_up_down_counter(
-    "signal_replay_unresolved_gauge",
-    description="v1 signals with exit_at IS NULL past TTL (north star — target = 0)",
-)
-
-SIGNAL_REPLAY_ATTEMPTED_TOTAL = _meter.create_counter(
-    "signal_replay_attempted_total",
-    description="Signals queried for replay each auditor cycle",
-)
-
-SIGNAL_REPLAY_RESOLVED_TOTAL = _meter.create_counter(
-    "signal_replay_resolved_total",
-    description="Outcomes successfully computed and published by replay auditor",
-)
-
-SIGNAL_REPLAY_OHLCV_GAP_TOTAL = _meter.create_counter(
-    "signal_replay_ohlcv_gap_total",
-    description="Replay attempts where market_data_ohlcv had zero bars in the signal window",
-)
-
-SIGNAL_REPLAY_NULL_ZONE_TOTAL = _meter.create_counter(
-    "signal_replay_null_zone_total",
-    description="Replay signals skipped due to NULL entry_zone_low or entry_zone_high (data integrity error)",
-)
-
-LIFECYCLE_WRITER_IDEMPOTENT_SKIP_TOTAL = _meter.create_counter(
-    "lifecycle_writer_idempotent_skip_total",
-    description="EXIT writes blocked by idempotency guard (WHERE exit_at IS NULL); validates two-path safety",
-)
-
-# ---------------------------------------------------------------------------
-# Signal ledger quality KPI (Phase 81 — Plan 06)
-# ---------------------------------------------------------------------------
-
-SIGNAL_LEDGER_BACKFILL_RATIO = _meter.create_up_down_counter(
-    "signal_ledger_backfill_ratio",
-    description="Fraction of signal_ledger rows last 24h with is_backfill=TRUE (training set quality KPI)",
-)
 
 # ---------------------------------------------------------------------------
 # DB connection pool (Phase 83)
@@ -776,25 +652,6 @@ DB_POOL_SIZE = _meter.create_up_down_counter(
 DB_POOL_IDLE = _meter.create_up_down_counter(
     "db_pool_idle",
     description="Current asyncpg pool idle connections",
-)
-
-# ---------------------------------------------------------------------------
-# Signal quality distributions (Phase 83)
-# ---------------------------------------------------------------------------
-
-SIGNAL_PNL_R_DISTRIBUTION = _meter.create_histogram(
-    "signal_pnl_r_distribution",
-    description="Realized PnL (R-multiple) distribution per setup plugin",
-)
-
-SIGNAL_MAE_DISTRIBUTION = _meter.create_histogram(
-    "signal_mae_distribution",
-    description="Max adverse excursion distribution per setup plugin",
-)
-
-SIGNAL_MFE_DISTRIBUTION = _meter.create_histogram(
-    "signal_mfe_distribution",
-    description="Max favorable excursion distribution per setup plugin",
 )
 
 # ---------------------------------------------------------------------------

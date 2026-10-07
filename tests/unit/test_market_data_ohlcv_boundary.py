@@ -31,20 +31,6 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # Adding a new call site requires adding a row here with a real reason, not just silencing
 # the test.
 _ALLOW_LIST: dict[str, str] = {
-    "services/signal_replay_auditor.py": (
-        "PERMANENT: Dead v2.x Signal Ledger Architecture code (signal_ledger) -- CLAUDE.md "
-        "documents this tier as archived, no live consumer since 2026-07-02. Verified "
-        "2026-07-16: no running systemd unit, signal_events/trade_frames have zero rows. Not "
-        "fixed -- v2.x's fate is todo 056's separate open question, not this guard's call."
-    ),
-    "services/signal_probe_auditor.py": (
-        "PERMANENT: Dead v2.x Signal Ledger Architecture code (signal_events/trade_frames) -- "
-        "same verification as signal_replay_auditor.py above."
-    ),
-    "scripts/ops/pipeline/ops_pipeline_status.py": (
-        "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
-        "Correctly left alone (design doc's 'correctly left alone' list)."
-    ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "PERMANENT: the phase 189 fetcher's helper library (plan 189-08 made it of the "
         "historical pipeline). Its raw-table reads (detect_gaps, fetch_bars) and the "

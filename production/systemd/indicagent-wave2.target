@@ -1,5 +1,5 @@
 # /home/bg/dev/indicagent/production/systemd/indicagent-wave2.target
-# Wave 2: intelligence pipeline — cross-asset, macro-compute, intelligence-pipeline
+# Wave 2: intelligence pipeline - cross-asset, macro-compute
 # Does not activate until all wave 1 services have been attempted.
 # The After= on each wave 1 service provides the ordering guarantee;
 # services do not need to succeed, only to have completed their start attempt.

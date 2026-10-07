@@ -42,18 +42,11 @@ def test_dag_order_covers_required_services():
         "indicagent-bar-writer",
         "indicagent-bar-auditor",
         "indicagent-feature-vector-pipeline",
-        "indicagent-signal-tracker-compute",
-        "indicagent-signal-writer",
         "indicagent-feature-vector-writer",
         "indicagent-cross-asset",
-        "indicagent-lifecycle-writer",
         "indicagent-macro-compute",
-        "indicagent-signal-metrics-compute",
-        "indicagent-signal-metrics-writer",
-        "indicagent-signal-auditor",
         # indicagent-parity-auditor and indicagent-feature-snapshot-writer removed:
         # these services do not exist in the live system (not in /etc/systemd/system/).
-        "indicagent-graduation-writer",
     }
     units = set(_DAG_ORDER.keys())
     assert not required - units, f"Missing from _DAG_ORDER: {required - units}"
@@ -186,8 +179,6 @@ def test_all_live_services_in_dag_order():
     assert _DAG_ORDER["indicagent-redpanda-ready"] == 0
     assert _DAG_ORDER["indicagent-redpanda-watchdog"] == 0
     # Oneshot/analytics tier: priority 8
-    assert _DAG_ORDER["indicagent-weight-updater"] == 8
-    assert _DAG_ORDER["indicagent-shadow-auditor"] == 8
     assert _DAG_ORDER["indicagent-ml-orchestrator"] == 8
     assert _DAG_ORDER["indicagent-ml-data-quality"] == 8
     assert _DAG_ORDER["indicagent-ml-discovery"] == 8
@@ -225,7 +216,7 @@ async def test_oneshot_units_not_restarted():
     agent._send_alert = AsyncMock()
 
     # Pick a unit from _ONESHOT_UNITS
-    oneshot_unit = "indicagent-weight-updater"
+    oneshot_unit = "indicagent-hmm-training"
     assert oneshot_unit in _ONESHOT_UNITS
 
     agent._service_states[oneshot_unit] = ServiceState()

@@ -36,7 +36,6 @@ from typing import Any
 import structlog
 
 from src.core.service_utils import format_iso_ts
-from src.intelligence.trading.signal_schema import SIGNAL_SCHEMA_VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -51,11 +50,6 @@ _FRAME_ID_NS = uuid.NAMESPACE_DNS
 def _make_frame_id(signal_id: str, entry_type: str) -> uuid.UUID:
     """Deterministic frame_id — same signal_id + entry_type always produces same UUID."""
     return uuid.uuid5(_FRAME_ID_NS, f"{signal_id}:{entry_type}")
-
-
-def _direction_text(direction_int: int) -> str:
-    """Convert direction integer (1/-1) to text ('long'/'short')."""
-    return "long" if int(direction_int) == 1 else "short"
 
 
 # ---------------------------------------------------------------------------
@@ -384,116 +378,6 @@ class SignalEventsRepository:
     # Atomic insert: signal_events + trade_frames in one transaction
     # ------------------------------------------------------------------
 
-    async def insert_signal_with_frames(
-        self,
-        signal_event: dict,
-        trade_frames: list[dict],
-    ) -> None:
-        """Atomic INSERT: signal_events row + N trade_frames rows in one transaction.
-
-        Parameters
-        ----------
-        signal_event:
-            Detection-layer fields for signal_events. Must contain signal_id, ts,
-            symbol, tf, setup_plugin, direction (text "long"/"short"), raw_confidence.
-            factor_scores and context_features passed as dicts (asyncpg handles JSONB).
-        trade_frames:
-            List of frame dicts; one per entry_type. Each must contain entry_type,
-            entry_price, stop_price, target_price, was_selected. frame_details dict
-            for stop architecture fields (stop_basis, entry_zone_low/high, etc.).
-            counterfactual_pnl_r is written as NULL per Phase 130 D-01.
-        """
-        if self._db_manager.pool is None:
-            return
-        if not trade_frames:
-            return
-
-        signal_id = signal_event["signal_id"]
-        ts = signal_event["ts"]
-
-        signal_params = (
-            signal_id,  # $1 signal_id::uuid
-            ts,  # $2 ts
-            signal_event["symbol"],  # $3 symbol
-            signal_event["tf"],  # $4 tf
-            signal_event["setup_plugin"],  # $5 setup_plugin
-            signal_event["direction"],  # $6 direction (text "long"/"short")
-            signal_event["raw_confidence"],  # $7 raw_confidence
-            signal_event.get("calibrated_confidence"),  # $8 calibrated_confidence
-            signal_event.get("cis_score"),  # $9 cis_score
-            signal_event.get("weights_version"),  # $10 weights_version
-            signal_event.get("factor_scores"),  # $11 factor_scores::jsonb (dict)
-            signal_event.get("context_features"),  # $12 context_features::jsonb (dict)
-            signal_event.get("ctf_score"),  # $13 ctf_score
-            signal_event.get("ctf_confirmed"),  # $14 ctf_confirmed
-            signal_event.get("zone_friction_score"),  # $15 zone_friction_score
-            signal_event.get("hmm_regime_at_fire"),  # $16 hmm_regime_at_fire
-            signal_event.get("plugin_regime_type"),  # $17 plugin_regime_type
-            signal_event.get("garch_sigma_at_fire"),  # $18 garch_sigma_at_fire
-            signal_event.get("is_shadow", False),  # $19 is_shadow
-            signal_event.get("is_backfill", False),  # $20 is_backfill
-            signal_event.get("status", "pending"),  # $21 status
-            SIGNAL_SCHEMA_VERSION,  # $22 signal_schema_version (int, not str)
-            signal_event.get("ttl_bars"),  # $23 ttl_bars
-            signal_event.get("expires_at"),  # $24 expires_at
-            signal_event.get("signal_computed_at"),  # $25 signal_computed_at
-            signal_event.get("feature_ts"),  # $26 feature_ts
-        )
-
-        frame_params_list = []
-        for frame in trade_frames:
-            entry_type = frame["entry_type"]
-            frame_id = _make_frame_id(signal_id, entry_type)
-            direction = frame.get("direction", signal_event["direction"])
-            # Build frame_details JSONB — stop architecture + zone fields
-            frame_details: dict = dict(frame.get("frame_details") or {})
-            # Pull top-level zone fields into frame_details if not already there
-            for key in (
-                "entry_zone_low",
-                "entry_zone_high",
-                "stop_basis",
-                "stop_type_col",
-                "structural_stop_distance_atr",
-                "adaptive_buffer_mult",
-                "stop_structure_age_bars",
-                "chandelier_vol_source",
-            ):
-                if key in frame and key not in frame_details:
-                    frame_details[key] = frame[key]
-
-            _t = frame.get("targets")
-            targets = [float(t) for t in _t] if _t else None
-            frame_params_list.append(
-                (
-                    str(frame_id),  # $1 frame_id::uuid
-                    signal_id,  # $2 signal_id::uuid
-                    ts,  # $3 signal_ts
-                    entry_type,  # $4 entry_type
-                    direction,  # $5 direction text
-                    frame.get("entry_price"),  # $6 entry_price
-                    frame.get("stop_price"),  # $7 stop_price
-                    frame.get("target_price"),  # $8 target_price
-                    frame.get("r_multiple"),  # $9 r_multiple
-                    frame.get("ttl_bars"),  # $10 ttl_bars
-                    frame.get("expires_at"),  # $11 expires_at
-                    frame.get("was_selected", False),  # $12 was_selected
-                    frame_details if frame_details else None,  # $13 frame_details::jsonb
-                    targets,  # $14 targets::double precision[]
-                )
-            )
-
-        async with self._db_manager.pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute(_INSERT_SIGNAL_EVENTS_SQL, *signal_params)
-                for frame_params in frame_params_list:
-                    await conn.execute(_INSERT_TRADE_FRAMES_SQL, *frame_params)
-
-        logger.info(
-            "Inserted signal with frames",
-            signal_id=signal_id,
-            frame_count=len(trade_frames),
-        )
-
     # ------------------------------------------------------------------
     # Standalone lifecycle update — signal_events.status
     # ------------------------------------------------------------------
@@ -609,47 +493,6 @@ class SignalEventsRepository:
     # Bootstrap query — direct signal_events + trade_frames JOIN
     # ------------------------------------------------------------------
 
-    async def get_active_signals_for_bootstrap(
-        self,
-        pending_window_days: int = 7,
-        active_window_days: int = 30,
-    ) -> list[dict]:
-        """Query pending/active/regime_suppressed signals from signal_events + trade_frames.
-
-        Does NOT query signal_ledger — the view returns NULL for all lifecycle
-        fields (activated_at, trailing_stop_price, chandelier_vol_source, etc.).
-
-        Lifecycle metadata is extracted from trade_frames.frame_details JSONB.
-        target_price is adapted into a single-element list as 'targets' for
-        evaluate_signal() compatibility (RESEARCH Open Question 2).
-
-        Parameters
-        ----------
-        pending_window_days:
-            How far back to look for pending signals. APR key:
-            feature.signal_tracker.bootstrap_pending_days.
-        active_window_days:
-            How far back to look for active/regime_suppressed signals. APR key:
-            feature.signal_tracker.bootstrap_active_days.
-
-        Returns
-        -------
-        list[dict]
-            Each dict contains signal_events fields + trade_frames fields.
-            'targets' is a list containing [target_price] or [] if no target.
-        """
-        rows = await self._db_manager.execute_query(
-            _BOOTSTRAP_SQL, pending_window_days, active_window_days
-        )
-        result = []
-        for row in rows:
-            d = dict(row)
-            # Adapt target_price (float8) to list for evaluate_signal() compatibility
-            target = d.pop("target_price", None)
-            d["targets"] = [target] if target is not None else []
-            result.append(d)
-        return result
-
     # ------------------------------------------------------------------
     # Legacy-compatible batch API (consumed by LifecycleWriter batching)
     # ------------------------------------------------------------------
@@ -744,113 +587,6 @@ ORDER BY se.ts DESC
     # ------------------------------------------------------------------
     # Legacy batch_execute (consumed by LifecycleWriter until Wave 3 rewrite)
     # ------------------------------------------------------------------
-
-    async def batch_execute(self, transition_type: str, items: list[dict]) -> None:
-        """Batch-write lifecycle transitions grouped by type.
-
-        Maps legacy transition_type values to the 3-table schema.
-        Activation lifecycle fields go to trade_frames.frame_details JSONB.
-
-        Parameters
-        ----------
-        transition_type:
-            One of "activation", "exit", "chandelier_update", "mae_mfe_update",
-            "shadow_outcome", "market_resolution".
-        items:
-            List of transition data dicts. Each must contain "signal_id".
-        """
-        if not items:
-            return
-
-        if transition_type == "activation":
-            for item in items:
-                signal_id = item["signal_id"]
-                await self.update_signal_status(signal_id, "active")
-                meta: dict = {}
-                if item.get("activated_at"):
-                    meta["activated_at"] = format_iso_ts(item["activated_at"])
-                for key in ("activation_price", "zone_entry_pct", "bars_to_activation"):
-                    if item.get(key) is not None:
-                        meta[key] = item[key]
-                if meta:
-                    await self.update_frame_details(signal_id, meta)
-
-        elif transition_type == "exit":
-            for item in items:
-                status = item.get("status", "expired")
-                await self.update_signal_status(item["signal_id"], status)
-
-        elif transition_type == "chandelier_update":
-            for item in items:
-                meta = {}
-                if item.get("trailing_stop_price") is not None:
-                    meta["trailing_stop_price"] = item["trailing_stop_price"]
-                if item.get("trailing_stop_tightening_rate") is not None:
-                    meta["trailing_stop_tightening_rate"] = item["trailing_stop_tightening_rate"]
-                if item.get("staleness_score") is not None:
-                    meta["staleness_score"] = item["staleness_score"]
-                if item.get("staleness_trigger_reason"):
-                    meta["staleness_trigger_reason"] = item["staleness_trigger_reason"]
-                if item.get("chandelier_vol_source"):
-                    meta["chandelier_vol_source"] = item["chandelier_vol_source"]
-                if meta:
-                    await self.update_frame_details(item["signal_id"], meta)
-
-        elif transition_type == "mae_mfe_update":
-            for item in items:
-                meta = {}
-                if item.get("mae") is not None:
-                    meta["mae"] = item["mae"]
-                if item.get("mfe") is not None:
-                    meta["mfe"] = item["mfe"]
-                if meta:
-                    await self.update_frame_details(item["signal_id"], meta)
-
-        elif transition_type == "shadow_outcome":
-            for item in items:
-                meta = {}
-                for key in (
-                    "shadow_tracking_start_ts",
-                    "shadow_mae",
-                    "shadow_mfe",
-                    "shadow_outcome",
-                ):
-                    if item.get(key) is not None:
-                        meta[key] = item[key]
-                if meta:
-                    await self.update_frame_details(item["signal_id"], meta)
-
-        elif transition_type == "market_resolution":
-            for item in items:
-                meta = {}
-                for key in (
-                    "market_entry_at",
-                    "market_entry_exit_price",
-                    "market_entry_exit_at",
-                    "market_entry_pnl_r",
-                    "market_entry_mae",
-                    "market_entry_mfe",
-                    "market_entry_bars_in_trade",
-                    "market_entry_outcome",
-                    "market_entry_gap_bars",
-                ):
-                    if item.get(key) is not None:
-                        meta[key] = item[key]
-                if meta:
-                    await self.update_frame_details(item["signal_id"], meta)
-
-        else:
-            raise ValueError(
-                f"Unknown transition_type '{transition_type}'. "
-                "Must be one of: activation, exit, chandelier_update, "
-                "mae_mfe_update, shadow_outcome, market_resolution"
-            )
-
-        logger.info(
-            "batch_execute completed",
-            transition_type=transition_type,
-            count=len(items),
-        )
 
     # ------------------------------------------------------------------
     # Thin lifecycle aliases (consumed by signal_tracker and lifecycle_writer)

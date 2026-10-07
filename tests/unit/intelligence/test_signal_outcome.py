@@ -56,13 +56,6 @@ def test_signal_outcome_is_str_compatible():
     assert SignalOutcome.NEVER_ACTIVATED == "never_activated"
 
 
-def test_win_outcomes_backward_compat():
-    """signal_ledger.py must re-export WIN_OUTCOMES for backward compatibility."""
-    from src.persistence.repository.signal_ledger_repository import WIN_OUTCOMES as ledger_win
-
-    assert ledger_win == WIN_OUTCOMES
-
-
 def test_signal_outcome_enum_immutable():
     """Enum members should be immutable and hashable."""
     # Can be used in sets

@@ -112,18 +112,6 @@
   "src/intelligence/research/signals.py": {
    "signal source": 1
   },
-  "src/intelligence/trading/delta_exhaustion.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/trading/divergence_stack.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/trading/failed_breakout.py": {
-   "intrinsic composite": 1
-  },
-  "src/intelligence/trading/ofi_divergence.py": {
-   "intrinsic composite": 1
-  },
   "src/observability/metrics.py": {
    "plugin confidence": 1
   },
@@ -135,9 +123,6 @@
   },
   "tests/unit/research/test_evaluate_intraday.py": {
    "signal source": 1
-  },
-  "tests/unit/services/test_signal_probe_auditor_job_label.py": {
-   "plugin confidence": 1
   },
   "tests/unit/tools/test_check_glossary.py": {
    "market state": 1,

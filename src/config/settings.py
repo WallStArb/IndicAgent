@@ -649,18 +649,6 @@ def get_active_symbols(settings: Settings | None = None, *, dimension: str) -> l
     return [c.symbol for c in get_active_contracts(settings, dimension=dimension)]
 
 
-def get_point_value(symbol: str, settings: Settings | None = None) -> float | None:
-    """Get point value for a contract symbol or base symbol.
-
-    Looks up the instrument in the active contracts cache (widest dimension: a lookup,
-    not a universe choice). Returns None if not found.
-    """
-    for c in get_active_contracts(settings, dimension="backfill"):
-        if c.symbol == symbol or c.base == symbol:
-            return c.point_value
-    return None
-
-
 def get_tick_size(symbol: str, settings: Settings | None = None) -> float | None:
     """Get tick size for a contract symbol or base symbol.
 

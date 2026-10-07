@@ -47,24 +47,3 @@ def test_plugin_confidence_histogram():
     from src.observability.metrics import PLUGIN_CONFIDENCE_HISTOGRAM
 
     assert PLUGIN_CONFIDENCE_HISTOGRAM is not None
-
-
-def test_plugin_validator_registered_plugins():
-    """PLUGIN_VALIDATOR_REGISTERED_PLUGINS is importable from metrics.py."""
-    from src.observability.metrics import PLUGIN_VALIDATOR_REGISTERED_PLUGINS
-
-    assert PLUGIN_VALIDATOR_REGISTERED_PLUGINS is not None
-
-
-def test_plugin_validator_validation_status():
-    """PLUGIN_VALIDATOR_VALIDATION_STATUS is importable from metrics.py."""
-    from src.observability.metrics import PLUGIN_VALIDATOR_VALIDATION_STATUS
-
-    assert PLUGIN_VALIDATOR_VALIDATION_STATUS is not None
-
-
-def test_plugin_validator_errors():
-    """PLUGIN_VALIDATOR_ERRORS is importable from metrics.py."""
-    from src.observability.metrics import PLUGIN_VALIDATOR_ERRORS
-
-    assert PLUGIN_VALIDATOR_ERRORS is not None

@@ -1,6 +1,6 @@
 """Tests for signal quality hardening: W1-W7."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,10 +9,8 @@ _T0 = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
 
 from src.core.service_utils import TF_TTL_BARS, TICK_SIZES, round_to_tick
 from src.intelligence.trading.aggregator import _CONFIDENCE_BOOST_PER_AGREE
-from src.intelligence.trading.lifecycle_tracker import evaluate_market_entry, evaluate_signal
 from src.intelligence.trading.signal_schema import _make_signal as make_signal
 from src.intelligence.trading.signal_schema import make_signal_from_frame
-from src.persistence.repository.signal_ledger_repository import SignalStatus
 
 
 class TestTickSizes:
@@ -245,82 +243,6 @@ class TestEmissionGate:
         # EURUSD tick = 0.00001, stop 0.000005 away (< tick)
         with pytest.raises(ValueError, match="stop.*tick"):
             self._make_signal(entry=1.10000, stop=1.099995)
-
-
-class TestTTLReorder:
-    """W2: TTL check runs AFTER stop/target, so price-at-target signals don't expire."""
-
-    def _base_signal(self, status=SignalStatus.ACTIVE, bars_elapsed=20, ttl=20):
-        return {
-            "signal_id": "test-001",
-            "status": status,
-            "direction": 1,
-            "entry_price": 100.0,
-            "stop_loss": 98.0,
-            "targets": [104.0],
-            "ttl_bars": ttl,
-            "bars_elapsed": bars_elapsed,
-            "point_value": 1.0,
-            "entry_zone_low": 99.5,
-            "entry_zone_high": 100.5,
-        }
-
-    def test_target_hit_on_ttl_bar_takes_target_not_ttl(self):
-        # T1 no longer exits; use a signal with T2 so a target exit still fires.
-        # The invariant under test is: price-at-target beats TTL expiry on the same bar.
-        sig = self._base_signal(bars_elapsed=20, ttl=20)
-        sig["targets"] = [104.0, 108.0]  # add T2 so a target exit is possible
-        sig["expires_at"] = _T0 + timedelta(minutes=20)
-        bar_time = _T0 + timedelta(minutes=20)  # exactly at TTL boundary
-        result = evaluate_signal(sig, high=109.0, low=99.0, close=107.0, bar_time=bar_time)
-        assert result is not None
-        assert result.exit_reason == "target_2_hit"  # target_hit beats TTL
-
-    def test_stop_on_ttl_bar_takes_stop_not_ttl(self):
-        sig = self._base_signal(bars_elapsed=20, ttl=20)
-        result = evaluate_signal(sig, high=101.0, low=97.0, close=97.5)
-        assert result is not None
-        assert result.exit_reason == "stop_loss"
-
-    def test_ttl_expired_when_no_hit(self):
-        sig = self._base_signal(bars_elapsed=20, ttl=20)
-        # expires_at = T0 + 20 bars * 60s; bar_time = T0 + 21min → past expires_at
-        sig["expires_at"] = _T0 + timedelta(minutes=20)
-        bar_time = _T0 + timedelta(minutes=21)
-        result = evaluate_signal(sig, high=101.0, low=99.5, close=100.5, bar_time=bar_time)
-        assert result is not None
-        assert result.exit_reason == "ttl_expired"
-
-
-class TestMarketEntryTTLReorder:
-    """W2: evaluate_market_entry also checks stop/target before TTL."""
-
-    def _base_signal(self, bars_elapsed=20, ttl=20):
-        return {
-            "signal_id": "test-mkt-001",
-            "direction": 1,
-            "entry_price": 100.0,
-            "stop_loss": 98.0,
-            "targets": [104.0],
-            "ttl_bars": ttl,
-            "bars_elapsed": bars_elapsed,
-        }
-
-    def test_target_hit_on_ttl_bar(self):
-        sig = self._base_signal(bars_elapsed=20, ttl=20)
-        result = evaluate_market_entry(
-            sig, market_entry_price=100.0, high=105.0, low=99.0, close=103.0
-        )
-        assert result.outcome is not None
-        assert result.exit_price == 104.0
-
-    def test_ttl_expired_when_no_hit(self):
-        sig = self._base_signal(bars_elapsed=20, ttl=20)
-        result = evaluate_market_entry(
-            sig, market_entry_price=100.0, high=101.0, low=99.5, close=100.5
-        )
-        assert result.outcome is not None
-        assert result.exit_price == 100.5
 
 
 class TestNoConfidenceBoost:

@@ -31,7 +31,6 @@ SCAN_DIRS = [
     "src/intelligence/composites",
     "src/intelligence/context",
     "src/intelligence/trading",
-    "src/intelligence/confluence",
     "src/intelligence",
 ]
 
