@@ -49,7 +49,12 @@ def test_required_checks_match_the_design():
     }
     assert REQUIRED_CHECKS["5m"] == {"slot_coverage", "digest_fresh", "coverage_cache"}
     assert REQUIRED_CHECKS["15m"] == REQUIRED_CHECKS["1h"] == {"digest_fresh", "grid_parity"}
-    assert REBUILD_ONLY_CHECKS == {"15m": {"stray_vendor_rows"}, "1h": {"stray_vendor_rows"}}
+    assert REBUILD_ONLY_CHECKS == {
+        "1d": {"freshness_1d"},
+        "15m": {"stray_vendor_rows"},
+        "1h": {"stray_vendor_rows"},
+    }
+    assert all("freshness_1d" not in checks for checks in REQUIRED_CHECKS.values())
 
 
 def test_a_symbol_with_every_check_passed_and_fresh_passes():
@@ -182,3 +187,14 @@ def test_sql_rendering_for_one_timeframe_has_no_timeframe_binding():
 def test_sql_rendering_refuses_an_unknown_timeframe():
     with pytest.raises(ValueError, match="4h"):
         ready_predicate_sql(("4h",))
+
+
+def test_freshness_1d_gates_the_1d_rebuild_only_when_asked():
+    rows = _rows("AAA", "1d")
+    assert _gate(rows) == {}  # promotion: unchanged by freshness_1d
+    extra = frozenset({"freshness_1d"})
+    assert _gate(rows, extra_checks=extra) == {"AAA": ["1d:freshness_1d missing"]}
+    stale = rows + [VerdictRow("AAA", "1d", "freshness_1d", False, NOW - timedelta(hours=1))]
+    assert _gate(stale, extra_checks=extra) == {"AAA": ["1d:freshness_1d failed"]}
+    fresh = rows + [VerdictRow("AAA", "1d", "freshness_1d", True, NOW - timedelta(hours=1))]
+    assert _gate(fresh, extra_checks=extra) == {}

@@ -324,7 +324,14 @@ def test_final_landed_passes_when_every_summary_exists():
 
 def test_final_landed_names_each_missing_summary():
     assert rp.REQUIRED_FINAL_LANDED_SUMMARIES == frozenset(
-        {"185-42-SUMMARY.md", "185-43-SUMMARY.md", "185-45-SUMMARY.md", "189-11-SUMMARY.md"}
+        {
+            "185-42-SUMMARY.md",
+            "185-43-SUMMARY.md",
+            "185-45-SUMMARY.md",
+            "185-47-SUMMARY.md",
+            "185-48-SUMMARY.md",
+            "189-11-SUMMARY.md",
+        }
     )
     markers = {name: True for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES}
     markers["185-43-SUMMARY.md"] = False
@@ -343,14 +350,30 @@ def test_fetch_final_landed_markers_reads_presence_in_the_phase_directories(tmp_
     (p185 / "185-42-SUMMARY.md").write_text("x")
     (p185 / "185-45-SUMMARY.md").write_text("x")
     (p189 / "189-11-SUMMARY.md").write_text("x")
+    (p185 / "185-47-SUMMARY.md").write_text("x")
     (p185 / "185-43-PLAN.md").write_text("a plan is not a landing")
     markers = fetch_final_landed_markers(tmp_path)
     assert markers == {
         "185-42-SUMMARY.md": True,
         "185-43-SUMMARY.md": False,
         "185-45-SUMMARY.md": True,
+        "185-47-SUMMARY.md": True,
+        "185-48-SUMMARY.md": False,
         "189-11-SUMMARY.md": True,
     }
+
+
+def test_final_landed_fails_naming_the_swap_plans_while_absent():
+    markers = {name: True for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES}
+    markers["185-47-SUMMARY.md"] = False
+    markers["185-48-SUMMARY.md"] = False
+    result = check_data_layer_final_landed(markers)
+    assert not result.ok
+    assert "185-47-SUMMARY.md" in result.detail and "185-48-SUMMARY.md" in result.detail
+
+
+def test_rebuild_extra_checks_include_freshness_1d():
+    assert rp.REBUILD_EXTRA_CHECKS == frozenset({"stray_vendor_rows", "freshness_1d"})
 
 
 # ---------------------------------------------------------------------------
@@ -510,18 +533,22 @@ def test_fetch_d2_inputs_gates_the_1d_verdicts_of_the_symbols():
 
     at = datetime.now(UTC)
     conn = _VerdictConn(
-        _verdicts("SPY", "1d", REQUIRED_CHECKS["1d"], at)
+        _verdicts("SPY", "1d", REQUIRED_CHECKS["1d"] | {"freshness_1d"}, at)
         + _verdicts("BAD", "1d", REQUIRED_CHECKS["1d"], at, passed=False)
+        + _verdicts("OLD", "1d", REQUIRED_CHECKS["1d"], at)
+        + _verdicts("OLD", "1d", {"freshness_1d"}, at, passed=False)
     )
-    scan = fetch_d2_inputs(conn, ["SPY", "BAD", "NEW1"])
-    assert scan.n_symbols == 3
-    assert set(scan.failures) == {"BAD", "NEW1"}
+    scan = fetch_d2_inputs(conn, ["SPY", "BAD", "OLD", "NEW1"])
+    assert scan.n_symbols == 4
+    assert set(scan.failures) == {"BAD", "OLD", "NEW1"}
+    # a stale name fails the 1d rebuild gate on freshness_1d alone, and is named
+    assert scan.failures["OLD"] == ["1d:freshness_1d failed"]
     assert scan.failures["NEW1"][0].endswith("missing")
     assert scan.first_evaluated_at == scan.last_evaluated_at == at
     sqls = [sql for sql, _ in conn.calls]
     assert not any("canonical_bar_lineage" in sql or "rule_version" in sql for sql in sqls)
     verdict_params = next(p for sql, p in conn.calls if "integrity_monitor" in sql)
-    assert verdict_params["subjects"] == ["SPY|1d", "BAD|1d", "NEW1|1d"]
+    assert verdict_params["subjects"] == ["SPY|1d", "BAD|1d", "OLD|1d", "NEW1|1d"]
 
 
 def test_fetch_d2_inputs_fails_a_verdict_older_than_the_latest_load():

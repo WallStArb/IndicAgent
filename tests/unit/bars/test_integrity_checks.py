@@ -98,6 +98,7 @@ class _Thresholds:
     report_max_age_hours: int = 30
     basis_window_sessions: int = 3
     basis_tolerance_bp: float = 10.0
+    freshness_max_lag_sessions_1d: int = 2
 
 
 def _obs(day: date, close: float, route: str = "TRADIER") -> Observation:
@@ -498,3 +499,68 @@ def test_digest_scope_is_empty_when_nothing_was_written_and_all_when_a_load_has_
     base = {"full_sweep": False, "previous_at": _PREV, "previous_passed": True}
     assert digest_scope(loads=[], **base) == frozenset()
     assert digest_scope(loads=[_load(5, None, None)], **base) is None
+
+
+# ---------------------------------------------------------------------------
+# freshness_1d (plan 185-46 Task 3)
+# ---------------------------------------------------------------------------
+
+from src.intelligence.bars.integrity_checks import CHECK_FRESHNESS_1D, freshness_1d  # noqa: E402
+
+# Mon 2026-09-28 .. Fri 2026-10-09, NYSE sessions only
+_FRESH_SESSIONS = [
+    date(2026, 9, 28) + timedelta(days=i) for i in range(12) if (i % 7) not in (5, 6)
+]
+
+
+def _fresh(latest, last, *, spans=(), max_lag=2):
+    return freshness_1d(latest, list(spans), last, _FRESH_SESSIONS, max_lag, symbol="AAA")
+
+
+def test_freshness_passes_on_the_last_completed_session():
+    v = _fresh(date(2026, 10, 7), date(2026, 10, 7))
+    assert v.check == CHECK_FRESHNESS_1D == "freshness_1d"
+    assert (v.symbol, v.timeframe, v.passed, v.metric_value, v.threshold_value) == (
+        "AAA",
+        "1d",
+        True,
+        0.0,
+        2.0,
+    )
+
+
+def test_freshness_counts_uncovered_sessions_and_passes_up_to_max_lag():
+    assert _fresh(date(2026, 10, 5), date(2026, 10, 7)).metric_value == 2.0
+    assert _fresh(date(2026, 10, 5), date(2026, 10, 7)).passed
+    v = _fresh(date(2026, 10, 2), date(2026, 10, 7))  # Mon, Tue, Wed behind (weekend skipped)
+    assert (v.passed, v.metric_value) == (False, 3.0)
+
+
+def test_freshness_sessions_inside_answered_empty_spans_do_not_count():
+    v = _fresh(date(2026, 10, 1), date(2026, 10, 7), spans=[(date(2026, 10, 2), date(2026, 10, 8))])
+    assert (v.passed, v.metric_value) == (True, 0.0)
+    # Fri and Mon covered; Tue and Wed are not: 2 behind, at the limit
+    v = _fresh(date(2026, 10, 1), date(2026, 10, 7), spans=[(date(2026, 10, 2), date(2026, 10, 5))])
+    assert (v.passed, v.metric_value) == (True, 2.0)
+
+
+def test_freshness_a_friday_bar_on_the_weekend_is_not_behind():
+    for judged_on in (date(2026, 10, 10), date(2026, 10, 11)):  # Saturday, Sunday
+        v = _fresh(date(2026, 10, 9), judged_on, max_lag=0)
+        assert (v.passed, v.metric_value) == (True, 0.0)
+
+
+def test_freshness_a_name_with_no_bars_fails():
+    v = _fresh(None, date(2026, 10, 7))
+    assert not v.passed
+    assert v.metric_value == float(sum(1 for s in _FRESH_SESSIONS if s <= date(2026, 10, 7)))
+
+
+def test_judge_name_1d_reports_freshness_after_the_eight_checks():
+    report = _judge(_clean())
+    by = _by_check(report)
+    assert by[CHECK_FRESHNESS_1D].passed and by[CHECK_FRESHNESS_1D].metric_value == 0.0
+    extra = [_SESSIONS[-1] + timedelta(days=k) for k in (1, 2, 3)]
+    stale = judge_name_1d(_clean(), _SESSIONS + extra, extra[-1], _RUN_START, _Thresholds())
+    verdict = _by_check(stale)[CHECK_FRESHNESS_1D]
+    assert (verdict.passed, verdict.metric_value, verdict.threshold_value) == (False, 3.0, 2.0)

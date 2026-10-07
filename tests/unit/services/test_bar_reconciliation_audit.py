@@ -693,13 +693,14 @@ def _run(names, seam_samples=()):
     return conn, run
 
 
-def test_each_name_gets_eight_verdict_rows_and_one_informational_row():
+def test_each_name_gets_nine_verdict_rows_and_one_informational_row():
     conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
     rows = [f for f in run.facts if f[1] == "AAA|1d"]
-    assert len(rows) == 9
+    assert len(rows) == 10
     assert {f[0] for f in run.facts} == {"bar_integrity"}
-    assert [f[2] for f in rows][:8] == list(audit.CHECKS_1D)
-    assert [f[2] for f in rows][8] == "refused_head_1d"
+    assert [f[2] for f in rows][:9] == list(audit.CHECKS_1D)
+    assert "freshness_1d" in audit.CHECKS_1D
+    assert [f[2] for f in rows][9] == "refused_head_1d"
     assert all(f[5] for f in run.facts)
     assert run.failing_by_check == {}
 
@@ -755,6 +756,52 @@ def test_integrity_keys_are_loaded_by_the_audit():
     assert "threshold.bar_integrity.%" in audit._APR_PATTERNS
     params = audit._IntegrityParams.from_apr({"threshold.bar_integrity.report_max_age_hours": 12})
     assert params.report_max_age_hours == 12 and params.session_coverage_min == 0.999
+    assert params.freshness_max_lag_sessions_1d == 2
+    params = audit._IntegrityParams.from_apr(
+        {"threshold.bar_integrity.freshness_max_lag_sessions_1d": "5"}
+    )
+    assert params.freshness_max_lag_sessions_1d == 5
+
+
+def test_a_stale_name_fails_freshness_1d_and_is_counted():
+    stale = _good_name()
+    stale["stored"] = stale["stored"][:1]  # latest bar 2024-01-02; 01-03 and 01-04 behind
+    stale["observations"] = stale["observations"][:1]
+    stale["digests"] = []
+
+    class _Late(_Window):
+        last_session = date(2024, 1, 9)  # 01-03 .. 01-09: 5 sessions behind
+
+    import asyncio
+
+    conn = _FakeConn({"AAA": stale, "BBB": _good_name()})
+    run = asyncio.run(
+        audit.BarReconciliationAudit._verdict_report_1d(
+            conn, audit._IntegrityParams.from_apr({}), _Late(), ["AAA", "BBB"], [], _NOW
+        )
+    )
+    verdicts = {(f[1], f[2]): f for f in run.facts}
+    assert verdicts[("AAA|1d", "freshness_1d")][3:6] == (5.0, 2.0, False)
+    assert verdicts[("BBB|1d", "freshness_1d")][5] is False  # BBB ends 01-04 too
+    assert run.failing_by_check["freshness_1d"] == 2
+
+
+def test_alert_gauges_carry_freshness_1d_and_record_zero_when_it_clears(monkeypatch):
+    gauges = _patched_gauges(monkeypatch)
+    now = datetime(2026, 10, 8, 6, 0, tzinfo=UTC)
+    audit.record_alert_gauges(
+        failing_by_check=audit.merge_failing_by_check(
+            audit.zero_for_judged({"freshness_1d": 1500, "session_coverage": 1262}),
+            {"session_coverage": 240},
+        ),
+        previous_verdict_at=None,
+        run_start=now,
+        max_age_hours=30,
+        refused_by_source={},
+    )
+    points = sorted(gauges["BAR_INTEGRITY_FAILING_NAMES"].points, key=lambda p: p[1]["check"])
+    assert points == [(0, {"check": "freshness_1d"}), (240, {"check": "session_coverage"})]
+    assert {key for _, attributes in points for key in attributes} == {"check"}
 
 
 # ---------------------------------------------------------------------------
