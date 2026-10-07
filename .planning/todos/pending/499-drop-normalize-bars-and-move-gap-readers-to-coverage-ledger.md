@@ -44,3 +44,16 @@ the pipeline by path.
 
 The fences hold today, but a reachable-looking fill function invites a new caller, and gap readers that
 were built around placeholder coverage should read the coverage ledger, not infer coverage from rows.
+
+## Progress (plan 189-08, 2026-10-07)
+
+- Fix step 1 done in 1be02ae51: `_history_fetch_item.py` no longer imports or calls
+  `normalize_bars` or `store_bars` (the unreachable fill branch is gone), and its
+  `_NORMALIZE_CALLERS` entry in `tests/unit/test_market_data_ohlcv_no_synthetic_fill.py` is
+  removed (the dict is now empty). The fetcher's `--normalize` mode was already gone (185-32).
+- `Candidates.scope_contracts` (no reader) dropped from `ibkr_history_fetcher.py` in the same commit.
+- Left open on purpose, so this todo is not closed: step 2 (delete `normalize_bars` and the
+  `src/core/bar_normalizer.py` TEMPORARY entry, `retire: todo 499`) is planned in 185-42; closing
+  the todo now would fail the 185-44 expiry guard on that entry. Step 3 (move the 5m/1m
+  placeholder-coverage gap readers onto `ohlcv_coverage`) has no plan yet.
+

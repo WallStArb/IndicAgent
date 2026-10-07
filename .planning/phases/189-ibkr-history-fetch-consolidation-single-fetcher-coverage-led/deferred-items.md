@@ -49,8 +49,25 @@ Out-of-scope findings logged during execution. Not fixed in the plan that found 
    infrastructure_run_historical_pipeline.py's `--lease-wait-minutes` help text, which keeps the
    185-44 reader guard green. When 189-08 absorbs that script, the key needs a
    `_PENDING_RETIREMENT` entry with `retire: <plan>` (or a delete migration) in the same commit.
+   Resolved by 189-08: pending entries in 1be02ae51, both lease keys deleted by migration 434
+   (3597da3a1, applied live 2026-10-07).
 8. **The D7 `nightly_skipped` check reports a finding every day while the fetcher timer is
    disabled (189-07 to 189-10).** The status file `logs/nightly_backfill_status.json` is
    written only by fetcher runs, so it goes stale past `max_age_hours`. Expected under the
    owner's stop; it clears on the first run after 189-10. The check and file keep their
    nightly names; renaming them is a monitor-key change for a later plan.
+
+## From 189-08 (pipeline retired into _history_fetch.py, 2026-10-07)
+
+9. **Living docs still describe the pipeline CLI and the ibkr_history_stream lease.** Root
+   `CLAUDE.md` (IBKR line: "Every history fetch takes the `ibkr_history_stream` lease"; owner
+   file, not edited by an executor), `docs/reference/gotchas.md` (historical backfill bullet
+   names the deleted script, the lease and `test_ibkr_history_lease_boundary.py`),
+   `docs/foundation/instrument-onboarding-sop.md` and `config/universe/README.md` (the Tradier
+   loader no longer marks `fetch_complete`; `ops_tradier_fetch_complete_repair.py` is deleted),
+   and the other docs `grep -rln infrastructure_run_historical_pipeline docs` lists. 189-09 (docs)
+   rewrites them; 185-43 owns the backfill_status wording in the SOP.
+10. **`tests/integration/fixtures/seed_config_2026-10-02.sql` is a dated snapshot** of
+   `config_schema`/`config_state`; it still carries the two retired lease keys and descriptions
+   naming the pipeline script. Regenerate it with the next fixture refresh, not by hand.
+
