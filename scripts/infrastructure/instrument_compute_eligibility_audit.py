@@ -2,14 +2,12 @@
 """Phase 174 (174-02, D-07 Task 1): does `instruments.is_active=true` really mean
 compute-ready for every existing row, or are some symbols mid-onboarding?
 
-`get_active_contracts()`'s only query today is `is_active = true AND asset_class !=
-'futures'` -- nothing downstream currently distinguishes "backfill-eligible" from
-"compute-ready." This audit measures, per active symbol, whether all four timeframes
-(5m/15m/1h/1d) both (a) have a `backfill_status` row with `fetch_complete = true` and
-(b) have non-zero rows in `market_data_ohlcv_tradeable`. The finding decides migration
-337's `compute_eligible` default for the 231 existing rows: if every active symbol
-clears the bar, `compute_eligible=true` for all of them is a measured, behavior-
-preserving default, not an assumption.
+Plan 185-41 moved the answer from a bookkeeping flag to computed truth: a symbol is
+compute-ready when every required `bar_integrity` verdict D7 writes is passed and fresh
+(`src/intelligence/bars/verdict_gate.py`, data layer integrity design sections 6 and 8).
+This audit measures, per active symbol, the tradeable row counts of the compute timeframes
+and what each gate says today (how many names fail which check, and which currently promoted
+names would no longer qualify). It writes nothing.
 
 Read-only, no writes, exit code always 0 (a measurement tool, not a gate) -- the ONLY
 non-zero exit path is an unrecoverable query failure.
@@ -24,17 +22,17 @@ SUMMARY.md), and pull min/max timestamps via a LATERAL `ORDER BY timestamp ASC/D
 LIMIT 1` per (symbol, timeframe) so TimescaleDB's ChunkAppend can early-stop once the
 newest/oldest matching chunk is found, instead of aggregating the full partition.
 
-Also exports COMPUTE_READY_PREDICATE_SQL, the canonical all-four-timeframes promotion
-predicate reused verbatim by Plans 10 and 12 so the gate cannot drift between the three
-places it is enforced.
+Also exports COMPUTE_READY_PREDICATE_SQL, the canonical all-timeframes promotion
+predicate reused verbatim by the promote script so the gate cannot drift between the
+places it is enforced; it is rendered from verdict_gate.REQUIRED_CHECKS.
 
 Also exports COMPUTE_READY_1D_PREDICATE_SQL (Phase 174, plan 174-13, D-09), the
 1d-only sibling of COMPUTE_READY_PREDICATE_SQL, scoped to the '1d' timeframe alone
 rather than parameterized over all four -- a 1d-only symbol (e.g. the D-09 down-cap
 cohort, which carries no 5m/15m/1h history at all) satisfies this predicate and
 deliberately fails COMPUTE_READY_PREDICATE_SQL. The two constants sit beside each other
-in this module so the two cannot drift apart; migration 341 uses the same two-clause
-text inline in its backfill UPDATE.
+in this module so the two cannot drift apart. (Migration 341 used the older
+bookkeeping-and-rows text inline in its backfill UPDATE; it is applied and immutable.)
 
 Moved from `scripts/analysis/` to `scripts/infrastructure/` in phase 186 (plan 186-04,
 R-05) so the onboarding SOP's stage-8 promote step
@@ -48,6 +46,7 @@ from __future__ import annotations
 
 import sys
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -61,51 +60,33 @@ from src.config.instrument_onboarding import (  # noqa: E402
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
+from src.intelligence.bars.verdict_gate import (  # noqa: E402
+    LATEST_LOADS_SQL,
+    LATEST_VERDICTS_SQL,
+    REQUIRED_CHECKS,
+    VerdictRow,
+    all_check_names,
+    gate_symbols,
+    ready_predicate_sql,
+    verdict_row_from_record,
+)
 
 setup_service_logging("logs/instrument_compute_eligibility_audit.log")
 _logger = structlog.get_logger(__name__)
 
 _SYMBOL_BATCH_SIZE = 25
 
-# Canonical all-four-timeframes compute-readiness predicate (Phase 174 D-07, plan
-# 174-02). Plans 10 and 12 import this constant rather than re-deriving the predicate --
-# do not copy/paste or approximate this fragment elsewhere. `i` is the expected alias
-# for the `instruments` row being tested by the caller's outer query.
-#
-# Both halves are counted aggregates (`= cardinality(timeframes)`), never a bare EXISTS --
-# an EXISTS here would silently degrade to "at least one timeframe complete," admitting
-# partially-backfilled symbols into corpus-wide measurement (RESEARCH.md threat T-174-41).
-# The required count derives from the bound timeframe list itself (APR
-# `feature.factory.target_timeframes` via load_compute_timeframes()), so the list and the
-# count can never disagree.
-COMPUTE_READY_PREDICATE_SQL = """
-    (
-        SELECT count(*) FROM backfill_status b
-        WHERE b.symbol = i.symbol AND b.tf = ANY(%(timeframes)s) AND b.fetch_complete
-    ) = cardinality(%(timeframes)s::text[])
-    AND (
-        SELECT count(DISTINCT m.timeframe) FROM market_data_ohlcv_tradeable m
-        WHERE m.symbol = i.symbol AND m.timeframe = ANY(%(timeframes)s)
-    ) = cardinality(%(timeframes)s::text[])
-""".strip()
-
-# 1d-only sibling of COMPUTE_READY_PREDICATE_SQL (Phase 174, plan 174-13, D-09). Same
-# two-clause bookkeeping-AND-ground-truth structure and the same `i.symbol` outer-alias
-# convention, but scoped to the '1d' timeframe as a SQL literal rather than a
-# %(timeframes)s parameter -- so this exact text is valid pasted directly into a
-# migration's UPDATE ... WHERE clause (see migration 341) as well as inside a psycopg
-# call from this module. A 1d-only symbol satisfies this predicate and deliberately
-# fails COMPUTE_READY_PREDICATE_SQL above, since it carries no 5m/15m/1h rows at all.
-COMPUTE_READY_1D_PREDICATE_SQL = """
-    (
-        SELECT count(*) FROM backfill_status b
-        WHERE b.symbol = i.symbol AND b.tf = '1d' AND b.fetch_complete
-    ) = 1
-    AND (
-        SELECT count(*) FROM market_data_ohlcv_tradeable m
-        WHERE m.symbol = i.symbol AND m.timeframe = '1d'
-    ) > 0
-""".strip()
+# Compute-readiness predicates over the latest bar_integrity verdicts (plan 185-41). `i` is the
+# expected alias for the `instruments` row being tested by the caller's outer query. Both are
+# rendered from verdict_gate.REQUIRED_CHECKS, so the checks they require and the pure gate's
+# cannot drift. The all-timeframes form binds %(timeframes)s (APR
+# `feature.factory.target_timeframes`, via load_compute_timeframes()) and %(max_age_hours)s
+# (APR `threshold.bar_integrity.report_max_age_hours`, via load_report_max_age_hours()); a bound
+# timeframe without required checks cannot pass (RESEARCH.md threat T-174-41). The 1d form has
+# '1d' rendered in and binds only %(max_age_hours)s.
+COMPUTE_READY_PREDICATE_SQL = ready_predicate_sql()
+COMPUTE_READY_1D_PREDICATE_SQL = ready_predicate_sql(("1d",))
+REPORT_MAX_AGE_APR_KEY = "threshold.bar_integrity.report_max_age_hours"
 
 
 def load_compute_timeframes(conn: psycopg.Connection) -> list[str]:
@@ -185,23 +166,93 @@ def _fetch_endpoints(
         return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
 
-def _fetch_backfill_status(
-    conn: psycopg.Connection, symbols: list[str], timeframes: list[str]
-) -> dict[tuple[str, str], bool]:
-    """fetch_complete flag per (symbol, tf). backfill_status is a small plain table
-    (PK (symbol, tf)), not a hypertable -- one query for all active symbols is cheap,
-    no batching needed.
-    """
+def load_report_max_age_hours(conn: psycopg.Connection) -> float:
+    """The verdict freshness window from APR; raise if it is missing or malformed."""
     with conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT symbol, tf, fetch_complete
-            FROM backfill_status
-            WHERE symbol = ANY(%(symbols)s) AND tf = ANY(%(timeframes)s)
-            """,
-            {"symbols": symbols, "timeframes": timeframes},
+            "SELECT config_value FROM config_state WHERE config_key = %s", (REPORT_MAX_AGE_APR_KEY,)
         )
-        return {(row[0], row[1]): bool(row[2]) for row in cur.fetchall()}
+        row = cur.fetchone()
+    if row is None:
+        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} is not set")
+    hours = float(row[0])
+    if hours <= 0:
+        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} must be positive, got {row[0]!r}")
+    return hours
+
+
+def fetch_verdict_failures(
+    conn: psycopg.Connection,
+    symbols: list[str],
+    timeframes: list[str],
+    max_age_hours: float,
+    *,
+    now: datetime | None = None,
+) -> dict[str, list[str]]:
+    """Symbols failing the verdict gate over `timeframes`, with reasons naming the check.
+
+    Reads the latest verdict per (symbol, tf, check) and the latest changing load per series,
+    then applies the same pure gate the rebuild preconditions use. Read-only.
+    """
+    subjects = [f"{symbol}|{tf}" for symbol in symbols for tf in timeframes]
+    with conn.cursor() as cur:
+        cur.execute(
+            LATEST_VERDICTS_SQL, {"subjects": subjects, "checks": sorted(all_check_names())}
+        )
+        rows: list[VerdictRow] = [
+            verdict_row_from_record(subject, check, passed, at)
+            for subject, check, passed, at in cur.fetchall()
+        ]
+        cur.execute(LATEST_LOADS_SQL, {"symbols": symbols, "timeframes": timeframes})
+        latest_load = {(symbol, tf): at for symbol, tf, at in cur.fetchall()}
+    return gate_symbols(
+        rows,
+        symbols=symbols,
+        timeframes=timeframes,
+        now=now or datetime.now(UTC),
+        max_age=timedelta(hours=max_age_hours),
+        latest_load=latest_load,
+    )
+
+
+def _failing_check_counts(failures: dict[str, list[str]]) -> dict[str, int]:
+    """Names failing per `tf:check` (a name counts once per check, whatever the reason)."""
+    counts: dict[str, int] = {}
+    for reasons in failures.values():
+        for reason in reasons:
+            key = reason.split(" ", 1)[0]
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _fetch_promoted(conn: psycopg.Connection, column: str) -> set[str]:
+    """Active symbols currently flagged on `column` (a module-owned literal, never argv)."""
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT symbol FROM instruments WHERE is_active = true AND {column} = true")
+        return {row[0] for row in cur.fetchall()}
+
+
+def _gate_report(
+    conn: psycopg.Connection, symbols: list[str], timeframes: list[str], max_age_hours: float
+) -> dict[str, object]:
+    """What each gate says today, per dimension: pass counts, failures by check, and which
+    already-promoted names would no longer qualify (a finding; nothing is demoted)."""
+    report: dict[str, object] = {"max_age_hours": max_age_hours}
+    for dimension, column, tfs in (
+        ("compute_1d", "compute_eligible_1d", ["1d"]),
+        ("compute", "compute_eligible", [tf for tf in timeframes if tf in REQUIRED_CHECKS]),
+    ):
+        failures = fetch_verdict_failures(conn, symbols, tfs, max_age_hours)
+        promoted = _fetch_promoted(conn, column)
+        report[dimension] = {
+            "timeframes": tfs,
+            "n_pass": len(symbols) - len(failures),
+            "n_fail": len(failures),
+            "failing_by_check": _failing_check_counts(failures),
+            "promoted_that_fail": len(promoted & set(failures)),
+            "promoted_that_fail_symbols": sorted(promoted & set(failures)),
+        }
+    return report
 
 
 def main() -> int:
@@ -226,7 +277,7 @@ def main() -> int:
             for batch in _batched(symbols, _SYMBOL_BATCH_SIZE):
                 row_counts.update(_fetch_row_counts(conn, batch, timeframes))
                 endpoints.update(_fetch_endpoints(conn, batch, timeframes))
-            backfill = _fetch_backfill_status(conn, symbols, timeframes)
+            gates = _gate_report(conn, symbols, timeframes, load_report_max_age_hours(conn))
         except Exception as error:
             _logger.critical("instrument_compute_eligibility_audit.query_failed", error=str(error))
             return 1
@@ -234,40 +285,28 @@ def main() -> int:
         # Per-symbol table -- accumulate rows, print once (never log per-row inside the loop).
         header = (
             f"{'symbol':<8}"
-            + "".join(f"{tf + '_rows':>12}{tf + '_bfc':>8}" for tf in timeframes)
-            + f"{'rows_all':>10}{'bfc_all':>10}{'zero_rows':>10}"
+            + "".join(f"{tf + '_rows':>12}" for tf in timeframes)
+            + f"{'rows_all':>10}{'zero_rows':>10}"
         )
         print(header)
 
-        # Rows and fetch_complete are separate facts; compute-readiness (the promotion
-        # predicate) needs both. Reporting only the rows half let migration 337's header
-        # cite a both-halves measurement this audit never made (174 review IN-01).
-        n_fetch_complete_all_tfs = 0
-        n_compute_ready = 0
         zero_row_symbols: list[str] = []
         missing_tf_symbols: list[str] = []
 
         table_lines: list[str] = []
         for symbol in symbols:
             counts_by_tf = [row_counts.get((symbol, tf), 0) for tf in timeframes]
-            bfc_by_tf = [backfill.get((symbol, tf), False) for tf in timeframes]
             has_rows_all = all(c > 0 for c in counts_by_tf)
-            has_bfc_all = all(bfc_by_tf)
             is_zero = all(c == 0 for c in counts_by_tf)
 
-            n_fetch_complete_all_tfs += has_bfc_all
-            n_compute_ready += has_rows_all and has_bfc_all
             if not has_rows_all:
                 missing_tf_symbols.append(symbol)
             if is_zero:
                 zero_row_symbols.append(symbol)
 
-            cells = "".join(
-                f"{c:>12}{('Y' if bfc else 'N'):>8}" for c, bfc in zip(counts_by_tf, bfc_by_tf)
-            )
+            cells = "".join(f"{c:>12}" for c in counts_by_tf)
             table_lines.append(
-                f"{symbol:<8}{cells}{('Y' if has_rows_all else 'N'):>10}"
-                f"{('Y' if has_bfc_all else 'N'):>10}{('Y' if is_zero else 'N'):>10}"
+                f"{symbol:<8}{cells}{('Y' if has_rows_all else 'N'):>10}{('Y' if is_zero else 'N'):>10}"
             )
         print("\n".join(table_lines))
 
@@ -276,12 +315,11 @@ def main() -> int:
             "n_active": len(symbols),
             "timeframes": timeframes,
             "n_with_rows_all_tfs": len(symbols) - len(missing_tf_symbols),
-            "n_fetch_complete_all_tfs": n_fetch_complete_all_tfs,
-            "n_compute_ready": n_compute_ready,
             "n_missing_any_tf": len(missing_tf_symbols),
             "n_zero_rows": len(zero_row_symbols),
             "missing_tf_symbols": missing_tf_symbols,
             "zero_row_symbols": zero_row_symbols,
+            "verdict_gates": gates,
             "elapsed_seconds": round(elapsed, 2),
         }
         _logger.info("instrument_compute_eligibility_audit.summary", **summary)

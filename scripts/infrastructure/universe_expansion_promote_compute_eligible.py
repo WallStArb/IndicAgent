@@ -13,10 +13,14 @@ literal dict, never from argv text reaching SQL (same structural pattern Plan 06
 `_ACTIVE_CONTRACTS_DIMENSION_CLAUSES`): a caller-supplied string indexes into
 `_DIMENSION_CONFIG`, which is the only place either the column name or the predicate SQL is
 named. Both predicates are imported verbatim from
-`scripts.infrastructure.instrument_compute_eligibility_audit` -- never retyped -- because
-both halves of each predicate (the `backfill_status` bookkeeping count AND the
-`market_data_ohlcv_tradeable` ground-truth count) are counted aggregates, and a hand-written
-`EXISTS (...)` would silently degrade to "at least one timeframe complete."
+`scripts.infrastructure.instrument_compute_eligibility_audit` -- never retyped.
+
+Since plan 185-41 promotion reads computed truth: every required `bar_integrity` verdict D7
+writes must be passed and fresh (`src/intelligence/bars/verdict_gate.py`); the retired
+`fetch_complete` bookkeeping flag is not read. The candidate list comes from the SQL
+predicate; the pure gate then re-judges both candidates and holds and the tool raises if the two
+disagree, so the hold reasons name the failing check and the two renderings cannot drift silently.
+A name D7 has not judged (D7 judges the `compute_1d` universe) holds as "missing".
 """
 
 from __future__ import annotations
@@ -35,7 +39,9 @@ from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa:
 from scripts.infrastructure.instrument_compute_eligibility_audit import (  # noqa: E402
     COMPUTE_READY_1D_PREDICATE_SQL,
     COMPUTE_READY_PREDICATE_SQL,
+    fetch_verdict_failures,
     load_compute_timeframes,
+    load_report_max_age_hours,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
@@ -53,6 +59,8 @@ class _DimensionConfig(NamedTuple):
     # True: bind the predicate's %(timeframes)s to the APR compute stack at run time.
     # False: the predicate has its timeframe baked in and takes no binding.
     binds_compute_timeframes: bool
+    # The timeframes the pure gate judges when the predicate binds none (None: the APR stack).
+    fixed_timeframes: tuple[str, ...] | None = None
 
 
 # Module-owned literal map: --dimension indexes into this dict, never builds SQL text or a
@@ -70,16 +78,24 @@ _DIMENSION_CONFIG: dict[str, _DimensionConfig] = {
         column="compute_eligible_1d",
         predicate_sql=COMPUTE_READY_1D_PREDICATE_SQL,
         binds_compute_timeframes=False,
+        fixed_timeframes=("1d",),
     ),
 }
 
 
-def _fetch_candidates(conn: psycopg.Connection, config: _DimensionConfig) -> list[str]:
+def _gate_timeframes(conn: psycopg.Connection, config: _DimensionConfig) -> list[str]:
+    if config.fixed_timeframes is not None:
+        return list(config.fixed_timeframes)
+    return load_compute_timeframes(conn)
+
+
+def _fetch_candidates(
+    conn: psycopg.Connection, config: _DimensionConfig, max_age_hours: float
+) -> list[str]:
     """is_active=true AND <target_column>=false candidates satisfying the dimension's
-    predicate. Both halves of the gate (backfill_status bookkeeping count AND
-    market_data_ohlcv_tradeable ground truth) already live inside `config.predicate_sql`.
+    predicate: every required verdict passed and fresh (the gate lives in `config.predicate_sql`).
     """
-    params: dict[str, object] = {}
+    params: dict[str, object] = {"max_age_hours": max_age_hours}
     if config.binds_compute_timeframes:
         params["timeframes"] = load_compute_timeframes(conn)
     sql = f"""
@@ -96,17 +112,46 @@ def _fetch_candidates(conn: psycopg.Connection, config: _DimensionConfig) -> lis
 
 
 def _fetch_holds(
-    conn: psycopg.Connection, column: str, candidate_pool_symbols: list[str]
-) -> dict[str, str]:
-    """For every is_active=true, <column>=false symbol NOT in the promoted candidate
-    list, classify why it was held back -- never log per-symbol, but the caller needs a
-    breakdown of hold reasons, not just a count.
+    conn: psycopg.Connection,
+    config: _DimensionConfig,
+    candidate_pool_symbols: list[str],
+    max_age_hours: float,
+) -> dict[str, list[str]]:
+    """For every is_active=true, <column>=false symbol NOT in the promoted candidate list, the
+    verdict reasons it was held back (`tf:check failed|missing|stale ...`).
+
+    The pure gate also re-judges the candidates. Either rendering disagreeing with the other is a
+    defect, not a hold: the tool raises rather than promote or hold on one reading.
     """
     with conn.cursor() as cur:
-        cur.execute(f"SELECT symbol FROM instruments WHERE is_active = true AND {column} = false")
+        cur.execute(
+            f"SELECT symbol FROM instruments WHERE is_active = true AND {config.column} = false"
+        )
         all_ineligible = {row[0] for row in cur.fetchall()}
-    held = all_ineligible - set(candidate_pool_symbols)
-    return dict.fromkeys(sorted(held), "predicate not satisfied (backfill incomplete or no bars)")
+    held = sorted(all_ineligible - set(candidate_pool_symbols))
+    timeframes = _gate_timeframes(conn, config)
+    failures = fetch_verdict_failures(conn, held, timeframes, max_age_hours)
+    passing_but_held = sorted(set(held) - set(failures))
+    failing_but_candidate = sorted(
+        fetch_verdict_failures(conn, sorted(candidate_pool_symbols), timeframes, max_age_hours)
+    )
+    if passing_but_held or failing_but_candidate:
+        raise RuntimeError(
+            "verdict gate disagreement between the SQL predicate and the pure gate: "
+            f"held by SQL but passing the gate {passing_but_held[:10]}; "
+            f"candidate by SQL but failing the gate {failing_but_candidate[:10]}"
+        )
+    return failures
+
+
+def _hold_check_counts(holds: dict[str, list[str]]) -> dict[str, int]:
+    """Held names per `tf:check` (the reason's first token), for the summary line."""
+    counts: dict[str, int] = {}
+    for reasons in holds.values():
+        for reason in reasons:
+            key = reason.split(" ", 1)[0]
+            counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -137,14 +182,16 @@ def main(argv: list[str] | None = None) -> int:
         conn = psycopg.connect(settings.database_url)
         conn.autocommit = True
         try:
-            candidates = _fetch_candidates(conn, config)
-            holds = _fetch_holds(conn, config.column, candidates)
+            max_age_hours = load_report_max_age_hours(conn)
+            candidates = _fetch_candidates(conn, config, max_age_hours)
+            holds = _fetch_holds(conn, config, candidates, max_age_hours)
+            hold_checks = _hold_check_counts(holds)
 
             print(
                 f"Dimension: {args.dimension} (column={config.column})\n"
                 f"n_candidates: {len(candidates)}\n"
                 f"n_held: {len(holds)}\n"
-                f"hold_reasons: {list(dict.fromkeys(holds.values()))}\n"
+                f"held_by_failing_check: {hold_checks}\n"
                 f"held_symbols: {sorted(holds)}"
             )
 
@@ -177,7 +224,7 @@ def main(argv: list[str] | None = None) -> int:
                 n_candidates=len(candidates),
                 n_promoted=n_promoted,
                 n_held=len(holds),
-                hold_reasons=list(dict.fromkeys(holds.values())),
+                held_by_failing_check=hold_checks,
             )
             return 0
         finally:
