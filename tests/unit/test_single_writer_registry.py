@@ -81,9 +81,14 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     "ohlcv_load": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
     "ohlcv_revision": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
     # Scanned here.
-    # Rows are decisions seeded by production/migrations (446) only; no module under services/,
-    # src/ or scripts/ may write it. 185-37 registers its exception CLI here when it lands.
-    "bar_source_policy": (),
+    # Rows are decisions: the migration 446 seed, then the policy CLI only (plan 185-38; 185-37
+    # reuses it for exception rows on evidence).
+    "bar_source_policy": (
+        Writer(
+            "scripts/ops/bars/ops_source_policy.py",
+            reason="the only writer after the seed: admission-sweep exception rows, --add, --close",
+        ),
+    ),
     "ohlcv_observation": (
         Writer(
             "services/ohlcv_observation_writer.py",

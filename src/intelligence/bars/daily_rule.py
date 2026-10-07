@@ -17,9 +17,12 @@ raises) names the primary and fallback source:
   splice of the other vendor;
 - otherwise the fallback (IBKR under the Tradier default), current scale only, source label
   ibkr_fallback:
-  - head, a date before Tradier's first observation: admitted. One fallback_seam flag on the
-    first Tradier bar records the median IBKR/Tradier close ratio over the first
-    basis_window_sessions common sessions;
+  - head, a date before Tradier's first observation: admitted only when the seam (the median
+    IBKR/Tradier close ratio over the first basis_window_sessions common sessions from Tradier's
+    head) is within basis_tolerance_bp of 1, the interior test's tolerance; then one
+    fallback_seam flag on the first Tradier bar records it. Otherwise every head date is listed
+    in refused_head and has no canonical bar: a 2:1 basis at the seam would be a false return
+    (plan 185-38; 185-36 found XLY, XAR, XHS and XSW at about 5,000 bp);
   - interior hole: admitted only when the median IBKR/Tradier close ratio over the
     basis_window_sessions common sessions nearest the hole (by session distance, both sides,
     ties to the earlier session) is within basis_tolerance_bp of 1. Otherwise the date has no
@@ -116,6 +119,8 @@ class DailyV2Result:
     admitted_interior: list[date] = field(default_factory=list)
     # Dates answered only on a stale scale by a vendor the rule may not use stale.
     stale_only: list[date] = field(default_factory=list)
+    # Head dates refused because the seam is outside the basis tolerance (or unmeasurable).
+    refused_head: list[date] = field(default_factory=list)
 
 
 def resolve_policy(rows: Sequence[PolicyRow], symbol: str, bar_date: date) -> PolicyRow:
@@ -190,6 +195,21 @@ def _by_vendor_day(
         }
         for vendor, days in pools.items()
     }
+
+
+def current_closes(
+    observations: Sequence[Observation], splits: Sequence[SplitRecord]
+) -> tuple[dict[date, float], dict[date, float]]:
+    """(Tradier, IBKR SMART) close per date: each vendor's latest current-scale answer.
+
+    LEGACY_IMPORT is left out: it re-imports the stored corpus and is no IBKR measurement.
+    """
+    smart_only = [o for o in observations if o.route != ROUTE_LEGACY]
+    days = _by_vendor_day(smart_only, splits)
+    return tuple(  # type: ignore[return-value]
+        {d: v.current.close for d, v in days[vendor].items() if v.current is not None}
+        for vendor in (VENDOR_TRADIER, VENDOR_IBKR)
+    )
 
 
 def _median_ratio(dates: Sequence[date], ratios: dict[date, float]) -> float | None:
@@ -278,10 +298,18 @@ def derive_daily_v2(
     }
     common_dates = sorted(ratios)
     common_index = [position[d] for d in common_dates]
+    seam_window = (
+        [d for d in common_dates if d >= tradier_head][:basis_window_sessions]
+        if tradier_head is not None
+        else []
+    )
+    seam_median = _median_ratio(seam_window, ratios)
+    head_admitted = seam_median is not None and (abs(seam_median - 1.0) * _BP <= basis_tolerance_bp)
 
     bars: list[CanonicalBar] = []
     flags: list[DerivedFlag] = []
     head: list[date] = []
+    refused_head: list[date] = []
     admitted: list[date] = []
     refused: list[date] = []
     stale_only: list[date] = []
@@ -303,7 +331,13 @@ def derive_daily_v2(
         if fallback.current is None:
             stale_only.append(day)
             continue
-        if tradier_head is None or day < tradier_head:
+        if tradier_head is None:
+            # No Tradier answer at all: nothing to splice against, the fallback is the series.
+            head.append(day)
+        elif day < tradier_head:
+            if not head_admitted:
+                refused_head.append(day)
+                continue
             head.append(day)
         else:
             window = _nearest(position[day], common_index, common_dates, basis_window_sessions)
@@ -333,6 +367,7 @@ def derive_daily_v2(
         head=head,
         admitted_interior=admitted,
         stale_only=stale_only,
+        refused_head=refused_head,
     )
 
 

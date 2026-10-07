@@ -385,6 +385,7 @@ _DAILY_REPORT_COLUMNS = (
     "removed",
     "outside_span",
     "head",
+    "refused_head",
     "admitted_interior",
     "refused_interior",
     "refused_dates",
@@ -592,6 +593,7 @@ class _DailyResult:
     removed: int = 0
     outside_span: int = 0
     head: int = 0
+    refused_head: int = 0
     admitted_interior: int = 0
     refused_dates: tuple[date, ...] = ()
     stale_only: int = 0
@@ -1709,6 +1711,7 @@ class BarDerivation(BaseBatch):
             removed=len(delta.removed),
             outside_span=len(stored) - len(scope),
             head=len(derived.head),
+            refused_head=len(derived.refused_head),
             admitted_interior=len(derived.admitted_interior),
             refused_dates=tuple(derived.refused_interior),
             stale_only=len(derived.stale_only),
@@ -1772,6 +1775,7 @@ class BarDerivation(BaseBatch):
                         "revision_ratio": result.revision_ratio,
                         "waived": result.waived,
                         "head": result.head,
+                        "refused_head": [d.isoformat() for d in derived.refused_head],
                         "admitted_interior": result.admitted_interior,
                         "refused_interior": [d.isoformat() for d in result.refused_dates],
                         "stale_only": [d.isoformat() for d in derived.stale_only],
@@ -1853,6 +1857,7 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
     """Run-level fallback and refusal counts (the batch detail and the dry run's return)."""
     return {
         "head": sum(r.head for r in results),
+        "refused_head": sum(r.refused_head for r in results),
         "admitted_interior": sum(r.admitted_interior for r in results),
         "refused_interior": sum(len(r.refused_dates) for r in results),
         "stale_only": sum(r.stale_only for r in results),
