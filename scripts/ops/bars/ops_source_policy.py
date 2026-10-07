@@ -109,6 +109,9 @@ _OPEN_SYMBOL_ROW_SQL = """
 SELECT policy_id FROM bar_source_policy
 WHERE timeframe = '1d' AND symbol = $1 AND valid_to IS NULL
 """
+_DECIDED_SYMBOLS_SQL = """
+SELECT DISTINCT symbol FROM bar_source_policy WHERE timeframe = '1d' AND symbol IS NOT NULL
+"""
 _INSERT_POLICY_SQL = """
 INSERT INTO bar_source_policy
     (timeframe, symbol, valid_from, valid_to, ingress_mode, primary_source, fallback_source,
@@ -237,6 +240,12 @@ def sweep_symbol(
     )
 
 
+def rows_to_write(rows: Sequence[SweepRow], *, decided: frozenset[str]) -> list[SweepRow]:
+    """Write-action names with no 1d symbol row at all: an open or closed row is a recorded
+    decision (an exception, or one closed and routed to 185-37) the sweep never overrides."""
+    return [r for r in rows if r.action == ACTION_WRITE and r.symbol not in decided]
+
+
 async def insert_row(conn: Any, row: dict[str, Any]) -> bool:
     """Insert one symbol row in its own transaction; False (nothing written) if one is open."""
     async with conn.transaction():
@@ -354,10 +363,13 @@ async def run_sweep(
         print("dry run: no row written (use --apply)")
         return 0
     swept_at = datetime.now(UTC)
+    decided = frozenset(r[0] for r in await conn.fetch(_DECIDED_SYMBOLS_SQL))
+    to_write = rows_to_write(failing, decided=decided)
+    print(
+        f"already decided (any symbol row), skipped: {sum(1 for r in failing if r.action == ACTION_WRITE) - len(to_write)}"
+    )
     written, refused = 0, []
-    for r in failing:
-        if r.action != ACTION_WRITE:
-            continue
+    for r in to_write:
         if r.first_observation is None:
             refused.append(f"{r.symbol} (no observation)")
             continue
