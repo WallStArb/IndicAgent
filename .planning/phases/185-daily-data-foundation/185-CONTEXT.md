@@ -164,3 +164,41 @@ Nothing in phase 185 is canonical; the design changes as measurements arrive.
   closes are right is open.
 - **Plan 185-25** rebuilds `market_data_ohlcv` from its real rows and drops the synthetic fill.
 
+
+## Verification answers, 2026-10-06 (recorded by 185-29)
+
+Each bullet names the record it rests on. The 2026-10-06 verification and gap-planning chat itself is
+not in the record available to the 185-29 executor; the planner relayed those answers into
+`ROADMAP.md` and the plan. A bullet appears here as an owner decision only where a written record
+names the owner. Everything else is in the second list.
+
+Owner decisions (with the record that carries them):
+
+- Success criterion 8 (reopened ideas re-evaluated on canonical bars) is an obligation on the first
+  reopened idea and leaves 185's exit; research attempts stay paused, build first (source: ROADMAP.md
+  gap-closure exit notes, "owner, 2026-10-06"; memory `feedback_alpha_generation_first.md`, owner 2026-09-27).
+- The data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`) is approved
+  and governs all data-layer work, including the single daily rule, lineage as a view and verdict
+  gates (source: memory `project_data_layer_integrity_design.md`, owner "I trust you", 2026-10-06).
+- The IBKR fetcher service and timer stay stopped and disabled until the 189-10 pilot, so the
+  nightly timer is not restarted and 185-35 verifies the 189 timers instead (source: memory
+  `project_phase189_ibkr_fetch_consolidation.md` and `.continue-here.md`, owner decision).
+- D1 is mutable and Tradier is the primary 1d source; both stand (source: "Decisions after
+  2026-10-03 (owner)" above).
+
+Orchestrator calls, 2026-10-06, pending owner review (never owner decisions):
+
+- The deletion of 3,850,642 `LEGACY_IMPORT` D1 observations (931 legacy requests once claimed
+  3,862,849 bars, 12,207 remain) is treated as intended and not restored. The record shows the
+  deletion done by the 2026-10-03 session as a duplicate cleanup (memory
+  `project_tradier_primary_daily_source.md`); no written owner answer was found. Owner to confirm.
+- Todos 495, 497 and 433 are not phase-close blockers; todo 490 is fixed, not excepted. The plan
+  relays these as the owner's venue and gap answers; no written owner wording was found. Owner to confirm.
+- The 31 untraced IBKR 1d bars (INDA 26, OLED 4, RCAT 1) are re-asked; any still unanswered stay
+  quarantined and are counted as D7 fact `untraced_quarantined_1d`, outside `check_d2_landed`
+  (185-30, 185-33). At 185-33's live run the count was 0.
+- Tradier-owned late names (DAL) are outside D-28 condition 3 (185-28, 185-34).
+
+D-04 remains unmet at close: the S0 hand-off (`185-S0-HANDOFF.md`) is applied by the phase 183
+research lane through todo 501. Re-verification must carry an explicit override line for D-04 that
+names todo 501.
