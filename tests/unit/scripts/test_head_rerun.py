@@ -168,3 +168,22 @@ def test_non_primary_venue_still_required() -> None:
     reqs = [_primary_req("SMART", "no_data", "NYSE")]
     reqs += [_primary_req(v, "no_data", "NYSE") for v in _VENUES if v not in ("NYSE", "ARCA")]
     assert classify_head(reqs, date(2015, 1, 2), _VENUES) == "unresolved"
+
+
+def test_smart_bars_from_the_head_answer_the_oldest_window() -> None:
+    """185-28: a full-depth 1d SMART request answers the head with bars from the listing on,
+    so the span before the head is implied by that answer, not a SMART no_data window (the
+    rule reconcile_empty_history confirms empty spans by). With every non-primary venue
+    no_data, the head is verified_empty."""
+    head = date(2014, 3, 20)
+    smart = HeadRequest("SMART", "bars", _WS, _WE, head, _T0, "NASDAQ")
+    reqs = [smart] + [_primary_req(v, "no_data", "NASDAQ") for v in _VENUES if v != "ISLAND"]
+    assert classify_head(reqs, head, _VENUES) == "verified_empty"
+
+
+def test_smart_bars_before_the_stored_head_stay_unresolved() -> None:
+    """SMART served bars before the stored head (e.g. zero-volume prints the tradeable view
+    hides): the head is not shown empty, so the name stays unresolved."""
+    smart = HeadRequest("SMART", "bars", _WS, _WE, date(2006, 10, 12), _T0, "NASDAQ")
+    reqs = [smart] + [_primary_req(v, "no_data", "NASDAQ") for v in _VENUES if v != "ISLAND"]
+    assert classify_head(reqs, date(2007, 5, 11), _VENUES) == "unresolved"
