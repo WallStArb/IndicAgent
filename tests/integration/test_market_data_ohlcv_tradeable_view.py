@@ -20,7 +20,7 @@ async def test_view_excludes_zero_volume_bars_and_includes_real_bars():
                 (timestamp, symbol, timeframe, open, high, low, close, volume, source)
             VALUES
                 ('2024-01-02 09:30:00+00', 'ZZTEST', '5m', 100.0, 100.5, 99.5, 100.2, 500, 'ibkr_named'),
-                ('2024-01-02 09:35:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, 'synthetic_fill'),
+                ('2024-01-02 09:35:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, NULL),
                 ('2024-01-02 09:40:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, 'ibkr_named')
             """)
         rows = await conn.fetch(

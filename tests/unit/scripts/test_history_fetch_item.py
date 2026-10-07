@@ -721,7 +721,8 @@ def test_each_timeframe_plans_through_its_shared_planner(env):
         "4h": "legacy",
     }
     answered = {c.tf: c.answered for c in env.gap_calls if c.planner == "legacy"}
-    assert answered == {"1m": ("answered", "AAA", "1m"), "4h": None}
+    # Plan 185-32: 4h is real bars only, so it reads its answered windows like 1m.
+    assert answered == {"1m": ("answered", "AAA", "1m"), "4h": ("answered", "AAA", "4h")}
 
 
 def test_non_nyse_1d_is_refused_loudly(env):
@@ -780,17 +781,14 @@ def test_1d_captures_to_d1_and_persists_nothing(env):
     assert outcome.n_grid_source_rows == 0
 
 
-def test_placeholder_fill_is_stored_without_coverage(env):
-    """4h alone keeps the placeholder path: real bars persist atomically with coverage, the
-    synthetic fill (not a provider bar) goes through store_bars and never touches coverage."""
+def test_4h_stores_real_bars_only(env):
+    """Plan 185-32 made 4h real bars only (the pipeline's real_bars_only_for): its real bars
+    persist atomically with coverage and no synthetic fill goes through store_bars."""
     env.synthetic = True
     _fetch(_ctx(FakeProvider()), _row("4h"))
     assert len(env.persist) == 1 and len(env.persist[0].rows) == 4
     assert env.persist[0].coverage.destination == "grid"
-    assert len(env.stored) == 1
-    stored = env.stored[0]
-    assert stored.writer is None  # default grid insert, outside the atomic coverage path
-    assert [b["source"] for b in stored.bars] == [SOURCE_SYNTHETIC_FILL]
+    assert env.stored == []
 
 
 def test_returned_bars_missed_by_on_chunk_are_still_persisted_atomically(env):

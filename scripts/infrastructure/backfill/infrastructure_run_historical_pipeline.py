@@ -68,11 +68,7 @@ from src.config.contracts import (
     get_expiry_date,
 )
 from src.config.settings import Settings, get_active_contracts, get_all_futures_contracts
-from src.core.bar_normalizer import (
-    SOURCE_DERIVED_1M,
-    SOURCE_SYNTHETIC_FILL,
-    normalize_bars,
-)
+from src.core.bar_normalizer import SOURCE_DERIVED_1M
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
@@ -105,9 +101,9 @@ _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for this pipeli
 # plan 185-18): no synthetic fill ever reaches market_data_ohlcv from this pipeline at
 # 5m or 1m, and 15m/1h are archive-bound raw observations (plan 12). The interim flag
 # that gated this is retired -- it is the default behavior now. 1d joined in task 1b
-# (its fetch captures into D1 and stores no bar here at all); 4h alone keeps the
-# placeholder path until the futures rework.
-_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h", "1d"})
+# (its fetch captures into D1 and stores no bar here at all); 4h joined in plan 185-32,
+# so no timeframe keeps a placeholder path (migration 444 refuses synthetic_fill).
+_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h", "4h", "1d"})
 # Timeframes whose gap detection comes from the shared record planner
 # (detect_gaps_from_record): expected slots minus stored observations minus recorded
 # coverage, with the provider-verified empty span folded in. 1m stays on the legacy
@@ -1044,8 +1040,9 @@ def real_bars_only_for(tf: str) -> bool:
     outright); plan 185-18 made 5m and 1m real bars only for every asset class
     (todo 462), retiring the interim flag that used to gate it. Task 1b took 1d
     further still: its answers are captured into D1 and nothing is stored here
-    at all (store_bars refuses 1d). 4h alone keeps the placeholder path until
-    the futures rework.
+    at all (store_bars refuses 1d). Plan 185-32 added 4h, the last placeholder
+    path, so every timeframe stores real bars only; migration 444 makes the
+    database refuse a synthetic_fill row.
     """
     return tf in _REAL_BARS_ONLY_TFS
 
@@ -1363,69 +1360,6 @@ def store_bars(
     return len(params)
 
 
-# Normalization pass
-# ---------------------------------------------------------------------------
-
-
-def run_normalize(
-    db_conn: Any,
-    contracts: list[Any],
-    timeframes: list[str],
-) -> None:
-    """One-time pass: fill gaps in existing market_data_ohlcv with synthetic
-    flat bars so the table holds a complete canonical grid.
-
-    Idempotent — existing rows are never overwritten (ON CONFLICT DO NOTHING).
-    """
-    print("\nNormalization pass — filling gaps in market_data_ohlcv")
-    print(f"  Symbols   : {[c.symbol for c in contracts]}")
-    print(f"  Timeframes: {timeframes}")
-
-    total_inserted = 0
-
-    for instrument in contracts:
-        for tf in timeframes:
-            if real_bars_only_for(tf):
-                # Plan 185-18 (todo 462): a synthetic fill at 5m/1m would write
-                # placeholder bars the real-bars rule forbids, and at the
-                # archive-bound 15m/1h it would corrupt the derived grid's
-                # source. The fill only covers placeholder-path timeframes.
-                print(
-                    f"  {instrument.symbol}/{tf}: refuses synthetic fill (real bars only, todo 462)"
-                )
-                continue
-            rows = fetch_bars(db_conn, instrument.symbol, tf)
-            if not rows:
-                print(f"  {instrument.symbol}/{tf}: no existing rows — skipping")
-                continue
-
-            start = min(b["timestamp"] for b in rows)
-            end = max(b["timestamp"] for b in rows)
-
-            canonical = normalize_bars(
-                rows,
-                symbol=instrument.symbol,
-                timeframe=tf,
-                start=start,
-                end=end,
-            )
-
-            new_bars = [b for b in canonical if b["source"] == SOURCE_SYNTHETIC_FILL]
-
-            if not new_bars:
-                print(f"  {instrument.symbol}/{tf}: already canonical ({len(rows)} rows)")
-                continue
-
-            n = store_bars(db_conn, new_bars, instrument.symbol, tf)
-            total_inserted += n
-            print(
-                f"  {instrument.symbol}/{tf}: inserted {n} synthetic fills "
-                f"(was {len(rows)} rows, now {len(rows) + n})"
-            )
-
-    print(f"\nNormalization complete: {total_inserted} synthetic fills inserted")
-
-
 # ---------------------------------------------------------------------------
 # Daily derivation stage (plan 185-18 task 1b)
 # ---------------------------------------------------------------------------
@@ -1545,13 +1479,6 @@ def main() -> None:
         "symbol. Sets is_front_month=True for the current front-month contract. "
         "Idempotent — safe to run multiple times.",
     )
-    parser.add_argument(
-        "--normalize",
-        action="store_true",
-        default=False,
-        help="Fill gaps in existing market_data_ohlcv rows with synthetic flat bars. "
-        "Idempotent — safe to re-run. Combines with --symbols to limit scope.",
-    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -1624,11 +1551,6 @@ def main() -> None:
     print()
 
     db_conn = connect_db(settings)
-
-    if args.normalize:
-        run_normalize(db_conn, contracts, timeframes)
-        db_conn.close()
-        return
 
     # Provider-verified empty history (migration 354): loaded once per run. A fresh range is
     # subtracted from the detected gaps; a stale one is re-verified by fetching it.
@@ -2187,17 +2109,6 @@ def main() -> None:
                                         f"derivation stage)"
                                     )
                                 else:
-                                    canonical = (
-                                        bar_dicts
-                                        if real_bars_only
-                                        else normalize_bars(
-                                            bar_dicts,
-                                            symbol=instrument.symbol,
-                                            timeframe=tf,
-                                            start=gap_start,
-                                            end=gap_end,
-                                        )
-                                    )
                                     try:
                                         db_conn.cursor().execute("SELECT 1")
                                     except Exception:
@@ -2208,7 +2119,7 @@ def main() -> None:
                                         db_conn = connect_db(settings)
                                     n = store_bars(
                                         db_conn,
-                                        canonical,
+                                        bar_dicts,
                                         instrument.symbol,
                                         tf,
                                         write_rows=write_rows,

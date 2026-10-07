@@ -46,18 +46,13 @@ _ALLOW_LIST: dict[str, str] = {
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "PERMANENT + PENDING mix, resolved 2026-07-31 (todo 124): the min(timestamp) gap-"
-        "reorder query migrated to the tradeable view (behaviorally identical either way --\n"
-        "normalize_bars() never fabricates a synthetic fill before a symbol's first real "
-        "bar). The remaining raw-table reads (_detect_gaps, the INSERT/UPSERT writer paths, "
-        "run_normalize's own fetch_bars/store_bars) are PERMANENT and intentional: this "
-        "script both creates AND consumes its own synthetic fills as a self-consistent "
-        "'calendar slot already handled' bookkeeping system -- _detect_gaps deliberately "
-        "treats a prior synthetic fill as 'already there' so a genuinely-closed weekend/"
-        "holiday slot isn't re-requested from IBKR forever. Its own comments (the "
-        "'[rca_analysis 2026-07-05, F1/F2]' block) confirm this is deliberate design, not an "
-        "oversight -- migrating these to the tradeable view would break the idempotent "
-        "re-run behavior the tool depends on."
+        "PERMANENT: the min(timestamp) gap-reorder query reads the tradeable view (todo 124); "
+        "the remaining raw-table reads (_detect_gaps and the INSERT/UPSERT writer paths) treat "
+        "any stored slot, zero-volume provider bars included, as already answered, so a closed "
+        "slot is not re-requested from IBKR forever; the tradeable view's volume > 0 filter "
+        "would break that. The store holds real rows only since plan 185-25, and plan 185-32 "
+        "deleted the --normalize pass and the last placeholder path (migration 444 refuses "
+        "synthetic_fill)."
     ),
     "scripts/infrastructure/backfill/_d1_gaps.py": (
         "PERMANENT (todo 462, plan 185-18): reads stored slot timestamps for gap planning "

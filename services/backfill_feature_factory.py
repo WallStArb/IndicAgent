@@ -234,6 +234,10 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
     return tfs
 
 
+# The only timeframes the --fetch-only stage stores (plan 185-32): raw provider bars. 1d, 15m
+# and 1h belong to D2 and the archive (DERIVATION_OWNED_TIMEFRAMES), 4h to nothing here.
+_FETCH_STAGE_TIMEFRAMES = frozenset({"5m", "1m"})
+
 # Depth years per TF (D-09, phase 137 spec)
 _DEPTH_YEARS: dict[str, int] = {
     "5m": 5,
@@ -813,11 +817,13 @@ async def run_fetch_stage(
 ) -> None:
     """Fetch IBKR OHLCV history for ETFs into market_data_ohlcv.
 
+    Stores the provider's bars as they arrived, 5m and 1m only (plan 185-32): no
+    calendar-grid fill (migration 444 refuses synthetic_fill), and 1d, 15m and 1h
+    belong to D2 and the archive, so they are refused here.
+
     Skips (symbol, tf) pairs that already have fetch_complete=true.
     On success marks fetch_complete=true BEFORE compute can begin (checkpoint).
     """
-    from src.core.bar_normalizer import normalize_bars
-
     contracts = get_active_contracts(settings, dimension="compute")
     etf_contracts = _filter_etf_contracts(contracts, symbols)
     _logger.info("fetch_stage_start", contracts=len(etf_contracts), client_id=client_id)
@@ -826,6 +832,11 @@ async def run_fetch_stage(
     target_timeframes = _restrict_timeframes(
         _get_target_timeframes(cfg), timeframes, refuse_derivation_owned=True
     )
+    refused = [tf for tf in target_timeframes if tf not in _FETCH_STAGE_TIMEFRAMES]
+    if refused:
+        raise ValueError(
+            f"fetch stage stores raw bars at 5m and 1m only (plan 185-32); refused {refused!r}"
+        )
 
     # Load existing status to skip already-fetched pairs
     all_symbols = [c.symbol for c in etf_contracts]
@@ -900,15 +911,7 @@ async def run_fetch_stage(
                             for b in ohlcv_bars
                         ]
 
-                        canonical = normalize_bars(
-                            bar_dicts,
-                            symbol=instrument.symbol,
-                            timeframe=tf,
-                            start=start_dt,
-                            end=end_dt,
-                        )
-
-                        if canonical:
+                        if bar_dicts:
                             params = [
                                 (
                                     b["timestamp"],
@@ -921,7 +924,7 @@ async def run_fetch_stage(
                                     b.get("volume", 0),
                                     b.get("source", "historical_backfill"),
                                 )
-                                for b in canonical
+                                for b in bar_dicts
                             ]
                             with db_conn.cursor() as cur:
                                 cur.executemany(_STORE_OHLCV_SQL, params)

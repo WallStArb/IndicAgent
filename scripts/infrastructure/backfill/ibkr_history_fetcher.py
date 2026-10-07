@@ -198,11 +198,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Populate contract_metadata roll chains (under the lock, no IBKR) and exit.",
     )
     parser.add_argument(
-        "--normalize",
-        action="store_true",
-        help="Fill gaps in stored rows with synthetic flat bars (under the lock, no IBKR).",
-    )
-    parser.add_argument(
         "--budget-minutes",
         type=float,
         default=None,
@@ -664,9 +659,6 @@ class IbkrHistoryFetcher(BaseBatch):
             return
         plan = await self._prepare(pool)
         self._tick_s = plan.config.history_request_timeout_s / _TICKS_PER_TIMEOUT
-        if self.args.normalize:
-            self._normalize(plan)
-            return
         self._load_provider_overlays()
         fetch_run_id = new_fetch_run_id()
         # Exact format the pipeline printed: ops_head_rerun parses it.
@@ -832,14 +824,6 @@ class IbkrHistoryFetcher(BaseBatch):
             await _pipeline.seed_roll_chain(self.settings, db)
         finally:
             await db.close()
-
-    def _normalize(self, plan: RunPlan) -> None:
-        conn = self._connect()
-        try:
-            for timeframes, contracts in plan.candidates.scope_contracts:
-                _pipeline.run_normalize(conn, contracts, list(timeframes))
-        finally:
-            conn.close()
 
     def _load_provider_overlays(self) -> None:
         """The pipeline's APR overlays, in its main()'s order (module globals of ibkr.py and

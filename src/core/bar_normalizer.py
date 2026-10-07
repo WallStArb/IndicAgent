@@ -351,6 +351,12 @@ def normalize_bars(
 ) -> list[dict]:
     """Return bars with synthetic flat fills for every interval slot in [start, end].
 
+    Retired for market_data_ohlcv (plan 185-32): the store holds real rows only and
+    migration 444 refuses a synthetic_fill row. The last production caller is phase
+    189's _history_fetch_item.py, unreachable since 4h joined the pipeline's
+    real-bars-only set; todo 499 drops it and deletes this fill path. CI guard:
+    tests/unit/test_market_data_ohlcv_no_synthetic_fill.py.
+
     Canonical grid: every interval boundary gets a bar — real or synthetic.
     Synthetic bars: OHLC = prev_close, volume = 0, source = "synthetic_fill".
     If no prev_close is available at the start of a gap, that slot is skipped —

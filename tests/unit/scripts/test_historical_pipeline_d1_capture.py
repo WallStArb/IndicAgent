@@ -240,7 +240,6 @@ def driven_main(monkeypatch, capsys):
         FakeSink.instances = []
         FakeProvider.instances = []
         marked: list[tuple[str, str]] = []
-        normalized: list[tuple[str, str]] = []
         stored: list[tuple[str, str, str]] = []  # (symbol, tf, destination)
         atomic_calls: list[dict] = []
         gap_calls: list[tuple[str, str, object]] = []
@@ -349,11 +348,6 @@ def driven_main(monkeypatch, capsys):
         monkeypatch.setattr(mod, "cluster_gap_ranges", lambda gaps, max_gap_days: list(gaps))
         monkeypatch.setattr(
             mod,
-            "normalize_bars",
-            lambda bars, **k: (normalized.append((k["symbol"], k["timeframe"])), list(bars))[1],
-        )
-        monkeypatch.setattr(
-            mod,
             "store_bars",
             lambda conn, bars, symbol, tf, actual_symbol=None, write_rows=None: (
                 stored.append(
@@ -410,7 +404,6 @@ def driven_main(monkeypatch, capsys):
             provider=FakeProvider.instances[0] if FakeProvider.instances else None,
             acquire_seen=_fake_acquire.seen,
             marked=marked,
-            normalized=normalized,
             stored=stored,
             atomic_calls=atomic_calls,
             gap_calls=gap_calls,
@@ -487,8 +480,6 @@ def test_15m_is_archive_bound_and_1d_is_d1_only(driven_main):
     market_data_ohlcv -- its answers go to D1 and the daily derivation stage
     owns the grid rows."""
     result = driven_main(_BASE_ARGS)
-    # No normalize anywhere: 15m is real-bars-only, 1d never reaches the store path.
-    assert result.normalized == []
     # 15m plans from the record wrapper; 1d plans from the D1 wrapper.
     assert sorted(result.record_calls) == [(symbol, "15m") for symbol in ("AAA", "BBB", "CCC")]
     assert sorted(call[0] for call in result.d1_gap_calls) == ["AAA", "BBB", "CCC"]
@@ -548,10 +539,10 @@ def test_store_bars_refuses_1d():
 
 
 def test_real_bars_only_now_covers_1d():
-    """1d joins the real-bars-only set (no synthetic fill at any timeframe the
-    pipeline fetches except 4h); its store path is refused outright."""
+    """1d joins the real-bars-only set; its store path is refused outright. Plan 185-32
+    added 4h, so no timeframe the pipeline fetches keeps a synthetic fill."""
     assert pipeline.real_bars_only_for("1d") is True
-    assert pipeline.real_bars_only_for("4h") is False
+    assert pipeline.real_bars_only_for("4h") is True
 
 
 def test_5m_chunks_persist_atomically_into_the_grid(driven_main):
@@ -572,8 +563,6 @@ def test_5m_chunks_persist_atomically_into_the_grid(driven_main):
     assert len(call["bars"][0]) == 9  # the grid row shape (no base column)
     assert len(call["requests"]) == 1  # the chunk's answer committed with its bars
     assert result.marked == [("AAA", "5m")]
-    # No fill: normalize_bars is never called at 5m.
-    assert result.normalized == []
 
 
 def test_15m_always_asks_through_the_last_slot_end(driven_main):
