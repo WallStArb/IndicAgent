@@ -561,3 +561,197 @@ def test_metrics_are_never_labeled_by_symbol():
         assert "symbol" not in line, line
     # The plan's acceptance grep: no line naming a symbol calls add(.
     assert not [line for line in source.splitlines() if "symbol" in line and "add(" in line.lower()]
+
+
+# ---------------------------------------------------------------------------
+# The 1d verdict report (plan 185-33 Task 2): loaders on a fake connection, never the live DB
+# ---------------------------------------------------------------------------
+
+
+class _FakeConn:
+    """Answers the report's reads by SQL constant and records the writes (todo 494)."""
+
+    def __init__(self, names: dict[str, dict]):
+        self.names = names
+        self.facts: list[tuple] = []
+        self.written_floor = None
+
+    async def fetch(self, sql, *args):
+        if sql == audit._SELECT_POLICY_1D_SQL:
+            return [
+                {
+                    "timeframe": "1d",
+                    "symbol": None,
+                    "valid_from": date(2000, 1, 1),
+                    "valid_to": None,
+                    "ingress_mode": "observed",
+                    "primary_source": "tradier",
+                    "fallback_source": "ibkr",
+                }
+            ]
+        if sql == audit._LINEAGE_MISSING_SQL:
+            return [
+                {"symbol": s, "bar_date": d, "visible": v}
+                for s, n in self.names.items()
+                for d, v in n.get("lineage", [])
+            ]
+        if sql in (audit._EMPTY_SESSIONS_SQL,):
+            return []
+        if sql == audit._LATEST_1D_LOAD_SQL:
+            return []
+        symbol = args[0]
+        data = self.names[symbol]
+        if sql == audit._SELECT_DAILY_OBSERVATIONS_SQL:
+            return data["observations"]
+        if sql == audit._SELECT_STORED_1D_SQL:
+            return data["stored"]
+        if sql == audit._SELECT_CURRENT_1D_DIGESTS_SQL:
+            return data.get("digests", [])
+        return []  # splits, flags
+
+    async def fetchval(self, sql, *args):
+        if sql == audit._FIRST_1D_BAR_SQL:
+            return datetime(2024, 1, 2, tzinfo=UTC)
+        return len(self.facts)  # the read-back count in _write_verdicts
+
+    async def executemany(self, sql, facts):
+        self.facts.extend(facts)
+
+
+def _obs_row(day, close):
+    return {
+        "request_id": f"r-{day}",
+        "route": "TRADIER",
+        "bar_date": day,
+        "open": close,
+        "high": close + 1,
+        "low": close - 1,
+        "close": close,
+        "volume": 1000,
+        "fetched_at": datetime(2024, 1, 20, tzinfo=UTC),
+        "what_to_show": "TRADES",
+        "legacy": False,
+    }
+
+
+def _stored_row(day, close, source="tradier"):
+    return {
+        "timestamp": datetime(day.year, day.month, day.day, tzinfo=UTC),
+        "open": close,
+        "high": close + 1,
+        "low": close - 1,
+        "close": close,
+        "volume": 1000.0,
+        "source": source,
+        "base": None,
+    }
+
+
+_REPORT_DAYS = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+
+
+def _good_name():
+    from src.intelligence.bars.integrity_checks import StoredBar, month_digests
+
+    stored = [_stored_row(d, 100.0 + i) for i, d in enumerate(_REPORT_DAYS)]
+    digests = month_digests(
+        [
+            StoredBar(
+                r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"], r["source"]
+            )
+            for r in stored
+        ],
+        [],
+    )
+    return {
+        "observations": [_obs_row(d, 100.0 + i) for i, d in enumerate(_REPORT_DAYS)],
+        "stored": stored,
+        "digests": [
+            {"range_start": s, "digest": g, "rule_version": "d2-v2"} for s, g in digests.items()
+        ],
+    }
+
+
+class _Window:
+    last_session = date(2024, 1, 4)
+    training_window_end = datetime(2024, 1, 4, tzinfo=UTC)
+
+
+_NOW = datetime(2024, 1, 5, 6, tzinfo=UTC)
+
+
+def _run(names, seam_samples=()):
+    import asyncio
+
+    conn = _FakeConn(names)
+    params = audit._IntegrityParams.from_apr({})
+    run = asyncio.run(
+        audit.BarReconciliationAudit._verdict_report_1d(
+            conn, params, _Window(), sorted(names), list(seam_samples), _NOW
+        )
+    )
+    return conn, run
+
+
+def test_each_name_gets_eight_verdict_rows_and_one_informational_row():
+    conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
+    rows = [f for f in run.facts if f[1] == "AAA|1d"]
+    assert len(rows) == 9
+    assert {f[0] for f in run.facts} == {"bar_integrity"}
+    assert [f[2] for f in rows][:8] == list(audit.CHECKS_1D)
+    assert [f[2] for f in rows][8] == "refused_head_1d"
+    assert all(f[5] for f in run.facts)
+    assert run.failing_by_check == {}
+
+
+def test_a_failing_check_is_recorded_not_raised_and_other_names_still_judged():
+    bad = _good_name()
+    bad["stored"][0] = _stored_row(_REPORT_DAYS[0], 150.0)  # recompute differs and digest stale
+    _, run = _run({"AAA": bad, "BBB": _good_name()}, seam_samples=["AAA|2024-01-03"])
+    assert run.failing_by_check["canonical_recompute"] == 1
+    assert run.failing_by_check["digest_fresh"] == 1
+    assert run.failing_by_check["unexplained_seam"] == 1
+    assert run.passing_by_check["canonical_recompute"] == 1
+
+
+def test_lineage_missing_counts_visible_and_quarantined_untraced_go_to_the_fact():
+    name = _good_name()
+    name["lineage"] = [(_REPORT_DAYS[0], True), (_REPORT_DAYS[1], False)]
+    _, run = _run({"AAA": name})
+    verdict = {f[2]: f for f in run.facts}["lineage_missing"]
+    assert verdict[3] == 1.0 and verdict[5] is False
+    assert run.untraced_hidden.result.n_findings == 1
+    assert run.untraced_hidden.result.samples == ("AAA=1",)
+
+
+def test_write_verdicts_reads_back_and_raises_on_a_short_write():
+    import asyncio
+
+    conn, run = _run({"AAA": _good_name()})
+    asyncio.run(audit.BarReconciliationAudit._write_verdicts(conn, run, _NOW))
+    assert len(conn.facts) == len(run.facts)
+
+    class _Short(_FakeConn):
+        async def fetchval(self, sql, *args):
+            return 0
+
+    with pytest.raises(RuntimeError, match="wrote 0 of"):
+        asyncio.run(audit.BarReconciliationAudit._write_verdicts(_Short({}), run, _NOW))
+
+
+def test_findings_by_symbol_groups_seam_samples():
+    assert audit.findings_by_symbol(["AAA|2024-01-03", "AAA|2024-01-04", "BBB|2024-01-03"]) == {
+        "AAA": 2,
+        "BBB": 1,
+    }
+
+
+def test_ibkr_fallback_is_an_allowed_1d_source():
+    assert check_stray_sources({("1d", "ibkr_fallback"): 4}).n_findings == 0
+    assert check_stray_sources({("1d", "mystery"): 4}).n_findings == 4
+
+
+def test_integrity_keys_are_loaded_by_the_audit():
+    assert "threshold.bar_integrity.%" in audit._APR_PATTERNS
+    params = audit._IntegrityParams.from_apr({"threshold.bar_integrity.report_max_age_hours": 12})
+    assert params.report_max_age_hours == 12 and params.session_coverage_min == 0.999

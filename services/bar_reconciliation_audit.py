@@ -30,6 +30,13 @@ with the venue study):
 - tradier_refused: a Tradier-owned name whose latest daily load was refused (gated,
   short_history, no_data or failed; plan 185-26). Its stored bars stay as they were.
 
+- the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
+  row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
+  compute_1d name: session_coverage, policy_conformance, lineage_missing, canonical_recompute
+  (d2-v2 recomputed equals stored, bit-exact), digest_fresh, unexplained_seam, vendor_basis_run
+  and report_age, plus refused_head_1d as an informational row. The pure judgement is
+  src/intelligence/bars/integrity_checks.judge_name_1d; the gates (185-41) read the rows.
+
 Observability only, the classification-coverage contract: a finding is reported loudly
 (an integrity_monitor fact, an OTel metric labeled by check, and by timeframe or year
 where the plan says so, never by symbol; the per-symbol detail goes to the log at error
@@ -58,13 +65,23 @@ import structlog
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
+from services.bar_derivation import (
+    _D2V2_ROUTES,
+    _SELECT_1D_FLAG_RULES_SQL,
+    _SELECT_CURRENT_1D_DIGESTS_SQL,
+    _SELECT_DAILY_OBSERVATIONS_SQL,
+    _SELECT_DAILY_SPLITS_SQL,
+    _SELECT_POLICY_1D_SQL,
+    _SELECT_STORED_1D_SQL,
+)
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
-from src.core.integrity_monitor import emit_integrity_fact_async
+from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.models import AssetClass
-from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
+from src.intelligence.bars.daily_rule import PolicyRow
+from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE, Observation, SplitRecord
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
@@ -72,8 +89,21 @@ from src.intelligence.bars.gap_plan import (
     AnsweredWindows,
     confirmed_empty_spans,
 )
+from src.intelligence.bars.integrity_checks import (
+    CHECKS_1D,
+    INFO_REFUSED_HEAD,
+    NameInputs1d,
+    StoredBar,
+    judge_name_1d,
+)
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.bars.sources import GRID_SOURCE_TF, GRID_TIMEFRAMES, SOURCE_DERIVED_5M
+from src.intelligence.bars.sources import (
+    CANONICAL_1D_SOURCES,
+    GRID_SOURCE_TF,
+    GRID_TIMEFRAMES,
+    SOURCE_DERIVED_5M,
+    SOURCE_IBKR_FALLBACK,
+)
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -93,7 +123,9 @@ FINDINGS_TOTAL = counter(
 # Sources the derivation (and the Tradier loader, migration 438) may leave in each
 # derivation-owned timeframe. Identifiers, not tunables (schema values).
 ALLOWED_SOURCES: dict[str, frozenset[str]] = {
-    "1d": frozenset({SOURCE_NAMED, SOURCE_VENUE, SOURCE_TRADIER, SOURCE_SYNTHETIC_FILL}),
+    "1d": frozenset(
+        {SOURCE_NAMED, SOURCE_VENUE, SOURCE_TRADIER, SOURCE_IBKR_FALLBACK, SOURCE_SYNTHETIC_FILL}
+    ),
     **{tf: frozenset({SOURCE_DERIVED_5M, SOURCE_SYNTHETIC_FILL}) for tf in GRID_TIMEFRAMES},
 }
 
@@ -903,11 +935,121 @@ SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end 
 """
 
 
+# ---------------------------------------------------------------------------
+# The 1d verdict report (plan 185-33, data layer integrity design section 6): per-name loaders.
+# The per-name reads are bar_derivation's own SQL (imported above), so the audit judges the same
+# inputs the daily stage derives from.
+# ---------------------------------------------------------------------------
+
+_MONITOR_TYPE_VERDICT = "bar_integrity"
+# Informational facts: reported, never failing (the name's history simply starts later).
+_INFORMATIONAL_CHECKS = frozenset({"untraced_quarantined_1d"})
+_VERDICT_GROUP_NAMES = 50
+
+# Visible bars of the canonical lineage view with no request ids, and whether the tradeable view
+# shows them (a hidden one is quarantined, counted in untraced_quarantined_1d instead). One
+# set-based read: 185-38 measured the full view at 42 s, under the plan's 10 minute line.
+_LINEAGE_MISSING_SQL = """
+SELECT l.symbol, (l."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+       (t."timestamp" IS NOT NULL) AS visible
+FROM canonical_bar_lineage l
+LEFT JOIN market_data_ohlcv_tradeable t
+  ON t.symbol = l.symbol AND t.timeframe = '1d' AND t."timestamp" = l."timestamp"
+WHERE l.request_ids IS NULL
+"""
+# Sessions an answer says are empty: IBKR's confirmed empty history, and Tradier no_data
+# windows. A lone IBKR SMART no_data is not evidence (IBKR history starts at the last venue
+# move), so ohlcv_request rows of IBKR do not count here.
+_EMPTY_SESSIONS_SQL = """
+SELECT symbol, (verified_from AT TIME ZONE 'UTC')::date AS span_start,
+       (empty_through AT TIME ZONE 'UTC')::date AS span_end
+FROM ohlcv_empty_history WHERE timeframe = '1d' AND provider = 'ibkr'
+UNION ALL
+SELECT symbol, (window_start AT TIME ZONE 'UTC')::date, (window_end AT TIME ZONE 'UTC')::date
+FROM ohlcv_request
+WHERE source = 'tradier' AND timeframe = '1d' AND outcome = 'no_data' AND window_start IS NOT NULL
+"""
+_LATEST_1D_LOAD_SQL = """
+SELECT symbol, max(loaded_at) AS loaded_at FROM ohlcv_load WHERE timeframe = '1d' GROUP BY symbol
+"""
+_FIRST_1D_BAR_SQL = """
+SELECT min("timestamp") AS first_bar FROM market_data_ohlcv
+WHERE timeframe = '1d' AND source = ANY($1::text[])
+"""
+
+
 class _Judged(NamedTuple):
     """A check's result and how many items it judged (zero means it saw nothing)."""
 
     result: CheckResult
     n_judged: int
+
+
+def findings_by_symbol(samples: Iterable[str]) -> dict[str, int]:
+    """Per-symbol finding counts from 'SYMBOL|detail' samples (the seam rule's output)."""
+    counts: dict[str, int] = defaultdict(int)
+    for sample in samples:
+        counts[sample.split("|", 1)[0]] += 1
+    return dict(counts)
+
+
+def _policy_rows(rows: Iterable[Mapping[str, Any]]) -> list[PolicyRow]:
+    return [
+        PolicyRow(
+            timeframe=r["timeframe"],
+            symbol=r["symbol"],
+            valid_from=r["valid_from"],
+            valid_to=r["valid_to"],
+            ingress_mode=r["ingress_mode"],
+            primary_source=r["primary_source"],
+            fallback_source=r["fallback_source"],
+        )
+        for r in rows
+    ]
+
+
+def _observations(rows: Iterable[Mapping[str, Any]]) -> list[Observation]:
+    return [
+        Observation(
+            request_id=r["request_id"],
+            route=r["route"],
+            bar_date=r["bar_date"],
+            open=r["open"],
+            high=r["high"],
+            low=r["low"],
+            close=r["close"],
+            volume=r["volume"],
+            fetched_at=r["fetched_at"],
+            legacy=r["legacy"],
+            what_to_show=r["what_to_show"],
+        )
+        for r in rows
+    ]
+
+
+def _splits(rows: Iterable[Mapping[str, Any]]) -> list[SplitRecord]:
+    return [
+        SplitRecord(
+            effective_date=r["effective_date"],
+            recorded_at=r["recorded_at"],
+            factor=r["factor"],
+            evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
+        )
+        for r in rows
+    ]
+
+
+class _VerdictRun(NamedTuple):
+    """The 1d report of one audit run: the rows to write and the numbers the log reports."""
+
+    facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]]
+    failing_by_check: dict[str, int]
+    passing_by_check: dict[str, int]
+    timings: dict[str, float]
+    untraced_hidden: _Judged
+    n_names: int
+    n_basis_runs: int
+    blocking_samples: list[str]
 
 
 @dataclass(frozen=True)
@@ -1052,7 +1194,8 @@ class BarReconciliationAudit(BaseBatch):
     async def execute(self, pool: asyncpg.Pool) -> None:
         now = datetime.now(UTC)
         async with pool.acquire() as conn:
-            params = _Params.from_apr(await load_apr_dict_async(conn, _APR_PATTERNS))
+            apr = await load_apr_dict_async(conn, _APR_PATTERNS)
+            params = _Params.from_apr(apr)
             window = _Window.build(now, params)
             compute = await self._universe(conn, dimension_where_clause("compute", "i"))
             compute_1d = await self._universe(conn, dimension_where_clause("compute_1d", "i"))
@@ -1077,8 +1220,16 @@ class BarReconciliationAudit(BaseBatch):
             checks["completeness"] = grid.completeness
             checks["masked_slots"] = grid.masked
             vendor = await self._vendor_agreement(conn, params)
+            integ = _IntegrityParams.from_apr(apr)
+            verdicts = await self._verdict_report_1d(
+                conn, integ, window, compute_1d, checks["unexplained_seams"].result.samples, now
+            )
+            checks["untraced_quarantined_1d"] = verdicts.untraced_hidden
 
         await self._report(pool, window, params, checks, grid, vendor)
+        async with pool.acquire() as conn:
+            await self._write_verdicts(conn, verdicts, now)
+        self._log_verdicts(verdicts)
 
     # -- loaders -------------------------------------------------------------
 
@@ -1417,6 +1568,170 @@ class BarReconciliationAudit(BaseBatch):
             )
         return acc.result()
 
+    # -- the 1d verdict report ----------------------------------------------------
+
+    @staticmethod
+    async def _verdict_report_1d(
+        conn: Any,
+        integ: _IntegrityParams,
+        window: _Window,
+        compute_1d: list[str],
+        seam_samples: Iterable[str],
+        run_start: datetime,
+    ) -> _VerdictRun:
+        """Judge every compute_1d name on the eight 1d checks (design section 6).
+
+        Whole-corpus reads happen once (policy, lineage, answered-empty spans, latest loads);
+        each name's observations, splits, stored rows, flags and digests are read, judged and
+        dropped in turn, never as a corpus frame. A finding never raises.
+        """
+        policy_rows = _policy_rows(await conn.fetch(_SELECT_POLICY_1D_SQL))
+        first_bar = await conn.fetchval(_FIRST_1D_BAR_SQL, list(CANONICAL_1D_SOURCES))
+        sessions = sorted(nyse_sessions(first_bar.date(), window.last_session)) if first_bar else []
+
+        missing: dict[str, list[date]] = defaultdict(list)
+        hidden: dict[str, int] = defaultdict(int)
+        for r in await conn.fetch(_LINEAGE_MISSING_SQL):
+            if r["visible"]:
+                missing[r["symbol"]].append(r["bar_date"])
+            else:
+                hidden[r["symbol"]] += 1
+        spans: dict[str, list[tuple[date, date]]] = defaultdict(list)
+        for r in await conn.fetch(_EMPTY_SESSIONS_SQL):
+            spans[r["symbol"]].append((r["span_start"], r["span_end"]))
+        latest_load = {r["symbol"]: r["loaded_at"] for r in await conn.fetch(_LATEST_1D_LOAD_SQL)}
+        seams = findings_by_symbol(seam_samples)
+
+        facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]] = []
+        failing: dict[str, int] = defaultdict(int)
+        passing: dict[str, int] = defaultdict(int)
+        timings: dict[str, float] = {}
+        n_runs = 0
+        blocking_samples: list[str] = []
+        twe = window.training_window_end
+        for symbol in compute_1d:
+            inputs = await BarReconciliationAudit._name_inputs_1d(
+                conn,
+                symbol,
+                policy_rows=policy_rows,
+                lineage_missing=missing.get(symbol, ()),
+                empty_spans=spans.get(symbol, ()),
+                seam_findings=seams.get(symbol, 0),
+                latest_load_at=latest_load.get(symbol),
+            )
+            report = judge_name_1d(
+                inputs, sessions, window.last_session, run_start, integ, timings=timings
+            )
+            subject = f"{symbol}|1d"
+            for v in report.verdicts:
+                facts.append(
+                    (
+                        _MONITOR_TYPE_VERDICT,
+                        subject,
+                        v.check,
+                        v.metric_value,
+                        v.threshold_value,
+                        v.passed,
+                        twe,
+                    )
+                )
+                (passing if v.passed else failing)[v.check] += 1
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    subject,
+                    INFO_REFUSED_HEAD,
+                    float(report.refused_head),
+                    None,
+                    True,
+                    twe,
+                )
+            )
+            n_runs += len(report.basis_runs)
+            blocking_samples.extend(
+                f"{symbol}|{run.start}..{run.end}|{run.continuous_vendor}"
+                for run in report.blocking_runs
+            )
+        n_hidden = sum(hidden.values())
+        untraced = _Judged(
+            CheckResult(n_hidden, tuple(f"{s}={n}" for s, n in sorted(hidden.items()))),
+            n_hidden,
+        )
+        return _VerdictRun(
+            facts,
+            dict(failing),
+            dict(passing),
+            timings,
+            untraced,
+            len(compute_1d),
+            n_runs,
+            blocking_samples,
+        )
+
+    @staticmethod
+    async def _name_inputs_1d(
+        conn: Any,
+        symbol: str,
+        *,
+        policy_rows: list[PolicyRow],
+        lineage_missing: Iterable[date],
+        empty_spans: Iterable[tuple[date, date]],
+        seam_findings: int,
+        latest_load_at: datetime | None,
+    ) -> NameInputs1d:
+        digests = {
+            r["range_start"]: (r["digest"], r["rule_version"])
+            for r in await conn.fetch(_SELECT_CURRENT_1D_DIGESTS_SQL, symbol)
+        }
+        return NameInputs1d(
+            symbol=symbol,
+            observations=_observations(
+                await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_D2V2_ROUTES))
+            ),
+            policy_rows=policy_rows,
+            splits=_splits(await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)),
+            stored=[
+                StoredBar(
+                    r["timestamp"],
+                    r["open"],
+                    r["high"],
+                    r["low"],
+                    r["close"],
+                    r["volume"],
+                    r["source"],
+                )
+                for r in await conn.fetch(_SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
+            ],
+            flags=[
+                (r["timestamp"], r["rule"], r["quarantine"])
+                for r in await conn.fetch(_SELECT_1D_FLAG_RULES_SQL, symbol)
+            ],
+            current_digests=digests,
+            lineage_missing_dates=list(lineage_missing),
+            empty_spans=list(empty_spans),
+            seam_findings=seam_findings,
+            latest_load_at=latest_load_at,
+        )
+
+    @staticmethod
+    async def _write_verdicts(conn: Any, run: _VerdictRun, run_start: datetime) -> None:
+        """Write the verdict rows in groups of names, then confirm every row landed.
+
+        integrity_monitor's writer swallows an insert failure into a warning, so the count is
+        read back: a short write raises (a silent gap in the report would read as a missing
+        verdict, which the gates treat as failing, but the cause must be loud).
+        """
+        per_group = _VERDICT_GROUP_NAMES * (len(CHECKS_1D) + 1)
+        for i in range(0, len(run.facts), per_group):
+            await emit_integrity_facts_async(conn, run.facts[i : i + per_group])
+        written = await conn.fetchval(
+            "SELECT count(*) FROM integrity_monitor WHERE monitor_type = $1 AND evaluated_at >= $2",
+            _MONITOR_TYPE_VERDICT,
+            run_start,
+        )
+        if written < len(run.facts):
+            raise RuntimeError(f"bar_integrity verdicts: wrote {written} of {len(run.facts)} rows")
+
     # -- reporting -----------------------------------------------------------
 
     async def _report(
@@ -1431,7 +1746,7 @@ class BarReconciliationAudit(BaseBatch):
         for name, judged in checks.items():
             n = judged.result.n_findings
             FINDINGS_TOTAL.add(n, {"check": name})
-            if n:
+            if n and name not in _INFORMATIONAL_CHECKS:
                 logger.error(
                     "bar_reconciliation.findings",
                     check=name,
@@ -1505,7 +1820,7 @@ class BarReconciliationAudit(BaseBatch):
                 f"{name}_findings",
                 float(n),
                 0.0,
-                n == 0,
+                n == 0 or name in _INFORMATIONAL_CHECKS,
                 twe,
                 idempotency_check=True,
             )
@@ -1565,6 +1880,31 @@ class BarReconciliationAudit(BaseBatch):
                     True,
                     twe,
                 )
+
+    @staticmethod
+    def _log_verdicts(run: _VerdictRun) -> None:
+        """The report's per-check pass and fail name counts, its timings and the blocking runs."""
+        for check in CHECKS_1D:
+            FINDINGS_TOTAL.add(
+                run.failing_by_check.get(check, 0), {"check": f"bar_integrity_{check}"}
+            )
+        logger.info(
+            "bar_integrity.report_1d",
+            n_names=run.n_names,
+            failing_by_check=run.failing_by_check,
+            passing_by_check=run.passing_by_check,
+            seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
+            n_basis_runs=run.n_basis_runs,
+        )
+        if run.blocking_samples:
+            logger.error("bar_integrity.blocking_basis_runs", runs=run.blocking_samples)
+        print("\n# 1d verdict report (bar_integrity)\n")
+        print(f"{'check':<22} {'pass':>7} {'fail':>7} {'seconds':>9}")
+        for check in CHECKS_1D:
+            print(
+                f"{check:<22} {run.passing_by_check.get(check, 0):>7} "
+                f"{run.failing_by_check.get(check, 0):>7} {run.timings.get(check, 0.0):>9.1f}"
+            )
 
     @staticmethod
     def _print_report(
