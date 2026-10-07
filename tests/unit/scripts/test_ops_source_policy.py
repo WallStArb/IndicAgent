@@ -73,6 +73,13 @@ def test_incumbent_failing_only_in_the_past_is_routed_to_185_37_without_a_row():
         policy.exception_row(row, _PARAMS, _T)
 
 
+def test_incumbent_with_too_few_common_sessions_keeps_tradier_without_a_row():
+    # APMD-like: 43 agreeing sessions; ZWS-like: no IBKR SMART answer at all.
+    assert _sweep(_series(43, 1.0, 1.0, n_recent=43), incumbent=True).action == policy.ACTION_KEEP
+    no_ibkr = [_obs("TRADIER", date(2020, 1, d), 10.0) for d in range(1, 20)]
+    assert _sweep(no_ibkr, incumbent=True).action == policy.ACTION_KEEP
+
+
 def test_incumbent_failing_now_gets_a_row():
     row = _sweep(_series(300, 1.0, 0.53), incumbent=True)  # W-like: a different series now
     # Whole-history agreement 240/300 = 0.8 fails, and the recent window fails too.

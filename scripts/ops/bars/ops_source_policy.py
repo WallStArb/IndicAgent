@@ -9,12 +9,16 @@ and decide:
   common sessions, tradier_admission_min_agree_share of them within fallback_basis_tolerance_bp).
   No row; the 1d default (Tradier primary) applies.
 - write: Tradier fails and is not the name's canonical series today (no stored tradier 1d row),
-  or it is and also fails on the most recent min_overlap common sessions (Tradier disagrees with
-  IBKR now). One 1d symbol row: primary ibkr, no fallback, valid_from the name's first
+  or it is and a full recent window of min_overlap common sessions fails too (Tradier
+  disagrees with IBKR now). One 1d symbol row: primary ibkr, no fallback, valid_from the name's first
   observation date, open-ended.
 - route_185_37: Tradier is canonical today and fails only over the whole history (a past basis
   run, RJF-like). No row: flipping it would replace a continuous series with IBKR's step. 185-37's
   basis study decides.
+- keep_no_overlap: Tradier is canonical today and fewer than min_overlap common sessions exist
+  (most of these names have no IBKR SMART 1d answer in D1 at all). No evidence either way, so
+  no row: an IBKR-primary row would point the name at a vendor that never answered for it. The
+  weekly IBKR 1d reconcile (189-10) supplies the evidence; the sweep then decides again.
 Dry run by default (prints every failing name; --report writes one TSV row per name); --apply
 writes the write-action rows, refusing any that would overlap an open symbol row (exit 2).
 
@@ -66,6 +70,7 @@ from src.intelligence.bars.source_admission import (  # noqa: E402
 ACTION_ADMIT = "admit"
 ACTION_WRITE = "write"
 ACTION_ROUTE = "route_185_37"
+ACTION_KEEP = "keep_no_overlap"
 _PLAN = "185-38"
 _ROUTES = ("TRADIER", "SMART")
 _KEY_OVERLAP = "threshold.bar_integrity.tradier_admission_min_overlap_sessions"
@@ -155,13 +160,15 @@ class SweepRow:
         }
 
 
-def sweep_action(admission: Admission, *, incumbent: bool) -> str:
+def sweep_action(admission: Admission, *, incumbent: bool, min_overlap: int) -> str:
     """admit, write or route_185_37 (module docstring)."""
     if admission.admitted:
         return ACTION_ADMIT
-    if incumbent and admission.admitted_recent:
-        return ACTION_ROUTE
-    return ACTION_WRITE
+    if not incumbent or admission.recent_disagrees:
+        return ACTION_WRITE
+    if admission.n_common < min_overlap:
+        return ACTION_KEEP
+    return ACTION_ROUTE
 
 
 def exception_row(row: SweepRow, params: SweepParams, swept_at: datetime) -> dict[str, Any]:
@@ -226,7 +233,7 @@ def sweep_symbol(
         incumbent=incumbent,
         first_observation=first_observation,
         admission=admission,
-        action=sweep_action(admission, incumbent=incumbent),
+        action=sweep_action(admission, incumbent=incumbent, min_overlap=params.min_overlap),
     )
 
 
@@ -338,7 +345,10 @@ async def run_sweep(
                 )
             )
         )
-    by_action = {a: sum(1 for r in failing if r.action == a) for a in (ACTION_WRITE, ACTION_ROUTE)}
+    by_action = {
+        a: sum(1 for r in failing if r.action == a)
+        for a in (ACTION_WRITE, ACTION_ROUTE, ACTION_KEEP)
+    }
     print(f"actions {by_action}")
     if not apply:
         print("dry run: no row written (use --apply)")

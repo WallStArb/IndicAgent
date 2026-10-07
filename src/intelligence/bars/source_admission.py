@@ -36,6 +36,9 @@ class Admission:
     median_ratio: float | None
     recent_agree_share: float | None
     recent_window: tuple[date, date] | None
+    # Evidence that Tradier disagrees with IBKR now: a full recent window below the share.
+    # Too few common sessions is no evidence either way (admitted_recent is then also False).
+    recent_disagrees: bool = False
 
 
 def common_session_closes(
@@ -79,4 +82,5 @@ def tradier_admission(
         median_ratio=statistics.median(i / t for _d, t, i in ordered) if ordered else None,
         recent_agree_share=recent_share,
         recent_window=(recent[0][0], recent[-1][0]) if recent else None,
+        recent_disagrees=enough and recent_share is not None and recent_share < min_agree_share,
     )

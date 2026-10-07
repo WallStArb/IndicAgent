@@ -65,13 +65,18 @@ def test_whole_history_failure_with_recent_agreement_is_admitted_recent():
     old = _pairs(200, ratio=1.5)  # RJF-like basis run in the past
     recent = _pairs(100, start=date(2021, 1, 1))
     result = _admit(list(reversed(old + recent)))  # order must not matter
-    assert not result.admitted and result.admitted_recent
+    assert not result.admitted and result.admitted_recent and not result.recent_disagrees
     assert result.recent_window == (recent[-_MIN_OVERLAP][0], recent[-1][0])
 
 
 def test_recent_disagreement_fails_both():
     result = _admit(_pairs(200) + _pairs(100, ratio=0.6, start=date(2021, 1, 1)))
-    assert not result.admitted and not result.admitted_recent
+    assert not result.admitted and not result.admitted_recent and result.recent_disagrees
+
+
+def test_too_few_sessions_is_no_evidence_of_recent_disagreement():
+    result = _admit(_pairs(10, ratio=6.7))
+    assert not result.admitted_recent and not result.recent_disagrees
 
 
 def _obs(route, day, close, fetched_at, request_id, legacy=False):
