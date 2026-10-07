@@ -14,7 +14,9 @@ Conditions (plan 185-16; 1, 3 and 4 made source-aware by 185-34):
                              the judged IBKR value, and the last 1d scrub fact
                              postdates every revision of the key, so the scrub judged
                              the new bar). Anything else is open; the evidence line
-                             counts quarantined, replaced and open per key set
+                             counts quarantined, replaced and open per key set, and
+                             the replaced bars the tradeable view still hides by a
+                             stale pre-381 price_sanity_status
   2 seam_audit_complete      bar_seam_audit 'seam_audit_complete' fact, and every
                              seam_audit corporate action carries split_seam
                              quarantine flags before its effective date unless a
@@ -119,23 +121,27 @@ LIMIT 1
 """
 
 # One row per known-answer key: any quarantine flag (EXISTS, so a bar with several rules is
-# one key), the stored source as research sees it (the tradeable view; a hidden bar reads
-# NULL and stays open), whether an ohlcv_revision row holds an IBKR value for the key, and the
-# latest load that revised it (compared with the scrub fact in known_answer_status).
+# one key), the stored row's source (raw table: the tradeable view also hides a bar by the
+# pre-381 price_sanity_status, which the Tradier load left on 12 replaced legacy bars, so the
+# view would misread a replaced key as missing), whether an ohlcv_revision row holds an IBKR
+# value for the key, the latest load that revised it (compared with the scrub fact in
+# known_answer_status), and whether the stored row still carries that stale status.
 _KNOWN_ANSWER_SQL = """
 SELECT k.symbol, k.ts,
   EXISTS (SELECT 1 FROM bar_quality_flag b
            WHERE b.symbol = k.symbol AND b.timeframe = '1d'
              AND b."timestamp" = k.ts AND b.quarantine) AS quarantined,
-  (SELECT m.source FROM market_data_ohlcv_tradeable m
-    WHERE m.symbol = k.symbol AND m.timeframe = '1d' AND m."timestamp" = k.ts) AS stored_source,
+  m.source AS stored_source,
   EXISTS (SELECT 1 FROM ohlcv_revision r
            WHERE r.symbol = k.symbol AND r.timeframe = '1d'
              AND r."timestamp" = k.ts AND r.old_source = ANY(%s)) AS has_ibkr_revision,
   (SELECT MAX(l.loaded_at) FROM ohlcv_revision r JOIN ohlcv_load l USING (load_id)
     WHERE r.symbol = k.symbol AND r.timeframe = '1d'
-      AND r."timestamp" = k.ts) AS last_revision_at
+      AND r."timestamp" = k.ts) AS last_revision_at,
+  COALESCE(m.price_sanity_status = 'confirmed_corrupt', false) AS stale_status
 FROM unnest(%s::text[], %s::timestamptz[]) AS k(symbol, ts)
+LEFT JOIN market_data_ohlcv m
+  ON m.symbol = k.symbol AND m.timeframe = '1d' AND m."timestamp" = k.ts
 """
 
 _TRADIER_OWNED_LATE_SQL = f"""
@@ -243,8 +249,13 @@ def scrub_condition(
     legacy_total: int,
     legacy_quarantined: int,
     legacy_replaced: int,
+    replaced_hidden: int = 0,
 ) -> CheckResult:
-    """Condition 1: the 1d scrub pass ran and every known answer is quarantined or replaced."""
+    """Condition 1: the 1d scrub pass ran and every known answer is quarantined or replaced.
+
+    replaced_hidden counts replaced bars the tradeable view still hides by a stale
+    price_sanity_status: no defect is visible, so it does not fail the condition, but a
+    clean bar research cannot see is reported, never silent."""
     fixture_open = fixture_total - fixture_quarantined - fixture_replaced
     legacy_open = legacy_total - legacy_quarantined - legacy_replaced
     ok = (
@@ -261,7 +272,8 @@ def scrub_condition(
             f"fact={fact_passed}; dry-run keys {fixture_total}: quarantined "
             f"{fixture_quarantined}, replaced {fixture_replaced}, open {fixture_open}; "
             f"legacy 1d keys {legacy_total} (expect {_EXPECTED_LEGACY_KEYS}): quarantined "
-            f"{legacy_quarantined}, replaced {legacy_replaced}, open {legacy_open}"
+            f"{legacy_quarantined}, replaced {legacy_replaced}, open {legacy_open}; "
+            f"replaced bars hidden by a stale price_sanity_status {replaced_hidden}"
         ),
     )
 
@@ -438,21 +450,25 @@ def _rows(conn: Any, sql: str, params: tuple = ()) -> list[tuple]:
 def _known_answer_counts(
     conn: Any, keys: Sequence[tuple[str, str]], scrub_at: datetime | None
 ) -> Counter[str]:
+    """Status counts of one key set, plus `replaced_hidden` (replaced, stale status)."""
     rows = _rows(
         conn,
         _KNOWN_ANSWER_SQL,
         (list(IBKR_1D_SOURCES), [symbol for symbol, _ in keys], [ts for _, ts in keys]),
     )
-    return Counter(
-        known_answer_status(
+    counts: Counter[str] = Counter()
+    for _, _, quarantined, source, has_revision, revised_at, stale_status in rows:
+        status = known_answer_status(
             quarantined=bool(quarantined),
-            stored_source=stored_source,
+            stored_source=source,
             has_ibkr_revision=bool(has_revision),
-            last_revision_at=last_revision_at,
+            last_revision_at=revised_at,
             scrub_at=scrub_at,
         )
-        for _, _, quarantined, stored_source, has_revision, last_revision_at in rows
-    )
+        counts[status] += 1
+        if status == "replaced" and stale_status:
+            counts["replaced_hidden"] += 1
+    return counts
 
 
 def run_checks(conn: Any) -> list[CheckResult]:
@@ -502,6 +518,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
             legacy_total=len(LEGACY_1D_KEYS),
             legacy_quarantined=legacy["quarantined"],
             legacy_replaced=legacy["replaced"],
+            replaced_hidden=fixture["replaced_hidden"] + legacy["replaced_hidden"],
         ),
         seam_condition(
             fact_passed=bool(seam_fact and seam_fact[0]),

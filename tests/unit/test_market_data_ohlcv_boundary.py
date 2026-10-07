@@ -79,6 +79,12 @@ _ALLOW_LIST: dict[str, str] = {
         "to its stored bar's source; lineage and digests cover those rows, so the tradeable "
         "view would hide exactly the bars being traced."
     ),
+    "scripts/ops/bars/ops_data_bar_check.py": (
+        "PERMANENT (plan 185-34): the D-28 gate judges each known-answer key by its stored row "
+        "(source and the pre-381 price_sanity_status), keyed by the 87 fixed keys only; the "
+        "tradeable view also hides a bar by that stale status, which would misread a bar "
+        "Tradier replaced as missing. Every other gate read uses the tradeable view."
+    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "PERMANENT (todo 462, plan 185-12): counts the synthetic_fill rows of a coarse timeframe "
         "and compares them with the tradeable 5m volume over the same slots; the synthetic rows "
