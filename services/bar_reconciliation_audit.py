@@ -708,6 +708,7 @@ _APR_PATTERNS = [
     "threshold.bar_reconciliation.%",
     "infra.bar_derivation.%",
     "infra.ibkr.venue_fallback.%",
+    "threshold.bar_integrity.%",
 ]
 
 _SMART_OBS_SQL = """
@@ -954,6 +955,35 @@ class _Params:
                 name: bool(_cfg(apr, f"infra.bar_derivation.{name}", False))
                 for name in ("venue_bars_1d", "venue_bars_intraday", "intraday_recovery_unlocked")
             },
+        )
+
+
+@dataclass(frozen=True)
+class _IntegrityParams:
+    """Thresholds of the 1d verdict report (migration 449; basis keys are 185-36's)."""
+
+    session_coverage_min: float
+    vendor_run_min_sessions: int
+    report_max_age_hours: int
+    basis_window_sessions: int
+    basis_tolerance_bp: float
+
+    @classmethod
+    def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
+        return cls(
+            session_coverage_min=float(
+                _cfg(apr, "threshold.bar_integrity.session_coverage_min_1d", 0.999)
+            ),
+            vendor_run_min_sessions=int(
+                _cfg(apr, "threshold.bar_integrity.vendor_ratio_run_min_sessions", 5)
+            ),
+            report_max_age_hours=int(_cfg(apr, "threshold.bar_integrity.report_max_age_hours", 30)),
+            basis_window_sessions=int(
+                _cfg(apr, "threshold.bar_integrity.fallback_basis_window_sessions", 20)
+            ),
+            basis_tolerance_bp=float(
+                _cfg(apr, "threshold.bar_integrity.fallback_basis_tolerance_bp", 10.0)
+            ),
         )
 
 
