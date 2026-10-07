@@ -70,7 +70,8 @@ def test_two_for_one_split_found_ending_day_before_scale_change() -> None:
     assert seam.end == days[179]
     assert seam.factor == pytest.approx(2.0)
     assert seam.n_days == 180
-    assert seam.max_rel_dev <= _REL_TOL
+    ratios = stored[:180] / fresh[:180]
+    assert np.max(np.abs(ratios / seam.factor - 1.0)) <= _REL_TOL
 
 
 def test_one_for_eight_reverse_split_found() -> None:

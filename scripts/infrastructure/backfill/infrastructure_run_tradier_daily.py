@@ -178,7 +178,6 @@ def _refetch_split(
         end=prefix[-1][0].timestamp.date(),
         factor=factor,
         n_days=len(prefix),
-        max_rel_dev=float(max(abs(r / factor - 1.0) for r in ratios)),
     )
     return infer_split(seam, ratio_snap_tol=params.ratio_snap_tol)
 

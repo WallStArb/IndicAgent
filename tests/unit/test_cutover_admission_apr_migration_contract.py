@@ -2,7 +2,7 @@
 
 Tradier is a name's primary 1d source only on evidence (scripts/ops/bars/ops_source_policy.py
 --admission-sweep reads the two admission keys); the first apply runs only after
-scripts/ops/bars/ops_cutover_review.py passes the dry-run TSV against the two cutover keys.
+the one-off cutover review (deleted in 185-42) passed the dry-run TSV against the two cutover keys.
 Reads the .sql text only (no DB), SQL line comments stripped.
 """
 
@@ -48,5 +48,4 @@ def test_seed_is_idempotent_and_history_written_once():
 def test_header_names_the_readers():
     header = _RAW.split("BEGIN;")[0]
     assert "ops_source_policy.py" in header
-    assert "ops_cutover_review.py" in header
     assert "185-38" in header

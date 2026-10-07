@@ -32,7 +32,6 @@ def _seam(factor: float, n_days: int = 120) -> Seam:
         end=date(2025, 6, 27),
         factor=factor,
         n_days=n_days,
-        max_rel_dev=0.002,
     )
 
 

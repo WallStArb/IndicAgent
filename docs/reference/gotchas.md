@@ -61,7 +61,7 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 
 ## Historical Backfill
 
-ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364` or `scripts/infrastructure/backfill/infrastructure_fetch_htf_bars.py` which chunks automatically.
+ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364`.
 - **`backfill_status` column is `tf`, not `timeframe`** (differs from both `market_data_ohlcv` and `intelligence_features`), and its intraday rows cover only the old-universe subset until todo 449 closes — the 698 new names accrue row-by-row as they complete.
 - **Backfill log lines "stored N bars" count calendar-grid cells, not real bars** (20y of 15m ≈ 700,555 = time slots); placeholders are flat carry-forward close with volume 0. Audit a symbol with its volume>0 count vs sessions × 26 (15m RTH) — healthy is ~99.6%.
 

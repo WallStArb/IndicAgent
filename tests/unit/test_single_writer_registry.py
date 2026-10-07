@@ -95,13 +95,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             "services/ohlcv_observation_writer.py",
             reason="the D1 writer (ObservationSink / AsyncObservationSink, phase 185 D1)",
         ),
-        Writer(
-            "scripts/ops/bars/ops_d1_dedupe.py",
-            reason=(
-                "TEMPORARY: one-off dedupe of repeated identical Tradier observations, deletes "
-                "with no disjoint segment; deleted with the one-off scripts (retire: 185-42)"
-            ),
-        ),
     ),
     "ohlcv_request": (
         Writer(
@@ -125,8 +118,8 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         Writer(
             "services/bar_scrub.py",
             _segment("rule", *_SCRUB_RULES, "split_seam"),
-            "the scrub's flag writer (write_flags); ops_seam_audit.py writes split_seam "
-            "through it, never directly",
+            "the scrub's flag writer (write_flags); split_seam rows came through it from the "
+            "plan 15 seam audit (deleted in 185-42)",
         ),
         Writer(
             "services/bar_derivation.py",
@@ -152,11 +145,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             "scripts/ops/bars/ops_split_detect.py",
             _segment("inferred_by", "nightly_overlap"),
             "the overlap split detector (migration 406)",
-        ),
-        Writer(
-            "scripts/ops/bars/ops_seam_audit.py",
-            _segment("inferred_by", "seam_audit"),
-            "the split-seam audit (phase 185 plan 15)",
         ),
     ),
     "integrity_monitor": (
@@ -185,12 +173,7 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     "market_data_gaps": (
         Writer("services/bar_auditor.py", reason="the gap auditor (dormant streaming path)"),
     ),
-    "market_data_ohlcv_new": (
-        Writer(
-            "scripts/ops/bars/ops_real_rows_swap.py",
-            reason="the swap target of migration 439, filled only by the swap script",
-        ),
-    ),
+    "market_data_ohlcv_new": (),  # migration 439's swap target, renamed in by 185-25; nothing writes it
     "market_data_ohlcv_old": (),  # renamed aside by migration 045, not live; nothing writes it
     "dividend_events": (
         Writer("services/dividend_event_writer.py", reason="Yahoo dividends (todo 428)"),

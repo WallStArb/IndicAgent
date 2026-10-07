@@ -117,11 +117,6 @@ _ALLOW_LIST: dict[str, str] = {
         "Signal Ledger Architecture code, same bucket as "
         "signal_probe_auditor.py/signal_replay_auditor.py already on this allow-list."
     ),
-    "scripts/infrastructure/backfill/infrastructure_truncate_derived_tables.sh": (
-        "PERMANENT: Re-seeds backfill_status bookkeeping from the full calendar grid after a "
-        "truncate -- intentionally wants the complete grid (including placeholder bars) to "
-        "correctly mark what calendar coverage has been backfilled, not just tradeable bars."
-    ),
     "scripts/ops/bars/ops_export_known_answer_fixtures.py": (
         "PERMANENT: exports price_sanity_status rows, including confirmed_corrupt ones the "
         "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"
@@ -133,12 +128,6 @@ _ALLOW_LIST: dict[str, str] = {
         "operate on exactly the stored segment being replaced, placeholders included -- "
         "the tradeable view's WHERE volume > 0 filter would hide the placeholder rows "
         "the DELETE must remove and skew the checksums."
-    ),
-    "scripts/ops/bars/ops_real_rows_swap.py": (
-        "PERMANENT until the swap lands (todo 462 step 6, plan 185-25): the real-rows swap "
-        "compares the raw table's real rows (source IS DISTINCT FROM 'synthetic_fill', "
-        "zero-volume provider bars included) with the new table's per (symbol, timeframe); the "
-        "tradeable view would hide zero-volume real rows and let a lost one pass the digest."
     ),
     "services/intraday_raw_archive.py": (
         "PERMANENT: the archive's single owner module (plan 12). Its "

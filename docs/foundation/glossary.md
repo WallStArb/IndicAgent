@@ -2077,7 +2077,7 @@ correction is a new row that supersedes the old one, read through `corporate_act
 Dividends are not corporate actions here; they live in `dividend_events`. **Not:** a dividend, a
 symbol change or a listing-venue move. **Banned:** (none)
 **Status:** active (migration 400; `tradier_refetch` admitted by 440)
-**Code surface:** `scripts/ops/bars/ops_seam_audit.py`, `scripts/ops/bars/ops_split_detect.py`
+**Code surface:** `scripts/ops/bars/ops_split_detect.py` (the plan 15 seam audit script was deleted in 185-42; its `seam_audit` rows stay)
 
 ### `listing venue`
 

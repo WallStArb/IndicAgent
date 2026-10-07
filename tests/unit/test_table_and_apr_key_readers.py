@@ -157,6 +157,48 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "the Tradier loader's refusal reads threshold.bar_integrity.max_revision_ratio on the "
         "raw record since plan 185-38; migration 452 retires the key (retire: 185-43)"
     ),
+    "infra.real_rows_swap.copy_statement_timeout_s": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "infra.real_rows_swap.disk_margin": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "infra.real_rows_swap.lock_timeout_s": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "infra.real_rows_swap.masked_audit_max_age_hours": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "infra.real_rows_swap.statement_timeout_s": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "infra.real_rows_swap.stats_flush_wait_s": (
+        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "market_data_ohlcv_new": (
+        "migration 439's swap target, renamed into market_data_ohlcv by the 185-25 swap script "
+        "(deleted in plan 185-42); absent from the live DB, still created in the migration "
+        "catalog. 185-43's migration drops it IF EXISTS (retire: 185-43)"
+    ),
+    "market_data_ohlcv_old": (
+        "renamed aside by migration 045; its last reader was the 185-25 swap script (deleted in "
+        "plan 185-42); absent from the live DB, still created in the migration catalog. "
+        "185-43's migration drops it IF EXISTS (retire: 185-43)"
+    ),
+    "threshold.bar_integrity.cutover_max_removed_share": (
+        "read only by ops_cutover_review.py, the 185-38 one-off gate deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
+    "threshold.bar_integrity.cutover_max_refused_share": (
+        "read only by ops_cutover_review.py, the 185-38 one-off gate deleted in plan 185-42 "
+        "(retire: 185-43)"
+    ),
 }
 
 

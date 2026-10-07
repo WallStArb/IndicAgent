@@ -38,15 +38,13 @@ class Seam:
     """One maximal constant-ratio run.
 
     start/end bound the run in calendar days, factor is its median stored/fresh
-    ratio, n_days its length and max_rel_dev the largest relative deviation of
-    any day's ratio from the reported factor.
+    ratio and n_days its length.
     """
 
     start: date
     end: date
     factor: float
     n_days: int
-    max_rel_dev: float
 
 
 def find_seams(
@@ -94,7 +92,6 @@ def find_seams(
                 end=day_list[end_exclusive - 1],
                 factor=factor,
                 n_days=end_exclusive - start,
-                max_rel_dev=float(np.max(np.abs(segment / factor - 1.0))),
             )
         )
 

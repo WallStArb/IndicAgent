@@ -44,10 +44,6 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Reads and comparisons: D7 counts rows by source and excludes synthetic rows from its "
         "real-row comparisons; nothing is written with the source."
     ),
-    "scripts/ops/bars/ops_real_rows_swap.py": (
-        "Reads: the 185-25 swap that removed every synthetic row; it copies rows whose source "
-        "IS DISTINCT FROM synthetic_fill and counts the rest."
-    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "Reads: counts synthetic slots for the masked-slot baseline; read-only."
     ),
