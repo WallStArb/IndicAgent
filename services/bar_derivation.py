@@ -522,12 +522,16 @@ EXISTS (
 """
 
 # The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy
-# row (the symbol's or the default) recorded after the symbol's latest applied daily load.
+# row (the symbol's or the default) recorded after the symbol's latest applied daily load, or a
+# snapshot restore (plan 185-38) after it: the restore is a recorded operator rollback, and the
+# re-derivation that follows re-applies the reviewed state. Only the daily stage's own loads
+# are the baseline.
 _SELECT_REVISION_WAIVER_SQL = """
 /* revision_waiver */
 WITH last_load AS (
     SELECT max(loaded_at) AS at FROM ohlcv_load
     WHERE symbol = $1 AND timeframe = '1d' AND source = 'derived' AND outcome = 'applied'
+      AND caller = 'bar_derivation-daily'
 )
 SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
@@ -535,6 +539,10 @@ SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM bar_source_policy p, last_load l
                WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
                  AND p.recorded_at > l.at)
+    OR EXISTS (SELECT 1 FROM ohlcv_load r, last_load l
+               WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.source = 'derived'
+                 AND r.outcome = 'applied' AND r.caller = 'bar_derivation-restore'
+                 AND r.loaded_at > l.at)
 """
 
 # 185-38 drops the table for a view of the same name; until then apply refuses ('r' = table).
