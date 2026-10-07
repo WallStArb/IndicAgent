@@ -164,3 +164,11 @@ def test_the_sweep_is_a_dry_run_by_default():
 
     source = inspect.getsource(policy.run_sweep)
     assert source.index("if not apply:") < source.index("insert_row(")
+
+
+def test_sweep_apply_never_rewrites_a_name_that_already_has_a_symbol_row():
+    # VMRK's row was closed by decision (routed to 185-37): a later sweep must not re-add it.
+    write = _sweep(_series(300, 6.7, 6.7), incumbent=False)
+    admit = _sweep(_series(300, 1.0, 1.0), incumbent=False)
+    assert policy.rows_to_write([write, admit], decided=frozenset({"X"})) == []
+    assert policy.rows_to_write([write, admit], decided=frozenset()) == [write]
