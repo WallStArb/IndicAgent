@@ -39,10 +39,11 @@ _ALLOW_LIST: dict[str, str] = {
     "services/bar_derivation.py": (
         "PERMANENT: the D2b derivation writer (phase 185 plan 11, D-06/D-15) -- the only "
         "permanent writer of derived 15m/1h rows (and, from plan 17, canonical 1d). One "
-        "transaction per symbol: archive the stored segment into "
-        "ohlcv_intraday_raw_archive, verify checksums, DELETE the segment (placeholders "
-        "included), INSERT the derived rows. Registered in service_auditor.py's _DAG_ORDER "
-        "and _ONESHOT_UNITS as indicagent-bar-derivation."
+        "transaction per symbol by the write contract (plan 185-31): new derived rows "
+        "inserted, changed rows upserted, stale rows deleted by key, old values in "
+        "ohlcv_revision; stored vendor rows archived into ohlcv_intraday_raw_archive, "
+        "verified by value and only then deleted. Registered in service_auditor.py's "
+        "_DAG_ORDER and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "PERMANENT: raw provider observations at the five- and one-minute timeframes "

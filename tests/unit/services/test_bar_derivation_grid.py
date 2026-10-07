@@ -719,7 +719,7 @@ def test_dry_run_reads_and_classifies_but_writes_nothing():
     conn = FakeConn(bars={"SPY": fixture}, stored_grid={"SPY": [_vendor("15m", _SESSION_OPEN, 1)]})
     totals = _run(conn, apply=False)
     assert totals["derived"] == 1 and totals["derived_rows"] == 33
-    assert totals["planned_new"] == 33 and totals["planned_vendor_removed"] == 1
+    assert totals["rows_new"] == 33 and totals["vendor_rows_removed"] == 1
     assert not conn.statements, conn.statements
     assert not conn.executemany_calls
     assert not any(k == "fetchval" for k, _ in conn.calls)

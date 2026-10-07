@@ -1,22 +1,39 @@
-"""BarDerivation: the D2b derived 15m/1h grid writer (phase 185 plan 11, D-15)
+"""BarDerivation: the D2b derived 15m/1h grid writer (phase 185 plans 11 and 31, D-15)
 and the D2 canonical 1d stage (phase 185 plan 17, D-06).
 
-Grid stage (plan 11). Oneshot batch. For each symbol it re-derives 15m and 1h
-bars from the symbol's tradeable 5m bars on session-anchored edges (plan 06's
-aggregate_session_grid), and in one transaction per symbol, under SET LOCAL
-ROLE bar_derivation_writer (185-01 A7 measured the role CAN DML compressed
-chunks):
+Grid stage. Oneshot batch. For each symbol it re-derives 15m and 1h bars from the symbol's
+tradeable 5m bars on session-anchored edges (plan 06's aggregate_session_grid) and writes them by
+the write contract (plan 185-31; data layer integrity design section 4,
+src/intelligence/bars/write_contract.py). One transaction per symbol:
 
-1. archive the stored IBKR 15m/1h rows into ohlcv_intraday_raw_archive;
-2. verify count and value checksums of the removable rows against the archive
-   inside the same transaction -- a mismatch rolls the symbol back and nothing
-   leaves market_data_ohlcv (D-09 flag-never-delete spirit: the raw answer is
-   kept before the canonical row is replaced);
-3. DELETE the (symbol, 15m/1h) segment so readers see only derived rows;
-4. write the derived rows (source derived_5m), the constituent_flag
-   bar_quality_flag rows listing each derived bar's constituent 5m flag rules,
-   and one bar_content_digest row per (tf, calendar month) for 5m, 15m and 1h
-   with the rule version beside it (D-07; phase 186 reads the current view).
+1. read the stored 15m/1h rows with their source, the grid's flags and the current digests;
+   classify the derived rows against the stored derived rows by exact value (new, changed,
+   unchanged, removed: a stored derived slot no longer derived);
+2. refuse the symbol when (changed + removed) / stored derived rows exceeds
+   threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
+   rows: its ohlcv_load rows commit with outcome refused, nothing else is written, and the batch
+   fails (a broad 5m restatement is a finding to look at, never auto-applied);
+3. under SET LOCAL ROLE bar_derivation_writer: one ohlcv_load row per grid timeframe (source
+   derived, outcome applied, the four counts);
+4. stored vendor rows (IBKR 15m/1h, any source but derived_5m) are archived into
+   ohlcv_intraday_raw_archive; a vendor row whose archived observation under the same key is
+   not equal (IBKR restated it inside its revision window; todo 490) goes to ohlcv_revision with
+   origin archive_segment; the verify then requires every vendor row to have an equal archive or
+   revision row before the vendor rows are deleted (raw observations are permanent);
+5. old values of changed and removed derived rows go to ohlcv_revision (origin load); new rows
+   are inserted, changed rows upserted (ON CONFLICT DO UPDATE on the changed set only, never a
+   raw UPDATE of the compressed hypertable), stale rows deleted by key;
+6. constituent_flag and partial_constituents flags are written or deleted only where they differ
+   from the stored ones (a later answered 5m window clears a stale partial flag, todo 462), and a
+   bar_content_digest row lands only for a (timeframe, month) whose digest differs from
+   bar_content_digest_current (5m, 15m and 1h, rule version beside it; D-07).
+
+A second run over unchanged 5m therefore writes no bar, flag or digest, only its load rows.
+Quarantined 5m bars are excluded from aggregation (RESEARCH finding 11); a symbol with no
+tradeable 5m bars is skipped with outcome no_5m and its stored rows stay as they are.
+--changed-only skips symbols whose 5m month digests all equal bar_content_digest_current and no
+answered 5m window arrived since. Default is a dry run: the same reads and classification, zero
+writes, no batch row; --apply is the explicit opt-in.
 
 Daily stage (plan 17). Per symbol: load the D1 TRADES observations and the
 corporate_action_current splits, run the pure derive_daily rule (Ring 1), and
@@ -30,16 +47,6 @@ corroboration spans them), and after that scrub (plan 185-27) a
 bar_content_digest row lands for each 1d month whose digest differs from
 bar_content_digest_current (first run: every month). Default is a dry run:
 same computation, zero writes, no batch row, and a report by reason.
-
-Quarantined 5m bars are excluded from aggregation (RESEARCH finding 11); a
-symbol with no tradeable 5m bars is skipped with outcome no_5m and its stored
-rows stay as they are. Default is a dry run: same computation, zero writes and
-no batch row; --apply is the explicit opt-in. --changed-only skips symbols
-whose 5m month digests all equal bar_content_digest_current. Plan 12 runs the
-live rewrite and chains this unit from the nightly backfill.
-
-Write method segment_delete_copy per 185-01 measurements c/d (90-111k rows/s
-against compressed chunks); the APR key records that choice.
 """
 
 from __future__ import annotations
@@ -48,9 +55,11 @@ import argparse
 import asyncio
 import calendar
 import json
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
+from uuid import uuid4
 
 import asyncpg
 import numpy as np
@@ -82,8 +91,16 @@ from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
     CANONICAL_1D_SOURCES,
     GRID_RULE_VERSION,
+    GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
     SOURCE_DERIVED_5M,
+)
+from src.intelligence.bars.write_contract import (
+    BarValues,
+    WriteDelta,
+    classify,
+    revision_ratio,
+    should_refuse,
 )
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -104,8 +121,25 @@ _CONSTITUENT_RULE = "constituent_flag"
 # derivation edge as a quarantine-false flag, never silently as a complete bar.
 _PARTIAL_RULE = "partial_constituents"
 _GRID_TF_LIST = sorted(GRID_TIMEFRAMES)
-_WRITE_METHOD = "segment_delete_copy"
+_GRID_FLAG_RULES = (_CONSTITUENT_RULE, _PARTIAL_RULE)
+_WRITE_METHOD = "write_contract"
 _DEFAULT_SYMBOL_BATCH = 10
+# Fallbacks equal to migration 443's seeds; the run reads threshold.bar_integrity.* from APR.
+_DEFAULT_MAX_REVISION_RATIO = 0.02
+_DEFAULT_REVISION_MIN_STORED = 500
+# The grid stage's ohlcv_load segment (tests/unit/test_ohlcv_load_revision_writer_boundary.py).
+_GRID_LOAD_SOURCE = "derived"
+_GRID_LOAD_CALLER = "bar_derivation-grid"
+_GRID_LOAD_DESTINATION = "market_data_ohlcv"
+_GRID_OUTCOMES = ("derived", "unchanged", "no_5m", "excluded_lane", "refused", "failed")
+_GRID_ROW_COUNTS = (
+    "rows_new",
+    "rows_changed",
+    "rows_unchanged",
+    "rows_removed",
+    "vendor_rows_removed",
+    "archive_segment_rows",
+)
 _SESSION_MARGIN_DAYS = 3
 
 _DISCOVER_SYMBOLS_SQL = """
@@ -168,43 +202,125 @@ SELECT EXISTS (
 ) AS answered_since
 """
 
-# Moved byte-identical to services/intraday_raw_archive.py in plan 12 (the
-# table's single owner module; the archive writer-boundary CI test fails on
-# any other INSERT into it).
+# The archive's single owner module (services/intraday_raw_archive.py, plan 12) defines this
+# INSERT ... SELECT of a symbol's stored vendor 15m/1h rows; the archive writer-boundary CI test
+# fails on any other INSERT into it.
 _INSERT_ARCHIVE_SQL = ARCHIVE_FROM_TABLE_SQL
 
-# One row comparing the removable stored segment with the archive, key by key:
-# n_archived counts archive matches (NULL when a removable row was never
-# archived), and the archived sums skip unmatched rows, so any missing or
-# value-drifted archive row breaks the equality before the DELETE runs.
-# Removable means original observations only: derived_5m rows are rebuildable
-# cache (a re-derivation deletes and regenerates them), so they are excluded —
-# otherwise the second pass compares its derived values against the archived
-# originals under the same keys and the equality can never hold (plan 12 live
-# run, 2026-10-01).
-_ARCHIVE_VERIFY_SQL = """
-SELECT count(*)::bigint AS n_removable,
-       count(a."timestamp")::bigint AS n_archived,
-       coalesce(sum(m.open + m.high + m.low + m.close), 0::double precision) AS removable_value_sum,
-       coalesce(sum(a.open + a.high + a.low + a.close), 0::double precision) AS archived_value_sum,
-       coalesce(sum(m.volume), 0::numeric) AS removable_volume_sum,
-       coalesce(sum(a.volume), 0::numeric) AS archived_volume_sum
+# The stored 15m/1h rows of a symbol, vendor and derived, with their source: the write
+# contract's "stored" side (read inside the symbol's transaction on --apply).
+_SELECT_STORED_GRID_SQL = """
+/* stored_grid */
+SELECT timeframe, "timestamp", open, high, low, close, volume, source
+FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = ANY($2::text[])
+"""
+
+_SELECT_STORED_GRID_FLAGS_SQL = """
+/* stored_grid_flags */
+SELECT timeframe, "timestamp", rule, rule_version, detail
+FROM bar_quality_flag
+WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND rule = ANY($3::text[])
+"""
+
+_SELECT_CURRENT_GRID_DIGESTS_SQL = """
+/* current_grid_digests */
+SELECT timeframe, range_start, digest FROM bar_content_digest_current
+WHERE symbol = $1 AND timeframe = ANY($2::text[])
+"""
+
+_INSERT_GRID_LOAD_SQL = """
+INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, outcome, n_bars, n_new, n_changed, n_unchanged, n_removed, first_bar, last_bar, detail, caller, batch_id, destination)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18)
+"""
+
+# A stored vendor row whose archived observation under the same key is not equal (IBKR restated
+# the bar inside its revision window after the archive kept the first write; todo 490): its
+# stored value is the second observation, kept here before the row leaves market_data_ohlcv.
+# One statement per grid timeframe, under that timeframe's load row ($3).
+_INSERT_ARCHIVE_SEGMENT_REVISION_SQL = """
+INSERT INTO ohlcv_revision
+    (load_id, symbol, timeframe, "timestamp", old_open, old_high, old_low, old_close,
+     old_volume, old_source, origin)
+SELECT $3::uuid, m.symbol, m.timeframe, m."timestamp", m.open, m.high, m.low, m.close,
+       m.volume, m.source, 'archive_segment'
 FROM market_data_ohlcv m
 LEFT JOIN ohlcv_intraday_raw_archive a
     ON a.symbol = m.symbol AND a.timeframe = m.timeframe AND a."timestamp" = m."timestamp"
-WHERE m.symbol = $1 AND m.timeframe = ANY($2::text[])
-  AND m.source <> 'synthetic_fill' AND m.source <> 'derived_5m'
+WHERE m.symbol = $1 AND m.timeframe = $2 AND m.source IS DISTINCT FROM 'derived_5m'
+  AND (a."timestamp" IS NULL
+       OR a.open <> m.open OR a.high <> m.high OR a.low <> m.low OR a.close <> m.close
+       OR a.volume <> m.volume OR a.source IS DISTINCT FROM m.source)
 """
 
-_DELETE_SEGMENT_SQL = """
+# Removal is verified by value, row by row: a stored vendor row may leave only when the archive
+# holds an equal row under its key or this transaction's loads ($3) hold an equal
+# archive_segment revision of it. n_unmatched must be 0 and n_removable must equal the vendor
+# rows the classification read. IS NOT DISTINCT FROM keeps a NULL from passing as a match.
+_VENDOR_REMOVAL_VERIFY_SQL = """
+/* vendor_removal_verify */
+SELECT count(*)::bigint AS n_removable,
+       count(*) FILTER (WHERE NOT (
+           (a."timestamp" IS NOT NULL
+            AND a.open IS NOT DISTINCT FROM m.open AND a.high IS NOT DISTINCT FROM m.high
+            AND a.low IS NOT DISTINCT FROM m.low AND a.close IS NOT DISTINCT FROM m.close
+            AND a.volume IS NOT DISTINCT FROM m.volume AND a.source IS NOT DISTINCT FROM m.source)
+           OR (r."timestamp" IS NOT NULL
+            AND r.old_open IS NOT DISTINCT FROM m.open AND r.old_high IS NOT DISTINCT FROM m.high
+            AND r.old_low IS NOT DISTINCT FROM m.low AND r.old_close IS NOT DISTINCT FROM m.close
+            AND r.old_volume IS NOT DISTINCT FROM m.volume
+            AND r.old_source IS NOT DISTINCT FROM m.source)
+       ))::bigint AS n_unmatched
+FROM market_data_ohlcv m
+LEFT JOIN ohlcv_intraday_raw_archive a
+    ON a.symbol = m.symbol AND a.timeframe = m.timeframe AND a."timestamp" = m."timestamp"
+LEFT JOIN ohlcv_revision r
+    ON r.load_id = ANY($3::uuid[]) AND r.origin = 'archive_segment'
+   AND r.symbol = m.symbol AND r.timeframe = m.timeframe AND r."timestamp" = m."timestamp"
+WHERE m.symbol = $1 AND m.timeframe = ANY($2::text[]) AND m.source IS DISTINCT FROM 'derived_5m'
+"""
+
+_DELETE_VENDOR_ROWS_SQL = """
+/* delete_vendor_rows */
 DELETE FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = ANY($2::text[])
+WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source IS DISTINCT FROM 'derived_5m'
 """
 
 _INSERT_DERIVED_SQL = """
 INSERT INTO market_data_ohlcv
     ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+"""
+
+# The changed set only, the daily stage's idiom: a raw UPDATE of the compressed hypertable is
+# fenced (test_compressed_hypertable_write_boundary.py).
+_UPSERT_DERIVED_SQL = """
+INSERT INTO market_data_ohlcv
+    ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+ON CONFLICT ("timestamp", symbol, timeframe) DO UPDATE SET
+    open = EXCLUDED.open,
+    high = EXCLUDED.high,
+    low = EXCLUDED.low,
+    close = EXCLUDED.close,
+    volume = EXCLUDED.volume,
+    source = EXCLUDED.source
+"""
+
+_INSERT_LOAD_REVISION_SQL = """
+INSERT INTO ohlcv_revision
+    (load_id, symbol, timeframe, "timestamp", old_open, old_high, old_low, old_close,
+     old_volume, old_source, origin)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+"""
+
+# Stale derived rows by key; the literal range ahead of ANY() keeps chunk exclusion on the
+# compressed hypertable (gotchas, todo 356).
+_DELETE_STALE_DERIVED_SQL = """
+/* delete_stale_derived */
+DELETE FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = $2 AND source = 'derived_5m'
+  AND "timestamp" BETWEEN $4 AND $5 AND "timestamp" = ANY($3::timestamptz[])
 """
 
 _INSERT_FLAG_SQL = """
@@ -218,11 +334,11 @@ ON CONFLICT (symbol, timeframe, "timestamp", rule) DO UPDATE SET
     batch_id = EXCLUDED.batch_id
 """
 
-# A rewrite replaces the segment's partial flags (a later answered window
-# clears a stale one); constituent flags are upserted, this one is scoped.
-_DELETE_PARTIAL_FLAGS_SQL = """
+# A grid flag the derivation no longer produces (its bar is gone, its constituents lost their
+# rules, or a later answered window covers the hole) is deleted by key.
+_DELETE_GRID_FLAG_SQL = """
 DELETE FROM bar_quality_flag
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND rule = 'partial_constituents'
+WHERE symbol = $1 AND timeframe = $2 AND "timestamp" = $3 AND rule = $4
 """
 
 _INSERT_DIGEST_SQL = """
@@ -377,10 +493,63 @@ class _SymbolFailure(Exception):
 
 
 class _SymbolResult(NamedTuple):
+    """One symbol's grid outcome and its write-contract counts (summed into the batch detail)."""
+
     outcome: str
     error: str | None
     n_derived: int
-    n_archived: int = 0
+    rows_new: int = 0
+    rows_changed: int = 0
+    rows_unchanged: int = 0
+    rows_removed: int = 0
+    vendor_rows_removed: int = 0
+    archive_segment_rows: int = 0
+
+
+class _RevisionLimits(NamedTuple):
+    """threshold.bar_integrity.max_revision_ratio and revision_ratio_min_stored, read per run."""
+
+    max_ratio: float
+    min_stored: int
+
+
+@dataclass(frozen=True)
+class _GridPlan:
+    """The write contract applied to one symbol's grid: what the transaction will write."""
+
+    deltas: dict[str, WriteDelta[int]]
+    n_stored_derived: dict[str, int]
+    n_vendor: dict[str, int]
+    refusals: tuple[str, ...]
+    flag_writes: list[tuple[tuple[str, int, str], dict[str, Any]]]
+    flag_deletes: list[tuple[str, int, str]]
+    digest_writes: list[tuple[str, datetime, datetime, str, int]]
+
+    def result(
+        self,
+        symbol: str,
+        n_derived: int,
+        *,
+        n_vendor_removed: int = 0,
+        n_archive_segment: int = 0,
+    ) -> _SymbolResult:
+        counts = {
+            "rows_new": sum(len(d.new) for d in self.deltas.values()),
+            "rows_changed": sum(len(d.changed) for d in self.deltas.values()),
+            "rows_unchanged": sum(d.unchanged for d in self.deltas.values()),
+            "rows_removed": sum(len(d.removed) for d in self.deltas.values()),
+        }
+        if self.refusals:
+            error = f"{symbol}: refused: {'; '.join(self.refusals)}"
+            return _SymbolResult("refused", error, n_derived, **counts)
+        return _SymbolResult(
+            "derived",
+            None,
+            n_derived,
+            **counts,
+            vendor_rows_removed=n_vendor_removed,
+            archive_segment_rows=n_archive_segment,
+        )
 
 
 class _DailyResult(NamedTuple):
@@ -625,7 +794,9 @@ class BarDerivation(BaseBatch):
 
     async def _execute_grid(self, pool: asyncpg.Pool) -> dict[str, int]:
         async with pool.acquire() as conn:
-            apr = await load_apr_dict_async(conn, ["infra.bar_derivation.%"])
+            apr = await load_apr_dict_async(
+                conn, ["infra.bar_derivation.%", "threshold.bar_integrity.%"]
+            )
             symbol_batch = int(
                 _cfg(apr, "infra.bar_derivation.grid_symbol_batch", _DEFAULT_SYMBOL_BATCH)
             )
@@ -633,8 +804,24 @@ class BarDerivation(BaseBatch):
             if method != _WRITE_METHOD:
                 raise ValueError(
                     f"infra.bar_derivation.grid_write_method={method!r}: only "
-                    f"{_WRITE_METHOD!r} is implemented (185-01 measurements)"
+                    f"{_WRITE_METHOD!r} is implemented (plan 185-31)"
                 )
+            limits = _RevisionLimits(
+                max_ratio=float(
+                    _cfg(
+                        apr,
+                        "threshold.bar_integrity.max_revision_ratio",
+                        _DEFAULT_MAX_REVISION_RATIO,
+                    )
+                ),
+                min_stored=int(
+                    _cfg(
+                        apr,
+                        "threshold.bar_integrity.revision_ratio_min_stored",
+                        _DEFAULT_REVISION_MIN_STORED,
+                    )
+                ),
+            )
             symbols = (
                 list(self._symbols)
                 if self._symbols
@@ -643,7 +830,11 @@ class BarDerivation(BaseBatch):
             excluded = _read_exclude_file(self._exclude_symbols_file, self.logger)
             targets = [s for s in symbols if s not in excluded]
 
-            apr_snapshot = {k: v for k, v in apr.items() if k.startswith("infra.bar_derivation.")}
+            apr_snapshot = {
+                k: v
+                for k, v in apr.items()
+                if k.startswith(("infra.bar_derivation.", "threshold.bar_integrity."))
+            }
             batch_id: str | None = None
             if self._apply:
                 batch_id = await open_batch(
@@ -653,19 +844,22 @@ class BarDerivation(BaseBatch):
                     apr_snapshot=apr_snapshot,
                     n_symbols=len(targets),
                 )
-            totals = dict.fromkeys(("derived", "unchanged", "no_5m", "excluded_lane", "failed"), 0)
+            totals = dict.fromkeys(_GRID_OUTCOMES, 0)
             totals["excluded_lane"] = len(symbols) - len(targets)
+            rows = dict.fromkeys(_GRID_ROW_COUNTS, 0)
             n_derived_rows = 0
-            n_archived_rows = 0
             failed: list[str] = []
             try:
                 for offset in range(0, len(targets), symbol_batch):
                     chunk = targets[offset : offset + symbol_batch]
                     for symbol in chunk:
-                        result = await self._run_symbol(conn, symbol=symbol, batch_id=batch_id)
+                        result = await self._run_symbol(
+                            conn, symbol=symbol, batch_id=batch_id, limits=limits
+                        )
                         totals[result.outcome] += 1
                         n_derived_rows += result.n_derived
-                        n_archived_rows += result.n_archived
+                        for key in _GRID_ROW_COUNTS:
+                            rows[key] += getattr(result, key)
                         if result.error:
                             failed.append(result.error)
                     self.logger.info(
@@ -684,10 +878,10 @@ class BarDerivation(BaseBatch):
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
                             "n_derived_rows": n_derived_rows,
-                            # Removable (stored original) 15m/1h rows the
-                            # archive step verified and the segment DELETE took;
-                            # plan 12's live check compares it with the archive.
-                            "n_archive_rows": n_archived_rows,
+                            # Stored vendor 15m/1h rows the verify matched by value and the
+                            # vendor DELETE removed (archive or archive_segment revision).
+                            "n_archive_rows": rows["vendor_rows_removed"],
+                            "rows": rows,
                             "apply": self._apply,
                             "changed_only": self._changed_only,
                         },
@@ -700,14 +894,15 @@ class BarDerivation(BaseBatch):
             apply=self._apply,
             changed_only=self._changed_only,
             **totals,
+            **rows,
             derived_rows=n_derived_rows,
         )
-        for outcome in ("derived", "unchanged", "no_5m", "excluded_lane", "failed"):
+        for outcome in _GRID_OUTCOMES:
             if totals[outcome]:
                 _OUTCOME_TOTAL.add(totals[outcome], {"stage": self._stage, "outcome": outcome})
         if failed:
             raise RuntimeError(f"bar_derivation: {len(failed)} symbol failure(s): {failed}")
-        return {**totals, "derived_rows": n_derived_rows}
+        return {**totals, **rows, "derived_rows": n_derived_rows}
 
     async def _load_answered_windows(
         self, conn: asyncpg.Connection, symbol: str
@@ -722,8 +917,91 @@ class BarDerivation(BaseBatch):
         )
         return AnsweredWindows.from_rows([(r["window_start"], r["window_end"]) for r in rows])
 
+    async def _plan_grid(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        symbol: str,
+        derived_values: dict[str, dict[int, BarValues]],
+        desired_flags: dict[tuple[str, int, str], dict[str, Any]],
+        digest_rows: list[tuple[str, datetime, datetime, str, int]],
+        limits: _RevisionLimits,
+    ) -> _GridPlan:
+        """Read the stored grid, flags and digests; classify by the write contract.
+
+        Pure comparison over three reads; no writes. Called inside the symbol's transaction on
+        --apply (so the classification and the writes see the same rows) and alone on a dry run.
+        """
+        stored_derived: dict[str, dict[int, BarValues]] = {tf: {} for tf in _GRID_TF_LIST}
+        n_vendor: dict[str, int] = dict.fromkeys(_GRID_TF_LIST, 0)
+        for r in await conn.fetch(_SELECT_STORED_GRID_SQL, symbol, _GRID_TF_LIST):
+            tf = r["timeframe"]
+            if r["source"] == SOURCE_DERIVED_5M:
+                stored_derived[tf][_epoch_seconds(r["timestamp"])] = (
+                    r["open"],
+                    r["high"],
+                    r["low"],
+                    r["close"],
+                    r["volume"],
+                    r["source"],
+                )
+            else:
+                n_vendor[tf] += 1
+        deltas: dict[str, WriteDelta[int]] = {}
+        refusals: list[str] = []
+        for tf in _GRID_TF_LIST:
+            stored = stored_derived[tf]
+            delta = classify(derived_values[tf], stored, removal_scope=stored.keys())
+            deltas[tf] = delta
+            if should_refuse(
+                delta, len(stored), limits.max_ratio, min_stored=limits.min_stored, waived=False
+            ):
+                refusals.append(
+                    f"{tf} revision ratio {revision_ratio(delta, len(stored)):.4f} "
+                    f"({len(delta.changed)} changed + {len(delta.removed)} removed of "
+                    f"{len(stored)} stored) > {limits.max_ratio}"
+                )
+
+        stored_flags: dict[tuple[str, int, str], tuple[str, Any]] = {}
+        for r in await conn.fetch(
+            _SELECT_STORED_GRID_FLAGS_SQL, symbol, _GRID_TF_LIST, list(_GRID_FLAG_RULES)
+        ):
+            detail = r["detail"]
+            if isinstance(detail, str):  # a bare connection without the jsonb codec
+                detail = json.loads(detail)
+            key = (r["timeframe"], _epoch_seconds(r["timestamp"]), r["rule"])
+            stored_flags[key] = (r["rule_version"], detail)
+        flag_writes = [
+            (key, detail)
+            for key, detail in desired_flags.items()
+            if stored_flags.get(key) != (GRID_RULE_VERSION, detail)
+        ]
+        flag_deletes = [key for key in stored_flags if key not in desired_flags]
+
+        current = {
+            (r["timeframe"], r["range_start"]): r["digest"]
+            for r in await conn.fetch(
+                _SELECT_CURRENT_GRID_DIGESTS_SQL, symbol, [GRID_SOURCE_TF, *_GRID_TF_LIST]
+            )
+        }
+        digest_writes = [row for row in digest_rows if current.get((row[0], row[1])) != row[3]]
+        return _GridPlan(
+            deltas=deltas,
+            n_stored_derived={tf: len(stored_derived[tf]) for tf in _GRID_TF_LIST},
+            n_vendor=n_vendor,
+            refusals=tuple(refusals),
+            flag_writes=flag_writes,
+            flag_deletes=flag_deletes,
+            digest_writes=digest_writes,
+        )
+
     async def _run_symbol(
-        self, conn: asyncpg.Connection, *, symbol: str, batch_id: str | None
+        self,
+        conn: asyncpg.Connection,
+        *,
+        symbol: str,
+        batch_id: str | None,
+        limits: _RevisionLimits,
     ) -> _SymbolResult:
         rows = await conn.fetch(_SELECT_5M_SQL, symbol)
         if not rows:
@@ -747,24 +1025,20 @@ class BarDerivation(BaseBatch):
         volume = np.array([r["volume"] for r in kept], dtype=np.float64)
         base = kept[0]["base"]
         rules_per_row = [tuple(sorted(rules_by_ts.get(int(ts), ()))) for ts in ts_seconds]
+        first_day = datetime.fromtimestamp(int(ts_seconds[0]), tz=UTC).date()
+        last_day = datetime.fromtimestamp(int(ts_seconds[-1]), tz=UTC).date()
 
         sessions = nyse_sessions(
-            (
-                datetime.fromtimestamp(int(ts_seconds[0]), tz=UTC)
-                - timedelta(days=_SESSION_MARGIN_DAYS)
-            ).date(),
-            (
-                datetime.fromtimestamp(int(ts_seconds[-1]), tz=UTC)
-                + timedelta(days=_SESSION_MARGIN_DAYS)
-            ).date(),
+            first_day - timedelta(days=_SESSION_MARGIN_DAYS),
+            last_day + timedelta(days=_SESSION_MARGIN_DAYS),
         )
         digest_5m = _month_digest_rows(ts_seconds, open_, high, low, close, volume, rules_per_row)
         if self._changed_only:
-            current = {
+            current_5m = {
                 r["range_start"]: r["digest"]
                 for r in await conn.fetch(_SELECT_CURRENT_DIGESTS_SQL, symbol)
             }
-            if current == {start: digest for start, _, digest, _ in digest_5m}:
+            if current_5m == {start: digest for start, _, digest, _ in digest_5m}:
                 answered_since = await conn.fetchrow(
                     _SELECT_ANSWERED_SINCE_SQL,
                     symbol,
@@ -788,162 +1062,275 @@ class BarDerivation(BaseBatch):
                 "bar_derivation.bars_outside_session", symbol=symbol, dropped=n_outside
             )
 
-        # Coverage-aware derivation (todo 462): flag bars over stored-but-
-        # unanswered 5m holes. The windows are read once per symbol; the pure
-        # merge/cover logic is the shared planner's (gap_plan, plan 185-18).
+        # The write contract's incoming side, keyed by epoch seconds per timeframe.
+        derived_values: dict[str, dict[int, BarValues]] = {
+            tf: {
+                int(ts): (float(o), float(h), float(lo), float(c), int(v), SOURCE_DERIVED_5M)
+                for ts, o, h, lo, c, v in zip(
+                    grid.ts_seconds, grid.open, grid.high, grid.low, grid.close, grid.volume
+                )
+            }
+            for tf, (grid, _rules) in derived.items()
+        }
+
+        # Desired grid flags: constituent rules, and coverage-aware partial flags over stored-
+        # but-unanswered 5m holes (todo 462; the windows are read once per symbol and the pure
+        # merge/cover logic is the shared planner's, gap_plan, plan 185-18).
+        desired_flags: dict[tuple[str, int, str], dict[str, Any]] = {}
         stored_slots = frozenset(_epoch_seconds(r["timestamp"]) for r in rows)
         answered = await self._load_answered_windows(conn, symbol)
         session_close_by_date = {day: close for day, (_open, close) in sessions.items()}
-        partial_flag_args: list[tuple] = []
-        for tf, (grid, _rules) in derived.items():
+        for tf, (grid, constituent_rules) in derived.items():
             minutes = GRID_TIMEFRAMES[tf]
-            for i, ts in enumerate(grid.ts_seconds):
-                bar_dt = datetime.fromtimestamp(int(ts), tz=UTC)
+            for i, (ts, rules) in enumerate(zip(grid.ts_seconds, constituent_rules)):
+                n_constituents = int(grid.n_constituents[i])
+                if rules:
+                    desired_flags[(tf, int(ts), _CONSTITUENT_RULE)] = {
+                        "constituent_rules": list(rules),
+                        "n_constituents": n_constituents,
+                    }
                 missing = _missing_constituent_slots(
                     int(ts),
                     minutes,
-                    session_close_by_date.get(bar_dt.date()),
+                    session_close_by_date.get(datetime.fromtimestamp(int(ts), tz=UTC).date()),
                     stored_slots,
                     answered,
                 )
                 if missing:
-                    partial_flag_args.append(
-                        (
-                            symbol,
-                            tf,
-                            bar_dt,
-                            _PARTIAL_RULE,
-                            GRID_RULE_VERSION,
-                            [],
-                            False,
-                            json.dumps(
-                                {
-                                    "missing_slots": len(missing),
-                                    "n_constituents": int(grid.n_constituents[i]),
-                                }
-                            ),
-                            batch_id,
-                        )
-                    )
-        if not self._apply:
-            return _SymbolResult("derived", None, n_derived)
+                    desired_flags[(tf, int(ts), _PARTIAL_RULE)] = {
+                        "missing_slots": len(missing),
+                        "n_constituents": n_constituents,
+                    }
 
+        digest_rows: list[tuple[str, datetime, datetime, str, int]] = [
+            (GRID_SOURCE_TF, start, end, digest, n) for start, end, digest, n in digest_5m
+        ]
+        for tf, (grid, constituent_rules) in derived.items():
+            digest_rows.extend(
+                (tf, start, end, digest, n)
+                for start, end, digest, n in _month_digest_rows(
+                    grid.ts_seconds,
+                    grid.open,
+                    grid.high,
+                    grid.low,
+                    grid.close,
+                    grid.volume,
+                    constituent_rules,
+                )
+            )
+
+        planning = {
+            "symbol": symbol,
+            "derived_values": derived_values,
+            "desired_flags": desired_flags,
+            "digest_rows": digest_rows,
+            "limits": limits,
+        }
+        if not self._apply:
+            plan = await self._plan_grid(conn, **planning)
+            return plan.result(symbol, n_derived, n_vendor_removed=sum(plan.n_vendor.values()))
+
+        assert batch_id is not None  # --apply always opens a batch
         try:
             async with conn.transaction():
+                plan = await self._plan_grid(conn, **planning)
                 await conn.execute(_WRITER_ROLE_SQL)
-                await conn.execute(_INSERT_ARCHIVE_SQL, symbol, _GRID_TF_LIST, batch_id)
-                verify = await conn.fetchrow(_ARCHIVE_VERIFY_SQL, symbol, _GRID_TF_LIST)
-                if (
-                    verify["n_removable"] != verify["n_archived"]
-                    or verify["removable_value_sum"] != verify["archived_value_sum"]
-                    or verify["removable_volume_sum"] != verify["archived_volume_sum"]
-                ):
-                    raise _SymbolFailure(
-                        f"archive verify failed: removable (n={verify['n_removable']}, "
-                        f"v={verify['removable_value_sum']}, vol={verify['removable_volume_sum']}) "
-                        f"vs archived (n={verify['n_archived']}, "
-                        f"v={verify['archived_value_sum']}, vol={verify['archived_volume_sum']})"
+                load_ids = {tf: str(uuid4()) for tf in _GRID_TF_LIST}
+                outcome = "refused" if plan.refusals else "applied"
+                for tf in _GRID_TF_LIST:
+                    delta = plan.deltas[tf]
+                    grid_ts = derived[tf][0].ts_seconds
+                    await conn.execute(
+                        _INSERT_GRID_LOAD_SQL,
+                        load_ids[tf],
+                        symbol,
+                        tf,
+                        _GRID_LOAD_SOURCE,
+                        first_day,
+                        last_day,
+                        outcome,
+                        len(derived_values[tf]),
+                        len(delta.new),
+                        len(delta.changed),
+                        delta.unchanged,
+                        len(delta.removed),
+                        (
+                            datetime.fromtimestamp(int(grid_ts[0]), tz=UTC).date()
+                            if grid_ts.size
+                            else None
+                        ),
+                        (
+                            datetime.fromtimestamp(int(grid_ts[-1]), tz=UTC).date()
+                            if grid_ts.size
+                            else None
+                        ),
+                        json.dumps(
+                            {
+                                "rule_version": GRID_RULE_VERSION,
+                                "n_stored_derived": plan.n_stored_derived[tf],
+                                "n_vendor_rows": plan.n_vendor[tf],
+                                "refusals": list(plan.refusals),
+                            }
+                        ),
+                        _GRID_LOAD_CALLER,
+                        batch_id,
+                        _GRID_LOAD_DESTINATION,
                     )
-                await conn.execute(_DELETE_SEGMENT_SQL, symbol, _GRID_TF_LIST)
-                # The rewrite replaces the segment's partial flags, so a later
-                # answered window clears a stale one (todo 462).
-                await conn.execute(_DELETE_PARTIAL_FLAGS_SQL, symbol, _GRID_TF_LIST)
-
-                flag_args: list[tuple] = []
-                for tf, (grid, constituent_rules) in derived.items():
-                    if grid.ts_seconds.size:
-                        await conn.executemany(
-                            _INSERT_DERIVED_SQL,
-                            (
-                                (
-                                    datetime.fromtimestamp(int(ts), tz=UTC),
-                                    symbol,
-                                    tf,
-                                    float(o),
-                                    float(h),
-                                    float(lo),
-                                    float(c),
-                                    int(v),
-                                    SOURCE_DERIVED_5M,
-                                    base,
-                                )
-                                for ts, o, h, lo, c, v in zip(
-                                    grid.ts_seconds,
-                                    grid.open,
-                                    grid.high,
-                                    grid.low,
-                                    grid.close,
-                                    grid.volume,
-                                )
-                            ),
-                        )
-                    for i, (ts, rules) in enumerate(zip(grid.ts_seconds, constituent_rules)):
-                        if not rules:
-                            continue
-                        n_constituents = int(grid.n_constituents[i])
-                        flag_args.append(
+                if plan.refusals:
+                    # The load rows are the recorded finding; nothing else is written.
+                    return plan.result(symbol, n_derived)
+                n_vendor = sum(plan.n_vendor.values())
+                n_archive_segment = 0
+                if n_vendor:
+                    n_archive_segment = await self._remove_vendor_rows(
+                        conn,
+                        symbol=symbol,
+                        batch_id=batch_id,
+                        load_ids=load_ids,
+                        n_vendor=n_vendor,
+                    )
+                await self._write_derived(
+                    conn, symbol=symbol, base=base, plan=plan, load_ids=load_ids
+                )
+                if plan.flag_deletes:
+                    await conn.executemany(
+                        _DELETE_GRID_FLAG_SQL,
+                        (
+                            (symbol, tf, datetime.fromtimestamp(ts, tz=UTC), rule)
+                            for tf, ts, rule in plan.flag_deletes
+                        ),
+                    )
+                if plan.flag_writes:
+                    await conn.executemany(
+                        _INSERT_FLAG_SQL,
+                        (
                             (
                                 symbol,
                                 tf,
-                                datetime.fromtimestamp(int(ts), tz=UTC),
-                                _CONSTITUENT_RULE,
+                                datetime.fromtimestamp(ts, tz=UTC),
+                                rule,
                                 GRID_RULE_VERSION,
                                 [],
                                 False,
-                                json.dumps(
-                                    {
-                                        "constituent_rules": list(rules),
-                                        "n_constituents": n_constituents,
-                                    }
-                                ),
+                                json.dumps(detail),
                                 batch_id,
                             )
-                        )
-                if flag_args or partial_flag_args:
-                    await conn.executemany(_INSERT_FLAG_SQL, flag_args + partial_flag_args)
-
-                digest_args = [
-                    (
-                        symbol,
-                        "5m",
-                        start,
-                        end,
-                        digest,
-                        DIGEST_ALGORITHM,
-                        GRID_RULE_VERSION,
-                        n,
-                        batch_id,
+                            for (tf, ts, rule), detail in plan.flag_writes
+                        ),
                     )
-                    for start, end, digest, n in digest_5m
-                ]
-                for tf, (grid, constituent_rules) in derived.items():
-                    digest_args.extend(
+                if plan.digest_writes:
+                    await conn.executemany(
+                        _INSERT_DIGEST_SQL,
                         (
-                            symbol,
-                            tf,
-                            start,
-                            end,
-                            digest,
-                            DIGEST_ALGORITHM,
-                            GRID_RULE_VERSION,
-                            n,
-                            batch_id,
-                        )
-                        for start, end, digest, n in _month_digest_rows(
-                            grid.ts_seconds,
-                            grid.open,
-                            grid.high,
-                            grid.low,
-                            grid.close,
-                            grid.volume,
-                            constituent_rules,
-                        )
+                            (
+                                symbol,
+                                tf,
+                                start,
+                                end,
+                                digest,
+                                DIGEST_ALGORITHM,
+                                GRID_RULE_VERSION,
+                                n,
+                                batch_id,
+                            )
+                            for tf, start, end, digest, n in plan.digest_writes
+                        ),
                     )
-                if digest_args:
-                    await conn.executemany(_INSERT_DIGEST_SQL, digest_args)
         except Exception as error:
             return _SymbolResult("failed", f"{symbol}: {error}", 0)
-        return _SymbolResult("derived", None, n_derived, int(verify["n_removable"]))
+        return plan.result(
+            symbol, n_derived, n_vendor_removed=n_vendor, n_archive_segment=n_archive_segment
+        )
+
+    async def _remove_vendor_rows(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        symbol: str,
+        batch_id: str,
+        load_ids: dict[str, str],
+        n_vendor: int,
+    ) -> int:
+        """Archive, record differing observations, verify by value, then delete (todo 490).
+
+        Runs inside the symbol's transaction; any mismatch raises _SymbolFailure and the whole
+        symbol rolls back, so nothing leaves market_data_ohlcv without a kept equal copy.
+        Returns the number of archive_segment revision rows written.
+        """
+        await conn.execute(_INSERT_ARCHIVE_SQL, symbol, _GRID_TF_LIST, batch_id)
+        n_segment = 0
+        for tf in _GRID_TF_LIST:
+            n_segment += _rowcount(
+                await conn.execute(_INSERT_ARCHIVE_SEGMENT_REVISION_SQL, symbol, tf, load_ids[tf])
+            )
+        verify = await conn.fetchrow(
+            _VENDOR_REMOVAL_VERIFY_SQL, symbol, _GRID_TF_LIST, list(load_ids.values())
+        )
+        if verify["n_unmatched"] or verify["n_removable"] != n_vendor:
+            raise _SymbolFailure(
+                f"vendor removal verify failed: {verify['n_unmatched']} of "
+                f"{verify['n_removable']} stored vendor rows have no equal archive or revision "
+                f"row (classification read {n_vendor})"
+            )
+        n_deleted = _rowcount(await conn.execute(_DELETE_VENDOR_ROWS_SQL, symbol, _GRID_TF_LIST))
+        if n_deleted != n_vendor:
+            raise _SymbolFailure(f"vendor delete removed {n_deleted} rows, verified {n_vendor}")
+        return n_segment
+
+    async def _write_derived(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        symbol: str,
+        base: str | None,
+        plan: _GridPlan,
+        load_ids: dict[str, str],
+    ) -> None:
+        """Old values to ohlcv_revision first, then stale deletes, new inserts, changed upserts."""
+
+        def _bar(tf: str, ts: int, values: BarValues) -> tuple:
+            return (datetime.fromtimestamp(ts, tz=UTC), symbol, tf, *values, base)
+
+        def _revision(tf: str, ts: int, old: BarValues) -> tuple:
+            return (load_ids[tf], symbol, tf, datetime.fromtimestamp(ts, tz=UTC), *old, "load")
+
+        revisions = [
+            _revision(tf, ts, old)
+            for tf, delta in plan.deltas.items()
+            for ts, (_new, old) in delta.changed.items()
+        ]
+        revisions += [
+            _revision(tf, ts, old)
+            for tf, delta in plan.deltas.items()
+            for ts, old in delta.removed.items()
+        ]
+        if revisions:
+            await conn.executemany(_INSERT_LOAD_REVISION_SQL, revisions)
+        for tf, delta in plan.deltas.items():
+            if not delta.removed:
+                continue
+            stale = [datetime.fromtimestamp(ts, tz=UTC) for ts in sorted(delta.removed)]
+            n_deleted = _rowcount(
+                await conn.execute(
+                    _DELETE_STALE_DERIVED_SQL, symbol, tf, stale, stale[0], stale[-1]
+                )
+            )
+            if n_deleted != len(stale):
+                raise _SymbolFailure(f"{tf} stale delete removed {n_deleted} of {len(stale)}")
+        new_rows = [
+            _bar(tf, ts, values)
+            for tf, delta in plan.deltas.items()
+            for ts, values in delta.new.items()
+        ]
+        if new_rows:
+            await conn.executemany(_INSERT_DERIVED_SQL, new_rows)
+        changed_rows = [
+            _bar(tf, ts, new)
+            for tf, delta in plan.deltas.items()
+            for ts, (new, _old) in delta.changed.items()
+        ]
+        if changed_rows:
+            await conn.executemany(_UPSERT_DERIVED_SQL, changed_rows)
 
     # --- D2 daily stage (plan 17, D-06/D-07/D-12/D-21) -------------------
 
