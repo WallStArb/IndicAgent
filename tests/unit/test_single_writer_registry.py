@@ -80,7 +80,10 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     # One writer per ohlcv_load.source segment (plan 185-31).
     "ohlcv_load": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
     "ohlcv_revision": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
-    # Scanned here. bar_source_policy joins when 185-36 creates it.
+    # Scanned here.
+    # Rows are decisions seeded by production/migrations (446) only; no module under services/,
+    # src/ or scripts/ may write it. 185-37 registers its exception CLI here when it lands.
+    "bar_source_policy": (),
     "ohlcv_observation": (
         Writer(
             "services/ohlcv_observation_writer.py",

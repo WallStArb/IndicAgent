@@ -31,11 +31,23 @@ GRID_SOURCE_TF = "5m"
 # this is the only definition that changes.
 DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"}
 
-# The 1d market_data_ohlcv sources that are canonical bars (plan 185-27): D2's IBKR named and
-# venue sources plus Tradier, the primary 1d source of the names it owns (migration 438). The
-# 1d content digest reads every one of them; D2's own value comparison keeps its IBKR-only list
-# because a Tradier-owned name never reaches it.
-CANONICAL_1D_SOURCES: tuple[str, ...] = ("ibkr_named", "ibkr_venue", "tradier")
+# An IBKR SMART TRADES 1d bar the d2-v2 rule admitted where the policy's primary source
+# (Tradier) has none: a head before Tradier's first bar, or an interior hole within the basis
+# tolerance (plan 185-36, migration 446). A source label of its own so
+# market_data_ohlcv_tradeable NULLs its volume by source, as for ibkr_venue, with no join to
+# bar_source_policy on every read.
+SOURCE_IBKR_FALLBACK = "ibkr_fallback"
+
+# The 1d market_data_ohlcv sources that are canonical bars: IBKR named (an IBKR-primary policy
+# range) and venue (d2-v1, disabled) sources, the admitted IBKR fallback (d2-v2) and Tradier,
+# the 1d primary source (migration 438, bar_source_policy). The 1d content digest and the daily
+# stage's value comparison read every one of them.
+CANONICAL_1D_SOURCES: tuple[str, ...] = (
+    "ibkr_named",
+    "ibkr_venue",
+    SOURCE_IBKR_FALLBACK,
+    "tradier",
+)
 # The rule the Tradier daily loader stamps on canonical_bar_lineage and bar_content_digest: a
 # stored bar is the latest non-test TRADIER observation of its date with equal values.
 TRADIER_RULE_VERSION = "tradier-v1"
