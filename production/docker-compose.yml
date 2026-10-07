@@ -1,5 +1,5 @@
 # IndicAgent Infrastructure
-# TimescaleDB + Redpanda + Ollama
+# TimescaleDB + Redpanda
 
 services:
   timescaledb:
@@ -80,31 +80,6 @@ services:
       - "9644:9644"     # Admin API + Prometheus metrics
     volumes:
       - redpanda-data:/var/lib/redpanda/data
-
-  ollama:
-    image: ollama/ollama:rocm
-    container_name: ollama
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "100m"
-        max-file: "3"
-    ports:
-      - "127.0.0.1:11434:11434"
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-      - OLLAMA_NUM_PARALLEL=2
-      - HSA_OVERRIDE_GFX_VERSION=11.5.0
-      - OLLAMA_KEEP_ALIVE=5m
-    devices:
-      - /dev/kfd
-      - /dev/dri
-    group_add:
-      - "992"
-      - "44"
-    volumes:
-      - ollama-data:/root/.ollama
 
   # node-exporter: exposes host-level RAM, disk, CPU metrics to Prometheus
   node-exporter:
@@ -308,7 +283,6 @@ services:
 volumes:
   timescale-data:
   redpanda-data:
-  ollama-data:
   node-exporter-data:
   prometheus-data:
   grafana-data:
