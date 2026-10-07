@@ -258,7 +258,7 @@ run_all's landed-marker check from 185-41).
 
 - [x] 185-32-PLAN.md - alignment sweep: fill paths removed or fenced, no-synthetic DB guard and AST CI test, provider matrix (wave 15)
 - [x] 185-34-PLAN.md - D-28 gate conditions 1, 3 and 4 source-aware (wave 15)
-- [ ] 185-36-PLAN.md - bar_source_policy (migration 446), pure daily rule d2-v2 on known cases, daily stage on d2-v2 measured in dry run (wave 15)
+- [x] 185-36-PLAN.md - bar_source_policy (migration 446), pure daily rule d2-v2 on known cases, daily stage on d2-v2 measured in dry run (wave 15)
 
 **Wave 16** *(blocked on Wave 15 completion)*
 
