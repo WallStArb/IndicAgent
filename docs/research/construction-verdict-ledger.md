@@ -95,6 +95,7 @@ Candidates with no verdict. None is queued; each needs a family spec to enter a 
 | Factor sensitivity, cross-asset regime levels | `docs/ideas/from-ssfi/signal-factor-sensitivity-cross-asset.md` | Idea |
 | Convolutional raw-window representation | `docs/ideas/signal-convolutional-raw-window-representation.md` | Idea, skeptical on arrival |
 | Implied borrow cost from listed derivatives | `docs/ideas/signal-implied-borrow-cost-from-listed-derivatives.md` | Needs options data |
+| Front-weighted put ladder | `docs/ideas/signal-credit-put-reverse-diagonal.md` | Idea, 2026-10-05. One OptionNet book (SPX weeklies, projection 2026-10-02): two 1:2 calendars, uncovered front longs, and a 2:1 short at the 7400 wing. Portfolio margin required (strategy margin on the 15 Oct shorts is about $13M). Needs an SPX put-chain snapshot before this inventory can be priced. Not an S1 family |
 | Orderflow setups (delta divergence, imbalance, absorption) | `.planning/IDEAS.md` | Needs tick-level bid/ask data |
 | News sentiment, alternative data | `.planning/IDEAS.md`, `docs/research/data-alt-data-sources.md` | Needs a data source |
 
