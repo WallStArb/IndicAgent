@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-03
 source: interactive session (185 session), found while verifying 185-18 Task 0
@@ -54,3 +54,13 @@ spawned a real `bar_derivation.py --stage grid --apply` against the live databas
 2026-10-03 04:01 to 04:58 UTC, the first derived 74 symbols and 7.7M rows through the normal
 idempotent changed-only path). Fixed in the 185-18 follow-up commit; a CI guard that no unit test
 spawns `bar_derivation.py` would close the class (not built).
+
+## Closed 2026-10-07
+
+Closed by 185-31: the grid stage writes by a pure write contract (migration 443) and removes a vendor
+row only after a value match against the archive or an `archive_segment` revision. Commits 7bd83731d,
+a01b82a55 (mislabeled with a 185-44 message, see 185-31-SUMMARY), 9cc064c2c, fd888c2c1, eba482774.
+The 7 symbols were derived one transaction each (batches f83ec7bf to b37d6a44); the first full apply
+over 240 symbols, grid batch f5c5323f-d1b9-4869-862c-37ebb8f46680, completed with no failed symbol,
+and the second, 91190fc2-00b2-4dcc-890e-631716c1ff4c, completed with 0 new, changed or removed rows.
+185-35 reran `tests/integration/test_derived_grid_live.py` on 2026-10-07 22:30 UTC: 7 passed.
