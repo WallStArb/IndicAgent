@@ -4,10 +4,17 @@ One read-only asyncpg loader that assembles everything plan 08's labels need
 for a set of symbols and a span: the names whose history starts at a venue
 move and their move dates (``ohlcv_venue_head``), the quarantined bar keys
 (``bar_quality_flag``, D-09), the listing-exchange mix (latest
-``ohlcv_request.primary_exchange`` per name), the current D2 rule version
-(latest completed ``bar_derivation_batch`` stage ``daily``; ``None`` until the
-first daily derivation run, reported rather than guessed) and the dividend
-coverage windows (``dividend_event_coverage``, Yahoo rows).
+``ohlcv_request.primary_exchange`` per name), the canonical rule
+versions behind the requested 1d bars (distinct ``canonical_bar_lineage`` rule
+versions in the span, sorted and comma-joined, so a panel mixing sources
+records every rule; ``None`` without lineage, reported rather than guessed),
+the policy and verdict state the label is built under (``policy_as_of``: latest
+``bar_source_policy.recorded_at`` covering the symbols, timeframe and span;
+``verdict_as_of``: latest ``bar_integrity`` ``evaluated_at`` for the symbols and
+timeframe; spec section 1, point in time) and the dividend coverage windows
+(``dividend_event_coverage``, Yahoo rows). For a timeframe other than 1d the
+rule version keeps today's read, the latest completed ``bar_derivation_batch``
+stage ``daily`` (the grid rule).
 
 Boundary: this module reads, it never computes; the pure label math stays in
 ``labels.py`` and the research layer stays untouched (the helper lives one
@@ -53,6 +60,30 @@ FROM (
 WHERE rn = 1
 """
 
+_D2_LINEAGE_SQL = """
+SELECT DISTINCT rule_version
+FROM canonical_bar_lineage
+WHERE symbol = ANY($1)
+  AND timeframe = '1d'
+  AND "timestamp" >= $2
+  AND "timestamp" < $3
+"""
+
+_POLICY_AS_OF_SQL = """
+SELECT MAX(recorded_at)
+FROM bar_source_policy
+WHERE (symbol = ANY($1) OR symbol IS NULL)
+  AND timeframe = $2
+  AND daterange(valid_from, valid_to, '[)') && daterange($3::date, $4::date, '[)')
+"""
+
+_VERDICT_AS_OF_SQL = """
+SELECT MAX(evaluated_at)
+FROM integrity_monitor
+WHERE monitor_type = 'bar_integrity'
+  AND subject = ANY($1)
+"""
+
 _D2_RULE_SQL = """
 SELECT rule_version
 FROM bar_derivation_batch
@@ -84,6 +115,8 @@ class LabelInputs:
     exchange_of: dict[str, str]
     d2_rule_version: str | None
     dividend_coverage: dict[str, tuple[date, date]]
+    policy_as_of: datetime | None
+    verdict_as_of: datetime | None
 
 
 async def load_label_inputs(
@@ -113,8 +146,20 @@ async def load_label_inputs(
     exchange_rows = await conn.fetch(_EXCHANGE_SQL, symbol_array)
     exchange_of = {row[0]: row[1] for row in exchange_rows}
 
-    d2_rows = await conn.fetch(_D2_RULE_SQL)
-    d2_rule_version = d2_rows[0][0] if d2_rows else None
+    if tf == "1d":
+        lineage_rows = await conn.fetch(_D2_LINEAGE_SQL, symbol_array, start, end)
+        rules = sorted({row[0] for row in lineage_rows if row[0] is not None})
+        d2_rule_version = ",".join(rules) if rules else None
+    else:
+        d2_rows = await conn.fetch(_D2_RULE_SQL)
+        d2_rule_version = d2_rows[0][0] if d2_rows else None
+
+    policy_rows = await conn.fetch(_POLICY_AS_OF_SQL, symbol_array, tf, start.date(), end.date())
+    policy_as_of = policy_rows[0][0] if policy_rows else None
+
+    subjects = [f"{symbol}|{tf}" for symbol in symbol_array]
+    verdict_rows = await conn.fetch(_VERDICT_AS_OF_SQL, subjects)
+    verdict_as_of = verdict_rows[0][0] if verdict_rows else None
 
     dividend_rows = await conn.fetch(_DIVIDEND_COVERAGE_SQL, symbol_array)
     dividend_coverage = {row[0]: (row[1], row[2]) for row in dividend_rows}
@@ -126,4 +171,6 @@ async def load_label_inputs(
         exchange_of=exchange_of,
         d2_rule_version=d2_rule_version,
         dividend_coverage=dividend_coverage,
+        policy_as_of=policy_as_of,
+        verdict_as_of=verdict_as_of,
     )
