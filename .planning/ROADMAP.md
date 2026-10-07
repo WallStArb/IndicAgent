@@ -164,7 +164,7 @@ suspect, corroboration and gap flags as flags on bars.
 **Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
 through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
 Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 28/44 plans executed (27 to 35 close the 2026-10-06 verification gaps; 31, 33 and 35 amended and 36 to 44 added by the data layer integrity design, `docs/plans/2026-10-06-data-layer-integrity-design.md`, owner-approved 2026-10-06)
+**Plans:** 28/45 plans executed (27 to 35 close the 2026-10-06 verification gaps; 31, 33 and 35 amended and 36 to 44 added by the data layer integrity design, `docs/plans/2026-10-06-data-layer-integrity-design.md`, owner-approved 2026-10-06)
 
 Plans:
 
@@ -230,7 +230,7 @@ Plans:
 
 - [x] 185-24-PLAN.md - D6 listing venue, docs and todo close-out (wave 12)
 
-**Gap closure and data layer integrity** *(185-VERIFICATION.md and the 2026-10-06 data layer integrity design; waves 13 to 23)*
+**Gap closure and data layer integrity** *(185-VERIFICATION.md and the 2026-10-06 data layer integrity design; waves 13 to 24)*
 
 Exit notes: success criterion 8 (reopened ideas re-evaluated on canonical bars) is an obligation on
 the first reopened idea, not a 185 deliverable (owner, 2026-10-06). D0's S0 application
@@ -238,10 +238,12 @@ the first reopened idea, not a 185 deliverable (owner, 2026-10-06). D0's S0 appl
 in front of daily attempts 3, 3b and 4; D-04 stays unmet at close and re-verification records an
 explicit override for it. The design replaces the second 1d writer with one rule (d2-v2) and one
 writer, makes lineage a view, and gates promotion and the phase 186 rebuild on computed verdicts.
-Cross-phase order: 185-44 first (complexity baseline and guards), then 189-07 (vendor 15m/1h fetch
-stopped) before 185-31; 189-08 after 185-39 and 185-41; 189-10 (5m pilot and launch) after 185-35
-and 185-40; 185-42 and 185-43 after 189-11; phase 186's rebuild runs once after 185-43 (enforced by
-run_all's landed-marker check from 185-41).
+Cross-phase order (owner re-sequencing 2026-10-07: pipeline squared away and clutter cleaned before
+the new data): 185-44, 189-07, 185-28, 185-31, 185-32/34/36, 185-38 (cutover), 185-33, 185-39, 185-29,
+185-40, 185-41, 189-08, 185-37, 185-35, 185-42, 185-45, 185-43, then 189-10 (one-time IBKR 1d fetch
+for the 473 never-asked names, 5m pilot and launch), 189-09, 189-11 after the 5m drain. Phase 186's
+rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-marker check from
+185-41).
 
 **Wave 13**
 
@@ -286,13 +288,17 @@ run_all's landed-marker check from 185-41).
 
 - [ ] 185-35-PLAN.md - replaced: first fired Tradier and D7 timer runs verified (nightly stays off), ETHA confirmed, closing checks, todo 490 closed (wave 21)
 
-**Wave 22** *(blocked on Wave 21 and on 189-11, the 5m backfill's completion)*
+**Wave 22** *(blocked on Wave 21 and on 189-08; runs before any bulk IBKR pull)*
 
 - [ ] 185-42-PLAN.md - cleanup, code: fill path, d2-v1, first-write-wins in the rebuild writer, one-off scripts, orphaned keys marked for retirement (wave 22)
 
 **Wave 23** *(blocked on Wave 22 completion)*
 
-- [ ] 185-43-PLAN.md - cleanup, DB and docs: backfill_status dropped, retired APR keys (migration 452), docs and todos, exit criteria against the 185-44 baseline (wave 23)
+- [ ] 185-45-PLAN.md - dormant v2.x and AI stack archived then removed: ollama and its volume, langfuse, unused tempo volume, I1-I7 code, units and tables; Redpanda by a pre-registered rule (wave 23)
+
+**Wave 24** *(blocked on Wave 23 completion)*
+
+- [ ] 185-43-PLAN.md - cleanup, DB, docs and housekeeping: backfill_status and swap tables dropped, retired APR keys (migration 452), phase archive, old logs, memory, docs and todos, exit criteria against the 185-44 baseline (wave 24)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
@@ -539,5 +545,5 @@ Plans:
 - [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
 - [ ] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
-- [ ] 189-10-PLAN.md - weekly IBKR 1d reconcile and parity sample (migration 451), 20-name 5m pilot with a pre-registered criterion, fetcher timer launched
+- [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched
 - [ ] 189-11-PLAN.md - 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed
