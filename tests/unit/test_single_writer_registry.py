@@ -75,7 +75,8 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         "tests/unit/test_ohlcv_intraday_raw_archive_writer_boundary.py"
     ),
     "ohlcv_coverage": Covered("tests/unit/test_ohlcv_coverage_writer_boundary.py"),
-    "canonical_bar_lineage": Covered("tests/unit/test_canonical_lineage_digest_writer_boundary.py"),
+    # canonical_bar_lineage is a view since migration 447 (plan 185-38); the lineage/digest
+    # boundary test still fails any statement that writes the name.
     "bar_content_digest": Covered("tests/unit/test_canonical_lineage_digest_writer_boundary.py"),
     # One writer per ohlcv_load.source segment (plan 185-31).
     "ohlcv_load": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
