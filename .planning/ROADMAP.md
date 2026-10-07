@@ -282,8 +282,8 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 20** *(blocked on Wave 19 completion)*
 
-- [ ] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37) ; NOTE: amend to the two-lane design first (todo 503)
-- [ ] 185-37-PLAN.md - vendor adjustment-basis study, pre-registered rule, exception policy rows (wave 20)
+- [x] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37) ; NOTE: amend to the two-lane design first (todo 503)
+- [x] 185-37-PLAN.md - vendor adjustment-basis study, pre-registered rule, exception policy rows (wave 20)
 
 **Wave 21** *(blocked on Wave 20 completion)*
 
@@ -552,7 +552,7 @@ Plans:
 - [x] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
 - [ ] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
 - [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
-- [ ] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
+- [x] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
 - [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched
 - [ ] 189-11-PLAN.md - 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed
