@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
 import numpy as np
@@ -493,3 +493,34 @@ def rebucket_5m(
         )
         for i in np.flatnonzero(full)
     }
+
+
+def digest_scope(
+    *,
+    full_sweep: bool,
+    previous_at: datetime | None,
+    previous_passed: bool | None,
+    loads: Iterable[tuple[datetime, date | None, date | None]],
+) -> frozenset[datetime] | None:
+    """The calendar months (UTC month starts) the intraday digest_fresh check must recompute for
+    one name, or None for every month.
+
+    Every month when a full sweep is due, when the name has no previous verdict (nothing was ever
+    checked) or its previous verdict failed (a failure stays a failure until a recompute clears
+    it, never because no bar was written since). Otherwise the months spanned by each load with
+    changes (loaded_at, first_bar, last_bar) written after the previous report; a load with no
+    span means every month.
+    """
+    if full_sweep or previous_at is None or previous_passed is not True:
+        return None
+    months: set[datetime] = set()
+    for loaded_at, first_bar, last_bar in loads:
+        if loaded_at <= previous_at:
+            continue
+        if first_bar is None or last_bar is None:
+            return None
+        year, month = first_bar.year, first_bar.month
+        while (year, month) <= (last_bar.year, last_bar.month):
+            months.add(datetime(year, month, 1, tzinfo=UTC))
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return frozenset(months)

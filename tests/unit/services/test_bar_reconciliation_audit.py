@@ -755,3 +755,491 @@ def test_integrity_keys_are_loaded_by_the_audit():
     assert "threshold.bar_integrity.%" in audit._APR_PATTERNS
     params = audit._IntegrityParams.from_apr({"threshold.bar_integrity.report_max_age_hours": 12})
     assert params.report_max_age_hours == 12 and params.session_coverage_min == 0.999
+
+
+# ---------------------------------------------------------------------------
+# The intraday verdicts (plan 185-40 Task 2): fakes only, never the live DB (todo 494)
+# ---------------------------------------------------------------------------
+
+_I_DAYS = (date(2025, 6, 2), date(2025, 6, 3))
+_I_END_DAY = _I_DAYS[-1]
+
+
+def _intraday_series(days=_I_DAYS):
+    """Five-minute rows over whole regular sessions, one price step per bar."""
+    from src.intelligence.bars.sessions import nyse_sessions
+
+    sessions = nyse_sessions(days[0], days[-1])
+    slots = audit.session_slots(
+        sessions,
+        5,
+        datetime(days[0].year, days[0].month, days[0].day, tzinfo=UTC),
+        datetime(days[-1].year, days[-1].month, days[-1].day, tzinfo=UTC) + timedelta(days=1),
+    )
+    rows = [
+        {
+            "timestamp": slot,
+            "open": 100.0 + i,
+            "high": 102.0 + i,
+            "low": 99.0 + i,
+            "close": 101.0 + i,
+            "volume": 10.0,
+            "base": None,
+        }
+        for i, slot in enumerate(slots)
+    ]
+    return sessions, rows
+
+
+def _archive_rows(rows, tf):
+    """What a vendor archive holds when it agrees with the 5m rows (built by the rebucketing)."""
+    from src.intelligence.bars.integrity_checks import rebucket_5m
+
+    five = audit._FiveMinute.from_rows(rows, [])
+    width = {"15m": 900, "1h": 3600}[tf]
+    starts = sorted({int(r["timestamp"].timestamp()) // width * width for r in rows})
+    if tf == "1h":  # the vendor's first bucket of a session is the 09:30 half hour
+        starts = sorted({s for s in starts} | {int(r["timestamp"].timestamp()) for r in rows[:1]})
+    rebucketed = rebucket_5m(
+        five.ts, five.open, five.high, five.low, five.close, five.volume, starts, timeframe=tf
+    )
+    return {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
+
+
+class _IntradayConn:
+    """Answers the intraday report's reads by SQL constant and records nothing it must not."""
+
+    def __init__(self, names, *, previous=None, last_sweep=None, loads=(), stray=None):
+        self.names = names  # symbol -> {"rows", "archive": {tf: {ts: values}}, "digests": {tf: {}}}
+        self.previous = previous or {}
+        self.last_sweep = last_sweep
+        self.loads = list(loads)
+        self.stray = stray or {}
+        self.facts: list[tuple] = []
+
+    async def fetch(self, sql, *args):
+        if sql == audit._INTRADAY_NAMES_SQL:
+            return [{"symbol": s} for s in sorted(self.names)]
+        if sql == audit._PREVIOUS_DIGEST_VERDICT_SQL:
+            return [
+                {"subject": s, "passed": p, "evaluated_at": at}
+                for s, (p, at) in self.previous.items()
+            ]
+        if sql == audit._CHANGING_LOADS_SQL:
+            return self.loads
+        if sql == audit._STRAY_VENDOR_SQL:
+            return [{"symbol": s, "timeframe": tf, "n": n} for (s, tf), n in self.stray.items()]
+        symbol = args[0]
+        data = self.names[symbol]
+        if sql == audit._SELECT_5M_SQL:
+            return data["rows"]
+        if sql == audit._RAW_5M_SLOTS_SQL:
+            return [{"timestamp": r["timestamp"]} for r in data.get("slots", data["rows"])]
+        if sql == audit._ARCHIVE_ROWS_SQL:
+            return [
+                {
+                    "timeframe": tf,
+                    "timestamp": ts,
+                    **dict(zip(("open", "high", "low", "close", "volume"), v)),
+                }
+                for tf, by_ts in data["archive"].items()
+                for ts, v in by_ts.items()
+            ]
+        if sql == audit._SELECT_CURRENT_GRID_DIGESTS_SQL:
+            return [
+                {"timeframe": tf, "range_start": start, "digest": digest}
+                for tf, by_month in data["digests"].items()
+                for start, digest in by_month.items()
+            ]
+        return []  # flags, answered windows
+
+    async def fetchval(self, sql, *args):
+        if sql == audit._LATEST_SWEEP_SQL:
+            return self.last_sweep
+        return len(self.facts)
+
+
+class _IWindow:
+    last_session = _I_END_DAY
+    training_window_end = datetime(2025, 6, 3, tzinfo=UTC)
+
+    @property
+    def end(self):
+        from src.intelligence.bars.sessions import nyse_sessions
+
+        return nyse_sessions(_I_END_DAY, _I_END_DAY)[_I_END_DAY][1]
+
+
+def _agreeing_name(rows=None):
+    sessions, base_rows = _intraday_series()
+    rows = rows if rows is not None else base_rows
+    five = audit._FiveMinute.from_rows(rows, [])
+    digests, _ = audit.intraday_month_digests(five, sessions, None)
+    return {
+        "rows": rows,
+        "archive": {tf: _archive_rows(rows, tf) for tf in ("15m", "1h")},
+        "digests": digests,
+    }
+
+
+_I_NOW = datetime(2025, 6, 4, 6, tzinfo=UTC)
+_I_PARAMS = audit._IntegrityParams.from_apr({})
+
+
+def _no_drift(names):
+    async def drift(_names):
+        return {}
+
+    return drift(names)
+
+
+def _intraday(conn, drift=_no_drift):
+    import asyncio
+
+    return asyncio.run(
+        audit.BarReconciliationAudit._verdict_report_intraday(
+            conn, _I_PARAMS, _IWindow(), _I_NOW, coverage_drift=drift
+        )
+    )
+
+
+def _verdict(run, subject, check):
+    return next(f for f in run.facts if f[1] == subject and f[2] == check)
+
+
+def test_an_agreeing_name_passes_every_intraday_check_and_gets_the_whole_row_set():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}))
+    subjects = {(f[1], f[2]) for f in run.facts if f[1] != "intraday|sweep"}
+    assert subjects == {
+        ("AAA|5m", "slot_coverage"),
+        ("AAA|5m", "digest_fresh"),
+        ("AAA|15m", "digest_fresh"),
+        ("AAA|1h", "digest_fresh"),
+        ("AAA|15m", "grid_parity"),
+        ("AAA|1h", "grid_parity"),
+        ("AAA|15m", "stray_vendor_rows"),
+        ("AAA|1h", "stray_vendor_rows"),
+        ("AAA|5m", "coverage_cache"),
+    }
+    assert {f[0] for f in run.facts} == {"bar_integrity"}
+    assert all(f[5] for f in run.facts) and run.failing_by_check == {}
+    parity = _verdict(run, "AAA|15m", "grid_parity")
+    assert parity[3] == 0.0 and parity[4] == 0.0
+
+
+def test_missing_unanswered_slots_fail_slot_coverage_with_the_worst_year_as_metric():
+    _, rows = _intraday_series()
+    kept = [r for i, r in enumerate(rows) if i % 10]  # one slot in ten missing
+    name = _agreeing_name(rows)
+    name["slots"] = kept
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|5m", "slot_coverage")
+    assert verdict[5] is False
+    assert 0.85 < verdict[3] < 0.95
+    assert verdict[4] == 0.995
+
+
+def test_zero_volume_provider_bars_count_as_answered_slots():
+    _, rows = _intraday_series()
+    name = _agreeing_name(rows)
+    name["slots"] = list(rows)  # a zero-volume bar is stored but absent from the tradeable view
+    name["rows"] = [r for i, r in enumerate(rows) if i % 10]  # tradeable view hides them
+    run = _intraday(_IntradayConn({"AAA": name}))
+    assert _verdict(run, "AAA|5m", "slot_coverage")[5] is True
+
+
+def test_a_mismatched_archive_bucket_fails_grid_parity_and_is_named():
+    name = _agreeing_name()
+    key = next(iter(name["archive"]["15m"]))
+    values = list(name["archive"]["15m"][key])
+    values[4] += 1.0
+    name["archive"]["15m"][key] = tuple(values)
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is False and verdict[3] == 1.0
+    assert run.parity_failing == ["AAA|15m|mismatched=1"]
+    assert _verdict(run, "AAA|1h", "grid_parity")[5] is True
+
+
+def test_a_name_without_archive_rows_passes_parity_with_a_null_metric_and_is_counted():
+    name = _agreeing_name()
+    name["archive"] = {}
+    run = _intraday(_IntradayConn({"AAA": name}))
+    verdict = _verdict(run, "AAA|15m", "grid_parity")
+    assert verdict[5] is True and verdict[3] is None
+    assert run.n_without_archive == {"15m": 1, "1h": 1}
+
+
+def test_stray_vendor_rows_fail_per_timeframe():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name()}, stray={("AAA", "15m"): 7}))
+    assert _verdict(run, "AAA|15m", "stray_vendor_rows")[3:6] == (7.0, 0.0, False)
+    assert _verdict(run, "AAA|1h", "stray_vendor_rows")[5] is True
+
+
+def test_a_stale_stored_digest_fails_only_its_timeframe():
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["15m"]))
+    name["digests"]["15m"][month] = "0" * 64
+    run = _intraday(_IntradayConn({"AAA": name}))
+    stale = _verdict(run, "AAA|15m", "digest_fresh")
+    assert stale[5] is False and stale[3] == 1.0
+    assert _verdict(run, "AAA|5m", "digest_fresh")[5] is True
+
+
+def test_first_run_is_a_full_sweep_and_writes_the_sweep_fact_once():
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name(), "BBB": _agreeing_name()}))
+    assert run.full_sweep is True
+    sweep = [f for f in run.facts if f[2] == "digest_full_sweep"]
+    assert len(sweep) == 1 and sweep[0][1] == "intraday|sweep" and sweep[0][3] == 2.0
+
+
+def _previous(passed=True, at=datetime(2025, 6, 3, 6, tzinfo=UTC)):
+    return {"AAA|5m": (passed, at)}
+
+
+def test_digest_scope_skips_months_nothing_was_written_in_since_the_previous_report():
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["5m"]))
+    name["digests"]["5m"][month] = "0" * 64  # stale, but no load touched the month
+    recent = datetime(2025, 6, 1, 6, tzinfo=UTC)
+    run = _intraday(_IntradayConn({"AAA": name}, previous=_previous(), last_sweep=recent))
+    assert run.full_sweep is False
+    assert _verdict(run, "AAA|5m", "digest_fresh")[5] is True
+    assert not [f for f in run.facts if f[2] == "digest_full_sweep"]
+
+
+def test_a_load_written_since_the_previous_report_brings_its_months_into_scope():
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["5m"]))
+    name["digests"]["5m"][month] = "0" * 64
+    load = {
+        "symbol": "AAA",
+        "loaded_at": datetime(2025, 6, 3, 12, tzinfo=UTC),
+        "first_bar": date(2025, 6, 2),
+        "last_bar": date(2025, 6, 3),
+    }
+    run = _intraday(
+        _IntradayConn(
+            {"AAA": name},
+            previous=_previous(),
+            last_sweep=datetime(2025, 6, 1, 6, tzinfo=UTC),
+            loads=[load],
+        )
+    )
+    assert _verdict(run, "AAA|5m", "digest_fresh")[5] is False
+
+
+def test_a_sweep_older_than_the_cadence_rechecks_every_month():
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["5m"]))
+    name["digests"]["5m"][month] = "0" * 64
+    run = _intraday(
+        _IntradayConn(
+            {"AAA": name}, previous=_previous(), last_sweep=datetime(2025, 5, 20, 6, tzinfo=UTC)
+        )
+    )
+    assert run.full_sweep is True
+    assert _verdict(run, "AAA|5m", "digest_fresh")[5] is False
+
+
+def test_a_previous_failure_is_rechecked_even_when_nothing_was_written():
+    name = _agreeing_name()
+    month = next(iter(name["digests"]["5m"]))
+    name["digests"]["5m"][month] = "0" * 64
+    run = _intraday(
+        _IntradayConn(
+            {"AAA": name},
+            previous=_previous(passed=False),
+            last_sweep=datetime(2025, 6, 1, 6, tzinfo=UTC),
+        )
+    )
+    assert _verdict(run, "AAA|5m", "digest_fresh")[5] is False
+
+
+def test_coverage_cache_drift_names_the_failing_names():
+    async def drift(_names):
+        return {"BBB": 2}
+
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name(), "BBB": _agreeing_name()}), drift=drift)
+    assert _verdict(run, "AAA|5m", "coverage_cache")[5] is True
+    bad = _verdict(run, "BBB|5m", "coverage_cache")
+    assert bad[5] is False and bad[3] == 2.0
+    assert run.failing_by_check["coverage_cache"] == 1
+
+
+def test_a_held_fetcher_lock_writes_no_coverage_cache_verdict_and_counts_the_skip():
+    async def held(_names):
+        return None
+
+    run = _intraday(_IntradayConn({"AAA": _agreeing_name(), "BBB": _agreeing_name()}), drift=held)
+    assert not [f for f in run.facts if f[2] == "coverage_cache"]
+    assert run.coverage_skipped == 2
+    assert "coverage_cache" not in run.passing_by_check
+
+
+class _FakeLock:
+    def __init__(self, granted=True):
+        self.granted = granted
+        self.events: list[str] = []
+
+    def acquire(self):
+        self.events.append("acquire")
+        return self.granted
+
+    def release(self):
+        self.events.append("release")
+
+
+class _FakeCursor:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.executed.append(sql)
+        self._last = sql
+
+    def fetchall(self):
+        self.conn.reads += 1
+        return self.conn.committed if self.conn.reads == 1 else self.conn.rebuilt
+
+
+class _FakeConnection:
+    def __init__(self, committed, rebuilt):
+        self.committed, self.rebuilt = committed, rebuilt
+        self.reads = 0
+        self.executed: list[str] = []
+        self.events: list[str] = []
+
+    def cursor(self):
+        return _FakeCursor(self)
+
+    def commit(self):
+        self.events.append("commit")
+
+    def rollback(self):
+        self.events.append("rollback")
+
+    def close(self):
+        self.events.append("close")
+
+
+_LEDGER = (
+    "AAA",
+    "5m",
+    datetime(2020, 1, 1, tzinfo=UTC),
+    datetime(2025, 1, 1, tzinfo=UTC),
+    100,
+    "ok",
+)
+
+
+def _drift(lock, conn, rebuild=None):
+    calls = []
+
+    def default_rebuild(cur, symbols):
+        calls.append(symbols)
+        return 0
+
+    result = audit.coverage_cache_drift(
+        "dsn",
+        ["AAA", "BBB"],
+        lock_factory=lambda dsn, holder: lock,
+        connect=lambda dsn: conn,
+        rebuild=rebuild or default_rebuild,
+    )
+    return result, calls
+
+
+def test_coverage_cache_rebuild_is_rolled_back_never_committed_and_the_lock_released():
+    rebuilt = (*_LEDGER[:4], 101, "ok")  # the rebuild finds one more stored bar than the ledger
+    lock, conn = _FakeLock(), _FakeConnection([_LEDGER], [rebuilt])
+    result, calls = _drift(lock, conn)
+    assert result == {"AAA": 1}
+    assert calls == [["AAA", "BBB"]]
+    assert "commit" not in conn.events and conn.events == ["rollback", "close"]
+    assert any(sql.startswith("SET LOCAL ROLE") for sql in conn.executed)
+    assert lock.events == ["acquire", "release"]
+
+
+def test_coverage_cache_equal_ledger_is_zero_drift_and_a_missing_row_is_drift():
+    result, _ = _drift(_FakeLock(), _FakeConnection([_LEDGER], [_LEDGER]))
+    assert result == {}
+    missing = ("BBB", "15m", None, None, 0, None)
+    result, _ = _drift(_FakeLock(), _FakeConnection([_LEDGER], [_LEDGER, missing]))
+    assert result == {"BBB": 1}
+
+
+def test_coverage_cache_with_the_lock_held_does_nothing_and_never_connects():
+    lock = _FakeLock(granted=False)
+
+    def no_connect(dsn):
+        raise AssertionError("connected without the fetcher lock")
+
+    result = audit.coverage_cache_drift(
+        "dsn", ["AAA"], lock_factory=lambda dsn, holder: lock, connect=no_connect
+    )
+    assert result is None and lock.events == ["acquire"]
+
+
+def test_coverage_cache_releases_the_lock_and_rolls_back_when_the_rebuild_raises():
+    lock, conn = _FakeLock(), _FakeConnection([_LEDGER], [_LEDGER])
+
+    def boom(cur, symbols):
+        raise RuntimeError("rebuild failed")
+
+    with pytest.raises(RuntimeError, match="rebuild failed"):
+        _drift(lock, conn, rebuild=boom)
+    assert conn.events == ["rollback", "close"]
+    assert lock.events == ["acquire", "release"]
+
+
+def test_the_lock_holder_names_the_audit_job():
+    seen = {}
+
+    def factory(dsn, holder):
+        seen["holder"] = holder
+        return _FakeLock(granted=False)
+
+    audit.coverage_cache_drift("dsn", ["AAA"], lock_factory=factory)
+    assert seen["holder"] == "bar-reconciliation-audit"
+
+
+def test_intraday_report_is_written_with_a_read_back_that_counts_the_1d_rows_too():
+    import asyncio
+
+    conn = _IntradayConn({"AAA": _agreeing_name()})
+    run = _intraday(conn)
+
+    class _Count(_IntradayConn):
+        async def executemany(self, sql, facts):
+            self.facts.extend(facts)
+
+    counting = _Count({})
+    asyncio.run(audit.BarReconciliationAudit._write_verdicts(counting, run, _I_NOW, already=0))
+    assert len(counting.facts) == len(run.facts)
+
+    class _Short(_Count):
+        async def fetchval(self, sql, *args):
+            return len(run.facts)  # the 1d rows are missing from the read-back
+
+    with pytest.raises(RuntimeError, match="wrote"):
+        asyncio.run(
+            audit.BarReconciliationAudit._write_verdicts(_Short({}), run, _I_NOW, already=5)
+        )
+
+
+def test_intraday_keys_are_loaded_by_the_audit():
+    assert "infra.bar_integrity.%" in audit._APR_PATTERNS
+    params = audit._IntegrityParams.from_apr(
+        {
+            "threshold.bar_integrity.slot_coverage_min_intraday": 0.99,
+            "infra.bar_integrity.intraday_full_sweep_days": 3,
+        }
+    )
+    assert params.slot_coverage_min_intraday == 0.99 and params.intraday_full_sweep_days == 3

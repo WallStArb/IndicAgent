@@ -455,3 +455,46 @@ def test_rebucket_of_no_bars_is_empty():
         )
         == {}
     )
+
+
+def _load(day: int, first: date | None, last: date | None):
+    return (datetime(2026, 10, day, tzinfo=UTC), first, last)
+
+
+_PREV = datetime(2026, 10, 3, 6, tzinfo=UTC)
+
+
+def test_digest_scope_is_every_month_on_a_full_sweep_first_run_or_a_previous_failure():
+    from src.intelligence.bars.integrity_checks import digest_scope
+
+    for kwargs in (
+        {"full_sweep": True, "previous_at": _PREV, "previous_passed": True},
+        {"full_sweep": False, "previous_at": None, "previous_passed": None},
+        {"full_sweep": False, "previous_at": _PREV, "previous_passed": False},
+    ):
+        assert digest_scope(loads=[], **kwargs) is None
+
+
+def test_digest_scope_is_the_months_of_loads_written_since_the_previous_report():
+    from src.intelligence.bars.integrity_checks import digest_scope
+
+    scope = digest_scope(
+        full_sweep=False,
+        previous_at=_PREV,
+        previous_passed=True,
+        loads=[
+            _load(2, date(2020, 1, 1), date(2020, 3, 1)),  # before the report: ignored
+            _load(5, date(2025, 12, 20), date(2026, 2, 3)),
+        ],
+    )
+    assert scope == frozenset(
+        datetime(y, m, 1, tzinfo=UTC) for y, m in ((2025, 12), (2026, 1), (2026, 2))
+    )
+
+
+def test_digest_scope_is_empty_when_nothing_was_written_and_all_when_a_load_has_no_span():
+    from src.intelligence.bars.integrity_checks import digest_scope
+
+    base = {"full_sweep": False, "previous_at": _PREV, "previous_passed": True}
+    assert digest_scope(loads=[], **base) == frozenset()
+    assert digest_scope(loads=[_load(5, None, None)], **base) is None

@@ -58,22 +58,32 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
+from time import perf_counter
 from typing import Any, NamedTuple
 
 import asyncpg
+import numpy as np
+import psycopg
 import structlog
 
+from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
     _D2V2_ROUTES,
     _SELECT_1D_FLAG_RULES_SQL,
+    _SELECT_5M_FLAGS_SQL,
+    _SELECT_5M_SQL,
     _SELECT_CURRENT_1D_DIGESTS_SQL,
+    _SELECT_CURRENT_GRID_DIGESTS_SQL,
     _SELECT_DAILY_OBSERVATIONS_SQL,
     _SELECT_DAILY_SPLITS_SQL,
     _SELECT_POLICY_1D_SQL,
     _SELECT_STORED_1D_SQL,
+    _derive_for_tf,
+    _month_digest_rows,
 )
+from services.ohlcv_coverage_writer import rebuild_from_stored_state
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
@@ -82,6 +92,7 @@ from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity
 from src.core.models import AssetClass
 from src.intelligence.bars.daily_rule import PolicyRow
 from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE, Observation, SplitRecord
+from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
@@ -91,10 +102,19 @@ from src.intelligence.bars.gap_plan import (
 )
 from src.intelligence.bars.integrity_checks import (
     CHECKS_1D,
+    CHECKS_INTRADAY,
+    INFO_DIGEST_FULL_SWEEP,
     INFO_REFUSED_HEAD,
+    SWEEP_SUBJECT,
     NameInputs1d,
     StoredBar,
+    Values,
+    answered_slots,
+    digest_scope,
+    grid_parity,
     judge_name_1d,
+    rebucket_5m,
+    slot_coverage_by_year,
 )
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
@@ -741,6 +761,7 @@ _APR_PATTERNS = [
     "infra.bar_derivation.%",
     "infra.ibkr.venue_fallback.%",
     "threshold.bar_integrity.%",
+    "infra.bar_integrity.%",
 ]
 
 _SMART_OBS_SQL = """
@@ -1102,17 +1123,26 @@ class _Params:
 
 @dataclass(frozen=True)
 class _IntegrityParams:
-    """Thresholds of the 1d verdict report (migration 449; basis keys are 185-36's)."""
+    """Thresholds of the verdict report (migration 449 for 1d, 450 for intraday; basis keys are
+    185-36's)."""
 
     session_coverage_min: float
     vendor_run_min_sessions: int
     report_max_age_hours: int
     basis_window_sessions: int
     basis_tolerance_bp: float
+    slot_coverage_min_intraday: float = 0.995
+    intraday_full_sweep_days: int = 7
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
         return cls(
+            slot_coverage_min_intraday=float(
+                _cfg(apr, "threshold.bar_integrity.slot_coverage_min_intraday", 0.995)
+            ),
+            intraday_full_sweep_days=int(
+                _cfg(apr, "infra.bar_integrity.intraday_full_sweep_days", 7)
+            ),
             session_coverage_min=float(
                 _cfg(apr, "threshold.bar_integrity.session_coverage_min_1d", 0.999)
             ),
@@ -1127,6 +1157,330 @@ class _IntegrityParams:
                 _cfg(apr, "threshold.bar_integrity.fallback_basis_tolerance_bp", 10.0)
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# The intraday verdicts (plan 185-40, data layer integrity design sections 5 and 6)
+# ---------------------------------------------------------------------------
+
+_INTRADAY_NAMES_SQL = """
+SELECT i.symbol FROM instruments i
+WHERE EXISTS (SELECT 1 FROM market_data_ohlcv m WHERE m.symbol = i.symbol AND m.timeframe = '5m')
+ORDER BY i.symbol
+"""
+# Stored 5m stamps that hold an answer: real bars and zero-volume provider bars; the placeholders
+# ($2) are the only rows left out. Raw table (allow-listed): the tradeable view hides zero volume.
+_RAW_5M_SLOTS_SQL = """
+SELECT "timestamp" FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '5m' AND source IS DISTINCT FROM $2
+"""
+_ARCHIVE_ROWS_SQL = """
+SELECT timeframe, "timestamp", open, high, low, close, volume
+FROM ohlcv_intraday_raw_archive
+WHERE symbol = $1 AND timeframe = ANY($2::text[])
+"""
+# Raw table (allow-listed): the stray vendor rows are exactly what the tradeable view would hide.
+_STRAY_VENDOR_SQL = """
+SELECT symbol, timeframe, count(*) AS n FROM market_data_ohlcv
+WHERE timeframe = ANY($1::text[]) AND source IS DISTINCT FROM $2 AND symbol = ANY($3::text[])
+GROUP BY 1, 2
+"""
+_PREVIOUS_DIGEST_VERDICT_SQL = """
+SELECT DISTINCT ON (subject) subject, passed, evaluated_at FROM integrity_monitor
+WHERE monitor_type = $1 AND metric_name = $2 AND subject LIKE '%|5m'
+ORDER BY subject, evaluated_at DESC
+"""
+_LATEST_SWEEP_SQL = """
+SELECT max(evaluated_at) FROM integrity_monitor WHERE monitor_type = $1 AND metric_name = $2
+"""
+# Loads that changed something: the months a digest recompute has to look at.
+_CHANGING_LOADS_SQL = """
+SELECT symbol, loaded_at, first_bar, last_bar FROM ohlcv_load
+WHERE timeframe = ANY($1::text[]) AND loaded_at > $2
+  AND (n_new + n_changed + coalesce(n_removed, 0)) > 0
+"""
+_COVERAGE_ROWS_SQL = """
+SELECT symbol, timeframe, earliest_timestamp, latest_timestamp, row_count, last_fetch_status
+FROM ohlcv_coverage WHERE symbol = ANY(%s)
+"""
+_SESSION_MARGIN_DAYS = 3
+_FIVE_MINUTES = timedelta(minutes=5)
+_INTRADAY_DIGEST_TFS = (GRID_SOURCE_TF, *sorted(GRID_TIMEFRAMES))
+_WRITER_ROLE = "bar_derivation_writer"
+
+
+@dataclass(frozen=True)
+class _FiveMinute:
+    """A name's tradeable 5m bars with the rules of their non-quarantine flags, as
+    bar_derivation reads them (quarantined bars are left out)."""
+
+    ts: np.ndarray
+    open: np.ndarray
+    high: np.ndarray
+    low: np.ndarray
+    close: np.ndarray
+    volume: np.ndarray
+    rules: list[tuple[str, ...]]
+
+    @classmethod
+    def from_rows(
+        cls, rows: Sequence[Mapping[str, Any]], flag_rows: Sequence[Mapping[str, Any]]
+    ) -> _FiveMinute:
+        quarantined = {int(r["timestamp"].timestamp()) for r in flag_rows if r["quarantine"]}
+        rules_by_ts: dict[int, set[str]] = defaultdict(set)
+        for r in flag_rows:
+            if not r["quarantine"]:
+                rules_by_ts[int(r["timestamp"].timestamp())].add(r["rule"])
+        kept = [r for r in rows if int(r["timestamp"].timestamp()) not in quarantined]
+        ts = np.array([int(r["timestamp"].timestamp()) for r in kept], dtype=np.int64)
+
+        def column(name: str) -> np.ndarray:
+            return np.array([r[name] for r in kept], dtype=np.float64)
+
+        return cls(
+            ts,
+            column("open"),
+            column("high"),
+            column("low"),
+            column("close"),
+            column("volume"),
+            [tuple(sorted(rules_by_ts.get(int(t), ()))) for t in ts],
+        )
+
+
+@dataclass(frozen=True)
+class _IntradayInputs:
+    """Everything the intraday verdicts read for one name; the loader fills it."""
+
+    symbol: str
+    five: _FiveMinute
+    stored_slots: Sequence[datetime]
+    answered: AnsweredWindows
+    archive: Mapping[str, Mapping[datetime, Values]]
+    current_digests: Mapping[str, Mapping[datetime, str]]
+    scope: frozenset[datetime] | None
+    stray: Mapping[str, int]
+
+
+class _IntradayVerdict(NamedTuple):
+    timeframe: str
+    check: str
+    passed: bool
+    metric: float | None
+    threshold: float
+
+
+class _SessionCalendar:
+    """NYSE sessions up to the audit's last completed one, built once and extended backwards only
+    when a name starts earlier than anything seen so far."""
+
+    def __init__(self, last: date) -> None:
+        self._last = last + timedelta(days=_SESSION_MARGIN_DAYS)
+        self._floor: date | None = None
+        self._sessions: dict[date, tuple[datetime, datetime]] = {}
+
+    def between(self, first: date, last: date) -> dict[date, tuple[datetime, datetime]]:
+        first -= timedelta(days=_SESSION_MARGIN_DAYS)
+        if self._floor is None or first < self._floor:
+            self._floor = first - timedelta(days=365)
+            self._sessions = nyse_sessions(self._floor, self._last)
+        last += timedelta(days=_SESSION_MARGIN_DAYS)
+        return {d: b for d, b in self._sessions.items() if first <= d <= last}
+
+
+def intraday_month_digests(
+    five: _FiveMinute,
+    sessions: Mapping[date, tuple[datetime, datetime]],
+    scope: frozenset[datetime] | None,
+) -> tuple[dict[str, dict[datetime, str]], frozenset[datetime]]:
+    """Recomputed month digests per timeframe (5m, 15m, 1h) for the scoped months, by
+    bar_derivation's own recipe, and the months actually checked.
+
+    The checked months are the scope's months inside the 5m series' first-to-last range
+    (all of them when scope is None). A month with no rows has no recomputed digest.
+    """
+    out: dict[str, dict[datetime, str]] = {tf: {} for tf in _INTRADAY_DIGEST_TFS}
+    if not five.ts.size:
+        return out, frozenset()
+    targets = frozenset(start for start, _ in month_ranges(five.ts))
+    if scope is not None:
+        targets &= scope
+    if not targets:
+        return out, targets
+    months = five.ts.astype("datetime64[s]").astype("datetime64[M]")
+    wanted = np.array([np.datetime64(f"{d.year:04d}-{d.month:02d}") for d in targets])
+    rows = np.flatnonzero(np.isin(months, wanted))
+    ts, o, h, lo, c, v = (
+        a[rows] for a in (five.ts, five.open, five.high, five.low, five.close, five.volume)
+    )
+    rules = [five.rules[i] for i in rows]
+    out[GRID_SOURCE_TF] = {s: d for s, _, d, _ in _month_digest_rows(ts, o, h, lo, c, v, rules)}
+    for tf, minutes in GRID_TIMEFRAMES.items():
+        grid, grid_rules = _derive_for_tf(ts, o, h, lo, c, v, rules, dict(sessions), minutes)
+        out[tf] = {
+            s: d
+            for s, _, d, _ in _month_digest_rows(
+                grid.ts_seconds, grid.open, grid.high, grid.low, grid.close, grid.volume, grid_rules
+            )
+        }
+    return out, targets
+
+
+def stale_intraday_months(
+    recomputed: Mapping[datetime, str], current: Mapping[datetime, str], targets: Iterable[datetime]
+) -> list[datetime]:
+    """Checked months whose stored digest is missing or differs from the recompute. A month the
+    recompute has no rows for is stale only when a non-empty digest is still stored for it."""
+    stale = []
+    for month in sorted(targets):
+        fresh, stored = recomputed.get(month), current.get(month)
+        if fresh is None:
+            if stored not in (None, EMPTY_INPUT_DIGEST):
+                stale.append(month)
+        elif stored != fresh:
+            stale.append(month)
+    return stale
+
+
+def judge_name_intraday(
+    inputs: _IntradayInputs,
+    calendar: _SessionCalendar,
+    end: datetime,
+    min_slot_coverage: float,
+    *,
+    timings: dict[str, float] | None = None,
+) -> list[_IntradayVerdict]:
+    """The slot_coverage, digest_fresh, grid_parity and stray_vendor_rows verdicts of one name
+    (coverage_cache needs the fetcher lock and is judged for all names at once). Pure."""
+
+    def timed(check: str, started: float) -> None:
+        if timings is not None:
+            timings[check] = timings.get(check, 0.0) + (perf_counter() - started)
+
+    verdicts: list[_IntradayVerdict] = []
+
+    started = perf_counter()
+    if inputs.stored_slots:
+        first = min(inputs.stored_slots)
+        sessions = calendar.between(first.date(), end.date())
+        expected = session_slots(sessions, 5, first, end)
+        answered = answered_slots(
+            expected,
+            set(inputs.stored_slots),
+            inputs.answered,
+            _FIVE_MINUTES,
+            {day: close for day, (_open, close) in sessions.items()},
+        )
+        worst = min(slot_coverage_by_year(expected, answered).values(), default=1.0)
+    else:
+        worst = 0.0  # a name listed for its 5m rows with none stored has no history at all
+    verdicts.append(
+        _IntradayVerdict(
+            GRID_SOURCE_TF, "slot_coverage", worst >= min_slot_coverage, worst, min_slot_coverage
+        )
+    )
+    timed("slot_coverage", started)
+
+    started = perf_counter()
+    five = inputs.five
+    if five.ts.size:
+        derive_sessions = calendar.between(
+            datetime.fromtimestamp(int(five.ts[0]), tz=UTC).date(),
+            datetime.fromtimestamp(int(five.ts[-1]), tz=UTC).date(),
+        )
+    else:
+        derive_sessions = {}
+    recomputed, targets = intraday_month_digests(five, derive_sessions, inputs.scope)
+    for tf in _INTRADAY_DIGEST_TFS:
+        stale = stale_intraday_months(recomputed[tf], inputs.current_digests.get(tf, {}), targets)
+        verdicts.append(_IntradayVerdict(tf, "digest_fresh", not stale, float(len(stale)), 0.0))
+    timed("digest_fresh", started)
+
+    started = perf_counter()
+    for tf in sorted(GRID_TIMEFRAMES):
+        archived = inputs.archive.get(tf, {})
+        if not archived or not five.ts.size:
+            # No archived vendor bucket to compare against: a pass that says nothing was measured.
+            verdicts.append(_IntradayVerdict(tf, "grid_parity", True, None, 0.0))
+            continue
+        rebucketed = rebucket_5m(
+            five.ts,
+            five.open,
+            five.high,
+            five.low,
+            five.close,
+            five.volume,
+            [int(stamp.timestamp()) for stamp in archived],
+            timeframe=tf,
+        )
+        ours = {datetime.fromtimestamp(t, tz=UTC): values for t, values in rebucketed.items()}
+        _compared, mismatched = grid_parity(ours, archived, timeframe=tf)
+        verdicts.append(
+            _IntradayVerdict(tf, "grid_parity", mismatched == 0, float(mismatched), 0.0)
+        )
+    timed("grid_parity", started)
+
+    for tf in sorted(GRID_TIMEFRAMES):
+        n = inputs.stray.get(tf, 0)
+        verdicts.append(_IntradayVerdict(tf, "stray_vendor_rows", n == 0, float(n), 0.0))
+    return verdicts
+
+
+def coverage_cache_drift(
+    dsn: str,
+    symbols: Sequence[str],
+    *,
+    lock_factory: Any = FetcherLock,
+    connect: Any = psycopg.connect,
+    rebuild: Any = rebuild_from_stored_state,
+) -> dict[str, int] | None:
+    """Ledger series per symbol whose stored row differs from the rebuild, or None when the
+    fetcher lock is held elsewhere (the check is skipped, never run unlocked).
+
+    The rebuild's docstring requires the fetcher lock, so this takes it with the non-blocking
+    try-lock, runs the rebuild inside a transaction that is always rolled back (the rebuilt
+    rows are read before the rollback and nothing reaches the ledger), and releases the lock in
+    a finally. last_fetched_at and consecutive_failures are the fetcher's own and are not
+    compared. A ledger row for a series with no bars and no requests is untouched by the
+    rebuild and so cannot show here.
+    """
+    lock = lock_factory(dsn, holder=_JOB)
+    if not lock.acquire():
+        return None
+    try:
+        conn = connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(_COVERAGE_ROWS_SQL, (list(symbols),))
+                committed = {(r[0], r[1]): tuple(r[2:]) for r in cur.fetchall()}
+                cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
+                rebuild(cur, list(symbols))
+                cur.execute(_COVERAGE_ROWS_SQL, (list(symbols),))
+                rebuilt = {(r[0], r[1]): tuple(r[2:]) for r in cur.fetchall()}
+        finally:
+            conn.rollback()
+            conn.close()
+    finally:
+        lock.release()
+    drift: dict[str, int] = defaultdict(int)
+    for key in committed.keys() | rebuilt.keys():
+        if committed.get(key) != rebuilt.get(key):
+            drift[key[0]] += 1
+    return dict(drift)
+
+
+class _IntradayRun(NamedTuple):
+    """The intraday report of one audit run: the rows to write and the numbers the log reports."""
+
+    facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]]
+    failing_by_check: dict[str, int]
+    passing_by_check: dict[str, int]
+    timings: dict[str, float]
+    n_names: int
+    coverage_skipped: int
+    full_sweep: bool
+    n_without_archive: dict[str, int]
+    parity_failing: list[str]
 
 
 @dataclass(frozen=True)
@@ -1230,6 +1584,7 @@ class BarReconciliationAudit(BaseBatch):
         async with pool.acquire() as conn:
             await self._write_verdicts(conn, verdicts, now)
         self._log_verdicts(verdicts)
+        await self._intraday_report(pool, integ, window, now, already=len(verdicts.facts))
 
     # -- loaders -------------------------------------------------------------
 
@@ -1714,8 +2069,13 @@ class BarReconciliationAudit(BaseBatch):
         )
 
     @staticmethod
-    async def _write_verdicts(conn: Any, run: _VerdictRun, run_start: datetime) -> None:
+    async def _write_verdicts(
+        conn: Any, run: _VerdictRun | _IntradayRun, run_start: datetime, *, already: int = 0
+    ) -> None:
         """Write the verdict rows in groups of names, then confirm every row landed.
+
+        `already` is the number of verdict rows this run wrote earlier (the 1d report), so the
+        read-back of a second write counts both.
 
         integrity_monitor's writer swallows an insert failure into a warning, so the count is
         read back: a short write raises (a silent gap in the report would read as a missing
@@ -1729,8 +2089,235 @@ class BarReconciliationAudit(BaseBatch):
             _MONITOR_TYPE_VERDICT,
             run_start,
         )
-        if written < len(run.facts):
-            raise RuntimeError(f"bar_integrity verdicts: wrote {written} of {len(run.facts)} rows")
+        if written < already + len(run.facts):
+            raise RuntimeError(
+                f"bar_integrity verdicts: wrote {written} of {already + len(run.facts)} rows"
+            )
+
+    # -- intraday verdicts (plan 185-40) -----------------------------------------
+
+    async def _intraday_report(
+        self,
+        pool: asyncpg.Pool,
+        integ: _IntegrityParams,
+        window: _Window,
+        run_start: datetime,
+        *,
+        already: int,
+    ) -> None:
+        async with pool.acquire() as conn:
+            run = await self._verdict_report_intraday(
+                conn,
+                integ,
+                window,
+                run_start,
+                coverage_drift=lambda names: asyncio.to_thread(
+                    coverage_cache_drift, self._db_dsn, names
+                ),
+            )
+        async with pool.acquire() as conn:
+            await self._write_verdicts(conn, run, run_start, already=already)
+        self._log_intraday(run)
+
+    @staticmethod
+    async def _verdict_report_intraday(
+        conn: Any,
+        integ: _IntegrityParams,
+        window: _Window,
+        run_start: datetime,
+        *,
+        coverage_drift: Any,
+    ) -> _IntradayRun:
+        """Judge every name holding 5m bars on the intraday checks (design section 6), then the
+        coverage ledger of all of them under the fetcher lock. A finding never raises."""
+        names = [r["symbol"] for r in await conn.fetch(_INTRADAY_NAMES_SQL)]
+        previous = {
+            r["subject"]: (r["passed"], r["evaluated_at"])
+            for r in await conn.fetch(
+                _PREVIOUS_DIGEST_VERDICT_SQL, _MONITOR_TYPE_VERDICT, "digest_fresh"
+            )
+        }
+        last_sweep = await conn.fetchval(
+            _LATEST_SWEEP_SQL, _MONITOR_TYPE_VERDICT, INFO_DIGEST_FULL_SWEEP
+        )
+        full_sweep = last_sweep is None or run_start - last_sweep >= timedelta(
+            days=integ.intraday_full_sweep_days
+        )
+        loads: dict[str, list[tuple[datetime, date | None, date | None]]] = defaultdict(list)
+        if not full_sweep and previous:
+            since = min(at for _, at in previous.values())
+            for r in await conn.fetch(_CHANGING_LOADS_SQL, list(_INTRADAY_DIGEST_TFS), since):
+                loads[r["symbol"]].append((r["loaded_at"], r["first_bar"], r["last_bar"]))
+        stray: dict[str, dict[str, int]] = defaultdict(dict)
+        for r in await conn.fetch(
+            _STRAY_VENDOR_SQL, sorted(GRID_TIMEFRAMES), SOURCE_DERIVED_5M, names
+        ):
+            stray[r["symbol"]][r["timeframe"]] = r["n"]
+
+        calendar = _SessionCalendar(window.last_session)
+        twe = window.training_window_end
+        facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]] = []
+        failing: dict[str, int] = defaultdict(int)
+        passing: dict[str, int] = defaultdict(int)
+        timings: dict[str, float] = {}
+        without_archive: dict[str, int] = defaultdict(int)
+        parity_failing: list[str] = []
+
+        def record(symbol: str, v: _IntradayVerdict) -> None:
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    f"{symbol}|{v.timeframe}",
+                    v.check,
+                    v.metric,
+                    v.threshold,
+                    v.passed,
+                    twe,
+                )
+            )
+            (passing if v.passed else failing)[v.check] += 1
+
+        for symbol in names:
+            before, at = previous.get(f"{symbol}|{GRID_SOURCE_TF}", (None, None))
+            inputs = await BarReconciliationAudit._intraday_inputs(
+                conn,
+                symbol,
+                scope=digest_scope(
+                    full_sweep=full_sweep,
+                    previous_at=at,
+                    previous_passed=before,
+                    loads=loads.get(symbol, ()),
+                ),
+                stray=stray.get(symbol, {}),
+            )
+            for v in judge_name_intraday(
+                inputs, calendar, window.end, integ.slot_coverage_min_intraday, timings=timings
+            ):
+                record(symbol, v)
+                if v.check == "grid_parity":
+                    if v.metric is None:
+                        without_archive[v.timeframe] += 1
+                    elif not v.passed:
+                        parity_failing.append(f"{symbol}|{v.timeframe}|mismatched={int(v.metric)}")
+
+        skipped = 0
+        started = perf_counter()
+        drift = await coverage_drift(names) if names else {}
+        timings["coverage_cache"] = perf_counter() - started
+        if drift is None:
+            skipped = len(names)
+        else:
+            for symbol in names:
+                record(
+                    symbol,
+                    _IntradayVerdict(
+                        GRID_SOURCE_TF,
+                        "coverage_cache",
+                        not drift.get(symbol),
+                        float(drift.get(symbol, 0)),
+                        0.0,
+                    ),
+                )
+        if full_sweep:
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    SWEEP_SUBJECT,
+                    INFO_DIGEST_FULL_SWEEP,
+                    float(len(names)),
+                    None,
+                    True,
+                    twe,
+                )
+            )
+        return _IntradayRun(
+            facts,
+            dict(failing),
+            dict(passing),
+            timings,
+            len(names),
+            skipped,
+            full_sweep,
+            dict(without_archive),
+            parity_failing,
+        )
+
+    @staticmethod
+    async def _intraday_inputs(
+        conn: Any, symbol: str, *, scope: frozenset[datetime] | None, stray: Mapping[str, int]
+    ) -> _IntradayInputs:
+        five = _FiveMinute.from_rows(
+            await conn.fetch(_SELECT_5M_SQL, symbol), await conn.fetch(_SELECT_5M_FLAGS_SQL, symbol)
+        )
+        answered = AnsweredWindows.from_rows(
+            (r["window_start"], r["window_end"])
+            for r in await conn.fetch(
+                _ANSWERED_5M_SQL,
+                symbol,
+                GRID_SOURCE_TF,
+                COVERAGE_ROUTE,
+                COVERAGE_WHAT_TO_SHOW,
+                list(ANSWERED_OUTCOMES),
+            )
+        )
+        archive: dict[str, dict[datetime, Values]] = defaultdict(dict)
+        for r in await conn.fetch(_ARCHIVE_ROWS_SQL, symbol, sorted(GRID_TIMEFRAMES)):
+            archive[r["timeframe"]][r["timestamp"]] = (
+                r["open"],
+                r["high"],
+                r["low"],
+                r["close"],
+                r["volume"],
+            )
+        digests: dict[str, dict[datetime, str]] = defaultdict(dict)
+        for r in await conn.fetch(
+            _SELECT_CURRENT_GRID_DIGESTS_SQL, symbol, list(_INTRADAY_DIGEST_TFS)
+        ):
+            digests[r["timeframe"]][r["range_start"]] = r["digest"]
+        return _IntradayInputs(
+            symbol=symbol,
+            five=five,
+            stored_slots=[
+                r["timestamp"]
+                for r in await conn.fetch(_RAW_5M_SLOTS_SQL, symbol, SOURCE_SYNTHETIC_FILL)
+            ],
+            answered=answered,
+            archive=archive,
+            current_digests=digests,
+            scope=scope,
+            stray=stray,
+        )
+
+    @staticmethod
+    def _log_intraday(run: _IntradayRun) -> None:
+        """Per-check pass and fail name counts, the skip count and the timings."""
+        for check in CHECKS_INTRADAY:
+            FINDINGS_TOTAL.add(
+                run.failing_by_check.get(check, 0), {"check": f"bar_integrity_intraday_{check}"}
+            )
+        logger.info(
+            "bar_integrity.report_intraday",
+            n_names=run.n_names,
+            full_sweep=run.full_sweep,
+            failing_by_check=run.failing_by_check,
+            passing_by_check=run.passing_by_check,
+            coverage_cache_skipped=run.coverage_skipped,
+            grid_parity_without_archive=run.n_without_archive,
+            seconds_by_check={k: round(v, 1) for k, v in run.timings.items()},
+        )
+        if run.parity_failing:
+            logger.error("bar_integrity.grid_parity_mismatches", names=run.parity_failing)
+        print("\n# Intraday verdict report (bar_integrity)\n")
+        print(f"{'check':<20} {'pass':>7} {'fail':>7} {'seconds':>9}")
+        for check in CHECKS_INTRADAY:
+            print(
+                f"{check:<20} {run.passing_by_check.get(check, 0):>7} "
+                f"{run.failing_by_check.get(check, 0):>7} {run.timings.get(check, 0.0):>9.1f}"
+            )
+        print(
+            f"names {run.n_names}; full digest sweep {run.full_sweep}; "
+            f"coverage_cache skipped (fetcher lock held) {run.coverage_skipped}"
+        )
 
     # -- reporting -----------------------------------------------------------
 
