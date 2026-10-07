@@ -756,6 +756,38 @@ VENDOR_VOLUME_RATIO = point_gauge(
     "Median IBKR / Tradier daily volume ratio, labeled by check and year only.",
 )
 
+# Alert inputs (plan 185-41, design section 8). Labels are check or source only: the collector
+# drops a metric that carries a `job` label (todo 498). A oneshot's gauges leave the Prometheus
+# exporter minutes after the run, so the Grafana rules read them through last_over_time.
+BAR_INTEGRITY_FAILING_NAMES = point_gauge(
+    "bar_integrity_failing_names",
+    "Names failing each bar_integrity check in the latest D7 report, labeled by check only.",
+)
+BAR_INTEGRITY_REPORT_AGE_SECONDS = point_gauge(
+    "bar_integrity_report_age_seconds",
+    "Seconds between the previous bar_integrity report and this D7 run's start (no labels).",
+)
+BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS = point_gauge(
+    "bar_integrity_report_max_age_seconds",
+    "threshold.bar_integrity.report_max_age_hours in seconds, the limit the age is judged "
+    "against (no labels).",
+)
+OHLCV_LOAD_REFUSED_24H = point_gauge(
+    "ohlcv_load_refused_24h",
+    "ohlcv_load rows with outcome refused or gated in the 24 h before this D7 run, labeled by "
+    "source only.",
+)
+# ohlcv_load.source values (the table's CHECK constraint); each gets a gauge point every run.
+LOAD_SOURCES = ("tradier", "ibkr", "derived")
+_REFUSED_LOADS_24H_SQL = """
+SELECT source, count(*) AS n FROM ohlcv_load
+WHERE outcome IN ('refused', 'gated') AND loaded_at >= $1 GROUP BY source
+"""
+# Newest verdict row before this run writes any (the report age's start).
+_NEWEST_VERDICT_SQL = """
+SELECT max(evaluated_at) FROM integrity_monitor WHERE monitor_type = $1
+"""
+
 _APR_PATTERNS = [
     "threshold.bar_reconciliation.%",
     "infra.bar_derivation.%",
@@ -997,6 +1029,35 @@ _FIRST_1D_BAR_SQL = """
 SELECT min("timestamp") AS first_bar FROM market_data_ohlcv
 WHERE timeframe = '1d' AND source = ANY($1::text[])
 """
+
+
+def merge_failing_by_check(*reports: Mapping[str, int]) -> dict[str, int]:
+    """Failing name counts per check across the 1d and intraday reports (a check that runs in
+    both, such as digest_fresh, sums)."""
+    merged: dict[str, int] = {}
+    for report in reports:
+        for check, n in report.items():
+            merged[check] = merged.get(check, 0) + n
+    return merged
+
+
+def record_alert_gauges(
+    *,
+    failing_by_check: Mapping[str, int],
+    previous_verdict_at: datetime | None,
+    run_start: datetime,
+    max_age_hours: float,
+    refused_by_source: Mapping[str, int],
+) -> None:
+    """Record the four alert gauges. The age is how long the previous report had stood when this
+    run began (none on the first run); every load source records a point so a clear reads 0."""
+    for check, n in failing_by_check.items():
+        BAR_INTEGRITY_FAILING_NAMES.set(n, {"check": check})
+    if previous_verdict_at is not None:
+        BAR_INTEGRITY_REPORT_AGE_SECONDS.set((run_start - previous_verdict_at).total_seconds())
+    BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS.set(max_age_hours * 3600.0)
+    for source in LOAD_SOURCES:
+        OHLCV_LOAD_REFUSED_24H.set(refused_by_source.get(source, 0), {"source": source})
 
 
 class _Judged(NamedTuple):
@@ -1554,6 +1615,7 @@ class BarReconciliationAudit(BaseBatch):
             compute = await self._universe(conn, dimension_where_clause("compute", "i"))
             compute_1d = await self._universe(conn, dimension_where_clause("compute_1d", "i"))
             active = await self._universe(conn, dimension_where_clause("backfill", "i"))
+            previous_verdict_at = await conn.fetchval(_NEWEST_VERDICT_SQL, _MONITOR_TYPE_VERDICT)
 
             checks: dict[str, _Judged] = {
                 "route_disagreement": await self._route_disagreement(conn, params, window),
@@ -1584,7 +1646,20 @@ class BarReconciliationAudit(BaseBatch):
         async with pool.acquire() as conn:
             await self._write_verdicts(conn, verdicts, now)
         self._log_verdicts(verdicts)
-        await self._intraday_report(pool, integ, window, now, already=len(verdicts.facts))
+        intraday = await self._intraday_report(
+            pool, integ, window, now, already=len(verdicts.facts)
+        )
+        async with pool.acquire() as conn:
+            refused = await conn.fetch(_REFUSED_LOADS_24H_SQL, now - timedelta(hours=24))
+        record_alert_gauges(
+            failing_by_check=merge_failing_by_check(
+                verdicts.failing_by_check, intraday.failing_by_check
+            ),
+            previous_verdict_at=previous_verdict_at,
+            run_start=now,
+            max_age_hours=integ.report_max_age_hours,
+            refused_by_source={r["source"]: r["n"] for r in refused},
+        )
 
     # -- loaders -------------------------------------------------------------
 
@@ -2104,7 +2179,7 @@ class BarReconciliationAudit(BaseBatch):
         run_start: datetime,
         *,
         already: int,
-    ) -> None:
+    ) -> _IntradayRun:
         async with pool.acquire() as conn:
             run = await self._verdict_report_intraday(
                 conn,
@@ -2118,6 +2193,7 @@ class BarReconciliationAudit(BaseBatch):
         async with pool.acquire() as conn:
             await self._write_verdicts(conn, run, run_start, already=already)
         self._log_intraday(run)
+        return run
 
     @staticmethod
     async def _verdict_report_intraday(

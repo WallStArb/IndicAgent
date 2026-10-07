@@ -1243,3 +1243,89 @@ def test_intraday_keys_are_loaded_by_the_audit():
         }
     )
     assert params.slot_coverage_min_intraday == 0.99 and params.intraday_full_sweep_days == 3
+
+
+# ---------------------------------------------------------------------------
+# Alert gauges (plan 185-41; design section 8): failing names per check, the report age and its
+# APR maximum, and refused or gated loads by source. No metric carries a job or symbol label
+# (todo 498: the collector drops metrics with a job label).
+# ---------------------------------------------------------------------------
+
+
+class _Gauge:
+    def __init__(self):
+        self.points: list[tuple[float, dict]] = []
+
+    def set(self, value, attributes=None):
+        self.points.append((value, dict(attributes or {})))
+
+
+def _patched_gauges(monkeypatch):
+    gauges = {
+        name: _Gauge()
+        for name in (
+            "BAR_INTEGRITY_FAILING_NAMES",
+            "BAR_INTEGRITY_REPORT_AGE_SECONDS",
+            "BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS",
+            "OHLCV_LOAD_REFUSED_24H",
+        )
+    }
+    for name, gauge in gauges.items():
+        monkeypatch.setattr(audit, name, gauge)
+    return gauges
+
+
+def test_failing_names_merge_sums_a_check_that_runs_on_both_reports():
+    merged = audit.merge_failing_by_check(
+        {"session_coverage": 240, "digest_fresh": 0},
+        {"digest_fresh": 2, "slot_coverage": 240},
+    )
+    assert merged == {"session_coverage": 240, "digest_fresh": 2, "slot_coverage": 240}
+
+
+def test_alert_gauges_record_each_check_the_age_the_max_and_every_load_source(monkeypatch):
+    gauges = _patched_gauges(monkeypatch)
+    now = datetime(2026, 10, 8, 6, 0, tzinfo=UTC)
+    audit.record_alert_gauges(
+        failing_by_check={"session_coverage": 240, "grid_parity": 0},
+        previous_verdict_at=now - timedelta(hours=24),
+        run_start=now,
+        max_age_hours=30,
+        refused_by_source={"tradier": 2},
+    )
+    assert sorted(gauges["BAR_INTEGRITY_FAILING_NAMES"].points, key=lambda p: p[1]["check"]) == [
+        (0, {"check": "grid_parity"}),
+        (240, {"check": "session_coverage"}),
+    ]
+    assert gauges["BAR_INTEGRITY_REPORT_AGE_SECONDS"].points == [(86400.0, {})]
+    assert gauges["BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS"].points == [(108000.0, {})]
+    # A source with no refusals records zero, so an alert clears when the refusals stop.
+    assert sorted(gauges["OHLCV_LOAD_REFUSED_24H"].points, key=lambda p: p[1]["source"]) == [
+        (0, {"source": "derived"}),
+        (0, {"source": "ibkr"}),
+        (2, {"source": "tradier"}),
+    ]
+    attribute_keys = {
+        key for gauge in gauges.values() for _, attributes in gauge.points for key in attributes
+    }
+    assert attribute_keys == {"check", "source"}  # never job, symbol or subject
+
+
+def test_the_first_ever_report_has_no_age_to_record(monkeypatch):
+    gauges = _patched_gauges(monkeypatch)
+    now = datetime(2026, 10, 8, 6, 0, tzinfo=UTC)
+    audit.record_alert_gauges(
+        failing_by_check={},
+        previous_verdict_at=None,
+        run_start=now,
+        max_age_hours=30,
+        refused_by_source={},
+    )
+    assert gauges["BAR_INTEGRITY_REPORT_AGE_SECONDS"].points == []
+    assert gauges["BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS"].points == [(108000.0, {})]
+
+
+def test_the_load_source_labels_match_the_ohlcv_load_source_constraint():
+    assert set(audit.LOAD_SOURCES) == {"tradier", "ibkr", "derived"}
+    assert "outcome IN ('refused', 'gated')" in audit._REFUSED_LOADS_24H_SQL
+    assert "bar_integrity" in audit._MONITOR_TYPE_VERDICT

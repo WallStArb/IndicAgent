@@ -407,6 +407,201 @@ groups:
           severity: high
           contact_point: discord-ops
 
+      - uid: bar_integrity_failing_uid
+        title: bar_integrity_failing
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(bar_integrity_failing_names[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "A bar_integrity check has failing names"
+          description: "bar_integrity_failing_names is {{ $value }} for check {{ $labels.check }} in the latest D7 report. Promotion and the phase 186 rebuild refuse these names. D7 is a daily oneshot; the lookback outlasts the gap between runs."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: bar_integrity_report_stale_uid
+        title: bar_integrity_report_stale
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(bar_integrity_report_age_seconds[36h]) > bool last_over_time(bar_integrity_report_max_age_seconds[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "bar_integrity report older than its APR maximum"
+          description: "The previous D7 report had stood longer than threshold.bar_integrity.report_max_age_hours when the latest run began, or D7 has emitted nothing for the lookback (no data alerts). Verdicts that old fail the gates. Both gauges are compared; no threshold is written here."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: ibkr_fetcher_sla_breached_uid
+        title: ibkr_fetcher_sla_breached
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(ohlcv_coverage_sla_breached_series[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "IBKR history fetcher has series past the staleness SLA"
+          description: "ohlcv_coverage_sla_breached_series is {{ $value }} at the fetcher's last run end. No data is expected while the fetcher is stopped, and todo 498 (the collector drops metrics carrying a job label) keeps this series out of Prometheus until it is fixed."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: tradier_refused_uid
+        title: tradier_refused
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(ohlcv_load_refused_24h{source='tradier'}[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Tradier loads refused or gated in the last 24 h"
+          description: "ohlcv_load_refused_24h for source tradier is {{ $value }} at the latest D7 run. A refused load exits non-zero and leaves the stored bars unchanged; read ohlcv_load.detail."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
+      - uid: revision_refused_uid
+        title: revision_refused
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: sum(last_over_time(ohlcv_load_refused_24h{source=~'ibkr|derived'}[36h]))
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "A revision-ratio refusal on an IBKR or derived load"
+          description: "ohlcv_load_refused_24h for sources ibkr and derived sums to {{ $value }} at the latest D7 run. The write contract refused a revision above threshold.bar_integrity.max_revision_ratio; read ohlcv_load.detail."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
   - orgId: 1
     name: IndicAgent MEDIUM Alerts
     folder: IndicAgent
