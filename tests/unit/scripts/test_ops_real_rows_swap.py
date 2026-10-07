@@ -59,15 +59,15 @@ def test_verify_refuses_before_reading_while_a_writer_runs(monkeypatch):
 
 def test_writer_processes_match_argv_basenames_only():
     cmdlines = {
-        10: ["/bin/bash", "logs/backfill_ops/intraday_htf_lane.sh", "htf_all", "46"],
+        10: [".venv/bin/python", "scripts/infrastructure/backfill/ibkr_history_fetcher.py"],
         11: [".venv/bin/python", "-u", "services/bar_derivation.py", "--apply"],
         # a shell whose command string only mentions the names must not match
-        12: ["/bin/bash", "-c", "ps -eo args | grep bar_derivation.py intraday_chain.sh"],
+        12: ["/bin/bash", "-c", "ps -eo args | grep bar_derivation.py ibkr_history_fetcher.py"],
         13: ["/usr/bin/python3", "services/feature_vector_pipeline.py"],
         14: [".venv/bin/python", "scripts/ops/bars/ops_real_rows_swap.py"],
     }
     found = swap.writer_processes(cmdlines, self_pid=14)
-    assert found == ["10 intraday_htf_lane.sh", "11 bar_derivation.py"]
+    assert found == ["10 ibkr_history_fetcher.py", "11 bar_derivation.py"]
 
 
 def test_writer_processes_skip_self():

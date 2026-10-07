@@ -173,8 +173,9 @@ _hist_throttle_count = 0
 # This module already documents Python 3.14 asyncio.timeout()/wait_for reliability risk
 # (see the nest_asyncio note above) -- this constant does not assume this wrapper is
 # bulletproof against that same class of runtime issue; the actual safety net against an
-# indefinite hang is the external bar-count watchdog in backfill_retry_loop.sh, which
-# force-kills the process based on observed DB progress, independent of in-process timers.
+# indefinite hang is systemd's WatchdogSec on indicagent-ibkr-history-fetcher.service: the
+# fetcher pings WATCHDOG=1 only from its live loop, so a wedged event loop stops the pings and
+# systemd kills the run, independent of in-process timers (RuntimeMaxSec bounds the whole run).
 # This wrapper is still worth having as the first line of defense for the common case.
 _HIST_REQUEST_TIMEOUT_SEC = 90.0
 

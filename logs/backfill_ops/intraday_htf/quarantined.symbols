@@ -1,2 +1,0 @@
-HOOD
-# Quarantined 2026-10-01: head probe Error 162 + all data requests hang (60s client timeout, reqIds 4-13); AAPL probe on client 41 returned instantly, so path was healthy, HOOD-specific. Retry in a future lane run or re-qualify conId 504546674.

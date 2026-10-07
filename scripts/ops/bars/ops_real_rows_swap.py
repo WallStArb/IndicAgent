@@ -78,9 +78,8 @@ in 8 s, verify 2.0M rows in 3.8 s, and a live one-symbol digest of SPY's 623k re
  9. `--swap --accept-placeholder-coverage` (verify about 10 min, exclusive lock about 30 s,
     post-checks about 5 to 15 min). Exit 0 means swapped with the original kept.
 10. `--status`, then `--drop-old` (drop plus VACUUM, minutes); record its reclaimed_gib.
-11. Relaunch the lane: `cd /home/bg/dev/indicagent && nohup bash logs/backfill_ops/intraday_chain.sh
-    >/dev/null 2>&1 &` (gap-aware, resumes where it stopped), then confirm the lease holder is
-    back in pg_stat_activity and the lane log advances.
+11. Restart any timer stopped in step 5 (the lane scripts this step once relaunched were
+    deleted in plan 189-07; the IBKR history fetcher's ledger resumes where fetching stopped).
 
 Measurement notes (performance SOP): counts run per chunk against the chunk tables, where
 TimescaleDB's vectorized aggregation decompresses only `timeframe`, `source` and `volume` (about
@@ -158,10 +157,7 @@ WRITER_SCRIPTS = frozenset(
         "infrastructure_run_historical_pipeline.py",
         "infrastructure_run_tradier_daily.py",
         "infrastructure_fetch_htf_bars.py",
-        "intraday_chain.sh",
-        "intraday_htf_lane.sh",
-        "intraday_5m_lane.sh",
-        "backfill_retry_loop.sh",
+        "ibkr_history_fetcher.py",
     }
 )
 WRITER_UNITS = (
