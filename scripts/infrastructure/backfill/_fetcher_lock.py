@@ -1,10 +1,10 @@
 """The single IBKR history advisory lock (phase 189 plan 02, CD-07/CD-09).
 
 IBKR serves one history stream per account at useful speed (todo 449 measurement), so
-exactly one process may fetch history at a time. This fail-fast singleton replaces the
-two-tier ibkr_history_stream ResourceLease for every IBKR history caller: the fetcher and
-each manual IBKR history tool (ops_d1_bootstrap, ops_venue_study, ops_head_rerun) take this
-lock, and a second caller is refused immediately instead of queueing behind the holder.
+exactly one process may fetch history at a time. This fail-fast singleton replaced the
+two-tier history ResourceLease (retired by plan 189-08) for every IBKR history caller: the
+fetcher and each manual IBKR history tool (ops_d1_bootstrap, ops_venue_study,
+ops_intraday_venue_recovery, the rate-limit probe) take this lock, and a second caller is refused immediately instead of queueing behind the holder.
 
 The lock is a PostgreSQL session-level advisory lock (pg_try_advisory_lock, never the
 blocking form) on a dedicated autocommit connection held for the holder's lifetime. The
@@ -13,7 +13,7 @@ blocks the next run (T-189-05). The holder shows in pg_stat_activity as
 ``lock:<name>:<holder>``.
 
 src/core/resource_lease.py stays as a generic Ring 0 primitive and is not used here; this
-IBKR-specific lock lives beside its consumers, as IBKR_HISTORY_LEASE did.
+IBKR-specific lock lives beside its consumers.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# A new name, so its key never collides with the retiring ibkr_history_stream lease key
-# while both exist.
+# A name distinct from the retired two-tier history lease's, so the two keys never collided
+# while both existed.
 FETCHER_LOCK_NAME = "ibkr_history_fetcher"
 
 # Exact string: plan 08's ops_head_rerun matches it in subprocess output.

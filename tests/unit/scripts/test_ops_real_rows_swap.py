@@ -22,7 +22,9 @@ def test_no_writers_means_no_blockers():
     ("state", "fragment"),
     [
         (
-            swap.WriterState(lock_holders=("488548 lease:ibkr_history_stream:bulk:hp:46",)),
+            swap.WriterState(
+                lock_holders=("488548 lock:ibkr_history_fetcher:ibkr-history-fetcher:40",)
+            ),
             "lock held",
         ),
         (swap.WriterState(processes=("123 bar_derivation.py",)), "writer process"),
@@ -43,7 +45,7 @@ def test_any_writer_refuses(state, fragment):
 
 
 def test_verify_refuses_before_reading_while_a_writer_runs(monkeypatch):
-    held = swap.WriterState(lock_holders=("1 lease:ibkr_history_stream:bulk:x:46",))
+    held = swap.WriterState(lock_holders=("1 lock:ibkr_history_fetcher:x:40",))
     monkeypatch.setattr(swap, "load_writer_state", lambda conn, *a, **k: held)
 
     class _NoReads:
@@ -75,8 +77,15 @@ def test_writer_processes_skip_self():
 
 
 def test_advisory_key_parts_match_the_live_lease_key():
-    # The ibkr_history_stream lease measured live on 2026-10-06 in pg_locks.
+    # A key vector measured live on 2026-10-06 in pg_locks (the retired D-29 lease's name; the
+    # derivation is the same sha256 rule for every advisory lock name).
     assert swap.advisory_key_parts("ibkr_history_stream") == (4163975343, 2061137787)
+
+
+def test_the_writer_lock_is_the_fetcher_lock():
+    from scripts.infrastructure.backfill._fetcher_lock import FETCHER_LOCK_NAME
+
+    assert swap.WRITER_LOCK_NAMES == (FETCHER_LOCK_NAME,)
 
 
 # --- digest comparison --------------------------------------------------------------------------

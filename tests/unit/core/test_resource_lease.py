@@ -1,8 +1,9 @@
 """Unit tests for ResourceLease (phase 185 plan 09, D-29), against the local PostgreSQL.
 
-Real advisory locks on a live server, one test-only lease name per test (never the
-production "ibkr_history_stream" name, and never a fixed name: a parallel CI run
-holding the same key would turn the blocking tests into flaky timeouts). Skips
+Real advisory locks on a live server, one test-only lease name per test (never a fixed
+name: a parallel CI run holding the same key would turn the blocking tests into flaky
+timeouts). ResourceLease is a generic Ring 0 primitive (CD-09); since plan 189-08 no
+production caller uses it for IBKR history, which takes the phase 189 FetcherLock. Skips
 cleanly when no database is reachable, matching the live-DB convention of
 tests/unit/test_spread_leg_pair_validity.py.
 
@@ -26,13 +27,11 @@ from src.core.resource_lease import LeaseTimeout, ResourceLease, Tier
 
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 
-# Fixed vector: the production lease name must hash to exactly this 64-bit signed
-# key (first 8 bytes of sha256, big-endian, signed). If this changes, every holder
-# and waiter in flight sees a different key and the lease silently stops
-# serializing, so the test pins it.
-_IBKR_HISTORY_STREAM_KEY = int.from_bytes(
-    hashlib.sha256(b"ibkr_history_stream").digest()[:8], "big", signed=True
-)
+# Fixed vector: a lease name must hash to exactly this 64-bit signed key (first 8 bytes
+# of sha256, big-endian, signed). If the derivation changes, every holder and waiter in
+# flight sees a different key and the lease silently stops serializing, so the test pins it.
+_VECTOR_NAME = "resource_lease_key_vector"
+_VECTOR_KEY = int.from_bytes(hashlib.sha256(_VECTOR_NAME.encode()).digest()[:8], "big", signed=True)
 
 
 @functools.lru_cache(maxsize=1)
@@ -92,11 +91,11 @@ class _Waiter:
 
 
 def test_lock_key_is_a_stable_known_vector() -> None:
-    lease = ResourceLease(_LIVE_DB_DSN, "ibkr_history_stream", tier=Tier.BULK, holder="vector")
-    assert lease.key == _IBKR_HISTORY_STREAM_KEY
+    lease = ResourceLease(_LIVE_DB_DSN, _VECTOR_NAME, tier=Tier.BULK, holder="vector")
+    assert lease.key == _VECTOR_KEY
     # Stable across constructions (sha256, never the per-process salted hash()).
-    again = ResourceLease(_LIVE_DB_DSN, "ibkr_history_stream", tier=Tier.PRIORITY, holder="v2")
-    assert again.key == _IBKR_HISTORY_STREAM_KEY
+    again = ResourceLease(_LIVE_DB_DSN, _VECTOR_NAME, tier=Tier.PRIORITY, holder="v2")
+    assert again.key == _VECTOR_KEY
 
 
 def test_connection_carries_the_lease_application_name() -> None:

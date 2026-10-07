@@ -142,9 +142,9 @@ APR_DEFAULTS: dict[str, float] = {
 
 # --- writers ----------------------------------------------------------------------------------
 
-# Advisory locks held by an IBKR history writer: the D-29 lease and phase 189's fetcher lock.
-# Keys derive as in src/core/resource_lease.py and scripts/infrastructure/backfill/_fetcher_lock.py.
-WRITER_LOCK_NAMES = ("ibkr_history_stream", "ibkr_history_fetcher")
+# Advisory locks held by an IBKR history writer: phase 189's fetcher lock (plan 189-08 retired
+# the D-29 lease). Keys derive as in scripts/infrastructure/backfill/_fetcher_lock.py.
+WRITER_LOCK_NAMES = ("ibkr_history_fetcher",)
 # Scripts that write market_data_ohlcv (or chain something that does). Matched against the
 # basename of each argv element exactly, so a shell whose command line merely mentions a name
 # never matches. Service identity, not a tunable: APR-exempt.

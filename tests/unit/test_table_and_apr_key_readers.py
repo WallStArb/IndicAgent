@@ -153,14 +153,6 @@ _KEEP_TABLES: dict[str, str] = {}
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
 _PENDING_RETIREMENT: dict[str, str] = {
-    "infra.ibkr_history_lease.nightly_wait_minutes": (
-        "plan 189-08 deleted the historical pipeline's CLI and lease, the last reader; its "
-        "migration 434 retires the key (retire: 189-08)"
-    ),
-    "infra.ibkr_history_lease.priority_wait_minutes": (
-        "plan 189-08 deleted the historical pipeline's lease wait, the last reader; its "
-        "migration 434 retires the key (retire: 189-08)"
-    ),
     "infra.tradier.max_changed_bar_ratio": (
         "the Tradier loader's refusal reads threshold.bar_integrity.max_revision_ratio on the "
         "raw record since plan 185-38; migration 452 retires the key (retire: 185-43)"

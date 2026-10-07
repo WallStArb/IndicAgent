@@ -256,14 +256,14 @@ def test_rehearsal(scratch_dsn, capsys, tmp_path, monkeypatch):
     assert all("placeholder_coverage" in b for b in report["blockers"]), report["blockers"]
     summary["dry_run_totals"] = report["totals"]
 
-    # --- refusals: placeholder coverage not accepted; a lease holder in this database --------------
+    # --- refusals: placeholder coverage not accepted; a fetcher lock holder in this database ------
     code, report = _cli(capsys, dsn, tmp_path, "--copy")
     assert code == swap.EXIT_BLOCKED and report["result"] == "refused: nothing copied"
     assert conn.execute("SELECT count(*) FROM market_data_ohlcv_new").fetchone()[0] == 0
     holder = psycopg.connect(
-        dsn, autocommit=True, application_name="lease:ibkr_history_stream:test"
+        dsn, autocommit=True, application_name="lock:ibkr_history_fetcher:test"
     )
-    classid, objid = swap.advisory_key_parts("ibkr_history_stream")
+    classid, objid = swap.advisory_key_parts("ibkr_history_fetcher")
     key = (classid << 32) | objid
     holder.execute("SELECT pg_advisory_lock(%s)", (key - (1 << 64) if key >= 1 << 63 else key,))
     code, report = _cli(capsys, dsn, tmp_path, "--copy", "--accept-placeholder-coverage")
