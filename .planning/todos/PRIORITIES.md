@@ -94,6 +94,7 @@ until 185 and 186 land; session time goes to the build.
 | [431](pending/431-stratified-sourcing-onboarding-holds-one-transaction-across-ibkr-calls.md) | Delete the second instrument writer (`--commit` in the stratified-sourcing and pilot-draw scripts) so draw scripts only draw; the manifest onboarder is the documented path. |
 | [444](pending/444-onboarding-tooling-classification-mapper-pair-column-orchestrator.md) | Onboarding SOP gaps 3, 5, 6: classification mapper, a manifest pair column for `spread_leg`, then one resumable onboarding command. After 431. |
 | [376](pending/376-survivorship-bias-active-only-universe-no-owner.md) | Close when phase 185 D0's survivorship label is on every attempt (D8 descoped by the owner 2026-09-26); the retroactive fix stays with the gated vendor stage. |
+| [502](pending/502-d7-judges-only-compute-1d-so-unpromoted-names-can-never-pass-the-gate.md) | New 2026-10-07, from 185-41 finding 1. D7 writes verdicts only for the `compute_1d` and `compute` names, so the 27 unpromoted names (and any name whose 5m lands later) are held "missing" forever and the onboarding promote stage cannot succeed. Judge the `backfill` dimension for 1d and every active name with 5m rows for intraday. Gate: before the next onboarding wave's promote step. |
 
 **Research, paused until 185 and 186 land**
 

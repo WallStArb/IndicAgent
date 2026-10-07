@@ -282,6 +282,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 20** *(blocked on Wave 19 completion)*
 
+- [ ] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37)
 - [ ] 185-37-PLAN.md - vendor adjustment-basis study, pre-registered rule, exception policy rows (wave 20)
 
 **Wave 21** *(blocked on Wave 20 completion)*
@@ -299,6 +300,14 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 **Wave 24** *(blocked on Wave 23 completion)*
 
 - [ ] 185-43-PLAN.md - cleanup, DB, docs and housekeeping: backfill_status and swap tables dropped, retired APR keys (migration 452), phase archive, old logs, memory, docs and todos, exit criteria against the 185-44 baseline (wave 24)
+
+**Wave 25** *(blocked on Wave 24; runs between 189-10 Task 1b, the one-time IBKR 1d fetch, and 189-10 Task 2, the 5m pilot; see the 185-46 amendment to 189-10)*
+
+- [ ] 185-47-PLAN.md - 1d primary moves to IBKR from date D: per-name class B and C policy rows, dated default migration (456), dry run against the pre-registered criteria, apply, D7 verdict comparison, wiring check (wave 25)
+
+**Wave 26** *(blocked on Wave 25 completion)*
+
+- [ ] 185-48-PLAN.md - Tradier loader, units, provider and APR keys retired (migration 457); docs, design amendment and residual todos (wave 26)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
