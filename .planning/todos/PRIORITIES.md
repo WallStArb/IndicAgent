@@ -183,6 +183,7 @@ until 185 and 186 land; session time goes to the build.
 |---|---|
 | [420](pending/420-market-regimes-orphan-rows-from-pre-tradeable-writer.md) | Triage 2026-09-26: regime refit bundle anchored on 248. New 2026-09-24 (179 V4). 186-18 landed the atomic per-(group, tf) replace with a shrink guard and measured it: 3.51M orphans (1.22M weekend, 2.29M weekday), J = 510,835 join feature_vectors, so the cleanup run (`--accept-orphan-delete=N --accept-changed=M --reason`, then VACUUM) waits for 186-20's parity report and is owned by the 186-26 executor. |
 | [406](pending/406-ic-math-1087-invalid-divide-warning-unexamined.md) | **Re-tiered P3->P2 2026-09-26 (triage): see the todo triage note.** New 2026-09-24, carried out of closed todo 386. Unexamined `invalid value encountered in divide` warning in ic_math's downside-deviation line; check the next corpus run log and whether a NaN reaches `ic_sortino`. |
+| [504](pending/504-dividend-event-writer-source-registry-and-per-symbol-failure-policy.md) | New 2026-10-07. The dividend writer hard-codes Yahoo and IBKR in its reconciliation and metrics, and one bad symbol (PSKY) fails the unit nightly. Make sources a registry, reconcile pairwise, and fail the run only past an APR threshold with an alert. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
