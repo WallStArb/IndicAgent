@@ -140,3 +140,31 @@ def test_refuses_when_preflight_refuses(monkeypatch: pytest.MonkeyPatch) -> None
     with pytest.raises(SystemExit) as excinfo:
         mod.run_with_refusal(lambda: mod.preflight(client_id=49, apr={}))
     assert excinfo.value.code == 3
+
+
+def _primary_req(route: str, outcome: str, primary: str) -> HeadRequest:
+    return HeadRequest(
+        route=route,
+        outcome=outcome,
+        window_start=_WS,
+        window_end=_WE,
+        first_bar=None,
+        answered_at=_T0,
+        primary_exchange=primary,
+    )
+
+
+@pytest.mark.parametrize(("primary", "skipped"), [("NYSE", "NYSE"), ("NASDAQ", "ISLAND")])
+def test_primary_venue_not_required_for_verified_empty(primary: str, skipped: str) -> None:
+    """185-28: the provider never asks the current primary venue (SMART already routes
+    there, ibkr._fetch_pre_move_history), and the empty-history reconcile does not require
+    it either. SMART plus every other venue answering no_data is verified_empty."""
+    reqs = [_primary_req("SMART", "no_data", primary)]
+    reqs += [_primary_req(v, "no_data", primary) for v in _VENUES if v != skipped]
+    assert classify_head(reqs, date(2015, 1, 2), _VENUES) == "verified_empty"
+
+
+def test_non_primary_venue_still_required() -> None:
+    reqs = [_primary_req("SMART", "no_data", "NYSE")]
+    reqs += [_primary_req(v, "no_data", "NYSE") for v in _VENUES if v not in ("NYSE", "ARCA")]
+    assert classify_head(reqs, date(2015, 1, 2), _VENUES) == "unresolved"
