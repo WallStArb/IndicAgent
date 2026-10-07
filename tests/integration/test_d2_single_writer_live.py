@@ -18,6 +18,7 @@ import asyncpg
 import pytest
 
 from services.bar_derivation import (
+    _D2V2_ROUTES,
     _SELECT_DAILY_OBSERVATIONS_SQL,
     _SELECT_DAILY_SPLITS_SQL,
 )
@@ -106,7 +107,7 @@ async def test_stored_values_equal_derive_daily_for_a_sample_recomputed_from_d1(
     for symbol in await _sample_symbols(conn):
         observations = [
             d.Observation(**{f: r[f] for f in d.Observation.__dataclass_fields__})
-            for r in await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol)
+            for r in await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_D2V2_ROUTES))
         ]
         splits = [
             d.SplitRecord(**{f: r[f] for f in d.SplitRecord.__dataclass_fields__})

@@ -35,18 +35,25 @@ tradeable 5m bars is skipped with outcome no_5m and its stored rows stay as they
 answered 5m window arrived since. Default is a dry run: the same reads and classification, zero
 writes, no batch row; --apply is the explicit opt-in.
 
-Daily stage (plan 17). Per symbol: load the D1 TRADES observations and the
-corporate_action_current splits, run the pure derive_daily rule (Ring 1), and
-upsert into market_data_ohlcv only the rows that differ from or are missing in
-the stored IBKR-source 1d rows (185-01 measurement b, native upsert).
-Lineage for EVERY canonical bar goes to canonical_bar_lineage (side table,
-design 12.1), pre_split_unrefetched / no_provider_volume flags go through
-bar_scrub's write_flags, the D2a rules are rerun through
-bar_scrub.scrub_symbols (one call for the run's symbols so cross-symbol
-corroboration spans them), and after that scrub (plan 185-27) a
-bar_content_digest row lands for each 1d month whose digest differs from
-bar_content_digest_current (first run: every month). Default is a dry run:
-same computation, zero writes, no batch row, and a report by reason.
+Daily stage (plans 17 and 36). Per symbol: load the D1 TRADES observations of routes TRADIER,
+SMART and LEGACY_IMPORT, the 1d bar_source_policy rows (read once per run) and the
+corporate_action_current splits with their evidence, and run the pure d2-v2 rule
+(src/intelligence/bars/daily_rule.py): Tradier primary for every name, IBKR as a recorded head
+or a basis-tested interior fallback (data layer integrity design section 2). The canonical bars
+are classified by the write contract against the stored 1d rows of every canonical source, with
+removal inside the name's derived span (its first to last observed date). A dry run (the default)
+writes nothing and reports per name (--report writes a TSV). The apply path, one transaction per
+symbol under SET LOCAL ROLE bar_derivation_writer: one ohlcv_load row (source derived, outcome
+applied or refused, the four counts), old values of changed and removed rows to ohlcv_revision
+(origin load), removed rows deleted by key, new rows inserted, changed rows upserted (the changed
+set only, never a raw UPDATE of the compressed hypertable), and the fallback_seam,
+pre_split_unrefetched and no_provider_volume flags through bar_scrub's write_flags; then one
+scrub_symbols call over the run's symbols and write_1d_digests at rule d2-v2. A revision ratio
+above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
+rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
+bar_source_policy row was recorded after the symbol's previous applied daily load, or no such
+load exists. No canonical_bar_lineage row is written: apply refuses to start while that table
+exists (185-38 replaces it with the lineage view and makes this stage the single 1d writer).
 """
 
 from __future__ import annotations
@@ -54,6 +61,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import calendar
+import csv
 import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -71,14 +79,16 @@ from services.bar_scrub import FlagRow, scrub_symbols, write_flags
 from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
-from src.intelligence.bars.derivation import (
+from src.intelligence.bars.daily_rule import (
+    FLAG_FALLBACK_SEAM,
+    FLAG_NO_VOLUME,
+    FLAG_PRE_SPLIT,
     RULE_VERSION,
-    CanonicalBar,
-    Observation,
-    SplitRecord,
-    derive_daily,
-    split_staleness_threshold,
+    DailyV2Result,
+    PolicyRow,
+    derive_daily_v2,
 )
+from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
@@ -229,7 +239,7 @@ SELECT timeframe, range_start, digest FROM bar_content_digest_current
 WHERE symbol = $1 AND timeframe = ANY($2::text[])
 """
 
-_INSERT_GRID_LOAD_SQL = """
+_INSERT_LOAD_SQL = """
 INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, outcome, n_bars, n_new, n_changed, n_unchanged, n_removed, first_bar, last_bar, detail, caller, batch_id, destination)
 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18)
 """
@@ -286,7 +296,7 @@ DELETE FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source IS DISTINCT FROM 'derived_5m'
 """
 
-_INSERT_DERIVED_SQL = """
+_INSERT_BAR_SQL = """
 INSERT INTO market_data_ohlcv
     ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -347,14 +357,43 @@ INSERT INTO bar_content_digest
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::uuid)
 """
 
-# --- D2 daily stage (plan 17) -------------------------------------------
+# --- D2 daily stage (plans 17 and 36) ----------------------------------
 
 _DEFAULT_DAILY_SYMBOL_BATCH = 25
 _DAILY_WRITE_METHOD = "upsert"
-_PRE_SPLIT_RULE = "pre_split_unrefetched"
-_NO_VOLUME_RULE = "no_provider_volume"
-# Informational flag fields each rule concerns; identifiers, not tunables.
-_PRE_SPLIT_FIELDS = ("open", "high", "low", "close")
+# Fallbacks equal to migration 446's seeds; the run reads threshold.bar_integrity.* from APR.
+_DEFAULT_BASIS_WINDOW_SESSIONS = 20
+_DEFAULT_BASIS_TOLERANCE_BP = 10.0
+# The daily stage's ohlcv_load rows (source derived, the grid's segment; caller tells the stage).
+_DAILY_LOAD_CALLER = "bar_derivation-daily"
+_DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
+# D1 routes d2-v2 reads: Tradier, IBKR SMART, and the stored corpus's import as IBKR's lowest
+# rank. Venue routes stay out (the D-17 venue study failed).
+_D2V2_ROUTES = ("TRADIER", "SMART", "LEGACY_IMPORT")
+_DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed")
+_DAILY_ROW_COUNTS = ("new", "changed", "unchanged", "removed")
+_DAILY_REPORT_COLUMNS = (
+    "symbol",
+    "group",
+    "outcome",
+    "n_stored",
+    "n_canonical",
+    "new",
+    "changed",
+    "changed_source_only",
+    "unchanged",
+    "removed",
+    "outside_span",
+    "head",
+    "admitted_interior",
+    "refused_interior",
+    "refused_dates",
+    "stale_only",
+    "revision_ratio",
+    "would_refuse",
+    "waived",
+    "error",
+)
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
 SELECT symbol FROM instruments
@@ -362,15 +401,9 @@ WHERE is_active AND compute_eligible_1d
 ORDER BY symbol
 """
 
-# All TRADES observations of the symbol: SMART, venue routes and the legacy
-# import (legacy flag derived from the route). ohlcv_observation carries its
-# own route/what_to_show/fetched_at; observation rows exist only for requests
-# that returned bars. The request join exists for one reason: D1 is append-only,
-# so a fixture row a test appended on a real symbol and date can never be
-# removed, and the latest observation wins a bar. Requests whose caller is a
-# test ('test-' prefix) are provenance-excluded here and in the changed-since
-# probe, so they can never become a canonical bar (2026-10-03: fixture rows on
-# SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5).
+# The d2-v2 routes' TRADES observations ($2 = _D2V2_ROUTES). The request join keeps test
+# fixtures out: a request whose caller starts 'test-' never becomes a canonical bar (2026-10-03:
+# fixture rows on SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5).
 _SELECT_DAILY_OBSERVATIONS_SQL = """
 SELECT o.request_id::text AS request_id, o.route, o.bar_date,
        o.open, o.high, o.low, o.close, o.volume, o.fetched_at,
@@ -378,38 +411,42 @@ SELECT o.request_id::text AS request_id, o.route, o.bar_date,
 FROM ohlcv_observation o
 JOIN ohlcv_request q ON q.request_id = o.request_id
 WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
+  AND o.route = ANY($2::text[])
   AND q.caller NOT LIKE 'test-%'
 ORDER BY o.bar_date, o.fetched_at, o.request_id
 """
 
 _SELECT_DAILY_SPLITS_SQL = """
-SELECT effective_date, recorded_at, factor
+SELECT effective_date, recorded_at, factor,
+       COALESCE(evidence_request_ids::text[], '{}'::text[]) AS evidence_request_ids
 FROM corporate_action_current
 WHERE symbol = $1
 ORDER BY effective_date
 """
 
-# D2's value comparison: the stored IBKR-source 1d rows (a Tradier-owned name never
-# reaches the comparison, so Tradier rows stay out of it).
-_SELECT_STORED_1D_SQL = """
-SELECT "timestamp", open, high, low, close, volume, base
-FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = '1d'
-  AND source IN ('ibkr_named', 'ibkr_venue')
-ORDER BY "timestamp"
+# The 1d source decisions (migration 446), read once per run.
+_SELECT_POLICY_1D_SQL = """
+SELECT timeframe, symbol, valid_from, valid_to, ingress_mode, primary_source, fallback_source
+FROM bar_source_policy
+WHERE timeframe = '1d'
 """
 
-# The 1d digest's content: stored rows of every canonical 1d source ($2 =
-# CANONICAL_1D_SOURCES), so the digest covers a Tradier-owned name's bars too.
-_SELECT_DIGEST_1D_SQL = """
-SELECT "timestamp", open, high, low, close, volume
+# The write contract's stored side: every canonical 1d source ($2 = CANONICAL_1D_SOURCES).
+_SELECT_STORED_1D_SQL = """
+/* stored_1d */
+SELECT "timestamp", open, high, low, close, volume, source, base
 FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($2::text[])
 ORDER BY "timestamp"
 """
 
-_SELECT_BASE_SQL = """
-SELECT base FROM market_data_ohlcv WHERE symbol = $1 AND base IS NOT NULL LIMIT 1
+# The 1d digest's content: stored rows of every canonical 1d source ($2 =
+# CANONICAL_1D_SOURCES).
+_SELECT_DIGEST_1D_SQL = """
+SELECT "timestamp", open, high, low, close, volume
+FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($2::text[])
+ORDER BY "timestamp"
 """
 
 _SELECT_CURRENT_1D_DIGESTS_SQL = """
@@ -423,8 +460,8 @@ FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = '1d'
 """
 
-# --changed-only: a symbol is due when any TRADES request was answered after
-# the last completed daily batch, or a corporate action was recorded after it.
+# --changed-only: a symbol is due when any TRADES request was answered after the last completed
+# daily batch, or a corporate action or a 1d source policy row was recorded after it.
 _SELECT_DAILY_CHANGED_SINCE_SQL = """
 /* changed_since */
 SELECT EXISTS (
@@ -451,18 +488,46 @@ EXISTS (
            WHERE stage = 'daily' AND status = 'completed'),
           '-infinity'::timestamptz)
 ) AS action_since,
--- A name some Tradier daily load was accepted for keeps that source for its whole history
--- (migration 438); D2 never overwrites it with IBKR observations. A later refused load
--- (gated, short_history, failed; plan 185-26) does not hand it back: its stored bars stay.
--- Same predicate as TRADIER_OWNED_SQL in infrastructure_run_tradier_daily.py (the nightly's
--- IBKR 1d skip). source = 'tradier' because ohlcv_load records every canonical writer since
--- migration 443 (plan 185-31): a grid or ingress load row never makes a name Tradier-owned.
--- The IBKR history fetcher imports this statement, so it inherits the predicate.
+EXISTS (
+    SELECT 1 FROM bar_source_policy p
+    WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
+      AND p.recorded_at > COALESCE(
+          (SELECT max(finished_at) FROM bar_derivation_batch
+           WHERE stage = 'daily' AND status = 'completed'),
+          '-infinity'::timestamptz)
+) AS policy_since,
+-- The IBKR history fetcher (phase 189) imports this statement as _DAILY_SOURCE_PROBE_SQL and
+-- reads tradier_owned to skip IBKR 1d fetches for names some Tradier load was accepted for
+-- (migration 438; source = 'tradier' since migration 443). The daily stage no longer reads it:
+-- d2-v2 derives every name from bar_source_policy (plan 185-36). 185-38 redefines the column;
+-- 189-10 replaces the fetcher's use of it.
 EXISTS (SELECT 1 FROM ohlcv_load l
         WHERE l.symbol = $1 AND l.source = 'tradier' AND l.outcome = 'loaded') AS tradier_owned
 """
 
-# Native upsert, 185-01 measurement b.
+# The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy
+# row (the symbol's or the default) recorded after the symbol's latest applied daily load.
+_SELECT_REVISION_WAIVER_SQL = """
+/* revision_waiver */
+WITH last_load AS (
+    SELECT max(loaded_at) AS at FROM ohlcv_load
+    WHERE symbol = $1 AND timeframe = '1d' AND source = 'derived' AND outcome = 'applied'
+)
+SELECT (SELECT at FROM last_load) IS NULL
+    OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
+               WHERE c.symbol = $1 AND c.recorded_at > l.at)
+    OR EXISTS (SELECT 1 FROM bar_source_policy p, last_load l
+               WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
+                 AND p.recorded_at > l.at)
+"""
+
+# 185-38 drops the table for a view of the same name; until then apply refuses ('r' = table).
+_SELECT_LINEAGE_RELKIND_SQL = """
+SELECT relkind::text FROM pg_class
+WHERE relname = 'canonical_bar_lineage' AND relnamespace = 'public'::regnamespace
+"""
+
+# Native upsert, 185-01 measurement b; the changed set only.
 _UPSERT_1D_SQL = """
 INSERT INTO market_data_ohlcv
     ("timestamp", symbol, timeframe, open, high, low, close, volume, source, base)
@@ -476,15 +541,12 @@ ON CONFLICT ("timestamp", symbol, timeframe) DO UPDATE SET
     source = EXCLUDED.source
 """
 
-_UPSERT_LINEAGE_SQL = """
-INSERT INTO canonical_bar_lineage
-    (symbol, timeframe, "timestamp", rule_version, request_ids, batch_id)
-VALUES ($1, '1d', $2, $3, $4::uuid[], $5::uuid)
-ON CONFLICT (symbol, timeframe, "timestamp") DO UPDATE SET
-    rule_version = EXCLUDED.rule_version,
-    request_ids = EXCLUDED.request_ids,
-    batch_id = EXCLUDED.batch_id,
-    derived_at = now()
+# Removed 1d rows by key; the literal range ahead of ANY() keeps chunk exclusion (todo 356).
+_DELETE_1D_ROWS_SQL = """
+/* delete_1d_rows */
+DELETE FROM market_data_ohlcv
+WHERE symbol = $1 AND timeframe = '1d'
+  AND "timestamp" BETWEEN $3 AND $4 AND "timestamp" = ANY($2::timestamptz[])
 """
 
 
@@ -511,6 +573,56 @@ class _RevisionLimits(NamedTuple):
 
     max_ratio: float
     min_stored: int
+
+
+@dataclass(frozen=True)
+class _DailyResult:
+    """One symbol's daily-stage outcome and its write-contract accounting (the report row)."""
+
+    symbol: str
+    outcome: str
+    error: str | None = None
+    group: str = ""
+    n_stored: int = 0
+    n_canonical: int = 0
+    new: int = 0
+    changed: int = 0
+    changed_source_only: int = 0
+    unchanged: int = 0
+    removed: int = 0
+    outside_span: int = 0
+    head: int = 0
+    admitted_interior: int = 0
+    refused_dates: tuple[date, ...] = ()
+    stale_only: int = 0
+    revision_ratio: float = 0.0
+    would_refuse: bool = False
+    waived: bool | None = None
+
+    def report_row(self) -> dict[str, str]:
+        values: dict[str, Any] = {
+            **{name: getattr(self, name) for name in _DAILY_REPORT_COLUMNS if hasattr(self, name)},
+            "refused_interior": len(self.refused_dates),
+            "refused_dates": ",".join(d.isoformat() for d in self.refused_dates),
+            "revision_ratio": f"{self.revision_ratio:.6f}",
+            "would_refuse": str(self.would_refuse).lower(),
+            "waived": "" if self.waived is None else str(self.waived).lower(),
+            "error": self.error or "",
+        }
+        return {name: str(values[name]) for name in _DAILY_REPORT_COLUMNS}
+
+
+def _stored_group(sources: set[str]) -> str:
+    """Which vendors a name's stored 1d rows come from before the run."""
+    if not sources:
+        return "none"
+    if "tradier" not in sources:
+        return "ibkr_only"
+    return "tradier_only" if sources == {"tradier"} else "mixed"
+
+
+def _utc_day(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -552,40 +664,12 @@ class _GridPlan:
         )
 
 
-class _DailyResult(NamedTuple):
-    """One symbol's daily-stage outcome plus its change accounting."""
-
-    outcome: str
-    error: str | None
-    n_canonical: int
-    n_stored: int
-    n_changed: int
-    reasons: dict[str, int]
-    n_pre_split: int
-    n_no_volume: int
-    sample_diffs: tuple[tuple[date, float, float, str, str], ...] = ()
-
-
 def _rowcount(status: str) -> int:
     """Parse the count out of an asyncpg command status like 'DELETE 2'."""
     try:
         return int(status.rsplit(None, 1)[-1])
     except (IndexError, ValueError) as error:
         raise ValueError(f"cannot parse rowcount from status {status!r}") from error
-
-
-def _diff_fields(stored: Any, bar: CanonicalBar) -> tuple[str, ...]:
-    """The fields where a stored 1d row differs from the canonical bar.
-
-    Bit-exact on purpose: the same provider re-fetching an unchanged bar must
-    compare equal, and any drift (the seam audit's 74 unexplained days) must
-    surface as a change, not be rounded away. Empty tuple means equal.
-    """
-    fields = []
-    for name in ("open", "high", "low", "close", "volume"):
-        if stored[name] != getattr(bar, name):
-            fields.append(name)
-    return tuple(fields)
 
 
 def _epoch_seconds(dt: datetime) -> int:
@@ -604,7 +688,7 @@ async def write_1d_digests(
     (CANONICAL_1D_SOURCES, so a Tradier-owned name digests its Tradier bars), with
     each row's non-quarantine flag rules beside it (the grid convention). Callers
     run it after their scrub so the flags it adds or clears are in the digest.
-    Shared by D2's daily stage (rule d2-v1) and the Tradier daily loader
+    Shared by D2's daily stage (rule d2-v2) and the Tradier daily loader
     (tradier-v1, plan 185-27); returns the number of rows inserted.
     """
     rows = await conn.fetch(_SELECT_DIGEST_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
@@ -1141,7 +1225,7 @@ class BarDerivation(BaseBatch):
                     delta = plan.deltas[tf]
                     grid_ts = derived[tf][0].ts_seconds
                     await conn.execute(
-                        _INSERT_GRID_LOAD_SQL,
+                        _INSERT_LOAD_SQL,
                         load_ids[tf],
                         symbol,
                         tf,
@@ -1323,7 +1407,7 @@ class BarDerivation(BaseBatch):
             for ts, values in delta.new.items()
         ]
         if new_rows:
-            await conn.executemany(_INSERT_DERIVED_SQL, new_rows)
+            await conn.executemany(_INSERT_BAR_SQL, new_rows)
         changed_rows = [
             _bar(tf, ts, new)
             for tf, delta in plan.deltas.items()
@@ -1332,13 +1416,13 @@ class BarDerivation(BaseBatch):
         if changed_rows:
             await conn.executemany(_UPSERT_DERIVED_SQL, changed_rows)
 
-    # --- D2 daily stage (plan 17, D-06/D-07/D-12/D-21) -------------------
+    # --- D2 daily stage (plans 17 and 36; d2-v2) ---------------------------
 
-    async def _execute_daily(self, pool: asyncpg.Pool) -> dict[str, int]:
-        started = datetime.now(UTC)
+    async def _execute_daily(self, pool: asyncpg.Pool) -> dict[str, Any]:
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(
-                conn, ["infra.bar_derivation.%", "threshold.bar_scrub.%"]
+                conn,
+                ["infra.bar_derivation.%", "threshold.bar_integrity.%", "threshold.bar_scrub.%"],
             )
             symbol_batch = int(
                 _cfg(apr, "infra.bar_derivation.daily_symbol_batch", _DEFAULT_DAILY_SYMBOL_BATCH)
@@ -1349,12 +1433,52 @@ class BarDerivation(BaseBatch):
                     f"infra.bar_derivation.daily_write_method={method!r}: only "
                     f"{_DAILY_WRITE_METHOD!r} is implemented (185-01 measurement b)"
                 )
-            venue_enabled = (
-                str(_cfg(apr, "infra.bar_derivation.venue_bars_1d", "false")).strip().lower()
-                == "true"
-            )
-            quarantine_rules = set(
-                json.loads(str(_cfg(apr, "threshold.bar_scrub.quarantine_rules", "[]")))
+            params = _DailyParams(
+                window=int(
+                    _cfg(
+                        apr,
+                        "threshold.bar_integrity.fallback_basis_window_sessions",
+                        _DEFAULT_BASIS_WINDOW_SESSIONS,
+                    )
+                ),
+                tolerance_bp=float(
+                    _cfg(
+                        apr,
+                        "threshold.bar_integrity.fallback_basis_tolerance_bp",
+                        _DEFAULT_BASIS_TOLERANCE_BP,
+                    )
+                ),
+                limits=_RevisionLimits(
+                    max_ratio=float(
+                        _cfg(
+                            apr,
+                            "threshold.bar_integrity.max_revision_ratio",
+                            _DEFAULT_MAX_REVISION_RATIO,
+                        )
+                    ),
+                    min_stored=int(
+                        _cfg(
+                            apr,
+                            "threshold.bar_integrity.revision_ratio_min_stored",
+                            _DEFAULT_REVISION_MIN_STORED,
+                        )
+                    ),
+                ),
+                quarantine_rules=frozenset(
+                    json.loads(str(_cfg(apr, "threshold.bar_scrub.quarantine_rules", "[]")))
+                ),
+                policy=tuple(
+                    PolicyRow(
+                        timeframe=r["timeframe"],
+                        symbol=r["symbol"],
+                        valid_from=r["valid_from"],
+                        valid_to=r["valid_to"],
+                        ingress_mode=r["ingress_mode"],
+                        primary_source=r["primary_source"],
+                        fallback_source=r["fallback_source"],
+                    )
+                    for r in await conn.fetch(_SELECT_POLICY_1D_SQL)
+                ),
             )
             symbols = (
                 list(self._symbols)
@@ -1364,64 +1488,54 @@ class BarDerivation(BaseBatch):
             excluded = _read_exclude_file(self._exclude_symbols_file, self.logger)
             targets = [s for s in symbols if s not in excluded]
 
-            apr_snapshot = {k: v for k, v in apr.items() if k.startswith("infra.bar_derivation.")}
             batch_id: str | None = None
             if self._apply:
+                relkind = await conn.fetchval(_SELECT_LINEAGE_RELKIND_SQL)
+                if relkind == "r":
+                    raise RuntimeError(
+                        "daily --apply refused: canonical_bar_lineage is still a table. d2-v2 "
+                        "writes no lineage row; 185-38 replaces the table with the lineage view "
+                        "and makes this stage the single 1d writer"
+                    )
                 batch_id = await open_batch(
                     conn,
                     stage="daily",
                     rule_version=RULE_VERSION,
-                    apr_snapshot=apr_snapshot,
+                    apr_snapshot={
+                        k: v
+                        for k, v in apr.items()
+                        if k.startswith(
+                            (
+                                "infra.bar_derivation.",
+                                "threshold.bar_integrity.",
+                                "threshold.bar_scrub.",
+                            )
+                        )
+                    },
                     n_symbols=len(targets),
                 )
-            totals = dict.fromkeys(
-                ("derived", "unchanged", "no_observations", "tradier_owned", "failed"), 0
-            )
-            reasons_total: dict[str, int] = {}
-            n_canonical = n_stored = n_changed = n_pre_split = n_no_volume = 0
-            per_symbol: dict[str, dict[str, int]] = {}
-            samples: list[tuple[str, date, float, float, str, str]] = []
+            totals = dict.fromkeys(_DAILY_OUTCOMES, 0)
+            rows = dict.fromkeys(_DAILY_ROW_COUNTS, 0)
+            results: list[_DailyResult] = []
             failed: list[str] = []
-            derived_symbols: list[str] = []
+            applied: list[str] = []
             try:
                 for offset in range(0, len(targets), symbol_batch):
-                    chunk = targets[offset : offset + symbol_batch]
-                    for symbol in chunk:
+                    for symbol in targets[offset : offset + symbol_batch]:
                         try:
                             result = await self._run_daily_symbol(
-                                conn,
-                                symbol=symbol,
-                                batch_id=batch_id,
-                                venue_enabled=venue_enabled,
-                                quarantine_rules=quarantine_rules,
+                                conn, symbol=symbol, batch_id=batch_id, params=params
                             )
                         except Exception as error:
-                            result = _DailyResult("failed", f"{symbol}: {error}", 0, 0, 0, {}, 0, 0)
+                            result = _DailyResult(symbol, "failed", f"{symbol}: {error}")
+                        results.append(result)
                         totals[result.outcome] += 1
-                        n_canonical += result.n_canonical
-                        n_stored += result.n_stored
-                        n_changed += result.n_changed
-                        n_pre_split += result.n_pre_split
-                        n_no_volume += result.n_no_volume
-                        for reason, count in result.reasons.items():
-                            reasons_total[reason] = reasons_total.get(reason, 0) + count
-                        if result.outcome == "derived":
-                            derived_symbols.append(symbol)
-                            per_symbol[symbol] = {
-                                "changed": result.n_changed,
-                                "missing": result.reasons.get("missing", 0),
-                                "d1_value_differs": result.reasons.get("d1_value_differs", 0),
-                                "volume_differs": result.reasons.get("volume_differs", 0),
-                                "split_rescale": result.reasons.get("split_rescale", 0),
-                                "pre_split": result.n_pre_split,
-                                "canonical": result.n_canonical,
-                                "stored": result.n_stored,
-                            }
-                            for diff in result.sample_diffs:
-                                if len(samples) < 30:
-                                    samples.append((symbol, *diff))
+                        for key in _DAILY_ROW_COUNTS:
+                            rows[key] += getattr(result, key)
                         if result.error:
                             failed.append(result.error)
+                        if self._apply and result.outcome == "derived":
+                            applied.append(symbol)
                     self.logger.info(
                         "bar_derivation.chunk_complete",
                         stage=self._stage,
@@ -1429,14 +1543,14 @@ class BarDerivation(BaseBatch):
                         symbols_total=len(targets),
                         failed_so_far=len(failed),
                     )
-                # D2a rerun: one scrub_symbols call over the run's symbols so
-                # cross-symbol corroboration (D-11) spans the whole run.
-                if self._apply and derived_symbols:
+                if applied:
+                    # D2a rerun: one scrub_symbols call over the run's symbols so cross-symbol
+                    # corroboration (D-11) spans the whole run; digests after it (plan 185-27).
                     try:
                         await scrub_symbols(
                             pool,
                             tf="1d",
-                            symbols=derived_symbols,
+                            symbols=applied,
                             rules=None,
                             start=None,
                             end=None,
@@ -1445,9 +1559,7 @@ class BarDerivation(BaseBatch):
                         )
                     except Exception as error:
                         failed.append(f"scrub: {error}")
-                    # Digests after the scrub (plan 185-27), so a flag the scrub
-                    # adds or clears is inside the digest this run writes.
-                    for symbol in derived_symbols:
+                    for symbol in applied:
                         try:
                             await write_1d_digests(
                                 conn, symbol=symbol, batch_id=batch_id, rule_version=RULE_VERSION
@@ -1455,6 +1567,7 @@ class BarDerivation(BaseBatch):
                         except Exception as error:
                             failed.append(f"digest {symbol}: {error}")
             finally:
+                summary = _daily_summary(results)
                 if batch_id is not None:
                     await close_batch(
                         conn,
@@ -1462,55 +1575,31 @@ class BarDerivation(BaseBatch):
                         status="failed" if failed else "completed",
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
-                            "reasons": reasons_total,
-                            "changed_bars": n_changed,
-                            "canonical_bars": n_canonical,
-                            "pre_split_bars": n_pre_split,
-                            "no_volume_bars": n_no_volume,
+                            "rows": rows,
+                            **summary,
                             "apply": self._apply,
                             "changed_only": self._changed_only,
                         },
                     )
 
         if self._report_path:
-            self._write_daily_report(
-                started=started,
-                totals=totals,
-                reasons=reasons_total,
-                n_canonical=n_canonical,
-                n_stored=n_stored,
-                n_changed=n_changed,
-                n_pre_split=n_pre_split,
-                n_no_volume=n_no_volume,
-                per_symbol=per_symbol,
-                samples=samples,
-                venue_enabled=venue_enabled,
-                failed=failed,
-            )
+            _write_daily_report(self._report_path, results)
         self.logger.info(
             "bar_derivation.done",
             stage=self._stage,
             symbols=len(symbols),
             apply=self._apply,
             changed_only=self._changed_only,
-            changed_bars=n_changed,
-            pre_split_bars=n_pre_split,
             **totals,
+            **{f"rows_{k}": n for k, n in rows.items()},
+            **summary,
         )
-        for outcome in ("derived", "unchanged", "no_observations", "tradier_owned", "failed"):
+        for outcome in _DAILY_OUTCOMES:
             if totals[outcome]:
                 _OUTCOME_TOTAL.add(totals[outcome], {"stage": self._stage, "outcome": outcome})
         if failed:
             raise RuntimeError(f"bar_derivation: {len(failed)} symbol failure(s): {failed}")
-        return {
-            "totals": totals,
-            "reasons": reasons_total,
-            "canonical_bars": n_canonical,
-            "stored_rows": n_stored,
-            "changed_bars": n_changed,
-            "n_pre_split_bars": n_pre_split,
-            "n_no_volume_bars": n_no_volume,
-        }
+        return {"totals": totals, "rows": rows, **summary}
 
     async def _run_daily_symbol(
         self,
@@ -1518,33 +1607,29 @@ class BarDerivation(BaseBatch):
         *,
         symbol: str,
         batch_id: str | None,
-        venue_enabled: bool,
-        quarantine_rules: set[str],
+        params: _DailyParams,
     ) -> _DailyResult:
-        # Probe first (cheap EXISTS, one round trip): the nightly --changed-only
-        # pass skips the observation load and the whole derivation for symbols
-        # with nothing new since the last completed daily batch. has_obs mirrors
-        # _SELECT_DAILY_OBSERVATIONS_SQL's WHERE so the probe alone preserves
-        # the no_observations-vs-unchanged distinction; n_canonical is 0 for
-        # unchanged symbols by construction (nothing was derived).
+        # Probe first (cheap EXISTS, one round trip): the nightly --changed-only pass skips the
+        # observation load and the derivation for symbols with nothing new since the last
+        # completed daily batch.
         probe = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
-        if probe["tradier_owned"]:
-            return _DailyResult("tradier_owned", None, 0, 0, 0, {}, 0, 0)
         if not probe["has_obs"]:
-            return _DailyResult("no_observations", None, 0, 0, 0, {}, 0, 0)
-        if self._changed_only and not (probe["obs_since"] or probe["action_since"]):
-            return _DailyResult("unchanged", None, 0, 0, 0, {}, 0, 0)
-        obs_rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol)
+            return _DailyResult(symbol, "no_observations")
+        if self._changed_only and not (
+            probe["obs_since"] or probe["action_since"] or probe["policy_since"]
+        ):
+            return _DailyResult(symbol, "unchanged")
+        obs_rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_D2V2_ROUTES))
         if not obs_rows:
-            return _DailyResult("no_observations", None, 0, 0, 0, {}, 0, 0)
-        split_rows = await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
+            return _DailyResult(symbol, "no_observations")
         splits = [
             SplitRecord(
                 effective_date=r["effective_date"],
                 recorded_at=r["recorded_at"],
                 factor=r["factor"],
+                evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
             )
-            for r in split_rows
+            for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
         ]
         observations = [
             Observation(
@@ -1562,259 +1647,227 @@ class BarDerivation(BaseBatch):
             )
             for r in obs_rows
         ]
-        canonical = derive_daily(observations, splits, venue_bars_enabled=venue_enabled)
-
-        stored_rows = await conn.fetch(_SELECT_STORED_1D_SQL, symbol)
-        stored = {r["timestamp"].date(): r for r in stored_rows}
-        # base is NULL across market_data_ohlcv today (the grid stage writes
-        # the same NULL), so the upsert carries the symbol's stored value or
-        # NULL -- never a failure; base is provenance the table does not hold.
-        base = (
-            stored_rows[0]["base"] if stored_rows else await conn.fetchval(_SELECT_BASE_SQL, symbol)
+        derived = derive_daily_v2(
+            observations,
+            params.policy,
+            splits,
+            symbol=symbol,
+            basis_window_sessions=params.window,
+            basis_tolerance_bp=params.tolerance_bp,
         )
 
-        reasons = {
-            "split_rescale": 0,
-            "d1_value_differs": 0,
-            "volume_differs": 0,
-            "missing": 0,
-        }
-        changes: list[tuple[CanonicalBar, str]] = []
-        sample_diffs: list[tuple[date, float, float, str, str]] = []
-        n_pre_split = n_no_volume = 0
-        for bar in canonical:
-            if _PRE_SPLIT_RULE in bar.flags:
-                n_pre_split += 1
-            if _NO_VOLUME_RULE in bar.flags:
-                n_no_volume += 1
-            srow = stored.get(bar.bar_date)
-            if srow is None:
-                reasons["missing"] += 1
-                changes.append((bar, "missing"))
-            else:
-                fields = _diff_fields(srow, bar)
-                if fields:
-                    affects_split = split_staleness_threshold(bar.bar_date, splits) is not None
-                    if affects_split and _PRE_SPLIT_RULE not in bar.flags:
-                        reason = "split_rescale"
-                    elif fields == ("volume",):
-                        # IBKR daily volume is not stable across fetches
-                        # (late odd-lot corrections; measured 2026-10-02:
-                        # 1-share drift on AAPL 2026-07-29). Prices equal,
-                        # volume only: still written, reported as what it is.
-                        reason = "volume_differs"
-                    else:
-                        reason = "d1_value_differs"
-                    reasons[reason] += 1
-                    changes.append((bar, reason))
-                    if len(sample_diffs) < 10:
-                        sample_diffs.append(
-                            (
-                                bar.bar_date,
-                                float(srow["close"]),
-                                float(bar.close),
-                                reason,
-                                ",".join(fields),
-                            )
-                        )
-
-        if not self._apply:
-            return _DailyResult(
-                "derived",
-                None,
-                len(canonical),
-                len(stored),
-                len(changes),
-                reasons,
-                n_pre_split,
-                n_no_volume,
-                tuple(sample_diffs),
+        stored_rows = await conn.fetch(_SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
+        stored: dict[date, BarValues] = {
+            r["timestamp"].date(): (
+                r["open"],
+                r["high"],
+                r["low"],
+                r["close"],
+                r["volume"],
+                r["source"],
             )
+            for r in stored_rows
+        }
+        # base is NULL on every 1d row today; the write carries the stored value if one exists.
+        base = next((r["base"] for r in stored_rows if r["base"] is not None), None)
+        incoming: dict[date, BarValues] = {
+            b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.source) for b in derived.bars
+        }
+        span_start = min(o.bar_date for o in observations)
+        span_end = max(o.bar_date for o in observations)
+        scope = [d for d in stored if span_start <= d <= span_end]
+        delta = classify(incoming, stored, removal_scope=scope)
+        ratio = revision_ratio(delta, len(stored))
+        would_refuse = should_refuse(
+            delta,
+            len(stored),
+            params.limits.max_ratio,
+            min_stored=params.limits.min_stored,
+            waived=False,
+        )
+        waived = (
+            bool(await conn.fetchval(_SELECT_REVISION_WAIVER_SQL, symbol)) if would_refuse else None
+        )
+        refuse = would_refuse and not waived
+        result = _DailyResult(
+            symbol=symbol,
+            outcome="refused" if refuse else "derived",
+            error=(
+                f"{symbol}: refused: revision ratio {ratio:.4f} over {len(stored)} stored rows "
+                f"exceeds {params.limits.max_ratio} with no recorded corporate action or policy "
+                "change since the last applied daily load"
+                if refuse
+                else None
+            ),
+            group=_stored_group({values[5] for values in stored.values()}),
+            n_stored=len(stored),
+            n_canonical=len(derived.bars),
+            new=len(delta.new),
+            changed=len(delta.changed),
+            changed_source_only=sum(1 for new, old in delta.changed.values() if new[:5] == old[:5]),
+            unchanged=delta.unchanged,
+            removed=len(delta.removed),
+            outside_span=len(stored) - len(scope),
+            head=len(derived.head),
+            admitted_interior=len(derived.admitted_interior),
+            refused_dates=tuple(derived.refused_interior),
+            stale_only=len(derived.stale_only),
+            revision_ratio=ratio,
+            would_refuse=would_refuse,
+            waived=waived,
+        )
+        if not self._apply:
+            return result
+        assert batch_id is not None  # --apply always opens a batch
+        await self._write_daily(
+            conn,
+            symbol=symbol,
+            batch_id=batch_id,
+            base=base,
+            derived=derived,
+            delta=delta,
+            result=result,
+            span=(span_start, span_end),
+            quarantine_rules=params.quarantine_rules,
+        )
+        return result
 
-        try:
-            async with conn.transaction():
-                await conn.execute(_WRITER_ROLE_SQL)
-                if changes:
-                    await conn.executemany(
-                        _UPSERT_1D_SQL,
-                        (
-                            (
-                                datetime(
-                                    b.bar_date.year, b.bar_date.month, b.bar_date.day, tzinfo=UTC
-                                ),
-                                symbol,
-                                "1d",
-                                b.open,
-                                b.high,
-                                b.low,
-                                b.close,
-                                b.volume,
-                                b.source,
-                                base,
-                            )
-                            for b, _reason in changes
-                        ),
-                    )
-                # Lineage for EVERY canonical bar, changed or not (D-07).
-                await conn.executemany(
-                    _UPSERT_LINEAGE_SQL,
-                    (
-                        (
-                            symbol,
-                            datetime(b.bar_date.year, b.bar_date.month, b.bar_date.day, tzinfo=UTC),
-                            RULE_VERSION,
-                            list(b.request_ids),
-                            batch_id,
-                        )
-                        for b in canonical
-                    ),
-                )
-            # pre_split / no_volume flags through the shared write_flags path
-            # (delete-then-insert of the evaluated rules, so re-derivations
-            # clear stale flags; D-21 quarantine per the APR list).
-            flag_rows = [
-                FlagRow(
-                    timestamp=datetime(
-                        b.bar_date.year, b.bar_date.month, b.bar_date.day, tzinfo=UTC
-                    ),
-                    rule=rule,
-                    rule_version=RULE_VERSION,
-                    fields=_PRE_SPLIT_FIELDS if rule == _PRE_SPLIT_RULE else ("volume",),
-                    quarantine=(rule == _PRE_SPLIT_RULE and rule in quarantine_rules),
-                    detail={"source": b.source},
-                )
-                for b in canonical
-                for rule in b.flags
-                if rule in (_PRE_SPLIT_RULE, _NO_VOLUME_RULE)
+    async def _write_daily(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        symbol: str,
+        batch_id: str,
+        base: str | None,
+        derived: DailyV2Result,
+        delta: WriteDelta[date],
+        result: _DailyResult,
+        span: tuple[date, date],
+        quarantine_rules: frozenset[str],
+    ) -> None:
+        """One transaction: the load row, then (unless refused) revisions, bars and flags."""
+        load_id = str(uuid4())
+        async with conn.transaction():
+            await conn.execute(_WRITER_ROLE_SQL)
+            await conn.execute(
+                _INSERT_LOAD_SQL,
+                load_id,
+                symbol,
+                "1d",
+                _GRID_LOAD_SOURCE,
+                span[0],
+                span[1],
+                "refused" if result.outcome == "refused" else "applied",
+                len(derived.bars),
+                result.new,
+                result.changed,
+                result.unchanged,
+                result.removed,
+                derived.bars[0].bar_date if derived.bars else None,
+                derived.bars[-1].bar_date if derived.bars else None,
+                json.dumps(
+                    {
+                        "rule_version": RULE_VERSION,
+                        "n_stored": result.n_stored,
+                        "revision_ratio": result.revision_ratio,
+                        "waived": result.waived,
+                        "head": result.head,
+                        "admitted_interior": result.admitted_interior,
+                        "refused_interior": [d.isoformat() for d in result.refused_dates],
+                        "stale_only": [d.isoformat() for d in derived.stale_only],
+                    }
+                ),
+                _DAILY_LOAD_CALLER,
+                batch_id,
+                _GRID_LOAD_DESTINATION,
+            )
+            if result.outcome == "refused":
+                return
+            revisions = [
+                (load_id, symbol, "1d", _utc_day(day), *old, "load")
+                for day, (_new, old) in delta.changed.items()
+            ] + [
+                (load_id, symbol, "1d", _utc_day(day), *old, "load")
+                for day, old in delta.removed.items()
             ]
+            if revisions:
+                await conn.executemany(_INSERT_LOAD_REVISION_SQL, revisions)
+            if delta.removed:
+                keys = [_utc_day(day) for day in sorted(delta.removed)]
+                n_deleted = _rowcount(
+                    await conn.execute(_DELETE_1D_ROWS_SQL, symbol, keys, keys[0], keys[-1])
+                )
+                if n_deleted != len(keys):
+                    raise _SymbolFailure(f"1d delete removed {n_deleted} of {len(keys)}")
+            if delta.new:
+                await conn.executemany(
+                    _INSERT_BAR_SQL,
+                    [
+                        (_utc_day(day), symbol, "1d", *v, base)
+                        for day, v in sorted(delta.new.items())
+                    ],
+                )
+            if delta.changed:
+                await conn.executemany(
+                    _UPSERT_1D_SQL,
+                    [
+                        (_utc_day(day), symbol, "1d", *new, base)
+                        for day, (new, _old) in sorted(delta.changed.items())
+                    ],
+                )
+            # Replace the stage's flag rules for the symbol (delete-then-insert of the evaluated
+            # rules, so a re-derivation clears a stale flag; D-21 quarantine per the APR list).
             await write_flags(
                 conn,
                 tf="1d",
                 symbol=symbol,
-                rules_evaluated=frozenset({_PRE_SPLIT_RULE, _NO_VOLUME_RULE}),
-                flags=flag_rows,
+                rules_evaluated=_DAILY_FLAG_RULES,
+                flags=[
+                    FlagRow(
+                        timestamp=_utc_day(flag.bar_date),
+                        rule=flag.rule,
+                        rule_version=RULE_VERSION,
+                        fields=flag.fields,
+                        quarantine=flag.rule in quarantine_rules,
+                        detail=flag.detail,
+                    )
+                    for flag in derived.flags
+                ],
                 start=None,
                 end=None,
                 batch_id=batch_id,
             )
-        except Exception as error:
-            return _DailyResult(
-                "failed",
-                f"{symbol}: {error}",
-                len(canonical),
-                len(stored),
-                0,
-                {},
-                n_pre_split,
-                n_no_volume,
-            )
-        return _DailyResult(
-            "derived",
-            None,
-            len(canonical),
-            len(stored),
-            len(changes),
-            reasons,
-            n_pre_split,
-            n_no_volume,
-            tuple(sample_diffs),
-        )
 
-    def _write_daily_report(
-        self,
-        *,
-        started: datetime,
-        totals: dict[str, int],
-        reasons: dict[str, int],
-        n_canonical: int,
-        n_stored: int,
-        n_changed: int,
-        n_pre_split: int,
-        n_no_volume: int,
-        per_symbol: dict[str, dict[str, int]],
-        samples: list[tuple[str, date, float, float, str, str]],
-        venue_enabled: bool,
-        failed: list[str],
-    ) -> None:
-        """The measured change report (committed as docs/research artifact)."""
-        mode = (
-            "apply (writes executed)"
-            if self._apply
-            else "dry run (no writes; --apply is plan 185-18)"
-        )
-        lines = [
-            "# D2 1d derivation dry run report",
-            "",
-            f"Generated: {started.isoformat()}",
-            f"Mode: {mode}",
-            f"Rule version: {RULE_VERSION}; write method: {_DAILY_WRITE_METHOD}",
-            f"Venue bars gate (infra.bar_derivation.venue_bars_1d): {str(venue_enabled).lower()}",
-            "",
-            "## Totals",
-            "",
-            "| measure | count |",
-            "|---|---|",
-            f"| symbols considered | {sum(totals.values())} |",
-            f"| derived | {totals.get('derived', 0)} |",
-            f"| unchanged (changed-only) | {totals.get('unchanged', 0)} |",
-            f"| no D1 observations | {totals.get('no_observations', 0)} |",
-            f"| failed | {totals.get('failed', 0)} |",
-            f"| canonical bars | {n_canonical} |",
-            f"| stored canonical-source 1d rows compared | {n_stored} |",
-            f"| changed bars | {n_changed} |",
-            f"| pre_split_unrefetched bars | {n_pre_split} |",
-            f"| no_provider_volume bars | {n_no_volume} |",
-            "",
-            "## Changed bars by reason",
-            "",
-            "| reason | bars |",
-            "|---|---|",
-        ]
-        for reason in ("missing", "d1_value_differs", "volume_differs", "split_rescale"):
-            lines.append(f"| {reason} | {reasons.get(reason, 0)} |")
-        lines.extend(
-            [
-                "",
-                "## Top 20 symbols by changed bars",
-                "",
-                "| symbol | changed | missing | d1_value_differs | volume_differs | split_rescale | pre_split |",
-                "|---|---|---|---|---|---|---|",
-            ]
-        )
-        top = sorted(per_symbol.items(), key=lambda kv: (-kv[1]["changed"], kv[0]))[:20]
-        for symbol, stats in top:
-            lines.append(
-                f"| {symbol} | {stats['changed']} | {stats['missing']} "
-                f"| {stats['d1_value_differs']} | {stats['volume_differs']} "
-                f"| {stats['split_rescale']} | {stats['pre_split']} |"
-            )
-        lines.extend(["", "## Symbols with pre_split_unrefetched bars", ""])
-        flagged = [(s, k) for s, k in sorted(per_symbol.items()) if k["pre_split"]]
-        if flagged:
-            for symbol, stats in flagged:
-                lines.append(f"- {symbol} ({stats['pre_split']} bars)")
-        else:
-            lines.append("None: no symbol has a pre_split_unrefetched bar.")
-        lines.extend(
-            [
-                "",
-                "## Sample differing bars (up to 30)",
-                "",
-                "| symbol | date | stored close | canonical close | reason | fields |",
-                "|---|---|---|---|---|---|",
-            ]
-        )
-        for symbol, bar_date, stored_close, close, reason, fields in samples:
-            lines.append(
-                f"| {symbol} | {bar_date.isoformat()} | {stored_close} | {close} "
-                f"| {reason} | {fields} |"
-            )
-        if not samples:
-            lines.append("| (none) | | | | | |")
-        if failed:
-            lines.extend(["", "## Failures", ""])
-            lines.extend(f"- {error}" for error in failed[:20])
-        Path(self._report_path).write_text("\n".join(lines) + "\n")
+
+class _DailyParams(NamedTuple):
+    """The daily stage's per-run inputs: APR thresholds and the 1d policy rows."""
+
+    window: int
+    tolerance_bp: float
+    limits: _RevisionLimits
+    quarantine_rules: frozenset[str]
+    policy: tuple[PolicyRow, ...]
+
+
+def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
+    """Run-level fallback and refusal counts (the batch detail and the dry run's return)."""
+    return {
+        "head": sum(r.head for r in results),
+        "admitted_interior": sum(r.admitted_interior for r in results),
+        "refused_interior": sum(len(r.refused_dates) for r in results),
+        "stale_only": sum(r.stale_only for r in results),
+        "would_refuse": sum(r.would_refuse for r in results),
+        "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),
+    }
+
+
+def _write_daily_report(path: str, results: list[_DailyResult]) -> None:
+    """One TSV row per symbol (the dry-run measurement plan 185-36 records)."""
+    with Path(path).open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_DAILY_REPORT_COLUMNS, delimiter="\t")
+        writer.writeheader()
+        for result in results:
+            writer.writerow(result.report_row())
 
 
 def main() -> None:
@@ -1847,7 +1900,7 @@ def main() -> None:
     parser.add_argument(
         "--report",
         default=None,
-        help="daily stage: write the markdown change report to this path",
+        help="daily stage: write the per-symbol TSV report (d2-v2 dry run measurement) to this path",
     )
     args = parser.parse_args()
     # Accept both `--symbols SPY,AAPL` (the pipeline/plan convention) and

@@ -124,8 +124,16 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         ),
         Writer(
             "services/bar_derivation.py",
-            _segment("rule", "constituent_flag", "partial_constituents"),
-            "the grid stage's derived-bar flags",
+            _segment(
+                "rule",
+                "constituent_flag",
+                "partial_constituents",
+                "fallback_seam",
+                "pre_split_unrefetched",
+                "no_provider_volume",
+            ),
+            "the grid stage's derived-bar flags, and the daily stage's d2-v2 flags (plan "
+            "185-36), which it decides and writes through bar_scrub.write_flags",
         ),
         Writer(
             "scripts/ops/bars/ops_tradier_lineage_backfill.py",

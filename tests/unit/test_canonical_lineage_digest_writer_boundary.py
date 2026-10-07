@@ -1,8 +1,10 @@
 """CI guard: canonical_bar_lineage and bar_content_digest have named writers (plan 185-27).
 
-single_writer: services/bar_derivation.py (D2 and the derived grid) writes both tables; the
-Tradier daily loader writes canonical_bar_lineage for the 1d bars it stores, under rule
-tradier-v1, and reaches bar_content_digest only through bar_derivation.write_1d_digests. The
+single_writer: services/bar_derivation.py (D2 and the derived grid) writes bar_content_digest;
+since plan 185-36 its daily stage (d2-v2) writes no canonical_bar_lineage row, which 185-38
+replaces with a view. The Tradier daily loader writes canonical_bar_lineage for the 1d bars it
+stores, under rule tradier-v1, until then, and reaches bar_content_digest only through
+bar_derivation.write_1d_digests. The
 scan matches the SQL where it is defined, so a script that imports TRADIER_LINEAGE_UPSERT_SQL or
 write_1d_digests (the 185-30 backfill) is not a new writer. Any other INSERT, UPDATE or COPY into
 either table fails CI unless the allow-list below is edited with a reason.
@@ -38,10 +40,6 @@ _TABLES = {
 
 _ALLOW_LISTS: dict[str, dict[str, str]] = {
     "canonical_bar_lineage": {
-        "services/bar_derivation.py": (
-            "PERMANENT: D2's daily stage writes lineage for every canonical IBKR 1d bar "
-            "(rule d2-v1, plan 185-17)."
-        ),
         "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
             "TEMPORARY: the second 1d writer (owner decision 2026-10-03) traces every bar it "
             "stores to its TRADIER D1 observation (TRADIER_LINEAGE_UPSERT_SQL, rule tradier-v1, "

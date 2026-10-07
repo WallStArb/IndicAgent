@@ -15,6 +15,7 @@ import asyncpg
 import pytest
 
 from services.bar_derivation import (
+    _D2V2_ROUTES,
     _SELECT_DAILY_CHANGED_SINCE_SQL,
     _SELECT_DAILY_OBSERVATIONS_SQL,
 )
@@ -52,7 +53,7 @@ async def test_a_later_test_caller_observation_never_wins_a_bar():
         )
         await _append(conn, "test-d2-exclusion", 100.5, datetime(2026, 10, 3, tzinfo=UTC))
 
-        rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, _SYMBOL)
+        rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, _SYMBOL, list(_D2V2_ROUTES))
         at_date = [r for r in rows if r["bar_date"] == _BAR_DATE]
         assert [r["request_id"] for r in at_date] == [real_id]
         assert at_date[0]["close"] == 472.65

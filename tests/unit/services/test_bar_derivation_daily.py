@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import re
 from datetime import UTC, date, datetime
 
 import numpy as np
@@ -460,7 +461,7 @@ def test_apply_writes_the_contract_and_no_lineage():
         "ON CONFLICT",
     )
     assert role < load_i < revision < delete < upsert
-    assert not any("canonical_bar_lineage" in sql for _kind, sql in conn.calls)
+    assert not any("INTO canonical_bar_lineage" in sql for _kind, sql in conn.calls)
     assert conn.stored["TEST"][_D2]["close"] == 11.0 and _D5 not in conn.stored["TEST"]
     assert scrub_calls and scrub_calls[0]["symbols"] == ["TEST"]
     assert result["totals"]["derived"] == 1
@@ -628,7 +629,7 @@ def test_daily_stage_calls_d2v2_and_writes_no_lineage():
     source = read_source("services", "bar_derivation.py")
     assert "derive_daily_v2" in source
     assert "_UPSERT_LINEAGE_SQL" not in source
-    assert "canonical_bar_lineage" not in source.split("_SELECT_LINEAGE_RELKIND_SQL")[0]
+    assert not re.search(r"(?:INSERT\s+INTO|UPDATE|COPY)\s+canonical_bar_lineage\b", source)
 
 
 def test_observation_read_takes_the_d2v2_routes():
