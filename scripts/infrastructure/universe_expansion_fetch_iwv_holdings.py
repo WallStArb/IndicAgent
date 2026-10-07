@@ -30,10 +30,9 @@ import pandas as pd
 import structlog
 
 # sys.path bootstrap: this file is scripts/infrastructure/<this file>.py -- 3 parents
-# reach repo root (infrastructure/ -> scripts/ -> root). See
-# infrastructure_run_historical_pipeline.py's own header comment for the class of bug
-# this guards against (a wrong parent count silently breaks `import src` unless
-# PYTHONPATH is already set externally by every production invocation).
+# reach repo root (infrastructure/ -> scripts/ -> root). A wrong parent count silently
+# breaks `import src` unless PYTHONPATH is already set externally by every production
+# invocation (found 2026-08-06 in the historical pipeline script, now _history_fetch.py).
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 

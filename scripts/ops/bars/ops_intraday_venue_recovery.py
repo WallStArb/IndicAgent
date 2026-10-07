@@ -191,7 +191,7 @@ async def _apply(
 ) -> int:
     from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
     from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE, FetcherLock
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import store_bars
+    from scripts.infrastructure.backfill._history_fetch import store_bars
     from scripts.ops.bars._campaign import preflight
     from src.config.settings import get_active_contracts
     from src.providers import IBKRProvider

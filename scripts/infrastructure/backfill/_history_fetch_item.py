@@ -3,8 +3,8 @@
 
 The IBKR history fetcher works its priority queue one (symbol, timeframe) at a time. This
 module is that unit of work, moved out of the historical pipeline's monolithic per-symbol
-loop (infrastructure_run_historical_pipeline.py main()._run_fetch_stage) so it can be tested
-alone and so a single name can never hold the run:
+loop (the historical pipeline script's main()._run_fetch_stage, now _history_fetch.py's
+helpers) so it can be tested alone and so a single name can never hold the run:
 
 - CD-01: one fetcher, one item at a time; the queue decides order, this module decides how
   one item is fetched.
@@ -20,9 +20,9 @@ alone and so a single name can never hold the run:
   systemd WatchdogSec of plan 04 covers the case where asyncio timers never fire at all.
 
 The fetch helpers (gap detection, store paths, per-contract futures, 1m derivation, D1
-capture) are imported read-only from infrastructure_run_historical_pipeline.py: the running
-todo 449 lane imports that file on every attempt, so it is not edited here. Plan 08 moves the
-helpers when the pipeline is retired. All provider access goes through IBKRProvider methods;
+capture) live in _history_fetch.py, the CLI-free helper library plan 189-08 made of the
+historical pipeline. Every timeframe stores real provider bars only (plan 185-32), so no
+item writes a placeholder, and no item writes backfill_status (plan 189-08). All provider access goes through IBKRProvider methods;
 src/providers/ibkr.py stays the only ib_async importer.
 """
 
@@ -38,9 +38,7 @@ from typing import Any
 import structlog
 
 from scripts.infrastructure.backfill import _empty_history as empty_history
-from scripts.infrastructure.backfill import (
-    infrastructure_run_historical_pipeline as _pipeline,
-)
+from scripts.infrastructure.backfill import _history_fetch
 from scripts.infrastructure.backfill._d1_gaps import (
     detect_gaps_1d_from_d1,
     detect_gaps_from_record,
@@ -48,8 +46,7 @@ from scripts.infrastructure.backfill._d1_gaps import (
     midnight_utc,
     with_overlap_window,
 )
-from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
-from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+from scripts.infrastructure.backfill._history_fetch import (
     _1M_DAYS_CRYPTO,
     _1M_DAYS_FX,
     _ARCHIVE_TFS,
@@ -66,17 +63,15 @@ from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline impo
     detect_gaps,
     fetch_bars,
     fetch_per_contract,
-    mark_fetch_complete,
     real_bars_only_for,
-    store_bars,
 )
+from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_coverage_writer import (
     DESTINATION_ARCHIVE,
     DESTINATION_GRID,
     FETCH_STATUSES,
     CoverageDelta,
 )
-from src.core.bar_normalizer import normalize_bars
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
@@ -116,8 +111,8 @@ class ItemOutcome:
     error: str | None = None
     elapsed_s: float = 0.0
     # 1d only: the item captured bars into D1 from this window start. The caller runs the
-    # daily derivation stage for these symbols, then marks 1d fetch_complete from here
-    # (plan 185-18 task 1b: D2 is the sole 1d writer, so fetch_item never stores 1d).
+    # daily derivation stage for these symbols and refreshes the 1d ledger bounds from
+    # here (plan 185-18 task 1b: D2 is the sole 1d writer, so fetch_item never stores 1d).
     derive_1d_since: datetime | None = None
 
     def __post_init__(self) -> None:
@@ -250,18 +245,6 @@ def _bar_row(symbol: str, timeframe: str, bar: Any, *, archive: bool) -> tuple:
         get("source"),
     )
     return row + (None,) if archive else row
-
-
-def _bar_dict(bar: Any) -> dict[str, Any]:
-    return {
-        "timestamp": bar.timestamp,
-        "open": bar.open,
-        "high": bar.high,
-        "low": bar.low,
-        "close": bar.close,
-        "volume": bar.volume,
-        "source": bar.source,
-    }
 
 
 class _ChunkPersister:
@@ -493,7 +476,7 @@ async def fetch_item(
 ) -> ItemOutcome:
     """Fetch one (symbol, timeframe) with the pipeline loop body's rules (CD-01/04/05).
 
-    Ported from infrastructure_run_historical_pipeline.py main()._run_fetch_stage as it
+    Ported from the historical pipeline script's main()._run_fetch_stage as it
     stands after plans 185-18 (shared gap planner, D1-only 1d), 185-19 (1d empty history
     reconciled from D1) and 185-22 (1d overlap). Changes versus the pipeline:
     - CD-04: every non-1d chunk persists atomically with its requests and CoverageDelta.
@@ -503,8 +486,8 @@ async def fetch_item(
     - The head lookup, qualify and FX/crypto 1m deep fetch are cached per symbol per run.
 
     A 1d item stores no bar (D2 owns the 1d grid). When it delivered bars it returns
-    derive_1d_since; the caller runs the daily derivation stage for those symbols and then
-    marks 1d fetch_complete from that date, exactly as the pipeline does after its loop.
+    derive_1d_since; the caller runs the daily derivation stage for those symbols, as the
+    pipeline did after its loop.
 
     Raises GatewayLost when the client is down and cannot be reconnected, and lets a sink
     flush failure raise (phase 185 D-05: raw answers are never dropped silently);
@@ -549,9 +532,8 @@ async def fetch_item(
     if not gaps:
         return ItemOutcome(symbol, timeframe, "ok")
 
-    windows = cluster_gap_ranges(gaps, max_gap_days=_pipeline._GAP_CLUSTER_MAX_DAYS)
+    windows = cluster_gap_ranges(gaps, max_gap_days=_history_fetch._GAP_CLUSTER_MAX_DAYS)
     d1_capture = timeframe == "1d"
-    real_bars_only = real_bars_only_for(timeframe)
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
     use_cont = use_continuous and fetch_days > 14 and is_futures
     persister = _ChunkPersister(ctx, symbol, timeframe, clock)
@@ -599,18 +581,6 @@ async def fetch_item(
                 # Defensive: the provider hands every chunk to on_chunk, but a returned bar
                 # that missed it must still land with its coverage, never be dropped.
                 persister.persist([b for b in bars if b.timestamp not in persister.persisted])
-                if not real_bars_only:
-                    # Placeholder path (4h only today): the synthetic fill is not a provider
-                    # bar, so it is stored outside the coverage write.
-                    filled = normalize_bars(
-                        [_bar_dict(b) for b in bars],
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        start=gap_start,
-                        end=gap_end,
-                    )
-                    fill = [b for b in filled if b["timestamp"] not in persister.persisted]
-                    store_bars(ctx.get_conn(), fill, symbol, timeframe)
             if is_oldest and not use_cont:
                 if d1_capture:
                     # Plan 185-19: 1d empty history is derived from the recorded answers
@@ -663,8 +633,6 @@ async def fetch_item(
         empty_history.reconcile_empty_history(
             ctx.get_conn(), "1d", _EMPTY_HISTORY_PROVIDER, symbols=[symbol]
         )
-    if not failed and not d1_capture:
-        mark_fetch_complete(ctx.get_conn(), symbol, timeframe, start_dt)
 
     failure = "; ".join(failed) if failed else None
     status = "error" if failed else ("ok" if n_bars > 0 else "no_data")

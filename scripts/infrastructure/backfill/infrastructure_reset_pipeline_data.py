@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-infrastructure_reset_pipeline_data.py — full signal-derived data reset and backfill
+infrastructure_reset_pipeline_data.py — full signal-derived data reset and lifecycle replay
 
-Wipes all signal-derived tables and re-runs backfill + lifecycle replay when framing or
-lifecycle logic changes enough that historical P&L is untrustworthy.
+Wipes all signal-derived tables and re-runs the lifecycle replay when framing or
+lifecycle logic changes enough that historical P&L is untrustworthy. The signal re-emit
+step (the historical pipeline's --replay-only, removed 2026-07-08) is gone; plan 189-08
+deleted its dead call.
 Run after substantial logic changes; --confirm required for destructive operations.
 Requires intelligence_pipeline stopped; uses advisory lock and dry-run by default.
 """
@@ -203,29 +205,6 @@ def _execute_wipe(conn) -> None:
     print(f"[{_format_timestamp()}] Wipe complete.\n")
 
 
-def _run_backfill(workers: int) -> None:
-    print(f"[{_format_timestamp()}] Starting backfill replay (workers={workers})...")
-    print("  Re-emits all signals with current framing code.")
-    print("  --clean deletes signals+features per-symbol before replay.\n")
-    cmd = [
-        sys.executable,
-        "-u",
-        str(
-            project_root
-            / "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
-        ),
-        "--replay-only",
-        "--clean",
-        "--workers",
-        str(workers),
-    ]
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print(f"\n[{_format_timestamp()}] ERROR: backfill exited with code {result.returncode}")
-        sys.exit(result.returncode)
-    print(f"[{_format_timestamp()}] Backfill replay complete.\n")
-
-
 def _run_lifecycle_replay(workers: int) -> None:
     print(f"[{_format_timestamp()}] Starting lifecycle replay (workers={workers})...")
     print("  Computes counterfactual_pnl_r, exits, MAE/MFE for freshly emitted signals.\n")
@@ -288,7 +267,7 @@ def _format_timestamp() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Full signal data reset — wipe + backfill + lifecycle replay."
+        description="Full signal data reset — wipe + lifecycle replay."
     )
     parser.add_argument(
         "--confirm",
@@ -298,13 +277,13 @@ def main() -> None:
     parser.add_argument(
         "--wipe-only",
         action="store_true",
-        help="Truncate tables but skip backfill and lifecycle replay.",
+        help="Truncate tables but skip the lifecycle replay.",
     )
     parser.add_argument(
         "--workers",
         type=int,
         default=4,
-        help="Worker count for backfill and lifecycle replay (default: 4).",
+        help="Worker count for the lifecycle replay (default: 4).",
     )
     args = parser.parse_args()
 
@@ -336,7 +315,6 @@ def main() -> None:
     _execute_wipe(conn)
 
     if not args.wipe_only:
-        _run_backfill(args.workers)
         _run_lifecycle_replay(args.workers)
         conn = _db_conn(settings)
         _post_verify(conn)

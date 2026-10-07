@@ -57,7 +57,7 @@ in 8 s, verify 2.0M rows in 3.8 s, and a live one-symbol digest of SPY's 623k re
     pattern so grep does not match itself):
       ps -eo pid,ppid,args | grep -E '[i]ntraday_chain\.sh'                  # kill this first
       ps -eo pid,ppid,args | grep -E '[i]ntraday_(htf|5m)_lane\.sh'          # then these
-      ps -eo pid,ppid,args | grep -E '[i]nfrastructure_run_historical_pipeline\.py'  # then this
+      ps -eo pid,ppid,args | grep -E '[i]bkr_history_fetcher\.py'            # then this
     `kill <pid>` each, then confirm all three greps print nothing.
  3. Orphan workers: `ps -eo pid,ppid,args | grep -E '[m]ultiprocessing|[f]orkserver'` must show
     nothing from the pipeline; kill any by PID.
@@ -154,7 +154,6 @@ WRITER_SCRIPTS = frozenset(
         "bar_writer.py",
         "bar_auditor.py",
         "backfill_feature_factory.py",
-        "infrastructure_run_historical_pipeline.py",
         "infrastructure_run_tradier_daily.py",
         "infrastructure_fetch_htf_bars.py",
         "ibkr_history_fetcher.py",
@@ -239,7 +238,7 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
     "scripts/ops/pipeline/ops_pipeline_status.py": ConsumerVerdict(
         REAL_ROWS, "row count per timeframe and max(timestamp); counts drop, no series read"
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": ConsumerVerdict(
+    "scripts/infrastructure/backfill/_history_fetch.py": ConsumerVerdict(
         PLACEHOLDER_COVERAGE,
         "legacy detect_gaps (1m, 4h) counts a stored placeholder as a present slot; 1m has "
         "answered-window coverage only since 2026-09-28 and 4h still writes placeholders, so "

@@ -249,3 +249,45 @@ def test_load_apr_reads_the_island_switch() -> None:
     mod._load_apr(conn)
     _, params = conn.cur.executed[0]
     assert "infra.ibkr.venue_fallback.island_failed_unlisted" in params[0]
+
+
+# --- the fetcher subprocess (plan 189-08) -------------------------------------------
+
+
+class _FakeProc:
+    def __init__(self, lines: list[str], rc: int) -> None:
+        self.stdout = iter(lines)
+        self._rc = rc
+
+    def wait(self) -> int:
+        return self._rc
+
+
+def test_fetcher_command_asks_named_1d_series_on_the_campaign_client() -> None:
+    argv = mod.fetcher_command(["AAA", "BBB"])
+    assert argv[1].endswith("scripts/infrastructure/backfill/ibkr_history_fetcher.py")
+    pairs = dict(zip(argv[2::2], argv[3::2], strict=False))
+    assert pairs["--symbols"] == "AAA,BBB"
+    assert pairs["--timeframes"] == "1d"
+    assert pairs["--dimension"] == "compute_1d"
+    assert pairs["--client-id"] == str(mod._CLIENT_ID) == "49"
+    assert "--full-scan" in argv
+    assert not any("lease" in part for part in argv)
+
+
+def test_run_chunk_parses_fetch_run_ids_and_passes_the_exit_code() -> None:
+    run_id = "0f3b2c1a-1111-4222-8333-444455556666"
+    lines = [f"  fetch_run_id: {run_id}\n", "run summary: {}\n"]
+    rc, ids = mod._run_chunk(["AAA"], popen=lambda *a, **k: _FakeProc(lines, 0))
+    assert (rc, ids) == (0, [run_id])
+
+
+def test_run_chunk_maps_the_lock_held_line_to_the_lock_held_exit() -> None:
+    """The fetcher exits 0 when its lock is held elsewhere; the exact LOCK_HELD_MESSAGE line
+    must stop the campaign cleanly, never read as a clean chunk."""
+    from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
+
+    lines = [LOCK_HELD_MESSAGE + "\n"]
+    rc, ids = mod._run_chunk(["AAA"], popen=lambda *a, **k: _FakeProc(lines, 0))
+    assert (rc, ids) == (mod._LOCK_HELD_EXIT, [])
+    assert mod._LOCK_HELD_EXIT == 3

@@ -234,7 +234,7 @@ def _fetcher(
 
 @pytest.fixture(autouse=True)
 def _no_side_effects(monkeypatch):
-    """No APR overlay reads, no ledger writes, no backfill_status writes in these tests."""
+    """No APR overlay reads and no ledger writes in these tests."""
     monkeypatch.setattr(hf.IbkrHistoryFetcher, "_load_provider_overlays", lambda self: None)
     outcomes: list[tuple[str, str, str]] = []
     monkeypatch.setattr(
@@ -246,13 +246,7 @@ def _no_side_effects(monkeypatch):
     monkeypatch.setattr(
         hf, "refresh_1d_bounds", lambda cur, symbols: refreshed.append(sorted(symbols)) or 0
     )
-    marked: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        hf._pipeline,
-        "mark_fetch_complete",
-        lambda conn, symbol, tf, since: marked.append((symbol, tf)),
-    )
-    return SimpleNamespace(outcomes=outcomes, refreshed=refreshed, marked=marked)
+    return SimpleNamespace(outcomes=outcomes, refreshed=refreshed)
 
 
 async def _run(fetcher: hf.IbkrHistoryFetcher) -> tuple[str, BaseException | None]:
@@ -423,7 +417,7 @@ async def test_dry_run_takes_no_lock_opens_no_provider_and_writes_nothing(tmp_pa
     log: list[str] = []
     out = tmp_path / "dry.tsv"
     monkeypatch.setattr(
-        hf._pipeline,
+        hf._history_fetch,
         "_load_tf_fetch_config",
         lambda settings: {"1d": (7300, False), "15m": (7300, False)},
     )
@@ -468,6 +462,44 @@ async def test_dry_run_takes_no_lock_opens_no_provider_and_writes_nothing(tmp_pa
         ("TRD", "1d", "tradier_owned"),
     }
     assert not (tmp_path / "status.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("argv", "named", "overlap"),
+    [
+        ((), False, 20),
+        (("--symbols", "AAA"), True, 20),
+        (("--symbols", "AAA", "--overlap-sessions", "5200"), True, 5200),
+    ],
+)
+async def test_named_symbols_bypass_the_current_hold_and_overlap_overrides_apr(
+    monkeypatch, argv, named, overlap
+):
+    """Plan 189-08: a caller that names series (ops_split_detect's re-fetch, ops_head_rerun)
+    gets them asked even when current; --overlap-sessions overrides the APR overlap, so the
+    split re-fetch re-asks the history D1 already holds. The timer run names none and keeps
+    the current hold and the APR overlap."""
+    log: list[str] = []
+    monkeypatch.setattr(
+        hf._history_fetch,
+        "_load_tf_fetch_config",
+        lambda settings: {"1d": (7300, False), "15m": (7300, False)},
+    )
+    fetcher = hf.IbkrHistoryFetcher(
+        _LIVE_DB_DSN,
+        _args(*argv),
+        settings=SimpleNamespace(database_url=_LIVE_DB_DSN),
+        connect=lambda: _RecordingSyncConn(log),
+        contracts_for=lambda dim: [SimpleNamespace(symbol="AAA"), SimpleNamespace(symbol="TRD")],
+    )
+    plan = await fetcher.prepare(_RecordingPool(log))
+    assert (plan.queue.current_after is None) is named
+    assert plan.overlap_sessions == overlap
+
+
+def test_negative_overlap_sessions_is_rejected():
+    assert hf.validate_args(_args("--overlap-sessions", "-1")) is not None
+    assert hf.validate_args(_args("--overlap-sessions", "0")) is None
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +710,6 @@ async def test_1d_items_run_split_detection_daily_stage_then_refresh_the_ledger(
     assert "ops_split_detect.py" in split[1] and "--fetch-run-id" in split
     assert daily[-5:] == ["--stage", "daily", "--symbols", "AAA,BBB", "--apply"]
     assert _no_side_effects.refreshed == [["AAA", "BBB"]]
-    assert _no_side_effects.marked == [("AAA", "1d"), ("BBB", "1d")]
 
 
 async def test_failed_daily_stage_skips_the_ledger_refresh_and_is_partial(
@@ -691,7 +722,15 @@ async def test_failed_daily_stage_skips_the_ledger_refresh_and_is_partial(
     status, error = await _run(fetcher)
     assert status == "partial"
     assert _no_side_effects.refreshed == []
-    assert _no_side_effects.marked == []
+
+
+def test_the_fetcher_writes_no_backfill_status():
+    """Plan 189-08: the fetch path stops writing backfill_status (promotion reads
+    bar_integrity verdicts since plan 185-41); the run-end 1d step only refreshes the
+    ledger bounds."""
+    source = Path(hf.__file__).read_text()
+    assert "mark_fetch_complete" not in source
+    assert "INSERT INTO backfill_status" not in source
 
 
 # ---------------------------------------------------------------------------

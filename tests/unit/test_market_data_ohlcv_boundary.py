@@ -45,14 +45,14 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "PERMANENT: the min(timestamp) gap-reorder query reads the tradeable view (todo 124); "
-        "the remaining raw-table reads (_detect_gaps and the INSERT/UPSERT writer paths) treat "
-        "any stored slot, zero-volume provider bars included, as already answered, so a closed "
-        "slot is not re-requested from IBKR forever; the tradeable view's volume > 0 filter "
-        "would break that. The store holds real rows only since plan 185-25, and plan 185-32 "
-        "deleted the --normalize pass and the last placeholder path (migration 444 refuses "
-        "synthetic_fill)."
+    "scripts/infrastructure/backfill/_history_fetch.py": (
+        "PERMANENT: the phase 189 fetcher's helper library (plan 189-08 made it of the "
+        "historical pipeline). Its raw-table reads (detect_gaps, fetch_bars) and the "
+        "provider-bar store paths treat any stored slot, zero-volume provider bars included, "
+        "as already answered, so a closed slot is not re-requested from IBKR forever; the "
+        "tradeable view's volume > 0 filter would break that. The store holds real rows only "
+        "since plan 185-25, and plan 185-32 deleted the last placeholder path (migration 444 "
+        "refuses synthetic_fill)."
     ),
     "scripts/infrastructure/backfill/_d1_gaps.py": (
         "PERMANENT (todo 462, plan 185-18): reads stored slot timestamps for gap planning "

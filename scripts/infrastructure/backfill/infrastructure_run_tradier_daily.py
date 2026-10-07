@@ -29,9 +29,8 @@ so the load lands D1 and records outcome loaded with short_history in its detail
 and that has a Tradier observation (TRADIER_OWNED_SQL), each refetched in full so vendor
 revisions and splits surface the night they happen.
 
-An accepted load also sets backfill_status.fetch_complete for the name's 1d through the one
-writer of that flag (mark_fetch_complete in infrastructure_run_historical_pipeline.py, whose
-EXISTS guard needs stored tradeable bars), after the chained daily stage.
+No load writes backfill_status: promotion reads bar_integrity verdicts since plan 185-41,
+and plan 189-08 retired the fetch_complete writer.
 
 Usage:
   python scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py            # names with no 1d bars
@@ -56,15 +55,11 @@ from typing import Any
 
 import asyncpg
 import numpy as np
-import psycopg
 import structlog
 
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
-    mark_fetch_complete,
-)
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import TRADIER_OWNED_SQL
 from services.ohlcv_observation_writer import AsyncObservationSink, new_fetch_run_id
@@ -395,19 +390,6 @@ async def _latest_observed(conn: Any, symbol: str) -> dict[date, ObservedBar]:
     return {r["bar_date"]: (r["open"], r["high"], r["low"], r["close"], r["volume"]) for r in rows}
 
 
-def mark_loaded_fetch_complete(database_url: str, symbols: list[str], since: date) -> None:
-    """Set 1d fetch_complete for each accepted load through the flag's one writer.
-
-    mark_fetch_complete takes a psycopg connection, so this opens one (committed on exit) rather
-    than restating its SQL for asyncpg. `since` is the load's requested start: every bar the
-    load stored is at or after it, which bounds the writer's EXISTS guard.
-    """
-    since_dt = datetime(since.year, since.month, since.day, tzinfo=UTC)
-    with psycopg.connect(database_url) as pg:
-        for symbol in symbols:
-            mark_fetch_complete(pg, symbol, "1d", since_dt)
-
-
 def run_daily_stage(symbols: list[str]) -> int:
     """The single 1d writer over the names whose D1 changed: one subprocess, its exit code."""
     cmd = [sys.executable, *DAILY_STAGE_ARGS, "--symbols", ",".join(symbols), "--apply"]
@@ -467,7 +449,6 @@ async def run(
 
         counts: dict[str, int] = {}
         totals = {"new": 0, "changed": 0, "splits": 0}
-        loaded: list[str] = []
         changed_names: list[str] = []
         n_landed = 0
         sink = AsyncObservationSink(caller=_CALLER, source=SOURCE)
@@ -507,10 +488,8 @@ async def run(
                     0 if isinstance(result, str) else len(result),
                     request_id=request_id,
                 )
-                if plan.outcome == "loaded":
-                    loaded.append(symbol)
-                    if plan.landed or plan.split is not None:
-                        changed_names.append(symbol)
+                if plan.outcome == "loaded" and (plan.landed or plan.split is not None):
+                    changed_names.append(symbol)
                 logger.info(
                     "tradier_daily.symbol",
                     symbol=symbol,
@@ -533,13 +512,6 @@ async def run(
             print(f"tradier daily: daily stage over {len(changed_names)} names exited {stage_code}")
             if stage_code != 0:
                 failures.append(f"daily stage exit {stage_code}")
-        if loaded:
-            try:
-                await asyncio.to_thread(
-                    mark_loaded_fetch_complete, settings.database_url, sorted(loaded), start
-                )
-            except Exception as error:
-                failures.append(f"fetch_complete: {error}")
         if failures:
             logger.error("tradier_daily.post_load_failed", failures=failures)
             return 1

@@ -2,7 +2,7 @@
 
 Fakes only (todo 494): no test appends to the live D1, writes a bar, or opens a database
 connection. A fake asyncpg connection records every statement; the Tradier client, the APR read,
-the daily-stage subprocess and the fetch_complete writer are replaced on the module.
+and the daily-stage subprocess are replaced on the module.
 
 Contract: each load lands D1 (changes only) and writes one ohlcv_load row with destination d1;
 no market_data_ohlcv, lineage, revision or digest statement is issued in any path; a gated
@@ -115,7 +115,7 @@ class _Client:
 
 
 def _install(monkeypatch, conn: FakeConn, answers, *, stage_code: int = 0) -> dict[str, list]:
-    seen: dict[str, list] = {"stage": [], "marked": []}
+    seen: dict[str, list] = {"stage": []}
 
     async def connect(_url: str) -> FakeConn:
         return conn
@@ -148,11 +148,6 @@ def _install(monkeypatch, conn: FakeConn, answers, *, stage_code: int = 0) -> di
     monkeypatch.setattr(loader, "make_client", lambda *a: _Client())
     monkeypatch.setattr(loader, "fetch_daily_history", fetch_history)
     monkeypatch.setattr(loader, "run_daily_stage", stage)
-    monkeypatch.setattr(
-        loader,
-        "mark_loaded_fetch_complete",
-        lambda url, symbols, since: seen["marked"].append(symbols),
-    )
     return seen
 
 
@@ -197,7 +192,6 @@ def test_raw_only_run_lands_changes_records_d1_loads_and_chains_the_changed_name
     assert len(requests) == 3 and len(observations) == 2
     # The daily stage runs once over exactly the changed names.
     assert seen["stage"] == [["MOVED"]]
-    assert seen["marked"] == [["MOVED", "SAME"]]
 
 
 def test_no_canonical_lineage_revision_or_digest_statement_in_any_path(monkeypatch):
@@ -266,7 +260,7 @@ def test_a_failed_fetch_records_failed_and_is_not_chained(monkeypatch):
     assert asyncio.run(loader.run(["DOWN"], False, False)) == loader.EXIT_REFUSED
     (row,) = conn.loads()
     assert _load_field(row, "outcome") == "failed"
-    assert seen["stage"] == [] and seen["marked"] == []
+    assert seen["stage"] == []
 
 
 def test_dry_run_writes_nothing(monkeypatch):
@@ -274,7 +268,7 @@ def test_dry_run_writes_nothing(monkeypatch):
     seen = _install(monkeypatch, conn, answers)
     asyncio.run(loader.run(["SAME", "MOVED"], False, True))
     assert [c for c in conn.calls if c[0] in ("execute", "executemany")] == []
-    assert conn.copies == [] and seen["stage"] == [] and seen["marked"] == []
+    assert conn.copies == [] and seen["stage"] == []
 
 
 def test_daily_stage_subprocess_is_the_single_writer_with_apply():
@@ -285,10 +279,14 @@ def test_daily_stage_subprocess_is_the_single_writer_with_apply():
     assert '"--apply"' in source and '"--symbols"' in source
 
 
-def test_the_loader_uses_the_pipeline_writer_itself():
-    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipeline
+def test_the_loader_writes_no_backfill_status():
+    """Plan 189-08 retired the fetch_complete writer: promotion reads bar_integrity
+    verdicts since plan 185-41, so an accepted load no longer marks backfill_status."""
+    import inspect
 
-    assert loader.mark_fetch_complete is pipeline.mark_fetch_complete
+    source = inspect.getsource(loader)
+    assert "mark_fetch_complete" not in source and "mark_loaded_fetch_complete" not in source
+    assert "INSERT INTO backfill_status" not in source
 
 
 def test_raw_only_flag_and_lineage_symbols_are_gone():

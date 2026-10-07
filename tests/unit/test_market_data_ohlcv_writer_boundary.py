@@ -45,16 +45,17 @@ _ALLOW_LIST: dict[str, str] = {
         "verified by value and only then deleted. Registered in service_auditor.py's "
         "_DAG_ORDER and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
-        "PERMANENT: raw provider observations at the five- and one-minute timeframes "
-        "only -- the derivation never rewrites those (D-15); real-bars-only since plan "
-        "185-18 (todo 462), so no synthetic fill reaches the table, and five-minute "
-        "chunks commit through the atomic persist helper. Daily bars stopped landing "
-        "here in plan 185-18 task 1b: the fetch captures them into D1 and "
-        "services/bar_derivation.py owns the daily rows. The hourly and quarter-hour "
-        "fetches are archive-bound raw observations (plan 12) routed through "
-        "services/intraday_raw_archive.py; the grid readers see them derived from "
-        "five-minute bars by bar_derivation (chained from the nightly)."
+    "scripts/infrastructure/backfill/_history_fetch.py": (
+        "PERMANENT: the phase 189 fetcher's provider-bar store (plan 189-08 made this helper "
+        "library of the historical pipeline): raw provider observations at the five- and "
+        "one-minute timeframes only -- the derivation never rewrites those (D-15); "
+        "real-bars-only since plan 185-18 (todo 462), so no synthetic fill reaches the "
+        "table, and five-minute chunks commit through the atomic persist helper under the "
+        "185-39 write contract. Daily bars stopped landing here in plan 185-18 task 1b: "
+        "the fetch captures them into D1 and services/bar_derivation.py owns the daily "
+        "rows. The hourly and quarter-hour fetches are archive-bound raw observations "
+        "(plan 12) routed through services/intraday_raw_archive.py; the grid readers see "
+        "them derived from five-minute bars by bar_derivation (the fetcher's grid stage)."
     ),
     "services/backfill_feature_factory.py": (
         "PERMANENT: its --fetch-only stage survives the phase 186 rebuild per "
@@ -75,7 +76,7 @@ _ALLOW_LIST: dict[str, str] = {
 # 15m, 1h) without referencing the DERIVATION_OWNED_TIMEFRAMES fence: why each cannot (plan
 # 185-38: the daily stage is the only 1d writer).
 _FENCE_EXEMPT: dict[str, str] = {
-    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
+    "scripts/infrastructure/backfill/_history_fetch.py": (
         "its raw write is the five- and one-minute persist path only; daily answers go to D1 "
         "and hourly and quarter-hour answers to the archive (plan 185-18 task 1b)"
     ),

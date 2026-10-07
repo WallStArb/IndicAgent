@@ -143,13 +143,38 @@ def test_a_failed_refetch_skips_the_derivation_and_returns_its_code():
     assert report["returncode"] == 3 and derived == []
 
 
-def test_the_refetch_command_asks_the_full_depth_at_priority_tier_on_the_given_client():
+def test_the_refetch_command_asks_the_full_depth_through_the_fetcher_on_the_given_client():
     command = ops.refetch_command(["AAA", "BBB"], years=20, client_id=45)
-    assert command[:2] == [sys.executable, str(ops._PIPELINE)]
-    pairs = dict(zip(command[2::2], command[3::2], strict=False))
+    assert command[:2] == [sys.executable, str(ops._FETCHER)]
+    assert command[1].endswith("scripts/infrastructure/backfill/ibkr_history_fetcher.py")
+    assert "--full-scan" in command
+    rest = [part for part in command[2:] if part != "--full-scan"]
+    pairs = dict(zip(rest[::2], rest[1::2], strict=False))
     assert pairs["--symbols"] == "AAA,BBB" and pairs["--timeframes"] == "1d"
-    assert pairs["--client-id"] == "45" and pairs["--lease-tier"] == "priority"
+    assert pairs["--dimension"] == "backfill" and pairs["--client-id"] == "45"
     assert pairs["--overlap-sessions"] == str(20 * 260)
+    assert not any("lease" in part for part in command)
+
+
+class _FakeProc:
+    def __init__(self, lines: list[str], rc: int) -> None:
+        self.stdout = iter(lines)
+        self._rc = rc
+
+    def wait(self) -> int:
+        return self._rc
+
+
+def test_a_refetch_refused_by_the_fetcher_lock_is_a_failure_not_a_success():
+    """Plan 189-08: the fetcher exits 0 and prints LOCK_HELD_MESSAGE when its lock is held
+    (always so when this script runs as the fetcher's own run-end stage). That must read as
+    a failed re-fetch, so the derivation is skipped and the split stays quarantined."""
+    from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
+
+    refused = ops.run_refetch(["x"], popen=lambda *a, **k: _FakeProc([LOCK_HELD_MESSAGE + "\n"], 0))
+    assert refused == ops.LOCK_HELD_EXIT != 0
+    assert ops.run_refetch(["x"], popen=lambda *a, **k: _FakeProc(["ok\n"], 0)) == 0
+    assert ops.run_refetch(["x"], popen=lambda *a, **k: _FakeProc([], 1)) == 1
 
 
 def test_the_derive_command_forces_the_daily_stage_for_exactly_those_symbols():

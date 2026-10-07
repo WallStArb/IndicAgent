@@ -54,8 +54,8 @@ Per-timeframe limits: `infra.ibkr.rate_limit_max_requests_by_tf` (migration 375,
 
 ### Adding New Contracts
 1. Onboard through `onboard_instrument()` via `scripts/infrastructure/universe_expansion_onboard_manifest.py` (manifest CSV; dry run qualifies on IBKR, `--commit` writes). Never INSERT directly: onboarding requires a classification and tags, and insert paths never grant eligibility (migration 352).
-2. Backfill: `infrastructure_run_historical_pipeline.py --dimension backfill --timeframes 1d --symbols <list>`. The nightly job skips names that are not yet eligible.
-3. Promote: `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit` (needs `backfill_status.fetch_complete`; see root CLAUDE.md onboarding line).
+2. Backfill: `ibkr_history_fetcher.py --dimension backfill --timeframes 1d --symbols <list>` (the only IBKR history CLI; it takes FetcherLock, and named symbols are asked even when current).
+3. Promote: `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit` (reads the bar_integrity verdict gate since plan 185-41; see the onboarding SOP).
 
 **Listing-venue moves (todo 433):** SMART history starts at a stock's last primary-venue move. The same conId routed to `NYSE`/`ARCA`/`ISLAND`/`AMEX`/`BATS` serves earlier years with venue-only volume; only the listing venue's closes are official (it carries the most volume). Error 162 "Query failed" is the marker, logged as `ibkr.hist_query_failed`.
 

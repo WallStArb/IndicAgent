@@ -12,7 +12,7 @@ from src.core.bar_normalizer import SOURCE_DERIVED_1M
 
 def test_aggregate_bars_from_1m_5m_groups_correctly():
     """Five 1m bars in the same 5m window produce one aggregated bar."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -42,7 +42,7 @@ def test_aggregate_bars_from_1m_5m_groups_correctly():
 
 def test_aggregate_bars_from_1m_splits_across_windows():
     """Bars spanning two 5m windows produce two aggregated bars."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -81,7 +81,7 @@ def test_aggregate_bars_from_1m_splits_across_windows():
 
 def test_aggregate_bars_from_1m_daily_floors_to_midnight():
     """1d aggregation floors timestamps to midnight."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -111,7 +111,7 @@ def test_aggregate_bars_from_1m_daily_floors_to_midnight():
 
 def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
     """None volume values (FX has no volume) are treated as 0."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -144,7 +144,7 @@ def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
     Bug: the old minute-only floor left ts.hour unchanged, making each hour
     its own bucket and producing 1h bars stored as 4h.
     """
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -182,7 +182,7 @@ def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
 
 def test_aggregate_bars_from_1m_1h_floors_correctly():
     """1h aggregation: bars at 09:00-09:59 and 10:00-10:59 form two buckets."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         aggregate_bars_from_1m,
     )
 
@@ -247,7 +247,7 @@ class _ContractCursor:
 
 class TestFetchAndStoreBars:
     def test_fetch_1m_bars_queries_correct_table(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             fetch_bars,
         )
 
@@ -275,7 +275,7 @@ class TestFetchAndStoreBars:
         # (2026-08-11, see the constant's own comment). Since plan 185-39 the insert is
         # plain (the ingress write contract classifies against stored rows first, so a
         # conflict never reaches it) and sits between the contract's reads and its load row.
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             store_bars,
         )
 
@@ -317,7 +317,7 @@ class TestFetchAndStoreBars:
     def test_store_bars_chunks_across_batch_size(self):
         # A row count spanning multiple _STORE_BATCH_SIZE chunks must issue one
         # insert per chunk, not one giant statement or one row-by-row loop.
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _STORE_BATCH_SIZE,
             store_bars,
         )
@@ -343,7 +343,7 @@ class TestFetchAndStoreBars:
         assert len(inserts) == 2
 
     def test_store_bars_second_identical_answer_writes_nothing(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             store_bars,
         )
 
@@ -370,7 +370,7 @@ class TestFetchAndStoreBars:
         assert not [s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_revision")]
 
     def test_store_bars_changed_bar_is_an_upsert_with_its_revision(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             store_bars,
         )
 
@@ -409,7 +409,7 @@ class TestClusterGapRanges:
     """
 
     def test_single_gap_returns_one_window(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             cluster_gap_ranges,
         )
 
@@ -419,7 +419,7 @@ class TestClusterGapRanges:
     def test_nearby_gaps_still_coalesce(self):
         # Two gaps a few days apart stay one request -- same behavior as before
         # this fix, avoiding N tiny IBKR requests for genuinely scattered gaps.
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             cluster_gap_ranges,
         )
 
@@ -434,7 +434,7 @@ class TestClusterGapRanges:
         # The actual AA shape: a ~10-year pre-listing void far from a 1-day
         # catch-up near "now" must NOT collapse into one request re-covering
         # the already-complete decade in between.
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             cluster_gap_ranges,
         )
 
@@ -450,7 +450,7 @@ class TestClusterGapRanges:
         assert windows == [prelisting_void, recent_catchup]
 
     def test_empty_gaps_returns_empty(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             cluster_gap_ranges,
         )
 
@@ -460,7 +460,7 @@ class TestClusterGapRanges:
         # A plain `max_gap_days: int = _GAP_CLUSTER_MAX_DAYS` default would bind 90
         # at import time and never see a later _load_gap_cluster_max_days_config()
         # APR overlay. The real default must re-read the module global on every call.
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        import scripts.infrastructure.backfill._history_fetch as pipeline
 
         gaps = [
             (datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)),
@@ -487,13 +487,13 @@ class TestLoadOhlcvInsertBatchSizeConfig:
     """
 
     def _restore_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        import scripts.infrastructure.backfill._history_fetch as pipeline
 
         pipeline._STORE_BATCH_SIZE = 1000
 
     def test_overlays_positive_value(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ohlcv_insert_batch_size_config,
         )
 
@@ -503,7 +503,7 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = ("500",)
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ohlcv_insert_batch_size_config(MagicMock())
@@ -512,8 +512,8 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             self._restore_default()
 
     def test_rejects_zero_and_keeps_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ohlcv_insert_batch_size_config,
         )
 
@@ -523,7 +523,7 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = ("0",)
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ohlcv_insert_batch_size_config(MagicMock())
@@ -532,8 +532,8 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             self._restore_default()
 
     def test_rejects_negative_and_keeps_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ohlcv_insert_batch_size_config,
         )
 
@@ -543,7 +543,7 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = ("-10",)
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ohlcv_insert_batch_size_config(MagicMock())
@@ -552,8 +552,8 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             self._restore_default()
 
     def test_missing_key_keeps_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ohlcv_insert_batch_size_config,
         )
 
@@ -563,7 +563,7 @@ class TestLoadOhlcvInsertBatchSizeConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = None
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ohlcv_insert_batch_size_config(MagicMock())
@@ -578,13 +578,13 @@ class TestLoadGapClusterMaxDaysConfig:
     """
 
     def _restore_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
+        import scripts.infrastructure.backfill._history_fetch as pipeline
 
         pipeline._GAP_CLUSTER_MAX_DAYS = 90
 
     def test_overlays_value_when_present(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_gap_cluster_max_days_config,
         )
 
@@ -594,7 +594,7 @@ class TestLoadGapClusterMaxDaysConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = ("30",)
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_gap_cluster_max_days_config(MagicMock())
@@ -603,8 +603,8 @@ class TestLoadGapClusterMaxDaysConfig:
             self._restore_default()
 
     def test_missing_key_keeps_default(self):
-        import scripts.infrastructure.backfill.infrastructure_run_historical_pipeline as pipeline
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        import scripts.infrastructure.backfill._history_fetch as pipeline
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_gap_cluster_max_days_config,
         )
 
@@ -614,7 +614,7 @@ class TestLoadGapClusterMaxDaysConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchone.return_value = None
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_gap_cluster_max_days_config(MagicMock())
@@ -638,7 +638,7 @@ class TestLoadIbkrRetryConfig:
         ibkr._NO_DATA_CONFIRMATION_CHUNKS = 2
 
     def test_overlays_all_three_keys_when_present(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_retry_config,
         )
         from src.providers import ibkr
@@ -653,7 +653,7 @@ class TestLoadIbkrRetryConfig:
                 ("infra.ibkr.no_data_confirmation_chunks", "3"),
             ]
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ibkr_retry_config(MagicMock())
@@ -665,7 +665,7 @@ class TestLoadIbkrRetryConfig:
             self._restore_ibkr_defaults()
 
     def test_missing_keys_keep_hardcoded_defaults(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_retry_config,
         )
         from src.providers import ibkr
@@ -676,7 +676,7 @@ class TestLoadIbkrRetryConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchall.return_value = []
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ibkr_retry_config(MagicMock())
@@ -688,14 +688,14 @@ class TestLoadIbkrRetryConfig:
             self._restore_ibkr_defaults()
 
     def test_db_error_falls_back_to_hardcoded_defaults_without_raising(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_retry_config,
         )
         from src.providers import ibkr
 
         try:
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 side_effect=Exception("db unreachable"),
             ):
                 _load_ibkr_retry_config(MagicMock())  # must not raise
@@ -721,7 +721,7 @@ class TestLoadIbkrRateLimitConfig:
         ibkr._IBKR_HIST_WINDOW_S = 600.0
 
     def test_overlays_both_keys_when_present(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_rate_limit_config,
         )
         from src.providers import ibkr
@@ -735,7 +735,7 @@ class TestLoadIbkrRateLimitConfig:
                 ("infra.ibkr.rate_limit_window_sec", "300.0"),
             ]
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ibkr_rate_limit_config(MagicMock())
@@ -746,7 +746,7 @@ class TestLoadIbkrRateLimitConfig:
             self._restore_ibkr_defaults()
 
     def test_missing_keys_keep_hardcoded_defaults(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_rate_limit_config,
         )
         from src.providers import ibkr
@@ -757,7 +757,7 @@ class TestLoadIbkrRateLimitConfig:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_cursor.fetchall.return_value = []
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ibkr_rate_limit_config(MagicMock())
@@ -768,14 +768,14 @@ class TestLoadIbkrRateLimitConfig:
             self._restore_ibkr_defaults()
 
     def test_db_error_falls_back_to_hardcoded_defaults_without_raising(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_rate_limit_config,
         )
         from src.providers import ibkr
 
         try:
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 side_effect=Exception("db unreachable"),
             ):
                 _load_ibkr_rate_limit_config(MagicMock())  # must not raise
@@ -801,7 +801,7 @@ class TestDetectGaps:
         return mock_conn
 
     def test_cme_futures_over_weekend_no_gaps(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
@@ -817,13 +817,12 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_over_weekend_no_gaps(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=[],
         ):
             gaps = detect_gaps(
@@ -838,13 +837,12 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_nyse_on_holiday_no_gaps(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=[],
         ):
             gaps = detect_gaps(
@@ -859,7 +857,7 @@ class TestDetectGaps:
         assert gaps == []
 
     def test_answered_window_slots_are_not_gaps(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
         from src.intelligence.bars.gap_plan import AnsweredWindows
@@ -870,8 +868,7 @@ class TestDetectGaps:
             [(datetime(2026, 1, 2, 16, 0, tzinfo=UTC), datetime(2026, 1, 2, 18, 0, tzinfo=UTC))]
         )
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=slots,
         ):
             gaps = detect_gaps(
@@ -890,7 +887,7 @@ class TestDetectGaps:
         ]
 
     def test_genuine_intraday_gap_detected(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
@@ -899,8 +896,7 @@ class TestDetectGaps:
             [(datetime(2026, 1, 2, 15, 0, tzinfo=UTC),), (datetime(2026, 1, 2, 18, 0, tzinfo=UTC),)]
         )
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=slots,
         ):
             gaps = detect_gaps(
@@ -919,47 +915,12 @@ class TestDetectGaps:
         )
 
 
-def _run_main_with_argv(argv: list[str]):
-    """Run the pipeline's main() up to contract selection with DB access stubbed out."""
-    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as mod
-
-    with (
-        patch.object(sys, "argv", ["infrastructure_run_historical_pipeline.py", *argv]),
-        patch.object(mod, "Settings"),
-        patch.object(mod, "get_active_contracts", return_value=[]) as mock_gac,
-    ):
-        mod.main()
-    return mock_gac
-
-
-@pytest.mark.parametrize("dimension", ["backfill", "compute_1d"])
-def test_partial_stack_dimension_without_timeframes_is_rejected(dimension):
-    """174 review WR-02: backfill/compute_1d include symbols deliberately kept off the
-    full timeframe stack; the implicit default would fetch every timeframe for them."""
-    with pytest.raises(SystemExit) as exc:
-        _run_main_with_argv(["--dimension", dimension, "--symbols", "X"])
-    assert exc.value.code == 2
-
-
-def test_partial_stack_dimension_with_explicit_timeframes_is_accepted():
-    mock_gac = _run_main_with_argv(
-        ["--dimension", "compute_1d", "--timeframes", "1d", "--symbols", "X"]
-    )
-    mock_gac.assert_called_once()
-    assert mock_gac.call_args.kwargs == {"dimension": "compute_1d"}
-
-
-def test_compute_dimension_keeps_default_timeframes():
-    mock_gac = _run_main_with_argv(["--symbols", "X"])
-    assert mock_gac.call_args.kwargs == {"dimension": "compute"}
-
-
 class TestLoadIbkrVenueFallbackConfig:
     """todo 433: _load_ibkr_venue_fallback_config() overlays infra.ibkr.venue_fallback.*
     (migration 374) onto ibkr's module-level constants in place."""
 
     def test_overlays_keys_and_restores(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _load_ibkr_venue_fallback_config,
         )
         from src.providers import ibkr
@@ -981,7 +942,7 @@ class TestLoadIbkrVenueFallbackConfig:
                 ("infra.ibkr.venue_fallback.store_bars", "true"),
             ]
             with patch(
-                "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline.connect_db",
+                "scripts.infrastructure.backfill._history_fetch.connect_db",
                 return_value=mock_conn,
             ):
                 _load_ibkr_venue_fallback_config(MagicMock())
@@ -1003,7 +964,7 @@ def test_fetch_start_makes_a_full_depth_1d_window_one_request():
     for a second request (todo 433 follow-up, 2026-09-26)."""
     from datetime import UTC, datetime, timedelta
 
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+    from scripts.infrastructure.backfill._history_fetch import (
         _fetch_start,
     )
 
@@ -1018,26 +979,6 @@ def test_fetch_start_makes_a_full_depth_1d_window_one_request():
     assert n_chunks == 1
 
 
-def test_mark_fetch_complete_is_guarded_by_tradeable_bars():
-    from datetime import UTC, datetime
-
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
-        _MARK_FETCH_COMPLETE_SQL,
-        mark_fetch_complete,
-    )
-
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    since = datetime(2006, 10, 2, tzinfo=UTC)
-    mark_fetch_complete(conn, "XYZ", "1d", since)
-    sql, params = cur.execute.call_args.args
-    assert sql is _MARK_FETCH_COMPLETE_SQL
-    assert params == {"symbol": "XYZ", "tf": "1d", "since": since}
-    assert "timestamp >= %(since)s" in sql
-    assert "WHERE EXISTS" in sql and "market_data_ohlcv_tradeable" in sql
-    assert "fetch_complete = true" in sql and "status =" not in sql.split("DO UPDATE")[1]
-
-
 class TestArchiveGridRouting:
     """Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Gap
     detection reads ohlcv_intraday_raw_archive for them and expects IBKR's own
@@ -1046,14 +987,13 @@ class TestArchiveGridRouting:
     market_data_ohlcv."""
 
     def test_detect_gaps_15m_reads_the_archive_table(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
         mock_conn, mock_cursor = _make_mock_conn([])
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=[datetime(2026, 1, 2, 15, 0, tzinfo=UTC)],
         ):
             detect_gaps(
@@ -1070,14 +1010,13 @@ class TestArchiveGridRouting:
         assert "market_data_ohlcv" not in sql
 
     def test_detect_gaps_5m_still_reads_market_data_ohlcv(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
         mock_conn, mock_cursor = _make_mock_conn([])
         with patch(
-            "scripts.infrastructure.backfill.infrastructure_run_historical_pipeline"
-            ".expected_grid_slots",
+            "scripts.infrastructure.backfill._history_fetch" ".expected_grid_slots",
             return_value=[datetime(2026, 1, 2, 15, 0, tzinfo=UTC)],
         ):
             detect_gaps(
@@ -1096,7 +1035,7 @@ class TestArchiveGridRouting:
         """IBKR serves 1h RTH as a 09:30 (13:30 UTC) partial bar then clock
         hours; the old on-the-hour UTC slot generation never expected 13:30,
         so the 42 names missing it were never refetched (plan 12 must-have)."""
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             expected_grid_slots,
         )
 
@@ -1110,7 +1049,7 @@ class TestArchiveGridRouting:
         assert slots == [datetime(2024, 6, 3, h, 30, tzinfo=UTC) for h in range(13, 20)]
 
     def test_15m_nyse_expected_slots_are_session_anchored_quarters(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             expected_grid_slots,
         )
 
@@ -1126,7 +1065,7 @@ class TestArchiveGridRouting:
         assert len(slots) == 26
 
     def test_non_nyse_1h_still_uses_generate_session_slots(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             expected_grid_slots,
         )
 
@@ -1147,7 +1086,7 @@ class TestArchiveGridRouting:
     def test_missing_1330_slot_is_detected_as_a_gap(self):
         """The 42 names whose 09:30 1h bar is missing: with the RTH grid the
         absent 13:30 slot is a gap and gets refetched (into the archive)."""
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
 
@@ -1172,7 +1111,7 @@ class TestArchiveGridRouting:
         return mock_conn
 
     def test_store_bars_routes_to_the_injected_writer(self):
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             store_bars,
         )
 
@@ -1216,7 +1155,7 @@ class TestArchiveGridRouting:
         mock_conn.commit.assert_called_once()
 
     def test_store_bars_default_still_writes_market_data_ohlcv(self):
-        from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipe
+        from scripts.infrastructure.backfill import _history_fetch as pipe
 
         bars = [
             {
@@ -1237,9 +1176,9 @@ class TestArchiveGridRouting:
 
     def test_real_bars_only_for_every_tf(self):
         """Plan 185-18 task 1b put 1d in the real-bars-only set; plan 185-32 adds 4h,
-        so no timeframe of this pipeline's fetch keeps a placeholder path and no
+        so no timeframe the fetcher asks keeps a placeholder path and no
         synthetic fill reaches market_data_ohlcv from it (migration 444 refuses one)."""
-        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+        from scripts.infrastructure.backfill._history_fetch import (
             _TF_MINUTES,
             real_bars_only_for,
         )
@@ -1251,25 +1190,78 @@ class TestArchiveGridRouting:
 
 def test_the_interim_flag_and_module_are_gone():
     """Plan 185-18 task 1a acceptance, CI-enforced: no --real-bars-only flag and
-    no _request_coverage reference survive in the pipeline, and the interim
+    no _request_coverage reference survive in the helper library, and the interim
     module and its test are deleted (AnsweredWindows lives in gap_plan.py)."""
-    source = Path(
-        "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py"
-    ).read_text()
+    source = Path("scripts/infrastructure/backfill/_history_fetch.py").read_text()
     assert "real-bars-only" not in source
     assert "_request_coverage" not in source
     assert not Path("scripts/infrastructure/backfill/_request_coverage.py").exists()
     assert not Path("tests/unit/scripts/test_request_coverage.py").exists()
 
 
-def test_the_normalize_mode_is_gone(monkeypatch):
-    """Plan 185-32: the --normalize pass (synthetic fills into existing rows) is deleted
-    and its flag no longer parses; the fetch path stores real bars only."""
-    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipe
+def test_the_pipeline_cli_lease_and_legacy_ranking_are_gone():
+    """Plan 189-08: the former historical pipeline is a helper library. No CLI (main,
+    argparse), no ibkr_history_stream lease, no legacy gap ranking (the queue's
+    coverage_gap_days replaced it), no backfill_status writer, and no normalize pass
+    (plan 185-32). ibkr_history_fetcher.py is the only IBKR history CLI."""
+    from scripts.infrastructure.backfill import _history_fetch as hf
 
-    assert not hasattr(pipe, "run_normalize")
-    assert not hasattr(pipe, "normalize_bars")
-    monkeypatch.setattr(sys, "argv", ["infrastructure_run_historical_pipeline.py", "--normalize"])
-    with pytest.raises(SystemExit) as raised:
-        pipe.main()
-    assert raised.value.code == 2
+    for name in (
+        "main",
+        "IBKR_HISTORY_LEASE",
+        "EXIT_LEASE_TIMEOUT",
+        "_acquire_history_lease",
+        "_lease_wait_seconds",
+        "_reorder_contracts_by_gap",
+        "mark_fetch_complete",
+        "run_normalize",
+        "normalize_bars",
+        "_run_daily_stage",
+    ):
+        assert not hasattr(hf, name), name
+    source = Path("scripts/infrastructure/backfill/_history_fetch.py").read_text()
+    for token in ("argparse", "ResourceLease", "ibkr_history_stream", "__main__"):
+        assert token not in source, token
+
+
+def test_store_bars_refuses_1d():
+    """Ported from the retired d1-capture test file (plan 189-08). store_bars is the
+    fence behind the D1-only path: a forgotten 1d caller fails loudly instead of silently
+    writing a non-canonical grid row."""
+    from scripts.infrastructure.backfill._history_fetch import store_bars
+
+    bar = {
+        "timestamp": datetime(2024, 1, 2, tzinfo=UTC),
+        "open": 1.0,
+        "high": 1.0,
+        "low": 1.0,
+        "close": 1.0,
+        "volume": 1,
+    }
+    with pytest.raises(RuntimeError, match="1d"):
+        store_bars(MagicMock(), [bar], "SPY", "1d")
+
+
+class TestCaptureKwargs:
+    """Ported from the retired d1-capture test file (plan 189-08): every timeframe
+    reports its requests, only 1d delivers observations into D1."""
+
+    _RUN_ID = "00000000-0000-4000-8000-000000000189"
+
+    def test_1d_gets_requests_and_observations(self):
+        from scripts.infrastructure.backfill._history_fetch import _capture_kwargs
+
+        sink = MagicMock()
+        kwargs = _capture_kwargs("1d", sink, self._RUN_ID)
+        assert kwargs["on_request"] == sink.on_request
+        assert kwargs["on_observation"] == sink.on_observation
+        assert kwargs["fetch_run_id"] == self._RUN_ID
+
+    def test_intraday_gets_requests_only(self):
+        from scripts.infrastructure.backfill._history_fetch import _capture_kwargs
+
+        sink = MagicMock()
+        kwargs = _capture_kwargs("5m", sink, self._RUN_ID)
+        assert kwargs["on_request"] == sink.on_request
+        assert kwargs["fetch_run_id"] == self._RUN_ID
+        assert "on_observation" not in kwargs

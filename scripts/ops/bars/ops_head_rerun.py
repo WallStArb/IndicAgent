@@ -1,7 +1,8 @@
 """D-27 step 2: re-ask the 1d heads of late-starting names and inventory the moved ones.
 
 A late name is a 1d name whose first ibkr_named bar falls after 2006-11-01. The
-pipeline re-asks the old window under verify-only (SMART, then every venue in
+IBKR history fetcher (ibkr_history_fetcher.py, the only IBKR history CLI) re-asks the
+old window under verify-only (SMART, then every venue in
 infra.ibkr.venue_fallback.exchanges) and every answer lands in ohlcv_request /
 ohlcv_observation (D-16). This script only orchestrates and classifies from those
 stored answers; it never stores venue bars (D-17, plan 13 verdict).
@@ -16,9 +17,11 @@ Each late name ends with one disposition, from D1 alone (D-20):
   reached_window_start  the SMART head is at or before the oldest request window start
   unresolved            anything else (timeout, failure, a venue not asked); never counted as empty
 
-Discipline: campaign preflight on client id 49 (D-30); the pipeline subprocess holds the
-ibkr_history_stream lease at priority tier (D-29). Refusal or a lease timeout exits
-cleanly; reruns skip names D1 already resolves (unless --force).
+Discipline: campaign preflight on client id 49 (D-30); the fetcher subprocess takes
+FetcherLock (CD-09), so it never runs beside another IBKR history caller. Names it asks
+are named on its command line, so they are asked even when their 1d series is current.
+A refused preflight, or the fetcher reporting its lock held elsewhere, exits cleanly
+(exit 3); reruns skip names D1 already resolves (unless --force).
 """
 
 from __future__ import annotations
@@ -38,6 +41,7 @@ from typing import Any, Literal
 import psycopg
 import structlog
 
+from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
@@ -48,15 +52,11 @@ _logger = structlog.get_logger(__name__)
 Disposition = Literal["moved", "verified_empty", "unresolved", "reached_window_start"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_PIPELINE = (
-    _REPO_ROOT
-    / "scripts"
-    / "infrastructure"
-    / "backfill"
-    / ("infrastructure_run_historical_pipeline.py")
-)
+_FETCHER = _REPO_ROOT / "scripts" / "infrastructure" / "backfill" / "ibkr_history_fetcher.py"
 _CLIENT_ID = 49
-_LEASE_TIMEOUT_EXIT = 3
+# The script's own exit contract: 3 means "stopped cleanly, rerun resumes" for both a refused
+# preflight and a fetcher lock held by another process.
+_LOCK_HELD_EXIT = 3
 _REFUSED_EXIT = 3
 _LATE_CUTOFF = "2006-11-01"
 _MONITOR_TYPE = "bar_head_rerun"
@@ -270,39 +270,56 @@ def _classify_all(
     }
 
 
-# --- pipeline --------------------------------------------------------------------
+# --- fetcher ---------------------------------------------------------------------
 
 
-def _run_chunk(symbols: Sequence[str]) -> tuple[int, list[str]]:
-    """One pipeline invocation; returns (exit code, fetch_run_ids seen)."""
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            str(_PIPELINE),
-            "--symbols",
-            ",".join(symbols),
-            "--timeframes",
-            "1d",
-            "--dimension",
-            "compute_1d",
-            "--client-id",
-            str(_CLIENT_ID),
-            "--lease-tier",
-            "priority",
-        ],
+def fetcher_command(symbols: Sequence[str]) -> list[str]:
+    """The fetcher invocation that re-asks `symbols`' 1d history on the campaign client."""
+    return [
+        sys.executable,
+        str(_FETCHER),
+        "--symbols",
+        ",".join(symbols),
+        "--timeframes",
+        "1d",
+        "--dimension",
+        "compute_1d",
+        "--client-id",
+        str(_CLIENT_ID),
+        # The pipeline planned every 1d item over its full depth window; the fetcher plans a
+        # gap-free series from its latest bar unless told otherwise (todo 387), which would
+        # never re-ask the old window this campaign exists for.
+        "--full-scan",
+    ]
+
+
+def _run_chunk(
+    symbols: Sequence[str], popen: Callable[..., Any] = subprocess.Popen
+) -> tuple[int, list[str]]:
+    """One fetcher invocation; returns (exit code, fetch_run_ids seen).
+
+    The fetcher exits 0 when its lock is held elsewhere and prints LOCK_HELD_MESSAGE; that
+    line maps to _LOCK_HELD_EXIT so a refused chunk is never mistaken for a clean one.
+    """
+    proc = popen(
+        fetcher_command(symbols),
         cwd=_REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
     run_ids: list[str] = []
+    lock_held = False
     assert proc.stdout is not None
     for line in proc.stdout:
         print(line, end="")
+        if line.strip() == LOCK_HELD_MESSAGE:
+            lock_held = True
         match = _RUN_ID_RE.search(line)
         if match:
             run_ids.append(match.group(1))
-    return proc.wait(), run_ids
+    rc = proc.wait()
+    return (_LOCK_HELD_EXIT if lock_held else rc), run_ids
 
 
 # --- report ----------------------------------------------------------------------
@@ -469,12 +486,12 @@ def main() -> None:
         print(f"--- chunk {i // args.chunk_size + 1}: {len(chunk)} names ---")
         rc, ids = _run_chunk(chunk)
         run_ids.extend(ids)
-        if rc == _LEASE_TIMEOUT_EXIT:
-            print("lease timeout: stopping cleanly; rerun resumes (resolved names skipped)")
-            exit_code = _LEASE_TIMEOUT_EXIT
+        if rc == _LOCK_HELD_EXIT:
+            print("fetcher lock held: stopping cleanly; rerun resumes (resolved names skipped)")
+            exit_code = _LOCK_HELD_EXIT
             break
         if rc != 0:
-            print(f"pipeline exited {rc}: stopping; rerun resumes")
+            print(f"fetcher exited {rc}: stopping; rerun resumes")
             exit_code = rc
             break
 

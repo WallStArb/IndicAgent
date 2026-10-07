@@ -37,14 +37,9 @@ _RETIRE = re.compile(r"retire:\s*(?:todo\s+(\d+)|(\d{2,3}[A-Z]?(?:\.\d+)?-\d{2})
 
 # Frozen 2026-10-06 (plan 185-44): TEMPORARY entries that predate the retire-clause rule.
 # MAY ONLY SHRINK. Key: "<file>::<variable>[<entry key>]".
-_FROZEN_CLAUSELESS: dict[str, str] = {
-    "tests/unit/test_ibkr_history_lease_boundary.py::_ALLOW_LIST[services/backfill_feature_factory.py]": (
-        "predates 185-44; its reason points at the phase 185 deferred items, not a plan"
-    ),
-    "tests/unit/test_ibkr_history_lease_boundary.py::_ALLOW_LIST[scripts/infrastructure/backfill/_history_fetch_item.py]": (
-        "predates 185-44; its reason names plan 189-08 in prose (phase 189 files are paused)"
-    ),
-}
+# Empty since plan 189-08 (the two lease-guard entries: the factory's gained `retire: todo 506`
+# in the renamed lock guard, the item fetch's became PERMANENT).
+_FROZEN_CLAUSELESS: dict[str, str] = {}
 
 
 def entry_id(entry: TemporaryEntry) -> str:

@@ -14,14 +14,13 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from scripts.infrastructure.backfill import _history_fetch as history_fetch
 from scripts.infrastructure.backfill import _history_fetch_item as item_mod
-from scripts.infrastructure.backfill import (
-    infrastructure_run_historical_pipeline as pipeline,
-)
 from scripts.infrastructure.backfill._fetch_queue import CoverageRow, QueueConfig
 from scripts.infrastructure.backfill._history_fetch_item import (
     FetchContext,
@@ -32,7 +31,6 @@ from scripts.infrastructure.backfill._history_fetch_item import (
     fetch_item_with_retries,
     run_with_stall_bound,
 )
-from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
 from src.core.models import AssetClass
 from src.providers.base import OHLCVBar
 
@@ -500,9 +498,6 @@ def env(monkeypatch):
     """Patch every DB-touching helper at the _history_fetch_item module level."""
     rec = SimpleNamespace(
         persist=[],
-        stored=[],
-        marked=[],
-        normalized=[],
         gap_calls=[],
         reconciled=[],
         reconciled_1d=[],
@@ -511,7 +506,6 @@ def env(monkeypatch):
         record_gaps=[_RECORD_GAP],
         legacy_gaps=[_LEGACY_GAP],
         d1_gaps=[_D1_GAP],
-        synthetic=False,
         bars_1m=[],
     )
 
@@ -551,27 +545,6 @@ def env(monkeypatch):
         )
         return list(rec.legacy_gaps)
 
-    def fake_normalize(bars, **kwargs):
-        rec.normalized.append((kwargs["symbol"], kwargs["timeframe"]))
-        out = list(bars)
-        if rec.synthetic:
-            out.append(
-                {
-                    "timestamp": datetime(2024, 1, 1, tzinfo=UTC),
-                    "open": 1.0,
-                    "high": 1.0,
-                    "low": 1.0,
-                    "close": 1.0,
-                    "volume": 0,
-                    "source": SOURCE_SYNTHETIC_FILL,
-                }
-            )
-        return out
-
-    def fake_store(conn, bars, symbol, tf, actual_symbol=None, write_rows=None):
-        rec.stored.append(SimpleNamespace(symbol=symbol, tf=tf, bars=list(bars), writer=write_rows))
-        return len(bars)
-
     async def fake_per_contract(**kwargs):
         rec.per_contract.append(kwargs)
         return rec.per_contract_bars, []
@@ -584,13 +557,6 @@ def env(monkeypatch):
     monkeypatch.setattr(item_mod, "expected_grid_slots", lambda *a: [])
     monkeypatch.setattr(
         item_mod, "load_answered_windows", lambda conn, symbol, tf: ("answered", symbol, tf)
-    )
-    monkeypatch.setattr(item_mod, "normalize_bars", fake_normalize)
-    monkeypatch.setattr(item_mod, "store_bars", fake_store)
-    monkeypatch.setattr(
-        item_mod,
-        "mark_fetch_complete",
-        lambda conn, symbol, tf, since: rec.marked.append((symbol, tf, since)),
     )
     monkeypatch.setattr(item_mod, "fetch_per_contract", fake_per_contract)
     monkeypatch.setattr(item_mod, "fetch_bars", lambda conn, symbol, tf: list(rec.bars_1m))
@@ -686,7 +652,7 @@ _COVERED_LATEST = datetime(2026, 9, 30, 15, 45, tzinfo=UTC)
 )
 def test_full_depth_window_when_the_series_is_not_fully_covered(env, row, gap_days, full_scan):
     _fetch(_ctx(FakeProvider()), row, gap_days=gap_days, full_scan=full_scan)
-    assert env.gap_calls[0].start == pipeline._fetch_start(_END, 7300)
+    assert env.gap_calls[0].start == history_fetch._fetch_start(_END, 7300)
     assert env.gap_calls[0].end == _END
 
 
@@ -704,7 +670,7 @@ def test_fully_covered_1d_series_plans_d1_from_its_latest_session(env):
 
 def test_days_override_caps_the_depth(env):
     _fetch(_ctx(FakeProvider(), days_override=10), _row("15m"))
-    assert env.gap_calls[0].start == pipeline._fetch_start(_END, 10)
+    assert env.gap_calls[0].start == history_fetch._fetch_start(_END, 10)
 
 
 def test_each_timeframe_plans_through_its_shared_planner(env):
@@ -742,14 +708,12 @@ def test_15m_chunks_persist_atomically_into_the_archive_with_coverage(env):
     assert outcome.status == "ok" and outcome.n_bars == 4
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is pipeline._insert_archive_rows
+    assert call.writer is history_fetch._insert_archive_rows
     assert call.coverage.destination == "archive"
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", "15m")
     assert len(call.requests) == 1  # the chunk's answer, taken off the sink
     assert call.requests[0].timeframe == "15m"
     assert all(len(r) == 10 and r[1] == "AAA" and r[2] == "15m" for r in call.rows)
-    # 15m is real-bars-only: no fill, no post-pass store.
-    assert env.stored == [] and env.normalized == []
 
 
 @pytest.mark.parametrize("tf", ["5m", "1m"])
@@ -759,36 +723,43 @@ def test_grid_timeframe_chunks_persist_atomically_into_the_grid_with_coverage(en
     assert outcome.status == "ok"
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is pipeline._insert_market_data_rows
+    assert call.writer is history_fetch._insert_market_data_rows
     assert call.coverage.destination == "grid"
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", tf)
     assert all(len(r) == 9 and r[2] == tf for r in call.rows)
     assert call.requests  # grid timeframes record their answers atomically too
     assert outcome.n_grid_source_rows == (4 if tf == "5m" else 0)
-    assert env.stored == [] and env.normalized == []
 
 
 def test_1d_captures_to_d1_and_persists_nothing(env):
     ctx = _ctx(FakeProvider())
     outcome = _fetch(ctx, _row("1d"))
     assert outcome.status == "ok" and outcome.n_bars == 4
-    assert env.persist == [] and env.stored == [] and env.normalized == []
+    assert env.persist == []
     assert ctx.provider.calls[0]["on_chunk"] is None
     assert ctx.sink.total_observations == 2 and ctx.sink.total_requests == 2
-    # D2 owns the 1d grid: the caller derives, then marks fetch_complete from this start.
-    assert env.marked == []
-    assert outcome.derive_1d_since == pipeline._fetch_start(_END, 7300)
+    # D2 owns the 1d grid: the caller derives from this start.
+    assert outcome.derive_1d_since == history_fetch._fetch_start(_END, 7300)
     assert outcome.n_grid_source_rows == 0
 
 
 def test_4h_stores_real_bars_only(env):
-    """Plan 185-32 made 4h real bars only (the pipeline's real_bars_only_for): its real bars
-    persist atomically with coverage and no synthetic fill goes through store_bars."""
-    env.synthetic = True
+    """Plan 185-32 made 4h real bars only: its real bars persist atomically with coverage,
+    and plan 189-08 deleted the placeholder path (no normalize_bars, no store_bars here)."""
     _fetch(_ctx(FakeProvider()), _row("4h"))
     assert len(env.persist) == 1 and len(env.persist[0].rows) == 4
     assert env.persist[0].coverage.destination == "grid"
-    assert env.stored == []
+
+
+def test_item_fetch_writes_no_placeholder_and_no_backfill_status():
+    """Plan 189-08: every timeframe is real bars only, so the item module imports neither
+    the synthetic-fill normalizer nor a direct store, and the fetch path writes no
+    backfill_status (promotion reads bar_integrity verdicts since plan 185-41)."""
+    for name in ("normalize_bars", "store_bars", "mark_fetch_complete"):
+        assert not hasattr(item_mod, name), name
+    assert not hasattr(history_fetch, "mark_fetch_complete")
+    for module in (item_mod, history_fetch):
+        assert "INSERT INTO backfill_status" not in Path(module.__file__).read_text()
 
 
 def test_returned_bars_missed_by_on_chunk_are_still_persisted_atomically(env):
@@ -839,12 +810,11 @@ def test_1d_answered_with_zero_bars_is_no_data_and_owes_no_derivation(env):
     assert outcome.derive_1d_since is None
 
 
-def test_failed_chunks_are_an_error_and_skip_mark_fetch_complete(env):
+def test_failed_chunks_are_an_error(env):
     provider = FakeProvider()
     provider.failed_chunks_by_tf = {"15m": 1}
     outcome = _fetch(_ctx(provider), _row("15m"))
     assert outcome.status == "error"
-    assert env.marked == []
     assert len(env.persist) == 1  # what did arrive is still committed with its coverage
 
 
@@ -854,12 +824,6 @@ def test_window_exception_is_an_error(env):
     outcome = _fetch(_ctx(provider), _row("15m"))
     assert outcome.status == "error"
     assert "socket closed" in (outcome.error or "")
-    assert env.marked == []
-
-
-def test_clean_fetch_marks_complete_from_the_window_start(env):
-    _fetch(_ctx(FakeProvider()), _row("5m"))
-    assert env.marked == [("AAA", "5m", pipeline._fetch_start(_END, 7300))]
 
 
 # --- per-run caches -----------------------------------------------------------
@@ -970,7 +934,7 @@ def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
 
     deep_calls = [c for c in provider.calls if c["timeframe"] == "1m"]
     assert len(deep_calls) == 1
-    assert deep_calls[0]["start"] == (_END - timedelta(days=pipeline._1M_DAYS_FX)).replace(
+    assert deep_calls[0]["start"] == (_END - timedelta(days=history_fetch._1M_DAYS_FX)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     assert deep_calls[0]["on_request"] is not None  # the deep fetch's answers are recorded
@@ -1088,25 +1052,17 @@ def test_port_capture_and_checkpoint_wiring(env):
     for call in env.persist:
         assert len(call.requests) == 1 and len(call.rows) == 4
         assert call.rows[0][2] == "15m"
-        assert call.writer is pipeline._insert_archive_rows
-    # 15m marks complete per item; 1d is marked by the caller after the daily stage.
-    assert sorted((s, tf) for s, tf, _ in env.marked) == [
-        ("AAA", "15m"),
-        ("BBB", "15m"),
-        ("CCC", "15m"),
-    ]
+        assert call.writer is history_fetch._insert_archive_rows
 
 
 def test_port_15m_is_archive_bound_and_1d_is_d1_only(env):
     _run_symbols(env)
-    assert env.normalized == []
     planners = sorted((c.symbol, c.tf, c.planner) for c in env.gap_calls)
     assert planners == sorted(
         [(s, "15m", "record") for s in ("AAA", "BBB", "CCC")]
         + [(s, "1d", "d1") for s in ("AAA", "BBB", "CCC")]
     )
     assert {p.coverage.timeframe for p in env.persist} == {"15m"}
-    assert env.stored == []
 
 
 def test_port_1d_fetch_captures_to_d1_and_persists_no_chunk(env):
@@ -1122,10 +1078,10 @@ def test_port_1d_fetch_captures_to_d1_and_persists_no_chunk(env):
 
 def test_port_daily_stage_runs_for_touched_symbols_on_the_clean_path(env):
     """The item reports what the run-level daily stage needs: every 1d item that delivered
-    bars returns its window start; the caller derives those symbols, then marks 1d."""
+    bars returns its window start; the caller derives those symbols."""
     _, _, outcomes = _run_symbols(env)
     touched = {o.symbol: o.derive_1d_since for o in outcomes if o.timeframe == "1d"}
-    assert touched == {s: pipeline._fetch_start(_END, 7300) for s in ("AAA", "BBB", "CCC")}
+    assert touched == {s: history_fetch._fetch_start(_END, 7300) for s in ("AAA", "BBB", "CCC")}
     assert all(o.derive_1d_since is None for o in outcomes if o.timeframe == "15m")
 
 
@@ -1135,12 +1091,10 @@ def test_port_5m_chunks_persist_atomically_into_the_grid(env):
     assert [(c.symbol, c.tf, c.planner) for c in env.gap_calls] == [("AAA", "5m", "record")]
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is pipeline._insert_market_data_rows
+    assert call.writer is history_fetch._insert_market_data_rows
     assert call.rows[0][1] == "AAA" and call.rows[0][2] == "5m"
     assert len(call.rows[0]) == 9  # the grid row shape (no base column)
     assert len(call.requests) == 1
-    assert [(s, tf) for s, tf, _ in env.marked] == [("AAA", "5m")]
-    assert env.normalized == []
 
 
 def test_port_15m_always_asks_through_the_last_slot_end(env):

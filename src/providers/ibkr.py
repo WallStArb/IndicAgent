@@ -116,9 +116,9 @@ _FUT_TICK_LIST = "233"
 #       fetch_historical_bars() walks backwards in these chunk windows to cover any depth.
 #   1d: 20+ years available for liquid equities/ETFs.
 #
-# APR-overridable: scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py's
+# APR-overridable: scripts/infrastructure/backfill/_history_fetch.py's
 # _load_ibkr_chunk_days_config() overlays infra.ibkr.chunk_days.{tf} (migration 197) onto
-# this dict in place at backfill startup. These hardcoded values are the fallback defaults.
+# this dict in place when ibkr_history_fetcher.py starts a run. These hardcoded values are the fallback defaults.
 _MAX_CHUNK_DAYS: dict[str, int] = {
     "1m": 14,  # real IBKR per-request boundary (not the older 6-7d inherited guess).
     "5m": 150,  # confirmed clean; true ceiling is 150-180d (180d confirmed bad), untested

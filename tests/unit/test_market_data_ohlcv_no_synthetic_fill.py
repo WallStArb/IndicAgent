@@ -28,15 +28,9 @@ _SYNTHETIC_NAME = "SOURCE_SYNTHETIC_FILL"
 _MIGRATION = _REPO_ROOT / "production/migrations/444_market_data_ohlcv_no_synthetic_fill.sql"
 
 # file -> reason. The only production callers of normalize_bars.
-_NORMALIZE_CALLERS: dict[str, str] = {
-    "scripts/infrastructure/backfill/_history_fetch_item.py": (
-        "TEMPORARY (retire: todo 499): phase 189's fetcher item keeps a fill branch behind "
-        "`not real_bars_only_for(tf)`, unreachable since plan 185-32 put 4h in the pipeline's "
-        "real-bars-only set. The 189 session drops the call, then deletes normalize_bars' fill "
-        "path and this entry. The fetcher is stopped and disabled (owner decision), and "
-        "migration 444 refuses the row."
-    ),
-}
+# Empty since plan 189-08 dropped the fetcher item's unreachable fill branch; may only stay
+# empty (185-42 deletes normalize_bars' fill path).
+_NORMALIZE_CALLERS: dict[str, str] = {}
 
 # file -> reason. The only modules that build a row with source synthetic_fill.
 _SYNTHETIC_BUILDERS: dict[str, str] = {

@@ -65,7 +65,7 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
             frozenset({"ibkr"}),
             "PERMANENT: the IBKR ingress write contract records one load per (symbol, timeframe) "
             "of every fetched chunk written to market_data_ohlcv (5m, 1m) or the raw archive "
-            "(15m/1h parity sample), outcome applied or refused (plan 185-39). The pipeline's "
+            "(15m/1h parity sample), outcome applied or refused (plan 185-39). _history_fetch.py's "
             "and the archive's own bar INSERTs stay in their owner modules and call it.",
         ),
     },

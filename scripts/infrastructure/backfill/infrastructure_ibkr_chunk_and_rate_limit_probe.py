@@ -51,7 +51,7 @@ from scripts.infrastructure.backfill._fetcher_lock import (  # noqa: E402
     LOCK_HELD_MESSAGE,
     FetcherLock,
 )
-from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (  # noqa: E402
+from scripts.infrastructure.backfill._history_fetch import (  # noqa: E402
     _load_ibkr_rate_limit_config,
     connect_db,
     store_bars,
@@ -62,7 +62,7 @@ from src.providers import IBKRProvider, ibkr  # noqa: E402
 _PROBE_CLIENT_ID = 44  # dedicated, distinct from 41 (in-flight)/43 (reserved for real batch)
 
 # Chunk-size test tiers, one per timeframe actually used by the backfill pipeline
-# (_TF_MINUTES in the main script). Run 1 (2026-08-06) tested only 1d/1h and found real
+# (_TF_MINUTES in _history_fetch.py). Run 1 (2026-08-06) tested only 1d/1h and found real
 # headroom (364d default -> 1825d/1095d both succeeded cleanly) -- that run also caught and
 # fixed a real bug (fetch_historical_bars's chunked-request branch never converted "N D" to
 # "N Y" past 365 days, unlike the continuous-contract branch; see git history same date).

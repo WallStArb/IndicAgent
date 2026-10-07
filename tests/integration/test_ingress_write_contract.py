@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 import psycopg
 import pytest
 
-from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipeline
+from scripts.infrastructure.backfill import _history_fetch as pipeline
 from scripts.infrastructure.backfill._intraday_persist import chunk_digest, persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_ingress_contract import RevisionRefused

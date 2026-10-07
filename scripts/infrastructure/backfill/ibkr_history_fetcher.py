@@ -4,10 +4,15 @@
 Design: docs/plans/2026-10-02-ibkr-history-fetch-consolidation-design.md. One process owns
 the IBKR history connection (CD-01), works a priority queue over the ohlcv_coverage ledger one
 (symbol, timeframe) at a time (CD-06), records every outcome in the ledger (CD-03/CD-05), and
-promotes the derived grid in the same pass (CD-07). It absorbs
-infrastructure_run_historical_pipeline.py's CLI (same flag names and meanings where they
-exist) and the run-level stages of the former nightly backfill script (split detection, the
-daily and grid derivation stages, the D7 run status file); plan 189-07 deleted the nightly.
+promotes the derived grid in the same pass (CD-07). It is the only CLI for IBKR history:
+it absorbed the historical pipeline's CLI (same flag names and meanings where they exist;
+plan 189-08 turned that script into the helper library _history_fetch.py) and the run-level
+stages of the former nightly backfill script (split detection, the daily and grid
+derivation stages, the D7 run status file); plan 189-07 deleted the nightly.
+
+Named symbols (--symbols) are asked even when their series is current: an operator or a
+tool that names a series (ops_split_detect's re-fetch, ops_head_rerun) wants it asked now.
+The recurring timer run names none, so the current hold still spares the one IBKR stream.
 
 Flow (CD-01/CD-02/CD-07):
 
@@ -21,6 +26,8 @@ Flow (CD-01/CD-02/CD-07):
            record_fetch_outcome(...)       -- one ledger write per item (not on gateway loss)
       -> disconnect; final D1 sink flush
       -> split detection (185-22) -> daily stage + 1d ledger refresh -> grid stage
+         (split detection's own re-fetch subprocess is refused by this run's lock and
+         exits non-zero, so the run ends partial; see ops_split_detect.py)
       -> SLA gauge, status file, run summary
     FetcherLock.release()
 
@@ -65,9 +72,7 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from scripts.infrastructure.backfill import _empty_history as empty_history  # noqa: E402
-from scripts.infrastructure.backfill import (  # noqa: E402
-    infrastructure_run_historical_pipeline as _pipeline,
-)
+from scripts.infrastructure.backfill import _history_fetch  # noqa: E402
 from scripts.infrastructure.backfill._fetch_queue import (  # noqa: E402
     PriorityQueue,
     QueueConfig,
@@ -198,6 +203,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Populate contract_metadata roll chains (under the lock, no IBKR) and exit.",
     )
     parser.add_argument(
+        "--overlap-sessions",
+        type=int,
+        default=None,
+        help=(
+            "Re-ask the last N 1d sessions D1 already answers (default APR "
+            "infra.bar_derivation.overlap_sessions). ops_split_detect passes its split "
+            "re-fetch depth here."
+        ),
+    )
+    parser.add_argument(
         "--budget-minutes",
         type=float,
         default=None,
@@ -237,12 +252,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args: argparse.Namespace) -> str | None:
-    """The pipeline's explicit-timeframes rule; returns an error message or None."""
+    """The pipeline's explicit-timeframes rule and a non-negative --overlap-sessions;
+    returns an error message or None."""
     if args.dimension in ("backfill", "compute_1d") and args.timeframes is None:
         return (
             f"--dimension {args.dimension} requires an explicit --timeframes: it includes "
             "symbols deliberately kept off the full timeframe stack (e.g. the 1d-only cohort)."
         )
+    if getattr(args, "overlap_sessions", None) is not None and args.overlap_sessions < 0:
+        return f"--overlap-sessions must be >= 0, got {args.overlap_sessions}"
     return None
 
 
@@ -272,7 +290,7 @@ def resolve_scopes(
 
 
 def _symbol_matches(symbol: str, wanted: set[str]) -> bool:
-    base = (_pipeline._parse_contract_symbol(symbol) or (None,))[0]
+    base = (_history_fetch._parse_contract_symbol(symbol) or (None,))[0]
     return symbol in wanted or base in wanted
 
 
@@ -282,7 +300,6 @@ class Candidates:
 
     pairs: list[tuple[str, str]]
     instruments: dict[str, Any]
-    scope_contracts: list[tuple[tuple[str, ...], list[Any]]] = field(default_factory=list)
     unknown_timeframes: list[str] = field(default_factory=list)
 
 
@@ -302,7 +319,6 @@ def build_candidates(
     fetchable = None if fetchable_timeframes is None else set(fetchable_timeframes)
     pairs: dict[tuple[str, str], None] = {}
     instruments: dict[str, Any] = {}
-    scope_contracts: list[tuple[tuple[str, ...], list[Any]]] = []
     unknown: set[str] = set()
     for dimension, timeframes in scopes:
         contracts = contracts_for(dimension)
@@ -314,12 +330,11 @@ def build_candidates(
                 unknown.add(tf)
             else:
                 tfs.append(tf)
-        scope_contracts.append((tuple(tfs), contracts))
         for contract in contracts:
             instruments.setdefault(contract.symbol, contract)
             for tf in tfs:
                 pairs.setdefault((contract.symbol, tf), None)
-    return Candidates(list(pairs), instruments, scope_contracts, sorted(unknown))
+    return Candidates(list(pairs), instruments, sorted(unknown))
 
 
 def last_session_close(now: datetime) -> datetime | None:
@@ -445,7 +460,7 @@ class IbkrHistoryFetcher(BaseBatch):
         self._prepare = prepare or self.prepare
         self._context_factory = context_factory or self._default_context
         self._run_stage = stage_runner or self._run_subprocess
-        self._connect = connect or (lambda: _pipeline.connect_db(self.settings))
+        self._connect = connect or (lambda: _history_fetch.connect_db(self.settings))
         self._contracts_for = contracts_for or _default_contracts_for(
             self.settings, args.include_rolled
         )
@@ -464,10 +479,10 @@ class IbkrHistoryFetcher(BaseBatch):
     def _default_context(self, provider: Any, plan: RunPlan, fetch_run_id: str) -> FetchContext:
         conn = self._connect()
         try:
-            empty_ranges = empty_history.load(conn, _pipeline._EMPTY_HISTORY_PROVIDER)
+            empty_ranges = empty_history.load(conn, _history_fetch._EMPTY_HISTORY_PROVIDER)
             reverify_days = empty_history.load_reverify_days(conn)
             fresh_heads = empty_history.load_fresh_heads(
-                conn, _pipeline._EMPTY_HISTORY_PROVIDER, reverify_days
+                conn, _history_fetch._EMPTY_HISTORY_PROVIDER, reverify_days
             )
             first_bars = empty_history.load_first_bars(conn, list(plan.candidates.instruments))
         finally:
@@ -475,7 +490,7 @@ class IbkrHistoryFetcher(BaseBatch):
         sink = ObservationSink(
             self._connect(),
             caller=_OBSERVATION_CALLER,
-            max_buffer_rows=_pipeline._load_observation_batch_rows(self.settings),
+            max_buffer_rows=_history_fetch._load_observation_batch_rows(self.settings),
         )
         now = datetime.now(UTC)
         return FetchContext(
@@ -519,7 +534,7 @@ class IbkrHistoryFetcher(BaseBatch):
             apr = _read_apr(conn, (_KEY_OVERLAP_SESSIONS, _KEY_INTER_ITEM_PAUSE))
         finally:
             conn.close()
-        tf_fetch_config = _pipeline._load_tf_fetch_config(self.settings)
+        tf_fetch_config = _history_fetch._load_tf_fetch_config(self.settings)
         scopes = resolve_scopes(self.args, config.default_scopes)
         candidates = build_candidates(
             scopes,
@@ -537,15 +552,23 @@ class IbkrHistoryFetcher(BaseBatch):
         skipped = set(tradier_owned)
         fetchable = [pair for pair in candidates.pairs if pair not in skipped]
         now = datetime.now(UTC)
-        queue = PriorityQueue(config, fetchable, now.date(), current_after=last_session_close(now))
+        # Named symbols bypass the current hold (module docstring): a caller that names a
+        # series wants it asked even when its last fetch settled after the latest close.
+        current_after = None if self.args.symbols else last_session_close(now)
+        queue = PriorityQueue(config, fetchable, now.date(), current_after=current_after)
         await queue.load(pool)
+        overlap_sessions = (
+            self.args.overlap_sessions
+            if self.args.overlap_sessions is not None
+            else int(float(apr[_KEY_OVERLAP_SESSIONS]))
+        )
         return RunPlan(
             config=config,
             queue=queue,
             candidates=candidates,
             tradier_owned=tradier_owned,
             tf_fetch_config=tf_fetch_config,
-            overlap_sessions=int(float(apr[_KEY_OVERLAP_SESSIONS])),
+            overlap_sessions=overlap_sessions,
             inter_item_pause_s=float(apr[_KEY_INTER_ITEM_PAUSE]),
         )
 
@@ -751,7 +774,7 @@ class IbkrHistoryFetcher(BaseBatch):
         buffered answers. Never masks the primary outcome."""
         try:
             if ctx.sink.pending():
-                _pipeline._flush_capture(ctx.sink, self.settings)
+                _history_fetch._flush_capture(ctx.sink, self.settings)
         except Exception as error:  # noqa: BLE001
             logger.error("ibkr_history_fetcher.final_flush_failed", error=str(error))
 
@@ -797,15 +820,13 @@ class IbkrHistoryFetcher(BaseBatch):
         return codes
 
     def _finish_1d(self, ctx: Any, touched: Mapping[str, datetime]) -> None:
-        """Refresh the 1d ledger bounds from D2's rows, then mark 1d fetch_complete (the
-        pipeline's post-stage step; the EXISTS guard reads the rows the stage wrote)."""
+        """Refresh the 1d ledger bounds from the rows D2 just wrote. No backfill_status
+        write: promotion reads bar_integrity verdicts since plan 185-41 (plan 189-08)."""
         conn = ctx.get_conn()
         with conn.transaction():
             cur = conn.cursor()
             cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
             refresh_1d_bounds(cur, touched)
-        for symbol, since in sorted(touched.items()):
-            _pipeline.mark_fetch_complete(conn, symbol, _DAILY_TF, since)
 
     async def _sla_breached(self, pool: Any, plan: RunPlan) -> int:
         await plan.queue.load(pool)
@@ -821,7 +842,7 @@ class IbkrHistoryFetcher(BaseBatch):
         db = DatabaseManager(self.settings.database_url)
         await db.initialize()
         try:
-            await _pipeline.seed_roll_chain(self.settings, db)
+            await _history_fetch.seed_roll_chain(self.settings, db)
         finally:
             await db.close()
 
@@ -829,13 +850,13 @@ class IbkrHistoryFetcher(BaseBatch):
         """The pipeline's APR overlays, in its main()'s order (module globals of ibkr.py and
         the pipeline that fetch_item reads)."""
         settings = self.settings
-        _pipeline._load_ibkr_chunk_days_config(settings)
-        _pipeline._load_ibkr_hist_timeout_config(settings)
-        _pipeline._load_ibkr_retry_config(settings)
-        _pipeline._load_ibkr_venue_fallback_config(settings)
-        _pipeline._load_ibkr_rate_limit_config(settings)
-        _pipeline._load_ohlcv_insert_batch_size_config(settings)
-        _pipeline._load_gap_cluster_max_days_config(settings)
+        _history_fetch._load_ibkr_chunk_days_config(settings)
+        _history_fetch._load_ibkr_hist_timeout_config(settings)
+        _history_fetch._load_ibkr_retry_config(settings)
+        _history_fetch._load_ibkr_venue_fallback_config(settings)
+        _history_fetch._load_ibkr_rate_limit_config(settings)
+        _history_fetch._load_ohlcv_insert_batch_size_config(settings)
+        _history_fetch._load_gap_cluster_max_days_config(settings)
 
     def _write_status(self, status: str, started_at: datetime, message: str) -> None:
         """The run status file the D7 audit's nightly_skipped check reads (185-23). Written at
@@ -878,7 +899,7 @@ class _LoopState:
             self.n_error += 1
         self.n_bars += outcome.n_bars
         self.n_grid_source_rows += outcome.n_grid_source_rows
-        # Only a clean 1d item is derived and marked complete (189-03 interface).
+        # Only a clean 1d item is derived and its ledger bounds refreshed (189-03 interface).
         if outcome.derive_1d_since is not None and outcome.status == "ok":
             self.touched_1d[outcome.symbol] = outcome.derive_1d_since
 
