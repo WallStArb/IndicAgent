@@ -164,7 +164,7 @@ suspect, corroboration and gap flags as flags on bars.
 **Depends on:** none to start. Intraday venue recovery is stored only after phase 186's rebuild,
 through content-digest keys, never under a live or resumable ic_engine or rebuild run (D-19, 186 D-32).
 Every IBKR history fetch holds one stream lease (D-29, todo 449's single-stream finding).
-**Plans:** 28/45 plans executed (27 to 35 close the 2026-10-06 verification gaps; 31, 33 and 35 amended and 36 to 44 added by the data layer integrity design, `docs/plans/2026-10-06-data-layer-integrity-design.md`, owner-approved 2026-10-06)
+**Plans:** 28/45 plans executed (27 to 35 close the 2026-10-06 verification gaps; 31, 33 and 35 amended and 36 to 45 added by the data layer integrity design, `docs/plans/2026-10-06-data-layer-integrity-design.md`, owner-approved 2026-10-06)
 
 Plans:
 
