@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -21,52 +21,75 @@ from services.rebuild_preconditions import (
     CheckResult,
     RebuildPreconditionFailure,
     check_bar_coverage,
+    check_data_layer_final_landed,
     check_dependencies_landed,
     check_derived_grid_landed,
     check_disk_guard,
     check_drops_landed,
     check_no_live_run,
     check_todo445_decision,
+    fetch_bar_verdict_inputs,
     fetch_coverage_inputs,
     fetch_d2_inputs,
+    fetch_final_landed_markers,
     fetch_landed_markers,
     run_all,
 )
+from src.intelligence.bars.verdict_gate import VerdictScan
 
 _GB = 10**9
 
 
-def _covered_rows():
-    span = (datetime(2006, 7, 7, tzinfo=UTC), datetime(2026, 9, 25, tzinfo=UTC))
-    expected = {("SPY", tf): span for tf in ("5m", "15m", "1h", "1d")}
-    rows = {k: rp.CoverageRow(count=1000, first=span[0], last=span[1]) for k in expected}
-    return rows, expected
+_AT1 = datetime(2026, 10, 7, 13, 28, tzinfo=UTC)
+_AT2 = datetime(2026, 10, 7, 13, 40, tzinfo=UTC)
+
+
+def _clean_scan(n=3):
+    return VerdictScan({}, n, _AT1, _AT2)
 
 
 # ---------------------------------------------------------------------------
-# check_bar_coverage
+# check_bar_coverage (reads the intraday verdicts since 185-41)
 # ---------------------------------------------------------------------------
 
 
 def test_bar_coverage_passes_and_lists_empty_history_spans_verbatim():
-    rows, expected = _covered_rows()
     spans = [("TLT", "5m", "nothing before 2016-06-13 (IBKR venue move)")]
-    result = check_bar_coverage(rows, expected, spans)
+    result = check_bar_coverage(_clean_scan(), spans)
     assert result.ok
     assert "2016-06-13" in result.detail  # the span is listed, not assumed away
+    assert "2026-10-07 13:28" in result.detail and "2026-10-07 13:40" in result.detail
 
 
-def test_bar_coverage_names_every_short_symbol_with_measured_vs_expected():
-    rows, expected = _covered_rows()
-    rows[("SPY", "5m")] = rp.CoverageRow(
-        count=10, first=datetime(2016, 2, 4, tzinfo=UTC), last=expected[("SPY", "5m")][1]
+def test_bar_coverage_names_every_failing_symbol_timeframe_and_check():
+    scan = VerdictScan(
+        {
+            "SPY": ["5m:slot_coverage failed", "15m:grid_parity missing"],
+            "QQQ": ["1h:stray_vendor_rows failed", "5m:digest_fresh stale (verdict 31.0h old)"],
+        },
+        3,
+        _AT1,
+        _AT2,
     )
-    del rows[("SPY", "1d")]
-    result = check_bar_coverage(rows, expected, [("AAA", "5m", "reached request start 2006-09-29")])
+    result = check_bar_coverage(scan, [("AAA", "5m", "reached request start 2006-09-29")])
     assert not result.ok
-    assert "SPY|5m" in result.detail and "2016-02-04" in result.detail
-    assert "SPY|1d" in result.detail and "no bars" in result.detail
+    assert "SPY" in result.detail and "5m:slot_coverage failed" in result.detail
+    assert "15m:grid_parity missing" in result.detail
+    assert "QQQ" in result.detail and "1h:stray_vendor_rows failed" in result.detail
+    assert "stale" in result.detail
+    assert "2 of 3 symbols" in result.detail
     assert "reached request start 2006-09-29" in result.detail
+
+
+def test_bar_coverage_fails_when_no_symbol_was_judged():
+    result = check_bar_coverage(VerdictScan({}, 0, None, None), [])
+    assert not result.ok and "no symbols" in result.detail
+
+
+def test_bar_coverage_truncates_a_long_failure_list():
+    failures = {f"S{i:02d}": ["5m:slot_coverage failed"] for i in range(25)}
+    result = check_bar_coverage(VerdictScan(failures, 30, _AT1, _AT2), [])
+    assert "25 of 30 symbols" in result.detail and "..." in result.detail
 
 
 # ---------------------------------------------------------------------------
@@ -251,20 +274,83 @@ def test_no_live_run_fails_on_a_matching_process_or_resumable_evidence():
     assert check_no_live_run(["tail -f logs/app.log"], "").ok
 
 
-def test_d2_landed_passes_when_nothing_is_missing():
-    assert rp.check_d2_landed([], []).ok
+def test_d2_landed_passes_with_an_evidence_line_citing_the_verdict_range():
+    result = rp.check_d2_landed(_clean_scan(1502))
+    assert result.ok
+    assert "1502" in result.detail
+    assert "2026-10-07 13:28" in result.detail and "2026-10-07 13:40" in result.detail
 
 
-def test_d2_landed_fails_naming_missing_lineage_and_missing_digest_separately():
-    result = rp.check_d2_landed(["ZZZ", "AAA"], ["BBB"])
+def test_d2_landed_fails_naming_failing_missing_and_stale_verdicts():
+    scan = VerdictScan(
+        {
+            "ZZZ": ["1d:canonical_recompute failed"],
+            "AAA": [
+                "1d:digest_fresh missing",
+                "1d:lineage_missing stale (newer load at 2026-10-07 14:00Z)",
+            ],
+        },
+        1502,
+        _AT1,
+        _AT2,
+    )
+    result = rp.check_d2_landed(scan)
     assert not result.ok
-    assert "d2-v1 canonical_bar_lineage for 2 symbols (AAA, ZZZ)" in result.detail
-    assert "bar_content_digest_current month row for 1 symbols (BBB)" in result.detail
+    assert "2 of 1502 symbols" in result.detail
+    assert "ZZZ" in result.detail and "1d:canonical_recompute failed" in result.detail
+    assert "AAA" in result.detail and "1d:digest_fresh missing" in result.detail
+    assert "newer load" in result.detail
+
+
+def test_d2_landed_fails_when_no_symbol_was_judged():
+    assert not rp.check_d2_landed(VerdictScan({}, 0, None, None)).ok
 
 
 def test_d2_landed_truncates_a_long_symbol_list():
-    result = rp.check_d2_landed([f"S{i:02d}" for i in range(25)], [])
-    assert "25 symbols" in result.detail and "..." in result.detail
+    failures = {f"S{i:02d}": ["1d:session_coverage failed"] for i in range(25)}
+    result = rp.check_d2_landed(VerdictScan(failures, 30, _AT1, _AT2))
+    assert "25 of 30 symbols" in result.detail and "..." in result.detail
+
+
+# ---------------------------------------------------------------------------
+# check_data_layer_final_landed
+# ---------------------------------------------------------------------------
+
+
+def test_final_landed_passes_when_every_summary_exists():
+    markers = {name: True for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES}
+    assert check_data_layer_final_landed(markers).ok
+
+
+def test_final_landed_names_each_missing_summary():
+    assert rp.REQUIRED_FINAL_LANDED_SUMMARIES == frozenset(
+        {"185-42-SUMMARY.md", "185-43-SUMMARY.md", "185-45-SUMMARY.md", "189-11-SUMMARY.md"}
+    )
+    markers = {name: True for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES}
+    markers["185-43-SUMMARY.md"] = False
+    del markers["189-11-SUMMARY.md"]
+    result = check_data_layer_final_landed(markers)
+    assert not result.ok
+    assert "185-43-SUMMARY.md" in result.detail and "189-11-SUMMARY.md" in result.detail
+    assert "185-42" not in result.detail
+
+
+def test_fetch_final_landed_markers_reads_presence_in_the_phase_directories(tmp_path):
+    p185 = tmp_path / ".planning" / "phases" / "185-daily-data-foundation"
+    p189 = tmp_path / ".planning" / "phases" / "189-ibkr-history-fetch"
+    p185.mkdir(parents=True)
+    p189.mkdir(parents=True)
+    (p185 / "185-42-SUMMARY.md").write_text("x")
+    (p185 / "185-45-SUMMARY.md").write_text("x")
+    (p189 / "189-11-SUMMARY.md").write_text("x")
+    (p185 / "185-43-PLAN.md").write_text("a plan is not a landing")
+    markers = fetch_final_landed_markers(tmp_path)
+    assert markers == {
+        "185-42-SUMMARY.md": True,
+        "185-43-SUMMARY.md": False,
+        "185-45-SUMMARY.md": True,
+        "189-11-SUMMARY.md": True,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -273,15 +359,13 @@ def test_d2_landed_truncates_a_long_symbol_list():
 
 
 def _all_passing_inputs():
-    rows, expected = _covered_rows()
     return {
-        "coverage_rows": rows,
-        "expected_spans": expected,
+        "bar_scan": _clean_scan(),
         "empty_history_spans": [],
         "grid_marker_present": True,
         "grid_marker_detail": "D2b landed 2026-09-30",
-        "d2_symbols_missing_lineage": [],
-        "d2_symbols_missing_digest": [],
+        "d2_scan": _clean_scan(1502),
+        "final_landed_markers": {name: True for name in rp.REQUIRED_FINAL_LANDED_SUMMARIES},
         "todo445_decision": _todo445_decision(),
         "configured_tfs": ["5m", "15m", "1h", "1d"],
         "dependency_markers": {name: True for name in rp.REQUIRED_DEPENDENCY_MARKERS},
@@ -301,18 +385,17 @@ def _all_passing_inputs():
 def test_run_all_returns_every_result_and_raises_nothing_when_clean():
     results = run_all(**_all_passing_inputs())
     names = [r.name for r in results]
-    assert len(names) == 8 and len(set(names)) == 8
+    assert len(names) == 9 and len(set(names)) == 9
     assert all(r.ok for r in results)
     assert all(isinstance(r, CheckResult) for r in results)
 
 
 def test_run_all_raises_naming_every_failed_check():
     inputs = _all_passing_inputs()
-    rows, expected = _covered_rows()
-    del rows[("SPY", "5m")]
-    inputs["coverage_rows"] = rows
+    inputs["bar_scan"] = VerdictScan({"SPY": ["5m:slot_coverage failed"]}, 3, _AT1, _AT2)
     inputs["grid_marker_present"] = False
-    inputs["d2_symbols_missing_lineage"] = ["SPY"]
+    inputs["d2_scan"] = VerdictScan({"SPY": ["1d:digest_fresh failed"]}, 3, _AT1, _AT2)
+    inputs["final_landed_markers"] = {"185-42-SUMMARY.md": False}
     inputs["present_relations"] = frozenset({"alpha_events"})
     inputs["disk"]["free_bytes"] = 500 * _GB
     with pytest.raises(RebuildPreconditionFailure) as excinfo:
@@ -322,6 +405,7 @@ def test_run_all_raises_naming_every_failed_check():
         "bar_coverage",
         "derived_grid_landed",
         "d2_landed",
+        "data_layer_final_landed",
         "drops_landed",
         "disk_guard",
     ):
@@ -379,18 +463,91 @@ def test_fetch_coverage_inputs_reads_only_the_tradeable_view_and_sets_a_timeout(
     assert sqls[0].startswith("SET statement_timeout")
     assert "market_data_ohlcv_tradeable" in sqls[1]
     assert "ohlcv_empty_history" in sqls[2]
+    # The live table's columns (a first_bar/last_bar guess failed on the real schema, 185-41).
+    assert "empty_from" in sqls[2] and "empty_through" in sqls[2]
     assert not any("market_data_ohlcv " in sql for sql in sqls)
 
 
-def test_fetch_d2_inputs_reads_lineage_and_digest_for_the_1d_symbols_with_a_timeout():
-    conn = _FakeConn([[("NEW1",)], [("OLD1",), ("OLD2",)]])
-    lineage, digest = fetch_d2_inputs(conn, ["SPY", "NEW1"])
-    assert lineage == ["NEW1"] and digest == ["OLD1", "OLD2"]
-    sqls = [sql for sql, _params in conn.calls]
-    assert sqls[0].startswith("SET statement_timeout") and sqls[-1] == "RESET statement_timeout"
-    assert "canonical_bar_lineage" in sqls[1] and "bar_content_digest_current" in sqls[2]
-    assert "market_data_ohlcv_tradeable" in sqls[2]
-    assert conn.calls[1][1] == (["SPY", "NEW1"], "d2-v1")
+class _VerdictConn:
+    """Answers the gate's reads: APR age, latest verdicts, latest changing loads."""
+
+    def __init__(self, verdicts, loads=()):
+        self.verdicts = verdicts
+        self.loads = loads
+        self.calls = []
+        self._last = ""
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        self._last = sql
+
+    def fetchone(self):
+        return ("30",)
+
+    def fetchall(self):
+        if "integrity_monitor" in self._last:
+            return list(self.verdicts)
+        if "ohlcv_load" in self._last:
+            return list(self.loads)
+        return []
+
+
+def _verdicts(symbol, tf, checks, at, passed=True):
+    return [(f"{symbol}|{tf}", check, passed, at) for check in sorted(checks)]
+
+
+def test_fetch_d2_inputs_gates_the_1d_verdicts_of_the_symbols():
+    from src.intelligence.bars.verdict_gate import REQUIRED_CHECKS
+
+    at = datetime.now(UTC)
+    conn = _VerdictConn(
+        _verdicts("SPY", "1d", REQUIRED_CHECKS["1d"], at)
+        + _verdicts("BAD", "1d", REQUIRED_CHECKS["1d"], at, passed=False)
+    )
+    scan = fetch_d2_inputs(conn, ["SPY", "BAD", "NEW1"])
+    assert scan.n_symbols == 3
+    assert set(scan.failures) == {"BAD", "NEW1"}
+    assert scan.failures["NEW1"][0].endswith("missing")
+    assert scan.first_evaluated_at == scan.last_evaluated_at == at
+    sqls = [sql for sql, _ in conn.calls]
+    assert not any("canonical_bar_lineage" in sql or "rule_version" in sql for sql in sqls)
+    verdict_params = next(p for sql, p in conn.calls if "integrity_monitor" in sql)
+    assert verdict_params["subjects"] == ["SPY|1d", "BAD|1d", "NEW1|1d"]
+
+
+def test_fetch_d2_inputs_fails_a_verdict_older_than_the_latest_load():
+    from src.intelligence.bars.verdict_gate import REQUIRED_CHECKS
+
+    at = datetime.now(UTC) - timedelta(hours=2)
+    conn = _VerdictConn(
+        _verdicts("SPY", "1d", REQUIRED_CHECKS["1d"], at),
+        loads=[("SPY", "1d", at + timedelta(hours=1))],
+    )
+    assert set(fetch_d2_inputs(conn, ["SPY"]).failures) == {"SPY"}
+
+
+def test_fetch_bar_verdict_inputs_requires_intraday_checks_plus_stray_vendor_rows():
+    from src.intelligence.bars.verdict_gate import REQUIRED_CHECKS
+
+    at = datetime.now(UTC)
+    rows = (
+        _verdicts("SPY", "5m", REQUIRED_CHECKS["5m"], at)
+        + _verdicts("SPY", "15m", REQUIRED_CHECKS["15m"], at)
+        + _verdicts("SPY", "1h", REQUIRED_CHECKS["1h"], at)
+    )
+    scan = fetch_bar_verdict_inputs(_VerdictConn(rows), ["SPY"], ["5m", "15m", "1h", "1d"])
+    assert scan.failures == {
+        "SPY": ["15m:stray_vendor_rows missing", "1h:stray_vendor_rows missing"]
+    }
 
 
 def test_fetch_landed_markers_gathers_every_required_marker(tmp_path):

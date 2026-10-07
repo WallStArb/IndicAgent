@@ -1,9 +1,12 @@
 """D-32 rebuild preconditions, checked before the feature_vectors_v2 rebuild is launched.
 
-Consumed by 186-26's first task: it calls `fetch_coverage_inputs` and
-`fetch_landed_markers` (and `fetch_d2_inputs` for the 1d symbols), passes the measured inputs (plus the pilot disk figures and the
-owner's margin) to `run_all`, and refuses to launch the rebuild on
-`RebuildPreconditionFailure`. Every check records a `CheckResult` even when an earlier one
+Consumed by 186-26's first task: it calls `fetch_coverage_inputs` (empty-history spans),
+`fetch_landed_markers`, `fetch_d2_inputs` (1d verdicts), `fetch_bar_verdict_inputs` (intraday
+verdicts) and `fetch_final_landed_markers`, passes the measured inputs (plus the pilot disk
+figures and the owner's margin) to `run_all`, and refuses to launch the rebuild on
+`RebuildPreconditionFailure`. Since plan 185-41 `check_d2_landed` and `check_bar_coverage` read
+the computed `bar_integrity` verdicts through `src/intelligence/bars/verdict_gate.py`, the same
+gate promotion uses; a failing, missing or stale verdict fails and is named. Every check records a `CheckResult` even when an earlier one
 fails, and the raised failure names EVERY violated gate, so one run reports the whole gap
 instead of the first blocker.
 
@@ -27,6 +30,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.intelligence.bars.verdict_gate import (
+    VerdictScan,
+    fetch_verdict_scan,
+    load_report_max_age_hours,
+)
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Where each landed marker comes from, so a moved artifact fails loudly here rather than
@@ -35,6 +44,18 @@ STATE_RELATIVE_PATH = Path(".planning") / "STATE.md"
 GRID_MARKER_NEEDLE = "D2b landed"
 REGIME_KERNEL_RELATIVE_PATH = Path("src/intelligence/features/kernels/regime.py")
 WRITER_MODULE_NAME = "services.backfill_feature_factory"
+
+# The phase 185 and 189 cleanup and data plans that must have landed before the single rebuild:
+# 185-42/185-45 (cleanup, so the writer's code_content_key is taken on final code), 185-43
+# (census exit proof) and 189-11 (5m backfill complete, vendor rows out). Presence of the
+# SUMMARY file is the landing marker, as for the other dependency markers.
+REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
+    {"185-42-SUMMARY.md", "185-43-SUMMARY.md", "185-45-SUMMARY.md", "189-11-SUMMARY.md"}
+)
+
+# Intraday timeframes the bar coverage verdicts judge; stray vendor rows gate the rebuild only.
+INTRADAY_VERDICT_TFS: tuple[str, ...] = ("5m", "15m", "1h")
+REBUILD_EXTRA_CHECKS: frozenset[str] = frozenset({"stray_vendor_rows"})
 
 # The relations 186-22 and 186-23 drop; the rebuild refuses while any of them exists
 # (the old chain's writers are gone, so a surviving table is stale state, not live data).
@@ -116,36 +137,44 @@ class RebuildPreconditionFailure(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+def _verdict_detail(scan: VerdictScan, limit: int = 10) -> str:
+    """Failing symbols with their (tf, check, reason) lines, truncated to `limit` symbols."""
+    names = sorted(scan.failures)
+    shown = [f"{name} [{'; '.join(scan.failures[name][:3])}]" for name in names[:limit]]
+    more = f", ... (+{len(names) - limit} more)" if len(names) > limit else ""
+    return f"{len(names)} of {scan.n_symbols} symbols fail: {', '.join(shown)}{more}"
+
+
+def _verdict_result(name: str, scan: VerdictScan, what: str) -> CheckResult:
+    if scan.n_symbols == 0:
+        return CheckResult(name, False, "no symbols were judged (an empty gate proves nothing)")
+    if scan.failures:
+        return CheckResult(name, False, _verdict_detail(scan))
+    first, last = scan.first_evaluated_at, scan.last_evaluated_at
+    window = f"{first:%Y-%m-%d %H:%M}Z..{last:%Y-%m-%d %H:%M}Z" if first and last else "no rows"
+    return CheckResult(
+        name, True, f"all {scan.n_symbols} symbols pass {what}; verdicts evaluated {window}"
+    )
+
+
 def check_bar_coverage(
-    coverage_rows: Mapping[tuple[str, str], CoverageRow],
-    expected_spans: Mapping[tuple[str, str], tuple[datetime, datetime]],
-    empty_history_spans: Sequence[tuple[str, str, str]],
+    scan: VerdictScan, empty_history_spans: Sequence[tuple[str, str, str]]
 ) -> CheckResult:
-    """D-32 bar completeness: every rebuild (symbol, tf) must cover its expected span.
+    """D-32 bar completeness: every rebuild symbol passes the intraday verdicts (5m slot_coverage,
+    digest_fresh and coverage_cache; 15m and 1h digest_fresh and grid_parity) plus
+    stray_vendor_rows, fresh. Reads the same rows promotion reads (plan 185-41).
 
     `ohlcv_empty_history` spans are listed verbatim in the detail, never assumed away: a
     provider-empty span means the backfill cannot fetch the bars, which under the owner rule
     still counts as complete, and the record of it is what makes that auditable.
     """
-    lines: list[str] = []
-    for key in sorted(expected_spans):
-        want_first, want_last = expected_spans[key]
-        row = coverage_rows.get(key)
-        if row is None or row.count == 0:
-            lines.append(
-                f"{key[0]}|{key[1]}: no bars, expected {want_first:%Y-%m-%d}..{want_last:%Y-%m-%d}"
-            )
-            continue
-        if row.first > want_first or row.last < want_last:
-            lines.append(
-                f"{key[0]}|{key[1]}: measured {row.first:%Y-%m-%d}..{row.last:%Y-%m-%d} "
-                f"({row.count} rows), expected {want_first:%Y-%m-%d}..{want_last:%Y-%m-%d}"
-            )
-    detail = "; ".join(lines) if lines else "every rebuild (symbol, tf) covers its expected span"
+    result = _verdict_result("bar_coverage", scan, "every intraday verdict and stray_vendor_rows")
     if empty_history_spans:
         listed = "; ".join(f"{s}|{tf}: {text}" for s, tf, text in empty_history_spans)
-        detail = f"{detail}. ohlcv_empty_history spans: {listed}"
-    return CheckResult("bar_coverage", not lines, detail)
+        return CheckResult(
+            result.name, result.ok, f"{result.detail}. ohlcv_empty_history spans: {listed}"
+        )
+    return result
 
 
 def check_derived_grid_landed(marker_present: bool, marker_detail: str) -> CheckResult:
@@ -158,29 +187,24 @@ def check_derived_grid_landed(marker_present: bool, marker_detail: str) -> Check
     )
 
 
-def check_d2_landed(
-    symbols_missing_lineage: Sequence[str], symbols_missing_digest: Sequence[str]
-) -> CheckResult:
-    """Phase 185's D2 (the sole 1d writer and its historical apply) must have landed: every
-    1d rebuild symbol has `canonical_bar_lineage` rows at the d2-v1 rule and a
-    `bar_content_digest_current` row for every month it has tradeable 1d bars. A rebuild
-    launched on pre-D2 1d bars keeps them until someone re-runs it (todo 489)."""
-    lines = []
-    if symbols_missing_lineage:
-        lines.append(f"no d2-v1 canonical_bar_lineage for {_name_list(symbols_missing_lineage)}")
-    if symbols_missing_digest:
-        lines.append(
-            f"no bar_content_digest_current month row for {_name_list(symbols_missing_digest)}"
+def check_d2_landed(scan: VerdictScan) -> CheckResult:
+    """Phase 185's 1d layer must have landed and be proven: every 1d rebuild symbol passes every
+    required 1d verdict (session coverage, policy conformance, lineage, canonical recompute,
+    digest, seams, vendor basis), fresh. A rebuild launched on bars that fail or lack a fresh
+    verdict keeps them until someone re-runs it (todo 489)."""
+    return _verdict_result("d2_landed", scan, "every 1d verdict")
+
+
+def check_data_layer_final_landed(markers: Mapping[str, bool]) -> CheckResult:
+    """185-42, 185-43, 185-45 and 189-11 must have landed: the 186-26 rebuild runs once, on final
+    code (the writer's code_content_key covers this module) and final bars. An early launch would
+    also block 185-42's edit of the rebuild writer."""
+    missing = sorted(name for name in REQUIRED_FINAL_LANDED_SUMMARIES if not markers.get(name))
+    if missing:
+        return CheckResult(
+            "data_layer_final_landed", False, f"missing SUMMARY files: {', '.join(missing)}"
         )
-    if lines:
-        return CheckResult("d2_landed", False, "; ".join(lines))
-    return CheckResult("d2_landed", True, "every 1d rebuild symbol has d2-v1 lineage and digests")
-
-
-def _name_list(symbols: Sequence[str], limit: int = 10) -> str:
-    names = sorted(symbols)
-    shown = ", ".join(names[:limit])
-    return f"{len(names)} symbols ({shown}{', ...' if len(names) > limit else ''})"
+    return CheckResult("data_layer_final_landed", True, "185-42, 185-43, 185-45 and 189-11 landed")
 
 
 def check_todo445_decision(
@@ -284,13 +308,12 @@ def check_no_live_run(process_lines: Sequence[str], resumable_log_evidence: str)
 
 def run_all(
     *,
-    coverage_rows: Mapping[tuple[str, str], CoverageRow],
-    expected_spans: Mapping[tuple[str, str], tuple[datetime, datetime]],
+    bar_scan: VerdictScan,
     empty_history_spans: Sequence[tuple[str, str, str]],
     grid_marker_present: bool,
     grid_marker_detail: str,
-    d2_symbols_missing_lineage: Sequence[str],
-    d2_symbols_missing_digest: Sequence[str],
+    d2_scan: VerdictScan,
+    final_landed_markers: Mapping[str, bool],
     todo445_decision: Mapping[str, Any] | None,
     configured_tfs: Sequence[str],
     dependency_markers: Mapping[str, bool],
@@ -302,9 +325,10 @@ def run_all(
     """Run every D-32 check, return all results, and raise `RebuildPreconditionFailure`
     naming EVERY failure when any check fails."""
     results = [
-        check_bar_coverage(coverage_rows, expected_spans, empty_history_spans),
+        check_bar_coverage(bar_scan, empty_history_spans),
         check_derived_grid_landed(grid_marker_present, grid_marker_detail),
-        check_d2_landed(d2_symbols_missing_lineage, d2_symbols_missing_digest),
+        check_d2_landed(d2_scan),
+        check_data_layer_final_landed(final_landed_markers),
         check_todo445_decision(todo445_decision, configured_tfs),
         check_dependencies_landed(dependency_markers),
         check_drops_landed(present_relations),
@@ -334,7 +358,7 @@ GROUP BY symbol, timeframe
 """
 
 _EMPTY_SPANS_SQL = """
-SELECT symbol, timeframe, first_bar::text, last_bar::text
+SELECT symbol, timeframe, empty_from::date::text, empty_through::date::text
 FROM ohlcv_empty_history
 WHERE timeframe = ANY(%s)
 """
@@ -365,43 +389,40 @@ def fetch_coverage_inputs(
     return rows, spans
 
 
-_D2_MISSING_LINEAGE_SQL = """
-SELECT s.symbol
-FROM unnest(%s::text[]) AS s(symbol)
-WHERE NOT EXISTS (
-    SELECT 1 FROM canonical_bar_lineage l
-    WHERE l.symbol = s.symbol AND l.timeframe = '1d' AND l.rule_version = %s
-)
-"""
-
-_D2_MISSING_DIGEST_SQL = """
-SELECT DISTINCT b.symbol
-FROM (
-    SELECT symbol, date_trunc('month', timestamp, 'UTC') AS month
-    FROM market_data_ohlcv_tradeable
-    WHERE timeframe = '1d' AND symbol = ANY(%s)
-    GROUP BY 1, 2
-) b
-WHERE NOT EXISTS (
-    SELECT 1 FROM bar_content_digest_current d
-    WHERE d.symbol = b.symbol AND d.timeframe = '1d' AND d.range_start = b.month
-)
-"""
-
-
 def fetch_d2_inputs(
-    conn: Any, symbols: Sequence[str], rule_version: str = "d2-v1"
-) -> tuple[list[str], list[str]]:
-    """The measured inputs of check_d2_landed: the 1d symbols with no lineage row at
-    `rule_version`, and those with a tradeable 1d month that has no digest row. Read-only."""
-    with conn.cursor() as cur:
-        cur.execute("SET statement_timeout = '10min'")
-        cur.execute(_D2_MISSING_LINEAGE_SQL, (list(symbols), rule_version))
-        missing_lineage = [row[0] for row in cur.fetchall()]
-        cur.execute(_D2_MISSING_DIGEST_SQL, (list(symbols),))
-        missing_digest = [row[0] for row in cur.fetchall()]
-        cur.execute("RESET statement_timeout")
-    return missing_lineage, missing_digest
+    conn: Any, symbols: Sequence[str], *, now: datetime | None = None
+) -> VerdictScan:
+    """The measured input of check_d2_landed: the 1d verdict gate over `symbols` (the latest
+    verdicts and the latest changing 1d load per symbol, the freshness window from APR).
+    Read-only. Since 185-41 it returns a VerdictScan, not (missing_lineage, missing_digest), and
+    the `rule_version` argument is gone (lineage is a view and the rule is d2-v2 everywhere)."""
+    return fetch_verdict_scan(conn, symbols, ("1d",), load_report_max_age_hours(conn), now=now)
+
+
+def fetch_bar_verdict_inputs(
+    conn: Any, symbols: Sequence[str], tfs: Sequence[str], *, now: datetime | None = None
+) -> VerdictScan:
+    """The measured input of check_bar_coverage: the intraday verdict gate over `symbols` for the
+    rebuild's intraday timeframes (`tfs` minus 1d), plus stray_vendor_rows. Read-only."""
+    intraday = [tf for tf in INTRADAY_VERDICT_TFS if tf in tfs]
+    return fetch_verdict_scan(
+        conn,
+        symbols,
+        intraday,
+        load_report_max_age_hours(conn),
+        extra_checks=REBUILD_EXTRA_CHECKS,
+        now=now,
+    )
+
+
+def fetch_final_landed_markers(project_root: Path | None = None) -> dict[str, bool]:
+    """The measured input of check_data_layer_final_landed: for each required SUMMARY file name,
+    whether it exists in its phase directory (a PLAN is not a landing)."""
+    phases = (project_root or _PROJECT_ROOT) / ".planning" / "phases"
+    return {
+        name: any(phases.glob(f"{name.split('-', 1)[0]}-*/{name}"))
+        for name in sorted(REQUIRED_FINAL_LANDED_SUMMARIES)
+    }
 
 
 def fetch_process_lines() -> list[str]:
