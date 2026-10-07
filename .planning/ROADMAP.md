@@ -264,7 +264,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 16** *(blocked on Wave 15 completion)*
 
-- [ ] 185-38-PLAN.md - cutover: Tradier loader writes D1 only, lineage view (migration 447), all names re-derived under d2-v2, digests rewritten at d2-v2, restore proof, VACUUM FULL of D1 (wave 16)
+- [x] 185-38-PLAN.md - cutover: Tradier loader writes D1 only, lineage view (migration 447), all names re-derived under d2-v2, digests rewritten at d2-v2, restore proof, VACUUM FULL of D1 (wave 16)
 
 **Wave 17** *(blocked on Wave 16 completion)*
 
