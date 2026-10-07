@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Backfill Feature Factory: the IBKR fetch stage and the feature_vectors_v2 rebuild writer.
 
-Stage 1 (--fetch-only): fetch IBKR OHLCV history into market_data_ohlcv at target depths,
-checkpointed per (symbol, tf) via backfill_status.fetch_complete. Phase 185 owns it.
+Stage 1 (--fetch-only): fetch IBKR OHLCV history into market_data_ohlcv at target depths, 5m and
+1m only, through the ingress write contract (_history_fetch.store_bars, plan 185-42). Phase 185
+owns it. No checkpoint: every run asks the full depth and the contract writes only new and changed
+rows.
 
 Stage 2 (--compute-only): the single rebuild writer for feature_vectors_v2 (phase 186, D-28).
 A unit of work is (symbol chunk, tf, calendar-year range), recorded as one provenance_batch row
@@ -74,6 +76,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 
+from scripts.infrastructure.backfill._history_fetch import store_bars
 from services._batch_utils import BAR_DIGEST_ABSENT_SYMBOL, BulkLoadSpec
 from services._batch_utils import bar_content_digests as _bar_content_digests
 from services._batch_utils import bulk_load as _bulk_load
@@ -219,8 +222,8 @@ def _get_target_timeframes(cfg: ConfigService) -> list[str]:
 
     Validated here against _DEPTH_YEARS.keys() -- every configured tf must have a depth
     entry, or run_fetch_stage's later bare `_DEPTH_YEARS[tf]` subscript would KeyError
-    partway through a live IBKR fetch, after some symbols already advanced past
-    backfill_status (CLAUDE.md: silent/late failure is worse than a loud one at load time).
+    partway through a live IBKR fetch, after some symbols were already stored (CLAUDE.md:
+    silent/late failure is worse than a loud one at load time).
     """
     tfs = _get_list_config(
         cfg, "feature.factory.target_timeframes", list(_TARGET_TIMEFRAMES_DEFAULT)
@@ -275,13 +278,6 @@ _REBUILD_BLOCK_ROWS_DEFAULT: int = 10_000
 # DB helpers (psycopg sync — mirrors run_historical_pipeline.py pattern)
 # ---------------------------------------------------------------------------
 
-_STORE_OHLCV_SQL = """
-INSERT INTO market_data_ohlcv
-    (timestamp, symbol, timeframe, open, high, low, close, volume, source)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
-"""
-
 _FETCH_BARS_SQL = """
 SELECT timestamp, open, high, low, close, volume
 FROM market_data_ohlcv_tradeable
@@ -291,27 +287,6 @@ ORDER BY timestamp ASC
 
 _FETCH_BARS_SINCE_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp >= %s\nORDER BY")
 _FETCH_BARS_UNTIL_SQL = _FETCH_BARS_SQL.replace("ORDER BY", "  AND timestamp < %s\nORDER BY")
-
-_UPSERT_STATUS_SQL = """
-INSERT INTO backfill_status (symbol, tf, status, fetch_complete, started_at)
-VALUES (%s, %s, %s, %s, NOW())
-ON CONFLICT (symbol, tf) DO UPDATE SET
-    status = EXCLUDED.status,
-    fetch_complete = GREATEST(backfill_status.fetch_complete, EXCLUDED.fetch_complete),
-    started_at = COALESCE(backfill_status.started_at, EXCLUDED.started_at)
-"""
-
-_MARK_FETCH_COMPLETE_SQL = """
-INSERT INTO backfill_status (symbol, tf, fetch_complete, status)
-VALUES (%s, %s, true, 'pending')
-ON CONFLICT (symbol, tf) DO UPDATE SET fetch_complete = true
-"""
-
-_SELECT_STATUS_SQL = """
-SELECT symbol, tf, status, fetch_complete, rows_written, theoretical_max
-FROM backfill_status
-WHERE symbol = ANY(%s) AND tf = ANY(%s)
-"""
 
 
 def _connect_db(settings: Settings) -> Any:
@@ -634,22 +609,6 @@ def _fetch_bars_from_db(
     ]
 
 
-def _load_status_map(conn: Any, symbols: list[str], tfs: list[str]) -> dict[tuple[str, str], dict]:
-    """Load backfill_status rows for all (symbol, tf) pairs."""
-    with conn.cursor() as cur:
-        cur.execute(_SELECT_STATUS_SQL, (symbols, tfs))
-        rows = cur.fetchall()
-    result: dict[tuple[str, str], dict] = {}
-    for sym, tf, status, fetch_complete, rows_written, theoretical_max in rows:
-        result[(sym, tf)] = {
-            "status": status,
-            "fetch_complete": fetch_complete,
-            "rows_written": rows_written,
-            "theoretical_max": theoretical_max,
-        }
-    return result
-
-
 # ---------------------------------------------------------------------------
 # Rebuild unit design (D-32a): a unit is (symbol chunk, tf, calendar-year range), keyed by a
 # provenance_batch record, so a kill-and-resume skips every completed unit.
@@ -819,10 +778,10 @@ async def run_fetch_stage(
 
     Stores the provider's bars as they arrived, 5m and 1m only (plan 185-32): no
     calendar-grid fill (migration 444 refuses synthetic_fill), and 1d, 15m and 1h
-    belong to D2 and the archive, so they are refused here.
-
-    Skips (symbol, tf) pairs that already have fetch_complete=true.
-    On success marks fetch_complete=true BEFORE compute can begin (checkpoint).
+    belong to D2 and the archive, so they are refused here. Every chunk is written by the
+    ingress write contract (_history_fetch.store_bars, plan 185-42): new rows inserted,
+    changed rows rewritten with their old values in ohlcv_revision, one ohlcv_load row per
+    series. No checkpoint: a rerun asks the full depth again and writes only the difference.
     """
     contracts = get_active_contracts(settings, dimension="compute")
     etf_contracts = _filter_etf_contracts(contracts, symbols)
@@ -837,10 +796,6 @@ async def run_fetch_stage(
         raise ValueError(
             f"fetch stage stores raw bars at 5m and 1m only (plan 185-32); refused {refused!r}"
         )
-
-    # Load existing status to skip already-fetched pairs
-    all_symbols = [c.symbol for c in etf_contracts]
-    status_map = _load_status_map(db_conn, all_symbols, target_timeframes)
 
     provider = IBKRProvider(
         host=settings.ib_host,
@@ -865,18 +820,6 @@ async def run_fetch_stage(
                     continue
 
                 for tf in target_timeframes:
-                    key = (instrument.symbol, tf)
-                    existing = status_map.get(key, {})
-
-                    # Skip if already fetched (checkpoint resume)
-                    if existing.get("fetch_complete"):
-                        _logger.info(
-                            "fetch_skip_complete",
-                            symbol=instrument.symbol,
-                            tf=tf,
-                        )
-                        continue
-
                     depth_years = _DEPTH_YEARS[tf]
                     fetch_days = depth_years * 365
                     start_dt = (end_dt - timedelta(days=fetch_days)).replace(
@@ -911,36 +854,9 @@ async def run_fetch_stage(
                             for b in ohlcv_bars
                         ]
 
-                        if bar_dicts:
-                            params = [
-                                (
-                                    b["timestamp"],
-                                    instrument.symbol,
-                                    tf,
-                                    b["open"],
-                                    b["high"],
-                                    b["low"],
-                                    b["close"],
-                                    b.get("volume", 0),
-                                    b.get("source", "historical_backfill"),
-                                )
-                                for b in bar_dicts
-                            ]
-                            with db_conn.cursor() as cur:
-                                cur.executemany(_STORE_OHLCV_SQL, params)
-                            db_conn.commit()
-                            total_bars_fetched += len(params)
-                            _logger.info(
-                                "fetch_stored",
-                                symbol=instrument.symbol,
-                                tf=tf,
-                                bars=len(params),
-                            )
-
-                        # Mark fetch_complete BEFORE starting compute (two-stage checkpoint)
-                        with db_conn.cursor() as cur:
-                            cur.execute(_MARK_FETCH_COMPLETE_SQL, (instrument.symbol, tf))
-                        db_conn.commit()
+                        stored = store_bars(db_conn, bar_dicts, instrument.symbol, tf)
+                        total_bars_fetched += stored
+                        _logger.info("fetch_stored", symbol=instrument.symbol, tf=tf, bars=stored)
 
                     except Exception as error:
                         _logger.error(

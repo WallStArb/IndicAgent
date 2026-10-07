@@ -40,10 +40,6 @@ _ALLOW_LIST: dict[str, str] = {
         "of scope by the design's non-goals (section 10, 'the streaming path'). Revisit when "
         "live streaming resumes."
     ),
-    "services/backfill_feature_factory.py": (
-        "TEMPORARY, retire: 185-42. The phase 186 rebuild writer's --fetch-only stage; resolved "
-        "in 185-42 under its no-live-rebuild check."
-    ),
 }
 
 

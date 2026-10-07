@@ -514,79 +514,17 @@ def test_bars_per_day_values() -> None:
 # ---------------------------------------------------------------------------
 # Fetch resume: run_fetch_stage skips IBKR download for fetch_complete=true pairs
 # ---------------------------------------------------------------------------
+# Fetch stage writes through the ingress write contract (plan 185-42)
+# ---------------------------------------------------------------------------
 
 
-def test_fetch_resume_skips_fetch_complete_pairs() -> None:
-    """run_fetch_stage must skip IBKR download for pairs with fetch_complete=true."""
-    import asyncio
-
-    settings = MagicMock()
-    settings.ib_host = "127.0.0.1"
-    settings.ib_port = 7497
-    settings.database_url = "postgresql://fake"
-
-    mock_instrument = MagicMock()
-    mock_instrument.symbol = "SPY"
-    mock_instrument.asset_class = "equity"
-
-    mock_conn = MagicMock()
-    mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=MagicMock())
-    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-
-    # All TFs fetch_complete=true
-    status_map = {
-        ("SPY", tf): {"fetch_complete": True, "status": "complete"}
-        for tf in _TARGET_TIMEFRAMES_DEFAULT
-    }
-
-    async def _async_true() -> bool:
-        return True
-
-    async def _async_none() -> None:
-        return None
-
-    async def _async_instrument(_: object) -> bool:
-        return True
-
-    mock_provider = MagicMock()
-    mock_provider.connect = MagicMock(side_effect=_async_true)
-    mock_provider.disconnect = MagicMock(side_effect=_async_none)
-    mock_provider.qualify_instrument = MagicMock(side_effect=_async_instrument)
-    mock_provider.fetch_historical_bars = MagicMock(
-        side_effect=AssertionError("fetch_historical_bars should NOT be called")
-    )
-
-    from services.backfill_feature_factory import run_fetch_stage
-
-    with (
-        patch(
-            "services.backfill_feature_factory.get_active_contracts",
-            return_value=[mock_instrument],
-        ),
-        patch(
-            "services.backfill_feature_factory._load_config_service",
-            return_value=MagicMock(),
-        ),
-        patch(
-            "services.backfill_feature_factory._load_status_map",
-            return_value=status_map,
-        ),
-        patch(
-            "services.backfill_feature_factory.IBKRProvider",
-            return_value=mock_provider,
-        ),
-    ):
-        # Should complete without calling fetch_historical_bars
-        asyncio.run(
-            run_fetch_stage(
-                settings=settings,
-                client_id=_DEFAULT_CLIENT_ID,
-                symbols=["SPY"],
-                db_conn=mock_conn,
-            )
-        )
-
-    # If we reached here without AssertionError, fetch was correctly skipped
+def test_fetch_stage_has_no_checkpoint_and_no_first_write_wins_insert() -> None:
+    """The fetch stage writes through _history_fetch.store_bars (the ingress write contract):
+    no backfill_status checkpoint read or write and no raw market_data_ohlcv insert remain."""
+    source = inspect.getsource(module)
+    assert "backfill_status" not in source
+    assert "INSERT INTO market_data_ohlcv" not in source
+    assert "store_bars(" in inspect.getsource(module.run_fetch_stage)
 
 
 # ---------------------------------------------------------------------------
@@ -1074,80 +1012,15 @@ class TestRefuseDerivationOwnedTfs:
         assert _restrict_timeframes(["5m", "15m", "1h", "1d"], ["1d", "5m"]) == ["5m", "1d"]
 
     def test_run_fetch_stage_narrows_through_the_fence(self):
-        """The composed entry point narrows through the fence before any fetch:
-        a config that still lists the derivation-owned timeframes reaches the
-        status map (and so the fetch loop) with 5m only."""
-        import asyncio
-
-        settings = MagicMock()
-        settings.ib_host = "127.0.0.1"
-        settings.ib_port = 7497
-
-        mock_instrument = MagicMock()
-        mock_instrument.symbol = "SPY"
-        mock_instrument.asset_class = "equity"
-
-        status_map = {
-            ("SPY", tf): {"fetch_complete": True, "status": "complete"}
-            for tf in ["5m", "15m", "1h", "1d"]
-        }
-        seen_timeframes: list[list[str]] = []
-
-        def _capture_status_map(_conn, _symbols, timeframes):
-            seen_timeframes.append(list(timeframes))
-            return status_map
-
-        async def _async_true() -> bool:
-            return True
-
-        async def _async_none() -> None:
-            return None
-
-        mock_provider = MagicMock()
-        mock_provider.connect = MagicMock(side_effect=_async_true)
-        mock_provider.disconnect = MagicMock(side_effect=_async_none)
-        mock_provider.fetch_historical_bars = MagicMock(
-            side_effect=AssertionError("every pair is fetch_complete; no fetch may run")
-        )
-
-        from services.backfill_feature_factory import run_fetch_stage
-
-        with (
-            patch(
-                "services.backfill_feature_factory.get_active_contracts",
-                return_value=[mock_instrument],
-            ),
-            patch(
-                "services.backfill_feature_factory._load_config_service",
-                return_value=MagicMock(),
-            ),
-            patch(
-                "services.backfill_feature_factory._get_target_timeframes",
-                return_value=["5m", "15m", "1h", "1d"],
-            ),
-            patch(
-                "services.backfill_feature_factory._load_status_map",
-                side_effect=_capture_status_map,
-            ),
-            patch(
-                "services.backfill_feature_factory.IBKRProvider",
-                return_value=mock_provider,
-            ),
-        ):
-            asyncio.run(
-                run_fetch_stage(
-                    settings=settings,
-                    client_id=_DEFAULT_CLIENT_ID,
-                    symbols=["SPY"],
-                    db_conn=MagicMock(),
-                )
-            )
-
-        assert seen_timeframes == [["5m"]]
+        """The composed entry point narrows through the fence before any fetch: a config that
+        still lists the derivation-owned timeframes reaches the fetch loop with 5m only."""
+        _stored, asked = _run_fetch_stage_with(["5m", "15m", "1h", "1d"], [])
+        assert asked == ["5m"]
 
 
 def _run_fetch_stage_with(timeframes, provider_bars):
-    """Drive run_fetch_stage over SPY with fakes; return the rows handed to executemany."""
+    """Drive run_fetch_stage over SPY with fakes; return (the bar dicts handed to store_bars,
+    the timeframes asked of the provider)."""
     import asyncio
 
     from services.backfill_feature_factory import run_fetch_stage
@@ -1165,7 +1038,10 @@ def _run_fetch_stage_with(timeframes, provider_bars):
     async def _async_none() -> None:
         return None
 
-    async def _bars(**_kwargs):
+    asked: list[str] = []
+
+    async def _bars(**kwargs):
+        asked.append(kwargs["timeframe"])
         return provider_bars
 
     provider = MagicMock()
@@ -1174,10 +1050,12 @@ def _run_fetch_stage_with(timeframes, provider_bars):
     provider.qualify_instrument = MagicMock(side_effect=_async_true)
     provider.fetch_historical_bars = MagicMock(side_effect=_bars)
 
-    cursor = MagicMock()
-    conn = MagicMock()
-    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
-    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+    stored: list[dict] = []
+
+    def _store_bars(_conn, bars, symbol, timeframe):
+        assert symbol == "SPY" and timeframe in {"5m", "1m"}
+        stored.extend(bars)
+        return len(bars)
 
     async def _no_sleep(_seconds):
         return None
@@ -1195,7 +1073,7 @@ def _run_fetch_stage_with(timeframes, provider_bars):
             "services.backfill_feature_factory._get_target_timeframes",
             return_value=timeframes,
         ),
-        patch("services.backfill_feature_factory._load_status_map", return_value={}),
+        patch("services.backfill_feature_factory.store_bars", side_effect=_store_bars),
         patch("services.backfill_feature_factory.IBKRProvider", return_value=provider),
         patch("services.backfill_feature_factory.asyncio.sleep", side_effect=_no_sleep),
     ):
@@ -1204,10 +1082,10 @@ def _run_fetch_stage_with(timeframes, provider_bars):
                 settings=settings,
                 client_id=_DEFAULT_CLIENT_ID,
                 symbols=["SPY"],
-                db_conn=conn,
+                db_conn=MagicMock(),
             )
         )
-    return [row for call in cursor.executemany.call_args_list for row in call.args[1]]
+    return stored, asked
 
 
 class TestFetchStageStoresRealBarsOnly:
@@ -1228,9 +1106,9 @@ class TestFetchStageStoresRealBarsOnly:
             )
             for offset in (0, 30)  # five slots missing between them
         ]
-        rows = _run_fetch_stage_with(["5m"], bars)
-        assert [row[0] for row in rows] == [b.timestamp for b in bars]
-        assert {row[8] for row in rows} == {"ibkr_named"}
+        rows, _asked = _run_fetch_stage_with(["5m"], bars)
+        assert [row["timestamp"] for row in rows] == [b.timestamp for b in bars]
+        assert {row["source"] for row in rows} == {"ibkr_named"}
 
     def test_refuses_a_timeframe_outside_5m_and_1m(self):
         with pytest.raises(ValueError, match="5m and 1m"):

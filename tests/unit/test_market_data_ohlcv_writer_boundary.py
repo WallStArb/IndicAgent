@@ -57,12 +57,6 @@ _ALLOW_LIST: dict[str, str] = {
         "(plan 12) routed through services/intraday_raw_archive.py; the grid readers see "
         "them derived from five-minute bars by bar_derivation (the fetcher's grid stage)."
     ),
-    "services/backfill_feature_factory.py": (
-        "PERMANENT: its --fetch-only stage survives the phase 186 rebuild per "
-        "186-06/186-25; only the raw five- and one-minute provider fetch remains, and "
-        "the derivation never rewrites those (D-15). Plan 185-18 task 1b fenced the "
-        "daily and derived-grid timeframes out of the fetch stage entirely."
-    ),
     "services/bar_writer.py": (
         "PERMANENT: the streaming-path bar writer persists provider bars at the one- "
         "and five-minute timeframes only (the live path is dormant while the IBKR feed "
