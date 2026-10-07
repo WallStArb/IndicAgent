@@ -485,6 +485,45 @@ groups:
           severity: high
           contact_point: discord-ops
 
+      - uid: bar_freshness_1d_uid
+        title: bar_freshness_1d
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 600
+              to: 0
+            model:
+              expr: last_over_time(bar_integrity_failing_names{check="freshness_1d"}[36h])
+              intervalMs: 60000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: "__expr__"
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+              type: classic_conditions
+              refId: C
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "compute_1d names with a stale canonical 1d series"
+          description: "bar_integrity_failing_names is {{ $value }} for check freshness_1d in the latest D7 report: that many names' latest canonical 1d bar trails the last completed session by more than threshold.bar_integrity.freshness_max_lag_sessions_1d uncovered sessions. The phase 186 rebuild refuses them. Separate from bar_integrity_failing, which fires permanently while session_coverage fails, so a new freshness failure is not hidden under it. Expected to fire from about two sessions after the 1d swap (185-47) until 189-10 launches the fetcher timer."
+        labels:
+          severity: high
+          contact_point: discord-ops
+
       - uid: ibkr_fetcher_sla_breached_uid
         title: ibkr_fetcher_sla_breached
         condition: C

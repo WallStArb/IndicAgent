@@ -1041,6 +1041,12 @@ def merge_failing_by_check(*reports: Mapping[str, int]) -> dict[str, int]:
     return merged
 
 
+def zero_for_judged(passing_by_check: Mapping[str, int]) -> dict[str, int]:
+    """A zero failing count for every check a report judged, so a check whose failures clear
+    records 0 and its alert resolves instead of holding the last nonzero point."""
+    return {check: 0 for check in passing_by_check}
+
+
 def record_alert_gauges(
     *,
     failing_by_check: Mapping[str, int],
@@ -1184,8 +1190,8 @@ class _Params:
 
 @dataclass(frozen=True)
 class _IntegrityParams:
-    """Thresholds of the verdict report (migration 449 for 1d, 450 for intraday; basis keys are
-    185-36's)."""
+    """Thresholds of the verdict report (migration 449 for 1d, 450 for intraday, 455 for
+    freshness_1d; basis keys are 185-36's)."""
 
     session_coverage_min: float
     vendor_run_min_sessions: int
@@ -1194,10 +1200,14 @@ class _IntegrityParams:
     basis_tolerance_bp: float
     slot_coverage_min_intraday: float = 0.995
     intraday_full_sweep_days: int = 7
+    freshness_max_lag_sessions_1d: int = 2
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _IntegrityParams:
         return cls(
+            freshness_max_lag_sessions_1d=int(
+                _cfg(apr, "threshold.bar_integrity.freshness_max_lag_sessions_1d", 2)
+            ),
             slot_coverage_min_intraday=float(
                 _cfg(apr, "threshold.bar_integrity.slot_coverage_min_intraday", 0.995)
             ),
@@ -1653,7 +1663,10 @@ class BarReconciliationAudit(BaseBatch):
             refused = await conn.fetch(_REFUSED_LOADS_24H_SQL, now - timedelta(hours=24))
         record_alert_gauges(
             failing_by_check=merge_failing_by_check(
-                verdicts.failing_by_check, intraday.failing_by_check
+                zero_for_judged(verdicts.passing_by_check),
+                verdicts.failing_by_check,
+                zero_for_judged(intraday.passing_by_check),
+                intraday.failing_by_check,
             ),
             previous_verdict_at=previous_verdict_at,
             run_start=now,
@@ -2009,7 +2022,8 @@ class BarReconciliationAudit(BaseBatch):
         seam_samples: Iterable[str],
         run_start: datetime,
     ) -> _VerdictRun:
-        """Judge every compute_1d name on the eight 1d checks (design section 6).
+        """Judge every compute_1d name on the nine 1d checks (design section 6; freshness_1d
+        against the last completed session, fixed once per run in `window`).
 
         Whole-corpus reads happen once (policy, lineage, answered-empty spans, latest loads);
         each name's observations, splits, stored rows, flags and digests are read, judged and

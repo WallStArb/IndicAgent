@@ -47,15 +47,24 @@ WRITER_MODULE_NAME = "services.backfill_feature_factory"
 
 # The phase 185 and 189 cleanup and data plans that must have landed before the single rebuild:
 # 185-42/185-45 (cleanup, so the writer's code_content_key is taken on final code), 185-43
-# (census exit proof) and 189-11 (5m backfill complete, vendor rows out). Presence of the
-# SUMMARY file is the landing marker, as for the other dependency markers.
+# (census exit proof), 185-47/185-48 (the 1d primary swap to IBKR applied and the Tradier loader
+# retired) and 189-11 (5m backfill complete, vendor rows out). Presence of the SUMMARY file is
+# the landing marker, as for the other dependency markers.
 REQUIRED_FINAL_LANDED_SUMMARIES: frozenset[str] = frozenset(
-    {"185-42-SUMMARY.md", "185-43-SUMMARY.md", "185-45-SUMMARY.md", "189-11-SUMMARY.md"}
+    {
+        "185-42-SUMMARY.md",
+        "185-43-SUMMARY.md",
+        "185-45-SUMMARY.md",
+        "185-47-SUMMARY.md",
+        "185-48-SUMMARY.md",
+        "189-11-SUMMARY.md",
+    }
 )
 
-# Intraday timeframes the bar coverage verdicts judge; stray vendor rows gate the rebuild only.
+# Intraday timeframes the bar coverage verdicts judge. Stray vendor rows (15m, 1h) and
+# freshness_1d (1d, 185-46) gate the rebuild only, never promotion.
 INTRADAY_VERDICT_TFS: tuple[str, ...] = ("5m", "15m", "1h")
-REBUILD_EXTRA_CHECKS: frozenset[str] = frozenset({"stray_vendor_rows"})
+REBUILD_EXTRA_CHECKS: frozenset[str] = frozenset({"stray_vendor_rows", "freshness_1d"})
 
 # The relations 186-22 and 186-23 drop; the rebuild refuses while any of them exists
 # (the old chain's writers are gone, so a surviving table is stale state, not live data).
@@ -190,21 +199,23 @@ def check_derived_grid_landed(marker_present: bool, marker_detail: str) -> Check
 def check_d2_landed(scan: VerdictScan) -> CheckResult:
     """Phase 185's 1d layer must have landed and be proven: every 1d rebuild symbol passes every
     required 1d verdict (session coverage, policy conformance, lineage, canonical recompute,
-    digest, seams, vendor basis), fresh. A rebuild launched on bars that fail or lack a fresh
+    digest, seams, vendor basis, and the rebuild-only freshness_1d), fresh. A rebuild launched on bars that fail or lack a fresh
     verdict keeps them until someone re-runs it (todo 489)."""
     return _verdict_result("d2_landed", scan, "every 1d verdict")
 
 
 def check_data_layer_final_landed(markers: Mapping[str, bool]) -> CheckResult:
-    """185-42, 185-43, 185-45 and 189-11 must have landed: the 186-26 rebuild runs once, on final
-    code (the writer's code_content_key covers this module) and final bars. An early launch would
-    also block 185-42's edit of the rebuild writer."""
+    """185-42, 185-43, 185-45, 185-47, 185-48 and 189-11 must have landed: the 186-26 rebuild runs
+    once, on final code (the writer's code_content_key covers this module) and final bars. An early
+    launch would also block 185-42's edit of the rebuild writer."""
     missing = sorted(name for name in REQUIRED_FINAL_LANDED_SUMMARIES if not markers.get(name))
     if missing:
         return CheckResult(
             "data_layer_final_landed", False, f"missing SUMMARY files: {', '.join(missing)}"
         )
-    return CheckResult("data_layer_final_landed", True, "185-42, 185-43, 185-45 and 189-11 landed")
+    return CheckResult(
+        "data_layer_final_landed", True, "185-42, 185-43, 185-45, 185-47, 185-48 and 189-11 landed"
+    )
 
 
 def check_todo445_decision(
@@ -395,8 +406,16 @@ def fetch_d2_inputs(
     """The measured input of check_d2_landed: the 1d verdict gate over `symbols` (the latest
     verdicts and the latest changing 1d load per symbol, the freshness window from APR).
     Read-only. Since 185-41 it returns a VerdictScan, not (missing_lineage, missing_digest), and
-    the `rule_version` argument is gone (lineage is a view and the rule is d2-v2 everywhere)."""
-    return fetch_verdict_scan(conn, symbols, ("1d",), load_report_max_age_hours(conn), now=now)
+    the `rule_version` argument is gone (lineage is a view and the rule is d2-v2 everywhere).
+    The rebuild-only freshness_1d (185-46) is required too, so a stale series fails and is named."""
+    return fetch_verdict_scan(
+        conn,
+        symbols,
+        ("1d",),
+        load_report_max_age_hours(conn),
+        extra_checks=REBUILD_EXTRA_CHECKS,
+        now=now,
+    )
 
 
 def fetch_bar_verdict_inputs(

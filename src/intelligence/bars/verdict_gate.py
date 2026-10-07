@@ -45,9 +45,14 @@ REQUIRED_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
 )
 
 # Checks that gate the 186 rebuild only (design section 6): the vendor rows must be out of
-# market_data_ohlcv before the rebuild reads it, but promotion does not wait for that.
+# market_data_ohlcv before the rebuild reads it, and every 1d series must be current (185-46),
+# but promotion waits for neither.
 REBUILD_ONLY_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
-    {"15m": frozenset({"stray_vendor_rows"}), "1h": frozenset({"stray_vendor_rows"})}
+    {
+        "1d": frozenset({"freshness_1d"}),
+        "15m": frozenset({"stray_vendor_rows"}),
+        "1h": frozenset({"stray_vendor_rows"}),
+    }
 )
 
 # A load changes a series only when it wrote, changed or removed bars.

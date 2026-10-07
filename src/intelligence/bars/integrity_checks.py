@@ -93,6 +93,8 @@ def policy_conformance(
 # ---------------------------------------------------------------------------
 
 TIMEFRAME_1D = "1d"
+# Gates the phase 186 rebuild only (verdict_gate.REBUILD_ONLY_CHECKS), never promotion (185-46).
+CHECK_FRESHNESS_1D = "freshness_1d"
 # The checks one 1d name is judged on, in report order. Identifiers, not tunables.
 CHECKS_1D = (
     "session_coverage",
@@ -103,6 +105,7 @@ CHECKS_1D = (
     "unexplained_seam",
     "vendor_basis_run",
     "report_age",
+    CHECK_FRESHNESS_1D,
 )
 # Reported per name, never a verdict that can fail (the name's history starts at its first
 # primary bar; the count is what the report shows).
@@ -117,6 +120,7 @@ class IntegrityThresholds(Protocol):
     report_max_age_hours: int
     basis_window_sessions: int
     basis_tolerance_bp: float
+    freshness_max_lag_sessions_1d: int
 
 
 @dataclass(frozen=True)
@@ -221,6 +225,31 @@ def _in_any(day: date, spans: Sequence[tuple[date, date]]) -> bool:
     return any(start <= day <= end for start, end in spans)
 
 
+def freshness_1d(
+    latest_bar: date | None,
+    answered_empty: Sequence[tuple[date, date]],
+    last_session: date,
+    sessions: Sequence[date],
+    max_lag: int,
+    *,
+    symbol: str,
+) -> Verdict:
+    """Is the name's canonical 1d series current? The metric is the number of NYSE sessions after
+    the latest canonical bar, up to `last_session` (the last completed session), that no
+    answered-empty span covers; it passes while that number is at most `max_lag`. `sessions`
+    holds trading dates only, so a Friday bar judged on the weekend is 0 behind. A name with no
+    bar fails, counting every uncovered session up to `last_session`."""
+    behind = sum(
+        1
+        for s in sessions
+        if (latest_bar is None or s > latest_bar)
+        and s <= last_session
+        and not _in_any(s, answered_empty)
+    )
+    passed = latest_bar is not None and behind <= max_lag
+    return Verdict(symbol, TIMEFRAME_1D, CHECK_FRESHNESS_1D, passed, float(behind), float(max_lag))
+
+
 def judge_name_1d(
     inputs: NameInputs1d,
     sessions: Sequence[date],
@@ -230,7 +259,7 @@ def judge_name_1d(
     *,
     timings: dict[str, float] | None = None,
 ) -> NameReport1d:
-    """The eight 1d verdicts of one name (design section 6). Pure; timings, when given, collects
+    """The nine 1d verdicts of one name (design section 6; freshness_1d from 185-46). Pure; timings, when given, collects
     seconds per check. Thresholds that are definitions (zero tolerance) live here as 0.0."""
     symbol = inputs.symbol
 
@@ -359,6 +388,16 @@ def judge_name_1d(
             inputs.latest_load_at is None or inputs.latest_load_at <= run_start,
             age_hours,
             thresholds.report_max_age_hours,
+        )
+    )
+    verdicts.append(
+        freshness_1d(
+            max(stored) if stored else None,
+            inputs.empty_spans,
+            last_session,
+            sessions,
+            thresholds.freshness_max_lag_sessions_1d,
+            symbol=symbol,
         )
     )
     return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs)
