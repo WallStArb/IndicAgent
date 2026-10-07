@@ -10,9 +10,9 @@ WorkingDirectory=/home/bg/dev/indicagent
 Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 # D2b grid stage: derive 15m/1h from tradeable 5m, archive-verify-delete-insert per
-# symbol. No timer: plan 12 runs the universe rewrite and chains this unit from the
-# nightly backfill (D-31); manual invocation before that is dry-run-first by default
-# -- this unit is the apply path (--changed-only --apply).
+# symbol. No timer: the IBKR history fetcher (phase 189) runs the grid stage itself after
+# a run that inserted 5m rows. Manual invocation of services/bar_derivation.py is
+# dry-run-first by default; this unit is the apply path (--changed-only --apply).
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_derivation.py --stage grid --changed-only --apply
 
 [Install]

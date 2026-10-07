@@ -27,7 +27,7 @@ def test_no_writers_means_no_blockers():
         ),
         (swap.WriterState(processes=("123 bar_derivation.py",)), "writer process"),
         (
-            swap.WriterState(active_units=("indicagent-nightly-backfill.service",)),
+            swap.WriterState(active_units=("indicagent-ibkr-history-fetcher.service",)),
             "writer unit active",
         ),
         (

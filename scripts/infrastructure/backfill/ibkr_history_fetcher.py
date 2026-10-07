@@ -6,8 +6,8 @@ the IBKR history connection (CD-01), works a priority queue over the ohlcv_cover
 (symbol, timeframe) at a time (CD-06), records every outcome in the ledger (CD-03/CD-05), and
 promotes the derived grid in the same pass (CD-07). It absorbs
 infrastructure_run_historical_pipeline.py's CLI (same flag names and meanings where they
-exist) and the run-level stages of infrastructure_nightly_backfill.py (split detection, the
-daily and grid derivation stages, the D7 run status file), so plan 189-07 can delete both.
+exist) and the run-level stages of the former nightly backfill script (split detection, the
+daily and grid derivation stages, the D7 run status file); plan 189-07 deleted the nightly.
 
 Flow (CD-01/CD-02/CD-07):
 

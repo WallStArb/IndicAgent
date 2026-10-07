@@ -104,23 +104,24 @@ Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
 
 Readers of D1 exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'` (todo 494).
 
-### Nightly chain
+### Daily data chain
 
-`scripts/infrastructure/backfill/infrastructure_nightly_backfill.py`, in order:
+Three units replace the nightly backfill script, which plan 189-07 deleted:
 
-1. Status file `logs/nightly_backfill_status.json` set to `started`.
-2. Tradier daily leg (`infrastructure_run_tradier_daily.py --nightly`, APR
-   `infra.tradier.nightly_enabled`): refetches every Tradier-owned name in full and loads any
-   active equity with no 1d bars. A refetch carrying a split back-adjustment records a
-   `corporate_action`; other refusals keep the stored bars.
-3. IBKR legs under the `ibkr_history_stream` lease: `compute` (full stack), `compute_tradier_owned`
-   (intraday only) and `compute_1d_only` (non-owned names). 1d answers land in D1.
-4. Split detection over the run's overlap (`ops_split_detect.py`), then re-fetch and re-derive.
-5. Daily stage (`bar_derivation --stage daily --changed-only --apply`): D2 canonical 1d plus the
-   D2a scrub rules.
-6. Grid stage (`bar_derivation --stage grid --changed-only --apply`): D2b 15m/1h.
-7. Status file `success` or `failed`, `job_completed_total`, then the D7 audit
-   (`services/bar_reconciliation_audit.py`) on every path.
+1. `indicagent-tradier-daily.timer` (01:30 UTC) runs `infrastructure_run_tradier_daily.py
+   --nightly` (APR `infra.tradier.nightly_enabled`): it refetches every Tradier-owned name in
+   full and loads any active equity with no 1d bars. A refetch carrying a split
+   back-adjustment records a `corporate_action`; other refusals keep the stored bars.
+2. `indicagent-ibkr-history-fetcher.timer` (every 15 min after the last run ends; disabled
+   until plan 189-10 by owner decision 2026-10-06) runs
+   `scripts/infrastructure/backfill/ibkr_history_fetcher.py`: the `ohlcv_coverage` queue over
+   APR `infra.backfill.default_scopes` (Tradier-owned 1d held), then at run end split
+   detection (`ops_split_detect.py`), the daily stage (`bar_derivation --stage daily`: D2
+   canonical 1d plus the D2a scrub rules) and the grid stage (`bar_derivation --stage grid
+   --changed-only --apply`: D2b 15m/1h), then the status file
+   `logs/nightly_backfill_status.json` and `job_completed_total`.
+3. `indicagent-bar-reconciliation-audit.timer` (06:00 UTC) runs the D7 audit
+   (`services/bar_reconciliation_audit.py`).
 
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
 `route_disagreement`, `adjusted_vs_trades`, `daily_vs_intraday`, `unexplained_seams`,
@@ -128,7 +129,7 @@ D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
 `dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `tradier_refused`,
 `completeness`, `masked_slots`, plus vendor agreement per year.
 
-Not in the nightly: `services/listing_venue_writer.py` (run after an onboarding batch is
+Not in the chain: `services/listing_venue_writer.py` (run after an onboarding batch is
 promoted; append-only, idempotent) and the seam audit.
 
 ---

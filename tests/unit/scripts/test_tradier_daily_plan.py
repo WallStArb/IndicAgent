@@ -3,9 +3,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
+    TRADIER_OWNED_SQL,
     LoadParams,
     plan_symbol_load,
 )
+from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
+from services.bar_reconciliation_audit import check_tradier_refused
 from src.providers.tradier import DailyBar
 
 # Split parameters mirror the live threshold.seam.* seeds (rel_tol 0.002, min_run 5, snap 0.01).
@@ -295,3 +298,31 @@ def test_d1_split_back_adjustment_lands_every_changed_bar():
         for b in bars[:300]
     }
     assert d1_bars_to_land(bars, old) == bars
+
+
+# -- ownership and the D7 finding (moved from the deleted nightly's tests, plan 189-07) -------
+
+
+def test_the_loader_and_d2_use_the_same_ownership_predicate():
+    # One predicate: a name some load was accepted for. A later refused load must not hand the
+    # name back to IBKR (D2 would then overwrite its bars) or the loader and D2 would disagree.
+    d2 = " ".join(_SELECT_DAILY_CHANGED_SINCE_SQL.split())
+    assert TRADIER_OWNED_SQL.format(col="$1") in d2
+    assert "max(loaded_at)" not in d2
+
+
+def test_refused_latest_load_of_an_owned_name_is_an_audit_finding():
+    result = check_tradier_refused(
+        {
+            "AAA": ("loaded", None),
+            "BBB": ("gated", "40 of 300 existing bars change"),
+            "CCC": ("failed", "timeout"),
+        }
+    )
+    assert result.n_findings == 2
+    assert result.samples[0].startswith("BBB|gated|")
+    assert result.samples[1].startswith("CCC|failed|")
+
+
+def test_all_loaded_is_clean():
+    assert check_tradier_refused({"AAA": ("loaded", None)}).n_findings == 0

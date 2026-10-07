@@ -1,6 +1,7 @@
 """D7 nightly reconciliation audit (phase 185 plan 23, D-26, todo 462).
 
-One oneshot, chained as the last step of every nightly backfill run, that audits each
+One oneshot, on its own daily timer (indicagent-bar-reconciliation-audit.timer, 06:00 UTC,
+since the 189-06 cutover; it was chained from the nightly backfill before), that audits each
 independent view of a bar against the others and surfaces drift, including the failure
 modes phase 185 itself introduces (skipped nightlies, stray writers, switches out of sync
 with the venue study):
@@ -17,8 +18,8 @@ with the venue study):
   former-venue span (D6, plan 185-24).
 - unconfirmed_empty: an ohlcv_empty_history row no set of every-route answers confirms.
 - dividend_freshness: Yahoo dividend coverage trailing the last session.
-- nightly_skipped: the nightly did not finish with success recently (D-29 lease timeout
-  included).
+- nightly_skipped: the last IBKR history fetcher run (its status file) did not finish with
+  success recently.
 - stray_sources: 1d/15m/1h rows with a source the derivation does not write.
 - switches: venue switches differing from the venue study verdict.
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
@@ -681,7 +682,7 @@ def confirmed_spans_from_requests(
 
 _MONITOR_TYPE = "bar_reconciliation"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-# Written by infrastructure_nightly_backfill._finish on every path (service identity, APR-exempt).
+# Written by the IBKR history fetcher at the end of every run (service identity, APR-exempt).
 NIGHTLY_STATUS_FILE = _REPO_ROOT / "logs" / "nightly_backfill_status.json"
 _VERDICT_FILE = _REPO_ROOT / "config" / "bars" / "venue_study_verdict.json"
 # bar_derivation's flag rule for a derived bar with an unanswered constituent slot.

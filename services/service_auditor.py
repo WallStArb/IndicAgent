@@ -107,8 +107,8 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
     "indicagent-feature-lifecycle": 8,  # oneshot (todo 402); feature_ic_scores -> concept_evaluation + concept_registry
     # Phase 185 D2b derived grid (plan 11): tradeable 5m -> derived 15m/1h + digests.
-    # Oneshot with no timer yet: plan 12 runs the universe rewrite and chains it
-    # from the nightly backfill (D-31); inactive between runs is correct.
+    # Oneshot with no timer: the IBKR history fetcher runs the grid stage after a run that
+    # inserted 5m rows (phase 189); inactive between runs is correct.
     "indicagent-bar-derivation": 8,  # Phase 185 oneshot; archive-verify-delete-insert per symbol
     # Todo 480: external economic series (FRED, NY Fed); no upstream unit, a daily timer, no
     # Kafka. Ordered with the other oneshots; inactive between runs is correct.
@@ -210,8 +210,8 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct
         "indicagent-ic-measure",  # Type=oneshot (phase 186, D-17); run after the rebuild; inactive between runs is correct
         "indicagent-feature-lifecycle",  # todo 402; inactive between IC pipeline runs is correct
-        # Phase 185 D2b derived grid (plan 11): no timer yet, plan 12 chains it
-        # from the nightly backfill (D-31); inactive between runs is correct.
+        # Phase 185 D2b derived grid (plan 11): no timer; the IBKR history fetcher runs the
+        # grid stage after a run that inserted 5m rows (phase 189); inactive between runs is correct.
         "indicagent-bar-derivation",  # Type=oneshot; inactive between runs is correct
         "indicagent-economic-series-writer",  # Type=oneshot, daily timer (todo 480); inactive between runs is correct
         "indicagent-bar-reconciliation-audit",  # Type=oneshot, daily timer (189-06; chained from the nightly before); inactive between runs is correct

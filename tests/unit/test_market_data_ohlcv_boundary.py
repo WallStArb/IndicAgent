@@ -45,16 +45,6 @@ _ALLOW_LIST: dict[str, str] = {
         "PERMANENT: Monitoring wants the full grid -- gaps are the signal here, not noise. "
         "Correctly left alone (design doc's 'correctly left alone' list)."
     ),
-    "scripts/infrastructure/backfill/infrastructure_nightly_backfill.py": (
-        "PERMANENT: _select_stalest ranks each nightly leg's candidate symbols by "
-        "their latest raw bar at a reference timeframe to order the nightly incremental "
-        "run -- a proxy ranking, "
-        "not a correctness check (its own docstring says so; detect_gaps() does the real "
-        "accounting downstream and no-ops on anything already covered). market_data_ohlcv_"
-        "tradeable's WHERE volume > 0 filter would undercount genuinely-covered symbols "
-        "whose history is placeholder-heavy, skewing the ranking -- same reasoning as the "
-        "infrastructure_ibkr_chunk_and_rate_limit_probe.py entry below."
-    ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
         "PERMANENT + PENDING mix, resolved 2026-07-31 (todo 124): the min(timestamp) gap-"
         "reorder query migrated to the tradeable view (behaviorally identical either way --\n"

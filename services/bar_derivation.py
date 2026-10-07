@@ -488,7 +488,7 @@ async def write_1d_digests(
 
 
 def _read_exclude_file(path: str | None, logger: Any) -> frozenset[str]:
-    """Symbols one-per-line from the lane-guard file; a missing file excludes nothing."""
+    """Symbols one-per-line from an operator exclude list; a missing file excludes nothing."""
     if not path:
         return frozenset()
     exclude_path = Path(path)
@@ -1452,7 +1452,7 @@ def main() -> None:
     parser.add_argument(
         "--exclude-symbols-file",
         default=None,
-        help="one symbol per line to skip with outcome excluded_lane (plan 12's lane guard)",
+        help="operator exclude list: one symbol per line to skip with outcome excluded_lane",
     )
     parser.add_argument(
         "--report",

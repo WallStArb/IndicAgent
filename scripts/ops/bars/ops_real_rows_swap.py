@@ -65,10 +65,11 @@ in 8 s, verify 2.0M rows in 3.8 s, and a live one-symbol digest of SPY's 623k re
       SELECT pid, application_name, state, wait_event, left(query, 60) FROM pg_stat_activity
       WHERE datname = 'indicagent' AND pid <> pg_backend_pid()
         AND (application_name LIKE 'lease:%' OR query ILIKE '%market_data_ohlcv%');
- 5. Units and timers: `systemctl is-active indicagent-nightly-backfill.service
-    indicagent-bar-derivation.service indicagent-bar-writer.service indicagent-bar-auditor.service`
-    all inactive; `systemctl list-timers --all | grep nightly` shows no next run inside the
-    window (stop the timer for the window if it does).
+ 5. Units and timers: `systemctl is-active indicagent-ibkr-history-fetcher.service
+    indicagent-tradier-daily.service indicagent-bar-derivation.service
+    indicagent-bar-writer.service indicagent-bar-auditor.service` all inactive;
+    `systemctl list-timers --all | grep -E 'ibkr-history-fetcher|tradier-daily'` shows no
+    next run inside the window (stop the timer for the window if it does).
  6. Dry run: `.venv/bin/python -m scripts.ops.bars.ops_real_rows_swap`. Only the
     placeholder_coverage consumer blockers may remain; the masked-slot fact must be under 48 h old.
  7. Apply migration 439: `PGPASSWORD=postgres psql -U postgres -h localhost -d indicagent
@@ -155,7 +156,6 @@ WRITER_SCRIPTS = frozenset(
         "bar_auditor.py",
         "backfill_feature_factory.py",
         "infrastructure_run_historical_pipeline.py",
-        "infrastructure_nightly_backfill.py",
         "infrastructure_run_tradier_daily.py",
         "infrastructure_fetch_htf_bars.py",
         "intraday_chain.sh",
@@ -165,7 +165,8 @@ WRITER_SCRIPTS = frozenset(
     }
 )
 WRITER_UNITS = (
-    "indicagent-nightly-backfill.service",
+    "indicagent-ibkr-history-fetcher.service",
+    "indicagent-tradier-daily.service",
     "indicagent-bar-derivation.service",
     "indicagent-bar-writer.service",
     "indicagent-bar-auditor.service",
@@ -241,9 +242,6 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
     ),
     "scripts/ops/pipeline/ops_pipeline_status.py": ConsumerVerdict(
         REAL_ROWS, "row count per timeframe and max(timestamp); counts drop, no series read"
-    ),
-    "scripts/infrastructure/backfill/infrastructure_nightly_backfill.py": ConsumerVerdict(
-        REAL_ROWS, "_select_stalest ranks by max(timestamp); latest bars are real since 185-18"
     ),
     "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": ConsumerVerdict(
         PLACEHOLDER_COVERAGE,

@@ -92,7 +92,9 @@ All ML services run on systemd timers (periodic oneshot), not continuous daemons
 | HMM Training | `indicagent-hmm-training` | `services/hmm_training_agent.py` | Monthly Baum-Welch retraining |
 | Feature Validation | `indicagent-feature-validation` | `services/feature_validation_agent.py` | Daily IC/p-value decisions |
 | Memory Batch | `indicagent-memory-batch` | `scripts/ops/memory/ops_batch_agent_memory.py` | Nightly 21:00 |
-| Nightly Backfill | `indicagent-nightly-backfill` | `scripts/infrastructure/backfill/infrastructure_nightly_backfill.py` | `.timer` `enabled`/`active waiting`, daily 05:00 UTC |
+| IBKR History Fetcher | `indicagent-ibkr-history-fetcher` | `scripts/infrastructure/backfill/ibkr_history_fetcher.py` | `.timer` **`disabled`** until plan 189-10 (owner decision 2026-10-06); 15 min after each run ends once enabled |
+| Tradier Daily | `indicagent-tradier-daily` | `scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py --nightly` | `.timer` `enabled`, daily 01:30 UTC |
+| Bar Reconciliation Audit (D7) | `indicagent-bar-reconciliation-audit` | `services/bar_reconciliation_audit.py` | `.timer` `enabled`, daily 06:00 UTC |
 | Roll Batch | `indicagent-roll-batch` | `scripts/ops/roll/ops_roll_batch.py` | `.timer` **`disabled`** — see Roll detection note above |
 
 ## IC / Alpha Pipeline (Batch — orchestrator-driven, not systemd units)
