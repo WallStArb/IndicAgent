@@ -77,20 +77,10 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     "ohlcv_coverage": Covered("tests/unit/test_ohlcv_coverage_writer_boundary.py"),
     "canonical_bar_lineage": Covered("tests/unit/test_canonical_lineage_digest_writer_boundary.py"),
     "bar_content_digest": Covered("tests/unit/test_canonical_lineage_digest_writer_boundary.py"),
-    # Scanned here. ohlcv_load and ohlcv_revision move to Covered when 185-31 adds their
-    # dedicated boundary test; bar_source_policy joins when 185-36 creates it.
-    "ohlcv_load": (
-        Writer(
-            "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py",
-            reason="the Tradier loader records each load (plan 185-27)",
-        ),
-    ),
-    "ohlcv_revision": (
-        Writer(
-            "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py",
-            reason="the Tradier loader records each replaced canonical value (plan 185-27)",
-        ),
-    ),
+    # One writer per ohlcv_load.source segment (plan 185-31).
+    "ohlcv_load": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
+    "ohlcv_revision": Covered("tests/unit/test_ohlcv_load_revision_writer_boundary.py"),
+    # Scanned here. bar_source_policy joins when 185-36 creates it.
     "ohlcv_observation": (
         Writer(
             "services/ohlcv_observation_writer.py",
