@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import sys
 import time
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -61,14 +60,10 @@ from src.config.instrument_onboarding import (  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
 from src.intelligence.bars.verdict_gate import (  # noqa: E402
-    LATEST_LOADS_SQL,
-    LATEST_VERDICTS_SQL,
     REQUIRED_CHECKS,
-    VerdictRow,
-    all_check_names,
-    gate_symbols,
+    fetch_verdict_scan,
+    load_report_max_age_hours,
     ready_predicate_sql,
-    verdict_row_from_record,
 )
 
 setup_service_logging("logs/instrument_compute_eligibility_audit.log")
@@ -81,12 +76,11 @@ _SYMBOL_BATCH_SIZE = 25
 # rendered from verdict_gate.REQUIRED_CHECKS, so the checks they require and the pure gate's
 # cannot drift. The all-timeframes form binds %(timeframes)s (APR
 # `feature.factory.target_timeframes`, via load_compute_timeframes()) and %(max_age_hours)s
-# (APR `threshold.bar_integrity.report_max_age_hours`, via load_report_max_age_hours()); a bound
+# (APR `threshold.bar_integrity.report_max_age_hours`, via verdict_gate.load_report_max_age_hours()); a bound
 # timeframe without required checks cannot pass (RESEARCH.md threat T-174-41). The 1d form has
 # '1d' rendered in and binds only %(max_age_hours)s.
 COMPUTE_READY_PREDICATE_SQL = ready_predicate_sql()
 COMPUTE_READY_1D_PREDICATE_SQL = ready_predicate_sql(("1d",))
-REPORT_MAX_AGE_APR_KEY = "threshold.bar_integrity.report_max_age_hours"
 
 
 def load_compute_timeframes(conn: psycopg.Connection) -> list[str]:
@@ -166,55 +160,6 @@ def _fetch_endpoints(
         return {(row[0], row[1]): (row[2], row[3]) for row in cur.fetchall()}
 
 
-def load_report_max_age_hours(conn: psycopg.Connection) -> float:
-    """The verdict freshness window from APR; raise if it is missing or malformed."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT config_value FROM config_state WHERE config_key = %s", (REPORT_MAX_AGE_APR_KEY,)
-        )
-        row = cur.fetchone()
-    if row is None:
-        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} is not set")
-    hours = float(row[0])
-    if hours <= 0:
-        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} must be positive, got {row[0]!r}")
-    return hours
-
-
-def fetch_verdict_failures(
-    conn: psycopg.Connection,
-    symbols: list[str],
-    timeframes: list[str],
-    max_age_hours: float,
-    *,
-    now: datetime | None = None,
-) -> dict[str, list[str]]:
-    """Symbols failing the verdict gate over `timeframes`, with reasons naming the check.
-
-    Reads the latest verdict per (symbol, tf, check) and the latest changing load per series,
-    then applies the same pure gate the rebuild preconditions use. Read-only.
-    """
-    subjects = [f"{symbol}|{tf}" for symbol in symbols for tf in timeframes]
-    with conn.cursor() as cur:
-        cur.execute(
-            LATEST_VERDICTS_SQL, {"subjects": subjects, "checks": sorted(all_check_names())}
-        )
-        rows: list[VerdictRow] = [
-            verdict_row_from_record(subject, check, passed, at)
-            for subject, check, passed, at in cur.fetchall()
-        ]
-        cur.execute(LATEST_LOADS_SQL, {"symbols": symbols, "timeframes": timeframes})
-        latest_load = {(symbol, tf): at for symbol, tf, at in cur.fetchall()}
-    return gate_symbols(
-        rows,
-        symbols=symbols,
-        timeframes=timeframes,
-        now=now or datetime.now(UTC),
-        max_age=timedelta(hours=max_age_hours),
-        latest_load=latest_load,
-    )
-
-
 def _failing_check_counts(failures: dict[str, list[str]]) -> dict[str, int]:
     """Names failing per `tf:check` (a name counts once per check, whatever the reason)."""
     counts: dict[str, int] = {}
@@ -242,7 +187,7 @@ def _gate_report(
         ("compute_1d", "compute_eligible_1d", ["1d"]),
         ("compute", "compute_eligible", [tf for tf in timeframes if tf in REQUIRED_CHECKS]),
     ):
-        failures = fetch_verdict_failures(conn, symbols, tfs, max_age_hours)
+        failures = fetch_verdict_scan(conn, symbols, tfs, max_age_hours).failures
         promoted = _fetch_promoted(conn, column)
         report[dimension] = {
             "timeframes": tfs,

@@ -39,12 +39,12 @@ from scripts.infrastructure._write_mode_args import add_write_mode_args  # noqa:
 from scripts.infrastructure.instrument_compute_eligibility_audit import (  # noqa: E402
     COMPUTE_READY_1D_PREDICATE_SQL,
     COMPUTE_READY_PREDICATE_SQL,
-    fetch_verdict_failures,
     load_compute_timeframes,
     load_report_max_age_hours,
 )
 from src.config.settings import Settings  # noqa: E402
 from src.core.service_utils import setup_service_logging  # noqa: E402
+from src.intelligence.bars.verdict_gate import fetch_verdict_scan  # noqa: E402
 from src.observability.metrics import JOB_COMPLETED_TOTAL, flush_and_shutdown_metrics  # noqa: E402
 
 setup_service_logging("logs/universe_expansion_promote_compute_eligible.log")
@@ -130,10 +130,10 @@ def _fetch_holds(
         all_ineligible = {row[0] for row in cur.fetchall()}
     held = sorted(all_ineligible - set(candidate_pool_symbols))
     timeframes = _gate_timeframes(conn, config)
-    failures = fetch_verdict_failures(conn, held, timeframes, max_age_hours)
+    failures = fetch_verdict_scan(conn, held, timeframes, max_age_hours).failures
     passing_but_held = sorted(set(held) - set(failures))
     failing_but_candidate = sorted(
-        fetch_verdict_failures(conn, sorted(candidate_pool_symbols), timeframes, max_age_hours)
+        fetch_verdict_scan(conn, sorted(candidate_pool_symbols), timeframes, max_age_hours).failures
     )
     if passing_but_held or failing_but_candidate:
         raise RuntimeError(

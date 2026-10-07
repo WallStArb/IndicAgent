@@ -19,11 +19,10 @@ import pytest
 from scripts.infrastructure.instrument_compute_eligibility_audit import (
     COMPUTE_READY_1D_PREDICATE_SQL,
     COMPUTE_READY_PREDICATE_SQL,
-    fetch_verdict_failures,
     load_compute_timeframes,
     load_report_max_age_hours,
 )
-from src.intelligence.bars.verdict_gate import REQUIRED_CHECKS
+from src.intelligence.bars.verdict_gate import REQUIRED_CHECKS, fetch_verdict_scan
 
 
 def test_predicate_has_no_literal_timeframe_count():
@@ -169,5 +168,6 @@ def test_a_candidate_failing_the_pure_gate_raises():
 def test_fetch_verdict_failures_applies_the_latest_load_freshness_rule():
     loaded = datetime.now(UTC) - timedelta(minutes=10)
     conn = _GateConn([], _fresh_1d_verdicts("AAA"), loads=[("AAA", "1d", loaded)])
-    failures = fetch_verdict_failures(conn, ["AAA"], ["1d"], 30.0)
+    scan = fetch_verdict_scan(conn, ["AAA"], ["1d"], 30.0)
+    failures = scan.failures
     assert len(failures["AAA"]) == 7 and all("newer load" in r for r in failures["AAA"])

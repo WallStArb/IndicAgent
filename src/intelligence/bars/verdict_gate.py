@@ -9,18 +9,21 @@ series' latest load that changed bars. A missing, failed or stale verdict fails 
 `ready_predicate_sql` renders the same rule as a SQL fragment (alias `i` is the instruments row)
 from REQUIRED_CHECKS, so the Python gate and the promotion predicate share one constant.
 
-Pure: no database, no APR reads (the age is a parameter). The SQL text constants are for the
-callers' cursors; this module executes nothing.
+`gate_symbols` and `ready_predicate_sql` are pure (the age is a parameter). The two edge
+functions at the bottom (`load_report_max_age_hours`, `fetch_verdict_scan`) take a psycopg
+connection and only read; promotion and the rebuild preconditions call them so both load the
+same rows the same way.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 MONITOR_TYPE = "bar_integrity"
+REPORT_MAX_AGE_APR_KEY = "threshold.bar_integrity.report_max_age_hours"
 
 REQUIRED_CHECKS: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -225,3 +228,68 @@ def ready_predicate_sql(timeframes: Sequence[str] | None = None) -> str:
           )
     ){guard}
 """.strip()
+
+
+class VerdictScan(NamedTuple):
+    """A gate run: failing symbols with reasons, how many were judged, and the evaluation time
+    range of the verdict rows it read (None when it read none)."""
+
+    failures: dict[str, list[str]]
+    n_symbols: int
+    first_evaluated_at: datetime | None
+    last_evaluated_at: datetime | None
+
+
+def load_report_max_age_hours(conn: Any) -> float:
+    """The verdict freshness window from APR; raise if it is missing or not positive."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_value FROM config_state WHERE config_key = %s", (REPORT_MAX_AGE_APR_KEY,)
+        )
+        row = cur.fetchone()
+    if row is None:
+        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} is not set")
+    hours = float(row[0])
+    if hours <= 0:
+        raise RuntimeError(f"APR key {REPORT_MAX_AGE_APR_KEY} must be positive, got {row[0]!r}")
+    return hours
+
+
+def fetch_verdict_scan(
+    conn: Any,
+    symbols: Sequence[str],
+    timeframes: Sequence[str],
+    max_age_hours: float,
+    *,
+    extra_checks: frozenset[str] = frozenset(),
+    now: datetime | None = None,
+) -> VerdictScan:
+    """Read the latest verdicts and the latest changing load per series, then gate them.
+
+    Read-only. Rows are read for every check name any gate can use; the gate selects the ones
+    the requested timeframes and `extra_checks` require.
+    """
+    symbols = list(symbols)
+    timeframes = list(timeframes)
+    subjects = [f"{symbol}|{tf}" for symbol in symbols for tf in timeframes]
+    with conn.cursor() as cur:
+        cur.execute(
+            LATEST_VERDICTS_SQL, {"subjects": subjects, "checks": sorted(all_check_names())}
+        )
+        rows = [
+            verdict_row_from_record(subject, check, passed, at)
+            for subject, check, passed, at in cur.fetchall()
+        ]
+        cur.execute(LATEST_LOADS_SQL, {"symbols": symbols, "timeframes": timeframes})
+        latest_load = {(symbol, tf): at for symbol, tf, at in cur.fetchall()}
+    failures = gate_symbols(
+        rows,
+        symbols=symbols,
+        timeframes=timeframes,
+        now=now or datetime.now(UTC),
+        max_age=timedelta(hours=max_age_hours),
+        latest_load=latest_load,
+        extra_checks=extra_checks,
+    )
+    times = [row.evaluated_at for row in rows]
+    return VerdictScan(failures, len(symbols), min(times, default=None), max(times, default=None))
