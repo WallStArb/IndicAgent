@@ -295,6 +295,9 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
     "scripts/ops/bars/ops_tradier_lineage_backfill.py": ConsumerVerdict(
         REAL_ROWS, "counts stored Tradier 1d bars against D1; placeholders never exist there"
     ),
+    "scripts/ops/bars/ops_data_bar_check.py": ConsumerVerdict(
+        REAL_ROWS, "reads the stored row of 87 fixed 1d known-answer keys (plan 185-34)"
+    ),
 }
 
 
