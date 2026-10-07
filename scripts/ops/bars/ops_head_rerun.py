@@ -58,6 +58,9 @@ _MONITOR_TYPE = "bar_head_rerun"
 _APR_CLIENT_IDS = "infra.bar_campaign.client_ids"
 _APR_VENUES = "infra.ibkr.venue_fallback.exchanges"
 _SMART = "SMART"
+# Only IBKR answers judge an IBKR head (185-28): a Tradier answer (route TRADIER, source
+# tradier) is a different vendor's consolidated history, not a former IBKR listing venue.
+_IBKR_SOURCE = "ibkr"
 _CLEAN_OUTCOMES = {"bars", "no_data"}
 _RUN_ID_RE = re.compile(r"fetch_run_id:\s*([0-9a-f-]{36})")
 
@@ -70,6 +73,7 @@ class HeadRequest:
     window_end: date
     first_bar: date | None
     answered_at: datetime
+    primary_exchange: str | None = None
 
 
 # --- pure pieces -----------------------------------------------------------------
@@ -172,7 +176,7 @@ def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequ
             SELECT r.symbol, r.route, r.outcome, r.window_start, r.window_end,
                    (SELECT MIN(o.bar_date) FROM ohlcv_observation o
                      WHERE o.request_id = r.request_id),
-                   r.answered_at
+                   r.answered_at, r.source, r.primary_exchange
             FROM ohlcv_request r
             WHERE r.timeframe = '1d' AND r.what_to_show = 'TRADES'
               AND r.symbol = ANY(%s) AND r.outcome <> 'legacy_import'
@@ -180,7 +184,9 @@ def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequ
             """,
             (list(symbols),),
         )
-        for sym, route, outcome, ws, we, first_bar, answered in cur.fetchall():
+        for sym, route, outcome, ws, we, first_bar, answered, source, primary in cur.fetchall():
+            if source != _IBKR_SOURCE or route == "TRADIER":
+                continue
             out[sym].append(
                 HeadRequest(
                     route=route,
@@ -189,6 +195,7 @@ def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequ
                     window_end=we.astimezone(UTC).date(),
                     first_bar=first_bar,
                     answered_at=answered,
+                    primary_exchange=primary,
                 )
             )
     return out
@@ -258,7 +265,7 @@ def _moved_detail(conn: Any, moved: Sequence[str]) -> dict[str, list[tuple[str, 
             SELECT symbol, route, MIN(bar_date), MAX(bar_date)
             FROM ohlcv_observation
             WHERE symbol = ANY(%s) AND timeframe = '1d' AND what_to_show = 'TRADES'
-              AND route NOT IN ('SMART', 'LEGACY_IMPORT')
+              AND source = 'ibkr' AND route NOT IN ('SMART', 'LEGACY_IMPORT', 'TRADIER')
             GROUP BY symbol, route ORDER BY symbol, route
             """,
             (list(moved),),
