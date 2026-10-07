@@ -282,7 +282,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 20** *(blocked on Wave 19 completion)*
 
-- [ ] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37)
+- [ ] 185-46-PLAN.md - Tradier unfunded (owner 2026-10-07): Tradier timer stopped, IBKR 1d request rate, nightly cost and volume basis measured under pre-registered rules, freshness_1d verdict and alert, cross-reference amendments to 189-10 and 185-35 (wave 20, runs before 185-37) ; NOTE: amend to the two-lane design first (todo 503)
 - [ ] 185-37-PLAN.md - vendor adjustment-basis study, pre-registered rule, exception policy rows (wave 20)
 
 **Wave 21** *(blocked on Wave 20 completion)*

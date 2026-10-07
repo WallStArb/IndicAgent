@@ -95,6 +95,7 @@ until 185 and 186 land; session time goes to the build.
 | [444](pending/444-onboarding-tooling-classification-mapper-pair-column-orchestrator.md) | Onboarding SOP gaps 3, 5, 6: classification mapper, a manifest pair column for `spread_leg`, then one resumable onboarding command. After 431. |
 | [376](pending/376-survivorship-bias-active-only-universe-no-owner.md) | Close when phase 185 D0's survivorship label is on every attempt (D8 descoped by the owner 2026-09-26); the retroactive fix stays with the gated vendor stage. |
 | [502](pending/502-d7-judges-only-compute-1d-so-unpromoted-names-can-never-pass-the-gate.md) | New 2026-10-07, from 185-41 finding 1. D7 writes verdicts only for the `compute_1d` and `compute` names, so the 27 unpromoted names (and any name whose 5m lands later) are held "missing" forever and the onboarding promote stage cannot succeed. Judge the `backfill` dimension for 1d and every active name with 5m rows for intraday. Gate: before the next onboarding wave's promote step. |
+| [503](pending/503-amend-swap-plans-to-two-generic-nightly-lanes.md) | New 2026-10-07, owner answers on the swap plans. Amend 185-46/47/48 and 189-10 to two generic nightly lanes (shallow update since last fill for 1d and 5m, deep gap-fill lane) and Tradier history as a valid frozen source. Gate: before executing 185-46. |
 
 **Research, paused until 185 and 186 land**
 
