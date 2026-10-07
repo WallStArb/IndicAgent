@@ -569,6 +569,16 @@ def test_the_waiver_reads_corporate_actions_and_policy_after_the_last_applied_lo
     assert "outcome = 'applied'" in sql and "source = 'derived'" in sql
 
 
+def test_a_restore_after_the_last_daily_load_waives_the_next_re_derivation():
+    # Plan 185-38: a snapshot restore is a recorded operator rollback; re-deriving after it
+    # re-applies the reviewed cutover, and the restore's own load is not the baseline.
+    from services.bar_derivation import _SELECT_REVISION_WAIVER_SQL as sql
+
+    flat = " ".join(sql.split())
+    assert "caller = 'bar_derivation-daily'" in flat
+    assert "caller = 'bar_derivation-restore'" in flat
+
+
 def test_derivation_flags_go_through_write_flags_with_rule_d2v2():
     days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8)]
     observations = {
