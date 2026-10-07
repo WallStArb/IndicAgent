@@ -9,7 +9,10 @@ stored answers; it never stores venue bars (D-17, plan 13 verdict).
 Each late name ends with one disposition, from D1 alone (D-20):
   moved                 venue bars exist before the name's SMART head
   verified_empty        SMART and every expected venue other than the name's primary
-                        answered no_data for the oldest window
+                        answered no_data for the oldest window (with
+                        infra.ibkr.venue_fallback.island_failed_unlisted on, a failed
+                        ISLAND answer on a name whose primary is not Nasdaq counts as
+                        no_data: 185-34, owner-pending)
   reached_window_start  the SMART head is at or before the oldest request window start
   unresolved            anything else (timeout, failure, a venue not asked); never counted as empty
 
@@ -59,6 +62,9 @@ _LATE_CUTOFF = "2006-11-01"
 _MONITOR_TYPE = "bar_head_rerun"
 _APR_CLIENT_IDS = "infra.bar_campaign.client_ids"
 _APR_VENUES = "infra.ibkr.venue_fallback.exchanges"
+_APR_ISLAND_FAILED = "infra.ibkr.venue_fallback.island_failed_unlisted"
+_ISLAND = "ISLAND"
+_TRUTHY = ("true", "1", "t", "yes")
 _SMART = "SMART"
 # Only IBKR answers judge an IBKR head (185-28): a Tradier answer (route TRADIER, source
 # tradier) is a different vendor's consolidated history, not a former IBKR listing venue.
@@ -96,8 +102,15 @@ def classify_head(
     requests: Sequence[HeadRequest],
     smart_head: date | None,
     expected_venues: Sequence[str],
+    *,
+    island_failed_unlisted: bool = False,
 ) -> Disposition:
-    """Disposition of one late name from its stored TRADES requests (D-20)."""
+    """Disposition of one late name from its stored TRADES requests (D-20).
+
+    island_failed_unlisted (APR infra.ibkr.venue_fallback.island_failed_unlisted, 185-34,
+    owner-pending): ISLAND answers `failed` on every attempt for NYSE/AMEX names, so on a
+    name whose recorded primary is not Nasdaq that answer counts as no listing at Nasdaq.
+    Off, or with no recorded primary, a failed answer stays unresolved."""
     if not requests:
         return "unresolved"
     venue_bars = [
@@ -130,8 +143,14 @@ def classify_head(
     smart_latest = latest.get(_SMART)
     primary = smart_latest.primary_exchange if smart_latest is not None else None
     venues = [v for v in expected_venues if VENUE_ROUTE_ALIASES.get(v, v) != primary]
+    unlisted = island_failed_unlisted and primary is not None
     if _smart_shows_head(smart_latest, smart_head) and all(
-        v in latest and latest[v].outcome == "no_data" for v in venues
+        v in latest
+        and (
+            latest[v].outcome == "no_data"
+            or (unlisted and v == _ISLAND and latest[v].outcome == "failed")
+        )
+        for v in venues
     ):
         return "verified_empty"
     return "unresolved"
@@ -231,16 +250,24 @@ def _load_apr(conn: Any) -> dict[str, str]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-            ([_APR_CLIENT_IDS, _APR_VENUES],),
+            ([_APR_CLIENT_IDS, _APR_VENUES, _APR_ISLAND_FAILED],),
         )
         return {k: v for k, v in cur.fetchall()}
 
 
+def island_failed_unlisted(apr: Mapping[str, str]) -> bool:
+    """The 185-34 switch; a missing key is off (the stricter classification)."""
+    return str(apr.get(_APR_ISLAND_FAILED, "false")).strip().lower() in _TRUTHY
+
+
 def _classify_all(
-    conn: Any, late: Mapping[str, date], venues: Sequence[str]
+    conn: Any, late: Mapping[str, date], venues: Sequence[str], *, island_unlisted: bool
 ) -> dict[str, Disposition]:
     requests = _load_requests(conn, list(late))
-    return {s: classify_head(requests[s], late[s], venues) for s in late}
+    return {
+        s: classify_head(requests[s], late[s], venues, island_failed_unlisted=island_unlisted)
+        for s in late
+    }
 
 
 # --- pipeline --------------------------------------------------------------------
@@ -424,7 +451,8 @@ def main() -> None:
         apr = _load_apr(conn)
         late = _late_names(conn)
         venues = json.loads(apr.get(_APR_VENUES, "[]"))
-        before = _classify_all(conn, late, venues)
+        island_unlisted = island_failed_unlisted(apr)
+        before = _classify_all(conn, late, venues, island_unlisted=island_unlisted)
     print(f"late names: {len(late)}; venues: {venues}")
     print(f"already resolved in D1: {sum(d != 'unresolved' for d in before.values())}")
 
@@ -452,7 +480,7 @@ def main() -> None:
 
     # Fresh connection: the fetch can outlast the server's idle-session timeout.
     with psycopg.connect(settings.database_url, autocommit=True) as conn:
-        after = _classify_all(conn, late, venues)
+        after = _classify_all(conn, late, venues, island_unlisted=island_unlisted)
         moved = sorted(s for s, d in after.items() if d == "moved")
         detail = _moved_detail(conn, moved)
         counts = _outcome_counts(conn, run_ids)
