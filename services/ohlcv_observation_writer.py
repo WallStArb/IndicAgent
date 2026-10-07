@@ -8,6 +8,15 @@ a single transaction whose first statement is SET LOCAL ROLE
 ohlcv_observation_writer. UPDATE and DELETE do not exist here, by design and by
 grants.
 
+D1 elision (plan 185-39, the 185-27 rule now applied to IBKR sinks; the Tradier loader keeps its
+own): an observation lands only when
+it differs, by exact value, from the latest stored observation of the same (symbol, bar_date,
+route, what_to_show); an identical answer is not stored again, while its request row keeps the
+full answer length (n_bars), so the ledger still records that the question was asked and what
+came back. The comparison excludes observations written by test callers (caller 'test-%', the
+provenance rule D2 uses) and a sink whose own caller is a test caller does not elide, so test
+fixtures land as written.
+
 Record arguments are duck-typed and carry the RequestRecord contract (plan 03 adds
 the dataclass to src/providers/base.py): request_id, fetch_run_id, symbol, timeframe,
 route, what_to_show, primary_exchange, window_start, window_end, ib_req_id, outcome,
@@ -77,6 +86,26 @@ _OBSERVATION_COLUMNS = (
 
 _ROLE = "ohlcv_observation_writer"
 
+# Callers named test-* are provenance-excluded everywhere D1 is read (D2, the Tradier loader).
+_TEST_CALLER_PREFIX = "test-"
+
+# The latest non-test observation of each requested key (D1 elision). psycopg and asyncpg
+# placeholder forms of one statement: four parallel arrays unnest into the key set.
+_LATEST_OBSERVED_SQL = """
+SELECT DISTINCT ON (o.symbol, o.bar_date, o.route, o.what_to_show)
+       o.symbol, o.bar_date, o.route, o.what_to_show,
+       o.open, o.high, o.low, o.close, o.volume
+FROM ohlcv_observation o
+JOIN unnest({keys}) AS k(symbol, bar_date, route, what_to_show)
+  ON o.symbol = k.symbol AND o.bar_date = k.bar_date
+ AND o.route = k.route AND o.what_to_show = k.what_to_show
+JOIN ohlcv_request q ON q.request_id = o.request_id
+WHERE NOT starts_with(q.caller, 'test-')
+ORDER BY o.symbol, o.bar_date, o.route, o.what_to_show, o.fetched_at DESC, o.request_id DESC
+"""
+_KEY_ARRAYS_PSYCOPG = "%s::text[], %s::date[], %s::text[], %s::text[]"
+_KEY_ARRAYS_ASYNCPG = "$1::text[], $2::date[], $3::text[], $4::text[]"
+
 # Default = the migration 380 APR seed for infra.ohlcv_observation.copy_batch_rows;
 # callers with ConfigService access should read the key and pass it instead.
 _DEFAULT_MAX_BUFFER_ROWS = 50_000
@@ -86,6 +115,45 @@ def new_fetch_run_id() -> str:
     """One fetch_run_id per job invocation; TRADES and ADJUSTED_LAST pair only
     within one run (the pair is the seam audit's evidence, plan 15)."""
     return str(uuid_module.uuid4())
+
+
+# An observation row: (request_id, symbol, timeframe, bar_date, open, high, low, close, volume,
+# source, route, what_to_show, fetched_at).
+_OBS_SYMBOL, _OBS_DATE, _OBS_VALUES, _OBS_ROUTE, _OBS_WTS = 1, 3, slice(4, 9), 10, 11
+
+
+def _observation_key(row: tuple) -> tuple:
+    return (row[_OBS_SYMBOL], row[_OBS_DATE], row[_OBS_ROUTE], row[_OBS_WTS])
+
+
+def _key_arrays(observations: list[tuple]) -> tuple[list, list, list, list]:
+    keys = sorted({_observation_key(row) for row in observations})
+    return ([k[0] for k in keys], [k[1] for k in keys], [k[2] for k in keys], [k[3] for k in keys])
+
+
+def _latest_by_key(rows: list[Any]) -> dict[tuple, tuple]:
+    return {(r[0], r[1], r[2], r[3]): tuple(r[4:9]) for r in rows}
+
+
+def drop_unchanged_observations(
+    observations: list[tuple], latest: dict[tuple, tuple]
+) -> list[tuple]:
+    """The observations D1 does not already hold as the latest stored observation of their key.
+
+    Exact value comparison of open, high, low, close and volume (a null volume compares as a
+    value). Rows arrive in buffer order and a later row of the same key is compared with the
+    earlier row of this batch, so one flush never stores the same answer twice. An empty
+    `latest` (first load) keeps every row.
+    """
+    seen = dict(latest)
+    kept: list[tuple] = []
+    for row in observations:
+        key, values = _observation_key(row), tuple(row[_OBS_VALUES])
+        if seen.get(key) == values:
+            continue
+        seen[key] = values
+        kept.append(row)
+    return kept
 
 
 def write_request_rows(cur: Any, rows: list[tuple]) -> None:
@@ -201,6 +269,13 @@ class _Buffer:
     @property
     def caller(self) -> str:
         return self._caller
+
+    @property
+    def elides(self) -> bool:
+        """IBKR sinks elide observations equal to the latest stored one (plan 185-39). The
+        Tradier loader's sink does not: it applies its own D1 elision before it buffers, with
+        its refusal logic. A test caller's sink never elides, so fixtures land as written."""
+        return self._source == "ibkr" and not self._caller.startswith(_TEST_CALLER_PREFIX)
 
     def add_request(self, record: Any) -> None:
         row = _request_row(record, caller=self._caller, source=self._source)
@@ -323,6 +398,14 @@ class ObservationSink:
                 cur.execute(f"SET LOCAL ROLE {_ROLE}")
                 if requests:
                     write_request_rows(cur, requests)
+                if observations and self._buffer.elides:
+                    cur.execute(
+                        _LATEST_OBSERVED_SQL.format(keys=_KEY_ARRAYS_PSYCOPG),
+                        _key_arrays(observations),
+                    )
+                    observations = drop_unchanged_observations(
+                        observations, _latest_by_key(cur.fetchall())
+                    )
                 if observations:
                     sql = (
                         f"COPY ohlcv_observation ({', '.join(_OBSERVATION_COLUMNS)}) " "FROM STDIN"
@@ -335,9 +418,10 @@ class ObservationSink:
             "ohlcv_observation_writer.flushed",
             caller=self._buffer.caller,
             n_requests=n_requests,
-            n_observations=n_observations,
+            n_observations=len(observations),
+            n_observations_elided=n_observations - len(observations),
         )
-        return (n_requests, n_observations)
+        return (n_requests, len(observations))
 
 
 class AsyncObservationSink:
@@ -381,6 +465,12 @@ class AsyncObservationSink:
                 await conn.copy_records_to_table(
                     "ohlcv_request", records=requests, columns=list(_REQUEST_COLUMNS)
                 )
+            if observations and self._buffer.elides:
+                latest = await conn.fetch(
+                    _LATEST_OBSERVED_SQL.format(keys=_KEY_ARRAYS_ASYNCPG),
+                    *_key_arrays(observations),
+                )
+                observations = drop_unchanged_observations(observations, _latest_by_key(latest))
             if observations:
                 await conn.copy_records_to_table(
                     "ohlcv_observation",
@@ -392,6 +482,7 @@ class AsyncObservationSink:
             "ohlcv_observation_writer.flushed",
             caller=self._buffer.caller,
             n_requests=n_requests,
-            n_observations=n_observations,
+            n_observations=len(observations),
+            n_observations_elided=n_observations - len(observations),
         )
-        return (n_requests, n_observations)
+        return (n_requests, len(observations))

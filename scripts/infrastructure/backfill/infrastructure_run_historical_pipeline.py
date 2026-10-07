@@ -60,7 +60,11 @@ from scripts.infrastructure.backfill._d1_gaps import (
 from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
-from services.ohlcv_ingress_contract import DESTINATION_GRID, apply_ingress_contract
+from services.ohlcv_ingress_contract import (
+    DEFAULT_CALLER,
+    DESTINATION_GRID,
+    apply_ingress_contract,
+)
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
@@ -1002,8 +1006,6 @@ _STORE_REPLACE_SQL = (
     "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
     "volume = EXCLUDED.volume, source = EXCLUDED.source"
 )
-# ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
-_INGRESS_CALLER = "ibkr-history-fetch"
 
 
 def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
@@ -1314,7 +1316,7 @@ def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
         cur,
         params,
         destination=DESTINATION_GRID,
-        caller=_INGRESS_CALLER,
+        caller=DEFAULT_CALLER,
         write_new=lambda c, rows: _write_market_data_batches(_STORE_VALUES_SQL, c, rows),
         write_changed=lambda c, rows: _write_market_data_batches(_STORE_REPLACE_SQL, c, rows),
     )

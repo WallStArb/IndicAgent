@@ -44,6 +44,8 @@ from src.intelligence.bars.write_contract import (
 )
 
 LOAD_SOURCE = "ibkr"
+# ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
+DEFAULT_CALLER = "ibkr-history-fetch"
 DESTINATION_GRID = "market_data_ohlcv"
 DESTINATION_ARCHIVE = "archive"
 OUTCOME_APPLIED = "applied"

@@ -35,10 +35,6 @@ _FIRST_WRITE_WINS = re.compile(
 
 # module -> reason. Every entry names why the write is out of this plan's scope and who retires it.
 _ALLOW_LIST: dict[str, str] = {
-    "services/intraday_raw_archive.py": (
-        "TEMPORARY, retire: 185-39 task 2. The archive's two statements move to the write "
-        "contract in the next task of this plan."
-    ),
     "services/bar_writer.py": (
         "PERMANENT while the streaming path is dormant: the Kafka-to-database bar writer is out "
         "of scope by the design's non-goals (section 10, 'the streaming path'). Revisit when "

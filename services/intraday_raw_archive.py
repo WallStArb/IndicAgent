@@ -9,18 +9,28 @@ One owner module, two write shapes, because the two callers use different
 drivers (services/bar_derivation.py is asyncpg, the historical pipeline and
 its persist helper are psycopg):
 
-- ARCHIVE_FROM_TABLE_SQL: plan 11's INSERT ... SELECT, moved here
-  byte-identical and imported back into bar_derivation (its tests pass
-  unchanged). Archives the removable stored segment inside the per-symbol
-  transaction, excluding synthetic-fill placeholders (they are not
-  observations and the rewrite does not keep them; the masked-slot baseline
-  in the plan 12 SUMMARY records them before the rewrite deletes them).
-- insert_fetched_archive_rows(): one multi-row VALUES insert for a fetched
-  chunk, ON CONFLICT DO NOTHING, synthetic fills refused. batch_id stays
-  NULL: a fetch replaces no stored segment and the column is nullable per
-  migration 383. The append-only boundary is the table's own triggers plus
-  tests/unit/test_ohlcv_intraday_raw_archive_writer_boundary.py, which fails
-  CI on any INSERT/COPY into the table from outside this module.
+- ARCHIVE_FROM_TABLE_SQL: plan 11's INSERT ... SELECT, imported back into
+  bar_derivation. Archives the removable stored segment inside the per-symbol
+  transaction, only for keys the archive does not already hold (plan 185-39
+  replaced ON CONFLICT DO NOTHING by NOT EXISTS: the same semantics without a
+  first-write-wins clause; a stored vendor row that disagrees with an archived
+  one is recorded by the grid stage as ohlcv_revision origin archive_segment,
+  plan 185-31, so the dead synthetic_fill filter is gone: migration 444 keeps
+  synthetic fills out of market_data_ohlcv).
+- insert_fetched_archive_rows(): a fetched chunk written by the ingress write
+  contract (services/ohlcv_ingress_contract.py, plan 185-39). Stored rows for
+  the chunk's keys are read; new rows are inserted; a changed row is rewritten
+  (latest answer wins) with its old values in ohlcv_revision and one ohlcv_load
+  row (destination archive) recording the counts; identical rows are not
+  written; a chunk that revises more than the allowed share is refused with
+  RevisionRefused. Synthetic fills are refused. batch_id stays NULL: a fetch
+  replaces no stored segment and the column is nullable per migration 383.
+
+UPDATE is allowed here because the archive keeps the latest answer and the old
+values are kept in ohlcv_revision; DELETE and TRUNCATE are refused by trigger
+(migration 448 replaced 383's UPDATE-or-DELETE ban). The single-owner boundary
+is tests/unit/test_ohlcv_intraday_raw_archive_writer_boundary.py, which fails
+CI on any INSERT/COPY into the table from outside this module.
 
 batch_size mirrors the ObservationSink pattern: the default is a local
 constant, and callers with APR access pass
@@ -31,6 +41,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from services.ohlcv_ingress_contract import (
+    DEFAULT_CALLER,
+    DESTINATION_ARCHIVE,
+    apply_ingress_contract,
+)
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
 
 _COLUMNS = (
@@ -46,15 +61,21 @@ _COLUMNS = (
     "base",
 )
 _ROW_PLACEHOLDERS = "(" + ",".join(["%s"] * len(_COLUMNS)) + ")"
+# Plain multi-row INSERT of new rows; the contract has classified the chunk against stored rows.
 _INSERT_FETCHED_SQL = (
-    "INSERT INTO ohlcv_intraday_raw_archive "
-    "(" + ", ".join(_COLUMNS) + ") VALUES "
-    "{values} ON CONFLICT DO NOTHING"
+    "INSERT INTO ohlcv_intraday_raw_archive " "(" + ", ".join(_COLUMNS) + ") VALUES " "{values}"
+)
+# The changed set: the latest answer wins (old values are already in ohlcv_revision).
+_REPLACE_FETCHED_SQL = (
+    _INSERT_FETCHED_SQL + ' ON CONFLICT ("timestamp", symbol, timeframe) DO UPDATE SET '
+    "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
+    "volume = EXCLUDED.volume, source = EXCLUDED.source, base = EXCLUDED.base, "
+    "archived_at = now()"
 )
 _DEFAULT_BATCH_SIZE = 1000
 
-# Plan 11's per-symbol archive statement, byte-identical to the
-# _INSERT_ARCHIVE_SQL that lived in services/bar_derivation.py. asyncpg
+# Plan 11's per-symbol archive statement (the _INSERT_ARCHIVE_SQL that lived in
+# services/bar_derivation.py; 185-39 swapped its ON CONFLICT clause for NOT EXISTS). asyncpg
 # placeholders ($1, $2, $3): symbol, the timeframe list, the batch uuid.
 ARCHIVE_FROM_TABLE_SQL = """
 INSERT INTO ohlcv_intraday_raw_archive
@@ -64,19 +85,38 @@ SELECT "timestamp", symbol, timeframe, open, high, low, close, volume, source, b
        price_sanity_status, $3::uuid
 FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = ANY($2::text[])
-  AND source <> 'synthetic_fill' AND source <> 'derived_5m'
-ON CONFLICT DO NOTHING
+  AND source <> 'derived_5m'
+  AND NOT EXISTS (
+      SELECT 1 FROM ohlcv_intraday_raw_archive a
+      WHERE a."timestamp" = market_data_ohlcv."timestamp"
+        AND a.symbol = market_data_ohlcv.symbol
+        AND a.timeframe = market_data_ohlcv.timeframe
+  )
 """
 
 
+def _write_rows(sql_template: str, cur: Any, rows: list[tuple], batch_size: int) -> None:
+    for i in range(0, len(rows), batch_size):
+        chunk = rows[i : i + batch_size]
+        sql = sql_template.format(values=",".join([_ROW_PLACEHOLDERS] * len(chunk)))
+        cur.execute(sql, [value for row in chunk for value in row])
+
+
 def insert_fetched_archive_rows(
-    cur: Any, rows: list[tuple], *, batch_size: int = _DEFAULT_BATCH_SIZE
+    cur: Any,
+    rows: list[tuple],
+    *,
+    batch_size: int = _DEFAULT_BATCH_SIZE,
+    caller: str = DEFAULT_CALLER,
 ) -> int:
-    """Insert one fetched chunk's rows into the archive; return the row count.
+    """Write one fetched chunk into the archive by the ingress write contract; return the
+    number of rows offered.
 
     `rows` are 10-tuples (timestamp, symbol, timeframe, open, high, low,
     close, volume, source, base) with base normally NULL. A synthetic_fill
-    source raises: the archive holds observations, never placeholders.
+    source raises: the archive holds observations, never placeholders. Raises
+    RevisionRefused (nothing written) when the chunk revises more than the
+    allowed share of the rows it overlaps.
     """
     if not rows:
         return 0
@@ -95,8 +135,11 @@ def insert_fetched_archive_rows(
             f"(timestamp, symbol, timeframe, open, high, low, close, volume, source, base); "
             f"got {len(rows[0])}"
         )
-    for i in range(0, len(rows), batch_size):
-        chunk = rows[i : i + batch_size]
-        sql = _INSERT_FETCHED_SQL.format(values=",".join([_ROW_PLACEHOLDERS] * len(chunk)))
-        cur.execute(sql, [value for row in chunk for value in row])
-    return len(rows)
+    return apply_ingress_contract(
+        cur,
+        rows,
+        destination=DESTINATION_ARCHIVE,
+        caller=caller,
+        write_new=lambda c, new: _write_rows(_INSERT_FETCHED_SQL, c, new, batch_size),
+        write_changed=lambda c, changed: _write_rows(_REPLACE_FETCHED_SQL, c, changed, batch_size),
+    )

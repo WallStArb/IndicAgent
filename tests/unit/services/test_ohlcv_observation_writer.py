@@ -19,6 +19,7 @@ import pytest
 from services.ohlcv_observation_writer import (
     AsyncObservationSink,
     ObservationSink,
+    drop_unchanged_observations,
     new_fetch_run_id,
     write_request_rows,
 )
@@ -102,6 +103,10 @@ class FakeCursor:
 
     def execute(self, sql: str, params: object = None) -> None:
         self._conn.statements.append((sql, self._conn.in_transaction))
+        self._conn.params.append(params)
+
+    def fetchall(self) -> list[tuple]:
+        return self._conn.latest_rows
 
     def copy(self, sql: str) -> _RecordingCopy:
         self._conn.statements.append((sql, self._conn.in_transaction))
@@ -124,6 +129,8 @@ class FakeConnection:
     def __init__(self) -> None:
         self.statements: list[tuple[str, bool]] = []
         self.copies: list[tuple[str, list[tuple]]] = []
+        self.params: list[object] = []
+        self.latest_rows: list[tuple] = []  # what the elision read returns (stored latest)
         self.in_transaction = False
         self.commits = 0
         self.transaction_status = psycopg.pq.TransactionStatus.IDLE
@@ -158,6 +165,8 @@ class FakeAsyncConnection:
     def __init__(self) -> None:
         self.statements: list[str] = []
         self.copies: list[tuple[str, list[tuple]]] = []
+        self.latest_rows: list[tuple] = []
+        self.fetch_args: list[tuple] = []
         self.in_transaction = False
         self.open_transaction = False
 
@@ -169,6 +178,11 @@ class FakeAsyncConnection:
 
     async def execute(self, sql: str) -> None:
         self.statements.append(sql)
+
+    async def fetch(self, sql: str, *args: object) -> list[tuple]:
+        self.statements.append(sql)
+        self.fetch_args.append(args)
+        return self.latest_rows
 
     async def copy_records_to_table(self, table_name: str, *, records: list, columns: list) -> None:
         self.copies.append((table_name, [tuple(r) for r in records]))
@@ -473,3 +487,148 @@ def test_write_request_rows_refuses_mixed_widths_before_any_sql():
     with pytest.raises(ValueError, match="all"):
         write_request_rows(conn.cursor(), [_request_values(19), _request_values(20)])
     assert conn.statements == []
+
+
+# --- plan 185-39: D1 elision of IBKR observations equal to the latest stored one --------------
+
+_DAY0 = date(2024, 1, 2)
+
+
+def _stored_latest(bars: list[OHLCVBar]) -> list[tuple]:
+    """The rows the elision read returns for `bars` as already stored (route SMART, TRADES)."""
+    return [
+        (
+            "SPY",
+            bar.timestamp.date(),
+            "SMART",
+            "TRADES",
+            bar.open,
+            bar.high,
+            bar.low,
+            bar.close,
+            bar.volume,
+        )
+        for bar in bars
+    ]
+
+
+def _flushed_observations(conn: FakeConnection) -> list[tuple]:
+    return next((rows for sql, rows in conn.copies if "ohlcv_observation (" in sql), [])
+
+
+def test_an_identical_answer_lands_no_observation_but_the_request_keeps_its_length():
+    conn = FakeConnection()
+    conn.latest_rows = _stored_latest(_bars(3))
+    sink = ObservationSink(conn, caller="ibkr-history-fetch")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()), n_bars=3)
+    sink.on_request(record)
+    sink.on_observation(record, _bars(3))
+    assert sink.flush() == (1, 0)
+    assert _flushed_observations(conn) == []
+    (request_rows,) = [rows for sql, rows in conn.copies if "ohlcv_request (" in sql]
+    assert request_rows[0][14] == 3  # n_bars is the full answer length
+
+
+def test_a_differing_observation_lands_and_an_unchanged_one_beside_it_does_not():
+    conn = FakeConnection()
+    conn.latest_rows = _stored_latest(_bars(3))
+    sink = ObservationSink(conn, caller="ibkr-history-fetch")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    revised = _bars(3)
+    revised[1] = revised[1].model_copy(update={"close": 150.0})
+    sink.on_observation(record, revised)
+    assert sink.flush() == (1, 1)
+    (landed,) = _flushed_observations(conn)
+    assert landed[3] == date(2024, 1, 3) and landed[7] == 150.0
+
+
+def test_a_first_load_lands_every_observation():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="ibkr-history-fetch")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    sink.on_observation(record, _bars(3))
+    assert sink.flush() == (1, 3)
+
+
+def test_the_same_answer_buffered_twice_in_one_flush_lands_once():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="ibkr-history-fetch")
+    first = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    second = _record(first.fetch_run_id, str(uuid.uuid4()))
+    for record in (first, second):
+        sink.on_request(record)
+        sink.on_observation(record, _bars(2))
+    assert sink.flush() == (2, 2)
+
+
+def test_the_read_excludes_test_callers_and_keys_on_route_and_what_to_show():
+    conn = FakeConnection()
+    sink = ObservationSink(conn, caller="ibkr-history-fetch")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    sink.on_observation(record, _bars(2))
+    sink.flush()
+    read = next(sql for sql, _ in conn.statements if "DISTINCT ON" in sql)
+    assert "NOT starts_with(q.caller, 'test-')" in read
+    assert "o.route = k.route AND o.what_to_show = k.what_to_show" in read
+    keys = next(p for p in conn.params if p)
+    assert keys[2] == ["SMART", "SMART"] and keys[3] == ["TRADES", "TRADES"]
+
+
+def test_a_test_caller_sink_never_elides_so_fixtures_land_as_written():
+    conn = FakeConnection()
+    conn.latest_rows = _stored_latest(_bars(3))
+    sink = ObservationSink(conn, caller="test-d2-fixture")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    sink.on_observation(record, _bars(3))
+    assert sink.flush() == (1, 3)
+    assert not any("DISTINCT ON" in sql for sql, _ in conn.statements)
+
+
+@pytest.mark.asyncio
+async def test_async_sink_elides_an_identical_answer_too():
+    conn = FakeAsyncConnection()
+    conn.latest_rows = _stored_latest(_bars(2))
+    sink = AsyncObservationSink(caller="ibkr-history-fetch")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()), n_bars=2)
+    sink.on_request(record)
+    sink.on_observation(record, _bars(2))
+    assert await sink.flush(conn) == (1, 0)
+    assert [table for table, _ in conn.copies] == ["ohlcv_request"]
+    assert len(conn.fetch_args[0]) == 4  # symbol, date, route, what_to_show arrays
+
+
+def test_elision_compares_a_null_volume_as_a_value():
+    stored = {("SPY", date(2024, 1, 2), "SMART", "TRADES"): (1.0, 2.0, 0.5, 1.5, None)}
+    row = (
+        None,
+        "SPY",
+        "1d",
+        date(2024, 1, 2),
+        1.0,
+        2.0,
+        0.5,
+        1.5,
+        None,
+        "ibkr",
+        "SMART",
+        "TRADES",
+        None,
+    )
+    assert drop_unchanged_observations([row], stored) == []
+    changed = row[:8] + (10,) + row[9:]
+    assert drop_unchanged_observations([changed], stored) == [changed]
+
+
+def test_a_tradier_sink_does_not_elide_the_loader_does_its_own():
+    conn = FakeConnection()
+    conn.latest_rows = _stored_latest(_bars(3))
+    sink = ObservationSink(conn, caller="tradier-daily", source="tradier")
+    record = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(record)
+    sink.on_observation(record, _bars(3))
+    assert sink.flush() == (1, 3)
+    assert not any("DISTINCT ON" in sql for sql, _ in conn.statements)
