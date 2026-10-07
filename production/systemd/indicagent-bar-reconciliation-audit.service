@@ -11,8 +11,8 @@ Environment=PYTHONPATH=/home/bg/dev/indicagent
 Environment=PYTHONUNBUFFERED=1
 # D7 nightly reconciliation: read-only checks reported to integrity_monitor and, through OTel
 # metrics labeled by check, to Prometheus. Findings never fail the unit; only a runtime error
-# does. No timer: the nightly backfill runs the audit as its last step on every path (D-29),
-# so this unit is the manual entry point.
+# does. Fired daily at 06:00 UTC by indicagent-bar-reconciliation-audit.timer (since the 189-06
+# cutover; the deleted nightly backfill used to run it as its last step).
 ExecStart=/home/bg/dev/indicagent/.venv/bin/python services/bar_reconciliation_audit.py
 
 [Install]
