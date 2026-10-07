@@ -1,65 +1,75 @@
-"""Tests for services/bar_derivation.py --stage daily (phase 185 plan 17, task 2).
+"""Tests for services/bar_derivation.py --stage daily on d2-v2 (phase 185 plans 17, 27 and 36).
 
-Fakes only, no DB: a fake pool answering the daily stage's read shapes (APR
-config rows, 1d-eligible instruments, D1 TRADES observations, splits from
-corporate_action_current, stored 1d rows from market_data_ohlcv canonical
-sources, bar_content_digest_current, flag rules) and a fake connection that
-applies the 1d upsert to an in-memory store so the post-write digest readback
-sees the written rows. The contract under test (D-06/D-07/D-12/D-21): equal
-stored rows produce zero bar writes but full lineage; a differing close and a
-missing date each produce exactly one write; synthetic_fill rows never enter
-the comparison; dry run writes nothing and reports counts by reason; digest
-rows land only for months whose digest changed; pre_split flags go through
-write_flags; the D2a scrub is rerun through services/bar_scrub.py.
+Fakes only, no DB (todo 494): a fake pool answering the daily stage's reads (APR rows,
+1d-eligible instruments, bar_source_policy, D1 TRADIER/SMART/LEGACY_IMPORT TRADES
+observations, splits with their evidence, stored 1d rows of every canonical source, the
+lineage relkind, the revision waiver, bar_content_digest_current, flag rules) and a fake
+connection that applies bar writes to an in-memory store. The contract under test: every name
+runs d2-v2 (Tradier-owned names are no longer skipped); stored rows are classified by the write
+contract with removal inside the name's derived span; a dry run writes nothing and reports per
+name; the apply path writes one ohlcv_load row, old values to ohlcv_revision before any bar
+change, new rows by insert and changed rows by the upsert, never canonical_bar_lineage; the
+revision-ratio refusal and its waiver; apply refuses while canonical_bar_lineage is a table.
 """
 
 from __future__ import annotations
 
 import asyncio
+import csv
 import json
 from datetime import UTC, date, datetime
 
 import numpy as np
+import pytest
 
 import services.bar_derivation as bar_derivation_module
 from services.bar_derivation import BarDerivation
-from src.intelligence.bars.derivation import RULE_VERSION
+from src.intelligence.bars.daily_rule import RULE_VERSION
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest
 
 _BATCH_ID = "22222222-2222-2222-2222-222222222222"
-_FETCHED = datetime(2026, 9, 30, tzinfo=UTC)
-_D1 = date(2024, 5, 1)  # equal stored row
-_D2 = date(2024, 5, 2)  # equal stored row
-_D3 = date(2024, 6, 3)  # stored close differs
-_D4 = date(2024, 6, 4)  # missing (a synthetic_fill placeholder sits on the key)
+_FETCHED = datetime(2026, 10, 3, tzinfo=UTC)
+_D1 = date(2024, 5, 1)  # stored tradier, equal
+_D2 = date(2024, 5, 2)  # stored tradier, close differs
+_D3 = date(2024, 6, 3)  # not stored: new
+_D4 = date(2024, 6, 4)  # stored ibkr_named with equal values: changes source only
+_D5 = date(2024, 6, 5)  # stored, inside the span, no observation: removed
+_D6 = date(2024, 6, 6)  # Tradier observation (span end)
+_D0 = date(2024, 4, 1)  # stored before the span: untouched
+
+_DEFAULT_POLICY = {
+    "timeframe": "1d",
+    "symbol": None,
+    "valid_from": date(1990, 1, 1),
+    "valid_to": None,
+    "ingress_mode": "observed",
+    "primary_source": "tradier",
+    "fallback_source": "ibkr",
+}
 
 
 def _ts(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
-def _obs_rows(symbol_closes: dict[date, float], *, fetched_at: datetime = _FETCHED):
-    return [
-        {
-            "request_id": f"req-{d.isoformat()}",
-            "route": "SMART",
-            "bar_date": d,
-            "open": c,
-            "high": c,
-            "low": c,
-            "close": c,
-            "volume": 100,
-            "fetched_at": fetched_at,
-            "what_to_show": "TRADES",
-            "legacy": False,
-        }
-        for d, c in symbol_closes.items()
-    ]
-
-
-def _stored_row(close: float, volume: int = 100, source: str = "ibkr_named"):
+def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None = 100) -> dict:
     return {
-        "timestamp": None,  # filled by the caller
+        "request_id": f"{route}-{day.isoformat()}",
+        "route": route,
+        "bar_date": day,
+        "open": close,
+        "high": close,
+        "low": close,
+        "close": close,
+        "volume": volume,
+        "fetched_at": _FETCHED,
+        "what_to_show": "TRADES",
+        "legacy": route == "LEGACY_IMPORT",
+    }
+
+
+def _row(close: float, source: str = "tradier", volume: int | None = 100) -> dict:
+    return {
         "open": close,
         "high": close,
         "low": close,
@@ -70,6 +80,29 @@ def _stored_row(close: float, volume: int = 100, source: str = "ibkr_named"):
     }
 
 
+def _fixture() -> tuple[dict[str, list[dict]], dict[str, dict[date, dict]]]:
+    observations = {
+        "TEST": [
+            _obs(_D1, 10.0),
+            _obs(_D2, 11.0),
+            _obs(_D3, 12.0),
+            _obs(_D4, 13.0),
+            _obs(_D6, 14.0),
+        ]
+    }
+    stored = {
+        "TEST": {
+            _D0: _row(9.0),
+            _D1: _row(10.0),
+            _D2: _row(11.5),
+            _D4: _row(13.0, source="ibkr_named"),
+            _D5: _row(13.5),
+            _D6: _row(14.0),
+        }
+    }
+    return observations, stored
+
+
 class FakeConn:
     """asyncpg.Connection-shaped fake with an in-memory canonical 1d store."""
 
@@ -78,31 +111,45 @@ class FakeConn:
         *,
         observations: dict[str, list[dict]],
         stored: dict[str, dict[date, dict]] | None = None,
-        synthetic: dict[str, set[date]] | None = None,
         splits: dict[str, list[dict]] | None = None,
+        policy: list[dict] | None = None,
         current_digests: dict[str, list[tuple[datetime, str]]] | None = None,
         flag_rules: dict[str, list[tuple[datetime, str, bool]]] | None = None,
         changed_since: dict[str, bool] | None = None,
-        venue_enabled: bool = False,
         tradier_owned: frozenset[str] = frozenset(),
+        lineage_relkind: str = "v",
+        waived: bool = False,
+        apr: dict[str, str] | None = None,
     ) -> None:
-        self.tradier_owned = tradier_owned
         self.observations = observations
         self.stored = stored or {}
-        self.synthetic = synthetic or {}
         self.splits = splits or {}
+        self.policy = [dict(_DEFAULT_POLICY)] if policy is None else policy
         self.current_digests = current_digests or {}
         self.flag_rules = flag_rules or {}
         self.changed_since = changed_since
-        self.venue_enabled = venue_enabled
+        self.tradier_owned = tradier_owned
+        self.lineage_relkind = lineage_relkind
+        self.waived = waived
+        self.apr = {
+            "infra.bar_derivation.daily_symbol_batch": "25",
+            "infra.bar_derivation.daily_write_method": "upsert",
+            "threshold.bar_integrity.fallback_basis_window_sessions": "20",
+            "threshold.bar_integrity.fallback_basis_tolerance_bp": "10",
+            "threshold.bar_integrity.max_revision_ratio": "0.02",
+            "threshold.bar_integrity.revision_ratio_min_stored": "500",
+            "threshold.bar_scrub.quarantine_rules": json.dumps(
+                ["ohlc_invariant", "price_sanity", "pre_split_unrefetched"]
+            ),
+            **(apr or {}),
+        }
         self.calls: list[tuple[str, str]] = []
         self.statements: list[tuple[str, tuple]] = []
         self.executemany_calls: list[tuple[str, list[tuple]]] = []
-        self.lineage_rows: list[tuple] = []
-        self.bar_write_rows: list[tuple] = []
         self.digest_rows: list[tuple] = []
         self.flag_inserts: list[tuple] = []
         self.digest_read_sources: list[tuple] = []
+        self.stored_read_sources: list[tuple] = []
 
     class _Txn:
         def __init__(self, outer: FakeConn) -> None:
@@ -118,54 +165,34 @@ class FakeConn:
     def transaction(self) -> FakeConn._Txn:
         return self._Txn(self)
 
+    def _stored_rows(self, symbol: str, sources: tuple) -> list[dict]:
+        return [
+            {**row, "timestamp": _ts(day)}
+            for day, row in sorted(self.stored.get(symbol, {}).items())
+            if row["source"] in sources
+        ]
+
     async def fetch(self, sql: str, *args: object) -> list[object]:
         self.calls.append(("fetch", sql))
         if "config_state" in sql:
-            return [
-                {"config_key": "infra.bar_derivation.daily_symbol_batch", "config_value": "25"},
-                {"config_key": "infra.bar_derivation.daily_write_method", "config_value": "upsert"},
-                {
-                    "config_key": "infra.bar_derivation.venue_bars_1d",
-                    "config_value": "true" if self.venue_enabled else "false",
-                },
-                {
-                    "config_key": "threshold.bar_scrub.quarantine_rules",
-                    "config_value": json.dumps(
-                        [
-                            "ohlc_invariant",
-                            "non_positive_price",
-                            "price_sanity",
-                            "split_seam",
-                            "legacy_price_sanity_status",
-                            "pre_split_unrefetched",
-                        ]
-                    ),
-                },
-            ]
+            return [{"config_key": k, "config_value": v} for k, v in self.apr.items()]
         if "FROM instruments" in sql:
             return [(symbol,) for symbol in sorted(self.observations)]
+        if "FROM bar_source_policy" in sql:
+            return self.policy
         if "ohlcv_observation" in sql:
-            return self.observations.get(str(args[0]), [])
+            routes = set(args[1])  # type: ignore[arg-type]
+            return [o for o in self.observations.get(str(args[0]), []) if o["route"] in routes]
         if "corporate_action_current" in sql:
             return self.splits.get(str(args[0]), [])
-        if "source IN ('ibkr_named'" in sql:
-            symbol = str(args[0])
-            return [
-                {**row, "timestamp": _ts(day)}
-                for day, row in sorted(self.stored.get(symbol, {}).items())
-                if row.get("source", "ibkr_named") in ("ibkr_named", "ibkr_venue")
-            ]
+        if "/* stored_1d */" in sql:
+            sources = tuple(args[1])  # type: ignore[arg-type]
+            self.stored_read_sources.append(sources)
+            return self._stored_rows(str(args[0]), sources)
         if "source = ANY($2" in sql:
-            # write_1d_digests' read: every canonical 1d source.
-            symbol, sources = str(args[0]), tuple(args[1])  # type: ignore[arg-type]
+            sources = tuple(args[1])  # type: ignore[arg-type]
             self.digest_read_sources.append(sources)
-            return [
-                {**row, "timestamp": _ts(day)}
-                for day, row in sorted(self.stored.get(symbol, {}).items())
-                if row.get("source", "ibkr_named") in sources
-            ]
-        if "base IS NOT NULL" in sql:
-            return [("USD",)]
+            return self._stored_rows(str(args[0]), sources)
         if "bar_content_digest_current" in sql:
             return [
                 {"range_start": start, "digest": digest}
@@ -186,18 +213,30 @@ class FakeConn:
                 "has_obs": bool(self.observations.get(str(args[0]))),
                 "obs_since": since,
                 "action_since": False,
+                "policy_since": False,
                 "tradier_owned": str(args[0]) in self.tradier_owned,
             }
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
     async def fetchval(self, sql: str, *args: object) -> object:
         self.calls.append(("fetchval", sql))
+        if "pg_class" in sql:
+            return self.lineage_relkind
+        if "/* revision_waiver */" in sql:
+            return self.waived
         assert "bar_derivation_batch" in sql, f"unexpected fetchval: {sql}"
         return _BATCH_ID
 
     async def execute(self, sql: str, *args: object) -> str:
         self.calls.append(("execute", sql))
         self.statements.append((sql, tuple(args)))
+        if "DELETE FROM market_data_ohlcv" in sql:
+            symbol, keys = str(args[0]), list(args[1])  # type: ignore[arg-type]
+            for ts in keys:
+                del self.stored[symbol][ts.date()]
+            return f"DELETE {len(keys)}"
+        if "INSERT INTO ohlcv_load" in sql:
+            return "INSERT 0 1"
         return "UPDATE 1"
 
     async def executemany(self, sql: str, args_seq: object) -> str:
@@ -205,27 +244,33 @@ class FakeConn:
         self.calls.append(("executemany", sql))
         self.executemany_calls.append((sql, args))
         if "INSERT INTO market_data_ohlcv" in sql:
-            self.bar_write_rows.extend(args)
-            symbol = args[0][1]
             for row in args:
-                day = row[0].date()
-                self.stored.setdefault(symbol, {})[day] = {
-                    "timestamp": row[0],
+                self.stored.setdefault(row[1], {})[row[0].date()] = {
                     "open": row[3],
                     "high": row[4],
                     "low": row[5],
                     "close": row[6],
                     "volume": row[7],
-                    "base": row[9],
                     "source": row[8],
+                    "base": row[9],
                 }
-        elif "INSERT INTO canonical_bar_lineage" in sql:
-            self.lineage_rows.extend(args)
         elif "INSERT INTO bar_content_digest" in sql:
             self.digest_rows.extend(args)
         elif "INSERT INTO bar_quality_flag" in sql:
             self.flag_inserts.extend(args)
         return f"INSERT {len(args)}"
+
+    # -- views over what was written --------------------------------------------------------
+
+    def executed(self, fragment: str) -> list[tuple]:
+        return [args for sql, args in self.statements if fragment in sql]
+
+    def many(self, fragment: str) -> list[tuple]:
+        return [row for sql, rows in self.executemany_calls if fragment in sql for row in rows]
+
+    def order(self, *fragments: str) -> list[int]:
+        flat = [sql for _kind, sql in self.calls]
+        return [next(i for i, sql in enumerate(flat) if f in sql) for f in fragments]
 
 
 class FakePool:
@@ -246,22 +291,6 @@ class FakePool:
         return self._Acquire(self.conn)
 
 
-def _canonical_fixture_stored() -> dict[str, dict[date, dict]]:
-    """Stored rows: d1/d2 equal, d3 close differs, d4 absent (synthetic key)."""
-    stored = {
-        _D1: _stored_row(10.0),
-        _D2: _stored_row(11.0),
-        _D3: _stored_row(12.5),
-    }
-    for day, row in stored.items():
-        row["timestamp"] = _ts(day)
-    return {"TEST": stored}
-
-
-def _observations_fixture() -> dict[str, list[dict]]:
-    return {"TEST": _obs_rows({_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0})}
-
-
 def _run(conn: FakeConn, **overrides: object):
     scrub_calls: list[dict] = []
     scrub_effect = overrides.pop("scrub_effect", None)
@@ -273,7 +302,6 @@ def _run(conn: FakeConn, **overrides: object):
             scrub_effect(pool.conn)  # type: ignore[operator]
         return {}
 
-    report = overrides.pop("report_path", None)
     writer = BarDerivation(
         "postgresql://unused",
         stage="daily",
@@ -281,7 +309,7 @@ def _run(conn: FakeConn, **overrides: object):
         changed_only=overrides.pop("changed_only", False),
         apply=overrides.pop("apply", True),
         exclude_symbols_file=None,
-        report_path=report,
+        report_path=overrides.pop("report_path", None),
     )
     original = bar_derivation_module.scrub_symbols
     bar_derivation_module.scrub_symbols = fake_scrub
@@ -292,207 +320,253 @@ def _run(conn: FakeConn, **overrides: object):
     return result, scrub_calls
 
 
-def _digest(days: list[date], closes: list[float]) -> tuple[str, int]:
+def _digest(days: list[date], closes: list[float]) -> str:
     ts = np.array([int(_ts(d).timestamp()) for d in days], dtype=np.int64)
     arr = np.array(closes, dtype=np.float64)
     vol = np.array([100.0] * len(days), dtype=np.float64)
-    return (
-        bar_content_digest(ts, arr, arr, arr, arr, vol, [()] * len(days)),
-        len(days),
-    )
+    return bar_content_digest(ts, arr, arr, arr, arr, vol, [()] * len(days))
 
 
-def test_equal_rows_write_no_bars_but_full_lineage():
-    conn = FakeConn(observations=_observations_fixture(), stored=_canonical_fixture_stored())
-    # Make every stored row equal to the canonical bars.
-    conn.stored["TEST"][_D3] = {**_stored_row(12.0), "timestamp": _ts(_D3)}
-    conn.stored["TEST"][_D4] = {**_stored_row(13.0), "timestamp": _ts(_D4)}
-    result, scrub_calls = _run(conn)
-    assert result["totals"]["derived"] == 1 and result["totals"]["failed"] == 0
-    assert conn.bar_write_rows == []
-    assert len(conn.lineage_rows) == 4
-    assert all(r[2] == RULE_VERSION for r in conn.lineage_rows)
-    assert scrub_calls and scrub_calls[0]["tf"] == "1d"
+# --- dry run -----------------------------------------------------------------------------------
 
 
-def test_differing_close_and_missing_date_each_write_once():
-    conn = FakeConn(
-        observations=_observations_fixture(),
-        stored=_canonical_fixture_stored(),
-        synthetic={"TEST": {_D4, date(2024, 6, 5)}},
-    )
-    result, _ = _run(conn)
-    assert len(conn.bar_write_rows) == 2
-    written_dates = sorted(r[0].date() for r in conn.bar_write_rows)
-    assert written_dates == [_D3, _D4]
-    d3_row = next(r for r in conn.bar_write_rows if r[0].date() == _D3)
-    assert d3_row[6] == 12.0 and d3_row[9] == "USD"
-    assert result["reasons"] == {
-        "d1_value_differs": 1,
-        "missing": 1,
-        "volume_differs": 0,
-        "split_rescale": 0,
-    }
-    assert len(conn.lineage_rows) == 4
-
-
-def test_dry_run_writes_nothing_and_reports_reasons(tmp_path):
-    conn = FakeConn(
-        observations=_observations_fixture(),
-        stored=_canonical_fixture_stored(),
-        synthetic={"TEST": {_D4}},
-    )
-    report = tmp_path / "report.md"
+def test_dry_run_classifies_every_canonical_source_and_writes_nothing(tmp_path):
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
+    report = tmp_path / "dryrun.tsv"
     result, scrub_calls = _run(conn, apply=False, report_path=str(report))
-    assert conn.bar_write_rows == []
-    assert conn.lineage_rows == []
-    assert conn.digest_rows == []
-    assert conn.flag_inserts == []
-    assert scrub_calls == []
-    # No batch row on a dry run (grid convention): no open/close statements.
-    assert not [sql for sql, _ in conn.statements if "bar_derivation_batch" in sql]
-    text = report.read_text()
-    assert "d1_value_differs" in text and "missing" in text
-    assert "dry run" in text
-
-
-def test_pre_split_flags_written_via_write_flags_shape():
-    conn = FakeConn(
-        observations={
-            "TEST": _obs_rows(
-                {_D1: 10.0, _D2: 11.0, _D3: 12.0, _D4: 13.0},
-                fetched_at=datetime(2024, 6, 1, tzinfo=UTC),
-            )
-        },
-        stored=_canonical_fixture_stored(),
-        splits={
-            "TEST": [
-                {
-                    "effective_date": date(2024, 6, 3),
-                    "recorded_at": datetime(2024, 6, 11, tzinfo=UTC),
-                    "factor": 2.0,
-                }
-            ]
-        },
-    )
-    conn.stored["TEST"][_D3] = {**_stored_row(12.0), "timestamp": _ts(_D3)}
-    conn.stored["TEST"][_D4] = {**_stored_row(13.0), "timestamp": _ts(_D4)}
-    result, _ = _run(conn)
-    # d1/d2 pre-effective with a pre-recording fetch: flagged; d3/d4 clean.
-    pre_split = [r for r in conn.flag_inserts if r[3] == "pre_split_unrefetched"]
-    assert len(pre_split) == 2
-    assert {r[2].date() for r in pre_split} == {_D1, _D2}
-    assert all(r[6] is True for r in pre_split)  # quarantine per APR list
-    assert all(r[4] == RULE_VERSION for r in pre_split)
-    assert result["n_pre_split_bars"] == 2
-
-
-def test_digest_rows_only_for_months_whose_digest_changed():
-    conn = FakeConn(
-        observations=_observations_fixture(),
-        stored=_canonical_fixture_stored(),
-        synthetic={"TEST": {_D4}},
-    )
-    may_digest, may_n = _digest([_D1, _D2], [10.0, 11.0])
-    conn.current_digests = {"TEST": [(datetime(2024, 5, 1, tzinfo=UTC), may_digest)]}
-    result, _ = _run(conn)
-    assert [r for r in conn.digest_rows if r[2].month == 5] == []
-    june = [r for r in conn.digest_rows if r[2].month == 6]
-    assert len(june) == 1
-    expected, n = _digest([_D3, _D4], [12.0, 13.0])
-    assert june[0][4] == expected
-    assert june[0][5] == DIGEST_ALGORITHM and june[0][6] == RULE_VERSION
-    assert june[0][7] == n and june[0][8] == _BATCH_ID
-
-
-def test_changed_only_skips_symbol_without_new_answers():
-    conn = FakeConn(
-        observations=_observations_fixture(),
-        stored=_canonical_fixture_stored(),
-        changed_since={"TEST": False},
-    )
-    result, _ = _run(conn, changed_only=True)
-    assert result["totals"]["unchanged"] == 1
-    assert conn.bar_write_rows == []
-    assert conn.lineage_rows == []
-    # The probe runs before the observation load: an unchanged symbol never
-    # fetches observations, splits, or stored rows (the derivation it would
-    # feed is skipped). n_canonical is 0 by construction. The probe itself is
-    # a fetchrow; the observation load would be a fetch.
-    obs_kinds = [kind for kind, sql in conn.calls if "ohlcv_observation" in sql]
-    assert obs_kinds == ["fetchrow"]
-    assert not any("corporate_action_current" in sql for kind, sql in conn.calls if kind == "fetch")
-    assert result["canonical_bars"] == 0
-
-
-def test_venue_observations_gated_by_apr_flag():
-    venue_day = date(2024, 4, 30)
-    venue_obs = {
-        "request_id": "req-venue",
-        "route": "NYSE",
-        "bar_date": venue_day,
-        "open": 9.0,
-        "high": 9.0,
-        "low": 9.0,
-        "close": 9.0,
-        "volume": 50,
-        "fetched_at": _FETCHED,
-        "what_to_show": "TRADES",
-        "legacy": False,
+    assert result["rows"] == {
+        "new": 1,  # _D3
+        "changed": 2,  # _D2 value, _D4 source only
+        "unchanged": 2,  # _D1, _D6
+        "removed": 1,  # _D5; _D0 sits before the span and stays
     }
-    # SMART coverage starts at _D2, so venue_day is strictly pre-head.
-    observations = {"TEST": _obs_rows({_D2: 11.0, _D3: 12.0, _D4: 13.0})}
-    observations["TEST"].append(venue_obs)
-    stored = {
-        "TEST": {
-            _D2: {**_stored_row(11.0), "timestamp": _ts(_D2)},
-            _D3: {**_stored_row(12.0), "timestamp": _ts(_D3)},
-            _D4: {**_stored_row(13.0), "timestamp": _ts(_D4)},
-        }
-    }
-    conn_disabled = FakeConn(observations=observations, stored=stored)
-    _run(conn_disabled)
-    assert all(r[1].date() != venue_day for r in conn_disabled.lineage_rows)
-
-    conn_enabled = FakeConn(observations=observations, stored=stored, venue_enabled=True)
-    _run(conn_enabled)
-    assert any(r[1].date() == venue_day for r in conn_enabled.lineage_rows)
+    assert result["totals"]["derived"] == 1
+    assert conn.stored_read_sources == [("ibkr_named", "ibkr_venue", "ibkr_fallback", "tradier")]
+    # Nothing written: no statement, no batch, no scrub.
+    assert conn.statements == [] and conn.executemany_calls == [] and scrub_calls == []
+    assert not any("pg_class" in sql for _kind, sql in conn.calls)
+    rows = list(csv.DictReader(report.open(), delimiter="\t"))
+    assert [r["symbol"] for r in rows] == ["TEST"]
+    (row,) = rows
+    assert row["group"] == "mixed"
+    assert (row["new"], row["changed"], row["unchanged"], row["removed"]) == ("1", "2", "2", "1")
+    assert row["changed_source_only"] == "1" and row["outside_span"] == "1"
+    assert row["refused_interior"] == "0" and row["would_refuse"] == "false"
 
 
-def test_no_observations_counts_and_moves_on():
-    conn = FakeConn(observations={"TEST": []}, stored={})
-    result, _ = _run(conn)
-    assert result["totals"]["no_observations"] == 1
-    assert conn.bar_write_rows == [] and conn.lineage_rows == []
+def test_tradier_owned_names_are_derived_not_skipped():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored, tradier_owned=frozenset({"TEST"}))
+    result, _ = _run(conn, apply=False)
+    assert result["totals"].get("tradier_owned", 0) == 0
+    assert result["totals"]["derived"] == 1
 
 
-def test_report_lists_top_symbols_and_pre_split(tmp_path):
+def test_dry_run_reports_refused_interior_dates_and_groups(tmp_path):
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)]
+    hole = days[3]
+    obs = [_obs(d, 100.0) for d in days if d != hole]
+    obs += [_obs(d, 101.0, route="SMART") for d in days]  # 100 bp away: refused
     conn = FakeConn(
-        observations=_observations_fixture(),
-        stored=_canonical_fixture_stored(),
-        synthetic={"TEST": {_D4}},
+        observations={"TEST": obs, "ONLY": [_obs(d, 5.0, route="SMART") for d in days]},
+        stored={"TEST": {d: _row(100.0) for d in days if d != hole}},
     )
-    report = tmp_path / "report.md"
-    _run(conn, apply=False, report_path=str(report))
-    text = report.read_text()
-    assert "TEST" in text
-    assert "pre_split_unrefetched" in text
-    assert "top 20" in text.lower()
+    report = tmp_path / "dryrun.tsv"
+    result, _ = _run(conn, apply=False, report_path=str(report))
+    rows = {r["symbol"]: r for r in csv.DictReader(report.open(), delimiter="\t")}
+    assert rows["TEST"]["refused_interior"] == "1"
+    assert rows["TEST"]["refused_dates"] == hole.isoformat()
+    assert rows["TEST"]["group"] == "tradier_only"
+    # No stored rows and no Tradier answer: every IBKR bar is a head.
+    assert rows["ONLY"]["group"] == "none" and rows["ONLY"]["head"] == str(len(days))
+    assert result["refused_interior"] == 1
 
 
-def test_tradier_owned_symbol_is_skipped_even_with_observations():
-    # Migration 438: a name Tradier has loaded is never re-derived from IBKR, even after a later
-    # refused load (plan 185-26).
-    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
-
-    assert "FROM ohlcv_load" in _SELECT_DAILY_CHANGED_SINCE_SQL
-    assert "tradier_owned" in _SELECT_DAILY_CHANGED_SINCE_SQL
+def test_a_missing_policy_row_fails_the_symbol_loud():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored, policy=[])
+    with pytest.raises(RuntimeError, match="no bar_source_policy row"):
+        _run(conn, apply=False)
 
 
-def test_digest_written_after_the_scrub_includes_its_flags():
-    # Plan 185-27: D2 digests each derived symbol after the run's scrub_symbols call, so a
-    # flag the scrub adds is inside the digest written in the same run.
-    conn = FakeConn(observations=_observations_fixture(), stored=_canonical_fixture_stored())
+# --- apply -----------------------------------------------------------------------------------
+
+
+def test_apply_refuses_while_canonical_bar_lineage_is_a_table():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored, lineage_relkind="r")
+    with pytest.raises(RuntimeError, match="185-38"):
+        _run(conn)
+    assert conn.statements == [] and conn.executemany_calls == []
+
+
+def test_apply_writes_the_contract_and_no_lineage():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
+    result, scrub_calls = _run(conn)
+    # One ohlcv_load row: derived 1d into market_data_ohlcv, the four counts, the batch.
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    load = dict(
+        zip(
+            (
+                "load_id symbol timeframe source requested_start requested_end outcome n_bars "
+                "n_new n_changed n_unchanged n_removed first_bar last_bar detail caller batch_id "
+                "destination"
+            ).split(),
+            load_args,
+        )
+    )
+    assert (load["symbol"], load["timeframe"], load["source"]) == ("TEST", "1d", "derived")
+    assert (load["outcome"], load["destination"], load["batch_id"]) == (
+        "applied",
+        "market_data_ohlcv",
+        _BATCH_ID,
+    )
+    assert (load["n_new"], load["n_changed"], load["n_unchanged"], load["n_removed"]) == (
+        1,
+        2,
+        2,
+        1,
+    )
+    assert json.loads(load["detail"])["rule_version"] == RULE_VERSION
+    # Old values of changed and removed rows, origin load, under the load row.
+    revisions = conn.many("INSERT INTO ohlcv_revision")
+    assert {(r[3].date(), r[7], r[9], r[10]) for r in revisions} == {
+        (_D2, 11.5, "tradier", "load"),
+        (_D4, 13.0, "ibkr_named", "load"),
+        (_D5, 13.5, "tradier", "load"),
+    }
+    assert {r[0] for r in revisions} == {load["load_id"]}
+    # Removed by key, new by insert, changed by the upsert on the changed set only.
+    ((delete_args),) = conn.executed("DELETE FROM market_data_ohlcv")
+    assert [ts.date() for ts in delete_args[1]] == [_D5]
+    inserts = [
+        row
+        for sql, rows in conn.executemany_calls
+        if "INSERT INTO market_data_ohlcv" in sql and "ON CONFLICT" not in sql
+        for row in rows
+    ]
+    assert [r[0].date() for r in inserts] == [_D3]
+    upserts = conn.many("ON CONFLICT")
+    assert sorted(r[0].date() for r in upserts) == [_D2, _D4]
+    assert {r[0].date(): r[8] for r in upserts}[_D4] == "tradier"
+    # Revisions land before any bar change, all inside the role switch.
+    role, load_i, revision, delete, upsert = conn.order(
+        "SET LOCAL ROLE bar_derivation_writer",
+        "INSERT INTO ohlcv_load",
+        "INSERT INTO ohlcv_revision",
+        "DELETE FROM market_data_ohlcv",
+        "ON CONFLICT",
+    )
+    assert role < load_i < revision < delete < upsert
+    assert not any("canonical_bar_lineage" in sql for _kind, sql in conn.calls)
+    assert conn.stored["TEST"][_D2]["close"] == 11.0 and _D5 not in conn.stored["TEST"]
+    assert scrub_calls and scrub_calls[0]["symbols"] == ["TEST"]
+    assert result["totals"]["derived"] == 1
+
+
+def test_a_second_apply_over_the_same_answers_writes_no_bar():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
+    _run(conn)
+    conn.statements.clear()
+    conn.executemany_calls.clear()
+    _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    assert load_args[8:12] == (0, 0, 5, 0)
+    assert not conn.executed("DELETE FROM market_data_ohlcv")
+    assert not conn.many("INSERT INTO market_data_ohlcv")
+    assert not conn.many("INSERT INTO ohlcv_revision")
+
+
+def test_open_batch_gets_rule_d2v2_and_the_integrity_and_scrub_keys(monkeypatch):
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
+    seen: dict = {}
+
+    async def fake_open(conn, **kwargs):
+        seen.update(kwargs)
+        return _BATCH_ID
+
+    monkeypatch.setattr(bar_derivation_module, "open_batch", fake_open)
+    _run(conn)
+    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v2"
+    keys = set(seen["apr_snapshot"])
+    assert "threshold.bar_integrity.fallback_basis_tolerance_bp" in keys
+    assert "threshold.bar_integrity.max_revision_ratio" in keys
+    assert "threshold.bar_scrub.quarantine_rules" in keys
+    assert "infra.bar_derivation.daily_symbol_batch" in keys
+
+
+def _ratio_fixture(**conn_kwargs) -> FakeConn:
+    observations, stored = _fixture()
+    return FakeConn(
+        observations=observations,
+        stored=stored,
+        apr={"threshold.bar_integrity.revision_ratio_min_stored": "5"},
+        **conn_kwargs,
+    )
+
+
+def test_revision_ratio_breach_writes_only_a_refused_load():
+    conn = _ratio_fixture(waived=False)
+    with pytest.raises(RuntimeError, match="refused"):
+        _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    assert load_args[6] == "refused"
+    assert not conn.many("INSERT INTO market_data_ohlcv")
+    assert not conn.many("INSERT INTO ohlcv_revision")
+    assert not conn.executed("DELETE FROM market_data_ohlcv")
+    assert not conn.flag_inserts
+
+
+def test_revision_ratio_is_waived_by_a_recorded_action_or_a_first_load():
+    conn = _ratio_fixture(waived=True)
+    _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    assert load_args[6] == "applied"
+    assert conn.many("ON CONFLICT")
+
+
+def test_revision_ratio_applies_only_at_or_above_min_stored():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored, waived=False)  # min_stored 500
+    _run(conn)
+    assert conn.executed("INSERT INTO ohlcv_load")[0][6] == "applied"
+    assert not any("/* revision_waiver */" in sql for _kind, sql in conn.calls)
+
+
+def test_the_waiver_reads_corporate_actions_and_policy_after_the_last_applied_load():
+    from services.bar_derivation import _SELECT_REVISION_WAIVER_SQL as sql
+
+    assert "corporate_action" in sql and "bar_source_policy" in sql
+    assert "outcome = 'applied'" in sql and "source = 'derived'" in sql
+
+
+def test_derivation_flags_go_through_write_flags_with_rule_d2v2():
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8)]
+    observations = {
+        "TEST": [_obs(days[0], 10.0, route="SMART")]
+        + [_obs(d, 10.0) for d in days[1:]]
+        + [_obs(d, 10.0, route="SMART") for d in days[1:]]
+        + [_obs(date(2024, 1, 9), 10.0, volume=None)]
+    }
+    conn = FakeConn(observations=observations, stored={})
+    _run(conn)
+    by_rule = {(r[3], r[2].date()): r for r in conn.flag_inserts}
+    seam = by_rule[("fallback_seam", days[1])]
+    assert seam[4] == RULE_VERSION and seam[6] is False
+    detail = json.loads(seam[7])
+    assert detail["n_head_bars"] == 1 and detail["median_ratio"] == 1.0
+    assert by_rule[("no_provider_volume", date(2024, 1, 9))][6] is False
+    head_bar = conn.stored["TEST"][days[0]]
+    assert head_bar["source"] == "ibkr_fallback"
+
+
+def test_scrub_then_digests_at_d2v2_after_the_writes():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
 
     def add_flag(c: FakeConn) -> None:
         c.flag_rules.setdefault("TEST", []).append((_ts(_D1), "volume_spike", False))
@@ -500,44 +574,76 @@ def test_digest_written_after_the_scrub_includes_its_flags():
     _run(conn, scrub_effect=add_flag)
     kinds = [kind for kind, sql in conn.calls if kind == "scrub" or "bar_content_digest" in sql]
     assert kinds.index("scrub") < kinds.index("executemany")
+    assert {r[6] for r in conn.digest_rows} == {RULE_VERSION}
+    assert {r[5] for r in conn.digest_rows} == {DIGEST_ALGORITHM}
     may = [r for r in conn.digest_rows if r[2].month == 5]
-    assert len(may) == 1
     ts = np.array([int(_ts(d).timestamp()) for d in (_D1, _D2)], dtype=np.int64)
     arr = np.array([10.0, 11.0], dtype=np.float64)
     vol = np.array([100.0, 100.0], dtype=np.float64)
-    with_flag = bar_content_digest(ts, arr, arr, arr, arr, vol, [("volume_spike",), ()])
-    assert may[0][4] == with_flag
-    assert may[0][4] != _digest([_D1, _D2], [10.0, 11.0])[0]
+    assert may[0][4] == bar_content_digest(ts, arr, arr, arr, arr, vol, [("volume_spike",), ()])
 
 
-def test_digest_failure_fails_the_run_after_the_scrub():
-    conn = FakeConn(observations=_observations_fixture(), stored=_canonical_fixture_stored())
-    original = bar_derivation_module.write_1d_digests
+def test_digest_failure_fails_the_run_after_the_scrub(monkeypatch):
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored)
 
     async def boom(conn, **kwargs):
         raise RuntimeError("digest write refused")
 
-    bar_derivation_module.write_1d_digests = boom
-    try:
-        try:
-            _run(conn)
-        except RuntimeError as error:
-            assert "digest TEST" in str(error)
-        else:
-            raise AssertionError("a digest failure must fail the run")
-    finally:
-        bar_derivation_module.write_1d_digests = original
+    monkeypatch.setattr(bar_derivation_module, "write_1d_digests", boom)
+    with pytest.raises(RuntimeError, match="digest TEST"):
+        _run(conn)
 
 
-def test_write_1d_digests_reads_every_canonical_source_including_tradier():
+def test_changed_only_skips_symbol_without_new_answers():
+    observations, stored = _fixture()
+    conn = FakeConn(observations=observations, stored=stored, changed_since={"TEST": False})
+    result, _ = _run(conn, changed_only=True)
+    assert result["totals"]["unchanged"] == 1
+    assert not any("ohlcv_observation" in sql for kind, sql in conn.calls if kind == "fetch")
+    assert not conn.statements or all("ohlcv_load" not in sql for sql, _ in conn.statements)
+
+
+def test_no_observations_counts_and_moves_on():
+    conn = FakeConn(observations={"TEST": []}, stored={})
+    result, _ = _run(conn)
+    assert result["totals"]["no_observations"] == 1
+    assert not conn.executed("INSERT INTO ohlcv_load")
+
+
+# --- statements ------------------------------------------------------------------------------
+
+
+def test_changed_since_probe_keeps_its_name_and_tradier_owned_column():
+    # ibkr_history_fetcher.py (phase 189) imports it as _DAILY_SOURCE_PROBE_SQL.
+    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as sql
+
+    assert "FROM ohlcv_load" in sql and "AS tradier_owned" in sql
+    assert "AS policy_since" in sql and "bar_source_policy" in sql
+
+
+def test_daily_stage_calls_d2v2_and_writes_no_lineage():
+    from tests.unit._source_grep_helpers import read_source
+
+    source = read_source("services", "bar_derivation.py")
+    assert "derive_daily_v2" in source
+    assert "_UPSERT_LINEAGE_SQL" not in source
+    assert "canonical_bar_lineage" not in source.split("_SELECT_LINEAGE_RELKIND_SQL")[0]
+
+
+def test_observation_read_takes_the_d2v2_routes():
+    from services.bar_derivation import _D2V2_ROUTES, _SELECT_DAILY_OBSERVATIONS_SQL
+
+    assert set(_D2V2_ROUTES) == {"TRADIER", "SMART", "LEGACY_IMPORT"}
+    assert "o.route = ANY($2::text[])" in _SELECT_DAILY_OBSERVATIONS_SQL
+    assert "q.caller NOT LIKE 'test-%'" in _SELECT_DAILY_OBSERVATIONS_SQL
+
+
+def test_write_1d_digests_reads_every_canonical_source():
     from services.bar_derivation import write_1d_digests
     from src.intelligence.bars.sources import CANONICAL_1D_SOURCES, TRADIER_RULE_VERSION
 
-    assert "tradier" in CANONICAL_1D_SOURCES
-    stored = {
-        _D1: {**_stored_row(10.0, source="tradier"), "timestamp": _ts(_D1)},
-        _D2: {**_stored_row(11.0, source="tradier"), "timestamp": _ts(_D2)},
-    }
+    stored = {_D1: _row(10.0), _D2: _row(11.0)}
     conn = FakeConn(observations={}, stored={"TEST": stored})
     n = asyncio.run(
         write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=TRADIER_RULE_VERSION)
@@ -545,11 +651,9 @@ def test_write_1d_digests_reads_every_canonical_source_including_tradier():
     assert n == 1
     assert conn.digest_read_sources == [CANONICAL_1D_SOURCES]
     (row,) = conn.digest_rows
-    assert row[4] == _digest([_D1, _D2], [10.0, 11.0])[0]
+    assert row[4] == _digest([_D1, _D2], [10.0, 11.0])
     assert row[6] == TRADIER_RULE_VERSION and row[7] == 2 and row[8] == _BATCH_ID
-    # Under the writer role, inside its own transaction.
     assert ("execute", "SET LOCAL ROLE bar_derivation_writer") in conn.calls
-    # Unchanged content writes nothing on the next call.
     conn.current_digests = {"TEST": [(row[2], row[4])]}
     assert (
         asyncio.run(
@@ -559,10 +663,3 @@ def test_write_1d_digests_reads_every_canonical_source_including_tradier():
         )
         == 0
     )
-
-
-def test_d2_value_comparison_reads_ibkr_sources_only():
-    from services.bar_derivation import _SELECT_STORED_1D_SQL
-
-    assert "'ibkr_named', 'ibkr_venue'" in _SELECT_STORED_1D_SQL
-    assert "tradier" not in _SELECT_STORED_1D_SQL
