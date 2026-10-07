@@ -79,6 +79,12 @@ _ALLOW_LIST: dict[str, str] = {
         "to its stored bar's source; lineage and digests cover those rows, so the tradeable "
         "view would hide exactly the bars being traced."
     ),
+    "scripts/ops/bars/ops_source_policy.py": (
+        "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
+        "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "
+        "tradeable view would hide a name whose only Tradier rows are zero-volume or quarantined "
+        "and misclassify an incumbent as never-Tradier."
+    ),
     "scripts/ops/bars/ops_data_bar_check.py": (
         "PERMANENT (plan 185-34): the D-28 gate judges each known-answer key by its stored row "
         "(source and the pre-381 price_sanity_status), keyed by the 87 fixed keys only; the "
