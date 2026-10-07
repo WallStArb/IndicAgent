@@ -8,6 +8,7 @@ SQL and replays canned rows.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -352,11 +353,13 @@ _SIX_KEYS = [
 _FIXTURE_KEYS = mod.parse_dry_run_keys(open(_FIXTURE).read())
 
 
-def _known_rows(keys, quarantined: bool = False) -> list[tuple]:
-    """(symbol, ts, quarantined, stored_source, has_ibkr_revision, last_revision_at)"""
+def _known_rows(keys, quarantined: bool = False, hidden: bool = False) -> list[tuple]:
+    """(symbol, ts, quarantined, stored_source, has_ibkr_revision, last_revision_at,
+    stale_status): stale_status is a stored row still carrying the pre-381
+    price_sanity_status = 'confirmed_corrupt' the tradeable view filters on."""
     if quarantined:
-        return [(s, t, True, None, False, None) for s, t in keys]
-    return [(s, t, False, "tradier", True, _LOADED) for s, t in keys]
+        return [(s, t, True, None, False, None, False) for s, t in keys]
+    return [(s, t, False, "tradier", True, _LOADED, hidden) for s, t in keys]
 
 
 def _replies() -> dict[str, list[object]]:
@@ -444,7 +447,12 @@ def _patch(monkeypatch, conn, late: dict) -> None:
 def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monkeypatch) -> None:
     replies = _replies()
     fixture_rows = _known_rows(_FIXTURE_KEYS)
-    fixture_rows[0] = (*fixture_rows[0][:4], False, None)  # replaced without a revision: open
+    fixture_rows[0] = (
+        *fixture_rows[0][:4],
+        False,
+        None,
+        False,
+    )  # replaced without a revision: open
     replies["ohlcv_revision"] = [fixture_rows, _known_rows(mod.LEGACY_1D_KEYS)]
     conn = FakeConn(replies)
     _patch(monkeypatch, conn, {})
@@ -476,3 +484,34 @@ def test_run_checks_excludes_tradier_owned_late_names(monkeypatch) -> None:
     assert "Tradier-owned excluded 1" in late.evidence and "DAL" in late.evidence
     params = dict(conn.executed)["ohlcv_load"]
     assert sorted(params[0]) == ["AMD", "DAL"]
+
+
+def test_known_answer_sql_judges_the_stored_row_not_the_tradeable_view() -> None:
+    """185-34 live run: the tradeable view still filters price_sanity_status, which the
+    Tradier load left on 10 replaced legacy bars. The stored row decides the status, so a
+    replaced bar the view hides is not misread as open."""
+    sql = mod._KNOWN_ANSWER_SQL
+    assert re.search(r"\bJOIN\s+market_data_ohlcv\s+m\b", sql)
+    assert "market_data_ohlcv_tradeable" not in sql
+    assert "price_sanity_status" in sql
+
+
+def test_replaced_keys_hidden_by_a_stale_status_pass_and_are_reported(monkeypatch) -> None:
+    replies = _replies()
+    replies["ohlcv_revision"] = [
+        _known_rows(_FIXTURE_KEYS, True),
+        _known_rows(mod.LEGACY_1D_KEYS, hidden=True),
+    ]
+    conn = FakeConn(replies)
+    _patch(monkeypatch, conn, {})
+
+    scrub = {r.condition: r for r in mod.run_checks(conn)}["scrub_pass_complete"]
+    assert scrub.ok
+    assert "replaced 15" in scrub.evidence
+    assert "hidden by a stale price_sanity_status 15" in scrub.evidence
+
+
+def test_scrub_condition_hidden_count_is_evidence_not_a_failure() -> None:
+    result = _scrub(replaced_hidden=10)
+    assert result.ok
+    assert "hidden by a stale price_sanity_status 10" in result.evidence
