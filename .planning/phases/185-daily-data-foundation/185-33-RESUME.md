@@ -28,3 +28,9 @@
 - Possible Rule 1 fix seen: D7 ALLOWED_SOURCES["1d"] lacks ibkr_fallback, so stray_sources may flag 128,785 fallback rows in its window; confirm on the live run.
 - Unit file has no TimeoutStartSec (oneshot default: no timeout).
 - Orchestrator brief vs plan: the plan (amended) drops mixed_source_names and moves check_d2_landed and the 186 note to 185-41; follow the plan and report it.
+
+## Update 2026-10-07 08:30 (indicagent-84)
+- Task 1 landed and pushed as 12ae5a9ab: migration 449 file, vendor_basis.py, integrity_checks.py, their tests, a first slice of services/bar_reconciliation_audit.py.
+- Not confirmed: migration 449 applied to the live DB (check config_schema for threshold.bar_integrity.%), and the three Task 1 test files passing.
+- Next: apply 449 if absent, run the Task 1 tests, then the D7 param reader, the per-name IO loader, tasks 2 and 3, SUMMARY, push.
+- The executor stopped on the account session limit (resets 9:20am ET); no uncommitted work.
