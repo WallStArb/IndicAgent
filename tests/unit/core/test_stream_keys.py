@@ -7,7 +7,6 @@ from src.core.stream_keys import (
     system_events,
     topic_intelligence,
     topic_intelligence_i8,
-    topic_llm_calls,
     topic_llm_outcomes,
     topic_market_bars,
     topic_market_ticks,
@@ -82,10 +81,6 @@ def test_topic_narratives_with_env() -> None:
     assert topic_narratives("dev") == "dev.narratives"
 
 
-def test_topic_llm_calls_with_env() -> None:
-    assert topic_llm_calls("dev") == "dev.llm.calls"
-
-
 def test_topic_llm_outcomes_with_env() -> None:
     assert topic_llm_outcomes("dev") == "dev.llm.outcomes"
 
@@ -140,17 +135,6 @@ def test_topic_health_events_format():
 
 def test_topic_health_events_dlq_format():
     assert topic_health_events_dlq("") == "intelligence.service_auditor.journal.dlq"
-
-
-# ---------------------------------------------------------------------------
-# Swarm stream keys
-# ---------------------------------------------------------------------------
-
-
-def test_topic_swarm_alpha():
-    from src.core.stream_keys import topic_swarm_alpha
-
-    assert topic_swarm_alpha("dev") == "dev.swarm.alpha"
 
 
 # ---------------------------------------------------------------------------

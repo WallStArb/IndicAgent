@@ -76,12 +76,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-signal-tracker-compute": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-signal-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     "indicagent-lifecycle-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    "indicagent-lineage-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    # Layer 5 — AI/LLM layer (consumes intelligence journal / i7 signals)
-    "indicagent-alpha-swarm": 8,  # priority 8: downstream of signal-writer (7)
-    "indicagent-narrative-compute": 8,  # priority 8: downstream of feature-vector-pipeline (6)
-    "indicagent-llm-writer": 8,  # priority 8: downstream of alpha-swarm / narrative-compute (8)
-    "indicagent-swarm-ledger-writer": 8,  # priority 8: downstream of alpha-swarm (8)
     # Layer 6 — analytics and rolling metrics (consume ledger / lifecycle events)
     "indicagent-signal-metrics-compute": 8,  # priority 8: downstream of signal-writer (7)
     "indicagent-signal-metrics-writer": 8,  # priority 8: downstream of signal-metrics-compute (8)
@@ -89,7 +83,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-graduation-writer": 8,  # priority 8: downstream of graduation-compute (8)
     "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     "indicagent-ml-signal-training-materialize": 8,  # oneshot timer service; no lag threshold needed
-    "indicagent-memory-batch": 8,  # oneshot: nightly 21:00 memory backfill + calibration promotion
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-weight-updater": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-shadow-auditor": 8,  # oneshot: timer-triggered, not a daemon
@@ -156,17 +149,12 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "feature_vector_writer": "indicagent-feature-vector-writer",
     "signal_tracker": "indicagent-signal-tracker-compute",
     "signal_writer": "indicagent-signal-writer",
-    "llm_writer": "indicagent-llm-writer",
     "cross_asset_analyzer": "indicagent-cross-asset",
     "bar_auditor": "indicagent-bar-auditor",
     "provider_merger": "indicagent-provider-merger",
     "lifecycle_writer": "indicagent-lifecycle-writer",
-    "lineage_writer": "indicagent-lineage-writer",
     "signal_metrics_analyzer": "indicagent-signal-metrics-compute",
     "signal_metrics_writer": "indicagent-signal-metrics-writer",
-    "alpha_swarm": "indicagent-alpha-swarm",
-    "narrative_swarm": "indicagent-narrative-compute",
-    "swarm_ledger_writer": "indicagent-swarm-ledger-writer",
     "macro_analyzer": "indicagent-macro-compute",
     "signal_auditor": "indicagent-signal-auditor",
     "graduation_analyzer": "indicagent-graduation-compute",
@@ -201,7 +189,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-ml-training",
         "indicagent-ml-signal-training-materialize",
         "indicagent-roll-batch",
-        "indicagent-memory-batch",  # Type=oneshot, timer-triggered nightly 21:00; D-06 jobs: memory-epoch/memory-regime/memory-backfill/memory-promote
         "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
         "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered

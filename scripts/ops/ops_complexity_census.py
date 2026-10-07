@@ -60,14 +60,10 @@ READER_DIRS = ("services", "src", "scripts")
 READER_GLOBS = ("*.py", "*.sh", "*.sql")
 ALLOW_LIST_GLOBS = ("test_*boundary*.py", "test_*_registry.py")
 
-# Units CLAUDE.md (and src/intelligence/CLAUDE.md, which it points to) name as archived or
-# dormant: the I8 AI stack. They count as having no live consumer whatever their unit state.
-DORMANT_UNITS: dict[str, str] = {
-    "indicagent-alpha-swarm": "dormant I8 AI stack (CLAUDE.md, src/intelligence/CLAUDE.md)",
-    "indicagent-narrative-compute": "dormant I8 AI stack (CLAUDE.md, src/intelligence/CLAUDE.md)",
-    "indicagent-llm-writer": "dormant I8 AI stack (CLAUDE.md, src/intelligence/CLAUDE.md)",
-    "indicagent-swarm-ledger-writer": "dormant I8 AI stack (CLAUDE.md)",
-}
+# Units CLAUDE.md names as dormant count as having no live consumer whatever their unit state.
+# Empty since plan 185-45 removed the I8 AI stack units it listed (alpha-swarm,
+# narrative-compute, llm-writer, swarm-ledger-writer) from _DAG_ORDER.
+DORMANT_UNITS: dict[str, str] = {}
 
 _STALE_STATUS = re.compile(r"^(?:proposed|draft|in[ -]progress)\b", re.IGNORECASE)
 _STATUS_LINE = re.compile(

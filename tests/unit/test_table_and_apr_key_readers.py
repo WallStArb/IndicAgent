@@ -199,6 +199,47 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "read only by ops_cutover_review.py, the 185-38 one-off gate deleted in plan 185-42 "
         "(retire: 185-43)"
     ),
+    "ai.agent.correlation_v1.shadow_mode": (
+        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
+        "stack in plan 185-45 (retire: 185-43)"
+    ),
+    "ai.agent.counterfactual_v1.shadow_mode": (
+        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
+        "stack in plan 185-45 (retire: 185-43)"
+    ),
+    "ai.agent.ml_scorer_v1.shadow_mode": (
+        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
+        "stack in plan 185-45 (retire: 185-43)"
+    ),
+    "ai.agent.regime_coherence_v1.shadow_mode": (
+        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
+        "stack in plan 185-45 (retire: 185-43)"
+    ),
+    "swarm.max_concurrent_calls": (
+        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
+        "runtime_defaults fallback went with it) (retire: 185-43)"
+    ),
+    "swarm.min_confidence": (
+        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
+        "runtime_defaults fallback went with it) (retire: 185-43)"
+    ),
+    "swarm.min_tf_minutes": (
+        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
+        "runtime_defaults fallback went with it) (retire: 185-43)"
+    ),
+    "swarm.weight_floor": (
+        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
+        "runtime_defaults fallback went with it) (retire: 185-43)"
+    ),
+    "swarm.weight_min_samples": (
+        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
+        "runtime_defaults fallback went with it) (retire: 185-43)"
+    ),
+    "signal_narratives": (
+        "narrative store of the I8 narrative swarm (migration 086), absent from the live DB; its "
+        "writer left with the AI stack in plan 185-45. Dropped IF EXISTS by 185-45's v2.x "
+        "migration (retire: 185-45)"
+    ),
 }
 
 

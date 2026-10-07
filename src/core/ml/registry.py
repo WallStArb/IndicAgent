@@ -1,8 +1,7 @@
 """ModelRegistry — thin MLflow wrapper for model lifecycle.
 
-Hides the MLflow API from all callers. Four operations:
+Hides the MLflow API from all callers. Three operations:
   register(run_id, segment, artifact_path) → model_id
-  load_latest(segment)                     → model artifact
   promote(model_id)
   revert(model_id)
 """
@@ -20,11 +19,8 @@ logger = structlog.get_logger(__name__)
 class ModelRegistry:
     """DB-backed model registry. MLflow stores artifacts; this table routes inference."""
 
-    def __init__(
-        self, pool: asyncpg.Pool, mlflow_tracking_uri: str = "http://localhost:5000"
-    ) -> None:
+    def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
-        self._mlflow_uri = mlflow_tracking_uri
 
     async def register(
         self,
@@ -49,48 +45,6 @@ class ModelRegistry:
         model_id = row["model_id"]
         logger.info("model_registry.registered", model_id=model_id, segment=segment)
         return model_id
-
-    async def load_latest(self, segment: dict[str, Any]) -> Any | None:
-        """Load latest production model artifact for segment. Returns None if none promoted."""
-        import mlflow
-
-        mlflow.set_tracking_uri(self._mlflow_uri)
-
-        async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT artifact_path, mlflow_run_id FROM ml_models
-                WHERE status = 'production'
-                  AND segment @> $1::jsonb
-                ORDER BY promoted_at DESC
-                LIMIT 1
-                """,
-                segment,  # pass dict directly — asyncpg handles JSONB serialisation
-            )
-        if row is None:
-            return None
-        try:
-            return mlflow.pyfunc.load_model(row["artifact_path"])
-        except Exception as error:
-            logger.error(
-                "model_registry.load_failed", artifact=row["artifact_path"], error=str(error)
-            )
-            return None
-
-    async def get_latest_run_id(self, segment: dict[str, Any]) -> str | None:
-        """Return the mlflow_run_id of the latest production model for segment, or None."""
-        async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT mlflow_run_id FROM ml_models
-                WHERE status = 'production'
-                  AND segment @> $1::jsonb
-                ORDER BY promoted_at DESC
-                LIMIT 1
-                """,
-                segment,  # pass dict directly — asyncpg handles JSONB serialisation
-            )
-        return row["mlflow_run_id"] if row is not None else None
 
     async def promote(self, model_id: str) -> None:
         """Set model status to production."""

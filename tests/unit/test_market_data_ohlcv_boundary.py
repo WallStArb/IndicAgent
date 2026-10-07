@@ -112,11 +112,6 @@ _ALLOW_LIST: dict[str, str] = {
         "tradeable view's filtered subset). Its LATERAL prev/next neighbor joins DO read "
         "market_data_ohlcv_tradeable, not the raw table."
     ),
-    "scripts/debug/analysis/debug_batch_agent_memory.py": (
-        "PERMANENT: Joins signal_ledger, confirmed zero rows in the live DB -- dead v2.x "
-        "Signal Ledger Architecture code, same bucket as "
-        "signal_probe_auditor.py/signal_replay_auditor.py already on this allow-list."
-    ),
     "scripts/ops/bars/ops_export_known_answer_fixtures.py": (
         "PERMANENT: exports price_sanity_status rows, including confirmed_corrupt ones the "
         "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"

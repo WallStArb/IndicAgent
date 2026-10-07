@@ -114,11 +114,6 @@ def topic_narratives_group(env_name: str) -> str:
     return f"{env_prefix(env_name)}narratives.group"
 
 
-def topic_llm_calls(env_name: str) -> str:
-    """Kafka topic for LLM call audit log (every call: success + failure + counterfactual)."""
-    return f"{env_prefix(env_name)}llm.calls"
-
-
 def topic_llm_outcomes(env_name: str) -> str:
     """Kafka topic for signal lifecycle exits with outcome/pnl_r/mae/mfe."""
     return f"{env_prefix(env_name)}llm.outcomes"
@@ -250,20 +245,6 @@ def topic_transform_graduation(env_name: str) -> str:
 # ---------------------------------------------------------------------------
 # Swarm topics
 # ---------------------------------------------------------------------------
-
-
-def topic_swarm_alpha(env_name: str) -> str:
-    """Unified alpha multiplier topic. Published by AlphaSwarm."""
-    return f"{env_prefix(env_name)}swarm.alpha"
-
-
-def topic_signal_lineage(env_name: str) -> str:
-    """Unified signal lineage events (transform, agent_prediction, lifecycle).
-
-    Published by LineageRecorder on hot path (Kafka-first DAG).
-    Consumed by LineageWriter for TimescaleDB persistence.
-    """
-    return f"{env_prefix(env_name)}intelligence.signal_lineage"
 
 
 def topic_signal_lineage_dlq(env_name: str) -> str:
@@ -480,10 +461,6 @@ def signals(env_prefix: str, symbol: str, timeframe: str) -> str:
 
 def signals_aggregated(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}signals:{symbol}:{timeframe}:aggregated"
-
-
-def narratives(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}narratives:{symbol}:{timeframe}"
 
 
 def narratives_group(env_prefix: str, group_name: str) -> str:

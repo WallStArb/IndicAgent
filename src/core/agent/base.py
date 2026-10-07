@@ -178,7 +178,7 @@ class BaseDaemon(abc.ABC, ConfigConsumerMixin):
         self._cb_open: bool = False
         # Phase 109: config consumer state — initialized here so mixin methods work.
         # Subclasses MAY override _config_layer = "INFRA"/"STRUCT" to skip Kafka subscription.
-        # Subclasses MAY override _config_prefixes = ("regime.", "swarm.") to filter reloads.
+        # Subclasses MAY override _config_prefixes = ("regime.",) to filter reloads.
         self._config_cache: dict[str, Any] = {}
         self._config_consumer = None
         self._config_reload_task = None

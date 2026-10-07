@@ -120,11 +120,3 @@ class TestLatencyMetricInstrumentTypes:
             PERSISTENCE_BATCH_LATENCY, "record"
         ), "PERSISTENCE_BATCH_LATENCY must be a histogram (expose .record())"
         PERSISTENCE_BATCH_LATENCY.record(0.05, {"agent_id": "test"})
-
-    def test_llm_call_duration_exposes_record(self):
-        from src.observability.metrics import LLM_CALL_DURATION
-
-        assert hasattr(
-            LLM_CALL_DURATION, "record"
-        ), "LLM_CALL_DURATION must be a histogram (expose .record())"
-        LLM_CALL_DURATION.record(250.0, {"provider": "ollama", "call_type": "per_signal"})

@@ -40,7 +40,7 @@ class ConfigConsumerMixin:
 
     Subclasses may override:
       _config_layer = "INFRA"   # skip Kafka subscription (INFRA/STRUCT agents)
-      _config_prefixes = ("regime.", "swarm.")  # accept only these key prefixes
+      _config_prefixes = ("regime.",)  # accept only these key prefixes
     """
 
     # Per-instance state — initialized in __init__ via mixin protocol.

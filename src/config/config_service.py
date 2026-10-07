@@ -38,9 +38,7 @@ class ConfigService:
 
     OPS_PREFIXES: ClassVar[tuple[str, ...]] = (
         "regime.",
-        "swarm.",
         "alert.",
-        "ai.",
         "feature.",
         "threshold.",
         "roll.",

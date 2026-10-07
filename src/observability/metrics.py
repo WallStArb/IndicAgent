@@ -368,10 +368,6 @@ AGENT_CIRCUIT_BREAKER_STATE = _meter.create_gauge(
     "agent_circuit_breaker_state",
     description="Agent setup circuit breaker state: 0=closed, 1=half-open, 2=open",
 )
-AI_AGENT_ERRORS_TOTAL = _meter.create_counter(
-    "ai_agent_errors_total",
-    description="AI agent _compute() errors by agent_id and error_type",
-)
 
 # ---------------------------------------------------------------------------
 # ML observability metrics
@@ -657,67 +653,6 @@ SIGNAL_OUTCOME_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# LLM infrastructure metrics
-# ---------------------------------------------------------------------------
-
-LLM_CALL_DURATION = _meter.create_histogram(
-    "llm_call_duration_seconds",
-    description="LLM call latency per provider and call_type",
-    unit="s",
-)
-
-LLM_TOKENS_USED = _meter.create_counter(
-    "llm_tokens_used_total",
-    description="Total tokens consumed per provider and call_type",
-)
-
-LLM_CACHE_HITS = _meter.create_counter(
-    "llm_cache_hit_total",
-    description="Semantic cache hits per call_type",
-)
-
-LLM_GUARDRAILS_REJECTIONS = _meter.create_counter(
-    "llm_guardrails_rejections_total",
-    description="LLM responses rejected by guardrails schema validation",
-)
-
-LLM_RATE_LIMIT_WAIT = _meter.create_histogram(
-    "llm_rate_limit_wait_seconds",
-    description="Time spent waiting for rate limit token bucket",
-    unit="s",
-)
-
-LLM_EMPTY_RESPONSES = _meter.create_counter(
-    "llm_empty_responses_total",
-    description="LLM calls that returned no response (all providers failed or circuits open)",
-)
-
-LLM_PARSE_FAILURES = _meter.create_counter(
-    "llm_parse_failures_total",
-    description="LLM responses that passed guardrails but failed JSON parsing in the agent",
-)
-
-LLM_RESPONSE_CHARS = _meter.create_histogram(
-    "llm_response_chars",
-    description="Character length of successful LLM responses per provider and call_type",
-)
-
-# ---------------------------------------------------------------------------
-# AI agent execution metrics
-# ---------------------------------------------------------------------------
-
-AI_AGENT_INVOCATIONS_TOTAL = _meter.create_counter(
-    "ai_agent_invocations_total",
-    description="Total AI agent invocations by agent, group, and status",
-)
-
-AI_AGENT_DURATION_MS = _meter.create_histogram(
-    "ai_agent_duration_ms",
-    description="AI agent execution latency in ms",
-)
-
-
-# ---------------------------------------------------------------------------
 # Zone engine metrics
 # ---------------------------------------------------------------------------
 
@@ -739,21 +674,6 @@ ZONE_WIDTH_ATR = _meter.create_histogram(
 )
 
 
-def record_llm_call(
-    provider: str,
-    call_type: str,
-    latency_s: float,
-    status: str = "success",
-    tokens: int = 0,
-) -> None:
-    LLM_CALL_DURATION.record(
-        latency_s,
-        {"provider": provider, "call_type": call_type, "status": status},
-    )
-    if status == "success":
-        LLM_TOKENS_USED.add(tokens, {"provider": provider, "call_type": call_type})
-
-
 # ---------------------------------------------------------------------------
 # Service-up gauge — named constant so service_auditor_agent imports it directly
 # ---------------------------------------------------------------------------
@@ -761,31 +681,6 @@ def record_llm_call(
 SERVICE_UP_GAUGE = _meter.create_up_down_counter(
     "indicagent_service_up",
     description="Service-up gauge keyed by systemd unit",
-)
-
-# ---------------------------------------------------------------------------
-# Swarm intelligence metrics (Phase 80)
-# ---------------------------------------------------------------------------
-
-SWARM_INVOCATIONS_TOTAL = _meter.create_counter(
-    "swarm_invocations_total",
-    description="Per-agent swarm call rate, error rate, and capacity skips",
-)
-SWARM_MULTIPLIER_DISTRIBUTION = _meter.create_histogram(
-    "swarm_multiplier_distribution",
-    description="Per-agent multiplier output distribution over time",
-)
-SWARM_AGGREGATED_MULTIPLIER = _meter.create_histogram(
-    "swarm_aggregated_multiplier",
-    description="Final combined multiplier distribution per timeframe",
-)
-SWARM_AGENT_WEIGHT = point_gauge(
-    "swarm_agent_weight",
-    "Per-agent learned weight by timeframe — key Renaissance health signal",
-)
-SWARM_SIGNAL_LEDGER_UPDATE_TOTAL = _meter.create_counter(
-    "swarm_signal_ledger_update_total",
-    description="Writer-owned signal_ledger materialization outcomes",
 )
 
 # ---------------------------------------------------------------------------
@@ -870,30 +765,6 @@ SIGNAL_LEDGER_BACKFILL_RATIO = _meter.create_up_down_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Swarm dispatch latency (Phase 83)
-# ---------------------------------------------------------------------------
-
-SWARM_DISPATCH_SECONDS = _meter.create_histogram(
-    "swarm_dispatch_seconds",
-    description="Full swarm trigger-to-result cycle latency (context build + agent fan-out + aggregation)",
-    unit="s",
-)
-
-# ---------------------------------------------------------------------------
-# AI context cache (Phase 83)
-# ---------------------------------------------------------------------------
-
-AI_CONTEXT_CACHE_HITS_TOTAL = _meter.create_counter(
-    "ai_context_cache_hits_total",
-    description="SignalContextCache.build() returning a fresh context",
-)
-
-AI_CONTEXT_CACHE_MISSES_TOTAL = _meter.create_counter(
-    "ai_context_cache_misses_total",
-    description="SignalContextCache.build() returning None (no entry or stale)",
-)
-
-# ---------------------------------------------------------------------------
 # DB connection pool (Phase 83)
 # ---------------------------------------------------------------------------
 
@@ -961,15 +832,6 @@ FEATURES_COMPUTED_TOTAL = _meter.create_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Narrative generation (Phase 83)
-# ---------------------------------------------------------------------------
-
-NARRATIVE_GENERATION_TOTAL = _meter.create_counter(
-    "narrative_generation_total",
-    description="Narrative generation outcomes",
-)
-
-# ---------------------------------------------------------------------------
 # ML training (Phase 83)
 # ---------------------------------------------------------------------------
 
@@ -1004,76 +866,6 @@ CONTRACTS_RELOAD_TOTAL = _meter.create_counter(
 PIPELINE_BACKPRESSURE_DROP_TOTAL = _meter.create_counter(
     "intelligence_pipeline_backpressure_drop_total",
     description="Bars dropped by backpressure circuit breaker (queue depth exceeded)",
-)
-
-# ---------------------------------------------------------------------------
-# Agent memory metrics (Phase 097)
-# ---------------------------------------------------------------------------
-
-MEMORY_RECALL_LATENCY_MS = _meter.create_histogram(
-    "memory_recall_latency_ms",
-    description="MemoryClient.recall() end-to-end latency per memory tier (labels: tier, symbol)",
-    unit="ms",
-)
-
-MEMORY_RECALL_RESULTS_TOTAL = _meter.create_counter(
-    "memory_recall_results_total",
-    description="Memory recall outcomes per tier (labels: tier, result={hit,miss,timeout})",
-)
-
-MEMORY_CALIBRATION_APPLIED = _meter.create_counter(
-    "memory_calibration_applied",
-    description="CalibrationStats applied to agent output (labels: agent_id, stable={true,false})",
-)
-
-MEMORY_WRITE_QUEUE_DEPTH = _meter.create_gauge(
-    "memory_write_queue_depth",
-    description="Current MemoryEpisodeWriter asyncio.Queue depth (absolute, use .set())",
-)
-
-MEMORY_WRITE_DROPPED_TOTAL = _meter.create_counter(
-    "memory_write_dropped_total",
-    description="Episode writes dropped because the write queue was full (D-13)",
-)
-
-MEMORY_EMBED_LATENCY_MS = _meter.create_histogram(
-    "memory_embed_latency_ms",
-    description="EmbeddingService latency per call (labels: batch={true,false})",
-    unit="ms",
-)
-
-MEMORY_EMBED_STALL_SECONDS = _meter.create_gauge(
-    "memory_embed_stall_seconds",
-    description=(
-        "Seconds since last successful embedding queue drain. "
-        "Alert threshold: > 30s (F1 — embedding pipeline stall)."
-    ),
-)
-
-MEMORY_EPISODES_LABELED = _meter.create_gauge(
-    "memory_episodes_labeled",
-    description=(
-        "Total labeled episode count in memory_episodes_labeled (post-run from BackfillJob). "
-        "North-star for MEM-03 shadow gate: must reach N>=200 before AGENT_MEMORY_ENABLED."
-    ),
-)
-
-MEMORY_COHORTS_PROMOTED_TOTAL = _meter.create_counter(
-    "memory_cohorts_promoted_total",
-    description="Calibration cohorts promoted to memory_calibration_promoted (labels: agent_id)",
-)
-
-MEMORY_COHORTS_QUARANTINED_TOTAL = _meter.create_counter(
-    "memory_cohorts_quarantined_total",
-    description="Cohorts quarantined for feedback loop detection (C-04; labels: agent_id)",
-)
-
-MEMORY_PROMOTION_SKIPPED_N_ELIGIBLE = _meter.create_counter(
-    "memory_promotion_skipped_n_eligible",
-    description=(
-        "Cohorts skipped by promotion job because n_eligible is still NULL "
-        "(nightly backfill not yet run; F6; labels: agent_id)"
-    ),
 )
 
 # ---------------------------------------------------------------------------

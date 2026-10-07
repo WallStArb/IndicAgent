@@ -10,7 +10,6 @@ Responsibilities:
   5. LightGBM binary classification with early stopping on validation set
   6. SHAP TreeExplainer feature importance → MLflow artifact (Plan 04 inference contract)
   7. ModelRegistry.register() — shadow status until manual/automated promotion
-  8. SIGUSR1 to indicagent-alpha-swarm to trigger model reload in running service
 
 Error handling: any top-level exception is caught, logged, and swallowed — exits 0 so
 systemd timer fires again the next night (oneshot success semantics).
@@ -21,7 +20,6 @@ Checkpoint file: logs/ml_training_checkpoint.json — persists last_trained_coun
 from __future__ import annotations
 
 import json
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -60,9 +58,6 @@ _SEGMENTS = [{"global": True}, {"hmm_regime": 0}, {"hmm_regime": 1}, {"hmm_regim
 # MLflow tracking server (loopback only — no external exposure per ASVS V1.4)
 _MLFLOW_TRACKING_URI = "http://localhost:5000"
 
-# Systemd unit that receives SIGUSR1 for model reload
-_SWARM_UNIT = "indicagent-alpha-swarm"
-
 # Metadata columns excluded from feature vectors
 _META_COLS = frozenset(
     {"signal_id", "timestamp", "timeframe", "pnl_r", "win_label", "features_snapshot"}
@@ -73,8 +68,8 @@ class MLTrainer(BaseDaemon):
     """Nightly LightGBM training agent.
 
     Runs as a systemd Type=oneshot service, training segment models and registering
-    artifacts via ModelRegistry. Sends SIGUSR1 to indicagent-alpha-swarm after
-    successful registration to trigger in-process model reload.
+    artifacts via ModelRegistry. The SIGUSR1 reload of the alpha swarm (its only model
+    consumer) was removed with the AI stack in plan 185-45.
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -168,7 +163,7 @@ class MLTrainer(BaseDaemon):
         return True, current_count
 
     async def _train_all_segments(self) -> None:
-        """Build matrix, train each segment, write checkpoint, optionally signal swarm."""
+        """Build matrix, train each segment, write checkpoint."""
         should, current_count = await self._should_retrain()
         if not should:
             return
@@ -178,18 +173,12 @@ class MLTrainer(BaseDaemon):
             logger.info("ml_training.empty_matrix")
             return
 
-        promoted_any = False
         for segment in _SEGMENTS:
-            model_id = await self._train_segment(df, segment)
-            if model_id:
-                promoted_any = True
+            await self._train_segment(df, segment)
 
         # Update count only after all segments complete successfully
         self._last_trained_count = current_count
         self._write_checkpoint(self._last_trained_count)
-
-        if promoted_any:
-            self._signal_swarm_reload()
 
     async def _train_segment(self, df: Any, segment: dict[str, Any]) -> str | None:
         """Train and register a single segment model. Returns model_id str or None if gated.
@@ -325,16 +314,3 @@ class MLTrainer(BaseDaemon):
             n_train=len(train_df),
         )
         return model_id
-
-    def _signal_swarm_reload(self) -> None:
-        """Send SIGUSR1 to indicagent-alpha-swarm to trigger in-process model reload."""
-        result = subprocess.run(
-            ["systemctl", "kill", "-s", "SIGUSR1", _SWARM_UNIT],
-            capture_output=True,
-            check=False,
-        )
-        logger.info(
-            "ml_training.swarm_reload_signal_sent",
-            returncode=result.returncode,
-            stderr=result.stderr.decode(errors="ignore"),
-        )

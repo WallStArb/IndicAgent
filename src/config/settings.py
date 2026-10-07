@@ -114,102 +114,10 @@ class Settings(BaseSettings):
     # High-frequency daemon
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
 
-    # LLM providers
-    llm_models: str = Field(
-        default="",
-        validation_alias="LLM_MODELS",
-        description=(
-            "Comma-separated LiteLLM model strings. When set, overrides Ollama + OpenRouter "
-            "provider list entirely. Examples: 'deepseek/deepseek-chat', "
-            "'anthropic/claude-3-5-sonnet-latest', 'openrouter/deepseek/deepseek-chat'. "
-            "Provider API keys (DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, etc.) are read from env."
-        ),
-    )
-    openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     fred_api_key: str = Field(default="", validation_alias="FRED_API_KEY")
     tradier_api_token: str = Field(default="", validation_alias="TRADIER_API_TOKEN")
     tradier_base_url: str = Field(
         default="https://sandbox.tradier.com", validation_alias="TRADIER_BASE_URL"
-    )
-    openrouter_models: str = Field(
-        default=(
-            "openrouter/free,"
-            "nvidia/nemotron-super-49b-v1:free,"
-            "arcee-ai/trinity-large-preview:free,"
-            "minimax/minimax-m2.5:free,"
-            "google/gemma-4-31b-it:free,"
-            "z-ai/glm-4.5-air:free"
-        ),
-        validation_alias="OPENROUTER_MODELS",
-        description=(
-            "Comma-separated OpenRouter model slugs in priority order. "
-            "Default 'openrouter/auto' routes to best available free model automatically. "
-            "Set OPENROUTER_MODELS in .env to pin specific models."
-        ),
-    )
-    ollama_enabled: bool = Field(
-        default=True,
-        validation_alias="OLLAMA_ENABLED",
-        description="Set false to skip local Ollama and use OpenRouter as primary provider.",
-    )
-    ollama_model: str = Field(
-        default="gemma4:e4b",
-        validation_alias="OLLAMA_MODEL",
-        description="Local Ollama model tag — set OLLAMA_MODEL in .env to change",
-    )
-    ollama_base_url: str = Field(
-        default="http://localhost:11434",
-        validation_alias="OLLAMA_BASE_URL",
-        description="Ollama server URL",
-    )
-    ollama_num_ctx: int = Field(
-        default=16384,
-        validation_alias="OLLAMA_NUM_CTX",
-        description=(
-            "Ollama context window (tokens). qwen3.5:4b supports 32K; "
-            "16384 gives 14K headroom over the largest full-context prompts."
-        ),
-    )
-    agent_memory_enabled: bool = Field(
-        default=False,
-        validation_alias="AGENT_MEMORY_ENABLED",
-        description=(
-            "Enable the pgvector-backed agent memory subsystem (Phase 097). "
-            "Gated on MEM-03 shadow validation: recall@10 must show statistically "
-            "higher outcome similarity than random baseline (D-12) after N>=200 "
-            "labeled episodes. Leave False until shadow gate passes."
-        ),
-    )
-    embedding_model: str = Field(
-        default="ollama/nomic-embed-text",
-        validation_alias="EMBEDDING_MODEL",
-        description=(
-            "LiteLLM model string for agent-memory embeddings (Phase 097). "
-            "Routed via litellm.aembedding(). Default ollama/nomic-embed-text "
-            "(768-dim, local Ollama, no new infra). Swap via EMBEDDING_MODEL in .env."
-        ),
-    )
-    memory_recall_limit: int = Field(
-        default=10,
-        validation_alias="MEMORY_RECALL_LIMIT",
-        description=(
-            "Maximum episodic episodes returned per recall() call (Phase 097). "
-            "Increase to retrieve more historical analogues at higher recall latency cost."
-        ),
-    )
-    memory_embed_timeout_ms: int = Field(
-        default=30,
-        validation_alias="MEMORY_EMBED_TIMEOUT_MS",
-        description=(
-            "Millisecond timeout for the embedding step inside MemoryClient.recall() "
-            "(Phase 097). Caps the Ollama HTTP latency contribution to the total "
-            "50ms recall budget. On timeout: recall returns []."
-        ),
-    )
-    llm_timeout_sec: float = Field(
-        default=60.0,
-        validation_alias=AliasChoices("llm_timeout_sec", "LLM_TIMEOUT_SEC"),
-        description="Timeout in seconds for LLM provider API calls",
     )
 
     # Alerting webhooks (empty = channel disabled) — Phase 67 Task 2
@@ -238,32 +146,6 @@ class Settings(BaseSettings):
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
 
-    # Swarm intelligence configuration (Phase 80)
-    SWARM_MIN_TF_MINUTES: int = Field(
-        default=5,
-        validation_alias="SWARM_MIN_TF_MINUTES",
-        description="Minimum timeframe in minutes for swarm enrichment (gate: skip 1m bars)",
-    )
-    SWARM_MIN_CONFIDENCE: float = Field(
-        default=0.6,
-        validation_alias="SWARM_MIN_CONFIDENCE",
-        description="Minimum winner_confidence for swarm enrichment (gate: skip low-quality signals)",
-    )
-    SWARM_WEIGHT_MIN_SAMPLES: int = Field(
-        default=30,
-        validation_alias="SWARM_WEIGHT_MIN_SAMPLES",
-        description="Minimum resolved predictions before weight learning activates",
-    )
-    SWARM_WEIGHT_FLOOR: float = Field(
-        default=0.05,
-        validation_alias="SWARM_WEIGHT_FLOOR",
-        description="Minimum agent weight before formal demotion",
-    )
-    SWARM_MAX_CONCURRENT_CALLS: int = Field(
-        default=8,
-        validation_alias="SWARM_MAX_CONCURRENT_CALLS",
-        description="Max concurrent LLM calls (asyncio.Semaphore capacity)",
-    )
     # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
     # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
     # maximize labeled training data for Phase 49 ML. Phase 49 learns optimal thresholds
@@ -314,7 +196,6 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------------
     # ML/AI Foundation constants (Phase 56)
     # ---------------------------------------------------------------------------
-    LLM_SEMANTIC_CACHE_SIZE: int = Field(default=500, description="SemanticCache LRU max entries")
 
     DATA_QUALITY_MIN_SCORE: float = Field(
         default=0.85, description="Min quality score to gate discovery"
