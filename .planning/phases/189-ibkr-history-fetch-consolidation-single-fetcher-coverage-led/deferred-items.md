@@ -24,6 +24,7 @@ Out-of-scope findings logged during execution. Not fixed in the plan that found 
    daily timer (`indicagent-bar-reconciliation-audit.timer`, 06:00 UTC). The unit file was
    created by 185-23 and was left unedited here (cutover hard rule: no edits to production
    files this plan did not create). Fix the comment when plan 07 deletes the nightly.
+   Fixed in 189-07 (3f100aaaf), installed copy synced.
 4. **Ledger 15m/1h bound semantics differ between the bootstrap and the incremental writer.**
    Migration 432's bootstrap, and `rebuild_from_stored_state`, which mirrors it, take
    15m/1h bounds over the union of the archive and the grid, so derived grid 1h bars
@@ -37,3 +38,19 @@ Out-of-scope findings logged during execution. Not fixed in the plan that found 
    their `latest_timestamp` misleads anyone reading the ledger directly. Option: call
    `refresh_1d_bounds` for the loaded names after the Tradier load. That needs a role grant
    decision, because the loader is not a ledger writer today.
+6. **Live APR descriptions name deleted machinery (found in 189-07).** `config_schema`
+   descriptions still cite deleted files: `infra.ibkr.historical_request_timeout_sec` points at
+   the backfill_retry_loop.sh watchdog (now the fetcher unit's WatchdogSec), and
+   `infra.backfill.default_scopes` describes the nightly legs, the todo 449 HTF campaign and
+   PAUSE_5M (migration 445 changed the value, not the description). Fold a description-only
+   UPDATE into the next migration that touches either key (189-08 or 189-10).
+7. **`infra.ibkr_history_lease.nightly_wait_minutes` loses its last real reader (found in
+   189-07).** The nightly read it; the only remaining mention is
+   infrastructure_run_historical_pipeline.py's `--lease-wait-minutes` help text, which keeps the
+   185-44 reader guard green. When 189-08 absorbs that script, the key needs a
+   `_PENDING_RETIREMENT` entry with `retire: <plan>` (or a delete migration) in the same commit.
+8. **The D7 `nightly_skipped` check reports a finding every day while the fetcher timer is
+   disabled (189-07 to 189-10).** The status file `logs/nightly_backfill_status.json` is
+   written only by fetcher runs, so it goes stale past `max_age_hours`. Expected under the
+   owner's stop; it clears on the first run after 189-10. The check and file keep their
+   nightly names; renaming them is a monitor-key change for a later plan.

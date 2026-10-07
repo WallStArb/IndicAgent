@@ -536,7 +536,7 @@ Plans:
 - [x] 189-04-PLAN.md - IbkrHistoryFetcher oneshot, systemd units, service registry, read-only dry-run gate
 - [x] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
 - [ ] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
-- [ ] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped
+- [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
 - [ ] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
 - [ ] 189-10-PLAN.md - weekly IBKR 1d reconcile and parity sample (migration 451), 20-name 5m pilot with a pre-registered criterion, fetcher timer launched
