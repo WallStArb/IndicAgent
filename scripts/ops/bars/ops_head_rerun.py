@@ -8,7 +8,8 @@ stored answers; it never stores venue bars (D-17, plan 13 verdict).
 
 Each late name ends with one disposition, from D1 alone (D-20):
   moved                 venue bars exist before the name's SMART head
-  verified_empty        SMART and every expected venue answered no_data for the oldest window
+  verified_empty        SMART and every expected venue other than the name's primary
+                        answered no_data for the oldest window
   reached_window_start  the SMART head is at or before the oldest request window start
   unresolved            anything else (timeout, failure, a venue not asked); never counted as empty
 
@@ -37,6 +38,7 @@ import structlog
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
+from src.providers.base import VENUE_ROUTE_ALIASES
 
 _logger = structlog.get_logger(__name__)
 
@@ -122,7 +124,12 @@ def classify_head(
         if (r.window_start is None or r.window_start <= oldest_end) and r.window_end >= oldest_start
     ]
     latest = _latest_per_route(overlapping)
-    needed = (_SMART, *expected_venues)
+    # The provider never asks the current primary venue (SMART routes there), and the
+    # empty-history reconcile does not require it either (185-28): judge by the primary
+    # recorded on the latest SMART answer for the oldest window.
+    smart_latest = latest.get(_SMART)
+    primary = smart_latest.primary_exchange if smart_latest is not None else None
+    needed = (_SMART, *(v for v in expected_venues if VENUE_ROUTE_ALIASES.get(v, v) != primary))
     if all(route in latest and latest[route].outcome == "no_data" for route in needed):
         return "verified_empty"
     return "unresolved"
