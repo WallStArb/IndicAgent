@@ -1150,19 +1150,18 @@ class TestArchiveGridRouting:
         assert n == 1
         assert mock_insert.call_count == 1
 
-    def test_real_bars_only_for_grid_tfs(self):
-        """Plan 185-18 task 1b: 1d joins the real-bars-only set with the rest of
-        the fetch stack (no synthetic fill reaches market_data_ohlcv from this
-        pipeline anywhere except 4h, which keeps the placeholder path until the
-        futures rework); 1d's store path is refused outright -- its answers go
-        to D1 and the derivation's daily stage owns the grid rows."""
+    def test_real_bars_only_for_every_tf(self):
+        """Plan 185-18 task 1b put 1d in the real-bars-only set; plan 185-32 adds 4h,
+        so no timeframe of this pipeline's fetch keeps a placeholder path and no
+        synthetic fill reaches market_data_ohlcv from it (migration 444 refuses one)."""
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            _TF_MINUTES,
             real_bars_only_for,
         )
 
-        for tf in ("5m", "1m", "15m", "1h", "1d"):
+        for tf in ("5m", "1m", "15m", "1h", "4h", "1d"):
             assert real_bars_only_for(tf) is True
-        assert real_bars_only_for("4h") is False
+        assert all(real_bars_only_for(tf) for tf in _TF_MINUTES)
 
 
 def test_the_interim_flag_and_module_are_gone():
@@ -1178,18 +1177,14 @@ def test_the_interim_flag_and_module_are_gone():
     assert not Path("tests/unit/scripts/test_request_coverage.py").exists()
 
 
-def test_run_normalize_refuses_real_bars_timeframes(capsys):
-    """The normalization pass fills only placeholder-path timeframes: a synthetic
-    fill at 5m/1m (or the archive-bound 15m/1h) would violate the real-bars rule
-    (todo 462) or corrupt the derived grid."""
-    from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
-        run_normalize,
-    )
+def test_the_normalize_mode_is_gone(monkeypatch):
+    """Plan 185-32: the --normalize pass (synthetic fills into existing rows) is deleted
+    and its flag no longer parses; the fetch path stores real bars only."""
+    from scripts.infrastructure.backfill import infrastructure_run_historical_pipeline as pipe
 
-    instrument = MagicMock()
-    instrument.symbol = "SPY"
-    for tf in ("5m", "1m", "15m", "1h"):
-        run_normalize(MagicMock(), [instrument], [tf])
-        out = capsys.readouterr().out
-        assert "refuses synthetic fill" in out
-        assert "already canonical" not in out
+    assert not hasattr(pipe, "run_normalize")
+    assert not hasattr(pipe, "normalize_bars")
+    monkeypatch.setattr(sys, "argv", ["infrastructure_run_historical_pipeline.py", "--normalize"])
+    with pytest.raises(SystemExit) as raised:
+        pipe.main()
+    assert raised.value.code == 2

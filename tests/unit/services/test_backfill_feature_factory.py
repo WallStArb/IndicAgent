@@ -1146,6 +1146,101 @@ class TestRefuseDerivationOwnedTfs:
         assert seen_timeframes == [["5m"]]
 
 
+def _run_fetch_stage_with(timeframes, provider_bars):
+    """Drive run_fetch_stage over SPY with fakes; return the rows handed to executemany."""
+    import asyncio
+
+    from services.backfill_feature_factory import run_fetch_stage
+
+    settings = MagicMock()
+    settings.ib_host = "127.0.0.1"
+    settings.ib_port = 7497
+    instrument = MagicMock()
+    instrument.symbol = "SPY"
+    instrument.asset_class = "equity"
+
+    async def _async_true(*_args, **_kwargs) -> bool:
+        return True
+
+    async def _async_none() -> None:
+        return None
+
+    async def _bars(**_kwargs):
+        return provider_bars
+
+    provider = MagicMock()
+    provider.connect = MagicMock(side_effect=_async_true)
+    provider.disconnect = MagicMock(side_effect=_async_none)
+    provider.qualify_instrument = MagicMock(side_effect=_async_true)
+    provider.fetch_historical_bars = MagicMock(side_effect=_bars)
+
+    cursor = MagicMock()
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
+    conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    async def _no_sleep(_seconds):
+        return None
+
+    with (
+        patch(
+            "services.backfill_feature_factory.get_active_contracts",
+            return_value=[instrument],
+        ),
+        patch(
+            "services.backfill_feature_factory._load_config_service",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "services.backfill_feature_factory._get_target_timeframes",
+            return_value=timeframes,
+        ),
+        patch("services.backfill_feature_factory._load_status_map", return_value={}),
+        patch("services.backfill_feature_factory.IBKRProvider", return_value=provider),
+        patch("services.backfill_feature_factory.asyncio.sleep", side_effect=_no_sleep),
+    ):
+        asyncio.run(
+            run_fetch_stage(
+                settings=settings,
+                client_id=_DEFAULT_CLIENT_ID,
+                symbols=["SPY"],
+                db_conn=conn,
+            )
+        )
+    return [row for call in cursor.executemany.call_args_list for row in call.args[1]]
+
+
+class TestFetchStageStoresRealBarsOnly:
+    """Plan 185-32: the --fetch-only stage stores the provider's bars as they arrived (no
+    normalize_bars grid fill) and only at 5m and 1m; migration 444 refuses synthetic_fill."""
+
+    def test_stores_the_provider_bars_without_filling_gaps(self):
+        start = datetime(2026, 10, 1, 13, 30, tzinfo=UTC)
+        bars = [
+            SimpleNamespace(
+                timestamp=start + timedelta(minutes=offset),
+                open=1.0,
+                high=2.0,
+                low=0.5,
+                close=1.5,
+                volume=10,
+                source="ibkr_named",
+            )
+            for offset in (0, 30)  # five slots missing between them
+        ]
+        rows = _run_fetch_stage_with(["5m"], bars)
+        assert [row[0] for row in rows] == [b.timestamp for b in bars]
+        assert {row[8] for row in rows} == {"ibkr_named"}
+
+    def test_refuses_a_timeframe_outside_5m_and_1m(self):
+        with pytest.raises(ValueError, match="5m and 1m"):
+            _run_fetch_stage_with(["5m", "4h"], [])
+
+    def test_no_normalize_bars_in_the_fetch_stage(self):
+        source = inspect.getsource(module.run_fetch_stage)
+        assert "normalize_bars" not in source
+
+
 # ---------------------------------------------------------------------------
 # Rebuild unit design (186-25, D-32a, D-26)
 # ---------------------------------------------------------------------------
