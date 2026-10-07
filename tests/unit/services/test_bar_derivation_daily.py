@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import gzip
 import json
 import re
 from datetime import UTC, date, datetime
@@ -196,8 +197,12 @@ class FakeConn:
             return self._stored_rows(str(args[0]), sources)
         if "bar_content_digest_current" in sql:
             return [
-                {"range_start": start, "digest": digest}
-                for start, digest in self.current_digests.get(str(args[0]), [])
+                {
+                    "range_start": entry[0],
+                    "digest": entry[1],
+                    "rule_version": entry[2] if len(entry) > 2 else RULE_VERSION,
+                }
+                for entry in self.current_digests.get(str(args[0]), [])
             ]
         if "bar_quality_flag" in sql:
             return [
@@ -311,6 +316,8 @@ def _run(conn: FakeConn, **overrides: object):
         apply=overrides.pop("apply", True),
         exclude_symbols_file=None,
         report_path=overrides.pop("report_path", None),
+        rewrite_digests=overrides.pop("rewrite_digests", False),
+        restore_snapshot=overrides.pop("restore_snapshot", None),
     )
     original = bar_derivation_module.scrub_symbols
     bar_derivation_module.scrub_symbols = fake_scrub
@@ -681,3 +688,100 @@ def test_write_1d_digests_reads_every_canonical_source():
         )
         == 0
     )
+
+
+# --- rewrite digests and restore (plan 185-38 Task 2) -----------------------------------------
+
+
+def test_rewrite_digests_rewrites_every_month_at_d2v2_even_when_content_is_equal():
+    stored = {_D1: _row(10.0), _D2: _row(11.0), _D3: _row(12.0)}
+    may = _digest([_D1, _D2], [10.0, 11.0])
+    june = _digest([_D3], [12.0])
+    conn = FakeConn(
+        observations={"TEST": [_obs(_D1, 10.0)]},
+        stored={"TEST": stored},
+        current_digests={
+            "TEST": [(_ts(date(2024, 5, 1)), may, "tradier-v1"), (_ts(date(2024, 6, 1)), june)]
+        },
+    )
+    result, scrub_calls = _run(conn, rewrite_digests=True, symbols=["TEST"])
+    # May's content is equal but its rule is tradier-v1; June is already d2-v2 and equal.
+    assert [(r[2].month, r[4], r[6]) for r in conn.digest_rows] == [(5, may, RULE_VERSION)]
+    assert result["digests_written"] == 1
+    assert not conn.many("INSERT INTO market_data_ohlcv") and scrub_calls == []
+    assert not conn.executed("INSERT INTO ohlcv_load")
+
+
+def test_rewrite_digests_dry_run_counts_without_writing():
+    stored = {_D1: _row(10.0)}
+    conn = FakeConn(
+        observations={"TEST": [_obs(_D1, 10.0)]},
+        stored={"TEST": stored},
+        current_digests={"TEST": [(_ts(date(2024, 5, 1)), _digest([_D1], [10.0]), "d2-v1")]},
+    )
+    result, _ = _run(conn, rewrite_digests=True, symbols=["TEST"], apply=False)
+    assert result["digests_written"] == 1 and conn.digest_rows == []
+
+
+_SNAPSHOT_COLUMNS = (
+    "timestamp,symbol,timeframe,open,high,low,close,volume,source,base,price_sanity_status"
+)
+
+
+def _snapshot(tmp_path, rows):
+    path = tmp_path / "market_data_ohlcv_1d_pre_d2v2.csv.gz"
+    with gzip.open(path, "wt") as handle:
+        handle.write(_SNAPSHOT_COLUMNS + "\n")
+        for symbol, day, close, source in rows:
+            handle.write(
+                f"{day.isoformat()} 00:00:00+00,{symbol},1d,{close},{close},{close},{close},"
+                f"100,{source},,\n"
+            )
+    return str(path)
+
+
+def test_restore_rewrites_the_symbol_from_the_snapshot_through_the_contract(tmp_path):
+    snapshot = _snapshot(
+        tmp_path,
+        [
+            ("TEST", _D1, 10.0, "tradier"),
+            ("TEST", _D2, 11.5, "ibkr_named"),
+            ("TEST", _D5, 13.5, "tradier"),
+            ("OTHER", _D1, 99.0, "tradier"),
+        ],
+    )
+    stored = {_D1: _row(10.0), _D2: _row(11.0), _D3: _row(12.0)}
+    conn = FakeConn(observations={"TEST": [_obs(_D1, 10.0)]}, stored={"TEST": stored})
+    result, scrub_calls = _run(conn, restore_snapshot=snapshot, symbols=["TEST"])
+    assert {d: (r["close"], r["source"]) for d, r in conn.stored["TEST"].items()} == {
+        _D1: (10.0, "tradier"),
+        _D2: (11.5, "ibkr_named"),
+        _D5: (13.5, "tradier"),
+    }
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    assert load_args[15] == "bar_derivation-restore" and load_args[6] == "applied"
+    assert load_args[8:12] == (1, 1, 1, 1)  # new D5, changed D2, unchanged D1, removed D3
+    detail = json.loads(load_args[14])
+    assert detail["waiver"] == "restore" and detail["snapshot"] == snapshot
+    revisions = conn.many("INSERT INTO ohlcv_revision")
+    assert {(r[3].date(), r[7]) for r in revisions} == {(_D2, 11.0), (_D3, 12.0)}
+    assert "OTHER" not in conn.stored
+    assert scrub_calls and scrub_calls[0]["symbols"] == ["TEST"]
+    assert conn.digest_rows
+    assert result["rows"] == {"new": 1, "changed": 1, "unchanged": 1, "removed": 1}
+
+
+def test_restore_without_apply_reports_counts_only(tmp_path):
+    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "tradier")])
+    stored = {_D1: _row(10.0), _D2: _row(11.0)}
+    conn = FakeConn(observations={}, stored={"TEST": stored})
+    result, _ = _run(conn, restore_snapshot=snapshot, symbols=["TEST"], apply=False)
+    assert result["rows"]["removed"] == 1
+    assert conn.statements == [] and conn.executemany_calls == []
+
+
+def test_restore_needs_symbols(tmp_path):
+    snapshot = _snapshot(tmp_path, [("TEST", _D1, 10.0, "tradier")])
+    conn = FakeConn(observations={}, stored={})
+    with pytest.raises(ValueError, match="--symbols"):
+        _run(conn, restore_snapshot=snapshot)
