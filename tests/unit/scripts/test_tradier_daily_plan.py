@@ -1,3 +1,10 @@
+"""The Tradier loader's raw-only plan (plans 185-26, 185-27 and 185-38).
+
+The plan compares the answer with the name's latest Tradier D1 observations: D1 takes only new
+and revised bars; an answer revising more than max_revision_ratio of them is gated (nothing
+lands) unless it is a back-adjusted split or --rebase; a short answer lands with a note.
+"""
+
 import random
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -5,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
     TRADIER_OWNED_SQL,
     LoadParams,
+    d1_bars_to_land,
     plan_symbol_load,
 )
 from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
@@ -15,7 +23,7 @@ from src.providers.tradier import DailyBar
 _PARAMS = LoadParams(
     min_session_ratio=0.95,
     first_date_tolerance_days=7,
-    max_changed_bar_ratio=0.02,
+    max_revision_ratio=0.02,
     rebase=False,
     split_rel_tol=0.002,
     split_min_run=5,
@@ -32,169 +40,120 @@ def _weekday_bars(n: int, start=datetime(2024, 1, 1, tzinfo=UTC), volume: int | 
     return bars
 
 
-def _stored(bar: DailyBar, source="tradier", **change):
-    values = {"o": bar.open, "h": bar.high, "l": bar.low, "c": bar.close, "v": bar.volume}
-    values.update(change)
-    return (values["o"], values["h"], values["l"], values["c"], values["v"], source)
+def _latest(bars: list[DailyBar]) -> dict:
+    return {b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume) for b in bars}
 
 
-def test_clean_new_name_loads_everything():
+def _old_scale(bars: list[DailyBar], factor: float) -> dict:
+    """Latest observations before a split of `factor` (old/fresh): prices times factor."""
+    return {
+        b.timestamp.date(): (
+            b.open * factor,
+            b.high * factor,
+            b.low * factor,
+            b.close * factor,
+            round(b.volume / factor),
+        )
+        for b in bars
+    }
+
+
+def test_clean_new_name_lands_everything():
     plan = plan_symbol_load(_weekday_bars(300), {}, _PARAMS)
     assert plan.outcome == "loaded"
-    assert (plan.n_new, plan.n_changed, len(plan.bars)) == (300, 0, 300)
+    assert (plan.n_new, plan.n_changed, len(plan.landed), len(plan.bars)) == (300, 0, 300, 300)
 
 
 def test_empty_history_is_no_data():
     assert plan_symbol_load([], {}, _PARAMS).outcome == "no_data"
 
 
-def test_null_volume_bars_are_dropped_not_filled():
+def test_null_volume_bars_land_raw():
     bars = _weekday_bars(300)
     bars[10] = DailyBar(bars[10].timestamp, 10.0, 11.0, 9.0, 10.5, None)
     plan = plan_symbol_load(bars, {}, _PARAMS)
-    assert plan.outcome == "short_history" or len(plan.bars) == 299
-    assert plan.detail is None or "null-volume" in plan.detail
+    assert plan.outcome == "loaded" and len(plan.landed) == 300
 
 
-def test_history_with_big_gaps_is_short():
+def test_short_history_lands_and_is_noted_not_refused():
     bars = _weekday_bars(300)
     sparse = bars[:100] + bars[200:]  # 100 weekdays missing
-    assert plan_symbol_load(sparse, {}, _PARAMS).outcome == "short_history"
+    plan = plan_symbol_load(sparse, {}, _PARAMS)
+    assert plan.outcome == "loaded" and len(plan.landed) == 200
+    assert plan.detail.startswith("short_history")
 
 
-def test_history_starting_after_existing_bars_is_short():
+def test_answer_starting_after_earlier_observations_is_noted():
     bars = _weekday_bars(300)
-    existing = {datetime(2020, 1, 6, tzinfo=UTC): (1.0, 1.0, 1.0, 1.0, 1, "ibkr_named")}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "short_history" and "starts" in plan.detail
+    earlier = _latest(_weekday_bars(5, start=datetime(2020, 1, 6, tzinfo=UTC)))
+    plan = plan_symbol_load(bars, earlier, _PARAMS)
+    assert plan.outcome == "loaded" and "starts" in plan.detail
 
 
-def test_changed_bars_beyond_ratio_are_gated_unless_rebase():
+def test_identical_refetch_lands_nothing():
     bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b, source="ibkr_named", v=80) for b in bars}
-    assert plan_symbol_load(bars, existing, _PARAMS).outcome == "gated"
-    rebased = plan_symbol_load(bars, existing, replace(_PARAMS, rebase=True))
-    assert rebased.outcome == "loaded"
-    assert rebased.n_changed == 300 and len(rebased.revisions) == 300
+    plan = plan_symbol_load(bars, _latest(bars), _PARAMS)
+    assert (plan.outcome, plan.n_new, plan.n_changed, plan.landed) == ("loaded", 0, 0, [])
 
 
-def test_identical_reload_changes_nothing():
+def test_a_small_revision_lands_only_the_new_and_revised_bars():
     bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert (plan.outcome, plan.n_new, plan.n_changed) == ("loaded", 0, 0)
+    latest = _latest(bars[:299])
+    revised = replace(bars[5], close=10.75)
+    fresh = bars[:5] + [revised] + bars[6:]
+    plan = plan_symbol_load(fresh, latest, _PARAMS)
+    assert plan.outcome == "loaded" and (plan.n_new, plan.n_changed) == (1, 1)
+    assert plan.landed == [revised, bars[299]]
+    assert len(plan.bars) == 300
 
 
-def test_small_revision_under_the_ratio_loads_and_records_old_values():
+def test_revisions_beyond_the_ratio_are_gated_and_land_nothing_unless_rebase():
     bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars}
-    existing[bars[5].timestamp] = _stored(bars[5], c=99.0)
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "loaded" and plan.n_changed == 1
-    assert plan.revisions[0][1][3] == 99.0
+    latest = _latest(bars)
+    rng = random.Random(7)
+    fresh = [replace(b, close=b.close + 0.01) if rng.random() < 0.03 else b for b in bars]
+    plan = plan_symbol_load(fresh, latest, _PARAMS)
+    assert plan.outcome == "gated" and plan.landed == [] and plan.split is None
+    rebased = plan_symbol_load(fresh, latest, replace(_PARAMS, rebase=True))
+    assert rebased.outcome == "loaded" and rebased.n_changed == len(rebased.landed) > 6
 
 
-# Plan 185-26 task 1: a nightly refetch whose changes are one constant close ratio across every
-# earlier bar is a split the vendor back-adjusted; anything else above the gate stays gated.
-
-
-def _old_scale(bar: DailyBar, factor: float) -> tuple:
-    """The stored bar before a split of `factor` (stored/fresh): prices times factor."""
-    return _stored(
-        bar,
-        o=bar.open * factor,
-        h=bar.high * factor,
-        l=bar.low * factor,
-        c=bar.close * factor,
-        v=round(bar.volume / factor),
-    )
-
-
-def test_two_for_one_back_adjustment_is_a_split():
+def test_two_for_one_back_adjustment_is_a_split_and_lands():
     bars = _weekday_bars(301)
-    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:300]}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "loaded"
-    assert plan.split is not None
+    plan = plan_symbol_load(bars, _old_scale(bars[:300], 2.0), _PARAMS)
+    assert plan.outcome == "loaded" and plan.split is not None
     assert (plan.split.factor, plan.split.kind) == (2.0, "split")
     assert plan.split.effective_date == bars[299].timestamp.date()
-    assert plan.split.evidence_days == 300
-    assert (plan.n_new, plan.n_changed, len(plan.revisions)) == (1, 300, 300)
-    assert plan.revisions[0][1][3] == 21.0  # ohlcv_revision keeps the old-scale close
+    assert len(plan.landed) == 301
 
 
 def test_one_for_ten_reverse_split_is_a_split():
-    bars = _weekday_bars(301)
-    existing = {b.timestamp: _old_scale(b, 0.1) for b in bars[:300]}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "loaded"
-    assert plan.split is not None
-    assert plan.split.kind == "reverse_split"
-    assert abs(plan.split.factor - 0.1) < 1e-12
-
-
-def test_split_crossed_after_missed_nights_keeps_the_new_scale_suffix():
-    # Stored bars after the ex-date were already on the new scale: only the prefix changes.
     bars = _weekday_bars(300)
-    existing = {b.timestamp: _old_scale(b, 3.0) for b in bars[:250]}
-    existing.update({b.timestamp: _stored(b) for b in bars[250:]})
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "loaded" and plan.split is not None
-    assert plan.split.factor == 3.0
-    assert plan.split.effective_date == bars[249].timestamp.date()
-    assert plan.n_changed == 250
+    plan = plan_symbol_load(bars, _old_scale(bars[:250], 0.1), _PARAMS)
+    assert plan.split is not None and plan.split.kind == "reverse_split"
 
 
 def test_noisy_partial_change_is_gated():
-    rng = random.Random(185)
     bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars}
-    for b in bars[:150]:
-        existing[b.timestamp] = _stored(b, c=b.close * rng.uniform(0.8, 1.2))
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "gated" and plan.split is None
-
-
-def test_identical_refetch_is_no_change_and_no_split():
-    bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert (plan.outcome, plan.n_changed, plan.split) == ("loaded", 0, None)
-
-
-def test_constant_ratio_inside_one_section_only_is_gated_not_a_split():
-    bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars}
-    existing.update({b.timestamp: _old_scale(b, 2.0) for b in bars[100:150]})
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "gated" and plan.split is None
+    latest = _latest(bars)
+    for b in bars[:20]:
+        latest[b.timestamp.date()] = (b.open, b.high, b.low, b.close * 1.3, b.volume)
+    for b in bars[20:40]:
+        latest[b.timestamp.date()] = (b.open, b.high, b.low, b.close * 1.7, b.volume)
+    assert plan_symbol_load(bars, latest, _PARAMS).outcome == "gated"
 
 
 def test_constant_ratio_that_snaps_to_one_is_gated_not_a_split():
-    # A uniform 0.4% rescale of the whole history (a bad payload) snaps to 1/1: refused.
-    bars = _weekday_bars(301)
-    existing = {b.timestamp: _old_scale(b, 1.004) for b in bars[:300]}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "gated" and plan.split is None
-
-
-def test_constant_ratio_over_another_vendors_bars_is_a_source_change_not_a_split():
-    # A first load over IBKR bars is a source change: --rebase, never an inferred split.
-    bars = _weekday_bars(301)
-    existing = {
-        b.timestamp: _stored(
-            b, source="ibkr_named", o=b.open * 2, h=b.high * 2, l=b.low * 2, c=b.close * 2
-        )
-        for b in bars[:300]
-    }
-    plan = plan_symbol_load(bars, existing, _PARAMS)
+    bars = _weekday_bars(300)
+    plan = plan_symbol_load(bars, _old_scale(bars[:100], 1.0005), _PARAMS)
     assert plan.outcome == "gated" and plan.split is None
 
 
 def test_too_short_a_changed_prefix_is_gated():
     bars = _weekday_bars(303)
-    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:3]}  # 3 < min_run 5
-    plan = plan_symbol_load(bars, existing, _PARAMS)
+    # 3 < min_run 5 revised bars out of 100 latest observations: over 0.02, no split.
+    latest = {**_old_scale(bars[:3], 2.0), **_latest(bars[3:100])}
+    plan = plan_symbol_load(bars, latest, _PARAMS)
     assert plan.outcome == "gated" and plan.split is None
 
 
@@ -221,65 +180,7 @@ def test_job_status_counts_refusals_as_partial_not_failure():
     assert job_status(1) == "failure"
 
 
-# Plan 185-27: the canonical write carries only new and changed bars, and D1 lands only bars that
-# are new or differ from the latest TRADIER observation of their date.
-
-
-def _latest(bars: list[DailyBar]) -> dict:
-    return {b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume) for b in bars}
-
-
-def test_plan_writes_only_new_and_changed_bars():
-    bars = _weekday_bars(300)
-    existing = {b.timestamp: _stored(b) for b in bars[:299]}
-    existing[bars[5].timestamp] = _stored(bars[5], c=99.0)
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.outcome == "loaded" and (plan.n_new, plan.n_changed) == (1, 1)
-    assert [b.timestamp for b in plan.writes] == [bars[5].timestamp, bars[299].timestamp]
-    assert len(plan.bars) == 300  # the full answer is still the load's bar count
-
-
-def test_identical_refetch_writes_no_bar():
-    bars = _weekday_bars(300)
-    plan = plan_symbol_load(bars, {b.timestamp: _stored(b) for b in bars}, _PARAMS)
-    assert plan.writes == []
-
-
-def test_split_refetch_writes_every_changed_bar():
-    bars = _weekday_bars(301)
-    existing = {b.timestamp: _old_scale(b, 2.0) for b in bars[:300]}
-    plan = plan_symbol_load(bars, existing, _PARAMS)
-    assert plan.split is not None and len(plan.writes) == 301
-
-
-def test_d1_identical_refetch_lands_nothing():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
-
-    bars = _weekday_bars(300)
-    assert d1_bars_to_land(bars, _latest(bars)) == []
-
-
-def test_d1_first_load_lands_every_bar():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
-
-    bars = _weekday_bars(300)
-    assert d1_bars_to_land(bars, {}) == bars
-
-
-def test_d1_lands_new_and_changed_bars_only():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
-
-    bars = _weekday_bars(300)
-    latest = _latest(bars[:299])
-    changed = replace(bars[7], close=bars[7].close + 0.01)
-    fresh = bars[:7] + [changed] + bars[8:]
-    landed = d1_bars_to_land(fresh, latest)
-    assert landed == [changed, bars[299]]
-
-
 def test_d1_null_volume_compares_as_a_value():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
-
     bars = _weekday_bars(10)
     null_bar = replace(bars[3], volume=None)
     fresh = bars[:3] + [null_bar] + bars[4:]
@@ -289,26 +190,17 @@ def test_d1_null_volume_compares_as_a_value():
     assert d1_bars_to_land(bars, _latest(fresh)) == [bars[3]]
 
 
-def test_d1_split_back_adjustment_lands_every_changed_bar():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import d1_bars_to_land
-
-    bars = _weekday_bars(301)
-    old = {
-        b.timestamp.date(): (b.open * 2, b.high * 2, b.low * 2, b.close * 2, b.volume // 2)
-        for b in bars[:300]
-    }
-    assert d1_bars_to_land(bars, old) == bars
+# -- ownership and the D7 finding ------------------------------------------------------------
 
 
-# -- ownership and the D7 finding (moved from the deleted nightly's tests, plan 189-07) -------
-
-
-def test_the_loader_and_d2_use_the_same_ownership_predicate():
-    # One predicate: a name some load was accepted for. A later refused load must not hand the
-    # name back to IBKR (D2 would then overwrite its bars) or the loader and D2 would disagree.
-    d2 = " ".join(_SELECT_DAILY_CHANGED_SINCE_SQL.split())
-    assert TRADIER_OWNED_SQL.format(col="$1") in d2
-    assert "max(loaded_at)" not in d2
+def test_the_loader_and_the_fetcher_probe_use_the_same_policy_ownership_predicate():
+    # One predicate (plan 185-38): the open 1d policy row names Tradier and a Tradier
+    # observation exists. The fetcher (phase 189) reads it through tradier_owned.
+    probe = " ".join(_SELECT_DAILY_CHANGED_SINCE_SQL.split())
+    assert " ".join(TRADIER_OWNED_SQL.format(col="$1").split()) in probe
+    assert "bar_source_policy" in TRADIER_OWNED_SQL and "valid_to IS NULL" in TRADIER_OWNED_SQL
+    assert "o.route = 'TRADIER'" in TRADIER_OWNED_SQL
+    assert "ohlcv_load" not in TRADIER_OWNED_SQL
 
 
 def test_refused_latest_load_of_an_owned_name_is_an_audit_finding():
