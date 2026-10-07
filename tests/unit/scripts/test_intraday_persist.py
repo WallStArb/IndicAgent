@@ -27,8 +27,12 @@ import psycopg
 import pytest
 
 from scripts.infrastructure.backfill import _intraday_persist
-from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
+from scripts.infrastructure.backfill._intraday_persist import (
+    chunk_digest,
+    persist_chunk_atomically,
+)
 from services.ohlcv_coverage_writer import FETCH_STATUSES, CoverageDelta, record_fetch_outcome
+from services.ohlcv_ingress_contract import RevisionRefused, SeriesLoad
 from services.ohlcv_observation_writer import write_request_rows
 
 _REQUEST_ROW = (
@@ -188,7 +192,8 @@ def test_request_and_archive_rows_commit_in_one_transaction(archive_writer):
         "SET LOCAL ROLE bar_derivation_writer",
         "INSERT INTO ohlcv_intraday_raw_archive (...)",
     ]
-    assert conn.copies[0][1] == [_REQUEST_ROW]
+    # The request row carries the content digest of the answer the chunk stored (plan 185-39).
+    assert conn.copies[0][1] == [_REQUEST_ROW + (chunk_digest([_ARCHIVE_ROW]),)]
     assert archive_writer.calls[0][1] == [_ARCHIVE_ROW]
 
 
@@ -273,6 +278,81 @@ def test_request_rows_written_through_the_sink_row_writer(archive_writer):
     write_request_rows(conn.cursor(), [_REQUEST_ROW])
     assert conn.copies[0][0].startswith("COPY ohlcv_request (")
     assert conn.copies[0][1] == [_REQUEST_ROW]
+
+
+def test_digest_is_the_chunk_content_digest_and_null_without_bars(archive_writer):
+    no_bars = _REQUEST_ROW[:11] + ("no_data",) + _REQUEST_ROW[12:14] + (0,) + _REQUEST_ROW[15:]
+    conn = FakeConn()
+    persist_chunk_atomically(
+        conn,
+        request_rows=[_REQUEST_ROW, no_bars],
+        archive_rows=[_ARCHIVE_ROW],
+        write_archive_rows=archive_writer,
+    )
+    with_bars, without = conn.copies[0][1]
+    assert len(with_bars) == 20 and len(without) == 20
+    assert with_bars[-1] == chunk_digest([_ARCHIVE_ROW])
+    assert len(with_bars[-1]) == 64
+    assert without[-1] is None
+
+
+def test_digest_moves_with_the_answer_and_ignores_duplicate_timestamps():
+    other = _ARCHIVE_ROW[:6] + (600.6,) + _ARCHIVE_ROW[7:]
+    assert chunk_digest([_ARCHIVE_ROW]) != chunk_digest([other])
+    assert chunk_digest([other, _ARCHIVE_ROW]) == chunk_digest([_ARCHIVE_ROW])
+
+
+def test_request_row_with_a_digest_already_attached_is_refused(archive_writer):
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="without a digest column"):
+        persist_chunk_atomically(
+            conn,
+            request_rows=[_REQUEST_ROW + ("x",)],
+            archive_rows=[_ARCHIVE_ROW],
+            write_archive_rows=archive_writer,
+        )
+
+
+def _refusal() -> RevisionRefused:
+    load = SeriesLoad(
+        symbol="SPY",
+        timeframe="15m",
+        destination="archive",
+        caller="ibkr-history-fetch",
+        n_bars=1000,
+        n_stored=1000,
+        n_new=0,
+        n_changed=30,
+        n_unchanged=970,
+        first_bar=datetime(2026, 9, 27).date(),
+        last_bar=datetime(2026, 9, 27).date(),
+    )
+    return RevisionRefused(load, ratio=0.03, max_ratio=0.02)
+
+
+def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load():
+    def refusing_writer(cur, rows):
+        raise _refusal()
+
+    conn = FakeConn()
+    with pytest.raises(RevisionRefused):
+        persist_chunk_atomically(
+            conn,
+            request_rows=[_REQUEST_ROW],
+            archive_rows=[_ARCHIVE_ROW],
+            write_archive_rows=refusing_writer,
+        )
+    kinds = [sql for sql, _ in conn.statements]
+    assert kinds.count("<rollback>") == 1 and kinds.count("<commit>") == 1
+    assert kinds.index("<rollback>") < kinds.index("<commit>")
+    # The second transaction wrote the request row (digest NULL) and the refused load row.
+    assert conn.copies[-1][1] == [_REQUEST_ROW + (None,)]
+    load_sql = [sql for sql, _ in conn.statements if sql.startswith("INSERT INTO ohlcv_load")]
+    assert len(load_sql) == 1
+    params = next(v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_load"))
+    assert "refused" in params and "ibkr" in params
+    detail = [p for p in params if isinstance(p, str) and p.startswith("refused:")]
+    assert detail and "0.0300" in detail[0]
 
 
 def test_empty_chunk_is_a_noop(archive_writer):

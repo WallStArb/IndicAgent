@@ -55,6 +55,10 @@ _REQUEST_COLUMNS = (
     "answered_at",
 )
 
+# Plan 185-39: the content digest of the answer a chunk stored (design section 3, direct mode),
+# an optional 20th value on a request row; the sink's own 19-value rows leave it NULL.
+_DIGEST_COLUMN = "content_digest"
+
 _OBSERVATION_COLUMNS = (
     "request_id",
     "symbol",
@@ -91,7 +95,16 @@ def write_request_rows(cur: Any, rows: list[tuple]) -> None:
     request-and-bars transaction) both go through this function, so the table
     keeps exactly one INSERT definition (single_writer).
     """
-    sql = f"COPY ohlcv_request ({', '.join(_REQUEST_COLUMNS)}) FROM STDIN"
+    columns = _REQUEST_COLUMNS
+    widths = {len(row) for row in rows} or {len(_REQUEST_COLUMNS)}
+    if widths == {len(_REQUEST_COLUMNS) + 1}:
+        columns = (*_REQUEST_COLUMNS, _DIGEST_COLUMN)
+    elif widths != {len(_REQUEST_COLUMNS)}:
+        raise ValueError(
+            f"request rows must all have {len(_REQUEST_COLUMNS)} values or all "
+            f"{len(_REQUEST_COLUMNS) + 1} (with content_digest); got widths {sorted(widths)}"
+        )
+    sql = f"COPY ohlcv_request ({', '.join(columns)}) FROM STDIN"
     with cur.copy(sql) as copy:
         for row in rows:
             copy.write_row(row)

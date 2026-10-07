@@ -1,5 +1,5 @@
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -222,6 +222,29 @@ def _ts_bf(hour, minute):
     return datetime(2026, 2, 1, hour, minute, 0, tzinfo=UTC)
 
 
+class _ContractCursor:
+    """A cursor the ingress write contract can run against: stored rows scripted, every
+    statement recorded, the two APR thresholds served (plan 185-39)."""
+
+    def __init__(self, stored=None):
+        self.stored = stored or []
+        self.statements: list[tuple[str, object]] = []
+        self._result: list[tuple] = []
+
+    def execute(self, sql, params=None):
+        self.statements.append((sql, params))
+        if sql.startswith("SELECT config_key"):
+            self._result = [
+                ("threshold.bar_integrity.max_revision_ratio", "0.02"),
+                ("threshold.bar_integrity.revision_ratio_min_stored", "500"),
+            ]
+        elif sql.startswith("SELECT"):
+            self._result = self.stored
+
+    def fetchall(self):
+        return self._result
+
+
 class TestFetchAndStoreBars:
     def test_fetch_1m_bars_queries_correct_table(self):
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
@@ -246,17 +269,19 @@ class TestFetchAndStoreBars:
         assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
 
     def test_store_bars_issues_one_batched_insert(self):
-        # store_bars() batches into a single multi-row VALUES INSERT per
+        # store_bars() batches new rows into a single multi-row VALUES INSERT per
         # _STORE_BATCH_SIZE-row chunk instead of executemany()'s one-statement-
         # per-row template -- measured ~2x faster against live psycopg3
-        # (2026-08-11, see the constant's own comment). One row stays well under
-        # the batch size, so this should be exactly one cur.execute() call.
+        # (2026-08-11, see the constant's own comment). Since plan 185-39 the insert is
+        # plain (the ingress write contract classifies against stored rows first, so a
+        # conflict never reaches it) and sits between the contract's reads and its load row.
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             store_bars,
         )
 
+        cur = _ContractCursor()
         mock_conn = MagicMock()
-        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+        mock_conn.cursor.return_value.__enter__.return_value = cur
         bars = [
             {
                 "timestamp": _ts_bf(9, 30),
@@ -269,10 +294,12 @@ class TestFetchAndStoreBars:
         ]
         n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
         assert n == 1
-        mock_cur.execute.assert_called_once()
-        sql, params = mock_cur.execute.call_args[0]
-        assert "INSERT INTO market_data_ohlcv" in sql
-        assert "ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING" in sql
+        inserts = [
+            (s, p) for s, p in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")
+        ]
+        assert len(inserts) == 1
+        sql, params = inserts[0]
+        assert "ON CONFLICT" not in sql
         assert params == [
             _ts_bf(9, 30),
             "ESH6",
@@ -284,33 +311,91 @@ class TestFetchAndStoreBars:
             1000,
             "historical_backfill",
         ]
+        assert len([s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_load")]) == 1
         mock_conn.commit.assert_called_once()
 
     def test_store_bars_chunks_across_batch_size(self):
         # A row count spanning multiple _STORE_BATCH_SIZE chunks must issue one
-        # execute() per chunk, not one giant statement or one row-by-row loop.
+        # insert per chunk, not one giant statement or one row-by-row loop.
         from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
             _STORE_BATCH_SIZE,
             store_bars,
         )
 
+        cur = _ContractCursor()
         mock_conn = MagicMock()
-        mock_cur = mock_conn.cursor.return_value.__enter__.return_value
+        mock_conn.cursor.return_value.__enter__.return_value = cur
         n_rows = _STORE_BATCH_SIZE + 5
         bars = [
             {
-                "timestamp": _ts_bf(9, 30),
+                "timestamp": _ts_bf(9, 30) + timedelta(minutes=5 * i),
                 "open": 100.0,
                 "high": 101.0,
                 "low": 99.0,
                 "close": 100.5,
                 "volume": 1000,
             }
-            for _ in range(n_rows)
+            for i in range(n_rows)
         ]
         n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
         assert n == n_rows
-        assert mock_cur.execute.call_count == 2
+        inserts = [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
+        assert len(inserts) == 2
+
+    def test_store_bars_second_identical_answer_writes_nothing(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            store_bars,
+        )
+
+        bars = [
+            {
+                "timestamp": _ts_bf(9, 30) + timedelta(minutes=5 * i),
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 1000,
+                "source": "historical_backfill",
+            }
+            for i in range(3)
+        ]
+        stored = [
+            (b["timestamp"], 100.0, 101.0, 99.0, 100.5, 1000, "historical_backfill") for b in bars
+        ]
+        cur = _ContractCursor(stored)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = cur
+        assert store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m") == 3
+        assert not [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
+        assert not [s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_revision")]
+
+    def test_store_bars_changed_bar_is_an_upsert_with_its_revision(self):
+        from scripts.infrastructure.backfill.infrastructure_run_historical_pipeline import (
+            store_bars,
+        )
+
+        ts = _ts_bf(9, 30)
+        stored = [(ts, 100.0, 101.0, 99.0, 100.0, 1000, "historical_backfill")]
+        cur = _ContractCursor(stored)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = cur
+        bars = [
+            {
+                "timestamp": ts,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 1000,
+            }
+        ]
+        store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
+        (sql,) = [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
+        assert "ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET" in sql
+        assert "DO NOTHING" not in sql
+        assert (
+            len([s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_revision")]) == 1
+        )
 
 
 class TestClusterGapRanges:
@@ -319,7 +404,7 @@ class TestClusterGapRanges:
     contract). Naive min/max bounding across all detect_gaps() ranges turned a
     permanent pre-listing void + a 1-day incremental catch-up into one 20-year
     re-request every single run, even though the middle was already fully
-    populated. ON CONFLICT DO NOTHING kept it correct, just wasteful of real,
+    populated. The write contract keeps it correct, just wasteful of real,
     rate-limited IBKR request budget.
     """
 

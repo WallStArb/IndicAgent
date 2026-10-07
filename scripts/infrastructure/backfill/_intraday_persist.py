@@ -31,8 +31,18 @@ the same transaction, still under bar_derivation_writer:
       upsert_coverage(...)                      -- coverage rollup
     COMMIT
 
-so the coverage ledger can never describe bars that did not land. Without a
-CoverageDelta (the default) the helper issues exactly the two writes above and
+so the coverage ledger can never describe bars that did not land.
+
+Phase 185 plan 39 adds the ingress write contract and the request digest. Each request row that
+answered with bars carries the content digest of the answer the chunk stored (design section 3,
+direct mode provenance; src/intelligence/bars/digest.py arithmetic over the chunk's rows, one per
+timestamp, last wins). The bar writers classify against the stored rows (see
+services/ohlcv_ingress_contract.py); a chunk they refuse raises RevisionRefused, this helper rolls
+the transaction back, then records the request rows (digest NULL: nothing was stored) and an
+ohlcv_load row with outcome refused in a second transaction and re-raises, so the item fails
+loudly (phase 189's failure path and max_consecutive_failures) and the refusal is a finding.
+
+Without a CoverageDelta (the default) the helper issues exactly the two writes above and
 nothing else, so callers that predate the ledger are unchanged.
 
 Discipline the caller owes:
@@ -57,6 +67,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import psycopg
 
 from services.ohlcv_coverage_writer import (
@@ -65,7 +76,9 @@ from services.ohlcv_coverage_writer import (
     existing_timestamps,
     upsert_coverage,
 )
+from services.ohlcv_ingress_contract import RevisionRefused, record_refused_load
 from services.ohlcv_observation_writer import write_request_rows
+from src.intelligence.bars.digest import bar_content_digest
 
 _REQUEST_ROLE = "ohlcv_observation_writer"
 # bar_derivation_writer holds INSERT on ohlcv_intraday_raw_archive per
@@ -97,18 +110,67 @@ def persist_chunk_atomically(
             "persist_chunk_atomically requires an idle connection: an open caller "
             "transaction would demote this to a savepoint and trap SET LOCAL ROLE"
         )
+    stamped = [_with_digest(row, archive_rows) for row in request_rows]
+    try:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if stamped:
+                    cur.execute(f"SET LOCAL ROLE {_REQUEST_ROLE}")
+                    write_request_rows(cur, stamped)
+                if archive_rows:
+                    cur.execute(f"SET LOCAL ROLE {_ARCHIVE_ROLE}")
+                    if coverage is None:
+                        write_archive_rows(cur, archive_rows)
+                    else:
+                        _write_bars_and_coverage(cur, archive_rows, write_archive_rows, coverage)
+    except RevisionRefused as refusal:
+        _record_refusal(conn, request_rows, refusal)
+        raise
+    return len(request_rows), len(archive_rows)
+
+
+# ohlcv_request row layout (services/ohlcv_observation_writer._REQUEST_COLUMNS).
+_REQ_OUTCOME, _REQ_N_BARS, _REQUEST_COLUMNS_WITHOUT_DIGEST = 11, 14, 19
+
+
+def chunk_digest(rows: list[tuple]) -> str:
+    """Content digest of the answer a chunk offers: one row per timestamp (last wins), the
+    bar content digest arithmetic with no quarantine rules (the ingress rows carry none)."""
+    keyed = {row[_TS]: row for row in rows}
+    ordered = [keyed[ts] for ts in sorted(keyed)]
+    return bar_content_digest(
+        np.array([ts.timestamp() for ts in sorted(keyed)], dtype=np.int64),
+        np.array([row[3] for row in ordered], dtype=np.float64),
+        np.array([row[4] for row in ordered], dtype=np.float64),
+        np.array([row[5] for row in ordered], dtype=np.float64),
+        np.array([row[6] for row in ordered], dtype=np.float64),
+        np.array([row[_VOLUME] for row in ordered], dtype=np.float64),
+        [() for _ in ordered],
+    )
+
+
+def _with_digest(request_row: tuple, bar_rows: list[tuple]) -> tuple:
+    """The request row with its content digest appended: the chunk's digest when the request
+    answered with bars, NULL otherwise."""
+    if len(request_row) != _REQUEST_COLUMNS_WITHOUT_DIGEST:
+        raise ValueError(
+            f"request rows reach the persist helper without a digest column "
+            f"({_REQUEST_COLUMNS_WITHOUT_DIGEST} values); got {len(request_row)}"
+        )
+    has_bars = request_row[_REQ_OUTCOME] == "bars" and request_row[_REQ_N_BARS] > 0
+    return request_row + ((chunk_digest(bar_rows) if has_bars and bar_rows else None),)
+
+
+def _record_refusal(conn: Any, request_rows: list[tuple], refusal: RevisionRefused) -> None:
+    """Second transaction after a refused chunk rolled back: the answers are still recorded
+    (digest NULL, no bar was stored) and the load row says why nothing was written."""
     with conn.transaction():
         with conn.cursor() as cur:
             if request_rows:
                 cur.execute(f"SET LOCAL ROLE {_REQUEST_ROLE}")
-                write_request_rows(cur, request_rows)
-            if archive_rows:
-                cur.execute(f"SET LOCAL ROLE {_ARCHIVE_ROLE}")
-                if coverage is None:
-                    write_archive_rows(cur, archive_rows)
-                else:
-                    _write_bars_and_coverage(cur, archive_rows, write_archive_rows, coverage)
-    return len(request_rows), len(archive_rows)
+                write_request_rows(cur, [row + (None,) for row in request_rows])
+            cur.execute(f"SET LOCAL ROLE {_ARCHIVE_ROLE}")
+            record_refused_load(cur, refusal)
 
 
 # Bar row layout shared by the archive 10-tuple and the market_data_ohlcv 9-tuple.
@@ -134,8 +196,9 @@ def _write_bars_and_coverage(
 ) -> None:
     """Bar insert plus the coverage upsert, under the bar-writer role already set.
 
-    The bar writers insert ON CONFLICT DO NOTHING and return rows offered, so the
-    stored-before set is read first and only genuinely new timestamps are counted.
+    The bar writers (the ingress write contract) return rows offered, not rows
+    written, so the stored-before set is read first and only genuinely new timestamps are
+    counted.
     The grid counts tradeable rows only (volume > 0), matching the
     market_data_ohlcv_tradeable bootstrap; the archive counts every new row.
     """

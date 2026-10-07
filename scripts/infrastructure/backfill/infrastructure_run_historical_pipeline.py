@@ -60,6 +60,7 @@ from scripts.infrastructure.backfill._d1_gaps import (
 from scripts.infrastructure.backfill._derivation_stage import run_derivation_stage
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.intraday_raw_archive import insert_fetched_archive_rows
+from services.ohlcv_ingress_contract import DESTINATION_GRID, apply_ingress_contract
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
@@ -986,11 +987,23 @@ ORDER BY timestamp ASC
 # or promoted to a shared helper -- see todo 301.
 _STORE_BATCH_SIZE = 1000
 _STORE_ROW_PLACEHOLDERS = "(" + ",".join(["%s"] * 9) + ")"
+# Plain multi-row INSERT of new rows (plan 185-39): the ingress write contract classifies a chunk
+# against the stored rows first, so a conflict never reaches this statement.
 _STORE_VALUES_SQL = (
     "INSERT INTO market_data_ohlcv "
     "(timestamp, symbol, timeframe, open, high, low, close, volume, source) VALUES "
-    "{values} ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING"
+    "{values}"
 )
+# The same insert for the changed set: the latest answer wins, and the contract has already
+# written the replaced values to ohlcv_revision. An upsert, not a raw UPDATE of the compressed
+# hypertable, so the market_data_ohlcv writer boundary allow-list stays empty.
+_STORE_REPLACE_SQL = (
+    _STORE_VALUES_SQL + " ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET "
+    "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
+    "volume = EXCLUDED.volume, source = EXCLUDED.source"
+)
+# ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
+_INGRESS_CALLER = "ibkr-history-fetch"
 
 
 def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
@@ -1123,8 +1136,9 @@ def detect_gaps(
 # Naive min/max bounding across ALL gap ranges collapses these into one giant
 # request spanning the already-fully-populated middle -- every backfill re-run
 # then re-requests the entire history from IBKR even though only a sliver near
-# the front or back is actually missing. ON CONFLICT DO NOTHING keeps this
-# correct, just wasteful of real, rate-limited IBKR request budget on every run.
+# the front or back is actually missing. The ingress write contract (plan 185-39)
+# keeps this correct (identical rows are not rewritten), just wasteful of real,
+# rate-limited IBKR request budget on every run.
 # Cluster gap ranges by proximity instead: ranges separated by more than this
 # many days of already-present data get their own IBKR request rather than
 # forcing a single request to re-cover the gap between them.
@@ -1277,16 +1291,33 @@ def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = 
     return bars
 
 
-def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
-    """Batched multi-row VALUES insert into market_data_ohlcv (the default
-    store_bars destination; 5m/1m from plan 185-18 on. 15m/1h route to the
-    archive, and 1d is refused outright in task 1b)."""
+def _write_market_data_batches(sql_template: str, cur: Any, params: list[tuple]) -> None:
     for i in range(0, len(params), _STORE_BATCH_SIZE):
         chunk = params[i : i + _STORE_BATCH_SIZE]
-        sql = _STORE_VALUES_SQL.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
-        flat_params = [value for row in chunk for value in row]
-        cur.execute(sql, flat_params)
-    return len(params)
+        sql = sql_template.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
+        cur.execute(sql, [value for row in chunk for value in row])
+
+
+def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
+    """Write one chunk to market_data_ohlcv by the ingress write contract (plan 185-39; the
+    default store_bars destination, 5m/1m from plan 185-18 on; 15m/1h route to the archive and
+    1d is refused outright in task 1b).
+
+    Stored rows for the chunk's keys are read and each row is classified new, changed or
+    unchanged by exact value: new rows are inserted, changed rows are rewritten with their old
+    values recorded in ohlcv_revision, unchanged rows are not written, and one ohlcv_load row
+    (source ibkr) records the counts. A chunk that revises more than the refusal ratio raises
+    RevisionRefused before any write. Returns the rows offered (the persist helper's coverage
+    arithmetic depends on that).
+    """
+    return apply_ingress_contract(
+        cur,
+        params,
+        destination=DESTINATION_GRID,
+        caller=_INGRESS_CALLER,
+        write_new=lambda c, rows: _write_market_data_batches(_STORE_VALUES_SQL, c, rows),
+        write_changed=lambda c, rows: _write_market_data_batches(_STORE_REPLACE_SQL, c, rows),
+    )
 
 
 def _insert_archive_rows(cur: Any, params: list[tuple]) -> int:
@@ -1919,8 +1950,9 @@ def main() -> None:
                         # discards all in-memory progress for that (symbol, tf). This
                         # writes raw real bars only (no synthetic fill, which needs the
                         # full window's prev_close carried across chunk boundaries — see
-                        # normalize_bars). ON CONFLICT DO NOTHING in store_bars makes the
-                        # later full-window pass re-affirming these rows a safe no-op.
+                        # normalize_bars). The ingress write contract in store_bars makes the
+                        # later full-window pass re-affirming these rows a no-op (identical
+                        # rows are classified unchanged and not written).
                         # Archive tfs record the request ids the provider reports,
                         # so each chunk's bars and its answer commit atomically
                         # (todo 462): the record fires before on_chunk, so by the
@@ -2030,7 +2062,7 @@ def main() -> None:
 
                         # Fetch each cluster's window separately — the provider still
                         # chunks each one at _MAX_CHUNK_DAYS[tf] internally with 10s
-                        # between chunks. ON CONFLICT DO NOTHING makes every window
+                        # between chunks. The ingress write contract makes every window
                         # idempotent regardless of cluster boundaries.
                         #
                         # tf_window_failed tracks whether ANY window for this tf raised.

@@ -1,9 +1,10 @@
 """Live-DB proof of the three-way atomic write (phase 189 plan 01, CD-04, CD-05, CD-14).
 
-Runs against the local PostgreSQL the way tests/unit/core/test_resource_lease.py does (the
-integration suite's migrated_test_database fixture is blocked by todo 486), and skips cleanly
-when no database is reachable. Real tables, real NOLOGIN roles and grants: a request row, the
-archive rows and the ohlcv_coverage row either all commit or none do.
+Runs on indicagent_test (rebuilt by the integration conftest; moved here from tests/unit/scripts
+in plan 185-39, todo 494: it used to write the live database, and the ingress contract's
+ohlcv_load rows would have left ZZ189 residue there). Real tables, real NOLOGIN roles and
+grants: a request row, the archive rows and the ohlcv_coverage row either all commit or none do.
+Every fixture asserts the database name before any write.
 
 Each case uses its own synthetic symbol (ZZ189 + random hex) at the current UTC hour, so the
 archive rows land in an uncompressed chunk and no real series is touched. ohlcv_request has an
@@ -16,7 +17,6 @@ for those two DELETEs, inside a transaction scoped to the test symbol. That bypa
 
 from __future__ import annotations
 
-import functools
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -32,22 +32,11 @@ from services.ohlcv_coverage_writer import (
     record_fetch_outcome,
     refresh_1d_bounds,
 )
+from tests.integration.conftest import TEST_DB_URL
 
-_LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _N_BARS = 3
 
-
-@functools.lru_cache(maxsize=1)
-def _db_reachable() -> bool:
-    try:
-        conn = psycopg.connect(_LIVE_DB_DSN, connect_timeout=3)
-    except Exception:
-        return False
-    conn.close()
-    return True
-
-
-pytestmark = pytest.mark.skipif(not _db_reachable(), reason="local PostgreSQL not reachable")
+pytestmark = pytest.mark.integration
 
 
 def _symbol() -> str:
@@ -66,6 +55,9 @@ def _cleanup(conn: psycopg.Connection, symbol: str) -> None:
     with conn.transaction():
         conn.execute("DELETE FROM ohlcv_coverage WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM market_data_ohlcv WHERE symbol = %s", (symbol,))
+        # The ingress contract writes ohlcv_load (FK RESTRICT on instruments) and revisions.
+        conn.execute("DELETE FROM ohlcv_revision WHERE symbol = %s", (symbol,))
+        conn.execute("DELETE FROM ohlcv_load WHERE symbol = %s", (symbol,))
         conn.execute("SET LOCAL session_replication_role = replica")
         conn.execute("DELETE FROM ohlcv_intraday_raw_archive WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM ohlcv_request WHERE symbol = %s", (symbol,))
@@ -111,7 +103,8 @@ def _chunk(symbol: str) -> tuple[list[tuple], list[tuple]]:
 
 @pytest.fixture()
 def live():
-    conn = psycopg.connect(_LIVE_DB_DSN, autocommit=True)
+    conn = psycopg.connect(TEST_DB_URL, autocommit=True)
+    assert conn.execute("SELECT current_database()").fetchone()[0] == "indicagent_test"
     symbol = _symbol()
     _register(conn, symbol)
     try:

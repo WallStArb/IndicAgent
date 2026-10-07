@@ -5,7 +5,7 @@ canonical writer, and ohlcv_revision to the one revision table (data layer integ
 section 3). Each writer owns one `source` segment of ohlcv_load and writes ohlcv_revision rows
 only under its own load rows, so the segments below are pairwise disjoint: the Tradier loader
 owns source tradier, the grid stage of services/bar_derivation.py owns source derived, and
-185-39 adds the IBKR ingress writers as source ibkr. Any other INSERT, UPDATE, DELETE, COPY,
+185-39 adds the IBKR ingress contract (services/ohlcv_ingress_contract.py) as source ibkr. Any other INSERT, UPDATE, DELETE, COPY,
 TRUNCATE or MERGE into either table fails CI unless the allow-list is edited with a reason, and
 an entry that no longer writes fails as stale. This file replaces the two tables' scanned
 entries in test_single_writer_registry.py (185-44).
@@ -44,6 +44,7 @@ _TABLES = {
 
 _LOADER = "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py"
 _DERIVATION = "services/bar_derivation.py"
+_INGRESS = "services/ohlcv_ingress_contract.py"
 
 # table -> module -> (owned ohlcv_load.source values, reason)
 _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
@@ -60,6 +61,13 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
             "its new, changed, unchanged and removed counts (outcome applied or refused, "
             "plan 185-31).",
         ),
+        _INGRESS: (
+            frozenset({"ibkr"}),
+            "PERMANENT: the IBKR ingress write contract records one load per (symbol, timeframe) "
+            "of every fetched chunk written to market_data_ohlcv (5m, 1m) or the raw archive "
+            "(15m/1h parity sample), outcome applied or refused (plan 185-39). The pipeline's "
+            "and the archive's own bar INSERTs stay in their owner modules and call it.",
+        ),
     },
     "ohlcv_revision": {
         _DERIVATION: (
@@ -68,6 +76,11 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
             "load rows: changed or removed derived and canonical 1d rows (origin load) and "
             "stored vendor rows the archive does not hold equal (origin archive_segment) "
             "before they leave market_data_ohlcv (plans 185-31 and 185-38).",
+        ),
+        _INGRESS: (
+            frozenset({"ibkr"}),
+            "PERMANENT: the old values of every bar an ingress chunk changed, under that "
+            "chunk's own ibkr load row (origin load; plan 185-39).",
         ),
     },
 }
