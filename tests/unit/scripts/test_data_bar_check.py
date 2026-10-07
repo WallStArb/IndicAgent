@@ -62,26 +62,102 @@ def test_parse_dry_run_keys_on_the_recorded_fixture_finds_72_1d_keys() -> None:
 # --- pure conditions ----------------------------------------------------------------
 
 
-def test_scrub_condition_requires_fact_quarantined_keys_and_legacy_keys() -> None:
-    ok = mod.scrub_condition(
-        fact_passed=True, fixture_total=72, fixture_quarantined=72, legacy_quarantined=15
-    )
-    assert ok.ok
+def _scrub(**overrides: object) -> mod.CheckResult:
+    kwargs: dict[str, object] = {
+        "fact_passed": True,
+        "fixture_total": 72,
+        "fixture_quarantined": 28,
+        "fixture_replaced": 44,
+        "legacy_total": 15,
+        "legacy_quarantined": 5,
+        "legacy_replaced": 10,
+    }
+    kwargs.update(overrides)
+    return mod.scrub_condition(**kwargs)  # type: ignore[arg-type]
 
-    no_fact = mod.scrub_condition(
-        fact_passed=False, fixture_quarantined=72, fixture_total=72, legacy_quarantined=15
-    )
+
+def test_scrub_condition_passes_when_every_key_is_quarantined_or_replaced() -> None:
+    """185-34: a known answer is resolved when quarantined, or replaced by a scrubbed bar of a
+    different source with the judged IBKR value kept in ohlcv_revision."""
+    ok = _scrub()
+    assert ok.ok
+    for part in ("quarantined 28", "replaced 44", "open 0", "quarantined 5", "replaced 10"):
+        assert part in ok.evidence
+    assert _scrub(fixture_quarantined=72, fixture_replaced=0).ok
+
+
+def test_scrub_condition_fails_naming_the_open_count() -> None:
+    no_fact = _scrub(fact_passed=False)
     assert not no_fact.ok
 
-    short = mod.scrub_condition(
-        fact_passed=True, fixture_total=72, fixture_quarantined=71, legacy_quarantined=15
-    )
+    short = _scrub(fixture_replaced=43)
     assert not short.ok
+    assert "open 1" in short.evidence
 
-    no_legacy = mod.scrub_condition(
-        fact_passed=True, fixture_total=72, fixture_quarantined=72, legacy_quarantined=14
-    )
-    assert not no_legacy.ok
+    legacy_open = _scrub(legacy_replaced=9)
+    assert not legacy_open.ok
+    assert "open 1" in legacy_open.evidence
+
+    assert not _scrub(fixture_total=0, fixture_quarantined=0, fixture_replaced=0).ok
+
+
+def test_scrub_condition_holds_the_d28_contract_of_15_legacy_keys() -> None:
+    """72/15 are the D-28 contract, not tunables: a short legacy key set fails."""
+    assert not _scrub(legacy_total=14, legacy_quarantined=4, legacy_replaced=10).ok
+
+
+def test_legacy_keys_are_the_15_migration_381_keys_fixed_independent_of_the_flags() -> None:
+    """The 15 1d keys migration 381 copied from price_sanity_status = 'confirmed_corrupt'.
+    185-30 retired 12 of their flags, so the set is a constant, never read back from flags."""
+    keys = mod.LEGACY_1D_KEYS
+    assert len(keys) == 15
+    assert len(set(keys)) == 15
+    assert ("SPY", "2007-04-02T00:00:00Z") in keys
+    assert ("DIA", "2009-06-02T00:00:00Z") in keys
+
+
+_SCRUB_AT = datetime(2026, 10, 3, 20, 59, tzinfo=UTC)
+_LOADED = datetime(2026, 10, 3, 20, 55, tzinfo=UTC)
+
+
+def _status(**overrides: object) -> str:
+    kwargs: dict[str, object] = {
+        "quarantined": False,
+        "stored_source": "tradier",
+        "has_ibkr_revision": True,
+        "last_revision_at": _LOADED,
+        "scrub_at": _SCRUB_AT,
+    }
+    kwargs.update(overrides)
+    return mod.known_answer_status(**kwargs)  # type: ignore[arg-type]
+
+
+def test_known_answer_replaced_needs_a_different_source_an_ibkr_revision_and_a_later_scrub() -> (
+    None
+):
+    assert _status() == "replaced"
+
+
+def test_known_answer_quarantine_wins_over_replaced() -> None:
+    """A replaced key whose new bar carries a D2a quarantine flag counts as quarantined."""
+    assert _status(quarantined=True) == "quarantined"
+    assert _status(quarantined=True, stored_source=None, has_ibkr_revision=False) == ("quarantined")
+
+
+def test_known_answer_without_a_revision_row_is_open() -> None:
+    """No ohlcv_revision row: no evidence of what was replaced (T-185-34-01)."""
+    assert _status(has_ibkr_revision=False, last_revision_at=None) == "open"
+
+
+@pytest.mark.parametrize("source", ["ibkr_named", "ibkr_venue", None])
+def test_known_answer_still_on_an_ibkr_source_or_hidden_is_open(source: str | None) -> None:
+    assert _status(stored_source=source) == "open"
+
+
+def test_known_answer_revised_after_the_scrub_is_open() -> None:
+    """The scrub has not judged the current bar: a revision at or after the last scrub fact."""
+    assert _status(last_revision_at=_SCRUB_AT) == "open"
+    assert _status(scrub_at=None) == "open"
 
 
 def test_seam_condition_missing_fact_fails_and_actions_need_split_seam_coverage() -> None:
@@ -125,12 +201,55 @@ def test_dispositions_condition_fails_on_any_unresolved_late_name() -> None:
     assert "HOOD" in bad.evidence
 
 
+def test_dispositions_condition_excludes_tradier_owned_late_names_and_reports_them() -> None:
+    """185-34: a Tradier-owned late name's history comes from Tradier, not the truncated IBKR
+    route, so it is out of scope (orchestrator call 2026-10-06, pending owner review). The
+    excluded count and the excluded unresolved names are on the evidence line."""
+    dispositions = {
+        "AA": "reached_window_start",
+        "DAL": "unresolved",
+        "ODFL": "unresolved",
+        "XOM": "reached_window_start",
+    }
+    result = mod.dispositions_condition(dispositions, tradier_owned={"DAL", "ODFL", "XOM"})
+    assert result.ok
+    assert "Tradier-owned excluded 3" in result.evidence
+    assert "DAL" in result.evidence and "ODFL" in result.evidence
+    assert "IBKR-sourced late names 1" in result.evidence
+
+
+def test_dispositions_condition_unresolved_ibkr_name_still_fails_and_is_named_in_full() -> None:
+    names = [f"N{i:02d}" for i in range(12)]
+    dispositions = {name: "unresolved" for name in names} | {"DAL": "unresolved"}
+    result = mod.dispositions_condition(dispositions, tradier_owned={"DAL"})
+    assert not result.ok
+    assert "unresolved 12" in result.evidence
+    for name in names:  # every residue name, not a sample
+        assert name in result.evidence
+
+
 def test_premove_condition_fails_on_pre_move_bar_unless_venue_bars_allowed() -> None:
     assert mod.premove_condition(n_pre_move_bars=0, venue_bars_1d=False).ok
     assert not mod.premove_condition(n_pre_move_bars=3, venue_bars_1d=False).ok
     allowed = mod.premove_condition(n_pre_move_bars=3, venue_bars_1d=True)
     assert allowed.ok
     assert "venue_bars_1d" in allowed.evidence
+    assert "IBKR-source" in allowed.evidence
+
+
+def test_premove_sql_counts_ibkr_sources_only() -> None:
+    """185-34: Tradier consolidated history before an IBKR venue move is real history, not
+    truncation; only IBKR-source bars before the SMART head are a defect."""
+    assert "m.source = ANY(%s)" in mod._PREMOVE_SQL
+    assert set(mod.IBKR_1D_SOURCES) == {"ibkr_named", "ibkr_venue"}
+    assert "ohlcv_venue_head" in mod._PREMOVE_SQL
+
+
+def test_docstring_describes_the_source_aware_conditions() -> None:
+    doc = mod.__doc__ or ""
+    assert "ohlcv_revision" in doc
+    assert "Tradier-owned" in doc
+    assert "IBKR-source" in doc
 
 
 def test_dividend_condition_requires_share_and_total_return_symbol() -> None:
@@ -175,9 +294,10 @@ class FakeCursor:
     (the venue flag and the survivorship keys both read config_state) get
     consecutive replies in execution order."""
 
-    def __init__(self, queues: dict[str, list[object]]) -> None:
+    def __init__(self, queues: dict[str, list[object]], executed: list) -> None:
         self._queues = queues
         self._next: object = None
+        self._executed = executed
 
     def __enter__(self):
         return self
@@ -186,7 +306,9 @@ class FakeCursor:
         return None
 
     def execute(self, sql: str, params: tuple | dict = ()) -> None:
-        self._next = self._queues[_marker(sql)].pop(0)
+        marker = _marker(sql)
+        self._executed.append((marker, params))
+        self._next = self._queues[marker].pop(0)
 
     def fetchall(self):
         return self._next if isinstance(self._next, list) else []
@@ -199,9 +321,10 @@ class FakeCursor:
 
 def _marker(sql: str) -> str:
     for key in (
+        "ohlcv_revision",  # known-answer status (fixture keys, then legacy keys)
+        "ohlcv_venue_head",  # pre-move count
+        "ohlcv_load",  # Tradier-owned late names
         "integrity_monitor",
-        "unnest",
-        "legacy_price_sanity_status",
         "corporate_action",
         "split_seam",
         "bar_derivation_batch",
@@ -226,15 +349,26 @@ _SIX_KEYS = [
 ]
 
 
+_FIXTURE_KEYS = mod.parse_dry_run_keys(open(_FIXTURE).read())
+
+
+def _known_rows(keys, quarantined: bool = False) -> list[tuple]:
+    """(symbol, ts, quarantined, stored_source, has_ibkr_revision, last_revision_at)"""
+    if quarantined:
+        return [(s, t, True, None, False, None) for s, t in keys]
+    return [(s, t, False, "tradier", True, _LOADED) for s, t in keys]
+
+
 def _replies() -> dict[str, list[object]]:
     return {
-        "integrity_monitor": [(True,), (True,)],  # scrub fact, then seam fact
-        "unnest": [(72,)],  # all fixture keys quarantined
-        "legacy_price_sanity_status": [(15,)],
+        "integrity_monitor": [(True, _SCRUB_AT), (True, _SCRUB_AT)],  # scrub, then seam fact
+        # all fixture keys quarantined, then every legacy key replaced
+        "ohlcv_revision": [_known_rows(_FIXTURE_KEYS, True), _known_rows(mod.LEGACY_1D_KEYS)],
+        "ohlcv_load": [[]],  # no Tradier-owned late names
         "corporate_action": [[]],  # no seam-audit splits
         "split_seam": [[]],
         "bar_derivation_batch": [[]],  # no daily batches
-        "market_data_ohlcv_tradeable": [(0,)],  # no pre-move bars visible
+        "ohlcv_venue_head": [(0,)],  # no pre-move bars visible
         "config_state": [("false",), list(_SIX_KEYS)],  # venue flag, then keys
         "instruments": [(925, 931, 0)],  # covered, eligible, deactivated
         "ohlcv_request": [[]],  # no stored requests
@@ -244,9 +378,10 @@ def _replies() -> dict[str, list[object]]:
 class FakeConn:
     def __init__(self, replies: dict[str, list[object]]) -> None:
         self._queues = {marker: list(items) for marker, items in replies.items()}
+        self.executed: list[tuple[str, object]] = []
 
     def cursor(self) -> FakeCursor:
-        return FakeCursor(self._queues)
+        return FakeCursor(self._queues, self.executed)
 
 
 def test_main_prints_one_line_per_condition_and_exits_1_on_fail(monkeypatch, capsys) -> None:
@@ -296,3 +431,48 @@ class _FakeCtx:
 
 def _fake_ctx(conn) -> _FakeCtx:
     return _FakeCtx(conn)
+
+
+def _patch(monkeypatch, conn, late: dict) -> None:
+    monkeypatch.setattr(mod, "_connect", lambda: _fake_ctx(conn))
+    monkeypatch.setattr(mod, "_late_names", lambda conn: late)
+    monkeypatch.setattr(mod, "_load_apr", lambda conn: {})
+    monkeypatch.setattr(mod, "_total_return_importable", lambda: True)
+    monkeypatch.setattr(mod, "_FIXTURE_PATH", Path(_FIXTURE))
+
+
+def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monkeypatch) -> None:
+    replies = _replies()
+    fixture_rows = _known_rows(_FIXTURE_KEYS)
+    fixture_rows[0] = (*fixture_rows[0][:4], False, None)  # replaced without a revision: open
+    replies["ohlcv_revision"] = [fixture_rows, _known_rows(mod.LEGACY_1D_KEYS)]
+    conn = FakeConn(replies)
+    _patch(monkeypatch, conn, {})
+
+    results = {r.condition: r for r in mod.run_checks(conn)}
+    scrub = results["scrub_pass_complete"]
+    assert not scrub.ok
+    assert "replaced 71" in scrub.evidence and "open 1" in scrub.evidence
+
+    params = {marker: p for marker, p in conn.executed}
+    assert list(params["ohlcv_venue_head"][0]) == list(mod.IBKR_1D_SOURCES)
+    revision_params = params["ohlcv_revision"]
+    assert list(revision_params[0]) == list(mod.IBKR_1D_SOURCES)
+    assert "tradier" not in revision_params[0]
+
+
+def test_run_checks_excludes_tradier_owned_late_names(monkeypatch) -> None:
+    """DAL is late and Tradier-owned: out of condition 3. AMD (IBKR-sourced, no stored
+    requests) stays unresolved and fails the condition."""
+    replies = _replies()
+    replies["ohlcv_load"] = [[("DAL",)]]
+    conn = FakeConn(replies)
+    _patch(monkeypatch, conn, {"AMD": date(2015, 10, 1), "DAL": date(2008, 1, 2)})
+
+    results = {r.condition: r for r in mod.run_checks(conn)}
+    late = results["late_name_dispositions"]
+    assert not late.ok
+    assert "unresolved 1 (AMD)" in late.evidence
+    assert "Tradier-owned excluded 1" in late.evidence and "DAL" in late.evidence
+    params = dict(conn.executed)["ohlcv_load"]
+    assert sorted(params[0]) == ["AMD", "DAL"]

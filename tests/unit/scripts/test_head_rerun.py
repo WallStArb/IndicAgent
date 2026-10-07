@@ -187,3 +187,65 @@ def test_smart_bars_before_the_stored_head_stay_unresolved() -> None:
     smart = HeadRequest("SMART", "bars", _WS, _WE, date(2006, 10, 12), _T0, "NASDAQ")
     reqs = [smart] + [_primary_req(v, "no_data", "NASDAQ") for v in _VENUES if v != "ISLAND"]
     assert classify_head(reqs, date(2007, 5, 11), _VENUES) == "unresolved"
+
+
+# --- 185-34: a failed ISLAND answer on a non-Nasdaq name (APR switch) ----------------
+
+
+def _island_failed(primary: str | None, outcome: str = "failed") -> list[HeadRequest]:
+    """SMART no_data, ISLAND answering `outcome`, every other non-primary venue no_data."""
+    reqs = [_primary_req("SMART", "no_data", primary), _primary_req("ISLAND", outcome, primary)]
+    reqs += [_primary_req(v, "no_data", primary) for v in _VENUES if v not in ("ISLAND", primary)]
+    return reqs
+
+
+def test_island_failed_on_a_non_nasdaq_name_is_unlisted_when_the_switch_is_on() -> None:
+    """IDR, SGHC, UUUU, BMNR, CPS, FUBO, QXO, SD (185-28): ISLAND answers `failed` on every
+    attempt for NYSE/AMEX names. With infra.ibkr.venue_fallback.island_failed_unlisted on,
+    that answer counts as no listing at Nasdaq for the head (owner-pending rule)."""
+    reqs = _island_failed("NYSE")
+    head = date(2015, 1, 2)
+    assert classify_head(reqs, head, _VENUES) == "unresolved"
+    assert classify_head(reqs, head, _VENUES, island_failed_unlisted=True) == "verified_empty"
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "throttled"])
+def test_island_rule_covers_failed_only(outcome: str) -> None:
+    reqs = _island_failed("AMEX", outcome)
+    assert (
+        classify_head(reqs, date(2015, 1, 2), _VENUES, island_failed_unlisted=True) == "unresolved"
+    )
+
+
+def test_island_rule_needs_a_recorded_primary() -> None:
+    """No primary recorded: nothing shows the name is not a Nasdaq listing (fail closed)."""
+    reqs = _island_failed(None)
+    assert (
+        classify_head(reqs, date(2015, 1, 2), _VENUES, island_failed_unlisted=True) == "unresolved"
+    )
+
+
+def test_island_rule_does_not_cover_other_venues() -> None:
+    reqs = [_primary_req("SMART", "no_data", "NYSE"), _primary_req("ISLAND", "no_data", "NYSE")]
+    reqs.append(_primary_req("AMEX", "failed", "NYSE"))
+    reqs += [_primary_req(v, "no_data", "NYSE") for v in ("ARCA", "BATS")]
+    assert (
+        classify_head(reqs, date(2015, 1, 2), _VENUES, island_failed_unlisted=True) == "unresolved"
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("true", True), ("false", False), (None, False), ("TRUE", True)]
+)
+def test_island_switch_reads_the_apr_key_and_a_missing_key_is_off(
+    value: str | None, expected: bool
+) -> None:
+    apr = {} if value is None else {"infra.ibkr.venue_fallback.island_failed_unlisted": value}
+    assert mod.island_failed_unlisted(apr) is expected
+
+
+def test_load_apr_reads_the_island_switch() -> None:
+    conn = _FakeConn([])
+    mod._load_apr(conn)
+    _, params = conn.cur.executed[0]
+    assert "infra.ibkr.venue_fallback.island_failed_unlisted" in params[0]
