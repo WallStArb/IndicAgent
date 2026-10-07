@@ -6,9 +6,10 @@ verdicts; nothing here touches a database or the APR.
 from __future__ import annotations
 
 import time
-from collections.abc import Collection, Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Protocol
 
 import numpy as np
@@ -23,6 +24,7 @@ from src.intelligence.bars.daily_rule import (
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
+from src.intelligence.bars.gap_plan import AnsweredWindows
 from src.intelligence.bars.sources import SOURCE_IBKR_FALLBACK
 from src.intelligence.bars.vendor_basis import (
     BasisRun,
@@ -360,3 +362,134 @@ def judge_name_1d(
         )
     )
     return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs)
+
+
+# ---------------------------------------------------------------------------
+# The intraday checks (plan 185-40; design sections 5 and 6)
+# ---------------------------------------------------------------------------
+
+TIMEFRAME_5M = "5m"
+# Checks one name with 5m bars is judged on, in report order (identifiers, not tunables).
+CHECKS_INTRADAY = (
+    "slot_coverage",
+    "digest_fresh",
+    "grid_parity",
+    "stray_vendor_rows",
+    "coverage_cache",
+)
+# Written when a run recomputed every digest month of every name, so the next run can tell when
+# the last full sweep happened. Informational: it never fails.
+INFO_DIGEST_FULL_SWEEP = "digest_full_sweep"
+SWEEP_SUBJECT = "intraday|sweep"
+
+_FIVE_MINUTES = 300
+_BUCKET_SECONDS = {"15m": 900, "1h": 3600}
+Values = tuple[float, float, float, float, float]
+
+
+def answered_slots(
+    expected: Iterable[datetime],
+    stored: Collection[datetime],
+    answered: AnsweredWindows,
+    interval: timedelta,
+    session_closes: Mapping[date, datetime],
+) -> set[datetime]:
+    """Expected slots that hold an answer: a stored bar (real or zero-volume provider bar, never
+    a placeholder: the caller passes those out) or a slot wholly inside an answered window.
+
+    A slot ends at its session's close when that comes first (a half-day's last slot).
+    """
+    stored_set = set(stored)
+    out: set[datetime] = set()
+    for slot in expected:
+        close = session_closes.get(slot.date())
+        length = interval if close is None else min(interval, close - slot)
+        if slot in stored_set or answered.covers(slot, length):
+            out.add(slot)
+    return out
+
+
+def slot_coverage_by_year(
+    slots_expected: Iterable[datetime], slots_answered: Collection[datetime]
+) -> dict[int, float]:
+    """Per calendar year, the share of expected slots that are answered; years without expected
+    slots are absent. An answered slot outside the expected set never inflates a year."""
+    expected: dict[int, int] = defaultdict(int)
+    done: dict[int, int] = defaultdict(int)
+    for slot in slots_expected:
+        expected[slot.year] += 1
+        if slot in slots_answered:
+            done[slot.year] += 1
+    return {year: done[year] / n for year, n in sorted(expected.items())}
+
+
+def grid_parity(
+    derived: Mapping[datetime, Values],
+    archived: Mapping[datetime, Values],
+    *,
+    timeframe: str,
+) -> tuple[int, int]:
+    """(n_compared, n_mismatched) over the buckets both sides hold, on the archive's keys.
+
+    15m must match exactly on every shared bucket. 1h is compared on shared buckets only (the
+    vendor's 1h grid lacks the 09:30 half hour on 39 of 231 measured names); a bucket one side
+    lacks is never counted either way. Values are (open, high, low, close, volume), exact.
+    """
+    if timeframe not in _BUCKET_SECONDS:
+        raise ValueError(f"grid_parity is defined for {sorted(_BUCKET_SECONDS)}, not {timeframe!r}")
+    shared = derived.keys() & archived.keys()
+    mismatched = sum(
+        1 for key in shared if tuple(map(float, derived[key])) != tuple(map(float, archived[key]))
+    )
+    return len(shared), mismatched
+
+
+def rebucket_5m(
+    ts_seconds: np.ndarray,
+    open_: np.ndarray,
+    high: np.ndarray,
+    low: np.ndarray,
+    close: np.ndarray,
+    volume: np.ndarray,
+    bucket_starts: Sequence[int],
+    *,
+    timeframe: str,
+) -> dict[int, Values]:
+    """Aggregate sorted 5m bars into the vendor archive's own buckets (epoch seconds -> values).
+
+    The archive's 1h grid sits on clock hours (a half-hour bar at 09:30, then 10:00, 11:00, ...)
+    while the derived grid is session anchored (09:30, 10:30, ...), so stored derived 1h rows
+    share only the 09:30 key with the archive and differ there by span. Re-aggregating the 5m
+    bars over each archive bucket's own span (to the next clock boundary of the timeframe) gives
+    the like-for-like comparison. A bucket is returned only when every 5m constituent is present.
+    """
+    width = _BUCKET_SECONDS[timeframe]
+    if not len(bucket_starts) or not ts_seconds.size:
+        return {}
+    starts = np.array(sorted(set(bucket_starts)), dtype=np.int64)
+    ends = (starts // width + 1) * width
+    idx = np.searchsorted(starts, ts_seconds, side="right") - 1
+    inside = (idx >= 0) & (ts_seconds < ends[np.clip(idx, 0, None)])
+    if not inside.any():
+        return {}
+    ids = idx[inside]
+    first = np.concatenate(([0], np.flatnonzero(np.diff(ids)) + 1))
+    counts = np.diff(np.concatenate((first, [ids.size])))
+    bucket = ids[first]
+    expected = (ends[bucket] - starts[bucket]) // _FIVE_MINUTES
+    full = counts == expected
+    o, h, lo, c, v = (a[inside] for a in (open_, high, low, close, volume))
+    last = first + counts - 1
+    out_high = np.maximum.reduceat(h, first)
+    out_low = np.minimum.reduceat(lo, first)
+    out_volume = np.add.reduceat(v, first)
+    return {
+        int(starts[bucket[i]]): (
+            float(o[first[i]]),
+            float(out_high[i]),
+            float(out_low[i]),
+            float(c[last[i]]),
+            float(out_volume[i]),
+        )
+        for i in np.flatnonzero(full)
+    }

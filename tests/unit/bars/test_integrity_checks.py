@@ -289,3 +289,169 @@ def test_vendor_run_blocks_only_when_the_canonical_side_is_the_one_that_steps():
     smooth = _judge(_basis_inputs("tradier", tradier_steps=False))
     assert smooth.basis_runs and not smooth.blocking_runs
     assert _by_check(smooth)["vendor_basis_run"].passed
+
+
+# ---------------------------------------------------------------------------
+# Intraday checks (plan 185-40 Task 1)
+# ---------------------------------------------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import pytest  # noqa: E402
+
+from services.bar_reconciliation_audit import completeness_cells, session_slots  # noqa: E402
+from src.intelligence.bars.gap_plan import AnsweredWindows  # noqa: E402
+from src.intelligence.bars.integrity_checks import (  # noqa: E402
+    answered_slots,
+    grid_parity,
+    rebucket_5m,
+    slot_coverage_by_year,
+)
+from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
+
+_FIXTURES = Path(__file__).parent.parent.parent / "fixtures" / "bars"
+_FIVE = timedelta(minutes=5)
+
+
+def _fixture_stamps(name: str) -> list[datetime]:
+    frame = pd.read_csv(_FIXTURES / name)
+    return [pd.Timestamp(t).to_pydatetime() for t in frame["timestamp"]]
+
+
+def _slots(day_from: date, day_to: date) -> tuple[dict, list[datetime]]:
+    sessions = nyse_sessions(day_from, day_to)
+    start = datetime(day_from.year, day_from.month, day_from.day, tzinfo=UTC)
+    end = datetime(day_to.year, day_to.month, day_to.day, tzinfo=UTC) + timedelta(days=1)
+    return sessions, session_slots(sessions, 5, start, end)
+
+
+def _closes(sessions: dict) -> dict:
+    return {day: close for day, (_open, close) in sessions.items()}
+
+
+def test_slot_coverage_counts_the_half_day_session_only():
+    sessions, slots = _slots(date(2025, 11, 28), date(2025, 11, 28))
+    stamps = _fixture_stamps("spy_5m_2025_11_28_half_day.csv")
+    assert len(slots) == 42 == len(stamps)
+    done = answered_slots(slots, stamps, AnsweredWindows(), _FIVE, _closes(sessions))
+    assert slot_coverage_by_year(slots, done) == {2025: 1.0}
+
+
+def test_slot_coverage_dst_slots_anchor_at_nine_thirty_new_york_in_both_regimes():
+    sessions, slots = _slots(date(2025, 3, 10), date(2025, 11, 3))
+    stamps = set(_fixture_stamps("spy_5m_dst_2025_03_10_2025_11_03.csv"))
+    opens = {sessions[day][0] for day in (date(2025, 3, 10), date(2025, 11, 3))}
+    assert {s for s in slots if s in opens} == {
+        datetime(2025, 3, 10, 13, 30, tzinfo=UTC),  # EDT
+        datetime(2025, 11, 3, 14, 30, tzinfo=UTC),  # EST
+    }
+    # the fixture's two days sit on those slots, so every fixture stamp is an expected slot
+    assert stamps <= set(slots)
+
+
+def test_zero_volume_bar_and_answered_empty_window_are_answered_a_missing_slot_is_not():
+    sessions, slots = _slots(date(2025, 11, 28), date(2025, 11, 28))
+    stamps = _fixture_stamps("spy_5m_2025_11_28_half_day.csv")
+    missing = stamps[:3]  # three unanswered slots
+    window = (stamps[3], stamps[3] + 2 * _FIVE)  # answered no_data over two slots
+    kept = stamps[5:]  # zero-volume provider bars are passed in as stored slots like any real bar
+    done = answered_slots(
+        slots, kept, AnsweredWindows.from_rows([window]), _FIVE, _closes(sessions)
+    )
+    assert all(s not in done for s in missing)
+    assert stamps[3] in done and stamps[4] in done
+    coverage = slot_coverage_by_year(slots, done)[2025]
+    assert coverage == pytest.approx(39 / 42)
+
+
+def test_answered_slot_outside_the_expected_set_does_not_inflate_a_year():
+    sessions, slots = _slots(date(2025, 11, 28), date(2025, 11, 28))
+    stray = datetime(2025, 11, 28, 22, 0, tzinfo=UTC)
+    assert slot_coverage_by_year(slots[:2], {slots[0], stray}) == {2025: 0.5}
+
+
+def test_slot_coverage_is_split_per_calendar_year():
+    slots = [datetime(2024, 12, 31, 15, tzinfo=UTC), datetime(2025, 1, 2, 15, tzinfo=UTC)]
+    assert slot_coverage_by_year(slots, {slots[1]}) == {2024: 0.0, 2025: 1.0}
+
+
+def test_slot_coverage_equals_the_completeness_cells_quantity_on_the_same_inputs():
+    sessions, slots = _slots(date(2025, 11, 26), date(2025, 11, 28))
+    stored = slots[::2]
+    window = AnsweredWindows.from_rows([(slots[3], slots[5])])
+    cells = completeness_cells("SPY", "5m", slots, stored, window, _FIVE, sessions)
+    done = answered_slots(slots, stored, window, _FIVE, _closes(sessions))
+    assert slot_coverage_by_year(slots, done)[2025] == pytest.approx(cells[0].share)
+
+
+_T0 = datetime(2025, 6, 2, 13, 30, tzinfo=UTC)
+_BAR = (1.0, 2.0, 0.5, 1.5, 100.0)
+
+
+def test_grid_parity_identical_buckets_have_no_mismatch():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
+    assert grid_parity(derived, dict(derived), timeframe="15m") == (2, 0)
+
+
+def test_grid_parity_one_differing_volume_is_one_mismatch():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=15): _BAR}
+    archived = {_T0: _BAR, _T0 + timedelta(minutes=15): (1.0, 2.0, 0.5, 1.5, 101.0)}
+    assert grid_parity(derived, archived, timeframe="15m") == (2, 1)
+
+
+def test_grid_parity_1h_compares_only_the_shared_keys():
+    derived = {_T0: _BAR, _T0 + timedelta(minutes=30): _BAR}
+    archived = {_T0 + timedelta(minutes=30): _BAR}  # vendor grid lacks the 09:30 half hour
+    assert grid_parity(derived, archived, timeframe="1h") == (1, 0)
+
+
+def test_grid_parity_rejects_a_timeframe_it_does_not_define():
+    with pytest.raises(ValueError):
+        grid_parity({}, {}, timeframe="5m")
+
+
+def _five_minute_bars(first: datetime, n: int) -> tuple[np.ndarray, ...]:
+    ts = np.array([int(first.timestamp()) + 300 * i for i in range(n)], dtype=np.int64)
+    base = np.arange(n, dtype=np.float64)
+    return ts, base + 10, base + 12, base + 9, base + 11, np.full(n, 10.0)
+
+
+def test_rebucket_1h_follows_the_archive_clock_hour_edges_not_the_derived_edges():
+    # 14:30 UTC (09:30 EDT) for two hours of 5m bars: the archive's keys are 14:30 (half hour),
+    # 15:00, 16:00
+    ts, o, h, lo, c, v = _five_minute_bars(datetime(2025, 6, 2, 13, 30, tzinfo=UTC), 24)
+    starts = [
+        int(datetime(2025, 6, 2, hour, minute, tzinfo=UTC).timestamp())
+        for hour, minute in ((13, 30), (14, 0))
+    ]
+    out = rebucket_5m(ts, o, h, lo, c, v, starts, timeframe="1h")
+    half_hour = out[starts[0]]
+    assert half_hour == (10.0, 12 + 5, 9.0, 16.0, 60.0)  # six bars: 13:30..13:55
+    full_hour = out[starts[1]]
+    assert full_hour == (16.0, 12 + 17, 15.0, 28.0, 120.0)  # twelve bars: 14:00..14:55
+
+
+def test_rebucket_drops_a_bucket_missing_a_constituent():
+    ts, o, h, lo, c, v = _five_minute_bars(datetime(2025, 6, 2, 13, 30, tzinfo=UTC), 3)
+    keep = np.array([True, False, True])
+    start = int(datetime(2025, 6, 2, 13, 30, tzinfo=UTC).timestamp())
+    assert (
+        rebucket_5m(
+            ts[keep], o[keep], h[keep], lo[keep], c[keep], v[keep], [start], timeframe="15m"
+        )
+        == {}
+    )
+    assert start in rebucket_5m(ts, o, h, lo, c, v, [start], timeframe="15m")
+
+
+def test_rebucket_of_no_bars_is_empty():
+    empty = np.array([], dtype=np.float64)
+    assert (
+        rebucket_5m(
+            np.array([], dtype=np.int64), empty, empty, empty, empty, empty, [0], timeframe="15m"
+        )
+        == {}
+    )
