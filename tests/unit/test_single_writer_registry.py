@@ -141,12 +141,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             "the grid stage's derived-bar flags, and the daily stage's d2-v2 flags (plan "
             "185-36), which it decides and writes through bar_scrub.write_flags",
         ),
-        Writer(
-            "scripts/ops/bars/ops_tradier_lineage_backfill.py",
-            _segment("rule", "legacy_price_sanity_status"),
-            "185-30's retirement of replaced 1d legacy flags (seeded by migration 381); the "
-            "scrub's stale-flag delete excludes this rule",
-        ),
     ),
     "corporate_action": (
         Writer(

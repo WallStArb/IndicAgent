@@ -464,9 +464,23 @@ FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = '1d'
 """
 
+# A name Tradier owns (plan 185-38): its open 1d bar_source_policy row (the symbol's open row,
+# else the timeframe default) names Tradier primary, and a Tradier observation exists. Format
+# with col = the symbol expression. The Tradier loader's nightly selects these names; the IBKR
+# history fetcher (phase 189) skips their IBKR 1d through tradier_owned below.
+TRADIER_OWNED_SQL = (
+    "(COALESCE("
+    "(SELECT p.primary_source FROM bar_source_policy p WHERE p.timeframe = '1d'"
+    " AND p.symbol = {col} AND p.valid_to IS NULL),"
+    " (SELECT p.primary_source FROM bar_source_policy p WHERE p.timeframe = '1d'"
+    " AND p.symbol IS NULL AND p.valid_to IS NULL)) = 'tradier'"
+    " AND EXISTS (SELECT 1 FROM ohlcv_observation o WHERE o.symbol = {col}"
+    " AND o.timeframe = '1d' AND o.route = 'TRADIER'))"
+)
+
 # --changed-only: a symbol is due when any TRADES request was answered after the last completed
 # daily batch, or a corporate action or a 1d source policy row was recorded after it.
-_SELECT_DAILY_CHANGED_SINCE_SQL = """
+_SELECT_DAILY_CHANGED_SINCE_SQL = f"""
 /* changed_since */
 SELECT EXISTS (
     SELECT 1 FROM ohlcv_observation o
@@ -501,12 +515,10 @@ EXISTS (
           '-infinity'::timestamptz)
 ) AS policy_since,
 -- The IBKR history fetcher (phase 189) imports this statement as _DAILY_SOURCE_PROBE_SQL and
--- reads tradier_owned to skip IBKR 1d fetches for names some Tradier load was accepted for
--- (migration 438; source = 'tradier' since migration 443). The daily stage no longer reads it:
--- d2-v2 derives every name from bar_source_policy (plan 185-36). 185-38 redefines the column;
--- 189-10 replaces the fetcher's use of it.
-EXISTS (SELECT 1 FROM ohlcv_load l
-        WHERE l.symbol = $1 AND l.source = 'tradier' AND l.outcome = 'loaded') AS tradier_owned
+-- reads tradier_owned to skip IBKR 1d fetches. Since plan 185-38 it is TRADIER_OWNED_SQL: the
+-- name's open 1d policy row names Tradier primary and a Tradier observation exists. The daily
+-- stage does not read it; 189-10 replaces the fetcher's use with the weekly IBKR 1d reconcile.
+{TRADIER_OWNED_SQL.format(col='$1')} AS tradier_owned
 """
 
 # The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy

@@ -152,7 +152,12 @@ _KEEP_TABLES: dict[str, str] = {}
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
-_PENDING_RETIREMENT: dict[str, str] = {}
+_PENDING_RETIREMENT: dict[str, str] = {
+    "infra.tradier.max_changed_bar_ratio": (
+        "the Tradier loader's refusal reads threshold.bar_integrity.max_revision_ratio on the "
+        "raw record since plan 185-38; migration 452 retires the key (retire: 185-43)"
+    ),
+}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:

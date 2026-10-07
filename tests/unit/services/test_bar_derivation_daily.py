@@ -643,7 +643,7 @@ def test_changed_since_probe_keeps_its_name_and_tradier_owned_column():
     # ibkr_history_fetcher.py (phase 189) imports it as _DAILY_SOURCE_PROBE_SQL.
     from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as sql
 
-    assert "FROM ohlcv_load" in sql and "AS tradier_owned" in sql
+    assert "AS tradier_owned" in sql and "FROM ohlcv_load" not in sql  # policy since 185-38
     assert "AS policy_since" in sql and "bar_source_policy" in sql
 
 

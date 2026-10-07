@@ -256,9 +256,6 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
     "services/bar_reconciliation_audit.py": ConsumerVerdict(
         REAL_ROWS, "counts rows by source; plan 25 task 3 makes a synthetic row a defect"
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": ConsumerVerdict(
-        REAL_ROWS, "reads 1d with source <> 'synthetic_fill' already"
-    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": ConsumerVerdict(
         REAL_ROWS, "measures synthetic rows; reads zero afterwards"
     ),
@@ -292,9 +289,6 @@ CONSUMER_VERDICTS: dict[str, ConsumerVerdict] = {
         REAL_ROWS, "archive SELECT excludes synthetic_fill"
     ),
     _SELF: ConsumerVerdict(SELF, "this preflight"),
-    "scripts/ops/bars/ops_tradier_lineage_backfill.py": ConsumerVerdict(
-        REAL_ROWS, "counts stored Tradier 1d bars against D1; placeholders never exist there"
-    ),
     "scripts/ops/bars/ops_source_policy.py": ConsumerVerdict(
         REAL_ROWS, "EXISTS probe for a stored tradier 1d row; placeholders are never tradier"
     ),

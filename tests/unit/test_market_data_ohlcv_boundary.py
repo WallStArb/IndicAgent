@@ -67,18 +67,6 @@ _ALLOW_LIST: dict[str, str] = {
         "zero-volume rows, and its late-heads check reads the earliest canonical row of any "
         "real source."
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
-        "PERMANENT (phase 185, Tradier primary 1d source): the loader writes canonical 1d rows "
-        "and diffs them against the existing rows of every real source, zero-volume provider "
-        "bars included, to record revisions and gate a source change; the tradeable view would "
-        "hide those rows and turn a revision into a silent new bar."
-    ),
-    "scripts/ops/bars/ops_tradier_lineage_backfill.py": (
-        "ONE-TIME (plan 185-30): the 1d lineage, digest and legacy-flag repair counts every "
-        "stored canonical 1d bar, zero-volume provider bars included, and joins a legacy flag "
-        "to its stored bar's source; lineage and digests cover those rows, so the tradeable "
-        "view would hide exactly the bars being traced."
-    ),
     "scripts/ops/bars/ops_source_policy.py": (
         "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
         "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "

@@ -1,13 +1,10 @@
-"""CI guard: canonical_bar_lineage and bar_content_digest have named writers (plan 185-27).
+"""CI guard: canonical_bar_lineage has no writer; bar_content_digest has one (plans 185-27, 185-38).
 
-single_writer: services/bar_derivation.py (D2 and the derived grid) writes bar_content_digest;
-since plan 185-36 its daily stage (d2-v2) writes no canonical_bar_lineage row, which 185-38
-replaces with a view. The Tradier daily loader writes canonical_bar_lineage for the 1d bars it
-stores, under rule tradier-v1, until then, and reaches bar_content_digest only through
-bar_derivation.write_1d_digests. The
-scan matches the SQL where it is defined, so a script that imports TRADIER_LINEAGE_UPSERT_SQL or
-write_1d_digests (the 185-30 backfill) is not a new writer. Any other INSERT, UPDATE or COPY into
-either table fails CI unless the allow-list below is edited with a reason.
+single_writer: since plan 185-38 canonical_bar_lineage is a view derived on read (migration
+447), so no module may INSERT, UPDATE, DELETE or COPY into it; services/bar_derivation.py
+(the derived grid and the daily stage, write_1d_digests) is the only bar_content_digest writer.
+The Tradier loader writes neither: it lands D1 and chains the daily stage. Any other write
+fails CI unless the allow-list below is edited with a reason.
 
 CI-clean: no DB, no network, pure filesystem grep.
 """
@@ -29,28 +26,22 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # bar_content_digest\b does not match bar_content_digest_current (the read view).
 _TABLES = {
     "canonical_bar_lineage": re.compile(
-        r"\b(?:INSERT\s+INTO|UPDATE|COPY)\s+canonical_bar_lineage\b"
+        r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|COPY)\s+canonical_bar_lineage\b"
         r"|copy_records_to_table\(\s*[\"']canonical_bar_lineage[\"']"
     ),
     "bar_content_digest": re.compile(
-        r"\b(?:INSERT\s+INTO|UPDATE|COPY)\s+bar_content_digest\b"
+        r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|COPY)\s+bar_content_digest\b"
         r"|copy_records_to_table\(\s*[\"']bar_content_digest[\"']"
     ),
 }
 
 _ALLOW_LISTS: dict[str, dict[str, str]] = {
-    "canonical_bar_lineage": {
-        "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
-            "TEMPORARY: the second 1d writer (owner decision 2026-10-03) traces every bar it "
-            "stores to its TRADIER D1 observation (TRADIER_LINEAGE_UPSERT_SQL, rule tradier-v1, "
-            "plan 185-27) inside the bar write's transaction. The loader's canonical write and "
-            "this table give way to the lineage view (retire: 185-38)."
-        ),
-    },
+    # A view since migration 447: nothing may write it.
+    "canonical_bar_lineage": {},
     "bar_content_digest": {
         "services/bar_derivation.py": (
-            "PERMANENT: the one digest writer: the grid stage's 5m/15m/1h months and "
-            "write_1d_digests, which D2 and the Tradier loader both call (plan 185-27)."
+            "PERMANENT: the one digest writer: the grid stage's 5m/15m/1h months and the "
+            "daily stage's write_1d_digests at d2-v2 (plans 185-27 and 185-38)."
         ),
     },
 }
@@ -68,9 +59,9 @@ def test_every_lineage_and_digest_writer_is_on_the_allow_list():
             allow_list,
             what=f"`{table}` write(s)",
             remedy=(
-                "single_writer: route the write through services/bar_derivation.py "
-                "(write_1d_digests) or the Tradier loader's TRADIER_LINEAGE_UPSERT_SQL; only "
-                "edit the allow-list here with a review-ready reason for a new writer."
+                "single_writer: canonical_bar_lineage is a view (no writer); digests go "
+                "through services/bar_derivation.py (write_1d_digests). Only edit the "
+                "allow-list here with a review-ready reason for a new writer."
             ),
         )
 
@@ -88,3 +79,16 @@ def test_the_pattern_catches_each_write_form_and_skips_the_current_view():
     assert pattern.search('conn.copy_records_to_table("bar_content_digest", records=r)')
     assert not pattern.search("SELECT digest FROM bar_content_digest_current")
     assert not pattern.search("INSERT INTO bar_content_digest_current")
+
+
+def test_the_pattern_catches_each_lineage_write_form():
+    pattern = _TABLES["canonical_bar_lineage"]
+    for sql in (
+        "INSERT INTO canonical_bar_lineage (symbol)",
+        "UPDATE canonical_bar_lineage SET rule_version = 'x'",
+        "DELETE FROM canonical_bar_lineage WHERE symbol = $1",
+        "COPY canonical_bar_lineage FROM STDIN",
+        'conn.copy_records_to_table("canonical_bar_lineage", records=r)',
+    ):
+        assert pattern.search(sql), sql
+    assert not pattern.search("SELECT * FROM canonical_bar_lineage")

@@ -69,7 +69,7 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `ohlcv_observation` | Every 1d bar answered (D1), per request, route (`SMART`, `NYSE`, `ARCA`, `ISLAND`, `AMEX`, `BATS`, `TRADIER`, `LEGACY_IMPORT`) and what_to_show | same |
 | `ohlcv_load`, `ohlcv_revision` | One row per Tradier daily load of one symbol; the old values of any canonical bar a load changed | Tradier loader |
 | `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25). 1d: `ibkr_named` (D2) or `tradier`; 15m/1h: `derived_5m`; 5m/1m: provider bars | D2, Tradier loader, historical pipeline (5m/1m) |
-| `canonical_bar_lineage` | Which observation each D2 1d bar came from | `bar_derivation --stage daily` |
+| `canonical_bar_lineage` | View (migration 447): which observation each canonical 1d bar equals, derived on read | none (a view) |
 | `ohlcv_intraday_raw_archive` | The IBKR 15m/1h answers the derived grid replaced (hypertable) | `bar_derivation --stage grid` |
 | `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
 | `corporate_action` | Splits and reverse splits, append-only, `supersedes` for corrections | seam audit, nightly split detect, Tradier loader |
@@ -109,9 +109,11 @@ Readers of D1 exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'
 Three units replace the nightly backfill script, which plan 189-07 deleted:
 
 1. `indicagent-tradier-daily.timer` (01:30 UTC) runs `infrastructure_run_tradier_daily.py
-   --nightly` (APR `infra.tradier.nightly_enabled`): it refetches every Tradier-owned name in
-   full and loads any active equity with no 1d bars. A refetch carrying a split
-   back-adjustment records a `corporate_action`; other refusals keep the stored bars.
+   --nightly` (APR `infra.tradier.nightly_enabled`): it refetches every Tradier-owned name
+   (policy primary Tradier) in full and loads any active equity with no 1d bars into D1 only,
+   then runs `services/bar_derivation.py --stage daily --apply` for the names whose D1 changed.
+   A refetch carrying a split back-adjustment records a `corporate_action`; a broad revision
+   is gated and lands nothing.
 2. `indicagent-ibkr-history-fetcher.timer` (every 15 min after the last run ends; disabled
    until plan 189-10 by owner decision 2026-10-06) runs
    `scripts/infrastructure/backfill/ibkr_history_fetcher.py`: the `ohlcv_coverage` queue over

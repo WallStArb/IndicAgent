@@ -62,19 +62,22 @@ _ALLOW_LIST: dict[str, str] = {
         "the derivation never rewrites those (D-15). Plan 185-18 task 1b fenced the "
         "daily and derived-grid timeframes out of the fetch stage entirely."
     ),
-    "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py": (
-        "TEMPORARY: the Tradier daily loader (owner decision 2026-10-03, migration 438: "
-        "Tradier is the primary 1d source). It lands raw observations in D1 and writes the "
-        "canonical 1d bars it plans, refusing short or source-changing loads; plan 185-26 "
-        "chains it as the nightly's Tradier 1d leg. A second 1d writer with no disjoint "
-        "segment: the data layer integrity design makes the daily stage the only 1d writer "
-        "(retire: 185-38)."
-    ),
     "services/bar_writer.py": (
         "PERMANENT: the streaming-path bar writer persists provider bars at the one- "
         "and five-minute timeframes only (the live path is dormant while the IBKR feed "
         "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
         "(daily, hourly, quarter-hour) with a logged warning."
+    ),
+}
+
+
+# Writers other than the daily stage that cannot write the derivation-owned timeframes (1d,
+# 15m, 1h) without referencing the DERIVATION_OWNED_TIMEFRAMES fence: why each cannot (plan
+# 185-38: the daily stage is the only 1d writer).
+_FENCE_EXEMPT: dict[str, str] = {
+    "scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py": (
+        "its raw write is the five- and one-minute persist path only; daily answers go to D1 "
+        "and hourly and quarter-hour answers to the archive (plan 185-18 task 1b)"
     ),
 }
 
@@ -105,3 +108,19 @@ def test_every_raw_market_data_ohlcv_writer_is_on_the_allow_list():
 def test_writer_allow_list_has_no_stale_entries():
     hits = _find_writer_references()
     assert_allow_list_has_no_stale_entries(hits, _ALLOW_LIST)
+
+
+def test_every_other_writer_is_fenced_from_the_derivation_owned_timeframes():
+    """services/bar_derivation.py is the only 1d (and grid) writer: every other allow-listed
+    writer references DERIVATION_OWNED_TIMEFRAMES or names why it cannot write them."""
+    for module in _ALLOW_LIST:
+        if module == "services/bar_derivation.py":
+            continue
+        source = (_REPO_ROOT / module).read_text()
+        assert "DERIVATION_OWNED_TIMEFRAMES" in source or module in _FENCE_EXEMPT, module
+    for module in _FENCE_EXEMPT:
+        assert module in _ALLOW_LIST, f"stale fence exemption: {module}"
+
+
+def test_the_tradier_loader_is_not_a_writer():
+    assert "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py" not in _ALLOW_LIST

@@ -321,6 +321,10 @@ class FakeCursor:
 
 
 def _marker(sql: str) -> str:
+    # The Tradier-owned late-name query reads the source policy since plan 185-38
+    # (TRADIER_OWNED_SQL); its queue keeps the "ohlcv_load" marker.
+    if "bar_source_policy" in sql:
+        return "ohlcv_load"
     for key in (
         "ohlcv_revision",  # known-answer status (fixture keys, then legacy keys)
         "ohlcv_venue_head",  # pre-move count

@@ -50,8 +50,9 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
     "ohlcv_load": {
         _LOADER: (
             frozenset({"tradier"}),
-            "PERMANENT: the Tradier daily loader records every load attempt of one symbol "
-            "(plan 185-27; outcome loaded, short_history, no_data, failed or gated).",
+            "PERMANENT: the Tradier daily loader records every load attempt of one symbol into "
+            "D1 (destination d1, plan 185-38; outcome loaded, no_data, failed or gated). It "
+            "writes no ohlcv_revision row: the daily stage records canonical revisions.",
         ),
         _DERIVATION: (
             frozenset({"derived"}),
@@ -61,17 +62,12 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
         ),
     },
     "ohlcv_revision": {
-        _LOADER: (
-            frozenset({"tradier"}),
-            "PERMANENT: the old value of each canonical 1d bar a Tradier load changed, under "
-            "that load's row (plan 185-27).",
-        ),
         _DERIVATION: (
             frozenset({"derived"}),
-            "PERMANENT: the grid stage's old values under its own load rows: changed or "
-            "removed derived rows (origin load) and stored vendor rows the archive does not "
-            "hold equal (origin archive_segment) before they leave market_data_ohlcv "
-            "(plan 185-31).",
+            "PERMANENT: the grid stage's and the daily stage's old values under their own "
+            "load rows: changed or removed derived and canonical 1d rows (origin load) and "
+            "stored vendor rows the archive does not hold equal (origin archive_segment) "
+            "before they leave market_data_ohlcv (plans 185-31 and 185-38).",
         ),
     },
 }
@@ -133,14 +129,10 @@ def test_the_pattern_catches_each_write_form():
 def test_every_ownership_predicate_requires_a_tradier_source():
     from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
         _SELECT_MISSING_SQL,
-        TRADIER_OWNED_SQL,
     )
-    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL
     from services.bar_reconciliation_audit import _TRADIER_LATEST_LOAD_SQL
 
     for name, sql in (
-        ("bar_derivation._SELECT_DAILY_CHANGED_SINCE_SQL", _SELECT_DAILY_CHANGED_SINCE_SQL),
-        ("TRADIER_OWNED_SQL", TRADIER_OWNED_SQL),
         ("loader _SELECT_MISSING_SQL", _SELECT_MISSING_SQL),
         ("D7 _TRADIER_LATEST_LOAD_SQL", _TRADIER_LATEST_LOAD_SQL),
     ):
@@ -149,3 +141,10 @@ def test_every_ownership_predicate_requires_a_tradier_source():
         assert predicates, name
         for alias, where in predicates:
             assert f"{alias}.source = 'tradier'" in where, f"{name}: {where.strip()}"
+
+
+def test_tradier_ownership_reads_the_source_policy_not_the_load_ledger():
+    # Plan 185-38: ownership lives in bar_source_policy; a load row says what was fetched.
+    from services.bar_derivation import TRADIER_OWNED_SQL
+
+    assert "bar_source_policy" in TRADIER_OWNED_SQL and "ohlcv_load" not in TRADIER_OWNED_SQL
