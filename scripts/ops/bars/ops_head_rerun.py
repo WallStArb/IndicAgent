@@ -129,10 +129,29 @@ def classify_head(
     # recorded on the latest SMART answer for the oldest window.
     smart_latest = latest.get(_SMART)
     primary = smart_latest.primary_exchange if smart_latest is not None else None
-    needed = (_SMART, *(v for v in expected_venues if VENUE_ROUTE_ALIASES.get(v, v) != primary))
-    if all(route in latest and latest[route].outcome == "no_data" for route in needed):
+    venues = [v for v in expected_venues if VENUE_ROUTE_ALIASES.get(v, v) != primary]
+    if _smart_shows_head(smart_latest, smart_head) and all(
+        v in latest and latest[v].outcome == "no_data" for v in venues
+    ):
         return "verified_empty"
     return "unresolved"
+
+
+def _smart_shows_head(smart: HeadRequest | None, smart_head: date | None) -> bool:
+    """SMART answered the oldest window: no_data, or (a full-depth 1d request) bars that
+    start at or after the stored head, which implies the span before it is empty. This is
+    the rule reconcile_empty_history confirms spans by (185-28). Bars starting before the
+    stored head leave the head unexplained."""
+    if smart is None:
+        return False
+    if smart.outcome == "no_data":
+        return True
+    return (
+        smart.outcome == "bars"
+        and smart.first_bar is not None
+        and smart_head is not None
+        and smart.first_bar >= smart_head
+    )
 
 
 def pending_symbols(
