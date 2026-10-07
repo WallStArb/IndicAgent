@@ -5,21 +5,34 @@ only when every condition holds (T-185-16-01: no hard-coded pass; every verdict
 is a predicate over stored evidence). A FAIL is the phase's open blocker in
 front of daily attempts 3, 3b and 4, not something this script repairs.
 
-Conditions (plan 185-16):
-  1 scrub_pass_complete      bar_scrub 'historical_pass_complete' fact for tf=1d,
-                             all 72 todo-151 dry-run keys plus the 15 legacy 1d
-                             keys quarantined
+Conditions (plan 185-16; 1, 3 and 4 made source-aware by 185-34):
+  1 scrub_pass_complete      bar_scrub 'historical_pass_complete' fact for tf=1d, and
+                             every one of the 72 todo-151 dry-run keys and the 15
+                             legacy 1d keys (migration 381) resolved: quarantined (any
+                             quarantine flag on the key), or replaced (the stored bar
+                             is from a non-IBKR source, an ohlcv_revision row holds
+                             the judged IBKR value, and the last 1d scrub fact
+                             postdates every revision of the key, so the scrub judged
+                             the new bar). Anything else is open; the evidence line
+                             counts quarantined, replaced and open per key set
   2 seam_audit_complete      bar_seam_audit 'seam_audit_complete' fact, and every
                              seam_audit corporate action carries split_seam
                              quarantine flags before its effective date unless a
                              later daily derivation batch re-derived the bars
-  3 late_name_dispositions   every late 1d name resolves (moved /
+  3 late_name_dispositions   every IBKR-sourced late 1d name resolves (moved /
                              verified_empty / reached_window_start); none left
                              unresolved (plan 14's classify_head, recomputed
-                             from stored D1 answers)
-  4 no_pre_move_bars_visible no tradeable 1d bar of a moved name predates its
-                             SMART head, unless infra.bar_derivation.venue_bars_1d
-                             is true (plan 13 verdict: venue bars stay unused)
+                             from stored D1 answers). Tradier-owned late names
+                             (TRADIER_OWNED_SQL) are excluded: their history comes
+                             from Tradier, not the truncated IBKR route; the
+                             evidence line counts them and names the excluded
+                             unresolved ones
+  4 no_pre_move_bars_visible no tradeable IBKR-source 1d bar of a moved name
+                             predates its SMART head (moved names from the
+                             IBKR-only ohlcv_venue_head, 185-28), unless
+                             infra.bar_derivation.venue_bars_1d is true (plan 13
+                             verdict: venue bars stay unused). Tradier consolidated
+                             history before an IBKR venue move is real history
   5 dividend_coverage        Yahoo dividend coverage for at least 99 percent of
                              1d-eligible names and dividends.total_return imports
   6 survivorship_apr_keys    the six alpha.survivorship.* seeds present
@@ -36,22 +49,26 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import psycopg
 
+from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import TRADIER_OWNED_SQL
 from scripts.ops.bars.ops_head_rerun import (
     _APR_VENUES,
     _late_names,
     _load_apr,
     _load_requests,
     classify_head,
+    island_failed_unlisted,
 )
 from src.config.settings import Settings
+from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "bars" / "corrupt_1d_dry_run_2026_09_26.txt"
@@ -60,6 +77,29 @@ _SCRUB_MONITOR = ("bar_scrub", "historical_pass_complete", "tf=1d")
 _SEAM_MONITOR = ("bar_seam_audit", "seam_audit_complete", None)
 _VENUE_BARS_KEY = "infra.bar_derivation.venue_bars_1d"
 _MIN_YAHOO_COVERAGE = 0.99
+# The 1d sources whose prints the known answers judged and whose pre-move bars are truncation.
+IBKR_1D_SOURCES: tuple[str, ...] = (SOURCE_NAMED, SOURCE_VENUE)
+# The 15 1d keys migration 381 copied into legacy_price_sanity_status flags (its source:
+# market_data_ohlcv.price_sanity_status = 'confirmed_corrupt', re-read 2026-10-07). Fixed here
+# because 185-30 retired 12 of those flags when Tradier replaced the bars, so the flags can no
+# longer name the set. Part of the D-28 contract, not a tunable.
+LEGACY_1D_KEYS: tuple[tuple[str, str], ...] = (
+    ("DBC", "2007-08-17T00:00:00Z"),
+    ("DIA", "2009-06-02T00:00:00Z"),
+    ("EDV", "2008-09-19T00:00:00Z"),
+    ("EFA", "2008-09-29T00:00:00Z"),
+    ("EWG", "2007-04-23T00:00:00Z"),
+    ("FXI", "2007-02-27T00:00:00Z"),
+    ("FXY", "2008-09-24T00:00:00Z"),
+    ("GLD", "2007-09-10T00:00:00Z"),
+    ("IWM", "2007-08-08T00:00:00Z"),
+    ("RSP", "2007-08-01T00:00:00Z"),
+    ("SPY", "2007-04-02T00:00:00Z"),
+    ("VWO", "2007-05-02T00:00:00Z"),
+    ("VWO", "2007-12-28T00:00:00Z"),
+    ("XRT", "2007-09-18T00:00:00Z"),
+    ("XRT", "2008-09-19T00:00:00Z"),
+)
 _EXPECTED_LEGACY_KEYS = 15
 _SURVIVORSHIP_KEYS = (
     "alpha.survivorship.delisting_return.nasdaq",
@@ -72,25 +112,35 @@ _SURVIVORSHIP_KEYS = (
 _UNRESOLVED_SAMPLE = 10
 
 _FACT_SQL = """
-SELECT passed FROM integrity_monitor
+SELECT passed, evaluated_at FROM integrity_monitor
 WHERE monitor_type = %s AND metric_name = %s AND subject IS NOT DISTINCT FROM %s
 ORDER BY evaluated_at DESC
 LIMIT 1
 """
 
-# Distinct keys, not rows: the flag PK includes rule, so one bar can carry
-# several quarantine rules (three of the 72 keys carry two).
-_FIXTURE_QUARANTINE_SQL = """
-SELECT COUNT(DISTINCT (b.symbol, b."timestamp")) AS quarantined
+# One row per known-answer key: any quarantine flag (EXISTS, so a bar with several rules is
+# one key), the stored source as research sees it (the tradeable view; a hidden bar reads
+# NULL and stays open), whether an ohlcv_revision row holds an IBKR value for the key, and the
+# latest load that revised it (compared with the scrub fact in known_answer_status).
+_KNOWN_ANSWER_SQL = """
+SELECT k.symbol, k.ts,
+  EXISTS (SELECT 1 FROM bar_quality_flag b
+           WHERE b.symbol = k.symbol AND b.timeframe = '1d'
+             AND b."timestamp" = k.ts AND b.quarantine) AS quarantined,
+  (SELECT m.source FROM market_data_ohlcv_tradeable m
+    WHERE m.symbol = k.symbol AND m.timeframe = '1d' AND m."timestamp" = k.ts) AS stored_source,
+  EXISTS (SELECT 1 FROM ohlcv_revision r
+           WHERE r.symbol = k.symbol AND r.timeframe = '1d'
+             AND r."timestamp" = k.ts AND r.old_source = ANY(%s)) AS has_ibkr_revision,
+  (SELECT MAX(l.loaded_at) FROM ohlcv_revision r JOIN ohlcv_load l USING (load_id)
+    WHERE r.symbol = k.symbol AND r.timeframe = '1d'
+      AND r."timestamp" = k.ts) AS last_revision_at
 FROM unnest(%s::text[], %s::timestamptz[]) AS k(symbol, ts)
-JOIN bar_quality_flag b
-  ON b.symbol = k.symbol AND b.timeframe = '1d'
- AND b."timestamp" = k.ts AND b.quarantine
 """
 
-_LEGACY_SQL = """
-SELECT COUNT(*) FROM bar_quality_flag
-WHERE rule = 'legacy_price_sanity_status' AND quarantine AND timeframe = '1d'
+_TRADIER_OWNED_LATE_SQL = f"""
+SELECT s.symbol FROM unnest(%s::text[]) AS s(symbol)
+WHERE {TRADIER_OWNED_SQL.format(col="s.symbol")}
 """
 
 _SEAM_ACTION_SQL = """
@@ -121,6 +171,7 @@ SELECT COUNT(*) AS pre_move_bars
 FROM market_data_ohlcv_tradeable m
 JOIN heads h USING (symbol)
 WHERE m.timeframe = '1d' AND m."timestamp" < h.smart_head
+  AND m.source = ANY(%s)
 """
 
 _INVENTORY_SQL = """
@@ -152,22 +203,65 @@ class CheckResult:
 # --- pure predicates ----------------------------------------------------------------
 
 
+KnownAnswerStatus = Literal["quarantined", "replaced", "open"]
+
+
+def known_answer_status(
+    *,
+    quarantined: bool,
+    stored_source: str | None,
+    has_ibkr_revision: bool,
+    last_revision_at: datetime | None,
+    scrub_at: datetime | None,
+) -> KnownAnswerStatus:
+    """One known-answer key: quarantined, replaced by a scrubbed bar of another source, or open.
+
+    Replaced needs evidence (T-185-34-01): the bar research sees is not IBKR, an ohlcv_revision
+    row keeps the judged IBKR value, and the 1d scrub fact postdates the key's last revision
+    (otherwise the scrub never judged the bar now stored). A quarantine flag always wins.
+    """
+    if quarantined:
+        return "quarantined"
+    if (
+        stored_source is not None
+        and stored_source not in IBKR_1D_SOURCES
+        and has_ibkr_revision
+        and last_revision_at is not None
+        and scrub_at is not None
+        and last_revision_at < scrub_at
+    ):
+        return "replaced"
+    return "open"
+
+
 def scrub_condition(
-    *, fact_passed: bool, fixture_total: int, fixture_quarantined: int, legacy_quarantined: int
+    *,
+    fact_passed: bool,
+    fixture_total: int,
+    fixture_quarantined: int,
+    fixture_replaced: int,
+    legacy_total: int,
+    legacy_quarantined: int,
+    legacy_replaced: int,
 ) -> CheckResult:
-    """Condition 1: the 1d scrub pass ran and its known answers are quarantined."""
+    """Condition 1: the 1d scrub pass ran and every known answer is quarantined or replaced."""
+    fixture_open = fixture_total - fixture_quarantined - fixture_replaced
+    legacy_open = legacy_total - legacy_quarantined - legacy_replaced
     ok = (
         fact_passed
         and fixture_total > 0
-        and fixture_quarantined == fixture_total
-        and legacy_quarantined >= _EXPECTED_LEGACY_KEYS
+        and fixture_open == 0
+        and legacy_total == _EXPECTED_LEGACY_KEYS
+        and legacy_open == 0
     )
     return CheckResult(
         condition="scrub_pass_complete",
         ok=ok,
         evidence=(
-            f"fact={fact_passed}; dry-run keys quarantined {fixture_quarantined}/{fixture_total}; "
-            f"legacy 1d keys quarantined {legacy_quarantined} (>= {_EXPECTED_LEGACY_KEYS})"
+            f"fact={fact_passed}; dry-run keys {fixture_total}: quarantined "
+            f"{fixture_quarantined}, replaced {fixture_replaced}, open {fixture_open}; "
+            f"legacy 1d keys {legacy_total} (expect {_EXPECTED_LEGACY_KEYS}): quarantined "
+            f"{legacy_quarantined}, replaced {legacy_replaced}, open {legacy_open}"
         ),
     )
 
@@ -205,15 +299,31 @@ def seam_condition(
     )
 
 
-def dispositions_condition(dispositions: dict[str, str]) -> CheckResult:
-    """Condition 3: no late name is left unresolved."""
-    unresolved = sorted(s for s, d in dispositions.items() if d == "unresolved")
+def dispositions_condition(
+    dispositions: Mapping[str, str], tradier_owned: Collection[str] = ()
+) -> CheckResult:
+    """Condition 3: no IBKR-sourced late name is left unresolved.
+
+    Tradier-owned late names are out of scope (185-34: orchestrator call 2026-10-06, pending
+    owner review); they are counted and their unresolved names listed, never judged. Every
+    unresolved IBKR-sourced name is named: the residue, not a sample."""
+    owned = set(tradier_owned)
+    judged = {s: d for s, d in dispositions.items() if s not in owned}
+    excluded = sorted(s for s in dispositions if s in owned)
+    unresolved = sorted(s for s, d in judged.items() if d == "unresolved")
+    excluded_unresolved = [s for s in excluded if dispositions[s] == "unresolved"]
     return CheckResult(
         condition="late_name_dispositions",
         ok=not unresolved,
         evidence=(
-            f"late names {len(dispositions)}; unresolved {len(unresolved)}"
-            + (f" (e.g. {', '.join(unresolved[:_UNRESOLVED_SAMPLE])})" if unresolved else "")
+            f"IBKR-sourced late names {len(judged)}; unresolved {len(unresolved)}"
+            + (f" ({', '.join(unresolved)})" if unresolved else "")
+            + f"; Tradier-owned excluded {len(excluded)}"
+            + (
+                f" (unresolved under IBKR answers: {', '.join(excluded_unresolved)})"
+                if excluded_unresolved
+                else ""
+            )
         ),
     )
 
@@ -225,7 +335,7 @@ def premove_condition(*, n_pre_move_bars: int, venue_bars_1d: bool) -> CheckResu
         condition="no_pre_move_bars_visible",
         ok=ok,
         evidence=(
-            f"pre-move 1d bars in tradeable view {n_pre_move_bars}; "
+            f"IBKR-source pre-move 1d bars in tradeable view {n_pre_move_bars}; "
             f"venue_bars_1d={'true' if venue_bars_1d else 'false'}"
         ),
     )
@@ -325,20 +435,35 @@ def _rows(conn: Any, sql: str, params: tuple = ()) -> list[tuple]:
         return cur.fetchall()
 
 
+def _known_answer_counts(
+    conn: Any, keys: Sequence[tuple[str, str]], scrub_at: datetime | None
+) -> Counter[str]:
+    rows = _rows(
+        conn,
+        _KNOWN_ANSWER_SQL,
+        (list(IBKR_1D_SOURCES), [symbol for symbol, _ in keys], [ts for _, ts in keys]),
+    )
+    return Counter(
+        known_answer_status(
+            quarantined=bool(quarantined),
+            stored_source=stored_source,
+            has_ibkr_revision=bool(has_revision),
+            last_revision_at=last_revision_at,
+            scrub_at=scrub_at,
+        )
+        for _, _, quarantined, stored_source, has_revision, last_revision_at in rows
+    )
+
+
 def run_checks(conn: Any) -> list[CheckResult]:
     """Every D-28 condition, decided from stored evidence."""
     fixture_keys = parse_dry_run_keys(_FIXTURE_PATH.read_text())
 
     scrub_fact = _scalar(conn, _FACT_SQL, (_SCRUB_MONITOR[0], _SCRUB_MONITOR[1], _SCRUB_MONITOR[2]))
     seam_fact = _scalar(conn, _FACT_SQL, (_SEAM_MONITOR[0], _SEAM_MONITOR[1], _SEAM_MONITOR[2]))
-    fixture_quarantined = int(
-        _scalar(
-            conn,
-            _FIXTURE_QUARANTINE_SQL,
-            ([symbol for symbol, _ in fixture_keys], [ts for _, ts in fixture_keys]),
-        )[0]
-    )
-    legacy = int(_scalar(conn, _LEGACY_SQL)[0])
+    scrub_at = scrub_fact[1] if scrub_fact else None
+    fixture = _known_answer_counts(conn, fixture_keys, scrub_at)
+    legacy = _known_answer_counts(conn, LEGACY_1D_KEYS, scrub_at)
 
     actions = [
         (symbol, effective, recorded)
@@ -350,13 +475,19 @@ def run_checks(conn: Any) -> list[CheckResult]:
     daily_batches = [row[0] for row in _rows(conn, _DAILY_BATCH_SQL)]
 
     late = _late_names(conn)
-    venues = json.loads(_load_apr(conn).get(_APR_VENUES, "[]"))
+    apr = _load_apr(conn)
+    venues = json.loads(apr.get(_APR_VENUES, "[]"))
+    island_unlisted = island_failed_unlisted(apr)
     requests = _load_requests(conn, list(late))
     dispositions = {
-        symbol: classify_head(requests[symbol], late[symbol], venues) for symbol in late
+        symbol: classify_head(
+            requests[symbol], late[symbol], venues, island_failed_unlisted=island_unlisted
+        )
+        for symbol in late
     }
+    tradier_owned = {row[0] for row in _rows(conn, _TRADIER_OWNED_LATE_SQL, (sorted(late),))}
 
-    pre_move = int(_scalar(conn, _PREMOVE_SQL)[0])
+    pre_move = int(_scalar(conn, _PREMOVE_SQL, (list(IBKR_1D_SOURCES),))[0])
     covered, eligible, deactivated = _scalar(conn, _INVENTORY_SQL, (sorted(late),))
     venue_row = _scalar(conn, _VENUE_FLAG_SQL)
     venue_bars_1d = bool(venue_row and str(venue_row[0]).strip().lower() == "true")
@@ -366,8 +497,11 @@ def run_checks(conn: Any) -> list[CheckResult]:
         scrub_condition(
             fact_passed=bool(scrub_fact and scrub_fact[0]),
             fixture_total=len(fixture_keys),
-            fixture_quarantined=fixture_quarantined,
-            legacy_quarantined=legacy,
+            fixture_quarantined=fixture["quarantined"],
+            fixture_replaced=fixture["replaced"],
+            legacy_total=len(LEGACY_1D_KEYS),
+            legacy_quarantined=legacy["quarantined"],
+            legacy_replaced=legacy["replaced"],
         ),
         seam_condition(
             fact_passed=bool(seam_fact and seam_fact[0]),
@@ -375,7 +509,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
             split_seam_bars=dict(split_seam_bars),
             daily_batches=daily_batches,
         ),
-        dispositions_condition(dispositions),
+        dispositions_condition(dispositions, tradier_owned),
         premove_condition(n_pre_move_bars=pre_move, venue_bars_1d=venue_bars_1d),
         dividend_condition(
             covered=int(covered),
