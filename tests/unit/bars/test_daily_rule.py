@@ -391,3 +391,16 @@ def test_inda_interior_ibkr_bars_agree_with_tradier_and_are_admitted():
     assert all(by_day[d].source == SOURCE_IBKR_FALLBACK for d in holes)
     # IBKR answered these sessions with no trades; the tradeable view hides volume 0.
     assert all(by_day[d].volume == 0 for d in holes)
+
+
+def test_a_non_positive_tradier_close_measures_no_basis():
+    days = _sessions(date(2024, 1, 2), 3)
+    observations = [
+        _obs("TRADIER", days[0], 0.0, request_id="t0"),
+        _obs("SMART", days[0], 10.0, request_id="s0"),
+        _obs("SMART", days[1], 10.0, request_id="s1"),
+        _obs("TRADIER", days[2], 10.0, request_id="t2"),
+    ]
+    result = _derive(observations)
+    # The only common session with a usable ratio is none: the interior hole is refused.
+    assert result.refused_interior == [days[1]]

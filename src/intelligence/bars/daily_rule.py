@@ -273,6 +273,8 @@ def derive_daily_v2(
         and d in ibkr
         and tradier[d].current is not None
         and ibkr[d].current is not None
+        # A non-positive close is a provider defect the scrub flags; it measures no basis.
+        and tradier[d].current.close > 0
     }
     common_dates = sorted(ratios)
     common_index = [position[d] for d in common_dates]
