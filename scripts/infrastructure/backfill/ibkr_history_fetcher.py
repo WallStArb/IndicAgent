@@ -271,6 +271,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Plan every item over its full depth window, not from its latest bar.",
     )
     parser.add_argument(
+        "--no-derive",
+        action="store_true",
+        help=(
+            "Skip the run-end daily stage and the 1d ledger refresh: 1d answers land in D1 "
+            "only, so the caller can gate a d2-v2 dry run before applying (189-10 Task 1b)."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print and write the ranked queue; no lock, no IBKR connection, no writes.",
@@ -1084,7 +1092,13 @@ class IbkrHistoryFetcher(BaseBatch):
         """
         codes: dict[str, int] = {}
         python = sys.executable
-        if loop.touched_1d:
+        if loop.touched_1d and self.args.no_derive:
+            logger.info(
+                "ibkr_history_fetcher.daily_stage_skipped",
+                reason="no_derive",
+                n_symbols=len(loop.touched_1d),
+            )
+        elif loop.touched_1d:
             symbols = sorted(loop.touched_1d)
             codes["daily"] = await self._run_stage(
                 [
