@@ -54,7 +54,7 @@ def test_the_trigger_stamps_the_close_and_refuses_a_stamped_insert():
 
 
 def test_every_other_column_still_compared_on_update():
-    compared = _TRIGGER.split("IS DISTINCT FROM")[0]
+    compared = _TRIGGER.split("IS DISTINCT FROM")[0].rsplit("IF (", 1)[1]
     for column in (
         "policy_id",
         "timeframe",
@@ -76,7 +76,8 @@ def test_the_185_49_closures_are_backfilled_once_with_the_trigger_off_only_insid
     enable = "ALTER TABLE bar_source_policy ENABLE TRIGGER trg_bar_source_policy_append_only"
     assert _FLAT.count(disable) == 1 and _FLAT.count(enable) == 1
     window = _FLAT.split(disable)[1].split(enable)[0]
-    assert window.strip().startswith("UPDATE bar_source_policy SET closed_at =")
+    assert window.lstrip("; ").startswith("UPDATE bar_source_policy p SET closed_at =")
+    assert window.count("UPDATE") == 1
     assert "closed_at IS NULL" in window and "valid_to IS NOT NULL" in window
     for policy_id in _BACKFILLED:
         assert policy_id in window
