@@ -147,6 +147,20 @@ closes are rounded to the cent, 9.46 against 18.94 / 2). By the rule EWS gets no
 todo 512 list. Final sets: head rows 38 (the 37 plus OUT), closed 185-38 rows 3, IBKR rows 0,
 undecided 14.
 
+## Applied
+
+2026-10-08, fetcher and Tradier timers inactive, no derivation or fetch process running.
+
+1. D7 baseline by hand, 19:58 to 20:10 UTC (`logs/185-49/d7_before.out`, per-name verdicts
+   `logs/185-49/verdicts_before.tsv`): vendor_basis_run 35, unexplained_seam 6, canonical_recompute
+   1 (CTVA), freshness_1d 2 (CTVA, QRVO), session_coverage 191; policy_conformance, lineage_missing,
+   digest_fresh 0. Equal to 185-47's after state.
+2. Policy rows, 20:14:58 to 20:15:26 UTC, through `ops_source_policy.py`, one name at a time, a dry
+   run of all 41 first (`logs/185-49/policy_dryrun.log`, all exit 0), then `--apply`
+   (`logs/185-49/policy_apply.log`, driver `logs/185-49/tools/apply_rows.py`, evidence per name
+   `logs/185-49/evidence_185_49.json`): 38 head rows inserted, 3 rows closed (FTV at 2016-06-14, IP
+   and STE at 2006-10-03), 0 refused. 1d symbol rows: open 76 to 73, closed 31 to 72.
+
 ## Paused
 
 2026-10-08, by the owner, before any write. State:
