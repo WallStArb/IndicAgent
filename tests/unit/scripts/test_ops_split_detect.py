@@ -25,10 +25,20 @@ def _split(symbol="XYZ", factor=3.0, day=date(2026, 9, 30), unexplained=False, i
     return DetectedSplit(symbol, day, factor, ids, unexplained)
 
 
+def _ca(action_id, factor, day=date(2026, 9, 30), inferred_by="nightly_overlap"):
+    return {
+        "action_id": action_id,
+        "factor": factor,
+        "effective_date": day,
+        "inferred_by": inferred_by,
+    }
+
+
 class FakeConn:
     def __init__(self, existing=()):
-        self.existing = list(existing)  # [(action_id, factor)]
+        self.existing = list(existing)  # corporate_action_current rows (_ca)
         self.executed: list[tuple[str, tuple]] = []
+        self.fetched: list[tuple[str, tuple]] = []
 
     def transaction(self):
         return self
@@ -43,6 +53,7 @@ class FakeConn:
         self.executed.append((" ".join(sql.split()), args))
 
     async def fetch(self, sql, *args):
+        self.fetched.append((" ".join(sql.split()), args))
         return self.existing
 
 
@@ -71,15 +82,31 @@ def test_a_reverse_split_is_typed_as_one():
 
 
 def test_the_same_factor_is_not_recorded_twice():
-    conn = FakeConn(existing=[("aaaa", 3.0)])
+    conn = FakeConn(existing=[_ca("aaaa", 3.0)])
     assert _record(conn, _split()) is False
     assert [sql for sql, _ in conn.executed if sql.startswith("INSERT")] == []
 
 
 def test_a_different_factor_on_the_same_date_supersedes_the_earlier_row():
-    conn = FakeConn(existing=[("aaaa", 2.0)])
+    conn = FakeConn(existing=[_ca("aaaa", 2.0)])
     assert _record(conn, _split(factor=3.0)) is True
     assert conn.executed[1][1][6] == "aaaa"
+
+
+def test_a_correction_at_a_later_date_is_the_same_event_and_is_not_recorded_again():
+    """Plan 185-51: ETHA's one current row is an operator correction at 2026-10-05. Re-judging
+    the 2026-10-08 fetch run detects the same 1-for-3 with its last old-scale overlap date
+    2026-09-30; recording it again would bring back the row the correction voided."""
+    conn = FakeConn(existing=[_ca("cccc", 1 / 3, date(2026, 10, 5), "operator")])
+    assert _record(conn, _split(factor=1 / 3)) is False
+    sql, args = conn.fetched[0]
+    assert "effective_date >= $2" in sql and "inferred_by" not in sql.split("WHERE")[1]
+
+
+def test_a_different_factor_at_a_later_date_is_recorded_without_superseding_it():
+    conn = FakeConn(existing=[_ca("cccc", 1 / 3, date(2026, 10, 5), "operator")])
+    assert _record(conn, _split(factor=2.0)) is True
+    assert conn.executed[1][1][6] is None
 
 
 def test_a_split_without_evidence_is_refused():
@@ -132,7 +159,7 @@ def test_recorded_symbols_are_refetched_then_rederived_in_that_order():
 def test_an_already_recorded_split_is_not_refetched_again():
     order: list = []
     report = _process(
-        FakeConn(existing=[("aaaa", 3.0)]),
+        FakeConn(existing=[_ca("aaaa", 3.0)]),
         [_split()],
         refetch=lambda s: order.append(s) or 0,
     )
