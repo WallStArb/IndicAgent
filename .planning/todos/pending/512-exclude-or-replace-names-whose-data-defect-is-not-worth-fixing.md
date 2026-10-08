@@ -47,3 +47,12 @@ This removes the only recovery path from the previous variant; every conflict li
 ## Owner decision 2026-10-08, stated directly in the 185 session (supersedes both proposed variants above)
 
 Junk symbols (no depth, not useful, failing the written data-quality rule) carry no useful information: delete their bar data and everything derived from it (D1 raw, observations, D2 canonical, lineage, features, ctx, caches, partial compute). Keep the instrument information and metadata, plus a tombstone (is_active false, reason code, date, plan id) and the per-table deleted row counts in the plan summary, so the SOP cannot re-onboard the name unseen. Reason: old junk data for avoided instruments is clutter in a clean data layer. No archive dump required. Still required: the rule written and dated before it is applied, never on returns, the dry-run list (name, reason code, row counts per table) before the delete, one transaction per name, the effort rule (fix by existing rules where cheap, 508 stale heads stay), and no name used by a recorded research run (reproducibility). CLAUDE.md Data line carries the scoped exception. Applied after Task 1b and 185-47.
+
+## Candidates from plan 185-49 (todo 508), 2026-10-08
+
+14 names that the 508 policy left undecided, with no row; each needs per-name hand work under this
+todo's rule (reasons in docs/research/stale-tradier-heads-policy.md, "Name sets" and "H2 checked
+exactly"): BNY, CF, CPAY, MGM, WELL (IBKR steps inside the run), DOV (IBKR steps on 2014-03-03 and
+the run ends on one bad Tradier print), EWS (head basis 10.42 bp against 10), EWT, ELE, LION, W,
+KDP (the 185-37 rule leaves the run undecided), PATK (Tradier steps inside the run), NEXN (IBKR
+interior removals, day-to-day vendor noise). All but BNY block D7's vendor_basis_run.

@@ -59,3 +59,19 @@ Option 1 for all 45 stale heads, including exact-factor ones: a head row from th
 ## Owner decision 2026-10-08 (relayed by the research-ledger session indicagent-6a; confirm in the 185 session before acting on live data)
 
 Todo 508 decision: option 1 for all 45 stale Tradier heads (head row from first observation through the run's end; head becomes NaN holes, raw D1 observations stay). Revisit option 2 only if a pre-registered spec needs pre-2006 history. The five 185-38 rows (PATK, KDP, FTV, IP, STE): one plan with a dry run per name, close each at first day plus one, write IBKR rows only where continuity says IBKR is the continuous side.
+
+## Status 2026-10-08 (plan 185-49, docs/research/stale-tradier-heads-policy.md)
+
+Applied: 38 head rows written and re-derived (37 of the 45 plus OUT as a data-quality exclusion of
+its pre-listing dates); vendor_basis_run 35 to 13 failing names, no new failure. The 185-38 rows of
+FTV, IP and STE are closed at the first day plus one. 14 names stay undecided with no row and are
+handed to todo 512: BNY, CF, CPAY, DOV, ELE, EWS, EWT, KDP, LION, MGM, NEXN, PATK, W, WELL.
+
+Remaining (why this todo stays open): FTV, IP and STE are not re-derived. The daily stage refuses
+them on the revision ratio (0.999 against 0.02) because its waiver and the nightly policy_since
+probe look only at bar_source_policy.recorded_at, and a close changes valid_to with no timestamp.
+Until fixed, policy_conformance and canonical_recompute fail on the three. Fix: make a closure
+visible to the waiver and the probe (a close timestamp column or a recorded close event; a code
+or schema change with its own test), then `python -m services.bar_derivation --stage daily
+--symbols FTV,IP,STE` must equal `logs/185-49/preview_closures_final.tsv` (FTV 14 removed, IP
+2,414, STE 1,166) before `--apply`. Close this todo after that apply and a D7 pass on the three.
