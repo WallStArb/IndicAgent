@@ -1,7 +1,9 @@
 # Stale-basis Tradier heads and the 185-38 rows contradicted by continuity (todo 508, plan 185-49)
 
 **Author:** Claude (Sonnet 5.5), 2026-10-08, at Brandon's request
-**Status:** in progress; paused 2026-10-08 before any write, resumed the same day with the amendment below
+**Status:** applied 2026-10-08 (38 head rows written and re-derived; FTV, IP and STE rows closed,
+their re-derivation held by the revision waiver; 14 names handed to todo 512); paused once before
+any write and resumed the same day
 **Informed by:** todo 508 (decision 2026-10-07 and owner decision 2026-10-08);
 docs/research/vendor-adjustment-basis-study.md (185-37 rule and results); summaries of plans 185-37,
 185-38, 185-46 and 185-47; docs/research/1d-primary-swap-evidence.md (IBKR 1d default from
@@ -182,9 +184,40 @@ undecided 14.
    PPL 0/1167/1697, ROST 0/1168/1696, SPG 0/1202/1662, TT 0/1166/1698, VTR 0/1167/1697,
    VZ 0/976/1538, WMB 0/1200/1664, XRT 0/1232/4, OUT 0/163/115.
 
-## Paused
+5. D7 after by hand, 20:22 to 20:34 UTC, exit 0 (`logs/185-49/d7_after_full.out`, per-name
+   `logs/185-49/verdicts_after.tsv`; an earlier run at 20:17 was cut by a shell timeout in its
+   intraday section, its 1d table is identical).
 
-2026-10-08, by the owner, before any write. State:
+| check (1d, failing names) | before (20:03) | after (20:32) | pass to fail | fail to pass |
+|---|---|---|---|---|
+| vendor_basis_run | 35 | 13 | none | 22: ABT, BAX, BF.B, CAH, CHD, COP, DUK, EBAY, EQT, EWI, EWJ, EWM, EWU, FIS, FLO, GL, IBB, KIE, NI, NSC, ROST, XRT |
+| unexplained_seam | 6 | 6 | none | none |
+| canonical_recompute | 1 (CTVA) | 4 | FTV, IP, STE (rows closed, bars not re-derived) | none |
+| policy_conformance | 0 | 3 | FTV, IP, STE (same) | none |
+| freshness_1d | 2 (CTVA, QRVO) | 4 | PSKY, WBD (calendar, below) | none |
+| session_coverage | 191 | 260 | EWJ, EWM, EWU (this plan: 6 in-run holes each), 68 untouched names (calendar) | KIE, OUT |
+| lineage_missing, digest_fresh, report_age | 0 | 0 | none | none |
+
+The calendar effect: the baseline's checks ran before the 2026-10-08 close (20:00 UTC) and the
+after run past it, with the fetcher off, so every name now misses one completed session
+(freshness lag 0 to 1 on every name; SPY coverage 1.0 to 0.99985). That alone moves 68 short-history
+names under session_coverage's 0.999 and PSKY and WBD (no bar since 2026-10-06) to 3 sessions,
+over freshness's 2; the intraday coverage_cache 0 to 10 failing has the same cause. None of them is
+touched by this plan. EWJ, EWM and EWU fail on their 6 holes alone (6 of about 5,100 sessions);
+EWI was failing before and still fails. The holes are dates IBKR never answered on the stale span
+(2007-02-08, 2007-12-06 to 12-12); the 189-10 gap-fill lane asks IBKR for them.
+
+vendor_basis_run still fails on 13 names, all handed to todo 512: CF, CPAY, DOV, ELE, EWS, EWT, KDP,
+LION, MGM, NEXN, PATK, W, WELL (BNY is the 14th undecided name and does not block).
+
+FTV, IP and STE: their 185-38 rows are closed (permanent) and the bars still hold IBKR's whole
+history, so policy_conformance and canonical_recompute fail on them, loudly. They complete with one
+daily apply once the revision waiver sees a closure (todo 508 stays open for that step); the
+previews in `logs/185-49/preview_closures_final.tsv` are what that apply must show.
+
+## Paused (resolved)
+
+Resumed the same day with the amendment above. The state at the pause, for the record:
 - No bar_source_policy row added or closed, no re-derivation, no D7 run. Live data unchanged since
   185-47. Nothing half-applied.
 - Done: study rerun, head-basis and in-run step probes, bar-level previews for all 47 head candidates
