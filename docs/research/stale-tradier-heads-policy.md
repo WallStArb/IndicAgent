@@ -1,9 +1,9 @@
 # Stale-basis Tradier heads and the 185-38 rows contradicted by continuity (todo 508, plan 185-49)
 
 **Author:** Claude (Sonnet 5.5), 2026-10-08, at Brandon's request
-**Status:** applied 2026-10-08 (38 head rows written and re-derived; FTV, IP and STE rows closed,
-their re-derivation held by the revision waiver; 14 names handed to todo 512); paused once before
-any write and resumed the same day
+**Status:** applied 2026-10-08 (38 head rows written and re-derived; FTV, IP and STE rows closed
+and, after plan 185-50 made a close visible to the revision waiver, re-derived; 14 names handed to
+todo 512); paused once before any write and resumed the same day
 **Informed by:** todo 508 (decision 2026-10-07 and owner decision 2026-10-08);
 docs/research/vendor-adjustment-basis-study.md (185-37 rule and results); summaries of plans 185-37,
 185-38, 185-46 and 185-47; docs/research/1d-primary-swap-evidence.md (IBKR 1d default from
@@ -214,6 +214,48 @@ FTV, IP and STE: their 185-38 rows are closed (permanent) and the bars still hol
 history, so policy_conformance and canonical_recompute fail on them, loudly. They complete with one
 daily apply once the revision waiver sees a closure (todo 508 stays open for that step); the
 previews in `logs/185-49/preview_closures_final.tsv` are what that apply must show.
+
+## Completed by plan 185-50 (FTV, IP, STE)
+
+The waiver gap is fixed: migration 460 adds `bar_source_policy.closed_at`, stamped by the
+append-only trigger on the closing UPDATE (applied live 2026-10-08 20:55:29 UTC after a rollback
+dry run). The three 185-49 closes are backfilled at 2026-10-08 20:15:26.826 UTC, the upper bound
+of their window in `logs/185-49/policy_apply.log` (after OUT's row at 20:15:24.633). The daily
+stage's waiver and `--changed-only` probe read `GREATEST(recorded_at, closed_at)` against one
+per-symbol baseline, the start of the batch that wrote the symbol's last applied daily load. The
+old probe compared with the newest completed daily batch of any scope, so the 38-name batch of
+185-49 (finished 20:16:36) hid these closes and CTVA's 15:13 corporate action from it as well.
+
+Live check before the apply, read-only over the 1,529 names with 1d observations: the waiver fires
+on 31 names under the new SQL and 28 under the old, the difference being exactly FTV, IP and STE;
+the other 28 are the 27 names with no applied daily load (first-load waiver) and CTVA (its
+corporate action). No other name gained a waiver.
+
+1. D7 before, 20:55 to 21:07 UTC (`logs/185-50/d7_before.out`, `logs/185-50/verdicts_before.tsv`):
+   equal to 185-49's after state on every 1d check.
+2. Daily dry run with `--changed-only` (`logs/185-50/daily_dryrun.tsv`): all three due and
+   waived; every count equal to `logs/185-49/preview_closures_final.tsv`.
+3. Apply, 21:08:49 to 21:08:52 UTC (`logs/185-50/daily_apply.tsv`), new/changed/removed:
+   FTV 0/2,579/14, IP 0/2,618/2,414, STE 0/3,866/1,166; changed_source_only 2, 4, 2; revision
+   ratio 0.9992, 0.9996, 0.9996, waived. A dry run afterwards shows 0/0/0 for each, and
+   `--changed-only` reports all three unchanged.
+4. D7 after, exit 0 (`logs/185-50/d7_after.out`, `logs/185-50/verdicts_after.tsv`):
+
+| check (1d, failing names) | before | after | change |
+|---|---|---|---|
+| policy_conformance | 3 (FTV, IP, STE) | 0 | FTV, IP, STE pass |
+| canonical_recompute | 4 (CTVA, FTV, IP, STE) | 1 (CTVA, todo 515) | FTV, IP, STE pass |
+| vendor_basis_run | 13 | 13 | none |
+| unexplained_seam | 6 | 6 | none |
+| freshness_1d | 4 (CTVA, PSKY, QRVO, WBD) | 4 | none |
+| session_coverage | 260 | 263 | FTV 0.9942, IP 0.5203, STE 0.7681 now fail |
+| lineage_missing, digest_fresh, report_age | 0 | 0 | none |
+
+No other name's verdict moved. The session_coverage failures are the decided consequence of the
+closes: the removed IBKR bars were the head before Tradier's first observation (IP 2006-10-03
+to 2016-05-06, STE 2006-10-03 to 2011-05-20, FTV 2016-06-14 to 2016-07-01; each keeps its first
+day), and those dates are holes now, not false returns. IP keeps about half its sessions and STE about three quarters; whether either is worth
+keeping at that coverage is a todo 512 question.
 
 ## Paused (resolved)
 
