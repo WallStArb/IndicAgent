@@ -1,7 +1,7 @@
 # CIS STF/MTF Split + Per-Bar Feature Writes — Design
 
 **Date:** 2026-05-19
-**Status:** In progress
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Supersedes:** `archive/2026-02-27-composite-intelligence-score-design.md` (original CIS design, shipped)
 **See also:** `docs/concepts/cis-scoring.md` (canonical CIS reference)
 

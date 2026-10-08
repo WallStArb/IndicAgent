@@ -1,7 +1,7 @@
 # Phase 79: Signal Quality Fix — Design Spec
 
 **Date:** 2026-05-03
-**Status:** Draft
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Milestone:** v2.5 Data Quality & Persistence Reliability
 **Impact:** Fixes 99.7% signal never-activated rate + negative-PnL-on-target-hit bug
 

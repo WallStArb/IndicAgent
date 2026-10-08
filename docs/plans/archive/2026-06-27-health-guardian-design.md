@@ -7,7 +7,7 @@ by the topdown review's D3. `DistributionDriftMonitor` (Monitor 1) is kept uncha
 for the full schema DDL, APR key table, and observability spec not reproduced in intel-14.
 
 **Date:** 2026-06-27
-**Status:** PROPOSED — awaiting prioritization
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Replaces:** `docs/research/data-integrity-monitor-design.md`, `docs/research/system-health-monitor-design.md`, `docs/research/predictive-decay-detector-design.md`
 **Milestone:** v3.0a-c (Phases 149A, 149B, 150, 151A-C)
 

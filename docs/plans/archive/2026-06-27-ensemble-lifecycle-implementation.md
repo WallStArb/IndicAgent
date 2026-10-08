@@ -8,7 +8,7 @@ restored into `docs/research/intel-14-integrity-monitor.md`, with a schema corre
 intel-14.
 
 **Date:** 2026-06-27
-**Status:** PROPOSED — not planned, awaiting prioritization
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Milestone:** v3.0 Phases 151A-151C (System Health + Observability)
 **Concept spec:** `docs/research/alpha-ensemble-lifecycle.md` (June 25, 2026)
 **Service design:** `docs/research/system-health-monitor-design.md` (Renaissance-grade reusable platform)

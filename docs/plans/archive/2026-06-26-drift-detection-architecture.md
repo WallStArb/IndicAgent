@@ -7,7 +7,7 @@ Phase 150, alert-only, self-arming at 20 measurements/key). Kept here for the fu
 algorithm detail and the v2.x-to-v3.0 adaptation reasoning not reproduced in intel-14.
 
 **Date:** 2026-06-26
-**Status:** PROPOSED — not planned, awaiting prioritization
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Milestone:** v3.0 Phases 149A-150 (Data Integrity + Observability)
 **v2.x reference:** `docs/plans/archive/2026-03-11-signal-drift-detection-design.md` (shipped March 2026)
 **Service design:** `docs/research/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)

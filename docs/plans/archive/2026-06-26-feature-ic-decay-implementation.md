@@ -6,7 +6,7 @@ competing designs found in this cluster; reconciled in `docs/research/intel-14-i
 implementation notes for ic_engine, not reproduced in intel-14.
 
 **Date:** 2026-06-26
-**Status:** PROPOSED — not planned, awaiting prioritization
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Milestone:** v3.0 Phase 149B (Data Integrity)
 **Concept spec:** `docs/research/feature-vector-lifecycle.md` (June 25, 2026)
 **Service design:** `docs/research/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)

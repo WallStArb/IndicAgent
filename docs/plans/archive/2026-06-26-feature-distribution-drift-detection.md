@@ -6,7 +6,7 @@ queries) with no gaps found. Kept here for the detailed migration and alert-crit
 reproduced in intel-14.
 
 **Date:** 2026-06-26
-**Status:** PROPOSED — not planned, awaiting prioritization
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Milestone:** v3.0 Phase 149A (Data Integrity)
 **v2.x reference:** `docs/plans/archive/2026-03-11-signal-drift-detection-design.md` (shipped March 2026)
 **Service design:** `docs/research/data-integrity-monitor-design.md` (Renaissance-grade reusable platform)

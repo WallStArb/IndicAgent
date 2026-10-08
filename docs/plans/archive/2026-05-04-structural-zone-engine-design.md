@@ -3,7 +3,7 @@
 **Version:** 1.0
 **Last Updated:** 2026-05-04
 **Date:** 2026-05-04
-**Status:** Draft
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Scope:** Rewrite entry zone construction + wire dual-tracking lifecycle + audit stop/target hierarchy
 
 ## Problem

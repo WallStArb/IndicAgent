@@ -1,6 +1,6 @@
 # Intelligence Pipeline Throughput Optimization Design
 
-**Status:** Draft
+**Status:** Archived (not implemented as written; kept in docs/plans/archive for history, 2026-10-08)
 **Date:** 2026-04-01
 **Author:** Claude (with user guidance)
 **Milestone:** v2.2 Operational Excellence
