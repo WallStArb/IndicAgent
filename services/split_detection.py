@@ -41,8 +41,8 @@ class DetectedSplit:
     factor is the recognised split ratio for a split (2.0 = 2-for-1, 0.125 = 1-for-8), the
     measured median ratio of the run for an unclassified rescale, and the median ratio of the
     differing days when unexplained. effective_date is the last day on the old scale seen in the
-    overlap, first_date the first. request_ids are the new and the earlier observations'
-    requests behind the decision.
+    overlap, first_date the first. request_ids are the new-scale requests for a split (d2-v2
+    counts them as current), and the new and the earlier requests otherwise.
     """
 
     symbol: str
@@ -85,6 +85,15 @@ ORDER BY n.symbol, n.bar_date
 def _evidence(rows: list[Any]) -> tuple[str, ...]:
     ids = {r["new_request_id"] for r in rows} | {r["prev_request_id"] for r in rows}
     return tuple(sorted(ids))
+
+
+def _new_scale_evidence(rows: list[Any]) -> tuple[str, ...]:
+    """A split's evidence: the requests that answered on the new scale only. d2-v2 counts every
+    evidence request of a split as current-scale (daily_rule._is_current), so an earlier,
+    old-scale request named here would be served unflagged for every date it answered that no
+    later fetch covers (plan 185-51: the 2026-10-08 ETHA row named the 20-year d1-bootstrap
+    request)."""
+    return tuple(sorted({r["new_request_id"] for r in rows}))
 
 
 def _judge_symbol(
@@ -133,7 +142,12 @@ def _judge_symbol(
         else:
             found.append(
                 DetectedSplit(
-                    symbol, inference.effective_date, ratio, evidence, False, first_date=seam.start
+                    symbol,
+                    inference.effective_date,
+                    ratio,
+                    _new_scale_evidence(in_seam),
+                    False,
+                    first_date=seam.start,
                 )
             )
 

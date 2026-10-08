@@ -66,7 +66,9 @@ def test_a_three_for_one_split_over_the_overlap_is_one_split_with_its_evidence()
     assert split.symbol == "XYZ" and split.unexplained is False
     assert split.factor == pytest.approx(3.0)
     assert split.effective_date == _days(20)[-1]
-    assert {"n0", "n19", "p1"} <= set(split.request_ids)
+    # New-scale requests only: d2-v2 counts a split's evidence as current, so the earlier
+    # old-scale request must never be named (plan 185-51).
+    assert {"n0", "n19"} <= set(split.request_ids) and "p1" not in split.request_ids
 
 
 def test_a_reverse_split_factor_is_below_one():
