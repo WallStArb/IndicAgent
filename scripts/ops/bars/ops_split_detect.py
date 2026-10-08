@@ -97,9 +97,13 @@ _APR_KEYS = (
     *SPLIT_RULE_KEYS,
 )
 
+# Current rows of the symbol on or after the detection's last old-scale overlap date: a split
+# the overlap shows happened after that date, so a current row of the same factor there (an
+# earlier detection, or an operator correction at the true date) is the same event.
 _EXISTING_SQL = """
-SELECT action_id::text, factor FROM corporate_action_current
-WHERE symbol = $1 AND effective_date = $2 AND inferred_by = 'nightly_overlap'
+SELECT action_id::text AS action_id, factor, effective_date, inferred_by
+FROM corporate_action_current
+WHERE symbol = $1 AND effective_date >= $2
 """
 
 _INSERT_SQL = """
@@ -141,18 +145,29 @@ def split_rule_from_apr(apr: Mapping[str, Any]) -> SplitRatioRule:
 
 
 async def record_split(conn: Any, split: DetectedSplit) -> bool:
-    """Insert the split unless the same factor is already recorded; True if a row was added.
+    """Insert the split unless it is already recorded; True if a row was added.
 
-    A different factor on the same date supersedes the earlier row rather than editing it
-    (corporate_action is append-only). Refuses to record a split without evidence.
+    Already recorded: a current row of the same factor dated on or after the detection's
+    effective date (plan 185-51: re-judging ETHA's 2026-10-08 run must not bring back the row
+    the 2026-10-05 correction voided). A different factor on the same date from an earlier
+    overlap detection is superseded rather than edited (corporate_action is append-only).
+    Refuses to record a split without evidence.
     """
     if not split.request_ids:
         raise ValueError(f"{split.symbol}: refusing to record a split without evidence request ids")
     async with conn.transaction():
         await conn.execute("SET LOCAL ROLE bar_derivation_writer")
         existing = await conn.fetch(_EXISTING_SQL, split.symbol, split.effective_date)
-        if any(abs(float(factor) - split.factor) < 1e-9 for _id, factor in existing):
+        if any(abs(float(r["factor"]) - split.factor) < 1e-9 for r in existing):
             return False
+        replaced = next(
+            (
+                r["action_id"]
+                for r in existing
+                if r["effective_date"] == split.effective_date and r["inferred_by"] == _INFERRED_BY
+            ),
+            None,
+        )
         await conn.execute(
             _INSERT_SQL,
             split.symbol,
@@ -161,7 +176,7 @@ async def record_split(conn: Any, split: DetectedSplit) -> bool:
             split.factor,
             list(split.request_ids),
             json.dumps({"detected_by": "overlap", "n_evidence_requests": len(split.request_ids)}),
-            existing[0][0] if existing else None,
+            replaced,
         )
     return True
 
