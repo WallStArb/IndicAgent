@@ -218,3 +218,34 @@ def test_params_are_read_from_the_cursor_when_not_passed():
         write_changed=writers.write_changed,
     )
     assert cur.statements[0][0].startswith("SELECT config_key")
+
+
+def test_a_waived_rescale_is_written_and_recorded_with_the_waiver_named():
+    """Plan 189-10 Task 1: the update lane's escalation re-fetch after a recorded corporate
+    action rewrites the whole series on the new scale; the refusal is waived exactly as D2
+    waives it, and the load row says so."""
+    stored = [_row(i) for i in range(1000)]
+    incoming = [_row(i, close=5.25) for i in range(1000)]
+    cur, writers = FakeCursor(_stored(stored)), Writers()
+    apply_ingress_contract(
+        cur,
+        incoming,
+        destination=DESTINATION_GRID,
+        caller="ibkr-history-fetch",
+        write_new=writers.write_new,
+        write_changed=writers.write_changed,
+        params=_PARAMS,
+        waived=True,
+    )
+    assert len(writers.changed) == 1000
+    (load,) = cur.sql_starting("INSERT INTO ohlcv_load")
+    assert load[1][6] == "applied" and "waived" in load[1][12]
+    assert len(cur.sql_starting("INSERT INTO ohlcv_revision")) == 1
+
+
+def test_an_unwaived_load_row_carries_no_detail():
+    rows = [_row(i) for i in range(3)]
+    cur, writers = FakeCursor([]), Writers()
+    _apply(cur, rows, writers)
+    (load,) = cur.sql_starting("INSERT INTO ohlcv_load")
+    assert load[1][12] is None

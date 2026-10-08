@@ -126,12 +126,12 @@ def test_sla_preemption_over_zero_coverage():
 
 def test_never_fetched_is_not_in_preempt_band():
     row = _row("ZZZ", "15m", earliest_days=None, latest_days=None, status=None)
-    assert fq.rank(row, None, CONFIG, TODAY)[1] is True
+    assert fq.rank(row, None, CONFIG, TODAY)[2] is True
 
 
 def test_staleness_at_sla_threshold_is_not_a_breach():
     row = _row("AAA", "15m", earliest_days=7300, latest_days=3)
-    assert fq.rank(row, 7300, CONFIG, TODAY)[1] is True
+    assert fq.rank(row, 7300, CONFIG, TODAY)[2] is True
 
 
 def test_tf_class_ordering_beats_larger_gap():
@@ -466,3 +466,214 @@ async def test_priority_queue_without_current_after_holds_nothing_current():
     await queue.load(pool)
     assert [i.row.symbol for i in queue.ranked_snapshot()] == ["AAA"]
     assert queue.held_snapshot() == []
+
+
+# ---------------------------------------------------------------------------
+# Plan 189-10 Task 1 (amended by 185-46): two lanes, the 1d due rule, the parity sample
+# ---------------------------------------------------------------------------
+
+# Monday 2026-10-05 21:00 UTC: the last completed session closed at 20:00 that day.
+_LAST_CLOSE = datetime(2026, 10, 5, 20, 0, tzinfo=UTC)
+_CLOSES = [
+    datetime(2026, 9, 30, 20, 0, tzinfo=UTC),
+    datetime(2026, 10, 1, 20, 0, tzinfo=UTC),
+    datetime(2026, 10, 2, 20, 0, tzinfo=UTC),
+    _LAST_CLOSE,
+]
+_DAILY = fq.DailyRule(last_close=_LAST_CLOSE, reconcile_after=_LAST_CLOSE)
+
+
+def test_reconcile_after_is_the_close_of_the_nth_latest_completed_session():
+    assert fq.reconcile_after(_CLOSES, 1) == _LAST_CLOSE
+    assert fq.reconcile_after(_CLOSES, 3) == datetime(2026, 10, 1, 20, 0, tzinfo=UTC)
+    with pytest.raises(ValueError):
+        fq.reconcile_after(_CLOSES, 0)
+    with pytest.raises(ValueError):
+        fq.reconcile_after(_CLOSES, 5)
+
+
+def test_daily_due_rule_queues_a_name_asked_before_the_close_and_holds_one_asked_after():
+    """Owner rule (185-46 amendment B): due when the latest SMART TRADES 1d request was
+    answered before the latest completed session's close; held when answered after it."""
+    canonical = _LAST_CLOSE.date()
+    before = _LAST_CLOSE - timedelta(hours=1)
+    after = _LAST_CLOSE + timedelta(minutes=10)
+    assert fq.daily_due_reason(before, canonical, _DAILY) == "reconcile_due"
+    assert fq.daily_due_reason(after, canonical, _DAILY) is None
+    assert fq.daily_due_reason(None, canonical, _DAILY) == "never_asked"
+
+
+def test_a_stale_canonical_bar_queues_a_name_inside_a_longer_reconcile_interval():
+    """The 1d pass also checks currency: with a 3-session interval a name asked two sessions
+    ago is held while its canonical bar is current, and queued when it is not, unless it was
+    already asked since the last close (then the freshness_1d verdict names it, no re-ask)."""
+    rule = fq.DailyRule(last_close=_LAST_CLOSE, reconcile_after=fq.reconcile_after(_CLOSES, 3))
+    two_sessions_ago = datetime(2026, 10, 2, 21, 0, tzinfo=UTC)
+    assert fq.daily_due_reason(two_sessions_ago, _LAST_CLOSE.date(), rule) is None
+    stale = date(2026, 10, 2)
+    assert fq.daily_due_reason(two_sessions_ago, stale, rule) == "not_current"
+    assert fq.daily_due_reason(two_sessions_ago, None, rule) == "not_current"
+    assert fq.daily_due_reason(_LAST_CLOSE + timedelta(hours=1), stale, rule) is None
+
+
+def _daily_pool(coverage, answers, canonical):
+    pool = _pool(coverage)
+    pool.conn.tables["FROM ohlcv_request"] = answers
+    pool.conn.tables["FROM market_data_ohlcv_tradeable"] = canonical
+    return pool
+
+
+async def test_queue_applies_the_daily_rule_with_no_tradier_hold():
+    """A name asked before the close is queued, one asked after is held as current, a name
+    never asked is queued; nothing is held as tradier_owned (the hold is gone)."""
+    pool = _daily_pool(
+        [_cov(s, "1d", 7300, 1) for s in ("OLD", "NEW", "NEVER")],
+        [
+            {"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)},
+            {"symbol": "NEW", "answered_at": _LAST_CLOSE + timedelta(minutes=30)},
+        ],
+        [{"symbol": s, "latest": _LAST_CLOSE.replace(hour=0)} for s in ("OLD", "NEW", "NEVER")],
+    )
+    candidates = [("OLD", "1d"), ("NEW", "1d"), ("NEVER", "1d")]
+    queue = fq.PriorityQueue(CONFIG, candidates, TODAY, current_after=_LAST_CLOSE, daily=_DAILY)
+    await queue.load(pool)
+    assert sorted(i.row.symbol for i in queue.ranked_snapshot()) == ["NEVER", "OLD"]
+    assert {(i.row.symbol, r) for i, r in queue.held_snapshot()} == {("NEW", "current")}
+    assert queue.due_reason("OLD", "1d") == "reconcile_due"
+    assert queue.due_reason("NEVER", "1d") == "never_asked"
+    assert not any("tradier" in sql.lower() for sql in pool.conn.queries)
+
+
+async def test_a_1d_series_that_last_errored_is_never_held():
+    pool = _daily_pool(
+        [_cov("ERR", "1d", 7300, 1, status="error", failures=1)],
+        [{"symbol": "ERR", "answered_at": _LAST_CLOSE + timedelta(minutes=30)}],
+        [{"symbol": "ERR", "latest": _LAST_CLOSE.replace(hour=0)}],
+    )
+    queue = fq.PriorityQueue(
+        CONFIG, [("ERR", "1d")], TODAY, current_after=_LAST_CLOSE, daily=_DAILY
+    )
+    await queue.load(pool)
+    assert [i.row.symbol for i in queue.ranked_snapshot()] == ["ERR"]
+
+
+def test_a_due_1d_item_precedes_a_5m_item_with_a_larger_gap():
+    """185-46 amendment B: a due 1d item ranks ahead of every 5m item, even a 5m series with
+    the whole 20-year gap and an SLA breach."""
+    five = _row("AAA", "5m", earliest_days=None, latest_days=None, status=None)
+    five_breached = _row("BBB", "5m", earliest_days=100, latest_days=9)
+    daily = _row("ZZZ", "1d", earliest_days=7300, latest_days=1)
+    config = replace(CONFIG, priority_tf_order=("5m",))
+    proven = {"AAA": 7300, "BBB": 7300, "ZZZ": 7300}
+    items = fq.queue_items([five, five_breached, daily], config, TODAY, proven)
+    assert items[0].row is daily
+    assert items[1].gap_days > 0 and items[0].gap_days == 0
+
+
+def test_gap_fill_cadence_is_one_session_in_every_n_per_series():
+    """The gap-fill lane: over any N consecutive weekday sessions each series is due exactly
+    once, deterministically, and series spread over the cycle; interval 1 is every session."""
+    sessions = [date(2026, 10, 5) + timedelta(days=d) for d in range(21)]
+    sessions = [d for d in sessions if d.weekday() < 5][:10]
+    symbols = [f"S{i:03d}" for i in range(200)]
+    slots = []
+    for symbol in symbols:
+        due = [d for d in sessions[:7] if fq.gap_fill_due(symbol, "5m", d, 7)]
+        assert len(due) == 1
+        slots.append(sessions.index(due[0]))
+        assert fq.gap_fill_due(symbol, "5m", due[0], 7)  # stable on a second call
+        assert all(fq.gap_fill_due(symbol, "5m", d, 1) for d in sessions)
+    assert len(set(slots)) == 7  # the work spreads over the whole cycle
+    assert fq.gap_fill_due("AAA", "5m", sessions[0], 7) == fq.gap_fill_due(
+        "AAA", "5m", sessions[7], 7
+    )
+
+
+def test_parity_sample_is_stable_within_an_iso_week_and_changes_the_next_week():
+    eligible = [f"N{i:03d}" for i in range(60)]
+    monday, friday = date(2026, 10, 5), date(2026, 10, 9)
+    week = fq.parity_sample(eligible, monday, 10)
+    assert len(week) == 10 and set(week) <= set(eligible)
+    assert fq.parity_sample(eligible, friday, 10) == week
+    assert fq.parity_sample(list(reversed(eligible)), friday, 10) == week
+    assert fq.parity_sample(eligible, monday + timedelta(days=7), 10) != week
+    assert fq.parity_sample(eligible, monday, 0) == []
+    assert sorted(fq.parity_sample(eligible[:4], monday, 10)) == eligible[:4]
+    assert fq.parity_week_start(friday) == datetime(2026, 10, 5, tzinfo=UTC)
+
+
+async def test_queue_holds_a_parity_series_already_asked_this_week():
+    week_start = datetime(2026, 9, 28, tzinfo=UTC)
+    pool = _pool(
+        [
+            _cov("PAR", "15m", 7300, 1, fetched=week_start + timedelta(days=1)),
+            _cov("PAR", "1h", 7300, 1, fetched=week_start - timedelta(days=1)),
+        ]
+    )
+    queue = fq.PriorityQueue(
+        CONFIG,
+        [("PAR", "15m"), ("PAR", "1h")],
+        TODAY,
+        current_after=_LAST_CLOSE,
+        current_after_by_series={("PAR", "15m"): week_start, ("PAR", "1h"): week_start},
+    )
+    await queue.load(pool)
+    assert [(i.row.symbol, i.row.timeframe) for i in queue.ranked_snapshot()] == [("PAR", "1h")]
+
+
+def test_a_split_restated_overlap_escalates_the_name():
+    """The stored closes are on the old scale: the stored/fresh ratio is the split factor."""
+    pairs = [(100.0 + i, (100.0 + i) / 2.0) for i in range(20)]
+    for restated_escalates in (True, False):
+        verdict = fq.judge_overlap(pairs, 10.0, escalate_on_restated=restated_escalates)
+        assert verdict.escalate
+        assert verdict.median_ratio == pytest.approx(2.0)
+        assert verdict.n_restated == 20
+        assert verdict.reason == "ratio_outside_tolerance"
+
+
+def test_an_unchanged_overlap_does_not_escalate():
+    pairs = [(100.0 + i, 100.0 + i) for i in range(20)]
+    for restated_escalates in (True, False):
+        verdict = fq.judge_overlap(pairs, 10.0, escalate_on_restated=restated_escalates)
+        assert not verdict.escalate
+        assert verdict.n_restated == 0 and verdict.reason is None
+    assert not fq.judge_overlap([], 10.0, escalate_on_restated=True).escalate
+
+
+def test_one_restated_1d_close_escalates_but_routine_5m_restatements_do_not():
+    """1d: any restated close escalates (rare: 1 in 5,558 repeated observations). 5m: IBKR
+    restates 15 to 40 recent rows a name routinely; they are written and recorded by the
+    ingress contract, and only a scale change (median ratio) escalates."""
+    pairs = [(100.0, 100.0)] * 30 + [(100.0, 100.05)]
+    assert fq.judge_overlap(pairs, 10.0, escalate_on_restated=True).reason == "restated_row"
+    assert not fq.judge_overlap(pairs, 10.0, escalate_on_restated=False).escalate
+
+
+_LANE_ROWS = [
+    ("infra.backfill.ibkr_1d_reconcile_interval_days", "1"),
+    ("infra.backfill.update_overlap_sessions_1d", "20"),
+    ("infra.backfill.update_overlap_days_5m", "3"),
+    ("infra.backfill.gap_fill_interval_days", "7"),
+    ("infra.backfill.grid_parity_sample_names_per_week", "10"),
+    ("threshold.bar_integrity.fallback_basis_tolerance_bp", "10"),
+]
+
+
+def test_load_lane_config_reads_every_key_in_one_query():
+    conn = _FakeConn(_LANE_ROWS)
+    lanes = fq.load_lane_config(conn)
+    assert lanes == fq.LaneConfig(
+        reconcile_interval_sessions=1,
+        update_overlap_sessions_1d=20,
+        update_overlap_days_5m=3,
+        gap_fill_interval_days=7,
+        parity_names_per_week=10,
+        basis_tolerance_bp=10.0,
+    )
+    assert len(conn.cursor_obj.executed) == 1
+
+
+def test_load_lane_config_has_no_fallback_for_a_missing_key():
+    with pytest.raises(RuntimeError, match="gap_fill_interval_days"):
+        fq.load_lane_config(_FakeConn([r for r in _LANE_ROWS if "gap_fill" not in r[0]]))

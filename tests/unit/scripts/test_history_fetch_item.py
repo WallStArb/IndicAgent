@@ -104,7 +104,7 @@ def _scripted_items(monkeypatch, script: list[str]) -> list[int]:
     """Patch fetch_item: each attempt follows the next script entry ('stall', 'ok', 'raise')."""
     attempts: list[int] = []
 
-    async def fake_fetch_item(ctx, instrument, row, *, gap_days, full_scan, clock):
+    async def fake_fetch_item(ctx, instrument, row, *, full_scan, clock, **lane):
         attempts.append(len(attempts) + 1)
         step = script[len(attempts) - 1]
         if step == "stall":
@@ -209,7 +209,6 @@ def test_retries_exhausted_is_an_error_charged_to_the_item(monkeypatch):
             ctx,
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(retries=2),
             reconnect=reconnect,
@@ -233,7 +232,6 @@ def test_reconnect_failure_is_gateway_lost(monkeypatch):
             ctx,
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(retries=2),
             reconnect=_reconnects(False),
@@ -253,7 +251,6 @@ def test_success_on_retry_returns_the_retry_outcome(monkeypatch):
             ctx,
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(retries=2),
             reconnect=_reconnects(True),
@@ -275,7 +272,6 @@ def test_stall_flushes_the_cancelled_attempts_answers_before_retrying(monkeypatc
             ctx,
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(retries=1),
             reconnect=_reconnects(True),
@@ -292,7 +288,6 @@ def test_other_exceptions_become_an_error_outcome_not_a_crash(monkeypatch):
             ctx,
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(retries=2),
             reconnect=_reconnects(),
@@ -305,7 +300,7 @@ def test_other_exceptions_become_an_error_outcome_not_a_crash(monkeypatch):
 
 
 def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
-    async def fake_fetch_item(ctx, instrument, row, *, gap_days, full_scan, clock):
+    async def fake_fetch_item(ctx, instrument, row, *, full_scan, clock, **lane):
         raise item_mod.GatewayLost("reconnect before qualify failed")
 
     monkeypatch.setattr(item_mod, "fetch_item", fake_fetch_item)
@@ -314,7 +309,6 @@ def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
             _retry_ctx(),
             _INSTRUMENT,
             _ROW,
-            gap_days=0,
             full_scan=False,
             config=_config(),
             reconnect=_reconnects(),
@@ -622,15 +616,15 @@ def _row(
     return CoverageRow(symbol, tf, earliest, latest, status, 0, None)
 
 
-def _fetch(ctx, row, *, instrument=None, gap_days=0, full_scan=False, clock=None):
+def _fetch(ctx, row, *, instrument=None, full_scan=False, clock=None, **lane):
     return asyncio.run(
         fetch_item(
             ctx,
             instrument or _instrument(row.symbol),
             row,
-            gap_days=gap_days,
             full_scan=full_scan,
             clock=clock or ProgressClock(),
+            **lane,
         )
     )
 
@@ -641,30 +635,29 @@ _COVERED_LATEST = datetime(2026, 9, 30, 15, 45, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(
-    "row, gap_days, full_scan",
+    "row, full_scan",
     [
-        (_row("15m", latest=_COVERED_LATEST, status="ok"), 30, False),  # gap left
-        (_row("15m", latest=_COVERED_LATEST, status="error"), 0, False),  # last fetch failed
-        (_row("15m", latest=_COVERED_LATEST, status="no_data"), 0, False),
-        (_row("15m", latest=_COVERED_LATEST, status="ok"), 0, True),  # operator full scan
-        (_row("15m"), 0, False),  # never fetched
+        (_row("15m", latest=_COVERED_LATEST, status="error"), False),  # last fetch failed
+        (_row("15m", latest=_COVERED_LATEST, status="no_data"), False),
+        (_row("15m", latest=_COVERED_LATEST, status="ok"), True),  # gap-fill lane or operator
+        (_row("15m"), False),  # never fetched
     ],
 )
-def test_full_depth_window_when_the_series_is_not_fully_covered(env, row, gap_days, full_scan):
-    _fetch(_ctx(FakeProvider()), row, gap_days=gap_days, full_scan=full_scan)
+def test_full_depth_window_when_the_series_is_not_fully_covered(env, row, full_scan):
+    _fetch(_ctx(FakeProvider()), row, full_scan=full_scan)
     assert env.gap_calls[0].start == history_fetch._fetch_start(_END, 7300)
     assert env.gap_calls[0].end == _END
 
 
 def test_fully_covered_series_scans_only_from_its_latest_bar(env):
     row = _row("15m", latest=_COVERED_LATEST, status="ok")
-    _fetch(_ctx(FakeProvider()), row, gap_days=0)
+    _fetch(_ctx(FakeProvider()), row)
     assert env.gap_calls[0].start == datetime(2026, 9, 30, tzinfo=UTC)
 
 
 def test_fully_covered_1d_series_plans_d1_from_its_latest_session(env):
     row = _row("1d", latest=datetime(2026, 10, 1, tzinfo=UTC), status="ok")
-    _fetch(_ctx(FakeProvider()), row, gap_days=0)
+    _fetch(_ctx(FakeProvider()), row)
     assert (env.gap_calls[0].planner, env.gap_calls[0].start) == ("d1", date(2026, 10, 1))
 
 
@@ -1122,7 +1115,6 @@ def test_port_flush_failure_fails_the_symbol_loudly(env):
             ctx,
             _instrument(),
             _row("1d"),
-            gap_days=0,
             full_scan=False,
             config=_config(timeout_s=5.0),
             reconnect=_reconnects(),
@@ -1172,3 +1164,101 @@ def test_port_no_overlap_by_default(env):
 def test_port_a_caller_supplied_fetch_run_id_labels_every_request(env):
     provider, _, _ = _run_symbols(env, fetch_run_id="nightly-leg-1d")
     assert {c["fetch_run_id"] for c in provider.calls} == {"nightly-leg-1d"}
+
+
+# --- plan 189-10 Task 1: the update lane's overlap, the escalation re-fetch -------------
+
+_5M_LATEST = datetime(2026, 9, 30, 19, 55, tzinfo=UTC)
+
+
+def test_a_short_start_no_longer_forces_the_full_window_the_gap_fill_lane_does(env):
+    """Short starts and interior holes move to the gap-fill lane (the fetcher passes
+    full_scan on a series' gap-fill session); otherwise a covered series asks its tail."""
+    row = _row("5m", latest=_5M_LATEST, status="ok")
+    _fetch(_ctx(FakeProvider()), row)
+    assert env.gap_calls[0].start == datetime(2026, 9, 30, tzinfo=UTC)
+
+
+def test_the_5m_update_lane_re_asks_the_overlap_days_behind_the_latest_bar(env):
+    """The record planner never asks a stored slot, so the overlap is added after planning:
+    one ask from midnight of the latest bar's day minus the overlap through the run end."""
+    env.record_gaps = []
+    provider = FakeProvider()
+    _fetch(_ctx(provider), _row("5m", latest=_5M_LATEST, status="ok"), overlap_days=3)
+    assert env.gap_calls[0].start == datetime(2026, 9, 27, tzinfo=UTC)
+    assert [(c["start"], c["end"]) for c in provider.calls] == [
+        (datetime(2026, 9, 27, tzinfo=UTC), _END)
+    ]
+
+
+def test_an_overlap_merges_with_a_planned_tail_gap_into_one_ask(env):
+    env.record_gaps = [(datetime(2026, 10, 1, 13, 30, tzinfo=UTC), _END)]
+    provider = FakeProvider()
+    _fetch(_ctx(provider), _row("5m", latest=_5M_LATEST, status="ok"), overlap_days=3)
+    assert [(c["start"], c["end"]) for c in provider.calls] == [
+        (datetime(2026, 9, 27, tzinfo=UTC), _END)
+    ]
+
+
+def test_the_overlap_pairs_stored_and_fresh_closes_for_the_fetcher_to_judge(env, monkeypatch):
+    stored_at = {}
+
+    def fake_stored(conn, symbol, timeframe, timestamps):
+        stored_at["asked"] = (symbol, timeframe, sorted(timestamps))
+        # The first two fresh bars overlap stored ones on the old (doubled) scale.
+        return {ts: 2.0 * (100.5 + i) for i, ts in enumerate(sorted(timestamps)[:2])}
+
+    monkeypatch.setattr(item_mod, "_stored_closes", fake_stored)
+    outcome = _fetch(
+        _ctx(FakeProvider()), _row("5m", latest=_5M_LATEST, status="ok"), overlap_days=3
+    )
+    assert stored_at["asked"][:2] == ("AAA", "5m")
+    assert outcome.overlap_pairs == ((201.0, 100.5), (203.0, 101.5))
+
+
+def test_no_overlap_means_no_stored_read_and_no_pairs(env, monkeypatch):
+    def no_read(*args):
+        raise AssertionError("only an overlap-verified item reads stored closes")
+
+    monkeypatch.setattr(item_mod, "_stored_closes", no_read)
+    outcome = _fetch(_ctx(FakeProvider()), _row("5m", latest=_5M_LATEST, status="ok"))
+    assert outcome.overlap_pairs == ()
+
+
+def test_a_5m_refetch_re_asks_the_whole_depth_including_stored_slots(env):
+    env.record_gaps = []
+    provider = FakeProvider()
+    outcome = _fetch(
+        _ctx(provider), _row("5m", latest=_5M_LATEST, status="ok"), full_scan=True, refetch=True
+    )
+    start = history_fetch._fetch_start(_END, 7300)
+    assert [(c["start"], c["end"]) for c in provider.calls] == [(start, _END)]
+    assert outcome.status == "ok"
+    assert env.persist[0].writer is history_fetch._insert_market_data_rows
+
+
+def test_a_waived_refetch_writes_through_the_waived_grid_writer(env):
+    _fetch(
+        _ctx(FakeProvider()),
+        _row("5m", latest=_5M_LATEST, status="ok"),
+        full_scan=True,
+        refetch=True,
+        waived=True,
+    )
+    assert env.persist[0].writer is history_fetch._insert_market_data_rows_waived
+
+
+def test_a_1d_refetch_re_asks_every_session_of_the_depth_window(env):
+    env.d1_gaps = []
+    provider = FakeProvider()
+    outcome = _fetch(
+        _ctx(provider),
+        _row("1d", latest=datetime(2026, 10, 1, tzinfo=UTC), status="ok"),
+        full_scan=True,
+        refetch=True,
+    )
+    assert len(provider.calls) == 1
+    first = provider.calls[0]["start"].date()
+    assert first <= history_fetch._fetch_start(_END, 7300).date() + timedelta(days=5)
+    assert provider.calls[0]["end"].date() >= date(2026, 10, 1)
+    assert outcome.derive_1d_since is not None

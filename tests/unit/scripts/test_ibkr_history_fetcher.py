@@ -30,6 +30,17 @@ from scripts.infrastructure.backfill._history_fetch_item import ItemOutcome
 _LIVE_DB_DSN = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _TODAY = date(2026, 10, 6)
 
+_LANES = fq.LaneConfig(
+    reconcile_interval_sessions=1,
+    update_overlap_sessions_1d=20,
+    update_overlap_days_5m=3,
+    gap_fill_interval_days=7,
+    parity_names_per_week=10,
+    basis_tolerance_bp=10.0,
+)
+# Never a gap-fill session for any series: gap_fill_due is patched per test where it matters.
+_SESSION_DAY = date(2026, 10, 5)
+
 _CONFIG = fq.QueueConfig(
     max_consecutive_failures=5,
     max_staleness_days_before_preempt=3,
@@ -110,10 +121,11 @@ def _plan(items: list[fq.RankedItem], **queue_kwargs: Any) -> hf.RunPlan:
             pairs=[(i.row.symbol, i.row.timeframe) for i in items],
             instruments={s: SimpleNamespace(symbol=s) for s in symbols},
         ),
-        tradier_owned=[],
         tf_fetch_config={},
         overlap_sessions=0,
         inter_item_pause_s=0.0,
+        lanes=_LANES,
+        session_day=_SESSION_DAY,
     )
 
 
@@ -216,6 +228,12 @@ def _fetcher(
         seen["notify"] += 1
 
     kwargs.setdefault("lock_factory", _AlwaysLock)
+
+    async def no_escalation(pool: Any, fetch_run_id: str, lanes: Any) -> dict[str, str]:
+        seen.setdefault("judged", []).append(fetch_run_id)
+        return {}
+
+    kwargs.setdefault("overlap_judge", no_escalation)
     fetcher = hf.IbkrHistoryFetcher(
         _LIVE_DB_DSN,
         args or _args(),
@@ -234,8 +252,10 @@ def _fetcher(
 
 @pytest.fixture(autouse=True)
 def _no_side_effects(monkeypatch):
-    """No APR overlay reads and no ledger writes in these tests."""
+    """No APR overlay reads, no ledger writes, no gap-fill session and no overlap reads (the
+    1d judge and the 5m waiver come through their seams) in these tests."""
     monkeypatch.setattr(hf.IbkrHistoryFetcher, "_load_provider_overlays", lambda self: None)
+    monkeypatch.setattr(hf, "gap_fill_due", lambda symbol, tf, day, interval: False)
     outcomes: list[tuple[str, str, str]] = []
     monkeypatch.setattr(
         hf,
@@ -332,10 +352,13 @@ async def test_two_concurrent_runs_exactly_one_reaches_the_provider(tmp_path):
 
 
 class _RecordingSyncConn:
-    """psycopg-shaped: answers load_queue_config and the APR read, records every statement."""
+    """psycopg-shaped: answers load_queue_config, load_lane_config and the APR read, records
+    every statement."""
 
-    def __init__(self, log: list[str]) -> None:
+    def __init__(self, log: list[str], parity: int = 10, scopes: str | None = None) -> None:
         self.log = log
+        self.parity = parity
+        self.scopes = scopes or '{"compute": ["1d", "15m"]}'
 
     def cursor(self) -> Any:
         conn = self
@@ -350,9 +373,14 @@ class _RecordingSyncConn:
             def execute(self, sql: str, params: Any = None) -> None:
                 conn.log.append(sql)
                 self.rows = [
-                    ("infra.backfill.default_scopes", '{"compute": ["1d", "15m"]}'),
-                    ("infra.bar_derivation.overlap_sessions", "20"),
+                    ("infra.backfill.default_scopes", conn.scopes),
                     ("infra.ibkr.inter_item_pause_s", "2.0"),
+                    ("infra.backfill.ibkr_1d_reconcile_interval_days", "1"),
+                    ("infra.backfill.update_overlap_sessions_1d", "20"),
+                    ("infra.backfill.update_overlap_days_5m", "3"),
+                    ("infra.backfill.gap_fill_interval_days", "7"),
+                    ("infra.backfill.grid_parity_sample_names_per_week", str(conn.parity)),
+                    ("threshold.bar_integrity.fallback_basis_tolerance_bp", "10"),
                 ]
 
             def fetchall(self) -> list[tuple[str, str]]:
@@ -365,11 +393,13 @@ class _RecordingSyncConn:
 
 
 class _RecordingPool:
-    def __init__(self, log: list[str]) -> None:
+    def __init__(self, log: list[str], eligible: tuple[str, ...] = ()) -> None:
         self.log = log
+        self.eligible = eligible
 
     def acquire(self) -> Any:
         log = self.log
+        eligible = self.eligible
 
         class _Conn:
             async def fetch(self, sql: str, *params: Any) -> list[dict[str, Any]]:
@@ -385,6 +415,8 @@ class _RecordingPool:
                             "config_value": "2",
                         },
                     ]
+                if "ohlcv_intraday_raw_archive" in sql:
+                    return [{"symbol": s} for s in eligible]
                 if "FROM ohlcv_coverage" in sql:
                     return [
                         {
@@ -455,12 +487,17 @@ async def test_dry_run_takes_no_lock_opens_no_provider_and_writes_nothing(tmp_pa
     lines = out.read_text().splitlines()
     assert lines[0].split("\t") == list(hf._TSV_COLUMNS)
     rows = [line.split("\t") for line in lines[1:]]
-    assert {(r[1], r[2], r[13]) for r in rows} == {
+    held = hf._TSV_COLUMNS.index("held_reason")
+    lane = hf._TSV_COLUMNS.index("lane")
+    assert {(r[1], r[2], r[held]) for r in rows} == {
         ("AAA", "15m", ""),
         ("AAA", "1d", ""),
         ("TRD", "15m", ""),
-        ("TRD", "1d", "tradier_owned"),
+        ("TRD", "1d", ""),
     }
+    assert "tradier_owned" not in out.read_text()
+    assert {r[lane] for r in rows} == {"update"}
+    assert not any("tradier" in sql.lower() for sql in log)
     assert not (tmp_path / "status.json").exists()
 
 
@@ -648,7 +685,7 @@ async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_eff
     assert '"status": "partial"' in (tmp_path / "status.json").read_text()
 
 
-async def test_gap_days_and_watchdog_tick_reach_the_item_fetch(tmp_path):
+async def test_the_update_lane_span_and_watchdog_tick_reach_the_item_fetch(tmp_path):
     received: dict[str, Any] = {}
 
     async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
@@ -656,10 +693,12 @@ async def test_gap_days_and_watchdog_tick_reach_the_item_fetch(tmp_path):
         kw["on_tick"]()
         return _outcome(row)
 
-    fetcher, seen = _fetcher(tmp_path, _plan([_ranked("AAA", gap_days=42)]), fetch_fn=fetch)
+    fetcher, seen = _fetcher(tmp_path, _plan([_ranked("AAA", "5m", gap_days=42)]), fetch_fn=fetch)
     await _run(fetcher)
-    assert received["gap_days"] == 42
+    assert "gap_days" not in received  # a short start waits for the gap-fill lane
     assert received["full_scan"] is False
+    assert received["overlap_days"] == 3
+    assert received["refetch"] is False
     assert seen["notify"] >= 2  # the tick, plus the post-item ping
 
 
@@ -706,8 +745,10 @@ async def test_1d_items_run_split_detection_daily_stage_then_refresh_the_ledger(
     status, error = await _run(fetcher)
     assert error is None
     assert status == "success"
-    split, daily = seen["stages"]
-    assert "ops_split_detect.py" in split[1] and "--fetch-run-id" in split
+    # Split detection runs in-process under the run's lock (todo 507): no subprocess.
+    assert seen["judged"] == [fetcher.summary["fetch_run_id"]]
+    (daily,) = seen["stages"]
+    assert not any("ops_split_detect" in arg for arg in daily)
     assert daily[-5:] == ["--stage", "daily", "--symbols", "AAA,BBB", "--apply"]
     assert _no_side_effects.refreshed == [["AAA", "BBB"]]
 
@@ -778,3 +819,185 @@ async def test_rebuild_coverage_runs_under_the_lock_without_ibkr(tmp_path, monke
     else:
         assert status == "lock_held"
         assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# Plan 189-10 Task 1 (amended): the parity sample, the two lanes, the in-process escalation
+# ---------------------------------------------------------------------------
+
+
+async def _prepared(monkeypatch, *, parity: int, eligible: tuple[str, ...], argv=()) -> Any:
+    log: list[str] = []
+    monkeypatch.setattr(
+        hf._history_fetch,
+        "_load_tf_fetch_config",
+        lambda settings: {tf: (7300, False) for tf in ("1d", "5m", "15m", "1h")},
+    )
+    fetcher = hf.IbkrHistoryFetcher(
+        _LIVE_DB_DSN,
+        _args(*argv),
+        settings=SimpleNamespace(database_url=_LIVE_DB_DSN),
+        connect=lambda: _RecordingSyncConn(
+            log, parity=parity, scopes='{"compute_1d": ["1d", "5m"]}'
+        ),
+        contracts_for=lambda dim: [SimpleNamespace(symbol=s) for s in ("AAA", "BBB", "CCC", "DDD")],
+    )
+    return await fetcher.prepare(_RecordingPool(log, eligible=eligible))
+
+
+async def test_with_the_parity_count_at_zero_no_15m_or_1h_item_is_queued(monkeypatch):
+    plan = await _prepared(monkeypatch, parity=0, eligible=("AAA", "BBB", "CCC"))
+    assert {tf for _, tf in plan.candidates.pairs} == {"1d", "5m"}
+    assert plan.parity == ()
+
+
+async def test_the_parity_sample_adds_15m_and_1h_for_sampled_eligible_names_only(monkeypatch):
+    plan = await _prepared(monkeypatch, parity=2, eligible=("AAA", "BBB", "CCC"))
+    sampled = sorted({s for s, _ in plan.parity})
+    assert len(sampled) == 2 and set(sampled) <= {"AAA", "BBB", "CCC"}
+    assert set(plan.parity) == {(s, tf) for s in sampled for tf in ("15m", "1h")}
+    assert set(plan.parity) <= set(plan.candidates.pairs)
+    # Held once asked this ISO week; the archive is their destination (the item routes 15m/1h).
+    week_start = fq.parity_week_start(datetime.now(UTC).date())
+    assert all(plan.queue.current_after_by_series[p] == week_start for p in plan.parity)
+    assert {"15m", "1h"} <= set(hf._history_fetch._ARCHIVE_TFS)
+    assert all(
+        hf.dry_run_rows(plan)[i][hf._TSV_COLUMNS.index("lane")] in ("update", "parity")
+        for i in range(len(hf.dry_run_rows(plan)))
+    )
+
+
+async def test_an_explicit_run_gets_no_parity_sample(monkeypatch):
+    plan = await _prepared(
+        monkeypatch, parity=10, eligible=("AAA",), argv=("--symbols", "AAA", "--timeframes", "5m")
+    )
+    assert plan.parity == ()
+
+
+async def test_the_gap_fill_session_plans_the_full_depth_and_parity_items_never_do(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(hf, "gap_fill_due", lambda symbol, tf, day, interval: symbol == "GAP")
+    received: dict[tuple[str, str], dict[str, Any]] = {}
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        received[(row.symbol, row.timeframe)] = kw
+        return _outcome(row)
+
+    items = [_ranked("GAP", "5m"), _ranked("UPD", "5m"), _ranked("GAP", "15m")]
+    plan = _plan(items)
+    plan.parity = (("GAP", "15m"),)
+    fetcher, _ = _fetcher(tmp_path, plan, fetch_fn=fetch)
+    await _run(fetcher)
+    assert (received[("GAP", "5m")]["full_scan"], received[("GAP", "5m")]["overlap_days"]) == (
+        True,
+        0,
+    )
+    assert (received[("UPD", "5m")]["full_scan"], received[("UPD", "5m")]["overlap_days"]) == (
+        False,
+        3,
+    )
+    assert (received[("GAP", "15m")]["full_scan"], received[("GAP", "15m")]["overlap_days"]) == (
+        False,
+        0,
+    )
+    assert fetcher.summary["lanes"] == {"gap_fill": 1, "update": 1, "parity": 1}
+
+
+async def test_a_split_is_recorded_then_re_fetched_in_process_then_derived(tmp_path):
+    """Todo 507: record, re-fetch, derive, in that order, inside this run and under its lock;
+    no ops_split_detect subprocess and no lock refusal (the old exit 3)."""
+    events: list[tuple[str, ...]] = []
+    since = datetime(2006, 10, 2, tzinfo=UTC)
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        events.append(("fetch", row.symbol, row.timeframe, str(kw["refetch"])))
+        return _outcome(row, n_bars=5, derive_1d_since=since)
+
+    async def judge(pool: Any, fetch_run_id: str, lanes: Any) -> dict[str, str]:
+        events.append(("record", "AAA"))
+        return {"AAA": "split_recorded"}
+
+    async def stage_runner(argv: list[str]) -> int:
+        events.append(("stage", argv[argv.index("--stage") + 1]))
+        return 0
+
+    lock = _CountingLock(True)
+    fetcher, seen = _fetcher(
+        tmp_path,
+        _plan([_ranked("AAA", "1d"), _ranked("BBB", "1d")]),
+        fetch_fn=fetch,
+        overlap_judge=judge,
+        lock_factory=lambda: lock,
+    )
+    fetcher._run_stage = stage_runner
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert events == [
+        ("fetch", "AAA", "1d", "False"),
+        ("fetch", "BBB", "1d", "False"),
+        ("record", "AAA"),
+        ("fetch", "AAA", "1d", "True"),
+        ("stage", "daily"),
+    ]
+    assert lock.closed
+    assert fetcher.summary["escalated"] == {"AAA/1d": "split_recorded"}
+    assert fetcher.summary["stages"]["escalation"] == 0
+
+
+def _pairs(ratio: float, n: int = 30) -> tuple[tuple[float, float], ...]:
+    return tuple(((100.0 + i) * ratio, 100.0 + i) for i in range(n))
+
+
+@pytest.mark.parametrize(("ratio", "escalates"), [(2.0, True), (1.0, False)])
+async def test_a_5m_overlap_breach_escalates_to_a_waived_full_depth_refetch(
+    tmp_path, ratio, escalates
+):
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        calls.append((row.symbol, kw))
+        pairs = () if kw["refetch"] else _pairs(ratio)
+        return _outcome(row, n_bars=30, n_grid_source_rows=30, overlap_pairs=pairs)
+
+    async def waiver(pool: Any, symbol: str, timeframe: str, before: datetime) -> bool:
+        return True
+
+    fetcher, seen = _fetcher(tmp_path, _plan([_ranked("AAA", "5m")]), fetch_fn=fetch, waiver=waiver)
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    refetches = [kw for _, kw in calls if kw["refetch"]]
+    if escalates:
+        assert len(refetches) == 1
+        assert refetches[0]["full_scan"] is True and refetches[0]["waived"] is True
+        assert fetcher.summary["escalated"] == {"AAA/5m": "ratio_outside_tolerance"}
+    else:
+        assert refetches == []
+        assert fetcher.summary["escalated"] == {}
+
+
+async def test_an_unwaived_5m_breach_is_reported_not_refetched_and_the_run_is_partial(tmp_path):
+    """Without a recorded corporate action the ingress contract would refuse the full-depth
+    rewrite, so the escalation records the finding instead of spending about 49 requests."""
+    calls: list[dict[str, Any]] = []
+    reported: list[tuple[str, str]] = []
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        calls.append(kw)
+        return _outcome(row, n_bars=30, n_grid_source_rows=30, overlap_pairs=_pairs(2.0))
+
+    async def waiver(pool: Any, symbol: str, timeframe: str, before: datetime) -> bool:
+        return False
+
+    fetcher, _ = _fetcher(
+        tmp_path,
+        _plan([_ranked("AAA", "5m")]),
+        fetch_fn=fetch,
+        waiver=waiver,
+        report_overlap=lambda symbol, tf, verdict: reported.append((symbol, tf)),
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "partial"
+    assert [kw["refetch"] for kw in calls] == [False]
+    assert reported == [("AAA", "5m")]
+    assert fetcher.summary["stages"]["escalation"] == 1
