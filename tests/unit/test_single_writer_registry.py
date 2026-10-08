@@ -173,8 +173,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     "market_data_gaps": (
         Writer("services/bar_auditor.py", reason="the gap auditor (dormant streaming path)"),
     ),
-    "market_data_ohlcv_new": (),  # migration 439's swap target, renamed in by 185-25; nothing writes it
-    "market_data_ohlcv_old": (),  # renamed aside by migration 045, not live; nothing writes it
     "dividend_events": (
         Writer("services/dividend_event_writer.py", reason="Yahoo dividends (todo 428)"),
     ),

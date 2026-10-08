@@ -29,8 +29,7 @@ so the load lands D1 and records outcome loaded with short_history in its detail
 and that has a Tradier observation (TRADIER_OWNED_SQL), each refetched in full so vendor
 revisions and splits surface the night they happen.
 
-No load writes backfill_status: promotion reads bar_integrity verdicts since plan 185-41,
-and plan 189-08 retired the fetch_complete writer.
+No load writes fetch bookkeeping: promotion reads bar_integrity verdicts (plan 185-41).
 
 Usage:
   python scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py            # names with no 1d bars

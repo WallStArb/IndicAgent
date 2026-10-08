@@ -341,8 +341,6 @@ def test_missing_classification_aborts_before_gateway_preflight(monkeypatch):
     classifications = {"AAA": ClassificationAssignment("EQ.BROAD", SOURCE_REF_FUND_MANDATE)}
 
     with pytest.raises(RuntimeError, match="BBB"):
-        asyncio.run(
-            _run_commit(sample, settings=object(), timeframes=None, classifications=classifications)
-        )
+        asyncio.run(_run_commit(sample, settings=object(), classifications=classifications))
 
     assert preflight_called["value"] is False

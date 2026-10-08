@@ -24,6 +24,7 @@ from src.config.classification_service import (
 )
 from src.config.instrument_onboarding import (
     OnboardingRejected,
+    load_compute_timeframes,
     onboard_instrument,
 )
 from src.core.models import AssetClass, Instrument
@@ -77,7 +78,6 @@ class FakeConnection:
         fail_on: str | None = None,
         existing_symbols: set[str] | None = None,
         existing_tags: set[tuple[str, str]] | None = None,
-        existing_backfill: set[tuple[str, str]] | None = None,
         apr_timeframes: str | None = '["5m", "15m", "1h", "1d"]',
         known_codes: set[str] | None = None,
     ) -> None:
@@ -91,7 +91,6 @@ class FakeConnection:
         self._fail_on = fail_on
         self._existing_symbols = existing_symbols or set()
         self._existing_tags = existing_tags or set()
-        self._existing_backfill = existing_backfill or set()
         self._apr_timeframes = apr_timeframes
         # Default matches _SOME_CLASSIFICATION.code below so every test that doesn't
         # care about the node-existence gate passes it without extra setup.
@@ -133,8 +132,6 @@ class FakeConnection:
         if "INSERT INTO instruments " in sql and args[0] in self._existing_symbols:
             return "INSERT 0 0"
         if "INSERT INTO instrument_tags" in sql and (args[0], args[1]) in self._existing_tags:
-            return "INSERT 0 0"
-        if "INSERT INTO backfill_status" in sql and (args[0], args[1]) in self._existing_backfill:
             return "INSERT 0 0"
         return "INSERT 0 1"
 
@@ -186,6 +183,23 @@ def _statements_starting_with(conn: FakeConnection, prefix: str) -> list[tuple[s
     return [(sql, args) for sql, args in conn.statements if sql.strip().startswith(prefix)]
 
 
+def _written_tables(conn: FakeConnection) -> set[str]:
+    """Every table an INSERT statement named, in the order-free form a write-set check needs."""
+    return {
+        sql.split()[2] for sql, _args in conn.statements if sql.strip().startswith("INSERT INTO")
+    }
+
+
+# The complete onboarding write set. Coverage and the fetch queue pick a new name up from
+# instruments on their own (plan 185-43), so no bookkeeping table is seeded here.
+_ONBOARDING_TABLES = {
+    "instruments",
+    "instrument_classification",
+    "instrument_tags",
+    "instrument_metadata",
+}
+
+
 # ---------------------------------------------------------------------------
 # Case 1: qualification rejection writes nothing (V5 / T-174-02)
 # ---------------------------------------------------------------------------
@@ -234,7 +248,7 @@ async def test_happy_path_writes_all_four_tables() -> None:
     assert len(_statements_starting_with(conn, "INSERT INTO instruments")) == 1
     assert len(_statements_starting_with(conn, "INSERT INTO instrument_tags")) == 2
     assert len(_statements_starting_with(conn, "INSERT INTO instrument_metadata")) == 1
-    assert len(_statements_starting_with(conn, "INSERT INTO backfill_status")) == 4
+    assert _written_tables(conn) == _ONBOARDING_TABLES
     classification_stmts = _statements_starting_with(conn, "INSERT INTO instrument_classification")
     assert len(classification_stmts) == 1
     _sql, class_args = classification_stmts[0]
@@ -246,7 +260,6 @@ async def test_happy_path_writes_all_four_tables() -> None:
     )
     classification_index = conn.statements.index(classification_stmts[0])
     assert instrument_index < classification_index
-    assert result.backfill_rows_seeded == 4
     assert result.tags_inserted == 2
     assert result.metadata_written is True
     assert result.instrument_inserted is True
@@ -591,7 +604,7 @@ async def test_outer_transaction_survives_rejected_inner_onboarding() -> None:
 
 async def test_existing_symbol_is_rejected_and_writes_nothing_after_insert() -> None:
     """WR-03: ON CONFLICT DO NOTHING used to be reported as instrument_inserted=True and the
-    helper went on to write tags, metadata and a backfill_status reset for the existing row.
+    helper went on to write tags and metadata for the existing row.
     """
     conn = FakeConnection(known_tags={"single_name_equity"}, existing_symbols={"EMLC"})
 
@@ -605,17 +618,15 @@ async def test_existing_symbol_is_rejected_and_writes_nothing_after_insert() -> 
             classification=_SOME_CLASSIFICATION,
         )
 
-    for table in ("instrument_tags", "instrument_metadata", "backfill_status"):
-        assert _statements_starting_with(conn, f"INSERT INTO {table}") == []
+    assert _written_tables(conn) == {"instruments"}
     assert conn.transaction_log[-1][2] is OnboardingRejected
 
 
 async def test_counts_report_only_rows_actually_written() -> None:
-    """Tag and checkpoint counts count inserted rows, not attempted statements."""
+    """The tag count counts inserted rows, not attempted statements."""
     conn = FakeConnection(
         known_tags={"single_name_equity", "geopolitical"},
         existing_tags={("CCJ", "geopolitical")},
-        existing_backfill={("CCJ", "1d")},
     )
 
     result = await onboard_instrument(
@@ -628,13 +639,12 @@ async def test_counts_report_only_rows_actually_written() -> None:
     )
 
     assert result.tags_inserted == 1
-    assert result.backfill_rows_seeded == 3
 
 
-async def test_backfill_seed_never_resets_an_existing_checkpoint() -> None:
-    """WR-03: the seed must be insert-if-absent. The old upsert set status='pending' on a
-    fetch_complete row, which made backfill_feature_factory recompute a complete symbol."""
-    conn = FakeConnection()
+async def test_onboarding_reads_no_timeframe_stack_and_seeds_no_bookkeeping() -> None:
+    """Plan 185-43: onboarding writes the instrument and its registries only. A missing APR
+    compute stack cannot fail it, because it no longer reads one."""
+    conn = FakeConnection(apr_timeframes=None)
 
     await onboard_instrument(
         conn,
@@ -644,54 +654,20 @@ async def test_backfill_seed_never_resets_an_existing_checkpoint() -> None:
         classification=_SOME_CLASSIFICATION,
     )
 
-    (sql, _args), *_ = _statements_starting_with(conn, "INSERT INTO backfill_status")
-    assert "DO NOTHING" in sql
-    assert "DO UPDATE" not in sql
+    assert _written_tables(conn) == _ONBOARDING_TABLES - {"instrument_tags"}
+    assert not [sql for sql, _args in conn.statements if "config_state" in sql]
 
 
-async def test_default_timeframes_come_from_apr() -> None:
-    """WR-07: the seeded timeframe stack is the APR compute stack, not a module literal."""
-    conn = FakeConnection(apr_timeframes='["1h", "1d"]')
-
-    result = await onboard_instrument(
-        conn,
-        _make_instrument("CCJ"),
-        qualifier=FakeQualifier(),
-        metadata=_SOME_METADATA,
-        classification=_SOME_CLASSIFICATION,
-    )
-
-    seeded = [
-        args[1] for _sql, args in _statements_starting_with(conn, "INSERT INTO backfill_status")
+async def test_load_compute_timeframes_reads_the_apr_stack() -> None:
+    """WR-07: the compute timeframe stack is the APR key, not a module literal (promotion
+    still binds it)."""
+    assert await load_compute_timeframes(FakeConnection(apr_timeframes='["1h", "1d"]')) == [
+        "1h",
+        "1d",
     ]
-    assert seeded == ["1h", "1d"]
-    assert result.backfill_rows_seeded == 2
-
-
-async def test_explicit_timeframes_skip_apr_lookup() -> None:
-    conn = FakeConnection(apr_timeframes=None)
-
-    result = await onboard_instrument(
-        conn,
-        _make_instrument("CCJ"),
-        qualifier=FakeQualifier(),
-        metadata=_SOME_METADATA,
-        timeframes=("1d",),
-        classification=_SOME_CLASSIFICATION,
-    )
-
-    assert result.backfill_rows_seeded == 1
 
 
 @pytest.mark.parametrize("raw", [None, "[]", '"5m"', "[1, 2]", '[""]', '["1d", "1d"]'])
 async def test_missing_or_malformed_apr_timeframes_fail_loudly(raw) -> None:
-    conn = FakeConnection(apr_timeframes=raw)
-
     with pytest.raises(RuntimeError, match="feature.factory.target_timeframes"):
-        await onboard_instrument(
-            conn,
-            _make_instrument("CCJ"),
-            qualifier=FakeQualifier(),
-            metadata=_SOME_METADATA,
-            classification=_SOME_CLASSIFICATION,
-        )
+        await load_compute_timeframes(FakeConnection(apr_timeframes=raw))

@@ -54,7 +54,6 @@ from scripts.infrastructure.universe_expansion_fetch_iwv_holdings import (  # no
 from src.config.classification_service import ClassificationAssignment  # noqa: E402
 from src.config.instrument_onboarding import (  # noqa: E402
     OnboardingRejected,
-    load_compute_timeframes,
     onboard_instrument,
 )
 from src.config.settings import Settings  # noqa: E402
@@ -370,7 +369,6 @@ async def _gateway_preflight(settings: Settings) -> tuple[bool, str]:
 async def _run_commit(
     sample: pd.DataFrame,
     settings: Settings,
-    timeframes: tuple[str, ...] | None,
     classifications: dict[str, ClassificationAssignment],
 ) -> dict[str, int]:
     """--commit mode: qualify + write every drawn symbol through
@@ -418,8 +416,6 @@ async def _run_commit(
     await db.initialize()
     try:
         async with db.pool.acquire() as conn, conn.transaction():
-            if timeframes is None:
-                timeframes = await load_compute_timeframes(conn)  # once per run
             for row in sample.itertuples(index=False):
                 instrument = Instrument(
                     symbol=row.symbol,
@@ -439,7 +435,6 @@ async def _run_commit(
                         instrument,
                         qualifier=provider,
                         tags=_SAMPLE_TAGS,
-                        timeframes=timeframes,
                         metadata_skip_reason=(
                             "Phase 174 D-02 stratified sample -- issuer-level "
                             "metadata (listing_date/underlying_index/issuer) not "
@@ -511,9 +506,8 @@ async def _async_main(args: argparse.Namespace) -> int:
         _print_bucket_summary(sample, bucketed_pop)
         return 0
 
-    timeframes = tuple(args.timeframes.split(",")) if args.timeframes else None
     classifications = load_classifications(args.classification_csv)
-    result = await _run_commit(sample, settings, timeframes, classifications)
+    result = await _run_commit(sample, settings, classifications)
     print(
         "Commit run complete:",
         {
@@ -540,18 +534,10 @@ def main(argv: list[str] | None = None) -> int:
         parser,
         dry_run="Dry-run only (default): draw the sample, write a CSV, make no database writes.",
         commit=(
-            "Actually write to instruments/instrument_tags/instrument_metadata/"
-            "backfill_status via onboard_instrument(). Off by default -- writing "
+            "Actually write to instruments/instrument_classification/instrument_tags/"
+            "instrument_metadata via onboard_instrument(). Off by default -- writing "
             "is opt-in, not opt-out. Plan 08 does NOT run this mode; Plan 12 owns "
             "the real run."
-        ),
-    )
-    parser.add_argument(
-        "--timeframes",
-        default=None,
-        help=(
-            "Comma-separated timeframes seeded into backfill_status on commit (default: the "
-            "APR compute stack, feature.factory.target_timeframes)."
         ),
     )
     parser.add_argument(

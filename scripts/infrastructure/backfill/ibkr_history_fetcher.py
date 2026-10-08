@@ -820,8 +820,8 @@ class IbkrHistoryFetcher(BaseBatch):
         return codes
 
     def _finish_1d(self, ctx: Any, touched: Mapping[str, datetime]) -> None:
-        """Refresh the 1d ledger bounds from the rows D2 just wrote. No backfill_status
-        write: promotion reads bar_integrity verdicts since plan 185-41 (plan 189-08)."""
+        """Refresh the 1d ledger bounds from the rows D2 just wrote. No fetch bookkeeping
+        is written: promotion reads bar_integrity verdicts (plan 185-41)."""
         conn = ctx.get_conn()
         with conn.transaction():
             cur = conn.cursor()

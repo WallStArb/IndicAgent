@@ -58,11 +58,9 @@ _WRITE_TARGET = re.compile(
 # a reader or is dropped; never add one (a new reader-less table goes to _KEEP_TABLES with a
 # reason or to _PENDING_RETIREMENT with a retire clause).
 _FROZEN_UNREAD_TABLES: dict[str, str] = {
-    "batch_job_checkpoints": "no reference outside its migration (155) on 2026-10-06",
     "concept_annotation": "no reference outside its migration (225) on 2026-10-06",
     "factor_series_correlation": "written by services/tag_calibrator.py, never read (2026-10-06)",
     "gate_evaluations": "no reference outside its migration (248) on 2026-10-06",
-    "ic_cell_fingerprints": "no reference outside its migration (251) on 2026-10-06",
 }
 
 # Frozen 2026-10-06 (plan 185-44 baseline): APR keys seeded by the migrations with no reader in
@@ -87,12 +85,6 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
         "alpha.equity_regime.vix_high_pct",
         "alpha.equity_regime.vix_low_pct",
         "alpha.equity_regime.vix_z_window",
-        "alpha.frame.atr_period",
-        "alpha.frame.geometry_source",
-        "alpha.frame.min_stop_price_fraction",
-        "alpha.frame.stop_atr_mult",
-        "alpha.frame.structure_snap_proximity_atr",
-        "alpha.frame.target_r_multiple",
         "alpha.fx_regime.carry_risk_on_threshold",
         "alpha.fx_regime.dollar_strong_threshold",
         "alpha.fx_regime.momentum_window",
@@ -111,7 +103,6 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
         "alpha.ic.refresh_min_new_fraction",
         "alpha.ic.sharpe_min_windows",
         "alpha.ic.walk_forward_folds",
-        "alpha.publisher.is_shadow",
         "alpha.rates_regime.credit_tight_threshold",
         "alpha.rates_regime.credit_window",
         "alpha.rates_regime.curve_window",
@@ -127,20 +118,9 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
         "feature.zone_engine.min_stop_distance_atr.equity",
         "feature.zone_engine.min_stop_distance_atr.futures",
         "feature.zone_engine.min_stop_distance_atr.fx",
-        "infra.alpha_publisher.chunk_size",
         "infra.bar_auditor.price_sanity_batch_size",
-        "infra.cross_sectional_spread_tracker.chunk_size",
-        "infra.cross_sectional_spread_tracker.itersize",
         "infra.dividend_event.lookback_years",
-        "infra.ensemble_trainer.workers",
         "infra.ic.max_unrouted_symbols",
-        "infra.interaction_primitives_pilot.fetch_flush_rows",
-        "threshold.signal_audit.hit_rate_anti_signal_ceiling",
-        "threshold.signal_audit.hit_rate_validated_floor",
-        "threshold.signal_audit.ic_anti_signal_ceiling",
-        "threshold.signal_audit.ic_validated_floor",
-        "threshold.signal_audit.partial_population_floor",
-        "threshold.signal_audit.verifiable_population_floor",
     }
 )
 
@@ -163,166 +143,7 @@ _KEEP_TABLES: dict[str, str] = {
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
-_PENDING_RETIREMENT: dict[str, str] = {
-    "infra.tradier.max_changed_bar_ratio": (
-        "the Tradier loader's refusal reads threshold.bar_integrity.max_revision_ratio on the "
-        "raw record since plan 185-38; migration 452 retires the key (retire: 185-43)"
-    ),
-    "infra.real_rows_swap.copy_statement_timeout_s": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "infra.real_rows_swap.disk_margin": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "infra.real_rows_swap.lock_timeout_s": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "infra.real_rows_swap.masked_audit_max_age_hours": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "infra.real_rows_swap.statement_timeout_s": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "infra.real_rows_swap.stats_flush_wait_s": (
-        "read only by ops_real_rows_swap.py, the 185-25 one-off deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "market_data_ohlcv_new": (
-        "migration 439's swap target, renamed into market_data_ohlcv by the 185-25 swap script "
-        "(deleted in plan 185-42); absent from the live DB, still created in the migration "
-        "catalog. 185-43's migration drops it IF EXISTS (retire: 185-43)"
-    ),
-    "market_data_ohlcv_old": (
-        "renamed aside by migration 045; its last reader was the 185-25 swap script (deleted in "
-        "plan 185-42); absent from the live DB, still created in the migration catalog. "
-        "185-43's migration drops it IF EXISTS (retire: 185-43)"
-    ),
-    "threshold.bar_integrity.cutover_max_removed_share": (
-        "read only by ops_cutover_review.py, the 185-38 one-off gate deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "threshold.bar_integrity.cutover_max_refused_share": (
-        "read only by ops_cutover_review.py, the 185-38 one-off gate deleted in plan 185-42 "
-        "(retire: 185-43)"
-    ),
-    "ai.agent.correlation_v1.shadow_mode": (
-        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
-        "stack in plan 185-45 (retire: 185-43)"
-    ),
-    "ai.agent.counterfactual_v1.shadow_mode": (
-        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
-        "stack in plan 185-45 (retire: 185-43)"
-    ),
-    "ai.agent.ml_scorer_v1.shadow_mode": (
-        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
-        "stack in plan 185-45 (retire: 185-43)"
-    ),
-    "ai.agent.regime_coherence_v1.shadow_mode": (
-        "shadow switch of an I8 alpha agent; the agents and BaseAIWorker were removed with the AI "
-        "stack in plan 185-45 (retire: 185-43)"
-    ),
-    "swarm.max_concurrent_calls": (
-        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
-        "runtime_defaults fallback went with it) (retire: 185-43)"
-    ),
-    "swarm.min_confidence": (
-        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
-        "runtime_defaults fallback went with it) (retire: 185-43)"
-    ),
-    "swarm.min_tf_minutes": (
-        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
-        "runtime_defaults fallback went with it) (retire: 185-43)"
-    ),
-    "swarm.weight_floor": (
-        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
-        "runtime_defaults fallback went with it) (retire: 185-43)"
-    ),
-    "swarm.weight_min_samples": (
-        "AlphaSwarm gate; its only reader left with the AI stack in plan 185-45 (the "
-        "runtime_defaults fallback went with it) (retire: 185-43)"
-    ),
-    "alpha.frame.cluster_radius_atr": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "alpha.frame.min_width_atr": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "alpha.frame.proximity_weight": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "alpha.frame.single_level_radius_atr": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "alpha.frame.strength_weight": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "alpha.frame.zone_buffer_atr": (
-        "zone geometry of src/intelligence/trading/structural_confluence.py, an unreached v2.x "
-        "module deleted in plan 185-45 (retire: 185-43)"
-    ),
-    "feature.lifecycle_writer.batch_size": (
-        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.lifecycle_writer.flush_interval_secs": (
-        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.lifecycle_writer.max_buffer_size": (
-        "read only by services/lifecycle_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_writer.batch_size": (
-        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_writer.flush_interval_secs": (
-        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_writer.max_buffer_size": (
-        "read only by services/signal_writer.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_tracker.bootstrap_active_window_days": (
-        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_tracker.bootstrap_dedup_window_days": (
-        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_tracker.bootstrap_max_attempts": (
-        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_tracker.bootstrap_pending_window_days": (
-        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "feature.signal_auditor.audit_lookback_hours": (
-        "read only by services/signal_auditor.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "infra.signal_auditor.audit_interval_seconds": (
-        "read only by services/signal_auditor.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-    "threshold.signal_tracker.staleness_score": (
-        "read only by services/signal_tracker.py, a v2.x signal path service deleted in plan 185-45 "
-        "(retire: 185-43)"
-    ),
-}
+_PENDING_RETIREMENT: dict[str, str] = {}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:

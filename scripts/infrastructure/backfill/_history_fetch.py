@@ -15,8 +15,8 @@ the roll-chain seed, and the bar store paths through the ingress write contract
 
 Plan 189-08 renamed this module from the historical pipeline CLI script (`git log
 --follow` shows its history) and removed its CLI, the two-tier IBKR history lease, the
-legacy gap ranking (now _fetch_queue.coverage_gap_days) and the backfill_status
-fetch_complete writer (promotion reads bar_integrity verdicts since plan 185-41).
+legacy gap ranking (now _fetch_queue.coverage_gap_days) and the fetch_complete
+bookkeeping writer (promotion reads bar_integrity verdicts since plan 185-41).
 """
 
 from __future__ import annotations

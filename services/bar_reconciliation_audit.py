@@ -735,7 +735,7 @@ def confirmed_spans_from_requests(
 _MONITOR_TYPE = "bar_reconciliation"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 # Written by the IBKR history fetcher at the end of every run (service identity, APR-exempt).
-NIGHTLY_STATUS_FILE = _REPO_ROOT / "logs" / "nightly_backfill_status.json"
+NIGHTLY_STATUS_FILE = _REPO_ROOT / "logs" / "ibkr_history_fetcher_status.json"
 _VERDICT_FILE = _REPO_ROOT / "config" / "bars" / "venue_study_verdict.json"
 # bar_derivation's flag rule for a derived bar with an unanswered constituent slot.
 _PARTIAL_RULE = "partial_constituents"

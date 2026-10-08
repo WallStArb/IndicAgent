@@ -828,7 +828,6 @@ ACTIVE_SCALES_FALLBACKS_BY_TF  # unused variable (services/_batch_utils.py) - fa
 append_row  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - disk-backed cell accumulator; only caller was ic_engine's memmap path, deleted by 186-23; kept for the 186-25/26 rebuild writer's disk-headroom option
 append_chunk  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
 finalize  # unused method (services/_batch_utils.py Float32ChunkAccumulator) - same disposition as append_row (186-23)
-window_minutes  # unused parameter (src/intelligence/statistics/price_sanity.py:171) - optional kwarg of count_corroborating_symbols_batch; its only passing caller was forward_return_writer, deleted by 186-23; the statistics dir is frozen for this plan (determinism rules), live callers (bar_auditor, ops_known_corrupt_print_cleanup) use the default
 # 185-45: fields of the archived typed bus records (IntelligenceEvent tiers in src/intelligence/schemas.py,
 # the ML feature schema in src/core/ml/features.py, the signal_events repository row) whose only readers
 # were the removed AI stack (src/intelligence/ai/context.py and the alpha agents). The records stay while

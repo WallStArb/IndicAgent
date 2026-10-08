@@ -20,12 +20,13 @@ Two phases, so no database transaction is open while IBKR is being called (todo 
 
 Symbols IBKR does not resolve (delisted or taken private since the holdings snapshot) are
 listed in the summary and not written. Every row is onboarded with compute_eligible and
-compute_eligible_1d false; universe_expansion_promote_compute_eligible.py promotes them after
-their backfill lands.
+compute_eligible_1d false; universe_expansion_promote_compute_eligible.py promotes them once
+their bar_integrity verdicts pass (plan 185-41). Nothing else is seeded: the fetch queue picks a
+new active name up from instruments.
 
 Usage:
     .venv/bin/python scripts/infrastructure/universe_expansion_onboard_manifest.py \\
-        --manifest config/universe/expansion_2026_09_26.csv --timeframes 1d [--commit]
+        --manifest config/universe/expansion_2026_09_26.csv [--commit]
 """
 
 from __future__ import annotations
@@ -57,9 +58,8 @@ from src.providers.ibkr import IBKRProvider  # noqa: E402
 
 _logger = structlog.get_logger(__name__)
 
-# Default shares 46 with universe_expansion_onboard_gap_fill_etfs.py: both are operator-run
-# one-offs that qualify contracts, never run concurrently (src/providers/ibkr.py
-# _MAX_CLIENT_ID=50). Pass --client-id when a backfill lane already holds 46.
+# An operator-run qualifier, never run concurrently with another holder of 46
+# (src/providers/ibkr.py _MAX_CLIENT_ID=50). Pass --client-id when a fetch already holds 46.
 _QUALIFIER_CLIENT_ID = 46
 
 # A long-listed equity ETF that must always qualify; its failure means the gateway, not the
@@ -189,9 +189,7 @@ async def qualify_all(qualifier: Any, rows: list[ManifestRow]) -> tuple[set[str]
     return qualified, rejected
 
 
-async def write_all(
-    conn: Any, rows: list[ManifestRow], qualified: set[str], timeframes: tuple[str, ...]
-) -> list[str]:
+async def write_all(conn: Any, rows: list[ManifestRow], qualified: set[str]) -> list[str]:
     """Phase 2: onboard every qualified row inside one transaction. Returns onboarded symbols.
     Any failure, including OnboardingRejected, rolls back the whole batch."""
     qualifier = _PreQualified(qualified)
@@ -208,7 +206,6 @@ async def write_all(
                     (tag, 1.0, {"reason": f"universe expansion 2026-09-26, {row.cohort}"})
                     for tag in row.tags
                 ],
-                timeframes=timeframes,
                 metadata=row.metadata,
                 metadata_skip_reason=(
                     "" if row.metadata else "single-name equity: no issuer/index metadata applies"
@@ -221,10 +218,6 @@ async def write_all(
 
 async def _async_main(args: argparse.Namespace) -> int:
     rows = load_manifest(args.manifest)
-    timeframes = tuple(tf.strip() for tf in args.timeframes.split(",") if tf.strip())
-    if not timeframes or len(set(timeframes)) != len(timeframes):
-        # A duplicate makes the promotion predicate's count(*) = cardinality(...) unsatisfiable.
-        raise ValueError(f"--timeframes must be non-empty with no repeats, got {args.timeframes!r}")
     settings = Settings()
 
     provider = IBKRProvider(host=settings.ib_host, port=settings.ib_port, client_id=args.client_id)
@@ -244,7 +237,7 @@ async def _async_main(args: argparse.Namespace) -> int:
     await db.initialize()
     try:
         async with db.pool.acquire() as conn:
-            onboarded = await write_all(conn, rows, qualified, timeframes)
+            onboarded = await write_all(conn, rows, qualified)
     finally:
         await db.close()
     _logger.info(
@@ -253,7 +246,6 @@ async def _async_main(args: argparse.Namespace) -> int:
         n_rows=len(rows),
         n_onboarded=len(onboarded),
         rejected=rejected,
-        timeframes=list(timeframes),
     )
     print(f"onboarded {len(onboarded)}; rejected {len(rejected)}: {rejected or 'none'}")
     return 0
@@ -262,11 +254,6 @@ async def _async_main(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Onboard a reviewed instrument manifest.")
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument(
-        "--timeframes",
-        required=True,
-        help="Comma-separated timeframes seeded into backfill_status (e.g. 1d).",
-    )
     parser.add_argument("--client-id", type=int, default=_QUALIFIER_CLIENT_ID)
     add_write_mode_args(
         parser,

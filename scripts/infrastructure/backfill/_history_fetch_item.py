@@ -22,7 +22,7 @@ helpers) so it can be tested alone and so a single name can never hold the run:
 The fetch helpers (gap detection, store paths, per-contract futures, 1m derivation, D1
 capture) live in _history_fetch.py, the CLI-free helper library plan 189-08 made of the
 historical pipeline. Every timeframe stores real provider bars only (plan 185-32), so no
-item writes a placeholder, and no item writes backfill_status (plan 189-08). All provider access goes through IBKRProvider methods;
+item writes a placeholder or fetch bookkeeping. All provider access goes through IBKRProvider methods;
 src/providers/ibkr.py stays the only ib_async importer.
 """
 

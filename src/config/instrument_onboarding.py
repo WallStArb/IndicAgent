@@ -3,14 +3,14 @@
 Phase 174 (Universe Expansion) is about to add hundreds of symbols (a Russell 3000
 sample, Plan 08/12) plus a handful of gap-fill ETFs (Plan 07/10). The 111->231
 universe expansion (2026-08-05/06) wrote `instruments` rows and nothing else --
-0% `instrument_metadata` coverage for 151 symbols (todo 282), and CLAUDE.md's
-Corpus Pipeline Gotcha records the same omission failure class one table over
-(`--compute-only` silently skips every symbol with no `backfill_status` row).
-Both are omission bugs that produce a plausible-looking but incomplete corpus.
+0% `instrument_metadata` coverage for 151 symbols (todo 282), an omission bug that
+produces a plausible-looking but incomplete corpus.
 
-This module exists so the complete write -- instruments + instrument_tags +
-instrument_metadata (or an explicit, logged skip) + backfill_status -- is the
-only easy path, not a checklist a caller can partially follow. D-08 (todo 282)
+This module exists so the complete write -- instruments + instrument_classification +
+instrument_tags + instrument_metadata (or an explicit, logged skip) -- is the only easy
+path, not a checklist a caller can partially follow. No fetch bookkeeping is seeded:
+the fetch queue and ohlcv_coverage pick a new active name up from `instruments` on their
+own, and promotion reads bar_integrity verdicts (plans 185-41, 185-43). D-08 (todo 282)
 is the metadata mandate; T-174-02 is the qualification-gate / injection
 mitigation; T-174-42 is the caller-transaction-boundary guarantee. Every write
 this phase makes to `instruments` should route through `onboard_instrument()`.
@@ -98,20 +98,9 @@ ON CONFLICT (symbol) DO UPDATE SET
     updated_at = NOW()
 """
 
-# Asyncpg-form rewrite of services/backfill_feature_factory.py's _UPSERT_STATUS_SQL
-# (psycopg %s form) -- semantics unchanged, only the placeholder syntax differs.
-# Seed-only: an existing checkpoint is never touched. The earlier upsert reset `status` to
-# 'pending' while GREATEST kept fetch_complete=true, leaving an inconsistent row that made
-# backfill_feature_factory recompute an already-complete symbol (174 review WR-03).
-_SEED_BACKFILL_STATUS_SQL = """
-INSERT INTO backfill_status (symbol, tf, status, fetch_complete, started_at)
-VALUES ($1, $2, 'pending', false, NOW())
-ON CONFLICT (symbol, tf) DO NOTHING
-"""
-
 # The compute timeframe stack: the timeframes the feature factory computes, and therefore
 # the timeframes a symbol must be backfilled at before it is compute-ready. One APR key
-# (migration 278) drives the factory, onboarding's seed, and the promotion predicate.
+# (migration 278) drives the factory and the promotion predicate.
 COMPUTE_TIMEFRAMES_APR_KEY = "feature.factory.target_timeframes"
 
 _SELECT_APR_VALUE_SQL = "SELECT config_value FROM config_state WHERE config_key = $1"
@@ -200,7 +189,6 @@ class OnboardResult:
     instrument_inserted: bool
     tags_inserted: int
     metadata_written: bool
-    backfill_rows_seeded: int
 
 
 async def onboard_instrument(
@@ -209,16 +197,15 @@ async def onboard_instrument(
     *,
     qualifier: InstrumentQualifier,
     tags: Sequence[tuple[str, float, dict]] = (),
-    timeframes: Sequence[str] | None = None,
     metadata: dict | None = None,
     metadata_skip_reason: str = "",
     classification: ClassificationAssignment | None = None,
     compute_eligible: bool = False,
     live_tradeable: bool = False,
 ) -> OnboardResult:
-    """Onboard one instrument: qualify, then write instruments + instrument_tags
-    + instrument_metadata (or an explicit logged skip) + backfill_status, all
-    inside one transaction.
+    """Onboard one instrument: qualify, then write instruments +
+    instrument_classification + instrument_tags + instrument_metadata (or an
+    explicit logged skip), all inside one transaction.
 
     This is the single sanctioned "add an instrument" path (D-08, todo 282,
     todo 274, Phase 174). Never bypass the qualification gate with a
@@ -251,10 +238,6 @@ async def onboard_instrument(
             any write. Written with source='human' (a definitional seed
             prior -- measured-provenance rows are TagCalibrator's exclusive
             domain, never impersonated here).
-        timeframes: backfill_status is seeded once per timeframe here. None (the
-            default) reads the compute timeframe stack from APR
-            (`feature.factory.target_timeframes`); pass an explicit subset only for a
-            deliberately partial-stack cohort such as the D-09 1d-only pilot.
         metadata: dict with keys listing_date, underlying_index, issuer,
             description. If None, metadata_skip_reason must be a non-empty
             string (D-08's metadata mandate -- a silent omission must be
@@ -403,18 +386,10 @@ async def onboard_instrument(
                 reason=metadata_skip_reason,
             )
 
-        if timeframes is None:
-            timeframes = await load_compute_timeframes(conn)
-        backfill_rows_seeded = 0
-        for tf in timeframes:
-            seed_status = await conn.execute(_SEED_BACKFILL_STATUS_SQL, instrument.symbol, tf)
-            backfill_rows_seeded += _inserted(seed_status)
-
     return OnboardResult(
         symbol=instrument.symbol,
         qualified=qualified,
         instrument_inserted=instrument_inserted,
         tags_inserted=tags_inserted,
         metadata_written=metadata_written,
-        backfill_rows_seeded=backfill_rows_seeded,
     )
