@@ -188,6 +188,7 @@ until 185 and 186 land; session time goes to the build.
 | [406](pending/406-ic-math-1087-invalid-divide-warning-unexamined.md) | **Re-tiered P3->P2 2026-09-26 (triage): see the todo triage note.** New 2026-09-24, carried out of closed todo 386. Unexamined `invalid value encountered in divide` warning in ic_math's downside-deviation line; check the next corpus run log and whether a NaN reaches `ic_sortino`. |
 | [504](pending/504-dividend-event-writer-source-registry-and-per-symbol-failure-policy.md) | New 2026-10-07. The dividend writer hard-codes Yahoo and IBKR in its reconciliation and metrics, and one bad symbol (PSKY) fails the unit nightly. Make sources a registry, reconcile pairwise, and fail the run only past an APR threshold with an alert. |
 | [511](pending/511-island-head-rule-owner-decision.md) | New 2026-10-08, carried from 500 by 185-43. Owner decision on the ISLAND head rule APR switch (off since 2026-10-07): it resolves 8 failed SMART heads but can misread a former Nasdaq listing as empty. Recommendation: keep off until 189-10 re-asks the 8 names. |
+| [512](pending/512-exclude-or-replace-names-whose-data-defect-is-not-worth-fixing.md) | New 2026-10-08, owner policy relayed (confirmation pending). Names whose data defect needs per-name hand work leave the compute set with a reason code and date; raw data stays; replacement only by a pre-fixed liquidity-rank rule through the onboarding SOP. Disclose in D0's survivorship bound. |
 
 ## P3: Hygiene, docs, process, performance (opportunistic)
 
