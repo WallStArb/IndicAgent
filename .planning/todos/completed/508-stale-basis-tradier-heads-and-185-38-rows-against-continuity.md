@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P0
 filed: 2026-10-07
 source: plan 185-37 (docs/research/vendor-adjustment-basis-study.md, "Undecided runs")
@@ -75,3 +75,24 @@ visible to the waiver and the probe (a close timestamp column or a recorded clos
 or schema change with its own test), then `python -m services.bar_derivation --stage daily
 --symbols FTV,IP,STE` must equal `logs/185-49/preview_closures_final.tsv` (FTV 14 removed, IP
 2,414, STE 1,166) before `--apply`. Close this todo after that apply and a D7 pass on the three.
+
+## Closed 2026-10-08 (plan 185-50)
+
+The FTV, IP and STE re-derivation is done. Migration 460 adds `bar_source_policy.closed_at`,
+stamped by the append-only trigger on the closing UPDATE (the three 185-49 closes backfilled at
+the apply log's bound, 2026-10-08 20:15:26.826 UTC). The daily stage's revision waiver and its
+`--changed-only` probe now read `GREATEST(recorded_at, closed_at)` against one per-symbol
+baseline (the start of the batch that wrote the symbol's last applied daily load); the probe's
+old global watermark (newest completed daily batch of any scope) had hidden these closes too.
+The waiver stays narrow: live, it gained exactly FTV, IP and STE.
+
+The daily dry run equalled `logs/185-49/preview_closures_final.tsv` on every count; applied
+21:08 UTC (FTV 14 removed and 2,579 changed, IP 2,414 and 2,618, STE 1,166 and 3,866); a dry run
+afterwards shows 0/0/0. D7: policy_conformance 3 to 0, canonical_recompute 4 to 1 (CTVA, todo
+515); session_coverage now fails on the three (FTV 0.994, IP 0.520, STE 0.768) because their
+wrong-scale IBKR heads are holes, as decided. Record: docs/research/stale-tradier-heads-policy.md
+("Completed by plan 185-50") and 185-50-SUMMARY.md.
+
+Handed on: the 14 undecided names (BNY, CF, CPAY, DOV, ELE, EWS, EWT, KDP, LION, MGM, NEXN,
+PATK, W, WELL) are todo 512's, which also owns whether IP and STE are worth keeping at their
+new coverage.
