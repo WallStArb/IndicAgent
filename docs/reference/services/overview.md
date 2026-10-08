@@ -45,21 +45,8 @@ Computes via `src/intelligence/feature_factory.py` — **not** `register_plugins
 | Service | Unit | File | Consumes | Writes To |
 |---------|------|------|----------|-----------|
 | Feature Vector Writer | `indicagent-feature-vector-writer` | `services/feature_vector_writer.py` | `feature_vectors` topic | `feature_vectors` hypertable |
-| Signal Writer | `indicagent-signal-writer` | `services/signal_writer.py` | I7 signal topic | `signal_ledger` |
-| Signal Tracker | `indicagent-signal-tracker-compute` | `services/signal_tracker.py` | `market.bars` | lifecycle transitions (Kafka) |
-| Lifecycle Writer | `indicagent-lifecycle-writer` | `services/lifecycle_writer.py` | lifecycle transitions | `signal_ledger` |
-| Lineage Writer | `indicagent-lineage-writer` | `services/lineage_writer.py` | signal lineage events | `signal_lineage` |
-| Graduation Writer | `indicagent-graduation-writer` | `services/graduation_writer.py` | graduation events | `transform_graduation` |
-| LLM Writer | `indicagent-llm-writer` | `services/llm_writer.py` | `llm.calls` + `llm.outcomes` | `llm_calls` |
 
-Live 2026-09-04: `feature-vector-writer` `active running`; `signal-writer`, `signal-tracker-compute`, `lifecycle-writer` `inactive (dead)` (downstream of the stalled ingestion chain above); `lineage-writer` `active running` (it runs independent of live bar flow).
-
-## Signal Metrics Tier
-
-| Service | Unit | File | Purpose |
-|---------|------|------|---------|
-| Signal Metrics Compute | `indicagent-signal-metrics-compute` | `services/signal_metrics_analyzer.py` | Timer-triggered signal performance metrics |
-| Signal Metrics Writer | `indicagent-signal-metrics-writer` | `services/signal_metrics_writer.py` | Persists metrics to `setup_performance` |
+Removed in 185-45: signal, lifecycle, lineage, graduation and LLM writers and the signal tracker. Live 2026-10-08: `feature-vector-writer` `active running`.
 
 ## Auditor / Quality Tier
 
