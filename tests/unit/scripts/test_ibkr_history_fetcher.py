@@ -1011,3 +1011,20 @@ async def test_an_unwaived_5m_breach_is_reported_not_refetched_and_the_run_is_pa
     assert [kw["refetch"] for kw in calls] == [False]
     assert reported == [("AAA", "5m")]
     assert fetcher.summary["stages"]["escalation"] == 1
+
+
+async def test_a_failed_overlap_judgment_is_partial_and_still_derives(tmp_path):
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        return _outcome(row, n_bars=5, derive_1d_since=datetime(2006, 10, 2, tzinfo=UTC))
+
+    async def judge(pool: Any, fetch_run_id: str, lanes: Any) -> dict[str, str]:
+        raise ValueError("AAA: overlap pairs are unusable")
+
+    fetcher, seen = _fetcher(
+        tmp_path, _plan([_ranked("AAA", "1d")]), fetch_fn=fetch, overlap_judge=judge
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "partial"
+    (daily,) = seen["stages"]
+    assert daily[-5:] == ["--stage", "daily", "--symbols", "AAA", "--apply"]
+    assert fetcher.summary["stages"]["escalation"] == 1

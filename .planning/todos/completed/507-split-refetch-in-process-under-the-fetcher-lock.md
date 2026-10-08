@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-07
 source: plan 189-08 (split re-fetch moved onto the fetcher CLI; flagged by 189-04-SUMMARY item 4)
@@ -41,3 +41,14 @@ step), since that is the first run that can detect a split.
 
 A split detected in a fetcher run is re-fetched and re-derived in that run without a second process,
 and `ops_split_detect.py`'s docstring no longer describes the refusal.
+
+## Closed 2026-10-08
+
+Done by 189-10 Task 1 (714683f0d). After the item loop the fetcher judges the run's 1d overlap
+in-process (`services/split_detection.overlap_pairs` and `judge_overlap_pairs`), records each
+split with `ops_split_detect.record_split`, re-fetches every escalated name's full 1d depth on
+the open connection under the run's own FetcherLock, then runs the daily stage, in that order.
+The `ops_split_detect.py` subprocess stage is gone from the fetcher; the script stays the
+by-hand path and its docstring no longer describes the refusal as the fetcher's behavior.
+Test: `test_a_split_is_recorded_then_re_fetched_in_process_then_derived` (event order record,
+re-fetch, derive; lock taken once; escalation stage code 0).

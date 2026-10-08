@@ -937,7 +937,17 @@ class IbkrHistoryFetcher(BaseBatch):
         failed = False
         reasons_1d: Mapping[str, str] = {}
         if loop.touched_1d:
-            reasons_1d = await self._overlap_judge(pool, fetch_run_id, plan.lanes)
+            try:
+                reasons_1d = await self._overlap_judge(pool, fetch_run_id, plan.lanes)
+            except Exception as error:  # noqa: BLE001 - loud, partial; derivation still runs
+                # As when split detection was a stage subprocess: a failed judgment fails the
+                # run's escalation code (partial), never the daily stage of the touched names.
+                logger.error(
+                    "ibkr_history_fetcher.overlap_judge_failed",
+                    error=str(error),
+                    error_type=type(error).__name__,
+                )
+                failed = True
         targets: list[tuple[str, str, str, bool]] = []
         for symbol in sorted(reasons_1d):
             targets.append((symbol, DAILY_TF, reasons_1d[symbol], False))
