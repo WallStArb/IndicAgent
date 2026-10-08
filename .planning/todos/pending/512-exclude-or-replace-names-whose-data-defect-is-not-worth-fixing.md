@@ -26,3 +26,14 @@ If a name's data defect is not worth the effort to fix, it is excluded; the owne
 ## Done when
 
 A dated rule document exists; each excluded name carries a reason code in D0; the excluded and replacement lists are logged in the 185 summary; the survivorship disclosure is written.
+
+## Proposed amendment 2026-10-08 (relayed by indicagent-6a; NOT accepted, needs the owner's explicit confirmation in the 185 session)
+
+The relayed amendment replaces guardrail 1 (exclude, keep raw data) with archive-then-delete: per excluded name, dump every row from every table that holds it to data/backups/<plan>/ with row count and content hash, restore-prove one name per batch, delete from the hot tables in one transaction per name, and keep a tombstone instruments row (is_active false, reason code, date, plan id, archive path) written through the existing instrument path. Delete only after the rule is applied and the batch list is final, with the dry-run list (name, reason code, row counts per table) printed in the plan summary before the delete step. Names fixable by an existing rule (508 stale heads) stay.
+
+Conflicts to resolve before any of it runs:
+- CLAUDE.md states raw market data is permanent ("derived data is cache, raw is permanent") and the instrument SOP says never deactivate a dead name. Deleting raw D1 and IBKR observations contradicts both; the owner must amend those rules in CLAUDE.md first (or state a scoped exception), otherwise the pre-commit and review gates will treat the delete as a violation.
+- The tombstone needs `is_active false`, which the SOP forbids for dead names; the exception must be written into the SOP with its reason-code vocabulary (CVR namespace, not free text).
+- Point-in-time and lineage queries: a deleted name's rows leave the PIT universe snapshots only if snapshots were built from hot tables; snapshots already taken (research looks counted at the vintage) keep their hash, so a delete after a counted look changes reproducibility (determinism invariant: bit-exact from snapshot hash). Names that any recorded research run used must not be deleted, only excluded.
+- Reversibility: the archive restore proof must precede the first delete, and the delete step must be a single writer with a dry run, like ops_source_policy.py.
+- Recommendation: start with exclude-only (guardrail 1 as first sent). Revisit deletion only if exclusion measurably costs disk or confuses a gate; the data volume (a few hundred names at most) does not justify breaking the raw-permanence rule.
