@@ -55,3 +55,7 @@ whose window spans the boundary.
 ## Decision 2026-10-07 (orchestrator recommendation, owner may override)
 
 Option 1 for all 45 stale heads, including exact-factor ones: a head row from the name's first observation through the run's end, so the Tradier head becomes holes (missing is NaN, no_fill) and the raw observations stay in D1. Option 2 adds a vendor rescale mechanism to d2-v2 to save pre-2006 history that no current spec reads; delete before accelerating. Revisit only if a research spec needs 2000 to 2006 on these names. The five 185-38 rows follow the todo's own plan (close at first day plus one, IBKR rows only where the evidence says IBKR is continuous). One policy plan through ops_source_policy.py with a dry run per name, before 186-26.
+
+## Owner decision 2026-10-08 (relayed by the research-ledger session indicagent-6a; confirm in the 185 session before acting on live data)
+
+Todo 508 decision: option 1 for all 45 stale Tradier heads (head row from first observation through the run's end; head becomes NaN holes, raw D1 observations stay). Revisit option 2 only if a pre-registered spec needs pre-2006 history. The five 185-38 rows (PATK, KDP, FTV, IP, STE): one plan with a dry run per name, close each at first day plus one, write IBKR rows only where continuity says IBKR is the continuous side.

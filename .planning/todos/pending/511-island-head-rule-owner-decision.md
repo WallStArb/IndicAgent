@@ -26,3 +26,7 @@ an empty answer. Recommendation (plan 185-43): keep it off until 189-10's fetch 
 
 Todo 500 (closed), 185-34, `services/listing_venue_writer.py`, `src/providers/ibkr.py` venue
 fallback.
+
+## Owner decision 2026-10-08 (relayed by the research-ledger session indicagent-6a; confirm in the 185 session before acting on live data)
+
+Todo 511 decision: keep the ISLAND switch off. Re-ask the 8 names under the new fetcher in Task 1b, then decide on the measured answers (guard against listing_venue, D6, only if needed).

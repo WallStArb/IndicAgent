@@ -43,3 +43,7 @@ Before 189-10 Task 2's pilot criterion is judged (its extrapolation deducts this
 - the 5m ceiling is measured and recorded, the APR value set or left with the reason
 - the update-lane cost is remeasured and is at most 120 minutes, or the owner accepts the figure in
   writing in the evidence doc
+
+## Owner decision 2026-10-08 (relayed by the research-ledger session indicagent-6a; confirm in the 185 session before acting on live data)
+
+Decision: do not loosen the pre-registered 120 minute bound after seeing it fail. Keep 120 for the daily lane. Put the 5m drain on its own lane and pre-register that lane's bound from the 189-10 Task 2 pilot's measured pacing, dated before the numbers are read.
