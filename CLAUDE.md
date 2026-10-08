@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.60.0
+Version: 5.61.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -33,7 +33,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 
 ## Architecture
 
-**Archived and dormant (no live consumer):** the v2.x I1-I7 pipeline and typed bus (`IntelligenceEvent`, `intelligence_features`) and the I8 AI stack (`BaseAIWorker`, Ollama swarms). Check `systemctl status` + `git log` before citing any of it as live. Rules and details: `src/intelligence/CLAUDE.md`.
+**Removed (phase 185-45):** the v2.x I1-I7 signal path, typed bus and the I8 AI stack (ollama, langfuse, swarms). Archive: git tag `archive/v2x-ai-stack-2026-10` (local) and dumps in `data/backups/185-45/` until about 2026-11-06. A v2.x remainder (`pipeline/`, `plugins/`, `trading/`) stays only because `feature_vector_pipeline` imports it (todo 509); build nothing on it. Details: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.5, adopted 2026-09-26; unified design, E18):** `ingest (IBKR -> market_data_ohlcv) -> feature (feature_vectors, market_regimes) -> measure (ic_measure: proposer, IC term structure, member monitoring) -> research (S0 panel -> S1 target -> S2 families -> S3 guards -> S7 combiner -> construction rule -> S8 book test; S6 ledger is the sole writer of research_run) -> frozen book -> forward runner (BookTracker/BookPositionWriter, sealed shadow) -> capital`. The old chain (`ensemble_trainer`, `EnsembleICEngine`, `alpha_publisher`, `alpha_events`, old ic_engine, `forward_return_writer`, `forward_returns`) was deleted in phase 186; build nothing on it.
 **Service DAG:** registry is `_DAG_ORDER` in `services/service_auditor.py`; live state `systemctl list-units --all | grep indicagent`; Grafana `:3001`. ML batch services (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`, `roll-batch`) are `inactive (dead)` between runs, which is correct.
 **Data flow:** streaming (IBKR → Redpanda → in-memory services; `BarWriter`/`FeatureVectorWriter` persist in batch) is dormant while the live feed is down; today's data arrives by nightly batch backfill. The real-time path never touches the database directly.
@@ -44,7 +44,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 - **`market_data_ohlcv`:** time column `timestamp`, timeframe column `timeframe`. Compute and measurement read `market_data_ohlcv_tradeable` (view, `volume > 0`), never the raw table (synthetic-fill and carry-forward placeholder bars); raw access needs an allow-list entry in `tests/unit/test_market_data_ohlcv_boundary.py`.
 - **Dividends:** bars are price-only; specs that hold across a session boundary declare `panel.total_return`; outside `dividend_event_coverage` dividends are unknown, never zero.
 - **Contracts:** always `get_active_contracts(settings)` (module-level in `settings.py`), never hardcoded. Never `os.environ`; use `src/config/Settings`.
-- **IBKR:** all ib_async in `src/providers/ibkr.py` only; Gateway is the `ib-gateway` container on `127.0.0.1:7497`. Every history fetch takes the `ibkr_history_stream` lease. Backfill, gateway 2FA and venue gotchas: `docs/reference/gotchas.md`.
+- **IBKR:** all ib_async in `src/providers/ibkr.py` only; Gateway is the `ib-gateway` container on `127.0.0.1:7497`. Every history fetch goes through `scripts/infrastructure/backfill/ibkr_history_fetcher.py` under `FetcherLock`. Backfill, gateway 2FA and venue gotchas: `docs/reference/gotchas.md`.
 - **Instrument onboarding:** `docs/foundation/instrument-onboarding-sop.md`. Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name.
 - **Key modules:** `src/core/stream_keys.py` (all topic keys) · `src/core/database_manager.py` · `src/core/service_utils.py` (`setup_service_logging()`, `format_iso_ts()`, `parse_iso_ts()`, `min_bars_for_tf()`).
 - **Server:** Claude Code runs ON this machine (`192.168.68.60`); never SSH; runtime configs use `localhost`. Docker: `cd production && docker compose up -d`; keep the log caps. More: `docs/operations/operations-infrastructure.md`.
@@ -53,7 +53,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 
 All tunable numeric values live in `config_state` under `<domain>.<concept>.<param>`, read via `ConfigService.get(key, default=X)`. Hard-coded thresholds, weights, periods, or counts in `src/` or `services/` are an architecture violation. Spec: `docs/foundation/adaptive-parameter-registry.md`.
 
-**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `swarm.*` · `roll.*` · `ui.*` · `alpha.*` · `infra.*`. **Lifecycle:** seed → user/operator preference → ml_learned → user_override; every write is recorded in `config_history` with `changed_by` and `reason`.
+**Namespaces:** `threshold.*` · `weights.*` · `feature.*` · `regime.*` · `shadow.*` · `signal.*` · `roll.*` · `ui.*` · `alpha.*` · `infra.*`. **Lifecycle:** seed → user/operator preference → ml_learned → user_override; every write is recorded in `config_history` with `changed_by` and `reason`.
 
 **Adding a parameter:** (1) INSERT into `config_schema` + `config_state` in a migration; (2) load via `ConfigService.get()` at init; (3) remove the hard-coded constant. The description notes provenance (`[initial_estimate]`, `[conventional]`, `[rca_analysis]`, `[user_preference]`) and whether it is an ML learning target.
 
@@ -103,4 +103,3 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 - **`bulk_update_by_key` `col_types`** must match the live schema (`"real"` columns are float32-clamped).
 - **Style:** exception variable is `error` (`except X as error:`). Renames need a test sweep (`grep -r "OldName" tests/`). Tests live in `tests/unit/` (CI-clean) and `tests/integration/`.
 - **Migrations applied live via `psql -f` are committed in the same breath.**
-- **Dormant AI stack** invariants: `src/intelligence/CLAUDE.md` ("Dormant AI stack rules").
