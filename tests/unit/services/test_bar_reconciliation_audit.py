@@ -693,14 +693,14 @@ def _run(names, seam_samples=()):
     return conn, run
 
 
-def test_each_name_gets_nine_verdict_rows_and_one_informational_row():
+def test_each_name_gets_nine_verdict_rows_and_two_informational_rows():
     conn, run = _run({"AAA": _good_name(), "BBB": _good_name()})
     rows = [f for f in run.facts if f[1] == "AAA|1d"]
-    assert len(rows) == 10
+    assert len(rows) == 11
     assert {f[0] for f in run.facts} == {"bar_integrity"}
     assert [f[2] for f in rows][:9] == list(audit.CHECKS_1D)
     assert "freshness_1d" in audit.CHECKS_1D
-    assert [f[2] for f in rows][9] == "refused_head_1d"
+    assert [f[2] for f in rows][9:] == ["refused_head_1d", "held_1d"]
     assert all(f[5] for f in run.facts)
     assert run.failing_by_check == {}
 
@@ -1376,3 +1376,67 @@ def test_the_load_source_labels_match_the_ohlcv_load_source_constraint():
     assert set(audit.LOAD_SOURCES) == {"tradier", "ibkr", "derived"}
     assert "outcome IN ('refused', 'gated')" in audit._REFUSED_LOADS_24H_SQL
     assert "bar_integrity" in audit._MONITOR_TYPE_VERDICT
+
+
+# --- held names (plan 185-51, todo 515) ----------------------------------------------------
+
+
+def _ctva_hold(symbol="AAA"):
+    from services.bar_hold import Hold
+
+    return Hold(
+        hold_id="aaaaaaaa-0000-0000-0000-000000000001",
+        symbol=symbol,
+        timeframe="1d",
+        reason="unclassified_rescale",
+        factor=39 / 7,
+        first_affected_date=date(2019, 5, 24),
+        last_affected_date=date(2026, 9, 30),
+        action_id=None,
+        detail={},
+        recorded_by="ops_split_detect",
+        recorded_at=datetime(2026, 10, 8, tzinfo=UTC),
+    )
+
+
+def test_a_held_name_fails_held_1d_and_its_stale_freshness_names_the_cause():
+    import asyncio
+
+    stale = _good_name()
+    stale["stored"] = stale["stored"][:1]
+    stale["observations"] = stale["observations"][:1]
+    stale["digests"] = []
+
+    class _Late(_Window):
+        last_session = date(2024, 1, 9)
+
+    run = asyncio.run(
+        audit.BarReconciliationAudit._verdict_report_1d(
+            _FakeConn({"AAA": stale, "BBB": _good_name()}),
+            audit._IntegrityParams.from_apr({}),
+            _Late(),
+            ["AAA", "BBB"],
+            [],
+            _NOW,
+            holds={"AAA": (_ctva_hold(),)},
+        )
+    )
+    verdicts = {(f[1], f[2]): f for f in run.facts}
+    assert verdicts[("AAA|1d", "held_1d")][3] == 1.0 and verdicts[("AAA|1d", "held_1d")][5] is False
+    assert verdicts[("BBB|1d", "held_1d")][3] == 0.0 and verdicts[("BBB|1d", "held_1d")][5] is True
+    assert "held_1d" not in run.failing_by_check  # informational: never a gate check
+    (sample,) = run.held_stale
+    assert sample.startswith("AAA: freshness_1d 5 sessions behind; held: unclassified_rescale")
+
+
+def test_the_held_names_check_reports_every_hold_with_its_cause():
+    result = audit.check_held_names({"CTVA": (_ctva_hold("CTVA"),)})
+    assert result.n_findings == 1
+    assert result.samples == (
+        "CTVA: unclassified_rescale factor 5.5714 over 2019-05-24..2026-09-30, held since 2026-10-08",
+    )
+    assert audit.check_held_names({}).n_findings == 0
+
+
+def test_explained_dates_read_only_current_corporate_actions():
+    assert "FROM corporate_action_current" in audit._EXPLAINED_DATES_SQL

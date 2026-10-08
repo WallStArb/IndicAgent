@@ -121,7 +121,9 @@ class FakeConn:
         tradier_owned: frozenset[str] = frozenset(),
         waived: bool = False,
         apr: dict[str, str] | None = None,
+        held: dict[str, list[dict]] | None = None,
     ) -> None:
+        self.held = held or {}
         self.observations = observations
         self.stored = stored or {}
         self.splits = splits or {}
@@ -174,6 +176,9 @@ class FakeConn:
 
     async def fetch(self, sql: str, *args: object) -> list[object]:
         self.calls.append(("fetch", sql))
+        if "bar_hold_current" in sql:
+            assert args == ("1d",)
+            return [row for rows in self.held.values() for row in rows]
         if "config_state" in sql:
             return [{"config_key": k, "config_value": v} for k, v in self.apr.items()]
         if "FROM instruments" in sql:
@@ -796,3 +801,54 @@ def test_restore_needs_symbols(tmp_path):
     conn = FakeConn(observations={}, stored={})
     with pytest.raises(ValueError, match="--symbols"):
         _run(conn, restore_snapshot=snapshot)
+
+
+# --- held names (plan 185-51, todo 515) ----------------------------------------------------
+
+
+def _hold(symbol: str) -> dict:
+    return {
+        "hold_id": "aaaaaaaa-0000-0000-0000-000000000001",
+        "symbol": symbol,
+        "timeframe": "1d",
+        "reason": "unclassified_rescale",
+        "factor": 39 / 7,
+        "first_affected_date": date(2019, 5, 24),
+        "last_affected_date": date(2026, 9, 30),
+        "action_id": None,
+        "detail": {},
+        "recorded_by": "ops_split_detect",
+        "recorded_at": datetime(2026, 10, 8, tzinfo=UTC),
+    }
+
+
+def _held_fixture() -> FakeConn:
+    observations, stored = _fixture()
+    observations["CTVA"] = [_obs(_D1, 13.94), _obs(_D2, 13.0)]
+    stored["CTVA"] = {_D1: _row(77.65), _D2: _row(72.0)}
+    return FakeConn(observations=observations, stored=stored, held={"CTVA": [_hold("CTVA")]})
+
+
+@pytest.mark.parametrize("symbols", [None, ["CTVA", "TEST"]])
+def test_a_held_name_is_skipped_scoped_or_not_and_its_bars_are_never_read(tmp_path, symbols):
+    conn = _held_fixture()
+    report = tmp_path / "dryrun.tsv"
+    result, _ = _run(conn, apply=False, symbols=symbols, report_path=str(report))
+    assert result["totals"]["held"] == 1 and result["totals"]["derived"] == 1
+    rows = {r["symbol"]: r for r in csv.DictReader(report.open(), delimiter="\t")}
+    held = rows["CTVA"]
+    assert held["outcome"] == "held"
+    assert (held["new"], held["changed"], held["removed"]) == ("0", "0", "0")
+    assert held["error"] == "" and "unclassified_rescale" in held["held"]  # the cause
+    read_for = [sql for kind, sql in conn.calls if kind == "fetch" and "ohlcv_observation" in sql]
+    assert len(read_for) == 1  # TEST only
+
+
+def test_an_apply_writes_nothing_for_a_held_name_and_does_not_fail_the_run():
+    conn = _held_fixture()
+    result, scrub_calls = _run(conn, apply=True)
+    assert result["totals"]["held"] == 1
+    loads = conn.executed("INSERT INTO ohlcv_load")
+    assert [args[1] for args in loads] == ["TEST"]
+    assert conn.stored["CTVA"][_D1]["close"] == 77.65  # frozen at the raw bar
+    assert scrub_calls[0]["symbols"] == ["TEST"]

@@ -1049,3 +1049,41 @@ async def test_a_failed_overlap_judgment_is_partial_and_still_derives(tmp_path):
     (daily,) = seen["stages"]
     assert daily[-5:] == ["--stage", "daily", "--symbols", "AAA", "--apply"]
     assert fetcher.summary["stages"]["escalation"] == 1
+
+
+async def test_a_new_unclassified_rescale_makes_the_run_partial_and_is_still_refetched(tmp_path):
+    """Plan 185-51 (todo 515): the 1d judge held a name whose rescale is no split ratio. The
+    run is partial (a new integrity fact), the name's history is re-asked so D1 holds the
+    vendor's restated answer, and the daily stage still runs: bar_derivation skips the held
+    name itself, so no rewrite is applied."""
+    calls: list[tuple[str, bool]] = []
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        calls.append((row.symbol, kw["refetch"]))
+        return _outcome(row, n_bars=5, derive_1d_since=datetime(2006, 10, 2, tzinfo=UTC))
+
+    async def judge(pool: Any, fetch_run_id: str, lanes: Any) -> dict[str, str]:
+        return {"CTVA": "unclassified_rescale"}
+
+    fetcher, seen = _fetcher(
+        tmp_path, _plan([_ranked("CTVA", "1d")]), fetch_fn=fetch, overlap_judge=judge
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "partial"
+    assert calls == [("CTVA", False), ("CTVA", True)]
+    assert fetcher.summary["escalated"] == {"CTVA/1d": "unclassified_rescale"}
+    assert fetcher.summary["stages"]["escalation"] == 1
+    (daily,) = seen["stages"]
+    assert daily[-5:] == ["--stage", "daily", "--symbols", "CTVA", "--apply"]
+
+
+def test_the_1d_judge_reads_the_split_rule_keys_and_acts_through_ops_split_detect():
+    import inspect
+
+    source = inspect.getsource(hf.IbkrHistoryFetcher._judge_daily_overlap)
+    assert "SPLIT_RULE_KEYS" in source and "split_rule_from_apr" in source
+    assert "act_on_detections" in source and "record_split" not in source
+
+
+def test_the_5m_waiver_never_counts_a_void_row():
+    assert "action_type <> 'void'" in hf._WAIVER_SQL

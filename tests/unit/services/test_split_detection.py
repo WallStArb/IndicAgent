@@ -14,8 +14,14 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from services.split_detection import DetectedSplit, detect_overlap_splits
+from src.intelligence.bars.corporate_actions import SplitRatioRule
 
-_KW = {"rel_tol": 0.002, "min_run": 5, "ratio_snap_tol": 0.01}
+_KW = {
+    "rel_tol": 0.002,
+    "min_run": 5,
+    "ratio_snap_tol": 0.01,
+    "split_rule": SplitRatioRule(max_numerator=50, max_denominator=4, rel_tol=0.002),
+}
 _RUN = "11111111-1111-1111-1111-111111111111"
 _ANSWERED = datetime(2026, 10, 4, 5, 0, tzinfo=UTC)
 
@@ -124,3 +130,34 @@ def test_a_non_positive_close_raises_loudly_with_the_symbol():
 def test_detected_split_is_a_value_object():
     a = DetectedSplit("XYZ", date(2026, 9, 20), 3.0, ("n1",), False)
     assert a == DetectedSplit("XYZ", date(2026, 9, 20), 3.0, ("n1",), False)
+
+
+# --- plan 185-51 (todo 515): only a recognised split ratio is a split ------------------------
+
+
+def test_a_constant_rescale_that_is_no_split_ratio_is_an_unclassified_rescale():
+    """CTVA 2026-10-08: IBKR restated every pre-spin-off bar by 39/7. The seam is constant and
+    snaps to 39/7 (p, q <= 50), but 39/7 is no split ratio, so it is never a split."""
+    rows = [_row("CTVA", d, 77.65 + i, (77.65 + i) * 7 / 39) for i, d in enumerate(_days(20))]
+    (item,), _ = _run(rows)
+    assert item.unclassified is True and item.unexplained is False
+    assert item.factor == pytest.approx(39 / 7, rel=1e-6)  # the measured ratio, not a snap
+    assert item.first_date == _days(20)[0] and item.effective_date == _days(20)[-1]
+
+
+def test_a_one_for_three_reverse_split_is_recorded_at_the_exact_ratio():
+    rows = [
+        _row("ETHA", d, 20.31 + i * 0.01, (20.31 + i * 0.01) * 3) for i, d in enumerate(_days(8))
+    ]
+    (split,), _ = _run(rows)
+    assert split.unclassified is False and split.unexplained is False
+    assert split.factor == 1 / 3 and split.first_date == _days(8)[0]
+
+
+def test_the_split_rule_is_required():
+    with pytest.raises(TypeError):
+        asyncio.run(
+            detect_overlap_splits(
+                FakeConn([]), fetch_run_id=_RUN, rel_tol=0.002, min_run=5, ratio_snap_tol=0.01
+            )
+        )
