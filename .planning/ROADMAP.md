@@ -303,7 +303,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 25** *(blocked on Wave 24; runs between 189-10 Task 1b, the one-time IBKR 1d fetch, and 189-10 Task 2, the 5m pilot; see the 185-46 amendment to 189-10)*
 
-- [ ] 185-47-PLAN.md - 1d primary moves to IBKR from date D: per-name class B and C policy rows, dated default migration (456), dry run against the pre-registered criteria, apply, D7 verdict comparison, wiring check (wave 25)
+- [x] 185-47-PLAN.md - 1d primary moves to IBKR from date D: per-name class B and C policy rows, dated default migration (456), dry run against the pre-registered criteria, apply, D7 verdict comparison, wiring check (wave 25)
 
 **Wave 26** *(blocked on Wave 25 completion)*
 
