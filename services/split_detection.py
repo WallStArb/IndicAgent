@@ -6,8 +6,11 @@ when a split happens: the earlier observation of a date stays on the old scale w
 fetch is on the new one, so the stored/fresh close ratio is the split factor over the whole
 overlap
 (src/intelligence/bars/seams.py). A constant run is inferred as a split
-(src/intelligence/bars/corporate_actions.py); sizeable differences that are not a constant run
-are reported as unexplained and never recorded as a split. Volume never enters the decision.
+(src/intelligence/bars/corporate_actions.py) only when its measured factor is a recognised split
+ratio (recognised_split_ratio, APR infra.backfill.split_ratio_*; plan 185-51, todo 515); a
+constant run that is no split ratio (CTVA's 39/7 spin-off rescale) is an unclassified rescale,
+which the caller holds and never records as a split. Sizeable differences that are not a
+constant run are reported as unexplained. Volume never enters the decision.
 
 This module only reads D1 and decides. The fetcher (ibkr_history_fetcher.py) records, re-fetches
 and re-derives in its own run (plan 189-10, todo 507); ops_split_detect.py does it by hand.
@@ -22,18 +25,24 @@ from typing import Any
 
 import numpy as np
 
-from src.intelligence.bars.corporate_actions import infer_split
+from src.intelligence.bars.corporate_actions import (
+    SplitRatioRule,
+    infer_split,
+    recognised_split_ratio,
+)
 from src.intelligence.bars.seams import find_seams
 
 
 @dataclass(frozen=True)
 class DetectedSplit:
-    """A split inferred from the overlap, or a difference it cannot explain.
+    """A split inferred from the overlap, a rescale that is no split, or a difference it
+    cannot explain.
 
-    factor is the stored/fresh ratio snapped to a rational for a split (2.0 = 2-for-1,
-    0.125 = 1-for-8) and the median ratio of the differing days when unexplained.
-    effective_date is the last day on the old scale. request_ids are the new and the
-    earlier observations' requests behind the decision.
+    factor is the recognised split ratio for a split (2.0 = 2-for-1, 0.125 = 1-for-8), the
+    measured median ratio of the run for an unclassified rescale, and the median ratio of the
+    differing days when unexplained. effective_date is the last day on the old scale seen in the
+    overlap, first_date the first. request_ids are the new and the earlier observations'
+    requests behind the decision.
     """
 
     symbol: str
@@ -41,6 +50,8 @@ class DetectedSplit:
     factor: float
     request_ids: tuple[str, ...]
     unexplained: bool
+    first_date: date | None = None
+    unclassified: bool = False
 
 
 # Each overlapping date of this run's SMART TRADES answers, paired with the latest earlier
@@ -83,6 +94,7 @@ def _judge_symbol(
     rel_tol: float,
     min_run: int,
     ratio_snap_tol: float,
+    split_rule: SplitRatioRule,
 ) -> list[DetectedSplit]:
     days = [r["bar_date"] for r in rows]
     prev = np.array([r["prev_close"] for r in rows], dtype=float)
@@ -97,15 +109,33 @@ def _judge_symbol(
     for seam in seams:
         in_seam = [r for r in rows if seam.start <= r["bar_date"] <= seam.end]
         explained.update(r["bar_date"] for r in in_seam)
+        evidence = _evidence(in_seam)
         inference = infer_split(seam, ratio_snap_tol=ratio_snap_tol)
-        if inference is not None:
+        if inference is None:
+            found.append(
+                DetectedSplit(symbol, seam.end, seam.factor, evidence, True, first_date=seam.start)
+            )
+            continue
+        # The measured factor, not the snap: 39/7 snaps to itself.
+        ratio = recognised_split_ratio(seam.factor, split_rule)
+        if ratio is None:
             found.append(
                 DetectedSplit(
-                    symbol, inference.effective_date, inference.factor, _evidence(in_seam), False
+                    symbol,
+                    seam.end,
+                    seam.factor,
+                    evidence,
+                    False,
+                    first_date=seam.start,
+                    unclassified=True,
                 )
             )
         else:
-            found.append(DetectedSplit(symbol, seam.end, seam.factor, _evidence(in_seam), True))
+            found.append(
+                DetectedSplit(
+                    symbol, inference.effective_date, ratio, evidence, False, first_date=seam.start
+                )
+            )
 
     residual = [
         (r, p / n)
@@ -121,6 +151,7 @@ def _judge_symbol(
                 float(np.median([ratio for _r, ratio in residual])),
                 _evidence(residual_rows),
                 True,
+                first_date=min(r["bar_date"] for r in residual_rows),
             )
         )
     return found
@@ -144,9 +175,11 @@ def judge_overlap_pairs(
     rel_tol: float,
     min_run: int,
     ratio_snap_tol: float,
+    split_rule: SplitRatioRule,
 ) -> list[DetectedSplit]:
-    """Splits and unexplained differences in overlap pairs (overlap_pairs). A symbol with
-    fewer than `min_run` overlapping complete sessions cannot be judged and yields nothing."""
+    """Splits, unclassified rescales and unexplained differences in overlap pairs
+    (overlap_pairs). A symbol with fewer than `min_run` overlapping complete sessions cannot be
+    judged and yields nothing."""
     detected: list[DetectedSplit] = []
     for symbol in sorted(by_symbol):
         pairs = by_symbol[symbol]
@@ -154,7 +187,12 @@ def judge_overlap_pairs(
             continue
         detected.extend(
             _judge_symbol(
-                symbol, pairs, rel_tol=rel_tol, min_run=min_run, ratio_snap_tol=ratio_snap_tol
+                symbol,
+                pairs,
+                rel_tol=rel_tol,
+                min_run=min_run,
+                ratio_snap_tol=ratio_snap_tol,
+                split_rule=split_rule,
             )
         )
     return detected
@@ -167,16 +205,19 @@ async def detect_overlap_splits(
     rel_tol: float,
     min_run: int,
     ratio_snap_tol: float,
+    split_rule: SplitRatioRule,
 ) -> list[DetectedSplit]:
-    """Splits and unexplained differences in `fetch_run_id`'s overlap with earlier fetches.
+    """Splits, unclassified rescales and unexplained differences in `fetch_run_id`'s overlap
+    with earlier fetches.
 
     Pairs each date's new close with the most recent earlier observation of it and judges the
     stored/fresh ratio per symbol (overlap_pairs, then judge_overlap_pairs). Thresholds come
-    from APR threshold.seam.*.
+    from APR threshold.seam.* and infra.backfill.split_ratio_*.
     """
     return judge_overlap_pairs(
         await overlap_pairs(conn, fetch_run_id),
         rel_tol=rel_tol,
         min_run=min_run,
         ratio_snap_tol=ratio_snap_tol,
+        split_rule=split_rule,
     )

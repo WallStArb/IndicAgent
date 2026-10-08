@@ -110,6 +110,9 @@ CHECKS_1D = (
 # Reported per name, never a verdict that can fail (the name's history starts at its first
 # primary bar; the count is what the report shows).
 INFO_REFUSED_HEAD = "refused_head_1d"
+# Reported per name, never a gate check (plan 185-51): fails while the name is held
+# (bar_hold_current); the metric is the number of open holds.
+INFO_HELD = "held_1d"
 
 
 class IntegrityThresholds(Protocol):

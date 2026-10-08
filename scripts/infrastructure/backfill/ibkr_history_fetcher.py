@@ -114,8 +114,11 @@ from scripts.infrastructure.backfill._history_fetch_item import (  # noqa: E402
     fetch_item_with_retries,
 )
 from scripts.ops.bars.ops_split_detect import (  # noqa: E402
+    SPLIT_RULE_KEYS,
     _unexplained_reporter,
-    record_split,
+    act_on_detections,
+    rescale_reporter,
+    split_rule_from_apr,
 )
 from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
 from services.ohlcv_coverage_writer import (  # noqa: E402
@@ -152,6 +155,8 @@ _PARITY_TFS = ("15m", "1h")
 _SEAM_KEYS = ("threshold.seam.rel_tol", "threshold.seam.min_run", "threshold.seam.ratio_snap_tol")
 _FACT_MONITOR = "bar_split_detection"
 _FACT_METRIC = "unexplained_overlap_difference"
+# The reason the 1d judge gives a name it newly held (services/bar_hold.py, plan 185-51).
+_HELD_REASON = "unclassified_rescale"
 
 # APR keys read once at startup. Missing keys raise: the migrations seed them (432).
 _KEY_INTER_ITEM_PAUSE = "infra.ibkr.inter_item_pause_s"
@@ -191,8 +196,10 @@ _PARITY_ELIGIBLE_SQL = (
 )
 # A corporate action recorded after the series' last applied ingress load before this run:
 # the stored rows have not been reconciled with it, so the escalation re-fetch may rewrite them.
+# A void row (migration 461) retracts an action and never licenses a rewrite.
 _WAIVER_SQL = (
-    "SELECT EXISTS (SELECT 1 FROM corporate_action c WHERE c.symbol = $1 AND c.recorded_at > "
+    "SELECT EXISTS (SELECT 1 FROM corporate_action c WHERE c.symbol = $1 "
+    "AND c.action_type <> 'void' AND c.recorded_at > "
     "COALESCE((SELECT max(l.loaded_at) FROM ohlcv_load l WHERE l.symbol = $1 "
     "AND l.timeframe = $2 AND l.source = 'ibkr' AND l.outcome = 'applied' "
     "AND l.loaded_at < $3), '-infinity'::timestamptz))"
@@ -947,6 +954,10 @@ class IbkrHistoryFetcher(BaseBatch):
         if loop.touched_1d:
             try:
                 reasons_1d = await self._overlap_judge(pool, fetch_run_id, plan.lanes)
+                # A newly held name (plan 185-51) is a new integrity fact: the run is partial.
+                # It is still re-fetched below (D1 keeps the vendor's restated answer for the
+                # decision); the daily stage skips it, so no rewrite is applied.
+                failed = any(r == _HELD_REASON for r in reasons_1d.values())
             except Exception as error:  # noqa: BLE001 - loud, partial; derivation still runs
                 # As when split detection was a stage subprocess: a failed judgment fails the
                 # run's escalation code (partial), never the daily stage of the touched names.
@@ -995,33 +1006,40 @@ class IbkrHistoryFetcher(BaseBatch):
     async def _judge_daily_overlap(
         self, pool: Any, fetch_run_id: str, lanes: LaneConfig
     ) -> dict[str, str]:
-        """The run's 1d overlap: splits recorded (185-22, ops_split_detect.record_split),
-        unexplained differences reported, and every name to re-fetch with its reason."""
-        reasons: dict[str, str] = {}
-        report = _unexplained_reporter(self.settings)
+        """The run's 1d overlap: splits recorded (185-22), rescales that are no split ratio held
+        (plan 185-51, services/bar_hold.py), unexplained differences reported, all through
+        ops_split_detect.act_on_detections, and every name to re-fetch with its reason."""
+        keys = (*_SEAM_KEYS, *SPLIT_RULE_KEYS)
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT config_key, config_value FROM config_state "
                 "WHERE config_key = ANY($1::text[])",
-                list(_SEAM_KEYS),
+                list(keys),
             )
             apr = {r["config_key"]: r["config_value"] for r in rows}
-            missing = sorted(set(_SEAM_KEYS) - set(apr))
+            missing = sorted(set(keys) - set(apr))
             if missing:
                 raise RuntimeError(f"APR keys not set: {missing}")
+            split_rule = split_rule_from_apr(apr)
             by_symbol = await overlap_pairs(conn, fetch_run_id)
             detected = judge_overlap_pairs(
                 by_symbol,
                 rel_tol=float(apr["threshold.seam.rel_tol"]),
                 min_run=int(apr["threshold.seam.min_run"]),
                 ratio_snap_tol=float(apr["threshold.seam.ratio_snap_tol"]),
+                split_rule=split_rule,
             )
-            for split in detected:
-                if split.unexplained:
-                    report(split)
-                    reasons[split.symbol] = "unexplained_difference"
-                elif await record_split(conn, split):
-                    reasons[split.symbol] = "split_recorded"
+            reasons = dict(
+                await act_on_detections(
+                    conn,
+                    detected,
+                    split_rule=split_rule,
+                    report_unexplained=_unexplained_reporter(self.settings),
+                    report_rescale=rescale_reporter(self.settings),
+                    recorded_by=JOB,
+                    fetch_run_id=fetch_run_id,
+                )
+            )
         for symbol, pairs in sorted(by_symbol.items()):
             verdict = judge_overlap(
                 [(float(r["prev_close"]), float(r["new_close"])) for r in pairs],

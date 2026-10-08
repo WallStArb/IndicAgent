@@ -83,6 +83,8 @@ from services.bar_derivation import (
     _derive_for_tf,
     _month_digest_rows,
 )
+from services.bar_hold import Hold
+from services.bar_hold import held as read_held
 from services.ohlcv_coverage_writer import rebuild_from_stored_state
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
@@ -101,9 +103,11 @@ from src.intelligence.bars.gap_plan import (
     confirmed_empty_spans,
 )
 from src.intelligence.bars.integrity_checks import (
+    CHECK_FRESHNESS_1D,
     CHECKS_1D,
     CHECKS_INTRADAY,
     INFO_DIGEST_FULL_SWEEP,
+    INFO_HELD,
     INFO_REFUSED_HEAD,
     SWEEP_SUBJECT,
     NameInputs1d,
@@ -447,6 +451,15 @@ def check_nightly_skipped(
     if finished is None or now - finished > timedelta(hours=max_age_hours):
         return CheckResult(1, (f"stale|finished_at={finished_raw}",))
     return CheckResult(0, ())
+
+
+def check_held_names(holds: Mapping[str, Sequence[Hold]]) -> CheckResult:
+    """Every held 1d name with its cause (bar_hold_current, plan 185-51): a hold is an open
+    integrity decision, so each one is a finding until it is released."""
+    samples = tuple(
+        f"{symbol}: {'; '.join(h.cause() for h in holds[symbol])}" for symbol in sorted(holds)
+    )
+    return CheckResult(len(samples), samples)
 
 
 def check_tradier_refused(latest: Mapping[str, tuple[str, str | None]]) -> CheckResult:
@@ -847,7 +860,7 @@ ORDER BY symbol, answered_at DESC
 _EXPLAINED_DATES_SQL = """
 SELECT symbol, ex_date AS day FROM dividend_events WHERE symbol = ANY($1::text[]) AND ex_date >= $2
 UNION
-SELECT symbol, effective_date FROM corporate_action
+SELECT symbol, effective_date FROM corporate_action_current
 WHERE symbol = ANY($1::text[]) AND effective_date >= $2
 """
 _UNIVERSE_SQL = "SELECT i.symbol FROM instruments i WHERE {clause} ORDER BY i.symbol"
@@ -1138,6 +1151,8 @@ class _VerdictRun(NamedTuple):
     n_names: int
     n_basis_runs: int
     blocking_samples: list[str]
+    # Held names failing freshness_1d, with the hold's cause (plan 185-51).
+    held_stale: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1646,9 +1661,17 @@ class BarReconciliationAudit(BaseBatch):
             checks["completeness"] = grid.completeness
             checks["masked_slots"] = grid.masked
             vendor = await self._vendor_agreement(conn, params)
+            holds = await read_held(conn, "1d")
+            checks["held_names"] = _Judged(check_held_names(holds), len(active))
             integ = _IntegrityParams.from_apr(apr)
             verdicts = await self._verdict_report_1d(
-                conn, integ, window, compute_1d, checks["unexplained_seams"].result.samples, now
+                conn,
+                integ,
+                window,
+                compute_1d,
+                checks["unexplained_seams"].result.samples,
+                now,
+                holds=holds,
             )
             checks["untraced_quarantined_1d"] = verdicts.untraced_hidden
 
@@ -2021,6 +2044,8 @@ class BarReconciliationAudit(BaseBatch):
         compute_1d: list[str],
         seam_samples: Iterable[str],
         run_start: datetime,
+        *,
+        holds: Mapping[str, Sequence[Hold]] | None = None,
     ) -> _VerdictRun:
         """Judge every compute_1d name on the nine 1d checks (design section 6; freshness_1d
         against the last completed session, fixed once per run in `window`).
@@ -2052,6 +2077,8 @@ class BarReconciliationAudit(BaseBatch):
         timings: dict[str, float] = {}
         n_runs = 0
         blocking_samples: list[str] = []
+        held_stale: list[str] = []
+        holds = holds or {}
         twe = window.training_window_end
         for symbol in compute_1d:
             inputs = await BarReconciliationAudit._name_inputs_1d(
@@ -2091,6 +2118,27 @@ class BarReconciliationAudit(BaseBatch):
                     twe,
                 )
             )
+            name_holds = holds.get(symbol, ())
+            facts.append(
+                (
+                    _MONITOR_TYPE_VERDICT,
+                    subject,
+                    INFO_HELD,
+                    float(len(name_holds)),
+                    0.0,
+                    not name_holds,
+                    twe,
+                )
+            )
+            stale = next(
+                (v for v in report.verdicts if v.check == CHECK_FRESHNESS_1D and not v.passed),
+                None,
+            )
+            if name_holds and stale is not None:
+                held_stale.append(
+                    f"{symbol}: freshness_1d {stale.metric_value:.0f} sessions behind; held: "
+                    + "; ".join(h.cause() for h in name_holds)
+                )
             n_runs += len(report.basis_runs)
             blocking_samples.extend(
                 f"{symbol}|{run.start}..{run.end}|{run.continuous_vendor}"
@@ -2110,6 +2158,7 @@ class BarReconciliationAudit(BaseBatch):
             len(compute_1d),
             n_runs,
             blocking_samples,
+            tuple(held_stale),
         )
 
     @staticmethod
@@ -2170,7 +2219,7 @@ class BarReconciliationAudit(BaseBatch):
         read back: a short write raises (a silent gap in the report would read as a missing
         verdict, which the gates treat as failing, but the cause must be loud).
         """
-        per_group = _VERDICT_GROUP_NAMES * (len(CHECKS_1D) + 1)
+        per_group = _VERDICT_GROUP_NAMES * (len(CHECKS_1D) + 2)
         for i in range(0, len(run.facts), per_group):
             await emit_integrity_facts_async(conn, run.facts[i : i + per_group])
         written = await conn.fetchval(
@@ -2575,6 +2624,8 @@ class BarReconciliationAudit(BaseBatch):
         )
         if run.blocking_samples:
             logger.error("bar_integrity.blocking_basis_runs", runs=run.blocking_samples)
+        if run.held_stale:
+            logger.error("bar_integrity.freshness_1d_held", names=list(run.held_stale))
         print("\n# 1d verdict report (bar_integrity)\n")
         print(f"{'check':<22} {'pass':>7} {'fail':>7} {'seconds':>9}")
         for check in CHECKS_1D:
@@ -2582,6 +2633,8 @@ class BarReconciliationAudit(BaseBatch):
                 f"{check:<22} {run.passing_by_check.get(check, 0):>7} "
                 f"{run.failing_by_check.get(check, 0):>7} {run.timings.get(check, 0.0):>9.1f}"
             )
+        for line in run.held_stale:
+            print(f"held: {line}")
 
     @staticmethod
     def _print_report(

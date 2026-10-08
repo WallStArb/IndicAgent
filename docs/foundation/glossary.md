@@ -2076,8 +2076,22 @@ it; inferred by the seam audit, the nightly overlap or a Tradier refetch. Append
 correction is a new row that supersedes the old one, read through `corporate_action_current`.
 Dividends are not corporate actions here; they live in `dividend_events`. **Not:** a dividend, a
 symbol change or a listing-venue move. **Banned:** (none)
-**Status:** active (migration 400; `tradier_refetch` admitted by 440)
+**Status:** active (migration 400; `tradier_refetch` admitted by 440; void rows and `operator`
+corrections by 461: a void row supersedes and retracts a row, the current view hides both)
 **Code surface:** `scripts/ops/bars/ops_split_detect.py` (the plan 15 seam audit script was deleted in 185-42; its `seam_audit` rows stay)
+
+### `held name`
+
+A name whose canonical bars of a timeframe stay as they are until a decision releases it: it has
+a row in `bar_hold_current`. The daily stage skips it whatever the scope (no rewrite is applied),
+the overlap judge does not hold the same rescale twice, and D7 reports it (`held_names`,
+`held_1d`). The one reason today is `unclassified_rescale`: a constant vendor rescale whose
+factor is no recognised split ratio (APR `infra.backfill.split_ratio_*`), such as CTVA's 39/7
+after a spin-off; it is never written to `corporate_action`. Append-only; a release is a new
+row. **Not:** a bar_source_policy hold row (a source decision for a name, 185-47 class C), a
+quarantine (a flag on one bar), or a name outside compute_1d. **Banned:** (none)
+**Status:** active (migration 461, plan 185-51)
+**Code surface:** `services/bar_hold.py` (the one writer and reader), `bar_hold`, `bar_hold_current`
 
 ### `listing venue`
 

@@ -26,6 +26,7 @@ seeds threshold.seam.ratio_snap_tol); there is no default here.
 
 from __future__ import annotations
 
+import math
 from bisect import bisect_left, bisect_right
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -80,6 +81,46 @@ def infer_split(seam: Seam, *, ratio_snap_tol: float) -> SplitInference | None:
         kind="split" if best_p > best_q else "reverse_split",
         evidence_days=seam.n_days,
     )
+
+
+@dataclass(frozen=True)
+class SplitRatioRule:
+    """What counts as a split ratio (plan 185-51, todo 515; APR infra.backfill.split_ratio_*,
+    migration 461).
+
+    infer_split's snap (p, q <= 50) separates a constant seam from noise, but 39/7 snaps too:
+    CTVA's spin-off rescale of 2026-10-08 was recorded as a split. Real splits are small integer
+    ratios (2:1, 3:2, 4:1, 1:3, 1:20), so a recognised ratio also caps the smaller term.
+    """
+
+    max_numerator: int
+    max_denominator: int
+    rel_tol: float
+
+
+def recognised_split_ratio(factor: float, rule: SplitRatioRule) -> float | None:
+    """The split ratio a measured stored/fresh factor is, or None when it is no split ratio.
+
+    Accepted when factor or 1/factor is within rule.rel_tol (relative) of p/q with
+    1 <= q <= rule.max_denominator, p <= rule.max_numerator and p != q (a ratio of 1 is no
+    split). The smallest denominator wins, and the exact ratio is returned in the factor's own
+    orientation (1/3 for a 1-for-3 reverse split, 1.5 for 3-for-2).
+
+    A rescale that happens to land on a small ratio still passes (Tradier's CTVA factor 6.665 is
+    0.025 % from 20/3): the rule bounds the false-split rate, it does not identify spin-offs.
+    """
+    if not (math.isfinite(factor) and factor > 0):
+        raise ValueError(f"factor must be positive and finite, got {factor!r}")
+    if rule.max_numerator < 2 or rule.max_denominator < 1 or not 0 < rule.rel_tol < 1:
+        raise ValueError(f"unusable split ratio rule {rule!r}")
+    for q in range(1, rule.max_denominator + 1):
+        for ratio, inverted in ((factor, False), (1.0 / factor, True)):
+            p = round(ratio * q)
+            if p < 1 or p > rule.max_numerator or p == q:
+                continue
+            if abs(ratio * q / p - 1.0) <= rule.rel_tol:
+                return q / p if inverted else p / q
+    return None
 
 
 @dataclass(frozen=True)

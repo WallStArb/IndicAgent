@@ -53,7 +53,9 @@ above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_mi
 rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
 bar_source_policy row was recorded or closed (closed_at, migration 460) after the symbol's
 previous applied daily load, or no such load exists. --changed-only skips a symbol with no
-answer, corporate action or policy record or close after that same per-symbol baseline. No
+answer, corporate action or policy record or close after that same per-symbol baseline. A held
+name (bar_hold_current, services/bar_hold.py; plan 185-51) is skipped whatever the scope: its
+report row has outcome held, the cause and zero counts, and nothing is read or written for it. No
 canonical_bar_lineage row is written (185-38 replaced the table with the
 lineage view and made this stage the single 1d writer).
 """
@@ -78,6 +80,7 @@ import numpy as np
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
+from services.bar_hold import held as read_held
 from services.bar_scrub import FlagRow, scrub_symbols, write_flags
 from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL
 from src.config.settings import Settings
@@ -375,7 +378,7 @@ _DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUM
 # D1 routes d2-v2 reads: Tradier, IBKR SMART, and the stored corpus's import as IBKR's lowest
 # rank. Venue routes stay out (the D-17 venue study failed).
 _D2V2_ROUTES = ("TRADIER", "SMART", "LEGACY_IMPORT")
-_DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed")
+_DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed", "held")
 _DAILY_ROW_COUNTS = ("new", "changed", "unchanged", "removed")
 _DAILY_REPORT_COLUMNS = (
     "symbol",
@@ -399,6 +402,7 @@ _DAILY_REPORT_COLUMNS = (
     "would_refuse",
     "waived",
     "error",
+    "held",
 )
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
@@ -630,6 +634,7 @@ class _DailyResult:
     revision_ratio: float = 0.0
     would_refuse: bool = False
     waived: bool | None = None
+    held: str = ""
 
     def report_row(self) -> dict[str, str]:
         values: dict[str, Any] = {
@@ -1515,6 +1520,9 @@ class BarDerivation(BaseBatch):
                 if self._symbols
                 else [r[0] for r in await conn.fetch(_DISCOVER_DAILY_SYMBOLS_SQL)]
             )
+            # Held names (services/bar_hold.py, plan 185-51): skipped scoped or not, so no run
+            # applies a rewrite a decision is still pending on. Read once per run.
+            holds = await read_held(conn, "1d")
 
             batch_id: str | None = None
             if self._apply:
@@ -1527,12 +1535,19 @@ class BarDerivation(BaseBatch):
             try:
                 for offset in range(0, len(targets), symbol_batch):
                     for symbol in targets[offset : offset + symbol_batch]:
-                        try:
-                            result = await self._run_daily_symbol(
-                                conn, symbol=symbol, batch_id=batch_id, params=params
+                        if symbol in holds:
+                            cause = "; ".join(h.cause() for h in holds[symbol])
+                            self.logger.warning(
+                                "bar_derivation.daily_held", symbol=symbol, cause=cause
                             )
-                        except Exception as error:
-                            result = _DailyResult(symbol, "failed", f"{symbol}: {error}")
+                            result = _DailyResult(symbol, "held", held=cause)
+                        else:
+                            try:
+                                result = await self._run_daily_symbol(
+                                    conn, symbol=symbol, batch_id=batch_id, params=params
+                                )
+                            except Exception as error:
+                                result = _DailyResult(symbol, "failed", f"{symbol}: {error}")
                         results.append(result)
                         totals[result.outcome] += 1
                         for key in _DAILY_ROW_COUNTS:

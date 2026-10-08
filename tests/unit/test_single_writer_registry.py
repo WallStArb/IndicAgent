@@ -143,8 +143,17 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         ),
         Writer(
             "scripts/ops/bars/ops_split_detect.py",
-            _segment("inferred_by", "nightly_overlap"),
-            "the overlap split detector (migration 406)",
+            _segment("inferred_by", "nightly_overlap", "operator"),
+            "the overlap split detector (migration 406) and its sanctioned corrections: "
+            "--supersede, --void, --hold-rescale (migration 461, plan 185-51)",
+        ),
+    ),
+    # Held names (migration 461, plan 185-51): record_hold and release_hold only.
+    "bar_hold": (
+        Writer(
+            "services/bar_hold.py",
+            reason="the one writer of held names; the fetcher's overlap judge and "
+            "ops_split_detect.py call it",
         ),
     ),
     "integrity_monitor": (
