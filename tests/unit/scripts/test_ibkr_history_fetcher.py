@@ -771,6 +771,27 @@ async def test_failed_daily_stage_skips_the_ledger_refresh_and_is_partial(
     assert _no_side_effects.refreshed == []
 
 
+async def test_no_derive_skips_the_daily_stage_and_the_ledger_refresh(tmp_path, _no_side_effects):
+    """189-10 Task 1b: --no-derive leaves 1d answers in D1 only, so the caller can gate a
+    d2-v2 dry run before any apply. The fetch and its ledger outcomes are unchanged."""
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        return _outcome(row, n_bars=5, derive_1d_since=datetime(2006, 10, 2, tzinfo=UTC))
+
+    items = [_ranked("BBB", "1d"), _ranked("AAA", "1d")]
+    fetcher, seen = _fetcher(tmp_path, _plan(items), args=_args("--no-derive"), fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None
+    assert status == "success"
+    assert seen["stages"] == []
+    assert _no_side_effects.refreshed == []
+    assert sorted(o[0] for o in _no_side_effects.outcomes) == ["AAA", "BBB"]
+
+
+def test_no_derive_defaults_off():
+    assert _args().no_derive is False
+
+
 def test_the_fetcher_writes_no_backfill_status():
     """Plan 189-08: the fetch path stops writing backfill_status (promotion reads
     bar_integrity verdicts since plan 185-41); the run-end 1d step only refreshes the
