@@ -15,6 +15,12 @@ Modes (combinable; JSON to --out, per-name rows to --tsv):
 - --classify: per active name, the swap class (A, B, C) and the head candidate, with the count of
   distinct SMART TRADES dates on or after D.
 
+Apply criteria for plan 185-47 (R6; each exits 1 on a breach):
+- --export-verdicts OUT: the latest D7 run's per-name bar_integrity verdicts to a TSV.
+- --check-dryrun BEFORE AFTER --classes TSV: C1 over two daily-stage dry-run reports, judged
+  per name against its effective policy from D (185-47 amendment 2).
+- --compare-verdicts BEFORE AFTER: C3, C4 and C6, and the C5 transitions (no connection).
+
 Every connection opens with default_transaction_read_only = on; the module holds no statement
 that changes a row. Thresholds come from APR at run time (the evidence doc's R2); a missing key
 stops the run instead of falling back to a copied number.
@@ -220,6 +226,178 @@ def head_candidate(
     )
 
 
+# --- 185-47 apply criteria (evidence doc R6) --------------------------------------------------
+
+ZERO_TOLERANCE_CHECKS = (
+    "policy_conformance",
+    "lineage_missing",
+    "canonical_recompute",
+    "digest_fresh",
+)
+_IDENTITY_COLUMNS = (
+    "new", "changed", "changed_source_only", "removed", "head", "refused_head",
+    "admitted_interior", "refused_interior", "refused_dates",
+)  # fmt: skip
+
+
+@dataclass(frozen=True)
+class Violation:
+    symbol: str
+    column: str
+    detail: str
+
+
+def _int(row: Mapping[str, str], column: str) -> int:
+    return int(row.get(column) or 0)
+
+
+def _dates(row: Mapping[str, str]) -> set[date]:
+    return {date.fromisoformat(x) for x in (row.get("refused_dates") or "").split(",") if x}
+
+
+def check_dryrun(
+    before_rows: Sequence[Mapping[str, str]],
+    after_rows: Sequence[Mapping[str, str]],
+    classes: Mapping[str, str],
+    expected_new: Mapping[str, int],
+    *,
+    d: date,
+) -> list[Violation]:
+    """C1 on two daily-stage dry-run reports (185-47, amendment 2: judged per name against its
+    effective policy from D).
+
+    A name in expected_new switches to IBKR primary at D; its value is the count of distinct
+    SMART TRADES dates on or after D. Each such date must surface either as a new bar (it was a
+    refused fallback date) or as a source-label-only change (a stored ibkr_fallback bar now
+    ibkr_named); no stored value changes, nothing is removed, head and refused head are equal,
+    and the refused dates before D are the same. Every other name keeps its policy at D and its
+    report must equal the before report. Class B names are reported by the caller, never flagged.
+    """
+    before = {r["symbol"]: r for r in before_rows}
+    after = {r["symbol"]: r for r in after_rows}
+    out: list[Violation] = []
+    for symbol in sorted(set(before) ^ set(after)):
+        where = "before" if symbol in before else "after"
+        out.append(Violation(symbol, "symbol", f"only in the {where} report"))
+    for symbol in sorted(set(after) | set(before)):
+        if symbol not in classes:
+            out.append(Violation(symbol, "class", "missing from the classes file"))
+    for symbol in sorted(set(before) & set(after)):
+        if classes.get(symbol) == CLASS_B:
+            continue
+        b, a = before[symbol], after[symbol]
+        if symbol not in expected_new:
+            for col in _IDENTITY_COLUMNS:
+                if (a.get(col) or "") != (b.get(col) or "") and not (
+                    col != "refused_dates" and _int(a, col) == _int(b, col)
+                ):
+                    out.append(Violation(symbol, col, f"{b.get(col)} -> {a.get(col)}"))
+            continue
+        value_changes = _int(a, "changed") - _int(a, "changed_source_only")
+        if value_changes:
+            out.append(Violation(symbol, "changed", f"{value_changes} stored values change"))
+        if _int(a, "removed"):
+            out.append(Violation(symbol, "removed", f"{_int(a, 'removed')} bars removed"))
+        for col in ("head", "refused_head"):
+            if _int(a, col) != _int(b, col):
+                out.append(Violation(symbol, col, f"{_int(b, col)} -> {_int(a, col)}"))
+        before_dates, after_dates = _dates(b), _dates(a)
+        if after_dates != {x for x in before_dates if x < d}:
+            out.append(
+                Violation(
+                    symbol,
+                    "refused_dates",
+                    f"before D {sorted(x for x in before_dates if x < d)} -> {sorted(after_dates)}",
+                )
+            )
+        new_delta = _int(a, "new") - _int(b, "new")
+        label_delta = _int(a, "changed_source_only") - _int(b, "changed_source_only")
+        if new_delta + label_delta != expected_new[symbol]:
+            out.append(
+                Violation(
+                    symbol,
+                    "new",
+                    f"new {new_delta} + relabelled {label_delta} != "
+                    f"{expected_new[symbol]} SMART dates on or after {d}",
+                )
+            )
+        admitted_drop = _int(b, "admitted_interior") - _int(a, "admitted_interior")
+        if admitted_drop != label_delta:
+            out.append(
+                Violation(
+                    symbol,
+                    "admitted_interior",
+                    f"admitted fallback dates fell by {admitted_drop}, relabelled {label_delta}",
+                )
+            )
+    return out
+
+
+class VerdictRow(NamedTuple):
+    subject: str
+    check: str
+    passed: bool
+
+
+@dataclass(frozen=True)
+class VerdictDiff:
+    pass_to_fail: list[tuple[str, str]]
+    fail_to_pass: list[tuple[str, str]]
+    new_rows: list[tuple[str, str]]
+    failing_by_check_before: dict[str, int]
+    failing_by_check_after: dict[str, int]
+
+
+def _failing_by_check(rows: Iterable[VerdictRow]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for r in rows:
+        counts[r.check] += 0 if r.passed else 1
+    return dict(sorted(counts.items()))
+
+
+def compare_verdicts(before: Sequence[VerdictRow], after: Sequence[VerdictRow]) -> VerdictDiff:
+    """Per (subject, check): pass to fail, fail to pass, rows absent before; failing names per
+    check on both sides. An empty after set raises: an empty comparison proves nothing."""
+    if not after:
+        raise ValueError("no verdict rows after: an empty comparison proves nothing")
+    b = {(r.subject, r.check): r.passed for r in before}
+    a = {(r.subject, r.check): r.passed for r in after}
+    return VerdictDiff(
+        pass_to_fail=sorted(k for k, ok in a.items() if k in b and b[k] and not ok),
+        fail_to_pass=sorted(k for k, ok in a.items() if k in b and not b[k] and ok),
+        new_rows=sorted(k for k in a if k not in b),
+        failing_by_check_before=_failing_by_check(before),
+        failing_by_check_after=_failing_by_check(after),
+    )
+
+
+def verdict_failures(diff: VerdictDiff) -> list[str]:
+    """The R6 breaches in a comparison (C3, C4, C6); empty means pass."""
+    out = [f"pass_to_fail: {s} {c}" for s, c in diff.pass_to_fail]
+    for check, n in diff.failing_by_check_after.items():
+        if check in ZERO_TOLERANCE_CHECKS and n:
+            out.append(f"zero-tolerance: {check} {n} failing")
+        elif n > diff.failing_by_check_before.get(check, 0):
+            out.append(f"count rose: {check} {diff.failing_by_check_before.get(check, 0)} -> {n}")
+    return out
+
+
+_VERDICT_COLUMNS = ("subject", "check", "passed", "metric_value", "threshold_value", "evaluated_at")
+
+
+def read_verdicts(path: Path) -> list[VerdictRow]:
+    with path.open(newline="") as handle:
+        return [
+            VerdictRow(r["subject"], r["check"], r["passed"] == "true")
+            for r in csv.DictReader(handle, delimiter="\t")
+        ]
+
+
+def read_tsv(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
 # --- IO (read-only) -------------------------------------------------------------------------
 
 _KEY_WINDOW = "threshold.bar_integrity.fallback_basis_window_sessions"
@@ -314,6 +492,23 @@ WHERE symbol = $1 AND timeframe = '1d' AND route = 'SMART' AND what_to_show = 'T
   AND bar_date >= $2
 """
 _RUN_SUMMARY = re.compile(r"run summary: (\{.*\})")
+# The per-name verdicts of the latest D7 run: the newest row per (subject, check) within
+# $1 minutes of the newest bar_integrity row (one run writes 1d, then 5m, minutes apart).
+_EXPORT_VERDICTS_SQL = """
+SELECT DISTINCT ON (subject, metric_name) subject, metric_name, passed, metric_value,
+       threshold_value, evaluated_at
+FROM integrity_monitor
+WHERE monitor_type = 'bar_integrity' AND subject LIKE '%|%' AND subject NOT LIKE 'check=%'
+  AND evaluated_at >= (SELECT max(evaluated_at) FROM integrity_monitor
+                       WHERE monitor_type = 'bar_integrity') - make_interval(mins => $1)
+ORDER BY subject, metric_name, evaluated_at DESC
+"""
+# Names whose 1d symbol row covers date $1: their effective policy does not move at D.
+_COVERED_AT_SQL = """
+SELECT DISTINCT symbol FROM bar_source_policy
+WHERE timeframe = '1d' AND symbol IS NOT NULL AND valid_from <= $1
+  AND (valid_to IS NULL OR valid_to > $1)
+"""
 
 
 def _apr(rows: Iterable[Any]) -> dict[str, str]:
@@ -677,8 +872,92 @@ async def _main(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _export_verdicts(out: Path, run_window_minutes: int) -> int:
+    conn = await _connect()
+    try:
+        rows = await conn.fetch(_EXPORT_VERDICTS_SQL, run_window_minutes)
+    finally:
+        await conn.close()
+    if not rows:
+        raise SystemExit("no bar_integrity verdict rows to export")
+    with out.open("w", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t")
+        writer.writerow(_VERDICT_COLUMNS)
+        for r in rows:
+            writer.writerow(
+                [r["subject"], r["metric_name"], str(r["passed"]).lower(), r["metric_value"],
+                 r["threshold_value"], r["evaluated_at"].isoformat()]
+            )  # fmt: skip
+    first = min(r["evaluated_at"] for r in rows)
+    print(f"wrote {out}: {len(rows)} verdicts, evaluated {first.isoformat()} onward")
+    return 0
+
+
+async def _check_dryrun(before: Path, after: Path, classes_path: Path) -> int:
+    classes_rows = read_tsv(classes_path)
+    classes = {r["symbol"]: r["cls"] for r in classes_rows}
+    conn = await _connect()
+    try:
+        d = _first_session_after(await conn.fetchval(_MAX_TRADIER_SQL))
+        covered = {r["symbol"] for r in await conn.fetch(_COVERED_AT_SQL, d)}
+    finally:
+        await conn.close()
+    expected = {
+        r["symbol"]: int(r["smart_dates_from_d"])
+        for r in classes_rows
+        if r["symbol"] not in covered
+    }
+    before_rows, after_rows = read_tsv(before), read_tsv(after)
+    violations = check_dryrun(before_rows, after_rows, classes, expected, d=d)
+    judged = {r["symbol"] for r in after_rows}
+    switching = sorted(judged & set(expected))
+    print(f"D {d}; judged {len(judged)}; switching to IBKR at D {len(switching)}; "
+          f"policy unchanged at D {len(judged) - len(switching)}")  # fmt: skip
+    totals: dict[str, int] = defaultdict(int)
+    for r in after_rows:
+        if r["symbol"] in expected:
+            for col in ("new", "changed_source_only"):
+                totals[col] += _int(r, col)
+    print(f"switching names: new {totals['new']}, relabelled {totals['changed_source_only']}, "
+          f"SMART dates on or after D {sum(expected[s] for s in switching)}")  # fmt: skip
+    print("class B (reported, never a violation): symbol new changed removed refused_head")
+    for r in after_rows:
+        if classes.get(r["symbol"]) == CLASS_B:
+            print(f"  {r['symbol']} {r['new']} {r['changed']} {r['removed']} {r['refused_head']}")
+    for v in violations:
+        print(f"VIOLATION {v.symbol} {v.column}: {v.detail}")
+    print(f"C1 {'FAIL' if violations else 'pass'}: {len(violations)} violations")
+    return 1 if violations else 0
+
+
+def _compare_verdicts(before: Path, after: Path) -> int:
+    diff = compare_verdicts(read_verdicts(before), read_verdicts(after))
+    checks = sorted(set(diff.failing_by_check_before) | set(diff.failing_by_check_after))
+    print("check\tfailing_before\tfailing_after")
+    for c in checks:
+        print(
+            f"{c}\t{diff.failing_by_check_before.get(c, 0)}\t{diff.failing_by_check_after.get(c, 0)}"
+        )
+    for label, pairs in (("pass_to_fail", diff.pass_to_fail), ("fail_to_pass", diff.fail_to_pass),
+                         ("new_rows", diff.new_rows)):  # fmt: skip
+        print(f"{label} {len(pairs)}")
+        for subject, check in pairs:
+            print(f"  {subject}\t{check}")
+    failures = verdict_failures(diff)
+    for f in failures:
+        print(f"FAIL {f}")
+    print(f"C3/C4/C6 {'FAIL' if failures else 'pass'}")
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument("--export-verdicts", metavar="OUT", default=None,
+                        help="185-47: the latest D7 run's per-name verdicts to a TSV")  # fmt: skip
+    parser.add_argument("--run-window-minutes", type=int, default=60)
+    parser.add_argument("--check-dryrun", nargs=2, metavar=("BEFORE", "AFTER"), default=None)
+    parser.add_argument("--classes", default=None, help="check-dryrun: the --classify TSV")
+    parser.add_argument("--compare-verdicts", nargs=2, metavar=("BEFORE", "AFTER"), default=None)
     parser.add_argument("--rate", action="store_true")
     parser.add_argument("--volume", action="store_true")
     parser.add_argument("--census", action="store_true")
@@ -694,6 +973,16 @@ def main(argv: list[str] | None = None) -> int:
         "--fetcher-log", default=str(project_root / "logs" / "ibkr_history_fetcher.log")
     )
     args = parser.parse_args(argv)
+    if args.export_verdicts:
+        return asyncio.run(_export_verdicts(Path(args.export_verdicts), args.run_window_minutes))
+    if args.check_dryrun:
+        if not args.classes:
+            parser.error("--check-dryrun needs --classes")
+        before, after = (Path(p) for p in args.check_dryrun)
+        return asyncio.run(_check_dryrun(before, after, Path(args.classes)))
+    if args.compare_verdicts:
+        before, after = (Path(p) for p in args.compare_verdicts)
+        return _compare_verdicts(before, after)
     if not (args.rate or args.volume or args.census or args.classify):
         parser.error("choose at least one of --rate, --volume, --census, --classify")
     return asyncio.run(_main(args))
