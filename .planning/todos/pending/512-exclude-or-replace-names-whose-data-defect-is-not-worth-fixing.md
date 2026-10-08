@@ -14,18 +14,18 @@ If a name's data defect is not worth the effort to fix, it is excluded; the owne
 1. Exclude, never erase. Set `compute_eligible_1d` false with a recorded reason code and date (a D0 label). Keep every raw D1 and IBKR observation (raw market data is permanent). No DROP, no hand-written `instruments` rows, no deactivation. "Delete" means leaves the compute set.
 2. The test is data quality only, by a rule written and dated before it is applied: unrecoverable vendor basis (todo 508 names where option 1 cannot give a clean series), zero-volume rule failures (FUBO, LION, RCAT), listing history that cannot be resolved (the ISLAND 8, CLBK). Never exclude on returns, Sharpe or how a name behaved in any screen.
 3. Effort rule: a fix that is a rule already built (508 option 1 head rows, the zero-volume rule) is applied, not skipped. Exclude only names that need per-name hand work.
-4. Dead or delisted names with a clean series stay in; removing them is survivorship bias. Every excluded name is counted in D0's survivorship bound with its reason code, and the disclosure notes that exclusions correlate with corporate-action-heavy names.
+4. Dead or delisted names with a clean series stay in; the test is data quality only.
 5. A replacement goes through `docs/foundation/instrument-onboarding-sop.md` with a rule fixed beforehand (next name by liquidity rank in the same SCH classification node), never hand-picked, and enters with no look at its history or returns.
 
 ## Orchestrator notes
 
 - Sequencing: this does not delay 189-10 Task 1b. Apply the rule after Task 1b and 185-47 have produced the measured answers (the ISLAND 8 are re-asked in Task 1b, todo 511), because "not worth fixing" must be decided on measured outcomes, not guesses.
 - Promotion state moves through the integrity verdict gate (185-41) and UCR/SCH registries, not by hand edits to `instruments`; the plan that implements this must name the single writer and write the rule into an evidence doc before it runs.
-- Replacements change the universe after the vintage was looked at; the plan must state how replaced names are counted in the D0 survivorship bound and keep them out of any look-count that already used the old name.
+- Replacements change the universe after the vintage was looked at; the plan must keep them out of any look-count that already used the old name.
 
 ## Done when
 
-A dated rule document exists; each excluded name carries a reason code in D0; the excluded and replacement lists are logged in the 185 summary; the survivorship disclosure is written.
+A dated rule document exists; each excluded name carries a reason code in its tombstone; the excluded and replacement lists are logged in the 185 summary.
 
 ## Proposed amendment 2026-10-08 (relayed by indicagent-6a; NOT accepted, needs the owner's explicit confirmation in the 185 session)
 
@@ -46,4 +46,4 @@ This removes the only recovery path from the previous variant; every conflict li
 
 ## Owner decision 2026-10-08, stated directly in the 185 session (supersedes both proposed variants above)
 
-Junk symbols (no depth, not useful, failing the written data-quality rule) carry no useful information: delete their bar data and everything derived from it (D1 raw, observations, D2 canonical, lineage, features, ctx, caches, partial compute). Keep the instrument information and metadata, plus a tombstone (is_active false, reason code, date, plan id) and the per-table deleted row counts in the plan summary, so the SOP cannot re-onboard the name unseen and D0's survivorship bound counts it. Reason: old junk data for avoided instruments is clutter in a clean data layer. No archive dump required. Still required: the rule written and dated before it is applied, never on returns, the dry-run list (name, reason code, row counts per table) before the delete, one transaction per name, the effort rule (fix by existing rules where cheap, 508 stale heads stay), and no name used by a recorded research run (reproducibility). CLAUDE.md Data line carries the scoped exception. Applied after Task 1b and 185-47.
+Junk symbols (no depth, not useful, failing the written data-quality rule) carry no useful information: delete their bar data and everything derived from it (D1 raw, observations, D2 canonical, lineage, features, ctx, caches, partial compute). Keep the instrument information and metadata, plus a tombstone (is_active false, reason code, date, plan id) and the per-table deleted row counts in the plan summary, so the SOP cannot re-onboard the name unseen. Reason: old junk data for avoided instruments is clutter in a clean data layer. No archive dump required. Still required: the rule written and dated before it is applied, never on returns, the dry-run list (name, reason code, row counts per table) before the delete, one transaction per name, the effort rule (fix by existing rules where cheap, 508 stale heads stay), and no name used by a recorded research run (reproducibility). CLAUDE.md Data line carries the scoped exception. Applied after Task 1b and 185-47.
