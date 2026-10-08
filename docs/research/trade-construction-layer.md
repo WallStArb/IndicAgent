@@ -1,6 +1,7 @@
 # Trade Construction Layer -- From Forecast to Position
 
 **Version:** 1.4
+**Status note, 2026-10-08:** `services/cross_sectional_spread_tracker.py` no longer exists (old ensemble chain deleted, plan 186-19) and construction is now a `ConstructionRule` per book (unified design UD-02, UD-04, section 4.3); the re-verification below is moot and the gates are not PASSED. Read this doc for the construction reasoning only.
 **Status:** UNVERIFIED, re-verification pending -- `services/cross_sectional_spread_tracker.py`
 productionizes cross_sectional_relative_value's construction, ranked solely on `ctf_momentum`
 (`_FEATURE = "ctf_momentum"`). **The 2026-07-27 gate run below was measured against a

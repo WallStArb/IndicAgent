@@ -1,6 +1,6 @@
 # AlphaEmitter - Stage 4 Emission Mechanisms
 
-**Status:** Idea - not planned
+**Status:** Idea - not planned. **Superseded 2026-10-08:** `alpha_events`, `alpha_publisher` and the old emission stage were deleted in phase 186 (plan 186-19); its empirical gate (real `alpha_events` rows) can no longer be met. Position weights now come from a construction rule behind the `ConstructionRule` protocol (`docs/plans/2026-09-26-unified-research-to-production-design.md`, UD-04). Kept for the threshold-calibration reasoning only.
 **Author:** Fable 5 (dispatched via Claude Code Agent tool)
 **Date:** 2026-07-07
 **Priority:** medium (one high-value item inside: threshold calibration, an already-admitted gap)
