@@ -106,15 +106,9 @@ The v3.0 alpha chain (`FeatureVectorWriter → ic_measure`; the old ensemble_tra
 | Regime Writer | `services/regime_writer.py` | `feature_vectors.regime*` |
 | IC Measure | `services/ic_measure.py` | `feature_ic_scores_v2` (kernel forward returns; the legacy `feature_ic_scores` is frozen until 186-28) |
 
-## AI / LLM Tier (dormant, see root CLAUDE.md)
+## AI / LLM tier
 
-`BaseAIWorker`/`alpha_swarm`/`narrative_swarm` have had zero commits since the v3.0 rebuild started 2026-06-20. This is target-state, not confirmed-running.
-
-| Service | Unit | File | Live state |
-|---------|------|------|------------|
-| Alpha Swarm | `indicagent-alpha-swarm` | `services/alpha_swarm.py` | not loaded (never started this boot); unit `disabled` |
-| Narrative Compute | `indicagent-narrative-compute` | `services/narrative_swarm.py` | not loaded; unit `disabled` |
-| Swarm Ledger Writer | `indicagent-swarm-ledger-writer` | `services/swarm_ledger_writer.py` | not loaded; unit `disabled` |
+Removed in plan 185-45 (alpha swarm, narrative compute, swarm ledger writer, LLM writer). Archive: git tag `archive/v2x-ai-stack-2026-10`.
 
 ## API / Infrastructure
 
