@@ -1209,6 +1209,7 @@ def test_the_overlap_pairs_stored_and_fresh_closes_for_the_fetcher_to_judge(env,
         return {ts: 2.0 * (100.5 + i) for i, ts in enumerate(sorted(timestamps)[:2])}
 
     monkeypatch.setattr(item_mod, "_stored_closes", fake_stored)
+    env.record_gaps = []  # the overlap is the only ask
     outcome = _fetch(
         _ctx(FakeProvider()), _row("5m", latest=_5M_LATEST, status="ok"), overlap_days=3
     )

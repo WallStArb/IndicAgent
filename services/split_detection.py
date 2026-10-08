@@ -1,14 +1,16 @@
 """Split inference from overlapping D1 observations (phase 185 plan 22, D-21).
 
-The nightly 1d fetch re-asks the last overlap_sessions sessions, so every fresh SMART TRADES
-observation overlaps an earlier one in D1. IBKR re-scales history when a split happens: the
-earlier observation of a date stays on the old scale while the fresh fetch is on the new one,
-so the stored/fresh close ratio is the split factor over the whole overlap
+The fetcher's update lane re-asks the last infra.backfill.update_overlap_sessions_1d sessions,
+so every fresh SMART TRADES observation overlaps an earlier one in D1. IBKR re-scales history
+when a split happens: the earlier observation of a date stays on the old scale while the fresh
+fetch is on the new one, so the stored/fresh close ratio is the split factor over the whole
+overlap
 (src/intelligence/bars/seams.py). A constant run is inferred as a split
 (src/intelligence/bars/corporate_actions.py); sizeable differences that are not a constant run
 are reported as unexplained and never recorded as a split. Volume never enters the decision.
 
-This module only reads D1 and decides; ops_split_detect.py records, re-fetches and re-derives.
+This module only reads D1 and decides. The fetcher (ibkr_history_fetcher.py) records, re-fetches
+and re-derives in its own run (plan 189-10, todo 507); ops_split_detect.py does it by hand.
 """
 
 from __future__ import annotations
@@ -124,26 +126,27 @@ def _judge_symbol(
     return found
 
 
-async def detect_overlap_splits(
-    conn: Any,
-    *,
-    fetch_run_id: str,
-    rel_tol: float,
-    min_run: int,
-    ratio_snap_tol: float,
-) -> list[DetectedSplit]:
-    """Splits and unexplained differences in `fetch_run_id`'s overlap with earlier fetches.
-
-    Pairs each date's new close with the most recent earlier observation of it and judges the
-    stored/fresh ratio per symbol. A symbol with fewer than `min_run` overlapping complete
-    sessions cannot be judged and yields nothing; the session of the answer's own UTC date is
-    left out because it may still be forming. Thresholds come from APR threshold.seam.*.
-    """
+async def overlap_pairs(conn: Any, fetch_run_id: str) -> dict[str, list[Any]]:
+    """`fetch_run_id`'s overlap pairs per symbol: each fresh SMART TRADES close of a completed
+    session with the most recent earlier observation of that date. The session of the
+    answer's own UTC date is left out because it may still be forming."""
     rows = await conn.fetch(_OVERLAP_PAIRS_SQL, fetch_run_id)
     by_symbol: dict[str, list[Any]] = defaultdict(list)
     for row in rows:
         if row["bar_date"] < row["answered_at"].date():
             by_symbol[row["symbol"]].append(row)
+    return dict(by_symbol)
+
+
+def judge_overlap_pairs(
+    by_symbol: dict[str, list[Any]],
+    *,
+    rel_tol: float,
+    min_run: int,
+    ratio_snap_tol: float,
+) -> list[DetectedSplit]:
+    """Splits and unexplained differences in overlap pairs (overlap_pairs). A symbol with
+    fewer than `min_run` overlapping complete sessions cannot be judged and yields nothing."""
     detected: list[DetectedSplit] = []
     for symbol in sorted(by_symbol):
         pairs = by_symbol[symbol]
@@ -155,3 +158,25 @@ async def detect_overlap_splits(
             )
         )
     return detected
+
+
+async def detect_overlap_splits(
+    conn: Any,
+    *,
+    fetch_run_id: str,
+    rel_tol: float,
+    min_run: int,
+    ratio_snap_tol: float,
+) -> list[DetectedSplit]:
+    """Splits and unexplained differences in `fetch_run_id`'s overlap with earlier fetches.
+
+    Pairs each date's new close with the most recent earlier observation of it and judges the
+    stored/fresh ratio per symbol (overlap_pairs, then judge_overlap_pairs). Thresholds come
+    from APR threshold.seam.*.
+    """
+    return judge_overlap_pairs(
+        await overlap_pairs(conn, fetch_run_id),
+        rel_tol=rel_tol,
+        min_run=min_run,
+        ratio_snap_tol=ratio_snap_tol,
+    )

@@ -14,20 +14,33 @@ Named symbols (--symbols) are asked even when their series is current: an operat
 tool that names a series (ops_split_detect's re-fetch, ops_head_rerun) wants it asked now.
 The recurring timer run names none, so the current hold still spares the one IBKR stream.
 
+Two lanes, one queue (plan 189-10 Task 1, as amended by 185-46; _fetch_queue.py): every
+active name's 1d and 5m are asked after each session close since their latest stored bar,
+widened to overlap the stored tail (the update lane); on one session in every
+infra.backfill.gap_fill_interval_days a series plans its full depth instead (the gap-fill
+lane); a default run also asks the weekly parity sample's vendor 15m and 1h. A 1d item is due
+by the session calendar and the request ledger, never held back for a vendor (the Tradier hold
+is gone: IBKR is the 1d primary, owner decision 2026-10-07), and ranks ahead of every 5m item.
+The overlap is judged after the loop: a restated 1d overlap (a split, an unexplained
+difference, a restated close) or a rescaled 5m overlap escalates the name to a full-depth
+re-fetch in this run, on the open connection and under this run's lock, in the order record,
+re-fetch, derive (todo 507; D2 counts only a fetch made after the recording as post-split).
+
 Flow (CD-01/CD-02/CD-07):
 
     FetcherLock.acquire()                  -- fail fast: held elsewhere -> exit 0, lock_held
-      -> resolve scopes -> candidates      -- APR infra.backfill.default_scopes union, deduped;
-                                              Tradier-owned 1d series skipped (185 D2 rule)
+      -> resolve scopes -> candidates      -- APR infra.backfill.default_scopes union, deduped,
+                                              plus the weekly parity sample (default run)
       -> IBKRProvider.connect()            -- unreachable -> raise, status failure (CD-08)
       -> loop until budget or queue empty:
            row = queue.next(pool, visited) -- reads ohlcv_coverage, pure ranking
-           fetch_item_with_retries(...)    -- stall-bounded, atomic chunk + coverage writes
+           fetch_item_with_retries(...)    -- stall-bounded, atomic chunk + coverage writes;
+                                              the item's lane sets its span
            record_fetch_outcome(...)       -- one ledger write per item (not on gateway loss)
+      -> overlap judgment: 1d splits recorded (185-22), 1d and 5m breaches collected
+      -> escalation re-fetch of those names, full depth, same connection, same lock
       -> disconnect; final D1 sink flush
-      -> split detection (185-22) -> daily stage + 1d ledger refresh -> grid stage
-         (split detection's own re-fetch subprocess is refused by this run's lock and
-         exits non-zero, so the run ends partial; see ops_split_detect.py)
+      -> daily stage + 1d ledger refresh -> grid stage
       -> SLA gauge, status file, run summary
     FetcherLock.release()
 
@@ -74,10 +87,21 @@ sys.path.insert(0, str(project_root))
 from scripts.infrastructure.backfill import _empty_history as empty_history  # noqa: E402
 from scripts.infrastructure.backfill import _history_fetch  # noqa: E402
 from scripts.infrastructure.backfill._fetch_queue import (  # noqa: E402
+    DAILY_TF,
+    CoverageRow,
+    DailyRule,
+    LaneConfig,
+    OverlapVerdict,
     PriorityQueue,
     QueueConfig,
     RankedItem,
+    gap_fill_due,
+    judge_overlap,
+    load_lane_config,
     load_queue_config,
+    parity_sample,
+    parity_week_start,
+    reconcile_after,
 )
 from scripts.infrastructure.backfill._fetcher_lock import (  # noqa: E402
     FETCHER_LOCK_NAME,
@@ -89,11 +113,9 @@ from scripts.infrastructure.backfill._history_fetch_item import (  # noqa: E402
     ItemOutcome,
     fetch_item_with_retries,
 )
-
-# The Tradier-owned predicate is D2's own probe (commit 2811eb044, "one source per name"),
-# imported rather than copied so the fetcher and the daily stage can never disagree.
-from services.bar_derivation import (  # noqa: E402
-    _SELECT_DAILY_CHANGED_SINCE_SQL as _DAILY_SOURCE_PROBE_SQL,
+from scripts.ops.bars.ops_split_detect import (  # noqa: E402
+    _unexplained_reporter,
+    record_split,
 )
 from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
 from services.ohlcv_coverage_writer import (  # noqa: E402
@@ -103,6 +125,7 @@ from services.ohlcv_coverage_writer import (  # noqa: E402
     reset_failures,
 )
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id  # noqa: E402
+from services.split_detection import judge_overlap_pairs, overlap_pairs  # noqa: E402
 from src.config.settings import (  # noqa: E402
     Settings,
     get_active_contracts,
@@ -120,11 +143,17 @@ _OBSERVATION_CALLER = JOB
 _WRITER_ROLE = "bar_derivation_writer"
 _DIMENSIONS = ("backfill", "compute", "compute_1d", "live")
 _DERIVATION_SCRIPT = project_root / "services" / "bar_derivation.py"
-_SPLIT_DETECT_SCRIPT = project_root / "scripts" / "ops" / "bars" / "ops_split_detect.py"
-_DAILY_TF = "1d"
+# The update lane's intraday overlap applies to the grid source timeframe: 5m is the one
+# intraday series stored direct (the grid derives 15m and 1h from it).
+_INTRADAY_UPDATE_TF = "5m"
+# The parity sample's vendor timeframes (archive-bound in the item, _history_fetch._ARCHIVE_TFS).
+_PARITY_TFS = ("15m", "1h")
+# The split judgment's APR keys (threshold.seam.*, as ops_split_detect reads them).
+_SEAM_KEYS = ("threshold.seam.rel_tol", "threshold.seam.min_run", "threshold.seam.ratio_snap_tol")
+_FACT_MONITOR = "bar_split_detection"
+_FACT_METRIC = "unexplained_overlap_difference"
 
-# APR keys read once at startup. Missing keys raise: the migrations seed them (406, 432).
-_KEY_OVERLAP_SESSIONS = "infra.bar_derivation.overlap_sessions"
+# APR keys read once at startup. Missing keys raise: the migrations seed them (432).
 _KEY_INTER_ITEM_PAUSE = "infra.ibkr.inter_item_pause_s"
 
 # Calendar slack for finding the latest completed NYSE session: longer than any market
@@ -150,6 +179,23 @@ _TSV_COLUMNS = (
     "consecutive_failures",
     "last_fetched_at",
     "held_reason",
+    "lane",
+    "due_reason",
+)
+# Names holding 5m rows and vendor archive rows: the parity sample's eligible set.
+_PARITY_ELIGIBLE_SQL = (
+    "SELECT c.symbol FROM ohlcv_coverage c WHERE c.timeframe = '5m' "
+    "AND c.earliest_timestamp IS NOT NULL AND c.symbol = ANY($1::text[]) "
+    "AND EXISTS (SELECT 1 FROM ohlcv_intraday_raw_archive a "
+    "WHERE a.symbol = c.symbol AND a.timeframe = ANY($2::text[]))"
+)
+# A corporate action recorded after the series' last applied ingress load before this run:
+# the stored rows have not been reconciled with it, so the escalation re-fetch may rewrite them.
+_WAIVER_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM corporate_action c WHERE c.symbol = $1 AND c.recorded_at > "
+    "COALESCE((SELECT max(l.loaded_at) FROM ohlcv_load l WHERE l.symbol = $1 "
+    "AND l.timeframe = $2 AND l.source = 'ibkr' AND l.outcome = 'applied' "
+    "AND l.loaded_at < $3), '-infinity'::timestamptz))"
 )
 
 
@@ -208,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Re-ask the last N 1d sessions D1 already answers (default APR "
-            "infra.bar_derivation.overlap_sessions). ops_split_detect passes its split "
+            "infra.backfill.update_overlap_sessions_1d). ops_split_detect passes its split "
             "re-fetch depth here."
         ),
     )
@@ -337,15 +383,16 @@ def build_candidates(
     return Candidates(list(pairs), instruments, sorted(unknown))
 
 
-def last_session_close(now: datetime) -> datetime | None:
-    """The latest NYSE session close at or before `now` (UTC), or None.
+def completed_session_closes(now: datetime, n_sessions: int = 1) -> list[datetime]:
+    """NYSE session closes at or before `now` (UTC), ascending, at least `n_sessions` of them
+    when the calendar holds them (the lookback widens with n: two calendar days a session).
 
     One calendar for every candidate: today's universe is all NYSE-session equity, and the
     1d planner refuses any other calendar the same way (asset_agnostic caveat, as there).
     """
-    sessions = nyse_sessions(now.date() - timedelta(days=_SESSION_LOOKBACK_DAYS), now.date())
-    closes = [close for _open, close in sessions.values() if close <= now]
-    return max(closes) if closes else None
+    lookback = _SESSION_LOOKBACK_DAYS + 2 * n_sessions
+    sessions = nyse_sessions(now.date() - timedelta(days=lookback), now.date())
+    return sorted(close for _open, close in sessions.values() if close <= now)
 
 
 def parse_reset_target(value: str) -> tuple[str, str | None]:
@@ -367,10 +414,38 @@ class RunPlan:
     config: QueueConfig
     queue: Any  # PriorityQueue: load(pool), next(pool, visited), ranked/held snapshots
     candidates: Candidates
-    tradier_owned: list[tuple[str, str]]
     tf_fetch_config: Mapping[str, tuple[int, bool]]
     overlap_sessions: int
     inter_item_pause_s: float
+    lanes: LaneConfig
+    # The last completed session's date: the gap-fill lane's slot is keyed on it.
+    session_day: Any
+    # The weekly parity sample's (symbol, timeframe) items (default runs only).
+    parity: tuple[tuple[str, str], ...] = ()
+
+
+def item_lane(plan: RunPlan, row: CoverageRow, *, full_scan: bool = False) -> tuple[str, bool, int]:
+    """(lane, full_scan, overlap_days) for one item; pure.
+
+    parity: the vendor sample, asked from its latest archive bar, never a full depth;
+    gap_fill: the series' gap-fill session (or --full-scan), the full depth window;
+    backfill: never fetched or last failed, the item plans the full depth by itself;
+    update: since the latest stored bar, 5m widened by the overlap days (1d's overlap is the
+    run-level session overlap the 1d planner adds).
+    """
+    if (row.symbol, row.timeframe) in plan.parity:
+        return "parity", False, 0
+    if full_scan or (
+        plan.session_day is not None
+        and gap_fill_due(
+            row.symbol, row.timeframe, plan.session_day, plan.lanes.gap_fill_interval_days
+        )
+    ):
+        return "gap_fill", True, 0
+    if row.latest_timestamp is None or row.last_fetch_status != "ok":
+        return "backfill", False, 0
+    overlap = plan.lanes.update_overlap_days_5m if row.timeframe == _INTRADAY_UPDATE_TF else 0
+    return "update", False, overlap
 
 
 def _read_apr(conn: Any, keys: Sequence[str]) -> dict[str, str]:
@@ -418,9 +493,10 @@ class IbkrHistoryFetcher(BaseBatch):
     """The single IBKR history fetcher oneshot (CD-01/CD-02/CD-07).
 
     Constructor seams exist for tests and replace exactly one dependency each: the provider
-    factory (IBKRProvider), the lock name or the whole lock, the item fetch (fetch_item_with_retries), the run
-    plan (reads), the stage runner (subprocess), the psycopg connect, the contract source,
-    the watchdog notifier, and the status file path.
+    factory (IBKRProvider), the lock name or the whole lock, the item fetch
+    (fetch_item_with_retries), the run plan (reads), the stage runner (subprocess), the psycopg
+    connect, the contract source, the watchdog notifier, the status file path, the 1d overlap
+    judge (records splits), the 5m waiver read and the overlap finding reporter.
     """
 
     job_name = JOB
@@ -443,6 +519,9 @@ class IbkrHistoryFetcher(BaseBatch):
         contracts_for: Callable[[str], list[Any]] | None = None,
         notify: Callable[[], None] = _sd_notify_watchdog,
         status_file: Path = NIGHTLY_STATUS_FILE,
+        overlap_judge: Callable[[Any, str, LaneConfig], Awaitable[Mapping[str, str]]] | None = None,
+        waiver: Callable[[Any, str, str, datetime], Awaitable[bool]] | None = None,
+        report_overlap: Callable[[str, str, OverlapVerdict], None] | None = None,
     ) -> None:
         super().__init__(db_dsn)
         self.args = args
@@ -466,6 +545,9 @@ class IbkrHistoryFetcher(BaseBatch):
         )
         self._notify = notify
         self._status_file = status_file
+        self._overlap_judge = overlap_judge or self._judge_daily_overlap
+        self._waiver = waiver or self._waiver_recorded
+        self._report_overlap = report_overlap or self._report_overlap_fact
         self._tick_s: float | None = None
         self.summary: dict[str, Any] = {}
 
@@ -527,11 +609,13 @@ class IbkrHistoryFetcher(BaseBatch):
     # -- reads ----------------------------------------------------------------
 
     async def prepare(self, pool: Any) -> RunPlan:
-        """Resolve scopes, candidates and the queue. Reads only: shared by the dry run."""
+        """Resolve scopes, candidates, the parity sample and the queue. Reads only: shared by
+        the dry run."""
         conn = self._connect()
         try:
             config = load_queue_config(conn)
-            apr = _read_apr(conn, (_KEY_OVERLAP_SESSIONS, _KEY_INTER_ITEM_PAUSE))
+            lanes = load_lane_config(conn)
+            apr = _read_apr(conn, (_KEY_INTER_ITEM_PAUSE,))
         finally:
             conn.close()
         tf_fetch_config = _history_fetch._load_tf_fetch_config(self.settings)
@@ -547,41 +631,71 @@ class IbkrHistoryFetcher(BaseBatch):
                 "ibkr_history_fetcher.unknown_timeframes_dropped",
                 timeframes=candidates.unknown_timeframes,
             )
-        owned = await self._tradier_owned(pool, {s for s, tf in candidates.pairs if tf == "1d"})
-        tradier_owned = [(s, tf) for s, tf in candidates.pairs if tf == _DAILY_TF and s in owned]
-        skipped = set(tradier_owned)
-        fetchable = [pair for pair in candidates.pairs if pair not in skipped]
         now = datetime.now(UTC)
-        # Named symbols bypass the current hold (module docstring): a caller that names a
-        # series wants it asked even when its last fetch settled after the latest close.
-        current_after = None if self.args.symbols else last_session_close(now)
-        queue = PriorityQueue(config, fetchable, now.date(), current_after=current_after)
+        parity = await self._parity_items(pool, candidates, lanes, tf_fetch_config, now)
+        pairs = list(dict.fromkeys([*candidates.pairs, *parity]))
+        candidates = Candidates(pairs, candidates.instruments, candidates.unknown_timeframes)
+        closes = completed_session_closes(now, lanes.reconcile_interval_sessions)
+        last_close = closes[-1] if closes else None
+        # Named symbols bypass every hold (module docstring): a caller that names a series
+        # wants it asked even when its last fetch settled after the latest close.
+        named = bool(self.args.symbols)
+        daily = (
+            None
+            if named or last_close is None
+            else DailyRule(last_close, reconcile_after(closes, lanes.reconcile_interval_sessions))
+        )
+        week_start = parity_week_start(now.date())
+        queue = PriorityQueue(
+            config,
+            pairs,
+            now.date(),
+            current_after=None if named else last_close,
+            daily=daily,
+            current_after_by_series=dict.fromkeys(parity, week_start),
+        )
         await queue.load(pool)
         overlap_sessions = (
             self.args.overlap_sessions
             if self.args.overlap_sessions is not None
-            else int(float(apr[_KEY_OVERLAP_SESSIONS]))
+            else lanes.update_overlap_sessions_1d
         )
         return RunPlan(
             config=config,
             queue=queue,
             candidates=candidates,
-            tradier_owned=tradier_owned,
             tf_fetch_config=tf_fetch_config,
             overlap_sessions=overlap_sessions,
             inter_item_pause_s=float(apr[_KEY_INTER_ITEM_PAUSE]),
+            lanes=lanes,
+            session_day=None if last_close is None else last_close.date(),
+            parity=parity,
         )
 
-    @staticmethod
-    async def _tradier_owned(pool: Any, symbols: Iterable[str]) -> set[str]:
-        """1d symbols whose latest daily load came from Tradier (D2's probe, one per name)."""
-        owned: set[str] = set()
+    def _is_default_run(self) -> bool:
+        args = self.args
+        return args.dimension is None and args.timeframes is None and not args.symbols
+
+    async def _parity_items(
+        self,
+        pool: Any,
+        candidates: Candidates,
+        lanes: LaneConfig,
+        tf_fetch_config: Mapping[str, Any],
+        now: datetime,
+    ) -> tuple[tuple[str, str], ...]:
+        """This ISO week's parity sample (design section 7): vendor 15m and 1h for
+        infra.backfill.grid_parity_sample_names_per_week names holding 5m and archive rows.
+        Default runs only: an explicit run asks exactly what it names."""
+        tfs = [tf for tf in _PARITY_TFS if tf in tf_fetch_config]
+        if not self._is_default_run() or lanes.parity_names_per_week <= 0 or not tfs:
+            return ()
         async with pool.acquire() as conn:
-            for symbol in sorted(symbols):
-                probe = await conn.fetchrow(_DAILY_SOURCE_PROBE_SQL, symbol)
-                if probe is not None and probe["tradier_owned"]:
-                    owned.add(symbol)
-        return owned
+            rows = await conn.fetch(
+                _PARITY_ELIGIBLE_SQL, sorted(candidates.instruments), list(_PARITY_TFS)
+            )
+        sample = parity_sample([r["symbol"] for r in rows], now.date(), lanes.parity_names_per_week)
+        return tuple((symbol, tf) for symbol in sample for tf in tfs)
 
     # -- entry ----------------------------------------------------------------
 
@@ -657,7 +771,8 @@ class IbkrHistoryFetcher(BaseBatch):
         for row in rows[:_DRY_RUN_PRINT_ROWS]:
             print("\t".join(row))
         bands = Counter(
-            f"sla_breach={r[4]} tf_class={r[5]}" if r[13] == "" else f"held={r[13]}" for r in rows
+            f"lane={r[14]} tf={r[2]} due={r[15] or '-'}" if r[13] == "" else f"held={r[13]}"
+            for r in rows
         )
         print(f"\n{len(rows)} candidate series -> {out}")
         for band, n in sorted(bands.items()):
@@ -689,12 +804,18 @@ class IbkrHistoryFetcher(BaseBatch):
 
         provider = self._provider_factory()
         self._notify()
+        run_started_at = datetime.now(UTC)
         if not await provider.connect():
             raise RuntimeError("IBKR gateway unreachable at startup")
         ctx: Any = None
+        escalation_code = 0
         try:
             ctx = self._context_factory(provider, plan, fetch_run_id)
             loop = await self._loop(pool, plan, ctx, provider)
+            if not loop.gateway_lost:
+                escalation_code = await self._escalate(
+                    pool, plan, ctx, provider, loop, fetch_run_id, run_started_at
+                )
         finally:
             try:
                 await provider.disconnect()
@@ -702,11 +823,13 @@ class IbkrHistoryFetcher(BaseBatch):
                 logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
             if ctx is not None:
                 self._final_flush(ctx)
-        stage_codes = await self._run_end_stages(ctx, loop, fetch_run_id)
+        stage_codes = {"escalation": escalation_code, **await self._run_end_stages(ctx, loop)}
         sla_breached = await self._sla_breached(pool, plan)
         self.summary = {
             "fetch_run_id": fetch_run_id,
             **loop.counts(),
+            "lanes": dict(sorted(loop.lanes.items())),
+            "escalated": dict(loop.escalated),
             "budget_exhausted": loop.budget_exhausted,
             "gateway_lost": loop.gateway_lost,
             "sla_breached": sla_breached,
@@ -740,15 +863,10 @@ class IbkrHistoryFetcher(BaseBatch):
                 logger.error("ibkr_history_fetcher.queue_repeated_item", symbol=key[0], tf=key[1])
                 break
             visited.add(key)
-            outcome = await self._fetch_fn(
-                ctx,
-                plan.candidates.instruments[row.symbol],
-                row,
-                gap_days=_gap_days(plan.queue, key),
-                full_scan=self.args.full_scan,
-                config=plan.config,
-                reconnect=provider.connect,
-                on_tick=self._notify,
+            lane, full_scan, overlap_days = item_lane(plan, row, full_scan=self.args.full_scan)
+            state.lanes[lane] += 1
+            outcome = await self._fetch_one(
+                plan, ctx, provider, row, full_scan=full_scan, overlap_days=overlap_days
             )
             self._notify()
             if outcome.gateway_lost:
@@ -757,8 +875,176 @@ class IbkrHistoryFetcher(BaseBatch):
                 break
             self._record_outcome(ctx, outcome)
             state.add(outcome)
+            if outcome.overlap_pairs:
+                verdict = judge_overlap(
+                    outcome.overlap_pairs,
+                    plan.lanes.basis_tolerance_bp,
+                    escalate_on_restated=False,
+                )
+                if verdict.escalate:
+                    state.overlap_breaches[(row.symbol, row.timeframe)] = verdict
             await asyncio.sleep(plan.inter_item_pause_s)
         return state
+
+    async def _fetch_one(
+        self,
+        plan: RunPlan,
+        ctx: Any,
+        provider: Any,
+        row: Any,
+        *,
+        full_scan: bool,
+        overlap_days: int = 0,
+        refetch: bool = False,
+        waived: bool = False,
+    ) -> ItemOutcome:
+        return await self._fetch_fn(
+            ctx,
+            plan.candidates.instruments[row.symbol],
+            row,
+            full_scan=full_scan,
+            overlap_days=overlap_days,
+            refetch=refetch,
+            waived=waived,
+            config=plan.config,
+            reconnect=provider.connect,
+            on_tick=self._notify,
+        )
+
+    # -- the update lane's escalation (plan 189-10 Task 1, todo 507) --------------------
+
+    async def _escalate(
+        self,
+        pool: Any,
+        plan: RunPlan,
+        ctx: Any,
+        provider: Any,
+        loop: _LoopState,
+        fetch_run_id: str,
+        run_started_at: datetime,
+    ) -> int:
+        """Judge the run's overlaps and re-fetch every breached name at full depth, in this
+        run, on the open connection and under this run's lock. Returns 0, or 1 when an
+        escalation could not complete (the run is then partial).
+
+        Order (todo 507): the 1d judge records splits first (corporate_action), then the
+        re-fetch asks the whole 1d depth (answered after the recording, so D2 counts it as
+        post-split), then the run-end daily stage derives. A 5m breach is re-fetched through
+        the waived grid writer only when a corporate action recorded after the series' last
+        applied load explains it; without one the ingress contract would refuse the rewrite,
+        so the finding is recorded instead and the run is partial.
+        """
+        failed = False
+        reasons_1d: Mapping[str, str] = {}
+        if loop.touched_1d:
+            reasons_1d = await self._overlap_judge(pool, fetch_run_id, plan.lanes)
+        targets: list[tuple[str, str, str, bool]] = []
+        for symbol in sorted(reasons_1d):
+            targets.append((symbol, DAILY_TF, reasons_1d[symbol], False))
+        for (symbol, timeframe), verdict in sorted(loop.overlap_breaches.items()):
+            if await self._waiver(pool, symbol, timeframe, run_started_at):
+                targets.append((symbol, timeframe, str(verdict.reason), True))
+            else:
+                self._report_overlap(symbol, timeframe, verdict)
+                loop.escalated[f"{symbol}/{timeframe}"] = "unwaived_overlap_breach"
+                failed = True
+        for symbol, timeframe, reason, waived in targets:
+            if symbol not in plan.candidates.instruments:
+                logger.error("ibkr_history_fetcher.escalation_unknown_symbol", symbol=symbol)
+                failed = True
+                continue
+            loop.escalated[f"{symbol}/{timeframe}"] = reason
+            logger.warning(
+                "ibkr_history_fetcher.escalation_refetch",
+                symbol=symbol,
+                timeframe=timeframe,
+                reason=reason,
+                waived=waived,
+            )
+            row = CoverageRow(symbol, timeframe, None, None, None, 0, None)
+            outcome = await self._fetch_one(
+                plan, ctx, provider, row, full_scan=True, refetch=True, waived=waived
+            )
+            self._notify()
+            if outcome.gateway_lost:
+                loop.gateway_lost = f"{symbol}/{timeframe} (escalation)"
+                return 1
+            self._record_outcome(ctx, outcome)
+            loop.add(outcome)
+            failed = failed or outcome.status == "error"
+        return 1 if failed else 0
+
+    async def _judge_daily_overlap(
+        self, pool: Any, fetch_run_id: str, lanes: LaneConfig
+    ) -> dict[str, str]:
+        """The run's 1d overlap: splits recorded (185-22, ops_split_detect.record_split),
+        unexplained differences reported, and every name to re-fetch with its reason."""
+        reasons: dict[str, str] = {}
+        report = _unexplained_reporter(self.settings)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT config_key, config_value FROM config_state "
+                "WHERE config_key = ANY($1::text[])",
+                list(_SEAM_KEYS),
+            )
+            apr = {r["config_key"]: r["config_value"] for r in rows}
+            missing = sorted(set(_SEAM_KEYS) - set(apr))
+            if missing:
+                raise RuntimeError(f"APR keys not set: {missing}")
+            by_symbol = await overlap_pairs(conn, fetch_run_id)
+            detected = judge_overlap_pairs(
+                by_symbol,
+                rel_tol=float(apr["threshold.seam.rel_tol"]),
+                min_run=int(apr["threshold.seam.min_run"]),
+                ratio_snap_tol=float(apr["threshold.seam.ratio_snap_tol"]),
+            )
+            for split in detected:
+                if split.unexplained:
+                    report(split)
+                    reasons[split.symbol] = "unexplained_difference"
+                elif await record_split(conn, split):
+                    reasons[split.symbol] = "split_recorded"
+        for symbol, pairs in sorted(by_symbol.items()):
+            verdict = judge_overlap(
+                [(float(r["prev_close"]), float(r["new_close"])) for r in pairs],
+                lanes.basis_tolerance_bp,
+                escalate_on_restated=True,
+            )
+            if verdict.escalate:
+                reasons.setdefault(symbol, str(verdict.reason))
+        return reasons
+
+    async def _waiver_recorded(
+        self, pool: Any, symbol: str, timeframe: str, before: datetime
+    ) -> bool:
+        async with pool.acquire() as conn:
+            return bool(await conn.fetchval(_WAIVER_SQL, symbol, timeframe, before))
+
+    def _report_overlap_fact(self, symbol: str, timeframe: str, verdict: OverlapVerdict) -> None:
+        """An unexplained overlap breach as an integrity fact (the split detector's monitor)."""
+        import psycopg
+
+        from src.core.integrity_monitor import emit_integrity_fact_sync
+
+        with psycopg.connect(self.settings.database_url, autocommit=True) as fact_conn:
+            emit_integrity_fact_sync(
+                fact_conn,
+                _FACT_MONITOR,
+                symbol,
+                _FACT_METRIC,
+                verdict.median_ratio,
+                1.0,
+                False,
+                None,
+            )
+        logger.error(
+            "ibkr_history_fetcher.overlap_breach_unwaived",
+            symbol=symbol,
+            timeframe=timeframe,
+            median_ratio=verdict.median_ratio,
+            n_pairs=verdict.n_pairs,
+            n_restated=verdict.n_restated,
+        )
 
     def _record_outcome(self, ctx: Any, outcome: ItemOutcome) -> None:
         conn = ctx.get_conn()
@@ -778,27 +1064,17 @@ class IbkrHistoryFetcher(BaseBatch):
         except Exception as error:  # noqa: BLE001
             logger.error("ibkr_history_fetcher.final_flush_failed", error=str(error))
 
-    async def _run_end_stages(self, ctx: Any, loop: _LoopState, fetch_run_id: str) -> dict:
-        """Split detection, the daily stage and its ledger refresh, the grid stage.
+    async def _run_end_stages(self, ctx: Any, loop: _LoopState) -> dict:
+        """The daily stage and its ledger refresh, then the grid stage.
 
-        Order as the nightly's: splits are judged first so the daily stage derives a split
-        symbol's history on one scale (185-22); the daily stage runs before the grid stage
-        so the two derivation writers never overlap. Under the lock no other IBKR writer
-        exists, so no lane-guard exclude file is needed.
+        Splits were judged, recorded and re-fetched in-process before this (_escalate), so the
+        daily stage derives a split symbol's history on one scale (185-22); the daily stage
+        runs before the grid stage so the two derivation writers never overlap. Under the
+        lock no other IBKR writer exists, so no lane-guard exclude file is needed.
         """
         codes: dict[str, int] = {}
         python = sys.executable
         if loop.touched_1d:
-            codes["split_detect"] = await self._run_stage(
-                [
-                    python,
-                    str(_SPLIT_DETECT_SCRIPT),
-                    "--client-id",
-                    str(self.args.client_id),
-                    "--fetch-run-id",
-                    fetch_run_id,
-                ]
-            )
             symbols = sorted(loop.touched_1d)
             codes["daily"] = await self._run_stage(
                 [
@@ -889,6 +1165,10 @@ class _LoopState:
     budget_exhausted: bool = False
     gateway_lost: str | None = None
     touched_1d: dict[str, datetime] = field(default_factory=dict)
+    lanes: Counter[str] = field(default_factory=Counter)
+    # Update-lane overlaps the 5m judge found rescaled, and every escalation with its reason.
+    overlap_breaches: dict[tuple[str, str], OverlapVerdict] = field(default_factory=dict)
+    escalated: dict[str, str] = field(default_factory=dict)
 
     def add(self, outcome: ItemOutcome) -> None:
         if outcome.status == "ok":
@@ -919,13 +1199,6 @@ def _all_items(queue: Any) -> list[RankedItem]:
     return list(queue.ranked_snapshot()) + [item for item, _ in queue.held_snapshot()]
 
 
-def _gap_days(queue: Any, key: tuple[str, str]) -> int:
-    for item in queue.ranked_snapshot():
-        if (item.row.symbol, item.row.timeframe) == key:
-            return int(item.gap_days)
-    raise RuntimeError(f"queue returned {key} but its ranked snapshot does not hold it")
-
-
 def _fmt(value: Any) -> str:
     if value is None:
         return ""
@@ -935,8 +1208,10 @@ def _fmt(value: Any) -> str:
 
 
 def dry_run_rows(plan: RunPlan) -> list[list[str]]:
-    """TSV rows: the queue in order (position 1..n), then held series, then Tradier-owned."""
+    """TSV rows: the queue in order (position 1..n), then held series, each with its lane
+    and (1d) its due reason."""
     rows: list[list[str]] = []
+    due_reason = getattr(plan.queue, "due_reason", lambda symbol, timeframe: "")
 
     def add(position: str, item: RankedItem, reason: str) -> None:
         r = item.row
@@ -956,6 +1231,8 @@ def dry_run_rows(plan: RunPlan) -> list[list[str]]:
                 str(r.consecutive_failures),
                 _fmt(r.last_fetched_at),
                 reason,
+                item_lane(plan, r)[0],
+                due_reason(r.symbol, r.timeframe) if reason == "" else "",
             ]
         )
 
@@ -963,8 +1240,6 @@ def dry_run_rows(plan: RunPlan) -> list[list[str]]:
         add(str(position), item, "")
     for item, reason in plan.queue.held_snapshot():
         add("", item, reason)
-    for symbol, timeframe in plan.tradier_owned:
-        rows.append(["", symbol, timeframe, "False"] + [""] * 9 + ["tradier_owned"])
     return rows
 
 

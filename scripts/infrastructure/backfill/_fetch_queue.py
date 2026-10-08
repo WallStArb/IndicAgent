@@ -7,6 +7,7 @@ order. The design tuple, verbatim:
 
     rank(symbol, timeframe) = (
         consecutive_failures > infra.backfill.max_consecutive_failures,  -- excluded, lowest
+        timeframe != '1d',                              -- due 1d first (189-10, 185-46 B)
         staleness_days <= infra.backfill.max_staleness_days_before_preempt,  -- SLA band first
         -1 if timeframe in priority_tf_order else 0,   -- 15m/1h before 5m (todo 449)
         -coverage_gap_days,                             -- zero/largest gap first
@@ -19,6 +20,11 @@ Why each element exists:
 - Excluded: a series that keeps erroring (CD-08) must not hold the head of the queue every
   run. 'no_data' is a correct empty answer, never a failure (CD-05): only 'error' outcomes
   increment consecutive_failures, so a no_data series is never excluded.
+- Due 1d first: IBKR is the 1d primary (owner decision 2026-10-07), so one short 1d ask per
+  name after each close must never wait behind the 5m drain. Every queued 1d item is due (the
+  1d due rule holds the rest), and it ranks ahead of every other item. It sits before the SLA
+  band rather than in the timeframe class because an SLA-breached 5m series would otherwise
+  still rank first.
 - SLA band: without it a permanent bulk backlog (one newly onboarded zero-coverage symbol)
   could block freshness updates for 900+ covered names for hours with nothing surfacing it.
 - Timeframe class: the owner's todo 449 decision, 15m/1h ahead of 5m/1d.
@@ -51,14 +57,28 @@ Interpretation choices (documented because the design tuple leaves them open):
 
 Thresholds come from QueueConfig (APR); the only literals are schema identifiers and the
 provider name. No IBKR access and no writes.
+
+Two lanes, one queue (plan 189-10 Task 1, as amended by 185-46): every item is one of
+- the update lane: the series is asked since its latest stored bar, widened to overlap the
+  stored tail (1d: infra.backfill.update_overlap_sessions_1d sessions; 5m:
+  infra.backfill.update_overlap_days_5m days); judge_overlap compares the overlap to the stored
+  bars and the fetcher escalates a breach to a full-depth re-fetch in the same run;
+- the gap-fill lane: on one session in every infra.backfill.gap_fill_interval_days
+  (gap_fill_due) the series plans its full depth instead (interior holes, short starts).
+A 1d series is due by the session calendar and the request ledger (daily_due_reason), the
+other timeframes by is_current. The weekly parity sample (parity_sample) adds vendor 15m and 1h
+items for a few names a week. The keys live in LaneConfig (load_lane_config, no fallbacks:
+migration 451 seeds them).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import statistics
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -68,6 +88,9 @@ from scripts.infrastructure.backfill._empty_history import _REVERIFY_DAYS_KEY
 logger = structlog.get_logger(__name__)
 
 PROVIDER = "ibkr"
+# The timeframe the 1d due rule and the due-1d-first rank element apply to (a DAG fact: 1d is
+# the one timeframe with a session-calendar currency rule and a nightly reconcile).
+DAILY_TF = "1d"
 
 _KEY_MAX_FAILURES = "infra.backfill.max_consecutive_failures"
 _KEY_SLA_DAYS = "infra.backfill.max_staleness_days_before_preempt"
@@ -207,6 +230,185 @@ def load_queue_config(conn: Any) -> QueueConfig:
     )
 
 
+# ---------------------------------------------------------------------------
+# Lanes (plan 189-10 Task 1, as amended by 185-46)
+# ---------------------------------------------------------------------------
+
+_KEY_RECONCILE_INTERVAL = "infra.backfill.ibkr_1d_reconcile_interval_days"
+_KEY_OVERLAP_1D = "infra.backfill.update_overlap_sessions_1d"
+_KEY_OVERLAP_5M = "infra.backfill.update_overlap_days_5m"
+_KEY_GAP_FILL_INTERVAL = "infra.backfill.gap_fill_interval_days"
+_KEY_PARITY_NAMES = "infra.backfill.grid_parity_sample_names_per_week"
+BASIS_TOLERANCE_KEY = "threshold.bar_integrity.fallback_basis_tolerance_bp"
+LANE_KEYS = (
+    _KEY_RECONCILE_INTERVAL,
+    _KEY_OVERLAP_1D,
+    _KEY_OVERLAP_5M,
+    _KEY_GAP_FILL_INTERVAL,
+    _KEY_PARITY_NAMES,
+    BASIS_TOLERANCE_KEY,
+)
+# Basis points per unit ratio (a unit conversion).
+_BP = 10_000.0
+# Monday 2000-01-03: the origin of the weekday index gap_fill_due counts from (any Monday works;
+# fixed so a series keeps its slot across runs).
+_WEEKDAY_ORIGIN = date(2000, 1, 3)
+_WEEKDAYS = 5
+
+
+@dataclass(frozen=True)
+class LaneConfig:
+    """The two lanes' and the parity sample's APR keys (migration 451) plus the overlap
+    tolerance (threshold.bar_integrity.fallback_basis_tolerance_bp, migration 446's)."""
+
+    reconcile_interval_sessions: int
+    update_overlap_sessions_1d: int
+    update_overlap_days_5m: int
+    gap_fill_interval_days: int
+    parity_names_per_week: int
+    basis_tolerance_bp: float
+
+
+def load_lane_config(conn: Any) -> LaneConfig:
+    """Read LANE_KEYS in one query (psycopg). No fallbacks: a missing key raises, because a
+    silent default would change what the fetcher asks the provider."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
+            (list(LANE_KEYS),),
+        )
+        values = {str(k): str(v) for k, v in cur.fetchall()}
+    missing = sorted(set(LANE_KEYS) - set(values))
+    if missing:
+        raise RuntimeError(f"APR keys not set (migration 451): {missing}")
+    return LaneConfig(
+        reconcile_interval_sessions=int(values[_KEY_RECONCILE_INTERVAL]),
+        update_overlap_sessions_1d=int(values[_KEY_OVERLAP_1D]),
+        update_overlap_days_5m=int(values[_KEY_OVERLAP_5M]),
+        gap_fill_interval_days=int(values[_KEY_GAP_FILL_INTERVAL]),
+        parity_names_per_week=int(values[_KEY_PARITY_NAMES]),
+        basis_tolerance_bp=float(values[BASIS_TOLERANCE_KEY]),
+    )
+
+
+@dataclass(frozen=True)
+class DailyRule:
+    """The session calendar's inputs to the 1d due rule: the latest completed session's close
+    and the close a name's latest answered request must postdate (reconcile_after)."""
+
+    last_close: datetime
+    reconcile_after: datetime
+
+
+def reconcile_after(closes: Sequence[datetime], interval_sessions: int) -> datetime:
+    """The close of the Nth latest completed session (closes ascending, N >= 1). N = 1 is the
+    latest close: every name is asked once after every session."""
+    if interval_sessions < 1 or interval_sessions > len(closes):
+        raise ValueError(
+            f"reconcile interval {interval_sessions} outside 1..{len(closes)} known closes"
+        )
+    return sorted(closes)[-interval_sessions]
+
+
+def daily_due_reason(
+    latest_answered: datetime | None, latest_canonical: date | None, rule: DailyRule
+) -> str | None:
+    """Why a name's 1d item is due, or None when it is held as current.
+
+    - never_asked: no answered SMART TRADES 1d request exists.
+    - reconcile_due: the latest answer predates rule.reconcile_after (owner rule, 185-46
+      amendment B: with the interval at 1, answered before the latest completed close).
+    - not_current: the latest canonical bar is not the last completed session and the name
+      was not asked since that close. A name asked since the close stays held even when its
+      canonical bar is stale (the freshness_1d verdict names it); re-asking it every run would
+      spend the stream on an answer that already came back.
+    """
+    if latest_answered is None:
+        return "never_asked"
+    if latest_answered < rule.reconcile_after:
+        return "reconcile_due"
+    stale = latest_canonical is None or latest_canonical < rule.last_close.date()
+    if stale and latest_answered < rule.last_close:
+        return "not_current"
+    return None
+
+
+def _stable_int(*parts: str) -> int:
+    digest = hashlib.sha256("\x1f".join(parts).encode()).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
+def gap_fill_due(symbol: str, timeframe: str, session_day: date, interval_sessions: int) -> bool:
+    """True on one weekday session in every `interval_sessions` for this series.
+
+    The slot is the series' stable hash modulo the interval, matched against the weekday
+    index of `session_day` (the last completed session), so the gap-fill work spreads evenly
+    over the cycle and needs no stored state. A slot that falls on a market holiday skips that
+    cycle; the update lane's overlap still verifies the tail meanwhile.
+    """
+    if interval_sessions <= 1:
+        return True
+    days = (session_day - _WEEKDAY_ORIGIN).days
+    weekday_index = (days // 7) * _WEEKDAYS + min(days % 7, _WEEKDAYS)
+    return (weekday_index + _stable_int(symbol, timeframe)) % interval_sessions == 0
+
+
+def parity_week_start(day: date) -> datetime:
+    """00:00 UTC on the Monday of `day`'s ISO week: a parity series asked since then is held."""
+    monday = day - timedelta(days=day.weekday())
+    return datetime(monday.year, monday.month, monday.day, tzinfo=UTC)
+
+
+def parity_sample(eligible: Iterable[str], day: date, n: int) -> list[str]:
+    """The `n` names of `day`'s ISO week: the same on every run that week, a new draw the next.
+
+    Ordered by a hash of (ISO year, ISO week, symbol), so the draw needs no state and does not
+    depend on the input order. Eligibility (5m rows and archive rows) is the caller's read.
+    """
+    if n <= 0:
+        return []
+    year, week, _ = day.isocalendar()
+    names = sorted(set(eligible))
+    return sorted(names, key=lambda s: (_stable_int(str(year), str(week), s), s))[:n]
+
+
+@dataclass(frozen=True)
+class OverlapVerdict:
+    """The update lane's comparison of an overlap with the stored bars."""
+
+    n_pairs: int
+    median_ratio: float | None
+    n_restated: int
+    escalate: bool
+    reason: str | None
+
+
+def judge_overlap(
+    pairs: Sequence[tuple[float, float]], tolerance_bp: float, *, escalate_on_restated: bool
+) -> OverlapVerdict:
+    """Judge (stored close, fresh close) pairs of one series' overlap.
+
+    Escalates when the median stored/fresh close ratio is outside `tolerance_bp` (a rescale:
+    a split, or a vendor basis change), or, with `escalate_on_restated`, when any close was
+    restated. 1d escalates on any restated close (1 in 5,558 repeated SMART TRADES
+    observations of completed sessions moved, 2026-10-07; volume never enters). 5m does not:
+    IBKR restates 15 to 40 recent intraday rows a name routinely (185-31), which the ingress
+    contract writes and records in ohlcv_revision.
+    """
+    usable = [(s, f) for s, f in pairs if f]
+    if not usable:
+        return OverlapVerdict(0, None, 0, False, None)
+    ratio = statistics.median(s / f for s, f in usable)
+    n_restated = sum(1 for s, f in usable if s != f)
+    if abs(ratio - 1.0) * _BP > tolerance_bp:
+        reason: str | None = "ratio_outside_tolerance"
+    elif escalate_on_restated and n_restated:
+        reason = "restated_row"
+    else:
+        reason = None
+    return OverlapVerdict(len(usable), ratio, n_restated, reason is not None, reason)
+
+
 def _days_since(ts: datetime, today: date) -> int:
     return (today - ts.astimezone(UTC).date()).days
 
@@ -260,6 +462,7 @@ def _components(
     effective_stale = target if stale is None else stale
     key = (
         row.consecutive_failures > config.max_consecutive_failures,
+        row.timeframe != DAILY_TF,
         not sla_breach,
         tf_class,
         -gap,
@@ -316,6 +519,23 @@ _EMPTY_SQL = (
     "AND symbol = ANY($2::text[]) AND verified_at > NOW() - make_interval(days => $3) "
     "AND n_confirming_chunks >= $4"
 )
+# The 1d due rule's two reads: each name's latest answered SMART TRADES 1d request (test callers
+# never count, as in services/split_detection.py) and its latest canonical 1d bar inside a
+# lookback (absent there reads as stale).
+_LATEST_DAILY_ANSWER_SQL = (
+    "SELECT symbol, max(answered_at) AS answered_at FROM ohlcv_request "
+    "WHERE source = $1 AND timeframe = '1d' AND route = 'SMART' AND what_to_show = 'TRADES' "
+    "AND outcome IN ('bars', 'no_data') AND caller NOT LIKE 'test-%' "
+    "AND symbol = ANY($2::text[]) GROUP BY symbol"
+)
+_LATEST_CANONICAL_1D_SQL = (
+    'SELECT symbol, max("timestamp") AS latest FROM market_data_ohlcv_tradeable '
+    "WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND \"timestamp\" >= $2 "
+    "GROUP BY symbol"
+)
+# Calendar slack for the canonical lookback: longer than any market closure, so a current name
+# always has its latest bar inside it. A calendar fact, not a tunable.
+_CANONICAL_LOOKBACK_DAYS = 14
 
 
 @dataclass
@@ -335,8 +555,16 @@ class PriorityQueue:
     candidates: Sequence[tuple[str, str]]
     today: date
     current_after: datetime | None = None
+    # The 1d due rule (None: 1d series follow is_current like the rest, e.g. named symbols).
+    daily: DailyRule | None = None
+    # Per-series hold point replacing current_after (the parity sample: its ISO week start).
+    current_after_by_series: Mapping[tuple[str, str], datetime] = field(default_factory=dict)
     _items: list[RankedItem] = field(default_factory=list, init=False, repr=False)
     _held: list[tuple[RankedItem, str]] = field(default_factory=list, init=False, repr=False)
+    _daily_inputs: tuple[dict[str, datetime], dict[str, date]] | None = field(
+        default=None, init=False, repr=False
+    )
+    _due_reasons: dict[tuple[str, str], str] = field(default_factory=dict, init=False, repr=False)
 
     async def load(self, pool: Any) -> None:
         symbols = sorted({s for s, _ in self.candidates})
@@ -382,7 +610,11 @@ class PriorityQueue:
             all_rows.get((s, tf)) or CoverageRow(s, tf, None, None, None, 0, floor(s, tf))
             for s, tf in dict.fromkeys(self.candidates)
         ]
-        due = [r for r in candidate_rows if not is_current(r, self.current_after)]
+        if self.daily is not None and self._daily_inputs is None:
+            daily_symbols = sorted({s for s, tf in self.candidates if tf == DAILY_TF})
+            self._daily_inputs = await self._load_daily_inputs(pool, daily_symbols)
+        self._due_reasons = {}
+        due = [r for r in candidate_rows if self._is_due(r)]
         self._items = queue_items(due, self.config, self.today, proven)
         queued = {(i.row.symbol, i.row.timeframe) for i in self._items}
         held = [
@@ -394,6 +626,41 @@ class PriorityQueue:
             ((i, "excluded" if i.rank[0] else "current") for i in held),
             key=lambda pair: pair[0].rank,
         )
+
+    async def _load_daily_inputs(
+        self, pool: Any, symbols: list[str]
+    ) -> tuple[dict[str, datetime], dict[str, date]]:
+        """The 1d due rule's reads, once per queue (a run): an item fetched later in the run is
+        kept out by the run's visited set, so a fresher read would change nothing."""
+        if not symbols or self.daily is None:
+            return {}, {}
+        since = self.daily.last_close - timedelta(days=_CANONICAL_LOOKBACK_DAYS)
+        async with pool.acquire() as conn:
+            answers = await conn.fetch(_LATEST_DAILY_ANSWER_SQL, PROVIDER, symbols)
+            canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
+        return (
+            {r["symbol"]: r["answered_at"] for r in answers},
+            {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
+        )
+
+    def _is_due(self, row: CoverageRow) -> bool:
+        key = (row.symbol, row.timeframe)
+        if row.timeframe == DAILY_TF and self.daily is not None and self._daily_inputs:
+            if row.last_fetch_status == "error":  # never held, as is_current
+                self._due_reasons[key] = "error"
+                return True
+            answered, canonical = self._daily_inputs
+            reason = daily_due_reason(
+                answered.get(row.symbol), canonical.get(row.symbol), self.daily
+            )
+            if reason is not None:
+                self._due_reasons[key] = reason
+            return reason is not None
+        return not is_current(row, self.current_after_by_series.get(key, self.current_after))
+
+    def due_reason(self, symbol: str, timeframe: str) -> str:
+        """Why the last load() queued a 1d series under the daily rule ('' otherwise)."""
+        return self._due_reasons.get((symbol, timeframe), "")
 
     async def next(self, pool: Any, visited: set[tuple[str, str]]) -> CoverageRow | None:
         """The highest-ranked item not yet visited this run; None when exhausted."""

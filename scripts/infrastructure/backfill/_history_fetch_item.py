@@ -58,6 +58,7 @@ from scripts.infrastructure.backfill._history_fetch import (
     _flush_capture,
     _insert_archive_rows,
     _insert_market_data_rows,
+    _insert_market_data_rows_waived,
     aggregate_bars_from_1m,
     cluster_gap_ranges,
     detect_gaps,
@@ -72,6 +73,7 @@ from services.ohlcv_coverage_writer import (
     FETCH_STATUSES,
     CoverageDelta,
 )
+from services.ohlcv_ingress_contract import read_stored
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
@@ -114,6 +116,10 @@ class ItemOutcome:
     # daily derivation stage for these symbols and refreshes the 1d ledger bounds from
     # here (plan 185-18 task 1b: D2 is the sole 1d writer, so fetch_item never stores 1d).
     derive_1d_since: datetime | None = None
+    # Update lane (plan 189-10): (stored close, fresh close) for every fresh grid bar whose
+    # slot was already stored, read before the write. The fetcher judges them
+    # (_fetch_queue.judge_overlap) and escalates a rescaled series in the same run.
+    overlap_pairs: tuple[tuple[float, float], ...] = ()
 
     def __post_init__(self) -> None:
         if self.status not in FETCH_STATUSES:
@@ -257,14 +263,32 @@ class _ChunkPersister:
     its answers are D1 rows, plan 185-18 task 1b).
     """
 
-    def __init__(self, ctx: FetchContext, symbol: str, timeframe: str, clock: ProgressClock):
+    def __init__(
+        self,
+        ctx: FetchContext,
+        symbol: str,
+        timeframe: str,
+        clock: ProgressClock,
+        *,
+        verify_overlap: bool = False,
+        waived: bool = False,
+    ):
         self.ctx = ctx
         self.symbol = symbol
         self.timeframe = timeframe
         self.clock = clock
         self.archive = timeframe in _ARCHIVE_TFS
+        if waived and self.archive:
+            raise ValueError(f"{symbol} {timeframe}: the revision waiver covers the grid only")
+        self.verify_overlap = verify_overlap and not self.archive
+        self.writer = (
+            _insert_archive_rows
+            if self.archive
+            else (_insert_market_data_rows_waived if waived else _insert_market_data_rows)
+        )
         self.request_ids: list[Any] = []
         self.persisted: set[datetime] = set()
+        self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
 
     def on_request(self, record: Any) -> None:
@@ -282,11 +306,17 @@ class _ChunkPersister:
         self.request_ids.clear()
         rows = [_bar_row(self.symbol, self.timeframe, b, archive=self.archive) for b in bars]
         conn = self.ctx.get_conn()
+        if self.verify_overlap:
+            fresh = {row[0]: row[6] for row in rows}
+            stored = _stored_closes(conn, self.symbol, self.timeframe, sorted(fresh))
+            self.overlap_pairs.extend(
+                (float(stored[ts]), float(fresh[ts])) for ts in sorted(stored)
+            )
         _, n_rows = persist_chunk_atomically(
             conn,
             request_rows=request_rows,
             archive_rows=rows,
-            write_archive_rows=_insert_archive_rows if self.archive else _insert_market_data_rows,
+            write_archive_rows=self.writer,
             coverage=CoverageDelta(
                 self.symbol,
                 self.timeframe,
@@ -299,17 +329,38 @@ class _ChunkPersister:
         self.clock.touch()
 
 
+def _stored_closes(
+    conn: Any, symbol: str, timeframe: str, timestamps: list[datetime]
+) -> dict[datetime, float]:
+    """Stored grid closes at `timestamps` (the ingress contract's own stored-row read)."""
+    with conn.cursor() as cur:
+        stored = read_stored(cur, DESTINATION_GRID, symbol, timeframe, timestamps)
+    return {ts: values[3] for ts, values in stored.items()}
+
+
+def _merge_windows(windows: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    """Sorted windows with overlapping or touching ones merged (end is the max end)."""
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(windows):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def _depth_days(ctx: FetchContext, timeframe: str) -> int:
     depth = ctx.tf_fetch_config[timeframe][0]
     return min(depth, ctx.days_override) if ctx.days_override else depth
 
 
-def _needs_full_window(row: Any, *, gap_days: int, full_scan: bool) -> bool:
-    """Todo 387: a fully covered series (no gap, last fetch ok) is scanned only from its
-    latest bar forward; anything else gets the full depth window."""
-    return (
-        full_scan or gap_days > 0 or row.last_fetch_status != "ok" or row.latest_timestamp is None
-    )
+def _needs_full_window(row: Any, *, full_scan: bool) -> bool:
+    """Todo 387 and plan 189-10's two lanes: a series whose last fetch settled ok is asked
+    from its latest bar forward (the update lane); a never-fetched or failed series, and a
+    series on its gap-fill session (the caller's full_scan), plans its full depth window.
+    A short start no longer forces the full window on every run: that is the gap-fill lane's
+    cadence."""
+    return full_scan or row.last_fetch_status != "ok" or row.latest_timestamp is None
 
 
 def _midnight(ts: datetime) -> datetime:
@@ -371,6 +422,9 @@ def _plan_gaps(
     instrument: Any,
     timeframe: str,
     start_dt: datetime,
+    *,
+    overlap: bool = False,
+    refetch: bool = False,
 ) -> list[tuple[datetime, datetime]]:
     """The asks for one (symbol, timeframe), through the shared planners (plan 185-18).
 
@@ -378,6 +432,11 @@ def _plan_gaps(
     5m/15m/1h: the record planner (expected slots minus stored minus answered windows).
     Anything else (1m, 4h): the legacy grid difference with the empty-history gate.
     Every path folds in the provider-verified empty span under one freshness rule.
+
+    Plan 189-10: `overlap` adds [start_dt, end) to a record-planned series (the update lane
+    re-asks stored slots behind its latest bar; the planner never asks a stored slot).
+    `refetch` (the escalation after a restated overlap) asks the whole window, stored or not:
+    every 1d session of it, every record-planned slot of it.
     """
     symbol, end_dt = instrument.symbol, ctx.end_dt
     empty = ctx.empty_ranges.get((symbol, timeframe))
@@ -413,7 +472,10 @@ def _plan_gaps(
             nyse_sessions(start_dt.date(), end_dt.date()),
             **gate,
         )
-        if ctx.overlap_sessions > 0:
+        if refetch:
+            window = nyse_sessions(start_dt.date(), end_dt.date())
+            gaps_d = with_overlap_window(gaps_d, window, end_dt.date(), len(window))
+        elif ctx.overlap_sessions > 0:
             # Sessions back from end, with calendar slack for weekends and holidays.
             overlap_days = int(ctx.overlap_sessions * 1.6) + 10
             gaps_d = with_overlap_window(
@@ -424,7 +486,7 @@ def _plan_gaps(
             )
         return [(midnight_utc(s), midnight_utc(e)) for s, e in gaps_d]
     if timeframe in _RECORD_PLAN_TFS:
-        return detect_gaps_from_record(
+        planned = detect_gaps_from_record(
             ctx.get_conn(),
             symbol,
             timeframe,
@@ -435,6 +497,9 @@ def _plan_gaps(
             ),
             **gate,
         )
+        if refetch or overlap:
+            return _merge_windows([*planned, (start_dt, end_dt)])
+        return planned
     conn = ctx.get_conn()
     gaps = detect_gaps(
         conn,
@@ -470,11 +535,19 @@ async def fetch_item(
     instrument: Any,
     row: Any,
     *,
-    gap_days: int,
     full_scan: bool,
     clock: ProgressClock,
+    overlap_days: int = 0,
+    refetch: bool = False,
+    waived: bool = False,
 ) -> ItemOutcome:
     """Fetch one (symbol, timeframe) with the pipeline loop body's rules (CD-01/04/05).
+
+    Plan 189-10's lanes (the fetcher decides them per item): the update lane asks a covered
+    series from its latest bar, `overlap_days` earlier for a grid series, and reports the
+    overlap's (stored, fresh) closes in overlap_pairs; full_scan plans the full depth (the
+    gap-fill lane); refetch re-asks the whole depth including stored history (the
+    escalation), through the waived grid writer when `waived` (a recorded corporate action).
 
     Ported from the historical pipeline script's main()._run_fetch_stage as it
     stands after plans 185-18 (shared gap planner, D1-only 1d), 185-19 (1d empty history
@@ -520,14 +593,18 @@ async def fetch_item(
         return ItemOutcome(symbol, timeframe, status, n_bars=n_bars, error=error)
 
     start_dt = _fetch_start(ctx.end_dt, fetch_days)
-    tail = not _needs_full_window(row, gap_days=gap_days, full_scan=full_scan)
+    tail = not refetch and not _needs_full_window(row, full_scan=full_scan)
+    overlap = tail and overlap_days > 0 and timeframe in _RECORD_PLAN_TFS
     if tail:
-        start_dt = max(start_dt, _midnight(row.latest_timestamp))
+        tail_start = _midnight(row.latest_timestamp)
+        if overlap:
+            tail_start -= timedelta(days=overlap_days)
+        start_dt = max(start_dt, tail_start)
     head_floor = await _head_floor(ctx, instrument, timeframe, start_dt, tail=tail)
     if head_floor is not None and head_floor > start_dt:
         start_dt = head_floor
 
-    gaps = _plan_gaps(ctx, instrument, timeframe, start_dt)
+    gaps = _plan_gaps(ctx, instrument, timeframe, start_dt, overlap=overlap, refetch=refetch)
     clock.touch()
     if not gaps:
         return ItemOutcome(symbol, timeframe, "ok")
@@ -536,7 +613,9 @@ async def fetch_item(
     d1_capture = timeframe == "1d"
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
     use_cont = use_continuous and fetch_days > 14 and is_futures
-    persister = _ChunkPersister(ctx, symbol, timeframe, clock)
+    persister = _ChunkPersister(
+        ctx, symbol, timeframe, clock, verify_overlap=overlap, waived=waived and not d1_capture
+    )
     capture = _capture_kwargs(timeframe, ctx.sink, ctx.fetch_run_id)
     if d1_capture:
         base_on_request = capture["on_request"]
@@ -644,6 +723,7 @@ async def fetch_item(
         n_grid_source_rows=n_bars if timeframe == _GRID_SOURCE_TF else 0,
         error=failure,
         derive_1d_since=start_dt if d1_capture and n_returned > 0 else None,
+        overlap_pairs=tuple(persister.overlap_pairs),
     )
 
 
@@ -693,11 +773,13 @@ async def fetch_item_with_retries(
     instrument: Any,
     row: Any,
     *,
-    gap_days: int,
     full_scan: bool,
     config: Any,
     reconnect: Callable[[], Awaitable[bool]],
     on_tick: Callable[[], None] | None = None,
+    overlap_days: int = 0,
+    refetch: bool = False,
+    waived: bool = False,
 ) -> ItemOutcome:
     """fetch_item under the stall bound, retried after a stall at most
     config.history_request_retries times (CD-08).
@@ -731,7 +813,14 @@ async def fetch_item_with_retries(
 
         def attempt_coro(_clock: ProgressClock = clock) -> Awaitable[ItemOutcome]:
             return fetch_item(
-                ctx, instrument, row, gap_days=gap_days, full_scan=full_scan, clock=_clock
+                ctx,
+                instrument,
+                row,
+                full_scan=full_scan,
+                clock=_clock,
+                overlap_days=overlap_days,
+                refetch=refetch,
+                waived=waived,
             )
 
         try:

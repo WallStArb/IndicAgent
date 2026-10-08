@@ -1100,6 +1100,21 @@ def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
     )
 
 
+def _insert_market_data_rows_waived(cur: Any, params: list[tuple]) -> int:
+    """_insert_market_data_rows with the revision refusal waived for a recorded corporate
+    action: the fetcher's escalation re-fetch rewrites a rescaled series (plan 189-10). Every
+    changed row is still recorded in ohlcv_revision; the load row names the waiver."""
+    return apply_ingress_contract(
+        cur,
+        params,
+        destination=DESTINATION_GRID,
+        caller=DEFAULT_CALLER,
+        write_new=lambda c, rows: _write_market_data_batches(_STORE_VALUES_SQL, c, rows),
+        write_changed=lambda c, rows: _write_market_data_batches(_STORE_REPLACE_SQL, c, rows),
+        waived=True,
+    )
+
+
 def _insert_archive_rows(cur: Any, params: list[tuple]) -> int:
     """Archive destination for 15m/1h fetched chunks (plan 12): routes through
     services/intraday_raw_archive, the table's single writer (base is NULL on

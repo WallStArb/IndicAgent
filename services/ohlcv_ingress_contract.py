@@ -251,12 +251,18 @@ def apply_ingress_contract(
     write_new: WriteRows,
     write_changed: WriteRows,
     params: ContractParams | None = None,
+    waived: bool = False,
 ) -> int:
     """Apply the write contract to one chunk and return the number of rows offered.
 
     `write_new` and `write_changed` receive the full row tuples (one per key, last occurrence
     wins) and perform the bar table's own INSERT and upsert. Raises RevisionRefused, before any
     write, when any series in the chunk breaches the refusal.
+
+    `waived` is the caller's statement that a recorded corporate action explains the revision
+    (the fetcher's escalation re-fetch after a split, plan 189-10; the same waiver D2 applies):
+    nothing is refused, every changed row is still recorded in ohlcv_revision, and the load
+    row's detail names the waiver.
     """
     if not rows:
         return 0
@@ -288,7 +294,7 @@ def apply_ingress_contract(
             last_bar=_utc_date(stamps[-1]),
         )
         if should_refuse(
-            delta, len(stored), params.max_ratio, min_stored=params.min_stored, waived=False
+            delta, len(stored), params.max_ratio, min_stored=params.min_stored, waived=waived
         ):
             raise RevisionRefused(
                 load, ratio=revision_ratio(delta, len(stored)), max_ratio=params.max_ratio
@@ -297,7 +303,13 @@ def apply_ingress_contract(
 
     for load, delta, keyed in plans:
         load_id = uuid.uuid4()
-        _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=None, load_id=load_id)
+        detail = (
+            f"waived: recorded corporate action; changed {load.n_changed} / stored "
+            f"{load.n_stored}"
+            if waived
+            else None
+        )
+        _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
         if delta.changed:
             _record_revisions(cur, load_id, load, delta)
         if delta.new:

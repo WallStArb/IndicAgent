@@ -82,8 +82,10 @@ def _args(*argv: str, **overrides: Any) -> Any:
     return args
 
 
-def _ranked(symbol: str, timeframe: str = "15m", gap_days: int = 0) -> fq.RankedItem:
-    row = fq.CoverageRow(symbol, timeframe, None, None, "ok", 0, None)
+def _ranked(
+    symbol: str, timeframe: str = "15m", gap_days: int = 0, latest: datetime | None = None
+) -> fq.RankedItem:
+    row = fq.CoverageRow(symbol, timeframe, None, latest, "ok", 0, None)
     return fq.RankedItem(row, (False,), False, -1, gap_days, 1)
 
 
@@ -496,7 +498,9 @@ async def test_dry_run_takes_no_lock_opens_no_provider_and_writes_nothing(tmp_pa
         ("TRD", "1d", ""),
     }
     assert "tradier_owned" not in out.read_text()
-    assert {r[lane] for r in rows} == {"update"}
+    # AAA 15m holds a ledger row (update lane); the rest were never fetched (backfill).
+    assert [(r[1], r[2]) for r in rows if r[lane] == "update"] == [("AAA", "15m")]
+    assert {r[lane] for r in rows} == {"update", "backfill"}
     assert not any("tradier" in sql.lower() for sql in log)
     assert not (tmp_path / "status.json").exists()
 
@@ -601,12 +605,13 @@ def test_reset_target_parses_symbol_and_optional_timeframe():
         hf.parse_reset_target(":15m")
 
 
-def test_last_session_close_is_the_latest_close_at_or_before_now():
+def test_completed_session_closes_end_at_the_latest_close_at_or_before_now():
     # Monday 2026-10-05 15:00 UTC is mid-session: the latest close is Friday's.
-    close = hf.last_session_close(datetime(2026, 10, 5, 15, 0, tzinfo=UTC))
-    assert close == datetime(2026, 10, 2, 20, 0, tzinfo=UTC)
-    after = hf.last_session_close(datetime(2026, 10, 5, 21, 0, tzinfo=UTC))
-    assert after == datetime(2026, 10, 5, 20, 0, tzinfo=UTC)
+    closes = hf.completed_session_closes(datetime(2026, 10, 5, 15, 0, tzinfo=UTC))
+    assert closes[-1] == datetime(2026, 10, 2, 20, 0, tzinfo=UTC)
+    after = hf.completed_session_closes(datetime(2026, 10, 5, 21, 0, tzinfo=UTC), 30)
+    assert after[-1] == datetime(2026, 10, 5, 20, 0, tzinfo=UTC)
+    assert len(after) >= 30 and after == sorted(after)
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +698,8 @@ async def test_the_update_lane_span_and_watchdog_tick_reach_the_item_fetch(tmp_p
         kw["on_tick"]()
         return _outcome(row)
 
-    fetcher, seen = _fetcher(tmp_path, _plan([_ranked("AAA", "5m", gap_days=42)]), fetch_fn=fetch)
+    covered = _ranked("AAA", "5m", gap_days=42, latest=datetime(2026, 10, 5, 19, 55, tzinfo=UTC))
+    fetcher, seen = _fetcher(tmp_path, _plan([covered]), fetch_fn=fetch)
     await _run(fetcher)
     assert "gap_days" not in received  # a short start waits for the gap-fill lane
     assert received["full_scan"] is False
@@ -861,10 +867,9 @@ async def test_the_parity_sample_adds_15m_and_1h_for_sampled_eligible_names_only
     week_start = fq.parity_week_start(datetime.now(UTC).date())
     assert all(plan.queue.current_after_by_series[p] == week_start for p in plan.parity)
     assert {"15m", "1h"} <= set(hf._history_fetch._ARCHIVE_TFS)
-    assert all(
-        hf.dry_run_rows(plan)[i][hf._TSV_COLUMNS.index("lane")] in ("update", "parity")
-        for i in range(len(hf.dry_run_rows(plan)))
-    )
+    lane = hf._TSV_COLUMNS.index("lane")
+    lanes = {(r[1], r[2]): r[lane] for r in hf.dry_run_rows(plan)}
+    assert {key for key, value in lanes.items() if value == "parity"} == set(plan.parity)
 
 
 async def test_an_explicit_run_gets_no_parity_sample(monkeypatch):
@@ -884,7 +889,12 @@ async def test_the_gap_fill_session_plans_the_full_depth_and_parity_items_never_
         received[(row.symbol, row.timeframe)] = kw
         return _outcome(row)
 
-    items = [_ranked("GAP", "5m"), _ranked("UPD", "5m"), _ranked("GAP", "15m")]
+    latest = datetime(2026, 10, 5, 19, 55, tzinfo=UTC)
+    items = [
+        _ranked("GAP", "5m", latest=latest),
+        _ranked("UPD", "5m", latest=latest),
+        _ranked("GAP", "15m", latest=latest),
+    ]
     plan = _plan(items)
     plan.parity = (("GAP", "15m"),)
     fetcher, _ = _fetcher(tmp_path, plan, fetch_fn=fetch)

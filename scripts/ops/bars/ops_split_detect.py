@@ -17,12 +17,13 @@ A non-constant difference is never recorded as a split: it becomes an integrity 
 flagging the symbol's older bars until it succeeds, and `--refetch-only SYM,SYM` repeats steps 2
 and 3 by hand.
 
-The re-fetch takes FetcherLock like every IBKR history fetch (plan 189-08). When this script
-runs as the fetcher's own run-end stage, the fetcher still holds that lock, so the re-fetch is
-refused: the refusal line maps to exit 3 (LOCK_HELD_EXIT), the derivation is skipped, the
-fetcher run ends partial, and the split stays recorded and loudly quarantined
-(pre_split_unrefetched) until `--refetch-only` runs after the fetcher exits. Plan 189-10 owns
-moving the re-fetch in-process (its update lane's overlap escalation).
+The fetcher runs this sequence itself, in-process and under its own lock, after every run that
+fetched 1d (plan 189-10, todo 507: its update lane's overlap escalation records with
+record_split, re-fetches on the open connection, then derives). This script is the by-hand path
+for a fetch run judged later or a split to re-fetch again. Its re-fetch takes FetcherLock like
+every IBKR history fetch (plan 189-08), so while a fetcher run holds the lock it is refused: the
+refusal line maps to exit 3 (LOCK_HELD_EXIT), the derivation is skipped, and the split stays
+recorded and loudly quarantined (pre_split_unrefetched) until a rerun after the fetcher exits.
 """
 
 from __future__ import annotations
