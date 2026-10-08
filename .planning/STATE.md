@@ -41,7 +41,7 @@ bullets with current facts.
   accounting stays in force for any book test.
 
 - **Research record:** `docs/research/construction-verdict-ledger.md` until phase 187 generates it
-  from UCR. Check it before recommending a candidate.
+  from UCR (fully reconciled 2026-10-08). Check it before recommending a candidate.
 
 ## Current position
 
@@ -54,7 +54,7 @@ Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48
   turnover per session, untradeable net at 1 bp); book_v1 refused (E16 bias, uncharged); E17
   built and its gating decided (option C); its per-family static-size guard is in the runner
   (todo 447, 2026-09-27) and families 1 and 2 pass it. Family 2's evidence run is unblocked.
-  Family 1 exploration 2026-09-29 (iterations 1-4, in-sample, outside the runner): the edge sits at the
+  Family 1 exploration 2026-09-29 (iterations 1-4, in-sample; iteration 1 ran through the runner as `family1_h{2,4,8,26}` specs, 16 evidence rows, iterations 2-4 outside it): the edge sits at the
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
@@ -109,7 +109,7 @@ Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48
   `infra.backfill.default_scopes` (backfill 5m stays gated by todo 462). Phase 186's rebuild still gates on the 5m part.
 
 - **Regime coverage auditor:** fails only on unregistered or expired gaps; the 5 known symbols (BIL, EMLC, ETHA, IBIT, VIXY) are registered exceptions expiring 2026-12-29 (todo 341 closed by 186-18). 1d `regime_volatility` is gated off for about 98% of segments at every refit schedule (todo 478, P1, decision needed before the 186-25/26 rebuild).
-- **Universe:** 1,529 active (932 plus wave 2's 597, onboarded 2026-10-03 with the 1d fetch running); 931 `compute_eligible_1d` until wave 2 is promoted; 233 carry the intraday stack and
+- **Universe:** 1,529 active (932 plus wave 2's 597, onboarded 2026-10-03 with the 1d fetch running); 1,502 `compute_eligible_1d` (wave 2 promoted 2026-10-06, checked 2026-10-08); 233 carry the intraday stack and
   `feature_vectors`. Lineage `config/universe/README.md`; process
   `docs/foundation/instrument-onboarding-sop.md` (tooling gaps: todos 431, 444).
 

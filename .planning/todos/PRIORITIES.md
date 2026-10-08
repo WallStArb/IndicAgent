@@ -106,9 +106,9 @@ until 185 and 186 land; session time goes to the build.
 |---|---|
 | [442](pending/442-attempt1-single-family-and-pod-books-e17-memory-rule.md) | Paused (build first). `spec.py` refuses a book mixing families 1 and 2: run single-family books plus a pod book; E17's L must add combiner and partial-adjustment reach, with H0 battery cells, before fitted combiners run. Phase 183 session owns the files. |
 | [437](pending/437-first-cut-cost-model-commission-and-spread.md) | Paused (build first). Promotion needs positive net expectation; today only flat bps bands exist. Commission (likely zero at the execution broker) plus validated Abdi-Ranaldo spread, as distributions. |
-| [441](pending/441-price-only-daily-families-931-names-prereg.md) | Paused (build first). Shortest path to a tradeable verdict: residual and industry momentum and sector lead-lag on the 931 names, no feature pipeline needed; with 423, once 185 clears the minimum data bar. |
+| [441](pending/441-price-only-daily-families-931-names-prereg.md) | Paused (build first). Shortest path to a tradeable verdict: residual and industry momentum and sector lead-lag on the daily panel (the todo says 931 names; now 1,502 `compute_eligible_1d`, restate in the pre-registration; ledger family 11), no feature pipeline needed; with 423, once 185 clears the minimum data bar. |
 | [423](pending/423-phase181-short-term-reversal-prereg.md) | Paused (build first). Short-term reversal on single names, market-neutral (family 4, attempt 3 with 441). Disclose the in-sample hint (IC about -0.026) and exclude its symbols and window; needs V2 at low persistence first. |
-| [440](pending/440-generated-family-grammar-daily-ohlcv-931-names.md) | Paused (build first). Attempt 3b: a registered grammar over daily OHLCV primitives, in-fold selection plus ridge, never materialized. |
+| [440](pending/440-generated-family-grammar-daily-ohlcv-931-names.md) | Paused (build first). Attempt 3b (ledger family 12): a registered grammar over daily OHLCV primitives, in-fold selection plus ridge, never materialized. |
 
 **Integrity hygiene with a deadline**
 
@@ -149,7 +149,7 @@ until 185 and 186 land; session time goes to the build.
 |---|---|
 | [460](pending/460-family1-auction-price-check-and-auction-to-auction-hold.md) | New 2026-09-29, family 1 iteration 4. About two thirds of the open-plus-close book's gross depends on the stored 09:30 open being a tradable auction price (unchecked); then test an open-auction-to-close-auction hold, which crosses no spread. Decides whether a standalone slot book can be net positive. |
 | [456](pending/456-todo445-rerun-zero-commission-and-longer-horizons.md) | New 2026-09-29, owner review of todo 445. The 5m name set (`ret_autocorr_1`, `sweep_detected`) was pruned by a hurdle that charges $0.0035/share commission, but the live book will likely use a zero-commission broker; horizons also stop at half a session. Part A rederives the name set at zero commission from recorded p-values (no new look); Part B tests multi-day horizons against 1h/1d counterparts (counted look, after the 185/186 pause). |
-| [457](pending/457-family1-slot-subsets-through-the-runner.md) | New 2026-09-29, family 1 iterations 1-3. The opening and closing slot subsets, the 30-cell conviction grid and the 32-cell liquid-close grid ran outside the runner, so they are not in the E18 selection universe. After phase 187 adds a slot-subset mask and the keep gate, rerun them in exploration mode on the 233 and the 201-name sets. |
+| [457](pending/457-family1-slot-subsets-through-the-runner.md) | New 2026-09-29, family 1 iterations 2-3 (iteration 1, the horizon specs, already ran through the runner). The opening and closing slot subsets, the 30-cell conviction grid and the 32-cell liquid-close grid ran outside the runner, so they are not in the E18 selection universe. After phase 187 adds a slot-subset mask and the keep gate, rerun them in exploration mode on the 233 and the 201-name sets. |
 
 **Data and ingestion**
 
