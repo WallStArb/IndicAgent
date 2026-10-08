@@ -4,14 +4,17 @@ Archived in Phase 137 Plan 6 (D-09 cutover). All files are intact and unmodified
 
 ## Why Archived
 
-The v3.0 ground-up rebuild (Phase 137) replaces the 138-plugin I5/I6/I7 dispatch
-layer with `FeatureFactory.compute()` — a single pure-function call that produced
-36 typed `FeatureVector` primitives per bar at cutover (grown to 249 since;
-recompute rather than trusting either number). The plugin system is retired from
-the live pipeline but preserved here as institutional memory.
+The v3.0 rebuild (Phase 137) replaced the plugin-based I5/I6/I7 dispatch layer with
+`FeatureFactory.compute()`, a pure-function call over typed `FeatureVector` primitives. The plugin
+system has no live consumer.
 
-Phase 138 (IC discovery) will determine which I7 signal patterns have positive
-expected value and deserve promotion to alpha scorers in the v3.0 AlphaEngine.
+## Why it is still in the tree
+
+Plan 185-45 (2026-10-07) removed the dormant AI stack and every v2.x module no kept entry point
+reaches. This directory stays because `services/feature_vector_pipeline.py` imports
+`src.intelligence.pipeline`, which registers the plugin tiers and reaches these modules. Todo 509
+holds the decoupling step; once it lands, this directory goes. The pre-removal tree is the local
+git tag `archive/v2x-ai-stack-2026-10`.
 
 ## Archived Tiers
 
@@ -110,31 +113,11 @@ All were registered in `TIER_I7` (or logically I7 scope):
 - vwap_deviation.py
 - vwap_reclaim.py
 
-## What Stays Live
+## Kept outside the archive
 
-The following shared utilities remain in `src/intelligence/trading/` and are
-still used by non-I7 services (lifecycle tracking, trade framing, signal schema):
-
-- aggregator.py
-- atr_utils.py
-- cis_scorer.py
-- confidence.py
-- exhaustion_utils.py
-- lifecycle_tracker.py
-- lifecycle_transitions.py
-- microstructure_utils.py
-- plugin_utils.py
-- position_sizer.py
-- signal_outcome.py
-- signal_schema.py
-- state_utils.py
-- trade_framer.py
-- volume_profile_utils.py
-- volume_zscore.py
-- zone_engine.py
-
-## Phase 138 Plan
-
-IC (Information Coefficient) measurement will run on the archived I7 patterns
-against the `feature_vectors` corpus. Patterns with IC > 0 and p < 0.05
-at N >= 100 observations will be promoted as alpha scorers in the AlphaEngine.
+`src/intelligence/trading/` keeps the shared utilities the kept pipeline package still imports:
+aggregator.py, atr_utils.py, cis_scorer.py, confidence.py, exhaustion_utils.py,
+microstructure_utils.py, plugin_utils.py, signal_outcome.py, signal_schema.py, state_utils.py,
+trade_framer.py, volume_profile_utils.py, volume_zscore.py and zone_engine.py. The archive's own
+`trading_i7/` holds copies of several of them for the archived plugins; vulture excludes the
+archive.

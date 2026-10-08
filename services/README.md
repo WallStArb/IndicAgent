@@ -1,76 +1,37 @@
-# IndicAgent Services
+# IndicAgent services
 
-Systemd service unit files for the IndicAgent platform. All services use `Restart=always` and start on boot.
+Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
+`indicagent-<concept>.service`; the unit files live in `production/systemd/`, not here.
 
-## Service Units
+## Where the truth is
 
-| File | Unit name | Purpose | Port |
-|------|-----------|---------|------|
-| `indicagent-tws.service` | `indicagent-tws` | IBKR TWS daemon — tick + bar ingest | — |
-| `indicagent-indicator.service` | `indicagent-indicator` | I1 indicators + multi-TF aggregation | 9109 |
-| `indicagent-market-analysis.service` | `indicagent-market-analysis` | I3→I6 intelligence pipeline | 9114 |
-| `indicagent-signal-generator.service` | `indicagent-signal-generator` | I7 setups + signal aggregation + ledger | 9112 |
-| `indicagent-signal-tracker.service` | `indicagent-signal-tracker` | Signal lifecycle (pending→active→exit) | 9115 |
-| `indicagent-ai-narrative.service` | `indicagent-ai-narrative` | I8 Ollama narrative synthesis | 9113 |
-| `indicagent-feature-writer.service` | `indicagent-feature-writer` | Redis → intelligence_features batch writer | 9116 |
-| `indicagent-api.service` | `indicagent-api` | FastAPI REST + SSE fan-out | 8000 |
+- Registry and DAG order: `_DAG_ORDER` and `_AGENT_ID_TO_UNIT` in `services/service_auditor.py`.
+  A new service is added there and seeds its `alert.lag.<unit>` APR key.
+- Live state: `systemctl list-units --all 'indicagent-*'` and `systemctl list-timers | grep indicagent`.
+  Batch units (D7 audit, dividend writer, ML chain, roll batch) are `inactive (dead)` between runs,
+  which is correct.
+- Who writes what: `docs/foundation/canonical-truth-registry.md`.
+- Commands: `docs/reference/cheatsheet.md`.
 
-> `indicagent-timeframes.service` — legacy, FAILED (import bug, non-blocking). Multi-TF aggregation was moved into `indicagent-indicator`.
+## Data layer services (phase 185)
 
-## Stream Flow
+| Service | Role |
+|---|---|
+| `bar_derivation.py` | The one writer of canonical 1d (rule d2-v2, source from `bar_source_policy`) and the derived 15m/1h grid |
+| `bar_scrub.py` | Scrub rules; flags in `bar_quality_flag`, run by the daily stage |
+| `bar_reconciliation_audit.py` | D7: integrity findings and the `bar_integrity` verdicts promotion reads |
+| `ohlcv_observation_writer.py` | D1 writer (`ohlcv_request`, `ohlcv_observation`) for every fetch path |
+| `intraday_raw_archive.py` | Frozen archive of vendor 15m/1h answers |
+| `listing_venue_writer.py` | D6 listing venue spans |
+| `dividend_event_writer.py` | Dividend events (Yahoo) |
 
-```
-indicagent-tws
-  │  ticks:SYMBOL:live + market:SYMBOL:1m
-  ▼
-indicagent-indicator
-  │  indicators:SYMBOL:TF  (I1 per-TF combined message)
-  ▼
-indicagent-market-analysis
-  │  intelligence:SYMBOL:TF  (typed IntelligenceEvent: I3→I6)
-  ├──────────────────────────────────────────────────────────────────────►
-  │                                                          indicagent-feature-writer
-  │                                                          → intelligence_features (TimescaleDB)
-  ▼
-indicagent-signal-generator
-  │  signals:SYMBOL:TF:aggregated  (I7 selected signal)
-  ├─────────────────────────────────────────►
-  │                               indicagent-signal-tracker
-  │                               (reads market:SYMBOL:1m for SL/TP checks)
-  ▼
-indicagent-ai-narrative
-  │  narratives:SYMBOL:TF  (per-signal, qwen3:8b, conf>0.7)
-  │  narratives:group:GROUP_NAME  (group synthesis, phi4-mini:3.8b)
-  ▼
-indicagent-api  →  SSE  →  Dashboard
-```
+The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ibkr_history_fetcher.py`)
+run by `indicagent-ibkr-history-fetcher.timer`; it and the Tradier daily timer are disabled by the
+owner until plan 189-10.
 
-## Management
+## Removed
 
-```bash
-# Status
-sudo systemctl status 'indicagent-*'
-
-# Restart a service
-sudo systemctl restart indicagent-indicator
-
-# Live logs
-journalctl -u indicagent-indicator -f
-
-# Start all (e.g. after reboot)
-sudo systemctl start indicagent-tws indicagent-indicator indicagent-market-analysis \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-api
-```
-
-## Install / Update Service Files
-
-```bash
-sudo cp services/indicagent-*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable indicagent-tws indicagent-indicator indicagent-market-analysis \
-  indicagent-signal-generator indicagent-signal-tracker indicagent-ai-narrative \
-  indicagent-feature-writer indicagent-api
-```
-
-**Full reference:** [docs/guides/running-services.md](../docs/guides/running-services.md) · [docs/cheatsheet.md](../docs/cheatsheet.md)
+The v2.x I1-I7 signal path and the I8 AI stack (signal tracker and writers, swarm, narrative, LLM
+writer and the rest) were removed in plan 185-45; the pre-removal tree is the local git tag
+`archive/v2x-ai-stack-2026-10`. What still depends on v2.x code (`feature_vector_pipeline.py`, the
+API's signal routes, the ML batch chain) is listed in todo 509.

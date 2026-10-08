@@ -53,3 +53,7 @@ this lands.
 
 Small: timeout wrapper + retry counter in the pipeline's fetch path, one APR key pair,
 targeted unit tests for the timeout/reconnect path.
+
+## Closed 2026-10-08
+
+Resolved by phase 189. The nightly backfill is deleted (189-07, 4a40e2f82) and the ibkr_history_stream lease retired (189-08, 1be02ae51, migration 434). The IBKR history fetcher bounds every request with `infra.ibkr.history_request_timeout` and runs under systemd `WatchdogSec=1200` with sd_notify ticks (189-04, 7a840594a), so a wedged event loop is killed and the fail-fast FetcherLock is released with the process.

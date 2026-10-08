@@ -136,8 +136,9 @@ and the promote count (stage 9) when they run.
 
 Stages 8 and 9 (2026-10-06): the 1d source for this batch was the Tradier loader (owner decision
 2026-10-03, migration 438), not the IBKR fetch. The promote gate held 550 of 598 names because the
-Tradier loader did not set `backfill_status.fetch_complete`; the loader now sets it through
-`mark_fetch_complete` and `ops_tradier_fetch_complete_repair.py` repaired 523 names. Promote
+Tradier loader did not set the old fetch-complete bookkeeping flag; a one-off repair set it for 523
+names (both the flag and its table are gone since plans 185-41 and 185-43: promotion reads
+bar_integrity verdicts). Promote
 (`--dimension compute_1d --commit`) then moved 571 names to `compute_eligible_1d = true` (1,502
 promoted, 233 also `compute_eligible`). 27 names stay held, no 1d bars: APG, AU, BJ, BORR, CANE,
 CORZ, CRCL, EIS, ELAN, EVER, FIGR, H, IOT, KNSL, MNA, NIQ, NU, OWL, PINS, PNFP, REMX, RPRX, SHEN,

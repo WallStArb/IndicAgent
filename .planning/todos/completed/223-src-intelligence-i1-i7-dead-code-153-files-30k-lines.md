@@ -172,3 +172,7 @@ scratch. See `tools/vulture_whitelist.py`'s entries citing "todo 328"/"todo 223"
 `completed/328-...md` for the full list.
 
 2026-10-01: alpha_frame_writer and counterfactual_tracker deleted in phase 186 plan 19 (2d4c2e4e1 is the last commit holding them); structural_confluence.py and trade_framer.py lost their only live caller, and the set_config_service hooks in src/intelligence/trading/ are whitelisted in vulture pending this todo.
+
+## Closed 2026-10-08
+
+Superseded. Plan 185-45 deleted every I1-I7 module no kept entry point reaches (45e42b554; AST import graph from every kept root, pre-removal tree in the local tag `archive/v2x-ai-stack-2026-10`). The modules feature_vector_pipeline still reaches stay and are todo 509.

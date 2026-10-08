@@ -392,3 +392,7 @@ symbol (plan 185-23's check reads the same definition). `BarDerivation` dry run 
 XLU: 501,783 derived rows in 7.5 s, 0 failures; it dropped 4,880, 116 and 20 5m bars as outside the
 regular session, so the derived 15m/1h grid is regular trading hours only (D-15) and the rewrite
 removes the stored extended-hours 15m/1h rows from `market_data_ohlcv` (they are archived).
+
+## Closed 2026-10-08
+
+Done across the data layer plans. 185-25 rebuilt `market_data_ohlcv` from real rows; 185-32 fenced synthetic_fill out with migration 444's CHECK and a CI guard (1d8cd69be); 185-42 deleted `normalize_bars` and the fill path (0b9c48dda). The coverage record is the `ohlcv_coverage` ledger (189-01, 94b05a333) plus `ohlcv_request`'s answered windows. The remaining gap-reader step (readers that still plan from stored bars) is todo 499.

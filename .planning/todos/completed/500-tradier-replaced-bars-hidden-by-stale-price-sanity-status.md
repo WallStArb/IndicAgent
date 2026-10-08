@@ -17,3 +17,7 @@ Clear the status on the replaced rows through the one canonical writer (185-36's
 ## Related
 
 185-34, 185-36, 185-43. Owner decision also pending on the ISLAND head rule (APR `infra.ibkr.venue_fallback.island_failed_unlisted`, set false 2026-10-07 for integrity: it resolves 8 names but can misread a former Nasdaq listing as empty; QXO was SilverSun).
+
+## Closed 2026-10-08
+
+Resolved. Migration 446 (185-36, 21adbc226) rewrote `market_data_ohlcv_tradeable` to hide only `bar_quality_flag` quarantines; it no longer reads `price_sanity_status`. Checked 2026-10-08: all ten bars named above are visible in the view. (XRT 2008-09-19 is hidden by a quarantine flag, the source of truth.) The legacy column values stay on the rows as history. The ISLAND head rule decision moved to todo 511.

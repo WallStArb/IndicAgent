@@ -25,18 +25,19 @@ test can find. Six rules follow from that.
 2. **Every name traces to its source.** Source file (committed, with its SHA-256), selection rule
    (seed, parameters, script revision), manifest row, onboarding time. `config/universe/README.md`
    holds the lineage and every deviation from a clean draw.
-3. **One writer per fact.** `instruments`, `instrument_tags`, `instrument_classification`,
-   `instrument_metadata` and the `backfill_status` seed rows: `onboard_instrument()` only, called
-   by the manifest onboarder. Daily bars: the Tradier loader for the names it owns, the IBKR
-   historical pipeline's derivation for the rest. `backfill_status.fetch_complete`:
-   `mark_fetch_complete()` only (in the historical pipeline, also called by the Tradier loader).
-   Eligibility flags: the promote script only. No hand `INSERT` or `UPDATE` on any of them.
+3. **One writer per fact.** `instruments`, `instrument_tags`, `instrument_classification` and
+   `instrument_metadata`: `onboard_instrument()` only, called by the manifest onboarder. Raw 1d
+   answers: the ingress write contract (D1, `ohlcv_load`, `ohlcv_revision`). Canonical 1d bars:
+   the d2-v2 daily derivation (`services/bar_derivation.py`), the one writer, choosing each
+   name's source by `bar_source_policy`. Verdicts: the D7 audit. Eligibility flags: the promote
+   script only. No hand `INSERT` or `UPDATE` on any of them.
 4. **Stages are a DAG over persisted state.** Each stage reads what the previous one wrote and
    nothing else, is dry-run by default, and is safe to rerun. A stage that fails leaves the
    database as it was, or in a state the same command resumes from.
-5. **Gates count ground truth.** Promotion requires both the bookkeeping (`fetch_complete`) and a
-   count of real bars in `market_data_ohlcv_tradeable`. A log line saying "0 fetch errors" is not
-   evidence: CLBK passed the fetch with no error and zero bars, and only the promote gate held it.
+5. **Gates count ground truth.** Promotion reads computed verdicts, not bookkeeping: every
+   required `bar_integrity` check D7 writes must be passed and fresh (the verdict gate,
+   `src/intelligence/bars/verdict_gate.py`, plan 185-41). A log line saying "0 fetch errors" is
+   not evidence: CLBK passed the fetch with no error and zero bars, and only the gate held it.
 6. **Nothing leaves.** A name is never deleted or deactivated, even after it stops trading; its
    bars simply stop. Research selects its universe from current `instruments` flags
    (`snapshot.py::universe_symbols`), so deactivating a dead name would erase it from every later
@@ -47,7 +48,8 @@ test can find. Six rules follow from that.
 `is_active` alone conflates three scopes, so eligibility is three columns (migration 337, phase 174;
 read through `get_active_contracts(dimension=)`):
 
-- `compute_eligible_1d`: the name enters 1d research. Set by stage 9's promote after the 1d fetch.
+- `compute_eligible_1d`: the name enters 1d research. Set by stage 9's promote once its 1d
+  verdicts pass.
 - `compute_eligible`: the name carries the intraday stack (233 names). Out of scope for this SOP.
 - `live_tradeable`: the name may receive capital. False for every name today; no rule sets it yet
   (a note on todo 437).
@@ -87,16 +89,17 @@ source snapshot ─> select ─> classify ─> manifest ─> qualify ─> write 
 ```
 
 Stages 1-4 write no database table. Stages 5-6 are one script. Nothing downstream of `promote`
-needs a manual step: the Tradier daily unit (`indicagent-tradier-daily.timer`, 01:30 UTC)
-refetches every Tradier-owned name, IBKR keeps the 1d of the names Tradier refused, and research
-reads the name at its next snapshot.
+needs a manual step once the IBKR history fetcher's timer runs (phase 189 plan 10): it keeps
+every active name's 1d current, the nightly D7 audit judges it, and research reads the name at
+its next snapshot.
 
 ## Stages
 
 Run every command from the main checkout (`/home/bg/dev/indicagent`). IBKR must be up:
 `docker ps | grep ib-gateway`, and remember the weekly 2FA logout (todo 395). IBKR client IDs:
-35 is the provider, 40 the nightly backfill, 45 the gateway probe; pick another ID at or below 50
-for a manual run, and check `ps aux | grep historical_pipeline` first so two runs never share one.
+35 is the provider, 40 the history fetcher, 45 the gateway probe, 46 the manifest qualifier; pick
+another ID at or below 50 for a manual run. Only one IBKR history fetch runs at a time: the
+fetcher's `FetcherLock` refuses a second one loudly.
 
 ### 1. Source snapshot
 
@@ -164,16 +167,17 @@ not in git.
 
 ```
 .venv/bin/python scripts/infrastructure/universe_expansion_onboard_manifest.py \
-    --manifest config/universe/<manifest>.csv --timeframes 1d            # dry run: qualify only
+    --manifest config/universe/<manifest>.csv            # dry run: qualify only
 .venv/bin/python scripts/infrastructure/universe_expansion_onboard_manifest.py \
-    --manifest config/universe/<manifest>.csv --timeframes 1d --commit
+    --manifest config/universe/<manifest>.csv --commit
 ```
 
 Phase 1 qualifies every row against IBKR outside any transaction, with a known-good probe symbol
 before and after; a failed probe means the gateway dropped and the run aborts having written
 nothing. Phase 2 writes the qualified set in one transaction, all or nothing: an existing
 symbol, unknown code or unknown tag rolls the whole batch back. Every row lands with
-`compute_eligible` and `compute_eligible_1d` false and a `backfill_status` row for 1d.
+`compute_eligible` and `compute_eligible_1d` false. Nothing else is seeded: the fetcher's queue
+and the `ohlcv_coverage` ledger pick a new active name up from `instruments`.
 
 Names IBKR does not resolve are listed and not written. Record them in the README (XWEB in the
 ETF batch). Do not retry them under another spelling unless the spelling rule (`ibkr_symbol`)
@@ -181,52 +185,47 @@ applies.
 
 ### 7. Fetch 1d
 
-Tradier is the primary 1d source (owner decision 2026-10-03, migration 438):
+IBKR is the 1d source for new names (owner decision 2026-10-07: Tradier is not funded; its
+daily timer is disabled since plan 185-46 and plan 185-48 deletes the loader). The IBKR history
+fetcher is the only IBKR history CLI:
 
 ```
-.venv/bin/python -u scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py \
-    --symbols <comma-separated batch> > <scratchpad>/tradier_<batch>.log 2>&1
+.venv/bin/python -u scripts/infrastructure/backfill/ibkr_history_fetcher.py \
+    --dimension backfill --timeframes 1d --symbols <comma-separated batch> --full-scan \
+    --client-id <id> > <scratchpad>/fetch_<batch>.log 2>&1
 ```
 
-One request per name returns its whole history from `infra.tradier.history_start`. Without
-`--symbols` the loader takes every active equity with no 1d bars, which is also what its daily
-unit does for a name onboarded after the last run. Every attempt writes an `ohlcv_load` row. An
-accepted load (`outcome = 'loaded'`) lands the raw answer in D1, writes the canonical bars with
-lineage, scrubs them and sets `backfill_status.fetch_complete` through `mark_fetch_complete()`;
-Tradier then owns the name's daily history. A refused load (`short_history`, `gated`, `no_data`,
-`failed`) writes no bars and sets no flag.
+Add `--dry-run` first to see the queue. Named `--symbols` are asked even when the ledger calls
+them current. The fetcher service and timer are stopped and disabled by the owner until plan
+189-10's pilot; a manual batch run is the operator's call. Every request goes through the ingress
+write contract: the raw answer lands in D1 with an `ohlcv_request` row, each series gets an
+`ohlcv_load` row, and a changed stored bar keeps its old values in `ohlcv_revision`. Progress
+is the `ohlcv_coverage` ledger (one row per symbol and timeframe, with bounds and row count):
 
-For the names Tradier refuses, fetch 1d from IBKR:
-
-```
-.venv/bin/python -u scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py \
-    --dimension backfill --timeframes 1d --symbols <refused names> --client-id <id> \
-    > <scratchpad>/backfill_<batch>.log 2>&1
+```sql
+SELECT symbol, earliest_timestamp::date, latest_timestamp::date, row_count, last_fetch_status
+FROM ohlcv_coverage WHERE timeframe = '1d' AND symbol = ANY(:batch) ORDER BY symbol;
 ```
 
-One 20-year request per name, rate-limited by `infra.ibkr.rate_limit_max_requests_by_tf`
-(`{"1d": 200}` per window). About 100 names take 45 to 60 minutes. On a clean fetch the pipeline
-sets `backfill_status.fetch_complete`. Former listing venues are asked too and their answers land
-in D1 as venue observations, unused by the derivation (stage 8 reads them). Keep the log.
-
-If either run dies, rerun the same command: the Tradier loader refetches the name whole and
-writes only new and changed bars; the IBKR pipeline's gap detection skips what is stored.
+Former listing venues are asked too and their answers land in D1 as venue observations (stage 8
+reads them). If the run dies, rerun the same command: the contract writes only new and changed
+bars. Keep the log.
 
 The fetch writes observations, not bars. Scrubbing is part of the chain, not a person's step,
 and the chain is one direction:
 
-1. **1d backfill into D1.** The Tradier loader for an equity (Tradier then owns the name's
-   daily history; IBKR stops fetching its 1d), the IBKR command for a name Tradier refused.
-2. **Daily derivation (D2).** `services/bar_derivation.py --stage daily` turns the IBKR SMART
-   TRADES observations into canonical 1d bars with lineage; Tradier-owned names are skipped
-   (their loader wrote the bars).
+1. **1d fetch into D1** through the ingress write contract.
+2. **Daily derivation (D2, rule d2-v2).** `services/bar_derivation.py --stage daily` turns the
+   D1 observations into canonical 1d bars, taking each name's source (`tradier`,
+   `ibkr_fallback` or `ibkr_named`) from `bar_source_policy`. Lineage is the
+   `canonical_bar_lineage` view over D1, not a stored table.
 3. **Scrub (D2a).** The same daily stage reruns the scrub rules over the symbols it touched and
    writes `bar_quality_flag`; quarantined bars leave the tradeable view.
 4. **Grid (D2b).** For intraday names, `--stage grid` derives 15m/1h from tradeable 5m.
 
-The IBKR command runs steps 2 and 3 itself at exit, over every symbol whose 1d windows it
-asked, and fails loudly if the derivation fails; the Tradier loader scrubs the names it changed
-before it exits. After a failed derivation, rerun it by hand (idempotent):
+The fetcher runs steps 2 and 3 itself at exit, over every symbol whose 1d windows it asked,
+and fails loudly if the derivation fails. After a failed derivation, rerun it by hand
+(idempotent):
 
 ```
 PYTHONPATH=. .venv/bin/python services/bar_derivation.py --stage daily --symbols <comma-separated batch> --apply
@@ -240,9 +239,10 @@ Five checks, all read-only. Record the results in the README entry.
    ```
    .venv/bin/python scripts/infrastructure/universe_expansion_promote_compute_eligible.py --dimension compute_1d
    ```
-   Each held name gets a reason in the README (CLBK: IBKR serves no daily history for its
-   conId; a Tradier `short_history` refusal with no IBKR 1d yet). A held name stays onboarded
-   and unpromoted; it is never removed.
+   Each held name gets the failing verdict as its reason in the README (CLBK: IBKR serves no
+   daily history for its conId). A held name stays onboarded and unpromoted; it is never
+   removed. D7 judges only the `compute_1d` names today, so a new name holds as "missing" until
+   todo 502 lands.
 2. **History heads.** Names whose first bar is after the request window's start are either real
    late listings or venue truncations:
    ```sql
@@ -281,9 +281,9 @@ Five checks, all read-only. Record the results in the README entry.
 .venv/bin/python scripts/infrastructure/universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit
 ```
 
-Promotes every active name whose 1d `fetch_complete` is set (by an accepted Tradier load or a
-clean IBKR fetch) and whose tradeable 1d bar count is positive; holds the rest with a reason. Promotion is the moment the name enters research, so it
-happens after stage 8, never before.
+Promotes every active name whose required 1d `bar_integrity` verdicts are passed and fresh;
+holds the rest with the failing check named. Promotion is the moment the name enters research,
+so it happens after stage 8, never before.
 
 ### 10. Record
 
@@ -298,14 +298,13 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 | Gateway logs out mid-run, every remaining name looks rejected | Probe symbol before and after qualification; abort before writing | Stage 5 |
 | One bad row half-writes a batch | One all-or-nothing transaction | Stage 6 |
 | A transaction held across hours of IBKR calls | Qualify outside the transaction | Stage 5 |
-| Name with no data passes the fetch "clean" | Promote gate counts real bars | Stage 9 |
+| Name with no data passes the fetch "clean" | Verdict gate (session_coverage) | Stage 9 |
 | Selection biased by data availability | Rule 1; no screens on history | Stages 2, 8 |
 | Venue-truncated history read as a late listing | Head check plus fetch log; 185 D3 | Stage 8 |
 | Corrupt prints reach research | D2a scrub in the daily derivation; quarantine hides the bar | Stages 7-8 |
 | Dead name deactivated, history erased from panels | Rule 6 (no automated guard; 185 D8 descoped) | After onboarding |
 | Two draws overlap | Exclude every draw of the batch | Stage 2 |
 | Two manual IBKR backfills share a client ID | Check running processes; pick a free ID | Stage 7 |
-| Tradier-loaded name never gets `fetch_complete` and holds at promote | The loader marks every accepted load; `ops_tradier_fetch_complete_repair.py` repaired the 523 loaded before it did (2026-10-06) | Stages 7, 9 |
 | Onboarding run crosses UTC midnight | Refused loudly by migration 368's same-day guard; rerun | Stage 6 |
 
 ## Gaps, in the order they matter
@@ -317,9 +316,9 @@ with any pair migration. Update `.planning/STATE.md`'s universe line with the ne
 2. **Classification mapping has no tool** (todo 444). Stage 3's IBKR-industry-to-node mapping was manual.
    A reproducible mapper (IBKR fields -> candidate node, review CSV out, manifest columns in)
    would make stage 3 a command.
-3. **Second writer.** `universe_expansion_stratified_sourcing.py` and
-   `universe_expansion_pilot_draw.py` still carry a `--commit` path that writes instruments
-   directly (todo 431). Do not use it.
+3. **Second writer.** `universe_expansion_stratified_sourcing.py` still carries a `--commit`
+   path that onboards outside the manifest flow and holds one transaction across IBKR calls
+   (todo 431). Do not use it.
 4. **`spread_leg` pairs need a migration** (todo 444). A manifest column naming the pair partner would
    remove the hand-written migration.
 5. **No orchestrator** (todo 444). Stages 5-10 are separate commands. Once the next batch has run cleanly

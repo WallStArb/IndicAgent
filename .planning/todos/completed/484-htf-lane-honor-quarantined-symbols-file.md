@@ -47,3 +47,7 @@ this walk; the file is enough until then.
 - Todo 449 (the campaign this serves); 185-18 task 1a removes the per-attempt rescan
   tax that multiplies the cost of a poisoned name (fewer attempts, less retry burn).
 - Memory: `project_intraday_backfill_todo449` (2026-10-01 entry) has the full incident.
+
+## Closed 2026-10-08
+
+Obsolete: plan 189-07 deleted the todo 449 lane scripts, chain and symbol lists (afc8e40bb). The IBKR history fetcher replaces them, and a name's repeated failures live in `ohlcv_coverage.consecutive_failures` (reset with `--reset-failures`), not a quarantine file.

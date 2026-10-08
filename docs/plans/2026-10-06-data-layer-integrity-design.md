@@ -2,7 +2,7 @@
 
 Author: Claude (Opus 5.5), 2026-10-06, at Brandon's request ("build the data layer right from the
 start, as Renaissance would")
-Status: proposed; decisions made in this doc, owner review pending
+Status: implemented (plans 185-31, 185-33, 185-35 to 185-45, 189-07, 189-08; 189-09 to 189-11 pull the new data)
 Informed by: `docs/plans/2026-09-26-unified-research-to-production-design.md` (section 12),
 `docs/plans/2026-09-26-daily-data-foundation.md` (D0-D7),
 `docs/plans/2026-09-29-intraday-bar-store-redesign.md`,

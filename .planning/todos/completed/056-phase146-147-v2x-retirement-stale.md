@@ -88,3 +88,7 @@ free cleanup hostage to a statistical gate it doesn't need.
 **Action:** get the operator call above, then rewrite Phase 147/148 per the sketch. Not urgent
 in the sense that nothing breaks today, but 147 currently can't ever pass its own gate as
 written — worth fixing before either phase is planned.
+
+## Closed 2026-10-08
+
+Superseded. Plan 185-45 removed the v2.x I1-I7 signal path and the I8 AI stack with no live consumer (0fd0bc46b, 45e42b554; pre-removal tree in the local tag `archive/v2x-ai-stack-2026-10`, dumps in `data/backups/185-45`). What a live surface still needs (feature_vector_pipeline's import of the pipeline package and the archive, the dashboard's signal routes, the ML batch chain) is todo 509, which carries the remaining scope.

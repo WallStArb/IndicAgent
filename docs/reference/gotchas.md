@@ -1,8 +1,8 @@
 # Gotchas & Rare Pitfalls
 
-**Version:** 2.17
+**Version:** 2.18
 **Status:** current
-**Last Updated:** 2026-09-27 (session-learnings pass from the todo 449 backfill audit: backfill_status `tf` column and partial intraday seed, calendar-grid "stored N bars" counts, hypertable_size() vs pg_total_relation_size, ugrep grep alias)
+**Last Updated:** 2026-10-08 (plan 185-43: fetch bookkeeping table dropped, split history, the fetcher replaces the pipeline CLI and lease)
 
 Real issues that burned once — reference when touching the relevant area. Add here when you get burned.
 
@@ -62,8 +62,6 @@ See `docs/operations/operations-database.md` for query/schema gotchas. `instrume
 ## Historical Backfill
 
 ContFuture (`continuous=True`) hangs on multi-year requests — use named contracts with `--days 364`.
-- **`backfill_status` column is `tf`, not `timeframe`** (differs from both `market_data_ohlcv` and `intelligence_features`), and its intraday rows cover only the old-universe subset until todo 449 closes — the 698 new names accrue row-by-row as they complete.
-- **Backfill log lines "stored N bars" count calendar-grid cells, not real bars** (20y of 15m ≈ 700,555 = time slots); placeholders are flat carry-forward close with volume 0. Audit a symbol with its volume>0 count vs sessions × 26 (15m RTH) — healthy is ~99.6%.
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history.** `generate_session_slots()` expects a full extended-hours session from day one, but real IBKR extended-hours coverage ramps up over a symbol's first year (or the first days of a timeframe's retention window). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)`; if so it is benign ramp-up, not a connection-drop artifact.
 
@@ -130,7 +128,10 @@ the `--from-step` value alone.
 its 4:1 split). Returns and ratios are unaffected. Anything that depends on the absolute price
 level at the time (option strikes, round-number levels, tick-size regimes, "price below $5"
 filters) is wrong for every name that later split, unless it un-adjusts with a split history
-first. The project holds no split history yet (found 2026-09-25, research architecture family 8).
+first. `corporate_action` (D5, read `corporate_action_current`) records splits only from the
+point the split detector and the refetch path started writing (one row on 2026-10-08, ETHA's
+2026-10-02 split); history before that is not recorded, so a pre-2026-10 split cannot be
+un-adjusted from the database yet.
 
 ## Tests must never append to D1 or spawn derivation against the live database
 
@@ -161,13 +162,13 @@ reserved 404 to 408) never reaches the test database. Check this before trusting
 
 ## Moved from CLAUDE.md (5.60.0 trim): backfill and IBKR
 
-- Historical backfill: `scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py` (default `--client-id 40`; provider uses 35; IDs stay <= `_MAX_CLIENT_ID=50` in `ibkr.py`). Every IBKR history fetch takes the `ibkr_history_stream` lease (`src/core/resource_lease.py`, CI: `test_ibkr_history_lease_boundary.py`): one stream at a time, the nightly at priority tier, chains and manual runs at bulk tier; holders show in `pg_stat_activity` as `lease:ibkr_history_stream:<tier>:<holder>`.
+- Historical backfill: `scripts/infrastructure/backfill/ibkr_history_fetcher.py` is the only IBKR history CLI (default `--client-id 40`; provider uses 35; IDs stay <= `_MAX_CLIENT_ID=50` in `ibkr.py`). Every IBKR history caller takes the fail-fast `FetcherLock` (`scripts/infrastructure/backfill/_fetcher_lock.py`, CI: `test_ibkr_history_lock_boundary.py`): one fetch at a time, and a second one exits with `LOCK_HELD_MESSAGE` instead of waiting. The ibkr_history_stream lease was retired in plan 189-08.
 - The todo 449 lane scripts, chain and retry loop under `logs/backfill_ops/` were deleted in plan 189-07; the IBKR history fetcher (`indicagent-ibkr-history-fetcher`) replaces them, and a name's repeated failures live in `ohlcv_coverage.consecutive_failures`, not a quarantine file.
 - IBKR history starts at a stock's last listing-venue move: SMART-routed requests (1d and intraday) serve nothing before it (AMD 2015, PEP 2017, TLT 2016); the same contract routed to the old venue (`NYSE`, `ARCA`, `ISLAND`=Nasdaq, `AMEX`, `BATS`) serves it with venue-only volume. Error 162 "Query failed" marks it. `ohlcv_empty_history` rows written before todo 433's fix may be false.
 - Lane pauses are usually pacing, not hangs: the in-process limiter (58 req/10 min shared) logs nothing while a request waits for budget; the fetcher unit's systemd WatchdogSec is the backstop (todo 485 adds a wait log line). Before calling the gateway down, probe a known-good symbol on a spare client ID (e.g. 41): a name-specific hang (HOOD 2026-10-01) looks identical in the fetcher log.
 - Gateway 2FA hang: login state lives in `docker logs ib-gateway` ("Second Factor Authentication" = waiting on human Keychain approval; "Login has completed" = authed). `docker restart ib-gateway` re-sends the push; IBKR's server-side rate limit survives the restart (~5 min wait), then IBC's fresh login fires a new push. The nightly 23:59 UTC restart can re-trigger it (todo 395).
 - Clock surfaces differ: host `uptime`/`journalctl` print EDT; Postgres and container logs are UTC; IBC's gateway log lines are container-local. Correlate with `date -u` before computing elapsed times.
-- Timers: `systemctl list-timers | grep indicagent`. Nightly backfill 01:00 EDT and regime coverage auditor 02:00 EDT fire; `indicagent-roll-batch.timer` is disabled (`scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`). Docker logging caps (`max-size/max-file`) must stay (TimescaleDB grew a 29GB log without them).
+- Timers: `systemctl list-timers | grep indicagent`. The D7 audit (`indicagent-bar-reconciliation-audit.timer`, 02:00 EDT), the Yahoo dividend writer and the regime coverage auditor fire; the IBKR history fetcher and Tradier daily timers are disabled (owner, until 189-10; Tradier for good); `indicagent-roll-batch.timer` is disabled (`scripts/ops/roll/ops_roll_batch.py` promotes the front month in `contract_metadata`). Docker logging caps (`max-size/max-file`) must stay (TimescaleDB grew a 29GB log without them).
 
 ## Moved from CLAUDE.md (5.60.0 trim): data and code patterns
 
