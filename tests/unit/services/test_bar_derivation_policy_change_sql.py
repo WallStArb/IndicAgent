@@ -49,11 +49,12 @@ _LOAD = _T0 + timedelta(hours=4)  # the symbol's last applied daily load
 
 _SHADOW_DDL = """
 CREATE TEMP TABLE ohlcv_load (
-    symbol text, timeframe text, source text, outcome text, caller text, loaded_at timestamptz);
+    symbol text, timeframe text, source text, outcome text, caller text, loaded_at timestamptz,
+    batch_id int);
 CREATE TEMP TABLE corporate_action (symbol text, recorded_at timestamptz);
 CREATE TEMP TABLE corporate_action_current (symbol text, recorded_at timestamptz);
 CREATE TEMP TABLE bar_derivation_batch (
-    stage text, status text, finished_at timestamptz);
+    batch_id int, stage text, status text, started_at timestamptz, finished_at timestamptz);
 CREATE TEMP TABLE ohlcv_request (
     request_id int, symbol text, timeframe text, what_to_show text, outcome text, caller text,
     answered_at timestamptz);
@@ -83,14 +84,16 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
             "INSERT INTO ohlcv_observation VALUES"
             " (1, 'TEST', '1d', 'TRADES', 'SMART'), (2, 'OTHER', '1d', 'TRADES', 'SMART')"
         )
+        # Legacy loads with no batch: the baseline is loaded_at.
         await connection.execute(
             "INSERT INTO ohlcv_load VALUES"
-            " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-daily', $1),"
-            " ('OTHER', '1d', 'derived', 'applied', 'bar_derivation-daily', $1)",
+            " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, NULL),"
+            " ('OTHER', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, NULL)",
             _LOAD,
         )
         await connection.execute(
-            "INSERT INTO bar_derivation_batch VALUES ('daily', 'completed', $1)",
+            "INSERT INTO bar_derivation_batch VALUES (1, 'daily', 'completed', $1, $2)",
+            _LOAD - timedelta(minutes=1),
             _LOAD + timedelta(minutes=1),
         )
         # Open timeframe default and an open TEST row, both recorded long before the load.
@@ -141,12 +144,13 @@ async def test_a_later_subset_batch_does_not_hide_the_close_from_the_probe(conn)
     # touched FTV, IP or STE; the probe's baseline is the symbol's own last applied load.
     await _close(conn, "TEST", _LOAD + timedelta(minutes=5))
     await conn.execute(
-        "INSERT INTO bar_derivation_batch VALUES ('daily', 'completed', $1)",
+        "INSERT INTO bar_derivation_batch VALUES (2, 'daily', 'completed', $1, $2)",
+        _LOAD + timedelta(minutes=8),
         _LOAD + timedelta(minutes=10),
     )
     await conn.execute(
         "INSERT INTO ohlcv_load VALUES"
-        " ('OTHER', '1d', 'derived', 'applied', 'bar_derivation-daily', $1)",
+        " ('OTHER', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, 2)",
         _LOAD + timedelta(minutes=9),
     )
     assert (await _probe(conn))["policy_since"]
@@ -187,11 +191,42 @@ async def test_new_answers_after_the_symbols_own_load_are_due_past_a_later_batch
         _LOAD + timedelta(minutes=5),
     )
     await conn.execute(
-        "INSERT INTO bar_derivation_batch VALUES ('daily', 'completed', $1)",
+        "INSERT INTO bar_derivation_batch VALUES (2, 'daily', 'completed', $1, $2)",
+        _LOAD + timedelta(minutes=8),
         _LOAD + timedelta(minutes=10),
     )
     assert (await _probe(conn))["obs_since"]
     assert not (await _probe(conn, "OTHER"))["obs_since"]
+
+
+async def test_a_close_after_the_batch_read_its_policy_but_before_the_load_waives(conn):
+    # The policy is read once at run start: a close between the batch start and the symbol's
+    # load row was not applied by that load.
+    await conn.execute(
+        "INSERT INTO bar_derivation_batch VALUES (3, 'daily', 'completed', $1, $2)",
+        _LOAD + timedelta(minutes=20),
+        _LOAD + timedelta(minutes=40),
+    )
+    await conn.execute(
+        "INSERT INTO ohlcv_load VALUES"
+        " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-daily', $1, 3)",
+        _LOAD + timedelta(minutes=30),
+    )
+    await _close(conn, "TEST", _LOAD + timedelta(minutes=25))
+    assert await _waived(conn)
+    assert (await _probe(conn))["policy_since"]
+
+
+async def test_a_refused_or_restore_load_is_not_the_baseline(conn):
+    await _close(conn, "TEST", _LOAD + timedelta(minutes=5))
+    await conn.execute(
+        "INSERT INTO ohlcv_load VALUES"
+        " ('TEST', '1d', 'derived', 'refused', 'bar_derivation-daily', $1, NULL),"
+        " ('TEST', '1d', 'derived', 'applied', 'bar_derivation-other', $1, NULL)",
+        _LOAD + timedelta(minutes=10),
+    )
+    assert await _waived(conn)
+    assert (await _probe(conn))["policy_since"]
 
 
 async def test_a_symbol_with_no_applied_load_is_due(conn):

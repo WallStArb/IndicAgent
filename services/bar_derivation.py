@@ -51,8 +51,10 @@ pre_split_unrefetched and no_provider_volume flags through bar_scrub's write_fla
 scrub_symbols call over the run's symbols and write_1d_digests at rule d2-v2. A revision ratio
 above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
 rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
-bar_source_policy row was recorded after the symbol's previous applied daily load, or no such
-load exists. No canonical_bar_lineage row is written (185-38 replaced the table with the
+bar_source_policy row was recorded or closed (closed_at, migration 460) after the symbol's
+previous applied daily load, or no such load exists. --changed-only skips a symbol with no
+answer, corporate action or policy record or close after that same per-symbol baseline. No
+canonical_bar_lineage row is written (185-38 replaced the table with the
 lineage view and made this stage the single 1d writer).
 """
 
@@ -478,10 +480,33 @@ TRADIER_OWNED_SQL = (
     " AND o.timeframe = '1d' AND o.route = 'TRADIER'))"
 )
 
-# --changed-only: a symbol is due when any TRADES request was answered after the last completed
-# daily batch, or a corporate action or a 1d source policy row was recorded after it.
+# The symbol's baseline: when the daily stage last read the inputs it applied, the start of the
+# batch that wrote its latest applied daily load (the policy is read once at run start, the
+# observations before the write), else that load's loaded_at (a load with no batch). No row
+# when the symbol has no applied daily load. Only the daily stage's own loads count. A
+# completed batch over other symbols never moves it (plan 185-50: the 38-name batch of 185-49
+# finished after the FTV, IP and STE closes and hid them under a global watermark).
+_LAST_DAILY_LOAD_CTE = """
+last_load AS (
+    SELECT COALESCE(b.started_at, l.loaded_at) AS at
+    FROM ohlcv_load l
+    LEFT JOIN bar_derivation_batch b ON b.batch_id = l.batch_id
+    WHERE l.symbol = $1 AND l.timeframe = '1d' AND l.source = 'derived'
+      AND l.outcome = 'applied' AND l.caller = 'bar_derivation-daily'
+    ORDER BY l.loaded_at DESC
+    LIMIT 1
+)"""
+
+# When a 1d policy row last changed: its insert (recorded_at) or its close (closed_at, stamped
+# by the append-only trigger since migration 460; NULL on rows closed before it, which then
+# count as changed at recorded_at only). GREATEST ignores NULL. Format with p = the alias.
+_POLICY_CHANGED_AT = "GREATEST({p}.recorded_at, {p}.closed_at)"
+
+# --changed-only: a symbol is due when a TRADES request was answered, or a corporate action or a
+# 1d source policy row (the symbol's or the default) was recorded or closed, after its baseline.
 _SELECT_DAILY_CHANGED_SINCE_SQL = f"""
 /* changed_since */
+WITH {_LAST_DAILY_LOAD_CTE}
 SELECT EXISTS (
     SELECT 1 FROM ohlcv_observation o
     JOIN ohlcv_request q ON q.request_id = o.request_id
@@ -493,26 +518,18 @@ EXISTS (
     WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
       AND r.outcome IN ('bars', 'legacy_import')
       AND r.caller NOT LIKE 'test-%'
-      AND r.answered_at > COALESCE(
-          (SELECT max(finished_at) FROM bar_derivation_batch
-           WHERE stage = 'daily' AND status = 'completed'),
-          '-infinity'::timestamptz)
+      AND r.answered_at > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
 ) AS obs_since,
 EXISTS (
     SELECT 1 FROM corporate_action_current c
     WHERE c.symbol = $1
-      AND c.recorded_at > COALESCE(
-          (SELECT max(finished_at) FROM bar_derivation_batch
-           WHERE stage = 'daily' AND status = 'completed'),
-          '-infinity'::timestamptz)
+      AND c.recorded_at > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
 ) AS action_since,
 EXISTS (
     SELECT 1 FROM bar_source_policy p
     WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
-      AND p.recorded_at > COALESCE(
-          (SELECT max(finished_at) FROM bar_derivation_batch
-           WHERE stage = 'daily' AND status = 'completed'),
-          '-infinity'::timestamptz)
+      AND {_POLICY_CHANGED_AT.format(p='p')}
+          > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
 ) AS policy_since,
 -- The IBKR history fetcher (phase 189) imports this statement as _DAILY_SOURCE_PROBE_SQL and
 -- reads tradier_owned to skip IBKR 1d fetches. Since plan 185-38 it is TRADIER_OWNED_SQL: the
@@ -522,23 +539,19 @@ EXISTS (
 """
 
 # The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy
-# row (the symbol's or the default) recorded after the symbol's latest applied daily load, or a
-# snapshot restore (plan 185-38) after it: the restore is a recorded operator rollback, and the
-# re-derivation that follows re-applies the reviewed state. Only the daily stage's own loads
-# are the baseline.
-_SELECT_REVISION_WAIVER_SQL = """
+# row (the symbol's or the default) recorded or closed after the symbol's baseline
+# (_LAST_DAILY_LOAD_CTE), or a snapshot restore (plan 185-38) after it: the restore is a
+# recorded operator rollback, and the re-derivation that follows re-applies the reviewed state.
+# Narrow on purpose: a vendor revision on a name with no such record stays refused.
+_SELECT_REVISION_WAIVER_SQL = f"""
 /* revision_waiver */
-WITH last_load AS (
-    SELECT max(loaded_at) AS at FROM ohlcv_load
-    WHERE symbol = $1 AND timeframe = '1d' AND source = 'derived' AND outcome = 'applied'
-      AND caller = 'bar_derivation-daily'
-)
+WITH {_LAST_DAILY_LOAD_CTE}
 SELECT (SELECT at FROM last_load) IS NULL
     OR EXISTS (SELECT 1 FROM corporate_action c, last_load l
                WHERE c.symbol = $1 AND c.recorded_at > l.at)
     OR EXISTS (SELECT 1 FROM bar_source_policy p, last_load l
                WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
-                 AND p.recorded_at > l.at)
+                 AND {_POLICY_CHANGED_AT.format(p='p')} > l.at)
     OR EXISTS (SELECT 1 FROM ohlcv_load r, last_load l
                WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.source = 'derived'
                  AND r.outcome = 'applied' AND r.caller = 'bar_derivation-restore'
@@ -1602,8 +1615,8 @@ class BarDerivation(BaseBatch):
         params: _DailyParams,
     ) -> _DailyResult:
         # Probe first (cheap EXISTS, one round trip): the nightly --changed-only pass skips the
-        # observation load and the derivation for symbols with nothing new since the last
-        # completed daily batch.
+        # observation load and the derivation for symbols with nothing new since their own last
+        # applied daily load (_LAST_DAILY_LOAD_CTE).
         probe = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
         if not probe["has_obs"]:
             return _DailyResult(symbol, "no_observations")
@@ -2108,7 +2121,8 @@ def main() -> None:
         "--changed-only",
         action="store_true",
         help="grid: skip unchanged 5m digests; daily: skip symbols with no "
-        "observations or corporate actions after the last completed daily batch",
+        "answers, corporate actions or policy records or closes after the symbol's "
+        "last applied daily load",
     )
     parser.add_argument(
         "--apply",

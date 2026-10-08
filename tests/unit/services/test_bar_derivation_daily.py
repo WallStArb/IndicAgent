@@ -639,9 +639,25 @@ def test_no_observations_counts_and_moves_on():
 def test_changed_since_probe_keeps_its_name_and_tradier_owned_column():
     # ibkr_history_fetcher.py (phase 189) imports it as _DAILY_SOURCE_PROBE_SQL.
     from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as sql
+    from services.bar_derivation import TRADIER_OWNED_SQL
 
-    assert "AS tradier_owned" in sql and "FROM ohlcv_load" not in sql  # policy since 185-38
+    assert "AS tradier_owned" in sql
+    assert "ohlcv_load" not in TRADIER_OWNED_SQL  # ownership is policy since 185-38
     assert "AS policy_since" in sql and "bar_source_policy" in sql
+
+
+def test_waiver_and_probe_share_the_per_symbol_baseline_and_see_closes():
+    # Plan 185-50: one baseline (the symbol's last applied daily load, at its batch start) and
+    # a policy row counts as changed at GREATEST(recorded_at, closed_at).
+    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as probe
+    from services.bar_derivation import _SELECT_REVISION_WAIVER_SQL as waiver
+
+    for sql in (probe, waiver):
+        flat = " ".join(sql.split())
+        assert "l.caller = 'bar_derivation-daily'" in flat
+        assert "COALESCE(b.started_at, l.loaded_at)" in flat
+        assert "GREATEST(p.recorded_at, p.closed_at)" in flat
+    assert "max(finished_at)" not in probe
 
 
 def test_daily_stage_calls_d2v2_and_writes_no_lineage():
