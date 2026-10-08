@@ -1,7 +1,7 @@
 # Stale-basis Tradier heads and the 185-38 rows contradicted by continuity (todo 508, plan 185-49)
 
 **Author:** Claude (Sonnet 5.5), 2026-10-08, at Brandon's request
-**Status:** in progress; paused by the owner 2026-10-08 before any policy row was written (see "Paused")
+**Status:** in progress; paused 2026-10-08 before any write, resumed the same day with the amendment below
 **Informed by:** todo 508 (decision 2026-10-07 and owner decision 2026-10-08);
 docs/research/vendor-adjustment-basis-study.md (185-37 rule and results); summaries of plans 185-37,
 185-38, 185-46 and 185-47; docs/research/1d-primary-swap-evidence.md (IBKR 1d default from
@@ -113,6 +113,30 @@ An IBKR row is written only for a run decided ibkr whose IBKR series passes H3.
 Expected D7 effect if applied: vendor_basis_run 35 to 12 (CF, CPAY, DOV, MGM, WELL, EWT, ELE, KDP,
 LION, NEXN, PATK, W). session_coverage may newly fail on the EW* names (6 in-run holes each), as UNG
 did in 185-37.
+
+### Amendment 2026-10-08 (orchestrator decisions, consistent with the owner's option 1; before any apply)
+
+Wrong-basis data becomes holes; missing is NaN; the raw observations stay in D1.
+
+1. IP and STE: their 185-38 rows are closed at the first day plus one, like FTV. IBKR bars on the
+   wrong scale inside a stepping run are the same defect as a stale head. No IBKR row is written for
+   STE (its 2014-03-19 to 2015-07-24 IBKR series fails H3). Preview (`logs/185-49/preview_closures_final.tsv`,
+   close only): IP removes 2,414 IBKR bars (2006-10-03 to 2016-05-06) and changes 2,618 (2,614
+   values from 2016-05-09 to Tradier, 4 source labels); STE removes 1,166 IBKR bars (2006-10-03 to
+   2011-05-20) and changes 3,866 (3,864 values from 2011-05-23, 2 labels); FTV removes 14 and changes
+   2,579. As with FTV, each closed row keeps its first day (IP and STE 2006-10-02, a LEGACY_IMPORT bar)
+   as one IBKR bar ahead of the holes.
+2. OUT: head row from 2011-05-27 to 2014-11-18. Its 115 Tradier dates before the 2014-03-28 listing
+   belong to a different series; the row is a data-quality exclusion of those dates, not a returns
+   decision. Preview: 115 removed (all before the listing), 163 changed (the run), nothing else.
+3. Undecided, no row, handed to todo 512's data-quality rule (per-name hand work): BNY, CF, CPAY, MGM,
+   WELL, DOV, EWT, ELE, LION, W, KDP, PATK, NEXN.
+
+Final sets: head rows 39 (the 38 above plus OUT); closed 185-38 rows 3 (FTV, IP, STE); IBKR rows 0;
+undecided 13. Apply gates: each name's daily dry run equals its preview row; for a head row, removed
+only head dates and Tradier-only dates inside the run and nothing changed outside the row's range;
+for a closure, removed only the IBKR head bars listed above, changes only on dates Tradier answers
+(values to Tradier) plus the source-only relabels. Any other difference stops the apply.
 
 ## Paused
 
