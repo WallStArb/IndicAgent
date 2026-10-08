@@ -267,6 +267,138 @@ since their policy is already IBKR. 185-47 should treat a name with any 1d symbo
 `rows_to_write` already does, and judge C1 by each name's effective policy from D. Its amendment block
 should say so before it runs.
 
+## Apply results
+
+Plan 185-47, 2026-10-08 (UTC), after 189-10 Task 1b (189-10-1D-FETCH-RECORD.md, d08eb4bdd). The
+rules above are unchanged; C1 is judged per name against its effective policy from D (185-47
+amendment 2). Logs: `logs/185-47_*`.
+
+| Date | What |
+|---|---|
+| D | 2026-10-07 (first NYSE session after the last Tradier observation, 2026-10-06; no Tradier observation on or after D) |
+| Swap applied | 2026-10-08: migration 456 live at 16:03:53 UTC, daily stage apply 16:06:11 to 16:09:23 UTC |
+| freshness_1d verdict | 2026-10-08 16:15 UTC (D7 by hand): 2 failing, CTVA and QRVO |
+
+### Preconditions
+
+All hold, with one literal exception. (1) The fetch record is committed. (2) One active name, QRVO,
+has neither a SMART TRADES observation nor an ibkr 1d `ohlcv_request` row: Task 1b asked for it, and
+IBKR answered contract qualification with error 200 "No security definition", before any request
+existed to record. Its Tradier history ends 2026-10-02. It is class C (no_ibkr_yet) below. (3) No
+fetcher, pipeline, loader or derivation process; fetcher and Tradier timers disabled and inactive.
+(4) `infra.backfill.ibkr_1d_reconcile_interval_days` 1, gap-fill key 7, `test_fetch_queue.py` passes
+with `test_a_due_1d_item_precedes_a_5m_item_with_a_larger_gap`, no `_tradier_owned` in the fetcher.
+(5) No active query on the three tables. (6) Rules 40c1a2402 precede results 07cef334e.
+(7) Maximum TRADIER date 2026-10-06, 0 observations on or after D.
+
+### Classes (rerun after Task 1b)
+
+`--classify` over 1,529 active names (`logs/185-47_swap_classes.tsv`), same APR values as 185-46.
+
+| class | compute_1d | outside compute_1d | all |
+|---|---|---|---|
+| A | 1,499 | 27 | 1,526 |
+| B | 0 | 0 | 0 |
+| C | 3 | 0 | 3 |
+
+- Class C: EU (few_common, 26 sessions, median 0.9982), MOD (few_common, 27 sessions, median 0.9207,
+  IBKR SMART only from 2026-08-28), QRVO (no_ibkr_yet).
+- All 8 former class B names (CTVA, ELS, LION, MTCH, NEXN, RGEN, W, WEX) and the 11 former class C
+  names with an open row are class A now: Task 1b's 28-session refresh tail agrees with Tradier on the
+  last 20 common sessions. Each holds its open IBKR row from 185-38, so its policy does not move at D.
+- 506 class A names have fewer than 60 common sessions (the first-fetch names hold about 20); R2 puts a
+  name in A on the recent median alone, so the small overlap does not change the class.
+- Heads: 1,064 names have a Tradier head before IBKR's first current-scale bar, 947 keepable; no row
+  depends on it (no class B name).
+
+Admission sweep dry run (`logs/185-47_admission_sweep.tsv`): admitted 848, write 76, route_185_37
+113, keep_no_overlap 465. Its write set over class B names equals the class B set (both empty). 72
+write names hold a symbol row; ELE, IESC, MSM and TIGO hold none and are class A (recent median 1.0,
+whole-history agree share 0.08, 0.04, 0.44, 0.05; ELE's whole-history median ratio is 10). They
+follow the former class B pattern and are out of scope here (amendment item 4); their old basis
+runs are 185-37 and todo 508 territory.
+
+### Rows written
+
+| class | rows | names |
+|---|---|---|
+| A | 0 | none (R3) |
+| B | 0 | none (empty class) |
+| C | 2 | MOD (from 2000-01-03), QRVO (from 2015-01-02): primary tradier, fallback ibkr, open-ended; evidence holds class, reason, n_common, median ratio, Tradier last date and the classes file |
+
+EU is class C with an open IBKR row from 185-38, so it is decided and gets no hold row (amendment
+item 1). Default: migration 456 closed the Tradier default (from 1990-01-01) at 2026-10-07 and
+opened the IBKR default (observed, primary ibkr, no fallback) from 2026-10-07; rehearsed on
+`indicagent_test` first (rerun a no-op). Policy after: one open 1d default; 74 open IBKR symbol rows,
+2 open hold rows, 31 closed rows; no overlap; `bar_derivation_writer` reads the table. No class B
+snapshot was needed.
+
+Volume basis rerun (recent 250 common sessions, 1,528 names): p10 0.409, p50 0.528, p90 0.807,
+share below 0.5 39.2% (185-46: 0.418, 0.541, 0.853 on 1,032 names). These are in the new default's
+evidence.
+
+### Criteria
+
+| Criterion | Result | Measured |
+|---|---|---|
+| C1 | pass | 1,426 names switch to IBKR at D: 1,424 SMART dates on or after D, all already canonical as ibkr_fallback, so 0 new and 1,424 source-label-only changes (ibkr_fallback to ibkr_named, values equal); PSKY and WBD have no SMART date on or after D; 0 value changes, 0 removed, head, refused head and refused dates before D equal. 76 names keep their policy at D (74 open IBKR rows, MOD, QRVO) and match the baseline exactly, CTVA's held delta included. 0 violations |
+| C2 | pass | no class B name; 0 Tradier head bars lost |
+| C3 | pass with one named exception | policy_conformance 0, lineage_missing 0, digest_fresh 0; canonical_recompute 1: CTVA (1,853 bars), held since Task 1b (below) and failing before the swap too |
+| C4 | pass | 0 pass-to-fail pairs over 17,180 verdicts |
+| C5 | listed | 0 fail-to-pass, 0 new rows |
+| C6 | pass | no check's failing count rose (session_coverage 191, vendor_basis_run 35, unexplained_seam 6, grid_parity 131, slot_coverage 240, freshness_1d 2, all equal) |
+| C7 | listed | freshness_1d: CTVA 5 sessions (held d2-v2 apply, canonical ends 2026-09-30); QRVO 3 sessions (class C hold, IBKR has no contract definition) |
+| C8 | pass with the same exception | final dry run 0 new, 0 changed, 0 removed on 1,501 names; CTVA new 5, changed 1,848 (the held apply) |
+
+The C1 reading follows the fetch record's item 3: Task 1b's first fetch and refresh made 2026-10-07
+canonical as an IBKR fallback bar under the Tradier default before the swap, so the swap relabels
+those bars rather than adding them. Under the pre-registered wording ("new equal to the SMART dates
+on or after D for class A") the 1,424 would be new; here they are the same dates and values, counted
+as relabelled, and the checker requires new plus relabelled to equal the SMART date count.
+
+### Apply
+
+`services/bar_derivation.py --stage daily --symbols <1,501 names> --apply` (all compute_1d names but
+CTVA): 3 min 12 s, 1,501 `ohlcv_load` rows applied by bar_derivation-daily, 0 refused, 0 failed.
+By stored group: mixed 1,424 names, 0 new, 1,424 changed (all source label only), 0 removed;
+ibkr_only 73 and tradier_only 4 names, nothing changed. 1,424 `ohlcv_revision` rows, all old source
+ibkr_fallback. 2026-10-07 now holds 1,497 ibkr_named bars and no ibkr_fallback bar.
+
+D7 by hand (PYTHONPATH set as the unit sets it; the bare command fails to import `scripts`): before
+15:56 UTC and after 16:15 UTC, about 12 min each, 17,180 per-name verdicts each.
+
+### CTVA and ETHA (todo 515)
+
+CTVA stays held. Corteva's own release (2026-09-14, https://www.corteva.com/news/corteva-board-approves-vylor-distribution.html,
+fetched 2026-10-08) describes a spin-off: one Vylor share per CTVA share, record date 2026-09-24,
+distribution before the open on 2026-10-01. The overlap judge recorded it as a split of 39/7; IBKR's
+refetch rescaled pre-event prices by 5.5714 and volume up by the same factor, Tradier's prices by
+6.665 (implied 2026-10-01 returns -9.8% and +7.9% against the close of 12.57). Deciding which is
+continuous needs the CTVA WI close of 2026-09-30, which D1 does not hold, and a spin-off never
+scales volume. Neither vendor is shown continuous, so no row was written and d2-v2 was not applied
+for CTVA. `corporate_action` admits only split and reverse_split.
+
+ETHA: two reverse_split rows for one 1:3 event (2026-10-02 by tradier_refetch, 2026-09-30 by
+nightly_overlap). Tradier's 2026-10-03 fetch holds raw pre-split closes for 2026-10-01 and
+2026-10-02, so both dates are wrong (the event is on 2026-10-05 or 2026-10-06). Canonical values are
+correct because d2-v2 serves the latest fetch; no sanctioned tool corrects or retires a row, so
+nothing was edited. ETHA switched at D like any class A name (5 common sessions, median 1.0).
+
+### Frozen names and the 27 outside compute_1d
+
+Frozen at their last Tradier bar by a hold row: MOD (2026-10-06), QRVO (2026-10-02). CTVA is frozen
+at 2026-09-30 by the held apply, not by a row. The 27 names outside compute_1d are class A and were
+not derived (the daily stage judges compute_1d only); their 82,658 canonical bars stay unwritten
+pending the owner's answer.
+
+### Nightly wiring (read-only)
+
+- `infra.backfill.ibkr_1d_reconcile_interval_days` 1 and `test_a_due_1d_item_precedes_a_5m_item_with_a_larger_gap`: present.
+- Run-end order in `ibkr_history_fetcher.py`: `_escalate` (overlap judged, splits recorded and re-fetched in-process), then `_run_end_stages`: `--stage daily --symbols <touched 1d> --apply`, then `--stage grid --changed-only --apply`.
+- `ops_split_detect.py` and `services/split_detection.py`: no Tradier reference; detection pairs a run's SMART TRADES answers with the latest earlier SMART TRADES observation from another run.
+- D1 identical-answer elision on the IBKR path: `test_store_bars_second_identical_answer_writes_nothing` (tests/unit/scripts/test_history_fetch.py) and `test_an_identical_answer_lands_no_observation_but_the_request_keeps_its_length`.
+- D7 timer enabled; fetcher timer disabled and inactive.
+
 ## Deferred
 
 A replacement or second 1d vendor is Stage V (D-01) and is not added here.
