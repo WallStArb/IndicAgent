@@ -5,20 +5,20 @@ filed: 2026-09-26
 source: owner, phase 186 planning (2026-09-26): the feature_vectors rebuild is multiday and runs once, on full bar history
 ---
 
-# Backfill raw 5m bars for the 698 names without intraday history (5m only)
+# Backfill raw 5m bars for the 1,262 names without intraday history (5m only)
 
 ## What
 
-The universe has 931 `compute_eligible_1d` names but only 233 `compute_eligible` (intraday)
-names. 1d history exists for all 931; 5m does not exist for the other 698. The phase 186
-`feature_vectors` rebuild covers all 931 names and cannot start until this backfill is complete
+The universe has 1,502 `compute_eligible_1d` names but only 233 `compute_eligible` (intraday)
+names. 1d history exists for all 1,502; 5m does not exist for the other 1,262. The phase 186
+`feature_vectors` rebuild covers all 1,502 names and cannot start until this backfill is complete
 (186-CONTEXT D-32).
 
 Scope decision (owner, 2026-10-06, replaces the 2026-09-27 "fetch 5m, 15m and 1h" decision): fetch raw 5m only.
 Research features need 5m through 1d on every name, and 15m and 1h are derived from 5m (phase 185 D2b, todo 446;
 docs/plans/2026-09-29-intraday-bar-store-redesign.md) so every timeframe a feature sees comes from the same bars.
 Fetching 15m and 1h from IBKR as well costs the single history stream days that 5m needs. Which names get 5m:
-all 931 `compute_eligible_1d` names (the 698 missing 5m plus the 233 that have it); the rebuild's scope is the
+all 1,502 `compute_eligible_1d` names (the 1,262 missing 5m plus the 240 that have it); the rebuild's scope is the
 promoted set, chosen by promotion state and never by screening on history or returns. The 598 active names that are
 not yet promoted are outside this todo until the SOP promotes them.
 
