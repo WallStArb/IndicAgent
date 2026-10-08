@@ -164,3 +164,124 @@ def test_module_never_writes() -> None:
     source = Path(m.__file__).read_text()
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP)\b", source)
     assert "default_transaction_read_only" in source
+
+
+# --- check_dryrun (185-47 C1) ---------------------------------------------------------------
+
+_D = date(2026, 10, 7)
+
+
+def _report(symbol: str, **cols: object) -> dict[str, str]:
+    base: dict[str, object] = {
+        "symbol": symbol, "new": 0, "changed": 0, "changed_source_only": 0, "removed": 0,
+        "head": 5, "refused_head": 0, "admitted_interior": 3, "refused_interior": 0,
+        "refused_dates": "",
+    }  # fmt: skip
+    base.update(cols)
+    return {k: str(v) for k, v in base.items()}
+
+
+def _classes(**cls: str) -> dict[str, str]:
+    return dict(cls)
+
+
+def test_check_dryrun_passes_an_unchanged_name_and_a_switching_name() -> None:
+    # HOLD keeps its policy (identity); SW switches at D: 2 SMART dates on or after D, one
+    # stored as an admitted fallback (source label only), one refused before (now new).
+    before = [
+        _report("HOLD"),
+        _report("SW", admitted_interior=4, refused_interior=2,
+                refused_dates="2026-03-02,2026-10-08"),
+    ]  # fmt: skip
+    after = [
+        _report("HOLD"),
+        _report("SW", new=1, changed=1, changed_source_only=1, admitted_interior=3,
+                refused_interior=1, refused_dates="2026-03-02"),
+    ]  # fmt: skip
+    v = m.check_dryrun(before, after, _classes(HOLD="C", SW="A"), {"SW": 2}, d=_D)
+    assert v == []
+
+
+def test_check_dryrun_flags_a_value_change_and_a_removal_on_a_switching_name() -> None:
+    before = [_report("SW")]
+    after = [_report("SW", changed=2, changed_source_only=1, removed=1)]
+    v = m.check_dryrun(before, after, _classes(SW="A"), {"SW": 1}, d=_D)
+    assert {(x.symbol, x.column) for x in v} >= {("SW", "changed"), ("SW", "removed")}
+
+
+def test_check_dryrun_flags_new_bars_on_a_held_name() -> None:
+    v = m.check_dryrun([_report("C1")], [_report("C1", new=3)], _classes(C1="C"), {}, d=_D)
+    assert [(x.symbol, x.column) for x in v] == [("C1", "new")]
+
+
+def test_check_dryrun_flags_a_count_that_misses_the_smart_dates_from_d() -> None:
+    v = m.check_dryrun([_report("SW")], [_report("SW", new=1)], _classes(SW="A"), {"SW": 3}, d=_D)
+    assert ("SW", "new") in {(x.symbol, x.column) for x in v}
+
+
+def test_check_dryrun_flags_a_head_change_and_a_refused_date_before_d() -> None:
+    before = [_report("SW", refused_interior=1, refused_dates="2026-03-02")]
+    after = [_report("SW", head=4, refused_interior=0, refused_dates="")]
+    v = m.check_dryrun(before, after, _classes(SW="A"), {"SW": 0}, d=_D)
+    assert {("SW", "head"), ("SW", "refused_dates")} <= {(x.symbol, x.column) for x in v}
+
+
+def test_check_dryrun_never_flags_class_b() -> None:
+    v = m.check_dryrun(
+        [_report("B1")], [_report("B1", changed=9, removed=4)], _classes(B1="B"), {}, d=_D
+    )
+    assert v == []
+
+
+def test_check_dryrun_flags_a_name_in_one_report_or_without_a_class() -> None:
+    v = m.check_dryrun(
+        [_report("X"), _report("Y")], [_report("X"), _report("Z")], _classes(X="A", Y="A"), {},
+        d=_D,
+    )  # fmt: skip
+    got = {(x.symbol, x.column) for x in v}
+    assert ("Y", "symbol") in got and ("Z", "symbol") in got and ("Z", "class") in got
+
+
+# --- compare_verdicts (185-47 C3 to C6) -----------------------------------------------------
+
+
+def _v(subject: str, check: str, passed: bool) -> m.VerdictRow:
+    return m.VerdictRow(subject=subject, check=check, passed=passed)
+
+
+def test_compare_verdicts_lists_transitions_new_rows_and_counts() -> None:
+    before = [_v("A|1d", "freshness_1d", True), _v("B|1d", "freshness_1d", False),
+              _v("A|1d", "session_coverage", False)]  # fmt: skip
+    after = [_v("A|1d", "freshness_1d", False), _v("B|1d", "freshness_1d", True),
+             _v("A|1d", "session_coverage", False), _v("C|1d", "freshness_1d", False)]  # fmt: skip
+    diff = m.compare_verdicts(before, after)
+    assert diff.pass_to_fail == [("A|1d", "freshness_1d")]
+    assert diff.fail_to_pass == [("B|1d", "freshness_1d")]
+    assert diff.new_rows == [("C|1d", "freshness_1d")]
+    assert diff.failing_by_check_before == {"freshness_1d": 1, "session_coverage": 1}
+    assert diff.failing_by_check_after == {"freshness_1d": 2, "session_coverage": 1}
+    assert m.verdict_failures(diff) == [
+        "pass_to_fail: A|1d freshness_1d",
+        "count rose: freshness_1d 1 -> 2",
+    ]
+
+
+def test_compare_verdicts_fails_a_zero_tolerance_check() -> None:
+    diff = m.compare_verdicts(
+        [_v("A|1d", "digest_fresh", False)], [_v("A|1d", "digest_fresh", False)]
+    )
+    assert m.verdict_failures(diff) == ["zero-tolerance: digest_fresh 1 failing"]
+
+
+def test_compare_verdicts_empty_after_raises() -> None:
+    with pytest.raises(ValueError):
+        m.compare_verdicts([_v("A|1d", "freshness_1d", True)], [])
+
+
+def test_read_verdicts_round_trips_the_export(tmp_path: Path) -> None:
+    path = tmp_path / "v.tsv"
+    path.write_text(
+        "subject\tcheck\tpassed\tmetric_value\tthreshold_value\tevaluated_at\n"
+        "A|1d\tfreshness_1d\tfalse\t3\t2\t2026-10-08T15:32:25+00:00\n"
+    )
+    assert m.read_verdicts(path) == [_v("A|1d", "freshness_1d", False)]
