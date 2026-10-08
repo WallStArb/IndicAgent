@@ -138,6 +138,15 @@ only head dates and Tradier-only dates inside the run and nothing changed outsid
 for a closure, removed only the IBKR head bars listed above, changes only on dates Tradier answers
 (values to Tradier) plus the source-only relabels. Any other difference stops the apply.
 
+### H2 checked exactly (2026-10-08, before the first apply)
+
+`logs/185-49/tools/h2_exact.py` recomputes H2 per name with the run's first min(20, n) sessions.
+37 of the 38 pass; NSC's 8-session run gives 1.02 bp. EWS fails: its three LEGACY head dates give
+median 2.002083 against the run's 2.000000, 10.42 bp against the 10 bp tolerance (Tradier's stale
+closes are rounded to the cent, 9.46 against 18.94 / 2). By the rule EWS gets no row and joins the
+todo 512 list. Final sets: head rows 38 (the 37 plus OUT), closed 185-38 rows 3, IBKR rows 0,
+undecided 14.
+
 ## Paused
 
 2026-10-08, by the owner, before any write. State:
