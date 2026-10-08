@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: 24 of 26 (185-23 landed 2026-10-06; next 25 and 26, then 24)
+Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48 wait on 189-10 Task 1b (the one-time IBKR 1d fetch, owner go needed)
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke

@@ -269,16 +269,16 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 **Wave 17** *(blocked on Wave 16 completion)*
 
 - [ ] 185-33-PLAN.md - amended: computed verdict report, 1d checks (migration 449) (wave 17)
-- [ ] 185-39-PLAN.md - write contract for IBKR ingress and D1, request digests, archive contract, CI scan against first-write-wins (migration 448) (wave 17)
+- [x] 185-39-PLAN.md - write contract for IBKR ingress and D1, request digests, archive contract, CI scan against first-write-wins (migration 448) (wave 17)
 
 **Wave 18** *(blocked on Wave 17 completion)*
 
 - [ ] 185-29-PLAN.md - D0 label inputs name the rules and carry policy and verdict as-of; S0 hand-off todo with snapshot pinning; owner answers and orchestrator calls recorded apart (wave 18)
-- [ ] 185-40-PLAN.md - verdict report, intraday checks (migration 450) (wave 18)
+- [x] 185-40-PLAN.md - verdict report, intraday checks (migration 450) (wave 18)
 
 **Wave 19** *(blocked on Wave 18 completion)*
 
-- [ ] 185-41-PLAN.md - gates on verdicts: promotion, check_d2_landed, check_bar_coverage and the cleanup landed marker (186 note), live D2 test, alert rules (wave 19)
+- [x] 185-41-PLAN.md - gates on verdicts: promotion, check_d2_landed, check_bar_coverage and the cleanup landed marker (186 note), live D2 test, alert rules (wave 19)
 
 **Wave 20** *(blocked on Wave 19 completion)*
 
@@ -287,11 +287,11 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 21** *(blocked on Wave 20 completion)*
 
-- [ ] 185-35-PLAN.md - replaced: first fired Tradier and D7 timer runs verified (nightly stays off), ETHA confirmed, closing checks, todo 490 closed (wave 21)
+- [x] 185-35-PLAN.md - replaced: first fired Tradier and D7 timer runs verified (nightly stays off), ETHA confirmed, closing checks, todo 490 closed (wave 21)
 
 **Wave 22** *(blocked on Wave 21 and on 189-08; runs before any bulk IBKR pull)*
 
-- [ ] 185-42-PLAN.md - cleanup, code: fill path, d2-v1, first-write-wins in the rebuild writer, one-off scripts, orphaned keys marked for retirement (wave 22)
+- [x] 185-42-PLAN.md - cleanup, code: fill path, d2-v1, first-write-wins in the rebuild writer, one-off scripts, orphaned keys marked for retirement (wave 22)
 
 **Wave 23** *(blocked on Wave 22 completion)*
 
@@ -299,7 +299,7 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 24** *(blocked on Wave 23 completion)*
 
-- [ ] 185-43-PLAN.md - cleanup, DB, docs and housekeeping: backfill_status and swap tables dropped, retired APR keys (migration 452), phase archive, old logs, memory, docs and todos, exit criteria against the 185-44 baseline (wave 24)
+- [x] 185-43-PLAN.md - cleanup, DB, docs and housekeeping: backfill_status and swap tables dropped, retired APR keys (migration 452), phase archive, old logs, memory, docs and todos, exit criteria against the 185-44 baseline (wave 24)
 
 **Wave 25** *(blocked on Wave 24; runs between 189-10 Task 1b, the one-time IBKR 1d fetch, and 189-10 Task 2, the 5m pilot; see the 185-46 amendment to 189-10)*
 
