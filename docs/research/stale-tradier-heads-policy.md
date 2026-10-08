@@ -161,6 +161,27 @@ undecided 14.
    `logs/185-49/evidence_185_49.json`): 38 head rows inserted, 3 rows closed (FTV at 2016-06-14, IP
    and STE at 2006-10-03), 0 refused. 1d symbol rows: open 76 to 73, closed 31 to 72.
 
+3. Daily dry run over the 41 names (`logs/185-49/daily_dryrun.tsv`): the 38 head-row names equal
+   their previews on every count. FTV, IP and STE equal their previews on every count but the
+   stage refuses them: revision ratio 0.9992 to 0.9996 against `max_revision_ratio` 0.02, and the
+   waiver does not fire. The waiver (`_SELECT_REVISION_WAIVER_SQL`) and the nightly `policy_since`
+   probe look for a policy row whose `recorded_at` is newer than the name's last applied load; a
+   close only sets `valid_to` and the table has no column recording when, so a closure is
+   invisible to both. Fixing it needs a code or schema change (a close timestamp, or a close
+   recorded as a row), outside this plan; the three names are stopped, not forced.
+4. Daily apply of the 38 head-row names, 20:16:17 to 20:16:36 UTC (`logs/185-49/daily_apply.tsv`):
+   38 `ohlcv_load` rows applied, every count equal to the preview; 2 new (EWM, EWU: one IBKR
+   interior date each that d2-v2 had refused), 50,056 changed (tradier to ibkr_named), 54,565
+   removed (head dates and Tradier-only run dates); a dry run afterwards shows 0 new, 0 changed,
+   0 removed. Per name new/changed/removed: AAON 0/1163/1700, ABT 0/1167/1697, ADP 0/651/1981,
+   BAX 0/1167/1697, BDX 0/4868/1697, BF.B 0/1167/149, CAH 0/733/1697, CHD 0/1167/1697,
+   COP 0/1199/997, CVBF 0/63/1696, DRI 0/1167/1697, DUK 0/98/1661, EBAY 0/1168/1696,
+   EQT 0/981/1697, EWI 0/2537/1684, EWJ 0/2605/1634, EWM 1/2536/1701, EWU 1/2536/1702,
+   FIS 0/440/169, FLO 0/1167/1696, GL 0/1167/1697, IBB 0/2315/1913, IRM 0/2009/1697,
+   KIE 0/2809/211, KMB 0/1167/1697, MAS 0/1167/1697, MS 0/222/144, NI 0/1167/1697, NSC 0/12/1696,
+   PPL 0/1167/1697, ROST 0/1168/1696, SPG 0/1202/1662, TT 0/1166/1698, VTR 0/1167/1697,
+   VZ 0/976/1538, WMB 0/1200/1664, XRT 0/1232/4, OUT 0/163/115.
+
 ## Paused
 
 2026-10-08, by the owner, before any write. State:
