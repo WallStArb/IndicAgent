@@ -359,81 +359,100 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
   baseline drift check) is refused while a todo 449 lane is live and runs in a lane gap before
   186-26; the compose edit sits uncommitted in the `indicagent-wt/186-17` worktree by design,
   committed in the same step as its apply (`186-17-SUMMARY.md`, PARTIAL)
+
 - [x] 186-23 old IC stack one-change deletion (D-22): `ic_engine.py`, `forward_return_writer`, the
   `forward_returns` table and the fixed `alpha.ic.lookahead.*` keys, orchestrator repointed at
   `ic_measure`; gated on 185 D-14 (the 185-12 Task 2 bar-flag port); the 186-20 parity criterion
   was accepted 2026-10-01; merged 2026-10-02 (`6915ffba4`, migration 430 live-applied, 14 GB freed)
+
 - [ ] 186-26 feature_vectors rebuild run (D-32/D-32a): precondition checker, pilot chunk, R-09 disk
   guard, then the full resumable background run with kill-and-resume proven once; gated on todo 449
   coverage, 185 D2b (185-12) and 185-18's historical 1d D2 apply (todo 489 adds the checker gate), with
   todos 478 and 467 decided first; owns the todo 420 orphan-cleanup rerun
+
 - [ ] 186-27 rebuild close-out and name swap (D-34): unit-by-unit provenance verification, sampled
   drift report, atomic swap to `feature_vectors`, compression policy re-enabled, old 89 GB table
   dropped behind its dead-cache card; closes todos 411 and 426; behind 186-26
+
 - [ ] 186-28 ic_engine re-scope close (D-35): the 186-14 fresh IC writer run on the rebuilt table
   (scopes `unstratified` and `regime_volatility` into `feature_ic_scores_v2`), legacy
   `feature_ic_scores` dropped (R-07), D-19 bound verified on v2; its tf set waits on todo 471's
   measurement
+
 - [x] 186-01 summary cards: card schema, card lint with drop-table coverage, 8 legacy_verdict
   cards, 6 dead_cache cards; lint green, merged 2026-09-27 (`42fb59427`)
+
 - [x] 186-02 ledger verdict cards: 18 legacy_verdict cards for the construction verdict ledger
   section 4 rows (5 marked reopened), one pointer paragraph in the ledger with section 4 rows
   byte-identical; card lint green over 32 cards with git checks active; merged 2026-09-29
   (`54a684e4e`)
+
 - [x] 186-03 determinism tool promotion: `repro_frozen` promoted to
   `scripts/research/determinism/` (remapping unpickler, no old-chain imports), bit-identical on
   phase 179 S3 and phase 181 S2/S3 with the shim module blocked; todo 448 item 1 noted; merged
   2026-09-28 (`c3ce3a9d7`)
+
 - [x] 186-04 helper promotion: compute-eligibility audit to scripts/infrastructure (onboarding
   promote step and APR test repointed), date panel + pre-registered cost band + two-pass
   feature-matrix fetch to scripts/research/ (forward_returns join dropped, caller-supplied keep
   mask); 186-16's scripts/analysis deletion unblocked; merged 2026-09-28 (`70b68f4b9`)
+
 - [x] 186-05 database hygiene: duplicate `market_regimes` index dropped (migrations 384-385;
   EXPLAIN-proofed on the PK), PK inventory for all 11 no-PK tables (7 PKs added,
   `drift_monitor` dropped, `market_data_ohlcv` recorded unique-index equivalent, A1 confirmed),
   D-38 baseline JSON + read-only script committed; work_mem drift cause proven (container
   predates the 64MB compose edit, never recreated); merged 2026-09-28 (`a6dd8ea98`)
+
 - [x] 186-06 bulk-load primitive: `bulk_load()` in `services/_batch_utils.py` (COPY in time
   order, provenance-batch idempotency via the batch_key PK, live-schema float32 clamp,
   compression-policy and compressed-chunk refusals, per-chunk `compress_chunk` with the PK
   kept); migration 386 creates `provenance_batch` (guard/no-delete/no-truncate triggers,
   `infra.bulk_load.*` APR keys); todos 301/343/352 closed; merged 2026-09-28 (`843a645b9`)
+
 - [x] 186-07 todo445 5m-over-15m incremental IC: committed counted-look script
   (`scripts/research/todo445_5m_incremental_ic.py`, server-side-cursor streaming DB fetch after
   two live memory incidents); decision keep_5m, rebuild timeframes 15m/1h/1d/5m, 5m name set
   ret_autocorr_1 and sweep_detected at the 233 compute_eligible names; todo 445 closed; merged
   2026-09-28 (`0b4edf3a7`)
+
 - [x] 186-08 kernel registry, causality probe and golden parity fixture: `discover_kernels()` and
   `feature_memory_bars()` (D-25, D-26) in `src/intelligence/features/contract/registry.py`, truncation
   `causality_probe`/`memory_check` (D-27), frozen float32 golden of the current compute path
   (1 synthetic and 16 real cases) with a byte-identical parity test for 186-12 and 186-15; merged
   2026-09-29 (`70552a710`)
+
 - [x] 186-09 feature_lifecycle shrunk to data-quality checks (D-30): computed, finite and symbol
   coverage above `feature.coverage.min_symbol_fraction`, statistic in
   `src/intelligence/statistics/feature_coverage.py`, no reader of `ensemble_weights` left (R-03),
   migration 387, `feature_registry` residue removed (D-31); merged 2026-09-29 (`02590dbcc`)
+
 - [x] 186-10 measure package: proposer, IC term structure, monitoring and `regime_volatility`
   disclosure as pure functions over `ic_math`, targets from `panel.forward_returns` on chunked S0
   panels ending at `oos_start` (D-17, D-18, D-19); merged 2026-09-29 (`78edf26e5`)
+
 - [x] 186-11 ctx-writer retirement: `indicagent-ctx-writer` uninstalled, `context_writer`, `topic_ctx_snapshot`
   and dead `FeatureRepository` deleted, `ctx_events` and `ctx_snapshots` dropped by migration 388,
   unit deny-listed in the registry-integrity test; merged 2026-09-29 (`79a59913a`)
+
 - [x] 186-12 feature_factory split, first four origins: 117 registry kernels for price, volume, calendar,
   control and macro (D-25, D-26), `compute_batch` and `_precompute_series` read them through
   `compute_kernels`, byte-identical against the 186-08 golden; the probe found two lookaheads, fixed
   with their own golden regenerations: intraday macro records now align as-of the daily close (todo
   450 closed) and `gap_z` no longer reads the next bar's open (todo 461 filed); merged 2026-09-29
   (`10967cd67`)
+
 - [x] 186-13 regime kernels: the walk-forward HMM is four registry kernels (trend and volatility, D-29,
   R-10), byte-identical to the unchanged writer on a captured golden; the full-history path and its
   flags are deleted; the segment gate read future bars (RED tests, todo 451) and now gates on the
   training slice, golden regenerated in its own commit; `regime_writer` is a thin wrapper (todos 290
   and 291), migration 410; todo 248 was already deployed (flag true since 2026-08-12); merged
   2026-09-30 locally (`d754a1c98`, push held by the coordinator)
+
 - [x] 186-16 `scripts/analysis/` deletion (D-12): 94 scripts and 26 test files removed except the sleeve
   `config.py` closure, the pilot-only HMM helpers deleted with them, migration 412 retires two
   unread APR keys; `repro_frozen` (promoted to `scripts.research.determinism`) bit-identical before
   and after; merged 2026-09-30 locally (`299798dc7`, push held by the coordinator)
+
 - [x] 186-15 feature_factory split, last origins: SMC, VP/SR, cross-asset and factor-beta, CTF and ret_div
   are registry kernels (139 kernels, nine origins, D-25), byte-identical against the golden, which was
   never regenerated; the CTF availability tests (written first) found todo 243's re-key causal and
@@ -441,23 +460,28 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
   the dormant pipeline reads the registry (startup refusal on an unowned column) and its live
   cross-asset lookup uses the batch as-of rule; `cross_asset_series.py` deleted, todo 472 filed;
   merged 2026-09-30 locally (`5fd6d17c6`, push held by the coordinator)
+
 - [x] 186-29 sleeve directory removal (D-03, D-11): the five research tests import `HarnessConfig` from
   `scripts.research.determinism.config` (owner-released lane, one line each), `scripts/analysis/` and
   `tests/unit/sleeve_walk_forward/` deleted; the promoted determinism tool reports phase 179 S3 and
   phase 181 S2/S3 bit-identical on the post-deletion tree; merged 2026-10-01 (`4dddba5b9`)
+
 - [x] 186-22 old-chain table drops (D-14, D-06, D-08, R-01): migration 426 drops ensemble_weights,
   ensemble_alpha, alpha_ensemble_ic, alpha_events, alpha_frames, alpha_strategy_scores, context_features,
   feature_ic_scores_history and construction_spreads (50.7 GB freed, jobs 1067-1070/1072/1073 gone, 1071
   kept); orphaned ops readers and the context_features writer deleted, todo 355 closed; old ic_engine is
   non-runnable until 186-23; merged 2026-10-01 (`772c43823`)
+
 - [x] 186-24 feature_vectors_v2 schema (D-34, D-37, D-16): migration 425 creates the empty rebuilt
   hypertable (312 columns derived from the registry, PK symbol/tf/bar_ts, 1-year chunks, compression
   without a policy); Asian pair kept because the kernel computes it, 5 feature columns dropped by
   counted proof; 186-25 and 186-27 must use 312, not 310; merged 2026-10-01 (`b0124e8cf`)
+
 - [x] 186-21 old-chain ops scripts and APR keys (D-10, D-08): seven ops scripts and four unit files
   deleted; the orchestrator is five steps ending at feature_lifecycle, the monitor and verifier drop
   the dead services; migration 424 retires 51 old-chain APR keys per key (kept: `mv_condition_max`,
   `cluster_regime_conditioned`, `alpha.ic.*`); merged 2026-10-01 (`9b37c754e`)
+
 - [x] 186-20 parity replay of stored pooled cells (D-21, R-06): read-only harness over 1,080 stored
   POOLED cells; row sets reproduce exactly, a legacy-arithmetic replica reproduces 1,078 (2 are float32
   noise in the stored value), every fresh-versus-stored difference is attributed (66 NaN-denominator
@@ -465,12 +489,14 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
   harness replay; report `186-20-PARITY-REPORT.md` on main; stored rows hold IC 0.0 for features with
   missing values (false negatives only, relayed to the research lane); 186-18's orphan cleanup run is
   unblocked
+
 - [x] 186-19 old-chain deletion (D-09): eight services (ensemble_trainer, ensemble_ic_engine,
   alpha_frame_writer, counterfactual_tracker, alpha_publisher, alpha_scorer, ic discovery report,
   cross_sectional_spread_tracker), `gate_math`, three ensemble modules, two unit files and 34 test
   files removed; `ensemble/` keeps covariance, shrinkage, weights with an import-free init; the five
   units are deny-listed in the registry test; `repro_frozen` bit-identical on merged main; last commit
   holding the code is `2d4c2e4e1`; the two ops scripts and orchestrator steps 7-8 left for 186-21
+
 - [x] 186-18 regime bundle on the kernel: trend obs rows start after the nested vol_of_vol warmup
   (RED test, golden regenerated in its own commit, volatility digests unchanged; todo 286), WR-01
   pinned on both kernel families (292); a read-only coverage sweep decided by pre-registered rules:
@@ -480,12 +506,14 @@ Plans written 2026-09-27 (`09776c12c`); waves and dependencies in `186-PLAN-OUTL
   `cross_sectional_regime_model` replaces each (group, tf) atomically with a shrink guard (420,
   migration 419), cleanup run deferred behind 186-20 (J = 510,835); merged 2026-09-30 locally
   (`a67b10a4f`, push held by the coordinator)
+
 - [x] 186-14 fresh IC writer: `services/ic_measure.py` writes `feature_ic_scores_v2` (migration 413, `regime_scope`
   in the PK, legacy table untouched) only through `bulk_load`, one provenance batch per unit, skipped
   before any IC when the identity (per-job code key, APR snapshot, per-symbol bar digests, block
   digest) is unchanged and replaced atomically when it moves (`replace_where`); migrations 414 and 415;
   todo 412 closed, todo 469 filed (serial bootstrap cost); merged 2026-09-30 locally (`0db1aa213`, push
   held by the coordinator)
+
 - [x] 186-25 feature_vectors_v2 rebuild writer (D-28, D-32a, todo 339): `run_rebuild_stage` in
   `services/backfill_feature_factory.py` with provenance-keyed (symbol chunk, tf, calendar-year-range)
   units and kill-and-resume; one `compute_kernels` pass per series from its start (regime included,
@@ -549,6 +577,7 @@ Plans:
 **Plans:** 11 plans (07 to 09 amended and 10 to 11 added by the 2026-10-06 data layer integrity design)
 
 Plans:
+
 - [x] 189-01-PLAN.md - migration 430 ohlcv_coverage + APR keys + bootstrap; coverage writer; atomic three-way persist
 - [x] 189-02-PLAN.md - pure priority queue over the ledger; fetcher advisory lock
 - [x] 189-03-PLAN.md - per-(symbol, timeframe) item fetch with stall bound, retries, atomic coverage persistence
@@ -569,10 +598,27 @@ Plans:
 **Plans:** 7 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 190-01-PLAN.md — HistoryProvider protocol, verdict/budget/page types, IBKR leaf conformance, import-boundary fence
 - [ ] 190-02-PLAN.md — Two-tier ledger migrations (464 additive, 465 breaking at cutover), provider-parameterized coverage writer, parity-before capture
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 190-03-PLAN.md — Per-provider planner: ProviderPlan, per-provider ledger reads and floors (todo 526), policy read gate
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 190-04-PLAN.md — Fetcher generalization: provider registry, vendor-blind loop, overlay split, item-mechanics seam
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 190-05-PLAN.md — Rename to ohlcv_history_fetcher / OHLCVHistoryFetcher with external-identity freeze
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
 - [ ] 190-06-PLAN.md — Cutover: parity gate, drain kill-and-resume under the unified fetcher (blocking owner checkpoint)
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
 - [ ] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note
