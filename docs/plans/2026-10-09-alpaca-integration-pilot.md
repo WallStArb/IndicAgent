@@ -1,7 +1,7 @@
 # Alpaca integration pilot
 
 Author: Brandon with Claude Code (session, 2026-10-09)
-Status: pre-registered, pilot not started
+Status: workstream A executed 2026-10-09; results recorded below
 Informed by: `docs/reference/alpaca-api.md`, the council review of 2026-10-09
 (rolling-seam nightly split rejected; Alpaca scoped to intraday depth campaign,
 nightly verifier, execution), `docs/reference/gotchas.md` for IBKR facts.
@@ -143,3 +143,97 @@ in parallel but reports separately.
 ## Sources
 
 `docs/reference/alpaca-api.md` and the links therein.
+
+---
+
+## Results (2026-10-09, Workstream A executed same day as registration)
+
+Puller: `scripts/research/alpaca_pilot_pull.py`; data and analysis under
+`data/scratch/alpaca-pilot/` (scratch, not committed). All series complete:
+1d and 5m full depth for all 22 names, 1m full depth for AMD, BIL, CRM, DBC,
+EFA.
+
+### Throughput and bounds (B1, B2, F1-F3)
+
+- 3,271 + 22 requests, all HTTP 200; 0.577 h wall; 94.4 requests/min sustained
+  (Basic cap 200; the client limiter at 190/min is halved by per-request
+  latency). Bound B1 respected (under 10,000). B2 verified: no canonical
+  writes; scratch only.
+- Depth measured: 5m complete from 2016-01-01 on every name (220k-497k bars);
+  1m complete from 2016 on the subset (0.86M-1.9M bars). RTH-window 5m slots
+  complete every year (19.4k-19.7k/year vs ~19.6k expected) back to 2016; the
+  growing raw year totals are extended-hours bars, not RTH gaps.
+- F1 extrapolation, 233 names: 1d is 1 request/name; 5m averages ~120
+  pages/name, so the full 5m build is ~28,000 requests, about 5 hours at the
+  observed sustained rate. F2 storage: ~300k 5m rows/name at 29.3 bytes/row is
+  roughly 2.0 GB; 1m would add roughly 7 GB. Both fit the design's 17 GB
+  envelope comfortably.
+
+### C1/C2: 1d close basis (criterion: per-name pass rate >= 99% at 10 bp)
+
+First pull (default adjustment) failed structurally: every name with a split
+in the window showed exactly ratio-sized offsets gated to the pre-split era
+(AAPL 4:1 from 2020-08, ISRG 3:1 then cumulative 9:1, XLY and BIL 2:1).
+Diagnosis: the stored canonical 1d is split-adjusted (AAPL 2016 stored close
+24.615 = Alpaca raw 98.46 / 4); Alpaca's default history is split-raw.
+Re-pulled all 22 names with explicit `adjustment=split` (+22 requests):
+
+- 18 of 22 names at or above 97.4% pass, 12 at or above 99%; median basis 0.0
+  bp on 18 names (exact to the float). Post-D era under-powered (1 common
+  session) as pre-registered.
+- Residual failures are spinoff/merger events, not noise: MMM (Solventum,
+  2024), PFE (Upjohn, 2020), TMUS (Sprint merger, 2020) fail pre-event eras at
+  the spinoff factor; EWT drops to 91.5% under split adjustment for reasons
+  not yet characterized. The stored convention carries spinoff adjustments;
+  `adjustment=split` does not replicate them and `all` would overshoot into
+  dividend adjustment.
+
+**C1 verdict: FAIL as written (all-names gate), with the failure fully
+characterized.** Price basis is exact wherever adjustment conventions align.
+The depth build must run the project's corporate-action adjustment layer
+(`src/intelligence/bars/corporate_actions.py`) on top of Alpaca's
+`adjustment=split` to align spinoff/merger conventions, or admit names
+conditionally on adjustment class. Either is a build-plan decision, not an
+obstacle: it is the same treatment Tradier needed for the same events.
+
+### C3: 5m close basis (1 bp, common stored window, RTH slots)
+
+17 of 22 names pass at 99.7%+ (13 at 99.9%+, median 0.0 bp on most). Three
+names fail with structure (DBC 68.7%, UUP 57.4%, PFE 39.6%) and none of the
+three has a split in the window, so this is not the C1 effect; candidate
+causes are stored-side 5m quality on these names or slot alignment for the
+commodity/currency vehicles. Diagnose in the depth-build plan before storing
+these names; **C3 verdict: PASS on 17/22, FAIL/INSPECT on 3, no verdict on
+the other 2 (FXE/EWT insufficient common slots).**
+
+### C4/H1: volume convention
+
+For the five 1m names: Alpaca 1m RTH-aggregated volume does NOT reproduce the
+Alpaca 1d bar's volume; median relative gap 6-26% per name (AMD 17.8%, CRM
+25.9%). Alpaca's 1d volume includes extended hours. Independent confirmation:
+a Massive (Polygon, the upstream) free-tier key returns AAPL 2026-09-01 daily
+volume 53,167,388, exactly the stored Tradier value and Yahoo's to rounding,
+while Alpaca reports +0.37%. The upstream daily convention equals the stored
+convention; **the deviation is Alpaca's aggregation.**
+
+**Volume rule (decided by H1):** any stored Alpaca bar uses RTH-window
+aggregation from Alpaca's own intraday bars; Alpaca 1d bars are never stored
+wholesale. This rule is era-safe only when combined with the RTH filter
+verified complete back to 2016.
+
+### Boundary-D basis amendment note
+
+Massive free tier: 2-year lookback, 5 requests/min, adjusted aggregates only
+(403 beyond 2 years). Kept in `.env` (`MASSIVE_API_KEY`) as a diagnostic
+reference for recent windows only; same upstream as Alpaca, so it never
+substitutes for the IBKR basis check.
+
+### Decisions this pilot hands to the depth-build plan
+
+1. Pull 1d/5m/1m with `adjustment=split`; apply the corporate-action layer for
+   spinoff/merger names, or gate their admission per adjustment class.
+2. Store RTH-window aggregates only; never Alpaca 1d bars.
+3. Diagnose the 3 C3 names and EWT before their admission.
+4. 1m storage is affordable (~7 GB) but has no registered consumer; stays
+   out of the build unless a spec pre-registers a need.
+5. Full 5m build for 233 names is a ~5-hour, ~28k-request job at Basic rates.
