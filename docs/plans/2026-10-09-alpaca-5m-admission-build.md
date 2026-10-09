@@ -41,25 +41,20 @@ each name's 5m present first. Sequence: phase 2 pull -> tolerance migration
 -> load all names -> derive -> D7 full sweep -> promotion wave (separate
 task, not this build).
 
-**Sequencing constraint (189 lane, 2026-10-09):** the owner ordered full-depth
-IBKR 5m for all names ("get it all") and the IBKR drain is running again
-(todo 523, ~25-37 days). The coverage ledger plans depth from each series'
-earliest stored bar, so a phase 2 all-names Alpaca load (2016 forward) before
-the drain completes would make the ledger treat 2006-2016 as covered and
-never plan the IBKR head. Therefore: **phase 1's load (the 233, which hold
-IBKR 5m) proceeds as planned; the phase 2 all-names canonical load holds
-until the drain completes.** Phase 2 keeps pulling to scratch meanwhile;
-only the canonical write timing changes.
-
-**Early lift:** the hold lifts as soon as the root fix lands, not when the
-drain completes. The owner directed it ("depth should be measured correctly
-for each TF"); it is todo 526 (189-11): `ohlcv_provider_head` gains a
-timeframe column (PK symbol+provider+timeframe; the schema today cannot
-represent per-TF floors at all), one walk-back per vendor per TF for the
-global floors, per-name rows only where a probe contradicts, and planning
-per (symbol, provider, tf) against per-source stored spans. Per-provider
-planning removes the collision entirely, so the phase 2 load proceeds the
-day 526's planner change applies.
+**Sequencing (final, 2026-10-09):** no hold. The 189 lane's interim
+head-illusion concern was retracted after a verified dry run
+(21f515c25, 0687a5d14): the queue planner already plans heads correctly
+(gap = min(depth_days, proven_days, floor) - actual, where proven_days is
+the name's deepest stored series — 1d, which stays IBKR-authored and this
+build never touches — and floor is max(provider_head, empty_history)). The
+"163 names" mass was differing vendor floors (1d from 2000, 5m from 2006),
+not missing data; an Alpaca 5m load changes neither proven depth nor floor.
+Phase 2's all-names canonical load therefore proceeds on its own timeline
+after the phase 2 pull, under the standing rules: first-writer-stays
+governs the overlap, IBKR's backfill skips stored slots. The owner's
+"depth measured correctly per TF" directive survives as todo 526 (P3, the
+small per-TF provider-head PK migration, 189-11), independent of this
+build.
 
 Out of scope: 1m storage (no consumer), the registry promotion wave (its own
 task, gated on this build's D7 sweep), the execution client (separate build),
