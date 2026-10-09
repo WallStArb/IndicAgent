@@ -60,6 +60,20 @@ live streaming.
   sessions are skipped, never overwritten. The 15-minute recency hold means
   the last partial day comes from the nightly leaf or the next campaign run,
   never from a partial pull.
+- **Slot convention pin (blocking; from the 189 lane's review, verified
+  against both data sides 2026-10-09):** stored IBKR 5m is bar-OPEN stamped
+  on session slots 09:30..15:55 inclusive (78 slots full day, 38 half days),
+  zero-volume slots retained. Alpaca's 5m bars verified the same convention
+  (open-stamped, same session set). The loader matches bars by open stamp
+  onto that grid, never fabricates a slot in either direction (a slot the
+  feed does not provide stays missing), and retains zero-volume bars the
+  feed does provide, so slot_coverage and the derivation's session mask read
+  an Alpaca-filled session exactly like an IBKR one.
+- **Coverage-ledger pin (189 single-writer fence):** each session's bars,
+  its `ohlcv_load` row, and its `ohlcv_coverage` update land in the same
+  transaction (`_intraday_persist.py` is the pattern). A lagging ledger
+  would make the IBKR queue re-plan Alpaca-filled sessions as gaps, which
+  under first-writer-stays becomes wasted overlap re-asks.
 - Provenance: the campaign request log archived to `logs/alpaca_depth/`;
   row-level `ohlcv_request`/`ohlcv_observation` capture begins with T4's
   leaf and is recorded as a known gap in the registry's Alpaca row until
@@ -75,6 +89,11 @@ live streaming.
   span (2026-09 onward for the 233): sampled close basis between stored IBKR
   and stored Alpaca 5m, APR tolerance, flag-only (never a writer). This is
   the second-tape extension the 189 lane asked for, in evidence form.
+  Pins from their review: the sample rule is deterministic and written here
+  (first stored bar of each overlap session), the tolerance APR row is dated
+  before the first apply, and verdict rows land in `integrity_monitor` like
+  every other D7 condition, so the gate trail exists even though the check
+  is flag-only.
 - Promotion/verdict gates read the results as-is; no gate code changes.
 
 ## T4: The nightly leaf (separate follow-on, its own plan)
