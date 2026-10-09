@@ -62,7 +62,8 @@ live streaming.
   never from a partial pull.
 - **Slot convention pin (blocking; from the 189 lane's review, verified
   against both data sides 2026-10-09):** stored IBKR 5m is bar-OPEN stamped
-  on session slots 09:30..15:55 inclusive (78 slots full day, 38 half days),
+  on session slots 09:30..15:55 inclusive (78 slots full day, 42 half days:
+  09:30..12:55; corrected from 38 per the 189 lane's review),
   zero-volume slots retained. Alpaca's 5m bars verified the same convention
   (open-stamped, same session set). The loader matches bars by open stamp
   onto that grid, never fabricates a slot in either direction (a slot the
