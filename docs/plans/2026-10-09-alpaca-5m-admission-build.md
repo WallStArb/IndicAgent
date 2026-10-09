@@ -41,6 +41,16 @@ each name's 5m present first. Sequence: phase 2 pull -> tolerance migration
 -> load all names -> derive -> D7 full sweep -> promotion wave (separate
 task, not this build).
 
+**Sequencing constraint (189 lane, 2026-10-09):** the owner ordered full-depth
+IBKR 5m for all names ("get it all") and the IBKR drain is running again
+(todo 523, ~25-37 days). The coverage ledger plans depth from each series'
+earliest stored bar, so a phase 2 all-names Alpaca load (2016 forward) before
+the drain completes would make the ledger treat 2006-2016 as covered and
+never plan the IBKR head. Therefore: **phase 1's load (the 233, which hold
+IBKR 5m) proceeds as planned; the phase 2 all-names canonical load holds
+until the drain completes.** Phase 2 keeps pulling to scratch meanwhile;
+only the canonical write timing changes.
+
 Out of scope: 1m storage (no consumer), the registry promotion wave (its own
 task, gated on this build's D7 sweep), the execution client (separate build),
 live streaming.
