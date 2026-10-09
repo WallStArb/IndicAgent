@@ -26,8 +26,8 @@ raises) names the primary and fallback source:
   - interior hole: admitted only when the median IBKR/Tradier close ratio over the
     basis_window_sessions common sessions nearest the hole (by session distance, both sides,
     ties to the earlier session) is within basis_tolerance_bp of 1. Otherwise the date has no
-    canonical bar and is listed in refused_interior. The nightly Tradier load fetches the
-    whole history, so its latest answer is the re-ask the design asks for.
+    canonical bar and is listed in refused_interior. Tradier observations end at 2026-10-06 (the
+    loader is deleted, plan 185-48), so no Tradier re-ask exists; IBKR's latest answer is.
 
 Scale (D-21): an observation is stale for a date when some recorded split takes effect after
 the date and the observation was fetched before that split's recorded_at, unless its request is

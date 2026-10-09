@@ -44,7 +44,6 @@ def test_infer_split_two_for_one() -> None:
     assert record.effective_date == seam.end
     assert record.factor == pytest.approx(2.0)
     assert record.kind == "split"
-    assert record.evidence_days == 180
 
 
 def test_infer_split_one_for_eight_is_reverse_split() -> None:

@@ -47,15 +47,13 @@ _MAX_SPLIT_TERMS = 50
 class SplitInference:
     """One seam explained as a split or reverse split.
 
-    effective_date is the seam's end (the last day on the old scale), factor the
-    snapped rational p/q (2.0 = 2-for-1, 0.125 = 1-for-8) and evidence_days the
-    run length that carried the constant ratio.
+    effective_date is the seam's end (the last day on the old scale) and factor the
+    snapped rational p/q (2.0 = 2-for-1, 0.125 = 1-for-8).
     """
 
     effective_date: date
     factor: float
     kind: Literal["split", "reverse_split"]
-    evidence_days: int
 
 
 def infer_split(seam: Seam, *, ratio_snap_tol: float) -> SplitInference | None:
@@ -79,7 +77,6 @@ def infer_split(seam: Seam, *, ratio_snap_tol: float) -> SplitInference | None:
         effective_date=seam.end,
         factor=best_p / best_q,
         kind="split" if best_p > best_q else "reverse_split",
-        evidence_days=seam.n_days,
     )
 
 
