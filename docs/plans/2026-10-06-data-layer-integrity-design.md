@@ -422,3 +422,31 @@ Residual risks, each with a todo:
 The Tradier loader, its units, its provider module, its Settings fields, D7's `tradier_refused`
 check and its alert, and the `infra.tradier.*` APR keys (migration 457) are deleted. A second or
 replacement 1d vendor is the deferred Stage V item of D-01 and is not added.
+
+## Amendment 2026-10-09: Alpaca as second source (intraday, verification, execution only)
+
+Council review and a pre-registered, executed pilot
+(`docs/plans/2026-10-09-alpaca-integration-pilot.md`, results recorded there)
+add a second vendor without changing this design's writer rules:
+
+- **The 1d primary stays IBKR.** The "no second or replacement 1d vendor" line
+  above stands: Alpaca's daily history is split-adjusted with a hard 2016
+  floor, strictly shallower than the stored 20-year convention, and a
+  rolling-seam shallow nightly writer was evaluated and rejected (provenance
+  would become a function of arrival time; the d2 arbitration would run on the
+  hot path nightly).
+- **Alpaca's roles:** (1) intraday depth source, 5m/1m from 2016-01-01,
+  measured complete on RTH slots every year, ~5 hours and ~2 GB for the
+  intraday universe; (2) nightly verifier after the IBKR backfill, with
+  d2-v3's rule unchanged: a disagreeing source yields to the basis-tested
+  restated answer; (3) execution venue, paper first.
+- **Lineage fact:** Alpaca's consolidated feed is Polygon.io's (renamed
+  Massive.com, 2025-10-30). A direct Massive/Polygon subscription is the same
+  source and adds nothing but flat files; not added.
+- **Measured conventions the depth build must respect** (pilot results):
+  pull with `adjustment=split` (the stored 1d is split-adjusted; Alpaca's
+  default is raw); spinoff/merger names (MMM, PFE, TMUS class) need the
+  corporate-action layer or per-class admission; store RTH-window aggregates
+  only, never Alpaca 1d bars (theirs include extended hours; the upstream's
+  daily convention matches the stored one). Reference:
+  `docs/reference/alpaca-api.md`.
