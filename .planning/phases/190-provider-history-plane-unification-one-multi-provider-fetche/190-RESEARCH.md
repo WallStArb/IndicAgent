@@ -419,15 +419,15 @@ The constructor seam pattern (one dependency per seam, documented :507-514) is t
 
 ## Open Questions
 
-1. **External identity rename: full or code-only?**
+All three resolved at plan time (2026-10-09 revision); pointers to the adopting plans inline.
+
+1. **External identity rename: full or code-only?** — RESOLVED: code-only, adopted in plan 190-05 (code identifiers rename; FETCHER_LOCK_NAME, JOB, status path, unit filenames frozen with decision comments).
    - What we know: the design proposes the name; the rename surface (section 6) is wide but enumerable; the lock-name rename is the one genuinely risky piece.
-   - Recommendation: rename class/module/identifiers and the checked-in unit files' ExecStart; keep `FETCHER_LOCK_NAME` and the status-file path stable unless the glossary check demands otherwise. Decide at plan time.
-2. **Coverage provider labeling rule for pre-existing rows.**
+2. **Coverage provider labeling rule for pre-existing rows.** — RESOLVED: stored-state labeling under the ibkr label, adopted in plan 190-02 Task 1 (migration 464 header + COMMENT ON COLUMN restate the rule; vendor claims stay in ohlcv_load.source and the per-provider tier).
    - What we know: existing rows are IBKR-era stored-state rollups (section 2 backfill hazard).
-   - Recommendation: label `ibkr` with an explicit migration comment that canonical-tier rows are stored-state, not vendor provenance; vendor claims live in ohlcv_load.source and the per-provider tier.
-3. **Where the batch history surface lives: extend `DataProvider` or a sibling `HistoryProvider` protocol.**
+3. **Where the batch history surface lives: extend `DataProvider` or a sibling `HistoryProvider` protocol.** — RESOLVED: sibling runtime_checkable protocol, adopted in plan 190-01 Task 1 (DataProvider byte-identical; conformance suite pins the new surface; 190-04 dispatches through it).
    - What we know: `DataProvider` already carries `fetch_historical_bars` with a too-narrow signature (:101-108); the dormant streaming DAG expects the current method set.
-   - Recommendation: a sibling runtime_checkable protocol (additive, zero streaming risk), with leaves satisfying both; the conformance test pins it. Claude's discretion.
+   - Recommendation adopted as stated; the conformance test pins it (plan 190-01).
 
 ## Environment Availability
 
