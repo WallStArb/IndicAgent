@@ -1,8 +1,8 @@
 # Canonical Truth Registry
 
-**Version:** 3.3
+**Version:** 3.4
 **Status:** current
-**Last Updated:** 2026-10-08
+**Last Updated:** 2026-10-09
 **Tags:** data-ownership, canonical-source, streams, persistence, writer-agents, kafka
 
 **Archival note:** Rows describing the I1-I7 plugin tier, the typed intelligence bus
@@ -64,7 +64,7 @@ Core rule: **one canonical writer per durable fact**. Read models may duplicate 
 
 ## Provider matrix
 
-Two price providers (IBKR, Tradier) and one reference-data provider (Yahoo). Each row is one (provider, timeframe): the request route and stored source values, the tables it writes and the writer. Rewritten for d2-v2 in plan 185-43 (2026-10-08). Tradier is not funded (owner, 2026-10-07): its observations end at 2026-10-06, its history stays canonical before D = 2026-10-07, and 185-48 deleted the loader, its units, the provider module and its APR keys (migration 457). IBKR is the 1d primary from D.
+Three price providers (IBKR, Tradier, Alpaca) and one reference-data provider (Yahoo). Each row is one (provider, timeframe): the request route and stored source values, the tables it writes and the writer. Rewritten for d2-v2 in plan 185-43 (2026-10-08); Alpaca added from the 2026-10-09 decision and pilot. Tradier is not funded (owner, 2026-10-07): its observations end at 2026-10-06, its history stays canonical before D = 2026-10-07, and 185-48 deleted the loader, its units, the provider module and its APR keys (migration 457). IBKR is the 1d primary from D and stays so: Alpaca's daily history is split-adjusted with a hard 2016 floor and never becomes the 1d primary. Alpaca's roles (decided 2026-10-09, `docs/plans/2026-10-06-data-layer-integrity-design.md` amendment): intraday depth source (5m/1m from 2016-01-01, measured complete on RTH slots every year), nightly verifier after the IBKR backfill (d2-v3's rule unchanged: a disagreeing source yields to the basis-tested restated answer), and execution venue (paper first). Alpaca never writes canonical bars in steady state. Its consolidated feed is Polygon.io's (renamed Massive.com, 2025-10-30).
 
 | Provider, timeframe | Route and source | D1 (`ohlcv_request`, `ohlcv_observation`) | `ohlcv_load`, `ohlcv_revision` | `market_data_ohlcv` | `ohlcv_intraday_raw_archive` | Writer |
 |---|---|---|---|---|---|---|
@@ -74,6 +74,7 @@ Two price providers (IBKR, Tradier) and one reference-data provider (Yahoo). Eac
 | IBKR 1m | `SMART` `TRADES`; source `ibkr_named` | Request record only | No | Real provider bars only | No | Same as 5m; dormant (not in the fetcher's default scopes) |
 | IBKR 15m and 1h | `SMART` `TRADES`; vendor observations | Request record only | Differing observations of an archived bar in `ohlcv_revision`, origin `archive_segment` (185-31) | Readers see source `derived_5m` from `bar_derivation --stage grid`; vendor `ibkr_named` rows remain only for names the grid stage has not yet replaced, and leave the table after a value match against the archive | Every vendor answer, through `services/intraday_raw_archive.py` | No longer fetched (migration 445: default scopes stop vendor 15m and 1h); the archive is frozen as the parity reference |
 | IBKR 4h | `SMART` `TRADES`; source `ibkr_named` | No | No | Real provider bars only since 185-32 (2,184 legacy rows); the design derives 4h from 5m | No | No default scope fetches it |
+| Alpaca 5m/1m *(decided 2026-10-09, leaf not yet built: todo 521)* | Proposed route `ALPACA`, SIP feed (Polygon/Massive upstream); planned source `alpaca` | Planned: request and observation capture through the same `ohlcv_observation_writer` role | Through the ingress write contract, like every writer | Planned: RTH-window aggregates from Alpaca's own intraday bars only, never Alpaca 1d bars (theirs include extended hours); pull with `adjustment=split`; spinoff/merger names need the corporate-action layer or per-class admission. Pilot evidence and measured conventions: `docs/plans/2026-10-09-alpaca-integration-pilot.md` | No | Deferred build (todo 521); the nightly verifier rides with it |
 | Yahoo | Dividends only, never a price | No | No | No | No | `dividend_events` (read through `dividend_events_reconciled`) |
 
 **No synthetic_fill exists.** The store holds real rows only since the 185-25 swap (zero synthetic_fill rows). Two fences keep it so: migration 444's CHECK constraint `market_data_ohlcv_no_synthetic_fill` refuses an insert or update with that source (NOT VALID in the catalog, because TimescaleDB refuses VALIDATE on a columnstore hypertable; the ADD checked every chunk), and `tests/unit/test_market_data_ohlcv_no_synthetic_fill.py` fails CI on any synthetic_fill row build. The fill path itself (`normalize_bars`) is deleted: plan 189-08 removed its last caller and plan 185-42 the function.
