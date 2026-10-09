@@ -115,3 +115,27 @@ Execution client stays a separate build.
 - D7 verdicts pass on every admitted name; digests fresh; grid parity holds.
 - Zero writes outside the write contract; `ohlcv_load` rows reconcile with
   scratch row counts.
+
+## T1 results (2026-10-09, all four resolved; none a data defect)
+
+- **DBC, UUP, PFE (5m close basis): half-tick tape differences.** With the
+  failures separated by tick size (half of a 1-cent tick in bp of mid), 377
+  of 378 DBC failures, 674 of 675 PFE failures and all 444 UUP failures sit
+  inside the half-tick band (1.9-2.3 bp on $22-28 instruments); the residue
+  is one isolated slot per name at 1-2 ticks. The pilot's 1 bp C3 criterion
+  was tighter than the instruments' own tick size. Resolution: the admission
+  and D7 tolerance is tick-aware, `max(alpaca_basis_tolerance_bp,
+  half-tick/mid)`, with `threshold.bar_integrity.alpaca_basis_tolerance_bp`
+  seeded at 1.0 `[pilot-measured 2026-10-09]`; the tick term is a derived
+  value (APR-exempt). All three names pass the >=99% criterion under it and
+  admit.
+- **EWT (1d split-adjusted residual): one corporate action, one boundary.**
+  215 of 230 failing sessions are all of 2016 at exactly 2.0x: a single 2:1
+  action whose adjustment boundary Alpaca draws at 2017 and the stored
+  convention does not draw. Both tapes are internally consistent;
+  first-writer-stays prevents any mixing, and the `alpaca_basis` overlap
+  check flags any live manifestation. EWT admits with this note.
+
+T2's load gate now needs only the dated APR tolerance row (migration at T2
+start) and the 189 lane's T2 re-check, already given conditionally on that
+row.
