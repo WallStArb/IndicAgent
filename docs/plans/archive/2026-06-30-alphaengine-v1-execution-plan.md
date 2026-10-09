@@ -155,4 +155,4 @@ Three theoretical claims deferred until empirical validation:
 - **H2 Threshold mis-calibration** — validate in B2b; manual APR write if needed
 - **H3 IC decay velocity** — observe via C2 over 3+ months before building automation
 
-Full context: `docs/plans/2026-06-30-alphaengine-methodology-hypotheses.md`
+Full context: `docs/plans/archive/2026-06-30-alphaengine-methodology-hypotheses.md`
