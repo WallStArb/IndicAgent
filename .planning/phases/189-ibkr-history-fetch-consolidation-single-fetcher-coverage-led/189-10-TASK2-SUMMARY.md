@@ -2,7 +2,7 @@
 phase: 189-ibkr-history-fetch-consolidation-single-fetcher-coverage-led
 plan: 10
 scope: Task 2 only (20-name 5m pilot); Task 3 not run
-status: pre-registered, pilot not started
+status: pilot run 2026-10-09 (4 fetch passes, 1,553 requests); criterion 4 of 9 pass; C4 launch gate FAILED
 ---
 
 # Phase 189 plan 10, Task 2: 20-name 5m pilot
@@ -141,3 +141,114 @@ unchanged); S_1d = 1,529 / 1,200.8 h = 1.273 h (the 1d update lane measured by T
 - Todo 505 resolves here only if U(1,502) fits R4 with S_1d, that is U(1,502) at most 120 - 76.4
   minutes; otherwise 505 stays open with the pilot's numbers, since measuring a ceiling above the
   limiter needs the rate probe, which this task does not run (limits are not loosened here).
+
+## Results (measured 2026-10-09; the pre-registration above is unchanged)
+
+Scoring session note: the session that launched the pilot died with an SSH drop 10 minutes into run 4.
+The run 4 fetcher process survived orphaned and completed cleanly; a successor session re-derived every
+number below from ohlcv_request, ohlcv_load, ohlcv_revision, integrity_monitor and the logs. Nothing was
+taken from the dead session's memory.
+
+### Runs
+
+| run | fetch_run_id | items | ok | no_data | error | bars returned | lanes | budget used out | gateway lost | sla breached | requests | stream h |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | afb85c58 | 10 | 8 | 0 | 2 | 4,528,883 | backfill 7, gap_fill 1, update 2 | yes | no | 2 | 392 | 4.468 |
+| 2 | f6725b27 | 8 | 8 | 0 | 0 | 4,525,675 | backfill 6, gap_fill 2 | yes | no | 0 | 392 | 4.400 |
+| 3 | f1399695 | 22 | 9 | 0 | 13 | 1,811,930 | backfill 5, gap_fill 4, update 13 | no | no | 0 | 270 | 2.112 |
+| 4 | 64a17037 | 22 | 22 | 0 | 0 | 81,497 | backfill 13, gap_fill 4, update 5 | no | no | 0 | 499 | 1.356 |
+
+Totals: 1,553 requests, 10,947,985 bars returned, 7,540,086 5m rows stored for the 22 names
+(RTH-only persist; returned bars include extended hours, dropped at the session filter, ANF check:
+392,695 RTH vs 12 extended rows stored). Derived adds 3,152,490 15m/1h rows. All 22 names hold 5m from
+their first IBKR bar through 2026-10-09 14:10 UTC, gap_days 0, staleness 0, no series due (dry run
+after run 4). no_data answers: 0.
+
+Request latency, all 1,553: mean 24.7 s, median 27.5 s, p90 47.4 s. Depth chunks (150 days) average
+40 s; update and gap answers median 0.1 s. Run-end grid stages: 347, 351, 363, 376 s (median 357 s).
+
+### Criterion verdicts
+
+| # | verdict | evidence |
+|---|---|---|
+| C1 | FAIL as written, then fixed | 15 item errors, none from a gateway outage (gateway_lost null in all runs). Root cause one bug: the update lane's `_stored_closes` read passed the coverage ledger's DESTINATION_GRID ("grid") as a `_STORED_TABLES` key, `KeyError('grid')` on every update-lane item with stored rows (SPY and AAPL in run 1, the same 13 items in run 3; both items made zero requests before failing). Fail-loud, no bad data written. Failing test 03f6c411b + fix efa1efb72 committed 10:10 ET; run 4 launched 23 s later: 22/22 ok, 0 errors. Final state satisfies C1's intent; the pre-registered line did not hold over the pilot's four runs. |
+| C2 | PASS | ohlcv_load, source ibkr, timeframe 5m, pilot window: outcome refused = 0 (1,228 applied). |
+| C3 | PASS | SPY and AAPL: overlap re-asked inside full-depth re-fetches; every changed row recorded: AAPL n_changed 41 = 41 ohlcv_revision rows (window 2026-03-06..2026-10-08), SPY 16 = 16 (2025-11-24..2026-07-01); 0 refusals. New tail bars: AAPL 479, SPY 243, through 2026-10-09. Note the restatements were mid-history, found by the depth re-ask, not the 3-day tail. |
+| C4 | FAIL | D_proj = 37.3 days (formula F3 below), sensitivity with the 5m gap-fill lane 38.9 days; bound 18. Root cause measured, not noise: depth requests take ~40 s each, capping the drain at ~88 requests/hour across runs 1-2, a quarter of the L5 = 348/h limiter ceiling the design's 12-18 day expectation assumed. Clean-pass sensitivity (single pass per name, no re-plan churn, u = 1): ~32.6 days, still 1.8x the bound. The launch gate does not open at the measured throughput. |
+| C5 | PASS | All 22 names have an applied 15m and 1h derived load after their last 5m write; all four run-end grid stages exit 0. |
+| C6 | PASS | (a) grid dry run over the 22 after the last apply: derived 22, 0 new, 0 changed, 0 removed (3,152,490 rows unchanged). (b) digest_fresh passes on 5m, 15m and 1h for all 22 (1d too). (c) independent SQL re-aggregation of stored tradeable 5m equals every unflagged derived bar exactly: 15m 2,476,820 compared, 0 mismatches; 1h 673,265 compared, 0 mismatches. The checker had to reproduce two documented writer-side semantics: quarantined 5m bars are excluded (one SPY 2007 confirmed_corrupt bar) and buckets obey the half-open session mask with calendar closes (13:00 ET close prints and extended stamps on the 44 early-close days; verified exact on SPY 2009-11-27: derived volume 14,027,100 = the 6 pre-close bars exactly). |
+| C7 | FAIL | Mismatches on 6 of the 11 archive-compared names, exact counts and the diagnostic split (price vs volume-only): WEAT 15m 12,207 / 1h 6,332, all volume-only, prices match exactly; AAPL 24 (8 price / 16 vol) / 11 (3 / 8); SPY 11 (3 / 8) / 8 (1 / 7); CEG 10 (9 / 1) / 6 (4 / 2); APH 7 (all price) / 1 (vol); EWL 2 (price) / 2 (price). Zero mismatches: CSCO, KEYS, MRVL, RLAY, TER. Reading: the small price sets sit on dividend-era buckets (vendor adjusted, ours price-only); WEAT's uniform volume-only signature is a vendor-vs-IBKR volume basis difference, not a derivation error (C6c proves the derivation faithful). Strata note: CEG and EWL were selected as "no archive rows" but the archive holds rows for them and parity compared. |
+| C8 | FAIL on one name-year | Worst per-year slot coverage: DBMF 2019 = 0.99389 (below 0.995); every other name-year at or above (EWL 0.99889, WEAT 0.99918, OII 0.99968, RLI/TAP/TER 0.99984, rest 1.0). DBMF's shortfall is exactly 3 single-day IBKR 5m gaps: 2019-10-16 (78 slots, the whole session; the 1d row exists so DBMF traded), 2021-01-08 (73), 2021-11-04 (7). Neither allowed explanation holds today: no 5m ohlcv_empty_history row exists (the recorded span is 1d pre-listing through 2019-05-07) and the gaps are after the first stored bar. The days are provider-empty inside answered chunks; recording them needs an IBKR definitive-empty answer the backward walk cannot produce when neighbors return bars. |
+| C9 | PASS | stray_vendor_rows 0 on all 22, both timeframes. |
+
+Overall: the pre-registered pass criterion (all lines) does not hold. C4 is the launch gate and it
+failed by 2.1x. C1's failure was a fixed code bug with a clean final pass; C7 and C8 are vendor-basis
+and provider-gap findings, exactly the class of fact the pilot exists to surface before 1,262 names.
+
+### Extrapolation (formulas F1-F3 as registered)
+
+Inputs: n_req 1,553; H_loop 12.336 h (4.468 + 4.400 + 2.112 + 1.356); r_d = 125.9 requests/h.
+R_W1 = 62.4 (624 requests to completion over the 10 wave 1 names), R_W2 = 75.5 (755/10).
+T_grid = 5.96 min (median of 357.4 s). Tail requests: u = 38 requests per tail name (SPY 40, AAPL 36),
+t_u median 0.11 s, a 2-request sample as registered, and contaminated: run 4's SPY/AAPL requests are
+ledger-gap patches (1-2 day windows scattered through history), not the designed one-request tail.
+
+F1: Q = 692 x 62.4 + 570 x 75.5 = 86,216 requests. rows_hat = (692 x 269,401 + 570 x 314,079)/1262 =
+289,582 5m rows per name (stored basis).
+F2: r_u = min(348, 3600/(0.11 + 2.0)) = 348/h. U(N) = 60 x N x 38/348 = 6.552 x N minutes:
+U(242) = 1,586 min, U(872) = 5,713 min, U(1,502) = 9,841 min.
+F3: with the measured u, U(N_bar)/60 = 95.2 h and H_bar goes negative: the registered formula has no
+solution for a tail lane that re-patches 38 requests a name, which is the honest reading. With the
+design-intent tail update (u = 1, one overlap-plus-tail request per name per night, stated as a
+substitution, not a measurement): U(872) = 150.3 min, H_bar = 22.07 - 1 - (5/7) x (1.273 + 2.505) =
+18.37 h, D_proj = 86,216 / (125.9 x 18.37) = 37.3 days (gap-fill sensitivity 38.9 days).
+
+Sensitivity, clearly not the registered number: a clean single-pass drain (no KeyError re-plans, no
+re-asks of complete names, so Q = 52,944 at R_W1 = 38.9, R_W2 = 45.9; r_d = 88.4/h from runs 1-2, pure
+depth pacing) gives 32.6 days. Even clean, the drain is latency-bound at ~40 s per 150-day 5m chunk,
+4x slower than the limiter ceiling, and no limit change inside the current design closes that.
+
+Nightly lanes at u = 1: U(242) = 41.7 min; R4 daily lane 76.4 + 41.7 = 118.1 of 120 minutes (pass,
+margin 1.9 min). U(1,502) = 259.0 min; R4 at full adoption 76.4 + 259.0 = 335.4 > 120 (fail), so
+todo 505 stays open. Nightly feasibility U(1,502) = 259.0 of the 870-minute bound (pass, 3.4x slack).
+
+Comparison lines: design floor 10.6 days, expectation 12-18; 185-46's 12.7 and 14.4-21.6. Measured
+37.3 (registered formula at u = 1) exceeds all of them.
+
+### Storage (recorded, not pass/fail)
+
+market_data_ohlcv 6,132,301,824 -> 6,863,454,208 bytes (+731.2 MB); ohlcv_intraday_raw_archive
+3,251,593,216 -> 3,309,019,136 (+57.4 MB, vendor rows moved). Rows added for the 22: about 6.75M 5m
+plus 3,152,490 derived = about 9.9M rows, 73.9 bytes per row added. Registered F1 storage projection:
+73.9 x 1,262 x 289,582 = 27.0 GB of 5m alone; at the measured derived ratio (0.467 rows derived per
+5m row) about 39.6 GB total, against the design's at-most 17 GB 5m plus 7 GB derived. The projection
+is on fresh uncompressed chunks; compression changes it and was not measured here.
+
+### Operational notes
+
+- The run 3 FetcherLock release hit a Postgres idle-session timeout (release_failed warning); run 4
+  acquired the lock normally. One warning, no stuck lock.
+- The run-end grid stage derives beyond the pilot (it takes no symbol list): 25 names got 15m/1h loads
+  across the four runs. The pre-run dry run recorded this; the 3 names outside the pilot are spillover
+  the stage would have covered at its next scheduled run.
+- D7 (incremental sweep, 260 names, all 22 included) passed digest_fresh 780, stray_vendor_rows 520;
+  coverage_cache failed on 33 audited names (drift rows of 0-2; not a scored criterion here; the
+  fetcher's rebuild-coverage path is the remedy).
+- The D7 1h checker comparisons in C6c are on the tradeable 5m per the registration; the derivation
+  additionally aggregates zero-volume stored bars, which the spot checks confirm matches on every
+  compared bucket.
+
+### What follows
+
+1. C4 blocks the 5m drain launch at the measured latency. The next lever is not a limit change: it is
+   either fewer requests per name (wider chunks, if IBKR serves them at the same latency) or accepting
+   a 30-40 day drain in a dedicated lane. Owner decision; both need a measurement the pilot did not
+   run (one wide-chunk probe) before choosing.
+2. WEAT's volume-basis signature and the dividend-era price buckets belong in the parity-followup
+   todo: decide whether archive parity tolerates a volume basis difference per name or the archive
+   rebuckets to IBKR volumes.
+3. DBMF's 3 gap days: either record a 5m ohlcv_empty_history span for them (needs a definitive-empty
+   answer path for mid-history single days) or extend C8's allowed explanations to provider gaps
+   evidenced by answered-chunk neighbors.
+4. U(242) leaves 1.9 minutes of R4 margin at u = 1: the nightly 5m update has no room for the tail
+   names' gap patches. The u = 38 measured behavior must not reach the nightly lane.
