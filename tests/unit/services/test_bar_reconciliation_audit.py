@@ -1338,7 +1338,7 @@ def test_alert_gauges_record_each_check_the_age_the_max_and_every_load_source(mo
         previous_verdict_at=now - timedelta(hours=24),
         run_start=now,
         max_age_hours=30,
-        refused_by_source={"tradier": 2},
+        refused_by_source={"ibkr": 2},
     )
     assert sorted(gauges["BAR_INTEGRITY_FAILING_NAMES"].points, key=lambda p: p[1]["check"]) == [
         (0, {"check": "grid_parity"}),
@@ -1349,8 +1349,7 @@ def test_alert_gauges_record_each_check_the_age_the_max_and_every_load_source(mo
     # A source with no refusals records zero, so an alert clears when the refusals stop.
     assert sorted(gauges["OHLCV_LOAD_REFUSED_24H"].points, key=lambda p: p[1]["source"]) == [
         (0, {"source": "derived"}),
-        (0, {"source": "ibkr"}),
-        (2, {"source": "tradier"}),
+        (2, {"source": "ibkr"}),
     ]
     attribute_keys = {
         key for gauge in gauges.values() for _, attributes in gauge.points for key in attributes
@@ -1372,8 +1371,10 @@ def test_the_first_ever_report_has_no_age_to_record(monkeypatch):
     assert gauges["BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS"].points == [(108000.0, {})]
 
 
-def test_the_load_source_labels_match_the_ohlcv_load_source_constraint():
-    assert set(audit.LOAD_SOURCES) == {"tradier", "ibkr", "derived"}
+def test_the_load_source_labels_are_the_writers_that_still_load():
+    # ohlcv_load.source still admits tradier (history); plan 185-48 deleted its loader, so
+    # no tradier load can be refused and the gauge records only the live writers.
+    assert set(audit.LOAD_SOURCES) == {"ibkr", "derived"}
     assert "outcome IN ('refused', 'gated')" in audit._REFUSED_LOADS_24H_SQL
     assert "bar_integrity" in audit._MONITOR_TYPE_VERDICT
 
@@ -1440,3 +1441,15 @@ def test_the_held_names_check_reports_every_hold_with_its_cause():
 
 def test_explained_dates_read_only_current_corporate_actions():
     assert "FROM corporate_action_current" in audit._EXPLAINED_DATES_SQL
+
+
+def test_d7_has_no_tradier_refused_check():
+    """Plan 185-48: the Tradier loader is deleted, so no Tradier load can be refused. The
+    generic refusal gauge covers the ibkr and derived writers."""
+    from tests.unit._source_grep_helpers import read_source
+
+    source = read_source("services/bar_reconciliation_audit.py")
+    assert "tradier_refused" not in source
+    assert not hasattr(audit, "check_tradier_refused")
+    assert not hasattr(audit, "_TRADIER_LATEST_LOAD_SQL")
+    assert "_REFUSED_LOADS_24H_SQL" in source
