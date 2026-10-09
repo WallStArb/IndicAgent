@@ -47,3 +47,7 @@ only if a lane is idle). Land it after todo 449's htf lane, or during a gap.
 
 Each night's 1m fetch is about 90 days x 233 symbols of IBKR history requests under the
 `ibkr_history_stream` lease, which the priority-tier nightly holds ahead of the todo 449 bulk lanes.
+
+---
+
+Closed 2026-10-09 by the pending-todo triage sweep; evidence in the PRIORITIES row history (git).

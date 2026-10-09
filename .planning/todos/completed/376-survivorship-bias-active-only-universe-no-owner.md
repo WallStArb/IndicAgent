@@ -88,3 +88,7 @@ Not a code fix -- a data-sourcing and documentation question:
 ## Planned (2026-09-27)
 
 Phase 185 plans 08 and 16 bound survivorship exposure on every attempt (D0 labels); forward capture (D8) was descoped by the owner 2026-09-26, and the historical fix needs Stage V (a vendor).
+
+---
+
+Closed 2026-10-09 by the pending-todo triage sweep; evidence in the PRIORITIES row history (git).

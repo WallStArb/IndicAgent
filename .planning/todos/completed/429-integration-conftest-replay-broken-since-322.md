@@ -36,3 +36,7 @@ reaches the tests again.
 ## Triage 2026-09-26 (backlog review with the owner)
 
 Absorbed todos 413 and 338 (`completed/413-...`, `completed/338-...`): all three are the integration conftest failing to rebuild `indicagent_test` (migration 322's CVR FK, 328 before 329). 338's point stands as a step here: generalize the reference-table seed rather than patching one table per migration.
+
+---
+
+Closed 2026-10-09 by the pending-todo triage sweep; evidence in the PRIORITIES row history (git).

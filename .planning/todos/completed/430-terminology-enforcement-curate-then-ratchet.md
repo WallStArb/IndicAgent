@@ -73,3 +73,7 @@ research spec codes validate against CVR.
   churn between the evidence runs and the book test; the `**Exempt:**` entry is removed in the same
   commit, with `repro_frozen.py` bit-identical), step 5 (research spec codes in CVR),
   step 6 (burn down the baseline, UX strings first).
+
+---
+
+Closed 2026-10-09 by the pending-todo triage sweep; evidence in the PRIORITIES row history (git).

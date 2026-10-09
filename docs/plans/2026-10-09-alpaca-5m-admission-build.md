@@ -1,0 +1,97 @@
+# Alpaca 5m admission build (todo 521)
+
+Author: Brandon with Claude Code (session, 2026-10-09)
+Status: green-lit by the owner 2026-10-09; plan gates the build
+Informed by: the executed pilot
+(`docs/plans/2026-10-09-alpaca-integration-pilot.md`), the data layer
+integrity design amendment of the same date, the 189 probe verdict (todo 523,
+IBKR 5m ceiling confirmed at ~180-day asks), and the 189 lane's design
+dependencies (indicagent-7a, recorded in the todo file).
+
+## Council verdicts that shaped this plan
+
+1. **No new API client in this build.** The scratch pull
+   (`scripts/research/alpaca_depth_scratch_pull.py`) is the fetcher of record
+   for the campaign; its `requests.jsonl` log is the provenance artifact and
+   moves to `logs/alpaca_depth/` beside the bars. The nightly-verifier client
+   that writes observations natively is task T4, built only when that consumer
+   exists.
+2. **First writer stays.** Existing IBKR 5m bars are immutable. Alpaca fills
+   only sessions IBKR lacks (the 2016+ span for the drain names, and C8
+   single-day gap days). There is no span arbitration and no 5m restatement
+   machinery. Overlap is D7 evidence, never a writer.
+3. **Diagnose before load.** The three C3 5m names and EWT are diagnosed
+   first; they are either explained or excluded, before any canonical write.
+
+## Scope
+
+Admit Alpaca 5m (2016-01-01 forward, `adjustment=split`, RTH-window aggregates
+only) for the 233 intraday-eligible names into `market_data_ohlcv` through the
+existing ingress write contract, then re-derive the grid and re-run D7.
+Scratch data: `data/scratch/alpaca-pilot/depth/` (phase 1 pull, 233 names).
+
+Out of scope: 1m storage (no consumer), 5m admission for daily-scope names
+(phase 2 scratch bytes stay scratch), the execution client (separate build),
+live streaming.
+
+## T1: Diagnose the four outliers (blocks everything)
+
+- DBC, UUP, PFE: C3 5m close basis failed on the stored side (68.7%, 57.4%,
+  39.6% pass at 1 bp; none has a split in the window, so this is not the C1
+  effect). Determine whether the stored IBKR 5m bars, the Alpaca bars, or the
+  slot alignment is the outlier, using Massive (same-upstream reference) as
+  the tiebreaker where the recent window allows.
+- EWT: 1d pass rate drops to 91.5% under `adjustment=split`; characterize the
+  residual.
+- Outcome per name: explained (admit), stored-side defect (route to the
+  bar-quality path, not this build), or unexplained (name excluded from T2,
+  stays open).
+
+## T2: Registry, policy, and the load path
+
+- `SOURCE_ALPACA = "alpaca"` in `src/intelligence/bars/sources.py`; canonical
+  source value only; no policy-semantics edits.
+- `bar_source_policy`: a 5m default row (primary `alpaca`, ingress `direct`,
+  evidence = the pilot doc), closed-span semantics unchanged; per-name hold
+  rows for any T1 exclusions. No 1d policy change of any kind.
+- Loader: scratch parquet -> ingress write contract (`ohlcv_load` row per
+  series, replaced values to `ohlcv_revision`), RTH mask (09:30-16:00 ET)
+  applied at load, `no_fill` respected (missing stays missing). IBKR-held
+  sessions are skipped, never overwritten. The 15-minute recency hold means
+  the last partial day comes from the nightly leaf or the next campaign run,
+  never from a partial pull.
+- Provenance: the campaign request log archived to `logs/alpaca_depth/`;
+  row-level `ohlcv_request`/`ohlcv_observation` capture begins with T4's
+  leaf and is recorded as a known gap in the registry's Alpaca row until
+  then (campaign loads are one-time; the nightly leaf makes them continuous).
+
+## T3: Derive, verify, gate
+
+- Grid stage (`--stage grid --changed-only --apply`) over the loaded names;
+  15m/1h re-derive from the stored 5m per the existing single-writer fence.
+- D7 full run: session_coverage, slot_coverage, digest_fresh, grid_parity,
+  stray_vendor_rows, plus the new vendor-agreement check (below).
+- New D7 condition: `alpaca_basis` on names holding both tapes in an overlap
+  span (2026-09 onward for the 233): sampled close basis between stored IBKR
+  and stored Alpaca 5m, APR tolerance, flag-only (never a writer). This is
+  the second-tape extension the 189 lane asked for, in evidence form.
+- Promotion/verdict gates read the results as-is; no gate code changes.
+
+## T4: The nightly leaf (separate follow-on, its own plan)
+
+Alpaca client in Ring 0 (credentials isolated like ib_async), nightly
+verifier pass after the IBKR backfill, native observation capture, T+1
+morning window (outside the 15-minute hold, feasible on Basic rates).
+Execution client stays a separate build.
+
+## Acceptance (all must hold)
+
+- Existing boundary tests pass unchanged
+  (`test_market_data_ohlcv_writer_boundary.py`,
+  `test_market_data_ohlcv_no_synthetic_fill.py`,
+  `test_bar_write_no_first_write_wins.py`).
+- Stored-row basis on the 22 pilot names at or above the pilot C3 level,
+  with the T1 outcomes documented per outlier.
+- D7 verdicts pass on every admitted name; digests fresh; grid parity holds.
+- Zero writes outside the write contract; `ohlcv_load` rows reconcile with
+  scratch row counts.
