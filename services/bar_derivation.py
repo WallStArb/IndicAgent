@@ -37,9 +37,11 @@ writes, no batch row; --apply is the explicit opt-in.
 
 Daily stage (plans 17 and 36). Per symbol: load the D1 TRADES observations of routes TRADIER,
 SMART and LEGACY_IMPORT, the 1d bar_source_policy rows (read once per run) and the
-corporate_action_current splits with their evidence, and run the pure d2-v2 rule
-(src/intelligence/bars/daily_rule.py): Tradier primary for every name, IBKR as a recorded head
-or a basis-tested interior fallback (data layer integrity design section 2). The canonical bars
+corporate_action_current splits with their evidence, and run the pure d2-v3 rule
+(src/intelligence/bars/daily_rule.py): the source the policy row of each date names, IBKR as a
+recorded head, a basis-tested interior fallback, or the basis-tested restated answer where the
+Tradier primary answered only on a stale scale (data layer integrity design section 2 and the
+Amendment 2026-10-07; plan 185-52). The canonical bars
 are classified by the write contract against the stored 1d rows of every canonical source, with
 removal inside the name's derived span (its first to last observed date). A dry run (the default)
 writes nothing and reports per name (--report writes a TSV). The apply path, one transaction per
@@ -48,7 +50,7 @@ applied or refused, the four counts), old values of changed and removed rows to 
 (origin load), removed rows deleted by key, new rows inserted, changed rows upserted (the changed
 set only, never a raw UPDATE of the compressed hypertable), and the fallback_seam,
 pre_split_unrefetched and no_provider_volume flags through bar_scrub's write_flags; then one
-scrub_symbols call over the run's symbols and write_1d_digests at rule d2-v2. A revision ratio
+scrub_symbols call over the run's symbols and write_1d_digests at RULE_VERSION. A revision ratio
 above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
 rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
 bar_source_policy row was recorded or closed (closed_at, migration 460) after the symbol's
@@ -404,6 +406,7 @@ _DAILY_REPORT_COLUMNS = (
     "waived",
     "error",
     "held",
+    "restated",
 )
 
 _DISCOVER_DAILY_SYMBOLS_SQL = """
@@ -617,6 +620,7 @@ class _DailyResult:
     would_refuse: bool = False
     waived: bool | None = None
     held: str = ""
+    restated: int = 0
 
     def report_row(self) -> dict[str, str]:
         values: dict[str, Any] = {
@@ -713,9 +717,9 @@ async def write_1d_digests(
     (CANONICAL_1D_SOURCES, so a Tradier-owned name digests its Tradier bars), with
     each row's non-quarantine flag rules beside it (the grid convention). Callers
     run it after their scrub so the flags it adds or clears are in the digest.
-    The daily stage's writer (rule d2-v2). force_rule_version also writes a month whose
-    content is unchanged but whose current digest carries another rule version (the 185-38
-    cutover relabels every month). write=False counts without inserting. Returns the number
+    The daily stage's writer (daily_rule.RULE_VERSION). force_rule_version also writes a month
+    whose content is unchanged but whose current digest carries another rule version (the
+    185-38 cutover and the 185-52 d2-v3 bump relabel every month). write=False counts without inserting. Returns the number
     of rows inserted (or that would be).
     """
     rows = await conn.fetch(_SELECT_DIGEST_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
@@ -1433,7 +1437,7 @@ class BarDerivation(BaseBatch):
         if changed_rows:
             await conn.executemany(_UPSERT_DERIVED_SQL, changed_rows)
 
-    # --- D2 daily stage (plans 17 and 36; d2-v2) ---------------------------
+    # --- D2 daily stage (plans 17, 36 and 52; d2-v3) ----------------------
 
     async def _execute_daily(self, pool: asyncpg.Pool) -> dict[str, Any]:
         async with pool.acquire() as conn:
@@ -1715,6 +1719,7 @@ class BarDerivation(BaseBatch):
             admitted_interior=len(derived.admitted_interior),
             refused_dates=tuple(derived.refused_interior),
             stale_only=len(derived.stale_only),
+            restated=len(derived.restated),
             revision_ratio=ratio,
             would_refuse=would_refuse,
             waived=waived,
@@ -1779,6 +1784,7 @@ class BarDerivation(BaseBatch):
                         "admitted_interior": result.admitted_interior,
                         "refused_interior": [d.isoformat() for d in result.refused_dates],
                         "stale_only": [d.isoformat() for d in derived.stale_only],
+                        "restated": [d.isoformat() for d in derived.restated],
                     }
                 ),
                 _DAILY_LOAD_CALLER,
@@ -1827,7 +1833,7 @@ class BarDerivation(BaseBatch):
         )
 
     async def _execute_rewrite_digests(self, pool: asyncpg.Pool) -> dict[str, Any]:
-        """Every 1d month digest of each symbol at rule d2-v2 (the 185-38 cutover's step 5b):
+        """Every 1d month digest of each symbol at the rule's version (185-38 step 5b, 185-52):
         a month is written when its content or its rule version differs from the current row."""
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(
@@ -2089,6 +2095,7 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
         "admitted_interior": sum(r.admitted_interior for r in results),
         "refused_interior": sum(len(r.refused_dates) for r in results),
         "stale_only": sum(r.stale_only for r in results),
+        "restated": sum(r.restated for r in results),
         "would_refuse": sum(r.would_refuse for r in results),
         "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),
     }
@@ -2129,12 +2136,12 @@ def main() -> None:
     parser.add_argument(
         "--report",
         default=None,
-        help="daily stage: write the per-symbol TSV report (d2-v2 dry run measurement) to this path",
+        help="daily stage: write the per-symbol TSV report (dry run measurement) to this path",
     )
     parser.add_argument(
         "--rewrite-digests",
         action="store_true",
-        help="daily stage: write every 1d month digest at rule d2-v2 (content or rule differs)",
+        help="daily stage: write every 1d month digest at RULE_VERSION (content or rule differs)",
     )
     parser.add_argument(
         "--restore-snapshot",

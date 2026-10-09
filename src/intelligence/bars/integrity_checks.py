@@ -15,9 +15,9 @@ from typing import Protocol
 import numpy as np
 
 from src.intelligence.bars.daily_rule import (
-    ROUTE_TRADIER,
     RULE_VERSION,
     PolicyRow,
+    basis_closes,
     current_closes,
     derive_daily_v2,
     resolve_policy,
@@ -64,14 +64,15 @@ def session_coverage(
 def policy_conformance(
     rows: Sequence[tuple[date, str]],
     policy_rows: Sequence[PolicyRow],
-    tradier_dates: Collection[date],
+    tradier_current_dates: Collection[date],
     *,
     symbol: str,
 ) -> list[date]:
     """Dates of (date, source) rows whose source contradicts the policy row open on that date.
 
     The source must be the policy's primary label; ibkr_fallback is accepted only under a policy
-    that names IBKR as fallback, on a date with no Tradier observation.
+    that names IBKR as fallback, on a date with no current-scale Tradier observation (a hole, a
+    head, or a date Tradier answered only on a stale scale; d2-v3).
     """
     bad: list[date] = []
     for bar_date, source in rows:
@@ -81,7 +82,7 @@ def policy_conformance(
         if (
             source == SOURCE_IBKR_FALLBACK
             and policy.fallback_source == "ibkr"
-            and bar_date not in tradier_dates
+            and bar_date not in tradier_current_dates
         ):
             continue
         bad.append(bar_date)
@@ -208,7 +209,8 @@ def month_digests(
 def stale_digest_months(
     recomputed: Mapping[datetime, str], current: Mapping[datetime, tuple[str, str]]
 ) -> list[datetime]:
-    """Months whose current digest is missing, differs from the recompute, or is not d2-v2."""
+    """Months whose current digest is missing, differs from the recompute, or has another rule
+    version than daily_rule.RULE_VERSION."""
     return [
         start
         for start, digest in sorted(recomputed.items())
@@ -302,11 +304,11 @@ def judge_name_1d(
     timed("session_coverage", started)
 
     started = time.perf_counter()
-    tradier_dates = {o.bar_date for o in inputs.observations if o.route == ROUTE_TRADIER}
+    tradier_current, _ = current_closes(inputs.observations, inputs.splits)
     contradicted = policy_conformance(
         [(d, values[5]) for d, values in stored.items()],
         inputs.policy_rows,
-        tradier_dates,
+        tradier_current.keys(),
         symbol=symbol,
     )
     verdicts.append(verdict("policy_conformance", not contradicted, len(contradicted), 0.0))
@@ -347,7 +349,9 @@ def judge_name_1d(
     )
 
     started = time.perf_counter()
-    tradier_closes, ibkr_closes = current_closes(inputs.observations, inputs.splits)
+    # Restated closes (d2-v3): a run inside a span Tradier answered only on a stale scale stays
+    # measurable, so an IBKR-side step the rule admitted there is still caught here.
+    tradier_closes, ibkr_closes = basis_closes(inputs.observations, inputs.splits)
     runs = [
         replace(
             run,

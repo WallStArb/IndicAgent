@@ -34,6 +34,7 @@ from services.bar_reconciliation_audit import (
     confirmed_spans_from_requests,
     session_slots,
 )
+from src.intelligence.bars.daily_rule import RULE_VERSION
 from src.intelligence.bars.gap_plan import AnsweredWindows
 from src.intelligence.bars.sessions import nyse_sessions
 from tests.unit._source_grep_helpers import read_source
@@ -667,7 +668,8 @@ def _good_name():
         "observations": [_obs_row(d, 100.0 + i) for i, d in enumerate(_REPORT_DAYS)],
         "stored": stored,
         "digests": [
-            {"range_start": s, "digest": g, "rule_version": "d2-v2"} for s, g in digests.items()
+            {"range_start": s, "digest": g, "rule_version": RULE_VERSION}
+            for s, g in digests.items()
         ],
     }
 

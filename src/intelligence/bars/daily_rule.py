@@ -1,5 +1,6 @@
-"""The unified canonical 1d rule d2-v2 (phase 185 plan 36; data layer integrity design sections
-2 and 4, docs/plans/2026-10-06-data-layer-integrity-design.md).
+"""The unified canonical 1d rule d2-v3 (phase 185 plans 36 and 52; data layer integrity design
+sections 2 and 4 and its Amendment 2026-10-07,
+docs/plans/2026-10-06-data-layer-integrity-design.md).
 
 One pure function replaces both D2's derive_daily (d2-v1) and the Tradier loader's inline rule
 (tradier-v1): D1 observations of both vendors, the bar_source_policy rows and the current
@@ -12,9 +13,15 @@ raises) names the primary and fallback source:
   route TRADIER (source label tradier); IBKR observations are route SMART TRADES, then the
   LEGACY_IMPORT copy of the stored corpus as a lower rank (source label ibkr_named when IBKR is
   primary). Venue routes are never read (the D-17 venue study failed).
-- a primary with only stale-scale observations serves the latest of them with the
-  pre_split_unrefetched flag (quarantined per APR), never a silently mixed scale and never a
-  splice of the other vendor;
+- a primary with only stale-scale observations (d2-v3, plan 185-52, todo 517): when the policy
+  names a fallback and the fallback has a current-scale answer for the date, that answer is
+  served (source label ibkr_fallback, the date listed in restated) if the basis over the
+  basis_window_sessions common sessions nearest the date (as for an interior hole, below) is
+  within basis_tolerance_bp of 1. Otherwise, or with no current fallback answer, the latest
+  stale observation is served with the pre_split_unrefetched flag (quarantined per APR), never a
+  silently mixed scale. This is the path that keeps a name's Tradier history before
+  D = 2026-10-07 tradeable after a later split: Tradier is never asked again, IBKR's split
+  re-fetch answers on the new scale;
 - otherwise the fallback (IBKR under the Tradier default), current scale only, source label
   ibkr_fallback:
   - head, a date before Tradier's first observation: admitted only when the seam (the median
@@ -32,14 +39,23 @@ raises) names the primary and fallback source:
 Scale (D-21): an observation is stale for a date when some recorded split takes effect after
 the date and the observation was fetched before that split's recorded_at, unless its request is
 the split's evidence (the refetch that revealed it). LEGACY_IMPORT observations are always stale
-for a split-affected date: they re-import the stored corpus.
+for a split-affected date: they re-import the stored corpus. The splits are the rows of
+corporate_action_current, so a voided or superseded split never reaches the rule.
 
-A common session is a date where both vendors have a current-scale observation; the session axis
-is the sorted set of dates either vendor answered.
+Basis: the ratio of IBKR's current-scale close to Tradier's close on the current scale. Where
+Tradier has only stale observations, its latest stale close divided by the factors of the splits
+that make it stale (corporate_action.factor = old-scale price / new-scale price) is that
+measurement. The rescaled Tradier close is a measurement only and is never served (a vendor scale
+correction was rejected in plan 185-49). A wrong recorded factor therefore shows as a basis break
+and restates nothing. A common session is a date where IBKR has a current-scale observation and
+Tradier a current or restated close; the session axis is the sorted set of dates either vendor
+answered.
 
-Volume: the chosen observation's volume, never rescaled or spliced; a fallback bar's volume reads
-NULL through market_data_ohlcv_tradeable (migration 446). A missing provider volume carries the
-no_provider_volume flag.
+Volume: the chosen observation's volume, never rescaled or spliced. A fallback bar (head,
+interior or restated) keeps IBKR's raw volume in market_data_ohlcv and reads NULL through
+market_data_ohlcv_tradeable (migration 446), so no IBKR SMART volume is spliced into a Tradier
+volume series (IBKR SMART counts about half of Tradier's consolidated volume; todo 518). A
+missing provider volume carries the no_provider_volume flag.
 
 Pure: no database, no APR reads (thresholds are parameters), deterministic under input order.
 """
@@ -47,6 +63,7 @@ Pure: no database, no APR reads (thresholds are parameters), deterministic under
 from __future__ import annotations
 
 import calendar
+import math
 import statistics
 from bisect import bisect_left
 from collections.abc import Sequence
@@ -57,7 +74,7 @@ from typing import Any
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
 from src.intelligence.bars.sources import ROUTE_TRADIER, SOURCE_IBKR_FALLBACK
 
-RULE_VERSION = "d2-v2"
+RULE_VERSION = "d2-v3"
 
 TIMEFRAME = "1d"
 ROUTE_SMART = "SMART"
@@ -120,6 +137,9 @@ class DailyV2Result:
     stale_only: list[date] = field(default_factory=list)
     # Head dates refused because the seam is outside the basis tolerance (or unmeasurable).
     refused_head: list[date] = field(default_factory=list)
+    # Dates whose primary answered only on a stale scale and whose fallback's current-scale
+    # answer was served instead (d2-v3).
+    restated: list[date] = field(default_factory=list)
 
 
 def resolve_policy(rows: Sequence[PolicyRow], symbol: str, bar_date: date) -> PolicyRow:
@@ -142,17 +162,31 @@ def _epoch(dt: datetime) -> float:
     return dt.timestamp()
 
 
+def _stale_for(obs: Observation, split: SplitRecord) -> bool:
+    if obs.bar_date >= split.effective_date:
+        return False
+    if obs.legacy:
+        return True
+    return _epoch(obs.fetched_at) < _epoch(split.recorded_at) and (
+        obs.request_id not in split.evidence_request_ids
+    )
+
+
 def _is_current(obs: Observation, splits: Sequence[SplitRecord]) -> bool:
-    for split in splits:
-        if obs.bar_date >= split.effective_date:
-            continue
-        if obs.legacy:
-            return False
-        if _epoch(obs.fetched_at) < _epoch(split.recorded_at) and (
-            obs.request_id not in split.evidence_request_ids
-        ):
-            return False
-    return True
+    return not any(_stale_for(obs, split) for split in splits)
+
+
+def _restated_close(obs: Observation, splits: Sequence[SplitRecord]) -> float | None:
+    """A stale close on the current scale (measurement only), or None when it has none."""
+    if obs.legacy:
+        return None
+    scale = 1.0
+    for split in sorted(splits, key=lambda s: (s.effective_date, _epoch(s.recorded_at))):
+        if _stale_for(obs, split):
+            if not (math.isfinite(split.factor) and split.factor > 0):
+                return None
+            scale *= split.factor
+    return obs.close / scale
 
 
 def _best(candidates: Sequence[Observation]) -> Observation:
@@ -164,6 +198,14 @@ def _best(candidates: Sequence[Observation]) -> Observation:
 class _VendorDay:
     current: Observation | None = None
     stale: Observation | None = None
+
+
+def _tradier_basis_close(day: _VendorDay, splits: Sequence[SplitRecord]) -> float | None:
+    if day.current is not None:
+        return day.current.close
+    if day.stale is not None:
+        return _restated_close(day.stale, splits)
+    return None
 
 
 def _by_vendor_day(
@@ -211,6 +253,26 @@ def current_closes(
     )
 
 
+def basis_closes(
+    observations: Sequence[Observation], splits: Sequence[SplitRecord]
+) -> tuple[dict[date, float], dict[date, float]]:
+    """current_closes, with Tradier's stale-only dates restated by the recorded factors.
+
+    The closes the rule measures the vendor basis on (module docstring, Basis); D7's
+    vendor_basis_run reads the same, so a basis run inside a restated span stays visible after
+    Tradier's history goes stale.
+    """
+    smart_only = [o for o in observations if o.route != ROUTE_LEGACY]
+    days = _by_vendor_day(smart_only, splits)
+    tradier = {
+        d: close
+        for d, v in days[VENDOR_TRADIER].items()
+        if (close := _tradier_basis_close(v, splits)) is not None
+    }
+    ibkr = {d: v.current.close for d, v in days[VENDOR_IBKR].items() if v.current is not None}
+    return tradier, ibkr
+
+
 def _median_ratio(dates: Sequence[date], ratios: dict[date, float]) -> float | None:
     return statistics.median(ratios[d] for d in dates) if dates else None
 
@@ -253,17 +315,17 @@ def _bar(obs: Observation, source: str, flags: tuple[str, ...]) -> CanonicalBar:
 def _check_policy(policy: PolicyRow) -> None:
     if policy.ingress_mode != "observed":
         raise ValueError(
-            f"1d policy is {policy.ingress_mode!r}; d2-v2 derives only an observed timeframe"
+            f"1d policy is {policy.ingress_mode!r}; d2-v3 derives only an observed timeframe"
         )
     if policy.primary_source not in _PRIMARY_LABEL:
-        raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v2 rule")
+        raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v3 rule")
     if policy.fallback_source is not None and (
         policy.primary_source,
         policy.fallback_source,
     ) != (VENDOR_TRADIER, VENDOR_IBKR):
         raise ValueError(
             f"fallback {policy.fallback_source!r} under primary {policy.primary_source!r} has "
-            "no d2-v2 rule (only IBKR may fall back for Tradier)"
+            "no d2-v3 rule (only IBKR may fall back for Tradier)"
         )
 
 
@@ -276,7 +338,7 @@ def derive_daily_v2(
     basis_window_sessions: int,
     basis_tolerance_bp: float,
 ) -> DailyV2Result:
-    """The canonical 1d bars of one symbol under d2-v2 (module docstring)."""
+    """The canonical 1d bars of one symbol under d2-v3 (module docstring)."""
     if basis_window_sessions < 1:
         raise ValueError("basis_window_sessions must be at least 1")
     days = _by_vendor_day(observations, splits)
@@ -286,14 +348,14 @@ def derive_daily_v2(
     axis = sorted(set(tradier) | set(ibkr))
     position = {d: i for i, d in enumerate(axis)}
     ratios = {
-        d: ibkr[d].current.close / tradier[d].current.close
+        d: ibkr_current.close / tradier_close
         for d in axis
         if d in tradier
         and d in ibkr
-        and tradier[d].current is not None
-        and ibkr[d].current is not None
+        and (ibkr_current := ibkr[d].current) is not None
+        and (tradier_close := _tradier_basis_close(tradier[d], splits)) is not None
         # A non-positive close is a provider defect the scrub flags; it measures no basis.
-        and tradier[d].current.close > 0
+        and tradier_close > 0
     }
     common_dates = sorted(ratios)
     common_index = [position[d] for d in common_dates]
@@ -312,6 +374,13 @@ def derive_daily_v2(
     admitted: list[date] = []
     refused: list[date] = []
     stale_only: list[date] = []
+    restated: list[date] = []
+
+    def within_tolerance(day: date) -> bool:
+        window = _nearest(position[day], common_index, common_dates, basis_window_sessions)
+        median = _median_ratio(window, ratios)
+        return median is not None and abs(median - 1.0) * _BP <= basis_tolerance_bp
+
     for day in axis:
         policy = resolve_policy(policy_rows, symbol, day)
         _check_policy(policy)
@@ -319,12 +388,16 @@ def derive_daily_v2(
         if primary is not None and primary.current is not None:
             bars.append(_bar(primary.current, _PRIMARY_LABEL[policy.primary_source], ()))
             continue
-        if primary is not None and primary.stale is not None:
-            bars.append(
-                _bar(primary.stale, _PRIMARY_LABEL[policy.primary_source], (FLAG_PRE_SPLIT,))
-            )
-            continue
         fallback = days[policy.fallback_source].get(day) if policy.fallback_source else None
+        if primary is not None and primary.stale is not None:
+            if fallback is not None and fallback.current is not None and within_tolerance(day):
+                restated.append(day)
+                bars.append(_bar(fallback.current, SOURCE_IBKR_FALLBACK, ()))
+            else:
+                bars.append(
+                    _bar(primary.stale, _PRIMARY_LABEL[policy.primary_source], (FLAG_PRE_SPLIT,))
+                )
+            continue
         if fallback is None:
             continue
         if fallback.current is None:
@@ -339,9 +412,7 @@ def derive_daily_v2(
                 continue
             head.append(day)
         else:
-            window = _nearest(position[day], common_index, common_dates, basis_window_sessions)
-            median = _median_ratio(window, ratios)
-            if median is None or abs(median - 1.0) * _BP > basis_tolerance_bp:
+            if not within_tolerance(day):
                 refused.append(day)
                 continue
             admitted.append(day)
@@ -367,6 +438,7 @@ def derive_daily_v2(
         admitted_interior=admitted,
         stale_only=stale_only,
         refused_head=refused_head,
+        restated=restated,
     )
 
 
