@@ -52,9 +52,9 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
+from src.intelligence.bars.sources import SOURCE_TRADIER
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
-from src.providers.tradier import SOURCE as SOURCE_TRADIER
 
 _JOB = "listing-venue-writer"
 _STAGE = "listing_venue"

@@ -127,11 +127,11 @@ from src.intelligence.bars.sources import (
     GRID_TIMEFRAMES,
     SOURCE_DERIVED_5M,
     SOURCE_IBKR_FALLBACK,
+    SOURCE_TRADIER,
 )
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
-from src.providers.tradier import SOURCE as SOURCE_TRADIER
 
 logger = structlog.get_logger(__name__)
 

@@ -115,10 +115,6 @@ class Settings(BaseSettings):
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
 
     fred_api_key: str = Field(default="", validation_alias="FRED_API_KEY")
-    tradier_api_token: str = Field(default="", validation_alias="TRADIER_API_TOKEN")
-    tradier_base_url: str = Field(
-        default="https://sandbox.tradier.com", validation_alias="TRADIER_BASE_URL"
-    )
 
     # Alerting webhooks (empty = channel disabled) — Phase 67 Task 2
     telegram_bot_token: str = Field(default="", validation_alias="TELEGRAM_BOT_TOKEN")
