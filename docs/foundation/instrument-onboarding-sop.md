@@ -28,7 +28,7 @@ test can find. Six rules follow from that.
 3. **One writer per fact.** `instruments`, `instrument_tags`, `instrument_classification` and
    `instrument_metadata`: `onboard_instrument()` only, called by the manifest onboarder. Raw 1d
    answers: the ingress write contract (D1, `ohlcv_load`, `ohlcv_revision`). Canonical 1d bars:
-   the d2-v2 daily derivation (`services/bar_derivation.py`), the one writer, choosing each
+   the d2-v3 daily derivation (`services/bar_derivation.py`), the one writer, choosing each
    name's source by `bar_source_policy`. Verdicts: the D7 audit. Eligibility flags: the promote
    script only. No hand `INSERT` or `UPDATE` on any of them.
 4. **Stages are a DAG over persisted state.** Each stage reads what the previous one wrote and
@@ -216,7 +216,7 @@ The fetch writes observations, not bars. Scrubbing is part of the chain, not a p
 and the chain is one direction:
 
 1. **1d fetch into D1** through the ingress write contract.
-2. **Daily derivation (D2, rule d2-v2).** `services/bar_derivation.py --stage daily` turns the
+2. **Daily derivation (D2, rule d2-v3).** `services/bar_derivation.py --stage daily` turns the
    D1 observations into canonical 1d bars, taking each date's source from `bar_source_policy`
    (`ibkr_named` for a new name; `tradier` and `ibkr_fallback` appear only in the history before
    2026-10-07 of names onboarded earlier). Lineage is the

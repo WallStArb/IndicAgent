@@ -2,7 +2,7 @@
 
 Author: Claude (Opus 5.5), 2026-10-06, at Brandon's request ("build the data layer right from the
 start, as Renaissance would")
-Status: implemented (plans 185-31, 185-33, 185-35 to 185-45, 189-07, 189-08; 189-09 to 189-11 pull the new data)
+Status: implemented (plans 185-31, 185-33, 185-35 to 185-45, 185-52, 189-07, 189-08; 189-09 to 189-11 pull the new data)
 Informed by: `docs/plans/2026-09-26-unified-research-to-production-design.md` (section 12),
 `docs/plans/2026-09-26-daily-data-foundation.md` (D0-D7),
 `docs/plans/2026-09-29-intraday-bar-store-redesign.md`,
@@ -395,10 +395,24 @@ Tradier for every name, fallback IBKR SMART TRADES" is superseded by shape F, fo
   never rescaled or spliced.
 
 Residual risks, each with a todo:
-- Tradier history after a split. d2-v2 serves a stale-scale primary observation with the
-  `pre_split_unrefetched` flag and never falls back to the restated IBKR answer. No Tradier
-  re-ask exists, so the first split of a name with Tradier bars before D quarantines that whole
-  history (todo 517).
+- Tradier history after a split (todo 517, closed by plan 185-52 with option 1). d2-v2 served a
+  stale-scale primary observation with the `pre_split_unrefetched` flag and never fell back to
+  the restated IBKR answer, so the first split of a name with Tradier bars before D would have
+  quarantined that whole history. Rule d2-v3 serves IBKR's current-scale answer for such a date
+  (source `ibkr_fallback`, volume NULL in the tradeable view) when the basis over the nearest
+  `fallback_basis_window_sessions` common sessions is within `fallback_basis_tolerance_bp`. The
+  basis of a stale Tradier date is IBKR's close over the Tradier close divided by the recorded
+  split factors; that rescaled close is a measurement only and is never served (no vendor scale
+  correction, option 3). Otherwise the date keeps the flagged stale bar. D7's
+  `policy_conformance` accepts `ibkr_fallback` where Tradier has no current-scale answer, and
+  `vendor_basis_run` measures the restated closes, so an IBKR step inside a restated span stays
+  visible. The history kept after a split is bounded by what IBKR's split re-fetch answers: a
+  read-only what-if (every name splitting at D, IBKR re-answering its stored SMART dates) kept
+  53.8% of the 6.69M Tradier bars, quarantined 1.8% on a basis refusal (294 names, 66 above 5%
+  of their history: spin-off and adjustment-basis names such as HON, LEN, IBM, O), and left the
+  rest without a stored IBKR answer (547 names hold fewer than 1,000 SMART dates; the fetcher's
+  full-depth split re-fetch supplies them). A name with a large basis refusal after a split needs
+  the 185-37 or 185-49 judgment (option 2's policy row) to choose its vendor.
 - The volume basis change at D: research volume features and the S0 data-quality labels must
   treat D as a basis change (todo 518; the gate rides with todo 501).
 - Frozen names: PSKY, WBD and QRVO fail IBKR contract qualification and MOD's IBKR fallback is

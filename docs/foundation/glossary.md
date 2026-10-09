@@ -2029,11 +2029,11 @@ observations"), and not a canonical bar. **Banned:** (none)
 
 The one bar per (symbol, timeframe, timestamp) that research reads, stored in
 `market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar is
-derived by the one 1d rule d2-v2 from the observations of the name's `daily source` for that
+derived by the one 1d rule d2-v3 from the observations of the name's `daily source` for that
 date, with its lineage in the `canonical_bar_lineage` view. 15m and 1h canonical bars are the
 derived grid; 5m and 1m are the provider's bars as fetched. **Not:** an observation (raw answer)
 or a quarantined bar (stored, hidden from readers). **Banned:** (none)
-**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38)
+**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38; d2-v3 since 185-52)
 **Code surface:** `services/bar_derivation.py --stage daily`, `src/intelligence/bars/daily_rule.py`
 
 ### `daily source`
@@ -2043,7 +2043,11 @@ The vendor whose observations make a name's canonical 1d bar on one date, chosen
 D = 2026-10-07 (the closed default row; Tradier's observations end at 2026-10-06 and stay
 canonical history), IBKR SMART TRADES from D (the open default row, no fallback), and per-symbol
 exception rows (185-38 IBKR-primary rows, 185-37 bounded rows, 185-49 head rows, the 185-47 hold
-rows that keep MOD and QRVO on Tradier primary). A frozen name is one whose canonical 1d series
+rows that keep MOD and QRVO on Tradier primary). After a split recorded once Tradier stopped
+answering, a date whose Tradier answer is on the stale scale takes IBKR's re-fetched answer as
+`ibkr_fallback` when the basis over the nearest common sessions (the stale Tradier close divided
+by the split factor, a measurement only) is within the interior fallback tolerance; otherwise the
+stale bar stays, flagged `pre_split_unrefetched` and quarantined (d2-v3, plan 185-52). A frozen name is one whose canonical 1d series
 stops at its last Tradier bar because the source its open row names does not answer it after D
 (IBKR cannot qualify the contract, or the fallback is refused); it fails `freshness_1d` once it
 is more than the allowed sessions behind, and it stays active. **Not:** the provider of a request (an observation's route), a held name (a rewrite
