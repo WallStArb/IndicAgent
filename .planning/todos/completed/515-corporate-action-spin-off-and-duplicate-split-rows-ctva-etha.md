@@ -1,5 +1,6 @@
 ---
-status: pending
+status: completed
+closed: 2026-10-08
 priority: P0
 filed: 2026-10-08
 source: plan 185-47 (orchestrator decisions 3 and 4; 189-10-1D-FETCH-RECORD.md "For 185-47" item 1)
@@ -78,3 +79,33 @@ append-only), then a daily dry run on ETHA (expect changed 0).
 
 Before 189-10 Task 3 (the fetcher timer launch: the nightly overlap judge will keep recording such
 events) and before the 186-26 rebuild.
+
+## Closed
+
+Closed 2026-10-08 by plan 185-51 (`185-51-SUMMARY.md`). CTVA took option 3 now, and option 1 is
+filed as todo 516.
+
+- Split recognition (migration 461, applied 2026-10-08 21:45:38 UTC). A rescale is recorded as a
+  split only when the factor, or 1/factor, is p/q within `infra.backfill.split_ratio_rel_tol`
+  (0.002, relative), with q at most `infra.backfill.split_ratio_max_denominator` (4) and p at
+  most `infra.backfill.split_ratio_max_numerator` (50). CTVA's 39/7 is rejected; ETHA's 1/3 is
+  accepted. A rejected rescale never reaches corporate_action. It becomes an integrity fact
+  (`bar_split_detection` / `unclassified_rescale`) and a hold, the fetcher run is partial, and
+  the hold is idempotent per symbol and factor.
+- Held names. `bar_hold` and `bar_hold_current` have one writer, `services/bar_hold.py`. The
+  daily stage skips a held name whether or not it is scoped, and D7 reports `held_names`,
+  `held_1d` and the hold beside a failing freshness_1d.
+- CTVA. Split row `90c2dc47` is voided by void row `d3618730`, and CTVA is held as
+  `unclassified_rescale` by hold `72cc2b5e-8af7-4ade-b3da-0a869dc53b41`. The hold carries
+  factor 39/7 over 2019-05-24..2026-09-30 and vendor ratios SMART 5.5711 and TRADIER 6.6652.
+  Daily dry runs: scoped, outcome held with changed 0 and removed 0; unscoped, 1,501 names at
+  0/0/0 and CTVA held. Re-judging the 2026-10-08 fetch run records nothing new (12 seams, all
+  unclassified, all within the hold's factor).
+- ETHA. Both rows are replaced by one operator row, `ce003ee6`: reverse_split 1/3, effective
+  2026-10-05 (the last day on the old scale; the first post-split session is 2026-10-06 per
+  Nasdaq ECA2026-713). It supersedes `ed939e61`, and void row `09287e78` voids `276f406f`. The
+  evidence is Tradier 31ea6768 and IBKR 3886fb26. The daily dry run shows changed 0. The apply
+  cleared the 549 wrong `pre_split_unrefetched` quarantine flags (2024-07-23..2026-09-29).
+- Corrections run through `scripts/ops/bars/ops_split_detect.py` with `--supersede`, `--void`,
+  `--hold-rescale` and `--release-hold`. Each is a dry run unless `--apply`, and the table stays
+  append-only.
