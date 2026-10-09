@@ -2028,14 +2028,30 @@ observations"), and not a canonical bar. **Banned:** (none)
 ### `canonical bar`
 
 The one bar per (symbol, timeframe, timestamp) that research reads, stored in
-`market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar comes
-from a name's one daily source for its whole history: the Tradier loader for Tradier-owned names
-(some Tradier load ever accepted), otherwise D2's derivation from IBKR SMART TRADES observations,
-with its lineage in `canonical_bar_lineage`. 15m and 1h canonical bars are the derived grid; 5m
-and 1m are the provider's bars as fetched. **Not:** an observation (raw answer) or a quarantined
-bar (stored, hidden from readers). **Banned:** (none)
-**Status:** active (phase 185 plans 17, 18, 25, 26)
-**Code surface:** `services/bar_derivation.py`, `scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py`
+`market_data_ohlcv` and read through `market_data_ohlcv_tradeable`. A daily canonical bar is
+derived by the one 1d rule d2-v2 from the observations of the name's `daily source` for that
+date, with its lineage in the `canonical_bar_lineage` view. 15m and 1h canonical bars are the
+derived grid; 5m and 1m are the provider's bars as fetched. **Not:** an observation (raw answer)
+or a quarantined bar (stored, hidden from readers). **Banned:** (none)
+**Status:** active (phase 185 plans 17, 18, 25, 26; one 1d rule since 185-38)
+**Code surface:** `services/bar_derivation.py --stage daily`, `src/intelligence/bars/daily_rule.py`
+
+### `daily source`
+
+The vendor whose observations make a name's canonical 1d bar on one date, chosen per date by the
+`bar_source_policy` row that covers it (a symbol row beats the timeframe default): Tradier before
+D = 2026-10-07 (the closed default row; Tradier's observations end at 2026-10-06 and stay
+canonical history), IBKR SMART TRADES from D (the open default row, no fallback), and per-symbol
+exception rows (185-38 IBKR-primary rows, 185-37 bounded rows, 185-49 head rows, the 185-47 hold
+rows that keep MOD and QRVO on Tradier primary). A frozen name is one whose canonical 1d series
+stops at its last Tradier bar because the source its open row names does not answer it after D
+(IBKR cannot qualify the contract, or the fallback is refused); it fails `freshness_1d` once it
+is more than the allowed sessions behind, and it stays active. **Not:** the provider of a request (an observation's route), a held name (a rewrite
+waiting on a decision), or a name's listing venue. **Banned:** (none)
+**Avoid:** "Tradier-owned" for a name (the open-policy predicate of 185-38, deleted in 185-48; say
+which dates Tradier is the daily source for)
+**Status:** active (migration 438 Tradier default; migration 456 IBKR default from D, plan 185-47)
+**Code surface:** `bar_source_policy`, `scripts/ops/bars/ops_source_policy.py`, `src/intelligence/bars/daily_rule.py`
 
 ### `derived grid`
 
@@ -2072,7 +2088,8 @@ slot). **Banned:** (none)
 
 A split or reverse split recorded in `corporate_action` with its factor (stored / fresh close on
 the old scale), its effective date (the last day on the old scale) and the requests that evidence
-it; inferred by the seam audit, the nightly overlap or a Tradier refetch. Append-only: a
+it; inferred by the seam audit, the nightly overlap, an operator correction, or (until 185-48
+deleted its loader) a Tradier refetch. Append-only: a
 correction is a new row that supersedes the old one, read through `corporate_action_current`.
 Dividends are not corporate actions here; they live in `dividend_events`. **Not:** a dividend, a
 symbol change or a listing-venue move. **Banned:** (none)

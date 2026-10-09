@@ -1,5 +1,5 @@
 ---
-status: pending
+status: completed
 priority: P2
 filed: 2026-10-03
 source: interactive session (owner: near-term nightly backfills come from Tradier)
@@ -26,3 +26,9 @@ and 1h would still derive from 5m in `BarDerivation`. It cannot backfill depth: 
   hours excluded) so derived 15m and 1h stay session-anchored.
 
 Wait for 185-25 and todo 492 before planning.
+
+## Resolution
+
+Closed 2026-10-08 by plan 185-48, not done: the Tradier account is not funded and will not be (owner,
+2026-10-07), and 185-48 deleted the Tradier loader, provider and units. 5m comes from IBKR only (the
+fetcher's update lane, 189-10); 15m and 1h derive from 5m.

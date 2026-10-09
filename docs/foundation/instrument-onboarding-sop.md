@@ -69,7 +69,8 @@ State them in the README entry for the batch; research discloses them through ph
 - **Venue truncation.** IBKR SMART history starts at a name's last listing-venue move (todo 433).
   The former venues' answers are kept in D1 but stay out of canonical bars (the 185 D3 venue
   study failed, so `infra.bar_derivation.venue_bars_1d` is false); `listing_venue` (D6) records
-  the move. A Tradier-owned name's daily history does not have this truncation.
+  the move. A name's Tradier history before 2026-10-07 does not have this truncation; a name
+  onboarded since has IBKR history only.
 - **Scrubbed, not cleaned.** Bad prints are flagged, never edited: the daily derivation runs the
   D2a scrub rules and a quarantined bar disappears from `market_data_ohlcv_tradeable` while the
   stored bar stays. The 1d dry run on 2026-09-26 found 45 corrupt bars across the 932 names.
@@ -185,9 +186,9 @@ applies.
 
 ### 7. Fetch 1d
 
-IBKR is the 1d source for new names (owner decision 2026-10-07: Tradier is not funded; its
-daily timer is disabled since plan 185-46 and plan 185-48 deletes the loader). The IBKR history
-fetcher is the only IBKR history CLI:
+IBKR is the 1d source for every name from 2026-10-07 and the only one for a new name (owner
+decision 2026-10-07: Tradier is not funded; plan 185-48 deleted its loader). The IBKR history
+fetcher is the only price-history CLI:
 
 ```
 .venv/bin/python -u scripts/infrastructure/backfill/ibkr_history_fetcher.py \
@@ -216,8 +217,9 @@ and the chain is one direction:
 
 1. **1d fetch into D1** through the ingress write contract.
 2. **Daily derivation (D2, rule d2-v2).** `services/bar_derivation.py --stage daily` turns the
-   D1 observations into canonical 1d bars, taking each name's source (`tradier`,
-   `ibkr_fallback` or `ibkr_named`) from `bar_source_policy`. Lineage is the
+   D1 observations into canonical 1d bars, taking each date's source from `bar_source_policy`
+   (`ibkr_named` for a new name; `tradier` and `ibkr_fallback` appear only in the history before
+   2026-10-07 of names onboarded earlier). Lineage is the
    `canonical_bar_lineage` view over D1, not a stored table.
 3. **Scrub (D2a).** The same daily stage reruns the scrub rules over the symbols it touched and
    writes `bar_quality_flag`; quarantined bars leave the tradeable view.

@@ -75,7 +75,7 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `canonical_bar_lineage` | View (migration 447): which observation each canonical 1d bar equals, derived on read | none (a view) |
 | `ohlcv_intraday_raw_archive` | The IBKR 15m/1h answers the derived grid replaced (hypertable) | `bar_derivation --stage grid` |
 | `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
-| `corporate_action` | Splits and reverse splits, append-only, `supersedes` for corrections | split detect (`ops_split_detect.py`), Tradier loader; seam audit rows are frozen history |
+| `corporate_action` | Splits and reverse splits, append-only, `supersedes` and `void` for corrections | split detect (`ops_split_detect.py`: the nightly overlap and its sanctioned corrections); `tradier_refetch` rows (the Tradier loader, deleted in 185-48) and seam audit rows are history |
 | `listing_venue` | Point-in-time listing venue spans per symbol (D6) | `services/listing_venue_writer.py` (manual run) |
 | `bar_content_digest` | Per (symbol, timeframe, month) checksum, append-only | `bar_derivation` |
 | `bar_derivation_batch` | One row per derivation-side run: stage, rule version, code commit, APR snapshot | every derivation-side writer |
@@ -110,13 +110,18 @@ Readers of D1 exclude rows a test wrote: `ohlcv_request.caller NOT LIKE 'test-%'
 
 ### Daily data chain
 
-Two units replace the nightly backfill script, which plan 189-07 deleted. The Tradier daily
-unit is disabled (plan 185-46; Tradier is not funded) and plan 185-48 deletes it.
+Two units replace the nightly backfill script, which plan 189-07 deleted. The 1d source is
+chosen per date by `bar_source_policy`: Tradier before D = 2026-10-07 (its bars stay canonical
+history; the account is not funded and plan 185-48 deleted its loader, units and provider),
+IBKR SMART TRADES from D (migration 456), and per-symbol exception rows (MOD and QRVO keep
+Tradier primary through hold rows).
 
 1. `indicagent-ibkr-history-fetcher.timer` (every 15 min after the last run ends; disabled
    until plan 189-10 by owner decision 2026-10-06) runs
    `scripts/infrastructure/backfill/ibkr_history_fetcher.py`: the `ohlcv_coverage` queue over
-   APR `infra.backfill.default_scopes` (Tradier-owned 1d held), then at run end split
+   APR `infra.backfill.default_scopes` in two lanes, the update lane (every active name's 1d
+   and 5m since its latest stored bar, overlapping the stored tail) and the gap-fill lane (a
+   series' full depth once every `infra.backfill.gap_fill_interval_days`), then at run end split
    detection (`ops_split_detect.py`), the daily stage (`bar_derivation --stage daily`: D2
    canonical 1d plus the D2a scrub rules) and the grid stage (`bar_derivation --stage grid
    --changed-only --apply`: D2b 15m/1h), then the status file
@@ -128,13 +133,20 @@ unit is disabled (plan 185-46; Tradier is not funded) and plan 185-48 deletes it
 D7 checks (findings go to `integrity_monitor` and OTel, never the exit code):
 `route_disagreement`, `adjusted_vs_trades`, `daily_vs_intraday`, `unexplained_seams`,
 `late_heads`, `listing_venue_coverage`, `unconfirmed_empty`, `partial_daily`,
-`dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `tradier_refused`,
-`completeness`, `masked_slots`, plus vendor agreement per year. It also writes the verdict
+`dividend_freshness`, `nightly_skipped`, `stray_sources`, `switches`, `completeness`,
+`masked_slots`, `held_names`, plus vendor agreement per year (Tradier against IBKR SMART over
+the stored overlap; Tradier ends at 2026-10-06, so the table is constant and stays for the
+operations dashboard). It also writes the verdict
 report: one `bar_integrity` row per (symbol, timeframe, check) for the 1d checks
 (session_coverage, policy_conformance, lineage_missing, canonical_recompute, digest_fresh,
 unexplained_seam, vendor_basis_run, freshness_1d) and the intraday checks (slot_coverage,
 digest_fresh, coverage_cache, grid_parity, stray_vendor_rows). Promotion and the phase 186
 rebuild pass only on passed, fresh verdicts (`src/intelligence/bars/verdict_gate.py`).
+
+Grafana rules on these gauges: `bar_integrity_failing`, `bar_integrity_report_stale`,
+`bar_freshness_1d` (a name more than `threshold.bar_integrity.freshness_max_lag_sessions_1d`
+sessions behind), `ibkr_fetcher_sla_breached` and `revision_refused` (ibkr and derived loads
+refused or gated in the last 24 h).
 
 Not in the chain: `services/listing_venue_writer.py` (run after an onboarding batch is
 promoted; append-only, idempotent).

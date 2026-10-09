@@ -26,8 +26,8 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 | `dividend_event_writer.py` | Dividend events (Yahoo) |
 
 The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ibkr_history_fetcher.py`)
-run by `indicagent-ibkr-history-fetcher.timer`; it and the Tradier daily timer are disabled by the
-owner until plan 189-10.
+run by `indicagent-ibkr-history-fetcher.timer`, disabled by the owner until plan 189-10. The
+Tradier daily loader and its units were deleted in plan 185-48 (the account is not funded).
 
 ## Removed
 

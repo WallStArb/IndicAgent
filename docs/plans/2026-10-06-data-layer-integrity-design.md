@@ -358,3 +358,53 @@ Unverified:
 - The 5m duration and the storage projections (estimates from the stated rates).
 - The lineage view's query cost.
 - The bloat `VACUUM FULL` would reclaim.
+
+Verified by plans 185-46 to 185-48 (2026-10-07 and 2026-10-08): the last Tradier 1d observation
+is 2026-10-06 on all 1,529 names; the Tradier live API answers HTTP 401 (orchestrator check,
+2026-10-08); after the
+swap no source writes a Tradier row (7,161,155 TRADIER observations, 6,689,979 canonical tradier
+1d bars, counted equal before and after 185-48's deletions); d2-v2 and D7 still read the TRADIER
+route through `src/intelligence/bars/sources.py`.
+
+## Amendment 2026-10-07
+
+Author: Claude (Opus 5.5), 2026-10-08, recording the owner's decision of 2026-10-07
+Status: owner decision, implemented by plans 185-46 to 185-48
+
+The Tradier account is unfunded and will not be funded. Section 2's decision "1d: primary
+Tradier for every name, fallback IBKR SMART TRADES" is superseded by shape F, forward from D
+(`docs/research/1d-primary-swap-evidence.md`, rule R1):
+
+- D = 2026-10-07, the first NYSE session after the last Tradier bar (2026-10-06). The default 1d
+  row (primary Tradier, fallback IBKR) is closed at D and a new default (primary IBKR SMART
+  TRADES, no fallback) opens at D (migration 456, live 2026-10-08 16:03:53 UTC).
+- History before D is unchanged: Tradier's bars stay canonical before D, read by d2-v2 through
+  the TRADIER route, and keep full standing in the verdict gate and in rebuilds.
+- Per-name rows only where the evidence decides. Class B (the vendors disagree recently) got no
+  new row: all 8 already held a 185-38 IBKR row, and Task 1b's refresh made them class A. Class C
+  (too little common history): MOD and QRVO get hold rows that keep Tradier primary with IBKR
+  fallback; EU already held an IBKR row.
+- The counts that decided it (185-47 rerun after the IBKR 1d fetch for the names without SMART
+  history): class A 1,526, B 0, C 3. Criteria C1 to C8 held on every name except CTVA, which is
+  held (todos 515 and 516).
+- Volume basis. IBKR SMART counts less volume than Tradier. Over the last 250 common sessions,
+  per name, the median IBKR/Tradier ratio has p10 0.409, p50 0.528 and p90 0.807 (1,528 names);
+  the yearly median fell from about 0.95 (2006 to 2013) to about 0.54 (2025, 2026). Canonical 1d
+  volume therefore steps at D for every name at once, to about half its Tradier level, by a
+  different factor per name. The ratio is recorded in the new default row's evidence and is
+  never rescaled or spliced.
+
+Residual risks, each with a todo:
+- Tradier history after a split. d2-v2 serves a stale-scale primary observation with the
+  `pre_split_unrefetched` flag and never falls back to the restated IBKR answer. No Tradier
+  re-ask exists, so the first split of a name with Tradier bars before D quarantines that whole
+  history (todo 517).
+- The volume basis change at D: research volume features and the S0 data-quality labels must
+  treat D as a basis change (todo 518; the gate rides with todo 501).
+- Frozen names: PSKY, WBD and QRVO fail IBKR contract qualification and MOD's IBKR fallback is
+  not admitted, so each stops at its last Tradier bar; PSKY, WBD and QRVO fail `freshness_1d`
+  today and MOD will once more than two sessions pass (todo 519).
+
+The Tradier loader, its units, its provider module, its Settings fields, D7's `tradier_refused`
+check and its alert, and the `infra.tradier.*` APR keys (migration 457) are deleted. A second or
+replacement 1d vendor is the deferred Stage V item of D-01 and is not added.
