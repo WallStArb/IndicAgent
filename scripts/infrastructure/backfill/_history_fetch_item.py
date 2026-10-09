@@ -73,6 +73,7 @@ from services.ohlcv_coverage_writer import (
     FETCH_STATUSES,
     CoverageDelta,
 )
+from services.ohlcv_ingress_contract import DESTINATION_GRID as INGRESS_GRID_DESTINATION
 from services.ohlcv_ingress_contract import read_stored
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
@@ -334,7 +335,7 @@ def _stored_closes(
 ) -> dict[datetime, float]:
     """Stored grid closes at `timestamps` (the ingress contract's own stored-row read)."""
     with conn.cursor() as cur:
-        stored = read_stored(cur, DESTINATION_GRID, symbol, timeframe, timestamps)
+        stored = read_stored(cur, INGRESS_GRID_DESTINATION, symbol, timeframe, timestamps)
     return {ts: values[3] for ts, values in stored.items()}
 
 
