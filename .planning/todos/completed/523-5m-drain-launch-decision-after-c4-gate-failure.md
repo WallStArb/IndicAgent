@@ -62,7 +62,10 @@ to get the data from 2006-2016 asap", then "then we want to get it all"). The C4
 research-readiness path; as a completeness campaign it no longer gates anything (Alpaca carries
 research readiness), so the owner's order reopens it. Fetcher service and timer re-enabled
 2026-10-09 ~18:40 UTC; the queue's SLA band keeps the nightly 1d update lane preempting the drain.
-Known wrinkle recorded for 189-11: the queue plans depth from the coverage ledger's earliest bar,
-so head gaps (163 gapped names incl. 125 of the 233 whose 5m starts years after their 1d) are
-invisible to it and need a head-extension mechanism; the Alpaca all-names load must also not land
-before the drain completes or it hides the same heads (coordination sent to indicagent-87).
+CORRECTION 2026-10-09 (late): the "163 invisible head gaps / hold the phase 2 load" claim was
+wrong — a dry-run verification showed the queue already plans heads via proven-days (deepest
+stored series, 1d) plus provider floors; the mass of "gaps" was the 1d vendor floor (2000-01-03)
+versus the 5m vendor floor (2006-07), not missing data, and only 10 names (ODFL, AAP, IEF, SHY,
+TLT, CSX, AMD, EDV, LIN, NTR) have genuine short heads, already queued. The phase 2 canonical
+hold is lifted on this correction (coordination to indicagent-87); the drain runs regardless.
+Surviving small item: todo 526, per-TF provider-head granularity.
