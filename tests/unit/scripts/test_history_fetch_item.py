@@ -31,6 +31,7 @@ from scripts.infrastructure.backfill._history_fetch_item import (
     fetch_item_with_retries,
     run_with_stall_bound,
 )
+from services.ohlcv_ingress_contract import DESTINATION_GRID as ingress_contract_grid
 from src.core.models import AssetClass
 from src.providers.base import OHLCVBar
 
@@ -1263,3 +1264,20 @@ def test_a_1d_refetch_re_asks_every_session_of_the_depth_window(env):
     assert first <= history_fetch._fetch_start(_END, 7300).date() + timedelta(days=5)
     assert provider.calls[0]["end"].date() >= date(2026, 10, 1)
     assert outcome.derive_1d_since is not None
+
+
+def test_stored_closes_reads_through_the_ingress_contracts_destination(monkeypatch):
+    """_stored_closes goes through the ingress contract's read_stored, whose _STORED_TABLES
+    is keyed by the ingress contract's own DESTINATION_GRID ("market_data_ohlcv"). The
+    coverage ledger's same-named constant ("grid") is a fetch-destination label, and passing
+    it raised KeyError('grid') on every update-lane item with stored rows: SPY and AAPL in
+    the Task 2 pilot's first run, 13 items in its third (189-10 Task 2 finding)."""
+    seen = {}
+
+    def fake_read_stored(cur, destination, symbol, timeframe, timestamps):
+        seen["destination"] = destination
+        return {}
+
+    monkeypatch.setattr(item_mod, "read_stored", fake_read_stored)
+    item_mod._stored_closes(FakeConn(), "SPY", "5m", [datetime(2026, 10, 1, tzinfo=UTC)])
+    assert seen["destination"] == ingress_contract_grid
