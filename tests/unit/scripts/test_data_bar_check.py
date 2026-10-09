@@ -202,9 +202,9 @@ def test_dispositions_condition_fails_on_any_unresolved_late_name() -> None:
     assert "HOOD" in bad.evidence
 
 
-def test_dispositions_condition_excludes_tradier_owned_late_names_and_reports_them() -> None:
-    """185-34: a Tradier-owned late name's history comes from Tradier, not the truncated IBKR
-    route, so it is out of scope (orchestrator call 2026-10-06, pending owner review). The
+def test_dispositions_condition_excludes_tradier_history_late_names_and_reports_them() -> None:
+    """185-34: a late name with Tradier history has its history from Tradier, not the truncated
+    IBKR route, so it is out of scope (orchestrator call 2026-10-06, pending owner review). The
     excluded count and the excluded unresolved names are on the evidence line."""
     dispositions = {
         "AA": "reached_window_start",
@@ -212,9 +212,9 @@ def test_dispositions_condition_excludes_tradier_owned_late_names_and_reports_th
         "ODFL": "unresolved",
         "XOM": "reached_window_start",
     }
-    result = mod.dispositions_condition(dispositions, tradier_owned={"DAL", "ODFL", "XOM"})
+    result = mod.dispositions_condition(dispositions, tradier_history={"DAL", "ODFL", "XOM"})
     assert result.ok
-    assert "Tradier-owned excluded 3" in result.evidence
+    assert "Tradier-history excluded 3" in result.evidence
     assert "DAL" in result.evidence and "ODFL" in result.evidence
     assert "IBKR-sourced late names 1" in result.evidence
 
@@ -222,7 +222,7 @@ def test_dispositions_condition_excludes_tradier_owned_late_names_and_reports_th
 def test_dispositions_condition_unresolved_ibkr_name_still_fails_and_is_named_in_full() -> None:
     names = [f"N{i:02d}" for i in range(12)]
     dispositions = {name: "unresolved" for name in names} | {"DAL": "unresolved"}
-    result = mod.dispositions_condition(dispositions, tradier_owned={"DAL"})
+    result = mod.dispositions_condition(dispositions, tradier_history={"DAL"})
     assert not result.ok
     assert "unresolved 12" in result.evidence
     for name in names:  # every residue name, not a sample
@@ -321,14 +321,12 @@ class FakeCursor:
 
 
 def _marker(sql: str) -> str:
-    # The Tradier-owned late-name query reads the source policy since plan 185-38
-    # (TRADIER_OWNED_SQL); its queue keeps the "ohlcv_load" marker.
-    if "bar_source_policy" in sql:
-        return "ohlcv_load"
+    # The late names with Tradier history (plan 185-48: stored canonical bars, not the policy).
+    if "/* tradier_history */" in sql:
+        return "tradier_history"
     for key in (
         "ohlcv_revision",  # known-answer status (fixture keys, then legacy keys)
         "ohlcv_venue_head",  # pre-move count
-        "ohlcv_load",  # Tradier-owned late names
         "integrity_monitor",
         "corporate_action",
         "split_seam",
@@ -371,7 +369,7 @@ def _replies() -> dict[str, list[object]]:
         "integrity_monitor": [(True, _SCRUB_AT), (True, _SCRUB_AT)],  # scrub, then seam fact
         # all fixture keys quarantined, then every legacy key replaced
         "ohlcv_revision": [_known_rows(_FIXTURE_KEYS, True), _known_rows(mod.LEGACY_1D_KEYS)],
-        "ohlcv_load": [[]],  # no Tradier-owned late names
+        "tradier_history": [[]],  # no late name with Tradier history
         "corporate_action": [[]],  # no seam-audit splits
         "split_seam": [[]],
         "bar_derivation_batch": [[]],  # no daily batches
@@ -473,11 +471,11 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     assert "tradier" not in revision_params[0]
 
 
-def test_run_checks_excludes_tradier_owned_late_names(monkeypatch) -> None:
-    """DAL is late and Tradier-owned: out of condition 3. AMD (IBKR-sourced, no stored
+def test_run_checks_excludes_tradier_history_late_names(monkeypatch) -> None:
+    """DAL is late and has Tradier history: out of condition 3. AMD (IBKR-sourced, no stored
     requests) stays unresolved and fails the condition."""
     replies = _replies()
-    replies["ohlcv_load"] = [[("DAL",)]]
+    replies["tradier_history"] = [[("DAL",)]]
     conn = FakeConn(replies)
     _patch(monkeypatch, conn, {"AMD": date(2015, 10, 1), "DAL": date(2008, 1, 2)})
 
@@ -485,9 +483,23 @@ def test_run_checks_excludes_tradier_owned_late_names(monkeypatch) -> None:
     late = results["late_name_dispositions"]
     assert not late.ok
     assert "unresolved 1 (AMD)" in late.evidence
-    assert "Tradier-owned excluded 1" in late.evidence and "DAL" in late.evidence
-    params = dict(conn.executed)["ohlcv_load"]
+    assert "Tradier-history excluded 1" in late.evidence and "DAL" in late.evidence
+    params = dict(conn.executed)["tradier_history"]
     assert sorted(params[0]) == ["AMD", "DAL"]
+    assert params[1] == "tradier"
+
+
+def test_tradier_history_predicate_reads_stored_canonical_bars_not_the_open_policy() -> None:
+    """Plan 185-48: since 185-47 the open 1d default names IBKR, so a policy predicate would
+    exclude nobody and silently widen condition 3 to every name the swap made late. A name
+    with any canonical Tradier 1d bar has Tradier history before D; that is the exclusion."""
+    sql = " ".join(mod._TRADIER_HISTORY_LATE_SQL.split())
+    assert "market_data_ohlcv_tradeable" in sql
+    assert "m.timeframe = '1d'" in sql and "m.source = %s" in sql
+    assert "bar_source_policy" not in sql and "valid_to" not in sql
+    source = Path(mod.__file__).read_text()
+    assert "infrastructure_run_tradier_daily" not in source
+    assert "TRADIER_OWNED_SQL" not in source
 
 
 def test_known_answer_sql_judges_the_stored_row_not_the_tradeable_view() -> None:
