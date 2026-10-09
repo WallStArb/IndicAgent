@@ -18,6 +18,7 @@ Rate limit: 190 requests/min sustained, under the documented Basic 200.
 from __future__ import annotations
 
 import json
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +32,13 @@ ENV = Path(".env")
 BASE = "https://data.alpaca.markets/v2/stocks/bars"
 START = "2016-01-01"
 MIN_INTERVAL_S = 60.0 / 190.0
+
+# Optional overrides for a second, chained pass over a wider universe
+# (phase 2: the full 1,502-name daily universe, same scratch policy):
+#   alpaca_depth_scratch_pull.py <universe_file> <scratch_dir>
+if len(sys.argv) == 3:
+    UNIVERSE = Path(sys.argv[1])
+    SCRATCH = Path(sys.argv[2])
 
 
 def load_keys() -> tuple[str, str]:
