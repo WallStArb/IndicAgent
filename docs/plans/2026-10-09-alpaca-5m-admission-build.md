@@ -91,6 +91,24 @@ live streaming.
   feed does not provide stays missing), and retains zero-volume bars the
   feed does provide, so slot_coverage and the derivation's session mask read
   an Alpaca-filled session exactly like an IBKR one.
+- **Expected-slot source pin:** the expected-slot count per session comes
+  from `src/core/market_calendar.py` (early closes are 42-slot days), never
+  a hardcoded 78; the loader and D7 read the same calendar function.
+- **Component reuse pin:** T2's campaign loader and T4's nightly leaf share
+  one load component (one slot-rule implementation, one RTH filter, one
+  write-contract call); only the fetch source differs (scratch parquet vs
+  API increment). A second loader implementation is a defect.
+- **Spinoff-class monitoring note:** the 185-52 spinoff/adjustment-basis
+  names (HON, LEN, IBM, O, and the rest of the restated-basis set) are where
+  the tapes historically diverge (IBKR refetches its span after splits;
+  spinoff adjustments are not in Alpaca's `adjustment=split`). Their
+  `alpaca_basis` verdict rows get reviewed first at the D7 sweep; divergence
+  is contained by first-writer-stays, so no new machinery, only attention
+  ordering.
+- **Phase 2 scratch disposition:** the `depth_1502/` pull persists until the
+  IBKR drain completes (todo 523 hold), then loads through the same
+  component; row counts reconcile against `ohlcv_load` at that point. It is
+  never deleted before its `ohlcv_load` rows reconcile.
 - **Coverage-ledger pin (189 single-writer fence):** each session's bars,
   its `ohlcv_load` row, and its `ohlcv_coverage` update land in the same
   transaction (`_intraday_persist.py` is the pattern). A lagging ledger
