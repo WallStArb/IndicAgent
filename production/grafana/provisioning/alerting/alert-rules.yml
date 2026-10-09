@@ -4,6 +4,13 @@
 # All PromQL expressions reference current active service names only.
 apiVersion: 1
 
+# Rules removed from the groups below. Grafana keeps a provisioned rule after its entry is
+# deleted until a deleteRules entry names it. tradier_refused: the Tradier loader is deleted
+# (plan 185-48), so no Tradier load can be refused.
+deleteRules:
+  - orgId: 1
+    uid: tradier_refused_uid
+
 groups:
   - orgId: 1
     name: IndicAgent CRITICAL Alerts
@@ -559,45 +566,6 @@ groups:
         annotations:
           summary: "IBKR history fetcher has series past the staleness SLA"
           description: "ohlcv_coverage_sla_breached_series is {{ $value }} at the fetcher's last run end. No data is expected while the fetcher is stopped, and todo 498 (the collector drops metrics carrying a job label) keeps this series out of Prometheus until it is fixed."
-        labels:
-          severity: high
-          contact_point: discord-ops
-
-      - uid: tradier_refused_uid
-        title: tradier_refused
-        condition: C
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange:
-              from: 600
-              to: 0
-            model:
-              expr: last_over_time(ohlcv_load_refused_24h{source='tradier'}[36h])
-              intervalMs: 60000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: "__expr__"
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    type: last
-              type: classic_conditions
-              refId: C
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        annotations:
-          summary: "Tradier loads refused or gated in the last 24 h"
-          description: "ohlcv_load_refused_24h for source tradier is {{ $value }} at the latest D7 run. A refused load exits non-zero and leaves the stored bars unchanged; read ohlcv_load.detail."
         labels:
           severity: high
           contact_point: discord-ops

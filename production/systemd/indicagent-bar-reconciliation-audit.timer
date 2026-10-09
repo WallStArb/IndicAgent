@@ -3,7 +3,7 @@ Description=Bar Reconciliation Audit Timer -- daily 06:00 UTC (D7; the nightly b
 
 # The IBKR history fetcher fires every 15 minutes and does not run the audit; a separate daily
 # caller also catches a fetcher that never runs (the nightly_skipped check reads the status file
-# the fetcher writes). 06:00 UTC follows the 01:30 UTC Tradier load, so tradier_refused sees it.
+# the fetcher writes).
 
 [Timer]
 OnCalendar=*-*-* 06:00:00 UTC

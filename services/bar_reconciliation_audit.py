@@ -25,10 +25,10 @@ with the venue study):
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
   expected session slots that hold a real bar or lie inside an answered request window,
   and the 15m/1h slots that hide real 5m volume behind a placeholder or a hole.
-- vendor_agreement: Tradier vs IBKR SMART TRADES closes and volumes in D1, per year
-  (Tradier is the primary 1d source since migration 438).
-- tradier_refused: a Tradier-owned name whose latest daily load was refused (gated,
-  short_history, no_data or failed; plan 185-26). Its stored bars stay as they were.
+- vendor_agreement: Tradier vs IBKR SMART TRADES closes and volumes in D1, per year. Tradier
+  was the 1d primary before D = 2026-10-07 and its observations end at 2026-10-06 (the loader
+  is deleted, plan 185-48), so the table is constant; it stays because the operations
+  dashboard plots its gauges.
 
 - the 1d verdict report (plan 185-33, data layer integrity design section 6): one integrity_monitor
   row per (symbol, 1d, check) with monitor_type bar_integrity, written every run, for every
@@ -462,21 +462,6 @@ def check_held_names(holds: Mapping[str, Sequence[Hold]]) -> CheckResult:
     return CheckResult(len(samples), samples)
 
 
-def check_tradier_refused(latest: Mapping[str, tuple[str, str | None]]) -> CheckResult:
-    """Tradier-owned names whose latest daily load was not accepted (plan 185-26).
-
-    latest: symbol -> (outcome, detail) of its most recent ohlcv_load row, for names some
-    load was accepted for. A refusal keeps the stored bars; it is reported here, never
-    applied and never a nightly failure.
-    """
-    samples = [
-        f"{symbol}|{outcome}|{detail or ''}"
-        for symbol, (outcome, detail) in sorted(latest.items())
-        if outcome != "loaded"
-    ]
-    return CheckResult(len(samples), tuple(samples))
-
-
 # ---------------------------------------------------------------------------
 # Completeness and masked slots (todo 462)
 # ---------------------------------------------------------------------------
@@ -790,8 +775,9 @@ OHLCV_LOAD_REFUSED_24H = point_gauge(
     "ohlcv_load rows with outcome refused or gated in the 24 h before this D7 run, labeled by "
     "source only.",
 )
-# ohlcv_load.source values (the table's CHECK constraint); each gets a gauge point every run.
-LOAD_SOURCES = ("tradier", "ibkr", "derived")
+# The ohlcv_load.source values a live writer loads under; each gets a gauge point every run. The
+# CHECK constraint still admits tradier for the deleted loader's history (plan 185-48).
+LOAD_SOURCES = ("ibkr", "derived")
 _REFUSED_LOADS_24H_SQL = """
 SELECT source, count(*) AS n FROM ohlcv_load
 WHERE outcome IN ('refused', 'gated') AND loaded_at >= $1 GROUP BY source
@@ -986,15 +972,6 @@ WITH i AS (
 )
 SELECT extract(year FROM i.bar_date)::int AS year, i.close, t.close, i.volume, t.volume
 FROM i JOIN t USING (bar_date)
-"""
-# The latest load of every Tradier-owned name (the ever-loaded predicate D2 uses).
-_TRADIER_LATEST_LOAD_SQL = """
-SELECT DISTINCT ON (l.symbol) l.symbol, l.outcome, l.detail
-FROM ohlcv_load l
-WHERE l.source = 'tradier'
-  AND EXISTS (SELECT 1 FROM ohlcv_load o
-              WHERE o.symbol = l.symbol AND o.source = 'tradier' AND o.outcome = 'loaded')
-ORDER BY l.symbol, l.loaded_at DESC
 """
 _ALREADY_RECORDED_SQL = """
 SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end = $2 LIMIT 1
@@ -1655,7 +1632,6 @@ class BarReconciliationAudit(BaseBatch):
                 "nightly_skipped": self._nightly_skipped(params, now),
                 "stray_sources": await self._stray_sources(conn, window),
                 "switches": self._switches(params),
-                "tradier_refused": await self._tradier_refused(conn),
             }
             grid = await self._grid_checks(conn, params, window, compute)
             checks["completeness"] = grid.completeness
@@ -1908,14 +1884,6 @@ class BarReconciliationAudit(BaseBatch):
         if stray:
             logger.error("bar_reconciliation.stray_source_symbols", symbols_by_source=stray)
         return _Judged(result, sum(counts.values()))
-
-    @staticmethod
-    async def _tradier_refused(conn: Any) -> _Judged:
-        latest = {
-            r["symbol"]: (r["outcome"], r["detail"])
-            for r in await conn.fetch(_TRADIER_LATEST_LOAD_SQL)
-        }
-        return _Judged(check_tradier_refused(latest), len(latest))
 
     @staticmethod
     def _switches(params: _Params) -> _Judged:
