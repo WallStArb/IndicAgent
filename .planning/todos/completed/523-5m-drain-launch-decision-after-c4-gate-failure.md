@@ -54,3 +54,15 @@ The IBKR tail drain stays closed; IBKR depth is per-name on-demand pending a nam
 This todo's decision is made; the guardrail (the pilot's u = 38 gap-patch behavior must never
 reach the nightly update lane) carries into 521's depth-build plan and 189-11 if it is ever
 resumed.
+
+## Reversal 2026-10-09, later: owner ordered the full-depth campaign ("get it all")
+
+After the Alpaca green-light the owner ordered full-depth IBKR 5m for all names anyway ("we want
+to get the data from 2006-2016 asap", then "then we want to get it all"). The C4 gate closed as a
+research-readiness path; as a completeness campaign it no longer gates anything (Alpaca carries
+research readiness), so the owner's order reopens it. Fetcher service and timer re-enabled
+2026-10-09 ~18:40 UTC; the queue's SLA band keeps the nightly 1d update lane preempting the drain.
+Known wrinkle recorded for 189-11: the queue plans depth from the coverage ledger's earliest bar,
+so head gaps (163 gapped names incl. 125 of the 233 whose 5m starts years after their 1d) are
+invisible to it and need a head-extension mechanism; the Alpaca all-names load must also not land
+before the drain completes or it hides the same heads (coordination sent to indicagent-87).
