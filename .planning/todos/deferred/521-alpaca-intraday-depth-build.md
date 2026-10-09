@@ -7,12 +7,13 @@ source: Alpaca integration pilot (docs/plans/2026-10-09-alpaca-integration-pilot
 
 # Alpaca intraday depth build: leaf, admission, and the 2016-forward 5m/1m backfill
 
-Deferred 2026-10-09. Gate: owner go on build order relative to the 189-10 IBKR
-drain (the Alpaca build shares no lane with it, but sequencing is an owner
-call), and the depth-build plan doc written first from the pilot's handoff
-decisions. The evidence is already in: the pilot pre-registered names,
-criteria and bounds, executed same day, and passed everything the build needs
-except three named diagnoses.
+Deferred 2026-10-09. Gate: the depth-build plan doc written first from the
+pilot's handoff decisions, then owner green-light to build. (Amended
+2026-10-09 after the 189 probe verdict, todo 523: the IBKR batch tail drain
+closed, so the original build-order gate is moot; IBKR depth is per-name,
+on-demand, targeted at a spec that names its need.) The evidence is already
+in: the pilot pre-registered names, criteria and bounds, executed same day,
+and passed everything the build needs except three named diagnoses.
 
 ## What
 
