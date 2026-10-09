@@ -130,6 +130,7 @@ until 185 and 186 land; session time goes to the build.
 | [494](pending/494-unit-tests-can-spawn-live-writers-ci-guard.md) | New 2026-10-06, from 185-18. Unit tests leaked into the live database three times (a real grid derivation, permanent D1 fixture rows, a self-cleaning live write). Add a conftest guard on subprocess spawns of derivation and pipeline scripts and a boundary test on live-DSN writes; move the atomic-write test to indicagent_test. |
 | [491](pending/491-universe-membership-pinned-in-the-s0-snapshot.md) | New 2026-10-03. The research spec names a universe dimension, not a snapshot, and `instruments` has only `created_at`, so promoting wave 2 changes the panel silently. Store entry date and cohort per name and hash the promoted symbol set into the S0 snapshot and `research_run`, before the first counted run. Also records that today's-cap-rank selection is outcome-conditioned. |
 | [514](pending/514-retire-survivorship-bound-d0-label-gate-apr-keys-and-docs.md) | New 2026-10-08, owner: survivorship bias is not an issue. Remove the survivorship bound from the D0 label code, the D-28 gate condition, six APR keys and the docs; close 376. History files stay. |
+| [520](pending/520-future-timestamp-guard-on-ingested-bars.md) | New 2026-10-09. Nothing in the ingest path refuses a bar dated in the future (IBKR serves the forming slot; clock or label defects would flow silently). Refuse at the writer with an APR tolerance, count in the run summary, and add a D7 condition. |
 
 ## P2: Real value, not urgent
 
