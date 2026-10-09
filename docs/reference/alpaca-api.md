@@ -41,6 +41,27 @@ plan.
   volume) websocket, no recency restriction, 10,000 calls/min. Applies to
   market data endpoints only; trading API rate limits are separate.
 - Auth: `APCA-API-KEY-ID` / `APCA-API-SECRET-KEY` headers.
+- **Account type decides feed access.** Business accounts are "professional
+  subscribers" and cannot receive consolidated (SIP) data at all; they fall
+  back to the non-consolidated tiers. The account must be personal, or the
+  SIP-based roles here (nightly verifier, intraday depth) are void.
+- **The SIP tier is the Polygon.io consolidated feed behind Alpaca's API**
+  (Polygon.io renamed itself Massive.com on 2025-10-30; APIs unchanged, same
+  company). Alpaca's own docs name Polygon as the consolidated-data provider
+  (the professional-subscriber exclusion above says "Polygon's consolidated
+  market data"). What Alpaca discontinued years ago at the Market Data API 2.0
+  launch was *key passthrough to Polygon's API endpoints*, not the data
+  lineage: Alpaca's v2 API is the only interface, Polygon/Massive is the
+  upstream. Consequences: the 2016 history floor is Polygon's floor (verified
+  live: 5m bars complete back to 2016-01-01, RTH window complete every year);
+  a separate Massive/Polygon subscription would not add a second source, only
+  a second window onto the same one.
+- **Plan tiers:** Basic $0 (IEX real-time, SIP historical at 200 calls/min);
+  a $49/mo tier (historical-focused, historically rate-capped, features have
+  shifted across eras); Algo Trader Plus $99/mo (real-time SIP websocket,
+  10,000 calls/min; re-confirmed on alpaca.markets/data 2026-10-09). Verify a
+  tier's current rate limit at signup; do not assume from either older forum
+  threads or this card.
 
 ## Data facts that bind the design
 
