@@ -41,16 +41,16 @@ created: 2026-10-09
 | 190-01-T1 | 01 | 1 | P190-conformance | T-190-01 | verdict/budget/page types pinned | unit | `.venv/bin/pytest tests/unit/providers/test_history_conformance.py -q` | ❌ W0 (190-01 T1) | ⬜ pending |
 | 190-01-T2 | 01 | 1 | P190-conformance | — | conformance cases over fake + IBKR leaves | unit | `.venv/bin/pytest tests/unit/providers/ -q` | ❌ W0 (190-01 T1) | ⬜ pending |
 | 190-01-T3 | 01 | 1 | P190-boundary | — | protocol-not-leaf import fence | unit (grep) | `.venv/bin/pytest tests/unit/test_provider_leaf_boundary.py -q` | ❌ W0 (190-01 T3) | ⬜ pending |
-| 190-02-T1 | 02 | 1 | P190-migration | T-190-03 | additive provider columns applied live | live psql + unit | `psql -f 464... && .venv/bin/pytest tests/unit/ -q` | ❌ W0 (190-02 T2) | ⬜ pending |
-| 190-02-T2 | 02 | 1 | P190-migration | T-190-03 | PK shapes, grants, floor seeds, labeling rule | unit (contract) | `.venv/bin/pytest tests/unit/test_provider_history_migration_contract.py -q` | ❌ W0 (190-02 T2) | ⬜ pending |
-| 190-02-T3 | 02 | 1 | P190-ledger / P190-writers | T-190-02, T-190-04 | provider-parameterized single writer | unit | `.venv/bin/pytest tests/unit/test_ohlcv_coverage_writer_boundary.py -q` | ✅ | ⬜ pending |
+| 190-02-T1 | 02 | 1 | P190-migration | T-190-03 | additive provider columns applied live; parity-before sanity capture | live psql + unit | `psql -f 464... && .venv/bin/pytest tests/unit/ -q` | ❌ W0 (190-02 T2) | ⬜ pending |
+| 190-02-T2 | 02 | 1 | P190-migration | T-190-03 | PK shapes, grants, floor seeds, labeling rule (465 written, UN-applied until 190-06) | unit (contract) | `.venv/bin/pytest tests/unit/test_provider_history_migration_contract.py -q` | ❌ W0 (190-02 T2) | ⬜ pending |
+| 190-02-T3 | 02 | 1 | P190-ledger / P190-writers | T-190-02, T-190-02b, T-190-04 | provider-parameterized single writer, OLD conflict target live until the 190-06 flip; CoverageDelta provider threading | unit + integration (465 rollback fixture) | `.venv/bin/pytest tests/unit/test_ohlcv_coverage_writer_boundary.py tests/unit/scripts/test_intraday_persist.py tests/integration/test_ohlcv_coverage_atomic_write.py -q` | ✅ | ⬜ pending |
 | 190-03-T1 | 03 | 2 | P190-queue | T-190-01 | per-provider plan + validation | unit | `.venv/bin/pytest tests/unit/scripts/test_fetch_queue.py -q` | ✅ | ⬜ pending |
 | 190-03-T2 | 03 | 2 | P190-queue | T-190-01 | per-provider floors, failures, items | unit | `.venv/bin/pytest tests/unit/scripts/test_fetch_queue.py tests/unit/scripts/test_empty_history.py -q` | ✅ | ⬜ pending |
 | 190-03-T3 | 03 | 2 | P190-queue | T-190-05 | policy read gate | unit + live dry run | `.venv/bin/pytest tests/unit/scripts/test_fetch_queue.py -q` | ✅ | ⬜ pending |
 | 190-04-T1..T3 | 04 | 3 | P190-fetcher | T-190-06, T-190-07 | vendor-blind loop, registry dispatch | unit | `.venv/bin/pytest tests/unit/scripts/ -q` | ✅ | ⬜ pending |
-| 190-05-T1..T2 | 05 | 4 | P190-fetcher / P190-lock | T-190-02, T-190-08 | identity freeze, rename integrity | unit + grep | `.venv/bin/pytest tests/unit/ -q` | ✅ | ⬜ pending |
-| 190-06-T1 | 06 | 5 | P190-parity | — | 526 correctness bar (dry-run diff) | measured dry-run | `ohlcv_history_fetcher.py --dry-run` diff vs parity-before.tsv | ❌ (190-02 T1 capture) | ⬜ pending |
-| 190-06-T2 | 06 | 5 | P190-migration | T-190-09, T-190-10 | cutover restart health | live | `systemctl is-active ...timer` + status file check | ✅ (live) | ⬜ pending |
+| 190-05-T1..T2 | 05 | 4 | P190-fetcher / P190-lock | T-190-02, T-190-08 | identity freeze, rename integrity, thin wrapper keeps the live unit fetchable, boundary allow-list entry updated | unit + grep | `.venv/bin/pytest tests/unit/ -q` | ✅ | ⬜ pending |
+| 190-06-T1 | 06 | 5 | P190-parity | — | 526 correctness bar: back-to-back old-worktree vs new-HEAD dry-run diff on a quiescent DB | measured dry-run | `test -s parity-old.tsv && test -s parity-new.tsv && test ! -e /tmp/indicagent-190-parity` | ❌ (captured in-task) | ⬜ pending |
+| 190-06-T2 | 06 | 5 | P190-migration | T-190-09, T-190-10, T-190-13 | 465 apply + writer conflict-target flip in one breath with the drain stopped; cutover restart health; race-free started_at check | live | `systemctl is-active ...timer` + `\d ohlcv_coverage` PK grep + started_at > CUT_TS check | ✅ (live) | ⬜ pending |
 | 190-07-T1..T3 | 07 | 6 | P190-fetcher / P190-ledger | T-190-11 | glossary/gotchas/todo registry | grep | `grep -c` per plan task | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
