@@ -76,7 +76,7 @@ from dataclasses import dataclass, replace  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
 
 from src.intelligence.bars.daily_rule import RULE_VERSION, derive_daily_v2  # noqa: E402
-from src.intelligence.bars.derivation import Observation  # noqa: E402
+from src.intelligence.bars.derivation import Observation, SplitRecord  # noqa: E402
 from src.intelligence.bars.integrity_checks import (  # noqa: E402
     CHECKS_1D,
     NameInputs1d,
@@ -290,6 +290,76 @@ def test_vendor_run_blocks_only_when_the_canonical_side_is_the_one_that_steps():
     smooth = _judge(_basis_inputs("tradier", tradier_steps=False))
     assert smooth.basis_runs and not smooth.blocking_runs
     assert _by_check(smooth)["vendor_basis_run"].passed
+
+
+# --- a split after Tradier's last fetch (d2-v3, plan 185-52, todo 517) ---------------------
+
+_SPLIT_RECORDED = _FETCHED + timedelta(days=1)
+_IBKR_REFETCH = _FETCHED + timedelta(days=2)
+
+
+def _restated_inputs() -> NameInputs1d:
+    """Tradier old scale (fetched before the split was recorded), IBKR re-fetched on the new
+    scale; stored bars are what d2-v3 derives (the restated IBKR fallback)."""
+    split = SplitRecord(_SESSIONS[-1] + timedelta(days=30), _SPLIT_RECORDED, 2.0)
+    observations = []
+    for i, day in enumerate(_SESSIONS):
+        base = 100.0 + 0.1 * i
+        observations.append(_obs(day, base * 2, "TRADIER"))
+        observations.append(replace(_obs(day, base, "SMART"), fetched_at=_IBKR_REFETCH))
+    derived = derive_daily_v2(
+        observations,
+        _POLICY,
+        [split],
+        symbol="AAA",
+        basis_window_sessions=3,
+        basis_tolerance_bp=10.0,
+    )
+    stored = [
+        StoredBar(
+            datetime(b.bar_date.year, b.bar_date.month, b.bar_date.day, tzinfo=UTC),
+            b.open,
+            b.high,
+            b.low,
+            b.close,
+            float(b.volume),
+            b.source,
+        )
+        for b in derived.bars
+    ]
+    return replace(
+        _clean(),
+        observations=observations,
+        splits=[split],
+        stored=stored,
+        current_digests={s: (d, RULE_VERSION) for s, d in month_digests(stored, []).items()},
+    )
+
+
+def test_a_restated_fallback_name_conforms_and_recomputes():
+    inputs = _restated_inputs()
+    assert {b.source for b in inputs.stored} == {"ibkr_fallback"}
+    checks = _by_check(_judge(inputs))
+    for check in ("policy_conformance", "canonical_recompute", "digest_fresh", "vendor_basis_run"):
+        assert checks[check].passed, check
+
+
+def test_vendor_basis_run_measures_the_restated_tradier_closes():
+    # IBKR steps inside the run while the stale Tradier series, brought to the new scale, is
+    # smooth. The run is visible only through the restated closes (no current Tradier close
+    # exists), and the canonical side would be IBKR: it must block.
+    inputs = _restated_inputs()
+    stepped = [
+        (
+            replace(o, close=o.close * 1.5, open=o.open * 1.5)
+            if o.route == "SMART" and _SESSIONS[3] <= o.bar_date <= _SESSIONS[6]
+            else o
+        )
+        for o in inputs.observations
+    ]
+    report = _judge(replace(inputs, observations=stepped))
+    assert report.basis_runs and report.blocking_runs
+    assert not _by_check(report)["vendor_basis_run"].passed
 
 
 # ---------------------------------------------------------------------------

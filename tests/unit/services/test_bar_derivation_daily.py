@@ -397,6 +397,50 @@ def test_dry_run_reports_refused_heads(tmp_path):
     assert result["refused_head"] == 2
 
 
+def _restated_fixture() -> FakeConn:
+    """Tradier old scale fetched before a recorded 2:1 split, IBKR re-fetched on the new scale."""
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)]
+    refetch = datetime(2026, 10, 9, tzinfo=UTC)
+    obs = [_obs(d, 20.0) for d in days]
+    obs += [{**_obs(d, 10.0, route="SMART"), "fetched_at": refetch} for d in days]
+    split = {
+        "effective_date": date(2026, 10, 15),
+        "recorded_at": datetime(2026, 10, 8, tzinfo=UTC),
+        "factor": 2.0,
+        "evidence_request_ids": [],
+    }
+    return FakeConn(
+        observations={"TEST": obs},
+        stored={"TEST": {d: _row(20.0) for d in days}},
+        splits={"TEST": [split]},
+    )
+
+
+def test_dry_run_reports_restated_dates(tmp_path):
+    # d2-v3 (plan 185-52): the stale-only Tradier dates take the restated IBKR answer.
+    conn = _restated_fixture()
+    report = tmp_path / "dryrun.tsv"
+    result, _ = _run(conn, apply=False, report_path=str(report))
+    (row,) = csv.DictReader(report.open(), delimiter="\t")
+    assert row["restated"] == "7" and row["changed"] == "7" and row["removed"] == "0"
+    assert result["restated"] == 7
+
+
+def test_apply_records_restated_dates_in_the_load_detail():
+    conn = _restated_fixture()
+    _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    detail = json.loads(load_args[14])
+    assert detail["rule_version"] == "d2-v3" and len(detail["restated"]) == 7
+    assert {r["source"] for r in conn.stored["TEST"].values()} == {"ibkr_fallback"}
+
+
+def test_splits_are_read_from_the_current_view_so_void_rows_never_reach_the_rule():
+    sql = " ".join(bar_derivation_module._SELECT_DAILY_SPLITS_SQL.split())
+    assert "FROM corporate_action_current" in sql
+    assert "FROM corporate_action " not in sql + " "
+
+
 def test_a_missing_policy_row_fails_the_symbol_loud():
     observations, stored = _fixture()
     conn = FakeConn(observations=observations, stored=stored, policy=[])
@@ -486,7 +530,7 @@ def test_a_second_apply_over_the_same_answers_writes_no_bar():
     assert not conn.many("INSERT INTO ohlcv_revision")
 
 
-def test_open_batch_gets_rule_d2v2_and_the_integrity_and_scrub_keys(monkeypatch):
+def test_open_batch_gets_rule_d2v3_and_the_integrity_and_scrub_keys(monkeypatch):
     observations, stored = _fixture()
     conn = FakeConn(observations=observations, stored=stored)
     seen: dict = {}
@@ -497,7 +541,7 @@ def test_open_batch_gets_rule_d2v2_and_the_integrity_and_scrub_keys(monkeypatch)
 
     monkeypatch.setattr(bar_derivation_module, "open_batch", fake_open)
     _run(conn)
-    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v2"
+    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v3"
     keys = set(seen["apr_snapshot"])
     assert "threshold.bar_integrity.fallback_basis_tolerance_bp" in keys
     assert "threshold.bar_integrity.max_revision_ratio" in keys

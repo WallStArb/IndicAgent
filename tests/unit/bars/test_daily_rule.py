@@ -141,7 +141,9 @@ def test_known_case_fixture_is_present_and_documented():
 
 
 def test_rule_version():
-    assert RULE_VERSION == "d2-v2"
+    # d2-v3 (plan 185-52, todo 517): a stale-only primary yields to a basis-tested current
+    # fallback answer.
+    assert RULE_VERSION == "d2-v3"
 
 
 def test_tradier_date_takes_the_latest_tradier_observation():
@@ -444,3 +446,199 @@ def test_dal_head_seam_is_within_tolerance_and_stays_admitted():
     observations, splits = _case("DAL")
     result = _derive(observations, splits=splits, symbol="DAL")
     assert result.refused_head == [] and len(result.head) == 5
+
+
+# --- d2-v3: a stale-only primary yields to the restated fallback (plan 185-52, todo 517) ------
+#
+# Tradier stopped answering on 2026-10-06, so after a later split every pre-split Tradier
+# observation is stale for good. IBKR's in-process split re-fetch answers on the new scale. The
+# fallback bar replaces the flagged stale bar only where the basis (IBKR over the stale Tradier
+# close brought to the new scale by the recorded factors; measurement only, never served) over
+# the nearest common sessions is within the interior tolerance.
+
+_SPLIT_FETCH = _T0 + timedelta(hours=1)  # the split's recorded_at
+_REFETCH = _T0 + timedelta(hours=2)  # IBKR's re-fetch after the split was recorded
+
+
+def _split_after(days: list[date], factor: float = 2.0) -> SplitRecord:
+    """A forward split effective after the last test session, recorded after Tradier's fetch."""
+    return SplitRecord(days[-1] + timedelta(days=7), _SPLIT_FETCH, factor)
+
+
+def _restated_case(
+    *,
+    ibkr_fetched: datetime = _REFETCH,
+    ibkr_offset_bp: float = 0.0,
+    ibkr_days: list[date] | None = None,
+    n: int = 30,
+):
+    """Tradier on the old scale (close 20), IBKR on the new scale (close 10 at factor 2)."""
+    days = _sessions(date(2024, 1, 2), n)
+    observations = [_obs("TRADIER", d, 20.0, request_id=f"t{d}", volume=500) for d in days]
+    observations += [
+        _obs(
+            "SMART",
+            d,
+            10.0 * (1 + ibkr_offset_bp / 1e4),
+            fetched_at=ibkr_fetched,
+            request_id=f"s{d}",
+            volume=300,
+        )
+        for d in (days if ibkr_days is None else ibkr_days)
+    ]
+    return days, observations, _split_after(days)
+
+
+def test_restated_fallback_replaces_a_stale_only_primary():
+    # Case (a): split recorded after Tradier's fetch, IBKR fetched after recorded_at.
+    days, observations, split = _restated_case()
+    result = _derive(observations, splits=[split])
+    assert [b.bar_date for b in result.bars] == days
+    assert all(b.source == SOURCE_IBKR_FALLBACK for b in result.bars)
+    assert all(b.close == 10.0 and b.flags == () for b in result.bars)
+    # The fallback bar keeps its own volume; the tradeable view reads it as NULL (migration 446).
+    assert {b.volume for b in result.bars} == {300}
+    assert [b.request_ids for b in result.bars] == [(f"s{d}",) for d in days]
+    assert result.flags == [] and result.restated == days
+    assert result.stale_only == [] and result.refused_interior == []
+
+
+def test_an_evidence_request_counts_as_a_restated_fallback_answer():
+    # A re-fetch that revealed the split is fetched before recorded_at and is on the new scale.
+    days, observations, _ = _restated_case(ibkr_fetched=_T0 + timedelta(minutes=30))
+    split = SplitRecord(
+        days[-1] + timedelta(days=7),
+        _SPLIT_FETCH,
+        2.0,
+        evidence_request_ids=tuple(f"s{d}" for d in days),
+    )
+    result = _derive(observations, splits=[split])
+    assert result.restated == days and result.flags == []
+
+
+def test_a_stale_fallback_keeps_the_flagged_stale_primary():
+    # Case (b): IBKR also fetched before recorded_at: today's d2-v2 behavior.
+    days, observations, split = _restated_case(ibkr_fetched=_T0)
+    result = _derive(observations, splits=[split])
+    assert all(b.source == "tradier" and b.close == 20.0 for b in result.bars)
+    assert all(b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
+    assert {f.rule for f in result.flags} == {FLAG_PRE_SPLIT}
+    assert result.restated == []
+
+
+def test_an_absent_fallback_keeps_the_flagged_stale_primary():
+    # Cases (b) and (e): no IBKR answer at all, or none on some dates.
+    days, observations, split = _restated_case(ibkr_days=[])
+    result = _derive(observations, splits=[split])
+    assert all(b.source == "tradier" and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
+    assert result.restated == []
+    gap = days[10:13]
+    days, observations, split = _restated_case(ibkr_days=[d for d in days if d not in gap])
+    result = _derive(observations, splits=[split])
+    by_day = {b.bar_date: b for b in result.bars}
+    assert [b.bar_date for b in result.bars] == days
+    assert all(by_day[d].source == "tradier" and by_day[d].flags == (FLAG_PRE_SPLIT,) for d in gap)
+    assert result.restated == [d for d in days if d not in gap]
+
+
+def test_a_restated_basis_outside_tolerance_keeps_the_flagged_stale_primary():
+    # IBKR sits 15 bp off the restated Tradier close: no splice across a basis difference.
+    days, observations, split = _restated_case(ibkr_offset_bp=15.0)
+    result = _derive(observations, splits=[split])
+    assert all(b.source == "tradier" and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
+    assert result.restated == []
+    _, inside, split = _restated_case(ibkr_offset_bp=8.0)
+    assert len(_derive(inside, splits=[split]).restated) == len(days)
+
+
+def test_a_wrong_factor_measures_a_basis_break_and_restates_nothing():
+    days, observations, _ = _restated_case()
+    result = _derive(observations, splits=[_split_after(days, factor=3.0)])
+    assert result.restated == [] and all(b.source == "tradier" for b in result.bars)
+
+
+def test_no_split_leaves_the_rule_unchanged():
+    # Case (c): no recorded split, Tradier and IBKR agree: Tradier is served as before.
+    days = _sessions(date(2024, 1, 2), 10)
+    observations = [_obs("TRADIER", d, 10.0, request_id=f"t{d}") for d in days]
+    observations += [_obs("SMART", d, 10.0, fetched_at=_REFETCH, request_id=f"s{d}") for d in days]
+    result = _derive(observations)
+    assert all(b.source == "tradier" and b.flags == () for b in result.bars)
+    assert result.restated == [] and result.flags == []
+
+
+def test_a_voided_split_is_not_an_input_and_changes_nothing():
+    # Case (d): corporate_action_current hides void rows (migration 461), so a voided split
+    # never reaches the rule; the daily stage reads that view (test_bar_derivation_daily).
+    days, observations, split = _restated_case()
+    voided = _derive(observations, splits=[])
+    assert all(b.source == "tradier" and b.close == 20.0 for b in voided.bars)
+    assert voided.restated == [] and voided.flags == []
+    assert _derive(observations, splits=[split]).restated == days
+
+
+def test_only_dates_before_the_split_are_restated():
+    # Effective inside the span: Tradier answers on or after it are current and stay primary.
+    days, observations, _ = _restated_case()
+    split = SplitRecord(days[14], _SPLIT_FETCH, 2.0)
+    after = [o for o in observations if not (o.route == "TRADIER" and o.bar_date >= days[14])]
+    after += [_obs("TRADIER", d, 10.0, request_id=f"t2{d}") for d in days[14:]]
+    result = _derive(after, splits=[split])
+    by_day = {b.bar_date: b for b in result.bars}
+    assert result.restated == days[:14]
+    assert all(by_day[d].source == "tradier" and by_day[d].flags == () for d in days[14:])
+
+
+def test_an_ibkr_primary_with_no_fallback_still_flags_a_stale_only_answer():
+    # Under the post-D default (IBKR primary, no fallback) nothing else may answer.
+    ibkr_default = PolicyRow("1d", None, date(1990, 1, 1), None, "observed", "ibkr", None)
+    day = date(2026, 10, 8)
+    split = SplitRecord(date(2026, 10, 20), _SPLIT_FETCH, 2.0)
+    observations = [
+        _obs("SMART", day, 20.0, request_id="s-old"),
+        _obs("TRADIER", day, 10.0, fetched_at=_REFETCH, request_id="t-new"),
+    ]
+    result = _derive(observations, policy=[ibkr_default], splits=[split])
+    (bar,) = result.bars
+    assert (bar.source, bar.flags) == ("ibkr_named", (FLAG_PRE_SPLIT,))
+    assert result.restated == []
+
+
+def test_an_admitted_head_stays_admitted_after_a_split():
+    # The head seam is measured on the restated Tradier closes when all of Tradier is stale.
+    days = _sessions(date(2024, 1, 2), 30)
+    head = days[:3]
+    observations = [_obs("SMART", d, 10.0, fetched_at=_REFETCH, request_id=f"s{d}") for d in days]
+    observations += [_obs("TRADIER", d, 20.0, request_id=f"t{d}") for d in days[3:]]
+    result = _derive(observations, splits=[_split_after(days)])
+    assert result.head == head and result.refused_head == []
+    assert result.restated == days[3:]
+    assert all(b.source == SOURCE_IBKR_FALLBACK for b in result.bars)
+    # No Tradier bar is served, so there is no vendor seam to flag.
+    assert result.flags == []
+
+
+def test_rjf_after_a_hypothetical_split_restates_only_where_ibkr_agrees():
+    # RJF's real extract, with a hypothetical 2:1 split recorded after every stored fetch and
+    # IBKR re-answering the same history on the new scale. IBKR's own series steps +52% at
+    # 2021-09-22 (its pre-split stale basis): before it the restated basis is off by a third and
+    # the dates keep the flagged stale Tradier bar; after it IBKR agrees and is served.
+    observations, _ = _case("RJF")
+    last_fetch = max(o.fetched_at for o in observations)
+    split = SplitRecord(date(2026, 11, 2), last_fetch + timedelta(hours=1), 2.0)
+    refetch = last_fetch + timedelta(hours=2)
+    smart = _latest(observations, "SMART")
+    reanswered = [
+        _obs("SMART", d, o.close / 2, fetched_at=refetch, request_id=f"re-{d}")
+        for d, o in smart.items()
+    ]
+    result = _derive(observations + reanswered, splits=[split], symbol="RJF")
+    by_day = {b.bar_date: b for b in result.bars}
+    step = date(2021, 9, 22)
+    restated = set(result.restated)
+    assert restated and all(d >= step for d in restated)
+    early = [d for d in by_day if d < date(2021, 9, 10)]
+    assert early and all(
+        by_day[d].source == "tradier" and by_day[d].flags == (FLAG_PRE_SPLIT,) for d in early
+    )
+    assert all(by_day[d].source == SOURCE_IBKR_FALLBACK for d in restated)
