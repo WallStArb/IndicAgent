@@ -268,12 +268,12 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 17** *(blocked on Wave 16 completion)*
 
-- [ ] 185-33-PLAN.md - amended: computed verdict report, 1d checks (migration 449) (wave 17)
+- [x] 185-33-PLAN.md - amended: computed verdict report, 1d checks (migration 449) (wave 17)
 - [x] 185-39-PLAN.md - write contract for IBKR ingress and D1, request digests, archive contract, CI scan against first-write-wins (migration 448) (wave 17)
 
 **Wave 18** *(blocked on Wave 17 completion)*
 
-- [ ] 185-29-PLAN.md - D0 label inputs name the rules and carry policy and verdict as-of; S0 hand-off todo with snapshot pinning; owner answers and orchestrator calls recorded apart (wave 18)
+- [x] 185-29-PLAN.md - D0 label inputs name the rules and carry policy and verdict as-of; S0 hand-off todo with snapshot pinning; owner answers and orchestrator calls recorded apart (wave 18)
 - [x] 185-40-PLAN.md - verdict report, intraday checks (migration 450) (wave 18)
 
 **Wave 19** *(blocked on Wave 18 completion)*
@@ -307,7 +307,11 @@ rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-
 
 **Wave 26** *(blocked on Wave 25 completion)*
 
-- [ ] 185-48-PLAN.md - Tradier loader, units, provider and APR keys retired (migration 457); docs, design amendment and residual todos (wave 26)
+- [x] 185-48-PLAN.md - Tradier loader, units, provider and APR keys retired (migration 457); docs, design amendment and residual todos (wave 26)
+- [x] 185-49-PLAN.md - stale Tradier heads: 38 head rows, 3 closures, 14 names to todo 512 (todo 508; plan of record docs/research/stale-tradier-heads-policy.md)
+- [x] 185-50-PLAN.md - policy closures stamped (closed_at, migration 460); the revision waiver and the changed-only probe see a close; FTV, IP, STE re-derived
+- [x] 185-51-PLAN.md - split recognition rule (APR), hold list (bar_hold, migration 461), CTVA held, ETHA split row superseded (todo 515)
+- [x] 185-52-PLAN.md - d2-v3: after a split the daily rule serves the other vendor's current-scale answer instead of quarantining pre-D Tradier history (todo 517)
 
 ### Phase 186: Old ensemble chain retirement and ic_engine re-scope
 
@@ -550,7 +554,7 @@ Plans:
 - [x] 189-03-PLAN.md - per-(symbol, timeframe) item fetch with stall bound, retries, atomic coverage persistence
 - [x] 189-04-PLAN.md - IbkrHistoryFetcher oneshot, systemd units, service registry, read-only dry-run gate
 - [x] 189-05-PLAN.md - manual IBKR tools onto the fetcher lock
-- [ ] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
+- [x] 189-06-PLAN.md - cutover: stop lanes and nightly, live smoke, install fetcher timer (cutover EXECUTED 2026-10-06, new fetcher live; wrap-up of the first timer-fired run and the SUMMARY remain)
 - [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
 - [x] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
