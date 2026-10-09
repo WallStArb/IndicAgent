@@ -29,3 +29,12 @@ This is an infrastructure decision (which device, how large), not a code change.
 
 None. Worth doing before cells approach the `alpha.ic.max_cell_rows` cap (restored to 15M
 by todo 386), where a single cell's scratch is tens of GB.
+
+---
+
+Measured 2026-10-09: `/var/tmp/ic_engine_scratch` sits on the same LV as
+everything on this host (`/dev/mapper/ubuntu--vg-ubuntu--lv`, one filesystem,
+580G free); no second volume exists to move it to. The premise is confirmed;
+the fix requires provisioning a separate volume, an owner infrastructure
+decision, not a repo change. Disk pressure is not currently the binding
+constraint (34% used).
