@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-03T02:40:41.100Z"
+last_updated: "2026-10-09T19:30:00.000Z"
 progress:
   total_phases: 7
   completed_phases: 1
@@ -45,8 +45,18 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 185 (daily-data-foundation) — EXECUTING
-Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48 wait on 189-10 Task 1b (the one-time IBKR 1d fetch, owner go needed)
+Phase: 185 (daily-data-foundation) — EXECUTING; 189-10 pilot done, IBKR 5m depth drain RUNNING (owner-ordered 2026-10-09)
+Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48 unblocked (189-10 Task 1b's one-time IBKR 1d fetch is done, record: 189-10-1D-FETCH-RECORD.md)
+
+- **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
+  names are intraday scope (the 233-name subset is overruled; registry promotion of the other
+  1,296 goes through the SOP/185-41 gates after their 5m exists). Alpaca is green-lit as the 5m
+  source (todo 521 build in flight: pilot passed, phase 1 pull running, all-names canonical load
+  HELD until the IBKR drain completes or todo 526's planner fix lands). IBKR stays the 1d
+  primary; its fetcher service and timer were RE-ENABLED 2026-10-09 and the full-depth 5m drain
+  is running (owner reversed the C4 gate: completeness campaign, todo 523 record). Raw capture
+  is universal (both vendors nightly), authoring stays single-source per span; depth planning
+  moves to per-TF provider floors (todo 526, 189-11, lifts the phase 2 hold).
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -58,7 +68,7 @@ Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** original 26 plans executed 2026-10-06; verification found gaps (`185-VERIFICATION.md`), so gap closure plans 27-44 and 189-07..11 implement the approved data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`: Tradier primary 1d with IBKR fallback via `bar_source_policy`, one daily rule d2-v2, lineage as a view, one write contract, 15m/1h/4h derived from 5m, raw 5m only for the promoted names, verdict-based gates, then cleanup). Done: 185-27, 185-30, 185-44 (complexity baseline plus three CI guards). 1,502 names are promoted `compute_eligible_1d`, 27 held. The IBKR fetcher service and timer are stopped and disabled until the 189-10 pilot passes. Order: ROADMAP.md; handoff: `.planning/phases/185-daily-data-foundation/.continue-here.md`.
+- **Phase 185:** original 26 plans executed 2026-10-06; verification found gaps (`185-VERIFICATION.md`), so gap closure plans 27-44 and 189-07..11 implement the approved data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`: Tradier primary 1d with IBKR fallback via `bar_source_policy`, one daily rule d2-v2, lineage as a view, one write contract, 15m/1h/4h derived from 5m, raw 5m only for the promoted names, verdict-based gates, then cleanup). Done: 185-27, 185-30, 185-44 (complexity baseline plus three CI guards). 1,502 names are promoted `compute_eligible_1d`, 27 held. The IBKR fetcher service and timer were re-enabled 2026-10-09 (drain running; see the data layer end-state above). Order: ROADMAP.md; handoff: `.planning/phases/185-daily-data-foundation/.continue-here.md`.
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
