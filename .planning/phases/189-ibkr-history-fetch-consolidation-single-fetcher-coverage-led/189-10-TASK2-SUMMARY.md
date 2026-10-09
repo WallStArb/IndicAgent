@@ -240,10 +240,14 @@ is on fresh uncompressed chunks; compression changes it and was not measured her
 
 ### What follows
 
-1. C4 blocks the 5m drain launch at the measured latency. The next lever is not a limit change: it is
-   either fewer requests per name (wider chunks, if IBKR serves them at the same latency) or accepting
-   a 30-40 day drain in a dedicated lane. Owner decision; both need a measurement the pilot did not
-   run (one wide-chunk probe) before choosing.
+1. C4 blocks the 5m drain launch at the measured latency. The wide-ask probe (2026-10-09, SPY 5m:
+   150d OK 18.7 s, 180d OK 48.1 s, 270d/365d/730d all refuse with Error 162 after retries) kills the
+   wider-chunks lever: IBKR will not serve 5m asks beyond about 180 days. The next lever is a second
+   tape: Alpaca (Polygon/Massive upstream) measures complete 5m from 2016-01-01 and admits through
+   todo 521, leaving the IBKR drain for the 2006-2015 tail only (about half the requests, still
+   18-19 days at the measured pace). The owner decision is now: admit the second tape first and run
+   the IBKR drain only for the tail, or accept the full 37-day drain; running both at once is the
+   one outcome to avoid (two drains, one archive).
 2. WEAT's volume-basis signature and the dividend-era price buckets belong in the parity-followup
    todo: decide whether archive parity tolerates a volume basis difference per name or the archive
    rebuckets to IBKR volumes.

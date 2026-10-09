@@ -43,6 +43,21 @@ New vendor leaf plus admission work is phase-scoped (a real feature, multiple
 sessions), not a single-session fix. Everything it needs from evidence is
 done.
 
+## Dependencies from the 189 lane (indicagent-7a, 2026-10-09, verified against this pilot doc)
+
+1. **Multi-source overlap policy for 5m.** Which source wins a span once both
+   IBKR and Alpaca hold real 5m for a name, and how D7's vendor-agreement
+   checks extend to a second tape. The Tradier/IBKR precedent
+   (`bar_source_policy` per-name rows, basis-tested admission) is the pattern;
+   the build plan must write the 5m policy before the first canonical write.
+2. **C8 single-day IBKR gap days become backfillable.** Days IBKR simply has
+   no 5m answer for (e.g. DBMF 2019-10-16) inside Alpaca's 2016+ coverage can
+   be filled from Alpaca through the same admission path, which is the
+   cleanest resolution for those C8 verdicts. Pre-2016 stays IBKR-only.
+
+Both land in the depth-build plan doc, not in code, before any canonical
+write.
+
 ## Acceptance
 
 Existing boundary tests pass unchanged (`SOURCE_ALPACA` in the bars sources
