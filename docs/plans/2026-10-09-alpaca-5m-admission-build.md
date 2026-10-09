@@ -128,7 +128,13 @@ Execution client stays a separate build.
   half-tick/mid)`, with `threshold.bar_integrity.alpaca_basis_tolerance_bp`
   seeded at 1.0 `[pilot-measured 2026-10-09]`; the tick term is a derived
   value (APR-exempt). All three names pass the >=99% criterion under it and
-  admit.
+  admit. Pins from the 189 lane's tolerance review: **mid** is defined as
+  `(stored IBKR close + stored Alpaca close) / 2` on the sampled slot, so
+  "half-tick in bp of mid" is unambiguous once two tapes exist; and the tick
+  size comes from `get_tick_size` (`src/config/settings.py:648`, the
+  active-contracts cache, IBKR minTick), never inferred from stored bars,
+  which would be flimsiest exactly for the sparse names the check most needs
+  to be fair to.
 - **EWT (1d split-adjusted residual): one corporate action, one boundary.**
   215 of 230 failing sessions are all of 2016 at exactly 2.0x: a single 2:1
   action whose adjustment boundary Alpaca draws at 2017 and the stored
