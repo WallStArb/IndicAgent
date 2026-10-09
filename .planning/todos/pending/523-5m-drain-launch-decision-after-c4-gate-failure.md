@@ -33,6 +33,14 @@ second tape covers (Alpaca serves complete 5m from 2016-01-01; see indicagent-87
 `docs/plans/2026-10-09-alpaca-integration-pilot.md` and admission path todo 521). The IBKR drain's
 remaining unique value is the 2006-2015 tail and a second tape for parity.
 
+## Refinement 2026-10-09 (indicagent-87): the tail drain may have no consumer
+
+With 2016+ owned by Alpaca, an IBKR tail drain's only unique product is 2006-2015 5m, and no
+research spec currently consumes it. The fallback therefore shrinks from an 18-19-day batch to a
+per-name, on-demand fetch targeted at a spec that names its need, the same test the Yahoo deep
+archive failed (fetch nobody consumes). Launch order: todo 521 first; the batch tail drain stays
+closed unless a spec names the depth it needs.
+
 ## Done when
 
 The owner's choice is recorded in 189-10-TASK2-SUMMARY.md's "What follows"; if option 1, the probe's
