@@ -51,6 +51,16 @@ IBKR 5m) proceeds as planned; the phase 2 all-names canonical load holds
 until the drain completes.** Phase 2 keeps pulling to scratch meanwhile;
 only the canonical write timing changes.
 
+**Early lift:** the hold lifts as soon as the root fix lands, not when the
+drain completes. The owner directed it ("depth should be measured correctly
+for each TF"); it is todo 526 (189-11): `ohlcv_provider_head` gains a
+timeframe column (PK symbol+provider+timeframe; the schema today cannot
+represent per-TF floors at all), one walk-back per vendor per TF for the
+global floors, per-name rows only where a probe contradicts, and planning
+per (symbol, provider, tf) against per-source stored spans. Per-provider
+planning removes the collision entirely, so the phase 2 load proceeds the
+day 526's planner change applies.
+
 Out of scope: 1m storage (no consumer), the registry promotion wave (its own
 task, gated on this build's D7 sweep), the execution client (separate build),
 live streaming.
