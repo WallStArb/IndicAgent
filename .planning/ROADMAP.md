@@ -564,9 +564,15 @@ Plans:
 ### Phase 190: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
 
 **Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m drain kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
-**Requirements**: TBD
+**Requirements**: TBD (design-derived: P190-conformance, P190-boundary, P190-migration, P190-ledger, P190-writers, P190-queue, P190-fetcher, P190-parity, P190-lock)
 **Depends on:** Phase 189
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 190 to break down)
+- [ ] 190-01-PLAN.md — HistoryProvider protocol, verdict/budget/page types, IBKR leaf conformance, import-boundary fence
+- [ ] 190-02-PLAN.md — Two-tier ledger migrations (464 additive, 465 breaking at cutover), provider-parameterized coverage writer, parity-before capture
+- [ ] 190-03-PLAN.md — Per-provider planner: ProviderPlan, per-provider ledger reads and floors (todo 526), policy read gate
+- [ ] 190-04-PLAN.md — Fetcher generalization: provider registry, vendor-blind loop, overlay split, item-mechanics seam
+- [ ] 190-05-PLAN.md — Rename to ohlcv_history_fetcher / OHLCVHistoryFetcher with external-identity freeze
+- [ ] 190-06-PLAN.md — Cutover: parity gate, drain kill-and-resume under the unified fetcher (blocking owner checkpoint)
+- [ ] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note
