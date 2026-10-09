@@ -1,7 +1,8 @@
 ---
-status: pending
+status: resolved
 priority: P1
 filed: 2026-10-09
+resolved: 2026-10-09
 source: 189-10 Task 2 pilot results (b3e46fa4f); owner decision required
 ---
 
@@ -45,3 +46,11 @@ closed unless a spec names the depth it needs.
 
 The owner's choice is recorded in 189-10-TASK2-SUMMARY.md's "What follows"; if option 1, the probe's
 numbers are recorded there first; 189-11's plan reflects the decision.
+
+## Resolution 2026-10-09
+
+Owner ruled (relayed by indicagent-87, the Alpaca workstream session): todo 521 is green-lit.
+The IBKR tail drain stays closed; IBKR depth is per-name on-demand pending a named consumer.
+This todo's decision is made; the guardrail (the pilot's u = 38 gap-patch behavior must never
+reach the nightly update lane) carries into 521's depth-build plan and 189-11 if it is ever
+resumed.
