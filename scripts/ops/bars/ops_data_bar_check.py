@@ -24,11 +24,12 @@ Conditions (plan 185-16; 1, 3 and 4 made source-aware by 185-34):
   3 late_name_dispositions   every IBKR-sourced late 1d name resolves (moved /
                              verified_empty / reached_window_start); none left
                              unresolved (plan 14's classify_head, recomputed
-                             from stored D1 answers). Tradier-owned late names
-                             (TRADIER_OWNED_SQL) are excluded: their history comes
-                             from Tradier, not the truncated IBKR route; the
-                             evidence line counts them and names the excluded
-                             unresolved ones
+                             from stored D1 answers). Late names with Tradier
+                             history (any canonical tradier 1d bar, plan 185-48)
+                             are excluded: their history before D comes from
+                             Tradier, not the truncated IBKR route; the evidence
+                             line counts them and names the excluded unresolved
+                             ones
   4 no_pre_move_bars_visible no tradeable IBKR-source 1d bar of a moved name
                              predates its SMART head (moved names from the
                              IBKR-only ohlcv_venue_head, 185-28), unless
@@ -60,7 +61,6 @@ from typing import Any, Literal
 
 import psycopg
 
-from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import TRADIER_OWNED_SQL
 from scripts.ops.bars.ops_head_rerun import (
     _APR_VENUES,
     _late_names,
@@ -71,6 +71,7 @@ from scripts.ops.bars.ops_head_rerun import (
 )
 from src.config.settings import Settings
 from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
+from src.intelligence.bars.sources import SOURCE_TRADIER
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "bars" / "corrupt_1d_dry_run_2026_09_26.txt"
@@ -144,9 +145,14 @@ LEFT JOIN market_data_ohlcv m
   ON m.symbol = k.symbol AND m.timeframe = '1d' AND m."timestamp" = k.ts
 """
 
-_TRADIER_OWNED_LATE_SQL = f"""
+# Late names with Tradier history (plan 185-48): any canonical 1d bar sourced from Tradier.
+# Stored bars, not the open policy row: since 185-47 the open 1d default names IBKR, so a
+# policy predicate would exclude nobody and widen condition 3 to every name the swap made late.
+_TRADIER_HISTORY_LATE_SQL = """
+/* tradier_history */
 SELECT s.symbol FROM unnest(%s::text[]) AS s(symbol)
-WHERE {TRADIER_OWNED_SQL.format(col="s.symbol")}
+WHERE EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable m
+              WHERE m.symbol = s.symbol AND m.timeframe = '1d' AND m.source = %s)
 """
 
 _SEAM_ACTION_SQL = """
@@ -312,14 +318,14 @@ def seam_condition(
 
 
 def dispositions_condition(
-    dispositions: Mapping[str, str], tradier_owned: Collection[str] = ()
+    dispositions: Mapping[str, str], tradier_history: Collection[str] = ()
 ) -> CheckResult:
     """Condition 3: no IBKR-sourced late name is left unresolved.
 
-    Tradier-owned late names are out of scope (185-34: orchestrator call 2026-10-06, pending
+    Late names with Tradier history are out of scope (185-34: orchestrator call 2026-10-06, pending
     owner review); they are counted and their unresolved names listed, never judged. Every
     unresolved IBKR-sourced name is named: the residue, not a sample."""
-    owned = set(tradier_owned)
+    owned = set(tradier_history)
     judged = {s: d for s, d in dispositions.items() if s not in owned}
     excluded = sorted(s for s in dispositions if s in owned)
     unresolved = sorted(s for s, d in judged.items() if d == "unresolved")
@@ -330,7 +336,7 @@ def dispositions_condition(
         evidence=(
             f"IBKR-sourced late names {len(judged)}; unresolved {len(unresolved)}"
             + (f" ({', '.join(unresolved)})" if unresolved else "")
-            + f"; Tradier-owned excluded {len(excluded)}"
+            + f"; Tradier-history excluded {len(excluded)}"
             + (
                 f" (unresolved under IBKR answers: {', '.join(excluded_unresolved)})"
                 if excluded_unresolved
@@ -501,7 +507,9 @@ def run_checks(conn: Any) -> list[CheckResult]:
         )
         for symbol in late
     }
-    tradier_owned = {row[0] for row in _rows(conn, _TRADIER_OWNED_LATE_SQL, (sorted(late),))}
+    tradier_history = {
+        row[0] for row in _rows(conn, _TRADIER_HISTORY_LATE_SQL, (sorted(late), SOURCE_TRADIER))
+    }
 
     pre_move = int(_scalar(conn, _PREMOVE_SQL, (list(IBKR_1D_SOURCES),))[0])
     covered, eligible, deactivated = _scalar(conn, _INVENTORY_SQL, (sorted(late),))
@@ -526,7 +534,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
             split_seam_bars=dict(split_seam_bars),
             daily_batches=daily_batches,
         ),
-        dispositions_condition(dispositions, tradier_owned),
+        dispositions_condition(dispositions, tradier_history),
         premove_condition(n_pre_move_bars=pre_move, venue_bars_1d=venue_bars_1d),
         dividend_condition(
             covered=int(covered),

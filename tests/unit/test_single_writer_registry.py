@@ -137,11 +137,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     ),
     "corporate_action": (
         Writer(
-            "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py",
-            _segment("inferred_by", "tradier_refetch"),
-            "a Tradier refetch whose changes are a split (migration 440)",
-        ),
-        Writer(
             "scripts/ops/bars/ops_split_detect.py",
             _segment("inferred_by", "nightly_overlap", "operator"),
             "the overlap split detector (migration 406) and its sanctioned corrections: "

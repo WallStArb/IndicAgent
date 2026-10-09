@@ -115,7 +115,3 @@ def test_every_other_writer_is_fenced_from_the_derivation_owned_timeframes():
         assert "DERIVATION_OWNED_TIMEFRAMES" in source or module in _FENCE_EXEMPT, module
     for module in _FENCE_EXEMPT:
         assert module in _ALLOW_LIST, f"stale fence exemption: {module}"
-
-
-def test_the_tradier_loader_is_not_a_writer():
-    assert "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py" not in _ALLOW_LIST

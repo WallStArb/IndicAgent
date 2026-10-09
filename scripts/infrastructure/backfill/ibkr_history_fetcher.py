@@ -57,8 +57,7 @@ stall check inside an item, and while awaiting a stage subprocess).
 The D7 reconciliation audit (services/bar_reconciliation_audit.py) is not run from here: the
 nightly ran it once a day as its last step, and this fetcher fires every 15 minutes. The
 fetcher writes the run status file the audit's nightly_skipped check reads; the audit gets
-its own daily caller at cutover (plan 189-06/07). The Tradier daily load
-(infrastructure_run_tradier_daily.py) stays its own script with its own caller.
+its own daily caller at cutover (plan 189-06/07).
 
 Exit codes: 0 for success, partial, lock_held, dry_run; 1 when run() raises.
 """

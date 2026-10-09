@@ -55,12 +55,11 @@ from datetime import date, datetime
 from typing import Any
 
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
-from src.intelligence.bars.sources import SOURCE_IBKR_FALLBACK
+from src.intelligence.bars.sources import ROUTE_TRADIER, SOURCE_IBKR_FALLBACK
 
 RULE_VERSION = "d2-v2"
 
 TIMEFRAME = "1d"
-ROUTE_TRADIER = "TRADIER"
 ROUTE_SMART = "SMART"
 ROUTE_LEGACY = "LEGACY_IMPORT"
 VENDOR_TRADIER = "tradier"

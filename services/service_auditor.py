@@ -97,10 +97,8 @@ _DAG_ORDER: dict[str, int] = {
     # and Prometheus. Its own daily timer since the 189-06 cutover.
     "indicagent-bar-reconciliation-audit": 8,  # oneshot; inactive between runs is correct
     # Phase 189 (plan 06 cutover): the single IBKR history fetcher on a 15-minute
-    # OnUnitInactiveSec timer, and the Tradier daily load (the nightly's non-IBKR leg) on its
-    # own daily timer. Both BaseBatch-style oneshots, no Kafka consumer, so no lag entry.
+    # OnUnitInactiveSec timer. A BaseBatch-style oneshot, no Kafka consumer, so no lag entry.
     "indicagent-ibkr-history-fetcher": 8,  # Type=exec oneshot run; inactive between fires is correct
-    "indicagent-tradier-daily": 8,  # oneshot; daily 01:30 UTC; inactive between runs is correct
     # Layer 7 — audit, parity, alerting (observe everything, act on anomalies)
     "indicagent-alerting-agent": 9,  # priority 9: depends on all above for alert sources
     "indicagent-dlq-drain": 9,  # priority 9: writes DLQ topics from all above layers to dlq_events
@@ -173,7 +171,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-economic-series-writer",  # Type=oneshot, daily timer (todo 480); inactive between runs is correct
         "indicagent-bar-reconciliation-audit",  # Type=oneshot, daily timer (189-06; chained from the nightly before); inactive between runs is correct
         "indicagent-ibkr-history-fetcher",  # Type=exec run per 15-min timer fire (phase 189); inactive between fires is correct
-        "indicagent-tradier-daily",  # Type=oneshot, daily timer (189-06); inactive between runs is correct
     }
 )
 

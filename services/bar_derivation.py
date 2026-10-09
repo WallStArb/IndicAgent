@@ -109,6 +109,7 @@ from src.intelligence.bars.sources import (
     GRID_RULE_VERSION,
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
+    ROUTE_TRADIER,
     SOURCE_DERIVED_5M,
 )
 from src.intelligence.bars.write_contract import (
@@ -377,7 +378,7 @@ _RESTORE_LOAD_CALLER = "bar_derivation-restore"
 _DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
 # D1 routes d2-v2 reads: Tradier, IBKR SMART, and the stored corpus's import as IBKR's lowest
 # rank. Venue routes stay out (the D-17 venue study failed).
-_D2V2_ROUTES = ("TRADIER", "SMART", "LEGACY_IMPORT")
+_D2V2_ROUTES = (ROUTE_TRADIER, "SMART", "LEGACY_IMPORT")
 _DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed", "held")
 _DAILY_ROW_COUNTS = ("new", "changed", "unchanged", "removed")
 _DAILY_REPORT_COLUMNS = (
@@ -470,20 +471,6 @@ FROM bar_quality_flag
 WHERE symbol = $1 AND timeframe = '1d'
 """
 
-# A name Tradier owns (plan 185-38): its open 1d bar_source_policy row (the symbol's open row,
-# else the timeframe default) names Tradier primary, and a Tradier observation exists. Format
-# with col = the symbol expression. The Tradier loader's nightly selects these names; the IBKR
-# history fetcher (phase 189) skips their IBKR 1d through tradier_owned below.
-TRADIER_OWNED_SQL = (
-    "(COALESCE("
-    "(SELECT p.primary_source FROM bar_source_policy p WHERE p.timeframe = '1d'"
-    " AND p.symbol = {col} AND p.valid_to IS NULL),"
-    " (SELECT p.primary_source FROM bar_source_policy p WHERE p.timeframe = '1d'"
-    " AND p.symbol IS NULL AND p.valid_to IS NULL)) = 'tradier'"
-    " AND EXISTS (SELECT 1 FROM ohlcv_observation o WHERE o.symbol = {col}"
-    " AND o.timeframe = '1d' AND o.route = 'TRADIER'))"
-)
-
 # The symbol's baseline: when the daily stage last read the inputs it applied, the start of the
 # batch that wrote its latest applied daily load (the policy is read once at run start, the
 # observations before the write), else that load's loaded_at (a load with no batch). No row
@@ -534,12 +521,7 @@ EXISTS (
     WHERE p.timeframe = '1d' AND (p.symbol = $1 OR p.symbol IS NULL)
       AND {_POLICY_CHANGED_AT.format(p='p')}
           > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
-) AS policy_since,
--- The IBKR history fetcher (phase 189) imports this statement as _DAILY_SOURCE_PROBE_SQL and
--- reads tradier_owned to skip IBKR 1d fetches. Since plan 185-38 it is TRADIER_OWNED_SQL: the
--- name's open 1d policy row names Tradier primary and a Tradier observation exists. The daily
--- stage does not read it; 189-10 replaces the fetcher's use with the weekly IBKR 1d reconcile.
-{TRADIER_OWNED_SQL.format(col='$1')} AS tradier_owned
+) AS policy_since
 """
 
 # The revision-ratio waiver: no applied daily load yet, or a corporate action or a 1d policy

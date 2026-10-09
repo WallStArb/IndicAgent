@@ -143,7 +143,15 @@ _KEEP_TABLES: dict[str, str] = {
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
-_PENDING_RETIREMENT: dict[str, str] = {}
+_TRADIER_LOADER_DELETED = "read only by the Tradier loader, deleted in plan 185-48 (retire: 185-48)"
+_PENDING_RETIREMENT: dict[str, str] = {
+    "infra.tradier.concurrency": _TRADIER_LOADER_DELETED,
+    "infra.tradier.first_date_tolerance_days": _TRADIER_LOADER_DELETED,
+    "infra.tradier.history_start": _TRADIER_LOADER_DELETED,
+    "infra.tradier.min_session_ratio": _TRADIER_LOADER_DELETED,
+    "infra.tradier.nightly_enabled": _TRADIER_LOADER_DELETED,
+    "infra.tradier.request_timeout_s": _TRADIER_LOADER_DELETED,
+}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:

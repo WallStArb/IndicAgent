@@ -118,7 +118,6 @@ class FakeConn:
         current_digests: dict[str, list[tuple[datetime, str]]] | None = None,
         flag_rules: dict[str, list[tuple[datetime, str, bool]]] | None = None,
         changed_since: dict[str, bool] | None = None,
-        tradier_owned: frozenset[str] = frozenset(),
         waived: bool = False,
         apr: dict[str, str] | None = None,
         held: dict[str, list[dict]] | None = None,
@@ -131,7 +130,6 @@ class FakeConn:
         self.current_digests = current_digests or {}
         self.flag_rules = flag_rules or {}
         self.changed_since = changed_since
-        self.tradier_owned = tradier_owned
         self.waived = waived
         self.apr = {
             "infra.bar_derivation.daily_symbol_batch": "25",
@@ -223,7 +221,6 @@ class FakeConn:
                 "obs_since": since,
                 "action_since": False,
                 "policy_since": False,
-                "tradier_owned": str(args[0]) in self.tradier_owned,
             }
         raise AssertionError(f"unexpected fetchrow: {sql}")
 
@@ -361,14 +358,6 @@ def test_dry_run_classifies_every_canonical_source_and_writes_nothing(tmp_path):
     assert (row["new"], row["changed"], row["unchanged"], row["removed"]) == ("1", "2", "2", "1")
     assert row["changed_source_only"] == "1" and row["outside_span"] == "1"
     assert row["refused_interior"] == "0" and row["would_refuse"] == "false"
-
-
-def test_tradier_owned_names_are_derived_not_skipped():
-    observations, stored = _fixture()
-    conn = FakeConn(observations=observations, stored=stored, tradier_owned=frozenset({"TEST"}))
-    result, _ = _run(conn, apply=False)
-    assert result["totals"].get("tradier_owned", 0) == 0
-    assert result["totals"]["derived"] == 1
 
 
 def test_dry_run_reports_refused_interior_dates_and_groups(tmp_path):
@@ -641,13 +630,14 @@ def test_no_observations_counts_and_moves_on():
 # --- statements ------------------------------------------------------------------------------
 
 
-def test_changed_since_probe_keeps_its_name_and_tradier_owned_column():
-    # ibkr_history_fetcher.py (phase 189) imports it as _DAILY_SOURCE_PROBE_SQL.
-    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as sql
-    from services.bar_derivation import TRADIER_OWNED_SQL
+def test_changed_since_probe_has_no_tradier_owned_column():
+    # Plan 185-48: the Tradier loader is deleted and the fetcher stopped reading Tradier
+    # ownership (189-10), so the probe carries only what the daily stage reads.
+    import services.bar_derivation as derivation
 
-    assert "AS tradier_owned" in sql
-    assert "ohlcv_load" not in TRADIER_OWNED_SQL  # ownership is policy since 185-38
+    sql = derivation._SELECT_DAILY_CHANGED_SINCE_SQL
+    assert "tradier_owned" not in sql
+    assert not hasattr(derivation, "TRADIER_OWNED_SQL")
     assert "AS policy_since" in sql and "bar_source_policy" in sql
 
 

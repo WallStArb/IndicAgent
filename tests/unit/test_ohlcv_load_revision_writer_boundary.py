@@ -3,15 +3,13 @@
 Migration 443 widened ohlcv_load from the Tradier daily load record to the write record of every
 canonical writer, and ohlcv_revision to the one revision table (data layer integrity design
 section 3). Each writer owns one `source` segment of ohlcv_load and writes ohlcv_revision rows
-only under its own load rows, so the segments below are pairwise disjoint: the Tradier loader
-owns source tradier, the grid stage of services/bar_derivation.py owns source derived, and
-185-39 adds the IBKR ingress contract (services/ohlcv_ingress_contract.py) as source ibkr. Any other INSERT, UPDATE, DELETE, COPY,
+only under its own load rows, so the segments below are pairwise disjoint: the grid stage of
+services/bar_derivation.py owns source derived and 185-39 adds the IBKR ingress contract
+(services/ohlcv_ingress_contract.py) as source ibkr. Source tradier rows are the deleted Tradier
+loader's history (plan 185-48); no writer owns that segment now. Any other INSERT, UPDATE, DELETE, COPY,
 TRUNCATE or MERGE into either table fails CI unless the allow-list is edited with a reason, and
 an entry that no longer writes fails as stale. This file replaces the two tables' scanned
 entries in test_single_writer_registry.py (185-44).
-
-The same widening would make a grid or ingress load row read as "Tradier owns this name" to the
-readers of outcome = 'loaded'; the last test pins `source = 'tradier'` into each of them.
 
 CI-clean: no DB, no network, pure filesystem grep plus imports of SQL constants.
 """
@@ -42,19 +40,12 @@ _TABLES = {
     for table in ("ohlcv_load", "ohlcv_revision")
 }
 
-_LOADER = "scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py"
 _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
 
 # table -> module -> (owned ohlcv_load.source values, reason)
 _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
     "ohlcv_load": {
-        _LOADER: (
-            frozenset({"tradier"}),
-            "PERMANENT: the Tradier daily loader records every load attempt of one symbol into "
-            "D1 (destination d1, plan 185-38; outcome loaded, no_data, failed or gated). It "
-            "writes no ohlcv_revision row: the daily stage records canonical revisions.",
-        ),
         _DERIVATION: (
             frozenset({"derived"}),
             "PERMANENT: the grid stage records one load per (symbol, 15m/1h) it derives, with "
@@ -137,27 +128,3 @@ def test_the_pattern_catches_each_write_form():
     assert pattern.search('conn.copy_records_to_table("ohlcv_revision", records=r)')
     assert not pattern.search("SELECT * FROM ohlcv_revision")
     assert not pattern.search("JOIN ohlcv_revision r ON r.load_id = l.load_id")
-
-
-def test_every_ownership_predicate_requires_a_tradier_source():
-    from scripts.infrastructure.backfill.infrastructure_run_tradier_daily import (
-        _SELECT_MISSING_SQL,
-    )
-    from services.bar_reconciliation_audit import _TRADIER_LATEST_LOAD_SQL
-
-    for name, sql in (
-        ("loader _SELECT_MISSING_SQL", _SELECT_MISSING_SQL),
-        ("D7 _TRADIER_LATEST_LOAD_SQL", _TRADIER_LATEST_LOAD_SQL),
-    ):
-        # Lookahead so a nested EXISTS over ohlcv_load is matched as well as its outer query.
-        predicates = re.findall(r"(?=FROM ohlcv_load (\w+)\s+WHERE([^)]*))", sql)
-        assert predicates, name
-        for alias, where in predicates:
-            assert f"{alias}.source = 'tradier'" in where, f"{name}: {where.strip()}"
-
-
-def test_tradier_ownership_reads_the_source_policy_not_the_load_ledger():
-    # Plan 185-38: ownership lives in bar_source_policy; a load row says what was fetched.
-    from services.bar_derivation import TRADIER_OWNED_SQL
-
-    assert "bar_source_policy" in TRADIER_OWNED_SQL and "ohlcv_load" not in TRADIER_OWNED_SQL

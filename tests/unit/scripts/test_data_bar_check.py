@@ -247,9 +247,9 @@ def test_premove_sql_counts_ibkr_sources_only() -> None:
 
 
 def test_docstring_describes_the_source_aware_conditions() -> None:
-    doc = mod.__doc__ or ""
+    doc = " ".join((mod.__doc__ or "").split())
     assert "ohlcv_revision" in doc
-    assert "Tradier-owned" in doc
+    assert "Late names with Tradier history" in doc
     assert "IBKR-source" in doc
 
 
@@ -498,7 +498,7 @@ def test_tradier_history_predicate_reads_stored_canonical_bars_not_the_open_poli
     assert "m.timeframe = '1d'" in sql and "m.source = %s" in sql
     assert "bar_source_policy" not in sql and "valid_to" not in sql
     source = Path(mod.__file__).read_text()
-    assert "infrastructure_run_tradier_daily" not in source
+    assert "from scripts.infrastructure.backfill" not in source  # the deleted loader
     assert "TRADIER_OWNED_SQL" not in source
 
 
