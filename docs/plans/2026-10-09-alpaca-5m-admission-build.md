@@ -26,12 +26,23 @@ dependencies (indicagent-7a, recorded in the todo file).
 ## Scope
 
 Admit Alpaca 5m (2016-01-01 forward, `adjustment=split`, RTH-window aggregates
-only) for the 233 intraday-eligible names into `market_data_ohlcv` through the
+only) for **all 1,529 active names** into `market_data_ohlcv` through the
 existing ingress write contract, then re-derive the grid and re-run D7.
-Scratch data: `data/scratch/alpaca-pilot/depth/` (phase 1 pull, 233 names).
+Owner ruling 2026-10-09: all active names are intraday scope as of today;
+the 233-name admission boundary is overruled. Scratch data:
+`data/scratch/alpaca-pilot/depth/` (phase 1, the 233 intraday names) and the
+chained full-universe pass (`depth_1502/`), which is now admission-eligible
+supply rather than scratch-only optionality.
 
-Out of scope: 1m storage (no consumer), 5m admission for daily-scope names
-(phase 2 scratch bytes stay scratch), the execution client (separate build),
+Admission precedes promotion: `instruments.compute_eligible` is still true
+for 233 names, and promoting the other 1,296 to intraday scope goes through
+the onboarding SOP / integrity verdict gates (the 185-41 pattern), which need
+each name's 5m present first. Sequence: phase 2 pull -> tolerance migration
+-> load all names -> derive -> D7 full sweep -> promotion wave (separate
+task, not this build).
+
+Out of scope: 1m storage (no consumer), the registry promotion wave (its own
+task, gated on this build's D7 sweep), the execution client (separate build),
 live streaming.
 
 ## T1: Diagnose the four outliers (blocks everything)
@@ -87,7 +98,7 @@ live streaming.
 - D7 full run: session_coverage, slot_coverage, digest_fresh, grid_parity,
   stray_vendor_rows, plus the new vendor-agreement check (below).
 - New D7 condition: `alpaca_basis` on names holding both tapes in an overlap
-  span (2026-09 onward for the 233): sampled close basis between stored IBKR
+  span (2026-09 onward, every dual-tape name): sampled close basis between stored IBKR
   and stored Alpaca 5m, APR tolerance, flag-only (never a writer). This is
   the second-tape extension the 189 lane asked for, in evidence form.
   Pins from their review: the sample rule is deterministic and written here
