@@ -193,5 +193,6 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 ### Roadmap Evolution
 
+- Phase 190 added: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
 - Phase 189 edited: edited fields: depends_on
 - Phase 189 added: IBKR history fetch consolidation: single fetcher, coverage ledger, priority queue replacing the nightly/bulk lease and lane scripts

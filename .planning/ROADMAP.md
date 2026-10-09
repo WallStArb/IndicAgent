@@ -560,3 +560,13 @@ Plans:
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
 - [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth drain as a completeness campaign and the fetcher timer was re-enabled, todo 523 record)
 - [ ] 189-11-PLAN.md - 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed (amended 2026-10-09: absorbs todo 526 - per-TF provider floors and expected-domain planning, the planner root fix; head verification across all names incl. the 163 head-gap names; the all-names 5m scope per the owner ruling, registry promotion wave sequenced after data exists; Alpaca 521 coordination: phase 2 canonical load holds until the drain completes or 526 lands)
+
+### Phase 190: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
+
+**Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m drain kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
+**Requirements**: TBD
+**Depends on:** Phase 189
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 190 to break down)
