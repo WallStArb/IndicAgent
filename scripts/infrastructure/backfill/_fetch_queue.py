@@ -438,7 +438,10 @@ def reconcile_after(closes: Sequence[datetime], interval_sessions: int) -> datet
 
 
 def daily_due_reason(
-    latest_answered: datetime | None, latest_canonical: date | None, rule: DailyRule
+    latest_answered: datetime | None,
+    latest_canonical: date | None,
+    rule: DailyRule,
+    latest_window_end: datetime | None = None,
 ) -> str | None:
     """Why a name's 1d item is due, or None when it is held as current.
 
@@ -448,7 +451,10 @@ def daily_due_reason(
     - not_current: the latest canonical bar is not the last completed session and the name
       was not asked since that close. A name asked since the close stays held even when its
       canonical bar is stale (the freshness_1d verdict names it); re-asking it every run would
-      spend the stream on an answer that already came back.
+      spend the stream on an answer that already came back. Asked-since-the-close credits only
+      an answer whose requested window reached the close (latest_window_end): a run spanning
+      the close plans pre-close windows, and its post-close answers must not hold a stale name
+      (regression 2026-10-10). Without a window end the legacy answered-at comparison stands.
     """
     if latest_answered is None:
         return "never_asked"
@@ -456,6 +462,8 @@ def daily_due_reason(
         return "reconcile_due"
     stale = latest_canonical is None or latest_canonical < rule.last_close.date()
     if stale and latest_answered < rule.last_close:
+        return "not_current"
+    if stale and latest_window_end is not None and latest_window_end < rule.last_close:
         return "not_current"
     return None
 
@@ -676,11 +684,14 @@ _EMPTY_SQL = (
 # own request shape (the plan's daily_answer_filter; test callers never count, as in
 # services/split_detection.py).
 def _daily_answer_sql(answer_filter: str) -> str:
+    # DISTINCT ON carries the latest answer's window_end: the due rule must know whether the
+    # window the answer covered actually reached the last close, not just when it was answered
+    # (a run spanning the close answers pre-close windows post-close; regression 2026-10-10).
     return (
-        "SELECT symbol, max(answered_at) AS answered_at FROM ohlcv_request "
+        "SELECT DISTINCT ON (symbol) symbol, answered_at, window_end FROM ohlcv_request "
         f"WHERE source = $1 AND timeframe = '1d' AND {answer_filter} "
         "AND outcome IN ('bars', 'no_data') AND caller NOT LIKE 'test-%' "
-        "AND symbol = ANY($2::text[]) GROUP BY symbol"
+        "AND symbol = ANY($2::text[]) ORDER BY symbol, answered_at DESC"
     )
 
 
@@ -770,7 +781,7 @@ class PriorityQueue:
     plan: ProviderPlan | None = None
     _items: list[RankedItem] = field(default_factory=list, init=False, repr=False)
     _held: list[tuple[RankedItem, str]] = field(default_factory=list, init=False, repr=False)
-    _daily_inputs: tuple[dict[str, datetime], dict[str, date]] | None = field(
+    _daily_inputs: tuple[dict[str, datetime], dict[str, date], dict[str, datetime]] | None = field(
         default=None, init=False, repr=False
     )
     _due_reasons: dict[tuple[str, str, str], str] = field(
@@ -911,6 +922,7 @@ class PriorityQueue:
         return (
             {r["symbol"]: r["answered_at"] for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
+            {r["symbol"]: r["window_end"] for r in answers},
         )
 
     @property
@@ -923,9 +935,12 @@ class PriorityQueue:
             if row.last_fetch_status == "error":  # never held, as is_current
                 self._due_reasons[key] = "error"
                 return True
-            answered, canonical = self._daily_inputs
+            answered, canonical, windows = self._daily_inputs
             reason = daily_due_reason(
-                answered.get(row.symbol), canonical.get(row.symbol), self.daily
+                answered.get(row.symbol),
+                canonical.get(row.symbol),
+                self.daily,
+                windows.get(row.symbol),
             )
             if reason is not None:
                 self._due_reasons[key] = reason

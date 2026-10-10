@@ -553,8 +553,16 @@ async def test_queue_applies_the_daily_rule_with_no_tradier_hold():
     pool = _daily_pool(
         [_cov(s, "1d", 7300, 1) for s in ("OLD", "NEW", "NEVER")],
         [
-            {"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)},
-            {"symbol": "NEW", "answered_at": _LAST_CLOSE + timedelta(minutes=30)},
+            {
+                "symbol": "OLD",
+                "answered_at": _LAST_CLOSE - timedelta(days=1),
+                "window_end": _LAST_CLOSE - timedelta(days=1),
+            },
+            {
+                "symbol": "NEW",
+                "answered_at": _LAST_CLOSE + timedelta(minutes=30),
+                "window_end": _LAST_CLOSE + timedelta(days=1),
+            },
         ],
         [{"symbol": s, "latest": _LAST_CLOSE.replace(hour=0)} for s in ("OLD", "NEW", "NEVER")],
     )
@@ -571,7 +579,13 @@ async def test_queue_applies_the_daily_rule_with_no_tradier_hold():
 async def test_a_1d_series_that_last_errored_is_never_held():
     pool = _daily_pool(
         [_cov("ERR", "1d", 7300, 1, status="error", failures=1)],
-        [{"symbol": "ERR", "answered_at": _LAST_CLOSE + timedelta(minutes=30)}],
+        [
+            {
+                "symbol": "ERR",
+                "answered_at": _LAST_CLOSE + timedelta(minutes=30),
+                "window_end": _LAST_CLOSE + timedelta(days=1),
+            }
+        ],
         [{"symbol": "ERR", "latest": _LAST_CLOSE.replace(hour=0)}],
     )
     queue = fq.PriorityQueue(
@@ -579,6 +593,50 @@ async def test_a_1d_series_that_last_errored_is_never_held():
     )
     await queue.load(pool)
     assert [i.row.symbol for i in queue.ranked_snapshot()] == ["ERR"]
+
+
+async def test_an_answer_postclose_from_a_preclose_window_does_not_hold_a_stale_name():
+    """Regression 2026-10-10: a run spanning the session close plans 1d windows that end at the
+    previous close; a name answered after the close from such a window must stay due (its answer
+    cannot contain the closed session), not held as current. The hold credits only an answer
+    whose requested window covered the close."""
+    pool = _daily_pool(
+        [_cov("LATE", "1d", 7300, 1)],
+        [
+            {
+                "symbol": "LATE",
+                "answered_at": _LAST_CLOSE + timedelta(hours=2),
+                "window_end": _LAST_CLOSE - timedelta(days=1),
+            }
+        ],
+        [{"symbol": "LATE", "latest": _LAST_CLOSE.replace(hour=0) - timedelta(days=1)}],
+    )
+    queue = fq.PriorityQueue(
+        CONFIG, [("LATE", "1d")], TODAY, current_after=_LAST_CLOSE, daily=_DAILY
+    )
+    await queue.load(pool)
+    assert [i.row.symbol for i in queue.ranked_snapshot()] == ["LATE"]
+    assert queue.due_reason("LATE", "1d") == "not_current"
+
+
+async def test_an_answer_postclose_from_a_window_covering_the_close_stays_held():
+    pool = _daily_pool(
+        [_cov("COVERED", "1d", 7300, 1)],
+        [
+            {
+                "symbol": "COVERED",
+                "answered_at": _LAST_CLOSE + timedelta(hours=2),
+                "window_end": _LAST_CLOSE + timedelta(days=1),
+            }
+        ],
+        [{"symbol": "COVERED", "latest": _LAST_CLOSE.replace(hour=0)}],
+    )
+    queue = fq.PriorityQueue(
+        CONFIG, [("COVERED", "1d")], TODAY, current_after=_LAST_CLOSE, daily=_DAILY
+    )
+    await queue.load(pool)
+    assert [i.row.symbol for i in queue.ranked_snapshot()] == []
+    assert queue.due_reason("COVERED", "1d") == ""
 
 
 def test_a_due_1d_item_precedes_a_5m_item_with_a_larger_gap():
@@ -1004,7 +1062,13 @@ async def test_a_plan_without_1d_answers_issues_no_daily_query_and_no_1d_items()
     plan = _plan(answers_1d=False, daily_answer_filter=None)
     pool = _daily_pool(
         [_cov("OLD", "1d", 7300, 1), _cov("AAA", "5m", 7300, 1)],
-        [{"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)}],
+        [
+            {
+                "symbol": "OLD",
+                "answered_at": _LAST_CLOSE - timedelta(days=1),
+                "window_end": _LAST_CLOSE - timedelta(days=1),
+            }
+        ],
         [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],
     )
     queue = fq.PriorityQueue(
@@ -1024,7 +1088,13 @@ async def test_the_daily_answer_filter_comes_from_the_plan():
     plan = _plan()
     pool = _daily_pool(
         [_cov("OLD", "1d", 7300, 1)],
-        [{"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)}],
+        [
+            {
+                "symbol": "OLD",
+                "answered_at": _LAST_CLOSE - timedelta(days=1),
+                "window_end": _LAST_CLOSE - timedelta(days=1),
+            }
+        ],
         [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],
     )
     queue = fq.PriorityQueue(
