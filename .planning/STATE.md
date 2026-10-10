@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T06:11:33.126Z"
+last_updated: "2026-10-10T07:27:04.599Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 105
-  completed_plans: 102
+  completed_plans: 103
   percent: 25
 ---
 
@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
@@ -191,7 +191,16 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
   byte-identical. `IBKRProvider.fetch_ohlcv` returns one caller-driven window plus resume
   point; `adjustment='split'` raises loudly on IBKR (ADJUSTED_LAST is now-anchored). Services/
   scripts/src cannot import a concrete provider leaf outside `src/providers/`
-  (tests/unit/test_provider_leaf_boundary.py; fetcher-family entries shrink to zero at 190-04).
+  (tests/unit/test_provider_leaf_boundary.py; at 190-04 the three fetcher-family entries
+  stayed, now owned by the registry's ibkr entry rather than a factory seam).
+
+- Phase 190 generalized fetcher (190-04): `_PROVIDER_REGISTRY` in the fetcher maps provider
+  name to leaf factory + item-fetch hook + overlay loader; the loop dispatches strictly
+  through `entry.fetch` per item's provider (an entry failure is that item's error outcome,
+  never an IBKR fallback), budgets come from per-provider ProviderPlan (stall bound, retries,
+  inter-item pause), and the dry-run TSV carries the provider column (190-06 parity delta 1).
+  Adding a vendor is one registry entry plus a leaf module; multi-plane queueing (one run,
+  several providers' candidates) is still future work.
 
 - Phase 190 two-tier ledger foundation (190-02): migration 464 applied live (ohlcv_coverage.provider,
   ohlcv_provider_head.timeframe nullable; ibkr label is the authoring fetch plane of a stored-state
