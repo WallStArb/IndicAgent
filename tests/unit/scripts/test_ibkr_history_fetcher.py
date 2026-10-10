@@ -377,6 +377,11 @@ class _RecordingSyncConn:
                 self.rows = [
                     ("infra.backfill.default_scopes", conn.scopes),
                     ("infra.ibkr.inter_item_pause_s", "2.0"),
+                    # the planner-input APR keys (190-03): load_queue_config raises without them
+                    ("infra.ibkr.history_request_timeout", "900"),
+                    ("infra.ibkr.history_request_retries", "2"),
+                    ("infra.ibkr.rate_limit_window_sec", "600.0"),
+                    ("infra.ibkr.no_data_confirmation_chunks", "2"),
                     ("infra.backfill.ibkr_1d_reconcile_interval_days", "1"),
                     ("infra.backfill.update_overlap_sessions_1d", "20"),
                     ("infra.backfill.update_overlap_days_5m", "3"),
@@ -424,6 +429,7 @@ class _RecordingPool:
                         {
                             "symbol": "AAA",
                             "timeframe": "15m",
+                            "provider": "ibkr",
                             "earliest_timestamp": datetime(2010, 1, 4, tzinfo=UTC),
                             "latest_timestamp": datetime(2026, 9, 1, tzinfo=UTC),
                             "last_fetch_status": "ok",
