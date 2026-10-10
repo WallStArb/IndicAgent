@@ -1,8 +1,8 @@
 # Simplify findings: 185/189 load-bearing code (wave 2, 2026-10-10)
 
 Status: findings only, none applied. Four agents, one per surface, all four
-quality angles each. Filed as the post-drain cleanup backlog (todo 527).
-Context: the 5m drain is live; queue and write-path edits wait for it unless
+quality angles each. Filed as the post-backfill cleanup backlog (todo 527).
+Context: the 5m backfill is live; queue and write-path edits wait for it unless
 trivial and test-verified. 187/188 have no code yet; nothing to sweep there.
 The Alpaca loader was excluded (simplified separately by its own session).
 
@@ -201,7 +201,26 @@ Review complete. No edits made. Note: `ibkr_history_fetcher.py` no longer exists
 
 14. **`aggregate_bars_from_1m` kept past its replacement, `_history_fetch.py` lines 985-1021** - `src/intelligence/bars/session_grid.py` declares it replaces this aggregator's midnight-UTC flooring (the ":00-edge bug"). The FX/crypto 1m derive fallback still uses the old one. Not a drop-in swap (session-anchored vs 24h FX sessions), so flagging as altitude: if the :00-edge matters for derived FX bars, the derive path wants the session-anchored mechanism; if not, a comment on `aggregate_bars_from_1m` saying why the fallback keeps the old arithmetic would prevent the next reader from "fixing" it.
 
-Not findings: the wave-5 gated head pair (item 6 caveat), the two distinct `DESTINATION_GRID` constants in `_history_fetch_item.py` (different values, alias is load-bearing), and `_sd_notify_watchdog`'s function-local import (deliberate). `_fetcher_lock.py` and `_intraday_persist.py` are otherwise clean; the real mass is in the `_history_fetch.py` loader family and the fetcher's transaction/registry boilerplate. Given the 5m drain is live, items 1-3 are the ones worth a dedicated session after it completes; none are urgent.
+Not findings: the wave-5 gated head pair (item 6 caveat), the two distinct `DESTINATION_GRID` constants in `_history_fetch_item.py` (different values, alias is load-bearing), and `_sd_notify_watchdog`'s function-local import (deliberate). `_fetcher_lock.py` and `_intraday_persist.py` are otherwise clean; the real mass is in the `_history_fetch.py` loader family and the fetcher's transaction/registry boilerplate. Given the 5m backfill is live, items 1-3 are the ones worth a dedicated session after it completes; none are urgent.
 
 ---
 
+---
+
+## Application record (2026-10-10, first pass: the safe-now items)
+
+Scoped with indicagent-90 (oversight session): items touching the paused backfill's import graph are
+declined until the Alpaca load completes and the 5m backfill resumes. Applied, one commit each:
+
+- real_bars_only_for removed (fb057a54a): dead by construction; the answered windows load
+  unconditionally with the plan history in the call-site comment.
+- the dead module logger in _history_fetch.py named and used by seed_roll_chain (55c90a613).
+- _BP deduped to one BP in vendor_basis.py (d28a04ff2); daily_rule and source_admission import it.
+
+Declined for now:
+
+- is_fresh / load_fresh_heads_per_tf in _empty_history.py: the module is in the 5m backfill import
+  graph. Cross-reference for the eventual owner: todo 526's per-TF provider-head migration will
+  want per-TF head rows, so its design should state whether load_fresh_heads_per_tf is revived or
+  the deletion lands with it.
+- Everything in the numbered lists above: post-backfill, per todo 527.

@@ -5,13 +5,13 @@ filed: 2026-10-10
 source: owner directive 2026-10-10 ("run simplify on 185, 187-190"); four-agent simplify over the load-bearing 185/189 code; findings in docs/plans/2026-10-10-simplify-findings-185-189.md
 ---
 
-# Post-drain simplify backlog: the 185/189 findings no one applied
+# Post-backfill simplify backlog: the 185/189 findings no one applied
 
 ## What
 
 The four-agent simplify pass over the load-bearing 185/189 code found ~40 items, none urgent
-during the live drain. The full findings live in
-`docs/plans/2026-10-10-simplify-findings-185-189.md` (committed); apply them after the drain
+during the live backfill. The full findings live in
+`docs/plans/2026-10-10-simplify-findings-185-189.md` (committed); apply them after the backfill
 completes, highest cost first:
 
 1. Answered-window SQL exists in five copies (bar_derivation, bar_reconciliation_audit,
@@ -43,4 +43,4 @@ completes, highest cost first:
 ## Done when
 
 Each numbered item is applied or explicitly declined with a reason in the findings doc; the
-before/after test suites stay green; nothing lands mid-drain in the queue or write paths.
+before/after test suites stay green; nothing lands mid-backfill in the queue or write paths.
