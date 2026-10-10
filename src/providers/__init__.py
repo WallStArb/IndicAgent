@@ -6,7 +6,28 @@ Usage:
     from src.providers.base import DataProvider, DataProviderAdapter, Tick, OHLCVBar
 """
 
-from src.providers.base import DataProvider, DataProviderAdapter, OHLCVBar, Tick
+from src.providers.base import (
+    DataProvider,
+    DataProviderAdapter,
+    FetchBudget,
+    HistoryPage,
+    HistoryProvider,
+    HistoryRequest,
+    NoDataVerdict,
+    OHLCVBar,
+    Tick,
+)
 from src.providers.ibkr import IBKRProvider
 
-__all__ = ["DataProvider", "DataProviderAdapter", "IBKRProvider", "OHLCVBar", "Tick"]
+__all__ = [
+    "DataProvider",
+    "DataProviderAdapter",
+    "FetchBudget",
+    "HistoryPage",
+    "HistoryProvider",
+    "HistoryRequest",
+    "IBKRProvider",
+    "NoDataVerdict",
+    "OHLCVBar",
+    "Tick",
+]

@@ -70,6 +70,10 @@ from src.observability.metrics import (  # noqa: E402
 from src.providers.base import (  # noqa: E402
     VENUE_ROUTE_ALIASES,
     EmptyHistory,
+    FetchBudget,
+    HistoryPage,
+    HistoryRequest,
+    NoDataVerdict,
     OHLCVBar,
     RequestRecord,
     Tick,
@@ -871,6 +875,98 @@ class IBKRProvider:
         finally:
             self._ib.errorEvent -= _on_ib_error
 
+    async def fetch_ohlcv(self, request: HistoryRequest, budget: FetchBudget) -> HistoryPage:
+        """One caller-driven window of a batch history fetch (phase 190 HistoryProvider).
+
+        Fetches the newest sub-window of (request.start, request.end] that fits one
+        native chunk (`_MAX_CHUNK_DAYS[timeframe]`, the same ceiling `_walk_history`
+        applies), delegating to `_fetch_historical_bars_impl`. The returned
+        `next_window_start` is the resume point: the caller issues the next request
+        with `end` set to it. It is a plain in-span datetime, never a long-lived
+        cursor token (resumability comes from coverage, not tokens); the span is
+        exhausted when the returned resume point is None.
+
+        Budget: the leaf checks `budget.deadline` before issuing its native request
+        and returns an empty page carrying the unchanged resume point when the
+        deadline has passed or `budget.max_requests` is exhausted — the caller
+        decides whether to stop. One window is by construction one SMART request
+        (plus the bounded 1d venue walk for STK), and the leaf's own sliding-window
+        rate limiter continues to pace the native request.
+
+        Adjustment: IBKR's windowed path is the unadjusted SMART TRADES tape. The
+        split-adjusted ADJUSTED_LAST series is anchored to now (IBKR prohibits an
+        endDateTime on ContFuture requests), so a windowed split-adjusted fetch is
+        not possible on this leaf: `adjustment="split"` raises ValueError rather
+        than silently answering with unadjusted bars.
+
+        `rth_only` comes from the request and overrides the named-contract default
+        (useRTH = STK) as the declared session convention.
+
+        Definitive vendor no-data (the EmptyHistory the walk reports) is returned
+        as a NoDataVerdict with IBKR's evidence: n_confirming_chunks from the
+        confirming-chunk run, reached_request_start intact.
+        """
+        if request.adjustment != "none":
+            raise ValueError(
+                f"IBKR windowed history supports adjustment='none' only, got "
+                f"{request.adjustment!r}: the split-adjusted ADJUSTED_LAST series is "
+                "anchored to now and cannot serve an arbitrary (start, end] window"
+            )
+        if request.timeframe not in _TF_TO_IB:
+            raise ValueError(
+                f"Unsupported timeframe '{request.timeframe}'. Valid: {list(_TF_TO_IB)}"
+            )
+        if request.start >= request.end:
+            raise ValueError(f"Empty window: start {request.start} >= end {request.end}")
+        if not self._ib:
+            raise RuntimeError("Not connected. Call connect() first.")
+
+        chunk_days = _MAX_CHUNK_DAYS.get(request.timeframe, 6)
+        window_start = max(request.start, request.end - timedelta(days=chunk_days - 1))
+        next_window_start = window_start if window_start > request.start else None
+        budget_blocked_page = HistoryPage(
+            bars=(), next_window_start=next_window_start, verdict=None
+        )
+
+        if budget.max_requests <= 0 or datetime.now(UTC) >= budget.deadline:
+            return budget_blocked_page
+
+        reported_empty: EmptyHistory | None = None
+
+        def _on_empty_history(empty: EmptyHistory) -> None:
+            nonlocal reported_empty
+            reported_empty = empty
+
+        # Same error-event registration fetch_historical_bars does: Error 162
+        # "no data" callbacks must populate _no_data_req_ids while the chunk is
+        # in flight. Not re-entrant — do not call concurrently on one instance.
+        self._ib.errorEvent += _on_ib_error
+        self.last_fetch_failed_chunks = 0
+        try:
+            bars = await self._fetch_historical_bars_impl(
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                start=window_start,
+                end=request.end,
+                on_empty_history=_on_empty_history,
+                use_rth=request.rth_only,
+            )
+        finally:
+            self._ib.errorEvent -= _on_ib_error
+
+        verdict = None
+        if reported_empty is not None:
+            verdict = NoDataVerdict(
+                provider="ibkr",
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                empty_from=reported_empty.verified_from,
+                empty_through=reported_empty.empty_through,
+                reached_request_start=reported_empty.reached_request_start,
+                n_confirming_chunks=reported_empty.n_confirming_chunks,
+            )
+        return HistoryPage(bars=tuple(bars), next_window_start=next_window_start, verdict=verdict)
+
     async def _fetch_historical_bars_impl(
         self,
         symbol: str,
@@ -884,6 +980,7 @@ class IBKRProvider:
         on_observation: Callable[[RequestRecord, list[OHLCVBar]], None] | None = None,
         fetch_run_id: str | None = None,
         route: str | None = None,
+        use_rth: bool | None = None,
     ) -> list[OHLCVBar]:
         named_contract = self._qualified_contracts.get(symbol)
         if not named_contract:
@@ -906,7 +1003,8 @@ class IBKRProvider:
             sec_type = getattr(named_contract, "secType", "")
             what_to_show = _hist_what_to_show(sec_type)
             source_tag = SOURCE_IBKR_NAMED
-            use_rth = sec_type == "STK"
+            if use_rth is None:
+                use_rth = sec_type == "STK"
 
         all_bars: list[OHLCVBar] = []
 

@@ -3,6 +3,14 @@ DataProvider protocol and normalized wire models.
 
 All data providers emit Tick and OHLCVBar instances — the pipeline
 is completely unaware of which provider is active.
+
+The batch history surface (HistoryProvider, HistoryRequest, FetchBudget,
+NoDataVerdict, HistoryPage) is the vendor-leaf contract for windowed history
+fetching per docs/plans/2026-10-09-provider-history-plane-unification-design.md:
+caller-driven window-scoped pagination (never a long-lived cursor token), the
+leaf's native rate-limit model behind a common budget interface, and a
+normalized no-data verdict carrying per-vendor evidence. It sits alongside the
+streaming DataProvider protocol, which it does not modify.
 """
 
 from __future__ import annotations
@@ -161,6 +169,107 @@ class DataProviderAdapter(Protocol):
 
         Returns an updated Instrument with contract_details populated.
         Raises ValueError if the instrument cannot be qualified.
+        """
+        ...
+
+
+#
+# Batch history surface (phase 190, provider history plane unification).
+# Design: docs/plans/2026-10-09-provider-history-plane-unification-design.md.
+# A vendor leaf (src/providers/<vendor>.py) satisfies HistoryProvider; the batch
+# fetcher dispatches through this protocol, never a concrete leaf.
+#
+
+
+@dataclass(frozen=True)
+class HistoryRequest:
+    """One window-scoped batch history request, conventions declared (phase 190).
+
+    `start` and `end` are UTC datetimes bounding the half-open span (start, end].
+    `adjustment` is the declared price convention, e.g. "none" or "split"; each
+    leaf honors the subset its vendor can serve windowed and raises loudly on the
+    rest (silent unadjusted-instead-of-adjusted answers are forbidden).
+    `rth_only` is the declared session convention the leaf maps to its native knob
+    (IBKR useRTH, Alpaca RTH-window aggregates).
+    """
+
+    symbol: str
+    timeframe: str  # "1m", "5m", "15m", "1h", "1d"
+    start: datetime
+    end: datetime
+    adjustment: str = "none"
+    rth_only: bool = True
+
+
+@dataclass(frozen=True)
+class FetchBudget:
+    """The planner's budget passed to a leaf with every request (phase 190).
+
+    `deadline` bounds wall-clock time and `max_requests` bounds the vendor
+    requests a leaf may issue; the leaf maps both onto its native pacing model
+    (IBKR's sliding window, a REST vendor's leaky bucket). Frozen: a budget is a
+    per-call input, not shared mutable state.
+    """
+
+    deadline: datetime
+    max_requests: int
+
+
+@dataclass(frozen=True)
+class NoDataVerdict:
+    """Normalized definitive no-data answer with per-vendor evidence (phase 190).
+
+    Generalizes EmptyHistory (the IBKR backward-walk precedent above). Evidence
+    fields do not collapse into each other: `n_confirming_chunks` carries IBKR's
+    chunk-by-chunk confirmation count, `authoritative_empty` carries a REST
+    vendor's single authoritative empty response; both may be set. The planner
+    weights evidence per vendor and never infers one vendor's emptiness from
+    another vendor's answer.
+    """
+
+    provider: str
+    symbol: str
+    timeframe: str
+    empty_from: datetime
+    empty_through: datetime
+    reached_request_start: bool
+    n_confirming_chunks: int = 0
+    authoritative_empty: bool = False
+
+
+@dataclass(frozen=True)
+class HistoryPage:
+    """One page of a caller-driven windowed history fetch (phase 190).
+
+    `bars` are the page's normalized observations. `next_window_start` is the
+    caller-driven in-span resume point: the caller issues the next request with
+    `end` set to it; it is a plain datetime, never a long-lived cursor token
+    (resumability comes from coverage, not tokens). `verdict` is set when the
+    leaf received a definitive no-data answer for (part of) the window.
+    """
+
+    bars: tuple[OHLCVBar, ...]
+    next_window_start: datetime | None
+    verdict: NoDataVerdict | None = None
+
+
+@runtime_checkable
+class HistoryProvider(Protocol):
+    """Batch history surface a vendor leaf implements (phase 190).
+
+    Sits alongside DataProvider (the streaming protocol above), which it does
+    not modify; a leaf may satisfy both. The batch fetcher dispatches through
+    this protocol, never a concrete leaf (CI-enforced by
+    tests/unit/test_provider_leaf_boundary.py).
+    """
+
+    async def fetch_ohlcv(self, request: HistoryRequest, budget: FetchBudget) -> HistoryPage:
+        """Fetch one caller-driven window of (request.start, request.end].
+
+        Returns the page's bars plus the resume point for the next call
+        (None when the span is exhausted) and a NoDataVerdict on a definitive
+        vendor no-data answer. Honors the declared adjustment/rth_only
+        conventions and bounds its native pacing by the budget.
         """
         ...
 
