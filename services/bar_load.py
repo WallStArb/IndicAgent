@@ -31,10 +31,13 @@ import pandas as pd
 
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_coverage_writer import (
-    DESTINATION_GRID,
+    DESTINATION_GRID as COVERAGE_DESTINATION_GRID,
+)
+from services.ohlcv_coverage_writer import (
     CoverageDelta,
 )
 from services.ohlcv_ingress_contract import (
+    DESTINATION_GRID,
     MARKET_DATA_UPSERT_TAIL,
     ContractParams,
     apply_ingress_contract,
@@ -195,18 +198,20 @@ def load_series(
     if write:
         for start in range(0, len(frame), chunk_rows):
             chunk = frame_to_tuples(frame.iloc[start : start + chunk_rows], symbol, policy)
-            offer, _ = persist_chunk_atomically(
-                conn,
-                request_rows=[],
-                archive_rows=chunk,
-                write_archive_rows=writer,
-                coverage=CoverageDelta(
-                    symbol,
-                    policy.timeframe,
-                    DESTINATION_GRID,
-                    fetched_at=datetime.now(UTC),
-                    provider=policy.vendor,
-                ),
+            _, offer = (
+                persist_chunk_atomically(  # (requests, bars): the campaign writes no requests
+                    conn,
+                    request_rows=[],
+                    archive_rows=chunk,
+                    write_archive_rows=writer,
+                    coverage=CoverageDelta(
+                        symbol,
+                        policy.timeframe,
+                        COVERAGE_DESTINATION_GRID,
+                        fetched_at=datetime.now(UTC),
+                        provider=policy.vendor,
+                    ),
+                )
             )
             applied += offer
             if on_chunk:

@@ -40,7 +40,11 @@ def main() -> int:
     )
     planned_total = applied_total = skipped_stored = dropped_extended = 0
 
-    with psycopg.connect(get_settings().database_url) as conn:
+    # autocommit: persist_chunk_atomically demands an IDLE connection so its
+    # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
+    # would hold an open transaction and demote those to savepoints).
+    conn = psycopg.connect(get_settings().database_url, autocommit=True)
+    try:
         with conn.cursor() as cur:
             params = read_params(cur)
 
@@ -65,6 +69,9 @@ def main() -> int:
             else:
                 planned_total += planned
                 print(f"{symbol}: {planned} new ({skipped} stored, {dropped} extended)", flush=True)
+
+    finally:
+        conn.close()
 
     mode = "APPLIED" if args.apply else "PLANNED"
     total = applied_total if args.apply else planned_total
