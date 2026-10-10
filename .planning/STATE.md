@@ -54,13 +54,12 @@ wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
   but nothing schedules it. Reopen is the owner's call.
 
 - **Raw-capture enforcement (todo 528) landed 2026-10-10:** the load engine archives
-  non-authored rows (extended + other-source-held) instead of dropping them; migration 468 put
-  source in the raw-archive key; the R6 completeness check is `ops_capture_completeness`; the
-  recovery pass over the dropped 81.7M rows is in flight (a first pass double-archived 88.27M
-  self-authored rows — the split now holds only other-source rows; the duplicates are being
-  removed from the archive under a logged trigger exception). T4 landed: `src/providers/alpaca.py`
-  behind `history_leaf` and `ops_bar_nightly` (5m authors through the engine, 1d raw-only;
-  APR seeds in 469, applied live). Alpaca 5m is LANDED (216.8M rows, 1,478 symbols, 2026-10-10).
+  non-authored rows instead of dropping them; migration 468 put source in the raw-archive key;
+  R6 completeness check is `ops_capture_completeness`; T4 landed (`src/providers/alpaca.py`
+  behind `history_leaf`, `ops_bar_nightly`, unscheduled under the hold). Alpaca 5m is LANDED
+  (216.8M rows, 1,478 symbols). The recovery pass over the dropped 81.7M rows re-runs on the
+  fixed split (a first pass double-archived 88.27M own rows; those were deleted from the
+  archive — zero remain); scratch is cleanable only after it completes and R6 balances.
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
