@@ -44,6 +44,7 @@ from typing import Any
 from services.ohlcv_ingress_contract import (
     DEFAULT_CALLER,
     DESTINATION_ARCHIVE,
+    ContractParams,
     apply_ingress_contract,
 )
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
@@ -93,6 +94,7 @@ WHERE symbol = $1 AND timeframe = ANY($2::text[])
       WHERE a."timestamp" = market_data_ohlcv."timestamp"
         AND a.symbol = market_data_ohlcv.symbol
         AND a.timeframe = market_data_ohlcv.timeframe
+        AND a.source = market_data_ohlcv.source
   )
 """
 
@@ -110,6 +112,7 @@ def insert_fetched_archive_rows(
     *,
     batch_size: int = _DEFAULT_BATCH_SIZE,
     caller: str = DEFAULT_CALLER,
+    params: ContractParams | None = None,
 ) -> int:
     """Write one fetched chunk into the archive by the ingress write contract; return the
     number of rows offered.
@@ -118,7 +121,8 @@ def insert_fetched_archive_rows(
     close, volume, source, base) with base normally NULL. A synthetic_fill
     source raises: the archive holds observations, never placeholders. Raises
     RevisionRefused (nothing written) when the chunk revises more than the
-    allowed share of the rows it overlaps.
+    allowed share of the rows it overlaps. `params` threads an already-read
+    ContractParams through; when None the contract reads its own.
     """
     if not rows:
         return 0
@@ -144,4 +148,5 @@ def insert_fetched_archive_rows(
         caller=caller,
         write_new=lambda c, new: _write_rows(_INSERT_FETCHED_SQL, c, new, batch_size),
         write_changed=lambda c, changed: _write_rows(_REPLACE_FETCHED_SQL, c, changed, batch_size),
+        params=params,
     )

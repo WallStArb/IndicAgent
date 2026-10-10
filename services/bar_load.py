@@ -47,49 +47,77 @@ from services.ohlcv_ingress_contract import (
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 
+# Chunk size is bounded by existing_timestamps' client-side array rendering: a
+# 100k-stamp chunk blew psycopg's 1 GiB query buffer (ProgramLimitExceeded,
+# observed 2026-10-10); 10k keeps the rendered array at sub-MB scale. One
+# measured limit for both write paths (grid and archive).
+CHUNK_ROWS = 10_000
 
-def _archive_rows(conn, policy: LoadPolicy, symbol: str, frame: pd.DataFrame) -> int:
-    """Archive one non-authored frame raw through the single-writer contract (todo 528 R1).
 
-    Chunked because the archive path renders the same psycopg arrays as the
-    grid path; each chunk commits in its own transaction, and the archive
-    contract's identical-row skip makes a rerun idempotent.
-    """
-    if frame.empty:
-        return 0
-    rows = [
+def archive_frame_to_tuples(
+    frame: pd.DataFrame, symbol: str, *, source: str, timeframe: str
+) -> list[tuple]:
+    """One non-authored frame -> archive 10-tuples (the schema `insert_fetched_archive_rows`
+    reads; base stays NULL). Kept beside `frame_to_tuples` so the two column mappings
+    cannot drift."""
+    return [
         (
             ts.to_pydatetime(),
             symbol,
-            policy.timeframe,
+            timeframe,
             float(o),
             float(h),
             float(low),
             float(c),
             int(v),
-            policy.vendor,
+            source,
             None,
         )
         for ts, o, h, low, c, v in zip(
             frame["t"], frame["o"], frame["h"], frame["l"], frame["c"], frame["v"], strict=True
         )
     ]
+
+
+def archive_rows(
+    conn,
+    rows: list[tuple],
+    *,
+    caller: str,
+    params: ContractParams | None = None,
+    chunk_rows: int = CHUNK_ROWS,
+) -> int:
+    """Chunk raw archive rows into the single-writer contract (todo 528 R1).
+
+    Chunked at CHUNK_ROWS because the archive path renders the same psycopg
+    arrays as the grid path; each chunk commits in its own transaction, and
+    the archive contract's identical-row skip makes a rerun idempotent.
+    """
     archived = 0
-    for i in range(0, len(rows), CHUNK_ROWS):
-        chunk = rows[i : i + CHUNK_ROWS]
+    for i in range(0, len(rows), chunk_rows):
+        chunk = rows[i : i + chunk_rows]
         with conn.transaction():
             with conn.cursor() as cur:
-                archived += insert_fetched_archive_rows(cur, chunk, caller=policy.caller)
+                archived += insert_fetched_archive_rows(cur, chunk, caller=caller, params=params)
+    return archived
+
+
+def _archive_rows(
+    conn, policy: LoadPolicy, symbol: str, params: ContractParams | None, *frames: pd.DataFrame
+) -> int:
+    """Archive each non-authored frame raw under the policy's vendor (todo 528 R1)."""
+    archived = 0
+    for frame in frames:
+        rows = archive_frame_to_tuples(
+            frame, symbol, source=policy.vendor, timeframe=policy.timeframe
+        )
+        archived += archive_rows(conn, rows, caller=policy.caller, params=params)
     return archived
 
 
 # Known debt: the atomic persist helper lives under scripts/ because the fetcher
 # grew it first. Lifting it beside this engine is blocked while the IBKR drain
 # imports it live (todo 523); reconcile at the drain's completion.
-# Chunk size is bounded by existing_timestamps' client-side array rendering: a
-# 100k-stamp chunk blew psycopg's 1 GiB query buffer (ProgramLimitExceeded,
-# observed 2026-10-10); 10k keeps the rendered array at sub-MB scale.
-CHUNK_ROWS = 10_000
 
 
 @dataclass(frozen=True)
@@ -185,6 +213,33 @@ def stored_range_stamps(cur, symbol: str, timeframe: str, start: datetime, end: 
     return {row[0] for row in cur.fetchall()}
 
 
+def split_series(
+    conn, symbol: str, timeframe: str, frame: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The R1 three-way split of one vendor frame: (new, held, extended).
+
+    `new` rows are in-grid stamps no other source holds (canonical candidates);
+    `held` rows are in-grid stamps another source authored (archive them raw);
+    `extended` rows sit outside the session grid (archive them raw). The one
+    definition of "non-authored": `load_series` consumes it and the raw-recovery
+    backfill reuses it, so the slot rule and the stored read cannot drift apart.
+    """
+    days = set(frame["t"].dt.date.unique())
+    utc_stamps = grid_stamps_utc(session_grid(nyse_sessions(min(days), max(days)), days))
+    in_grid_mask = frame["t"].isin(utc_stamps)
+    extended = frame.loc[~in_grid_mask]
+    grid = frame.loc[in_grid_mask].reset_index(drop=True)
+    if grid.empty:
+        return grid, grid, extended
+    start, end = grid["t"].min().to_pydatetime(), grid["t"].max().to_pydatetime()
+    with conn.cursor() as cur:
+        stored = stored_range_stamps(cur, symbol, timeframe, start, end)
+    held_mask = grid["t"].isin(stored)
+    held = grid.loc[held_mask]
+    new = grid.loc[~held_mask].reset_index(drop=True)
+    return new, held, extended
+
+
 def load_series(
     conn,
     policy: LoadPolicy,
@@ -207,26 +262,12 @@ def load_series(
     columns. Everything vendor-blind above this docstring is the engine; the
     policy only names the writer.
     """
-    total = len(frame)
-    days = set(frame["t"].dt.date.unique())
-    utc_stamps = grid_stamps_utc(session_grid(nyse_sessions(min(days), max(days)), days))
-    extended = frame.loc[~frame["t"].isin(utc_stamps)]
-    frame = frame.loc[frame["t"].isin(utc_stamps)].reset_index(drop=True)
+    new, held, extended = split_series(conn, symbol, policy.timeframe, frame)
     dropped_extended = len(extended)
-    skipped_stored = 0
-    if frame.empty:
-        if write:
-            _archive_rows(conn, policy, symbol, extended)
-        return 0, skipped_stored, dropped_extended
-    start, end = frame["t"].min().to_pydatetime(), frame["t"].max().to_pydatetime()
-    with conn.cursor() as cur:
-        stored = stored_range_stamps(cur, symbol, policy.timeframe, start, end)
-    held = frame.loc[frame["t"].isin(stored)]
-    frame = drop_stored_rows(frame, stored)
     skipped_stored = len(held)
     if write:
-        _archive_rows(conn, policy, symbol, extended)
-        _archive_rows(conn, policy, symbol, held)
+        _archive_rows(conn, policy, symbol, params, extended, held)
+    frame = new
 
     def write_new(cur, rows: list[tuple]) -> None:
         write_market_data_batches(cur, rows)

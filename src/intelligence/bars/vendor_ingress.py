@@ -44,21 +44,28 @@ class VendorIngress:
     source: str
     timeframe: str
     artifact_dir: Path
-    read_artifacts: Callable[[Path], dict[str, pd.DataFrame]]
+    read_artifacts: Callable[[Path, list[str] | None], dict[str, pd.DataFrame]]
 
 
-def _read_alpaca_5m(artifact_dir: Path) -> dict[str, pd.DataFrame]:
+def _read_alpaca_5m(
+    artifact_dir: Path, symbols: list[str] | None = None
+) -> dict[str, pd.DataFrame]:
     """Alpaca's per-symbol parquet artifacts -> canonical 5m frames.
 
     Alpaca names artifacts ``{SYMBOL}_5Min.parquet`` and stamps the ``t``
     column in UTC; stray sub-minute offsets are floored to the 5m grid so
-    they survive the engine's session-grid filter.
+    they survive the engine's session-grid filter. ``symbols`` restricts the
+    read so a subset run holds only its own frames.
     """
+    floor = stamp_floor("5m")
     frames: dict[str, pd.DataFrame] = {}
     for path in sorted(artifact_dir.glob("*_5Min.parquet")):
+        symbol = path.name.split("_")[0]
+        if symbols is not None and symbol not in symbols:
+            continue
         frame = pd.read_parquet(path)
-        frame["t"] = pd.to_datetime(frame["t"], utc=True).dt.floor("5min")
-        frames[path.name.split("_")[0]] = frame
+        frame["t"] = pd.to_datetime(frame["t"], utc=True).dt.floor(floor)
+        frames[symbol] = frame
     return frames
 
 

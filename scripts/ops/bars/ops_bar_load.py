@@ -5,9 +5,9 @@ resolves the (vendor, timeframe) seam in
 ``src/intelligence.bars.vendor_ingress``, plans or applies every artifact
 the seam reads, and prints per-symbol counts in the campaign log format.
 Every integrity rule lives in the engine; this file holds no write logic
-and no vendor knowledge. Replaces the vendor-named
-``ops_alpaca_5m_load.py`` shell at the 190-06 cutover; until then both
-shells share the same engine and log format.
+and no vendor knowledge. The vendor-named shell it replaced
+(``ops_alpaca_5m_load.py``) was deleted at the 190-06 cutover; this is the
+one campaign loader.
 
 Dry run is the default: without --apply this plans and prints, writing
 nothing.
@@ -47,10 +47,10 @@ def main() -> int:
         caller=f"{ingress.source}-{ingress.timeframe}-load",
     )
     artifact_dir = args.artifacts_dir or ingress.artifact_dir
-    artifacts = ingress.read_artifacts(artifact_dir)
+    artifacts = ingress.read_artifacts(artifact_dir, symbols=args.symbols)
     symbols = args.symbols or sorted(artifacts)
 
-    planned_total = applied_total = skipped_stored = dropped_extended = 0
+    total = skipped_stored = dropped_extended = 0
 
     # autocommit: persist_chunk_atomically demands an IDLE connection so its
     # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
@@ -65,29 +65,28 @@ def main() -> int:
             if frame is None:
                 print(f"{symbol}: no artifact, skipping", flush=True)
                 continue
-            planned, skipped, dropped = load_series(
+            rows, skipped, dropped = load_series(
                 conn, policy, symbol, frame, params=params, write=args.apply
             )
             skipped_stored += skipped
             dropped_extended += dropped
+            total += rows
             if args.apply:
-                applied_total += planned
                 print(
-                    f"{symbol}: applied {planned} ({skipped} stored, {dropped} extended)",
+                    f"{symbol}: applied {rows} ({skipped} stored, {dropped} extended)",
                     flush=True,
                 )
             else:
-                planned_total += planned
-                print(f"{symbol}: {planned} new ({skipped} stored, {dropped} extended)", flush=True)
+                print(f"{symbol}: {rows} new ({skipped} stored, {dropped} extended)", flush=True)
 
     finally:
         conn.close()
 
     mode = "APPLIED" if args.apply else "PLANNED"
-    total = applied_total if args.apply else planned_total
     print(
-        f"{mode}: {total} rows, {skipped_stored} stored-held archived, "
-        f"{dropped_extended} extended archived"
+        f"{mode}: {total} rows, {skipped_stored} stored-held "
+        f"{'archived' if args.apply else 'to archive'}, "
+        f"{dropped_extended} extended {'archived' if args.apply else 'to archive'}"
     )
     return 0
 

@@ -7,14 +7,20 @@ import pandas as pd
 import pytest
 
 from services import bar_load
-from services.bar_load import LoadPolicy, _archive_rows, load_series
+from services.bar_load import (
+    LoadPolicy,
+    archive_frame_to_tuples,
+    archive_rows,
+    load_series,
+    split_series,
+)
 
 POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test-load")
 
 
-def _frame(rows: list[tuple[str, bool]]) -> pd.DataFrame:
-    """(iso stamp, in_grid) rows -> canonical frame; grid stamps are 13:30/13:35 UTC."""
-    stamps = [pd.Timestamp(t, tz="UTC") for t, _ in rows]
+def _frame(rows: list[str]) -> pd.DataFrame:
+    """ISO stamps -> canonical frame; grid stamps are 13:30/13:35 UTC (RTH)."""
+    stamps = [pd.Timestamp(t, tz="UTC") for t in rows]
     return pd.DataFrame(
         {
             "t": stamps,
@@ -63,35 +69,80 @@ class _FakeConn:
         return self._Tx()
 
 
-def test_archive_rows_sends_vendor_tuples_and_skips_empty(monkeypatch) -> None:
+def test_archive_frame_to_tuples_carries_source_and_null_base() -> None:
+    rows = archive_frame_to_tuples(
+        _frame(["2026-10-09 13:30:00"]), "SPY", source="alpaca", timeframe="5m"
+    )
+    assert rows == [
+        (
+            pd.Timestamp("2026-10-09 13:30:00", tz="UTC").to_pydatetime(),
+            "SPY",
+            "5m",
+            1.0,
+            1.0,
+            1.0,
+            1.0,
+            100,
+            "alpaca",
+            None,
+        )
+    ]
+
+
+def test_archive_rows_chunks_and_skips_empty(monkeypatch) -> None:
     calls: list[tuple] = []
 
-    def fake_insert(cur, rows, *, caller):
+    def fake_insert(cur, rows, *, caller, params=None):
         calls.extend(rows)
         return len(rows)
 
     monkeypatch.setattr(bar_load, "insert_fetched_archive_rows", fake_insert)
     conn = _FakeConn()
-    assert _archive_rows(conn, POLICY, "SPY", _frame([])[:0]) == 0
+    assert archive_rows(conn, [], caller="test") == 0
     assert calls == [] and conn.transactions == 0
 
-    frame = _frame([("2026-10-09 13:30:00", True), ("2026-10-09 13:35:00", True)])
-    archived = _archive_rows(conn, POLICY, "SPY", frame)
-    assert archived == 2 and len(calls) == 2
-    ts, symbol, timeframe, o, h, low, c, v, source, base = calls[0]
-    assert (symbol, timeframe, source, base) == ("SPY", "5m", "alpaca", None)
-    assert (o, h, low, c, v) == (1.0, 1.0, 1.0, 1.0, 100)
+    rows = archive_frame_to_tuples(
+        _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"]),
+        "SPY",
+        source="alpaca",
+        timeframe="5m",
+    )
+    assert archive_rows(conn, rows, caller="test") == 2
+    assert len(calls) == 2 and conn.transactions == 1
 
 
-def test_load_series_dry_run_splits_extended_and_plans_grid_rows() -> None:
-    # two in-grid rows (13:30/13:35 UTC RTH), one extended row (17:00 UTC = post-close)
+def test_split_series_separates_new_held_extended() -> None:
     frame = _frame(
         [
-            ("2026-10-09 13:30:00", True),
-            ("2026-10-09 13:35:00", True),
-            ("2026-10-09 12:00:00", False),
+            "2026-10-09 13:30:00",
+            "2026-10-09 13:35:00",
+            "2026-10-09 12:00:00",  # pre-market: extended
         ]
     )
+    conn = _FakeConn()
+    new, held, extended = split_series(conn, "SPY", "5m", frame)
+    assert len(new) == 2 and len(held) == 0 and len(extended) == 1
+
+
+def test_split_series_holds_first_writer_rows() -> None:
+    frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"])
+    stored_stamp = pd.Timestamp("2026-10-09 13:30:00", tz="UTC").to_pydatetime()
+
+    class _StoredConn(_FakeConn):
+        def cursor(self) -> _FakeCursor:
+            return _FakeCursor([(stored_stamp,)])
+
+    new, held, extended = split_series(_StoredConn(), "SPY", "5m", frame)
+    assert len(new) == 1 and len(held) == 1 and len(extended) == 0
+
+
+def test_load_series_dry_run_splits_and_writes_nothing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bar_load,
+        "insert_fetched_archive_rows",
+        lambda *a, **k: pytest.fail("archive write without --apply"),
+    )
+    frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00", "2026-10-09 12:00:00"])
     conn = _FakeConn()
     planned, skipped_stored, dropped_extended = load_series(
         conn, POLICY, "SPY", frame, params=None, write=False
@@ -99,47 +150,18 @@ def test_load_series_dry_run_splits_extended_and_plans_grid_rows() -> None:
     assert (planned, skipped_stored, dropped_extended) == (2, 0, 1)
 
 
-def test_load_series_counts_first_writer_held_rows(monkeypatch) -> None:
-    frame = _frame([("2026-10-09 13:30:00", True), ("2026-10-09 13:35:00", True)])
-    stored_stamp = pd.Timestamp("2026-10-09 13:30:00", tz="UTC").to_pydatetime()
-
-    class _StoredConn(_FakeConn):
-        def cursor(self) -> _FakeCursor:
-            return _FakeCursor([(stored_stamp,)])
-
-    conn = _StoredConn()
-    planned, skipped_stored, dropped_extended = load_series(
-        conn, POLICY, "SPY", frame, params=None, write=False
-    )
-    assert (planned, skipped_stored, dropped_extended) == (1, 1, 0)
-
-
-def test_empty_grid_frame_still_archives_extended_when_writing(monkeypatch) -> None:
+def test_load_series_archives_extended_when_grid_is_empty(monkeypatch) -> None:
     calls: list[tuple] = []
 
-    def fake_insert(cur, rows, *, caller):
+    def fake_insert(cur, rows, *, caller, params=None):
         calls.extend(rows)
         return len(rows)
 
     monkeypatch.setattr(bar_load, "insert_fetched_archive_rows", fake_insert)
-    frame = _frame([("2026-10-09 12:00:00", False)])
+    frame = _frame(["2026-10-09 12:00:00"])
     conn = _FakeConn()
     applied, skipped_stored, dropped_extended = load_series(
         conn, POLICY, "SPY", frame, params=None, write=True
     )
     assert (applied, skipped_stored, dropped_extended) == (0, 0, 1)
     assert len(calls) == 1 and calls[0][1] == "SPY"
-
-
-def test_archive_rows_requires_write(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bar_load,
-        "insert_fetched_archive_rows",
-        lambda *a, **k: pytest.fail("archive write without --apply"),
-    )
-    frame = _frame([("2026-10-09 13:30:00", True), ("2026-10-09 12:00:00", False)])
-    conn = _FakeConn()
-    planned, skipped_stored, dropped_extended = load_series(
-        conn, POLICY, "SPY", frame, params=None, write=False
-    )
-    assert (planned, skipped_stored, dropped_extended) == (1, 0, 1)
