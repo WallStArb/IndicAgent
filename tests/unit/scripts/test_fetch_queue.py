@@ -677,3 +677,118 @@ def test_load_lane_config_reads_every_key_in_one_query():
 def test_load_lane_config_has_no_fallback_for_a_missing_key():
     with pytest.raises(RuntimeError, match="gap_fill_interval_days"):
         fq.load_lane_config(_FakeConn([r for r in _LANE_ROWS if "gap_fill" not in r[0]]))
+
+
+# ---------------------------------------------------------------------------
+# Phase 190 plan 03 Task 1: ProviderPlan, per-provider APR reads and validation
+# ---------------------------------------------------------------------------
+
+
+def _plan_get(rows):
+    values = dict(rows)
+
+    def get(key):
+        return values.get(key)
+
+    return get
+
+
+_IBKR_PLAN_ROWS = (
+    ("infra.ibkr.history_request_timeout", "800"),
+    ("infra.ibkr.history_request_retries", "3"),
+    ("infra.ibkr.rate_limit_window_sec", "600.0"),
+    ("infra.ibkr.no_data_confirmation_chunks", "2"),
+    ("infra.ibkr.inter_item_pause_s", "2.0"),
+)
+
+
+def test_load_provider_plan_reads_per_provider_apr_keys():
+    plan = fq.load_provider_plan("ibkr", _plan_get(_IBKR_PLAN_ROWS))
+    assert plan.name == "ibkr"
+    assert plan.request_timeout_s == 800.0
+    assert plan.request_retries == 3
+    assert plan.rate_limit_window_s == 600.0
+    assert plan.confirmation_chunks == 2
+    assert plan.inter_item_pause_s == 2.0
+
+
+def test_load_provider_plan_keys_are_built_per_provider():
+    # one vendor's keys are never read for another vendor (two-tier rule)
+    seen = []
+
+    def get(key):
+        seen.append(key)
+        return None
+
+    with pytest.raises(RuntimeError, match="infra.alpaca"):
+        fq.load_provider_plan("alpaca", get)
+    assert seen and all(k.startswith("infra.alpaca.") for k in seen)
+
+
+def test_ibkr_plan_answers_1d_with_the_smart_trades_filter():
+    plan = fq.load_provider_plan("ibkr", _plan_get(_IBKR_PLAN_ROWS))
+    assert plan.answers_1d is True
+    assert plan.daily_answer_filter == "route = 'SMART' AND what_to_show = 'TRADES'"
+
+
+def test_a_rest_vendor_plan_carries_answers_1d_false():
+    plan = fq.ProviderPlan(
+        name="alpaca",
+        request_timeout_s=60.0,
+        request_retries=2,
+        rate_limit_window_s=60.0,
+        confirmation_chunks=1,
+        inter_item_pause_s=0.0,
+        answers_1d=False,
+        daily_answer_filter=None,
+    )
+    assert plan.answers_1d is False and plan.daily_answer_filter is None
+
+
+def test_load_provider_plan_rejects_timeout_not_above_window_per_provider():
+    rows = tuple(r for r in _IBKR_PLAN_ROWS if r[0] != "infra.ibkr.history_request_timeout")
+    rows += (("infra.ibkr.history_request_timeout", "600"),)
+    with pytest.raises(ValueError, match="infra.ibkr.rate_limit_window_sec"):
+        fq.load_provider_plan("ibkr", _plan_get(rows))
+    # the same values under another provider's keys validate independently
+    alp = tuple((k.replace("ibkr", "alpaca"), v) for k, v in rows)
+    with pytest.raises(ValueError, match="infra.alpaca.rate_limit_window_sec"):
+        fq.load_provider_plan("alpaca", _plan_get(alp))
+
+
+def test_load_provider_plan_raises_on_a_missing_planner_input():
+    rows = tuple(r for r in _IBKR_PLAN_ROWS if r[0] != "infra.ibkr.no_data_confirmation_chunks")
+    with pytest.raises(RuntimeError, match="no_data_confirmation_chunks"):
+        fq.load_provider_plan("ibkr", _plan_get(rows))
+
+
+def test_load_provider_plan_falls_back_on_a_leaf_native_limit(monkeypatch):
+    warnings: list[str] = []
+    monkeypatch.setattr(fq.logger, "warning", lambda event, **kw: warnings.append(event))
+    rows = tuple(r for r in _IBKR_PLAN_ROWS if r[0] != "infra.ibkr.rate_limit_window_sec")
+    plan = fq.load_provider_plan("ibkr", _plan_get(rows))
+    assert plan.rate_limit_window_s == 600.0
+    assert any("rate_limit_window" in w for w in warnings)
+
+
+def test_depth_override_reads_per_provider_depth_keys():
+    rows = _IBKR_PLAN_ROWS + (("infra.ibkr.depth_days.5m", "1000"),)
+    plan = fq.load_provider_plan("ibkr", _plan_get(rows), depth_tfs=("5m", "1d"))
+    assert plan.depth_overrides == {"5m": 1000}
+
+
+def test_depth_override_wins_over_the_neutral_map_per_row():
+    row = _row("AAA", "5m", earliest_days=100, latest_days=1)
+    plan = fq.ProviderPlan(
+        name="ibkr",
+        request_timeout_s=900.0,
+        request_retries=2,
+        rate_limit_window_s=600.0,
+        confirmation_chunks=2,
+        inter_item_pause_s=2.0,
+        depth_overrides={"5m": 1000},
+    )
+    plans = {"ibkr": plan}
+    # neutral depth 7300 gives a 7200-day gap; the provider override caps the target at 1000
+    assert fq.rank(row, 7300, CONFIG, TODAY)[4] == -7200
+    assert fq.rank(row, 7300, CONFIG, TODAY, plans)[4] == -900
