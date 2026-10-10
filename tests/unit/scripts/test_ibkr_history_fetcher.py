@@ -89,6 +89,11 @@ def _ranked(
     return fq.RankedItem(row, (False,), False, -1, gap_days, 1)
 
 
+def _ranked_p(symbol: str, timeframe: str = "15m", provider: str = "ibkr") -> fq.RankedItem:
+    row = fq.CoverageRow(symbol, timeframe, None, None, "ok", 0, None, None, provider)
+    return fq.RankedItem(row, (False,), False, -1, 0, 1)
+
+
 class _FakeQueue:
     """Hands out its items in order, honoring visited (like PriorityQueue.next)."""
 
@@ -114,7 +119,13 @@ class _FakeQueue:
         return []
 
 
-def _plan(items: list[fq.RankedItem], **queue_kwargs: Any) -> hf.RunPlan:
+def _plan(
+    items: list[fq.RankedItem],
+    *,
+    providers: frozenset[str] | None = None,
+    plans: dict[str, fq.ProviderPlan] | None = None,
+    **queue_kwargs: Any,
+) -> hf.RunPlan:
     symbols = {i.row.symbol for i in items}
     return hf.RunPlan(
         config=_CONFIG,
@@ -128,6 +139,12 @@ def _plan(items: list[fq.RankedItem], **queue_kwargs: Any) -> hf.RunPlan:
         inter_item_pause_s=0.0,
         lanes=_LANES,
         session_day=_SESSION_DAY,
+        providers=(
+            frozenset(providers)
+            if providers is not None
+            else frozenset({i.row.provider for i in items})
+        ),
+        plans=plans or {},
     )
 
 
@@ -400,13 +417,20 @@ class _RecordingSyncConn:
 
 
 class _RecordingPool:
-    def __init__(self, log: list[str], eligible: tuple[str, ...] = ()) -> None:
+    def __init__(
+        self,
+        log: list[str],
+        eligible: tuple[str, ...] = (),
+        coverage_provider: str = "ibkr",
+    ) -> None:
         self.log = log
         self.eligible = eligible
+        self.coverage_provider = coverage_provider
 
     def acquire(self) -> Any:
         log = self.log
         eligible = self.eligible
+        coverage_provider = self.coverage_provider
 
         class _Conn:
             async def fetch(self, sql: str, *params: Any) -> list[dict[str, Any]]:
@@ -429,7 +453,7 @@ class _RecordingPool:
                         {
                             "symbol": "AAA",
                             "timeframe": "15m",
-                            "provider": "ibkr",
+                            "provider": coverage_provider,
                             "earliest_timestamp": datetime(2010, 1, 4, tzinfo=UTC),
                             "latest_timestamp": datetime(2026, 9, 1, tzinfo=UTC),
                             "last_fetch_status": "ok",
@@ -1093,3 +1117,160 @@ def test_the_1d_judge_reads_the_split_rule_keys_and_acts_through_ops_split_detec
 
 def test_the_5m_waiver_never_counts_a_void_row():
     assert "action_type <> 'void'" in hf._WAIVER_SQL
+
+
+# ---------------------------------------------------------------------------
+# Provider registry dispatch (phase 190 plan 04): the loop is vendor-blind
+# ---------------------------------------------------------------------------
+
+
+class _FakeLeaf:
+    def __init__(self, name: str, connects: bool = True) -> None:
+        self.name = name
+        self.connects = connects
+        self.connect_calls = 0
+        self.disconnect_calls = 0
+
+    async def connect(self) -> bool:
+        self.connect_calls += 1
+        return self.connects
+
+    async def disconnect(self) -> None:
+        self.disconnect_calls += 1
+
+
+class _FakeEntry:
+    """A registry entry duck type: leaf_factory + fetch hook + overlay loader."""
+
+    def __init__(self, name: str, leaf: _FakeLeaf, *, raises: bool = False) -> None:
+        self.name = name
+        self.leaf = leaf
+        self.raises = raises
+        self.connect_failure_label = name
+        self.fetch_calls: list[tuple[Any, ...]] = []
+        self.overlays = 0
+
+    def leaf_factory(self, settings: Any, args: Any) -> Any:
+        return self.leaf
+
+    async def fetch(self, ctx: Any, leaf: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        self.fetch_calls.append((row.provider, row.symbol, row.timeframe, kw.get("plan")))
+        if self.raises:
+            raise RuntimeError(f"{self.name} entry fetch exploded")
+        return ItemOutcome(row.symbol, row.timeframe, "ok")
+
+    def load_overlays(self, settings: Any) -> None:
+        self.overlays += 1
+
+
+async def test_two_provider_registry_dispatches_each_item_to_its_own_entry(tmp_path):
+    leaf_a, leaf_b = _FakeLeaf("provA"), _FakeLeaf("provB")
+    entry_a, entry_b = _FakeEntry("provA", leaf_a), _FakeEntry("provB", leaf_b)
+    items = [_ranked_p("A1", provider="provA"), _ranked_p("B1", provider="provB")]
+    fetcher, _ = _fetcher(tmp_path, _plan(items), registry={"provA": entry_a, "provB": entry_b})
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert [(p, s, tf) for p, s, tf, _ in entry_a.fetch_calls] == [("provA", "A1", "15m")]
+    assert [(p, s, tf) for p, s, tf, _ in entry_b.fetch_calls] == [("provB", "B1", "15m")]
+
+
+async def test_only_providers_in_the_plan_get_connected(tmp_path):
+    leaf_a, leaf_ghost = _FakeLeaf("provA"), _FakeLeaf("ghost")
+    entry_a, entry_ghost = _FakeEntry("provA", leaf_a), _FakeEntry("ghost", leaf_ghost)
+    plan = _plan([_ranked_p("A1", provider="provA")], providers={"provA"})
+    fetcher, _ = _fetcher(tmp_path, plan, registry={"provA": entry_a, "ghost": entry_ghost})
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert leaf_a.connect_calls == 1
+    assert leaf_ghost.connect_calls == 0 and entry_ghost.fetch_calls == []
+
+
+async def test_dispatch_passes_the_provider_plan_to_the_entry_fetch(tmp_path):
+    plan_a = fq.ProviderPlan(
+        name="provA",
+        request_timeout_s=5.5,
+        request_retries=3,
+        rate_limit_window_s=1.0,
+        confirmation_chunks=2,
+        inter_item_pause_s=0.0,
+    )
+    entry_a = _FakeEntry("provA", _FakeLeaf("provA"))
+    run_plan = _plan([_ranked_p("A1", provider="provA")], plans={"provA": plan_a})
+    fetcher, _ = _fetcher(tmp_path, run_plan, registry={"provA": entry_a})
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert entry_a.fetch_calls[0][3] is plan_a
+
+
+async def test_a_raising_entry_fetch_becomes_an_error_outcome_with_no_ibkr_fallback(
+    tmp_path, _no_side_effects
+):
+    ghost = _FakeEntry("ghost", _FakeLeaf("ghost"), raises=True)
+    fetched: list[str] = []
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        fetched.append(row.symbol)
+        return _outcome(row)
+
+    items = [_ranked_p("G1", provider="ghost"), _ranked_p("A1")]
+    fetcher, _ = _fetcher(
+        tmp_path, _plan(items), fetch_fn=fetch, registry={**hf._PROVIDER_REGISTRY, "ghost": ghost}
+    )
+    status, error = await _run(fetcher)
+    assert error is None
+    assert status == "partial"
+    assert fetched == ["A1"]  # the ibkr path ran only its own item, never the ghost's
+    assert ("G1", "15m", "error") in _no_side_effects.outcomes
+    assert ("A1", "15m", "ok") in _no_side_effects.outcomes
+
+
+def test_the_ibkr_registry_entry_holds_the_concrete_leaf_construction():
+    entry = hf._PROVIDER_REGISTRY["ibkr"]
+    leaf = entry.leaf_factory(
+        SimpleNamespace(ib_host="127.0.0.9", ib_port=7498), _args("--client-id", "77")
+    )
+    assert type(leaf).__name__ == "IBKRProvider"
+    assert leaf._host == "127.0.0.9" and leaf._port == 7498 and leaf._client_id == 77
+
+
+async def test_the_ibkr_entry_fetch_wraps_the_injected_fetch_path(tmp_path):
+    ibkr_plan = fq.ProviderPlan(
+        name="ibkr",
+        request_timeout_s=900.0,
+        request_retries=2,
+        rate_limit_window_s=600.0,
+        confirmation_chunks=2,
+        inter_item_pause_s=0.0,
+    )
+    received: dict[str, Any] = {}
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        received.update(ctx=ctx, **kw)
+        return _outcome(row)
+
+    run_plan = _plan([_ranked("AAA")], plans={"ibkr": ibkr_plan})
+    fetcher, seen = _fetcher(tmp_path, run_plan, fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert received["provider_plan"] is ibkr_plan
+    assert received["ctx"].plan is ibkr_plan  # the hook carries the plan in the context
+    assert received["config"] is run_plan.config
+    assert received["full_scan"] is False and received["refetch"] is False
+
+
+async def test_unknown_provider_fails_fast_at_prepare(monkeypatch):
+    log: list[str] = []
+    monkeypatch.setattr(
+        hf._history_fetch,
+        "_load_tf_fetch_config",
+        lambda settings: {"1d": (7300, False), "15m": (7300, False)},
+    )
+    fetcher = hf.IbkrHistoryFetcher(
+        _LIVE_DB_DSN,
+        _args(),
+        settings=SimpleNamespace(database_url=_LIVE_DB_DSN),
+        connect=lambda: _RecordingSyncConn(log),
+        contracts_for=lambda dim: [SimpleNamespace(symbol="AAA")],
+    )
+    with pytest.raises(RuntimeError, match="ghost"):
+        await fetcher.prepare(_RecordingPool(log, coverage_provider="ghost"))
