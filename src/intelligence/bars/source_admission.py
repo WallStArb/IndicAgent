@@ -21,8 +21,7 @@ from datetime import date
 
 from src.intelligence.bars.daily_rule import current_closes
 from src.intelligence.bars.derivation import Observation, SplitRecord
-
-_BP = 1e4
+from src.intelligence.bars.vendor_basis import BP
 
 
 @dataclass(frozen=True)
@@ -55,7 +54,7 @@ def common_session_closes(
 def _share(pairs: Sequence[tuple[date, float, float]], tolerance_bp: float) -> float | None:
     if not pairs:
         return None
-    agree = sum(1 for _d, t, i in pairs if abs(i / t - 1.0) * _BP <= tolerance_bp + 1e-9)
+    agree = sum(1 for _d, t, i in pairs if abs(i / t - 1.0) * BP <= tolerance_bp + 1e-9)
     return agree / len(pairs)
 
 

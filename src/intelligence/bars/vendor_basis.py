@@ -24,7 +24,7 @@ from src.intelligence.bars.sources import CANONICAL_1D_SOURCES
 VENDOR_IBKR = "ibkr"
 VENDOR_TRADIER = "tradier"
 
-_BP = 1e4
+BP = 1e4  # the basis tolerance unit; the single definition (todo 527)
 
 
 @dataclass(frozen=True)
@@ -73,7 +73,7 @@ def find_basis_runs(
         if ibkr_close <= 0 or tradier_close <= 0:
             continue
         ratio = ibkr_close / tradier_close
-        if abs(ratio - 1.0) * _BP > tolerance_bp:
+        if abs(ratio - 1.0) * BP > tolerance_bp:
             current.append((session, ratio))
         else:
             close_run()
@@ -115,7 +115,7 @@ def classify_run(
         return None
     ibkr_move = _log_moves(ibkr_closes, sessions)
     tradier_move = _log_moves(tradier_closes, sessions)
-    tolerance_ln = tolerance_bp / _BP
+    tolerance_ln = tolerance_bp / BP
 
     boundaries: list[tuple[date, date]] = []
     before = [d for d in sessions if d < run.start]
@@ -143,7 +143,7 @@ def classify_run(
                 / (tradier_closes[cur] / tradier_closes[prev])
             )
         )
-        if step * _BP <= tolerance_bp:
+        if step * BP <= tolerance_bp:
             continue
         ibkr_stepped = ibkr_move[cur] > ibkr_ceiling
         tradier_stepped = tradier_move[cur] > tradier_ceiling

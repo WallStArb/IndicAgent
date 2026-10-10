@@ -73,6 +73,7 @@ from typing import Any
 
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
 from src.intelligence.bars.sources import ROUTE_TRADIER, SOURCE_IBKR_FALLBACK
+from src.intelligence.bars.vendor_basis import BP
 
 RULE_VERSION = "d2-v3"
 
@@ -95,7 +96,6 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
 
 _PRIMARY_LABEL = {VENDOR_TRADIER: "tradier", VENDOR_IBKR: "ibkr_named"}
 _ROUTE_VENDOR = {ROUTE_TRADIER: VENDOR_TRADIER, ROUTE_SMART: VENDOR_IBKR, ROUTE_LEGACY: VENDOR_IBKR}
-_BP = 1e4
 
 
 @dataclass(frozen=True)
@@ -365,7 +365,7 @@ def derive_daily_v2(
         else []
     )
     seam_median = _median_ratio(seam_window, ratios)
-    head_admitted = seam_median is not None and (abs(seam_median - 1.0) * _BP <= basis_tolerance_bp)
+    head_admitted = seam_median is not None and (abs(seam_median - 1.0) * BP <= basis_tolerance_bp)
 
     bars: list[CanonicalBar] = []
     flags: list[DerivedFlag] = []
@@ -379,7 +379,7 @@ def derive_daily_v2(
     def within_tolerance(day: date) -> bool:
         window = _nearest(position[day], common_index, common_dates, basis_window_sessions)
         median = _median_ratio(window, ratios)
-        return median is not None and abs(median - 1.0) * _BP <= basis_tolerance_bp
+        return median is not None and abs(median - 1.0) * BP <= basis_tolerance_bp
 
     for day in axis:
         policy = resolve_policy(policy_rows, symbol, day)
@@ -474,7 +474,7 @@ def _with_seam(
                 "window_sessions": window_sessions,
                 "n_common": len(overlap),
                 "median_ratio": median,
-                "deviation_bp": None if median is None else abs(median - 1.0) * _BP,
+                "deviation_bp": None if median is None else abs(median - 1.0) * BP,
             },
         )
     )
