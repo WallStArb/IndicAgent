@@ -35,3 +35,12 @@ What remains real and worth doing, small:
 The PK migration lands with per-TF floor rows seeded; the queue's floor lookup reads the
 per-timeframe row; a before-and-after dry run shows identical planned work (the correctness
 bar: no planned-span change, only fewer no-data discovery trips).
+
+## Closed 2026-10-10: absorbed by phase 190
+
+- 190-02: the per-TF provider-head PK migration (465) + measured floor seeds.
+- 190-03: the floor lookup in the planner (`ohlcv_provider_head` is the planning source of record).
+- 190-06: the parity bar (back-to-back dry-run diff, PASS recorded in the phase dir's
+  parity-diff-record.md; heads verified 1,529 (1d) + 1,529 (5m) post-cutover).
+The original dry-run correction stands (planner already plans heads via proven-days plus
+floors; the mass was 1d-vs-5m vendor floors, not missing data).

@@ -73,6 +73,37 @@ the floor; the 2026-10-10 all-names run discarded 81.7M vendor-served rows and
 these parquets are their only copy. Deletion is gated on todo 528's archive
 backfill and completeness check, not on `ohlcv_load` reconciliation alone.
 
+## Fetcher external-identity freeze (phase 190)
+
+The code renamed to `ohlcv_history_fetcher.py` / `OHLCVHistoryFetcher`, but these external
+identities kept the ibkr name on purpose: `FETCHER_LOCK_NAME` ("ibkr_history_fetcher",
+sha256-keyed advisory lock shared by ops_d1_bootstrap, ops_venue_study,
+ops_intraday_venue_recovery, the rate-limit probe, classification sourcing, the onboard
+manifest), the JOB label `ibkr-history-fetcher`, `LOCK_HELD_MESSAGE`,
+`logs/ibkr_history_fetcher_status.json` (read by the D7 audit in
+`services/bar_reconciliation_audit.py`), and the `indicagent-ibkr-history-fetcher.*` systemd
+units. Renaming any of them means moving every consumer in one commit.
+
+**Live-service schema migration pattern (phase 190's worked example):** additive migration
+applied immediately (old in-memory code keeps working), breaking PK swaps applied in the same
+shell breath as the code deploy, with the fetcher stopped; the back-to-back dry-run parity
+TSVs (`.planning/phases/190-*/parity-*.tsv`) are the correctness bar. After a refactor-window
+cutover, run `--reset-failures` once to clear code-churn error statuses (artifacts, not
+vendor failures).
+
+## Columnstore (compressed) hypertables
+
+**`ALTER TABLE ... DISABLE/ENABLE TRIGGER` fails on a columnstore hypertable** ("operation
+not supported on hypertables that have columnstore enabled") even with every chunk
+decompressed. For a deliberate delete past an append-only guard trigger, use
+`SET LOCAL session_replication_role = replica;` inside the delete's transaction instead —
+no DDL, and the guard re-arms on commit (2026-10-10 archive dedup). DML (DELETE/UPDATE) on
+compressed chunks is supported directly; only the trigger DDL is refused.
+
+**`config_state.version` is NOT NULL with no default**: an APR seed INSERT that omits it
+fails partway — the `config_schema` rows land, the `config_state` rows refuse. Carry
+`version = 1`; the idempotent rerun then completes (migration 469 is the precedent).
+
 ## Corpus Pipeline
 
 **`ops_corpus_pipeline_run.sh --from-step N` silently skips every step below N** —

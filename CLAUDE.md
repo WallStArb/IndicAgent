@@ -93,6 +93,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 - **Kafka is transport, not state store.** Hot state → local file checkpoint; bar history → TimescaleDB.
 - **ProcessPoolExecutor workers are compute-only:** return serializable results to main; all DB writes go through one serial connection in main (concurrent writers on a hypertable deadlock index pages). Killing such a service orphans workers; follow the kill procedure in `docs/reference/gotchas.md`.
+- **Raw capture (528): every bar is stored under its supplier's label.** Canonical rows carry their `source`; rows that lose a slot (another source's span, extended hours) keep their supplier's label in the raw archive. Nothing a vendor served is ever dropped, and any two suppliers' tapes are comparable row-for-row. The winner per slot is `split_series`'s call; the losers stay queryable per source. Vendor onboarding cost: one leaf behind `history_leaf` + one `VendorIngress` row + policy/APR seeds; the nightly capture leaf is `ops_bar_nightly`.
 - **Never edit a module a fingerprinted batch writer imports while its run is live or resumable** (`code_content_key` hashes it; one edit discards every completed cell). Kill-and-resume with the same command is safe.
 - **Parallel dicts → dataclass:** 3+ `dict[str, X]` keyed by the same ID become `dict[str, MyState]` with a `_state(key)` factory.
 - **Timestamps:** serialize with `format_iso_ts(dt)`, never inline `.isoformat().replace(...)`.
