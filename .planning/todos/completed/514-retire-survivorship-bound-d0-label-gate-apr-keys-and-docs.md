@@ -32,7 +32,7 @@ Left as history (frozen records, not live references; the owner may say to scrub
 
 ## Closed 2026-10-10
 
-Landed in two commits: 8e5c214cc (code + migration 466: labels.py drops the bound to three D0
+Landed in two commits: 8e5c214cc (code + migration 467 (applied live as 466; renumbered after a collision with 466_alpaca_source_check): labels.py drops the bound to three D0
 labels, the D-28 gate drops condition 6 with the numbering gap recorded, the six
 alpha.survivorship.* keys retired history-then-state-then-schema, applied live and verified 0
 remaining; no production consumer existed outside the label module and the gate, nothing under

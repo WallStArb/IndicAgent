@@ -426,12 +426,13 @@ def load_lane_config(conn: Any) -> LaneConfig:
 
 @dataclass(frozen=True)
 class DailyAnswer:
-    """A name's latest answered 1d request: when it was answered and the end of the window it
-    actually covered. The due rule credits asked-since-the-close only when window_end reached
-    the close (regression 2026-10-10)."""
+    """A name's 1d answer state: when it was last answered, and the widest window any answer
+    given since the last close covered. The due rule credits asked-since-the-close only when
+    that covered window reached the close (regression 2026-10-10 and its follow-up: a
+    later-answered gap-fill with an old window must not override an earlier covered answer)."""
 
     answered_at: datetime
-    window_end: datetime | None
+    covered_window_end: datetime | None
 
 
 @dataclass(frozen=True)
@@ -457,7 +458,7 @@ def daily_due_reason(
     latest_answered: datetime | None,
     latest_canonical: date | None,
     rule: DailyRule,
-    latest_window_end: datetime | None = None,
+    covered_window_end: datetime | None = None,
 ) -> str | None:
     """Why a name's 1d item is due, or None when it is held as current.
 
@@ -468,7 +469,7 @@ def daily_due_reason(
       was not asked since that close. A name asked since the close stays held even when its
       canonical bar is stale (the freshness_1d verdict names it); re-asking it every run would
       spend the stream on an answer that already came back. Asked-since-the-close credits only
-      an answer whose requested window reached the close (latest_window_end): a run spanning
+      an answer whose requested window reached the close (covered_window_end): a run spanning
       the close plans pre-close windows, and its post-close answers must not hold a stale name
       (regression 2026-10-10). Without a window end the legacy answered-at comparison stands.
     """
@@ -479,7 +480,7 @@ def daily_due_reason(
     stale = latest_canonical is None or latest_canonical < rule.last_close.date()
     if stale and latest_answered < rule.last_close:
         return "not_current"
-    if stale and latest_window_end is not None and latest_window_end < rule.last_close:
+    if stale and covered_window_end is not None and covered_window_end < rule.last_close:
         return "not_current"
     return None
 
@@ -700,14 +701,17 @@ _EMPTY_SQL = (
 # own request shape (the plan's daily_answer_filter; test callers never count, as in
 # services/split_detection.py).
 def _daily_answer_sql(answer_filter: str) -> str:
-    # DISTINCT ON carries the latest answer's window_end: the due rule must know whether the
-    # window the answer covered actually reached the last close, not just when it was answered
-    # (a run spanning the close answers pre-close windows post-close; regression 2026-10-10).
+    # covered_window_end is the widest window among answers given since the close ($3): the due
+    # rule credits asked-since-the-close only when such an answer's window reached the close.
+    # A later-answered gap-fill with an old window must not override an earlier same-day
+    # answer that covered it (regression follow-up, 2026-10-10).
     return (
-        "SELECT DISTINCT ON (symbol) symbol, answered_at, window_end FROM ohlcv_request "
+        "SELECT symbol, max(answered_at) AS answered_at, "
+        "max(window_end) FILTER (WHERE answered_at >= $3) AS covered_window_end "
+        "FROM ohlcv_request "
         f"WHERE source = $1 AND timeframe = '1d' AND {answer_filter} "
         "AND outcome IN ('bars', 'no_data') AND caller NOT LIKE 'test-%' "
-        "AND symbol = ANY($2::text[]) ORDER BY symbol, answered_at DESC"
+        "AND symbol = ANY($2::text[]) GROUP BY symbol"
     )
 
 
@@ -933,7 +937,7 @@ class PriorityQueue:
         else:
             answers_sql = _LATEST_DAILY_ANSWER_SQL
         async with pool.acquire() as conn:
-            answers = await conn.fetch(answers_sql, self._provider, symbols)
+            answers = await conn.fetch(answers_sql, self._provider, symbols, self.daily.last_close)
             canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
         return (
             {r["symbol"]: DailyAnswer(r["answered_at"], r["window_end"]) for r in answers},
@@ -956,7 +960,7 @@ class PriorityQueue:
                 answer.answered_at if answer else None,
                 canonical.get(row.symbol),
                 self.daily,
-                answer.window_end if answer else None,
+                answer.covered_window_end if answer else None,
             )
             if reason is not None:
                 self._due_reasons[key] = reason

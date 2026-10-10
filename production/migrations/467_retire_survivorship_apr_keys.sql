@@ -1,4 +1,8 @@
--- Migration 466: retire the six alpha.survivorship.* APR keys (todo 514).
+-- Migration 467: retire the six alpha.survivorship.* APR keys (todo 514).
+--
+-- Numbered 467, applied live as 466 on 2026-10-09 before the collision with
+-- 466_alpaca_source_check.sql was noticed (2026-10-10): the two are independent
+-- (different tables and keys), so replay order does not matter.
 --
 -- Owner, 2026-10-08 and 2026-10-09: survivorship bias is not an issue; the
 -- survivorship bound leaves the live system and its documentation. The only
