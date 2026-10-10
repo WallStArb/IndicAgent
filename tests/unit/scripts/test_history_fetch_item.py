@@ -21,7 +21,7 @@ import pytest
 
 from scripts.infrastructure.backfill import _history_fetch as history_fetch
 from scripts.infrastructure.backfill import _history_fetch_item as item_mod
-from scripts.infrastructure.backfill._fetch_queue import CoverageRow, QueueConfig
+from scripts.infrastructure.backfill._fetch_queue import CoverageRow, ProviderPlan, QueueConfig
 from scripts.infrastructure.backfill._history_fetch_item import (
     FetchContext,
     ItemOutcome,
@@ -517,7 +517,14 @@ def env(monkeypatch):
 
     def fake_record_planner(conn, symbol, tf, start, end, expected_slots, **kwargs):
         rec.gap_calls.append(
-            SimpleNamespace(symbol=symbol, tf=tf, start=start, end=end, planner="record")
+            SimpleNamespace(
+                symbol=symbol,
+                tf=tf,
+                start=start,
+                end=end,
+                planner="record",
+                min_confirmations=kwargs.get("min_confirmations"),
+            )
         )
         return list(rec.record_gaps)
 
@@ -575,6 +582,21 @@ def env(monkeypatch):
     return rec
 
 
+def _provider_plan(**overrides) -> ProviderPlan:
+    """The fixture plan: the APR-seeded ibkr values the overlays would produce, so plan-
+    driven semantics reproduce the pre-190 behavior exactly."""
+    fields = dict(
+        name="ibkr",
+        request_timeout_s=0.03,
+        request_retries=2,
+        rate_limit_window_s=600.0,
+        confirmation_chunks=item_mod.ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+        inter_item_pause_s=0.0,
+    )
+    fields.update(overrides)
+    return ProviderPlan(**fields)
+
+
 def _ctx(provider: FakeProvider, **overrides) -> FetchContext:
     fields = dict(
         provider=provider,
@@ -582,6 +604,7 @@ def _ctx(provider: FakeProvider, **overrides) -> FetchContext:
         connect=FakeConn,
         sink=FakeSink(),
         fetch_run_id=_RUN_ID,
+        plan=_provider_plan(),
         tf_fetch_config={
             "1d": (7300, True),
             "1h": (7300, False),
@@ -765,6 +788,43 @@ def test_returned_bars_missed_by_on_chunk_are_still_persisted_atomically(env):
     _fetch(_ctx(NoChunkProvider()), _row("15m"))
     assert len(env.persist) == 1 and len(env.persist[0].rows) == 4
     assert env.persist[0].coverage is not None
+
+
+# --- plan-driven vendor semantics (phase 190 plan 04) --------------------------
+
+
+def test_no_data_gate_confirms_from_the_item_plan(env):
+    """The no-data evidence threshold is the item's ProviderPlan value; without a plan the
+    leaf module's own constant stands in (the ibkr entry always carries one)."""
+    ctx = _ctx(FakeProvider(), plan=_provider_plan(confirmation_chunks=7))
+    _fetch(ctx, _row("15m"))
+    assert [c.min_confirmations for c in env.gap_calls if c.planner == "record"] == [7]
+    env.gap_calls.clear()
+    _fetch(_ctx(FakeProvider(), plan=None), _row("15m"))
+    assert [c.min_confirmations for c in env.gap_calls if c.planner == "record"] == [
+        item_mod.ibkr._NO_DATA_CONFIRMATION_CHUNKS
+    ]
+
+
+def test_retry_budget_reads_the_provider_plan(monkeypatch):
+    """The stall bound and retry count come from the item's ProviderPlan when the dispatch
+    passes one, not from the QueueConfig mirrors."""
+    attempts = _scripted_items(monkeypatch, ["stall", "stall", "stall", "stall"])
+    ctx = _retry_ctx()
+    outcome = asyncio.run(
+        fetch_item_with_retries(
+            ctx,
+            _INSTRUMENT,
+            _ROW,
+            full_scan=False,
+            config=_config(retries=99),
+            reconnect=_reconnects(*[True] * 4),
+            provider_plan=_provider_plan(request_retries=1, request_timeout_s=0.03),
+        )
+    )
+    assert attempts == [1, 2]  # 1 + plan.request_retries, not the config mirror's 99
+    assert outcome.attempts == 2
+    assert outcome.status == "error"
 
 
 def test_clock_is_touched_by_requests_and_persisted_chunks(env):

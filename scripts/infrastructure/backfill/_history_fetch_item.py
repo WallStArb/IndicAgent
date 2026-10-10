@@ -24,6 +24,17 @@ capture) live in _history_fetch.py, the CLI-free helper library plan 189-08 made
 historical pipeline. Every timeframe stores real provider bars only (plan 185-32), so no
 item writes a placeholder or fetch bookkeeping. All provider access goes through IBKRProvider methods;
 src/providers/ibkr.py stays the only ib_async importer.
+
+Phase 190 (provider history plane unification): this module IS the ibkr registry entry's
+fetch-hook implementation (ibkr_history_fetcher._ibkr_entry_fetch drives it). Everything
+here is ibkr-entry-path-only by construction -- qualification (_ensure_qualified), the
+provider head floor with its futures branch, the FX/crypto 1m derive, venue fallback and
+the what_to_show/route request capture are IBKR request mechanics, fenced behind the one
+registry entry. No NEW vendor branches belong in this module: anything the vendor-blind
+loop needs to know about a vendor arrives as data, through the item's ProviderPlan
+(ctx.plan: request budgets, no-data confirmation threshold, inter-item pacing) or through
+the leaf itself. Chunk sizing stays the leaf module's own native data (ibkr._MAX_CHUNK_DAYS
+and its APR overlay).
 """
 
 from __future__ import annotations
@@ -46,6 +57,7 @@ from scripts.infrastructure.backfill._d1_gaps import (
     midnight_utc,
     with_overlap_window,
 )
+from scripts.infrastructure.backfill._fetch_queue import ProviderPlan
 from scripts.infrastructure.backfill._history_fetch import (
     _1M_DAYS_CRYPTO,
     _1M_DAYS_FX,
@@ -79,7 +91,7 @@ from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
 from src.providers import ibkr
-from src.providers.base import EmptyHistory
+from src.providers.base import EmptyHistory, HistoryProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -203,7 +215,7 @@ class FetchContext:
     head is looked up at most once, and the FX/crypto 1m deep fetch runs at most once.
     """
 
-    provider: Any
+    provider: HistoryProvider
     settings: Any
     # Opens a fresh psycopg connection (autocommit, like the pipeline's connect_db).
     connect: Callable[[], Any]
@@ -221,9 +233,9 @@ class FetchContext:
     # Plan 185-22 (D-21): re-ask the last N 1d sessions so a split shows as a constant ratio.
     overlap_sessions: int = 0
     # The item's ProviderPlan (phase 190 plan 04), carried in by the ibkr registry entry's
-    # fetch hook: vendor semantics (budgets, confirmation thresholds) read from the plan,
-    # never from module constants. None until the entry sets it.
-    plan: Any | None = None
+    # fetch hook: vendor semantics (request budgets, the no-data confirmation threshold)
+    # read from the plan, never from module constants.
+    plan: ProviderPlan | None = None
     conn: Any = None
     qualified: dict[str, bool] = field(default_factory=dict)
     heads_checked: set[str] = field(default_factory=set)
@@ -449,6 +461,11 @@ def _plan_gaps(
     """
     symbol, end_dt = instrument.symbol, ctx.end_dt
     empty = ctx.empty_ranges.get((symbol, timeframe))
+    # The no-data evidence threshold is the item plan's (phase 190); the leaf module's own
+    # constant is the fallback for a context built without one.
+    min_confirmations = (
+        ctx.plan.confirmation_chunks if ctx.plan is not None else ibkr._NO_DATA_CONFIRMATION_CHUNKS
+    )
 
     def note_skip(skipped: Any) -> None:
         logger.info(
@@ -463,7 +480,7 @@ def _plan_gaps(
         empty=empty,
         now=ctx.run_started_at,
         reverify_days=ctx.empty_reverify_days,
-        min_confirmations=ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+        min_confirmations=min_confirmations,
         on_skip=note_skip,
     )
     if timeframe == "1d":
@@ -532,7 +549,7 @@ def _plan_gaps(
         ctx.run_started_at,
         ctx.empty_reverify_days,
         timedelta(minutes=_TF_MINUTES[timeframe]),
-        ibkr._NO_DATA_CONFIRMATION_CHUNKS,
+        min_confirmations,
     )
     if kept != gaps and empty is not None:
         note_skip(empty)

@@ -50,27 +50,31 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 
 # (file, reason) -- every concrete-leaf import in the tree must appear here.
 # Adding a new call site requires adding a row here with a real reason, not
-# just silencing the test. NOTE: the three fetcher-family entries
-# (ibkr_history_fetcher.py, _history_fetch.py, _history_fetch_item.py) are
-# expected to leave this list in plan 190-04, when the fetch path dispatches
-# through the HistoryProvider protocol seam.
+# just silencing the test. NOTE (post 190-04): the fetcher dispatches through
+# the provider registry (entry.fetch per item), but the loop never constructs a
+# foreign leaf, so the three fetcher-family entries stay: the registry's ibkr
+# entry owns the concrete leaf construction, and the two helper modules hold the
+# IBKR mechanics and constants that entry drives. Moving the leaf factory into
+# src/providers (an entry the registry imports through the protocol surface)
+# would shrink the first row.
 _ALLOW_LIST: dict[str, str] = {
     "scripts/infrastructure/backfill/ibkr_history_fetcher.py": (
-        "SHRINKS IN 190-04: the phase 189/190 drain fetcher constructs IBKRProvider "
-        "through its provider_factory seam and drives the item mechanics directly; "
-        "its default provider becomes a protocol-resolved leaf registry at the "
-        "190-04 seam and this entry leaves the list."
+        "STAYS POST-190-04: the provider registry's ibkr entry owns the concrete "
+        "IBKRProvider construction (leaf_factory, moved from the fetcher's "
+        "_default_provider); the loop itself is vendor-blind and dispatches only "
+        "through entry.fetch, so a foreign provider can never reach this import."
     ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
-        "SHRINKS IN 190-04: the fetcher's helper library (APR overlays, campaign "
-        "helpers, module-level ibkr constants like _ARCHIVE_TFS) is bound to IBKR "
-        "mechanics; the overlays move leaf-owned or per-provider-plan-owned at the "
-        "190-04 seam."
+        "STAYS POST-190-04: the fetcher's helper library (APR overlays, campaign "
+        "helpers, module-level ibkr constants like _ARCHIVE_TFS) holds the ibkr "
+        "entry's leaf-native overlay loaders, which the entry's load_overlays hook "
+        "drives."
     ),
     "scripts/infrastructure/backfill/_history_fetch_item.py": (
-        "SHRINKS IN 190-04: the IBKR item mechanics (qualification, FX/crypto "
-        "derive, venue fallback) retreat into the leaf at the 190-04 seam; today "
-        "it imports the module for the constants those mechanics read."
+        "STAYS POST-190-04: this module IS the ibkr entry's fetch-hook "
+        "implementation (qualification, head floors, FX/crypto derive, venue "
+        "fallback); it imports the leaf module for the constants those mechanics "
+        "read, and no new vendor branches belong here."
     ),
     "scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py": (
         "PERMANENT: the manual chunk-days/rate-limit calibration probe must drive "
