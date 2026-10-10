@@ -10,9 +10,9 @@ Ring 2 daemon. The loop is vendor-blind: every queue item dispatches through its
 registry entry, and the ibkr entry owns the concrete leaf mechanics. The external identity
 strings (advisory lock name, JOB metric label, LOCK_HELD_MESSAGE, run status-file path,
 systemd unit filenames) are frozen byte-identical by the phase 190 decision -- independent
-processes parse or key on them -- so only code identifiers rename. Until the 190-06 cutover
-installs the updated unit, a thin compatibility shim at the old ibkr_history_fetcher.py path
-keeps the live unit fetchable.
+processes parse or key on them -- so only code identifiers rename. The 190-06 cutover
+installed the updated unit and deleted the temporary compatibility shim at the old
+ibkr_history_fetcher.py path.
 
 One process owns
 the IBKR history connection (CD-01), works a priority queue over the ohlcv_coverage ledger one
