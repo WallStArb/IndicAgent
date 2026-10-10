@@ -48,7 +48,9 @@ def main() -> int:
     total_rows = total_extended = total_held = 0
     try:
         for symbol in sorted(artifacts):
-            _, held, extended = split_series(conn, symbol, ingress.timeframe, artifacts[symbol])
+            _, held, _, extended = split_series(
+                conn, symbol, ingress.timeframe, artifacts[symbol], vendor=ingress.source
+            )
             total_extended += len(extended)
             total_held += len(held)
             rows = archive_frame_to_tuples(

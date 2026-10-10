@@ -198,31 +198,48 @@ def frame_to_tuples(frame: pd.DataFrame, symbol: str, policy: LoadPolicy) -> lis
     ]
 
 
-def stored_range_stamps(cur, symbol: str, timeframe: str, start: datetime, end: datetime) -> set:
+def stored_range_stamps(
+    cur,
+    symbol: str,
+    timeframe: str,
+    start: datetime,
+    end: datetime,
+    *,
+    exclude_source: str | None = None,
+) -> set:
     """Stored stamps of one series in a range (first-writer-stays read).
 
     One indexed range query, not an ANY(array) over every candidate stamp: the
     array form crashed a backend at ~460k stamps; the range read is O(stored).
+    ``exclude_source`` drops one vendor's own rows, so the caller sees stamps
+    held by *others* only (the archive rule: a vendor never archives the
+    canonical answer it authored itself).
     """
-    cur.execute(
+    sql = (
         'SELECT "timestamp" FROM market_data_ohlcv '
         "WHERE symbol = %s AND timeframe = %s "
-        'AND "timestamp" >= %s AND "timestamp" <= %s',
-        (symbol, timeframe, start, end),
+        'AND "timestamp" >= %s AND "timestamp" <= %s'
     )
+    args: list = [symbol, timeframe, start, end]
+    if exclude_source is not None:
+        sql += " AND source <> %s"
+        args.append(exclude_source)
+    cur.execute(sql, args)
     return {row[0] for row in cur.fetchall()}
 
 
 def split_series(
-    conn, symbol: str, timeframe: str, frame: pd.DataFrame
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """The R1 three-way split of one vendor frame: (new, held, extended).
+    conn, symbol: str, timeframe: str, frame: pd.DataFrame, *, vendor: str
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """The R1 four-way split of one vendor frame: (new, held, own, extended).
 
-    `new` rows are in-grid stamps no other source holds (canonical candidates);
-    `held` rows are in-grid stamps another source authored (archive them raw);
-    `extended` rows sit outside the session grid (archive them raw). The one
-    definition of "non-authored": `load_series` consumes it and the raw-recovery
-    backfill reuses it, so the slot rule and the stored read cannot drift apart.
+    `new` rows are in-grid stamps nobody holds (canonical candidates); `held`
+    rows are in-grid stamps ANOTHER source authored (archive them raw); `own`
+    rows are stamps this vendor already authored (a no-op: the canonical row is
+    the vendor's persisted answer, never re-archived); `extended` rows sit
+    outside the session grid (archive them raw). The one definition of
+    "non-authored": `load_series` consumes it and the raw-recovery backfill
+    reuses it, so the slot rule and the stored reads cannot drift apart.
     """
     days = set(frame["t"].dt.date.unique())
     utc_stamps = grid_stamps_utc(session_grid(nyse_sessions(min(days), max(days)), days))
@@ -230,14 +247,20 @@ def split_series(
     extended = frame.loc[~in_grid_mask]
     grid = frame.loc[in_grid_mask].reset_index(drop=True)
     if grid.empty:
-        return grid, grid, extended
+        empty = grid
+        return empty, empty, empty, extended
     start, end = grid["t"].min().to_pydatetime(), grid["t"].max().to_pydatetime()
     with conn.cursor() as cur:
-        stored = stored_range_stamps(cur, symbol, timeframe, start, end)
-    held_mask = grid["t"].isin(stored)
-    held = grid.loc[held_mask]
-    new = grid.loc[~held_mask].reset_index(drop=True)
-    return new, held, extended
+        all_stored = stored_range_stamps(cur, symbol, timeframe, start, end)
+        other_stored = stored_range_stamps(
+            cur, symbol, timeframe, start, end, exclude_source=vendor
+        )
+    new = grid.loc[~grid["t"].isin(all_stored)].reset_index(drop=True)
+    held = grid.loc[grid["t"].isin(other_stored)]
+    own = grid.loc[grid["t"].isin(all_stored) & ~grid["t"].isin(other_stored)].reset_index(
+        drop=True
+    )
+    return new, held, own, extended
 
 
 def load_series(
@@ -262,9 +285,11 @@ def load_series(
     columns. Everything vendor-blind above this docstring is the engine; the
     policy only names the writer.
     """
-    new, held, extended = split_series(conn, symbol, policy.timeframe, frame)
+    new, held, own, extended = split_series(
+        conn, symbol, policy.timeframe, frame, vendor=policy.vendor
+    )
     dropped_extended = len(extended)
-    skipped_stored = len(held)
+    skipped_stored = len(held) + len(own)
     if write:
         _archive_rows(conn, policy, symbol, params, extended, held)
     frame = new
