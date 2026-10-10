@@ -86,8 +86,8 @@ def main() -> int:
     mode = "APPLIED" if args.apply else "PLANNED"
     total = applied_total if args.apply else planned_total
     print(
-        f"{mode}: {total} rows, {skipped_stored} stored-held dropped, "
-        f"{dropped_extended} extended dropped"
+        f"{mode}: {total} rows, {skipped_stored} stored-held archived, "
+        f"{dropped_extended} extended archived"
     )
     return 0
 

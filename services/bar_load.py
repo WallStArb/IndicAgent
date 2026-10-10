@@ -30,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
+from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_coverage_writer import (
     DESTINATION_GRID as COVERAGE_DESTINATION_GRID,
 )
@@ -45,6 +46,42 @@ from services.ohlcv_ingress_contract import (
 )
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
+
+
+def _archive_rows(conn, policy: LoadPolicy, symbol: str, frame: pd.DataFrame) -> int:
+    """Archive one non-authored frame raw through the single-writer contract (todo 528 R1).
+
+    Chunked because the archive path renders the same psycopg arrays as the
+    grid path; each chunk commits in its own transaction, and the archive
+    contract's identical-row skip makes a rerun idempotent.
+    """
+    if frame.empty:
+        return 0
+    rows = [
+        (
+            ts.to_pydatetime(),
+            symbol,
+            policy.timeframe,
+            float(o),
+            float(h),
+            float(low),
+            float(c),
+            int(v),
+            policy.vendor,
+            None,
+        )
+        for ts, o, h, low, c, v in zip(
+            frame["t"], frame["o"], frame["h"], frame["l"], frame["c"], frame["v"], strict=True
+        )
+    ]
+    archived = 0
+    for i in range(0, len(rows), CHUNK_ROWS):
+        chunk = rows[i : i + CHUNK_ROWS]
+        with conn.transaction():
+            with conn.cursor() as cur:
+                archived += insert_fetched_archive_rows(cur, chunk, caller=policy.caller)
+    return archived
+
 
 # Known debt: the atomic persist helper lives under scripts/ because the fetcher
 # grew it first. Lifting it beside this engine is blocked while the IBKR drain
@@ -161,24 +198,35 @@ def load_series(
 ) -> tuple[int, int, int]:
     """Plan one symbol's frame; write it when `write` is True (a dry run plans only).
 
-    Returns (applied_or_planned_rows, skipped_stored, dropped_extended). The
-    frame must carry a tz-aware UTC `t` column plus the OHLCV columns.
-    Everything vendor-blind above this docstring is the engine; the policy
-    only names the writer.
+    Returns (applied_or_planned_rows, skipped_stored, dropped_extended): the
+    last two count rows that canonical authoring did not store -- first-writer-
+    held rows and extended-hours rows. Since todo 528 (R1: capture universal)
+    the engine archives both raw with source=policy.vendor through the
+    single-writer archive contract instead of dropping them; nothing reaches
+    the floor. The frame must carry a tz-aware UTC `t` column plus the OHLCV
+    columns. Everything vendor-blind above this docstring is the engine; the
+    policy only names the writer.
     """
     total = len(frame)
     days = set(frame["t"].dt.date.unique())
-    grid = session_grid(nyse_sessions(min(days), max(days)), days)
-    frame = filter_frame_to_grid(frame, grid_stamps_utc(grid))
-    dropped_extended = total - len(frame)
+    utc_stamps = grid_stamps_utc(session_grid(nyse_sessions(min(days), max(days)), days))
+    extended = frame.loc[~frame["t"].isin(utc_stamps)]
+    frame = frame.loc[frame["t"].isin(utc_stamps)].reset_index(drop=True)
+    dropped_extended = len(extended)
     skipped_stored = 0
     if frame.empty:
+        if write:
+            _archive_rows(conn, policy, symbol, extended)
         return 0, skipped_stored, dropped_extended
     start, end = frame["t"].min().to_pydatetime(), frame["t"].max().to_pydatetime()
     with conn.cursor() as cur:
         stored = stored_range_stamps(cur, symbol, policy.timeframe, start, end)
+    held = frame.loc[frame["t"].isin(stored)]
     frame = drop_stored_rows(frame, stored)
-    skipped_stored = total - dropped_extended - len(frame)
+    skipped_stored = len(held)
+    if write:
+        _archive_rows(conn, policy, symbol, extended)
+        _archive_rows(conn, policy, symbol, held)
 
     def write_new(cur, rows: list[tuple]) -> None:
         write_market_data_batches(cur, rows)
