@@ -30,10 +30,10 @@ VALUES
     )
 ON CONFLICT (config_key) DO NOTHING;
 
-INSERT INTO config_state (config_key, config_value)
+INSERT INTO config_state (config_key, config_value, version)
 VALUES
-    ('infra.alpaca.rate_limit_max_requests', '190'),
-    ('infra.alpaca.nightly_window_days', '5')
+    ('infra.alpaca.rate_limit_max_requests', '190', 1),
+    ('infra.alpaca.nightly_window_days', '5', 1)
 ON CONFLICT (config_key) DO NOTHING;
 
 INSERT INTO config_history (timestamp, config_key, version, config_value, changed_by, reason)
