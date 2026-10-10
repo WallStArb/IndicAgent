@@ -261,10 +261,6 @@ def test_dividend_condition_requires_share_and_total_return_symbol() -> None:
     assert not no_fn.ok
 
 
-# test_survivorship_condition_requires_all_six_apr_keys retired 2026-10-09 with
-# condition 6 itself (todo 514; owner: survivorship bias is not an issue).
-
-
 def test_is_active_condition_fails_on_any_soft_deleted_inventory_name() -> None:
     assert mod.is_active_condition(deactivated=0).ok
     failed = mod.is_active_condition(deactivated=1)
@@ -283,8 +279,8 @@ def test_summarize_exits_zero_only_when_every_condition_passes() -> None:
 
 class FakeCursor:
     """Replies are per-marker queues: consecutive queries on the same tables
-    (the venue flag and the survivorship keys both read config_state) get
-    consecutive replies in execution order."""
+    (the venue flag reads config_state) get consecutive replies in execution
+    order."""
 
     def __init__(self, queues: dict[str, list[object]], executed: list) -> None:
         self._queues = queues
@@ -333,16 +329,6 @@ def _marker(sql: str) -> str:
     raise AssertionError(f"unexpected SQL in fake: {sql}")
 
 
-_SIX_KEYS = [
-    ("alpha.survivorship.delisting_return.nasdaq",),
-    ("alpha.survivorship.delisting_return.nyse_amex",),
-    ("alpha.survivorship.hazard.nasdaq_annual",),
-    ("alpha.survivorship.hazard.nyse_amex_annual",),
-    ("alpha.survivorship.haircut.small_cap_annual",),
-    ("alpha.survivorship.trading_days_per_year",),
-]
-
-
 _FIXTURE_KEYS = mod.parse_dry_run_keys(open(_FIXTURE).read())
 
 
@@ -365,7 +351,7 @@ def _replies() -> dict[str, list[object]]:
         "split_seam": [[]],
         "bar_derivation_batch": [[]],  # no daily batches
         "ohlcv_venue_head": [(0,)],  # no pre-move bars visible
-        "config_state": [("false",), list(_SIX_KEYS)],  # venue flag, then keys
+        "config_state": [("false",)],  # venue flag
         "instruments": [(925, 931, 0)],  # covered, eligible, deactivated
         "ohlcv_request": [[]],  # no stored requests
     }

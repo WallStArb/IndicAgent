@@ -290,6 +290,12 @@ def is_current(row: CoverageRow, current_after: datetime | None) -> bool:
     every 1d series' overlap window), spending the one IBKR stream on answers it already
     has. An 'error' series is never current, so it is retried until excluded. Parameter-
     free: the session calendar, not a tunable interval, decides when new data can exist.
+
+    Known limit (2026-10-10): answered-at is a proxy for coverage here, and a run that
+    plans its windows before a close then settles them after it satisfies the proxy without
+    covering the close. The 1d due rule checks real window coverage (daily_due_reason); this
+    shared predicate still uses the proxy for every other timeframe, where the exposure is
+    the same one-session-behind shape one timing coincidence away.
     """
     return (
         current_after is not None
@@ -416,6 +422,16 @@ def load_lane_config(conn: Any) -> LaneConfig:
         parity_names_per_week=int(values[_KEY_PARITY_NAMES]),
         basis_tolerance_bp=float(values[BASIS_TOLERANCE_KEY]),
     )
+
+
+@dataclass(frozen=True)
+class DailyAnswer:
+    """A name's latest answered 1d request: when it was answered and the end of the window it
+    actually covered. The due rule credits asked-since-the-close only when window_end reached
+    the close (regression 2026-10-10)."""
+
+    answered_at: datetime
+    window_end: datetime | None
 
 
 @dataclass(frozen=True)
@@ -781,7 +797,7 @@ class PriorityQueue:
     plan: ProviderPlan | None = None
     _items: list[RankedItem] = field(default_factory=list, init=False, repr=False)
     _held: list[tuple[RankedItem, str]] = field(default_factory=list, init=False, repr=False)
-    _daily_inputs: tuple[dict[str, datetime], dict[str, date], dict[str, datetime]] | None = field(
+    _daily_inputs: tuple[dict[str, DailyAnswer], dict[str, date]] | None = field(
         default=None, init=False, repr=False
     )
     _due_reasons: dict[tuple[str, str, str], str] = field(
@@ -906,7 +922,7 @@ class PriorityQueue:
 
     async def _load_daily_inputs(
         self, pool: Any, symbols: list[str]
-    ) -> tuple[dict[str, datetime], dict[str, date]]:
+    ) -> tuple[dict[str, DailyAnswer], dict[str, date]]:
         """The 1d due rule's reads, once per queue (a run): an item fetched later in the run is
         kept out by the run's visited set, so a fresher read would change nothing."""
         if not symbols or self.daily is None or not self._answers_1d:
@@ -920,9 +936,8 @@ class PriorityQueue:
             answers = await conn.fetch(answers_sql, self._provider, symbols)
             canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
         return (
-            {r["symbol"]: r["answered_at"] for r in answers},
+            {r["symbol"]: DailyAnswer(r["answered_at"], r["window_end"]) for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
-            {r["symbol"]: r["window_end"] for r in answers},
         )
 
     @property
@@ -935,12 +950,13 @@ class PriorityQueue:
             if row.last_fetch_status == "error":  # never held, as is_current
                 self._due_reasons[key] = "error"
                 return True
-            answered, canonical, windows = self._daily_inputs
+            answers, canonical = self._daily_inputs
+            answer = answers.get(row.symbol)
             reason = daily_due_reason(
-                answered.get(row.symbol),
+                answer.answered_at if answer else None,
                 canonical.get(row.symbol),
                 self.daily,
-                windows.get(row.symbol),
+                answer.window_end if answer else None,
             )
             if reason is not None:
                 self._due_reasons[key] = reason

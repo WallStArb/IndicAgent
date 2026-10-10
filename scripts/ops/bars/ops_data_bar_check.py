@@ -39,14 +39,14 @@ Conditions (plan 185-16; 1, 3 and 4 made source-aware by 185-34):
   5 dividend_coverage        Yahoo dividend coverage for at least 99 percent of
                              1d-eligible names and dividends.total_return imports
   (6 retired 2026-10-09: survivorship_apr_keys, the six alpha.survivorship.*
-    seeds; owner: survivorship bias is not an issue, todo 514. Numbering is
-    not renumbered: the gate runs six conditions, 1-5 and 7.)
-                             (migration 382)
+    seeds seeded by migration 382; owner: survivorship bias is not an issue,
+    todo 514. Numbering is not renumbered: the gate runs six conditions,
+    1-5 and 7.)
   7 inventory_is_active      D-03: no name in the moved-name inventory (the late
                              set) was soft-deleted; is_active stays true
 
-Read-only. The 99 percent, the 72/15 known-answer counts and the six keys are
-the D-28 contract itself (as fixed as plan 14's late cutoff), not tunables.
+Read-only. The 99 percent and the 72/15 known-answer counts are the D-28
+contract itself (as fixed as plan 14's late cutoff), not tunables.
 """
 
 from __future__ import annotations
