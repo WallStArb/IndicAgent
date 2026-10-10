@@ -134,7 +134,8 @@ Plans:
 **Goal:** Every daily bar research reads traces to raw IBKR observations and a versioned
 derivation rule, and no data defect reaches a verdict unmeasured. Build stages D0-D7 of
 `docs/plans/2026-09-26-daily-data-foundation.md` (accepted 2026-09-26): D0 bound each verdict's
-exposure to venue truncation, missing dividends and survivorship; D1 an append-only 1d
+exposure to venue truncation and missing dividends (the survivorship bound was retired by the
+owner 2026-10-09, todo 514); D1 an append-only 1d
 observation store (every route and request type); D2 derived 1d bars written to
 `market_data_ohlcv` by the derivation alone; D3 venue-move recovery for 1d and intraday (todo
 433), stored only after a listing-venue validation study passes; D4 empty history recorded only

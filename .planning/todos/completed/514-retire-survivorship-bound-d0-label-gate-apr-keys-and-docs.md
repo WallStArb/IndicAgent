@@ -1,7 +1,8 @@
 ---
-status: pending
+status: completed
 priority: P1
 filed: 2026-10-08
+closed: 2026-10-10
 source: owner instruction in the 185 session, 2026-10-08: survivorship bias is not an issue; delete all references
 ---
 
@@ -28,3 +29,15 @@ Left as history (frozen records, not live references; the owner may say to scrub
 ## Done when
 
 `grep -rIil survivorship` over live paths (excluding the named history) is empty; the full unit suite and the 185-44 guards are green; the APR keys are gone from config tables; todo 376 is in completed/ with the owner statement; repro_frozen is bit-identical if the research path was touched.
+
+## Closed 2026-10-10
+
+Landed in two commits: 8e5c214cc (code + migration 466: labels.py drops the bound to three D0
+labels, the D-28 gate drops condition 6 with the numbering gap recorded, the six
+alpha.survivorship.* keys retired history-then-state-then-schema, applied live and verified 0
+remaining; no production consumer existed outside the label module and the gate, nothing under
+research/ or statistics/ imports labels.py, so no frozen-path re-verification) and the docs sweep
+commit (ROADMAP phase 185 text, onboarding SOP rule 6's rationale, universe README bias list, the
+Oct 6 design verdict row, ledger rows 6/9/11, todos 441 and 501 requirement clauses; the
+signal-corpus survivorship-bias glossary entry and concept docs are a different concept and stay).
+Todo 376 was already completed; 438's mention is accurate descope history.

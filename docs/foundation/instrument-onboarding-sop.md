@@ -41,7 +41,9 @@ test can find. Six rules follow from that.
 6. **Nothing leaves.** A name is never deleted or deactivated, even after it stops trading; its
    bars simply stop. Research selects its universe from current `instruments` flags
    (`snapshot.py::universe_symbols`), so deactivating a dead name would erase it from every later
-   panel and bring survivorship bias back.
+   panel and corrupt the point-in-time record the research invariants stand on. (The original
+   survivorship-bias rationale for this rule was retired by the owner 2026-10-09, todo 514; the
+   record-integrity rationale stands on its own.)
 
 ## Universe dimensions
 

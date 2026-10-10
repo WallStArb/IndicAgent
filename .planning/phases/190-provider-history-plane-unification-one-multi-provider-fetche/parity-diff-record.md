@@ -38,3 +38,4 @@ Anything else would have been a parity failure; nothing else was found.
 ## Cutover record (Task 2, appended)
 
 Pending.
+CUT_TS=2026-10-10T11:59:48Z

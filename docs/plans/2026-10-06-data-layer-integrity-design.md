@@ -232,7 +232,7 @@ once its readers move (section 9).
 
 | Risk | Treatment | Caught by |
 |---|---|---|
-| Survivorship | Disclosed, carried (todo 376, descoped 2026-09-26) | D0 survivorship label |
+| Survivorship | Retired by the owner 2026-10-09 (todo 514); the D0 label, its APR keys and the D-28 condition are removed | (none) |
 | Current-holdings universe | The universe is today's names; snapshots pin the symbol list | Snapshot manifest; D0 label |
 | Vendor restatement | Latest answer wins; old values kept | `ohlcv_revision`; revision-ratio refusal |
 | Adjustment basis (splits, spin-offs) | Both vendors deliver split-adjusted history as of fetch. Spin-off treatment differs and is unverified; prices are never spliced across a basis run | `vendor_basis_run`; `unexplained_seam`; `corporate_action` |

@@ -4,7 +4,7 @@ Author: Claude Opus 5.5 (batches 1 and 2, session 2026-09-26); Claude Sonnet 5.5
 session 2026-10-03)
 
 Process: `docs/foundation/instrument-onboarding-sop.md`, which also lists the biases every batch
-carries (survivorship, venue truncation, unscrubbed prints, price-only bars). Each batch gets an
+carries (venue truncation, unscrubbed prints, price-only bars; the survivorship entry was retired by the owner 2026-10-09, todo 514). Each batch gets an
 entry here (stage 10): its rationale, source files, selection rule, deviations and verify
 results. This file holds lineage only; process changes go in the SOP.
 

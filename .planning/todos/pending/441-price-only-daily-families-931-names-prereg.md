@@ -17,7 +17,7 @@ todo 423 (residual short-term reversal on the names the 2026-09-13 screen never 
 2. Sector-ETF-leads-constituent lead-lag at 5m or 15m (ledger family 3), sectors from SCH,
    restricted to constituents with intraday bars.
 
-Each spec states its universe as of t, carries phase 185 D0's survivorship bound and a
+Each spec states its universe as of t, carries phase 185 D0's labels (the survivorship bound was retired by the owner 2026-10-09, todo 514) and a
 delisting-return sensitivity, and declares its costed construction for promotion (E18).
 
 ## Done when
