@@ -556,12 +556,12 @@ async def test_queue_applies_the_daily_rule_with_no_tradier_hold():
             {
                 "symbol": "OLD",
                 "answered_at": _LAST_CLOSE - timedelta(days=1),
-                "window_end": _LAST_CLOSE - timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE - timedelta(days=1),
             },
             {
                 "symbol": "NEW",
                 "answered_at": _LAST_CLOSE + timedelta(minutes=30),
-                "window_end": _LAST_CLOSE + timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE + timedelta(days=1),
             },
         ],
         [{"symbol": s, "latest": _LAST_CLOSE.replace(hour=0)} for s in ("OLD", "NEW", "NEVER")],
@@ -583,7 +583,7 @@ async def test_a_1d_series_that_last_errored_is_never_held():
             {
                 "symbol": "ERR",
                 "answered_at": _LAST_CLOSE + timedelta(minutes=30),
-                "window_end": _LAST_CLOSE + timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE + timedelta(days=1),
             }
         ],
         [{"symbol": "ERR", "latest": _LAST_CLOSE.replace(hour=0)}],
@@ -606,7 +606,7 @@ async def test_an_answer_postclose_from_a_preclose_window_does_not_hold_a_stale_
             {
                 "symbol": "LATE",
                 "answered_at": _LAST_CLOSE + timedelta(hours=2),
-                "window_end": _LAST_CLOSE - timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE - timedelta(days=1),
             }
         ],
         [{"symbol": "LATE", "latest": _LAST_CLOSE.replace(hour=0) - timedelta(days=1)}],
@@ -626,7 +626,7 @@ async def test_an_answer_postclose_from_a_window_covering_the_close_stays_held()
             {
                 "symbol": "COVERED",
                 "answered_at": _LAST_CLOSE + timedelta(hours=2),
-                "window_end": _LAST_CLOSE + timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE + timedelta(days=1),
             }
         ],
         [{"symbol": "COVERED", "latest": _LAST_CLOSE.replace(hour=0)}],
@@ -1066,7 +1066,7 @@ async def test_a_plan_without_1d_answers_issues_no_daily_query_and_no_1d_items()
             {
                 "symbol": "OLD",
                 "answered_at": _LAST_CLOSE - timedelta(days=1),
-                "window_end": _LAST_CLOSE - timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE - timedelta(days=1),
             }
         ],
         [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],
@@ -1092,7 +1092,7 @@ async def test_the_daily_answer_filter_comes_from_the_plan():
             {
                 "symbol": "OLD",
                 "answered_at": _LAST_CLOSE - timedelta(days=1),
-                "window_end": _LAST_CLOSE - timedelta(days=1),
+                "covered_window_end": _LAST_CLOSE - timedelta(days=1),
             }
         ],
         [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],

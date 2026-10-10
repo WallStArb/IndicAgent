@@ -940,7 +940,7 @@ class PriorityQueue:
             answers = await conn.fetch(answers_sql, self._provider, symbols, self.daily.last_close)
             canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
         return (
-            {r["symbol"]: DailyAnswer(r["answered_at"], r["window_end"]) for r in answers},
+            {r["symbol"]: DailyAnswer(r["answered_at"], r["covered_window_end"]) for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
         )
 
