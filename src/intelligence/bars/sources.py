@@ -38,6 +38,14 @@ DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"
 SOURCE_TRADIER = "tradier"
 ROUTE_TRADIER = "TRADIER"
 
+# Alpaca, the intraday depth source (SIP via Polygon/Massive) admitted by the 521 admission
+# build: 5m fills from 2016-01-01 forward, RTH-window aggregates only (its 1d bars carry
+# extended-hours volume and are never stored). Evidence and measured conventions:
+# docs/plans/2026-10-09-alpaca-5m-admission-build.md. Not a canonical-1d source: the 1d
+# primary stays IBKR (Alpaca's daily history is split-adjusted with a hard 2016 floor).
+SOURCE_ALPACA = "alpaca"
+ROUTE_ALPACA = "ALPACA"
+
 # An IBKR SMART TRADES 1d bar the d2-v2 rule admitted where the policy's primary source
 # (Tradier) has none: a head before Tradier's first bar, or an interior hole within the basis
 # tolerance (plan 185-36, migration 446). A source label of its own so
