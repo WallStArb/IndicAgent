@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-09T23:02:03.067Z"
+last_updated: "2026-10-10T04:40:22.278Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 105
-  completed_plans: 99
+  completed_plans: 100
   percent: 25
 ---
 
@@ -45,8 +45,8 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 185 (daily-data-foundation) — EXECUTING; 189-10 pilot done, IBKR 5m depth drain RUNNING (owner-ordered 2026-10-09)
-Plan: gap closure 185-27..46 done through 185-43 (2026-10-08); 185-47 and 185-48 unblocked (189-10 Task 1b's one-time IBKR 1d fetch is done, record: 189-10-1D-FETCH-RECORD.md)
+Phase: 190 (Provider history plane unification) — EXECUTING
+Plan: 2 of 7
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
@@ -185,6 +185,13 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 
 - `ON CONFLICT` for partial indexes on TimescaleDB: column list plus WHERE clause, not
   `ON CONSTRAINT`.
+
+- Phase 190 batch history surface (190-01): `HistoryProvider` protocol + HistoryRequest /
+  FetchBudget / NoDataVerdict / HistoryPage live in `src/providers/base.py`; DataProvider is
+  byte-identical. `IBKRProvider.fetch_ohlcv` returns one caller-driven window plus resume
+  point; `adjustment='split'` raises loudly on IBKR (ADJUSTED_LAST is now-anchored). Services/
+  scripts/src cannot import a concrete provider leaf outside `src/providers/`
+  (tests/unit/test_provider_leaf_boundary.py; fetcher-family entries shrink to zero at 190-04).
 
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").
