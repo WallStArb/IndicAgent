@@ -2153,6 +2153,102 @@ that sense of "drain" is a different concept and keeps its name (`indicagent-dlq
 **Code surface:** `scripts/infrastructure/backfill/`, `ohlcv_request` lanes (`backfill`,
 `gap_fill`, `update`)
 
+### `ohlcv_history_fetcher` / `OHLCVHistoryFetcher`
+
+The unified multi-provider OHLCV history fetcher: one BaseBatch oneshot process
+(`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`), one ledger-ranked queue, one
+writer connection, one advisory-lock singleton; backfill/gap_fill/update/parity are lanes
+(priorities) inside the loop, and each vendor is a `ProviderEntry` in the fetcher's registry
+whose `leaf_factory` builds a `HistoryProvider` leaf. **Not:** the retired per-campaign
+scripts it replaced (one fetch CLI per vendor), and not the nightly capture runner
+(`ops_bar_nightly`, the T4 tail-capture shell; its lanes join this loop when the Alpaca
+ProviderEntry lands). **Banned:** naming any new fetch path after one vendor.
+**Status:** active (phase 190 cutover, 2026-10-10)
+**Code surface:** `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`; external
+identities intentionally keep the ibkr name (`FETCHER_LOCK_NAME`, JOB label
+`ibkr-history-fetcher`, `indicagent-ibkr-history-fetcher.*` units,
+`logs/ibkr_history_fetcher_status.json`) — renaming any of them means moving every consumer
+in one commit.
+
+### `HistoryProvider`
+
+The Ring 0/1 batch history protocol (`src/providers/base.py`) a vendor leaf satisfies so the
+fetcher dispatches the protocol, never a concrete leaf (CI fence:
+`tests/unit/test_provider_leaf_boundary.py`). A leaf owns its vendor's credentials,
+pagination, native pacing, and symbology, and reports every request as a
+`RequestRecord`; policy never enters a leaf. Sibling of the streaming `DataProvider`; the
+per-domain pattern matches `EconomicSource`. **Not:** a plugin or a discovered class — a
+vendor is one leaf module plus one `history_leaf` registry entry, deliberately.
+**Avoid:** importing a concrete leaf outside `src/providers/` (the boundary fence enforces it).
+**Banned:** (none)
+**Status:** active (phase 190 plan 01; leaves: `IBKRProvider`, `AlpacaProvider`)
+**Code surface:** `src/providers/base.py`, `src/providers/{ibkr,alpaca}.py`,
+`history_leaf()` in `src/providers/__init__.py`
+
+### `per-provider tier`
+
+The planning source of record for the fetch queue: `ohlcv_provider_head`, keyed
+(symbol, provider, timeframe) with that provider's measured floor, plus the per-provider
+failure state on `ohlcv_coverage`. The planner reads this tier only; a provider's own floor
+answers "how deep can this vendor go" so one vendor's ceiling never masquerades as missing
+data for another. **Not:** the canonical tier (stored-state rollups), and not a provenance
+claim. **Banned:** (none)
+**Status:** active (migration 465, phase 190 plan 02/03)
+**Code surface:** `ohlcv_provider_head`; `scripts/infrastructure/backfill/_fetch_queue.py`
+
+### `canonical tier`
+
+`ohlcv_coverage` as the stored-state ledger written in the same transaction as the bars it
+describes, provider-labeled since migration 465 (PK symbol, timeframe, provider). Its rows
+are rollups of what is stored, not claims about which vendor's answer is truer — truth at
+the capture layer lives in `bar_source_policy`/D7. **Not:** the per-provider tier.
+**Banned:** (none)
+**Status:** active (migration 432 + 465)
+**Code surface:** `ohlcv_coverage`; `services/ohlcv_coverage_writer.py`
+
+### `no-data verdict`
+
+The evidence-carrying answer that a vendor definitively has nothing for a span:
+`NoDataVerdict` (IBKR contributes chunk-count evidence, a REST leaf sets
+`authoritative_empty`), recorded in `ohlcv_empty_history`. A verdict tombstones the span so
+gap planning stops re-asking; timeouts and failures never count as verdicts. **Not:** an
+error, and not an empty page (a page can be empty because the window is pending).
+**Avoid:** calling an empty page "no data" without the verdict.
+**Banned:** (none)
+**Status:** active (phase 190 plan 01)
+**Code surface:** `src/providers/base.py` `NoDataVerdict`; `ohlcv_empty_history`
+
+### `raw archive`
+
+The per-supplier observation store: `ohlcv_intraday_raw_archive`, keyed
+(timestamp, symbol, timeframe, source) since migration 468. It holds every bar a vendor
+served that canonical authoring did not store — another source's span, extended-hours rows —
+plus the 15m/1h stored-segment archive, so any two suppliers' tapes stay comparable
+row-for-row and vendor-agreement audits never depend on a tape the pipeline deleted. The
+compute path never reads it (boundary fence). **Not:** scratch (staging, disposable after
+reconciliation), and not a second canonical store. **Banned:** dropping non-authored served
+rows (todo 528 R1); a vendor re-archiving its own canonical answer.
+**Status:** active (migration 383 + 468; no-drop engine since todo 528)
+**Code surface:** `services/intraday_raw_archive.py` (single writer);
+`services/bar_load.py` (`split_series`, `archive_rows`)
+
+### `source` (bar provenance) / `provider`
+
+Every stored bar is labeled with the supplier that answered it: the `source` column on
+`market_data_ohlcv` and the raw archive (`ibkr_named`, `alpaca`, `derived_5m`), and
+`provider` on the ledgers (`ohlcv_coverage`, `ohlcv_provider_head`). The labels name the
+same supplier; `ibkr_named` is the historical span-ownership label on stored IBKR rows and
+stays as-is (stored rows are permanent history), while new code says `provider`/`source`
+with the vendor's registry name. Derived bars are labeled `derived_5m`: their provenance is
+the 5m grid one level down, where each constituent row carries its own supplier — which
+means a derived bucket straddling a span boundary is a blend of two vendors' tapes, and
+vendor-agreement audits compare per source, never inside a blended bucket.
+**Not:** the ingest `caller` (which program asked), and not `route` (which feed answered).
+**Banned:** joining provider-labeled tables to source-labeled tables on the label alone.
+**Status:** active (labels date to migrations 383/446/464/465/468; ruling 2026-10-10)
+**Code surface:** `bar_source_policy`; `market_data_ohlcv.source`;
+`ohlcv_coverage.provider`
+
 ---
 
 ## See Also
