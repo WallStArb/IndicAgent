@@ -13,8 +13,10 @@ CI-clean: no DB, no network, no gateway connection.
 from __future__ import annotations
 
 import inspect
-from dataclasses import FrozenInstanceError
-from datetime import UTC, datetime
+from collections.abc import Callable
+from dataclasses import FrozenInstanceError, replace
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -197,3 +199,278 @@ class TestHistoryPage:
         assert page.bars == (bar,)
         assert page.next_window_start == _utc(2019, 12, 2)
         assert page.verdict == verdict
+
+
+# ---------------------------------------------------------------------------
+# FakeHistoryLeaf: the behavioral fixture. Modeled on the provider_factory /
+# fetch_fn seam style of tests/unit/scripts/test_ibkr_history_fetcher.py: the
+# contract assertions below are written once and run against any conforming
+# leaf; the fake makes the page-boundary, budget and verdict cases runnable
+# without vendor access (IBKRProvider's fetch-path proof stays with
+# tests/unit/scripts/test_history_fetch_item.py).
+# ---------------------------------------------------------------------------
+
+
+class FakeHistoryLeaf:
+    """A stateless-per-call HistoryProvider fake driven by scenario config.
+
+    The window (start, end] is divided into equal `window_span_days` pages.
+    Each call fetches exactly one page, and each fetched page costs one vendor
+    "request". The budget interface is honored per native request: the leaf
+    checks the deadline and its remaining request allowance (tracked across
+    calls in `requests_issued`, since FetchBudget itself is frozen per-call
+    state) before issuing each request and stops mid-call when exhausted,
+    returning what it has with the resume point intact.
+    """
+
+    name = "fake"
+
+    def __init__(
+        self,
+        *,
+        window_span_days: int = 30,
+        empty_windows: int = 0,
+        provider: str = "fake",
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._window_span_days = window_span_days
+        # The oldest `empty_windows` pages of the span answer definitive no-data
+        # instead of bars (the backward walk runs newest page first).
+        self._empty_windows = empty_windows
+        self._provider = provider
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self.requests_issued = 0
+
+    async def fetch_ohlcv(self, request: HistoryRequest, budget: FetchBudget) -> HistoryPage:
+        if request.start >= request.end:
+            raise ValueError(f"Empty window: start {request.start} >= end {request.end}")
+
+        span_days = (request.end - request.start).days
+        window_start = max(request.start, request.end - timedelta(days=self._window_span_days))
+        next_window_start = window_start if window_start > request.start else None
+
+        # Budget honored per native request: deadline first, then the request
+        # allowance. A blocked request yields an empty page with the resume
+        # point unchanged; the caller decides whether to stop.
+        if budget.max_requests - self.requests_issued <= 0 or self._clock() >= budget.deadline:
+            return HistoryPage(bars=(), next_window_start=next_window_start, verdict=None)
+
+        self.requests_issued += 1
+
+        if self._empty_windows and span_days <= self._window_span_days * self._empty_windows:
+            empty_from = max(request.start, request.end - timedelta(days=self._window_span_days))
+            verdict = NoDataVerdict(
+                provider=self._provider,
+                symbol=request.symbol,
+                timeframe=request.timeframe,
+                empty_from=empty_from,
+                empty_through=request.end,
+                reached_request_start=request.start >= empty_from - timedelta(seconds=1),
+                n_confirming_chunks=2,
+            )
+            return HistoryPage(bars=(), next_window_start=next_window_start, verdict=verdict)
+
+        return HistoryPage(
+            bars=(_fake_bar(request.symbol, request.timeframe, request.end - timedelta(days=1)),),
+            next_window_start=next_window_start,
+            verdict=None,
+        )
+
+
+def _fake_bar(symbol: str, timeframe: str, timestamp: datetime) -> OHLCVBar:
+    return OHLCVBar(
+        symbol=symbol,
+        timeframe=timeframe,
+        timestamp=timestamp,
+        open=1.0,
+        high=2.0,
+        low=0.5,
+        close=1.5,
+        volume=100,
+        source="fake",
+    )
+
+
+@pytest.fixture
+def fake_leaf() -> FakeHistoryLeaf:
+    return FakeHistoryLeaf(window_span_days=30)
+
+
+CONFORMANCE_LEAVES = [
+    FakeHistoryLeaf(window_span_days=30),
+    IBKRProvider(host="127.0.0.1", port=7497, client_id=1),
+]
+CONFORMANCE_LEAF_IDS = ["fake", "ibkr-structure"]
+
+
+@pytest.fixture(params=CONFORMANCE_LEAVES, ids=CONFORMANCE_LEAF_IDS)
+def conforming_leaf(request: pytest.FixtureRequest) -> Any:
+    return request.param
+
+
+# --- Shared assertion functions: the contract, written once -----------------
+
+
+def assert_observation_shape(bars: tuple[OHLCVBar, ...]) -> None:
+    """Every observation is a fully populated OHLCVBar (the capture contract's field set)."""
+    for bar in bars:
+        assert isinstance(bar, OHLCVBar)
+        for field in (
+            "symbol",
+            "timeframe",
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "source",
+        ):
+            value = getattr(bar, field)
+            assert value is not None, f"{field} is None on {bar}"
+        assert bar.volume >= 0
+
+
+def assert_page_chain_within_span(pages: list[HistoryPage], request: HistoryRequest) -> None:
+    """A fully driven fetch chains monotonically inside (start, end] and ends closed."""
+    previous_end = request.end
+    for page in pages[:-1]:
+        resume = page.next_window_start
+        assert resume is not None, "only the final page may close the span"
+        assert request.start < resume < previous_end
+        previous_end = resume
+    assert pages[-1].next_window_start is None, "the final page must close the span"
+
+
+# --- Type and structure conformance: every conforming leaf ------------------
+
+
+class TestLeafConformance:
+    @pytest.mark.parametrize(
+        ("leaf",), [(leaf,) for leaf in CONFORMANCE_LEAVES], ids=CONFORMANCE_LEAF_IDS
+    )
+    def test_satisfies_history_provider(self, leaf: Any) -> None:
+        assert isinstance(leaf, HistoryProvider)
+
+    @pytest.mark.parametrize(
+        ("leaf",), [(leaf,) for leaf in CONFORMANCE_LEAVES], ids=CONFORMANCE_LEAF_IDS
+    )
+    def test_fetch_ohlcv_is_async(self, leaf: Any) -> None:
+        assert inspect.iscoroutinefunction(leaf.fetch_ohlcv)
+
+
+# --- Behavioral cases: the fake leaf carries them ---------------------------
+
+
+class TestPageBoundaries:
+    async def test_n_page_request_yields_n_chained_pages(self, fake_leaf: FakeHistoryLeaf) -> None:
+        # A 90-day span over 30-day windows: three pages, chained, closed.
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 1, 2), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=10)
+        pages: list[HistoryPage] = []
+        end = request.end
+        while True:
+            page = await fake_leaf.fetch_ohlcv(
+                replace(request, end=end),
+                budget,
+            )
+            pages.append(page)
+            assert_observation_shape(page.bars)
+            if page.next_window_start is None:
+                break
+            end = page.next_window_start
+        assert len(pages) == 3
+        assert_page_chain_within_span(pages, request)
+
+    async def test_single_page_span_closes_immediately(self, fake_leaf: FakeHistoryLeaf) -> None:
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 3, 15), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=10)
+        page = await fake_leaf.fetch_ohlcv(request, budget)
+        assert page.next_window_start is None
+        assert_observation_shape(page.bars)
+
+
+class TestBudgetInterface:
+    async def test_stops_issuing_requests_once_max_requests_exhausted(
+        self, fake_leaf: FakeHistoryLeaf
+    ) -> None:
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 1, 2), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=1)
+        # The first page fetches normally (one request) and hands back a mid-span
+        # resume point; the second call is budget-blocked and must leave it intact.
+        first = await fake_leaf.fetch_ohlcv(request, budget)
+        assert fake_leaf.requests_issued == 1
+        assert first.bars
+        assert first.next_window_start is not None
+        end = first.next_window_start
+        blocked = await fake_leaf.fetch_ohlcv(replace(request, end=end), budget)
+        assert fake_leaf.requests_issued == 1, "exhausted budget must not issue more requests"
+        assert blocked.bars == ()
+        # The blocked page returns the resume point of the window it was asked
+        # for (mid-span, not None), so the caller can retry it under fresh budget.
+        assert blocked.next_window_start == end - timedelta(days=30)
+
+    async def test_never_returns_bars_past_deadline(self, fake_leaf: FakeHistoryLeaf) -> None:
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 1, 2), end=_utc(2020, 4, 1)
+        )
+        expired = FetchBudget(deadline=_utc(2020, 1, 2), max_requests=5)
+        page = await fake_leaf.fetch_ohlcv(request, expired)
+        assert page.bars == (), "an expired deadline must not produce bars"
+        assert fake_leaf.requests_issued == 0
+
+
+class TestVerdictEmission:
+    async def test_no_data_window_returns_empty_page_with_intact_verdict(
+        self, fake_leaf: FakeHistoryLeaf
+    ) -> None:
+        leaf = FakeHistoryLeaf(window_span_days=30, empty_windows=1, provider="fake")
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 1, 2), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=10)
+        pages: list[HistoryPage] = []
+        end = request.end
+        while True:
+            page = await leaf.fetch_ohlcv(replace(request, end=end), budget)
+            pages.append(page)
+            if page.next_window_start is None:
+                break
+            end = page.next_window_start
+        # The oldest page (the empty_windows window) carries the verdict.
+        final = pages[-1]
+        assert final.bars == ()
+        assert final.verdict is not None
+        assert final.verdict.provider == "fake"
+        assert final.verdict.symbol == "AAPL"
+        assert final.verdict.timeframe == "1d"
+        assert final.verdict.n_confirming_chunks == 2
+        assert final.verdict.authoritative_empty is False
+        assert final.verdict.reached_request_start is True
+        # Evidence survives the page round-trip untouched (frozen dataclass).
+        assert_page_chain_within_span(pages, request)
+
+    async def test_data_window_carries_no_verdict(self, fake_leaf: FakeHistoryLeaf) -> None:
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 3, 15), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=10)
+        page = await fake_leaf.fetch_ohlcv(request, budget)
+        assert page.bars
+        assert page.verdict is None
+
+
+class TestObservationShape:
+    async def test_every_bar_is_a_complete_ohlcvbar(self, fake_leaf: FakeHistoryLeaf) -> None:
+        request = HistoryRequest(
+            symbol="AAPL", timeframe="1d", start=_utc(2020, 3, 15), end=_utc(2020, 4, 1)
+        )
+        budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=10)
+        page = await fake_leaf.fetch_ohlcv(request, budget)
+        assert_observation_shape(page.bars)
