@@ -126,11 +126,11 @@ None. No migrations, no APR seeds, no service or timer touched; the live drain w
 - `tests/unit/scripts/ -q` green; full `tests/unit/ -q` green (exit 0) at every task boundary
 - Live dry run on the new code: exit 0, provider column rendered (every row 'ibkr'), bands intact; `grep infra.ibkr.` on the fetcher module returns nothing
 - Parsed surfaces verified through their consumers: test_head_rerun.py and tests/unit/services/test_bar_reconciliation_audit.py green
-- Live drain: the run in flight at commit time kept the old code; the first natural timer fire after the last commit started the new code (confirmed post-commit, see Self-Check)
+- Live drain on the new code: the run in flight during the edits kept the old loaded copy; the first natural timer fire after the last commit (2026-10-10 08:40:16 UTC, timer never stopped) started the generalized fetcher. Confirmed live: prepare built the ProviderPlan, the registry entry connected the leaf, items dispatched through entry.fetch, and 4 provider-labeled outcomes were recorded with zero error-level events in the first 10 minutes; the run's own success status lands in logs/ibkr_history_fetcher_status.json when it ends (a run-end artifact, hours later by design)
 
 ## Self-Check: PASSED
 
-All five modified files exist on disk; all four task commits verified in git log (1eb425f45, 7217669ef, 1154fd156, 2ae07da93). Live-run confirmation: the timer fired on the new code and logs/ibkr_history_fetcher_status.json recorded a clean run (status success/partial with no import or dispatch errors) -- see the post-SUMMARY confirmation commit if the status read landed after this file was written.
+All five modified files exist on disk; all four task commits verified in git log (1eb425f45, 7217669ef, 1154fd156, 2ae07da93). Live-run confirmation verified as above (new code active and completing items under the natural timer).
 
 ---
 *Phase: 190-provider-history-plane-unification-one-multi-provider-fetche*
