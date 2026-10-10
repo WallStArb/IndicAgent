@@ -5,7 +5,7 @@ fresh 1d observations with the earlier ones for the same dates. A constant ratio
 
 1. corporate_action gets one row (inferred_by nightly_overlap, evidence request ids), idempotent per
    (symbol, effective date, factor), in a transaction under bar_derivation_writer;
-2. the symbol's full 1d history is re-fetched into D1 (ibkr_history_fetcher.py with the symbols
+2. the symbol's full 1d history is re-fetched into D1 (ohlcv_history_fetcher.py with the symbols
    named and a large --overlap-sessions re-asks sessions D1 already answers) so every
    observation is on the new scale;
 3. the daily stage re-derives it, which clears pre_split_unrefetched because a fetch now exists
@@ -74,7 +74,7 @@ _RESCALE_METRIC = "unclassified_rescale"
 _RECORDED_BY = "ops_split_detect"
 _TIMEFRAME = "1d"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_FETCHER = _REPO_ROOT / "scripts" / "infrastructure" / "backfill" / "ibkr_history_fetcher.py"
+_FETCHER = _REPO_ROOT / "scripts" / "infrastructure" / "backfill" / "ohlcv_history_fetcher.py"
 # Exit code for a re-fetch the fetcher refused because its lock is held (the fetcher itself
 # exits 0 and prints LOCK_HELD_MESSAGE). Non-zero, so the derivation is skipped.
 LOCK_HELD_EXIT = 3

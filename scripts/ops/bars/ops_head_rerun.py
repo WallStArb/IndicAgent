@@ -1,7 +1,7 @@
 """D-27 step 2: re-ask the 1d heads of late-starting names and inventory the moved ones.
 
 A late name is a 1d name whose first ibkr_named bar falls after 2006-11-01. The
-IBKR history fetcher (ibkr_history_fetcher.py, the only IBKR history CLI) re-asks the
+IBKR history fetcher (ohlcv_history_fetcher.py, the only IBKR history CLI) re-asks the
 old window under verify-only (SMART, then every venue in
 infra.ibkr.venue_fallback.exchanges) and every answer lands in ohlcv_request /
 ohlcv_observation (D-16). This script only orchestrates and classifies from those
@@ -52,7 +52,7 @@ _logger = structlog.get_logger(__name__)
 Disposition = Literal["moved", "verified_empty", "unresolved", "reached_window_start"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_FETCHER = _REPO_ROOT / "scripts" / "infrastructure" / "backfill" / "ibkr_history_fetcher.py"
+_FETCHER = _REPO_ROOT / "scripts" / "infrastructure" / "backfill" / "ohlcv_history_fetcher.py"
 _CLIENT_ID = 49
 # The script's own exit contract: 3 means "stopped cleanly, rerun resumes" for both a refused
 # preflight and a fetcher lock held by another process.

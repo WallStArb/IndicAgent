@@ -265,7 +265,7 @@ class _FakeProc:
 
 def test_fetcher_command_asks_named_1d_series_on_the_campaign_client() -> None:
     argv = mod.fetcher_command(["AAA", "BBB"])
-    assert argv[1].endswith("scripts/infrastructure/backfill/ibkr_history_fetcher.py")
+    assert argv[1].endswith("scripts/infrastructure/backfill/ohlcv_history_fetcher.py")
     pairs = dict(zip(argv[2::2], argv[3::2], strict=False))
     assert pairs["--symbols"] == "AAA,BBB"
     assert pairs["--timeframes"] == "1d"

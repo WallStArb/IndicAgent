@@ -1,7 +1,7 @@
 """_history_fetch.py -- IBKR history fetch helpers for the phase 189 fetcher.
 
 A helper library with no CLI and no lock of its own. Its only runtime caller is
-ibkr_history_fetcher.py (directly and through _history_fetch_item.py), which holds
+ohlcv_history_fetcher.py (directly and through _history_fetch_item.py), which holds
 FetcherLock for the whole run, so nothing here coordinates the IBKR history stream.
 Manual IBKR tools that import a helper (the chunk and rate-limit probe, the intraday
 venue recovery) take FetcherLock themselves.
@@ -667,7 +667,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     DB errors per base symbol are caught and logged — other symbols continue.
 
     Usage:
-        python scripts/infrastructure/backfill/ibkr_history_fetcher.py --seed-roll-chain
+        python scripts/infrastructure/backfill/ohlcv_history_fetcher.py --seed-roll-chain
     """
     import structlog
 

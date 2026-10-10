@@ -2,7 +2,7 @@
 
 Todo 449 measured that concurrent history streams add no throughput and mostly time out: one
 stream per account is the resource. Phase 189 enforces it with the fetcher's fail-fast advisory
-lock (FetcherLock, CD-09), taken by ibkr_history_fetcher.py and by every manual IBKR history tool;
+lock (FetcherLock, CD-09), taken by ohlcv_history_fetcher.py and by every manual IBKR history tool;
 plan 189-08 retired the two-tier ResourceLease that preceded it. Any module that calls
 fetch_historical_bars, fetch_adjusted_daily_closes or get_head_timestamp must therefore reference
 FetcherLock in code (an import or a name, not prose in a docstring or comment), unless it is on the
@@ -45,11 +45,11 @@ _ALLOW_LIST: dict[str, str] = {
         "(check `systemctl status` before citing it as live)."
     ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
-        "PERMANENT: helper library invoked only by ibkr_history_fetcher.py, which holds "
+        "PERMANENT: helper library invoked only by ohlcv_history_fetcher.py, which holds "
         "FetcherLock for the whole run (no CLI since plan 189-08)."
     ),
     "scripts/infrastructure/backfill/_history_fetch_item.py": (
-        "PERMANENT: helper library invoked only by ibkr_history_fetcher.py, which holds "
+        "PERMANENT: helper library invoked only by ohlcv_history_fetcher.py, which holds "
         "FetcherLock for the whole run."
     ),
     "services/backfill_feature_factory.py": (

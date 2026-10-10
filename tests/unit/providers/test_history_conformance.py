@@ -203,7 +203,7 @@ class TestHistoryPage:
 
 # ---------------------------------------------------------------------------
 # FakeHistoryLeaf: the behavioral fixture. Modeled on the provider_factory /
-# fetch_fn seam style of tests/unit/scripts/test_ibkr_history_fetcher.py: the
+# fetch_fn seam style of tests/unit/scripts/test_ohlcv_history_fetcher.py: the
 # contract assertions below are written once and run against any conforming
 # leaf; the fake makes the page-boundary, budget and verdict cases runnable
 # without vendor access (IBKRProvider's fetch-path proof stays with

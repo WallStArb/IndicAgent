@@ -12,7 +12,7 @@ constant run that is no split ratio (CTVA's 39/7 spin-off rescale) is an unclass
 which the caller holds and never records as a split. Sizeable differences that are not a
 constant run are reported as unexplained. Volume never enters the decision.
 
-This module only reads D1 and decides. The fetcher (ibkr_history_fetcher.py) records, re-fetches
+This module only reads D1 and decides. The fetcher (ohlcv_history_fetcher.py) records, re-fetches
 and re-derives in its own run (plan 189-10, todo 507); ops_split_detect.py does it by hand.
 """
 

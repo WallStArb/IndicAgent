@@ -187,7 +187,7 @@ def test_a_failed_refetch_skips_the_derivation_and_returns_its_code():
 def test_the_refetch_command_asks_the_full_depth_through_the_fetcher_on_the_given_client():
     command = ops.refetch_command(["AAA", "BBB"], years=20, client_id=45)
     assert command[:2] == [sys.executable, str(ops._FETCHER)]
-    assert command[1].endswith("scripts/infrastructure/backfill/ibkr_history_fetcher.py")
+    assert command[1].endswith("scripts/infrastructure/backfill/ohlcv_history_fetcher.py")
     assert "--full-scan" in command
     rest = [part for part in command[2:] if part != "--full-scan"]
     pairs = dict(zip(rest[::2], rest[1::2], strict=False))

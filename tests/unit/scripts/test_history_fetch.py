@@ -1203,7 +1203,7 @@ def test_the_pipeline_cli_lease_and_legacy_ranking_are_gone():
     """Plan 189-08: the former historical pipeline is a helper library. No CLI (main,
     argparse), no ibkr_history_stream lease, no legacy gap ranking (the queue's
     coverage_gap_days replaced it), no backfill_status writer, and no normalize pass
-    (plan 185-32). ibkr_history_fetcher.py is the only IBKR history CLI."""
+    (plan 185-32). ohlcv_history_fetcher.py is the only IBKR history CLI."""
     from scripts.infrastructure.backfill import _history_fetch as hf
 
     for name in (

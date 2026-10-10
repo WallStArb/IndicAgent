@@ -26,7 +26,7 @@ item writes a placeholder or fetch bookkeeping. All provider access goes through
 src/providers/ibkr.py stays the only ib_async importer.
 
 Phase 190 (provider history plane unification): this module IS the ibkr registry entry's
-fetch-hook implementation (ibkr_history_fetcher._ibkr_entry_fetch drives it). Everything
+fetch-hook implementation (ohlcv_history_fetcher._ibkr_entry_fetch drives it). Everything
 here is ibkr-entry-path-only by construction -- qualification (_ensure_qualified), the
 provider head floor with its futures branch, the FX/crypto 1m derive, venue fallback and
 the what_to_show/route request capture are IBKR request mechanics, fenced behind the one

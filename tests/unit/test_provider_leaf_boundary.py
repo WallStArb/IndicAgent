@@ -58,7 +58,7 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # src/providers (an entry the registry imports through the protocol surface)
 # would shrink the first row.
 _ALLOW_LIST: dict[str, str] = {
-    "scripts/infrastructure/backfill/ibkr_history_fetcher.py": (
+    "scripts/infrastructure/backfill/ohlcv_history_fetcher.py": (
         "STAYS POST-190-04: the provider registry's ibkr entry owns the concrete "
         "IBKRProvider construction (leaf_factory, moved from the fetcher's "
         "_default_provider); the loop itself is vendor-blind and dispatches only "

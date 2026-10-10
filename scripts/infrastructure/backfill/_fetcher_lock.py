@@ -28,9 +28,17 @@ logger = structlog.get_logger(__name__)
 
 # A name distinct from the retired two-tier history lease's, so the two keys never collided
 # while both existed.
+# FROZEN (phase 190 decision): the advisory key is sha256 of this name and is shared by
+# ops_d1_bootstrap, ops_venue_study, ops_intraday_venue_recovery, the rate-limit probe,
+# classification sourcing and the onboard manifest; the fetcher module renamed to
+# ohlcv_history_fetcher.py without touching this value, because a piecemeal rename would let
+# two fetchers hold different keys simultaneously (the one-writer invariant dies silently).
+# Renaming requires moving every consumer in one commit.
 FETCHER_LOCK_NAME = "ibkr_history_fetcher"
 
 # Exact string: plan 08's ops_head_rerun matches it in subprocess output.
+# FROZEN (phase 190 decision): value byte-identical across the code-identifier rename;
+# ops_head_rerun.py matches it exactly in subprocess output.
 LOCK_HELD_MESSAGE = "ibkr history fetcher lock held by another process; exiting"
 
 # PostgreSQL truncates application_name to NAMEDATALEN - 1 bytes.
