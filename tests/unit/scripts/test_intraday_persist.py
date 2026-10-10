@@ -31,7 +31,12 @@ from scripts.infrastructure.backfill._intraday_persist import (
     chunk_digest,
     persist_chunk_atomically,
 )
-from services.ohlcv_coverage_writer import FETCH_STATUSES, CoverageDelta, record_fetch_outcome
+from services.ohlcv_coverage_writer import (
+    FETCH_STATUSES,
+    CoverageDelta,
+    record_fetch_outcome,
+    upsert_coverage,
+)
 from services.ohlcv_ingress_contract import RevisionRefused, SeriesLoad
 from services.ohlcv_observation_writer import write_request_rows
 
@@ -527,6 +532,51 @@ def test_coverage_delta_rejects_an_unknown_destination():
         CoverageDelta(symbol="SPY", timeframe="15m", destination="nowhere", fetched_at=_FETCHED_AT)
 
 
+def test_coverage_delta_defaults_to_the_ibkr_stored_state_label():
+    assert _delta().provider == "ibkr"
+
+
+def test_a_non_default_provider_on_the_delta_reaches_the_upsert(archive_writer, recorded_upserts):
+    """T-190-02b: the coverage row is labeled by the vendor that actually fetched the chunk.
+    The helper threads the delta's provider through untouched; a second vendor's coverage can
+    never silently record as ibkr."""
+    conn = FakeConn()
+    alpaca = CoverageDelta(
+        symbol="SPY",
+        timeframe="15m",
+        destination="archive",
+        fetched_at=_FETCHED_AT,
+        provider="alpaca",
+    )
+    persist_chunk_atomically(
+        conn,
+        request_rows=[_REQUEST_ROW],
+        archive_rows=[_ARCHIVE_ROW],
+        write_archive_rows=archive_writer,
+        coverage=alpaca,
+    )
+    (call,) = recorded_upserts
+    assert call["delta"].provider == "alpaca"
+
+
+def test_upsert_labels_the_row_from_the_delta_provider():
+    """At the SQL level: the provider parameter rides in the INSERT column list, so the
+    labeled row lands even while the conflict target is still the old shape."""
+    conn = FakeConn()
+    upsert_coverage(
+        conn.cursor(),
+        CoverageDelta(symbol="SPY", timeframe="15m", destination="archive", fetched_at=_FETCHED_AT),
+        earliest=_T0,
+        latest=_T1,
+        n_new_rows=2,
+    )
+    ((sql, _),) = conn.statements
+    assert "provider" in sql.split("INSERT INTO ohlcv_coverage (")[1].split(")")[0]
+    assert "ON CONFLICT (symbol, timeframe)" in sql
+    params = conn.params[sql]
+    assert params[-1] == "ibkr"  # the delta's provider, last in the VALUES tuple
+
+
 def test_record_fetch_outcome_rejects_an_unknown_status_before_sql():
     conn = FakeConn()
     with pytest.raises(ValueError, match="status"):
@@ -542,10 +592,11 @@ def test_record_fetch_outcome_never_increments_on_no_data():
     params = conn.params[sql]
     assert "WHEN EXCLUDED.last_fetch_status = 'error'" in sql
     assert "ohlcv_coverage.consecutive_failures + 1" in sql
-    assert params[-1] == 0  # insert path: no_data starts at zero
+    assert params[-2] == 0  # insert path: no_data starts at zero
+    assert params[-1] == "ibkr"  # the stored-state provider default labels the row
     conn = FakeConn()
     record_fetch_outcome(conn.cursor(), "SPY", "15m", "error", _FETCHED_AT)
-    assert conn.params[conn.statements[0][0]][-1] == 1
+    assert conn.params[conn.statements[0][0]][-2] == 1
 
 
 def test_fetch_statuses_are_the_ledger_check_values():

@@ -20,6 +20,13 @@ tests/unit/test_ohlcv_coverage_writer_boundary.py), from two places:
 Every function takes a psycopg cursor whose transaction has already run
 SET LOCAL ROLE bar_derivation_writer (the only role granted SELECT, INSERT, UPDATE here).
 DB only: no IBKR, no network, no commits of its own.
+
+Provider dimension (phase 190 plan 02, migration 464): every write carries the authoring
+fetch plane's label, `provider`, defaulting to "ibkr" -- the stored-state default until a
+second provider exists (the alpaca entries land with the todo-521 leaf). The label is the
+canonical tier's authoring plane, never a per-vendor provenance claim over the stored bars
+(vendor claims live in ohlcv_load.source and the per-provider tier). The upserts' CONFLICT
+TARGET STAYS THE OLD SHAPE (symbol, timeframe) in this plan: see the comment on _UPSERT_SQL.
 """
 
 from __future__ import annotations
@@ -43,11 +50,17 @@ DESTINATION_TABLES = {
     DESTINATION_GRID: "market_data_ohlcv",
 }
 
+# CRITICAL (190-02 review adjudication item 1): the conflict target of BOTH statements
+# REMAINS the old shape (symbol, timeframe). The running drain holds this module in memory;
+# switching the target now would desync it, and the new target has no unique index to match
+# until migration 465 applies anyway. The target flips to (symbol, timeframe, provider) at
+# the wave-5 cutover, in the same shell breath as applying 465, with the fetcher stopped
+# (plan 190-06 Task 2 owns the flip).
 _UPSERT_SQL = """
 INSERT INTO ohlcv_coverage (
     symbol, timeframe, earliest_timestamp, latest_timestamp, row_count,
-    last_fetched_at, last_fetch_status, consecutive_failures
-) VALUES (%s, %s, %s, %s, %s, %s, 'ok', 0)
+    last_fetched_at, last_fetch_status, consecutive_failures, provider
+) VALUES (%s, %s, %s, %s, %s, %s, 'ok', 0, %s)
 ON CONFLICT (symbol, timeframe) DO UPDATE SET
     earliest_timestamp = LEAST(ohlcv_coverage.earliest_timestamp, EXCLUDED.earliest_timestamp),
     latest_timestamp = GREATEST(ohlcv_coverage.latest_timestamp, EXCLUDED.latest_timestamp),
@@ -59,8 +72,8 @@ ON CONFLICT (symbol, timeframe) DO UPDATE SET
 
 _OUTCOME_SQL = """
 INSERT INTO ohlcv_coverage (
-    symbol, timeframe, last_fetched_at, last_fetch_status, consecutive_failures
-) VALUES (%s, %s, %s, %s, %s)
+    symbol, timeframe, last_fetched_at, last_fetch_status, consecutive_failures, provider
+) VALUES (%s, %s, %s, %s, %s, %s)
 ON CONFLICT (symbol, timeframe) DO UPDATE SET
     last_fetched_at = EXCLUDED.last_fetched_at,
     last_fetch_status = EXCLUDED.last_fetch_status,
@@ -73,12 +86,21 @@ ON CONFLICT (symbol, timeframe) DO UPDATE SET
 
 @dataclass(frozen=True)
 class CoverageDelta:
-    """Which series one fetched chunk belongs to, and where its bars are stored."""
+    """Which series one fetched chunk belongs to, where its bars are stored, and which
+    fetch plane authored the chunk.
+
+    `provider` is the canonical tier's stored-state label (migration 464): the vendor whose
+    fetch path actually produced the chunk, so a second vendor's coverage can never
+    silently record as ibkr. The default keeps every pre-190 caller valid and is the
+    stored-state default until a second provider exists; it is not a provenance claim over
+    the stored bars (those live in ohlcv_load.source and the per-provider tier).
+    """
 
     symbol: str
     timeframe: str
     destination: str
     fetched_at: datetime
+    provider: str = "ibkr"
 
     def __post_init__(self) -> None:
         if self.destination not in DESTINATION_TABLES:
@@ -115,34 +137,52 @@ def upsert_coverage(
 ) -> None:
     """Widen the series' stored bounds, add its new rows, and mark the fetch ok.
 
-    Runs under SET LOCAL ROLE bar_derivation_writer inside the bars' transaction. LEAST and
-    GREATEST ignore NULLs, so the first bars onto a no_data-only row set its bounds.
+    The row is labeled with the delta's provider (the vendor that fetched the chunk), under
+    the old-shape conflict target until the wave-5 flip. Runs under SET LOCAL ROLE
+    bar_derivation_writer inside the bars' transaction. LEAST and GREATEST ignore NULLs, so
+    the first bars onto a no_data-only row set its bounds.
     """
     if n_new_rows < 0:
         raise ValueError(f"n_new_rows must be >= 0, got {n_new_rows}")
     cur.execute(
         _UPSERT_SQL,
-        (delta.symbol, delta.timeframe, earliest, latest, n_new_rows, delta.fetched_at),
+        (
+            delta.symbol,
+            delta.timeframe,
+            earliest,
+            latest,
+            n_new_rows,
+            delta.fetched_at,
+            delta.provider,
+        ),
     )
 
 
 def record_fetch_outcome(
-    cur: Any, symbol: str, timeframe: str, status: str, fetched_at: datetime
+    cur: Any,
+    symbol: str,
+    timeframe: str,
+    status: str,
+    fetched_at: datetime,
+    *,
+    provider: str = "ibkr",
 ) -> None:
     """Record one queue item's outcome; only 'error' increments consecutive_failures (CD-05).
 
-    'ok' and 'no_data' reset the counter: a correct empty answer is an answer. Runs under
-    SET LOCAL ROLE bar_derivation_writer. An unknown status raises before any SQL.
+    'ok' and 'no_data' reset the counter: a correct empty answer is an answer. The outcome is
+    per-provider row state (the label is the stored-state default until a second provider
+    exists). Runs under SET LOCAL ROLE bar_derivation_writer. An unknown status raises
+    before any SQL.
     """
     if status not in FETCH_STATUSES:
         raise ValueError(f"unknown fetch status {status!r}; expected one of {FETCH_STATUSES}")
     initial_failures = 1 if status == _ERROR_STATUS else 0
-    cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures))
+    cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures, provider))
 
 
 _REFRESH_1D_SQL = """
-INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, row_count)
-SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(*)
+INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, row_count, provider)
+SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(*), %s
 FROM market_data_ohlcv_tradeable
 WHERE symbol = ANY(%s) AND timeframe = '1d'
 GROUP BY symbol
@@ -153,7 +193,7 @@ ON CONFLICT (symbol, timeframe) DO UPDATE SET
 """
 
 
-def refresh_1d_bounds(cur: Any, symbols: Iterable[str]) -> int:
+def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr") -> int:
     """Recompute the 1d bounds and row count of `symbols` from the canonical 1d rows.
 
     A 1d fetch stores no bar (the daily derivation stage is the sole 1d writer, plan 185-18
@@ -162,21 +202,24 @@ def refresh_1d_bounds(cur: Any, symbols: Iterable[str]) -> int:
     staleness reads the rows D2 wrote rather than the migration 432 bootstrap. Recomputed,
     not widened: D2 may rewrite a 1d history (split re-derivation). Fetch status and the
     failure counter are left to record_fetch_outcome. A symbol with no tradeable 1d row is
-    left untouched. Runs under SET LOCAL ROLE bar_derivation_writer. Returns rows written.
+    left untouched. The recomputed row carries the provider label (stored-state default
+    until a second provider exists). Runs under SET LOCAL ROLE bar_derivation_writer.
+    Returns rows written.
     """
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
-    cur.execute(_REFRESH_1D_SQL, (symbol_list,))
+    cur.execute(_REFRESH_1D_SQL, (provider, symbol_list))
     return int(cur.rowcount)
 
 
 # Migration 432's bootstrap aggregate, as an update-in-place. {where} is either empty or a
 # symbol filter; it is spliced into every source scan so a scoped rebuild reads only its rows.
+# The rebuilt rows carry the %(provider)s label of the rebuild's authoring plane.
 _REBUILD_SQL = """
 INSERT INTO ohlcv_coverage (
     symbol, timeframe, earliest_timestamp, latest_timestamp, row_count,
-    last_fetched_at, last_fetch_status
+    last_fetched_at, last_fetch_status, provider
 )
 WITH grid AS (
     SELECT symbol, timeframe,
@@ -225,7 +268,8 @@ SELECT coalesce(b.symbol, r.symbol),
        b.latest,
        coalesce(b.n, 0),
        r.answered_at,
-       r.status
+       r.status,
+       %(provider)s
 FROM bars b
 FULL OUTER JOIN requests r
   ON r.symbol = b.symbol AND r.timeframe = b.timeframe
@@ -242,13 +286,19 @@ ON CONFLICT (symbol, timeframe) DO UPDATE SET
         ELSE ohlcv_coverage.last_fetch_status
     END
 """
-_REQUEST_FILTER = (
-    "WHERE route = 'SMART' AND what_to_show = 'TRADES' "
-    "AND outcome IN ('bars', 'no_data', 'timeout', 'failed')"
-)
+# Per-provider rebuild inputs (phase 190 plan 02; the design generalizes the IBKR-only
+# request filter). The alpaca entry lands with todo 521's leaf, never hand-written here.
+_REBUILD_FILTERS: dict[str, str] = {
+    "ibkr": (
+        "WHERE route = 'SMART' AND what_to_show = 'TRADES' "
+        "AND outcome IN ('bars', 'no_data', 'timeout', 'failed')"
+    )
+}
 
 
-def rebuild_from_stored_state(cur: Any, symbols: Iterable[str] | None = None) -> int:
+def rebuild_from_stored_state(
+    cur: Any, symbols: Iterable[str] | None = None, *, provider: str = "ibkr"
+) -> int:
     """Recompute every ledger row's bounds and row count from the stored bars, in place.
 
     Migration 432 bootstrapped the ledger once with ON CONFLICT DO NOTHING, so a writer that
@@ -256,43 +306,54 @@ def rebuild_from_stored_state(cur: Any, symbols: Iterable[str] | None = None) ->
     with coverage=None from 2026-10-02 to the 189-06 cutover) leaves rows stale or missing.
     This is the same aggregate as that bootstrap, with DO UPDATE: earliest, latest and
     row_count are recomputed (not widened) from market_data_ohlcv_tradeable and, for 15m/1h,
-    the raw archive; missing series are inserted. The latest SMART TRADES request advances
-    last_fetched_at and last_fetch_status only when it is newer than what the ledger holds.
-    consecutive_failures is never touched: it counts the fetcher's own item outcomes.
+    the raw archive; missing series are inserted. The provider's own request shape
+    (_REBUILD_FILTERS) advances last_fetched_at and last_fetch_status only when it is newer
+    than what the ledger holds; the rebuilt rows carry the provider label. An unknown
+    provider raises before any SQL (a new provider's filter arrives with its leaf, never
+    hand-written here). consecutive_failures is never touched: it counts the fetcher's own
+    item outcomes.
 
     `symbols` scopes the rebuild (tests use a synthetic symbol); None rebuilds every series.
     Run under SET LOCAL ROLE bar_derivation_writer while holding the fetcher lock, so no
     persist_chunk_atomically delta can interleave. Returns rows inserted or updated.
     """
+    if provider not in _REBUILD_FILTERS:
+        raise ValueError(
+            f"unknown coverage provider {provider!r}; expected one of {sorted(_REBUILD_FILTERS)}"
+        )
+    request_filter = _REBUILD_FILTERS[provider]
     if symbols is None:
-        sql = _REBUILD_SQL.format(where="", request_where=_REQUEST_FILTER)
-        cur.execute(sql)
+        sql = _REBUILD_SQL.format(where="", request_where=request_filter)
+        cur.execute(sql, {"provider": provider})
         return int(cur.rowcount)
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
     sql = _REBUILD_SQL.format(
         where="WHERE symbol = ANY(%(symbols)s)",
-        request_where=f"{_REQUEST_FILTER} AND symbol = ANY(%(symbols)s)",
+        request_where=f"{request_filter} AND symbol = ANY(%(symbols)s)",
     )
-    cur.execute(sql, {"symbols": symbol_list})
+    cur.execute(sql, {"provider": provider, "symbols": symbol_list})
     return int(cur.rowcount)
 
 
-def reset_failures(cur: Any, symbol: str, timeframe: str | None) -> int:
+def reset_failures(cur: Any, symbol: str, timeframe: str | None, *, provider: str = "ibkr") -> int:
     """Zero consecutive_failures for a symbol (one timeframe, or all when None).
 
-    The fetcher's --reset-failures path re-admits an excluded series to the queue. Runs under
-    SET LOCAL ROLE bar_derivation_writer. Returns the number of rows reset.
+    The fetcher's --reset-failures path re-admits an excluded series to the queue; the
+    counter is per-provider row state, so the reset is scoped to the provider's rows. Runs
+    under SET LOCAL ROLE bar_derivation_writer. Returns the number of rows reset.
     """
     if timeframe is None:
         cur.execute(
-            "UPDATE ohlcv_coverage SET consecutive_failures = 0 WHERE symbol = %s", (symbol,)
+            "UPDATE ohlcv_coverage SET consecutive_failures = 0 "
+            "WHERE symbol = %s AND provider = %s",
+            (symbol, provider),
         )
     else:
         cur.execute(
             "UPDATE ohlcv_coverage SET consecutive_failures = 0 "
-            "WHERE symbol = %s AND timeframe = %s",
-            (symbol, timeframe),
+            "WHERE symbol = %s AND timeframe = %s AND provider = %s",
+            (symbol, timeframe, provider),
         )
     return cur.rowcount

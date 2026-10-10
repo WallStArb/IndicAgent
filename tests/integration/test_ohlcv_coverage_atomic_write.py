@@ -31,6 +31,7 @@ from services.ohlcv_coverage_writer import (
     rebuild_from_stored_state,
     record_fetch_outcome,
     refresh_1d_bounds,
+    upsert_coverage,
 )
 from tests.integration.conftest import TEST_DB_URL
 
@@ -255,3 +256,78 @@ def test_rebuild_from_stored_state_recomputes_stale_rows_in_place(live):
         ).fetchone()
         == other_before
     )
+
+
+# ---------------------------------------------------------------------------
+# The post-flip shape (phase 190 plan 02): a second provider upserts a DISTINCT row.
+#
+# Migration 465 is committed but deliberately un-applied through waves 1-4 (it applies at
+# the 190-06 cutover, with the fetcher stopped), so this case simulates the WHOLE flip
+# inside ONE transaction that always rolls back: the 465 coverage DDL (drop the old PK,
+# add (symbol, timeframe, provider)) plus the writer's conflict-target swap (the same
+# one-line change 190-06 makes in the same shell breath). The new shape exists only for
+# the statements inside; the live schema (and indicagent_test) keeps the old
+# (symbol, timeframe) PK, and no DB-backed test asserts the new PK against the live
+# tables before 190-06. upsert_coverage is called directly:
+# persist_chunk_atomically demands an idle connection and cannot run inside this
+# transaction.
+# ---------------------------------------------------------------------------
+
+
+class _ForceRollback(Exception):
+    """Raised inside the transaction after its assertions pass, so psycopg rolls the
+    465 shape back instead of committing it on the clean exit."""
+
+
+def test_post_flip_a_second_provider_upserts_a_distinct_row(live, monkeypatch):
+    import services.ohlcv_coverage_writer as coverage_writer
+
+    flipped = coverage_writer._UPSERT_SQL.replace(
+        "ON CONFLICT (symbol, timeframe)", "ON CONFLICT (symbol, timeframe, provider)"
+    )
+    assert flipped != coverage_writer._UPSERT_SQL
+    monkeypatch.setattr(coverage_writer, "_UPSERT_SQL", flipped)
+
+    conn, symbol = live
+    now = datetime.now(UTC)
+    with pytest.raises(_ForceRollback):
+        with conn.transaction():  # always rolled back: the 465 shape never outlives the test
+            conn.execute("ALTER TABLE ohlcv_coverage DROP CONSTRAINT ohlcv_coverage_pkey")
+            conn.execute("ALTER TABLE ohlcv_coverage ADD PRIMARY KEY (symbol, timeframe, provider)")
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL ROLE bar_derivation_writer")
+                delta = dict(symbol=symbol, timeframe="15m", destination="archive", fetched_at=now)
+                upsert_coverage(
+                    cur,
+                    CoverageDelta(**delta, provider="ibkr"),
+                    earliest=now,
+                    latest=now,
+                    n_new_rows=3,
+                )
+                upsert_coverage(
+                    cur,
+                    CoverageDelta(**delta, provider="alpaca"),
+                    earliest=now,
+                    latest=now,
+                    n_new_rows=2,
+                )
+                rows = cur.execute(
+                    "SELECT provider, row_count FROM ohlcv_coverage "
+                    "WHERE symbol = %s AND timeframe = '15m' ORDER BY provider",
+                    (symbol,),
+                ).fetchall()
+                assert rows == [("alpaca", 2), ("ibkr", 3)]
+            raise _ForceRollback
+    assert (
+        conn.execute("SELECT count(*) FROM ohlcv_coverage WHERE symbol = %s", (symbol,)).fetchone()[
+            0
+        ]
+        == 0
+    )  # rolled back: nothing leaked past the transaction
+    assert (
+        conn.execute(
+            "SELECT conname FROM pg_constraint WHERE conrelid = 'ohlcv_coverage'::regclass "
+            "AND contype = 'p'"
+        ).fetchone()[0]
+        == "ohlcv_coverage_pkey"
+    )  # the live PK is untouched

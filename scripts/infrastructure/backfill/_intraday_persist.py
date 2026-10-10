@@ -33,6 +33,15 @@ the same transaction, still under bar_derivation_writer:
 
 so the coverage ledger can never describe bars that did not land.
 
+Phase 190 plan 02 adds the provider dimension (migration 464): the CoverageDelta
+carries the authoring fetch plane's label, and this helper threads it through
+untouched -- _write_bars_and_coverage hands the caller's whole delta to
+upsert_coverage, whose row is labeled by the vendor that actually fetched the
+chunk. The provider is set where the delta is BUILT (the fetch item knows its
+vendor); a second vendor's coverage can never silently record as ibkr. The
+upsert's conflict target stays the old shape (symbol, timeframe) until the
+wave-5 cutover flips it in the same breath as migration 465 (plan 190-06).
+
 Phase 185 plan 39 adds the ingress write contract and the request digest. Each request row that
 answered with bars carries the content digest of the answer the chunk stored (design section 3,
 direct mode provenance; src/intelligence/bars/digest.py arithmetic over the chunk's rows, one per

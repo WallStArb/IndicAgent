@@ -104,6 +104,14 @@ _SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
 # N (fixed in the hypertables file itself, not here).
 _BASELINE_MIGRATION_CUTOFF = 433
 
+# Migrations committed to the repo but deliberately NOT applied to any live database yet, so
+# the replay must not apply them to indicagent_test either (the test DB must mirror the live
+# schema for the sync check and the live-shape writer cases). Phase 190 plan 02 commits
+# migration 465 (the two-tier PK swaps) un-applied: it applies at the wave-5 cutover, by plan
+# 190-06, with the fetcher stopped and in the same shell breath as the coverage writer's
+# conflict-target flip. REMOVE the 465 entry in that same breath.
+_COMMITTED_BUT_UNAPPLIED = {465}
+
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
 
 
@@ -223,6 +231,7 @@ def _replay_post_baseline_migrations() -> None:
         p
         for p in _MIGRATIONS_DIR.glob("*.sql")
         if _migration_number(p) > _BASELINE_MIGRATION_CUTOFF
+        and _migration_number(p) not in _COMMITTED_BUT_UNAPPLIED
     )
     for path in new_migrations:
         _run_psql_file(path)
