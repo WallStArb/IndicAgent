@@ -1,11 +1,16 @@
 # Data Providers — Developer Reference
 
-> **Status note (2026-07-02): the real-time IBKR provider is not currently running.**
-> `indicagent-ibkr-provider` and `provider-merger` are confirmed `inactive (dead)` (v2.x
-> real-time pipeline is dormant — see root `CLAUDE.md`). The mechanics below (asset-class
-> contract rules, VIX/FX symbol quirks, latency characteristics) remain accurate and directly
-> reusable whenever the provider is reactivated or reused in a batch context — only the
-> Troubleshooting section's restart instructions assume a currently-running service.
+## Batch history leaves (phase 190)
+
+Vendor batch-history mechanics live in per-vendor leaves satisfying the `HistoryProvider`
+protocol (`src/providers/base.py`): `IBKRProvider`, `AlpacaProvider`. Callers dispatch via
+`history_leaf(vendor, ...)` (`src/providers/__init__.py`), never a concrete leaf import
+outside this ring (CI fence: `tests/unit/test_provider_leaf_boundary.py`). A leaf owns its
+vendor's credentials, pagination, native pacing, and symbology; policy never enters a leaf.
+Alpaca credentials come from `.env` (`ALPACA_KEY_ID`/`ALPACA_SECRET_KEY`) via Settings;
+pacing is APR-backed (`infra.alpaca.rate_limit_max_requests`, migration 469). The nightly
+capture runner is `scripts/ops/bars/ops_bar_nightly.py`; the deep-history fetcher is
+`scripts/infrastructure/backfill/ohlcv_history_fetcher.py` (provider registry inside).
 
 ## IBKR Provider (`ibkr.py`)
 
@@ -18,7 +23,7 @@ All ib_async logic is isolated here. **No ib_async imports anywhere else.**
 | Futures (`FUT`) | `Future(symbol=...)` | `TRADES` | `"233"` (RTVolume) |
 | FX (`CASH`) | `Forex(pair=symbol)` | `MIDPOINT` | `""` |
 | Crypto (`CRYPTO`) | `Contract(secType='CRYPTO', symbol=base, currency='USD')` | `AGGTRADES` | `""` |
-| Equity/ETF (`STK`) | `Stock(symbol=..., exchange='SMART', currency='USD')` | `TRADES` | `"233"` (RTVolume) |
+| Equity/ETF (`STK`) | `Stock(symbol=..., exchange='SMART', currency='USD')` | `TRADES` | `""` |
 
 - VIX futures: `symbol="VXJ6"`, `base="VIX"` (IBKR CFE internal symbol), `provider_meta={"trading_class": "VX"}`. IBKR returns `localSymbol="VXJ6"`. Client IDs: 35+ range.
 - Some futures need `tradingClass`: `provider_meta={"trading_class": "XYZ"}`.
@@ -29,19 +34,17 @@ All ib_async logic is isolated here. **No ib_async imports anywhere else.**
 ### Active Contracts
 `get_active_contracts(settings, dimension=...)` from `src/config/settings.py` is authoritative; it reads `instruments` (scope columns `compute_eligible`, `compute_eligible_1d`, `live_tradeable`). **Never hardcode counts, they drift fast.**
 
-**80-subscription limit is a LIVE-streaming cap, not a backfill/registration cap.** IBKR's 80-simultaneous-subscription ceiling applies to `reqMktData`/`reqHistoricalData(keepUpToDate=True)` — i.e. `indicagent-ibkr-provider`'s live path, which is intentionally stopped (see root `CLAUDE.md`'s ingestion-paused note). Historical `reqHistoricalDataAsync` backfill is pacing-limited (`infra.ibkr.rate_limit_max_requests`), not subscription-count-limited — registering and backfilling any number of instruments is fine right now. The provider streams only `get_active_contracts(dimension="live")` (`instruments.live_tradeable = true`) and refuses to start if that set is empty or larger than `settings.ibkr_max_subscriptions`, checked before it connects (Phase 174 review CR-02). Every streaming-path daemon (`feature_vector_pipeline`, `bar_auditor`, `signal_auditor`, `service_auditor`'s session gate) reads the same `live` set; `provider_merger`'s asset-class lookup reads `backfill`. Zero rows are `live_tradeable` today, so choosing the live set deliberately is the first step of any provider restart (todo 366).
-
-Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200. NG/BZ valid in live account.
+**The 80-subscription limit is a LIVE-streaming cap, not a backfill cap.** It binds only `reqMktData`/`keepUpToDate` streaming; historical backfill is pacing-limited, not subscription-limited. The streaming provider is dormant (v2.x archive); if it is ever revived, it streams `get_active_contracts(dimension="live")` and refuses to start on an empty or oversized set (phase 174 CR-02). Paper trading unavailable: BZJ6, NGJ6 (NYMEX energy), SR1H6 (SOFR) — Error 200.
 
 ### Historical Backfill Chunk Sizes & Rate Limit
 
 `_MAX_CHUNK_DAYS` (per-request duration ceiling per timeframe) and `_IBKR_HIST_RATE_LIMIT` (requests per 10-min sliding window) are APR-governed (`infra.ibkr.chunk_days.*` / `infra.ibkr.rate_limit_max_requests`, `ConfigService`-backed, `config_state` table) — the module-level constants in `ibkr.py` are fallback defaults only, real values load fresh at backfill startup. Current values, all empirically re-verified 2026-08-06 against live IBKR (not inherited assumption — see `production/migrations/302_ibkr_chunk_days_and_rate_limit_recalibration.sql` for full per-key provenance, `production/migrations/303_ibkr_chunk_days_15m_year_rounding_fix.sql` for the 15m correction below, `scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py` to re-test):
 
 | Timeframe | Chunk days | Note |
-|---|---|---|
+|-----------|------------|------|
 | 1m | 14 | Real IBKR boundary, not inherited guess |
 | 5m | 150 | True ceiling is 150-180d (180d confirmed bad) |
-| 15m | 730 (2yr) | 730 = 2×365 exact multiple. Migration 302 originally set this to 400, which crosses the 365d threshold and gets rounded up by `_days_to_duration_str()` to `"2 Y"` (730d) anyway — so 400 and 730 hit the identical IBKR wire request, but the chunking loop's walk-back stride used the literal 400d, causing ~330d of redundant re-fetched overlap per chunk on multi-year backfills. Migration 303 (2026-08-06) fixed this by setting the config value to match what IBKR actually returns. Checked all other chunk_days keys for the same class of bug: 4h/1h (1095d) and 1d (7300d) are exact multiples of 365, no gap; 1m/5m stay under the 365d threshold entirely. 15m was the only affected key. |
+| 15m | 730 (2yr) | See migration 303: must be an exact 365 multiple once over 365d |
 | 4h | 1095 (3yr) | |
 | 1h | 1095 (3yr) | A full-20yr single-shot (7300d) was tested and genuinely FAILED — don't push this one further without new evidence |
 | 1d | 7300 (full 20yr, 1 request/symbol) | |
@@ -54,26 +57,11 @@ Per-timeframe limits: `infra.ibkr.rate_limit_max_requests_by_tf` (migration 375,
 
 ### Adding New Contracts
 1. Onboard through `onboard_instrument()` via `scripts/infrastructure/universe_expansion_onboard_manifest.py` (manifest CSV; dry run qualifies on IBKR, `--commit` writes). Never INSERT directly: onboarding requires a classification and tags, and insert paths never grant eligibility (migration 352).
-2. Backfill: `ibkr_history_fetcher.py --dimension backfill --timeframes 1d --symbols <list>` (the only IBKR history CLI; it takes FetcherLock, and named symbols are asked even when current).
+2. Backfill: `ohlcv_history_fetcher.py --dimension backfill --timeframes 1d --symbols <list>` (the only IBKR history CLI; it takes FetcherLock, and named symbols are asked even when current).
 3. Promote: `universe_expansion_promote_compute_eligible.py --dimension compute_1d --commit` (reads the bar_integrity verdict gate since plan 185-41; see the onboarding SOP).
 
 **Listing-venue moves (todo 433):** SMART history starts at a stock's last primary-venue move. The same conId routed to `NYSE`/`ARCA`/`ISLAND`/`AMEX`/`BATS` serves earlier years with venue-only volume; only the listing venue's closes are official (it carries the most volume). Error 162 "Query failed" is the marker, logged as `ibkr.hist_query_failed`.
 
-### Bar Delivery Latency
-
-Live bars come from `reqHistoricalDataAsync(keepUpToDate=True)` via `stream_official_bars()`. This is a reconciliation API, not a low-latency feed. Observed delivery: **~5-6s from bar open** (`bar.ts`) to `market.bars` Kafka topic, all bars under 10s (measured via `merger_bar_latency_seconds`).
-
-**What this means:** IBKR fires `updateEvent(has_new_bar=True)` when a new bar period starts (at `:00`), delivering the newly-opened bar's initial snapshot ~5-6s later. This is IBKR server-side latency — nothing in our stack adds to it. The `merger_bar_latency_seconds` metric measures provider delivery lag (bar.ts → merger receipt), not merger processing time (which is sub-millisecond pass-through).
-
-**Trade-off accepted:** `keepUpToDate=True` gives clean, audited 1m bars suitable for signal computation. `reqRealTimeBars` (5s RTBs) would give sub-second delivery but requires bar accumulation and adds pipeline complexity. For 1m signal logic this latency is acceptable; for sub-second price display it is not.
-
 ### Troubleshooting
 - **IB Gateway connection refused**: IB Gateway runs locally via Docker (`ib-gateway` container, `localhost:7497`). If connection fails, check the container is running (`docker ps | grep ib-gateway`) and that the API is enabled inside the gateway UI (VNC on `:5900`).
-- **Contract rollover**: When futures expire (H6→M6/J6), restart `indicagent-ibkr-provider` to load new contracts:
-  ```bash
-  sudo systemctl restart indicagent-ibkr-provider
-  # Verify: grep "KafkaProducerClient started" logs/ibkr_provider_agent.log | tail -3
-  ```
-- **`bars_processed` freeze**: TWS daemon gets stuck — IBKR paper account returns stale RTH bars regardless of `endDateTime` format. `seen_bar_timestamps` dedup caches all timestamps from initial poll; counter sticks at N×61 forever. **Restart does NOT fix it.** Root fix: build 1m OHLCV bars from live tick stream (`development.market.ticks`) instead of polling historical API.
-- **Qualify errors**: Some futures need `tradingClass` in `provider_meta` — add if IBKR returns ambiguous contract details.
-- **LocalSymbol mismatches**: FX/crypto use dots (EUR.USD) vs codebase (EURUSD) — `_local_to_canonical` dict handles this automatically.
+- **Qualify errors**: Some futures need `tradingClass`: `provider_meta={"trading_class": "XYZ"}` — add it per IBKR's ambiguity message.

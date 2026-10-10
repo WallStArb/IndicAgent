@@ -6,7 +6,7 @@ Domain code: pure functions over arrays, state at the edges. Ring rule, naming a
 
 | Package | What it is |
 |---|---|
-| `bars/` | Pure bar-integrity modules (scrub rules, seam detection, d2-v2 daily derivation types, verdict gate, D0 labels). |
+| `bars/` | Pure bar-integrity modules (scrub rules, seam detection, d2-v2 daily derivation types, verdict gate, D0 labels, gap planning, session grids, the vendor-ingress seam). |
 | `research/` | The research DAG (S0 snapshot to S8 book test), runner, panel kernel (`panel.forward_returns`), spec. Edits here require `repro_frozen` to report bit-identical. |
 | `statistics/` | Test statistics, StepM and the shared numeric kernels. Same `repro_frozen` rule. |
 | `measure/` | The fresh IC engine's three jobs as pure functions: proposer, IC term structure, member monitoring. |

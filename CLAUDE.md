@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.61.0
+Version: 5.62.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -44,7 +44,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 - **`market_data_ohlcv`:** time column `timestamp`, timeframe column `timeframe`. Compute and measurement read `market_data_ohlcv_tradeable` (view, `volume > 0`), never the raw table (synthetic-fill and carry-forward placeholder bars); raw access needs an allow-list entry in `tests/unit/test_market_data_ohlcv_boundary.py`.
 - **Dividends:** bars are price-only; specs that hold across a session boundary declare `panel.total_return`; outside `dividend_event_coverage` dividends are unknown, never zero.
 - **Contracts:** always `get_active_contracts(settings)` (module-level in `settings.py`), never hardcoded. Never `os.environ`; use `src/config/Settings`.
-- **IBKR:** all ib_async in `src/providers/ibkr.py` only; Gateway is the `ib-gateway` container on `127.0.0.1:7497`. Every history fetch goes through `scripts/infrastructure/backfill/ibkr_history_fetcher.py` under `FetcherLock`. Backfill, gateway 2FA and venue gotchas: `docs/reference/gotchas.md`.
+- **IBKR:** all ib_async in `src/providers/ibkr.py` only; Gateway is the `ib-gateway` container on `127.0.0.1:7497`. Every history fetch goes through `scripts/infrastructure/backfill/ohlcv_history_fetcher.py` (provider registry; external identities keep the ibkr name) under `FetcherLock`. Backfill, gateway 2FA and venue gotchas: `docs/reference/gotchas.md`.
 - **Instrument onboarding:** `docs/foundation/instrument-onboarding-sop.md`. Never screen names on history or returns, never hand-write `instruments`, never deactivate a dead name.
 - **Key modules:** `src/core/stream_keys.py` (all topic keys) · `src/core/database_manager.py` · `src/core/service_utils.py` (`setup_service_logging()`, `format_iso_ts()`, `parse_iso_ts()`, `min_bars_for_tf()`).
 - **Server:** Claude Code runs ON this machine (`192.168.68.60`); never SSH; runtime configs use `localhost`. Docker: `cd production && docker compose up -d`; keep the log caps. More: `docs/operations/operations-infrastructure.md`.
@@ -93,7 +93,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 - **Kafka is transport, not state store.** Hot state → local file checkpoint; bar history → TimescaleDB.
 - **ProcessPoolExecutor workers are compute-only:** return serializable results to main; all DB writes go through one serial connection in main (concurrent writers on a hypertable deadlock index pages). Killing such a service orphans workers; follow the kill procedure in `docs/reference/gotchas.md`.
-- **Raw capture (528): every bar is stored under its supplier's label.** Canonical rows carry their `source`; rows that lose a slot (another source's span, extended hours) keep their supplier's label in the raw archive. Nothing a vendor served is ever dropped, and any two suppliers' tapes are comparable row-for-row. The winner per slot is `split_series`'s call; the losers stay queryable per source. Vendor onboarding cost: one leaf behind `history_leaf` + one `VendorIngress` row + policy/APR seeds; the nightly capture leaf is `ops_bar_nightly`.
+- **Raw capture (528): every bar is stored under its supplier's label** (`source` on canonical rows; losers keep theirs in the raw archive). Nothing a vendor serves is dropped. Vendor onboarding: one `history_leaf` + one `VendorIngress` row + APR seeds.
 - **Never edit a module a fingerprinted batch writer imports while its run is live or resumable** (`code_content_key` hashes it; one edit discards every completed cell). Kill-and-resume with the same command is safe.
 - **Parallel dicts → dataclass:** 3+ `dict[str, X]` keyed by the same ID become `dict[str, MyState]` with a `_state(key)` factory.
 - **Timestamps:** serialize with `format_iso_ts(dt)`, never inline `.isoformat().replace(...)`.
