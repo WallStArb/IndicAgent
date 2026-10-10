@@ -104,13 +104,10 @@ _SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
 # N (fixed in the hypertables file itself, not here).
 _BASELINE_MIGRATION_CUTOFF = 433
 
-# Migrations committed to the repo but deliberately NOT applied to any live database yet, so
-# the replay must not apply them to indicagent_test either (the test DB must mirror the live
-# schema for the sync check and the live-shape writer cases). Phase 190 plan 02 commits
-# migration 465 (the two-tier PK swaps) un-applied: it applies at the wave-5 cutover, by plan
-# 190-06, with the fetcher stopped and in the same shell breath as the coverage writer's
-# conflict-target flip. REMOVE the 465 entry in that same breath.
-_COMMITTED_BUT_UNAPPLIED = {465}
+# No committed-but-unapplied migrations right now. (Migration 465 rode this exclusion from
+# its 190-02 commit until the 190-06 cutover applied it live with the fetcher stopped, in
+# the same breath as the coverage writer's conflict-target flip; the entry was removed in
+# that same breath per the 190-02 handoff note.)
 
 _MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "production" / "migrations"
 
@@ -227,11 +224,12 @@ def _apply_baseline() -> None:
 
 
 def _replay_post_baseline_migrations() -> None:
+    # Committed-but-unapplied migrations would be excluded here (the 465 pattern, 190-02 to
+    # 190-06); the set is empty today, so every post-baseline migration replays.
     new_migrations = sorted(
         p
         for p in _MIGRATIONS_DIR.glob("*.sql")
         if _migration_number(p) > _BASELINE_MIGRATION_CUTOFF
-        and _migration_number(p) not in _COMMITTED_BUT_UNAPPLIED
     )
     for path in new_migrations:
         _run_psql_file(path)

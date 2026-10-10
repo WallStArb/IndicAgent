@@ -50,18 +50,12 @@ DESTINATION_TABLES = {
     DESTINATION_GRID: "market_data_ohlcv",
 }
 
-# CRITICAL (190-02 review adjudication item 1): the conflict target of BOTH statements
-# REMAINS the old shape (symbol, timeframe). The running drain holds this module in memory;
-# switching the target now would desync it, and the new target has no unique index to match
-# until migration 465 applies anyway. The target flips to (symbol, timeframe, provider) at
-# the wave-5 cutover, in the same shell breath as applying 465, with the fetcher stopped
-# (plan 190-06 Task 2 owns the flip).
 _UPSERT_SQL = """
 INSERT INTO ohlcv_coverage (
     symbol, timeframe, earliest_timestamp, latest_timestamp, row_count,
     last_fetched_at, last_fetch_status, consecutive_failures, provider
 ) VALUES (%s, %s, %s, %s, %s, %s, 'ok', 0, %s)
-ON CONFLICT (symbol, timeframe) DO UPDATE SET
+ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     earliest_timestamp = LEAST(ohlcv_coverage.earliest_timestamp, EXCLUDED.earliest_timestamp),
     latest_timestamp = GREATEST(ohlcv_coverage.latest_timestamp, EXCLUDED.latest_timestamp),
     row_count = ohlcv_coverage.row_count + EXCLUDED.row_count,
@@ -74,7 +68,7 @@ _OUTCOME_SQL = """
 INSERT INTO ohlcv_coverage (
     symbol, timeframe, last_fetched_at, last_fetch_status, consecutive_failures, provider
 ) VALUES (%s, %s, %s, %s, %s, %s)
-ON CONFLICT (symbol, timeframe) DO UPDATE SET
+ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     last_fetched_at = EXCLUDED.last_fetched_at,
     last_fetch_status = EXCLUDED.last_fetch_status,
     consecutive_failures = CASE
@@ -138,7 +132,8 @@ def upsert_coverage(
     """Widen the series' stored bounds, add its new rows, and mark the fetch ok.
 
     The row is labeled with the delta's provider (the vendor that fetched the chunk), under
-    the old-shape conflict target until the wave-5 flip. Runs under SET LOCAL ROLE
+    the per-provider conflict target (symbol, timeframe, provider) that migration 465
+    introduced. Runs under SET LOCAL ROLE
     bar_derivation_writer inside the bars' transaction. LEAST and GREATEST ignore NULLs, so
     the first bars onto a no_data-only row set its bounds.
     """
@@ -186,7 +181,7 @@ SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(*), %s
 FROM market_data_ohlcv_tradeable
 WHERE symbol = ANY(%s) AND timeframe = '1d'
 GROUP BY symbol
-ON CONFLICT (symbol, timeframe) DO UPDATE SET
+ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     earliest_timestamp = EXCLUDED.earliest_timestamp,
     latest_timestamp = EXCLUDED.latest_timestamp,
     row_count = EXCLUDED.row_count
@@ -273,7 +268,7 @@ SELECT coalesce(b.symbol, r.symbol),
 FROM bars b
 FULL OUTER JOIN requests r
   ON r.symbol = b.symbol AND r.timeframe = b.timeframe
-ON CONFLICT (symbol, timeframe) DO UPDATE SET
+ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     earliest_timestamp = EXCLUDED.earliest_timestamp,
     latest_timestamp = EXCLUDED.latest_timestamp,
     row_count = EXCLUDED.row_count,

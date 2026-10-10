@@ -5,12 +5,12 @@ in step with the stored bars only because every write happens in the writer modu
 bars' transaction or the fetcher's outcome write. A second INSERT/UPDATE/DELETE/COPY elsewhere
 could drift it silently, so a new one fails here unless this allow-list is edited with a reason.
 
-The file also fences the wave-1 cutover discipline (phase 190 plan 02, review adjudication
-item 1): through waves 1-4 the live conflict target of every writer statement stays the old
-shape (symbol, timeframe) -- the running drain holds this module in memory, and the new target
-has no unique index until migration 465 applies at the 190-06 cutover. The flip test asserts
-the NEW shape appears exactly when the old one disappears; 190-06 updates both assertions in
-the same breath as the flip.
+The file also fenced the wave-1 cutover discipline (phase 190 plan 02, review adjudication
+item 1): through waves 1-4 the live conflict target of every writer statement stayed the old
+shape (symbol, timeframe) -- the running drain held that module in memory, and the new target
+had no unique index until migration 465 applied at the 190-06 cutover. The fence now asserts
+the NEW three-column shape on every writer statement, flipped in the same commit as the
+live 465 apply.
 
 CI-clean: no DB, no network; pure filesystem grep.
 """
@@ -67,15 +67,15 @@ def _writer_source() -> str:
     return read_source("services", "ohlcv_coverage_writer.py")
 
 
-def test_through_waves_1_4_the_live_conflict_target_stays_the_old_shape():
-    """The running drain holds the writer SQL in memory: flipping the target before 465
-    applies (or before the fetcher is stopped at the 190-06 cutover) fails every chunk
-    persist with 42P10. Every ON CONFLICT on the ledger must name (symbol, timeframe) and
-    never the three-column shape."""
+def test_at_the_cutover_the_live_conflict_target_is_the_new_shape():
+    """Migration 465 (applied at the 190-06 cutover with the fetcher stopped, in the same
+    breath as the writer flip) re-keyed the ledger to (symbol, timeframe, provider); the
+    old two-column target has no unique index to match and would fail every write with
+    42P10. Every ON CONFLICT on the ledger must name the three-column shape."""
     source = _writer_source()
     targets = re.findall(r"ON CONFLICT \(([^)]*)\)", source)
     assert targets, "the writer lost its conflict targets"
-    assert all(target.strip() == "symbol, timeframe" for target in targets), targets
+    assert all(target.strip() == "symbol, timeframe, provider" for target in targets), targets
 
 
 def test_every_write_carries_the_provider_label():

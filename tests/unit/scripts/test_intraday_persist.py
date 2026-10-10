@@ -572,7 +572,7 @@ def test_upsert_labels_the_row_from_the_delta_provider():
     )
     ((sql, _),) = conn.statements
     assert "provider" in sql.split("INSERT INTO ohlcv_coverage (")[1].split(")")[0]
-    assert "ON CONFLICT (symbol, timeframe)" in sql
+    assert "ON CONFLICT (symbol, timeframe, provider)" in sql
     params = conn.params[sql]
     assert params[-1] == "ibkr"  # the delta's provider, last in the VALUES tuple
 
