@@ -24,3 +24,13 @@ Deliverables (per the plan doc):
 Sequencing: after the 190-06 cutover; takes the next migration number then.
 
 ## Updates
+
+## Progress (2026-10-10)
+
+- Migration 468 applied live: archive PK is (timestamp, symbol, timeframe, source), 87/87 chunks recompressed, 95.67M rows intact.
+- Engine no-drop landed (c070abacb): extended + first-writer-held rows archive through insert_fetched_archive_rows; counts report archived.
+- /simplify applied (3727b07e0): split_series is the one non-authored definition (engine + backfill), archive_frame_to_tuples + archive_rows the one write path, the archive NOT EXISTS predicate gained source, the retired vendor-named shell deleted.
+- Recovery backfill RUNNING over the 2026-10-10 scratch parquets (~55M/82M at 17:10 EDT); scratch stays until it completes.
+- R6 completeness check landed: scripts/ops/bars/ops_capture_completeness.py.
+- T4 landed (856bf2cb5): src/providers/alpaca.py leaf behind history_leaf, ops_bar_nightly runner (5m authors, 1d raw-only), APR seeds in 469 (applied live). Not scheduled: the pull hold owns the reopen; the runner's live wiring is exercised then.
+- Remaining: refused-chunk archive routing (RevisionRefused grid chunks are served-but-unstored; visible in the completeness report's refused_bars column), 190-07 bookkeeping.
