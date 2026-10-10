@@ -1,121 +1,124 @@
 """Slot-grid and first-writer-stays rules of the Alpaca 5m campaign loader (todo 521).
 
-Pure logic only: no database, no parquet. The pins under test are the
-admission-build plan's: bar-OPEN stamps, 78 slots on a 16:00 close, 42 on a
-13:00 early close (from the calendar, not a constant), extended-hours bars
-dropped at load, and a stored stamp never rewritten.
+Pure logic only: no database. The pins under test are the admission-build
+plan's: bar-OPEN stamps, 78 slots on a 16:00 close, 42 on a 13:00 early
+close (from the calendar's session bounds, not a constant), extended-hours
+bars dropped at load, and a stored stamp never rewritten.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from scripts.ops.bars.ops_alpaca_5m_load import (
-    drop_stored,
-    filter_to_grid,
-    rows_from_parquet,
+import pandas as pd
+
+from services.bar_load import (
+    LoadPolicy,
+    drop_stored_rows,
+    filter_frame_to_grid,
+    frame_to_tuples,
+    grid_stamps_utc,
     session_grid,
 )
 
-_ET = "America/New_York"
+_ET = ZoneInfo("America/New_York")
+POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test")
+_FULL_DAY = datetime(2026, 10, 6, tzinfo=UTC).date()
+_EARLY_DAY = datetime(2026, 10, 2, tzinfo=UTC).date()
 
 
 def _stamp(hour: int, minute: int, day: int = 6) -> datetime:
-    return datetime(2026, 10, day, hour, minute, tzinfo=UTC).astimezone(
-        __import__("zoneinfo").ZoneInfo(_ET)
-    )
+    return datetime(2026, 10, day, hour, minute, tzinfo=_ET)
 
 
 def _sessions() -> dict:
-    """One full day (Tue 2026-10-06, 16:00 close) and one early close day
-    (2026-10-02, 13:00 close), as nyse_sessions would return them."""
-    open_full = _stamp(9, 30, day=6)
+    """One full day (2026-10-06, 16:00 close) and one early close (2026-10-02,
+    13:00 close), the shape `nyse_sessions` returns."""
     return {
-        open_full.date(): (open_full, _stamp(16, 0, day=6)),
-        _stamp(9, 30, day=2).date(): (_stamp(9, 30, day=2), _stamp(13, 0, day=2)),
+        _FULL_DAY: (_stamp(9, 30), _stamp(16, 0)),
+        _EARLY_DAY: (_stamp(9, 30, day=2), _stamp(13, 0, day=2)),
     }
 
 
+def _frame(hour_minutes: list[tuple[int, int]], day: int = 6) -> pd.DataFrame:
+    stamps = [datetime(2026, 10, day, h, m, tzinfo=_ET) for h, m in hour_minutes]
+    n = len(stamps)
+    return pd.DataFrame(
+        {
+            "t": pd.to_datetime(stamps, utc=True),
+            "o": [1.0] * n,
+            "h": [1.0] * n,
+            "l": [1.0] * n,
+            "c": [1.0] * n,
+            "v": [10] * n,
+            "n": [1] * n,
+            "vw": [1.0] * n,
+        }
+    )
+
+
 def test_full_day_grid_is_78_open_stamps() -> None:
-    grid = session_grid(_sessions(), {_stamp(9, 30, day=6).date()})
-    stamps = grid[_stamp(9, 30, day=6).date()]
+    grid = session_grid(_sessions(), {_FULL_DAY})
+    stamps = grid[_FULL_DAY]
     assert len(stamps) == 78
-    assert min(stamps) == _stamp(9, 30, day=6)
-    assert max(stamps) == _stamp(15, 55, day=6)
+    assert min(stamps) == _stamp(9, 30)
+    assert max(stamps) == _stamp(15, 55)
 
 
 def test_early_close_grid_is_42_open_stamps() -> None:
-    grid = session_grid(_sessions(), {_stamp(9, 30, day=2).date()})
-    stamps = grid[_stamp(9, 30, day=2).date()]
+    grid = session_grid(_sessions(), {_EARLY_DAY})
+    stamps = grid[_EARLY_DAY]
     assert len(stamps) == 42
     assert max(stamps) == _stamp(12, 55, day=2)
 
 
-def test_grid_drops_weekend_and_off_grid_dates() -> None:
-    saturday = _stamp(9, 30, day=3).date()
-    grid = session_grid(_sessions(), {saturday})
-    assert grid == {}
+def test_grid_drops_non_session_dates() -> None:
+    saturday = datetime(2026, 10, 3, tzinfo=UTC).date()
+    assert session_grid(_sessions(), {saturday}) == {}
 
 
-def test_filter_drops_extended_and_keeps_grid_slots() -> None:
-    day = _stamp(9, 30, day=6).date()
-    grid = session_grid(_sessions(), {day})
-
-    def row(hour: int, minute: int) -> tuple:
-        return (_stamp(hour, minute, day=6), "AMD", "5m", 1.0, 1.0, 1.0, 1.0, 10, "alpaca")
-
-    rows = [row(4, 0), row(9, 30), row(12, 0), row(15, 55), row(16, 0), row(20, 0)]
-    kept, dropped = filter_to_grid(rows, grid)
-    assert dropped == 3
-    assert [r[0] for r in kept] == [
-        _stamp(9, 30, day=6),
-        _stamp(12, 0, day=6),
-        _stamp(15, 55, day=6),
-    ]
+def test_grid_filter_drops_extended_and_keeps_grid_slots() -> None:
+    grid = session_grid(_sessions(), {_FULL_DAY})
+    utc_stamps = grid_stamps_utc(grid)
+    frame = _frame([(4, 0), (9, 30), (12, 0), (15, 55), (16, 0), (20, 0)])
+    kept = filter_frame_to_grid(frame, utc_stamps)
+    assert len(kept) == 3
+    assert list(kept["t"].dt.hour) == [13, 16, 19]  # UTC
+    assert list(kept["t"].dt.minute) == [30, 0, 55]
 
 
 def test_first_writer_stays_drops_stored_stamps() -> None:
-    day = _stamp(9, 30, day=6).date()
-    grid = session_grid(_sessions(), {day})
-
-    def row(hour: int, minute: int) -> tuple:
-        return (_stamp(hour, minute, day=6), "AMD", "5m", 1.0, 1.0, 1.0, 1.0, 10, "alpaca")
-
-    rows = [row(9, 30), row(9, 35), row(9, 40)]
-    stored = {_stamp(9, 30, day=6), _stamp(9, 40, day=6)}
-    kept, skipped = drop_stored(rows, stored)
-    assert skipped == 2
-    assert [r[0] for r in kept] == [_stamp(9, 35, day=6)]
+    grid = session_grid(_sessions(), {_FULL_DAY})
+    utc_stamps = grid_stamps_utc(grid)
+    frame = _frame([(9, 30), (9, 35), (9, 40)])
+    stored = {datetime(2026, 10, 6, 13, 30, tzinfo=UTC), datetime(2026, 10, 6, 13, 40, tzinfo=UTC)}
+    kept = drop_stored_rows(filter_frame_to_grid(frame, utc_stamps), stored)
+    assert len(kept) == 1
+    assert kept["t"].iloc[0] == pd.Timestamp(2026, 10, 6, 13, 35, tz="UTC")  # 09:35 ET
 
 
-def test_rows_from_parquet_layout(tmp_path: Path) -> None:
-    import pandas as pd
-
-    frame = pd.DataFrame(
-        {
-            "t": ["2026-10-06T13:30:00Z", "2026-10-06T19:55:00Z"],
-            "o": [1.0, 2.0],
-            "h": [1.5, 2.5],
-            "l": [0.5, 1.5],
-            "c": [1.2, 2.2],
-            "v": [10, 20],
-            "n": [1, 2],
-            "vw": [1.1, 2.1],
-        }
-    )
-    path = tmp_path / "AMD_5Min.parquet"
-    frame.to_parquet(path, index=False)
-    rows = rows_from_parquet(path, "AMD")
-    assert len(rows) == 2
+def test_frame_to_tuples_layout() -> None:
+    frame = _frame([(9, 30)])
+    rows = frame_to_tuples(frame, "AMD", POLICY)
+    assert len(rows) == 1
     ts, symbol, timeframe, o, h, low, c, v, source = rows[0]
     assert (symbol, timeframe, source) == ("AMD", "5m", "alpaca")
-    assert (o, h, low, c, v) == (1.0, 1.5, 0.5, 1.2, 10)
-    assert ts == datetime(2026, 10, 6, 13, 30, tzinfo=UTC)
-    assert rows[1][0] == datetime(2026, 10, 6, 19, 55, tzinfo=UTC)
+    assert (o, h, low, c, v) == (1.0, 1.0, 1.0, 1.0, 10)
+    assert ts == datetime(2026, 10, 6, 13, 30, tzinfo=UTC)  # 09:30 ET
 
 
 def test_five_minute_not_derivation_owned() -> None:
     from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 
     assert "5m" not in DERIVATION_OWNED_TIMEFRAMES
+
+
+def test_utc_grid_matches_utc_frame_stamps() -> None:
+    """The grid is ET-aware; the frame is UTC; the membership join must agree
+    across the conversion (DST-safe by construction of astimezone)."""
+    grid = session_grid(_sessions(), {_FULL_DAY})
+    utc_stamps = grid_stamps_utc(grid)
+    assert len(utc_stamps) == 78
+    assert datetime(2026, 10, 6, 13, 30, tzinfo=UTC) in utc_stamps
+    assert datetime(2026, 10, 6, 19, 55, tzinfo=UTC) in utc_stamps

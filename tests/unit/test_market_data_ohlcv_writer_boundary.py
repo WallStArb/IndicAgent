@@ -63,13 +63,14 @@ _ALLOW_LIST: dict[str, str] = {
         "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
         "(daily, hourly, quarter-hour) with a logged warning."
     ),
-    "scripts/ops/bars/ops_alpaca_5m_load.py": (
-        "CAMPAIGN (todo 521, 2026-10-09): the Alpaca 5m admission loader -- scratch parquet "
-        "into market_data_ohlcv through the 185-39 ingress write contract with source "
-        "'alpaca', five-minute only, first-writer-stays (stored stamps dropped before the "
-        "contract sees them, so it only ever inserts). RTH-grid filter from nyse_sessions; "
-        "coverage upsert rides the atomic persist helper in the chunk transaction. The T4 "
-        "nightly leaf must reuse this writer, not grow a second one."
+    "services/ohlcv_ingress_contract.py": (
+        "PERMANENT (todo 521, 2026-10-09): the ingress contract now hosts the grid table's "
+        "shared write shapes (MARKET_DATA_INSERT_HEAD / MARKET_DATA_UPSERT_TAIL / "
+        "write_market_data_batches) so every bar writer keeps one INSERT owner; the "
+        "constant-time classification happens before any of these run. It executes only "
+        "through a caller's write_new/write_changed callbacks -- the IBKR fetcher's private "
+        "copies reconcile onto these under todo 301. The contract's own INSERT (ohlcv_load, "
+        "ohlcv_revision) is the 185-39 write record, already part of the 185-39 design."
     ),
 }
 
@@ -81,6 +82,11 @@ _FENCE_EXEMPT: dict[str, str] = {
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "its raw write is the five- and one-minute persist path only; daily answers go to D1 "
         "and hourly and quarter-hour answers to the archive (plan 185-18 task 1b)"
+    ),
+    "services/ohlcv_ingress_contract.py": (
+        "it is the classification layer every bar writer routes through, the daily stage "
+        "included: it owns no timeframe policy of its own -- each caller's fence governs "
+        "what the caller may write through it (todo 521 added the shared grid write shapes)"
     ),
 }
 

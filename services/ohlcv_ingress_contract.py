@@ -15,7 +15,7 @@ ohlcv_intraday_raw_archive (the 15m/1h parity sample). One call per chunk:
    recorded, never refused);
 4. otherwise write the new rows and the changed rows (through the callbacks the bar table's own
    writer module supplies, so each bar table keeps one INSERT owner), record the old values of
-   changed rows in ohlcv_revision and one ohlcv_load row per series (source ibkr).
+   changed rows in ohlcv_revision and one ohlcv_load row per series (source = the chunk's row vendor).
 
 Everything runs on the caller's cursor, so the caller's one transaction covers the request rows,
 the bars, the load record and the coverage update. This module owns the INSERTs into ohlcv_load
@@ -85,6 +85,33 @@ _INSERT_LOAD_SQL = (
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 
+# The grid table's write shape, shared by every ingress caller (todo 301 promotes the
+# fetcher's private copies onto these; new writers use these directly). New rows INSERT
+# (tail=""); a changed row is rewritten by the full-row upsert tail, never DO NOTHING
+# (CI: the no-first-write-wins fence), because the contract has already classified the
+# chunk and recorded the old values in ohlcv_revision.
+MARKET_DATA_INSERT_HEAD = (
+    "INSERT INTO market_data_ohlcv "
+    "(timestamp, symbol, timeframe, open, high, low, close, volume, source) VALUES "
+)
+MARKET_DATA_UPSERT_TAIL = (
+    " ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET "
+    "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
+    "volume = EXCLUDED.volume, source = EXCLUDED.source"
+)
+_MARKET_DATA_ROW_PLACEHOLDERS = "(%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+
+
+def write_market_data_batches(cur: Any, rows: list[tuple], *, tail: str = "") -> None:
+    """Batched parameterized write of grid 9-tuples: MARKET_DATA_INSERT_HEAD, the
+    placeholder rows, then `tail` (MARKET_DATA_UPSERT_TAIL for rewrites)."""
+    for start in range(0, len(rows), 1000):
+        chunk = rows[start : start + 1000]
+        values = ",".join([_MARKET_DATA_ROW_PLACEHOLDERS] * len(chunk))
+        cur.execute(
+            MARKET_DATA_INSERT_HEAD + values + tail, [value for row in chunk for value in row]
+        )
+
 
 @dataclass(frozen=True)
 class ContractParams:
@@ -102,6 +129,7 @@ class SeriesLoad:
     timeframe: str
     destination: str
     caller: str
+    source: str
     n_bars: int
     n_stored: int
     n_new: int
@@ -179,13 +207,7 @@ def _utc_date(ts: datetime) -> date:
 
 
 def _record_load(
-    cur: Any,
-    load: SeriesLoad,
-    *,
-    outcome: str,
-    detail: str | None,
-    load_id: uuid.UUID,
-    source: str = LOAD_SOURCE,
+    cur: Any, load: SeriesLoad, *, outcome: str, detail: str | None, load_id: uuid.UUID
 ) -> None:
     cur.execute(
         _INSERT_LOAD_SQL,
@@ -193,7 +215,7 @@ def _record_load(
             load_id,
             load.symbol,
             load.timeframe,
-            source,
+            load.source,
             load.first_bar,
             load.last_bar,
             outcome,
@@ -258,7 +280,6 @@ def apply_ingress_contract(
     write_changed: WriteRows,
     params: ContractParams | None = None,
     waived: bool = False,
-    source: str = LOAD_SOURCE,
 ) -> int:
     """Apply the write contract to one chunk and return the number of rows offered.
 
@@ -266,8 +287,10 @@ def apply_ingress_contract(
     wins) and perform the bar table's own INSERT and upsert. Raises RevisionRefused, before any
     write, when any series in the chunk breaches the refusal.
 
-    `source` names the writing vendor in the chunk's ohlcv_load row (default ibkr; the
-    Alpaca 5m admission build passes its own, todo 521).
+    Each chunk's ohlcv_load row records one vendor: the `source` column of the row tuples
+    (index _SOURCE), derived here rather than passed, so a load can never be labeled by a
+    caller knob that disagrees with the bars it carries. A chunk spanning vendors is refused
+    loudly.
 
     `waived` is the caller's statement that a recorded corporate action explains the revision
     (the fetcher's escalation re-fetch after a split, plan 189-10; the same waiver D2 applies):
@@ -286,6 +309,13 @@ def apply_ingress_contract(
 
     plans: list[tuple[SeriesLoad, WriteDelta, dict[datetime, tuple]]] = []
     for (symbol, timeframe), keyed in sorted(by_series.items()):
+        vendors = {row[_SOURCE] for row in keyed.values()}
+        if len(vendors) > 1:
+            raise ValueError(
+                f"chunk for {symbol!r} {timeframe!r} spans sources {sorted(vendors)}; "
+                "split it by vendor so the ohlcv_load row names the true writer"
+            )
+        source = vendors.pop()
         incoming = {ts: _values(row) for ts, row in keyed.items()}
         stored = read_stored(cur, destination, symbol, timeframe, sorted(incoming))
         delta = classify(incoming, stored)
@@ -295,6 +325,7 @@ def apply_ingress_contract(
             timeframe=timeframe,
             destination=destination,
             caller=caller,
+            source=source,
             n_bars=len(incoming),
             n_stored=len(stored),
             n_new=len(delta.new),
@@ -319,9 +350,7 @@ def apply_ingress_contract(
             if waived
             else None
         )
-        _record_load(
-            cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id, source=source
-        )
+        _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
         if delta.changed:
             _record_revisions(cur, load_id, load, delta)
         if delta.new:

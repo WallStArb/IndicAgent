@@ -53,6 +53,12 @@ _ALLOW_LIST: dict[str, str] = {
         "zero-volume rows, and its late-heads check reads the earliest canonical row of any "
         "real source."
     ),
+    "services/bar_load.py": (
+        "BAR LOAD ENGINE (todo 521): first-writer-stays reads stored slot stamps directly "
+        "from the raw table (one indexed range query per name) because the tradeable view's "
+        "volume > 0 filter would let the loader insert over a stored zero-volume bar -- a "
+        "stored slot is answered no matter its volume."
+    ),
     "scripts/ops/bars/ops_source_policy.py": (
         "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
         "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "
