@@ -104,11 +104,11 @@ class _FakeQueue:
     async def load(self, pool: Any) -> None:
         return None
 
-    async def next(self, pool: Any, visited: set[tuple[str, str]]) -> fq.CoverageRow | None:
+    async def next(self, pool: Any, visited: set[tuple[str, ...]]) -> fq.CoverageRow | None:
         if self.repeat_first:
             return self.items[0].row
         for item in self.items:
-            if (item.row.symbol, item.row.timeframe) not in visited:
+            if (item.row.provider, item.row.symbol, item.row.timeframe) not in visited:
                 return item.row
         return None
 
@@ -142,7 +142,7 @@ def _plan(
         providers=(
             frozenset(providers)
             if providers is not None
-            else frozenset({i.row.provider for i in items})
+            else frozenset({i.row.provider for i in items} or {"ibkr"})
         ),
         plans=plans or {},
     )
@@ -1259,12 +1259,20 @@ async def test_the_ibkr_entry_fetch_wraps_the_injected_fetch_path(tmp_path):
 
 
 async def test_unknown_provider_fails_fast_at_prepare(monkeypatch):
+    """A plan that could dispatch an unregistered provider is refused in prepare, never
+    mid-loop (the guard runs on the loaded queue, so a held row fails the run too)."""
     log: list[str] = []
     monkeypatch.setattr(
         hf._history_fetch,
         "_load_tf_fetch_config",
         lambda settings: {"1d": (7300, False), "15m": (7300, False)},
     )
+
+    def ghost_ranked(self: Any) -> list[fq.RankedItem]:
+        row = fq.CoverageRow("AAA", "15m", None, None, "ok", 0, None, None, "ghost")
+        return [fq.RankedItem(row, (False,), False, -1, 0, 1)]
+
+    monkeypatch.setattr(fq.PriorityQueue, "ranked_snapshot", ghost_ranked)
     fetcher = hf.IbkrHistoryFetcher(
         _LIVE_DB_DSN,
         _args(),
@@ -1273,4 +1281,18 @@ async def test_unknown_provider_fails_fast_at_prepare(monkeypatch):
         contracts_for=lambda dim: [SimpleNamespace(symbol="AAA")],
     )
     with pytest.raises(RuntimeError, match="ghost"):
-        await fetcher.prepare(_RecordingPool(log, coverage_provider="ghost"))
+        await fetcher.prepare(_RecordingPool(log))
+
+
+def test_unknown_providers_lists_ranked_and_held_ghosts():
+    ghost_row = fq.CoverageRow("G1", "15m", None, None, "ok", 0, None, None, "ghost")
+    held_row = fq.CoverageRow("H1", "1d", None, None, "ok", 0, None, None, "wraith")
+    ibkr_row = fq.CoverageRow("A1", "5m", None, None, "ok", 0, None, None, "ibkr")
+    queue = SimpleNamespace(
+        ranked_snapshot=lambda: [fq.RankedItem(ghost_row, (), False, -1, 0, 1)],
+        held_snapshot=lambda: [(fq.RankedItem(held_row, (), False, -1, 0, 1), "current")],
+    )
+    assert hf._unknown_providers(queue, ["ibkr"]) == ["ghost", "wraith"]
+    queue.ranked_snapshot = lambda: [fq.RankedItem(ibkr_row, (), False, -1, 0, 1)]  # type: ignore[method-assign]
+    queue.held_snapshot = lambda: []  # type: ignore[method-assign]
+    assert hf._unknown_providers(queue, ["ibkr"]) == []

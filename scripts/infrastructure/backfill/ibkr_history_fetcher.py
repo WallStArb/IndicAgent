@@ -73,7 +73,7 @@ import sys
 import time
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -92,11 +92,14 @@ from scripts.infrastructure.backfill._fetch_queue import (  # noqa: E402
     LaneConfig,
     OverlapVerdict,
     PriorityQueue,
+    ProviderPlan,
     QueueConfig,
     RankedItem,
+    default_provider,
     gap_fill_due,
     judge_overlap,
     load_lane_config,
+    load_provider_plan,
     load_queue_config,
     parity_sample,
     parity_week_start,
@@ -158,7 +161,7 @@ _FACT_METRIC = "unexplained_overlap_difference"
 _HELD_REASON = "unclassified_rescale"
 
 # APR keys read once at startup. Missing keys raise: the migrations seed them (432).
-_KEY_INTER_ITEM_PAUSE = "infra.ibkr.inter_item_pause_s"
+# (The per-provider planner inputs, inter-item pause included, read through ProviderPlan.)
 
 # Calendar slack for finding the latest completed NYSE session: longer than any market
 # closure on record, so the window always holds one close. A calendar fact, not a tunable.
@@ -436,6 +439,12 @@ class RunPlan:
     session_day: Any
     # The weekly parity sample's (symbol, timeframe) items (default runs only).
     parity: tuple[tuple[str, str], ...] = ()
+    # Providers with candidates in this run: only these connect (a registry entry whose
+    # provider has zero candidates is never constructed or connected).
+    providers: frozenset[str] = frozenset()
+    # Per-provider planner inputs (load_provider_plan): the dispatch hands each item's own
+    # plan to its registry entry's fetch hook.
+    plans: Mapping[str, ProviderPlan] = field(default_factory=dict)
 
 
 def item_lane(plan: RunPlan, row: CoverageRow, *, full_scan: bool = False) -> tuple[str, bool, int]:
@@ -462,19 +471,6 @@ def item_lane(plan: RunPlan, row: CoverageRow, *, full_scan: bool = False) -> tu
     return "update", False, overlap
 
 
-def _read_apr(conn: Any, keys: Sequence[str]) -> dict[str, str]:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-            (list(keys),),
-        )
-        values = {str(k): str(v) for k, v in cur.fetchall()}
-    missing = sorted(set(keys) - set(values))
-    if missing:
-        raise RuntimeError(f"APR keys not set: {missing}")
-    return values
-
-
 def _default_contracts_for(settings: Settings, include_rolled: bool) -> Callable[[str], list[Any]]:
     """The pipeline's contract selection per dimension (futures + --include-rolled as today)."""
 
@@ -487,6 +483,124 @@ def _default_contracts_for(settings: Settings, include_rolled: bool) -> Callable
         return futures + [c for c in active if c.symbol not in futures_symbols]
 
     return contracts_for
+
+
+# ---------------------------------------------------------------------------
+# Provider registry (phase 190 plan 04): one entry per vendor, the loop dispatches
+# through entry.fetch and never sees vendor mechanics
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ProviderEntry:
+    """One vendor's fetch mechanics behind the loop's dispatch (a config mapping behind
+    the provider_factory seam, not a plugin framework: no discovery, no dynamic import).
+
+    leaf_factory(settings, args) builds the run's leaf (IBKR: one socket per run); `fetch`
+    is the hook the loop calls per item -- it owns that vendor's mechanics and returns the
+    item's outcome; load_overlays loads the vendor's leaf-native APR overlays (soft
+    fallback); connect_failure_label composes the startup connect failure (the ibkr entry
+    keeps the "IBKR gateway unreachable at startup" wording).
+    """
+
+    name: str
+    leaf_factory: Callable[[Any, Any], Any]
+    fetch: Callable[..., Awaitable[ItemOutcome]]
+    load_overlays: Callable[[Any], None]
+    connect_failure_label: str
+
+
+def _ibkr_leaf_factory(settings: Any, args: Any) -> Any:
+    """The IBKR leaf construction (moved from the fetcher's _default_provider): one socket
+    per run, client id from the CLI flag. The concrete IBKRProvider import lives in this
+    module's registry entry, the fetcher-family's one boundary allow-list entry."""
+    return IBKRProvider(host=settings.ib_host, port=settings.ib_port, client_id=args.client_id)
+
+
+def _ibkr_load_overlays(settings: Any) -> None:
+    """The ibkr entry's leaf-native APR overlays (chunk days, hist timeouts, retries,
+    venue fallback, rate limit). Soft-fallback contract: a missing key or an unreachable
+    DB logs and keeps the leaf module's defaults -- these are leaf-native limits, unlike
+    planner inputs, which raise (load_provider_plan)."""
+    _history_fetch._load_ibkr_chunk_days_config(settings)
+    _history_fetch._load_ibkr_hist_timeout_config(settings)
+    _history_fetch._load_ibkr_retry_config(settings)
+    _history_fetch._load_ibkr_venue_fallback_config(settings)
+    _history_fetch._load_ibkr_rate_limit_config(settings)
+
+
+def _ibkr_entry_fetch(
+    fetch_fn: Callable[..., Awaitable[ItemOutcome]] = fetch_item_with_retries,
+) -> Callable[..., Awaitable[ItemOutcome]]:
+    """The ibkr entry's fetch hook over the 189-proven item path: fetch_item_with_retries
+    with the IBKR FetchContext mechanics (qualification, head floors, FX/crypto derive and
+    venue fallback are reachable only through this hook). `fetch_fn` is the constructor
+    seam, so existing test injection keeps working. The hook carries the item's ProviderPlan
+    in (ctx.plan and the provider_plan kwarg) so the item reads its vendor semantics from
+    the plan, never from a module constant."""
+
+    async def fetch(
+        ctx: Any,
+        leaf: Any,
+        instrument: Any,
+        row: Any,
+        *,
+        plan: ProviderPlan | None,
+        full_scan: bool,
+        overlap_days: int = 0,
+        refetch: bool = False,
+        waived: bool = False,
+        config: Any,
+        reconnect: Callable[[], Awaitable[bool]],
+        on_tick: Callable[[], None] | None,
+    ) -> ItemOutcome:
+        ctx.plan = plan
+        return await fetch_fn(
+            ctx,
+            instrument,
+            row,
+            full_scan=full_scan,
+            overlap_days=overlap_days,
+            refetch=refetch,
+            waived=waived,
+            config=config,
+            reconnect=reconnect,
+            on_tick=on_tick,
+            provider_plan=plan,
+        )
+
+    return fetch
+
+
+_PROVIDER_REGISTRY: dict[str, ProviderEntry] = {
+    "ibkr": ProviderEntry(
+        name="ibkr",
+        leaf_factory=_ibkr_leaf_factory,
+        fetch=_ibkr_entry_fetch(),
+        load_overlays=_ibkr_load_overlays,
+        connect_failure_label="IBKR gateway",
+    )
+}
+
+
+def _unknown_providers(queue: Any, registry_names: Iterable[str]) -> list[str]:
+    """Ranked or held providers without a registry entry. The loop would hit them
+    mid-dispatch, so prepare() refuses the plan up front."""
+    known = set(registry_names)
+    providers = {item.row.provider for item in queue.ranked_snapshot()}
+    providers |= {item.row.provider for item, _ in queue.held_snapshot()}
+    return sorted(providers - known)
+
+
+def _read_infra_apr(conn: Any) -> dict[str, str]:
+    """Every infra.* APR value in one read; the per-provider planner inputs go through
+    load_provider_plan (which raises on a missing planner input and keeps the one
+    leaf-native window fallback)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT config_key, config_value FROM config_state WHERE config_key LIKE 'infra.%'"
+        )
+        return {str(k): str(v) for k, v in cur.fetchall()}
 
 
 # ---------------------------------------------------------------------------
@@ -504,13 +618,18 @@ def _sd_notify_watchdog() -> None:
 
 
 class IbkrHistoryFetcher(BaseBatch):
-    """The single IBKR history fetcher oneshot (CD-01/CD-02/CD-07).
+    """The single IBKR history fetcher oneshot (CD-01/CD-02/CD-07), provider-parameterized
+    since phase 190 plan 04: a registry (`_PROVIDER_REGISTRY`, one entry per vendor) maps a
+    provider name to its leaf factory, item-fetch hook and overlay loader, and the loop
+    dispatches each queue item through its entry's fetch -- vendor mechanics are reachable
+    only through the entry, never from the loop.
 
     Constructor seams exist for tests and replace exactly one dependency each: the provider
-    factory (IBKRProvider), the lock name or the whole lock, the item fetch
-    (fetch_item_with_retries), the run plan (reads), the stage runner (subprocess), the psycopg
-    connect, the contract source, the watchdog notifier, the status file path, the 1d overlap
-    judge (records splits), the 5m waiver read and the overlap finding reporter.
+    registry (default _PROVIDER_REGISTRY; a custom one passes through untouched), the
+    ibkr entry's leaf (provider_factory) and item fetch (fetch_fn), the lock name or the
+    whole lock, the run plan (reads), the stage runner (subprocess), the psycopg connect,
+    the contract source, the watchdog notifier, the status file path, the 1d overlap judge
+    (records splits), the 5m waiver read and the overlap finding reporter.
     """
 
     job_name = JOB
@@ -522,6 +641,7 @@ class IbkrHistoryFetcher(BaseBatch):
         args: argparse.Namespace,
         *,
         settings: Settings | None = None,
+        registry: Mapping[str, ProviderEntry] | None = None,
         provider_factory: Callable[[], Any] | None = None,
         lock_name: str = FETCHER_LOCK_NAME,
         lock_factory: Callable[[], Any] | None = None,
@@ -540,7 +660,10 @@ class IbkrHistoryFetcher(BaseBatch):
         super().__init__(db_dsn)
         self.args = args
         self.settings = settings or Settings()
-        self._provider_factory = provider_factory or self._default_provider
+        self._provider_factory = provider_factory
+        self._fetch_fn = fetch_fn
+        self._registry = self._bind_registry(registry)
+        self._leaves: dict[str, Any] = {}
         self._lock_name = lock_name
         self._lock_factory = lock_factory or (
             lambda: FetcherLock(
@@ -549,7 +672,6 @@ class IbkrHistoryFetcher(BaseBatch):
                 name=self._lock_name,
             )
         )
-        self._fetch_fn = fetch_fn
         self._prepare = prepare or self.prepare
         self._context_factory = context_factory or self._default_context
         self._run_stage = stage_runner or self._run_subprocess
@@ -567,10 +689,31 @@ class IbkrHistoryFetcher(BaseBatch):
 
     # -- seams' defaults ----------------------------------------------------
 
-    def _default_provider(self) -> Any:
-        return IBKRProvider(
-            host=self.settings.ib_host, port=self.settings.ib_port, client_id=self.args.client_id
+    def _bind_registry(
+        self, registry: Mapping[str, ProviderEntry] | None
+    ) -> dict[str, ProviderEntry]:
+        """The run's registry: the module entries with this fetcher's constructor seams
+        bound to the ibkr entry (the seams exist to inject IBKR test fakes: provider_factory
+        is the injected leaf, fetch_fn the injected item mechanics, both read at call time).
+        A custom registry's foreign entries pass through untouched; a custom registry that
+        reuses the module ibkr entry still gets the seams."""
+        bound = dict(registry) if registry is not None else dict(_PROVIDER_REGISTRY)
+        entry = bound.get("ibkr")
+        if entry is not _PROVIDER_REGISTRY.get("ibkr"):
+            return bound
+
+        def leaf(settings: Any, args: Any) -> Any:
+            if self._provider_factory is not None:
+                return self._provider_factory()
+            return entry.leaf_factory(settings, args)
+
+        fetch = (
+            entry.fetch
+            if self._fetch_fn is fetch_item_with_retries
+            else _ibkr_entry_fetch(self._fetch_fn)
         )
+        bound["ibkr"] = replace(entry, leaf_factory=leaf, fetch=fetch)
+        return bound
 
     def _default_context(self, provider: Any, plan: RunPlan, fetch_run_id: str) -> FetchContext:
         conn = self._connect()
@@ -629,9 +772,16 @@ class IbkrHistoryFetcher(BaseBatch):
         try:
             config = load_queue_config(conn)
             lanes = load_lane_config(conn)
-            apr = _read_apr(conn, (_KEY_INTER_ITEM_PAUSE,))
+            infra_values = _read_infra_apr(conn)
         finally:
             conn.close()
+        # One ProviderPlan per registered provider: the planner inputs raise when missing,
+        # the leaf-native window keeps its fallback (load_provider_plan's contract).
+        plans = {
+            name: load_provider_plan(name, infra_values.get, depth_tfs=tuple(config.depth_days))
+            for name in self._registry
+        }
+        default_plan = plans.get(default_provider())
         tf_fetch_config = _history_fetch._load_tf_fetch_config(self.settings)
         scopes = resolve_scopes(self.args, config.default_scopes)
         candidates = build_candidates(
@@ -667,8 +817,16 @@ class IbkrHistoryFetcher(BaseBatch):
             current_after=None if named else last_close,
             daily=daily,
             current_after_by_series=dict.fromkeys(parity, week_start),
+            plan=default_plan,
         )
         await queue.load(pool)
+        # Fail fast, never mid-run: every provider the plan could dispatch must be registered.
+        unknown = _unknown_providers(queue, self._registry)
+        if unknown:
+            raise RuntimeError(
+                f"no provider registry entry for {unknown}: every provider in the run's "
+                "plan must be registered"
+            )
         overlap_sessions = (
             self.args.overlap_sessions
             if self.args.overlap_sessions is not None
@@ -680,10 +838,12 @@ class IbkrHistoryFetcher(BaseBatch):
             candidates=candidates,
             tf_fetch_config=tf_fetch_config,
             overlap_sessions=overlap_sessions,
-            inter_item_pause_s=float(apr[_KEY_INTER_ITEM_PAUSE]),
+            inter_item_pause_s=default_plan.inter_item_pause_s if default_plan else 0.0,
             lanes=lanes,
             session_day=None if last_close is None else last_close.date(),
             parity=parity,
+            providers=frozenset({default_provider()}) if pairs else frozenset(),
+            plans=plans,
         )
 
     def _is_default_run(self) -> bool:
@@ -816,25 +976,35 @@ class IbkrHistoryFetcher(BaseBatch):
         # Exact format the pipeline printed: ops_head_rerun parses it.
         print(f"  fetch_run_id: {fetch_run_id}")
 
-        provider = self._provider_factory()
+        # One leaf per provider with candidates in this run, cached for the run (IBKR's
+        # single socket means one IBKRProvider instance); a zero-candidate provider is
+        # never constructed or connected.
+        leaves: dict[str, Any] = {}
+        for name in sorted(plan.providers):
+            entry = self._registry[name]
+            leaf = entry.leaf_factory(self.settings, self.args)
+            if not await leaf.connect():
+                raise RuntimeError(f"{entry.connect_failure_label} unreachable at startup")
+            leaves[name] = leaf
+        self._leaves = leaves
         self._notify()
         run_started_at = datetime.now(UTC)
-        if not await provider.connect():
-            raise RuntimeError("IBKR gateway unreachable at startup")
+        primary = leaves.get(default_provider()) or next(iter(leaves.values()), None)
         ctx: Any = None
         escalation_code = 0
         try:
-            ctx = self._context_factory(provider, plan, fetch_run_id)
-            loop = await self._loop(pool, plan, ctx, provider)
+            ctx = self._context_factory(primary, plan, fetch_run_id)
+            loop = await self._loop(pool, plan, ctx)
             if not loop.gateway_lost:
                 escalation_code = await self._escalate(
-                    pool, plan, ctx, provider, loop, fetch_run_id, run_started_at
+                    pool, plan, ctx, loop, fetch_run_id, run_started_at
                 )
         finally:
-            try:
-                await provider.disconnect()
-            except Exception as error:  # a dead socket may refuse a clean disconnect
-                logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
+            for leaf in self._leaves.values():
+                try:
+                    await leaf.disconnect()
+                except Exception as error:  # a dead socket may refuse a clean disconnect
+                    logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
             if ctx is not None:
                 self._final_flush(ctx)
         stage_codes = {"escalation": escalation_code, **await self._run_end_stages(ctx, loop)}
@@ -856,7 +1026,7 @@ class IbkrHistoryFetcher(BaseBatch):
         failed = loop.n_error > 0 or any(rc != 0 for rc in stage_codes.values())
         self.completion_status = "partial" if failed else "success"
 
-    async def _loop(self, pool: Any, plan: RunPlan, ctx: Any, provider: Any) -> _LoopState:
+    async def _loop(self, pool: Any, plan: RunPlan, ctx: Any) -> _LoopState:
         budget_min = (
             self.args.budget_minutes
             if self.args.budget_minutes is not None
@@ -864,7 +1034,7 @@ class IbkrHistoryFetcher(BaseBatch):
         )
         deadline = time.monotonic() + budget_min * 60
         state = _LoopState()
-        visited: set[tuple[str, str]] = set()
+        visited: set[tuple[str, str, str]] = set()
         while True:
             if time.monotonic() >= deadline:
                 state.budget_exhausted = True
@@ -872,20 +1042,25 @@ class IbkrHistoryFetcher(BaseBatch):
             row = await plan.queue.next(pool, visited)
             if row is None:
                 break
-            key = (row.symbol, row.timeframe)
+            key = (row.provider, row.symbol, row.timeframe)
             if key in visited:  # the queue handed back a visited item: never fetch twice
-                logger.error("ibkr_history_fetcher.queue_repeated_item", symbol=key[0], tf=key[1])
+                logger.error(
+                    "ibkr_history_fetcher.queue_repeated_item",
+                    provider=row.provider,
+                    symbol=row.symbol,
+                    tf=row.timeframe,
+                )
                 break
             visited.add(key)
             lane, full_scan, overlap_days = item_lane(plan, row, full_scan=self.args.full_scan)
             state.lanes[lane] += 1
             outcome = await self._fetch_one(
-                plan, ctx, provider, row, full_scan=full_scan, overlap_days=overlap_days
+                plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
             )
             self._notify()
             if outcome.gateway_lost:
                 # The gateway, not the item, failed: nothing is charged to the series (CD-05).
-                state.gateway_lost = f"{row.symbol}/{row.timeframe}"
+                state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
                 break
             self._record_outcome(ctx, outcome)
             state.add(outcome)
@@ -896,15 +1071,17 @@ class IbkrHistoryFetcher(BaseBatch):
                     escalate_on_restated=False,
                 )
                 if verdict.escalate:
-                    state.overlap_breaches[(row.symbol, row.timeframe)] = verdict
-            await asyncio.sleep(plan.inter_item_pause_s)
+                    state.overlap_breaches[(row.provider, row.symbol, row.timeframe)] = verdict
+            item_plan = plan.plans.get(row.provider)
+            await asyncio.sleep(
+                item_plan.inter_item_pause_s if item_plan is not None else plan.inter_item_pause_s
+            )
         return state
 
     async def _fetch_one(
         self,
         plan: RunPlan,
         ctx: Any,
-        provider: Any,
         row: Any,
         *,
         full_scan: bool,
@@ -912,18 +1089,39 @@ class IbkrHistoryFetcher(BaseBatch):
         refetch: bool = False,
         waived: bool = False,
     ) -> ItemOutcome:
-        return await self._fetch_fn(
-            ctx,
-            plan.candidates.instruments[row.symbol],
-            row,
-            full_scan=full_scan,
-            overlap_days=overlap_days,
-            refetch=refetch,
-            waived=waived,
-            config=plan.config,
-            reconnect=provider.connect,
-            on_tick=self._notify,
-        )
+        """Dispatch the item through its provider's registry entry (T-190-13): the loop
+        never calls a provider-specific path, and an entry failure surfaces as the item's
+        error outcome, never a fallback to another vendor's mechanics."""
+        try:
+            entry = self._registry[row.provider]
+            leaf = self._leaves[row.provider]
+            instrument = plan.candidates.instruments[row.symbol]
+            return await entry.fetch(
+                ctx,
+                leaf,
+                instrument,
+                row,
+                plan=plan.plans.get(row.provider),
+                full_scan=full_scan,
+                overlap_days=overlap_days,
+                refetch=refetch,
+                waived=waived,
+                config=plan.config,
+                reconnect=leaf.connect,
+                on_tick=self._notify,
+            )
+        except Exception as error:
+            logger.error(
+                "ibkr_history_fetcher.item_dispatch_failed",
+                provider=row.provider,
+                symbol=row.symbol,
+                timeframe=row.timeframe,
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            return ItemOutcome(
+                row.symbol, row.timeframe, "error", error=f"{type(error).__name__}: {error}"
+            )
 
     # -- the update lane's escalation (plan 189-10 Task 1, todo 507) --------------------
 
@@ -932,7 +1130,6 @@ class IbkrHistoryFetcher(BaseBatch):
         pool: Any,
         plan: RunPlan,
         ctx: Any,
-        provider: Any,
         loop: _LoopState,
         fetch_run_id: str,
         run_started_at: datetime,
@@ -966,17 +1163,17 @@ class IbkrHistoryFetcher(BaseBatch):
                     error_type=type(error).__name__,
                 )
                 failed = True
-        targets: list[tuple[str, str, str, bool]] = []
+        targets: list[tuple[str, str, str, str, bool]] = []
         for symbol in sorted(reasons_1d):
-            targets.append((symbol, DAILY_TF, reasons_1d[symbol], False))
-        for (symbol, timeframe), verdict in sorted(loop.overlap_breaches.items()):
+            targets.append((default_provider(), symbol, DAILY_TF, reasons_1d[symbol], False))
+        for (provider, symbol, timeframe), verdict in sorted(loop.overlap_breaches.items()):
             if await self._waiver(pool, symbol, timeframe, run_started_at):
-                targets.append((symbol, timeframe, str(verdict.reason), True))
+                targets.append((provider, symbol, timeframe, str(verdict.reason), True))
             else:
                 self._report_overlap(symbol, timeframe, verdict)
                 loop.escalated[f"{symbol}/{timeframe}"] = "unwaived_overlap_breach"
                 failed = True
-        for symbol, timeframe, reason, waived in targets:
+        for provider, symbol, timeframe, reason, waived in targets:
             if symbol not in plan.candidates.instruments:
                 logger.error("ibkr_history_fetcher.escalation_unknown_symbol", symbol=symbol)
                 failed = True
@@ -984,18 +1181,19 @@ class IbkrHistoryFetcher(BaseBatch):
             loop.escalated[f"{symbol}/{timeframe}"] = reason
             logger.warning(
                 "ibkr_history_fetcher.escalation_refetch",
+                provider=provider,
                 symbol=symbol,
                 timeframe=timeframe,
                 reason=reason,
                 waived=waived,
             )
-            row = CoverageRow(symbol, timeframe, None, None, None, 0, None)
+            row = CoverageRow(symbol, timeframe, None, None, None, 0, None, None, provider)
             outcome = await self._fetch_one(
-                plan, ctx, provider, row, full_scan=True, refetch=True, waived=waived
+                plan, ctx, row, full_scan=True, refetch=True, waived=waived
             )
             self._notify()
             if outcome.gateway_lost:
-                loop.gateway_lost = f"{symbol}/{timeframe} (escalation)"
+                loop.gateway_lost = f"{provider}/{symbol}/{timeframe} (escalation)"
                 return 1
             self._record_outcome(ctx, outcome)
             loop.add(outcome)

@@ -216,6 +216,10 @@ class FetchContext:
     per_contract: bool = False
     # Plan 185-22 (D-21): re-ask the last N 1d sessions so a split shows as a constant ratio.
     overlap_sessions: int = 0
+    # The item's ProviderPlan (phase 190 plan 04), carried in by the ibkr registry entry's
+    # fetch hook: vendor semantics (budgets, confirmation thresholds) read from the plan,
+    # never from module constants. None until the entry sets it.
+    plan: Any | None = None
     conn: Any = None
     qualified: dict[str, bool] = field(default_factory=dict)
     heads_checked: set[str] = field(default_factory=set)
@@ -781,9 +785,14 @@ async def fetch_item_with_retries(
     overlap_days: int = 0,
     refetch: bool = False,
     waived: bool = False,
+    provider_plan: Any | None = None,
 ) -> ItemOutcome:
-    """fetch_item under the stall bound, retried after a stall at most
-    config.history_request_retries times (CD-08).
+    """fetch_item under the stall bound, retried after a stall at most request_retries
+    times (CD-08).
+
+    The request budget comes from `provider_plan` (the item's ProviderPlan, phase 190
+    plan 04) when given, falling back to the QueueConfig mirrors for callers that pass
+    no plan (config.history_request_timeout_s / history_request_retries).
 
     - A stall cancels the attempt, flushes the D1 sink (the cancelled attempt's answered
       requests and observations are raw answers that must not be dropped; its persisted
@@ -796,7 +805,13 @@ async def fetch_item_with_retries(
     """
     started = time.monotonic()
     symbol, timeframe = row.symbol, row.timeframe
-    max_attempts = 1 + config.history_request_retries
+    if provider_plan is not None:
+        stall_timeout_s = provider_plan.request_timeout_s
+        retries = provider_plan.request_retries
+    else:
+        stall_timeout_s = config.history_request_timeout_s
+        retries = config.history_request_retries
+    max_attempts = 1 + retries
 
     def ended(status: str, attempt: int, **fields: Any) -> ItemOutcome:
         return ItemOutcome(
@@ -827,7 +842,7 @@ async def fetch_item_with_retries(
         try:
             outcome: ItemOutcome = await run_with_stall_bound(
                 attempt_coro,
-                stall_timeout_s=config.history_request_timeout_s,
+                stall_timeout_s=stall_timeout_s,
                 clock=clock,
                 on_tick=on_tick,
             )
