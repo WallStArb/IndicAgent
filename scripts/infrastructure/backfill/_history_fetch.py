@@ -69,9 +69,6 @@ _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for the fetcher
 # plan 185-18): no synthetic fill ever reaches market_data_ohlcv from these fetches at
 # 5m or 1m, and 15m/1h are archive-bound raw observations (plan 12). The interim flag
 # that gated this is retired -- it is the default behavior now. 1d joined in task 1b
-# (its fetch captures into D1 and stores no bar here at all); 4h joined in plan 185-32,
-# so no timeframe keeps a placeholder path (migration 444 refuses synthetic_fill).
-_REAL_BARS_ONLY_TFS = frozenset({"5m", "1m", "15m", "1h", "4h", "1d"})
 # Timeframes whose gap detection comes from the shared record planner
 # (detect_gaps_from_record): expected slots minus stored observations minus recorded
 # coverage, with the provider-verified empty span folded in. 1m stays on the legacy
@@ -823,21 +820,6 @@ def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
 
 
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
-
-
-def real_bars_only_for(tf: str) -> bool:
-    """Whether `tf`'s fetch persists real provider bars only (no synthetic fill).
-
-    15m/1h are archive-bound raw observations since plan 12 (a placeholder is
-    never an observation, and the archive insert refuses synthetic fills
-    outright); plan 185-18 made 5m and 1m real bars only for every asset class
-    (todo 462), retiring the interim flag that used to gate it. Task 1b took 1d
-    further still: its answers are captured into D1 and nothing is stored here
-    at all (store_bars refuses 1d). Plan 185-32 added 4h, the last placeholder
-    path, so every timeframe stores real bars only; migration 444 makes the
-    database refuse a synthetic_fill row.
-    """
-    return tf in _REAL_BARS_ONLY_TFS
 
 
 def detect_gaps(

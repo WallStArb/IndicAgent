@@ -76,7 +76,6 @@ from scripts.infrastructure.backfill._history_fetch import (
     detect_gaps,
     fetch_bars,
     fetch_per_contract,
-    real_bars_only_for,
 )
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
 from services.ohlcv_coverage_writer import (
@@ -535,13 +534,10 @@ def _plan_gaps(
         end_dt,
         session_id=instrument.session_id,
         exchange=instrument.exchange,
-        # Real-bars-only (1m): the answered windows are all that keeps a definitive
-        # no_data span from being re-asked forever (todo 462).
-        answered=(
-            load_answered_windows(conn, symbol, timeframe)
-            if real_bars_only_for(timeframe)
-            else None
-        ),
+        # Every timeframe stores real bars only (185-18, 185-32; migration 444 refuses a
+        # synthetic_fill row), so the answered windows always load: they are all that keeps
+        # a definitive no_data span from being re-asked forever (todo 462).
+        answered=load_answered_windows(conn, symbol, timeframe),
     )
     kept = empty_history.apply_empty_range(
         gaps,

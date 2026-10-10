@@ -1174,19 +1174,6 @@ class TestArchiveGridRouting:
         assert n == 1
         assert mock_insert.call_count == 1
 
-    def test_real_bars_only_for_every_tf(self):
-        """Plan 185-18 task 1b put 1d in the real-bars-only set; plan 185-32 adds 4h,
-        so no timeframe the fetcher asks keeps a placeholder path and no
-        synthetic fill reaches market_data_ohlcv from it (migration 444 refuses one)."""
-        from scripts.infrastructure.backfill._history_fetch import (
-            _TF_MINUTES,
-            real_bars_only_for,
-        )
-
-        for tf in ("5m", "1m", "15m", "1h", "4h", "1d"):
-            assert real_bars_only_for(tf) is True
-        assert all(real_bars_only_for(tf) for tf in _TF_MINUTES)
-
 
 def test_the_interim_flag_and_module_are_gone():
     """Plan 185-18 task 1a acceptance, CI-enforced: no --real-bars-only flag and
