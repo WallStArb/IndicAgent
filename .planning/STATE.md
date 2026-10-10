@@ -45,10 +45,9 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 6 of 7 done (190-06 cutover landed 2026-10-10: 465 applied with the writer
-conflict-target flip at CUT_TS 11:59:48Z, the renamed `ohlcv_history_fetcher` is the
-installed unit, parity PASS recorded, two clean post-cutover runs; 07 wrap-up remains)
+Phase: 190 (Provider history plane unification) — COMPLETE 2026-10-10 (7/7 plans; the
+cutover: 465 + conflict-target flip at CUT_TS 11:59:48Z, unified fetcher verified, 07
+wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
 
 - **HOLD 2026-10-10 (owner): no data pulls of any kind until the data-plane refactor lands.**
   The IBKR backfill stays held (timer disabled, ledger keeps state); `ops_bar_nightly` exists
