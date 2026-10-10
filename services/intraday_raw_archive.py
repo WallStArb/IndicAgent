@@ -66,8 +66,10 @@ _INSERT_FETCHED_SQL = (
     "INSERT INTO ohlcv_intraday_raw_archive " "(" + ", ".join(_COLUMNS) + ") VALUES " "{values}"
 )
 # The changed set: the latest answer wins (old values are already in ohlcv_revision).
+# The conflict target is the full key including source (migration 468): two vendors may
+# hold raw observations for the same slot, and one vendor's answer never revises another's.
 _REPLACE_FETCHED_SQL = (
-    _INSERT_FETCHED_SQL + ' ON CONFLICT ("timestamp", symbol, timeframe) DO UPDATE SET '
+    _INSERT_FETCHED_SQL + ' ON CONFLICT ("timestamp", symbol, timeframe, source) DO UPDATE SET '
     "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
     "volume = EXCLUDED.volume, source = EXCLUDED.source, base = EXCLUDED.base, "
     "archived_at = now()"
