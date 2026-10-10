@@ -100,11 +100,15 @@ _STALL_CHECKS_PER_TIMEOUT = 3
 @dataclass(frozen=True)
 class ItemOutcome:
     """How one queue item ended. The fetcher writes `status` to ohlcv_coverage through
-    record_fetch_outcome unless `gateway_lost` is set (a lost gateway is not charged)."""
+    record_fetch_outcome (provider-labeled, phase 190) unless `gateway_lost` is set (a
+    lost gateway is not charged)."""
 
     symbol: str
     timeframe: str
     status: str
+    # The planning plane that fetched the item, stamped by the ibkr registry entry's
+    # fetch path (phase 190 plan 04); the loop treats it as data.
+    provider: str = "ibkr"
     n_bars: int = 0
     # 5m grid rows written this item (offered to the insert; re-affirmed duplicates count).
     # Plan 04 promotes the derived 15m/1h grid when this is non-zero.

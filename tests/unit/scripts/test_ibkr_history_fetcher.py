@@ -272,14 +272,27 @@ def _fetcher(
 @pytest.fixture(autouse=True)
 def _no_side_effects(monkeypatch):
     """No APR overlay reads, no ledger writes, no gap-fill session and no overlap reads (the
-    1d judge and the 5m waiver come through their seams) in these tests."""
-    monkeypatch.setattr(hf.IbkrHistoryFetcher, "_load_provider_overlays", lambda self: None)
+    1d judge and the 5m waiver come through their seams) in these tests. The overlays are
+    patched at the _history_fetch loaders, so the fetcher's real overlay split and each
+    registry entry's load_overlays hook still run."""
+    for loader in (
+        "_load_ibkr_chunk_days_config",
+        "_load_ibkr_hist_timeout_config",
+        "_load_ibkr_retry_config",
+        "_load_ibkr_venue_fallback_config",
+        "_load_ibkr_rate_limit_config",
+        "_load_ohlcv_insert_batch_size_config",
+        "_load_gap_cluster_max_days_config",
+    ):
+        monkeypatch.setattr(hf._history_fetch, loader, lambda settings: None)
     monkeypatch.setattr(hf, "gap_fill_due", lambda symbol, tf, day, interval: False)
-    outcomes: list[tuple[str, str, str]] = []
+    outcomes: list[tuple[str, str, str, str]] = []
     monkeypatch.setattr(
         hf,
         "record_fetch_outcome",
-        lambda cur, symbol, tf, status, fetched_at: outcomes.append((symbol, tf, status)),
+        lambda cur, symbol, tf, status, fetched_at, *, provider="ibkr": outcomes.append(
+            (symbol, tf, status, provider)
+        ),
     )
     refreshed: list[list[str]] = []
     monkeypatch.setattr(
@@ -519,17 +532,24 @@ async def test_dry_run_takes_no_lock_opens_no_provider_and_writes_nothing(tmp_pa
     lines = out.read_text().splitlines()
     assert lines[0].split("\t") == list(hf._TSV_COLUMNS)
     rows = [line.split("\t") for line in lines[1:]]
-    held = hf._TSV_COLUMNS.index("held_reason")
-    lane = hf._TSV_COLUMNS.index("lane")
-    assert {(r[1], r[2], r[held]) for r in rows} == {
+    col = hf._TSV_COLUMNS.index
+    held = col("held_reason")
+    lane = col("lane")
+    assert {(r[col("symbol")], r[col("timeframe")], r[held]) for r in rows} == {
         ("AAA", "15m", ""),
         ("AAA", "1d", ""),
         ("TRD", "15m", ""),
         ("TRD", "1d", ""),
     }
+    # The provider column sits immediately after symbol and today every row is the ibkr
+    # plane (phase 190 plan 04; the parity gate is column-aware, owned by 190-06).
+    assert col("provider") == col("symbol") + 1
+    assert {r[col("provider")] for r in rows} == {"ibkr"}
     assert "tradier_owned" not in out.read_text()
     # AAA 15m holds a ledger row (update lane); the rest were never fetched (backfill).
-    assert [(r[1], r[2]) for r in rows if r[lane] == "update"] == [("AAA", "15m")]
+    assert [(r[col("symbol")], r[col("timeframe")]) for r in rows if r[lane] == "update"] == [
+        ("AAA", "15m")
+    ]
     assert {r[lane] for r in rows} == {"update", "backfill"}
     assert not any("tradier" in sql.lower() for sql in log)
     assert not (tmp_path / "status.json").exists()
@@ -671,7 +691,7 @@ async def test_a_repeated_item_is_processed_once(tmp_path, _no_side_effects):
     status, error = await _run(fetcher)
     assert error is None
     assert seen["fetched"] == [("AAA", "15m")]
-    assert _no_side_effects.outcomes == [("AAA", "15m", "ok")]
+    assert _no_side_effects.outcomes == [("AAA", "15m", "ok", "ibkr")]
 
 
 async def test_gateway_unreachable_at_startup_fails_before_any_item(tmp_path):
@@ -681,7 +701,8 @@ async def test_gateway_unreachable_at_startup_fails_before_any_item(tmp_path):
     status, error = await _run(fetcher)
     assert status == "failure"
     assert isinstance(error, RuntimeError)
-    assert "unreachable" in str(error)
+    # The ibkr entry keeps the parsed wording, composed from its connect label.
+    assert str(error) == "IBKR gateway unreachable at startup"
     assert seen["fetched"] == []
     assert '"status": "failed"' in (tmp_path / "status.json").read_text()
 
@@ -699,7 +720,7 @@ async def test_gateway_lost_mid_run_stops_and_does_not_charge_the_item(tmp_path,
     assert status == "failure"
     assert isinstance(error, RuntimeError)
     assert seen["fetched"] == ["AAA", "BBB"]
-    assert _no_side_effects.outcomes == [("AAA", "15m", "ok")]
+    assert _no_side_effects.outcomes == [("AAA", "15m", "ok", "ibkr")]
 
 
 async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_effects):
@@ -713,7 +734,7 @@ async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_eff
     status, error = await _run(fetcher)
     assert error is None
     assert status == "partial"
-    assert _no_side_effects.outcomes == [(s, "15m", st) for s, st in statuses.items()]
+    assert _no_side_effects.outcomes == [(s, "15m", st, "ibkr") for s, st in statuses.items()]
     # Every outcome write ran under the ledger writer role.
     assert seen["ctx"].conn.log.count("SET LOCAL ROLE bar_derivation_writer") == 3
     assert fetcher.summary["n_error"] == 1
@@ -919,7 +940,9 @@ async def test_the_parity_sample_adds_15m_and_1h_for_sampled_eligible_names_only
     assert all(plan.queue.current_after_by_series[p] == week_start for p in plan.parity)
     assert {"15m", "1h"} <= set(hf._history_fetch._ARCHIVE_TFS)
     lane = hf._TSV_COLUMNS.index("lane")
-    lanes = {(r[1], r[2]): r[lane] for r in hf.dry_run_rows(plan)}
+    sym = hf._TSV_COLUMNS.index("symbol")
+    tf = hf._TSV_COLUMNS.index("timeframe")
+    lanes = {(r[sym], r[tf]): r[lane] for r in hf.dry_run_rows(plan)}
     assert {key for key, value in lanes.items() if value == "parity"} == set(plan.parity)
 
 
@@ -1220,8 +1243,8 @@ async def test_a_raising_entry_fetch_becomes_an_error_outcome_with_no_ibkr_fallb
     assert error is None
     assert status == "partial"
     assert fetched == ["A1"]  # the ibkr path ran only its own item, never the ghost's
-    assert ("G1", "15m", "error") in _no_side_effects.outcomes
-    assert ("A1", "15m", "ok") in _no_side_effects.outcomes
+    assert ("G1", "15m", "error", "ghost") in _no_side_effects.outcomes
+    assert ("A1", "15m", "ok", "ibkr") in _no_side_effects.outcomes
 
 
 def test_the_ibkr_registry_entry_holds_the_concrete_leaf_construction():
@@ -1282,6 +1305,50 @@ async def test_unknown_provider_fails_fast_at_prepare(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="ghost"):
         await fetcher.prepare(_RecordingPool(log))
+
+
+async def test_a_foreign_connect_failure_names_the_provider(tmp_path):
+    leaf = _FakeLeaf("provX", connects=False)
+    entry = _FakeEntry("provX", leaf)
+    fetcher, _ = _fetcher(
+        tmp_path, _plan([_ranked_p("A1", provider="provX")]), registry={"provX": entry}
+    )
+    status, error = await _run(fetcher)
+    assert status == "failure"
+    assert str(error) == "provX unreachable at startup"
+
+
+async def test_each_connected_provider_loads_its_own_overlays(tmp_path):
+    entry_a = _FakeEntry("provA", _FakeLeaf("provA"))
+    entry_b = _FakeEntry("provB", _FakeLeaf("provB"))
+    entry_idle = _FakeEntry("idle", _FakeLeaf("idle"))
+    fetcher, _ = _fetcher(
+        tmp_path,
+        _plan([_ranked_p("A1", provider="provA")], providers={"provA", "provB"}),
+        registry={"provA": entry_a, "provB": entry_b, "idle": entry_idle},
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert entry_a.overlays == 1 and entry_b.overlays == 1 and entry_idle.overlays == 0
+
+
+async def test_gateway_lost_records_provider_symbol_and_timeframe(tmp_path):
+    lost = _FakeEntry("provA", _FakeLeaf("provA"))
+
+    async def fetch(ctx: Any, leaf: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        lost.fetch_calls.append(row.symbol)
+        return ItemOutcome(
+            row.symbol, row.timeframe, "error", provider=row.provider, gateway_lost=True
+        )
+
+    lost.fetch = fetch  # type: ignore[method-assign]
+    items = [_ranked_p("A1", provider="provA"), _ranked_p("B1", provider="provA")]
+    fetcher, _ = _fetcher(tmp_path, _plan(items), registry={"provA": lost})
+    status, error = await _run(fetcher)
+    assert status == "failure"
+    assert isinstance(error, RuntimeError)
+    assert lost.fetch_calls == ["A1"]
+    assert fetcher.summary["gateway_lost"] == "provA/A1/15m"
 
 
 def test_unknown_providers_lists_ranked_and_held_ghosts():

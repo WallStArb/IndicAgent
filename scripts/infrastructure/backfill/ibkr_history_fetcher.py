@@ -174,6 +174,7 @@ _DRY_RUN_PRINT_ROWS = 40
 _TSV_COLUMNS = (
     "position",
     "symbol",
+    "provider",
     "timeframe",
     "excluded",
     "sla_breach",
@@ -555,7 +556,7 @@ def _ibkr_entry_fetch(
         on_tick: Callable[[], None] | None,
     ) -> ItemOutcome:
         ctx.plan = plan
-        return await fetch_fn(
+        outcome = await fetch_fn(
             ctx,
             instrument,
             row,
@@ -568,6 +569,8 @@ def _ibkr_entry_fetch(
             on_tick=on_tick,
             provider_plan=plan,
         )
+        # The ibkr fetch path labels its outcomes (the loop records them provider-labeled).
+        return replace(outcome, provider=row.provider)
 
     return fetch
 
@@ -944,8 +947,16 @@ class IbkrHistoryFetcher(BaseBatch):
             writer.writerows(rows)
         for row in rows[:_DRY_RUN_PRINT_ROWS]:
             print("\t".join(row))
+        held_i = _TSV_COLUMNS.index("held_reason")
+        lane_i = _TSV_COLUMNS.index("lane")
+        due_i = _TSV_COLUMNS.index("due_reason")
+        tf_i = _TSV_COLUMNS.index("timeframe")
         bands = Counter(
-            f"lane={r[14]} tf={r[2]} due={r[15] or '-'}" if r[13] == "" else f"held={r[13]}"
+            (
+                f"lane={r[lane_i]} tf={r[tf_i]} due={r[due_i] or '-'}"
+                if r[held_i] == ""
+                else f"held={r[held_i]}"
+            )
             for r in rows
         )
         print(f"\n{len(rows)} candidate series -> {out}")
@@ -971,7 +982,7 @@ class IbkrHistoryFetcher(BaseBatch):
             return
         plan = await self._prepare(pool)
         self._tick_s = plan.config.history_request_timeout_s / _TICKS_PER_TIMEOUT
-        self._load_provider_overlays()
+        self._load_overlays(plan.providers)
         fetch_run_id = new_fetch_run_id()
         # Exact format the pipeline printed: ops_head_rerun parses it.
         print(f"  fetch_run_id: {fetch_run_id}")
@@ -1120,7 +1131,11 @@ class IbkrHistoryFetcher(BaseBatch):
                 error_type=type(error).__name__,
             )
             return ItemOutcome(
-                row.symbol, row.timeframe, "error", error=f"{type(error).__name__}: {error}"
+                row.symbol,
+                row.timeframe,
+                "error",
+                provider=row.provider,
+                error=f"{type(error).__name__}: {error}",
             )
 
     # -- the update lane's escalation (plan 189-10 Task 1, todo 507) --------------------
@@ -1285,7 +1300,12 @@ class IbkrHistoryFetcher(BaseBatch):
             cur = conn.cursor()
             cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
             record_fetch_outcome(
-                cur, outcome.symbol, outcome.timeframe, outcome.status, datetime.now(UTC)
+                cur,
+                outcome.symbol,
+                outcome.timeframe,
+                outcome.status,
+                datetime.now(UTC),
+                provider=outcome.provider,
             )
 
     def _final_flush(self, ctx: Any) -> None:
@@ -1361,17 +1381,15 @@ class IbkrHistoryFetcher(BaseBatch):
         finally:
             await db.close()
 
-    def _load_provider_overlays(self) -> None:
-        """The pipeline's APR overlays, in its main()'s order (module globals of ibkr.py and
-        the pipeline that fetch_item reads)."""
+    def _load_overlays(self, providers: Iterable[str]) -> None:
+        """The run's APR overlays, split by owner (phase 190 plan 04): the provider-neutral
+        loaders stay fetcher-owned; each provider in the run loads its leaf-native overlays
+        through its registry entry (soft fallback, never a raise)."""
         settings = self.settings
-        _history_fetch._load_ibkr_chunk_days_config(settings)
-        _history_fetch._load_ibkr_hist_timeout_config(settings)
-        _history_fetch._load_ibkr_retry_config(settings)
-        _history_fetch._load_ibkr_venue_fallback_config(settings)
-        _history_fetch._load_ibkr_rate_limit_config(settings)
         _history_fetch._load_ohlcv_insert_batch_size_config(settings)
         _history_fetch._load_gap_cluster_max_days_config(settings)
+        for name in providers:
+            self._registry[name].load_overlays(settings)
 
     def _write_status(self, status: str, started_at: datetime, message: str) -> None:
         """The run status file the D7 audit's nightly_skipped check reads (185-23). Written at
@@ -1458,6 +1476,9 @@ def dry_run_rows(plan: RunPlan) -> list[list[str]]:
             [
                 position,
                 r.symbol,
+                # The provider column (phase 190 plan 04): today every row is the ibkr
+                # plane; 190-06's parity gate diffs columns, so this is additive.
+                r.provider,
                 r.timeframe,
                 str(reason == "excluded"),
                 str(item.sla_breach),
