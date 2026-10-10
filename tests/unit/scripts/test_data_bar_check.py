@@ -261,17 +261,8 @@ def test_dividend_condition_requires_share_and_total_return_symbol() -> None:
     assert not no_fn.ok
 
 
-def test_survivorship_condition_requires_all_six_apr_keys() -> None:
-    full = {
-        "alpha.survivorship.delisting_return.nasdaq",
-        "alpha.survivorship.delisting_return.nyse_amex",
-        "alpha.survivorship.hazard.nasdaq_annual",
-        "alpha.survivorship.hazard.nyse_amex_annual",
-        "alpha.survivorship.haircut.small_cap_annual",
-        "alpha.survivorship.trading_days_per_year",
-    }
-    assert mod.survivorship_condition(full).ok
-    assert not mod.survivorship_condition(full - {"alpha.survivorship.hazard.nasdaq_annual"}).ok
+# test_survivorship_condition_requires_all_six_apr_keys retired 2026-10-09 with
+# condition 6 itself (todo 514; owner: survivorship bias is not an issue).
 
 
 def test_is_active_condition_fails_on_any_soft_deleted_inventory_name() -> None:
@@ -401,7 +392,9 @@ def test_main_prints_one_line_per_condition_and_exits_1_on_fail(monkeypatch, cap
         mod.main()
     assert excinfo.value.code == 1
     lines = [line for line in capsys.readouterr().out.splitlines() if line[:4] in ("PASS", "FAIL")]
-    assert len(lines) == 7  # one line per D-28 condition
+    assert (
+        len(lines) == 6
+    )  # six conditions since 2026-10-09 (condition 6 retired, todo 514; numbering keeps its gap)
     fails = [line for line in lines if line.startswith("FAIL")]
     # The only failing condition: no stored requests, so AMD stays unresolved.
     assert len(fails) == 1

@@ -15,7 +15,8 @@ before bucketing. --skip-top N drops the N largest names by index position value
 3000) export with --skip-top 1000 it approximates the Russell 2000 by rank; the 2026-09-26
 expansion onboarded one draw each way (config/universe/).
 
-The draw is from current index members only, so it carries survivorship bias (todo 376).
+The draw is from current index members only (todo 376 closed 2026-10-09: the owner retired the
+survivorship-bound framing; current-members draws are the accepted onboarding source).
 
 Read-only: writes the drawn list and its provenance to --out. Onboarding happens through
 universe_expansion_onboard_manifest.py once each drawn name is classified.
