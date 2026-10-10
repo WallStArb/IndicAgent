@@ -48,7 +48,7 @@ from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.intelligence.bars.gap_plan import AnsweredWindows, expected_grid_slots
 from src.providers import IBKRProvider, ibkr
 
-_logger = structlog.get_logger(__name__)
+_log = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -666,9 +666,7 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     Usage:
         python scripts/infrastructure/backfill/ohlcv_history_fetcher.py --seed-roll-chain
     """
-    import structlog
-
-    log = structlog.get_logger(__name__)
+    log = _log
 
     # Collect unique futures base symbols (order-preserving via dict.fromkeys)
     futures_bases: list[str] = list(
