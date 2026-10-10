@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T07:27:04.599Z"
+last_updated: "2026-10-10T09:20:09.202Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 105
-  completed_plans: 103
+  completed_plans: 104
   percent: 25
 ---
 
@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
@@ -201,6 +201,14 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
   inter-item pause), and the dry-run TSV carries the provider column (190-06 parity delta 1).
   Adding a vendor is one registry entry plus a leaf module; multi-plane queueing (one run,
   several providers' candidates) is still future work.
+
+- Phase 190 code-identity rename (190-05): the fetcher is `ohlcv_history_fetcher` /
+  `OHLCVHistoryFetcher` in code and tests; every external identity stayed byte-identical
+  under FROZEN (phase 190 decision) comments (FETCHER_LOCK_NAME, LOCK_HELD_MESSAGE, JOB,
+  status-file path, unit filenames). A compatibility shim at the old
+  ibkr_history_fetcher.py path keeps the live unit runnable until 190-06 installs the
+  updated unit and deletes it. The log file does not move: BaseBatch derives it from the
+  frozen JOB, so logs/ibkr_history_fetcher.log stays.
 
 - Phase 190 two-tier ledger foundation (190-02): migration 464 applied live (ohlcv_coverage.provider,
   ohlcv_provider_head.timeframe nullable; ibkr label is the authoring fetch plane of a stored-state
