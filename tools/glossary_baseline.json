@@ -12,12 +12,9 @@
    "param store": 3
   },
   ".planning/ROADMAP.md": {
-   "drain": 5,
-   "param store": 1,
-   "the drain": 1
+   "param store": 1
   },
   ".planning/STATE.md": {
-   "drain": 4,
    "draining": 1
   },
   ".planning/phases/185-daily-data-foundation/.continue-here.md": {
@@ -125,9 +122,6 @@
   },
   ".planning/todos/pending/513-nightly-process-contract-completion-before-judgment-and-a-pull-digest.md": {
    "drain": 2
-  },
-  ".planning/todos/pending/521-alpaca-intraday-depth-build.md": {
-   "drain": 1
   },
   "dashboard/src/hooks/use-observability-stream.ts": {
    "drain": 1
