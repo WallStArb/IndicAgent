@@ -129,10 +129,6 @@
   ".planning/todos/pending/521-alpaca-intraday-depth-build.md": {
    "drain": 1
   },
-  ".planning/todos/pending/527-post-backfill-simplify-backlog-185-189.md": {
-   "drain": 4,
-   "the drain": 1
-  },
   "dashboard/src/hooks/use-observability-stream.ts": {
    "drain": 1
   },
@@ -193,10 +189,6 @@
   },
   "docs/plans/2026-10-09-provider-history-plane-unification-design.md": {
    "drain": 4,
-   "the drain": 2
-  },
-  "docs/plans/2026-10-10-simplify-findings-185-189.md": {
-   "drain": 7,
    "the drain": 2
   },
   "docs/platform/platform-foundation.md": {

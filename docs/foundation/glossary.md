@@ -2139,6 +2139,22 @@ digest (a feature-side record). **Banned:** (none)
 
 ---
 
+### `backfill`
+
+Fetching history a provider already has and storing it as observations/bars, whether the full
+depth for a timeframe or the nightly update slice. Named for what arrives (history), not for
+any effect on the system; nothing is drained, emptied, or reduced.
+**Not:** a queue drain (emptying a dead-letter queue or flushing Kafka offsets on shutdown);
+that sense of "drain" is a different concept and keeps its name (`indicagent-dlq-drain`).
+**Avoid:** "drain" as a name for a history fetch (owner direction 2026-10-10; the full-depth
+5m IBKR fetch was informally "the drain")
+**Banned:** drain, the drain, draining
+**Status:** active (owner direction 2026-10-10)
+**Code surface:** `scripts/infrastructure/backfill/`, `ohlcv_request` lanes (`backfill`,
+`gap_fill`, `update`)
+
+---
+
 ## See Also
 
 - `docs/foundation/naming-system.md` — mechanical derivation of code surfaces from concept names
