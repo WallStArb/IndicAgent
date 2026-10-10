@@ -63,6 +63,14 @@ _ALLOW_LIST: dict[str, str] = {
         "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
         "(daily, hourly, quarter-hour) with a logged warning."
     ),
+    "scripts/ops/bars/ops_alpaca_5m_load.py": (
+        "CAMPAIGN (todo 521, 2026-10-09): the Alpaca 5m admission loader -- scratch parquet "
+        "into market_data_ohlcv through the 185-39 ingress write contract with source "
+        "'alpaca', five-minute only, first-writer-stays (stored stamps dropped before the "
+        "contract sees them, so it only ever inserts). RTH-grid filter from nyse_sessions; "
+        "coverage upsert rides the atomic persist helper in the chunk transaction. The T4 "
+        "nightly leaf must reuse this writer, not grow a second one."
+    ),
 }
 
 

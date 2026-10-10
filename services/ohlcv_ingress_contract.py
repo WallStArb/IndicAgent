@@ -179,7 +179,13 @@ def _utc_date(ts: datetime) -> date:
 
 
 def _record_load(
-    cur: Any, load: SeriesLoad, *, outcome: str, detail: str | None, load_id: uuid.UUID
+    cur: Any,
+    load: SeriesLoad,
+    *,
+    outcome: str,
+    detail: str | None,
+    load_id: uuid.UUID,
+    source: str = LOAD_SOURCE,
 ) -> None:
     cur.execute(
         _INSERT_LOAD_SQL,
@@ -187,7 +193,7 @@ def _record_load(
             load_id,
             load.symbol,
             load.timeframe,
-            LOAD_SOURCE,
+            source,
             load.first_bar,
             load.last_bar,
             outcome,
@@ -252,12 +258,16 @@ def apply_ingress_contract(
     write_changed: WriteRows,
     params: ContractParams | None = None,
     waived: bool = False,
+    source: str = LOAD_SOURCE,
 ) -> int:
     """Apply the write contract to one chunk and return the number of rows offered.
 
     `write_new` and `write_changed` receive the full row tuples (one per key, last occurrence
     wins) and perform the bar table's own INSERT and upsert. Raises RevisionRefused, before any
     write, when any series in the chunk breaches the refusal.
+
+    `source` names the writing vendor in the chunk's ohlcv_load row (default ibkr; the
+    Alpaca 5m admission build passes its own, todo 521).
 
     `waived` is the caller's statement that a recorded corporate action explains the revision
     (the fetcher's escalation re-fetch after a split, plan 189-10; the same waiver D2 applies):
@@ -309,7 +319,9 @@ def apply_ingress_contract(
             if waived
             else None
         )
-        _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
+        _record_load(
+            cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id, source=source
+        )
         if delta.changed:
             _record_revisions(cur, load_id, load, delta)
         if delta.new:
