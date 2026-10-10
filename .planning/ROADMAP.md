@@ -242,7 +242,7 @@ writer, makes lineage a view, and gates promotion and the phase 186 rebuild on c
 Cross-phase order (owner re-sequencing 2026-10-07: pipeline squared away and clutter cleaned before
 the new data): 185-44, 189-07, 185-28, 185-31, 185-32/34/36, 185-38 (cutover), 185-33, 185-39, 185-29,
 185-40, 185-41, 189-08, 185-37, 185-35, 185-42, 185-45, 185-43, then 189-10 (one-time IBKR 1d fetch
-for the 473 never-asked names, 5m pilot and launch), 189-09, 189-11 after the 5m drain. Phase 186's
+for the 473 never-asked names, 5m pilot and launch), 189-09, 189-11 after the 5m backfill. Phase 186's
 rebuild runs once after 185-43, 185-45 and 189-11 (enforced by run_all's landed-marker check from
 185-41).
 
@@ -588,12 +588,12 @@ Plans:
 - [x] 189-07-PLAN.md - delete nightly, lane scripts, lane guard and their tests; amended: vendor 15m/1h fetch stopped (migration 445), fetcher timer kept stopped (done 2026-10-06: 662cc34e3, 4a40e2f82, afc8e40bb)
 - [x] 189-08-PLAN.md - absorb the pipeline into _history_fetch.py, lock CI guard, retire lease APR keys; amended: carries the 185-39 write contract, drops --normalize, normalize_bars and fetch-path backfill_status writes
 - [ ] 189-09-PLAN.md - CLAUDE.md and docs; close todos 488, 452, 387, 455, 484; amended: data layer docs, glossary, onboarding promote gate (after 189-10)
-- [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth drain as a completeness campaign and the fetcher timer was re-enabled, todo 523 record)
-- [ ] 189-11-PLAN.md - 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed (amended 2026-10-09: absorbs todo 526 - per-TF provider floors and expected-domain planning, the planner root fix; head verification across all names incl. the 163 head-gap names; the all-names 5m scope per the owner ruling, registry promotion wave sequenced after data exists; Alpaca 521 coordination: phase 2 canonical load holds until the drain completes or 526 lands)
+- [ ] 189-10-PLAN.md - after the 185 cleanup: weekly IBKR 1d reconcile and parity sample (migration 451), one-time IBKR 1d fetch for the 473 never-asked names, 20-name 5m pilot with a pre-registered criterion, fetcher timer launched (Task 1b done, record 189-10-1D-FETCH-RECORD.md; Task 2 scored 2026-10-09: criterion 4/9 pass, C4 launch gate failed on measured latency, summary in 189-10-TASK2-SUMMARY.md; owner then ordered the full-depth 5m backfill as a completeness campaign; paused 2026-10-10 for the Alpaca all-names load, timer restarts after and the fetcher timer was re-enabled, todo 523 record)
+- [ ] 189-11-PLAN.md - 5m backfill completion: queue drained, vendor rows out, verdicts, storage measured, todo 449 closed (amended 2026-10-09: absorbs todo 526 - per-TF provider floors and expected-domain planning, the planner root fix; head verification across all names incl. the 163 head-gap names; the all-names 5m scope per the owner ruling, registry promotion wave sequenced after data exists; Alpaca 521 coordination: phase 2 canonical all-names load RUNNING 2026-10-10 (chunk fixes landed) while the 5m backfill is paused; todo 526 still open)
 
 ### Phase 190: Provider history plane unification: one multi-provider fetcher, N leaves, two-tier ledger (design: docs/plans/2026-10-09-provider-history-plane-unification-design.md; rides with todo 526)
 
-**Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m drain kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
+**Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m backfill kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
 **Requirements**: TBD (design-derived: P190-conformance, P190-boundary, P190-migration, P190-ledger, P190-writers, P190-queue, P190-fetcher, P190-parity, P190-lock)
 **Depends on:** Phase 189
 **Plans:** 5/7 plans executed
@@ -618,7 +618,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 190-06-PLAN.md — Cutover: parity gate, drain kill-and-resume under the unified fetcher (blocking owner checkpoint)
+- [ ] 190-06-PLAN.md — Cutover: parity gate, backfill kill-and-resume under the unified fetcher (blocking owner checkpoint)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 

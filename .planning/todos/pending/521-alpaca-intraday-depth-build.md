@@ -9,11 +9,18 @@ source: Alpaca integration pilot (docs/plans/2026-10-09-alpaca-integration-pilot
 
 Deferred 2026-10-09. Gate: the depth-build plan doc written first from the
 pilot's handoff decisions, then owner green-light to build. (Amended
-2026-10-09 after the 189 probe verdict, todo 523: the IBKR batch tail drain
+2026-10-09 after the 189 probe verdict, todo 523: the IBKR batch tail fetch
 closed, so the original build-order gate is moot; IBKR depth is per-name,
 on-demand, targeted at a spec that names its need.) The evidence is already
 in: the pilot pre-registered names, criteria and bounds, executed same day,
 and passed everything the build needs except three named diagnoses.
+
+Status 2026-10-10: the phase 2 all-names canonical 5m load is RUNNING
+(launched by session indicagent-87 after two chunk-buffer fixes,
+`6006fa217` and `a28f537ca`; log
+`data/scratch/alpaca-pilot/load_apply_full.log`). The IBKR full-depth 5m
+backfill is paused by design until the load's done-report; its fetcher
+timer restarts then (session indicagent-7a holds the restart).
 
 ## What
 

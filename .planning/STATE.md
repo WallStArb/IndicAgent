@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T09:20:09.202Z"
+last_updated: "2026-10-10T15:35:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -46,17 +46,19 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 6 of 7
+Plan: 5 of 7 done (06 cutover and 07 wrap-up remain; 06 is the gated owner checkpoint)
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
   1,296 goes through the SOP/185-41 gates after their 5m exists). Alpaca is green-lit as the 5m
-  source (todo 521 build in flight: pilot passed, phase 1 pull running, all-names canonical load
-  HELD until the IBKR drain completes or todo 526's planner fix lands). IBKR stays the 1d
-  primary; its fetcher service and timer were RE-ENABLED 2026-10-09 and the full-depth 5m drain
-  is running (owner reversed the C4 gate: completeness campaign, todo 523 record). Raw capture
+  source (todo 521 build in flight: pilot passed, phase 1 pull done, and the phase 2 all-names
+  canonical 5m load is RUNNING since 2026-10-10, launched by session indicagent-87 after two
+  chunk-buffer fixes; 150-250M rows, hours). IBKR stays the 1d
+  primary; the full-depth 5m backfill (owner-ordered 2026-10-09 as a completeness campaign, todo
+  523 record) is PAUSED by design 2026-10-10: fetcher timer stopped and the in-flight run killed
+  so the Alpaca load gets a clear table; the timer restarts when the load reports done. Raw capture
   is universal (both vendors nightly), authoring stays single-source per span; depth planning
-  moves to per-TF provider floors (todo 526, 189-11, lifts the phase 2 hold).
+  moves to per-TF provider floors (todo 526, 189-11).
 
 - **Phase 183** (other session): all 11 plans done (plan 10 on 2026-09-26); phase UAT complete
   2026-10-02 (183-UAT.md: 12 tests, 10 pass, 2 minor issues both resolved; synthetic-smoke
@@ -68,7 +70,7 @@ Plan: 6 of 7
   opening and closing auction prints; no slot, keep or timing tried is net positive at measured spreads;
   next are todo 460 (auction price check, auction-to-auction hold) and todo 458 (overlay).
 
-- **Phase 185:** original 26 plans executed 2026-10-06; verification found gaps (`185-VERIFICATION.md`), so gap closure plans 27-44 and 189-07..11 implement the approved data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`: Tradier primary 1d with IBKR fallback via `bar_source_policy`, one daily rule d2-v2, lineage as a view, one write contract, 15m/1h/4h derived from 5m, raw 5m only for the promoted names, verdict-based gates, then cleanup). Done: 185-27, 185-30, 185-44 (complexity baseline plus three CI guards). 1,502 names are promoted `compute_eligible_1d`, 27 held. The IBKR fetcher service and timer were re-enabled 2026-10-09 (drain running; see the data layer end-state above). Order: ROADMAP.md; handoff: `.planning/phases/185-daily-data-foundation/.continue-here.md`.
+- **Phase 185:** original 26 plans executed 2026-10-06; verification found gaps (`185-VERIFICATION.md`), so gap closure plans 27-44 and 189-07..11 implement the approved data layer integrity design (`docs/plans/2026-10-06-data-layer-integrity-design.md`: Tradier primary 1d with IBKR fallback via `bar_source_policy`, one daily rule d2-v2, lineage as a view, one write contract, 15m/1h/4h derived from 5m, raw 5m only for the promoted names, verdict-based gates, then cleanup). Done: 185-27, 185-30, 185-44 (complexity baseline plus three CI guards). 1,502 names are promoted `compute_eligible_1d`, 27 held. The IBKR fetcher service and timer were re-enabled 2026-10-09 (full-depth 5m backfill; paused 2026-10-10 for the Alpaca load, see the data layer end-state above). Order: ROADMAP.md; handoff: `.planning/phases/185-daily-data-foundation/.continue-here.md`.
   2026-10-02 (185-12): the 15m/1h grid is derived from tradeable 5m (233 symbols rewritten,
   33.2M derived rows, original observations in `ohlcv_intraday_raw_archive`, pipeline fetches
   rerouted there, nightly grid stage chained with `--changed-only`), which satisfies 186's D-32
@@ -139,7 +141,7 @@ for your work) -> `.planning/todos/PRIORITIES.md`. Then pick one lane; lanes run
 | Alpha, no dependencies | Paused until 185 and 186 land (owner, 2026-09-27): todos 437 (cost model), 441 and 423 (price-only daily families), 440 (`generated_family`) | Specs and new modules only; runs go through the phase 183 runner |
 | Quick data and infra | Todos 443, 439, 438 (borrow snapshots; loses a day every day it waits) | Independent; 439's IC purge lands with phase 186's fresh ic_engine |
 | Phase 186 | `/gsd-execute-phase 186`: 25/29 done plus 186-17 partial, no executor live; remaining 17 Task 2, 26, 27, 28, one executor at a time | No edits to modules ic_engine imports while a corpus run is live or resumable; commit only 186's own files (185 executes concurrently in this tree); designed gate stops (186-14 waits on 185-11, 186-23 on 185 D-14, 186-26 on todo 449 coverage) are reported, never forced |
-| Phase 185 | Gap closure 185-27..52 done 2026-10-09: 1d primary is IBKR from D=2026-10-07; Tradier retired (loader, units, provider, APR keys); stale heads, closures, split recognition and the hold list, d2-v3 landed. Left: phase verification, 513 (nightly contract), 189-09, 189-11 (the 5m drain is RUNNING, re-enabled 2026-10-09; 189-10 Task 2 scored, fetcher live). 514 (survivorship removal) done 2026-10-10: migration 466, gate condition 6 retired, docs swept | Owns ibkr.py, fetcher, bar policy. CTVA held (516); known D7 failures: CTVA, QRVO, PSKY, WBD (freshness_1d), 13 vendor_basis_run, session_coverage |
+| Phase 185 | Gap closure 185-27..52 done 2026-10-09: 1d primary is IBKR from D=2026-10-07; Tradier retired (loader, units, provider, APR keys); stale heads, closures, split recognition and the hold list, d2-v3 landed. Left: phase verification, 513 (nightly contract), 189-09, 189-11 (the 5m backfill is paused 2026-10-10 for the Alpaca all-names load, timer restarts after; 189-10 Task 2 scored, fetcher live). 514 (survivorship removal) done 2026-10-10: migration 466, gate condition 6 retired, docs swept | Owns ibkr.py, fetcher, bar policy. CTVA held (516); known D7 failures: CTVA, QRVO, PSKY, WBD (freshness_1d), 13 vendor_basis_run, session_coverage |
 
 Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers from
 `.planning/phases/`, so add or plan them by number, never through `phase.add` (CLAUDE.md).
