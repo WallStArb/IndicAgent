@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T05:25:06.876Z"
+last_updated: "2026-10-10T06:11:33.126Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 105
-  completed_plans: 101
+  completed_plans: 102
   percent: 25
 ---
 
@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
@@ -199,6 +199,17 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
   UN-APPLIED: 190-06 applies it with the fetcher stopped, in the same shell breath as flipping the
   coverage writer's ON CONFLICT to (symbol, timeframe, provider); the boundary test and the
   conftest _COMMITTED_BUT_UNAPPLIED={465} entry pin that discipline until then.
+
+- Phase 190 per-provider planner (190-03): `_fetch_queue.py` is provider-parameterized with
+  ProviderPlan + load_provider_plan reading infra.<provider>.* under the split contract
+  (planner inputs raise, leaf-native rate-limit window keeps its logged fallback); the queue's
+  candidates, due reasons and visited checks are (provider, symbol, timeframe) triples that
+  still accept the legacy pairs, so the unmodified fetcher kept draining through every commit
+  boundary (back-to-back dry-run TSVs identical). The bar_source_policy gate authorizes
+  primary-OR-fallback (derived rows and no-row pairs fall back to the default plane), which
+  keeps the two open tradier-primary 1d rows with the ibkr fallback (MOD, QRVO) fetching via
+  IBKR; 190-04 passes the plans and triples the fetcher side, and 190-06 activates
+  record_head_per_tf when 465 applies.
 
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").

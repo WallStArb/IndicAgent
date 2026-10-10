@@ -595,7 +595,7 @@ Plans:
 **Goal:** Exactly one process fetches history from every market-data vendor: queue items carry a provider dimension, per-provider heads (todo 526) are the planning source of record with per-provider quarantine, leaves (`src/providers/<vendor>.py`) own API mechanics behind the shared protocol, policy stays in `bar_source_policy`/D7 at the capture layer, and adding a vendor costs one leaf, policy rows, and APR seeds. The IBKR 5m drain kill-and-resumes under the unified fetcher; the canonical Alpaca load (todo 521) runs as lanes in the same loop.
 **Requirements**: TBD (design-derived: P190-conformance, P190-boundary, P190-migration, P190-ledger, P190-writers, P190-queue, P190-fetcher, P190-parity, P190-lock)
 **Depends on:** Phase 189
-**Plans:** 2/7 plans executed
+**Plans:** 3/7 plans executed
 
 Plans:
 **Wave 1**
@@ -605,7 +605,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 190-03-PLAN.md — Per-provider planner: ProviderPlan, per-provider ledger reads and floors (todo 526), policy read gate
+- [x] 190-03-PLAN.md — Per-provider planner: ProviderPlan, per-provider ledger reads and floors (todo 526), policy read gate
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
