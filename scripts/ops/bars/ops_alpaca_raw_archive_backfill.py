@@ -94,7 +94,7 @@ def main() -> int:
             if frame is None:
                 print(f"{symbol}: no artifact, skipping", flush=True)
                 continue
-            rows, n_extended, n_held = non_authored_rows(frame, symbol, set(), conn)
+            rows, n_extended, n_held = non_authored_rows(frame, symbol, conn)
             total_extended += n_extended
             total_held += n_held
             if args.apply and rows:
