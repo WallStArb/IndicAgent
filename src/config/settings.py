@@ -111,6 +111,17 @@ class Settings(BaseSettings):
         description="Timeout in seconds for IBKR API operations (connect, requests)",
     )
 
+    # Alpaca market-data leaf (todo 521/T4): credentials from .env, pacing
+    # fallback for the APR key infra.alpaca.rate_limit_max_requests (the real
+    # value loads fresh at capture startup per the APR rule).
+    alpaca_key_id: str = Field(default="", validation_alias="ALPACA_KEY_ID")
+    alpaca_secret_key: str = Field(default="", validation_alias="ALPACA_SECRET_KEY")
+    alpaca_rate_limit_max_requests: int = Field(
+        default=190,
+        validation_alias="ALPACA_RATE_LIMIT_MAX_REQUESTS",
+        description="Sustained bars requests per minute (documented Basic cap 200)",
+    )
+
     # High-frequency daemon
     hf_async_publish: bool = Field(default=True, validation_alias="HF_ASYNC_PUBLISH")
 
