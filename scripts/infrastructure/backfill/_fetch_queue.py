@@ -180,6 +180,18 @@ def default_provider() -> str:
     return "ibkr"
 
 
+def _series_key(key: Sequence[str]) -> tuple[str, str, str]:
+    """Normalize a series key to the canonical (provider, symbol, timeframe) triple: the
+    legacy (symbol, timeframe) pair shape is accepted and defaults to the ibkr plane."""
+    if len(key) == 2:
+        return (default_provider(), key[0], key[1])
+    if len(key) == 3:
+        return (key[0], key[1], key[2])
+    raise ValueError(
+        f"series key must be (provider, symbol, timeframe) or (symbol, timeframe): {key}"
+    )
+
+
 def load_provider_plan(
     provider: str,
     get: Callable[[str], str | None],
@@ -589,6 +601,8 @@ def _components(
         -effective_stale,
         row.symbol,
         row.timeframe,
+        # the provider dimension: a final tiebreak, so the order is total across planes
+        row.provider,
     )
     return RankedItem(row, key, sla_breach, tf_class, gap, stale)
 
@@ -632,12 +646,13 @@ def order_queue(
 
 
 _COVERAGE_SQL = (
-    "SELECT symbol, timeframe, earliest_timestamp, latest_timestamp, last_fetch_status, "
-    "consecutive_failures, last_fetched_at FROM ohlcv_coverage WHERE symbol = ANY($1::text[])"
+    "SELECT symbol, timeframe, provider, earliest_timestamp, latest_timestamp, "
+    "last_fetch_status, consecutive_failures, last_fetched_at FROM ohlcv_coverage "
+    "WHERE symbol = ANY($1::text[]) AND provider = $2"
 )
 _CONFIG_SQL = "SELECT config_key, config_value FROM config_state WHERE config_key = ANY($1::text[])"
 _HEADS_SQL = (
-    "SELECT symbol, head_ts FROM ohlcv_provider_head WHERE provider = $1 "
+    "SELECT symbol, timeframe, head_ts FROM ohlcv_provider_head WHERE provider = $1 "
     "AND symbol = ANY($2::text[]) AND verified_at > NOW() - make_interval(days => $3)"
 )
 _EMPTY_SQL = (
@@ -645,15 +660,21 @@ _EMPTY_SQL = (
     "AND symbol = ANY($2::text[]) AND verified_at > NOW() - make_interval(days => $3) "
     "AND n_confirming_chunks >= $4"
 )
-# The 1d due rule's two reads: each name's latest answered SMART TRADES 1d request (test callers
-# never count, as in services/split_detection.py) and its latest canonical 1d bar inside a
-# lookback (absent there reads as stale).
-_LATEST_DAILY_ANSWER_SQL = (
-    "SELECT symbol, max(answered_at) AS answered_at FROM ohlcv_request "
-    "WHERE source = $1 AND timeframe = '1d' AND route = 'SMART' AND what_to_show = 'TRADES' "
-    "AND outcome IN ('bars', 'no_data') AND caller NOT LIKE 'test-%' "
-    "AND symbol = ANY($2::text[]) GROUP BY symbol"
-)
+
+
+# The 1d due rule's first read: each name's latest answered 1d request under the provider's
+# own request shape (the plan's daily_answer_filter; test callers never count, as in
+# services/split_detection.py).
+def _daily_answer_sql(answer_filter: str) -> str:
+    return (
+        "SELECT symbol, max(answered_at) AS answered_at FROM ohlcv_request "
+        f"WHERE source = $1 AND timeframe = '1d' AND {answer_filter} "
+        "AND outcome IN ('bars', 'no_data') AND caller NOT LIKE 'test-%' "
+        "AND symbol = ANY($2::text[]) GROUP BY symbol"
+    )
+
+
+_LATEST_DAILY_ANSWER_SQL = _daily_answer_sql(_IBKR_DAILY_ANSWER_FILTER)
 _LATEST_CANONICAL_1D_SQL = (
     'SELECT symbol, max("timestamp") AS latest FROM market_data_ohlcv_tradeable '
     "WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND \"timestamp\" >= $2 "
@@ -666,60 +687,89 @@ _CANONICAL_LOOKBACK_DAYS = 14
 
 @dataclass
 class PriorityQueue:
-    """The fetcher's queue over candidate (symbol, timeframe) pairs.
+    """The fetcher's queue over candidate series, keyed (provider, symbol, timeframe)
+    internally. Legacy (symbol, timeframe) pair call shapes are accepted everywhere and
+    normalized to the provider default (plan 190-03's compatibility contract: the OLD
+    fetcher calls this module with pairs until 190-04).
 
-    load() reads every ledger row of the candidate symbols (all timeframes, so proven depth
-    sees 1d even when 1d is out of scope) plus fresh provider floors; next() reloads and
-    returns the first unvisited item. Reloading per item is cheap (a few thousand rows) and
-    keeps the order in step with what the previous fetch just wrote.
+    load() reads every ledger row of the candidate symbols for this queue's provider (all
+    timeframes, so proven depth sees 1d even when 1d is out of scope) plus fresh per-TF
+    provider floors; next() reloads and returns the first unvisited item. Reloading per item
+    is cheap (a few thousand rows) and keeps the order in step with what the previous fetch
+    just wrote.
 
     `current_after` (the latest completed session close) holds back series that are current
     (is_current); held_snapshot() reports them and the excluded series for the dry run.
+
+    `plan` (a ProviderPlan) supplies the provider's budget semantics when 190-04 passes it:
+    the no-data confirmation threshold, the 1d answer rule (answers_1d=False yields no
+    daily-answer query and no 1d items), and per-provider depth overrides. Without it the
+    queue reads the ibkr APR keys exactly as before (the old-shape path).
     """
 
     config: QueueConfig
-    candidates: Sequence[tuple[str, str]]
+    candidates: Sequence[tuple[str, ...]]
     today: date
     current_after: datetime | None = None
     # The 1d due rule (None: 1d series follow is_current like the rest, e.g. named symbols).
     daily: DailyRule | None = None
     # Per-series hold point replacing current_after (the parity sample: its ISO week start).
-    current_after_by_series: Mapping[tuple[str, str], datetime] = field(default_factory=dict)
+    current_after_by_series: Mapping[tuple[str, ...], datetime] = field(default_factory=dict)
+    # This queue's planning plane when no plan is passed (the fetcher-compatible default).
+    provider: str = "ibkr"
+    plan: ProviderPlan | None = None
     _items: list[RankedItem] = field(default_factory=list, init=False, repr=False)
     _held: list[tuple[RankedItem, str]] = field(default_factory=list, init=False, repr=False)
     _daily_inputs: tuple[dict[str, datetime], dict[str, date]] | None = field(
         default=None, init=False, repr=False
     )
-    _due_reasons: dict[tuple[str, str], str] = field(default_factory=dict, init=False, repr=False)
+    _due_reasons: dict[tuple[str, str, str], str] = field(
+        default_factory=dict, init=False, repr=False
+    )
+
+    def __post_init__(self) -> None:
+        self.candidates = [_series_key(c) for c in self.candidates]
+
+    @property
+    def _provider(self) -> str:
+        return self.plan.name if self.plan is not None else self.provider
+
+    @property
+    def _plans(self) -> Mapping[str, ProviderPlan] | None:
+        return None if self.plan is None else {self.plan.name: self.plan}
+
+    def _hold_after(self, key: tuple[str, str, str]) -> datetime | None:
+        """The series' hold point, accepting pair and triple keys in the hold map (the
+        fetcher passes parity holds as pairs)."""
+        if key in self.current_after_by_series:
+            return self.current_after_by_series[key]
+        return self.current_after_by_series.get((key[1], key[2]))
 
     async def load(self, pool: Any) -> None:
-        symbols = sorted({s for s, _ in self.candidates})
+        symbols = sorted({s for _, s, _ in self.candidates})
         async with pool.acquire() as conn:
-            cfg_rows = await conn.fetch(_CONFIG_SQL, [_REVERIFY_DAYS_KEY, _KEY_CONFIRMATION_CHUNKS])
-            cfg = {r["config_key"]: r["config_value"] for r in cfg_rows}
-            for key in (_REVERIFY_DAYS_KEY, _KEY_CONFIRMATION_CHUNKS):
-                if key not in cfg:
-                    raise RuntimeError(f"APR key {key!r} is not set")
-            reverify_days = int(cfg[_REVERIFY_DAYS_KEY])
-            min_confirmations = int(cfg[_KEY_CONFIRMATION_CHUNKS])
-            coverage = await conn.fetch(_COVERAGE_SQL, symbols)
-            heads = await conn.fetch(_HEADS_SQL, default_provider(), symbols, reverify_days)
+            reverify_days, min_confirmations = await self._load_thresholds(conn)
+            coverage = await conn.fetch(_COVERAGE_SQL, symbols, self._provider)
+            heads = await conn.fetch(_HEADS_SQL, self._provider, symbols, reverify_days)
             empties = await conn.fetch(
-                _EMPTY_SQL, default_provider(), symbols, reverify_days, min_confirmations
+                _EMPTY_SQL, self._provider, symbols, reverify_days, min_confirmations
             )
-        head_by_symbol = {r["symbol"]: r["head_ts"] for r in heads}
+        # Pre-465 the provider's head row has a NULL timeframe (the 1d daily-bounds
+        # labeling rule); it serves every timeframe until 465 backfills it to '1d' and
+        # seeds per-TF floors, after which the seeded per-TF row wins (todo 526).
+        head_by_series = {(r["symbol"], r["timeframe"] or DAILY_TF): r["head_ts"] for r in heads}
         empty_by_series = {(r["symbol"], r["timeframe"]): r["empty_through"] for r in empties}
 
         def floor(symbol: str, timeframe: str) -> datetime | None:
-            found = [
-                ts
-                for ts in (head_by_symbol.get(symbol), empty_by_series.get((symbol, timeframe)))
-                if ts is not None
-            ]
+            head = head_by_series.get((symbol, timeframe))
+            if head is None and timeframe != DAILY_TF:
+                head = head_by_series.get((symbol, DAILY_TF))
+            empty = empty_by_series.get((symbol, timeframe))
+            found = [ts for ts in (head, empty) if ts is not None]
             return max(found) if found else None
 
         all_rows = {
-            (r["symbol"], r["timeframe"]): CoverageRow(
+            (r["provider"], r["symbol"], r["timeframe"]): CoverageRow(
                 symbol=r["symbol"],
                 timeframe=r["timeframe"],
                 earliest_timestamp=r["earliest_timestamp"],
@@ -728,49 +778,80 @@ class PriorityQueue:
                 consecutive_failures=int(r["consecutive_failures"]),
                 floor_timestamp=floor(r["symbol"], r["timeframe"]),
                 last_fetched_at=r["last_fetched_at"],
+                provider=r["provider"],
             )
             for r in coverage
         }
         proven = proven_days_by_symbol(all_rows.values(), self.today)
+        candidates = [c for c in dict.fromkeys(self.candidates) if self._in_scope(c)]
         candidate_rows = [
-            all_rows.get((s, tf)) or CoverageRow(s, tf, None, None, None, 0, floor(s, tf))
-            for s, tf in dict.fromkeys(self.candidates)
+            all_rows.get(c)
+            or CoverageRow(c[1], c[2], None, None, None, 0, floor(c[1], c[2]), None, c[0])
+            for c in candidates
         ]
         if self.daily is not None and self._daily_inputs is None:
-            daily_symbols = sorted({s for s, tf in self.candidates if tf == DAILY_TF})
+            daily_symbols = sorted({s for _, s, tf in candidates if tf == DAILY_TF})
             self._daily_inputs = await self._load_daily_inputs(pool, daily_symbols)
         self._due_reasons = {}
         due = [r for r in candidate_rows if self._is_due(r)]
-        self._items = queue_items(due, self.config, self.today, proven)
-        queued = {(i.row.symbol, i.row.timeframe) for i in self._items}
+        self._items = queue_items(due, self.config, self.today, proven, self._plans)
+        queued = {(i.row.provider, i.row.symbol, i.row.timeframe) for i in self._items}
         held = [
-            _components(r, proven.get(r.symbol), self.config, self.today)
+            _components(r, proven.get(r.symbol), self.config, self.today, self._plans)
             for r in candidate_rows
-            if (r.symbol, r.timeframe) not in queued
+            if (r.provider, r.symbol, r.timeframe) not in queued
         ]
         self._held = sorted(
             ((i, "excluded" if i.rank[0] else "current") for i in held),
             key=lambda pair: pair[0].rank,
         )
 
+    def _in_scope(self, key: tuple[str, str, str]) -> bool:
+        """Pitfall 4: a provider whose plan does not answer 1d never plans 1d items."""
+        if self.plan is not None and not self.plan.answers_1d and key[2] == DAILY_TF:
+            return False
+        return True
+
+    async def _load_thresholds(self, conn: Any) -> tuple[int, int]:
+        """The floor reads' freshness age and no-data confirmation threshold. The
+        confirmation threshold is the plan's when 190-04 passes one; the old-shape path
+        reads the ibkr APR key and raises when missing, exactly as before."""
+        cfg_rows = await conn.fetch(_CONFIG_SQL, [_REVERIFY_DAYS_KEY, _KEY_CONFIRMATION_CHUNKS])
+        cfg = {r["config_key"]: r["config_value"] for r in cfg_rows}
+        if _REVERIFY_DAYS_KEY not in cfg:
+            raise RuntimeError(f"APR key {_REVERIFY_DAYS_KEY!r} is not set")
+        if self.plan is not None:
+            return int(cfg[_REVERIFY_DAYS_KEY]), self.plan.confirmation_chunks
+        if _KEY_CONFIRMATION_CHUNKS not in cfg:
+            raise RuntimeError(f"APR key {_KEY_CONFIRMATION_CHUNKS!r} is not set")
+        return int(cfg[_REVERIFY_DAYS_KEY]), int(cfg[_KEY_CONFIRMATION_CHUNKS])
+
     async def _load_daily_inputs(
         self, pool: Any, symbols: list[str]
     ) -> tuple[dict[str, datetime], dict[str, date]]:
         """The 1d due rule's reads, once per queue (a run): an item fetched later in the run is
         kept out by the run's visited set, so a fresher read would change nothing."""
-        if not symbols or self.daily is None:
+        if not symbols or self.daily is None or not self._answers_1d:
             return {}, {}
         since = self.daily.last_close - timedelta(days=_CANONICAL_LOOKBACK_DAYS)
+        if self.plan is not None:
+            answers_sql = _daily_answer_sql(self.plan.daily_answer_filter)
+        else:
+            answers_sql = _LATEST_DAILY_ANSWER_SQL
         async with pool.acquire() as conn:
-            answers = await conn.fetch(_LATEST_DAILY_ANSWER_SQL, default_provider(), symbols)
+            answers = await conn.fetch(answers_sql, self._provider, symbols)
             canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
         return (
             {r["symbol"]: r["answered_at"] for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
         )
 
+    @property
+    def _answers_1d(self) -> bool:
+        return True if self.plan is None else self.plan.answers_1d
+
     def _is_due(self, row: CoverageRow) -> bool:
-        key = (row.symbol, row.timeframe)
+        key = (row.provider, row.symbol, row.timeframe)
         if row.timeframe == DAILY_TF and self.daily is not None and self._daily_inputs:
             if row.last_fetch_status == "error":  # never held, as is_current
                 self._due_reasons[key] = "error"
@@ -782,17 +863,22 @@ class PriorityQueue:
             if reason is not None:
                 self._due_reasons[key] = reason
             return reason is not None
-        return not is_current(row, self.current_after_by_series.get(key, self.current_after))
+        hold_after = self._hold_after(key)
+        return not is_current(row, self.current_after if hold_after is None else hold_after)
 
-    def due_reason(self, symbol: str, timeframe: str) -> str:
-        """Why the last load() queued a 1d series under the daily rule ('' otherwise)."""
-        return self._due_reasons.get((symbol, timeframe), "")
+    def due_reason(self, symbol: str, timeframe: str, provider: str | None = None) -> str:
+        """Why the last load() queued a 1d series under the daily rule ('' otherwise).
+        Accepts the legacy (symbol, timeframe) pair shape and the triple."""
+        key = _series_key((provider, symbol, timeframe) if provider else (symbol, timeframe))
+        return self._due_reasons.get(key, "")
 
-    async def next(self, pool: Any, visited: set[tuple[str, str]]) -> CoverageRow | None:
-        """The highest-ranked item not yet visited this run; None when exhausted."""
+    async def next(self, pool: Any, visited: set[tuple[str, ...]]) -> CoverageRow | None:
+        """The highest-ranked item not yet visited this run (legacy pair visited keys
+        accepted); None when exhausted."""
         await self.load(pool)
+        seen = {_series_key(v) for v in visited}
         for item in self._items:
-            if (item.row.symbol, item.row.timeframe) not in visited:
+            if (item.row.provider, item.row.symbol, item.row.timeframe) not in seen:
                 return item.row
         return None
 

@@ -217,7 +217,13 @@ def load_first_bars(conn: Any, symbols: list[str]) -> dict[str, datetime]:
 def record_head(conn: Any, symbol: str, provider: str, head_ts: datetime) -> None:
     """Upsert a successful head lookup. Failures are never stored: a failed lookup can be
     transient (a pacing violation), and a stored failure would suppress the floor until it
-    went stale."""
+    went stale.
+
+    LIVE PATH under the wave-5 activation gate (plan 190-03 contract point 5): the old
+    (symbol, provider) shape stays until 190-06 Task 2 applies migration 465 and flips the
+    write; the per-TF variant (record_head_per_tf below) is code + tested but must not run
+    before that flip, because its ON CONFLICT key has no matching unique index on the live
+    tables while the PK is (symbol, provider)."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -230,6 +236,52 @@ def record_head(conn: Any, symbol: str, provider: str, head_ts: datetime) -> Non
             (symbol, provider, head_ts),
         )
     conn.commit()
+
+
+def record_head_per_tf(
+    conn: Any, symbol: str, provider: str, timeframe: str, head_ts: datetime
+) -> None:
+    """Upsert a successful head lookup at the per-(symbol, provider, timeframe) key
+    (migration 465's shape, todo 526's per-TF floors).
+
+    WAVE-5 ACTIVATION GATE: NOT the live path until 190-06 Task 2 applies migration 465
+    and flips the write (the planner's per-TF floor reads in _fetch_queue already tolerate
+    both worlds). Callers before that flip fail with 42P10: the live PK is (symbol,
+    provider), so the three-column ON CONFLICT has no matching unique index."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO ohlcv_provider_head (symbol, provider, timeframe, head_ts, verified_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (symbol, provider, timeframe) DO UPDATE SET
+                head_ts = EXCLUDED.head_ts,
+                verified_at = EXCLUDED.verified_at
+            """,
+            (symbol, provider, timeframe, head_ts),
+        )
+    conn.commit()
+
+
+def load_fresh_heads_per_tf(
+    conn: Any, provider: str, timeframe: str, reverify_days: int
+) -> dict[str, datetime]:
+    """Fresh provider head timestamps for one timeframe (migration 465's per-TF rows;
+    same wave-5 gate as record_head_per_tf on the write side), keyed by symbol. A symbol
+    with no row for `timeframe` falls back to the provider's NULL-timeframe row (the
+    pre-465 labeling rule: NULL is the 1d daily-bounds registry row); a timeframe row
+    always wins over the NULL row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT symbol, timeframe, head_ts FROM ohlcv_provider_head WHERE provider = %s "
+            "AND (timeframe = %s OR timeframe IS NULL) "
+            "AND verified_at > NOW() - make_interval(days => %s)",
+            (provider, timeframe, reverify_days),
+        )
+        heads: dict[str, datetime] = {}
+        for symbol, row_tf, head_ts in cur.fetchall():
+            if row_tf is not None or symbol not in heads:
+                heads[symbol] = head_ts
+        return heads
 
 
 def apply_empty_range(

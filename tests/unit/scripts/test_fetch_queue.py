@@ -360,10 +360,20 @@ def _pool(coverage, heads=(), empty=(), config=None):
     )
 
 
-def _cov(symbol, timeframe, earliest_days, latest_days, status="ok", failures=0, fetched=None):
+def _cov(
+    symbol,
+    timeframe,
+    earliest_days,
+    latest_days,
+    status="ok",
+    failures=0,
+    fetched=None,
+    provider="ibkr",
+):
     return {
         "symbol": symbol,
         "timeframe": timeframe,
+        "provider": provider,
         "earliest_timestamp": None if earliest_days is None else _days_ago(earliest_days),
         "latest_timestamp": None if latest_days is None else _days_ago(latest_days),
         "last_fetch_status": status,
@@ -861,7 +871,9 @@ async def test_a_1d_only_head_row_still_plans_5m_without_a_discovery_trip():
     await queue.load(pool)
     (item,) = queue.ranked_snapshot()
     assert item.row.floor_timestamp == _days_ago(3650)
-    assert item.gap_days == 0
+    # the confirmed floor caps the planned span: 3650 fetchable days, not the full 7300
+    # depth, so the walk never trips into the verified-empty pre-history
+    assert item.gap_days == 3650
 
 
 async def test_empty_floor_threshold_comes_from_the_plan():
@@ -901,7 +913,7 @@ def test_rank_gains_provider_as_the_final_tiebreak():
     ibkr_row = _row("AAA", "5m", earliest_days=7300, latest_days=1)
     alpaca = replace(ibkr_row, provider="alpaca")
     assert fq.rank(ibkr_row, 7300, CONFIG, TODAY) != fq.rank(alpaca, 7300, CONFIG, TODAY)
-    assert fq.rank(ibkr_row, 7300, CONFIG, TODAY) < fq.rank(alpaca, 7300, CONFIG, TODAY)
+    assert fq.rank(alpaca, 7300, CONFIG, TODAY) < fq.rank(ibkr_row, 7300, CONFIG, TODAY)
 
 
 async def test_items_and_keys_carry_the_provider_dimension():
@@ -958,8 +970,14 @@ async def test_legacy_pair_shapes_match_explicit_ibkr_triples():
         second_triples.symbol,
         second_triples.timeframe,
     )
-    # a pair-visited key hides the item from a queue whose internal keys are triples
-    exhausted = await q_pairs.next(pool_pairs, {(second_pairs.symbol, second_pairs.timeframe)})
+    # pair-visited keys hide their items from a queue whose internal keys are triples
+    exhausted = await q_pairs.next(
+        pool_pairs,
+        {
+            (first_pairs.symbol, first_pairs.timeframe),
+            (second_pairs.symbol, second_pairs.timeframe),
+        },
+    )
     assert exhausted is None
 
 
