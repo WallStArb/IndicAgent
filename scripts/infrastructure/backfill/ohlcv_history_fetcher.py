@@ -84,6 +84,7 @@ import json
 import os
 import sys
 import time
+import traceback
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -1534,6 +1535,9 @@ def main() -> int:
     try:
         asyncio.run(OHLCVHistoryFetcher(settings.database_url, args, settings=settings).run())
     except Exception as error:  # BaseBatch already logged it and emitted failure
+        # The message alone once left a live KeyError ('window_end', 2026-10-10) with no
+        # site to diagnose: the traceback goes to the journal with the summary.
+        traceback.print_exc()
         print(f"ibkr history fetcher failed: {type(error).__name__}: {error}")
         return 1
     return 0
