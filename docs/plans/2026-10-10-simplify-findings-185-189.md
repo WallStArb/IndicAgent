@@ -224,3 +224,14 @@ Declined for now:
   want per-TF head rows, so its design should state whether load_fresh_heads_per_tf is revived or
   the deletion lands with it.
 - Everything in the numbered lists above: post-backfill, per todo 527.
+
+## Added 2026-10-10, live-observed: the run-start coverage bootstrap is the next volume wall
+
+The fetcher's startup recomputes per-symbol earliest/latest over market_data_ohlcv_tradeable via
+a per-symbol correlated subquery (SELECT s.symbol, (SELECT min(m.timestamp) ...)). At 89M rows it
+took seconds; after the Alpaca load (216M more rows) it took 5-8 minutes of run-start blocking,
+every timer fire, and it grows with the backfill it gates. Fix shape: one GROUP BY aggregation
+(single scan) or an index that serves the min/max with the volume>0 filter, and/or skip the
+recompute when the coverage ledger is already populated (the bootstrap should fill gaps, not
+restate). Owner-visible symptom if unfixed: every timer fire burns its first minutes re-deriving
+what the ledger already knows. File under todo 527's fetcher-family items.
