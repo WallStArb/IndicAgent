@@ -2,6 +2,14 @@
 
 Author: Brandon with Claude Code (session, 2026-10-09)
 Status: green-lit by the owner 2026-10-09; plan gates the build
+Amendment 2026-10-10: the 2026-10-10 audit found the T2 loader's drop
+categories (stored-held, extended-hours) hit the floor instead of persisting;
+81.7M rows from the phase 2 run survive only in scratch. Capture/authoring
+rules and the fix are todo 528 (`docs/plans/2026-10-10-raw-capture-enforcement.md`),
+which supersedes this plan's scratch-disposition paragraph: deletion is gated
+on 528's backfill, and T4's nightly leaf archives extended rows rather than
+dropping them. Alpaca 1d raw capture joins the nightly under 528's R1 (it
+never authors).
 Informed by: the executed pilot
 (`docs/plans/2026-10-09-alpaca-integration-pilot.md`), the data layer
 integrity design amendment of the same date, the 189 probe verdict (todo 523,

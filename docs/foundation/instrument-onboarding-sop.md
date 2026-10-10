@@ -210,6 +210,15 @@ SELECT symbol, earliest_timestamp::date, latest_timestamp::date, row_count, last
 FROM ohlcv_coverage WHERE timeframe = '1d' AND symbol = ANY(:batch) ORDER BY symbol;
 ```
 
+**Two-vendor capture model (2026-10-10 owner ruling; todo 528 enforces):** a new name is
+onboarded against both vendors, never single-vendor by habit: IBKR as above for 1d (and 5m
+depth per the phase 189 lane), and Alpaca 5m via `scripts/ops/bars/ops_bar_load.py --vendor
+alpaca`. Both vendors' served bars are saved raw per source (losers and extended-hours rows
+archive, they are never dropped); canonical authoring stays one source per timeframe (IBKR 1d,
+first-writer-stays 5m; Alpaca never authors 1d). Until todo 528 lands the loader still drops
+those categories, which is a known defect, not license to skip the second vendor.
+
+
 Former listing venues are asked too and their answers land in D1 as venue observations (stage 8
 reads them). If the run dies, rerun the same command: the contract writes only new and changed
 bars. Keep the log.

@@ -65,6 +65,14 @@ ContFuture (`continuous=True`) hangs on multi-year requests — use named contra
 
 **`detect_gaps()` reports large false-positive gap counts (hundreds of ranges) on 1h/15m/5m/1m for a symbol's earliest history.** `generate_session_slots()` expects a full extended-hours session from day one, but real IBKR extended-hours coverage ramps up over a symbol's first year (or the first days of a timeframe's retention window). Before treating a `detect_gaps()` count as a real problem, check whether every gap range falls near that (symbol, tf) pair's own `min(timestamp)`; if so it is benign ramp-up, not a connection-drop artifact.
 
+## Alpaca scratch retention (until todo 528 lands)
+
+**`data/scratch/alpaca-pilot/depth/` must not be cleaned.** The load engine
+(`services/bar_load.load_series`) drops stored-held and extended-hours rows on
+the floor; the 2026-10-10 all-names run discarded 81.7M vendor-served rows and
+these parquets are their only copy. Deletion is gated on todo 528's archive
+backfill and completeness check, not on `ohlcv_load` reconciliation alone.
+
 ## Corpus Pipeline
 
 **`ops_corpus_pipeline_run.sh --from-step N` silently skips every step below N** —

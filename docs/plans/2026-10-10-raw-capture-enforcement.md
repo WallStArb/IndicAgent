@@ -76,6 +76,15 @@ until the archive backfill lands.**
    `ohlcv_intraday_raw_archive` + `market_data_ohlcv`, runnable nightly and
    after any campaign; output is one row per (source, timeframe) with the
    three-way split and an explicit `unexplained` column that must be zero.
+5. **Alpaca 1d joins the nightly capture** (refinement 2026-10-10, owner
+   model: "pull 1d and 5m from both vendors, save both, author once"): a
+   raw-only daily pull per active instrument, archived with
+   `source='alpaca'`, never authored (the 1d primary stays IBKR). It is the
+   stored second tape the daily agreement audits compare against.
+6. **Onboarding integration**: the instrument onboarding SOP's backfill
+   stage references this model (both vendors pulled raw, one canonical
+   author per timeframe, extended archived), so a new name is never
+   onboarded single-vendor by habit.
 
 ## Backfill of the already-dropped rows
 
