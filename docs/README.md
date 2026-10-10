@@ -2,7 +2,7 @@
 
 **Version:** 3.0
 **Status:** current
-**Last Updated:** 2026-10-03
+**Last Updated:** 2026-10-10
 
 ---
 
@@ -156,6 +156,9 @@ Cheat sheets, gotchas, configuration, naming and documentation standards for fas
 | `gotchas.md` | Known pitfalls and solutions |
 | `configuration.md` | Configuration reference |
 | `db-maintenance.md` | Database maintenance runbook |
+| `alpaca-api.md` | Alpaca API facts the integration depends on (execution rail + 5m data vendor), current |
+| `databento-api.md` | Databento API facts and open questions (candidate third data vendor), draft |
+| `clearstreet-api.md` | Clear Street API facts and open questions (execution venue, no market data), draft |
 | `naming-conventions.md` | Naming conventions |
 | `renaissance-naming-philosophy.md` | Extended rationale for the naming system (not the canonical spec; see `foundation/naming-system.md`) |
 | `documentation-standards.md` | Documentation standards |
