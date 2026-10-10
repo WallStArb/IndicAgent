@@ -46,13 +46,22 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 5 of 7 done (06 cutover and 07 wrap-up remain; 06 is the gated owner checkpoint)
+Plan: 6 of 7 done (190-06 cutover landed 2026-10-10: 465 applied with the writer
+conflict-target flip at CUT_TS 11:59:48Z, the renamed `ohlcv_history_fetcher` is the
+installed unit, parity PASS recorded, two clean post-cutover runs; 07 wrap-up remains)
 
-- **HOLD 2026-10-10 (owner, relayed by indicagent-49): no data pulls of any kind until the
-  data-plane refactor lands and the tracks align (phase 190 + todo 528 remainder + T4).** The
-  IBKR backfill is held indefinitely (timer disabled, ledger keeps state, nothing lost); 190-06
-  cutover is executing in the paused window (indicagent-49). Restart is a joint call after the
-  unified fetch path is live. Alpaca 5m is LANDED (216.8M rows, 1,478 symbols, 2026-10-10).
+- **HOLD 2026-10-10 (owner): no data pulls of any kind until the data-plane refactor lands.**
+  The IBKR backfill stays held (timer disabled, ledger keeps state); `ops_bar_nightly` exists
+  but nothing schedules it. Reopen is the owner's call.
+
+- **Raw-capture enforcement (todo 528) landed 2026-10-10:** the load engine archives
+  non-authored rows (extended + other-source-held) instead of dropping them; migration 468 put
+  source in the raw-archive key; the R6 completeness check is `ops_capture_completeness`; the
+  recovery pass over the dropped 81.7M rows is in flight (a first pass double-archived 88.27M
+  self-authored rows — the split now holds only other-source rows; the duplicates are being
+  removed from the archive under a logged trigger exception). T4 landed: `src/providers/alpaca.py`
+  behind `history_leaf` and `ops_bar_nightly` (5m authors through the engine, 1d raw-only;
+  APR seeds in 469, applied live). Alpaca 5m is LANDED (216.8M rows, 1,478 symbols, 2026-10-10).
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
