@@ -23,8 +23,9 @@ import psycopg
 from services.bar_load import LoadPolicy, load_series
 from services.ohlcv_ingress_contract import read_params
 from src.config.settings import get_settings
+from src.intelligence.bars.sources import SOURCE_ALPACA
 
-POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="alpaca-5m-load")
+POLICY = LoadPolicy(vendor=SOURCE_ALPACA, timeframe="5m", caller="alpaca-5m-load")
 
 
 def main() -> int:
