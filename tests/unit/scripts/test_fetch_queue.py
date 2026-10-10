@@ -1036,3 +1036,132 @@ async def test_the_daily_answer_filter_comes_from_the_plan():
     await queue.load(pool)
     answer_sql = next(s for s in pool.conn.queries if "ohlcv_request" in s)
     assert plan.daily_answer_filter in answer_sql and "SMART" in answer_sql
+
+
+# ---------------------------------------------------------------------------
+# Phase 190 plan 03 Task 3: bar_source_policy read gate on item creation
+# ---------------------------------------------------------------------------
+
+
+def _policy(tf, source, *, symbol=None, fallback=None, valid_from="1990-01-01", valid_to=None):
+    return {
+        "timeframe": tf,
+        "symbol": symbol,
+        "primary_source": source,
+        "fallback_source": fallback,
+        "valid_from": date.fromisoformat(valid_from),
+        "valid_to": None if valid_to is None else date.fromisoformat(valid_to),
+    }
+
+
+def _pool_with_policy(coverage, policy, heads=(), empty=()):
+    pool = _pool(coverage, heads=heads, empty=empty)
+    pool.conn.tables["FROM bar_source_policy"] = list(policy)
+    return pool
+
+
+async def test_policy_row_gates_item_creation_per_provider():
+    """A (name, tf) assigned to another vendor yields no item from the ibkr queue; the pair
+    appears under that vendor's own queue."""
+    coverage = [_cov("AAA", "5m", 7300, 1)]
+    policy = [_policy("5m", "alpaca", symbol="AAA")]
+    ibkr_pool = _pool_with_policy(coverage, policy)
+    ibkr_queue = fq.PriorityQueue(CONFIG, [("AAA", "5m")], TODAY)
+    await ibkr_queue.load(ibkr_pool)
+    assert ibkr_queue.ranked_snapshot() == []
+    assert {(i.row.symbol, reason) for i, reason in ibkr_queue.held_snapshot()} == {
+        ("AAA", "policy")
+    }
+    alpaca_pool = _pool_with_policy(coverage, policy)
+    alpaca_queue = fq.PriorityQueue(CONFIG, [("AAA", "5m")], TODAY, provider="alpaca")
+    await alpaca_queue.load(alpaca_pool)
+    assert [(i.row.symbol, i.row.timeframe) for i in alpaca_queue.ranked_snapshot()] == [
+        ("AAA", "5m")
+    ]
+
+
+async def test_revision_items_respect_the_authoring_source():
+    """A span authored by source X produces no revision items from provider Y: creation and
+    revision go through the same gate."""
+    policy = [_policy("5m", "alpaca", symbol="AAA")]
+    pool = _pool_with_policy([_cov("AAA", "5m", 7300, 1)], policy)
+    queue = fq.PriorityQueue(CONFIG, [("ibkr", "AAA", "5m")], TODAY)
+    await queue.load(pool)
+    assert queue.ranked_snapshot() == []
+    visited: set[tuple[str, str]] = set()
+    assert await queue.next(pool, visited) is None
+
+
+async def test_no_policy_row_keeps_the_default_authoring_source():
+    """With no policy row for a pair the default plane authors it: today's behavior, the
+    compat guarantee."""
+    pool = _pool_with_policy([_cov("AAA", "5m", 7300, 1)], [])
+    queue = fq.PriorityQueue(CONFIG, [("AAA", "5m")], TODAY)
+    await queue.load(pool)
+    assert [i.row.symbol for i in queue.ranked_snapshot()] == ["AAA"]
+
+
+async def test_todays_live_policy_shape_keeps_every_ibkr_candidate():
+    """The live rows as of this plan: 15m/1h timeframe defaults are derived (no fetch vendor
+    named), 5m defaults to ibkr, 1d is ibkr, and the two open tradier-primary 1d rows carry
+    the ibkr fallback. The gate must pass all of it through unchanged."""
+    policy = [
+        _policy("15m", "derived"),
+        _policy("1h", "derived"),
+        _policy("5m", "ibkr"),
+        _policy("1m", "ibkr"),
+        _policy("4h", "ibkr"),
+        _policy("1d", "ibkr"),
+        _policy("1d", "tradier", symbol="MOD", fallback="ibkr", valid_from="2000-01-03"),
+        _policy("1d", "tradier", symbol="QRVO", fallback="ibkr", valid_from="2015-01-02"),
+        # a closed row no longer applies
+        _policy("1d", "tradier", valid_to="2026-10-07"),
+    ]
+    coverage = [
+        _cov("AAA", "15m", 7300, 1),
+        _cov("MOD", "1d", 7300, 1),
+        _cov("QRVO", "1d", 7300, 1),
+        _cov("ZZZ", "5m", 7300, 1),
+    ]
+    gated_pool = _pool_with_policy(coverage, policy)
+    plain_pool = _pool_with_policy(coverage, [])
+    gated_queue = fq.PriorityQueue(
+        CONFIG, [("AAA", "15m"), ("MOD", "1d"), ("QRVO", "1d"), ("ZZZ", "5m")], TODAY
+    )
+    plain_queue = fq.PriorityQueue(
+        CONFIG, [("AAA", "15m"), ("MOD", "1d"), ("QRVO", "1d"), ("ZZZ", "5m")], TODAY
+    )
+    await gated_queue.load(gated_pool)
+    await plain_queue.load(plain_pool)
+    assert [(i.row.symbol, i.row.timeframe) for i in gated_queue.ranked_snapshot()] == [
+        (i.row.symbol, i.row.timeframe) for i in plain_queue.ranked_snapshot()
+    ]
+
+
+def test_policy_resolution_is_specific_row_over_timeframe_default_and_date_scoped():
+    day = date(2026, 10, 10)
+    rows = [
+        _policy("5m", "ibkr"),
+        _policy("5m", "alpaca", symbol="AAA"),
+        _policy("5m", "ibkr", symbol="BBB", valid_from="2026-10-11"),  # not yet in force
+        _policy("1d", "tradier", symbol="MOD", fallback="ibkr"),
+    ]
+    assert fq.policy_authorizes(rows, "AAA", "5m", day, "alpaca")
+    assert not fq.policy_authorizes(rows, "AAA", "5m", day, "ibkr")
+    # BBB's symbol row is not in force: the timeframe default applies
+    assert fq.policy_authorizes(rows, "BBB", "5m", day, "ibkr")
+    assert not fq.policy_authorizes(rows, "BBB", "5m", day, "alpaca")
+    # the fallback source may author too (the open tradier-primary 1d rows)
+    assert fq.policy_authorizes(rows, "MOD", "1d", day, "ibkr")
+    assert fq.policy_authorizes(rows, "MOD", "1d", day, "tradier")
+    # no row at all: the default plane
+    assert fq.policy_authorizes([], "NEW", "5m", day, "ibkr")
+    assert not fq.policy_authorizes([], "NEW", "5m", day, "alpaca")
+
+
+async def test_the_policy_read_is_batched_over_the_candidate_symbols():
+    pool = _pool_with_policy([_cov("AAA", "5m", 7300, 1), _cov("BBB", "5m", 7300, 1)], [])
+    queue = fq.PriorityQueue(CONFIG, [("AAA", "5m"), ("BBB", "5m")], TODAY)
+    await queue.load(pool)
+    policy_sql = next(s for s in pool.conn.queries if "bar_source_policy" in s)
+    assert "symbol = ANY($1::text[]) OR symbol IS NULL" in policy_sql
