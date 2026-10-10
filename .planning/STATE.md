@@ -48,6 +48,12 @@ bullets with current facts.
 Phase: 190 (Provider history plane unification) — EXECUTING
 Plan: 5 of 7 done (06 cutover and 07 wrap-up remain; 06 is the gated owner checkpoint)
 
+- **HOLD 2026-10-10 (owner, relayed by indicagent-49): no data pulls of any kind until the
+  data-plane refactor lands and the tracks align (phase 190 + todo 528 remainder + T4).** The
+  IBKR backfill is held indefinitely (timer disabled, ledger keeps state, nothing lost); 190-06
+  cutover is executing in the paused window (indicagent-49). Restart is a joint call after the
+  unified fetch path is live. Alpaca 5m is LANDED (216.8M rows, 1,478 symbols, 2026-10-10).
+
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
   1,296 goes through the SOP/185-41 gates after their 5m exists). Alpaca is green-lit as the 5m
