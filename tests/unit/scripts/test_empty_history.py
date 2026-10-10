@@ -113,3 +113,48 @@ def test_record_head_stores_only_a_successful_lookup():
     cur = conn.cursor.return_value.__enter__.return_value
     eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
     assert cur.execute.call_args.args[1] == ("GEV", "ibkr", _dt(2024, 3, 27))
+
+
+# ---------------------------------------------------------------------------
+# Phase 190 plan 03 Task 2: per-TF provider head writes and reads (wave-5 gate)
+# ---------------------------------------------------------------------------
+
+
+def test_record_head_per_tf_upserts_the_three_column_key():
+    """The per-TF head upsert is written for migration 465's key shape. WAVE-5 ACTIVATION
+    GATE: it is NOT the live path until 190-06 Task 2 applies 465 and flips the write - its
+    ON CONFLICT (symbol, provider, timeframe) has no matching unique index on the live
+    tables (PK (symbol, provider)) before that flip."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    eh.record_head_per_tf(conn, "GEV", "ibkr", "5m", _dt(2024, 3, 27))
+    sql = cur.execute.call_args.args[0]
+    assert "(symbol, provider, timeframe, head_ts, verified_at)" in sql
+    assert "ON CONFLICT (symbol, provider, timeframe)" in sql
+    assert cur.execute.call_args.args[1] == ("GEV", "ibkr", "5m", _dt(2024, 3, 27))
+
+
+def test_record_head_stays_the_old_shape_live_path():
+    """While 465 is un-applied the live write path is the old (symbol, provider) upsert."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
+    sql = cur.execute.call_args.args[0]
+    assert "timeframe" not in sql.split("VALUES")[0].split("(")[1].split(")")[0]
+    assert "ON CONFLICT (symbol, provider)" in sql
+
+
+def test_load_fresh_heads_per_tf_prefers_the_timeframe_row():
+    """The per-TF read (same wave-5 gate): a timeframe row beats the provider's
+    NULL-timeframe (pre-465 1d) row for the same symbol."""
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = [
+        ("GEV", "5m", _dt(2024, 3, 27)),
+        ("GEV", None, _dt(2010, 1, 4)),
+        ("TMUS", None, _dt(2007, 4, 19)),
+    ]
+    heads = eh.load_fresh_heads_per_tf(conn, "ibkr", "5m", 90)
+    assert heads == {"GEV": _dt(2024, 3, 27), "TMUS": _dt(2007, 4, 19)}
+    sql = cur.execute.call_args.args[0]
+    assert "timeframe = %s OR timeframe IS NULL" in sql

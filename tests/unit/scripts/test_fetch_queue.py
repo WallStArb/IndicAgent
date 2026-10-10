@@ -314,9 +314,11 @@ class _FakeAsyncConn:
     def __init__(self, tables):
         self.tables = tables
         self.queries: list[str] = []
+        self.query_args: list[tuple] = []
 
     async def fetch(self, sql, *args):
         self.queries.append(sql)
+        self.query_args.append(args)
         for marker, rows in self.tables.items():
             if marker in sql:
                 return rows
@@ -407,7 +409,9 @@ async def test_priority_queue_ranks_only_candidates_but_proves_depth_from_all_ro
 
 
 async def test_priority_queue_floor_is_later_of_head_and_empty_range():
-    head = {"symbol": "TLT", "head_ts": _days_ago(4000)}
+    # pre-465 live shape: the provider's head row carries a NULL timeframe (the 1d labeling
+    # rule) and serves every timeframe until 465 backfills it and seeds per-TF floors.
+    head = {"symbol": "TLT", "timeframe": None, "head_ts": _days_ago(4000)}
     empty = {"symbol": "TLT", "timeframe": "15m", "empty_through": _days_ago(3650)}
     pool = _pool(
         [_cov("TLT", "15m", 3650, 1), _cov("TLT", "1d", 7300, 1)], heads=[head], empty=[empty]
@@ -800,3 +804,217 @@ def test_depth_override_wins_over_the_neutral_map_per_row():
     # neutral depth 7300 gives a 7200-day gap; the provider override caps the target at 1000
     assert fq.rank(row, 7300, CONFIG, TODAY)[4] == -7200
     assert fq.rank(row, 7300, CONFIG, TODAY, plans)[4] == -900
+
+
+# ---------------------------------------------------------------------------
+# Phase 190 plan 03 Task 2: provider through ledger reads, floors, rank, items, keys
+# ---------------------------------------------------------------------------
+
+
+def _plan(**overrides):
+    fields = dict(
+        name="ibkr",
+        request_timeout_s=900.0,
+        request_retries=2,
+        rate_limit_window_s=600.0,
+        confirmation_chunks=2,
+        inter_item_pause_s=2.0,
+    )
+    fields.update(overrides)
+    return fq.ProviderPlan(**fields)
+
+
+async def test_ledger_reads_are_provider_filtered():
+    pool = _pool([_cov("AAA", "15m", 7300, 1)])
+    queue = fq.PriorityQueue(CONFIG, [("AAA", "15m")], TODAY)
+    await queue.load(pool)
+    sqls = dict(zip(pool.conn.queries, pool.conn.query_args))
+    coverage_sql, coverage_args = next((s, a) for s, a in sqls.items() if "ohlcv_coverage" in s)
+    assert "provider" in coverage_sql and coverage_args[-1] == "ibkr"
+    heads_sql, heads_args = next((s, a) for s, a in sqls.items() if "ohlcv_provider_head" in s)
+    assert "timeframe" in heads_sql and heads_args[0] == "ibkr"
+    empty_sql, empty_args = next((s, a) for s, a in sqls.items() if "ohlcv_empty_history" in s)
+    assert empty_args[0] == "ibkr"
+
+
+async def test_floor_reads_the_per_timeframe_head_row():
+    heads = [
+        {"symbol": "TLT", "timeframe": "1d", "head_ts": _days_ago(4000)},
+        {"symbol": "TLT", "timeframe": "5m", "head_ts": _days_ago(3800)},
+    ]
+    pool = _pool([_cov("TLT", "5m", 3800, 1), _cov("TLT", "1d", 7300, 1)], heads=heads)
+    queue = fq.PriorityQueue(CONFIG, [("TLT", "5m"), ("TLT", "1d")], TODAY)
+    await queue.load(pool)
+    by_tf = {i.row.timeframe: i for i in queue.ranked_snapshot()}
+    # the 5m item gets the 5m head, not the symbol's 1d head
+    assert by_tf["5m"].row.floor_timestamp == _days_ago(3800)
+    assert by_tf["1d"].row.floor_timestamp == _days_ago(4000)
+
+
+async def test_a_1d_only_head_row_still_plans_5m_without_a_discovery_trip():
+    # todo 526's bar: with only the provider's NULL-timeframe (1d) head row present, a 5m
+    # candidate is planned from the 1d head fallback plus its own confirmed empty range.
+    head = {"symbol": "TLT", "timeframe": None, "head_ts": _days_ago(4000)}
+    empty = {"symbol": "TLT", "timeframe": "5m", "empty_through": _days_ago(3650)}
+    pool = _pool([_cov("TLT", "5m", None, None, status=None)], heads=[head], empty=[empty])
+    queue = fq.PriorityQueue(CONFIG, [("TLT", "5m")], TODAY)
+    await queue.load(pool)
+    (item,) = queue.ranked_snapshot()
+    assert item.row.floor_timestamp == _days_ago(3650)
+    assert item.gap_days == 0
+
+
+async def test_empty_floor_threshold_comes_from_the_plan():
+    # the n_confirming_chunks threshold is the plan's confirmation_chunks, not an APR read
+    plan = _plan(confirmation_chunks=3)
+    pool = _pool(
+        [_cov("AAA", "5m", None, None, status=None)],
+        config=[{"config_key": "infra.backfill.empty_history_reverify_days", "config_value": "90"}],
+    )
+    queue = fq.PriorityQueue(CONFIG, [("AAA", "5m")], TODAY, plan=plan)
+    await queue.load(pool)
+    empty_args = next(
+        a for s, a in zip(pool.conn.queries, pool.conn.query_args) if "empty_history" in s
+    )
+    assert empty_args[-1] == 3
+
+
+def test_exclusion_is_per_provider_row_state():
+    # quarantine is per-provider row state: another provider's failure count never
+    # excludes an ibkr row, and one row's failures exclude only that row
+    ibkr_row = _row("AAA", "15m", earliest_days=7300, latest_days=1)
+    other = replace(
+        ibkr_row,
+        symbol="BBB",
+        timeframe="5m",
+        provider="other",
+        consecutive_failures=99,
+        last_fetch_status="error",
+    )
+    ordered = fq.order_queue([ibkr_row, other], CONFIG, TODAY)
+    assert [r.symbol for r in ordered] == ["AAA"]
+    assert fq.rank(other, 7300, CONFIG, TODAY)[0] is True
+    assert fq.rank(ibkr_row, 7300, CONFIG, TODAY)[0] is False
+
+
+def test_rank_gains_provider_as_the_final_tiebreak():
+    ibkr_row = _row("AAA", "5m", earliest_days=7300, latest_days=1)
+    alpaca = replace(ibkr_row, provider="alpaca")
+    assert fq.rank(ibkr_row, 7300, CONFIG, TODAY) != fq.rank(alpaca, 7300, CONFIG, TODAY)
+    assert fq.rank(ibkr_row, 7300, CONFIG, TODAY) < fq.rank(alpaca, 7300, CONFIG, TODAY)
+
+
+async def test_items_and_keys_carry_the_provider_dimension():
+    pool = _pool([_cov("AAA", "15m", 7300, 1)])
+    queue = fq.PriorityQueue(CONFIG, [("ibkr", "AAA", "15m")], TODAY)
+    await queue.load(pool)
+    (item,) = queue.ranked_snapshot()
+    assert item.row.provider == "ibkr"
+    # a due reason is retrievable through the triple and the legacy pair shape
+    assert queue.due_reason("AAA", "15m") == queue.due_reason("ibkr", "AAA", "15m") == ""
+
+
+async def test_legacy_pair_shapes_match_explicit_ibkr_triples():
+    """Compatibility contract: the old (symbol, timeframe) call shapes produce results
+    identical to the same calls with provider='ibkr' explicit - rank order, holds and
+    visited-set outcomes."""
+    coverage = [
+        _cov("AAA", "15m", 7300, 1),
+        _cov("BBB", "5m", 1000, 1),
+        _cov("ERR", "15m", 500, 1, status="error", failures=9),
+    ]
+    pairs = [("AAA", "15m"), ("BBB", "5m"), ("ERR", "15m")]
+    triples = [("ibkr", s, tf) for s, tf in pairs]
+    pool_pairs, pool_triples = _pool(coverage), _pool(coverage)
+    q_pairs = fq.PriorityQueue(CONFIG, pairs, TODAY)
+    q_triples = fq.PriorityQueue(CONFIG, triples, TODAY)
+    await q_pairs.load(pool_pairs)
+    await q_triples.load(pool_triples)
+
+    def shape(items):
+        return [(i.row.provider, i.row.symbol, i.row.timeframe) for i in items]
+
+    def held(q):
+        return {
+            (i.row.provider, i.row.symbol, i.row.timeframe, reason)
+            for i, reason in q.held_snapshot()
+        }
+
+    assert shape(q_pairs.ranked_snapshot()) == shape(q_triples.ranked_snapshot())
+    assert held(q_pairs) == held(q_triples)
+    visited_pairs: set[tuple[str, str]] = set()
+    visited_triples: set[tuple[str, str, str]] = set()
+    first_pairs = await q_pairs.next(pool_pairs, visited_pairs)
+    visited_pairs.add((first_pairs.symbol, first_pairs.timeframe))
+    first_triples = await q_triples.next(pool_triples, visited_triples)
+    visited_triples.add((first_triples.provider, first_triples.symbol, first_triples.timeframe))
+    assert (first_pairs.symbol, first_pairs.timeframe) == (
+        first_triples.symbol,
+        first_triples.timeframe,
+    )
+    second_pairs = await q_pairs.next(pool_pairs, visited_pairs)
+    second_triples = await q_triples.next(pool_triples, visited_triples)
+    assert (second_pairs.symbol, second_pairs.timeframe) == (
+        second_triples.symbol,
+        second_triples.timeframe,
+    )
+    # a pair-visited key hides the item from a queue whose internal keys are triples
+    exhausted = await q_pairs.next(pool_pairs, {(second_pairs.symbol, second_pairs.timeframe)})
+    assert exhausted is None
+
+
+async def test_a_parity_hold_keyed_by_pairs_still_holds_triples():
+    week_start = datetime(2026, 9, 28, tzinfo=UTC)
+    pool = _pool([_cov("PAR", "15m", 7300, 1, fetched=week_start + timedelta(days=1))])
+    queue = fq.PriorityQueue(
+        CONFIG,
+        [("PAR", "15m")],
+        TODAY,
+        current_after=_LAST_CLOSE,
+        current_after_by_series={("PAR", "15m"): week_start},
+    )
+    await queue.load(pool)
+    assert queue.ranked_snapshot() == []
+    assert [(i.row.symbol, r) for i, r in queue.held_snapshot()] == [("PAR", "current")]
+
+
+async def test_a_plan_without_1d_answers_issues_no_daily_query_and_no_1d_items():
+    """Pitfall 4: a vendor whose plan has answers_1d=False never gets a daily-answer query
+    and never gets 1d items."""
+    plan = _plan(answers_1d=False, daily_answer_filter=None)
+    pool = _daily_pool(
+        [_cov("OLD", "1d", 7300, 1), _cov("AAA", "5m", 7300, 1)],
+        [{"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)}],
+        [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],
+    )
+    queue = fq.PriorityQueue(
+        CONFIG,
+        [("OLD", "1d"), ("AAA", "5m")],
+        TODAY,
+        current_after=_LAST_CLOSE,
+        daily=_DAILY,
+        plan=plan,
+    )
+    await queue.load(pool)
+    assert [(i.row.symbol, i.row.timeframe) for i in queue.ranked_snapshot()] == [("AAA", "5m")]
+    assert not any("ohlcv_request" in sql for sql in pool.conn.queries)
+
+
+async def test_the_daily_answer_filter_comes_from_the_plan():
+    plan = _plan()
+    pool = _daily_pool(
+        [_cov("OLD", "1d", 7300, 1)],
+        [{"symbol": "OLD", "answered_at": _LAST_CLOSE - timedelta(days=1)}],
+        [{"symbol": "OLD", "latest": _LAST_CLOSE.replace(hour=0)}],
+    )
+    queue = fq.PriorityQueue(
+        CONFIG,
+        [("OLD", "1d")],
+        TODAY,
+        current_after=_LAST_CLOSE,
+        daily=_DAILY,
+        plan=plan,
+    )
+    await queue.load(pool)
+    answer_sql = next(s for s in pool.conn.queries if "ohlcv_request" in s)
+    assert plan.daily_answer_filter in answer_sql and "SMART" in answer_sql
