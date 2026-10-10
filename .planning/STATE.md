@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T04:40:22.278Z"
+last_updated: "2026-10-10T05:25:06.876Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 105
-  completed_plans: 100
+  completed_plans: 101
   percent: 25
 ---
 
@@ -46,7 +46,7 @@ bullets with current facts.
 ## Current position
 
 Phase: 190 (Provider history plane unification) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
@@ -192,6 +192,13 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
   point; `adjustment='split'` raises loudly on IBKR (ADJUSTED_LAST is now-anchored). Services/
   scripts/src cannot import a concrete provider leaf outside `src/providers/`
   (tests/unit/test_provider_leaf_boundary.py; fetcher-family entries shrink to zero at 190-04).
+
+- Phase 190 two-tier ledger foundation (190-02): migration 464 applied live (ohlcv_coverage.provider,
+  ohlcv_provider_head.timeframe nullable; ibkr label is the authoring fetch plane of a stored-state
+  row, never a vendor provenance claim). Migration 465 (PK swaps + measured floor seeds) is committed
+  UN-APPLIED: 190-06 applies it with the fetcher stopped, in the same shell breath as flipping the
+  coverage writer's ON CONFLICT to (symbol, timeframe, provider); the boundary test and the
+  conftest _COMMITTED_BUT_UNAPPLIED={465} entry pin that discipline until then.
 
 - Corpus pipeline: `--compute-only` silently skips every symbol if `backfill_status` is empty;
   seed it first (query in `.planning/milestones/v3.4-STATE.md`, "Corpus Pipeline Gotcha").
