@@ -49,7 +49,10 @@ from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 # Known debt: the atomic persist helper lives under scripts/ because the fetcher
 # grew it first. Lifting it beside this engine is blocked while the IBKR drain
 # imports it live (todo 523); reconcile at the drain's completion.
-CHUNK_ROWS = 100_000
+# Chunk size is bounded by existing_timestamps' client-side array rendering: a
+# 100k-stamp chunk blew psycopg's 1 GiB query buffer (ProgramLimitExceeded,
+# observed 2026-10-10); 10k keeps the rendered array at sub-MB scale.
+CHUNK_ROWS = 10_000
 
 
 @dataclass(frozen=True)
