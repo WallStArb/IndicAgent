@@ -5,14 +5,15 @@ Ranking is a pure function of a coverage row (ohlcv_coverage, migration 432), th
 proven depth, APR config and today's date, so the dry run and the real run produce the same
 order. The design tuple, verbatim:
 
-    rank(symbol, timeframe) = (
+    rank(provider, symbol, timeframe) = (
         consecutive_failures > infra.backfill.max_consecutive_failures,  -- excluded, lowest
         timeframe != '1d',                              -- due 1d first (189-10, 185-46 B)
         staleness_days <= infra.backfill.max_staleness_days_before_preempt,  -- SLA band first
         -1 if timeframe in priority_tf_order else 0,   -- 15m/1h before 5m (todo 449)
         -coverage_gap_days,                             -- zero/largest gap first
         -staleness_days,                                -- nightly freshness falls out of this
-        symbol                                          -- deterministic tie-break
+        symbol,                                         -- deterministic tie-break
+        provider                                        -- phase 190: planes never tie
     )
 
 Why each element exists:
@@ -57,6 +58,15 @@ Interpretation choices (documented because the design tuple leaves them open):
 
 Thresholds come from QueueConfig (APR); the only literals are schema identifiers and the
 provider name. No IBKR access and no writes.
+
+Provider dimension (phase 190 plan 03): every ledger read, floor and failure count is
+per-provider (the two-tier ledger: one vendor's outage or head never ranks or excludes
+another vendor's items), per-provider planner inputs live in ProviderPlan
+(load_provider_plan, infra.<provider>.* APR keys), and item creation is gated by the
+bar_source_policy tier (policy_authorizes, read-only). Candidates, items, due reasons and
+visited keys are (provider, symbol, timeframe) triples internally; the legacy (symbol,
+timeframe) pair call shapes are accepted everywhere and default to the ibkr plane, because
+the unmodified fetcher calls this module until 190-04 (the compatibility contract).
 
 Two lanes, one queue (plan 189-10 Task 1, as amended by 185-46): every item is one of
 - the update lane: the series is asked since its latest stored bar, widened to overlap the
@@ -680,6 +690,46 @@ _LATEST_CANONICAL_1D_SQL = (
     "WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND \"timestamp\" >= $2 "
     "GROUP BY symbol"
 )
+# The span-ownership tier (migration 446): which source authors a (symbol, timeframe) span.
+# The fetcher is a policy READER only - the sole writer stays scripts/ops/bars/
+# ops_source_policy.py (single-writer registry) - and the read is batched over the candidate
+# symbol set the way _COVERAGE_SQL batches, timeframe defaults included (symbol IS NULL).
+_SOURCE_POLICY_SQL = (
+    "SELECT timeframe, symbol, primary_source, fallback_source, valid_from, valid_to "
+    "FROM bar_source_policy WHERE symbol = ANY($1::text[]) OR symbol IS NULL"
+)
+_DERIVED_SOURCE = "derived"
+
+
+def policy_authorizes(
+    rows: Iterable[Mapping[str, Any]], symbol: str, timeframe: str, day: date, provider: str
+) -> bool:
+    """True when the bar_source_policy tier lets `provider` create (or revise) items for the
+    series. Pure: rows enter only as data.
+
+    The most specific row covering `day` decides (a symbol row over the timeframe's
+    NULL-symbol default; [valid_from, valid_to) half-open). The planning assignment is the
+    row's authoring source: a vendor is authorized when it is named primary or fallback. A
+    derived row names no fetch vendor (those bars derive from the grid source tf after the
+    fetch), so it falls back to the default plane. No applicable row: today's behavior, the
+    default plane authors - which with one vendor and the live row shape is a pass-through,
+    the compat guarantee at this commit boundary."""
+    default = default_provider()
+    applicable = [
+        r
+        for r in rows
+        if r["timeframe"] == timeframe
+        and r["valid_from"] <= day
+        and (r["valid_to"] is None or day < r["valid_to"])
+    ]
+    row = next((r for r in applicable if r["symbol"] == symbol), None)
+    if row is None:
+        row = next((r for r in applicable if r["symbol"] is None), None)
+    if row is None or row["primary_source"] == _DERIVED_SOURCE:
+        return provider == default
+    return provider in (row["primary_source"], row["fallback_source"])
+
+
 # Calendar slack for the canonical lookback: longer than any market closure, so a current name
 # always has its latest bar inside it. A calendar fact, not a tunable.
 _CANONICAL_LOOKBACK_DAYS = 14
@@ -754,6 +804,7 @@ class PriorityQueue:
             empties = await conn.fetch(
                 _EMPTY_SQL, self._provider, symbols, reverify_days, min_confirmations
             )
+            policy_rows = await conn.fetch(_SOURCE_POLICY_SQL, symbols)
         # Pre-465 the provider's head row has a NULL timeframe (the 1d daily-bounds
         # labeling rule); it serves every timeframe until 465 backfills it to '1d' and
         # seeds per-TF floors, after which the seeded per-TF row wins (todo 526).
@@ -793,16 +844,32 @@ class PriorityQueue:
             daily_symbols = sorted({s for _, s, tf in candidates if tf == DAILY_TF})
             self._daily_inputs = await self._load_daily_inputs(pool, daily_symbols)
         self._due_reasons = {}
-        due = [r for r in candidate_rows if self._is_due(r)]
+        authorized = {
+            (r.provider, r.symbol, r.timeframe): policy_authorizes(
+                policy_rows, r.symbol, r.timeframe, self.today, r.provider
+            )
+            for r in candidate_rows
+        }
+        due = [
+            r
+            for r in candidate_rows
+            if authorized[(r.provider, r.symbol, r.timeframe)] and self._is_due(r)
+        ]
         self._items = queue_items(due, self.config, self.today, proven, self._plans)
         queued = {(i.row.provider, i.row.symbol, i.row.timeframe) for i in self._items}
         held = [
-            _components(r, proven.get(r.symbol), self.config, self.today, self._plans)
+            (
+                _components(r, proven.get(r.symbol), self.config, self.today, self._plans),
+                authorized[(r.provider, r.symbol, r.timeframe)],
+            )
             for r in candidate_rows
             if (r.provider, r.symbol, r.timeframe) not in queued
         ]
         self._held = sorted(
-            ((i, "excluded" if i.rank[0] else "current") for i in held),
+            (
+                (i, "policy" if not allowed else "excluded" if i.rank[0] else "current")
+                for i, allowed in held
+            ),
             key=lambda pair: pair[0].rank,
         )
 
@@ -888,5 +955,6 @@ class PriorityQueue:
 
     def held_snapshot(self) -> list[tuple[RankedItem, str]]:
         """Candidates the last load() kept out of the order, each with its reason:
-        'excluded' (past the failure threshold) or 'current' (is_current)."""
+        'excluded' (past the failure threshold), 'policy' (another source authors the
+        span) or 'current' (is_current)."""
         return list(self._held)

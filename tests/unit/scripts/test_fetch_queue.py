@@ -356,6 +356,8 @@ def _pool(coverage, heads=(), empty=(), config=None):
             "FROM ohlcv_coverage": coverage,
             "FROM ohlcv_provider_head": list(heads),
             "FROM ohlcv_empty_history": list(empty),
+            # today's live default for the unit fakes: no policy rows, the gate passes through
+            "FROM bar_source_policy": [],
         }
     )
 
@@ -1073,7 +1075,7 @@ async def test_policy_row_gates_item_creation_per_provider():
         ("AAA", "policy")
     }
     alpaca_pool = _pool_with_policy(coverage, policy)
-    alpaca_queue = fq.PriorityQueue(CONFIG, [("AAA", "5m")], TODAY, provider="alpaca")
+    alpaca_queue = fq.PriorityQueue(CONFIG, [("alpaca", "AAA", "5m")], TODAY, provider="alpaca")
     await alpaca_queue.load(alpaca_pool)
     assert [(i.row.symbol, i.row.timeframe) for i in alpaca_queue.ranked_snapshot()] == [
         ("AAA", "5m")
