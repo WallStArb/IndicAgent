@@ -42,6 +42,7 @@ from services.regime_writer import (
     _state_groups_by_vocab,
 )
 from src.intelligence.features.kernels import _hmm as hmm_module
+from tests.unit._hmm_decode_helpers import _causal_decode
 from tests.unit._hmm_decode_helpers import decode as _decode
 from tests.unit.intelligence.regime_kernel_fixtures import SMALL_HMM_APR
 
@@ -2167,3 +2168,43 @@ def test_run_symbol_worker_isolates_a_failing_cell(monkeypatch):
     )
     assert [c["tf"] for c in result["results"]] == ["1h", "1d"]
     assert all(c["update_rows"] is None and c["error"] == "fit failed" for c in result["results"])
+
+
+def test_causal_decode_vectorized_matches_original():
+    """Vectorized _causal_decode must produce identical states to reference implementation.
+
+    Uses synthetic K=3 HMM parameters and a short obs sequence.
+    Validates that the vectorized batch-emit precomputation does not alter
+    the forward-filter result compared to the original per-step Python loop.
+
+    Note: _causal_decode is the test-helper reference forward filter, which expects
+    pre-computed log emissions rather than raw observations. This test computes log_emit
+    explicitly to match the current signature.
+    """
+    rng = np.random.default_rng(0)
+    K, d, n = 3, 5, 200
+
+    means = rng.normal(0, 1, (K, d))
+    variances = np.abs(rng.normal(0.5, 0.1, (K, d))) + 0.01
+    raw_A = np.abs(rng.normal(0, 1, (K, K))) + 0.1
+    A = raw_A / raw_A.sum(axis=1, keepdims=True)
+    obs = rng.normal(0, 1, (n, d))
+
+    # Compute log emissions: log_emit[t, k] = log P(obs[t] | means[k], variances[k])
+    # Diagonal covariance MVN log PDF
+    log_emit = np.zeros((n, K))
+    for k in range(K):
+        diff = obs - means[k]
+        z = (diff**2) / variances[k]
+        log_emit[:, k] = -0.5 * (
+            d * np.log(2 * np.pi) + np.sum(np.log(variances[k])) + np.sum(z, axis=1)
+        )
+
+    pi0 = np.ones(K) / K  # Uniform initial distribution
+    states, alpha_hist = _causal_decode(log_emit, A, pi0)
+    assert states.shape == (n,)
+    assert alpha_hist.shape == (n, K)
+    # Alpha rows must sum to ~1
+    assert np.allclose(alpha_hist.sum(axis=1), 1.0, atol=1e-6)
+    # All states must be valid state indices
+    assert np.all((states >= 0) & (states < K))

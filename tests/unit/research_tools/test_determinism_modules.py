@@ -71,12 +71,6 @@ def _write_minimal_snapshot(tmp_path):
 
 
 class TestConfig:
-    def test_config_matches_sleeve_bytes(self):
-        sleeve_config = SLEEVE / "config.py"
-        if not sleeve_config.exists():
-            pytest.skip("sleeve config removed")
-        assert (DETERMINISM / "config.py").read_bytes() == sleeve_config.read_bytes()
-
     def test_default_config_is_frozen(self):
         with pytest.raises(dataclasses.FrozenInstanceError):
             DEFAULT_CONFIG.seed = 180

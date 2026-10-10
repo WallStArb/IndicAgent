@@ -1,8 +1,7 @@
 """Tests for the promoted cost-band module (scripts/research/cost_hurdle.py, plan 186-04).
 
-The exact-equality checks against the originals under scripts/analysis/ are guarded with
-importorskip so this file keeps passing after 186-16 deletes that directory; the same
-equalities are asserted against inline formulas, which do not depend on the originals.
+The exact-equality checks against the originals under scripts/analysis/ died with that
+directory (186-16); the inline-formula tests carry the same semantics and are the record.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from scripts.research import cost_hurdle
 
@@ -60,16 +58,6 @@ def test_corwin_schultz_daily_properties() -> None:
     assert np.array_equal(out, np.clip(spread, 0.0, None)[1:])
 
 
-def test_corwin_schultz_daily_equals_original() -> None:
-    original = pytest.importorskip("scripts.analysis.personal_cost_hurdle")
-    rng = np.random.default_rng(7)
-    high, low = _random_high_low(rng, 500)
-    assert np.array_equal(
-        cost_hurdle.corwin_schultz_daily(high, low),
-        original._corwin_schultz_daily(high, low),
-    )
-
-
 def test_rank_turnover_guards() -> None:
     rng = np.random.default_rng(3)
     ranks = pd.DataFrame(rng.random((20, 4)), columns=list("ABCD"))
@@ -92,18 +80,6 @@ def test_rank_turnover_matches_inline_formula() -> None:
         vals = diff.dropna(how="all").to_numpy().ravel()
         vals = vals[~np.isnan(vals)]
         assert got == float(vals.mean())
-
-
-def test_rank_turnover_equals_originals() -> None:
-    one_d = pytest.importorskip("scripts.analysis.personal_cost_hurdle")
-    by_tf = pytest.importorskip("scripts.analysis.personal_cost_hurdle_by_tf")
-    rng = np.random.default_rng(23)
-    ranks = pd.DataFrame(rng.random((60, 5)), columns=list("ABCDE"))
-    ranks.iloc[7, 4] = np.nan
-    for horizon in (1, 2, 5, 10):
-        got = cost_hurdle.rank_turnover(ranks, horizon)
-        assert got == one_d._turnover(ranks, horizon)
-        assert got == by_tf._turnover(ranks, horizon)
 
 
 def test_one_way_cost() -> None:

@@ -141,17 +141,8 @@ class TestFindTroughsVectorized:
 
 
 class TestIsNum:
-    def test_int(self):
-        assert is_num(42) is True
-
-    def test_float(self):
-        assert is_num(3.14) is True
-
-    def test_none(self):
-        assert is_num(None) is False
-
-    def test_string(self):
-        assert is_num("42") is False
+    # the basics (int, float, string, none, list, zero) live in
+    # test_utils_common.py; these are the edge cases it does not carry.
 
     def test_bool_is_int_subclass(self):
         # In Python, bool is a subclass of int — is_num returns True
@@ -165,9 +156,6 @@ class TestIsNum:
 
     def test_negative_inf_rejected(self):
         assert is_num(float("-inf")) is False
-
-    def test_zero(self):
-        assert is_num(0) is True
 
     def test_negative_float(self):
         assert is_num(-3.14) is True
