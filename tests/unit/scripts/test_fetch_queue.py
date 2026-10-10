@@ -246,6 +246,8 @@ _FULL_ROWS = [
     ("infra.ibkr.history_request_timeout", "800"),
     ("infra.ibkr.history_request_retries", "3"),
     ("infra.ibkr.rate_limit_window_sec", "600.0"),
+    ("infra.ibkr.no_data_confirmation_chunks", "2"),
+    ("infra.ibkr.inter_item_pause_s", "2.0"),
     ("infra.backfill.depth_days.15m", "5000"),
     ("infra.backfill.depth_days.1d", "7300"),
 ]
@@ -272,14 +274,20 @@ def test_load_queue_config_single_query():
     assert "config_state" in conn.cursor_obj.executed[0][0]
 
 
+def test_load_queue_config_raises_when_planner_inputs_missing():
+    # the ibkr planner inputs raise (planner-input contract); no silent defaults
+    with pytest.raises(RuntimeError, match="infra.ibkr.history_request_timeout"):
+        fq.load_queue_config(_FakeConn([]))
+
+
 def test_load_queue_config_falls_back_with_one_warning(monkeypatch):
     warnings: list[tuple[str, dict]] = []
     monkeypatch.setattr(fq.logger, "warning", lambda event, **kw: warnings.append((event, kw)))
-    cfg = fq.load_queue_config(_FakeConn([]))
+    provider_rows = [r for r in _FULL_ROWS if r[0].startswith("infra.ibkr.")]
+    cfg = fq.load_queue_config(_FakeConn(provider_rows))
     assert cfg.max_consecutive_failures == 5
     assert cfg.max_staleness_days_before_preempt == 3
     assert cfg.priority_tf_order == ("15m", "1h")
-    assert cfg.history_request_timeout_s == 900.0
     assert cfg.depth_days["15m"] == 7300
     assert len(warnings) == 1
     assert "infra.backfill.max_consecutive_failures" in warnings[0][1]["keys"]
@@ -763,12 +771,12 @@ def test_load_provider_plan_raises_on_a_missing_planner_input():
 
 
 def test_load_provider_plan_falls_back_on_a_leaf_native_limit(monkeypatch):
-    warnings: list[str] = []
-    monkeypatch.setattr(fq.logger, "warning", lambda event, **kw: warnings.append(event))
+    warnings: list[tuple[str, dict]] = []
+    monkeypatch.setattr(fq.logger, "warning", lambda event, **kw: warnings.append((event, kw)))
     rows = tuple(r for r in _IBKR_PLAN_ROWS if r[0] != "infra.ibkr.rate_limit_window_sec")
     plan = fq.load_provider_plan("ibkr", _plan_get(rows))
     assert plan.rate_limit_window_s == 600.0
-    assert any("rate_limit_window" in w for w in warnings)
+    assert any("rate_limit_window" in kw.get("key", "") for _, kw in warnings)
 
 
 def test_depth_override_reads_per_provider_depth_keys():

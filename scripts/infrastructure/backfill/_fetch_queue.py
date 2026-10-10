@@ -76,7 +76,7 @@ from __future__ import annotations
 import hashlib
 import json
 import statistics
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -87,24 +87,45 @@ from scripts.infrastructure.backfill._empty_history import _REVERIFY_DAYS_KEY
 
 logger = structlog.get_logger(__name__)
 
-PROVIDER = "ibkr"
 # The timeframe the 1d due rule and the due-1d-first rank element apply to (a DAG fact: 1d is
 # the one timeframe with a session-calendar currency rule and a nightly reconcile).
 DAILY_TF = "1d"
+
+# The IBKR 1d answer shape (a provider-native request shape, like the coverage writer's
+# per-provider rebuild filters): the daily due rule's request-ledger filter. A vendor whose
+# plan has answers_1d=False never issues this query and never gets 1d items (pitfall 4).
+_IBKR_DAILY_ANSWER_FILTER = "route = 'SMART' AND what_to_show = 'TRADES'"
 
 _KEY_MAX_FAILURES = "infra.backfill.max_consecutive_failures"
 _KEY_SLA_DAYS = "infra.backfill.max_staleness_days_before_preempt"
 _KEY_PRIORITY_TFS = "infra.backfill.priority_tf_order"
 _KEY_DEFAULT_SCOPES = "infra.backfill.default_scopes"
 _KEY_RUN_BUDGET = "infra.backfill.run_budget_minutes"
-_KEY_REQUEST_TIMEOUT = "infra.ibkr.history_request_timeout"
-_KEY_REQUEST_RETRIES = "infra.ibkr.history_request_retries"
-_KEY_RATE_LIMIT_WINDOW = "infra.ibkr.rate_limit_window_sec"
-_KEY_CONFIRMATION_CHUNKS = "infra.ibkr.no_data_confirmation_chunks"
 _DEPTH_PREFIX = "infra.backfill.depth_days."
 
-# Fallbacks: the migration 432 seeds, the pipeline's _TF_FETCH_CONFIG depths and ibkr.py's
-# rate-limit window. Used only when a key is missing, and logged when used.
+# Per-provider APR key suffixes under infra.<provider>.* (phase 190 plan 03 Task 1).
+_PROVIDER_TIMEOUT_KEY = "history_request_timeout"
+_PROVIDER_RETRIES_KEY = "history_request_retries"
+_PROVIDER_WINDOW_KEY = "rate_limit_window_sec"
+_PROVIDER_CONFIRMATION_KEY = "no_data_confirmation_chunks"
+_PROVIDER_PAUSE_KEY = "inter_item_pause_s"
+_PROVIDER_DEPTH_PREFIX = "depth_days."
+# The ibkr planner keys, listed for the one batched config_state query. The provider name is
+# a literal here and in every fetcher-compatible default below: until 190-04 passes plans,
+# the unmodified fetcher's calls all default to the ibkr plane.
+_PROVIDER_PLAN_KEYS = (
+    f"infra.ibkr.{_PROVIDER_TIMEOUT_KEY}",
+    f"infra.ibkr.{_PROVIDER_RETRIES_KEY}",
+    f"infra.ibkr.{_PROVIDER_WINDOW_KEY}",
+    f"infra.ibkr.{_PROVIDER_CONFIRMATION_KEY}",
+    f"infra.ibkr.{_PROVIDER_PAUSE_KEY}",
+)
+_KEY_CONFIRMATION_CHUNKS = f"infra.ibkr.{_PROVIDER_CONFIRMATION_KEY}"
+
+# Fallbacks: the migration 432 seeds and the pipeline's _TF_FETCH_CONFIG depths, for the
+# provider-neutral keys only. Used only when a key is missing, and logged when used. The
+# per-provider planner inputs have no fallback (they raise); the one leaf-native fallback is
+# the provider rate-limit window, inside load_provider_plan.
 _FALLBACKS: dict[str, str] = {
     _KEY_MAX_FAILURES: "5",
     _KEY_SLA_DAYS: "3",
@@ -113,9 +134,6 @@ _FALLBACKS: dict[str, str] = {
         '{"compute": ["1d", "1h", "15m", "5m"], "compute_1d": ["1d"], "backfill": ["1h", "15m"]}'
     ),
     _KEY_RUN_BUDGET: "240",
-    _KEY_REQUEST_TIMEOUT: "900",
-    _KEY_REQUEST_RETRIES: "2",
-    _KEY_RATE_LIMIT_WINDOW: "600.0",
 }
 _DEPTH_FALLBACKS: dict[str, int] = {"1d": 7300, "1h": 7300, "15m": 7300, "5m": 7300, "1m": 90}
 
@@ -133,6 +151,95 @@ class QueueConfig:
 
 
 @dataclass(frozen=True)
+class ProviderPlan:
+    """One provider's planner inputs (phase 190 design's budget interface): its request
+    budget and native semantics as data, never module constants or branches on vendor.
+
+    Numerics come from infra.<provider>.* APR keys through load_provider_plan. answers_1d
+    and daily_answer_filter are provider-native request data (IBKR answers 1d via SMART
+    TRADES; a REST vendor with no 1d sets answers_1d=False and gets no 1d items, pitfall 4).
+    depth_overrides optionally cap the neutral depth map per timeframe for this provider
+    (infra.<provider>.depth_days.<tf>); no seeds are required to stay on the neutral map.
+    """
+
+    name: str
+    request_timeout_s: float
+    request_retries: int
+    rate_limit_window_s: float
+    confirmation_chunks: int
+    inter_item_pause_s: float
+    answers_1d: bool = True
+    daily_answer_filter: str | None = _IBKR_DAILY_ANSWER_FILTER
+    depth_overrides: Mapping[str, int] = field(default_factory=dict)
+
+
+def default_provider() -> str:
+    """The fetcher-compatible default planning plane: every entry point the unmodified
+    fetcher calls (plan 190-03's compatibility contract) defaults to the ibkr plane until
+    190-04 passes providers and plans explicitly."""
+    return "ibkr"
+
+
+def load_provider_plan(
+    provider: str,
+    get: Callable[[str], str | None],
+    *,
+    answers_1d: bool = True,
+    daily_answer_filter: str | None = _IBKR_DAILY_ANSWER_FILTER,
+    depth_tfs: Sequence[str] = (),
+) -> ProviderPlan:
+    """Build `provider`'s plan from its infra.<provider>.* APR keys via the `get` reader.
+
+    Contract per key class: planner inputs raise when missing (a silent default would
+    change what the fetcher asks the provider); leaf-native limits keep module-default
+    fallbacks, logged. The per-provider validation: `request_timeout_s` must exceed
+    `rate_limit_window_s` for THAT provider, because its limiter sleeps silently up to the
+    window and a smaller stall bound would cancel healthy items mid-sleep.
+    """
+
+    def require(suffix: str) -> str:
+        value = get(f"infra.{provider}.{suffix}")
+        if value is None:
+            raise RuntimeError(f"APR key infra.{provider}.{suffix} is not set")
+        return value
+
+    timeout_s = float(require(_PROVIDER_TIMEOUT_KEY))
+    raw_window = get(f"infra.{provider}.{_PROVIDER_WINDOW_KEY}")
+    if raw_window is None:
+        # Leaf-native fallback: ibkr.py's own rate-limit window.
+        window_s = 600.0
+        logger.warning(
+            "fetch_queue.provider_window_fallback_used",
+            provider=provider,
+            key=f"infra.{provider}.{_PROVIDER_WINDOW_KEY}",
+        )
+    else:
+        window_s = float(raw_window)
+    if timeout_s <= window_s:
+        raise ValueError(
+            f"infra.{provider}.{_PROVIDER_TIMEOUT_KEY}={timeout_s} must exceed "
+            f"infra.{provider}.{_PROVIDER_WINDOW_KEY}={window_s}: the stall bound would "
+            "cancel healthy items during a rate-limit sleep"
+        )
+    depth_overrides: dict[str, int] = {}
+    for tf in depth_tfs:
+        value = get(f"infra.{provider}.{_PROVIDER_DEPTH_PREFIX}{tf}")
+        if value is not None:
+            depth_overrides[tf] = int(value)
+    return ProviderPlan(
+        name=provider,
+        request_timeout_s=timeout_s,
+        request_retries=int(require(_PROVIDER_RETRIES_KEY)),
+        rate_limit_window_s=window_s,
+        confirmation_chunks=int(require(_PROVIDER_CONFIRMATION_KEY)),
+        inter_item_pause_s=float(require(_PROVIDER_PAUSE_KEY)),
+        answers_1d=answers_1d,
+        daily_answer_filter=daily_answer_filter,
+        depth_overrides=depth_overrides,
+    )
+
+
+@dataclass(frozen=True)
 class CoverageRow:
     symbol: str
     timeframe: str
@@ -142,6 +249,9 @@ class CoverageRow:
     consecutive_failures: int
     floor_timestamp: datetime | None
     last_fetched_at: datetime | None = None
+    # The planning plane this row was read for (ohlcv_coverage.provider): failure state is
+    # per-provider row state, so one vendor's outage never excludes the other vendor's items.
+    provider: str = "ibkr"
 
 
 # Outcomes after which a series has nothing new to ask until the next session closes.
@@ -182,11 +292,13 @@ class RankedItem:
 def load_queue_config(conn: Any) -> QueueConfig:
     """Read the fetcher's APR keys in one query (psycopg connection).
 
-    Malformed JSON raises (json.JSONDecodeError is a ValueError). Raises ValueError when the
-    per-item stall bound does not exceed the rate limiter's window: the limiter sleeps
-    silently up to that long, so a smaller bound would cancel healthy items.
+    Provider-neutral keys fall back to the migration 432 seeds (logged when used); the ibkr
+    planner inputs go through load_provider_plan and raise when missing. Malformed JSON
+    raises (json.JSONDecodeError is a ValueError). history_request_timeout_s and
+    history_request_retries stay on QueueConfig as fetcher-compatible mirrors of the ibkr
+    plan until 190-04 passes plan instances alongside the config.
     """
-    keys = list(_FALLBACKS)
+    keys = list(_FALLBACKS) + list(_PROVIDER_PLAN_KEYS)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT config_key, config_value FROM config_state "
@@ -195,7 +307,7 @@ def load_queue_config(conn: Any) -> QueueConfig:
         )
         rows = cur.fetchall()
     values = {str(k): str(v) for k, v in rows}
-    missing = sorted(k for k in keys if k not in values)
+    missing = sorted(k for k in _FALLBACKS if k not in values)
     depth_days = dict(_DEPTH_FALLBACKS)
     for key, value in values.items():
         if key.startswith(_DEPTH_PREFIX):
@@ -209,22 +321,15 @@ def load_queue_config(conn: Any) -> QueueConfig:
     def get(key: str) -> str:
         return values.get(key, _FALLBACKS[key])
 
-    timeout_s = float(get(_KEY_REQUEST_TIMEOUT))
-    window_s = float(get(_KEY_RATE_LIMIT_WINDOW))
-    if timeout_s <= window_s:
-        raise ValueError(
-            f"{_KEY_REQUEST_TIMEOUT}={timeout_s} must exceed "
-            f"{_KEY_RATE_LIMIT_WINDOW}={window_s}: the stall bound would cancel healthy "
-            "items during a rate-limit sleep"
-        )
+    plan = load_provider_plan("ibkr", values.get, depth_tfs=tuple(_DEPTH_FALLBACKS))
     scopes = json.loads(get(_KEY_DEFAULT_SCOPES))
     return QueueConfig(
         max_consecutive_failures=int(get(_KEY_MAX_FAILURES)),
         max_staleness_days_before_preempt=int(get(_KEY_SLA_DAYS)),
         priority_tf_order=tuple(json.loads(get(_KEY_PRIORITY_TFS))),
         depth_days=depth_days,
-        history_request_timeout_s=timeout_s,
-        history_request_retries=int(get(_KEY_REQUEST_RETRIES)),
+        history_request_timeout_s=plan.request_timeout_s,
+        history_request_retries=plan.request_retries,
         run_budget_minutes=int(get(_KEY_RUN_BUDGET)),
         default_scopes={str(k): tuple(v) for k, v in scopes.items()},
     )
@@ -451,13 +556,28 @@ def proven_days_by_symbol(rows: Iterable[CoverageRow], today: date) -> dict[str,
     return proven
 
 
+def _depth_days(
+    row: CoverageRow, config: QueueConfig, plans: Mapping[str, ProviderPlan] | None
+) -> int:
+    """The series' target depth: the provider's override for its own timeframes when its
+    plan declares one, else the neutral map. Pure: plans enter only as data."""
+    plan = (plans or {}).get(row.provider)
+    if plan is not None and row.timeframe in plan.depth_overrides:
+        return plan.depth_overrides[row.timeframe]
+    return config.depth_days.get(row.timeframe, 0)
+
+
 def _components(
-    row: CoverageRow, proven_days: int | None, config: QueueConfig, today: date
+    row: CoverageRow,
+    proven_days: int | None,
+    config: QueueConfig,
+    today: date,
+    plans: Mapping[str, ProviderPlan] | None = None,
 ) -> RankedItem:
     stale = staleness_days(row, today)
     sla_breach = stale is not None and stale > config.max_staleness_days_before_preempt
     tf_class = -1 if row.timeframe in config.priority_tf_order else 0
-    target = config.depth_days.get(row.timeframe, 0)
+    target = _depth_days(row, config, plans)
     gap = coverage_gap_days(row, proven_days, target, today)
     effective_stale = target if stale is None else stale
     key = (
@@ -474,10 +594,14 @@ def _components(
 
 
 def rank(
-    row: CoverageRow, proven_days: int | None, config: QueueConfig, today: date
+    row: CoverageRow,
+    proven_days: int | None,
+    config: QueueConfig,
+    today: date,
+    plans: Mapping[str, ProviderPlan] | None = None,
 ) -> tuple[Any, ...]:
     """The design tuple plus timeframe as a final element. Pure: no I/O."""
-    return _components(row, proven_days, config, today).rank
+    return _components(row, proven_days, config, today, plans).rank
 
 
 def queue_items(
@@ -485,13 +609,14 @@ def queue_items(
     config: QueueConfig,
     today: date,
     proven: Mapping[str, int] | None = None,
+    plans: Mapping[str, ProviderPlan] | None = None,
 ) -> list[RankedItem]:
     """Non-excluded rows in rank order, with components. `proven` defaults to the depth the
     rows themselves prove; pass a mapping computed over a wider row set to rank a subset."""
     rows = list(rows)
     if proven is None:
         proven = proven_days_by_symbol(rows, today)
-    items = [_components(r, proven.get(r.symbol), config, today) for r in rows]
+    items = [_components(r, proven.get(r.symbol), config, today, plans) for r in rows]
     return sorted((i for i in items if not i.rank[0]), key=lambda i: i.rank)
 
 
@@ -500,9 +625,10 @@ def order_queue(
     config: QueueConfig,
     today: date,
     proven: Mapping[str, int] | None = None,
+    plans: Mapping[str, ProviderPlan] | None = None,
 ) -> list[CoverageRow]:
     """Excluded rows dropped, the rest ascending by rank. Pure."""
-    return [i.row for i in queue_items(rows, config, today, proven)]
+    return [i.row for i in queue_items(rows, config, today, proven, plans)]
 
 
 _COVERAGE_SQL = (
@@ -577,9 +703,9 @@ class PriorityQueue:
             reverify_days = int(cfg[_REVERIFY_DAYS_KEY])
             min_confirmations = int(cfg[_KEY_CONFIRMATION_CHUNKS])
             coverage = await conn.fetch(_COVERAGE_SQL, symbols)
-            heads = await conn.fetch(_HEADS_SQL, PROVIDER, symbols, reverify_days)
+            heads = await conn.fetch(_HEADS_SQL, default_provider(), symbols, reverify_days)
             empties = await conn.fetch(
-                _EMPTY_SQL, PROVIDER, symbols, reverify_days, min_confirmations
+                _EMPTY_SQL, default_provider(), symbols, reverify_days, min_confirmations
             )
         head_by_symbol = {r["symbol"]: r["head_ts"] for r in heads}
         empty_by_series = {(r["symbol"], r["timeframe"]): r["empty_through"] for r in empties}
@@ -636,7 +762,7 @@ class PriorityQueue:
             return {}, {}
         since = self.daily.last_close - timedelta(days=_CANONICAL_LOOKBACK_DAYS)
         async with pool.acquire() as conn:
-            answers = await conn.fetch(_LATEST_DAILY_ANSWER_SQL, PROVIDER, symbols)
+            answers = await conn.fetch(_LATEST_DAILY_ANSWER_SQL, default_provider(), symbols)
             canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
         return (
             {r["symbol"]: r["answered_at"] for r in answers},
