@@ -49,9 +49,13 @@ Phase: 190 (Provider history plane unification) — COMPLETE 2026-10-10 (7/7 pla
 cutover: 465 + conflict-target flip at CUT_TS 11:59:48Z, unified fetcher verified, 07
 wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
 
-- **HOLD 2026-10-10 (owner): no data pulls of any kind until the data-plane refactor lands.**
-  The IBKR backfill stays held (timer disabled, ledger keeps state); `ops_bar_nightly` exists
-  but nothing schedules it. Reopen is the owner's call.
+- **Pull hold REOPENED for the deep 5m backfill (owner 2026-10-10 late):** the owner named the
+  consumer for deep history (HMM p-values and IC at intraday horizons), which reopens todo
+  523's 2006-2015 tail backfill; the fetcher timer is enabled again (22:06 EDT, IBKR connected).
+  1d is already deep (median start 2006-06); the backfill's unique product is the 2006-2015
+  intraday tail, ~18 days at the measured 88 requests/hour. The 186-26 rebuild runs in
+  parallel (stable 2016+ units; old-year 5m units recompute after the backfill via digests).
+  `ops_bar_nightly` (Alpaca) remains unscheduled pending the owner's wiring call.
 
 - **Derived grid COMPLETE 2026-10-10 late, 186 plans refreshed:** bar_derivation grid
   derived the 951 missing names (73.1M new 15m/1h rows, 0 refusals, 9,066 legacy IBKR

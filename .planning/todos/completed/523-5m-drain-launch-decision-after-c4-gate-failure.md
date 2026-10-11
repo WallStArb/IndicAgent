@@ -69,3 +69,16 @@ versus the 5m vendor floor (2006-07), not missing data, and only 10 names (ODFL,
 TLT, CSX, AMD, EDV, LIN, NTR) have genuine short heads, already queued. The phase 2 canonical
 hold is lifted on this correction (coordination to indicagent-87); the drain runs regardless.
 Surviving small item: todo 526, per-TF provider-head granularity.
+
+## Reopened 2026-10-10 late (owner directive)
+
+The owner named the consumer: "we need more history for HMM p values and IC."
+Measured scope for that need: 1d is already deep (median start 2006-06 across the
+1,502 eligible names, 689 before 2006), so the unique gap is the 2006-2015
+intraday tail (5m, with 15m/1h deriving from it). The backfill resumed under the
+already-APR'd config (depth_days.5m 7300, chunk_days.5m 150, priority 5m): fetcher
+timer enabled 2026-10-10 22:06 EDT; ~25 requests/name, about 18 days for 1,502
+names at the measured 88 requests/hour. This message also reopens the 2026-10-10
+pull hold for the backfill lane. The 186-26 rebuild runs in parallel on the stable
+2016+ units and deep 1d; the old-year 5m/15m/1h units recompute once after the
+backfill via content-digest keys (the D-32 owner rule's recovered-history path).
