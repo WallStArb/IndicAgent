@@ -3074,5 +3074,12 @@
  "pilot": null,
  "disk_guard": null,
  "wall_clock": null,
- "kill_resume": null
+ "kill_resume": null,
+ "run_tree": {
+  "path": "/home/bg/dev/indicagent-186-26",
+  "branch": "phase-186-26",
+  "base_sha_at_gate_sweep": "f35938bc295c6d908e4416616c3912fabbb798b8",
+  "note": "the branch carried only planning files, so the sweep's code identity is unchanged by the rebase onto a28718c81; the re-run re-pins at its own recorded HEAD before launching",
+  "persists_for_rerun": true
+ }
 }
