@@ -41,7 +41,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Where each landed marker comes from, so a moved artifact fails loudly here rather than
 # silently passing in 186-26.
 STATE_RELATIVE_PATH = Path(".planning") / "STATE.md"
-GRID_MARKER_NEEDLE = "D2b landed"
+GRID_MARKER_NEEDLE = "Derived grid COMPLETE"
 REGIME_KERNEL_RELATIVE_PATH = Path("src/intelligence/features/kernels/regime.py")
 WRITER_MODULE_NAME = "services.backfill_feature_factory"
 

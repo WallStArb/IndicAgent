@@ -98,10 +98,10 @@ def test_bar_coverage_truncates_a_long_failure_list():
 
 
 def test_derived_grid_marker_passes_when_present_and_fails_when_absent():
-    assert check_derived_grid_landed(True, "STATE.md: D2b landed on 2026-09-30").ok
-    failed = check_derived_grid_landed(False, "no D2b bullet in STATE.md")
+    assert check_derived_grid_landed(True, "STATE.md: Derived grid COMPLETE 2026-10-10 late").ok
+    failed = check_derived_grid_landed(False, "no derived-grid bullet in STATE.md")
     assert not failed.ok
-    assert "D2b" in failed.detail
+    assert "derived-grid" in failed.detail
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +579,7 @@ def test_fetch_bar_verdict_inputs_requires_intraday_checks_plus_stray_vendor_row
 
 def test_fetch_landed_markers_gathers_every_required_marker(tmp_path):
     state = tmp_path / "STATE.md"
-    state.write_text("## Phase 185\n- D2b landed on 2026-09-30, 231 symbols derived\n")
+    state.write_text("## Current position\n- Derived grid COMPLETE 2026-10-10 late (73.1M rows)\n")
     conn = _FakeConn([[("feature_vectors_v2",)]])
     markers = fetch_landed_markers(conn, state_path=state)
     assert set(markers) == set(rp.REQUIRED_DEPENDENCY_MARKERS) | {"grid_marker"}
