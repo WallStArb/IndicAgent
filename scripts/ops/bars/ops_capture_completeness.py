@@ -40,7 +40,11 @@ GROUP BY source, timeframe, destination, outcome
 """
 
 _STORE_SQL = """
-SELECT CASE WHEN source = 'derived_5m' THEN 'derived' ELSE source END AS source,
+SELECT CASE
+           WHEN source = 'derived_5m' THEN 'derived'
+           WHEN source = 'ibkr_named' THEN 'ibkr'
+           ELSE source
+       END AS source,
        timeframe, count(*) AS rows
 FROM {table}
 GROUP BY 1, timeframe
@@ -81,8 +85,11 @@ def _build_report(
     """Join the ledger's buckets and the two stores into the frame `_classify` consumes.
 
     The ledger's source is the writer plane (`ohlcv_load_source_check`: tradier, ibkr,
-    derived, alpaca) while the grid rows carry the bar label derived_5m; the store side
-    is normalized to the writer label so the two vocabularies join. A refusal's
+    derived, alpaca) while grid rows carry the bar label derived_5m and authored IBKR
+    rows carry ibkr_named; the store side is normalized to the writer label so the two
+    vocabularies join (verified 2026-10-10: no store row carries a bare 'ibkr' or
+    'derived' source, and sampled ibkr-5m ledger spans are fully occupied under
+    ibkr_named). A refusal's
     n_archived is by nature cross-destination (refused grid rows land in the archive
     store), so refused grid rows form their own bucket joined in once, never a column
     of a destination partition that would drop it. An archive-destination refusal is

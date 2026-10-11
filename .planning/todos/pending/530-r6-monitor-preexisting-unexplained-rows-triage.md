@@ -24,3 +24,17 @@ labeling artifact (fix the report or relabel the ledger rows), a pre-ledger
 span (reclassify as preledger_rows), or real loss (write the exclusion
 rule per the data-retention policy). Then the R6 gate can run with
 --gate in the nightly without paging on known-dead rows.
+
+## Update 2026-10-10 late (two of three items resolved)
+
+- derived 15m/1h: RESOLVED (a28718c81) -- the report maps the grid's bar label
+  derived_5m to the ledger's writer label; both reconcile to zero unexplained.
+- ibkr 5m: RESOLVED (same class, commit follows) -- the ledger's pre-190 rows say
+  source='ibkr' while the authored bars carry ibkr_named; sampled spans (40/40) are
+  fully occupied under ibkr_named, so the 7.3M was vocabulary drift, not loss. The
+  report normalizes ibkr_named to the writer label.
+- derived 1d: OPEN -- the daily rule's load rows name the writer ('derived') while
+  the 1d bars carry the authoring vendor's source (ibkr_named/tradier/
+  ibkr_fallback), so no bar-label join exists. 859,949 rows. Needs a matching rule
+  (per-span author mapping from D2's lineage) or an explicit ledger-vocabulary home
+  for writer-labeled loads. Triage alongside todo 532's verdict work.
