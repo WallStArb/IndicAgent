@@ -53,6 +53,13 @@ wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
   The IBKR backfill stays held (timer disabled, ledger keeps state); `ops_bar_nightly` exists
   but nothing schedules it. Reopen is the owner's call.
 
+- **Derived grid COMPLETE 2026-10-10 late, 186 plans refreshed:** bar_derivation grid
+  derived the 951 missing names (73.1M new 15m/1h rows, 0 refusals, 9,066 legacy IBKR
+  vendor grid rows archived then removed). Coverage is 1,502/1,502 eligible names at
+  5m, 15m, 1h and 1d: the 186-26 D-32 coverage input is satisfied. The 186-26/27/28
+  plan literals were refreshed to the post-expansion facts (1,502-name rebuild set
+  incl. 5m, Alpaca-sourced coverage, no active backfill lanes under the pull hold).
+
 - **Raw-capture enforcement (todo 528) CLOSED 2026-10-10:** the load engine archives
   non-authored rows instead of dropping them; migration 468 put source in the raw-archive key;
   R6 completeness check is `ops_capture_completeness`; T4 landed (`src/providers/alpaca.py`
