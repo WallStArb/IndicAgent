@@ -99,9 +99,10 @@ def test_bar_coverage_truncates_a_long_failure_list():
 
 def test_derived_grid_marker_passes_when_present_and_fails_when_absent():
     assert check_derived_grid_landed(True, "STATE.md: Derived grid COMPLETE 2026-10-10 late").ok
-    failed = check_derived_grid_landed(False, "no derived-grid bullet in STATE.md")
+    failed = check_derived_grid_landed(False, "")
     assert not failed.ok
-    assert "derived-grid" in failed.detail
+    # The fallback detail names the needle, so the operator sees what was searched for.
+    assert rp.GRID_MARKER_NEEDLE in failed.detail
 
 
 # ---------------------------------------------------------------------------

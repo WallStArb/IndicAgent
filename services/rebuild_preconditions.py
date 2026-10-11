@@ -187,12 +187,13 @@ def check_bar_coverage(
 
 
 def check_derived_grid_landed(marker_present: bool, marker_detail: str) -> CheckResult:
-    """Phase 185's D2b derived 15m/1h grid must have landed (the STATE.md bullet 185-12
-    writes names the date and the symbols still waiting on 5m)."""
+    """The derived 15m/1h grid must have landed: the STATE.md marker records the completed
+    derivation pass (dates, row counts, coverage). Until the marker moves to a durable
+    data condition, a reworded STATE.md bullet is a false negative here by construction."""
     return CheckResult(
         "derived_grid_landed",
         bool(marker_present),
-        marker_detail or "no D2b landing marker found",
+        marker_detail or f"no '{GRID_MARKER_NEEDLE}' marker found in STATE.md",
     )
 
 
@@ -497,7 +498,9 @@ def fetch_landed_markers(conn: Any, state_path: Path | None = None) -> dict[str,
         markers["feature_vectors_v2_relation"] = bool(cur.fetchone()[0])
 
     try:
-        markers["grid_marker"] = GRID_MARKER_NEEDLE in state_path.read_text()
+        markers["grid_marker"] = GRID_MARKER_NEEDLE in state_path.read_text(
+            encoding="utf-8", errors="replace"
+        )
     except OSError:
         markers["grid_marker"] = False
     return markers
