@@ -47,9 +47,11 @@ answered with bars carries the content digest of the answer the chunk stored (de
 direct mode provenance; src/intelligence/bars/digest.py arithmetic over the chunk's rows, one per
 timestamp, last wins). The bar writers classify against the stored rows (see
 services/ohlcv_ingress_contract.py); a chunk they refuse raises RevisionRefused, this helper rolls
-the transaction back, then records the request rows (digest NULL: nothing was stored) and an
-ohlcv_load row with outcome refused in a second transaction and re-raises, so the item fails
-loudly (phase 189's failure path and max_consecutive_failures) and the refusal is a finding.
+the transaction back, then records the request rows (digest NULL: nothing was stored), archives
+the refusal's served rows into the raw archive (todo 528: vendor-served observations are never
+dropped) and an ohlcv_load row with outcome refused in a second transaction and re-raises, so the
+item fails loudly (phase 189's failure path and max_consecutive_failures) and the refusal is a
+finding.
 
 Without a CoverageDelta (the default) the helper issues exactly the two writes above and
 nothing else, so callers that predate the ledger are unchanged.
@@ -79,6 +81,7 @@ from typing import Any
 import numpy as np
 import psycopg
 
+from services.intraday_raw_archive import archive_refusal_rows
 from services.ohlcv_coverage_writer import (
     DESTINATION_GRID,
     CoverageDelta,
@@ -172,14 +175,17 @@ def _with_digest(request_row: tuple, bar_rows: list[tuple]) -> tuple:
 
 def _record_refusal(conn: Any, request_rows: list[tuple], refusal: RevisionRefused) -> None:
     """Second transaction after a refused chunk rolled back: the answers are still recorded
-    (digest NULL, no bar was stored) and the load row says why nothing was written."""
+    (digest NULL, no bar was stored), the refusal's served rows are captured by the raw
+    archive (todo 528; the count lands on the refusal row's n_archived), and the load row
+    says why nothing was authored."""
     with conn.transaction():
         with conn.cursor() as cur:
             if request_rows:
                 cur.execute(f"SET LOCAL ROLE {_REQUEST_ROLE}")
                 write_request_rows(cur, [row + (None,) for row in request_rows])
             cur.execute(f"SET LOCAL ROLE {_ARCHIVE_ROLE}")
-            record_refused_load(cur, refusal)
+            archived = archive_refusal_rows(cur, refusal.rows)
+            record_refused_load(cur, refusal, n_archived=archived)
 
 
 # Bar row layout shared by the archive 10-tuple and the market_data_ohlcv 9-tuple.

@@ -14,7 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL, insert_fetched_archive_rows
+from services.intraday_raw_archive import (
+    ARCHIVE_FROM_TABLE_SQL,
+    archive_refusal_rows,
+    insert_fetched_archive_rows,
+)
 from services.ohlcv_ingress_contract import RevisionRefused
 
 
@@ -172,3 +176,46 @@ class TestArchiveFromTableSql:
         text = Path(services.bar_derivation.__file__).read_text()
         assert "INSERT INTO ohlcv_intraday_raw_archive" not in text
         assert "ARCHIVE_FROM_TABLE_SQL" in text
+
+
+class TestArchiveRefusalRows:
+    """The refused-chunk capture path (todo 528): unconditional, latest answer wins."""
+
+    def _grid_rows(self, *sources: str) -> list[tuple]:
+        """Grid 9-tuples (no base), the shape a refused market_data_ohlcv chunk carries."""
+        return [row[:9] for row in _rows(*sources)]
+
+    def test_grid_rows_gain_base_null_and_upsert_latest_answer_wins(self):
+        cur = FakeCursor()
+        rows = self._grid_rows("alpaca", "alpaca")
+        assert archive_refusal_rows(cur, rows) == 2
+        ((sql, params),) = cur.sql("INSERT INTO ohlcv_intraday_raw_archive")
+        assert "ON CONFLICT" in sql and "DO UPDATE SET" in sql
+        assert len(params) == 2 * 10
+        assert params[9] is None and params[19] is None
+
+    def test_ten_wide_rows_pass_through_unchanged(self):
+        cur = FakeCursor()
+        rows = _rows("ibkr")
+        assert archive_refusal_rows(cur, rows) == 1
+        ((_sql, params),) = cur.sql("INSERT INTO ohlcv_intraday_raw_archive")
+        assert len(params) == 10 and params[9] is None
+
+    def test_no_reads_and_no_ledger_row_of_its_own(self):
+        cur = FakeCursor(_stored(_rows("ibkr")))
+        archive_refusal_rows(cur, self._grid_rows("alpaca"))
+        assert cur.sql("SELECT") == []
+        assert cur.sql("INSERT INTO ohlcv_load") == []
+
+    def test_empty_rows_is_a_noop(self):
+        assert archive_refusal_rows(FakeCursor(), []) == 0
+
+    def test_refuses_synthetic_fills(self):
+        cur = FakeCursor()
+        with pytest.raises(ValueError, match="synthetic fills"):
+            archive_refusal_rows(cur, self._grid_rows("synthetic_fill"))
+
+    def test_rejects_an_unexpected_row_width(self):
+        cur = FakeCursor()
+        with pytest.raises(ValueError, match="widths"):
+            archive_refusal_rows(cur, self._grid_rows("alpaca")[:1] + [_rows("alpaca")[0]])

@@ -318,7 +318,7 @@ def test_request_row_with_a_digest_already_attached_is_refused(archive_writer):
         )
 
 
-def _refusal() -> RevisionRefused:
+def _refusal(rows: list[tuple] | None = None) -> RevisionRefused:
     load = SeriesLoad(
         symbol="SPY",
         timeframe="15m",
@@ -333,7 +333,7 @@ def _refusal() -> RevisionRefused:
         first_bar=datetime(2026, 9, 27).date(),
         last_bar=datetime(2026, 9, 27).date(),
     )
-    return RevisionRefused(load, ratio=0.03, max_ratio=0.02)
+    return RevisionRefused(load, ratio=0.03, max_ratio=0.02, rows=rows)
 
 
 def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load():
@@ -359,6 +359,36 @@ def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load()
     assert "refused" in params and "ibkr" in params
     detail = [p for p in params if isinstance(p, str) and p.startswith("refused:")]
     assert detail and "0.0300" in detail[0]
+
+
+def test_a_refusal_with_rows_captures_them_in_the_raw_archive_with_n_archived():
+    """The refusal's served rows land in the raw archive in the same second transaction
+    (todo 528) and the archived count rides the refusal row's n_archived."""
+
+    def refusing_writer(cur, rows):
+        raise _refusal(rows=[_ARCHIVE_ROW])
+
+    conn = FakeConn()
+    with pytest.raises(RevisionRefused):
+        persist_chunk_atomically(
+            conn,
+            request_rows=[_REQUEST_ROW],
+            archive_rows=[_ARCHIVE_ROW],
+            write_archive_rows=refusing_writer,
+        )
+    kinds = [sql for sql, _ in conn.statements]
+
+    def _idx(prefix: str) -> int:
+        return next(i for i, k in enumerate(kinds) if k.startswith(prefix))
+
+    assert kinds.index("<rollback>") < _idx("INSERT INTO ohlcv_intraday_raw_archive")
+    assert _idx("INSERT INTO ohlcv_intraday_raw_archive") < _idx("INSERT INTO ohlcv_load")
+    archive_params = next(
+        v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_intraday_raw_archive")
+    )
+    assert len(archive_params) == 10  # the 10-tuple archive shape
+    load_params = next(v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_load"))
+    assert load_params[-1] == 1  # n_archived: the refusal's one served row
 
 
 def test_empty_chunk_is_a_noop(archive_writer):

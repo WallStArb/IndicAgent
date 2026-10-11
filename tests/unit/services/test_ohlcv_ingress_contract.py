@@ -84,10 +84,11 @@ def test_the_same_answer_twice_writes_no_bar_and_no_revision_but_one_load_row():
     assert cur.sql_starting("INSERT INTO ohlcv_revision") == []
     (load,) = cur.sql_starting("INSERT INTO ohlcv_load")
     params = load[1]
-    # outcome applied, n_bars 10, n_new 0, n_changed 0, source ibkr, n_unchanged 10, n_removed 0
+    # outcome applied, n_bars 10, n_new 0, n_changed 0, source ibkr, n_unchanged 10,
+    # n_removed 0, n_archived 0 (an applied load never archives)
     assert params[3] == "ibkr" and params[6] == "applied" and params[7:10] == (10, 0, 0)
     assert params[13] == "ibkr-history-fetch" and params[14] == "market_data_ohlcv"
-    assert params[15:] == (10, 0)
+    assert params[15:] == (10, 0, 0)
 
 
 def test_one_changed_bar_writes_one_row_and_one_revision_with_old_values():
@@ -134,6 +135,8 @@ def test_a_breach_at_the_floor_is_refused_before_any_write():
     assert cur.sql_starting("INSERT") == []
     assert caught.value.load.n_changed == 30 and caught.value.load.n_stored == 1000
     assert "0.0300" in caught.value.detail
+    # The offered rows ride the refusal (todo 528): the raw archive captures them.
+    assert caught.value.rows == incoming
 
 
 def test_at_the_threshold_exactly_is_written():

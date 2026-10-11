@@ -81,8 +81,8 @@ _TS, _SYMBOL, _TIMEFRAME, _OPEN, _HIGH, _LOW, _CLOSE, _VOLUME, _SOURCE = range(9
 _INSERT_LOAD_SQL = (
     "INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, "
     "outcome, n_bars, n_new, n_changed, first_bar, last_bar, detail, caller, destination, "
-    "n_unchanged, n_removed) "
-    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    "n_unchanged, n_removed, n_archived) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 
 # The grid table's write shape, shared by every ingress caller (todo 301 promotes the
@@ -140,12 +140,18 @@ class SeriesLoad:
 
 
 class RevisionRefused(RuntimeError):  # noqa: N818 - the plan and design name this refusal
-    """A chunk revised more than the allowed share of the rows it overlaps; nothing was written."""
+    """A chunk revised more than the allowed share of the rows it overlaps; nothing was
+    written to the destination. The offered rows ride on the refusal (`rows`) so the raw
+    archive can capture them (todo 528): vendor-served observations are never dropped,
+    canonical authoring is."""
 
-    def __init__(self, load: SeriesLoad, *, ratio: float, max_ratio: float) -> None:
+    def __init__(
+        self, load: SeriesLoad, *, ratio: float, max_ratio: float, rows: list[tuple] | None = None
+    ) -> None:
         self.load = load
         self.ratio = ratio
         self.max_ratio = max_ratio
+        self.rows = rows or []
         super().__init__(
             f"revision refused for {load.symbol} {load.timeframe} ({load.destination}): "
             f"{load.n_changed} of {load.n_stored} stored rows changed "
@@ -207,7 +213,13 @@ def _utc_date(ts: datetime) -> date:
 
 
 def _record_load(
-    cur: Any, load: SeriesLoad, *, outcome: str, detail: str | None, load_id: uuid.UUID
+    cur: Any,
+    load: SeriesLoad,
+    *,
+    outcome: str,
+    detail: str | None,
+    load_id: uuid.UUID,
+    n_archived: int = 0,
 ) -> None:
     cur.execute(
         _INSERT_LOAD_SQL,
@@ -229,14 +241,25 @@ def _record_load(
             load.destination,
             0 if outcome == OUTCOME_REFUSED else load.n_unchanged,
             0,
+            n_archived,
         ),
     )
 
 
-def record_refused_load(cur: Any, refusal: RevisionRefused) -> None:
-    """The refused chunk's ohlcv_load row (outcome refused, detail with the ratio and counts)."""
+def record_refused_load(cur: Any, refusal: RevisionRefused, *, n_archived: int) -> None:
+    """The refused chunk's ohlcv_load row (outcome refused, detail with the ratio and counts).
+
+    `n_archived` is required (no silent zero): the count of the refusal's served rows the
+    caller routed to the raw archive in the same transaction (todo 528, 0 only when the
+    refusal carried no rows), so the completeness check never counts an archived refusal
+    as loss and a catch site cannot forget the pairing."""
     _record_load(
-        cur, refusal.load, outcome=OUTCOME_REFUSED, detail=refusal.detail, load_id=uuid.uuid4()
+        cur,
+        refusal.load,
+        outcome=OUTCOME_REFUSED,
+        detail=refusal.detail,
+        load_id=uuid.uuid4(),
+        n_archived=n_archived,
     )
 
 
@@ -338,7 +361,10 @@ def apply_ingress_contract(
             delta, len(stored), params.max_ratio, min_stored=params.min_stored, waived=waived
         ):
             raise RevisionRefused(
-                load, ratio=revision_ratio(delta, len(stored)), max_ratio=params.max_ratio
+                load,
+                ratio=revision_ratio(delta, len(stored)),
+                max_ratio=params.max_ratio,
+                rows=[keyed[ts] for ts in stamps],
             )
         plans.append((load, delta, keyed))
 
