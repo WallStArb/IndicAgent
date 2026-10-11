@@ -14,6 +14,8 @@ _COLS = [
     "removed",
     "refused_archived",
     "archive_served",
+    "archive_unchanged",
+    "archive_removed",
     "canonical",
     "archive",
 ]
@@ -24,6 +26,7 @@ _LEDGER_COLS = [
     "outcome",
     "served",
     "written",
+    "unchanged",
     "removed",
     "refused_archived",
 ]

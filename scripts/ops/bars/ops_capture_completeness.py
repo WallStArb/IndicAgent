@@ -11,8 +11,10 @@ Caveats the report carries rather than hides: a revision-refused chunk's
 served rows are captured by the raw archive (todo 528) and the archived
 count rides the refusal row's n_archived; `refused_bars` is the remainder a
 refusal did not archive (rows the archive already held under another
-source), separated from true loss; n_removed and re-loads make the ledger's
-served count an upper bound, so the check is a monitor, not a proof.
+source), separated from true loss; on the archive side an unchanged
+re-offer's bars are already in the store and a removed bar is a recorded
+deletion, so neither is loss; re-loads still make the ledger's served count
+an upper bound, so the check is a monitor, not a proof.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ _LEDGER_SQL = """
 SELECT source, timeframe, destination, outcome,
        sum(n_bars) AS served,
        sum(n_new + n_changed) AS written,
+       sum(n_unchanged) AS unchanged,
        sum(n_removed) AS removed,
        sum(n_archived) AS refused_archived
 FROM ohlcv_load
@@ -54,7 +57,16 @@ def _classify(report: pd.DataFrame) -> pd.DataFrame:
     raw_grid = (
         report["served"] - report["refused_bars"] - report["canonical"] - report["refused_archived"]
     )
-    raw_arch = report["archive_served"] + report["refused_archived"] - report["archive"]
+    # The archive is append-only, so an unchanged re-offer's bars are already in the
+    # store and already counted by the load that first wrote them: served double-counts
+    # them exactly once, and an archive-removed bar is a recorded deletion, not loss.
+    raw_arch = (
+        report["archive_served"]
+        - report["archive_unchanged"]
+        - report["archive_removed"]
+        + report["refused_archived"]
+        - report["archive"]
+    )
     report["preledger_rows"] = (-(raw_grid.clip(upper=0)) - raw_arch.clip(upper=0)).clip(lower=0)
     report["unexplained"] = raw_grid.clip(lower=0) + raw_arch.clip(lower=0)
     return report
@@ -79,9 +91,15 @@ def _build_report(
     )
     arch = (
         ledger[ledger["destination"] == "archive"]
-        .groupby(["source", "timeframe"])[["served"]]
+        .groupby(["source", "timeframe"])[["served", "unchanged", "removed"]]
         .sum()
-        .rename(columns={"served": "archive_served"})
+        .rename(
+            columns={
+                "served": "archive_served",
+                "unchanged": "archive_unchanged",
+                "removed": "archive_removed",
+            }
+        )
     )
     refused = (
         ledger[(ledger["outcome"] == "refused") & (ledger["destination"] == "market_data_ohlcv")]
@@ -96,6 +114,8 @@ def _build_report(
         "removed",
         "refused_archived",
         "archive_served",
+        "archive_unchanged",
+        "archive_removed",
         "canonical",
         "archive",
     ):
@@ -115,6 +135,7 @@ def _report(conn) -> pd.DataFrame:
                 "outcome",
                 "served",
                 "written",
+                "unchanged",
                 "removed",
                 "refused_archived",
             ],
