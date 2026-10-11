@@ -1,0 +1,20 @@
+[Unit]
+Description=IndicAgent IBKR gateway auth-state probe -- todo 395, scripts/infrastructure/infrastructure_gateway_auth_probe.py
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=bg
+WorkingDirectory=/home/bg/dev/indicagent
+Environment=PYTHONPATH=/home/bg/dev/indicagent
+Environment=PYTHONUNBUFFERED=1
+# Runs the real IBKR API handshake through IBKRProvider (client id 44, outside
+# the fetcher family's 40-42, no FetcherLock: a live backfill run is exactly
+# when the answer matters most). Emits ibkr_gateway_authenticated as a point
+# gauge; the IBKRGatewayAuthDown alert fires on zero. Findings never fail the
+# unit -- a logged-out gateway is the finding, not a probe error.
+ExecStart=/home/bg/dev/indicagent/.venv/bin/python scripts/infrastructure/infrastructure_gateway_auth_probe.py
+
+[Install]
+WantedBy=multi-user.target

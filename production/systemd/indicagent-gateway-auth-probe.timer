@@ -1,0 +1,13 @@
+[Unit]
+Description=IBKR gateway auth-state probe every 15 minutes (todo 395)
+
+[Timer]
+# OnUnitInactiveSec: a probe is quick (a logged-out gateway answers the TCP
+# connect and times out at the handshake in about 20 s), so 15 minutes after
+# each probe keeps the gauge near-continuous across IBKR's weekly re-auth.
+OnUnitInactiveSec=15min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

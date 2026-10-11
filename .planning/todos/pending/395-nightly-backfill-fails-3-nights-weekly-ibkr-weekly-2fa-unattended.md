@@ -66,3 +66,25 @@ completed and that `MAX(timestamp)` advanced before closing the gap.
   todo 363 (gateway libgtk fix durability)
 - memory `project_ibkr_live_ingestion_stalled_2fa` (its 2026-08-31 "not a 2FA issue" finding
   was about a different, one-off failure; this one is the recurring weekly 2FA path)
+
+## Narrowed 2026-10-10 (the nightly unit this todo targeted was deleted by the 189-06 cutover)
+
+What the todo asked against live state: the nightly backfill unit is gone (the fetcher replaced
+it, and the fetcher's continuous timer plus the OneshotJobFailed rule already cover the retry and
+log-level items), so the surviving substance is the alert path. Landed 2026-10-10:
+
+- `scripts/infrastructure/infrastructure_gateway_auth_probe.py`: the real API handshake through
+  IBKRProvider (client id 44, outside the fetcher family's 40-42, deliberately no FetcherLock),
+  emitting `ibkr_gateway_authenticated` as a point gauge plus the job counter.
+- `indicagent-gateway-auth-probe.service` + `.timer` (every 15 minutes, installed and active).
+- `IBKRGatewayAuthDown` alert rule in alertmanager-rules.yml (gauge 0 or absent for 10 minutes,
+  severity critical), promtool-validated and loaded by indicagent-prometheus.
+
+The one remaining step is an owner decision the config has documented since 2026-08-15: a real
+Telegram bot_token + chat_id (or an alternative receiver) so alerts reach a human. Until then
+every alert, including this one, lands in the no-op receiver exactly as before.
+
+## Remaining (owner)
+
+Provide the bot token and chat_id (steps in the alertmanager.yml comment); restore the
+telegram_configs block; restart indicagent-alertmanager.
