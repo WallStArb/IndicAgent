@@ -8,7 +8,7 @@ services:
       dockerfile: Dockerfile.timescaledb
     container_name: timescaledb
     restart: unless-stopped
-    shm_size: '512m'
+    shm_size: '13g'
     logging:
       driver: json-file
       options:
@@ -20,14 +20,22 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+    # D-38 (phase 186, 2026-09-29). shared_buffers = 25% of MemTotal (29.47 GiB) rounded down = 7GB.
+    # work_mem = 128MB: largest power of two with work_mem x hash_mem_multiplier(2) x
+    # (max_parallel_workers_per_gather(12)+1) x peak active backends(3, 60 s sample) < MemTotal
+    # - shared_buffers - other containers(~8.2 GiB, redpanda at its 6 GiB limit) - 4 GiB reserve
+    # (10.3 GiB; 78 x 128MB = 9.75 GiB). shm_size = work_mem x 2 x 13 x 4 concurrent parallel queries = 13g.
+    # After editing this block, recreate the container with
+    # `docker compose up -d --no-deps --no-build timescaledb` (run from /home/bg/dev/indicagent/production)
+    # and run scripts/ops/db/ops_pg_settings_baseline.py; a drift entry means the edit did not reach the server.
     command: [
       "postgres",
       "-c", "max_connections=200",
       "-c", "max_locks_per_transaction=16384",
       "-c", "wal_buffers=8192",
       "-c", "log_min_duration_statement=1000",
-      "-c", "shared_buffers=3GB",
-      "-c", "work_mem=64MB"
+      "-c", "shared_buffers=7GB",
+      "-c", "work_mem=128MB"
     ]
     environment:
       - POSTGRES_USER=postgres
