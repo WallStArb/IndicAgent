@@ -40,7 +40,10 @@ GROUP BY source, timeframe, destination, outcome
 """
 
 _STORE_SQL = """
-SELECT source, timeframe, count(*) AS rows FROM {table} GROUP BY source, timeframe
+SELECT CASE WHEN source = 'derived_5m' THEN 'derived' ELSE source END AS source,
+       timeframe, count(*) AS rows
+FROM {table}
+GROUP BY 1, timeframe
 """
 
 
@@ -77,12 +80,16 @@ def _build_report(
 ) -> pd.DataFrame:
     """Join the ledger's buckets and the two stores into the frame `_classify` consumes.
 
-    A refusal's n_archived is by nature cross-destination (refused grid rows land in the
-    archive store), so refused grid rows form their own bucket joined in once, never a
-    column of a destination partition that would drop it. An archive-destination refusal
-    is not in the bucket: its served bars already count in archive_served and its
+    The ledger's source is the writer plane (`ohlcv_load_source_check`: tradier, ibkr,
+    derived, alpaca) while the grid rows carry the bar label derived_5m; the store side
+    is normalized to the writer label so the two vocabularies join. A refusal's
+    n_archived is by nature cross-destination (refused grid rows land in the archive
+    store), so refused grid rows form their own bucket joined in once, never a column
+    of a destination partition that would drop it. An archive-destination refusal is
+    not in the bucket: its served bars already count in archive_served and its
     upserted rows return to the same store, so the refused_archived adjustment would
-    double-count it there (the rare legacy path stays visible in the ohlcv_load ledger)."""
+    double-count it there (the rare legacy path stays visible in the ohlcv_load
+    ledger)."""
     stores = canonical.join(archive, how="outer")
     grid = (
         ledger[ledger["destination"] == "market_data_ohlcv"]
