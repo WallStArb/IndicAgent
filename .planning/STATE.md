@@ -49,6 +49,16 @@ Phase: 190 (Provider history plane unification) — COMPLETE 2026-10-10 (7/7 pla
 cutover: 465 + conflict-target flip at CUT_TS 11:59:48Z, unified fetcher verified, 07
 wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
 
+- **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
+  the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00
+  UTC bar_reconciliation_audit), d2_landed's 284 fresh failures triaged by indicagent-87 (a
+  missing-session sub-cohort that the resumed 1d lane heals + a genuinely holed cohort ->
+  todo 532), the grid marker needle fixed (0cfe7474a) pending the durable data-condition
+  marker after indicagent-87's 554-name derive pass, and data_layer_final_landed still
+  requires 189-11 (vendor rows out of the grid -- 38.8M remain until that pass lands; do NOT
+  drop the requirement). feature_vectors_v2 was found missing from the live DB and migration
+  425 was applied from the committed file (0 rows, awaiting the rebuild).
+
 - **Pull hold REOPENED for the deep 5m backfill (owner 2026-10-10 late):** the owner named the
   consumer for deep history (HMM p-values and IC at intraday horizons), which reopens todo
   523's 2006-2015 tail backfill; the fetcher timer is enabled again (22:06 EDT, IBKR connected).
