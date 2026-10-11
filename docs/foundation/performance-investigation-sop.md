@@ -157,6 +157,17 @@ this doc prescribes, and closed the next day with a measured, isolated fix.
   matching row-count and order-sensitive checksum on real data. This todo followed this SOP's
   method directly (opened citing it, closed the next day). Full trail:
   `.planning/todos/completed/356-cross-sectional-fetch-chunk-query-pathologically-slow-largest-cell.md`.
+- **Todo D-38 / R-12** (2026-09-28 → 2026-10-11): 1 TB of temp-file spills since the last stats
+  reset on a 29 GB host whose buffer pool was 3 GB. The settings audit compared
+  `pg_settings.source` with the container's `.Config.Cmd` and the compose file and found the
+  compose value (`work_mem=64MB`) and the server value (`8MB`) disagreed: the container predated
+  the compose edit and restarts reuse the recorded `Cmd`, so the edit had never reached the
+  server. Fix was the recreate, not a bigger number: `docker compose up -d --no-deps --no-build
+  timescaledb`, verified by a zero-drift baseline report and an equal
+  `com.docker.compose.config-hash` label vs `docker compose config --hash`. Only then were
+  `shared_buffers=7GB`, `work_mem=128MB` and `shm_size: 13g` applied, with the spill measured
+  gone on the top read-only query (hash batches 5 → 1, no disk). The durable check lives in
+  `docs/operations/operations-database.md`, section "Postgres settings (D-38, phase 186)".
 
 ## See Also
 

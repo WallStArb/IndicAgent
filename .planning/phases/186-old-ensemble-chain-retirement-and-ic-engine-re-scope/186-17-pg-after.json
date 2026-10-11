@@ -1,0 +1,234 @@
+{
+  "captured_at": "2026-10-11T01:54:41.290388+00:00",
+  "settings": {
+    "dynamic_shared_memory_type": {
+      "setting": "posix",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.conf",
+      "pending_restart": false
+    },
+    "effective_cache_size": {
+      "setting": "2219520",
+      "unit": "8kB",
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.conf",
+      "pending_restart": false
+    },
+    "hash_mem_multiplier": {
+      "setting": "2",
+      "unit": null,
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "log_min_duration_statement": {
+      "setting": "1000",
+      "unit": "ms",
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "maintenance_work_mem": {
+      "setting": "2096128",
+      "unit": "kB",
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.conf",
+      "pending_restart": false
+    },
+    "max_connections": {
+      "setting": "200",
+      "unit": null,
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "max_locks_per_transaction": {
+      "setting": "16384",
+      "unit": null,
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "max_parallel_workers": {
+      "setting": "24",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.conf",
+      "pending_restart": false
+    },
+    "max_parallel_workers_per_gather": {
+      "setting": "12",
+      "unit": null,
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.conf",
+      "pending_restart": false
+    },
+    "max_wal_size": {
+      "setting": "16384",
+      "unit": "MB",
+      "source": "configuration file",
+      "sourcefile": "/var/lib/postgresql/18/docker/postgresql.auto.conf",
+      "pending_restart": false
+    },
+    "shared_buffers": {
+      "setting": "917504",
+      "unit": "8kB",
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "temp_file_limit": {
+      "setting": "-1",
+      "unit": "kB",
+      "source": "default",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "wal_buffers": {
+      "setting": "8192",
+      "unit": "8kB",
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    },
+    "work_mem": {
+      "setting": "131072",
+      "unit": "kB",
+      "source": "command line",
+      "sourcefile": null,
+      "pending_restart": false
+    }
+  },
+  "role_database_settings": [
+    {
+      "database": "*",
+      "role": "postgres",
+      "settings": [
+        "statement_timeout=30min"
+      ]
+    },
+    {
+      "database": "indicagent",
+      "role": "*",
+      "settings": [
+        "idle_in_transaction_session_timeout=60min",
+        "idle_session_timeout=60min"
+      ]
+    }
+  ],
+  "database": {
+    "blks_hit": 10709935425,
+    "blks_read": 209986021,
+    "hit_ratio": 0.98077,
+    "temp_files": 3281,
+    "temp_bytes": 159989764054,
+    "stats_reset": null
+  },
+  "top_temp_statements": [
+    {
+      "queryid": "-9102447302803193888",
+      "query": "SELECT tf.timeframe, count(DISTINCT tf.symbol) AS symbols_with_bars,\n       count(DISTINCT tf.symbol) FILTER (WHERE i.compute_eligible_1d) AS eligible_with_bars\nFROM (SELECT DISTINCT symbol, timeframe",
+      "calls": 2,
+      "temp_blks_read": 3772721,
+      "temp_blks_written": 3777316,
+      "total_exec_time_ms": 220475.67293,
+      "mean_exec_time_ms": 110237.836465
+    },
+    {
+      "queryid": "-1002999612784469618",
+      "query": "SELECT DISTINCT symbol FROM market_data_ohlcv_tradeable WHERE timeframe=$1",
+      "calls": 1,
+      "temp_blks_read": 268347,
+      "temp_blks_written": 268492,
+      "total_exec_time_ms": 11734.310927999999,
+      "mean_exec_time_ms": 11734.310927999999
+    }
+  ],
+  "container": {
+    "Created": "2026-10-11T01:53:39.543340794Z",
+    "Cmd": [
+      "postgres",
+      "-c",
+      "max_connections=200",
+      "-c",
+      "max_locks_per_transaction=16384",
+      "-c",
+      "wal_buffers=8192",
+      "-c",
+      "log_min_duration_statement=1000",
+      "-c",
+      "shared_buffers=7GB",
+      "-c",
+      "work_mem=128MB"
+    ],
+    "ShmSize": 13958643712,
+    "StartedAt": "2026-10-11T01:53:41.083332702Z",
+    "compose_config_files": "/home/bg/dev/indicagent/production/docker-compose.yml",
+    "error": null
+  },
+  "host": {
+    "MemTotal_kB": 30900308,
+    "MemAvailable_kB": 23639744
+  },
+  "compose_file": "production/docker-compose.yml",
+  "compose_command_settings": {
+    "max_connections": "200",
+    "max_locks_per_transaction": "16384",
+    "wal_buffers": "8192",
+    "log_min_duration_statement": "1000",
+    "shared_buffers": "7GB",
+    "work_mem": "128MB",
+    "__shm_size": "13g"
+  },
+  "compare": [
+    {
+      "name": "max_connections",
+      "compose": "200",
+      "running": "200",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    },
+    {
+      "name": "max_locks_per_transaction",
+      "compose": "16384",
+      "running": "16384",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    },
+    {
+      "name": "wal_buffers",
+      "compose": "8192",
+      "running": "64MB",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    },
+    {
+      "name": "log_min_duration_statement",
+      "compose": "1000",
+      "running": "1000",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    },
+    {
+      "name": "shared_buffers",
+      "compose": "7GB",
+      "running": "7GB",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    },
+    {
+      "name": "work_mem",
+      "compose": "128MB",
+      "running": "128MB",
+      "source": "command line",
+      "sourcefile": null,
+      "status": "match"
+    }
+  ]
+}

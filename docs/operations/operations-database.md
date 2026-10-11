@@ -193,6 +193,73 @@ makes `id` distinct even for identical logical rows.
 
 ---
 
+## Postgres settings (D-38, phase 186)
+
+`production/docker-compose.yml` (the timescaledb service's `command:` list and
+`shm_size`) is the **only** place server settings are set. Never `ALTER SYSTEM`,
+never a role- or database-level override: those hide from the compose file and
+reappear as drift. Current values, applied 2026-10-11 (commit 29f507735):
+
+| Setting | Value | Formula and inputs |
+|---|---|---|
+| `shared_buffers` | 7GB | 25% of MemTotal (29.47 GiB, `/proc/meminfo`), rounded down to a whole GB. Headroom check: MemAvailable 20.4 GiB + current 3 GB > 7 + 4 GB. |
+| `work_mem` | 128MB | Largest power of two with `work_mem x hash_mem_multiplier (2) x (max_parallel_workers_per_gather (12) + 1) x peak active backends (3, 60 s sample)` under the bound MemTotal 29.47 - shared_buffers 7 - other containers ~8.2 GiB (redpanda at its 6 GiB limit) - 4 GiB host reserve = 10.3 GiB; 78 x 128MB = 9.75 GiB. Spill evidence: 1,151 GB in 68,243 temp files under the old 8 MB. |
+| `shm_size` | 13g | `work_mem 128MB x 2 x 13 x 4` concurrent parallel queries = 13,312 MB, rounded up. A tmpfs cap, not a reservation. Was 512m, which the measured spill (7,392 kB disk in one hash) could overflow. |
+| unchanged | — | `maintenance_work_mem` 2GB, `effective_cache_size` 17GB, `max_connections` 200, `max_locks_per_transaction` 16384, `wal_buffers` 8192, `log_min_duration_statement` 1000ms, `max_parallel_workers` 24, `max_parallel_workers_per_gather` 12, `hash_mem_multiplier` 2, `dynamic_shared_memory_type` posix. |
+
+R-12 cause, for the record: the container created 2026-06-22 carried
+`work_mem=8MB` on its command line; the compose edit to 64MB (`48bd250fa`,
+2026-08-13) never reached the server because the container was only ever
+restarted, never recreated, and a restart reuses the recorded `Cmd`. An
+unrelated recreation on 2026-10-07 healed `work_mem` to the compose 64MB; the
+D-38 apply on 2026-10-11 recreated it again with the values above. Versions
+were unchanged across the apply (PostgreSQL 18.4, timescaledb 2.27.1,
+vector 0.8.2).
+
+Measured effect on the top read-only spiller (`SELECT DISTINCT ts FROM
+market_regimes WHERE regime_group='equity' AND tf='5m' AND
+regime_label='low_bull' AND ts <= '2025-12-24 05:15:00+00'`,
+`EXPLAIN (ANALYZE, BUFFERS)`, warm runs):
+
+| Metric | Before (work_mem 8MB, buffers 3GB) | After (128MB, 7GB) |
+|---|---|---|
+| HashAggregate batches | 5 (7,392 kB to disk; temp read 724, written 1,461) | 1, no disk |
+| Aggregate memory | 16,441 kB | 32,793 kB |
+| Buffers | hit 8,246, read 122,133 | hit 130,379 |
+| Execution time | 315.5 ms | 229.4 ms |
+
+Applying a settings change (recreate, do not just restart):
+
+```bash
+cd /home/bg/dev/indicagent/production
+# gate first: no batch job, no research run, no timer within 30 min (SOP)
+docker compose up -d --no-deps --no-build timescaledb
+```
+
+`--no-deps` because dependent services must not be bounced, `--no-build`
+because the base tag is `latest-pg18` and a rebuild could silently change the
+Timescale or pgvector version (record `SELECT version()` and
+`SELECT extname, extversion FROM pg_extension` before and after; a change is a
+failure). A plain restart is not enough: it reuses the old `Cmd`, which is
+exactly how R-12 happened.
+
+Post-change check (a settings edit that did not reach the server is a silent
+wrong answer):
+
+```bash
+.venv/bin/python -m scripts.ops.db.ops_pg_settings_baseline
+# compare section must contain zero entries with status "drift"
+docker inspect timescaledb --format '{{index .Config.Labels "com.docker.compose.config-hash"}}'
+docker compose -f /home/bg/dev/indicagent/production/docker-compose.yml config --hash timescaledb
+# the two hashes must be equal
+```
+
+The container's `com.docker.compose.config-hash` label records the compose
+content it was created from; `docker compose config --hash` recomputes it from
+the file on disk. A mismatch means the file changed without a recreate.
+
+---
+
 ## Connection
 
 ```bash
