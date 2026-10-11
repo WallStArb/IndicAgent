@@ -130,6 +130,7 @@ until 185 and 186 land; session time goes to the build.
 | Todo | Why now |
 |---|---|
 | [530](pending/530-r6-monitor-preexisting-unexplained-rows-triage.md) | The R6 completeness monitor (528) surfaces pre-existing unexplained rows (derived 15m/1d/1h label mismatch, ibkr 5m 7.3M, tradier 1d 416K) that would page a nightly --gate forever. Triage each into label fix, preledger reclassification, or a written exclusion rule, then enable the gate. |
+| [531](pending/531-schema-names-without-glossary-entries-rename-or-gloss.md) | Nine relations have live readers and no glossary entry (survey 2026-10-10): market_data_5m is a real naming violation, instrument_metadata overlaps instruments, the v2.x-era stack was never glossed, parity_certification_state looks dead. Gloss, rename, or drop each; nothing here blocks the rebuild. |
 
 **With phase 186 and the streaming revival**
 
