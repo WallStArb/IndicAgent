@@ -181,6 +181,14 @@ apparatus were deleted in phase 186; unified design, E15-E18):
   infrastructure any learned family needs; build-first (owner, 2026-09-27) keeps it behind
   phases 185-187.
 
+- **Leakage, for the record:** overlapping input windows are not leakage; overlapping labels are.
+  The combiner's walk-forward refit already embargoes the forward return's span, derived from the
+  panel. A learned member adds one requirement: its own weights are fit inside the same folds,
+  never pre-trained on the full span.
+
+The one transferable ingredient (corporate-action events as information, done point in time) is
+its own ledger row: the corporate-action event family (dividend month premium, ex-day pricing).
+
 Priority unchanged: low, skeptical prior; no ledger status change.
 
 ## References
