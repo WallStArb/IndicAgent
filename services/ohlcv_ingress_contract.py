@@ -1,4 +1,4 @@
-"""The ingress write contract for IBKR bar writes (phase 185 plan 39).
+"""The ingress write contract for vendor bar writes (phase 185 plan 39).
 
 Data layer integrity design (docs/plans/2026-10-06-data-layer-integrity-design.md) section 4,
 applied to the two ingress bar tables, market_data_ohlcv (5m, 1m) and
@@ -19,7 +19,7 @@ ohlcv_intraday_raw_archive (the 15m/1h parity sample). One call per chunk:
 
 Everything runs on the caller's cursor, so the caller's one transaction covers the request rows,
 the bars, the load record and the coverage update. This module owns the INSERTs into ohlcv_load
-and ohlcv_revision for source ibkr and reads the bar tables; it owns no bar-table write.
+and ohlcv_revision and reads the bar tables; it owns no bar-table write.
 
 A refused chunk raises RevisionRefused. The persist helper rolls the chunk back, then records the
 request rows and the refused load row (record_refused_load) in a second transaction, so the item
@@ -35,14 +35,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
-from src.core.bar_normalizer import (
-    SOURCE_IBKR_CONTINUOUS,
-    SOURCE_IBKR_GENERIC,
-    SOURCE_IBKR_NAMED,
-    SOURCE_IBKR_OFFICIAL,
-    SOURCE_IBKR_VENUE,
-)
-from src.intelligence.bars.sources import SOURCE_ALPACA
+from src.intelligence.bars.sources import LABEL_VENDOR
 from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
@@ -51,17 +44,6 @@ from src.intelligence.bars.write_contract import (
     should_refuse,
 )
 
-# Bar row source label -> the writing vendor ohlcv_load.source records (its CHECK admits vendor
-# names only). A row label stays on the bar; the load row names who served it. An unmapped label
-# is refused before any write.
-_LOAD_VENDOR = {
-    SOURCE_IBKR_NAMED: "ibkr",
-    SOURCE_IBKR_VENUE: "ibkr",
-    SOURCE_IBKR_CONTINUOUS: "ibkr",
-    SOURCE_IBKR_OFFICIAL: "ibkr",
-    SOURCE_IBKR_GENERIC: "ibkr",
-    SOURCE_ALPACA: SOURCE_ALPACA,
-}
 # ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
 DEFAULT_CALLER = "ibkr-history-fetch"
 DESTINATION_GRID = "market_data_ohlcv"
@@ -328,9 +310,9 @@ def apply_ingress_contract(
     wins) and perform the bar table's own INSERT and upsert. Raises RevisionRefused, before any
     write, when any series in the chunk breaches the refusal.
 
-    Each chunk's ohlcv_load row records one vendor: the writing vendor of the row tuples'
-    `source` labels (index _SOURCE, mapped by _LOAD_VENDOR), derived here rather than passed,
-    so a load can never be labeled by a caller knob that disagrees with the bars it carries. A
+    Each chunk's ohlcv_load row records one vendor: the vendor of the row tuples' `source`
+    labels (index _SOURCE, mapped by sources.LABEL_VENDOR), derived here rather than passed, so
+    a load can never be labeled by a caller knob that disagrees with the bars it carries. A
     chunk spanning vendors, or carrying a label with no vendor, is refused loudly.
 
     `waived` is the caller's statement that a recorded corporate action explains the revision
@@ -351,13 +333,13 @@ def apply_ingress_contract(
     plans: list[tuple[SeriesLoad, WriteDelta, dict[datetime, tuple]]] = []
     for (symbol, timeframe), keyed in sorted(by_series.items()):
         labels = {row[_SOURCE] for row in keyed.values()}
-        unknown = labels - _LOAD_VENDOR.keys()
+        unknown = labels - LABEL_VENDOR.keys()
         if unknown:
             raise ValueError(
                 f"chunk for {symbol!r} {timeframe!r} carries source labels {sorted(unknown)} "
-                "with no writing vendor; add the label to _LOAD_VENDOR"
+                "with no writing vendor; add the label to sources.LABEL_VENDOR"
             )
-        vendors = {_LOAD_VENDOR[label] for label in labels}
+        vendors = {LABEL_VENDOR[label] for label in labels}
         if len(vendors) > 1:
             raise ValueError(
                 f"chunk for {symbol!r} {timeframe!r} spans sources {sorted(vendors)}; "

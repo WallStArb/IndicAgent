@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from src.intelligence.bars.derivation import SplitRecord
-from src.intelligence.bars.sources import CANONICAL_1D_SOURCES
+from src.intelligence.bars.sources import CANONICAL_1D_SOURCES, LABEL_VENDOR
 
 VENDOR_IBKR = "ibkr"
 VENDOR_TRADIER = "tradier"
@@ -157,9 +157,7 @@ def classify_run(
 
 def canonical_vendor(source: str) -> str | None:
     """The vendor behind a canonical 1d source label, or None for a non-canonical source."""
-    if source not in CANONICAL_1D_SOURCES:
-        return None
-    return VENDOR_TRADIER if source == "tradier" else VENDOR_IBKR
+    return LABEL_VENDOR[source] if source in CANONICAL_1D_SOURCES else None
 
 
 def blocking(run: BasisRun, canonical_vendors: set[str]) -> bool:

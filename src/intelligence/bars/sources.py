@@ -17,6 +17,14 @@ the digest itself deliberately excludes it (D-07).
 
 from __future__ import annotations
 
+from src.core.bar_normalizer import (
+    SOURCE_IBKR_CONTINUOUS,
+    SOURCE_IBKR_GENERIC,
+    SOURCE_IBKR_NAMED,
+    SOURCE_IBKR_OFFICIAL,
+    SOURCE_IBKR_VENUE,
+)
+
 SOURCE_DERIVED_5M = "derived_5m"
 GRID_RULE_VERSION = "grid-v1"
 GRID_TIMEFRAMES: dict[str, int] = {"15m": 15, "1h": 60}
@@ -58,8 +66,27 @@ SOURCE_IBKR_FALLBACK = "ibkr_fallback"
 # and Tradier, the 1d primary source before D (bar_source_policy). The 1d content digest and the
 # daily stage's value comparison read every one of them.
 CANONICAL_1D_SOURCES: tuple[str, ...] = (
-    "ibkr_named",
-    "ibkr_venue",
+    SOURCE_IBKR_NAMED,
+    SOURCE_IBKR_VENUE,
     SOURCE_IBKR_FALLBACK,
     SOURCE_TRADIER,
 )
+
+# Bar source label -> the vendor that served it, the one definition. A bar keeps its label;
+# ohlcv_load.source records the vendor (its CHECK admits vendor names only). A label missing
+# here has no known vendor, and the ingress contract refuses it before any write.
+LABEL_VENDOR: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            SOURCE_IBKR_NAMED,
+            SOURCE_IBKR_VENUE,
+            SOURCE_IBKR_CONTINUOUS,
+            SOURCE_IBKR_OFFICIAL,
+            SOURCE_IBKR_GENERIC,
+            SOURCE_IBKR_FALLBACK,
+        ),
+        "ibkr",
+    ),
+    SOURCE_TRADIER: "tradier",
+    SOURCE_ALPACA: "alpaca",
+}
