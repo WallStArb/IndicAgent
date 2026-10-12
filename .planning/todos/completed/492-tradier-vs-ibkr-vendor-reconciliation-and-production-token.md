@@ -30,3 +30,7 @@ difference 0 bp, a dividend-adjusted close would show about -49 bp).
 
 D7's vendor_agreement table holds the stored overlap (constant since the Tradier observations end at
 2026-10-06); this todo decides what it means for the history before D.
+
+## Closed 2026-10-12 (superseded)
+
+Owner 2026-10-12: Tradier is not used at all and its data is deleted (todo 533, Tradier retirement). IBKR is asked for every span Tradier covered, canonical switches to IBKR, then Tradier rows are deleted with a dump kept; no vendor arbitration is needed.

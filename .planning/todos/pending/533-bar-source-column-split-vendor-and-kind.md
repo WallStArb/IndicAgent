@@ -109,6 +109,39 @@ rewrites (contention).
 - A refused chunk used to end the history walk (fixed in 9c0695b7a); names whose recent 5m span
   is Alpaca-canonical never reached older IBKR history.
 
+## Tradier retirement (owner, 2026-10-12)
+
+Owner: Tradier is not used for this at all; delete the old code (keep the connector only if
+needed; recommendation: drop it too) and delete all Tradier data ("it's junk"). Agreed order,
+because Tradier is the only source for about 2.96M canonical 1d bars (measured 2026-10-12: 2.45M
+before IBKR's first 1d bar across 962 names, mostly 2000-2006; 508K interior holes across 623
+names; one name with no IBKR 1d at all):
+
+1. **Ask IBKR first (running):** `infra.backfill.depth_days.1d` 7300 -> 9800 (config_history,
+   `user_override:owner`), and the 1d planner no longer counts Tradier answers as coverage
+   (4fa3db578, `_d1_gaps.py`). About 2,000 extra 1d requests over 1,196 names, spread over
+   the weekly gap-fill sessions. IBKR answers `no_data` where it has nothing, recorded in
+   `ohlcv_empty_history`.
+2. **Measure the residue** after one full gap-fill cycle: sessions still answered only by
+   Tradier, per name. SMART cannot reach behind a listing-venue move (todo 433), so the
+   venue-moved names are the expected residue.
+3. **Switch canonical to IBKR** for every pre-D span (selection rule; replaces the Tradier rows of
+   `bar_source_policy`), re-derive 1d, and let D7 judge it.
+4. **Delete Tradier data:** `market_data_ohlcv` source `tradier`, `ohlcv_observation` route
+   `TRADIER`, its `ohlcv_load` rows; a `pg_dump` of those rows kept until about 2026-11-12 (the
+   185-45 backup precedent, todo 510). Names left with shorter history are recorded (per-name
+   first-bar change), never silently truncated. This needs a dated owner exception to CLAUDE.md's
+   "raw market data is permanent" rule, written into the design doc.
+5. **Delete Tradier code:** `SOURCE_TRADIER`/`ROUTE_TRADIER`, the Tradier rows and branches in
+   `CANONICAL_1D_SOURCES`, `daily_rule`, `vendor_basis`, `integrity_checks._PRIMARY_LABEL`,
+   `source_admission`, the planner exclusion added in step 1, ops/research scripts and their
+   tests (about 20 modules and 35 test files reference it on 2026-10-12).
+
+Todo 492 (Tradier vs IBKR reconciliation) is closed as superseded: no arbitration is needed when
+Tradier is deleted. Todo 519 stays open for its IBKR side only: PSKY, WBD and QRVO fail IBKR
+contract qualification and MOD's fallback is refused, so each needs a contract fix or a recorded
+freeze; its Tradier side goes with step 4.
+
 ## Related work (mapped 2026-10-12)
 
 **Fold in: same tables or writers, done once inside this phase**
@@ -129,13 +162,13 @@ rewrites (contention).
   against this layout, not separately.
 
 **Inputs: owner decisions the canonical selection rule (design doc, step 1) must encode**
-- **492** Tradier vs IBKR before D: which vendor's closes are canonical pre-2026-10-07 is a
-  selection-policy row, and raw keeps both.
+- **492** closed 2026-10-12, superseded by the Tradier retirement above.
 - **518** volume basis change at D: kind per span makes the basis explicit; the tradeable view
   and S0 labels read it.
 - **433** listing-venue truncation: venue bars become kind `venue` in raw; the policy decides
   where they enter canonical.
-- **519** names frozen at their last Tradier bar: per-name policy rows (fix, review or freeze).
+- **519** the four frozen names: IBKR-or-nothing after the Tradier retirement (contract fix or
+  recorded freeze).
 
 **Adjacent: touch the same layer, run on their own clock**
 - **512** exclusion and delete policy: the design doc states what an exclusion deletes in raw

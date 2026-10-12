@@ -46,7 +46,7 @@ key-files:
     - services/README.md
     - docs/plans/2026-10-06-data-layer-integrity-design.md
     - .planning/todos/PRIORITIES.md
-    - .planning/todos/pending/492-tradier-vs-ibkr-vendor-reconciliation-and-production-token.md
+    - .planning/todos/completed/492-tradier-vs-ibkr-vendor-reconciliation-and-production-token.md
   deleted:
     - scripts/infrastructure/backfill/infrastructure_run_tradier_daily.py
     - src/providers/tradier.py
