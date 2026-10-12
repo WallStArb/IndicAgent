@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-10T15:35:00.000Z"
+last_updated: "2026-10-12T10:35:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -59,6 +59,20 @@ wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
   drop the requirement). feature_vectors_v2 was found missing from the live DB and migration
   425 was applied from the committed file (0 rows, awaiting the rebuild).
 
+- **Deep 5m backfill RUNNING again 2026-10-12, two blockers fixed:** every IBKR ingress write
+  had failed since 2026-10-10 15:03 UTC (the load row carried the bar label `ibkr_named`, which
+  the `ohlcv_load` CHECK refuses; 1,594 windows, zero loads; fixed 33a177772, one label-to-vendor
+  map in `sources.LABEL_VENDOR` 31e61063c), and a refused chunk ended the provider's backward walk,
+  so Alpaca-covered names never reached older IBKR history (fixed 9c0695b7a: the refused rows are
+  archived, the refusal still fails the item, the walk continues). Gateway re-authed 08:32 UTC
+  after the nightly restart; the fetcher timer runs every 15 minutes on the fixed code.
+- **Todo 533 is P0 (owner 2026-10-12): the data layer's final state.** One raw table for every
+  vendor and timeframe (last-wins plus a revision log), canonical as a rebuildable selection,
+  `ohlcv_observation` and the intraday raw archive deleted, vendors as CVR data (Databento
+  onboards without a migration). Step 0 (pause the 15m/1h parity lane, fix the all-error
+  `partial` run status) and the design doc come next, then a phase. The 5m backfill keeps
+  running meanwhile: it is lossless and migrates without a refetch. Todo 530 closes with it.
+
 - **Pull hold REOPENED for the deep 5m backfill (owner 2026-10-10 late):** the owner named the
   consumer for deep history (HMM p-values and IC at intraday horizons), which reopens todo
   523's 2006-2015 tail backfill; the fetcher timer is enabled again (22:06 EDT, IBKR connected).
@@ -90,12 +104,8 @@ wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
 - **Data layer end-state 2026-10-09 (owner rulings, governs all data work):** all 1,529 active
   names are intraday scope (the 233-name subset is overruled; registry promotion of the other
   1,296 goes through the SOP/185-41 gates after their 5m exists). Alpaca is green-lit as the 5m
-  source (todo 521 build in flight: pilot passed, phase 1 pull done, and the phase 2 all-names
-  canonical 5m load is RUNNING since 2026-10-10, launched by session indicagent-87 after two
-  chunk-buffer fixes; 150-250M rows, hours). IBKR stays the 1d
-  primary; the full-depth 5m backfill (owner-ordered 2026-10-09 as a completeness campaign, todo
-  523 record) is PAUSED by design 2026-10-10: fetcher timer stopped and the in-flight run killed
-  so the Alpaca load gets a clear table; the timer restarts when the load reports done. Raw capture
+  source (todo 521; the all-names canonical 5m load landed 2026-10-10, 220.1M rows). IBKR stays
+  the 1d primary; the full-depth 5m backfill (todo 523 record) runs again (see above). Raw capture
   is universal (both vendors nightly), authoring stays single-source per span; depth planning
   moves to per-TF provider floors (todo 526, 189-11).
 
