@@ -34,6 +34,7 @@ from src.intelligence.bars.gap_plan import (
     fresh_empty_span,
     plan_gaps,
 )
+from src.intelligence.bars.sources import ROUTE_TRADIER
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
 # Where a timeframe's stored observations live: the archive for the
@@ -155,15 +156,17 @@ def detect_gaps_from_record(
 
 
 # 1d (plan 185-18 task 1b): the answers live in D1, not in any bar table. A
-# session is covered by a stored TRADES observation on its bar_date (route-
-# agnostic: a former-venue recovery observation covers its session exactly
+# session is covered by a stored IBKR TRADES observation on its bar_date (any
+# IBKR route: a former-venue recovery observation covers its session exactly
 # like a SMART one, D-20), or by a definitive no_data window containing the
-# whole session day. Written out per query (not .format-built) so the boundary
+# whole session day. Tradier's stored answers do not cover a session (owner,
+# 2026-10-12, todo 533: Tradier data is deleted once IBKR has been asked for
+# every span it covers), so IBKR is asked for them. Written out per query (not .format-built) so the boundary
 # scans see every raw-table read.
 _1D_OBSERVED_SESSIONS_SQL = """
 SELECT o.bar_date FROM ohlcv_observation o
 WHERE o.symbol = %s AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
-  AND o.bar_date >= %s AND o.bar_date <= %s
+  AND o.route <> %s AND o.bar_date >= %s AND o.bar_date <= %s
 """
 _1D_NO_DATA_WINDOWS_SQL = """
 SELECT r.window_start, r.window_end FROM ohlcv_request r
@@ -261,7 +264,7 @@ def detect_gaps_1d_from_d1(
     if end < start:
         return []
     with conn.cursor() as cur:
-        cur.execute(_1D_OBSERVED_SESSIONS_SQL, (symbol, start, end))
+        cur.execute(_1D_OBSERVED_SESSIONS_SQL, (symbol, ROUTE_TRADIER, start, end))
         observed_rows = cur.fetchall()
     with conn.cursor() as cur:
         cur.execute(_1D_NO_DATA_WINDOWS_SQL, (symbol,))

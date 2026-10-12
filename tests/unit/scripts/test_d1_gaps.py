@@ -263,17 +263,18 @@ class TestDetectGaps1dFromD1:
         plan = detect_gaps_1d_from_d1(conn, "SPY", self._D2, self._D3, sessions, now=self._NOW_1D)
         assert plan == [(self._D2, date(2026, 1, 8))]
 
-    def test_observed_query_reads_ohlcv_observation_trades_and_is_route_agnostic(self):
+    def test_observed_query_reads_ibkr_trades_on_any_route_but_not_tradier(self):
         conn = _FakeConn([], [])
         detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D)
         sql, params = conn.queries[0]
         assert "FROM ohlcv_observation" in sql
         assert "timeframe = '1d'" in sql
         assert "what_to_show = 'TRADES'" in sql
-        # D-20: a former-venue observation covers its session exactly like a SMART
-        # one, so the query must not filter on route.
-        assert "route" not in sql
-        assert params == ("SPY", self._D1, self._D3)
+        # D-20: a former-venue observation covers its session exactly like a SMART one,
+        # so no IBKR route is filtered. Tradier's answers do not cover a session (owner
+        # 2026-10-12, todo 533): IBKR is asked for every span only Tradier answered.
+        assert "o.route <> %s" in sql
+        assert params == ("SPY", "TRADIER", self._D1, self._D3)
 
     def test_no_data_query_reads_definitive_no_data_windows_only(self):
         conn = _FakeConn([], [])
