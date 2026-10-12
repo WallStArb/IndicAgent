@@ -2,7 +2,7 @@
 
 Filed: 2026-10-10
 Owner: pending
-Priority: P2 (monitor findings, no active drop path)
+Priority: P0 with todo 533 (owner, 2026-10-12); closes at 533 step 9
 
 The R6 capture-completeness check (todo 528) is now clean for alpaca 5m
 (authored + archived reconciles exactly). It surfaces pre-existing
