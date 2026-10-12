@@ -17,7 +17,7 @@ key-files:
   created:
     - production/migrations/444_market_data_ohlcv_no_synthetic_fill.sql
     - tests/unit/test_market_data_ohlcv_no_synthetic_fill.py
-    - .planning/todos/pending/499-drop-normalize-bars-and-move-gap-readers-to-coverage-ledger.md
+    - .planning/todos/completed/499-drop-normalize-bars-and-move-gap-readers-to-coverage-ledger.md
   modified:
     - scripts/infrastructure/backfill/infrastructure_run_historical_pipeline.py
     - scripts/infrastructure/backfill/ibkr_history_fetcher.py

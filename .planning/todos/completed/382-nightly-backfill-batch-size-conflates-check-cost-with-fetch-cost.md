@@ -25,7 +25,7 @@ parallel agents (reuse: clean; simplification: trimmed triple-duplicated inciden
 to the module docstring as the single source; efficiency + altitude: both independently flagged
 that `detect_gaps()` is not actually near-zero-cost on an already-current symbol as this fix's
 own justification assumed, and that step 5 below was never implemented -- filed as
-[387](../pending/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md)
+[387](../completed/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md)
 rather than blocking this P0 fix on it).
 
 **Step 5 (automate: staleness gauge + APR alert threshold) deliberately NOT implemented here** --

@@ -208,7 +208,7 @@ pg_advisory_unlock
 ### Pending todos this phase closes
 - `.planning/todos/pending/488-nightly-backfill-hang-holds-priority-lease.md`
 - `.planning/todos/deferred/452-backfill-orchestration-tooling-convergence.md`
-- `.planning/todos/pending/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md`
+- `.planning/todos/completed/387-nightly-backfill-detect-gaps-cost-scaling-and-staleness-observability.md`
 - `.planning/todos/pending/455-drop-1m-from-nightly-backfill-defaults.md`
 - `.planning/todos/pending/484-htf-lane-honor-quarantined-symbols-file.md`
 

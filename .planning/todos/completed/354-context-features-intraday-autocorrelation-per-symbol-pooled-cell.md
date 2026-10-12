@@ -144,7 +144,7 @@ constant, intersected with `broadcast_features` (not used alone -- the intersect
 deliberate fail-safe: if concept_registry ever unflags one of these 3, this fix also stops
 applying to it). Widening this set to the rest of concept_registry's `broadcast=true` features
 needs its own empirical within-day-variance classifier, not a hand-expanded list -- filed as
-[360](pending/360-broadcast-day-constant-empirical-classifier.md).
+[360](completed/360-broadcast-day-constant-empirical-classifier.md).
 
 **Validation:** 18 new unit tests (`tests/unit/test_ic_engine_compute_split.py`) covering
 day-grouping (no-sort/no-unique discipline), the `day_stride` formula (both the no-op case at
@@ -159,5 +159,5 @@ review: Codex hit its usage limit mid-review (no verdict); AGY (Antigravity) fou
 issues behind design corrections #2 and #3, all fixed and re-verified against live data before
 closing. Full `tests/unit/` suite green, ruff/black clean.
 
-**Not built here, tracked separately:** [360](pending/360-broadcast-day-constant-empirical-classifier.md)
+**Not built here, tracked separately:** [360](completed/360-broadcast-day-constant-empirical-classifier.md)
 (empirical classifier to widen the allowlist beyond 3 names).

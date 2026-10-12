@@ -103,7 +103,7 @@ data never even arriving, the same failure mode one level upstream).
 
 - `project_ibkr_live_ingestion_stalled_2fa` memory -- corrected this session, see its
   "Follow-up finding" section
-- `.planning/todos/pending/363-ib-gateway-libgtk3-fix-not-durable-across-recreation.md` --
+- `.planning/todos/completed/363-ib-gateway-libgtk3-fix-not-durable-across-recreation.md` --
   sibling gap, same incident family, different half of the problem
 - `services/service_auditor.py` -- `_DAG_ORDER`, canonical service registry
 - `scripts/analysis/statistical_factor_residual_stage3_ic_falsification.py` -- where this was

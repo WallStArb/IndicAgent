@@ -162,7 +162,7 @@ last month's weights is a silent methodology choice too.
   grew -- ruling out "block too short to capture autocorrelation" as the cause too. The
   residual is concentrated in autocorrelation/momentum-family features
   (`ret_autocorr_1`/VNQ, `ctf_momentum`/XHB+IBB, `month_sin`/EFA) at `tf=5m` specifically.
-  Full investigation captured as `.planning/todos/pending/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md`.
+  Full investigation captured as `.planning/todos/completed/099-bootstrap-ci-staged-validation-gate-not-cleared-5m-residual.md`.
   **Per this entry's own pre-committed rule: Plan 07's corpus-wide re-run remains BLOCKED**
   pending either (a) resolution of the 5m residual, or (b) an explicit, separately-recorded
   project-owner decision to accept the residual risk and proceed anyway. The corrected

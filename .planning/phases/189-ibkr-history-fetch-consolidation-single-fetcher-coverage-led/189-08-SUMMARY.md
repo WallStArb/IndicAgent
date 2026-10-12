@@ -54,7 +54,7 @@ key-files:
     - tests/integration/test_ingress_write_contract.py
     - tests/integration/test_ops_real_rows_swap_scratch.py
     - .planning/todos/PRIORITIES.md
-    - .planning/todos/pending/499-drop-normalize-bars-and-move-gap-readers-to-coverage-ledger.md
+    - .planning/todos/completed/499-drop-normalize-bars-and-move-gap-readers-to-coverage-ledger.md
   deleted:
     - scripts/debug/replay/debug_replay_all.sh
     - scripts/ops/bars/ops_tradier_fetch_complete_repair.py
