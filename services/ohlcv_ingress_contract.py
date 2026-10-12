@@ -35,6 +35,14 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
+from src.core.bar_normalizer import (
+    SOURCE_IBKR_CONTINUOUS,
+    SOURCE_IBKR_GENERIC,
+    SOURCE_IBKR_NAMED,
+    SOURCE_IBKR_OFFICIAL,
+    SOURCE_IBKR_VENUE,
+)
+from src.intelligence.bars.sources import SOURCE_ALPACA
 from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
@@ -43,7 +51,17 @@ from src.intelligence.bars.write_contract import (
     should_refuse,
 )
 
-LOAD_SOURCE = "ibkr"
+# Bar row source label -> the writing vendor ohlcv_load.source records (its CHECK admits vendor
+# names only). A row label stays on the bar; the load row names who served it. An unmapped label
+# is refused before any write.
+_LOAD_VENDOR = {
+    SOURCE_IBKR_NAMED: "ibkr",
+    SOURCE_IBKR_VENUE: "ibkr",
+    SOURCE_IBKR_CONTINUOUS: "ibkr",
+    SOURCE_IBKR_OFFICIAL: "ibkr",
+    SOURCE_IBKR_GENERIC: "ibkr",
+    SOURCE_ALPACA: SOURCE_ALPACA,
+}
 # ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
 DEFAULT_CALLER = "ibkr-history-fetch"
 DESTINATION_GRID = "market_data_ohlcv"
@@ -310,10 +328,10 @@ def apply_ingress_contract(
     wins) and perform the bar table's own INSERT and upsert. Raises RevisionRefused, before any
     write, when any series in the chunk breaches the refusal.
 
-    Each chunk's ohlcv_load row records one vendor: the `source` column of the row tuples
-    (index _SOURCE), derived here rather than passed, so a load can never be labeled by a
-    caller knob that disagrees with the bars it carries. A chunk spanning vendors is refused
-    loudly.
+    Each chunk's ohlcv_load row records one vendor: the writing vendor of the row tuples'
+    `source` labels (index _SOURCE, mapped by _LOAD_VENDOR), derived here rather than passed,
+    so a load can never be labeled by a caller knob that disagrees with the bars it carries. A
+    chunk spanning vendors, or carrying a label with no vendor, is refused loudly.
 
     `waived` is the caller's statement that a recorded corporate action explains the revision
     (the fetcher's escalation re-fetch after a split, plan 189-10; the same waiver D2 applies):
@@ -332,7 +350,14 @@ def apply_ingress_contract(
 
     plans: list[tuple[SeriesLoad, WriteDelta, dict[datetime, tuple]]] = []
     for (symbol, timeframe), keyed in sorted(by_series.items()):
-        vendors = {row[_SOURCE] for row in keyed.values()}
+        labels = {row[_SOURCE] for row in keyed.values()}
+        unknown = labels - _LOAD_VENDOR.keys()
+        if unknown:
+            raise ValueError(
+                f"chunk for {symbol!r} {timeframe!r} carries source labels {sorted(unknown)} "
+                "with no writing vendor; add the label to _LOAD_VENDOR"
+            )
+        vendors = {_LOAD_VENDOR[label] for label in labels}
         if len(vendors) > 1:
             raise ValueError(
                 f"chunk for {symbol!r} {timeframe!r} spans sources {sorted(vendors)}; "

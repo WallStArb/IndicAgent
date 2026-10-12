@@ -1156,7 +1156,7 @@ def store_bars(
             b["low"],
             b["close"],
             b["volume"],
-            b.get("source", "historical_backfill"),
+            b["source"],
         )
         for b in bars
     ]

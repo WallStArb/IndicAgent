@@ -262,7 +262,7 @@ class TestFetchAndStoreBars:
                 99.0,
                 100.5,
                 1000,
-                "historical_backfill",
+                "ibkr_named",
             )
         ]
         rows = fetch_bars(mock_conn, "ESH6", "1m")
@@ -290,6 +290,7 @@ class TestFetchAndStoreBars:
                 "low": 99.0,
                 "close": 100.5,
                 "volume": 1000,
+                "source": "ibkr_named",
             }
         ]
         n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
@@ -309,7 +310,7 @@ class TestFetchAndStoreBars:
             99.0,
             100.5,
             1000,
-            "historical_backfill",
+            "ibkr_named",
         ]
         assert len([s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_load")]) == 1
         mock_conn.commit.assert_called_once()
@@ -334,6 +335,7 @@ class TestFetchAndStoreBars:
                 "low": 99.0,
                 "close": 100.5,
                 "volume": 1000,
+                "source": "ibkr_named",
             }
             for i in range(n_rows)
         ]
@@ -355,13 +357,11 @@ class TestFetchAndStoreBars:
                 "low": 99.0,
                 "close": 100.5,
                 "volume": 1000,
-                "source": "historical_backfill",
+                "source": "ibkr_named",
             }
             for i in range(3)
         ]
-        stored = [
-            (b["timestamp"], 100.0, 101.0, 99.0, 100.5, 1000, "historical_backfill") for b in bars
-        ]
+        stored = [(b["timestamp"], 100.0, 101.0, 99.0, 100.5, 1000, "ibkr_named") for b in bars]
         cur = _ContractCursor(stored)
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = cur
@@ -375,7 +375,7 @@ class TestFetchAndStoreBars:
         )
 
         ts = _ts_bf(9, 30)
-        stored = [(ts, 100.0, 101.0, 99.0, 100.0, 1000, "historical_backfill")]
+        stored = [(ts, 100.0, 101.0, 99.0, 100.0, 1000, "ibkr_named")]
         cur = _ContractCursor(stored)
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value = cur
@@ -387,6 +387,7 @@ class TestFetchAndStoreBars:
                 "low": 99.0,
                 "close": 100.5,
                 "volume": 1000,
+                "source": "ibkr_named",
             }
         ]
         store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
@@ -1165,7 +1166,7 @@ class TestArchiveGridRouting:
                 "low": 599.0,
                 "close": 600.5,
                 "volume": 1000,
-                "source": "historical_backfill",
+                "source": "ibkr_named",
             }
         ]
         mock_conn = MagicMock()

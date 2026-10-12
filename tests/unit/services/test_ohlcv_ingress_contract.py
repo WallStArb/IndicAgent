@@ -23,7 +23,17 @@ _PARAMS = ContractParams(max_ratio=0.02, min_stored=500)
 
 
 def _row(i: int, close: float = 10.5, volume: int = 100, symbol: str = "ZZ185A") -> tuple:
-    return (_T0 + timedelta(minutes=5 * i), symbol, "5m", 10.0, 11.0, 9.0, close, volume, "ibkr")
+    return (
+        _T0 + timedelta(minutes=5 * i),
+        symbol,
+        "5m",
+        10.0,
+        11.0,
+        9.0,
+        close,
+        volume,
+        "ibkr_named",
+    )
 
 
 def _stored(rows: list[tuple]) -> list[tuple]:
@@ -101,7 +111,7 @@ def test_one_changed_bar_writes_one_row_and_one_revision_with_old_values():
     values = tuple(revision[1])
     # load_id, symbol, timeframe, timestamp, old_open..old_close, old_volume, old_source, origin
     assert values[1:4] == ("ZZ185A", "5m", old[4][0])
-    assert values[4:10] == (10.0, 11.0, 9.0, 10.5, 100, "ibkr") and values[10] == "load"
+    assert values[4:10] == (10.0, 11.0, 9.0, 10.5, 100, "ibkr_named") and values[10] == "load"
     load_params = cur.sql_starting("INSERT INTO ohlcv_load")[0][1]
     assert load_params[0] == values[0]  # the revision hangs off the load row
     assert load_params[7:10] == (10, 0, 1) and load_params[15] == 9
@@ -162,10 +172,26 @@ def test_duplicate_timestamps_in_a_chunk_resolve_last_wins():
 
 def test_a_source_change_alone_is_a_change():
     stored = _stored([_row(0)])
-    incoming = _row(0)[:8] + ("other",)
+    incoming = _row(0)[:8] + ("ibkr_venue",)
     cur, writers = FakeCursor(stored), Writers()
     _apply(cur, [incoming], writers)
     assert writers.changed == [incoming]
+
+
+def test_the_load_row_names_the_vendor_not_the_row_label():
+    # ohlcv_load.source admits vendor names only; the bar keeps its own label (regression:
+    # ibkr_named reached the load row and every IBKR write failed the CHECK, 2026-10-10..12)
+    cur, writers = FakeCursor([]), Writers()
+    _apply(cur, [_row(0), _row(1)[:8] + ("ibkr_venue",)], writers)
+    assert cur.sql_starting("INSERT INTO ohlcv_load")[0][1][3] == "ibkr"
+    assert writers.new[0][8] == "ibkr_named"
+
+
+def test_an_unmapped_source_label_is_refused_before_any_write():
+    cur, writers = FakeCursor([]), Writers()
+    with pytest.raises(ValueError, match="no writing vendor"):
+        _apply(cur, [_row(0)[:8] + ("historical_backfill",)], writers)
+    assert writers.new == [] and cur.statements == []
 
 
 def test_archive_destination_reads_the_archive_table():
