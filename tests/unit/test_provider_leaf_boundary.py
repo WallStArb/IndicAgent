@@ -76,6 +76,10 @@ _ALLOW_LIST: dict[str, str] = {
         "fallback); it imports the leaf module for the constants those mechanics "
         "read, and no new vendor branches belong here."
     ),
+    "scripts/infrastructure/infrastructure_gateway_auth_probe.py": (
+        "PERMANENT: the gateway auth probe (todo 395) tests the IBKR gateway handshake "
+        "itself; the vendor is the subject, so it constructs IBKRProvider directly."
+    ),
     "scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py": (
         "PERMANENT: the manual chunk-days/rate-limit calibration probe must drive "
         "the real IBKR leaf under FetcherLock to measure vendor pacing; concrete "
