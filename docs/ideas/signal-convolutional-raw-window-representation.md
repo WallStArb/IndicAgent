@@ -157,6 +157,32 @@ itself is confirmed valuable enough in production to justify the model-infrastru
 investment, at which point this becomes a natural, cheap incremental question to ask on the
 same infrastructure rather than a standalone build.
 
+## Re-check 2026-10-12 (v3.5 framing)
+
+Owner re-surfaced the same paper (arXiv:2512.21804) as an alpha/edge idea. Re-read in full; the
+verdict above stands (the paper's numbers are not evidence: shuffled overlapping windows, raw
+levels, 4 hand-picked names, no costs or baseline). What changes is the path a rigorous test would
+take, because the pipeline it was written against is gone (`ensemble_trainer` and the thesis
+apparatus were deleted in phase 186; unified design, E15-E18):
+
+- **Unit of test:** a learned-representation feature family entering S2 like any other family,
+  scored by the research runner as a book (E15), every fit counted as a look (E18), selection by
+  StepM. The architecture and window search is part of that count, not a free tuning step.
+- **Target:** the kernel's executable returns (`panel.forward_returns`, open-to-open) on the S1
+  residual target, never close-to-close direction labels.
+- **Inputs:** per-bar log returns and volume z-scores from the canonical tradeable view, point in
+  time, `no_fill` warmup masked; no price levels, no unadjusted channel (stored prices are
+  price-only; splits come from the split history, dividends from `panel.total_return`).
+- **Power:** pooled cross-sectional training over the 1,502-name universe, now with Alpaca 5m
+  depth from 2016, is the sample this needs; per-name models are ruled out (todo 166's power
+  finding).
+- **Bar to clear:** incremental out-of-fold IC over the engineered `feature_vectors` families
+  after the 186-26 rebuild, not standalone accuracy. Still needs the serialized-model
+  infrastructure any learned family needs; build-first (owner, 2026-09-27) keeps it behind
+  phases 185-187.
+
+Priority unchanged: low, skeptical prior; no ledger status change.
+
 ## References
 
 - Source: arXiv:2512.21804, "S&P 500 Stock's Movement Prediction using CNN," Rahul Gupta,
