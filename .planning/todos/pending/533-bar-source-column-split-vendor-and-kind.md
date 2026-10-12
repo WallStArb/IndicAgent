@@ -109,4 +109,40 @@ rewrites (contention).
 - A refused chunk used to end the history walk (fixed in 9c0695b7a); names whose recent 5m span
   is Alpaca-canonical never reached older IBKR history.
 
-Related: todo 530 (writer-labeled loads have no bar-label join; closes at step 9).
+## Related work (mapped 2026-10-12)
+
+**Fold in: same tables or writers, done once inside this phase**
+- **530** R6 derived-1d residue: the vendor plus kind key resolves it; closes at step 9.
+- **527** simplify backlog: its answered-window consolidation (five copies) and 5m shaper dedup
+  are the gap readers and writer this phase rewrites (steps 3 and 6). Apply those items here, not
+  after.
+- **520** future-timestamp guard: belongs in the one raw writer (step 3), with its D7 condition.
+- **524** parity volume basis: the 15m/1h parity data moves into raw, and D7's dated tolerance
+  rule and price/volume split are written against raw (steps 6 and 8).
+- **504** dividend writer source registry: it reads `ohlcv_observation` (the IBKR adjusted-last
+  ratio), so its cutover is step 6; build the source registry the same way vendors become CVR
+  data.
+- **521** Alpaca build's remaining piece, the nightly (`ops_bar_nightly`, unscheduled): wire it to
+  the new raw writer, not the current contract, so it is built once.
+- **189-11** (phase 189 completion check): its "vendor 15m/1h rows out of the canonical grid" is a
+  step 7 outcome (canonical holds derived 15m/1h only; vendor rows live in raw). Check 189-11
+  against this layout, not separately.
+
+**Inputs: owner decisions the canonical selection rule (design doc, step 1) must encode**
+- **492** Tradier vs IBKR before D: which vendor's closes are canonical pre-2026-10-07 is a
+  selection-policy row, and raw keeps both.
+- **518** volume basis change at D: kind per span makes the basis explicit; the tradeable view
+  and S0 labels read it.
+- **433** listing-venue truncation: venue bars become kind `venue` in raw; the policy decides
+  where they enter canonical.
+- **519** names frozen at their last Tradier bar: per-name policy rows (fix, review or freeze).
+
+**Adjacent: touch the same layer, run on their own clock**
+- **512** exclusion and delete policy: the design doc states what an exclusion deletes in raw
+  (the CLAUDE.md data rule: bar data and derived data go, metadata and tombstone stay).
+- **525** single-day provider gaps: a fetch-ledger (`ohlcv_empty_history`) change; independent
+  of the raw layout but read by the same gap planner.
+- **531** schema names without glossary entries: the new raw table and the `kind` vocabulary get
+  glossary entries in step 1; fold 531's `market_data_5m` and related names into that pass.
+- **505, 513** nightly lane budget and stage contract: the nightly writes through the step 3
+  writer; their markers and budgets are written against it.
