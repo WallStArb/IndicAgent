@@ -22,8 +22,8 @@ the bars, the load record and the coverage update. This module owns the INSERTs 
 and ohlcv_revision and reads the bar tables; it owns no bar-table write.
 
 A refused chunk raises RevisionRefused. The persist helper rolls the chunk back, then records the
-request rows and the refused load row (record_refused_load) in a second transaction, so the item
-fails loudly and the refusal is a finding, never a silent drop.
+request rows, the served rows into the raw archive and the refused load row (record_refused_load)
+in a second transaction, so the refusal is a recorded finding, never a silent drop.
 """
 
 from __future__ import annotations

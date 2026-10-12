@@ -85,7 +85,7 @@ from services.ohlcv_coverage_writer import (
     CoverageDelta,
 )
 from services.ohlcv_ingress_contract import DESTINATION_GRID as INGRESS_GRID_DESTINATION
-from services.ohlcv_ingress_contract import read_stored
+from services.ohlcv_ingress_contract import RevisionRefused, read_stored
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
@@ -281,6 +281,10 @@ class _ChunkPersister:
     CoverageDelta, so answer, bars and ledger land in one transaction. The pipeline did this
     for 15m/1h/5m only; 1m and the placeholder-path timeframes now join (1d persists nothing:
     its answers are D1 rows, plan 185-18 task 1b).
+
+    A refused chunk does not stop the walk: the persist helper has already recorded its answer,
+    archived its served rows and written the refused load row (todo 528), so the provider goes
+    on to older history. The refusal is kept in `refusals` and fails the item as before.
     """
 
     def __init__(
@@ -310,6 +314,7 @@ class _ChunkPersister:
         self.persisted: set[datetime] = set()
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
+        self.refusals: list[str] = []
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
@@ -332,19 +337,30 @@ class _ChunkPersister:
             self.overlap_pairs.extend(
                 (float(stored[ts]), float(fresh[ts])) for ts in sorted(stored)
             )
-        _, n_rows = persist_chunk_atomically(
-            conn,
-            request_rows=request_rows,
-            archive_rows=rows,
-            write_archive_rows=self.writer,
-            coverage=CoverageDelta(
-                self.symbol,
-                self.timeframe,
-                DESTINATION_ARCHIVE if self.archive else DESTINATION_GRID,
-                fetched_at=datetime.now(UTC),
-            ),
-        )
-        self.n_rows += n_rows
+        try:
+            _, n_rows = persist_chunk_atomically(
+                conn,
+                request_rows=request_rows,
+                archive_rows=rows,
+                write_archive_rows=self.writer,
+                coverage=CoverageDelta(
+                    self.symbol,
+                    self.timeframe,
+                    DESTINATION_ARCHIVE if self.archive else DESTINATION_GRID,
+                    fetched_at=datetime.now(UTC),
+                ),
+            )
+            self.n_rows += n_rows
+        except RevisionRefused as error:
+            stamps = [row[0] for row in rows]
+            self.refusals.append(f"{min(stamps).date()}-{max(stamps).date()}: {error.detail}")
+            logger.warning(
+                "ibkr_history_fetcher.chunk_refused_archived",
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                n_served=len(error.rows),
+                detail=error.detail,
+            )
         self.persisted.update(row[0] for row in rows)
         self.clock.touch()
 
@@ -714,6 +730,7 @@ async def fetch_item(
     if (
         not d1_capture
         and n_bars == 0
+        and not persister.refusals
         and instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO)
         and timeframe in _FX_DERIVED_TFS
     ):
@@ -735,6 +752,7 @@ async def fetch_item(
             ctx.get_conn(), "1d", _EMPTY_HISTORY_PROVIDER, symbols=[symbol]
         )
 
+    failed.extend(persister.refusals)
     failure = "; ".join(failed) if failed else None
     status = "error" if failed else ("ok" if n_bars > 0 else "no_data")
     return ItemOutcome(

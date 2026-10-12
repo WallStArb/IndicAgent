@@ -37,7 +37,7 @@ from services.ohlcv_coverage_writer import (
     record_fetch_outcome,
     upsert_coverage,
 )
-from services.ohlcv_ingress_contract import RevisionRefused, SeriesLoad
+from services.ohlcv_ingress_contract import RevisionRefused
 from services.ohlcv_observation_writer import write_request_rows
 
 _REQUEST_ROW = (
@@ -318,27 +318,9 @@ def test_request_row_with_a_digest_already_attached_is_refused(archive_writer):
         )
 
 
-def _refusal(rows: list[tuple] | None = None) -> RevisionRefused:
-    load = SeriesLoad(
-        symbol="SPY",
-        timeframe="15m",
-        destination="archive",
-        caller="ibkr-history-fetch",
-        source="ibkr",
-        n_bars=1000,
-        n_stored=1000,
-        n_new=0,
-        n_changed=30,
-        n_unchanged=970,
-        first_bar=datetime(2026, 9, 27).date(),
-        last_bar=datetime(2026, 9, 27).date(),
-    )
-    return RevisionRefused(load, ratio=0.03, max_ratio=0.02, rows=rows)
-
-
-def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load():
+def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load(make_refusal):
     def refusing_writer(cur, rows):
-        raise _refusal()
+        raise make_refusal()
 
     conn = FakeConn()
     with pytest.raises(RevisionRefused):
@@ -361,12 +343,12 @@ def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load()
     assert detail and "0.0300" in detail[0]
 
 
-def test_a_refusal_with_rows_captures_them_in_the_raw_archive_with_n_archived():
+def test_a_refusal_with_rows_captures_them_in_the_raw_archive_with_n_archived(make_refusal):
     """The refusal's served rows land in the raw archive in the same second transaction
     (todo 528) and the archived count rides the refusal row's n_archived."""
 
     def refusing_writer(cur, rows):
-        raise _refusal(rows=[_ARCHIVE_ROW])
+        raise make_refusal(rows=[_ARCHIVE_ROW])
 
     conn = FakeConn()
     with pytest.raises(RevisionRefused):

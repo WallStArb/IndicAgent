@@ -37,3 +37,9 @@ Cost: about 450M rows across compressed hypertables (decompress, update, recompr
 (tradeable view, D7, 1d digest, `CANONICAL_1D_SOURCES`, completeness report). Until then, the
 ops `CASE` and `_PRIMARY_LABEL` should read from `LABEL_VENDOR` or carry a test that pins them
 to it. Related: todo 530 (writer-labeled loads have no bar-label join; same vocabulary gap).
+
+Adjacent finding (code review, 2026-10-12): for archive-destination timeframes (15m/1h), a
+refusal by the archive writer is followed by `_record_refusal`'s `archive_refusal_rows`, which
+upserts the same rows into the same archive table (latest answer wins), overwriting the stored
+observations the refusal meant to protect. The raw archive should be append-only per
+(vendor, observed_at) rather than last-wins; decide that alongside the vendor/kind split.
