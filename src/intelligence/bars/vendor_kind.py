@@ -82,7 +82,6 @@ _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
     (VENDOR_TRADIER, "consolidated"): "consolidated",
 }
 
-# (vendor, route-is-smart, what_to_show) -> kind
 _ROUTE_SMART = "SMART"
 _ROUTE_LEGACY_IMPORT = "LEGACY_IMPORT"
 _TRADES = "TRADES"
