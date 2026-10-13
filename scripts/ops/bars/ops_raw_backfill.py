@@ -762,9 +762,13 @@ _ARCHIVE_ANY = (
     "SELECT 1 FROM ohlcv_intraday_raw_archive WHERE symbol = %(symbol)s "
     "AND timestamp >= %(lo)s AND timestamp < %(hi)s LIMIT 1"
 )
-_OBSERVATION_ANY = (
+_ARCHIVE_SINCE = (
+    "SELECT 1 FROM ohlcv_intraday_raw_archive WHERE symbol = %(symbol)s "
+    "AND timestamp >= %(lo)s AND timestamp < %(hi)s AND archived_at >= %(since)s LIMIT 1"
+)
+_OBSERVATION_SINCE = (
     "SELECT 1 FROM ohlcv_observation WHERE symbol = %(symbol)s "
-    "AND bar_date >= %(lo)s::date AND bar_date < %(hi)s::date LIMIT 1"
+    "AND bar_date >= %(lo)s::date AND bar_date < %(hi)s::date AND fetched_at >= %(since)s LIMIT 1"
 )
 
 
@@ -775,6 +779,7 @@ def run_reconcile(
     years: range,
     obs_values_sql: str,
     apply: bool,
+    since: datetime,
 ) -> dict[str, int]:
     """Per window: (1) a later archive or observation serve replaces the raw row, the displaced
     value logged; (2) a canonical value raw does not hold is logged as a superseded value."""
@@ -785,26 +790,26 @@ def run_reconcile(
     for symbol in symbols:
         for year in years:
             lo, hi = window_bounds(year)
-            p = {"symbol": symbol, "lo": lo, "hi": hi}
+            p = {"symbol": symbol, "lo": lo, "hi": hi, "since": since}
             with conn.cursor() as cur:
-                has_archive = _store_has_rows(cur, _ARCHIVE_ANY, p)
-                has_obs = _store_has_rows(cur, _OBSERVATION_ANY, p)
-                if has_archive:
-                    for name, src, key in (("archive", archive_src, "displaced_archive"),):
-                        cur.execute(reconcile_displaced_sql(src), p)
-                        old = cur.fetchall()
-                        if old:
-                            totals[key] += len(old)
-                            if apply:
-                                write_reconcile_revisions(cur, symbol, name, old)
-                                cur.execute(reconcile_update_sql(src), p)
+                # serves before `since` were read by the bulk at their final value; only a later
+                # serve can displace a raw row, so only windows holding one are compared
+                if _store_has_rows(cur, _ARCHIVE_SINCE, p):
+                    cur.execute(reconcile_displaced_sql(archive_src), p)
+                    old = cur.fetchall()
+                    if old:
+                        totals["displaced_archive"] += len(old)
+                        if apply:
+                            write_reconcile_revisions(cur, symbol, "archive", old)
+                            cur.execute(reconcile_update_sql(archive_src), p)
+                if _store_has_rows(cur, _ARCHIVE_ANY, p):
                     cur.execute(reconcile_canonical_only_sql(canonical_src), p)
                     logged = cur.fetchall()
                     if logged:
                         totals["canonical_logged"] += len(logged)
                         if apply:
                             write_reconcile_revisions(cur, symbol, "canonical", logged)
-                if has_obs:
+                if _store_has_rows(cur, _OBSERVATION_SINCE, p):
                     cur.execute(reconcile_displaced_sql(obs_src), p)
                     old = cur.fetchall()
                     if old:
@@ -1196,6 +1201,11 @@ def main() -> int:
         help="comma list of passes for --bulk/--delta (default all)",
     )
     parser.add_argument("--force", action="store_true", help="ignore the progress file")
+    parser.add_argument(
+        "--since",
+        default="2026-10-13T06:00:00+00:00",
+        help="--reconcile compares serves at or after this time (default: before the bulk began)",
+    )
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--first-year", type=int, default=_FIRST_YEAR)
     args = parser.parse_args()
@@ -1236,7 +1246,12 @@ def main() -> int:
             return int(report["exit_code"])
         if args.reconcile:
             rec = run_reconcile(
-                conn, symbols=symbols, years=years, obs_values_sql=obs_values_sql, apply=args.apply
+                conn,
+                symbols=symbols,
+                years=years,
+                obs_values_sql=obs_values_sql,
+                apply=args.apply,
+                since=datetime.fromisoformat(args.since),
             )
             print(json.dumps({"mode": "apply" if args.apply else "dry-run", **rec}))
             return 0
