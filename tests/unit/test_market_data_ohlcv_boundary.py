@@ -31,6 +31,12 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # Adding a new call site requires adding a row here with a real reason, not just silencing
 # the test.
 _ALLOW_LIST: dict[str, str] = {
+    "services/bar_selection.py": (
+        "PERMANENT (phase 191 plan 02): the canonical selection writer compares each selected "
+        "raw row with the stored canonical row of the same slot, zero-volume provider bars "
+        "included; the tradeable view's volume > 0 filter would hide a stored zero-volume slot "
+        "and re-write it as new on every run."
+    ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "PERMANENT: the phase 189 fetcher's helper library (plan 189-08 made it of the "
         "historical pipeline). Its raw-table reads (detect_gaps, fetch_bars) and the "

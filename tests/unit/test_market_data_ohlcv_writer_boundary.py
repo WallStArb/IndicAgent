@@ -36,6 +36,11 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # Adding a new writer requires adding a row here with a real reason, not just silencing
 # the test.
 _ALLOW_LIST: dict[str, str] = {
+    "services/bar_selection.py": (
+        "PERMANENT: the canonical vendor-row writer for direct timeframes (design doc Canonical "
+        "section, single_writer). Selects the winner of each 1m/5m/4h slot from ohlcv_raw by "
+        "bar_source_policy and writes it with INSERT / ON CONFLICT DO UPDATE (phase 191 plan 02)."
+    ),
     "services/bar_derivation.py": (
         "PERMANENT: the D2b derivation writer (phase 185 plan 11, D-06/D-15) -- the only "
         "permanent writer of derived 15m/1h rows (and, from plan 17, canonical 1d). One "
