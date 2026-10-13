@@ -11,6 +11,7 @@ from services.ohlcv_raw_writer import (
     BATCH_ROWS_KEY,
     FUTURE_TOLERANCE_KEY,
     RawRow,
+    preview_series,
     read_write_params,
     write_raw,
 )
@@ -229,3 +230,19 @@ async def test_read_write_params_reads_both_apr_keys():
     params = await read_write_params(Config())
     assert (params.batch_rows, params.future_tolerance_s) == (4000, 60)
     assert set(seen) == {BATCH_ROWS_KEY, FUTURE_TOLERANCE_KEY}
+
+
+def test_preview_series_matches_write_raw_counts_and_writes_nothing():
+    stored = [_stored(_row(0)), _stored(_row(1))]
+    rows = [_row(0), _row(1, close=11.0), _row(2)]
+    conn = FakeConn(stored)
+    delta = preview_series(conn, rows)
+    assert (delta.n_stored, delta.new, delta.changed, delta.unchanged) == (2, 1, 1, 1)
+    assert [s for s, _ in conn.cur.executed if not s.startswith("SELECT")] == []
+    written = _write(FakeConn(stored), rows)[0]
+    assert (written.new, written.changed, written.unchanged) == (1, 1, 1)
+
+
+def test_preview_series_refuses_more_than_one_series():
+    with pytest.raises(ValueError, match="exactly one series"):
+        preview_series(FakeConn(), [_row(0), _row(1, vendor="alpaca", kind="sip_rth")])

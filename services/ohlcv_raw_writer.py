@@ -332,3 +332,35 @@ def write_raw(
         _write_raw_rows(cur, new_rows, batch_rows=batch_rows)
         _write_raw_rows(cur, changed_rows, batch_rows=batch_rows, tail=_UPSERT_TAIL)
     return deltas
+
+
+def preview_series(conn: Any, rows: Iterable[RawRow]) -> RawDelta:
+    """What `write_raw` would find for ONE (symbol, timeframe, vendor, kind) series, writing
+    nothing. The ingress contract needs the counts to insert the ohlcv_load row (the role may
+    INSERT but not UPDATE it) before `write_raw` records revisions under it. Run in the same
+    transaction as `write_raw`, so both see the same stored rows. Raises ValueError when the rows
+    span more than one series."""
+    keyed: dict[datetime, RawRow] = {}
+    for row in rows:
+        keyed[row.timestamp] = row
+    series = {(r.symbol, r.timeframe, r.vendor, r.kind) for r in keyed.values()}
+    if len(series) != 1:
+        raise ValueError(f"preview_series takes exactly one series, got {sorted(series)}")
+    symbol, timeframe, vendor, kind = next(iter(series))
+    stamps = sorted(keyed)
+    label = _label(vendor, kind)
+    with conn.cursor() as cur:
+        cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, stamps))
+        stored = {r[0]: (r[1], r[2], r[3], r[4], r[5], label) for r in cur.fetchall()}
+    delta = classify({ts: _values(keyed[ts]) for ts in stamps}, stored)
+    return RawDelta(
+        symbol=symbol,
+        timeframe=timeframe,
+        vendor=vendor,
+        kind=kind,
+        n_stored=len(stored),
+        new=len(delta.new),
+        changed=len(delta.changed),
+        unchanged=delta.unchanged,
+        changed_old={ts: old[:5] for ts, (_new, old) in delta.changed.items()},
+    )

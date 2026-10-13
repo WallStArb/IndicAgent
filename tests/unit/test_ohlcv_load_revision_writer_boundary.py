@@ -5,7 +5,8 @@ canonical writer, and ohlcv_revision to the one revision table (data layer integ
 section 3). Each writer owns one `source` segment of ohlcv_load and writes ohlcv_revision rows
 only under its own load rows, so the segments below are pairwise disjoint: the grid stage of
 services/bar_derivation.py owns source derived and 185-39 adds the IBKR ingress contract
-(services/ohlcv_ingress_contract.py) as source ibkr. Source tradier rows are the deleted Tradier
+(services/ohlcv_ingress_contract.py) as source ibkr. Phase 191 plan 04 widens a segment from the
+source alone to (source, caller): sources may overlap, callers may not. Source tradier rows are the deleted Tradier
 loader's history (plan 185-48); no writer owns that segment now. Any other INSERT, UPDATE, DELETE, COPY,
 TRUNCATE or MERGE into either table fails CI unless the allow-list is edited with a reason, and
 an entry that no longer writes fails as stale. This file replaces the two tables' scanned
@@ -44,42 +45,64 @@ _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
 
-# table -> module -> (owned ohlcv_load.source values, reason)
-_ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
+_BACKFILL = "scripts/ops/bars/ops_raw_backfill.py"
+
+# table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
+# records: sources MAY overlap between writers now (vendor names are shared by the ingress
+# contract and the one-shot raw backfill), the callers MAY NOT. "*" as a source means any vendor.
+_ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] = {
     "ohlcv_load": {
         _DERIVATION: (
             frozenset({"derived"}),
+            frozenset({"bar_derivation-daily", "bar_derivation-grid", "bar_derivation-restore"}),
             "PERMANENT: the grid stage records one load per (symbol, 15m/1h) it derives, with "
             "its new, changed, unchanged and removed counts (outcome applied or refused, "
             "plan 185-31).",
         ),
         _INGRESS: (
-            frozenset({"ibkr"}),
-            "PERMANENT: the IBKR ingress write contract records one load per (symbol, timeframe) "
-            "of every fetched chunk written to market_data_ohlcv (5m, 1m) or the raw archive "
-            "(15m/1h parity sample), outcome applied or refused (plan 185-39). _history_fetch.py's "
-            "and the archive's own bar INSERTs stay in their owner modules and call it.",
+            frozenset({"ibkr", "alpaca"}),
+            frozenset({"ibkr-history-fetch", "alpaca-5m-load", "alpaca-raw-archive-backfill"}),
+            "PERMANENT: the ingress write contract records one load per (symbol, timeframe, "
+            "vendor, kind) series of every chunk it records (destination raw from phase 191 plan "
+            "04; market_data_ohlcv and archive until plan 191-05 switches the callers), outcome "
+            "applied or refused (plans 185-39 and 191-04). Never the caller raw-backfill-191.",
+        ),
+        _BACKFILL: (
+            frozenset({"*"}),
+            frozenset({"raw-backfill-191"}),
+            "TEMPORARY retire: 191-17. The --revisions mode writes one load per (symbol, vendor, "
+            "restatement ordinal) with destination raw, outcome applied, caller raw-backfill-191 "
+            "(phase 191 plan 04, D-191-E).",
         ),
     },
     "ohlcv_revision": {
         _DERIVATION: (
             frozenset({"derived"}),
+            frozenset({"bar_derivation-daily", "bar_derivation-grid", "bar_derivation-restore"}),
             "PERMANENT: the grid stage's and the daily stage's old values under their own "
             "load rows: changed or removed derived and canonical 1d rows (origin load) and "
             "stored vendor rows the archive does not hold equal (origin archive_segment) "
             "before they leave market_data_ohlcv (plans 185-31 and 185-38).",
         ),
         _INGRESS: (
-            frozenset({"ibkr"}),
+            frozenset({"ibkr", "alpaca"}),
+            frozenset({"ibkr-history-fetch", "alpaca-5m-load", "alpaca-raw-archive-backfill"}),
             "PERMANENT: the old values of every bar an ingress chunk changed, under that "
-            "chunk's own ibkr load row (origin load; plan 185-39).",
+            "chunk's own load row (origin load; plan 185-39).",
         ),
         _RAW_WRITER: (
             frozenset({"origin:raw"}),
+            frozenset({"origin:raw"}),
             "PERMANENT: the raw writer logs the old values of a vendor's restated ohlcv_raw row "
-            "(origin raw; phase 191 plan 02). It writes ohlcv_revision rows only and never an "
-            "ohlcv_load row, so it owns no ohlcv_load.source segment; its segment here is the "
-            "revision origin. The load segments are decided in plan 04.",
+            "(origin raw; phase 191 plan 02) under the load row the ingress contract inserted. "
+            "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
+            "the revision origin, not a caller.",
+        ),
+        _BACKFILL: (
+            frozenset({"*"}),
+            frozenset({"raw-backfill-191"}),
+            "TEMPORARY retire: 191-17. The --revisions mode writes the superseded observation "
+            "value runs as origin raw revisions under raw-backfill-191 loads (phase 191 plan 04).",
         ),
     },
 }
@@ -98,7 +121,7 @@ def _hits(table: str) -> dict[str, int]:
 
 
 def _reasons(table: str) -> dict[str, str]:
-    return {module: reason for module, (_segment, reason) in _ALLOW_LISTS[table].items()}
+    return {module: reason for module, (_sources, _callers, reason) in _ALLOW_LISTS[table].items()}
 
 
 def test_every_load_and_revision_writer_is_on_the_allow_list():
@@ -119,12 +142,20 @@ def test_load_and_revision_allow_lists_have_no_stale_entries():
         assert_allow_list_has_no_stale_entries(_hits(table), _reasons(table))
 
 
-def test_segments_are_declared_and_pairwise_disjoint():
+def test_segments_are_declared_and_callers_are_pairwise_disjoint():
     for table, allow_list in _ALLOW_LISTS.items():
-        for module, (segment, _reason) in allow_list.items():
-            assert segment, f"{table}: {module} declares an empty segment"
-        for (first, (a, _)), (second, (b, _)) in combinations(allow_list.items(), 2):
-            assert not a & b, f"{table}: {first} and {second} both own source {sorted(a & b)}"
+        for module, (sources, callers, _reason) in allow_list.items():
+            assert sources and callers, f"{table}: {module} declares an empty segment"
+        for (first, (_, a, _)), (second, (_, b, _)) in combinations(allow_list.items(), 2):
+            assert not a & b, f"{table}: {first} and {second} both own caller {sorted(a & b)}"
+
+
+def test_the_backfill_caller_is_the_literal_the_module_writes_and_the_contract_never_uses_it():
+    backfill = (_REPO_ROOT / _BACKFILL).read_text()
+    assert '_REVISION_CALLER = "raw-backfill-191"' in backfill
+    assert "'raw'" in backfill  # destination raw
+    ingress = (_REPO_ROOT / _INGRESS).read_text()
+    assert "raw-backfill-191" not in ingress
 
 
 def test_the_pattern_catches_each_write_form():

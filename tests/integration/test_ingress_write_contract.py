@@ -331,3 +331,88 @@ def test_d1_elision_under_the_real_role_stores_a_changed_answer_once(db):
     assert conn.execute(
         "SELECT count(*), sum(n_bars) FROM ohlcv_request WHERE symbol = %s", (symbol,)
     ).fetchone() == (3, 6)
+
+
+# --- apply_raw_contract under the real role (phase 191 plan 04) ------------------------------
+
+from services.ohlcv_ingress_contract import apply_raw_contract, read_raw_params  # noqa: E402
+from services.ohlcv_raw_writer import RawRow  # noqa: E402
+
+
+def _raw_rows(symbol, n, *, vendor="ibkr", kind="named", close=10.5, tf="5m"):
+    return [
+        RawRow(
+            timestamp=_T0 + timedelta(minutes=5 * i),
+            symbol=symbol,
+            timeframe=tf,
+            vendor=vendor,
+            kind=kind,
+            open=10.0,
+            high=11.0,
+            low=9.0,
+            close=close,
+            volume=100 + i,
+        )
+        for i in range(n)
+    ]
+
+
+def _raw_cleanup(conn, symbol):
+    with conn.transaction():
+        conn.execute("DELETE FROM ohlcv_raw WHERE symbol = %s", (symbol,))
+
+
+def _apply_raw(conn, rows, *, caller="ibkr-history-fetch", waived=False):
+    request = uuid.uuid4()
+    with conn.transaction():
+        with conn.cursor() as cur:
+            params = read_raw_params(cur)
+        conn.execute("SET LOCAL ROLE bar_derivation_writer")
+        return apply_raw_contract(
+            conn, rows, caller=caller, request_id=request, params=params, waived=waived
+        )
+
+
+def test_raw_contract_records_raw_then_selects_canonical_under_the_role(db):
+    conn, symbol = db
+    try:
+        result = _apply_raw(conn, _raw_rows(symbol, 10))
+        assert (result.n_new, result.n_changed, result.refused) == (10, 0, False)
+        assert result.selected_slots == 10
+        assert _n(conn, "ohlcv_raw", symbol) == 10 and _n(conn, "market_data_ohlcv", symbol) == 10
+        assert _loads(conn, symbol) == [("applied", "ibkr", "raw", 10, 10, 0, 0)]
+        again = _apply_raw(conn, _raw_rows(symbol, 10))
+        assert (again.n_new, again.n_changed, again.n_unchanged) == (0, 0, 10)
+    finally:
+        _raw_cleanup(conn, symbol)
+
+
+def test_raw_contract_cross_vendor_difference_writes_no_revision(db):
+    conn, symbol = db
+    try:
+        _apply_raw(conn, _raw_rows(symbol, 10))
+        other = _apply_raw(
+            conn,
+            _raw_rows(symbol, 10, vendor="alpaca", kind="sip_rth", close=99.0),
+            caller="alpaca-5m-load",
+        )
+        assert other.refused is False and other.n_new == 10
+        assert _n(conn, "ohlcv_revision", symbol) == 0
+        assert _n(conn, "ohlcv_raw", symbol) == 20
+    finally:
+        _raw_cleanup(conn, symbol)
+
+
+def test_raw_contract_self_restatement_below_the_floor_is_logged_with_vendor_and_kind(db):
+    conn, symbol = db
+    try:
+        _apply_raw(conn, _raw_rows(symbol, 10))
+        restated = _apply_raw(conn, _raw_rows(symbol, 10, close=10.75))
+        assert restated.n_changed == 10 and restated.refused is False  # 10 < min_stored
+        rows = conn.execute(
+            "SELECT vendor, kind, origin, old_close FROM ohlcv_revision WHERE symbol = %s",
+            (symbol,),
+        ).fetchall()
+        assert len(rows) == 10 and set(rows) == {("ibkr", "named", "raw", 10.5)}
+    finally:
+        _raw_cleanup(conn, symbol)
