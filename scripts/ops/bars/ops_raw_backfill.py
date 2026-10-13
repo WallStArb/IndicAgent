@@ -13,8 +13,9 @@ is invented: `served_at`, `request_id` and `load_id` are NULL unless the source 
 
 Modes: `--bulk` and `--delta` (the same windowed pass; a window is skipped when its three source
 counts equal those recorded in the progress file when it was last loaded, so a kill resumes and a
-delta reloads only windows the live writers have grown), `--check` (the balance report). `--bulk`
-and `--delta` are dry runs unless `--apply`. Revision reconstruction is plan 04's.
+delta reloads only windows the live writers have grown), `--check` (the balance report).
+`--revisions` reconstructs ohlcv_revision from the observation history (plan 04, D-191-E). `--bulk`,
+`--delta` and `--revisions` are dry runs unless `--apply`.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import re
 import shutil
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,6 +42,7 @@ from src.config.settings import get_settings
 from src.intelligence.bars.vendor_kind import (
     LABEL_TO_VENDOR_KIND,
     VENDOR_DERIVED,
+    VENDOR_KIND_TO_LABEL,
     observation_kind,
 )
 
@@ -143,7 +146,12 @@ def canonical_select_sql() -> str:
        AND m.timeframe <> '1d'"""
 
 
-def _observation_rows_cte(obs_values_sql: str) -> str:
+def _observation_rows_cte(obs_values_sql: str, *, windowed: bool = True) -> str:
+    window = (
+        "AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date\n           "
+        if windowed
+        else ""
+    )
     return f"""
     obs AS (
         SELECT o.request_id, o.symbol, o.bar_date, m.vendor, m.kind,
@@ -155,8 +163,7 @@ def _observation_rows_cte(obs_values_sql: str) -> str:
           ) AS m(source, route, what_to_show, vendor, kind)
             ON m.source = o.source AND m.route = o.route AND m.what_to_show = o.what_to_show
          WHERE o.symbol = %(symbol)s
-           AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date
-           AND r.caller NOT LIKE '{_TEST_CALLER}'
+           {window}AND r.caller NOT LIKE '{_TEST_CALLER}'
     )"""
 
 
@@ -380,6 +387,237 @@ def run_windows(
 
 
 # --------------------------------------------------------------------------------------
+# Revision reconstruction (D-191-E)
+# --------------------------------------------------------------------------------------
+
+_REVISION_CALLER = "raw-backfill-191"
+_REVISION_DETAIL = "raw-backfill-191 revisions ordinal={ordinal}; bar_date {first} to {last}"
+_REVISION_ORDINAL = re.compile(r"revisions ordinal=(\d+);")
+_REVISION_BATCH = 1000
+
+
+def superseded_runs_cte(obs_values_sql: str) -> str:
+    """CTE chain ending in `superseded`: one row per value run that a later run replaced.
+
+    A run is a maximal sequence of equal OHLCV values of one (symbol, bar_date, vendor, kind) in
+    arrival order (fetched_at, request_id). `run` counts from 1; the restatement that replaced
+    run N is restatement ordinal N. request_id is the request that first served the run."""
+    return f"""
+    {_observation_rows_cte(obs_values_sql, windowed=False)},
+    flagged AS (
+        SELECT obs.*,
+               CASE WHEN ROW(open, high, low, close, volume) IS DISTINCT FROM ROW(
+                        lag(open) OVER w, lag(high) OVER w, lag(low) OVER w,
+                        lag(close) OVER w, lag(volume) OVER w)
+                    THEN 1 ELSE 0 END AS chg
+          FROM obs
+        WINDOW w AS (PARTITION BY symbol, bar_date, vendor, kind ORDER BY fetched_at, request_id)
+    ),
+    runs AS (
+        SELECT flagged.*,
+               sum(chg) OVER (PARTITION BY symbol, bar_date, vendor, kind
+                              ORDER BY fetched_at, request_id) AS run
+          FROM flagged
+    ),
+    grouped AS (
+        SELECT symbol, bar_date, vendor, kind, run,
+               (array_agg(request_id ORDER BY fetched_at, request_id))[1] AS request_id,
+               (array_agg(open ORDER BY fetched_at, request_id))[1] AS open,
+               (array_agg(high ORDER BY fetched_at, request_id))[1] AS high,
+               (array_agg(low ORDER BY fetched_at, request_id))[1] AS low,
+               (array_agg(close ORDER BY fetched_at, request_id))[1] AS close,
+               (array_agg(volume ORDER BY fetched_at, request_id))[1] AS volume
+          FROM runs
+         GROUP BY symbol, bar_date, vendor, kind, run
+    ),
+    superseded AS (
+        SELECT g.* FROM (
+            SELECT grouped.*,
+                   max(run) OVER (PARTITION BY symbol, bar_date, vendor, kind) AS last_run
+              FROM grouped
+        ) g
+         WHERE g.run < g.last_run
+    )"""
+
+
+def superseded_runs_sql(obs_values_sql: str) -> str:
+    return (
+        f"WITH {superseded_runs_cte(obs_values_sql)}\n"
+        "    SELECT bar_date, vendor, kind, run, request_id, open, high, low, close, volume\n"
+        "      FROM superseded ORDER BY vendor, run, bar_date, kind"
+    )
+
+
+@dataclass
+class RevisionLoadPlan:
+    """One ohlcv_load row (symbol, vendor, restatement ordinal) and the revision rows under it."""
+
+    symbol: str
+    vendor: str
+    ordinal: int
+    rows: list[tuple] = field(default_factory=list)  # (bar_date, kind, request_id, o, h, l, c, v)
+
+    @property
+    def first_bar(self):
+        return min(r[0] for r in self.rows)
+
+    @property
+    def last_bar(self):
+        return max(r[0] for r in self.rows)
+
+    @property
+    def detail(self) -> str:
+        return _REVISION_DETAIL.format(
+            ordinal=self.ordinal, first=self.first_bar, last=self.last_bar
+        )
+
+
+def plan_revision_loads(symbol: str, runs: list[tuple]) -> list[RevisionLoadPlan]:
+    """Group superseded runs (bar_date, vendor, kind, run, request_id, o, h, l, c, v) into one
+    load per (vendor, ordinal), ordered by (vendor, ordinal)."""
+    plans: dict[tuple[str, int], RevisionLoadPlan] = {}
+    for bar_date, vendor, kind, run, request_id, o, h, low, c, v in runs:
+        key = (vendor, int(run))
+        plan = plans.setdefault(key, RevisionLoadPlan(symbol, vendor, int(run)))
+        plan.rows.append((bar_date, kind, request_id, o, h, low, c, v))
+    return [plans[k] for k in sorted(plans)]
+
+
+def existing_revision_ordinals(cur: psycopg.Cursor, symbol: str) -> set[tuple[str, int]]:
+    """(vendor, ordinal) of reconstruction loads already written for the symbol."""
+    cur.execute(
+        "SELECT source, detail FROM ohlcv_load "
+        "WHERE caller = %s AND destination = 'raw' AND symbol = %s",
+        (_REVISION_CALLER, symbol),
+    )
+    found: set[tuple[str, int]] = set()
+    for source, detail in cur.fetchall():
+        match = _REVISION_ORDINAL.search(detail or "")
+        if match:
+            found.add((source, int(match.group(1))))
+    return found
+
+
+def write_revision_loads(
+    cur: psycopg.Cursor, plans: list[RevisionLoadPlan], done: set[tuple[str, int]]
+) -> tuple[int, int]:
+    """Insert each not-yet-written plan: its ohlcv_load row, then its ohlcv_revision rows.
+    Returns (loads_written, revisions_written). The caller owns the transaction."""
+    loads = revisions = 0
+    for plan in plans:
+        if (plan.vendor, plan.ordinal) in done:
+            continue
+        load_id = uuid.uuid4()
+        n = len(plan.rows)
+        cur.execute(
+            "INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, "
+            "requested_end, outcome, n_bars, n_new, n_changed, first_bar, last_bar, detail, "
+            "caller, destination, n_unchanged, n_removed, n_archived) "
+            "VALUES (%s, %s, '1d', %s, %s, %s, 'applied', %s, 0, %s, %s, %s, %s, %s, 'raw', "
+            "0, 0, 0)",
+            (
+                load_id,
+                plan.symbol,
+                plan.vendor,
+                plan.first_bar,
+                plan.last_bar,
+                n,
+                n,
+                plan.first_bar,
+                plan.last_bar,
+                plan.detail,
+                _REVISION_CALLER,
+            ),
+        )
+        loads += 1
+        for start in range(0, n, _REVISION_BATCH):
+            chunk = plan.rows[start : start + _REVISION_BATCH]
+            values = ",".join(
+                [
+                    "(%s,%s,'1d',(%s::date::timestamp AT TIME ZONE 'UTC'),%s,%s,%s,%s,%s,%s,%s,%s,%s,'raw')"
+                ]
+                * len(chunk)
+            )
+            params: list[Any] = []
+            for bar_date, kind, request_id, o, h, low, c, v in chunk:
+                label = VENDOR_KIND_TO_LABEL.get((plan.vendor, kind), plan.vendor)
+                params += [
+                    load_id,
+                    plan.symbol,
+                    bar_date,
+                    o,
+                    h,
+                    low,
+                    c,
+                    v,
+                    label,
+                    plan.vendor,
+                    kind,
+                    request_id,
+                ]
+            cur.execute(
+                'INSERT INTO ohlcv_revision (load_id, symbol, timeframe, "timestamp", old_open, '
+                "old_high, old_low, old_close, old_volume, old_source, vendor, kind, request_id, "
+                "origin) VALUES " + values,
+                params,
+            )
+            revisions += len(chunk)
+    return loads, revisions
+
+
+def revision_balance_sql(obs_values_sql: str) -> str:
+    """Superseded runs, those with no matching revision row, and revision rows by this caller."""
+    return f"""
+    WITH {superseded_runs_cte(obs_values_sql)}
+    SELECT (SELECT count(*) FROM superseded) AS runs,
+           (SELECT count(*) FROM superseded s
+             WHERE NOT EXISTS (
+                SELECT 1 FROM ohlcv_revision r
+                  JOIN ohlcv_load l ON l.load_id = r.load_id
+                 WHERE l.caller = '{_REVISION_CALLER}' AND r.symbol = s.symbol
+                   AND r.timeframe = '1d'
+                   AND r."timestamp" = (s.bar_date::timestamp AT TIME ZONE 'UTC')
+                   AND r.vendor = s.vendor AND r.kind = s.kind
+                   AND r.request_id = s.request_id AND r.origin = 'raw'
+                   AND ROW(r.old_open, r.old_high, r.old_low, r.old_close, r.old_volume)
+                       IS NOT DISTINCT FROM ROW(s.open, s.high, s.low, s.close, s.volume))
+           ) AS missing,
+           (SELECT count(*) FROM ohlcv_revision r
+              JOIN ohlcv_load l ON l.load_id = r.load_id
+             WHERE l.caller = '{_REVISION_CALLER}' AND r.symbol = %(symbol)s) AS stored"""
+
+
+def revision_unexplained(runs: int, missing: int, stored: int) -> int:
+    """Superseded runs without a revision row, plus revision rows beyond the runs."""
+    return missing + max(0, stored - (runs - missing))
+
+
+def run_revisions(
+    conn: psycopg.Connection, *, symbols: list[str], obs_values_sql: str, apply: bool
+) -> dict[str, int]:
+    totals = {"symbols_with_runs": 0, "runs": 0, "loads": 0, "revisions": 0}
+    sql = superseded_runs_sql(obs_values_sql)
+    for symbol in symbols:
+        with conn.cursor() as cur:
+            cur.execute(sql, {"symbol": symbol})
+            runs = cur.fetchall()
+            if not runs:
+                conn.rollback()
+                continue
+            plans = plan_revision_loads(symbol, runs)
+            totals["symbols_with_runs"] += 1
+            totals["runs"] += len(runs)
+            if apply:
+                loads, revisions = write_revision_loads(
+                    cur, plans, existing_revision_ordinals(cur, symbol)
+                )
+                totals["loads"] += loads
+                totals["revisions"] += revisions
+        conn.commit() if apply else conn.rollback()
+    return totals
+
+
+# --------------------------------------------------------------------------------------
 # Balance check
 # --------------------------------------------------------------------------------------
 
@@ -522,6 +760,7 @@ def new_report_totals() -> dict[str, Any]:
         "raw_rows_without_source_key": 0,
         "raw_null_provenance": {},
         "residue_1d_by_symbol": {},
+        "revisions": {"superseded_runs": 0, "missing": 0, "stored": 0},
     }
 
 
@@ -549,6 +788,8 @@ def finalize_report(totals: dict[str, Any]) -> dict[str, Any]:
     unexplained = (
         twin_missing + unlabelled + totals["raw_rows_without_source_key"] + null_1d_request
     )
+    rev = totals["revisions"]
+    unexplained += revision_unexplained(rev["superseded_runs"], rev["missing"], rev["stored"])
     totals["unexplained"] = unexplained
     totals["value_mismatches"] = value_mismatches
     totals["exit_code"] = int(
@@ -678,6 +919,11 @@ def run_check(
                 )
                 raw_n = cur.fetchone()[0]
                 totals["raw_rows_without_source_key"] += max(0, raw_n - union_n)
+            cur.execute(revision_balance_sql(obs_values_sql), {"symbol": symbol})
+            n_runs, n_missing, n_stored = cur.fetchone()
+            totals["revisions"]["superseded_runs"] += n_runs
+            totals["revisions"]["missing"] += n_missing
+            totals["revisions"]["stored"] += n_stored
             if (sym_i + 1) % 25 == 0 or sym_i + 1 == len(symbols):
                 print(
                     f"[{datetime.now(UTC):%H:%M:%S}] check {sym_i + 1}/{len(symbols)} "
@@ -730,6 +976,9 @@ def main() -> int:
     mode.add_argument("--bulk", action="store_true", help="load every window not yet current")
     mode.add_argument("--delta", action="store_true", help="reload windows whose counts changed")
     mode.add_argument("--check", action="store_true", help="balance report, exit 1 on failure")
+    mode.add_argument(
+        "--revisions", action="store_true", help="reconstruct ohlcv_revision from observations"
+    )
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
     parser.add_argument("--symbols", nargs="*", help="restrict to these symbols")
     parser.add_argument(
@@ -773,6 +1022,12 @@ def main() -> int:
             )
             print(f"report: {out}")
             return int(report["exit_code"])
+        if args.revisions:
+            rev_totals = run_revisions(
+                conn, symbols=symbols, obs_values_sql=obs_values_sql, apply=args.apply
+            )
+            print(json.dumps({"mode": "apply" if args.apply else "dry-run", **rev_totals}))
+            return 0
         totals = run_windows(
             conn,
             symbols=symbols,

@@ -129,3 +129,95 @@ def test_finalize_1d_row_without_request_id_is_unexplained():
     t = _balanced()
     t["raw_null_provenance"]["1d|served_at_set|request_id_null|load_id_null"] = 2
     assert mod.finalize_report(t)["unexplained"] == 2
+
+
+# --- revision reconstruction (plan 191-04, D-191-E) ---------------------------------------
+
+
+def _obs_sql() -> str:
+    return mod.build_observation_values_sql(
+        mod.map_observation_triples([("ibkr", "SMART", "TRADES")])
+    )
+
+
+def test_superseded_runs_sql_is_symbol_wide_and_excludes_test_callers():
+    sql = mod.superseded_runs_sql(_obs_sql())
+    assert "%(lo)s" not in sql and "%(hi)s" not in sql
+    assert "%(symbol)s" in sql
+    assert "NOT LIKE 'test-%%'" in sql
+    assert "g.run < g.last_run" in sql
+    assert "ORDER BY fetched_at, request_id" in sql
+
+
+def test_windowed_observation_cte_is_unchanged():
+    assert "%(lo)s" in mod.observation_current_cte(_obs_sql())
+
+
+def test_plan_groups_runs_by_vendor_and_ordinal_across_kinds():
+    d1, d2 = datetime(2020, 1, 2).date(), datetime(2020, 1, 3).date()
+    runs = [
+        (d1, "ibkr", "named", 1, "r1", 1.0, 2.0, 0.5, 1.5, 10),
+        (d1, "ibkr", "venue", 1, "r2", 1.0, 2.0, 0.5, 1.5, 10),
+        (d2, "ibkr", "named", 2, "r3", 1.0, 2.0, 0.5, 1.6, 10),
+        (d2, "tradier", "consolidated", 1, "r4", 1.0, 2.0, 0.5, 1.5, 10),
+    ]
+    plans = mod.plan_revision_loads("AAA", runs)
+    assert [(p.vendor, p.ordinal, len(p.rows)) for p in plans] == [
+        ("ibkr", 1, 2),
+        ("ibkr", 2, 1),
+        ("tradier", 1, 1),
+    ]
+    first = plans[0]
+    assert first.first_bar == d1 and first.last_bar == d1
+    assert "ordinal=1;" in first.detail and "raw-backfill-191" in first.detail
+
+
+def test_existing_ordinals_parse_from_load_detail():
+    class Cur:
+        def execute(self, *_a):
+            pass
+
+        def fetchall(self):
+            return [("ibkr", "raw-backfill-191 revisions ordinal=3; bar_date x to y"), ("a", None)]
+
+    assert mod.existing_revision_ordinals(Cur(), "AAA") == {("ibkr", 3)}
+
+
+def test_write_skips_loads_already_written():
+    class Cur:
+        def __init__(self):
+            self.loads = 0
+            self.revs = 0
+
+        def execute(self, sql, params=None):
+            if "INSERT INTO ohlcv_load" in sql:
+                self.loads += 1
+            if "INSERT INTO ohlcv_revision" in sql:
+                self.revs += len(params) // 12
+
+    d = datetime(2020, 1, 2).date()
+    plans = mod.plan_revision_loads(
+        "AAA",
+        [
+            (d, "ibkr", "named", 1, "r1", 1.0, 2.0, 0.5, 1.5, 10),
+            (d, "ibkr", "named", 2, "r2", 1.0, 2.0, 0.5, 1.6, 10),
+        ],
+    )
+    cur = Cur()
+    assert mod.write_revision_loads(cur, plans, {("ibkr", 1)}) == (1, 1)
+    assert (cur.loads, cur.revs) == (1, 1)
+    cur2 = Cur()
+    assert mod.write_revision_loads(cur2, plans, {("ibkr", 1), ("ibkr", 2)}) == (0, 0)
+
+
+def test_revision_unexplained_counts_missing_and_extra_rows():
+    assert mod.revision_unexplained(runs=10, missing=0, stored=10) == 0
+    assert mod.revision_unexplained(runs=10, missing=2, stored=8) == 2
+    assert mod.revision_unexplained(runs=10, missing=0, stored=12) == 2
+
+
+def test_finalize_counts_unexplained_revisions():
+    totals = mod.new_report_totals()
+    totals["revisions"] = {"superseded_runs": 5, "missing": 1, "stored": 4}
+    assert mod.finalize_report(totals)["unexplained"] == 1
+    assert totals["exit_code"] == 1
