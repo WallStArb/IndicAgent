@@ -37,6 +37,7 @@ from typing import Any
 import psycopg
 from psycopg import IsolationLevel
 
+from services.ohlcv_raw_writer import CANONICAL_ONLY_KINDS
 from src.config.config_service import ConfigService
 from src.config.settings import get_settings
 from src.intelligence.bars.vendor_kind import (
@@ -83,7 +84,9 @@ def _lit(token: str) -> str:
 def vendor_labels() -> dict[str, tuple[str, str]]:
     """Label to (vendor, kind) for every raw-eligible source label (derived rows are not raw)."""
     return {
-        label: pair for label, pair in LABEL_TO_VENDOR_KIND.items() if pair[0] != VENDOR_DERIVED
+        label: pair
+        for label, pair in LABEL_TO_VENDOR_KIND.items()
+        if pair[0] != VENDOR_DERIVED and pair[1] not in CANONICAL_ONLY_KINDS
     }
 
 
@@ -323,8 +326,10 @@ def run_windows(
     apply: bool,
     min_free_gb: float,
     progress_path: Path,
+    passes: frozenset[str] = frozenset({"archive", "observation", "canonical"}),
+    force: bool = False,
 ) -> RunTotals:
-    done = load_progress(progress_path)
+    done = {} if force else load_progress(progress_path)
     totals = RunTotals()
     t0 = time.monotonic()
     for sym_i, symbol in enumerate(symbols):
@@ -350,6 +355,8 @@ def run_windows(
                     ("canonical", canonical_select_sql()),
                 )
                 for name, select in selects:
+                    if name not in passes:
+                        continue
                     for sub_lo, sub_hi in split_range(lo, hi, parts):
                         params = {"symbol": symbol, "lo": sub_lo, "hi": sub_hi}
                         if apply:
@@ -360,6 +367,9 @@ def run_windows(
                             totals.candidates[name] += cur.fetchone()[0]
             if apply:
                 conn.commit()
+                if passes != frozenset({"archive", "observation", "canonical"}):
+                    totals.windows_loaded += 1
+                    continue
                 with progress_path.open("a") as fh:
                     fh.write(
                         json.dumps(
@@ -584,7 +594,8 @@ def revision_balance_sql(obs_values_sql: str) -> str:
            ) AS missing,
            (SELECT count(*) FROM ohlcv_revision r
               JOIN ohlcv_load l ON l.load_id = r.load_id
-             WHERE l.caller = '{_REVISION_CALLER}' AND r.symbol = %(symbol)s) AS stored"""
+             WHERE l.caller = '{_REVISION_CALLER}' AND l.detail LIKE '%%revisions ordinal=%%'
+               AND r.symbol = %(symbol)s) AS stored"""
 
 
 def revision_unexplained(runs: int, missing: int, stored: int) -> int:
@@ -618,12 +629,184 @@ def run_revisions(
 
 
 # --------------------------------------------------------------------------------------
+# Reconcile: a later serve replaces raw (old value logged), canonical-only values are logged
+# --------------------------------------------------------------------------------------
+
+_RECONCILE_DETAIL = "raw-backfill-191 reconcile {pass_name}; {n} rows"
+_VALUES_DIFFER = (
+    "ROW(r.open, r.high, r.low, r.close, r.volume) "
+    "IS DISTINCT FROM ROW(s.open, s.high, s.low, s.close, s.volume)"
+)
+_KEY_JOIN = (
+    "r.timestamp = s.timestamp AND r.symbol = s.symbol AND r.timeframe = s.timeframe "
+    "AND r.vendor = s.vendor AND r.kind = s.kind"
+)
+_OLD_COLS = (
+    "r.timestamp, r.symbol, r.timeframe, r.vendor, r.kind, r.open, r.high, r.low, r.close, "
+    "r.volume, r.request_id"
+)
+_SRC_COLS = (
+    "s.timestamp, s.symbol, s.timeframe, s.vendor, s.kind, s.open, s.high, s.low, s.close, "
+    "s.volume, NULL::uuid"
+)
+# a later serve replaces raw: the source holds a true serve time and raw has none or an earlier one
+_LATER_SERVE = "s.served_at IS NOT NULL AND (r.served_at IS NULL OR s.served_at > r.served_at)"
+_NO_LOGGED_TWIN = f"""NOT EXISTS (
+    SELECT 1 FROM ohlcv_revision v JOIN ohlcv_load l ON l.load_id = v.load_id
+     WHERE l.caller = '{_REVISION_CALLER}' AND v.symbol = s.symbol AND v.timeframe = s.timeframe
+       AND v."timestamp" = s.timestamp AND v.vendor = s.vendor AND v.kind = s.kind
+       AND ROW(v.old_open, v.old_high, v.old_low, v.old_close, v.old_volume)
+           IS NOT DISTINCT FROM ROW(s.open, s.high, s.low, s.close, s.volume))"""
+
+
+def reconcile_displaced_sql(src_cte: str) -> str:
+    """Raw rows a later serve of the same store is about to replace (their old values)."""
+    return f"""WITH {src_cte}
+    SELECT {_OLD_COLS} FROM src s JOIN ohlcv_raw r ON {_KEY_JOIN}
+     WHERE {_VALUES_DIFFER} AND {_LATER_SERVE}"""
+
+
+def reconcile_update_sql(src_cte: str) -> str:
+    return f"""WITH {src_cte}
+    UPDATE ohlcv_raw r
+       SET open = s.open, high = s.high, low = s.low, close = s.close, volume = s.volume,
+           served_at = s.served_at, request_id = s.request_id
+      FROM src s
+     WHERE {_KEY_JOIN} AND {_VALUES_DIFFER} AND {_LATER_SERVE}"""
+
+
+def reconcile_canonical_only_sql(src_cte: str) -> str:
+    """Canonical values that raw does not hold (raw keeps the archive's later serve). The
+    canonical value is logged as the superseded one, with its values and no request."""
+    return f"""WITH {src_cte}
+    SELECT {_SRC_COLS} FROM src s JOIN ohlcv_raw r ON {_KEY_JOIN}
+     WHERE {_VALUES_DIFFER} AND {_NO_LOGGED_TWIN}"""
+
+
+def write_reconcile_revisions(
+    cur: psycopg.Cursor, symbol: str, pass_name: str, rows: list[tuple]
+) -> int:
+    """Log `rows` (timestamp, symbol, timeframe, vendor, kind, o, h, l, c, v, request_id) as
+    origin raw revisions, one reconstruction load per (vendor, timeframe)."""
+    by_load: dict[tuple[str, str], list[tuple]] = {}
+    for row in rows:
+        by_load.setdefault((row[3], row[2]), []).append(row)
+    written = 0
+    for (vendor, timeframe), group in sorted(by_load.items()):
+        load_id = uuid.uuid4()
+        first = min(r[0] for r in group).date()
+        last = max(r[0] for r in group).date()
+        cur.execute(
+            "INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, "
+            "requested_end, outcome, n_bars, n_new, n_changed, first_bar, last_bar, detail, "
+            "caller, destination, n_unchanged, n_removed, n_archived) "
+            "VALUES (%s, %s, %s, %s, %s, %s, 'applied', %s, 0, %s, %s, %s, %s, %s, 'raw', 0, 0, 0)",
+            (
+                load_id,
+                symbol,
+                timeframe,
+                vendor,
+                first,
+                last,
+                len(group),
+                len(group),
+                first,
+                last,
+                _RECONCILE_DETAIL.format(pass_name=pass_name, n=len(group)),
+                _REVISION_CALLER,
+            ),
+        )
+        for start in range(0, len(group), _REVISION_BATCH):
+            chunk = group[start : start + _REVISION_BATCH]
+            values = ",".join(["(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'raw')"] * len(chunk))
+            params: list[Any] = []
+            for ts, sym, tf, vend, kind, o, h, low, c, v, request_id in chunk:
+                label = VENDOR_KIND_TO_LABEL.get((vend, kind), vend)
+                params += [load_id, sym, tf, ts, o, h, low, c, v, label, vend, kind, request_id]
+            cur.execute(
+                'INSERT INTO ohlcv_revision (load_id, symbol, timeframe, "timestamp", '
+                "old_open, old_high, old_low, old_close, old_volume, old_source, vendor, kind, "
+                "request_id, origin) VALUES " + values,
+                params,
+            )
+            written += len(chunk)
+    return written
+
+
+def _store_has_rows(cur: psycopg.Cursor, sql: str, params: dict) -> bool:
+    cur.execute(sql, params)
+    return cur.fetchone() is not None
+
+
+_ARCHIVE_ANY = (
+    "SELECT 1 FROM ohlcv_intraday_raw_archive WHERE symbol = %(symbol)s "
+    "AND timestamp >= %(lo)s AND timestamp < %(hi)s LIMIT 1"
+)
+_OBSERVATION_ANY = (
+    "SELECT 1 FROM ohlcv_observation WHERE symbol = %(symbol)s "
+    "AND bar_date >= %(lo)s::date AND bar_date < %(hi)s::date LIMIT 1"
+)
+
+
+def run_reconcile(
+    conn: psycopg.Connection,
+    *,
+    symbols: list[str],
+    years: range,
+    obs_values_sql: str,
+    apply: bool,
+) -> dict[str, int]:
+    """Per window: (1) a later archive or observation serve replaces the raw row, the displaced
+    value logged; (2) a canonical value raw does not hold is logged as a superseded value."""
+    totals = {"displaced_archive": 0, "displaced_observation": 0, "canonical_logged": 0}
+    archive_src = f"src AS ({archive_select_sql()})"
+    obs_src = f"{observation_current_cte(obs_values_sql)}, src AS (SELECT * FROM current_obs)"
+    canonical_src = f"src AS ({canonical_select_sql()})"
+    for symbol in symbols:
+        for year in years:
+            lo, hi = window_bounds(year)
+            p = {"symbol": symbol, "lo": lo, "hi": hi}
+            with conn.cursor() as cur:
+                has_archive = _store_has_rows(cur, _ARCHIVE_ANY, p)
+                has_obs = _store_has_rows(cur, _OBSERVATION_ANY, p)
+                if has_archive:
+                    for name, src, key in (("archive", archive_src, "displaced_archive"),):
+                        cur.execute(reconcile_displaced_sql(src), p)
+                        old = cur.fetchall()
+                        if old:
+                            totals[key] += len(old)
+                            if apply:
+                                write_reconcile_revisions(cur, symbol, name, old)
+                                cur.execute(reconcile_update_sql(src), p)
+                    cur.execute(reconcile_canonical_only_sql(canonical_src), p)
+                    logged = cur.fetchall()
+                    if logged:
+                        totals["canonical_logged"] += len(logged)
+                        if apply:
+                            write_reconcile_revisions(cur, symbol, "canonical", logged)
+                if has_obs:
+                    cur.execute(reconcile_displaced_sql(obs_src), p)
+                    old = cur.fetchall()
+                    if old:
+                        totals["displaced_observation"] += len(old)
+                        if apply:
+                            write_reconcile_revisions(cur, symbol, "observation", old)
+                            cur.execute(reconcile_update_sql(obs_src), p)
+            conn.commit() if apply else conn.rollback()
+    return totals
+
+
+# --------------------------------------------------------------------------------------
 # Balance check
 # --------------------------------------------------------------------------------------
 
 
-def _count_class_sql(source_cte: str) -> str:
-    """Twin comparison of a source CTE `src` against ohlcv_raw on the full key."""
+def _count_class_sql(source_cte: str, *, logged_is_explained: bool = False) -> str:
+    """Twin comparison of a source CTE `src` against ohlcv_raw on the full key.
+
+    With `logged_is_explained` (the canonical class) a differing twin is not counted when an
+    ohlcv_revision row of the reconciliation holds exactly the source's value for the key."""
+    explained = _NO_LOGGED_TWIN.replace("s.", "src.") if logged_is_explained else "TRUE"
     return f"""
     WITH {source_cte}
     SELECT count(*) AS n,
@@ -634,7 +817,8 @@ def _count_class_sql(source_cte: str) -> str:
                AS equal,
            count(*) FILTER (WHERE r.symbol IS NOT NULL AND
                ROW(r.open, r.high, r.low, r.close, r.volume)
-               IS DISTINCT FROM ROW(src.open, src.high, src.low, src.close, src.volume)) AS diff
+               IS DISTINCT FROM ROW(src.open, src.high, src.low, src.close, src.volume)
+               AND {explained}) AS diff
       FROM src
       LEFT JOIN ohlcv_raw r
         ON r.timestamp = src.timestamp AND r.symbol = src.symbol
@@ -772,13 +956,12 @@ def finalize_report(totals: dict[str, Any]) -> dict[str, Any]:
     )
     twin_missing = can["twin_missing"] + totals["archive"]["twin_missing"]
     twin_missing += totals["observation"]["twin_missing"]
-    # a canonical value diff against raw is explained only by a store disagreement with the
-    # archive, which is itself counted and gated below
+    # a canonical value diff against raw counts only when no reconciliation revision holds it
     value_mismatches = (
         totals["archive"]["twin_diff"]
         + totals["observation"]["twin_diff"]
         + totals["observation_provenance_mismatch"]
-        + max(0, can["twin_diff"] - totals["store_disagreement"]["canonical_vs_archive"])
+        + can["twin_diff"]
     )
     null_1d_request = sum(
         n
@@ -792,11 +975,7 @@ def finalize_report(totals: dict[str, Any]) -> dict[str, Any]:
     unexplained += revision_unexplained(rev["superseded_runs"], rev["missing"], rev["stored"])
     totals["unexplained"] = unexplained
     totals["value_mismatches"] = value_mismatches
-    totals["exit_code"] = int(
-        unexplained > 0
-        or value_mismatches > 0
-        or totals["store_disagreement"]["canonical_vs_archive"] > 0
-    )
+    totals["exit_code"] = int(unexplained > 0 or value_mismatches > 0)
     return totals
 
 
@@ -857,7 +1036,9 @@ def run_check(
                     ("archive", _wrap_src(archive_select_sql())),
                     ("observation", obs_current),
                 ):
-                    cur.execute(_count_class_sql(cte), p)
+                    cur.execute(
+                        _count_class_sql(cte, logged_is_explained=cls == "canonical_vendor"), p
+                    )
                     n, missing, equal, diff = cur.fetchone()
                     c = totals[cls]
                     c["source_rows"] += n
@@ -977,6 +1158,11 @@ def main() -> int:
     mode.add_argument("--delta", action="store_true", help="reload windows whose counts changed")
     mode.add_argument("--check", action="store_true", help="balance report, exit 1 on failure")
     mode.add_argument(
+        "--reconcile",
+        action="store_true",
+        help="later serves replace raw (old value logged); canonical-only values logged",
+    )
+    mode.add_argument(
         "--revisions", action="store_true", help="reconstruct ohlcv_revision from observations"
     )
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
@@ -984,6 +1170,12 @@ def main() -> int:
     parser.add_argument(
         "--min-free-gb", type=float, default=None, help="abort below this free disk"
     )
+    parser.add_argument(
+        "--passes",
+        default="archive,observation,canonical",
+        help="comma list of passes for --bulk/--delta (default all)",
+    )
+    parser.add_argument("--force", action="store_true", help="ignore the progress file")
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--first-year", type=int, default=_FIRST_YEAR)
     args = parser.parse_args()
@@ -1022,6 +1214,12 @@ def main() -> int:
             )
             print(f"report: {out}")
             return int(report["exit_code"])
+        if args.reconcile:
+            rec = run_reconcile(
+                conn, symbols=symbols, years=years, obs_values_sql=obs_values_sql, apply=args.apply
+            )
+            print(json.dumps({"mode": "apply" if args.apply else "dry-run", **rec}))
+            return 0
         if args.revisions:
             rev_totals = run_revisions(
                 conn, symbols=symbols, obs_values_sql=obs_values_sql, apply=args.apply
@@ -1037,6 +1235,8 @@ def main() -> int:
             apply=args.apply,
             min_free_gb=args.min_free_gb or 0.0,
             progress_path=_PROGRESS_FILE,
+            passes=frozenset(args.passes.split(",")),
+            force=args.force,
         )
         print(
             json.dumps(

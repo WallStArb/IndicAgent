@@ -13,7 +13,7 @@ from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND
 def test_label_values_come_from_vendor_kind_and_skip_derived():
     sql = mod.build_vendor_kind_values_sql()
     for label, (vendor, kind) in LABEL_TO_VENDOR_KIND.items():
-        if vendor == "derived":
+        if vendor == "derived" or kind in mod.CANONICAL_ONLY_KINDS:
             assert f"'{label}'" not in sql
         else:
             assert f"('{label}', '{vendor}', '{kind}')" in sql
@@ -113,16 +113,58 @@ def test_finalize_unlabelled_source_is_unexplained():
     assert mod.finalize_report(t)["unexplained"] == 3
 
 
-def test_finalize_canonical_diff_needs_store_disagreement_and_still_fails_gate():
+def test_finalize_unexplained_canonical_diff_fails_and_logged_disagreement_does_not():
     t = _balanced()
     t["canonical_vendor"].update(twin_equal=4, twin_diff=1)
     r = mod.finalize_report(t)
-    assert r["value_mismatches"] == 1
+    assert r["value_mismatches"] == 1 and r["exit_code"] == 1
     t = _balanced()
-    t["canonical_vendor"].update(twin_equal=4, twin_diff=1)
-    t["store_disagreement"]["canonical_vs_archive"] = 1
+    t["canonical_vendor"].update(twin_equal=5, twin_diff=0)
+    t["store_disagreement"]["canonical_vs_archive"] = 3  # informational: logged as revisions
     r = mod.finalize_report(t)
-    assert r["value_mismatches"] == 0 and r["exit_code"] == 1
+    assert r["value_mismatches"] == 0 and r["exit_code"] == 0
+
+
+def test_canonical_class_count_excludes_keys_whose_value_is_logged():
+    sql = mod._count_class_sql("src AS (SELECT 1)", logged_is_explained=True)
+    assert "NOT EXISTS" in sql and "raw-backfill-191" in sql
+    assert "NOT EXISTS" not in mod._count_class_sql("src AS (SELECT 1)")
+
+
+def test_reconcile_replaces_only_on_a_later_serve_and_logs_canonical_only_values():
+    displaced = mod.reconcile_displaced_sql("src AS (SELECT 1)")
+    assert "s.served_at > r.served_at" in displaced and "IS DISTINCT FROM" in displaced
+    update = mod.reconcile_update_sql("src AS (SELECT 1)")
+    assert "UPDATE ohlcv_raw r" in update and "s.served_at > r.served_at" in update
+    canonical = mod.reconcile_canonical_only_sql("src AS (SELECT 1)")
+    assert "NOT EXISTS" in canonical and "NULL::uuid" in canonical
+
+
+def test_canonical_only_kinds_never_enter_raw_from_the_label_map():
+    assert all(kind not in mod.CANONICAL_ONLY_KINDS for _v, kind in mod.vendor_labels().values())
+    assert "ibkr_fallback" not in mod.vendor_labels()
+
+
+def test_write_reconcile_revisions_makes_one_load_per_vendor_and_timeframe():
+    class Cur:
+        def __init__(self):
+            self.loads = 0
+            self.revs = 0
+
+        def execute(self, sql, params=None):
+            if "INSERT INTO ohlcv_load" in sql:
+                self.loads += 1
+            if "INSERT INTO ohlcv_revision" in sql:
+                self.revs += len(params) // 13
+
+    ts = datetime(2026, 9, 23, 13, 30, tzinfo=UTC)
+    rows = [
+        (ts, "AEP", "5m", "ibkr", "named", 1.0, 2.0, 0.5, 1.5, 48913, None),
+        (ts, "AEP", "1d", "ibkr", "smart_trades", 1.0, 2.0, 0.5, 1.5, 10, None),
+    ]
+    cur = Cur()
+    assert mod.write_reconcile_revisions(cur, "AEP", "canonical", rows) == 2
+    assert (cur.loads, cur.revs) == (2, 2)
 
 
 def test_finalize_1d_row_without_request_id_is_unexplained():
