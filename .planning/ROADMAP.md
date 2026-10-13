@@ -626,10 +626,41 @@ Plans:
 
 ### Phase 191: Unified raw bar table (todo 533; design: docs/plans/2026-10-12-unified-raw-bar-table-design.md)
 
-**Goal:** One raw table (`ohlcv_raw`) for every vendor and timeframe, last-wins with a revision log; canonical `market_data_ohlcv` becomes a rebuildable selection by policy; `ohlcv_observation` and `ohlcv_intraday_raw_archive` are deleted; vendors are CVR data; Tradier retired.
-**Requirements**: design doc steps 3-10
+**Goal:** One raw table (`ohlcv_raw`) for every vendor and timeframe, last-wins with a revision log; canonical `market_data_ohlcv` becomes a rebuildable selection by policy carrying vendor and kind; `ohlcv_observation` and `ohlcv_intraday_raw_archive` are deleted; vendors are CVR data; Tradier retired.
+**Requirements**:
+- R-191-01: schema, CVR vocabularies bar_vendor and bar_kind, revision extension, glossary (design doc step 3, schema half)
+- R-191-02: raw writer behind the raw-first ingress contract with same-vendor revision classification and selection (step 3, writer half)
+- R-191-03: raw backfill from canonical, archive and observation with an R6-style balance check (step 4)
+- R-191-04: fetcher and Alpaca loader switch to the raw writer; the fetch-ledger sink moves to ohlcv_request_writer (steps 3 and 6, writers)
+- R-191-05: selection rebuild gate, canonical from raw equals today's canonical row for row (step 5)
+- R-191-06: reader cutover from the two old stores to raw, in order: fetcher-side, daily rule, D7 and views, evidence readers, scripts (step 6)
+- R-191-07: canonical `source` split into vendor and kind via the v2 swap and the reader tail (step 7)
+- R-191-08: drop the two old stores with a verified backup, VACUUM, restore the parity lane (step 8)
+- R-191-09: close, R6 and D7 green, repro_frozen, old canonical dropped, bookkeeping, todo 530 (step 9)
+- R-191-10: Tradier retirement, residue and fallback proof, gated deletion, code deletion, todo 533 (step 10)
 **Depends on:** Phase 190
-**Plans:** 0 plans
+**Plans:** 22 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 191 to break down)
+- [ ] 191-01-PLAN.md - schema (ohlcv_raw, CVR bar_vendor/bar_kind, revision extension, widened checks), vendor_kind module, glossary, decision record (R-191-01)
+- [ ] 191-02-PLAN.md - new writers as additive modules: raw writer with future-timestamp guard, pure selection plus canonical selection writer, request writer (R-191-02, R-191-04)
+- [ ] 191-03-PLAN.md - bulk raw backfill from canonical, archive and observation with balance check, compression policy (R-191-03)
+- [ ] 191-04-PLAN.md - open the cutover window (stop fetcher, readers and canonical writers), delta backfill, revision key migration and revision reconstruction, raw-first ingress contract (R-191-02)
+- [ ] 191-05-PLAN.md - fetch path writers switch (persist helper, fetcher, Alpaca loader, request sink) and the boundary tests they break (R-191-04)
+- [ ] 191-06-PLAN.md - fetcher-side readers: coverage ledger and gap planner over raw (R-191-06)
+- [ ] 191-07-PLAN.md - selection rebuild gate (canonical equals selection from raw), Alpaca policy spans, fetcher resumes (R-191-05)
+- [ ] 191-08-PLAN.md - daily rule and grid stage read raw; 1d equivalence check (R-191-06)
+- [ ] 191-09-PLAN.md - D7, bar auditor, canonical_bar_lineage and ohlcv_venue_head over raw, label_inputs, ops_data_bar_check (R-191-06)
+- [ ] 191-10-PLAN.md - evidence readers: split detection, listing venue, bar hold, dividend writer, nightly (R-191-06)
+- [ ] 191-11-PLAN.md - ops and research scripts, ObservationSink script writers, R6 over raw, final inventory, window closed (R-191-06)
+- [ ] 191-12-PLAN.md - canonical v2 table (vendor, kind): shell migration, copy-with-map build, equality and gate proof, window two (R-191-07)
+- [ ] 191-13-PLAN.md - code switch to vendor and kind, swap, four views recreated, VACUUM, repro_frozen, units resumed (R-191-07)
+- [ ] 191-14-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
+- [ ] 191-15-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
+- [ ] 191-16-PLAN.md - close: R6 and D7 green after a nightly cycle, repro_frozen, drop old canonical, delete one-shots, CLAUDE.md and design docs (R-191-09)
+- [ ] 191-17-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, indexes (R-191-09)
+- [ ] 191-18-PLAN.md - Tradier residue measurement and proof that the existing fallback path serves IBKR bars (no rule or policy change) (R-191-10)
+- [ ] 191-19-PLAN.md - Tradier deletion behind an owner checkpoint: COPY backup, guarded deletes, dated CLAUDE.md exception, first-bar change record, re-derive (R-191-10)
+- [ ] 191-20-PLAN.md - Tradier code deletion, pure library layer (R-191-10)
+- [ ] 191-21-PLAN.md - Tradier code deletion, services and fetcher-side scripts (R-191-10)
+- [ ] 191-22-PLAN.md - Tradier code deletion, ops and research scripts, sweep, todo 533 closes (R-191-10)
