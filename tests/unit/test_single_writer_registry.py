@@ -90,6 +90,9 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             reason="the only writer after the seed: admission-sweep exception rows, --add, --close",
         ),
     ),
+    # Placeholder: nothing writes ohlcv_raw yet. TEMPORARY retire: 191-02 (plan 02 registers the
+    # real writer behind the ingress contract).
+    "ohlcv_raw": (),
     "ohlcv_observation": (
         Writer(
             "services/ohlcv_observation_writer.py",
