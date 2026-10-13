@@ -623,3 +623,13 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion)*
 
 - [ ] 190-07-PLAN.md — Glossary/gotchas, close todo 526, Alpaca downstream dependency note
+
+### Phase 191: Unified raw bar table (todo 533; design: docs/plans/2026-10-12-unified-raw-bar-table-design.md)
+
+**Goal:** One raw table (`ohlcv_raw`) for every vendor and timeframe, last-wins with a revision log; canonical `market_data_ohlcv` becomes a rebuildable selection by policy; `ohlcv_observation` and `ohlcv_intraday_raw_archive` are deleted; vendors are CVR data; Tradier retired.
+**Requirements**: design doc steps 3-10
+**Depends on:** Phase 190
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 191 to break down)
