@@ -51,3 +51,13 @@ worker reconnects the shared provider (`_reconnect`) while the others have reque
 their retries absorb it, but watch `gateway_lost` and `hist_pacing_error` counts on the first runs.
 Alpaca depth floor re-probed 2026-10-12: requests from 2010 to 2015 return a first bar at
 2016-01-01, so IBKR is the only 5m source for 2006-2015.
+
+## Update 2026-10-13
+
+The timeout fix (fd1bfba4a) removed the 375 s stalls: 0 failed requests since 04:45 EDT, 0.9 to
+1.0M bars an hour against 0.5 to 0.7M. Cause 1 is settled by owner direction: raw is stored per
+source, agnostic to every other source, and a source's gap is its expected slots minus its own raw
+slots minus its own answered windows. Plan 191-04 deletes the cross-vendor refusal; the fetcher's
+gap planner (`_plan_gaps`, overlap and refetch lanes) moves to the per-source rule in the plan that
+cuts the fetcher over to `ohlcv_raw`. Do not restrict the queue to pre-2016: post-2016 IBKR chunks
+are IBKR raw we want. Cause 2 (serial fetch, bounded concurrency) is unchanged and still first.
