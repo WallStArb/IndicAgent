@@ -815,15 +815,37 @@ def _refusing_first_persist(monkeypatch, env, make_refusal):
     monkeypatch.setattr(item_mod, "persist_chunk_atomically", persist)
 
 
+def _stored_from(monkeypatch, label):
+    """The stored rows under the refused slots carry `label` as their source."""
+    stored_row = (1.0, 1.0, 1.0, 1.0, 1, label)
+
+    def fake_read_stored(cur, destination, symbol, timeframe, timestamps):
+        return dict.fromkeys(timestamps, stored_row)
+
+    monkeypatch.setattr(item_mod, "read_stored", fake_read_stored)
+
+
 def test_a_refused_chunk_is_archived_and_the_walk_continues(env, monkeypatch, make_refusal):
     """Capture law: a refused chunk's rows are archived and the walk goes on to older chunks;
     the refused bars are not re-offered as missed by on_chunk, and the refusal still fails the
     item (ledger, escalation and run exit code see it as before)."""
     _refusing_first_persist(monkeypatch, env, make_refusal)
+    _stored_from(monkeypatch, "ibkr_named")  # the vendor restating its own history
     outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
     assert len(env.persist) == 2 and env.persist[0].refused
     assert outcome.n_bars == 2  # only the accepted chunk is canonical
     assert outcome.status == "error" and "refused: changed" in (outcome.error or "")
+
+
+def test_a_refusal_over_another_vendors_rows_is_answered_not_an_error(
+    env, monkeypatch, make_refusal
+):
+    """Source policy working as designed (IBKR 5m over Alpaca-canonical): the rows are
+    archived and the item counts as answered, so the Alpaca-covered walk does not go red."""
+    _refusing_first_persist(monkeypatch, env, make_refusal)
+    _stored_from(monkeypatch, "alpaca")
+    outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
+    assert outcome.status == "ok" and outcome.error is None
 
 
 def test_a_refused_walk_skips_the_fx_derivation(env, monkeypatch, make_refusal):

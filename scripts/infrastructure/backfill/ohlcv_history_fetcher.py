@@ -1057,7 +1057,10 @@ class OHLCVHistoryFetcher(BaseBatch):
         if loop.gateway_lost:
             raise RuntimeError(f"IBKR gateway lost mid-run at {loop.gateway_lost}")
         failed = loop.n_error > 0 or any(rc != 0 for rc in stage_codes.values())
-        self.completion_status = "partial" if failed else "success"
+        nothing_succeeded = loop.n_error > 0 and loop.n_ok + loop.n_no_data == 0
+        self.completion_status = (
+            "failed" if nothing_succeeded else "partial" if failed else "success"
+        )
 
     async def _loop(self, pool: Any, plan: RunPlan, ctx: Any) -> _LoopState:
         budget_min = (

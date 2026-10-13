@@ -741,6 +741,18 @@ async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_eff
     assert '"status": "partial"' in (tmp_path / "status.json").read_text()
 
 
+async def test_a_run_where_every_item_errors_is_failed_not_partial(tmp_path, _no_side_effects):
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        return _outcome(row, "error")
+
+    items = [_ranked(s) for s in ("AAA", "BBB")]
+    fetcher, _ = _fetcher(tmp_path, _plan(items), fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None
+    assert status == "failed"
+    assert '"status": "failed"' in (tmp_path / "status.json").read_text()
+
+
 async def test_the_update_lane_span_and_watchdog_tick_reach_the_item_fetch(tmp_path):
     received: dict[str, Any] = {}
 

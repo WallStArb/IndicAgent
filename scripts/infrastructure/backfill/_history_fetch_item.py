@@ -89,6 +89,7 @@ from services.ohlcv_ingress_contract import RevisionRefused, read_stored
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.bars.sources import LABEL_VENDOR
 from src.providers import ibkr
 from src.providers.base import EmptyHistory, HistoryProvider
 
@@ -284,7 +285,10 @@ class _ChunkPersister:
 
     A refused chunk does not stop the walk: the persist helper has already recorded its answer,
     archived its served rows and written the refused load row (todo 528), so the provider goes
-    on to older history. The refusal is kept in `refusals` and fails the item as before.
+    on to older history. A refusal over rows another vendor authored is the source policy
+    working as designed: it is kept in `policy_refusals` and the item still counts as answered.
+    Any other refusal (a vendor restating its own history) is kept in `refusals` and fails
+    the item.
     """
 
     def __init__(
@@ -315,6 +319,7 @@ class _ChunkPersister:
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
         self.refusals: list[str] = []
+        self.policy_refusals: list[str] = []
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
@@ -353,7 +358,11 @@ class _ChunkPersister:
             self.n_rows += n_rows
         except RevisionRefused as error:
             stamps = [row[0] for row in rows]
-            self.refusals.append(f"{min(stamps).date()}-{max(stamps).date()}: {error.detail}")
+            detail = f"{min(stamps).date()}-{max(stamps).date()}: {error.detail}"
+            if self._authored_by_other_vendor(conn, error, stamps):
+                self.policy_refusals.append(detail)
+            else:
+                self.refusals.append(detail)
             logger.warning(
                 "ibkr_history_fetcher.chunk_refused_archived",
                 symbol=self.symbol,
@@ -363,6 +372,17 @@ class _ChunkPersister:
             )
         self.persisted.update(row[0] for row in rows)
         self.clock.touch()
+
+    def _authored_by_other_vendor(
+        self, conn: Any, error: RevisionRefused, stamps: list[datetime]
+    ) -> bool:
+        """True when every stored row the refused chunk overlaps came from another vendor."""
+        if self.archive:
+            return False
+        with conn.cursor() as cur:
+            stored = read_stored(cur, INGRESS_GRID_DESTINATION, self.symbol, self.timeframe, stamps)
+        vendors = {LABEL_VENDOR.get(values[5]) for values in stored.values()}
+        return bool(vendors) and None not in vendors and error.load.source not in vendors
 
 
 def _stored_closes(
@@ -731,6 +751,7 @@ async def fetch_item(
         not d1_capture
         and n_bars == 0
         and not persister.refusals
+        and not persister.policy_refusals
         and instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO)
         and timeframe in _FX_DERIVED_TFS
     ):
@@ -754,7 +775,8 @@ async def fetch_item(
 
     failed.extend(persister.refusals)
     failure = "; ".join(failed) if failed else None
-    status = "error" if failed else ("ok" if n_bars > 0 else "no_data")
+    answered = n_bars > 0 or bool(persister.policy_refusals)
+    status = "error" if failed else ("ok" if answered else "no_data")
     return ItemOutcome(
         symbol,
         timeframe,
