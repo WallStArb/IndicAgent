@@ -40,6 +40,10 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Refusal and read filter: the archive insert raises on a synthetic_fill row and its "
         "copy statement excludes the source (the filter goes with 185-39's archive statements)."
     ),
+    "services/ohlcv_raw_writer.py": (
+        "Refusal: write_raw raises on a synthetic_fill vendor or kind before any SQL (ohlcv_raw "
+        "holds vendor answers only; phase 191 plan 02)."
+    ),
     "services/bar_reconciliation_audit.py": (
         "Reads and comparisons: D7 counts rows by source and excludes synthetic rows from its "
         "real-row comparisons; nothing is written with the source."

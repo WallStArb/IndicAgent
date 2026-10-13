@@ -99,8 +99,14 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     ),
     "ohlcv_request": (
         Writer(
+            "services/ohlcv_request_writer.py",
+            reason="the fetch ledger writer (RequestSink / AsyncRequestSink, phase 191 plan 02)",
+        ),
+        Writer(
             "services/ohlcv_observation_writer.py",
-            reason="the D1 writer: each request row lands with its observations",
+            reason="TEMPORARY: the D1 writer's request rows, duplicated in "
+            "ohlcv_request_writer.py until plan 05 stops the fetcher importing it "
+            "(retire: 191-16)",
         ),
     ),
     "ohlcv_empty_history": (
