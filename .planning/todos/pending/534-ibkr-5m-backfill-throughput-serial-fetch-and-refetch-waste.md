@@ -40,3 +40,14 @@ throughput is bound by latency (about 130 requests an hour), not by the pacing l
 
 5m symbols an hour measured from `ohlcv_request` before and after, refusals per symbol near zero for
 names with an Alpaca tail, `repro_frozen` untouched (no research code edited).
+
+## Progress
+
+2026-10-12: concurrency landed (985911234, migration 471 applied live). `_loop` runs one worker per
+context, `infra.backfill.fetch_concurrency` (seeded 1, set to 2 for the next run). The live run
+that started 21:25 EDT keeps its old code and serial loop until its 240 minute budget ends; the
+next timer fire picks up the new code. Raise to 3-4 after one clean run. Open risk: a stall in one
+worker reconnects the shared provider (`_reconnect`) while the others have requests in flight;
+their retries absorb it, but watch `gateway_lost` and `hist_pacing_error` counts on the first runs.
+Alpaca depth floor re-probed 2026-10-12: requests from 2010 to 2015 return a first bar at
+2016-01-01, so IBKR is the only 5m source for 2006-2015.
