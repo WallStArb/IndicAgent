@@ -18,7 +18,7 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
    reads current raw plus policy, so the next unchanged overlapping fetch or the plan 07 rebuild
    writes them into canonical. Design (owner direction pending objection): raw stays faithful; a
    refusal is a held span (vendor, kind, series, span) that selection skips until explicitly
-   accepted. Needs a table, a writer, and a selection input. Place before plan 07.
+   accepted. Plan 07 already names a `refused_self_restatement` class (slots of a series whose raw write was refused are excluded from selection, via the ohlcv_load outcome), so this is probably built there: verify plan 07 makes the exclusion durable across reruns before adding a table.
 2. A slot with no winner, or a winner with NULL volume, leaves the old canonical row
    (`bar_selection.py:124-134`), so canonical depends on history. Use `removal_scope`, fall to the
    next candidate on NULL volume. Do not wire `apply_raw_contract` before plan 07 seeds the Alpaca
