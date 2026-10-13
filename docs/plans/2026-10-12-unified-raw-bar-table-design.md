@@ -134,3 +134,55 @@ Ordering against 186-26 (the `feature_vectors` rebuild): canonical values do not
 ## Glossary entries to add (with the phase)
 
 `ohlcv_raw` (the one table of vendor answers), `bar_vendor`, `bar_kind`, `revision` (a vendor changing its own answer) versus `disagreement` (two vendors differing on a slot). Retired on completion: `ohlcv_observation`, `intraday raw archive`, `parity lane` as a separate path.
+
+## Resolved at planning (2026-10-12)
+
+Decisions taken while planning phase 191 (`.planning/phases/191-unified-raw-bar-table/`). Plan numbers are those in ROADMAP.md phase 191. Each carries the line `Status: planner decision, owner acknowledgement pending`.
+
+### D-191-A: kind rules
+
+Status: planner decision, owner acknowledgement pending
+
+Raw `kind` is what the vendor served, so `fallback` is a canonical-only kind: a selection outcome the daily rule assigns, never written to `ohlcv_raw`. Tradier's kind is `consolidated` and Alpaca's is `sip_rth` (the RTH-window SIP aggregates, `docs/plans/2026-10-09-alpaca-5m-admission-build.md`). The IBKR 1d observation routes map to `smart_trades` and `smart_adjusted` (a listing-venue route with TRADES maps to `venue`). `derived` is the vendor only of the 15m/1h grid (kind `5m_grid`); the rule version stays in `bar_derivation_batch`, not on the row. The single definition is `src/intelligence/bars/vendor_kind.py`.
+
+### D-191-B: canonical 1d rows keep the winning raw (vendor, kind)
+
+Status: planner decision, owner acknowledgement pending
+
+This deviates from the Canonical section above, whose example gives derived rows the rule as kind (`d2_v2`) and does not say what a selected 1d row carries. A canonical 1d row keeps the winning raw row's (vendor, kind) (`canonical_kind_for_raw`: `smart_trades` becomes `named`, `venue` stays, `consolidated` stays; adjusted bars are never canonical), so the tradeable view can null volume by kind. The `d2_v2` kind example is superseded.
+
+### D-191-C: Alpaca policy spans are data, seeded at the selection gate
+
+Status: planner decision, owner acknowledgement pending
+
+The schema migration drops the `bar_source_policy` CHECKs on `primary_source` and `fallback_source` but seeds no span. Alpaca spans are seeded data-driven through `scripts/ops/bars/ops_source_policy.py` in the selection gate plan (07), reproducing today's canonical wherever selection from raw differs.
+
+### D-191-D: conservative fetch_run_id pairing
+
+Status: planner decision, owner acknowledgement pending
+
+This deviates from the Migration plan text in step 6, which has the dividend writer pair TRADES and ADJUSTED_LAST when their `request_id`s share a `fetch_run_id`. Last-wins raw keeps the `request_id` of the request that first served each value, so a later unchanged re-offer leaves the old request on the row. The dividend writer's, D7's and the daily rule's pairing becomes a conservative rule: `served_at` ordering is accepted only when neither row has `ohlcv_revision` history after the adjusted serve; otherwise the same `fetch_run_id` through `request_id` is required. Split detection orders restatement history by `ohlcv_request.answered_at` through the revision `request_id`, never by `ohlcv_load.loaded_at`.
+
+### D-191-E: revision evidence is reconstructed in the backfill
+
+Status: planner decision, owner acknowledgement pending
+
+The backfill reconstructs `ohlcv_revision` rows from observation value history so split detection keeps its evidence: one real `ohlcv_load` row per (symbol, vendor, restatement ordinal), caller `raw-backfill-191`. It runs in plan 04, after the revision key is widened to include vendor and kind.
+
+### D-191-F: one cutover window
+
+Status: planner decision, owner acknowledgement pending
+
+The bulk backfill (plan 03) only reads and runs with the fetcher live. The fetcher timer and every timer or service that writes or reads the old stores stop in plan 04 and resume per unit as each reader cuts over. The fetcher resumes only after the selection gate (plan 07) passes.
+
+### D-191-G: the v2 canonical table is a copy-with-map
+
+Status: planner decision, owner acknowledgement pending
+
+This deviates from the Canonical section, which builds `market_data_ohlcv_v2` by `INSERT ... SELECT` from `ohlcv_raw` plus derived rows. Plan 12 builds v2 by copy-with-map from the live canonical table (label to (vendor, kind) through `vendor_kind`), and plan 14 swaps the names. The selection gate (plan 07) re-run on v2 is the proof that canonical is rebuildable from raw, so the build path does not need to be the selection path.
+
+### D-191-H: explicit deferrals
+
+Status: planner decision, owner acknowledgement pending
+
+Phase 191 does not deliver: the D7 condition for todo 520, todo 524's D7 tolerance rule and price/volume split, todo 531's `market_data_5m` naming pass, and todo 527's 5m shaper dedup. Plan 18 records each as a deferral in its todo.

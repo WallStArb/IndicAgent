@@ -2022,7 +2022,8 @@ with its route (`SMART`, a venue such as `NYSE`, `TRADIER`) and what_to_show. Th
 hold several observations; the latest per route is what the derivation reads. Daily only;
 intraday answers are stored as bars directly. **Not:** a sample in a statistic ("n
 observations"), and not a canonical bar. **Banned:** (none)
-**Status:** active (migration 380, phase 185 D1; mutable since migration 438)
+**Status:** active, retiring with phase 191 (its rows fold into `ohlcv_raw`; the table drops in plan 16)
+(migration 380, phase 185 D1; mutable since migration 438)
 **Code surface:** `ohlcv_request`, `ohlcv_observation`; writer role `ohlcv_observation_writer`
 
 ### `canonical bar`
@@ -2163,7 +2164,7 @@ whose `leaf_factory` builds a `HistoryProvider` leaf. **Not:** the retired per-c
 scripts it replaced (one fetch CLI per vendor), and not the nightly capture runner
 (`ops_bar_nightly`, the T4 tail-capture shell; its lanes join this loop when the Alpaca
 ProviderEntry lands). **Banned:** naming any new fetch path after one vendor.
-**Status:** active (phase 190 cutover, 2026-10-10)
+**Status:** active (phase 190 cutover, 2026-10-10); the parity lane as a separate path retires with phase 191 (parity rows become ordinary `ohlcv_raw` rows keyed by vendor)
 **Code surface:** `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`; external
 identities intentionally keep the ibkr name (`FETCHER_LOCK_NAME`, JOB label
 `ibkr-history-fetcher`, `indicagent-ibkr-history-fetcher.*` units,
@@ -2228,7 +2229,8 @@ row-for-row and vendor-agreement audits never depend on a tape the pipeline dele
 compute path never reads it (boundary fence). **Not:** scratch (staging, disposable after
 reconciliation), and not a second canonical store. **Banned:** dropping non-authored served
 rows (todo 528 R1); a vendor re-archiving its own canonical answer.
-**Status:** active (migration 383 + 468; no-drop engine since todo 528)
+**Status:** active, retiring with phase 191 (its rows fold into `ohlcv_raw`; the table drops in plan 16)
+(migration 383 + 468; no-drop engine since todo 528)
 **Code surface:** `services/intraday_raw_archive.py` (single writer);
 `services/bar_load.py` (`split_series`, `archive_rows`)
 
@@ -2248,6 +2250,50 @@ vendor-agreement audits compare per source, never inside a blended bucket.
 **Status:** active (labels date to migrations 383/446/464/465/468; ruling 2026-10-10)
 **Code surface:** `bar_source_policy`; `market_data_ohlcv.source`;
 `ohlcv_coverage.provider`
+
+### `ohlcv_raw`
+
+The one table of vendor answers: every bar a vendor served, at the timeframe it served, keyed
+(timestamp, symbol, timeframe, `vendor`, `kind`) and last-wins (a refetch replaces the earlier
+answer; an unchanged re-offer writes nothing). Canonical `market_data_ohlcv` is a selection
+from it by `bar_source_policy`, so canonical is rebuildable. `served_at`, `request_id` and
+`load_id` are nullable only for rows migrated from stores that never captured them. No CHECK
+on vendor or kind: the writer validates against the CVR namespaces. **Not:** the canonical
+table, an append log of every request, or a store of derived bars. **Banned:** dummy ids or
+`now()` stamps for the nullable lineage columns.
+**Status:** active (migration 472, phase 191 plan 01; no writer until plan 02)
+**Code surface:** `ohlcv_raw`; `src/intelligence/bars/vendor_kind.py`
+
+### `bar_vendor`
+
+The CVR namespace of who served a bar: `ibkr`, `alpaca`, `tradier` (stored history only) and
+`derived` (the 15m/1h grid, never served by a vendor). A new vendor is a CVR row, a
+`history_leaf`, a `VendorIngress` row and APR seeds, never a migration. **Not:** the bar
+`source` label (which mixes vendor and kind) or `ohlcv_load.source`.
+**Status:** active (migration 472)
+**Code surface:** `controlled_vocabulary` namespace `bar_vendor`; `VocabularyService`;
+`BAR_VENDORS` in `src/intelligence/bars/vendor_kind.py`
+
+### `bar_kind`
+
+The CVR namespace of what a vendor served, within one vendor: `named`, `venue`, `continuous`,
+`official`, `generic`, `smart_trades`, `smart_adjusted`, `consolidated`, `sip_rth`, `5m_grid`,
+and `fallback`. A raw kind is what the vendor served, so `fallback` is a canonical-only kind: a
+selection outcome the daily rule assigns, never written to `ohlcv_raw`. Its `sort_order` is the
+within-vendor selection precedence. **Not:** a timeframe or a vendor.
+**Status:** active (migration 472)
+**Code surface:** `controlled_vocabulary` namespace `bar_kind`; `BAR_KINDS` in
+`src/intelligence/bars/vendor_kind.py`
+
+### `revision` / `disagreement`
+
+A `revision` is one vendor changing its own answer for a slot; the old value is logged in
+`ohlcv_revision` and the raw row is replaced. A `disagreement` is two vendors answering one slot
+differently; both rows stay in `ohlcv_raw` and selection resolves it by policy, never as an
+error and never as a refusal. **Not:** interchangeable: a cross-vendor difference is never a
+revision, and a revision ratio is measured against the same vendor's own stored rows.
+**Status:** active (phase 191 design; the refusal rule moves to this split in plan 02)
+**Code surface:** `ohlcv_revision`, `ohlcv_raw`
 
 ---
 
