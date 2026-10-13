@@ -53,7 +53,7 @@ Phase-sized: steps 1-2 open it, then promote it to a phase (`/gsd-phase`) for st
 
 ## Execution sequence
 
-0. **DONE 2026-10-12 (stop the bleeding):** parity lane paused via `infra.backfill.grid_parity_sample_names_per_week = 0` (config_history v2; restore the 10 at step 4); run status `failed` when nothing succeeded, and a refusal over another vendor's rows counts as answered.
+0. **DONE 2026-10-12 (stop the bleeding):** parity lane paused via `infra.backfill.grid_parity_sample_names_per_week = 0` (config_history v2; restore the 10 at step 8 of the design doc); run status `failed` when nothing succeeded, and a refusal over another vendor's rows counts as answered.
    - Pause the fetcher's 15m/1h parity lane until step 4: an archive-timeframe refusal upserts
      the refused rows into the same archive table, overwriting the stored rows it meant to
      protect (code review, 2026-10-12). The 5m backfill keeps running: everything it serves lands

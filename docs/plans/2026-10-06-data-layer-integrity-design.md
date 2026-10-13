@@ -7,6 +7,9 @@ Amendment 2026-10-10: the standing rule "capture is universal, authoring is
 single-source" was found unenforced: the load engine dropped 81.7M
 vendor-served rows and the raw archive cannot hold a second source. Rules and
 enforcement: todo 528 (`docs/plans/2026-10-10-raw-capture-enforcement.md`).
+Amendment 2026-10-12: capture law 528 becomes "raw takes every answer" in one table for
+every vendor and timeframe; the archive and `ohlcv_observation` fold into it and canonical
+becomes a selection (`docs/plans/2026-10-12-unified-raw-bar-table-design.md`, todo 533).
 Informed by: `docs/plans/2026-09-26-unified-research-to-production-design.md` (section 12),
 `docs/plans/2026-09-26-daily-data-foundation.md` (D0-D7),
 `docs/plans/2026-09-29-intraday-bar-store-redesign.md`,
