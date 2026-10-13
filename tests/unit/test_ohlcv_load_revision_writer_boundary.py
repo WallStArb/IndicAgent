@@ -42,6 +42,7 @@ _TABLES = {
 
 _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
+_RAW_WRITER = "services/ohlcv_raw_writer.py"
 
 # table -> module -> (owned ohlcv_load.source values, reason)
 _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
@@ -72,6 +73,13 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], str]]] = {
             frozenset({"ibkr"}),
             "PERMANENT: the old values of every bar an ingress chunk changed, under that "
             "chunk's own ibkr load row (origin load; plan 185-39).",
+        ),
+        _RAW_WRITER: (
+            frozenset({"origin:raw"}),
+            "PERMANENT: the raw writer logs the old values of a vendor's restated ohlcv_raw row "
+            "(origin raw; phase 191 plan 02). It writes ohlcv_revision rows only and never an "
+            "ohlcv_load row, so it owns no ohlcv_load.source segment; its segment here is the "
+            "revision origin. The load segments are decided in plan 04.",
         ),
     },
 }

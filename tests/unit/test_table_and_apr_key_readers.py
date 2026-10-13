@@ -143,9 +143,7 @@ _KEEP_TABLES: dict[str, str] = {
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
-_PENDING_RETIREMENT: dict[str, str] = {
-    "ohlcv_raw": "created by migration 472 with no writer or reader yet (retire: 191-02)",
-}
+_PENDING_RETIREMENT: dict[str, str] = {}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:
