@@ -10,6 +10,7 @@ when no database is reachable; every other test is CI-clean.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import functools
 import time
 import uuid
@@ -684,6 +685,45 @@ async def test_budget_stops_taking_new_items(tmp_path):
     assert status == "success"
     assert len(seen["fetched"]) <= 1
     assert fetcher.summary["budget_exhausted"] is True
+
+
+async def _max_in_flight(tmp_path: Path, concurrency: int, n_items: int = 6) -> tuple[int, list]:
+    in_flight = 0
+    peak = 0
+
+    async def timed_fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        seen["fetched"].append((row.symbol, row.timeframe))
+        return _outcome(row)
+
+    plan = _plan([_ranked(f"A{i}") for i in range(n_items)])
+    plan = dataclasses.replace(
+        plan, config=dataclasses.replace(_CONFIG, fetch_concurrency=concurrency)
+    )
+    fetcher, seen = _fetcher(tmp_path, plan, fetch_fn=timed_fetch)
+    status, error = await _run(fetcher)
+    assert error is None
+    assert status == "success"
+    return peak, seen["fetched"]
+
+
+async def test_fetch_concurrency_runs_that_many_items_at_once_and_each_item_once(
+    tmp_path, _no_side_effects
+):
+    peak, fetched = await _max_in_flight(tmp_path, 3)
+    assert peak == 3
+    assert sorted(fetched) == [(f"A{i}", "15m") for i in range(6)]
+    assert len(_no_side_effects.outcomes) == 6
+
+
+async def test_fetch_concurrency_one_is_the_serial_loop(tmp_path, _no_side_effects):
+    peak, fetched = await _max_in_flight(tmp_path, 1)
+    assert peak == 1
+    assert [symbol for symbol, _ in fetched] == [f"A{i}" for i in range(6)]
 
 
 async def test_a_repeated_item_is_processed_once(tmp_path, _no_side_effects):

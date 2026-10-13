@@ -1024,10 +1024,15 @@ class OHLCVHistoryFetcher(BaseBatch):
         run_started_at = datetime.now(UTC)
         primary = leaves.get(default_provider()) or next(iter(leaves.values()), None)
         ctx: Any = None
+        extra_ctxs: list[Any] = []
         escalation_code = 0
         try:
             ctx = self._context_factory(primary, plan, fetch_run_id)
-            loop = await self._loop(pool, plan, ctx)
+            extra_ctxs = [
+                self._context_factory(primary, plan, fetch_run_id)
+                for _ in range(max(1, plan.config.fetch_concurrency) - 1)
+            ]
+            loop = await self._loop(pool, plan, [ctx, *extra_ctxs])
             if not loop.gateway_lost:
                 escalation_code = await self._escalate(
                     pool, plan, ctx, loop, fetch_run_id, run_started_at
@@ -1038,8 +1043,9 @@ class OHLCVHistoryFetcher(BaseBatch):
                     await leaf.disconnect()
                 except Exception as error:  # a dead socket may refuse a clean disconnect
                     logger.warning("ibkr_history_fetcher.disconnect_failed", error=str(error))
-            if ctx is not None:
-                self._final_flush(ctx)
+            for flush_ctx in (ctx, *extra_ctxs):
+                if flush_ctx is not None:
+                    self._final_flush(flush_ctx)
         stage_codes = {"escalation": escalation_code, **await self._run_end_stages(ctx, loop)}
         sla_breached = await self._sla_breached(pool, plan)
         self.summary = {
@@ -1062,7 +1068,13 @@ class OHLCVHistoryFetcher(BaseBatch):
             "failed" if nothing_succeeded else "partial" if failed else "success"
         )
 
-    async def _loop(self, pool: Any, plan: RunPlan, ctx: Any) -> _LoopState:
+    async def _loop(self, pool: Any, plan: RunPlan, contexts: Sequence[Any]) -> _LoopState:
+        """Run the queue with one worker per context (infra.backfill.fetch_concurrency).
+
+        Each worker holds its own connection and observation sink; the provider, the request
+        limiter and every DB write path stay as they were (the persist calls are synchronous, so
+        the event loop serializes the writes). Workers overlap only while a request is in flight.
+        One context is the serial loop."""
         budget_min = (
             self.args.budget_minutes
             if self.args.budget_minutes is not None
@@ -1071,47 +1083,63 @@ class OHLCVHistoryFetcher(BaseBatch):
         deadline = time.monotonic() + budget_min * 60
         state = _LoopState()
         visited: set[tuple[str, str, str]] = set()
-        while True:
-            if time.monotonic() >= deadline:
-                state.budget_exhausted = True
-                break
-            row = await plan.queue.next(pool, visited)
-            if row is None:
-                break
-            key = (row.provider, row.symbol, row.timeframe)
-            if key in visited:  # the queue handed back a visited item: never fetch twice
-                logger.error(
-                    "ibkr_history_fetcher.queue_repeated_item",
-                    provider=row.provider,
-                    symbol=row.symbol,
-                    tf=row.timeframe,
+        claim = (
+            asyncio.Lock()
+        )  # queue.next and visited.add are one step: no item is handed out twice
+        stop = asyncio.Event()  # the queue is exhausted, repeated an item, or the gateway was lost
+
+        async def worker(ctx: Any) -> None:
+            while not stop.is_set():
+                if time.monotonic() >= deadline:
+                    state.budget_exhausted = True
+                    return
+                async with claim:
+                    if stop.is_set():
+                        return
+                    row = await plan.queue.next(pool, visited)
+                    if row is None:
+                        stop.set()
+                        return
+                    key = (row.provider, row.symbol, row.timeframe)
+                    if key in visited:  # the queue handed back a visited item: never fetch twice
+                        logger.error(
+                            "ibkr_history_fetcher.queue_repeated_item",
+                            provider=row.provider,
+                            symbol=row.symbol,
+                            tf=row.timeframe,
+                        )
+                        stop.set()
+                        return
+                    visited.add(key)
+                lane, full_scan, overlap_days = item_lane(plan, row, full_scan=self.args.full_scan)
+                state.lanes[lane] += 1
+                outcome = await self._fetch_one(
+                    plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
                 )
-                break
-            visited.add(key)
-            lane, full_scan, overlap_days = item_lane(plan, row, full_scan=self.args.full_scan)
-            state.lanes[lane] += 1
-            outcome = await self._fetch_one(
-                plan, ctx, row, full_scan=full_scan, overlap_days=overlap_days
-            )
-            self._notify()
-            if outcome.gateway_lost:
-                # The gateway, not the item, failed: nothing is charged to the series (CD-05).
-                state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
-                break
-            self._record_outcome(ctx, outcome)
-            state.add(outcome)
-            if outcome.overlap_pairs:
-                verdict = judge_overlap(
-                    outcome.overlap_pairs,
-                    plan.lanes.basis_tolerance_bp,
-                    escalate_on_restated=False,
+                self._notify()
+                if outcome.gateway_lost:
+                    # The gateway, not the item, failed: nothing is charged to the series (CD-05).
+                    state.gateway_lost = f"{row.provider}/{row.symbol}/{row.timeframe}"
+                    stop.set()
+                    return
+                self._record_outcome(ctx, outcome)
+                state.add(outcome)
+                if outcome.overlap_pairs:
+                    verdict = judge_overlap(
+                        outcome.overlap_pairs,
+                        plan.lanes.basis_tolerance_bp,
+                        escalate_on_restated=False,
+                    )
+                    if verdict.escalate:
+                        state.overlap_breaches[(row.provider, row.symbol, row.timeframe)] = verdict
+                item_plan = plan.plans.get(row.provider)
+                await asyncio.sleep(
+                    item_plan.inter_item_pause_s
+                    if item_plan is not None
+                    else plan.inter_item_pause_s
                 )
-                if verdict.escalate:
-                    state.overlap_breaches[(row.provider, row.symbol, row.timeframe)] = verdict
-            item_plan = plan.plans.get(row.provider)
-            await asyncio.sleep(
-                item_plan.inter_item_pause_s if item_plan is not None else plan.inter_item_pause_s
-            )
+
+        await asyncio.gather(*(worker(ctx) for ctx in contexts))
         return state
 
     async def _fetch_one(

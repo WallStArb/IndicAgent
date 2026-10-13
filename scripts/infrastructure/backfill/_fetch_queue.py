@@ -111,6 +111,7 @@ _KEY_SLA_DAYS = "infra.backfill.max_staleness_days_before_preempt"
 _KEY_PRIORITY_TFS = "infra.backfill.priority_tf_order"
 _KEY_DEFAULT_SCOPES = "infra.backfill.default_scopes"
 _KEY_RUN_BUDGET = "infra.backfill.run_budget_minutes"
+_KEY_FETCH_CONCURRENCY = "infra.backfill.fetch_concurrency"
 _DEPTH_PREFIX = "infra.backfill.depth_days."
 
 # Per-provider APR key suffixes under infra.<provider>.* (phase 190 plan 03 Task 1).
@@ -144,6 +145,7 @@ _FALLBACKS: dict[str, str] = {
         '{"compute": ["1d", "1h", "15m", "5m"], "compute_1d": ["1d"], "backfill": ["1h", "15m"]}'
     ),
     _KEY_RUN_BUDGET: "240",
+    _KEY_FETCH_CONCURRENCY: "1",
 }
 _DEPTH_FALLBACKS: dict[str, int] = {"1d": 7300, "1h": 7300, "15m": 7300, "5m": 7300, "1m": 90}
 
@@ -158,6 +160,7 @@ class QueueConfig:
     history_request_retries: int
     run_budget_minutes: int
     default_scopes: Mapping[str, tuple[str, ...]]
+    fetch_concurrency: int = 1
 
 
 @dataclass(frozen=True)
@@ -360,6 +363,7 @@ def load_queue_config(conn: Any) -> QueueConfig:
         history_request_retries=plan.request_retries,
         run_budget_minutes=int(get(_KEY_RUN_BUDGET)),
         default_scopes={str(k): tuple(v) for k, v in scopes.items()},
+        fetch_concurrency=int(get(_KEY_FETCH_CONCURRENCY)),
     )
 
 
