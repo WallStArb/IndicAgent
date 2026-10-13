@@ -1,15 +1,15 @@
 {
  "version": "1.0",
- "timestamp": "2026-10-07T16:00:00Z",
- "phase": "185",
- "phase_name": "daily-data-foundation",
- "plan": "185-46 (planned, not executed)",
- "status": "paused",
- "completed_tasks": ["185-23..33, 185-34, 185-36, 185-38..41, 185-44, 189-07 done and pushed", "swap plans 185-46/47/48 written (d29acaa21)"],
- "remaining_tasks": ["amend swap plans to two-lane design (todo 503)", "185-46", "189-08", "185-37", "185-35", "185-42/45/43", "189-10 (two segments, 185-47 between)", "185-47", "185-48", "189-09", "189-11", "186-26"],
- "blockers": ["Tradier account inactive, owner will not fund; Tradier timer still enabled and will fail until 185-46 stops it"],
- "human_actions_pending": ["grid_parity volume tolerance decision"],
- "uncommitted_files": ["docs/research/construction-verdict-ledger.md", "docs/ideas/signal-credit-put-reverse-diagonal.md", "evidence/ (other sessions)"],
- "next_action": "/gsd-resume-work, then dispatch a planner for todo 503 (amend plans), then execute 185-46 with one executor",
- "context_notes": "See .continue-here.md in the phase dir and memory project_tradier_account_inactive_unfunded. IBKR fetcher stays stopped until the 189-10 pilot. No agents running."
+ "timestamp": "2026-10-13T08:00:00Z",
+ "phase": "191",
+ "phase_name": "unified-raw-bar-table",
+ "plan": "191-03 (bulk backfill into ohlcv_raw running)",
+ "status": "in_progress",
+ "completed_tasks": ["todo 533 step 0", "design doc docs/plans/2026-10-12-unified-raw-bar-table-design.md reviewed", "phase 191 planned: 25 plans, checker clean", "191-01 and 191-02 executed and pushed", "191-03 code committed (db114c1ef)"],
+ "remaining_tasks": ["191-03 bulk backfill, balance check, summary, push", "191-04 to 191-25 serially, one gsd-executor each; 17 and 19 are time-gated; 20 needs the owner checkpoint (Tradier deletion; pre-D 1d volume becomes NULL for about 960 names)", "186-26 feature_vectors rebuild after the 06:00 UTC audit; not during plans 04 to 14", "todos 505 and 395"],
+ "blockers": ["Do not edit fetcher-imported modules or stop the fetcher before plan 04 opens the cutover window"],
+ "human_actions_pending": ["owner acknowledgement of D-191-B, D and G", "plan 20 Tradier deletion checkpoint"],
+ "uncommitted_files": [],
+ "next_action": "Check ohlcv_raw count and logs/raw_backfill_progress.jsonl; when the 191-03 executor reports, verify the balance check and push, then launch the 191-04 executor",
+ "context_notes": "Deep 5m IBKR backfill runs via the fetcher timer (every 15 min). Plans are strictly serial. Plan 04 re-runs the label-map UPDATE for NULL ohlcv_revision vendor/kind before NOT NULL. write_raw rejects NULL load_id/request_id, so the backfill has its own write path."
 }
