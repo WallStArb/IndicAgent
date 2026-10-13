@@ -675,6 +675,26 @@ def reconcile_update_sql(src_cte: str) -> str:
      WHERE {_KEY_JOIN} AND {_VALUES_DIFFER} AND {_LATER_SERVE}"""
 
 
+def canonical_disagreeing_select_sql() -> str:
+    """Canonical vendor rows whose archive twin (same key, same label) holds other values: the
+    only canonical values raw can lack, because raw keeps the archive's later serve."""
+    return f"""
+    SELECT m.timestamp, m.symbol, m.timeframe, l.vendor, l.kind,
+           m.open, m.high, m.low, m.close, m.volume,
+           NULL::timestamptz AS served_at, NULL::uuid AS request_id, NULL::uuid AS load_id
+      FROM ohlcv_intraday_raw_archive a
+      JOIN market_data_ohlcv m
+        ON m.timestamp = a.timestamp AND m.symbol = a.symbol AND m.timeframe = a.timeframe
+       AND m.source = a.source
+      JOIN (VALUES
+        {build_vendor_kind_values_sql()}
+      ) AS l(label, vendor, kind) ON l.label = m.source
+     WHERE a.symbol = %(symbol)s AND a.timestamp >= %(lo)s AND a.timestamp < %(hi)s
+       AND m.timeframe <> '1d'
+       AND ROW(a.open, a.high, a.low, a.close, a.volume)
+           IS DISTINCT FROM ROW(m.open, m.high, m.low, m.close, m.volume)"""
+
+
 def reconcile_canonical_only_sql(src_cte: str) -> str:
     """Canonical values that raw does not hold (raw keeps the archive's later serve). The
     canonical value is logged as the superseded one, with its values and no request."""
@@ -761,7 +781,7 @@ def run_reconcile(
     totals = {"displaced_archive": 0, "displaced_observation": 0, "canonical_logged": 0}
     archive_src = f"src AS ({archive_select_sql()})"
     obs_src = f"{observation_current_cte(obs_values_sql)}, src AS (SELECT * FROM current_obs)"
-    canonical_src = f"src AS ({canonical_select_sql()})"
+    canonical_src = f"src AS ({canonical_disagreeing_select_sql()})"
     for symbol in symbols:
         for year in years:
             lo, hi = window_bounds(year)

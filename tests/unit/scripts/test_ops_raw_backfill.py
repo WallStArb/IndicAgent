@@ -263,3 +263,9 @@ def test_finalize_counts_unexplained_revisions():
     totals["revisions"] = {"superseded_runs": 5, "missing": 1, "stored": 4}
     assert mod.finalize_report(totals)["unexplained"] == 1
     assert totals["exit_code"] == 1
+
+
+def test_canonical_disagreeing_select_is_driven_from_the_archive_twin():
+    sql = mod.canonical_disagreeing_select_sql()
+    assert "FROM ohlcv_intraday_raw_archive a" in sql and "m.source = a.source" in sql
+    assert "m.timeframe <> '1d'" in sql and "'ibkr_fallback'" not in sql
