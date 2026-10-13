@@ -182,6 +182,10 @@ _hist_throttle_count = 0
 # systemd kills the run, independent of in-process timers (RuntimeMaxSec bounds the whole run).
 # This wrapper is still worth having as the first line of defense for the common case.
 _HIST_REQUEST_TIMEOUT_SEC = 90.0
+# The same value is passed to reqHistoricalDataAsync as its own `timeout`: left at ib_async's
+# default of 60 s, the inner timer fired first on large 5m chunks (150 days of a liquid ETF is
+# ~11k bars and answers in 60-180 s), cancelled the query, and IBKR's "query cancelled" Error 162
+# followed. [rca_analysis 2026-10-13] Each such chunk then cost 60+65+60+130+60 = 375 s.
 
 # [rca_analysis 2026-07-05, F4] reqContractDetailsAsync (qualify_instrument,
 # resolve_instrument) has no timeout at all in ib_async -- not even an internal
@@ -1183,6 +1187,7 @@ class IBKRProvider:
                             whatToShow=what_to_show,
                             useRTH=use_rth,
                             formatDate=1,
+                            timeout=_HIST_REQUEST_TIMEOUT_SEC,
                         ),
                         timeout=_HIST_REQUEST_TIMEOUT_SEC,
                     )
@@ -1495,6 +1500,7 @@ class IBKRProvider:
                         whatToShow=what_to_show,
                         useRTH=rth,
                         formatDate=1,
+                        timeout=_HIST_REQUEST_TIMEOUT_SEC,
                     ),
                     timeout=_HIST_REQUEST_TIMEOUT_SEC,
                 )

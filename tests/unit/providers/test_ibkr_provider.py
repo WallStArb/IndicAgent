@@ -93,6 +93,28 @@ class TestFetchHistoricalBars:
         assert bars[0].source == SOURCE_IBKR_NAMED
 
     @pytest.mark.asyncio
+    async def test_request_timeout_reaches_ib_async(self, provider, mock_ib, monkeypatch):
+        """The configured request timeout is also ib_async's own timeout (its default of 60 s
+        cancelled large 5m chunks that were still answering)."""
+        mock_bar = MagicMock()
+        mock_bar.date = datetime(2026, 2, 1, 9, 30, tzinfo=UTC)
+        mock_bar.open = mock_bar.high = mock_bar.low = mock_bar.close = 1.0
+        mock_bar.volume = 1
+        mock_ib.reqHistoricalDataAsync = AsyncMock(return_value=[mock_bar])
+        provider._ib = mock_ib
+        provider._qualified_contracts["ESH6"] = MagicMock()
+        monkeypatch.setattr(ibkr_module, "_HIST_REQUEST_TIMEOUT_SEC", 240.0)
+
+        await provider.fetch_historical_bars(
+            symbol="ESH6",
+            timeframe="5m",
+            start=datetime(2026, 2, 1, tzinfo=UTC),
+            end=datetime(2026, 2, 2, tzinfo=UTC),
+        )
+
+        assert mock_ib.reqHistoricalDataAsync.await_args.kwargs["timeout"] == 240.0
+
+    @pytest.mark.asyncio
     async def test_unknown_timeframe_raises(self, provider, mock_ib):
         provider._ib = mock_ib
         with pytest.raises(ValueError, match="Unsupported timeframe"):
