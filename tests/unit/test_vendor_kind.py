@@ -58,8 +58,8 @@ def test_unknown_pair_raises_keyerror_naming_it():
     [
         ("ibkr", "SMART", "TRADES", "smart_trades"),
         ("ibkr", "SMART", "ADJUSTED_LAST", "smart_adjusted"),
-        ("ibkr", "ARCA", "TRADES", "venue"),
-        ("ibkr", "ISLAND", "TRADES", "venue"),
+        ("ibkr", "ARCA", "TRADES", "venue_arca"),
+        ("ibkr", "ISLAND", "TRADES", "venue_island"),
         ("tradier", "TRADIER", "TRADES", "consolidated"),
         ("alpaca", "ALPACA", "TRADES", "sip_rth"),
         ("ibkr", "LEGACY_IMPORT", "TRADES", "smart_trades"),
@@ -88,6 +88,7 @@ def test_observation_kind_unknown_combination_raises(args):
 def test_canonical_kind_for_raw():
     assert canonical_kind_for_raw("ibkr", "smart_trades") == "named"
     assert canonical_kind_for_raw("ibkr", "venue") == "venue"
+    assert canonical_kind_for_raw("ibkr", "venue_nyse") == "venue"
     assert canonical_kind_for_raw("tradier", "consolidated") == "consolidated"
     for pair in (("ibkr", "smart_adjusted"), ("ibkr", "fallback"), ("alpaca", "sip_rth")):
         with pytest.raises(ValueError):
@@ -101,3 +102,15 @@ def test_vocabularies_cover_every_mapped_pair():
         assert kind in BAR_KINDS
     assert {"smart_trades", "smart_adjusted"} <= set(BAR_KINDS)
     assert all(BAR_KINDS.values())
+
+
+def test_each_listing_venue_route_is_its_own_raw_kind():
+    from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, VENUE_ROUTES
+
+    kinds = {observation_kind("ibkr", route, "TRADES") for route in VENUE_ROUTES}
+    assert kinds == set(VENUE_ROUTE_KINDS) and len(kinds) == len(VENUE_ROUTES)
+
+
+def test_unlisted_venue_route_raises_naming_the_route():
+    with pytest.raises(ValueError, match="unmapped ibkr listing-venue route 'EDGX'"):
+        observation_kind("ibkr", "EDGX", "TRADES")

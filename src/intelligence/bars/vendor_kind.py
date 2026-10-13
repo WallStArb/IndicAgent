@@ -76,6 +76,15 @@ BAR_KINDS: dict[str, str] = {
     "5m_grid": "15m or 1h bar derived from 5m on the session-anchored grid",
 }
 
+# One raw kind per IBKR listing-venue route (migration 476). A route is part of the source's
+# identity: two routes answering one day are two raw rows, never one row revised. The label-level
+# `venue` kind stays for the archive and canonical rows, which carry no route.
+VENUE_ROUTES: tuple[str, ...] = ("AMEX", "ARCA", "BATS", "ISLAND", "NYSE")
+VENUE_ROUTE_KINDS: dict[str, str] = {
+    f"venue_{route.lower()}": f"IBKR {route} listing-venue route daily answer (volume is not consolidated)"
+    for route in VENUE_ROUTES
+}
+
 _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
     (VENDOR_IBKR, "smart_trades"): "named",
     (VENDOR_IBKR, "venue"): "venue",
@@ -108,7 +117,7 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
     """The raw kind of an ohlcv_observation row, from its source (vendor), route, what_to_show.
 
     ibkr SMART TRADES is smart_trades and SMART ADJUSTED_LAST is smart_adjusted; an ibkr
-    listing-venue route with TRADES is venue. Route LEGACY_IMPORT carries no route evidence and
+    listing-venue route with TRADES is `venue_<route>` (one kind per route). Route LEGACY_IMPORT carries no route evidence and
     resolves by its source column, as SMART. Anything else raises ValueError.
     """
     if source == VENDOR_IBKR:
@@ -118,7 +127,12 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
             if what_to_show == _ADJUSTED_LAST and route == _ROUTE_SMART:
                 return "smart_adjusted"
         elif what_to_show == _TRADES and route not in (ROUTE_TRADIER, ROUTE_ALPACA):
-            return "venue"
+            if route not in VENUE_ROUTES:
+                raise ValueError(
+                    f"unmapped ibkr listing-venue route {route!r}; add it to VENUE_ROUTES "
+                    "and seed its bar_kind code"
+                )
+            return f"venue_{route.lower()}"
     elif source == VENDOR_TRADIER and route in (ROUTE_TRADIER, _ROUTE_LEGACY_IMPORT):
         if what_to_show == _TRADES:
             return "consolidated"
@@ -137,6 +151,8 @@ def canonical_kind_for_raw(vendor: str, kind: str) -> str:
     consolidated. Adjusted bars are never canonical, and `fallback` is assigned by the daily
     rule, never derived from a raw kind; both raise.
     """
+    if vendor == VENDOR_IBKR and kind in VENUE_ROUTE_KINDS:
+        return "venue"
     try:
         return _CANONICAL_KIND_FOR_RAW[(vendor, kind)]
     except KeyError:

@@ -123,3 +123,13 @@ def test_additive_only():
     sql = _sql()
     assert "decompress_chunk" not in sql
     assert "compress_chunk" not in sql
+
+
+def test_migration_476_seeds_one_bar_kind_per_venue_route():
+    from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS
+
+    sql = _SQL_LINE_COMMENT_RE.sub(
+        "", read_source("production", "migrations", "476_bar_kind_venue_routes.sql")
+    )
+    assert tuple(_seed_codes(sql, "bar_kind")) == tuple(VENUE_ROUTE_KINDS)
+    assert "ON CONFLICT (namespace, code) DO NOTHING" in sql
