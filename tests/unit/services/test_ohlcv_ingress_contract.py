@@ -402,7 +402,7 @@ def test_raw_contract_cross_vendor_difference_never_refuses_or_logs_a_revision(s
     assert len(selections) == 1
 
 
-def test_raw_contract_self_restatement_over_threshold_is_refused_from_selection_only(selections):
+def test_raw_contract_refused_series_is_held_as_pending_and_raw_is_untouched(selections):
     ibkr = [_raw(i) for i in range(600)]
     conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
     restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]  # 5% > 2%
@@ -410,13 +410,59 @@ def test_raw_contract_self_restatement_over_threshold_is_refused_from_selection_
         conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
     )
     assert result.refused is True and len(result.refused_series) == 1
-    assert result.refused_series[0].n_changed == 30 and result.refused_series[0].vendor == "ibkr"
-    assert conn.starting("INSERT INTO ohlcv_raw")  # raw holds the answer
-    assert len(conn.starting("INSERT INTO ohlcv_revision")) == 1
+    series = result.refused_series[0]
+    assert series.n_changed == 30 and series.vendor == "ibkr" and series.n_held == 30
+    # The stored rows stay current: no raw write at all, so selection cannot promote the values.
+    assert conn.starting("INSERT INTO ohlcv_raw") == []
+    ((_, revision),) = conn.starting("INSERT INTO ohlcv_revision")
+    rows = [revision[i : i + 14] for i in range(0, len(revision), 14)]
+    assert len(rows) == 30 and {r[13] for r in rows} == {"pending"}
+    assert all(r[4:8] == [10.0, 11.0, 9.0, 12.0] for r in rows)
+    assert result.n_held == 30 and result.n_changed == 0 and result.n_new == 0
     assert selections == []
     load = conn.starting("INSERT INTO ohlcv_load")[0][1]
     assert load[6] == "refused" and load[8:10] == (0, 0) and load[17] == 600
-    assert "raw holds the answer" in load[12]
+    assert "held as pending" in load[12]
+
+
+def test_raw_contract_refused_series_holds_new_rows_too_and_writes_no_raw(selections):
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    offered = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)] + [_raw(600)]
+    result = apply_raw_contract(
+        conn, offered, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert result.refused and result.n_held == 31 and result.n_new == 0
+    assert conn.starting("INSERT INTO ohlcv_raw") == []
+    assert result.new_timestamps == ()
+
+
+def test_raw_contract_refusal_survives_an_unchanged_reoffer(selections):
+    """Refuse, then re-offer the same values: still refused, raw never moves, nothing selected."""
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
+    for _ in range(2):
+        result = apply_raw_contract(
+            conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        )
+        assert result.refused is True and result.selected_slots == 0
+    assert conn.starting("INSERT INTO ohlcv_raw") == []
+    assert selections == []
+    assert len(conn.starting("INSERT INTO ohlcv_load")) == 2  # each offer is recorded
+
+
+def test_raw_contract_a_refused_series_does_not_stop_the_other_series_from_landing(selections):
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
+    alpaca = [_raw(i, vendor="alpaca", kind="sip_rth") for i in range(5)]
+    result = apply_raw_contract(
+        conn, restated + alpaca, caller="x", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert result.refused and result.n_new == 5
+    assert len(conn.starting("INSERT INTO ohlcv_raw")) == 1
+    assert selections == []  # the (symbol, timeframe) slot has a refused series: not selected
 
 
 def test_raw_contract_small_window_restatement_is_written_not_refused(selections):

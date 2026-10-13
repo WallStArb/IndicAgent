@@ -40,7 +40,14 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write
-from services.ohlcv_raw_writer import RawDelta, RawRow, RawWriteParams, preview_series, write_raw
+from services.ohlcv_raw_writer import (
+    RawDelta,
+    RawRow,
+    RawWriteParams,
+    hold_pending,
+    preview_series,
+    write_raw,
+)
 from src.intelligence.bars.selection import PolicyRow
 from src.intelligence.bars.sources import LABEL_VENDOR
 from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND
@@ -442,12 +449,14 @@ class RefusedSeries:
     n_changed: int
     n_stored: int
     detail: str
+    n_held: int = 0
 
 
 @dataclass(frozen=True)
 class IngressResult:
-    """What one `apply_raw_contract` call did. Raw holds every offered answer either way;
-    `refused` means at least one series was kept out of canonical selection."""
+    """What one `apply_raw_contract` call did. Counts cover the series that were written;
+    a refused series writes no raw row (its offered values are held as pending revisions) and
+    is counted in `n_held` only. `new_timestamps` are the timestamps of newly inserted raw rows."""
 
     n_offered: int
     n_new: int
@@ -456,6 +465,8 @@ class IngressResult:
     refused: bool
     selected_slots: int
     refused_series: tuple[RefusedSeries, ...] = ()
+    n_held: int = 0
+    new_timestamps: tuple[datetime, ...] = ()
 
 
 def read_raw_params(cur: Any) -> RawContractParams:
@@ -515,12 +526,19 @@ def apply_raw_contract(
     """Record one chunk of vendor answers in ohlcv_raw, then select canonical rows.
 
     Per (symbol, timeframe, vendor, kind) series, in one transaction on the caller's connection:
-    an ohlcv_load row (source = vendor, destination raw), `write_raw` (always: a refused answer is
-    evidence), then `should_refuse` over the vendor's OWN stored raw overlap. A series refused
-    that way is recorded (outcome refused, n_archived = rows recorded) and kept out of canonical
-    selection; the others are selected through `bar_selection.select_and_write` over the span
-    they touched, for direct timeframes (1m, 5m, 4h). Raw-only timeframes (15m, 1h, 1d) get no
-    selection here. A (symbol, timeframe) with any refused series is not selected in this call.
+    `preview_series` classifies the offer against the vendor's OWN stored raw rows, then
+    `should_refuse` judges the overlap. An accepted series gets an ohlcv_load row (source =
+    vendor, destination raw) and `write_raw`; it is then selected through
+    `bar_selection.select_and_write` over the span it touched, for direct timeframes (1m, 5m,
+    4h). Raw-only timeframes (15m, 1h, 1d) get no selection here.
+
+    A refused series (the vendor restated more of its own history than the threshold allows)
+    is durable: it gets an ohlcv_load row (outcome refused), its offered rows that differ from
+    the stored rows are held as pending revisions (`hold_pending`), and ohlcv_raw is not
+    touched, so the stored rows stay current and selection, which reads only current raw, can
+    never promote a refused value, now or on any later call, however often the same values are
+    offered again. Only an explicit decision releases it: a waived write. A (symbol, timeframe)
+    with any refused series is not selected in this call.
 
     A cross-vendor difference never refuses and never writes a revision row: the vendors are
     different keys in ohlcv_raw. `waived` is the caller's statement that a recorded corporate
@@ -535,7 +553,8 @@ def apply_raw_contract(
     for row in rows:
         by_series[(row.symbol, row.timeframe, row.vendor, row.kind)].append(row)
 
-    n_new = n_changed = n_unchanged = 0
+    n_new = n_changed = n_unchanged = n_held_total = 0
+    new_timestamps: list[datetime] = []
     refused: list[RefusedSeries] = []
     refused_slots: set[tuple[str, str]] = set()
     spans: dict[tuple[str, str], list[datetime]] = defaultdict(list)
@@ -567,12 +586,14 @@ def apply_raw_contract(
             last_bar=_utc_date(stamps[-1]),
         )
         load_id = uuid.uuid4()
+        held_stamps = sorted({*delta.changed_old, *delta.new_timestamps}) if refuse else []
         if refuse:
             ratio = revision_ratio(own, delta.n_stored)
             detail = (
-                f"refused from selection: {vendor} restated {delta.changed} / its stored "
+                f"refused: {vendor} restated {delta.changed} / its stored "
                 f"{delta.n_stored} = {ratio:.4f} > max {params.thresholds.max_ratio:.4f}; "
-                f"new {delta.new}, unchanged {delta.unchanged}; raw holds the answer"
+                f"new {delta.new}, unchanged {delta.unchanged}; {len(held_stamps)} offered rows "
+                "held as pending revisions, the stored raw rows are unchanged"
             )
             refused.append(
                 RefusedSeries(
@@ -585,9 +606,12 @@ def apply_raw_contract(
                     delta.changed,
                     delta.n_stored,
                     detail,
+                    n_held=len(held_stamps),
                 )
             )
             refused_slots.add((symbol, timeframe))
+            # n_archived: offered rows recorded outside new/changed (unchanged ones equal the
+            # stored raw rows, the rest are the pending revisions), so the load still balances.
             outcome, n_archived = OUTCOME_REFUSED, len(stamps)
         else:
             detail = (
@@ -602,7 +626,18 @@ def apply_raw_contract(
             _record_load(
                 cur, load, outcome=outcome, detail=detail, load_id=load_id, n_archived=n_archived
             )
-        # Raw first-class: written for every series, refused or not (a refused answer is evidence).
+        if refuse:
+            latest = {r.timestamp: r for r in series_rows}
+            n_held_total += hold_pending(
+                conn,
+                [latest[ts] for ts in held_stamps],
+                load_id=load_id,
+                request_id=request_id,
+                vendor_codes=params.vendor_codes,
+                kind_codes=params.kind_codes,
+                future_tolerance_s=params.write.future_tolerance_s,
+            )
+            continue
         (written,) = write_raw(
             conn,
             series_rows,
@@ -626,6 +661,7 @@ def apply_raw_contract(
         n_new += delta.new
         n_changed += delta.changed
         n_unchanged += delta.unchanged
+        new_timestamps.extend(delta.new_timestamps)
 
     selected = 0
     for (symbol, timeframe), stamps in sorted(spans.items()):
@@ -650,4 +686,6 @@ def apply_raw_contract(
         refused=bool(refused),
         selected_slots=selected,
         refused_series=tuple(refused),
+        n_held=n_held_total,
+        new_timestamps=tuple(sorted(new_timestamps)),
     )

@@ -510,3 +510,11 @@ def test_scrub_condition_hidden_count_is_evidence_not_a_failure() -> None:
     result = _scrub(replaced_hidden=10)
     assert result.ok
     assert "hidden by a stale price_sanity_status 10" in result.evidence
+
+
+def test_known_answer_sql_ignores_pending_revisions():
+    """A pending row is a held offer (migration 477), never evidence that a value was replaced."""
+    from scripts.ops.bars import ops_data_bar_check
+
+    sql = ops_data_bar_check._KNOWN_ANSWER_SQL
+    assert sql.count("r.origin <> 'pending'") == 2

@@ -308,3 +308,59 @@ def test_request_sink_write_request_rows_refuses_mixed_widths_before_any_sql():
     with pytest.raises(ValueError, match="all"):
         write_request_rows(conn.cursor(), [_request_values(19), _request_values(20)])
     assert conn.statements == []
+
+
+# --- buffer handover (phase 191 plan 05, review finding 12) ---------------------------------
+
+
+class _AppendDuringCopyConnection(FakeAsyncConnection):
+    """A request arriving while the flush awaits its COPY."""
+
+    def __init__(self, sink: AsyncRequestSink, late: SimpleNamespace) -> None:
+        super().__init__()
+        self._sink, self._late = sink, late
+
+    async def copy_records_to_table(self, table_name: str, *, records: list, columns: list) -> None:
+        self._sink.on_request(self._late)
+        await super().copy_records_to_table(table_name, records=records, columns=columns)
+
+
+@pytest.mark.asyncio
+async def test_async_flush_keeps_a_request_added_while_the_copy_is_awaited():
+    sink = AsyncRequestSink(caller="unit-test")
+    late = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    conn = _AppendDuringCopyConnection(sink, late)
+    sink.on_request(_record(new_fetch_run_id(), str(uuid.uuid4())))
+    assert await sink.flush(conn) == 1
+    assert sink.pending() == 1  # the late row survives the post-COPY bookkeeping
+    assert await sink.flush(FakeAsyncConnection()) == 1
+
+
+@pytest.mark.asyncio
+async def test_async_flush_failure_restores_the_taken_rows_ahead_of_newer_ones():
+    class Failing(FakeAsyncConnection):
+        async def copy_records_to_table(self, *a: object, **k: object) -> None:
+            raise OSError("copy failed")
+
+    sink = AsyncRequestSink(caller="unit-test")
+    first = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(first)
+    with pytest.raises(OSError):
+        await sink.flush(Failing())
+    assert sink.pending() == 1
+    ok = FakeAsyncConnection()
+    assert await sink.flush(ok) == 1
+    assert ok.copies[0][1][0][0] == uuid.UUID(str(first.request_id))
+
+
+def test_sync_flush_failure_keeps_the_buffer_in_order():
+    conn, sink = _sink()
+    first = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    conn.transaction_status = psycopg.pq.TransactionStatus.INTRANS
+    sink.on_request(first)
+    with pytest.raises(RuntimeError):
+        sink.flush()
+    sink.on_request(_record(new_fetch_run_id(), str(uuid.uuid4())))
+    conn.transaction_status = psycopg.pq.TransactionStatus.IDLE
+    assert sink.flush() == 2
+    assert conn.copies[0][1][0][0] == uuid.UUID(str(first.request_id))

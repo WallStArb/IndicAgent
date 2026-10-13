@@ -12,9 +12,18 @@ Design: docs/plans/2026-10-12-unified-raw-bar-table-design.md (Schema, Ingress c
 A different vendor (or kind) at the same slot is a different key, hence a new row: a cross-vendor
 difference is a disagreement for selection to resolve, never a revision.
 
-The refusal decision is not made here. `write_raw` always records (a refused answer is evidence)
-and returns one RawDelta per series, so the ingress contract applies `should_refuse` against the
-vendor's own stored overlap and flags selection.
+The refusal decision is not made here. `preview_series` classifies one series without writing, the
+ingress contract applies `should_refuse` against the vendor's own stored overlap, and a series it
+refuses never reaches `write_raw`: `hold_pending` logs the offered values that differ from the
+stored row (changed and new) as ohlcv_revision rows of origin `pending` and leaves the raw rows
+untouched, so selection, which reads only current raw, cannot promote a refused value. A refusal
+therefore lasts until an explicit decision (a waived write) replaces the stored row. For origin
+`pending` the old_* columns hold the OFFERED value that was held, not a replaced one.
+
+A chunk that holds one key twice with different values raises: that is a vendor answer
+contradicting itself, evidence that must not be dropped silently by a last-wins dict. Every
+function that reads a series' stored rows first takes a transaction-scoped advisory lock on the
+series, so two writers of one series cannot both log the same old value.
 
 Connection contract: the caller owns the connection and its open transaction, and has already
 inserted the ohlcv_load row `load_id` names (ohlcv_revision.load_id is a foreign key). This
@@ -57,6 +66,11 @@ CANONICAL_ONLY_KINDS = frozenset({"fallback", "5m_grid"})
 _MAX_PARAMS = 65535
 _REVISION_BATCH = 1000
 _ORIGIN = "raw"
+_ORIGIN_PENDING = "pending"
+# Transaction-scoped advisory lock per (symbol, timeframe, vendor, kind): taken before the stored
+# rows are read, released at the caller's COMMIT or ROLLBACK. Re-entrant within one session, so
+# preview_series and write_raw may both take it.
+_LOCK_SERIES_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
 
 _RAW_COLUMNS = (
     '"timestamp"',
@@ -139,6 +153,8 @@ class RawDelta:
     unchanged: int
     # timestamp -> old (open, high, low, close, volume) of each replaced row
     changed_old: dict[datetime, tuple] = field(default_factory=dict)
+    # timestamps of the rows the series did not store yet
+    new_timestamps: tuple[datetime, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -247,6 +263,42 @@ def _write_revisions(cur: Any, revisions: list[tuple]) -> None:
         )
 
 
+def _lock_series(cur: Any, symbol: str, timeframe: str, vendor: str, kind: str) -> None:
+    cur.execute(_LOCK_SERIES_SQL, ("|".join((symbol, timeframe, vendor, kind)),))
+
+
+def _group_by_series(
+    rows: Iterable[RawRow],
+    *,
+    vendor_codes: Collection[str] | None = None,
+    kind_codes: Collection[str] | None = None,
+    latest_allowed: datetime | None = None,
+) -> dict[tuple[str, str, str, str], dict[datetime, RawRow]]:
+    """Rows keyed by series then timestamp. Validates each row when the codes are given. A key
+    offered twice with different values raises (identical repeats collapse)."""
+    by_series: dict[tuple[str, str, str, str], dict[datetime, RawRow]] = defaultdict(dict)
+    contradictions: list[str] = []
+    for row in rows:
+        if vendor_codes is not None and kind_codes is not None and latest_allowed is not None:
+            _validate_row(
+                row, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
+            )
+        keyed = by_series[(row.symbol, row.timeframe, row.vendor, row.kind)]
+        earlier = keyed.get(row.timestamp)
+        if earlier is not None and _values(earlier) != _values(row):
+            contradictions.append(
+                f"{row.symbol} {row.timeframe} {row.vendor}/{row.kind} {row.timestamp!r}"
+            )
+        keyed[row.timestamp] = row
+    if contradictions:
+        shown = ", ".join(contradictions[:5])
+        raise ValueError(
+            f"chunk offers {len(contradictions)} key(s) twice with different values "
+            f"(first: {shown}); a vendor answer contradicting itself is not collapsed silently"
+        )
+    return by_series
+
+
 def write_raw(
     conn: Any,
     rows: Iterable[RawRow],
@@ -262,8 +314,8 @@ def write_raw(
     """Classify and write one chunk of vendor-served bars; return one RawDelta per series.
 
     `vendor_codes` and `kind_codes` are the caller's cached VocabularyService.active_codes
-    sets. Within a chunk a later row of the same key wins. Raises ValueError before any SQL.
-    Never commits: the caller's transaction owns the write.
+    sets. A key offered twice with different values raises ValueError before any SQL. Never
+    commits: the caller's transaction owns the write.
     """
     if load_id is None or request_id is None:
         raise ValueError(
@@ -273,12 +325,9 @@ def write_raw(
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
     latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
 
-    by_series: dict[tuple[str, str, str, str], dict[datetime, RawRow]] = defaultdict(dict)
-    for row in rows:
-        _validate_row(
-            row, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
-        )
-        by_series[(row.symbol, row.timeframe, row.vendor, row.kind)][row.timestamp] = row
+    by_series = _group_by_series(
+        rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
+    )
     if not by_series:
         return []
 
@@ -290,6 +339,7 @@ def write_raw(
         for series, keyed in sorted(by_series.items()):
             symbol, timeframe, vendor, kind = series
             stamps = sorted(keyed)
+            _lock_series(cur, symbol, timeframe, vendor, kind)
             cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, stamps))
             fetched = cur.fetchall()
             label = _label(vendor, kind)
@@ -325,6 +375,7 @@ def write_raw(
                     changed=len(delta.changed),
                     unchanged=delta.unchanged,
                     changed_old={ts: old[:5] for ts, (_new, old) in delta.changed.items()},
+                    new_timestamps=tuple(sorted(delta.new)),
                 )
             )
         # Old values first, then the replacements, so a failure never leaves a silent restatement.
@@ -336,20 +387,22 @@ def write_raw(
 
 def preview_series(conn: Any, rows: Iterable[RawRow]) -> RawDelta:
     """What `write_raw` would find for ONE (symbol, timeframe, vendor, kind) series, writing
-    nothing. The ingress contract needs the counts to insert the ohlcv_load row (the role may
-    INSERT but not UPDATE it) before `write_raw` records revisions under it. Run in the same
-    transaction as `write_raw`, so both see the same stored rows. Raises ValueError when the rows
-    span more than one series."""
-    keyed: dict[datetime, RawRow] = {}
-    for row in rows:
-        keyed[row.timestamp] = row
-    series = {(r.symbol, r.timeframe, r.vendor, r.kind) for r in keyed.values()}
-    if len(series) != 1:
-        raise ValueError(f"preview_series takes exactly one series, got {sorted(series)}")
-    symbol, timeframe, vendor, kind = next(iter(series))
+    nothing. The refusal decision needs the counts before any write (a refused series writes no
+    raw row), and the ohlcv_load row (the role may INSERT but not UPDATE it) must carry them
+    before `write_raw` records revisions under it, so classification precedes the write by
+    design; plan 191-05 therefore keeps this function rather than deferring the revision foreign
+    key. The series advisory lock taken here is held to the end of the caller's transaction, so
+    `write_raw`'s own read sees exactly these stored rows. Raises ValueError when the rows span
+    more than one series."""
+    grouped = _group_by_series(rows)
+    if len(grouped) != 1:
+        raise ValueError(f"preview_series takes exactly one series, got {sorted(grouped)}")
+    ((series, keyed),) = grouped.items()
+    symbol, timeframe, vendor, kind = series
     stamps = sorted(keyed)
     label = _label(vendor, kind)
     with conn.cursor() as cur:
+        _lock_series(cur, symbol, timeframe, vendor, kind)
         cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, stamps))
         stored = {r[0]: (r[1], r[2], r[3], r[4], r[5], label) for r in cur.fetchall()}
     delta = classify({ts: _values(keyed[ts]) for ts in stamps}, stored)
@@ -363,4 +416,55 @@ def preview_series(conn: Any, rows: Iterable[RawRow]) -> RawDelta:
         changed=len(delta.changed),
         unchanged=delta.unchanged,
         changed_old={ts: old[:5] for ts, (_new, old) in delta.changed.items()},
+        new_timestamps=tuple(sorted(delta.new)),
     )
+
+
+def hold_pending(
+    conn: Any,
+    rows: Iterable[RawRow],
+    *,
+    load_id: uuid.UUID,
+    request_id: uuid.UUID,
+    vendor_codes: Collection[str],
+    kind_codes: Collection[str],
+    future_tolerance_s: int,
+    now: datetime | None = None,
+) -> int:
+    """Log refused rows as pending revisions and leave ohlcv_raw untouched.
+
+    `rows` are the offered rows of a refused series that differ from the stored row (changed and
+    new; unchanged rows need no hold). Each becomes an ohlcv_revision row of origin `pending`
+    under the refused load, with the OFFERED value in the old_* columns. Validation is the same as
+    `write_raw`'s, before any SQL. Returns the number of rows held. Never commits.
+    """
+    if load_id is None or request_id is None:
+        raise ValueError("hold_pending requires load_id and request_id")
+    latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
+    held: list[tuple] = []
+    for (symbol, timeframe, vendor, kind), keyed in sorted(
+        _group_by_series(
+            rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
+        ).items()
+    ):
+        label = _label(vendor, kind)
+        for ts in sorted(keyed):
+            values = _values(keyed[ts])
+            held.append(
+                (
+                    load_id,
+                    symbol,
+                    timeframe,
+                    ts,
+                    *values[:5],
+                    label,
+                    vendor,
+                    kind,
+                    request_id,
+                    _ORIGIN_PENDING,
+                )
+            )
+    if held:
+        with conn.cursor() as cur:
+            _write_revisions(cur, held)
+    return len(held)

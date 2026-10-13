@@ -129,10 +129,11 @@ SELECT k.symbol, k.ts,
   m.source AS stored_source,
   EXISTS (SELECT 1 FROM ohlcv_revision r
            WHERE r.symbol = k.symbol AND r.timeframe = '1d'
-             AND r."timestamp" = k.ts AND r.old_source = ANY(%s)) AS has_ibkr_revision,
+             AND r."timestamp" = k.ts AND r.old_source = ANY(%s)
+             AND r.origin <> 'pending') AS has_ibkr_revision,
   (SELECT MAX(l.loaded_at) FROM ohlcv_revision r JOIN ohlcv_load l USING (load_id)
     WHERE r.symbol = k.symbol AND r.timeframe = '1d'
-      AND r."timestamp" = k.ts) AS last_revision_at,
+      AND r."timestamp" = k.ts AND r.origin <> 'pending') AS last_revision_at,
   COALESCE(m.price_sanity_status = 'confirmed_corrupt', false) AS stale_status
 FROM unnest(%s::text[], %s::timestamptz[]) AS k(symbol, ts)
 LEFT JOIN market_data_ohlcv m

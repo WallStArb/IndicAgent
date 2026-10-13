@@ -11,6 +11,7 @@ from services.ohlcv_raw_writer import (
     BATCH_ROWS_KEY,
     FUTURE_TOLERANCE_KEY,
     RawRow,
+    hold_pending,
     preview_series,
     read_write_params,
     write_raw,
@@ -140,7 +141,7 @@ def test_other_vendor_at_same_slot_is_new_not_changed():
     conn = FakeConn([])  # the stored lookup is keyed by vendor, so alpaca finds nothing
     deltas = _write(conn, [ibkr, _row(0, vendor="alpaca", kind="sip_rth", close=99.0)])
     assert [(d.vendor, d.new, d.changed) for d in deltas] == [("alpaca", 1, 0), ("ibkr", 1, 0)]
-    selects = conn.sql("SELECT")
+    selects = conn.sql('SELECT "timestamp"')
     assert {tuple(p[2:4]) for _, p in selects} == {("alpaca", "sip_rth"), ("ibkr", "named")}
     assert not conn.sql("INSERT INTO ohlcv_revision")
 
@@ -204,12 +205,20 @@ def test_batches_respect_the_parameter_limit_and_batch_rows():
     assert len(big.sql("INSERT INTO ohlcv_raw")) == 2
 
 
-def test_later_duplicate_in_chunk_wins():
+def test_identical_duplicate_in_chunk_collapses():
     conn = FakeConn()
-    (delta,) = _write(conn, [_row(0, close=10.0), _row(0, close=11.0)])
+    (delta,) = _write(conn, [_row(0, close=10.0), _row(0, close=10.0)])
     assert delta.new == 1
-    ((_, params),) = conn.sql("INSERT INTO ohlcv_raw")
-    assert 11.0 in params and 10.0 not in params
+
+
+def test_same_key_twice_with_different_values_raises_before_any_sql():
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="twice with different values"):
+        _write(conn, [_row(0, close=10.0), _row(0, close=11.0)])
+    assert conn.cur.executed == []
+    with pytest.raises(ValueError, match="twice with different values"):
+        preview_series(conn, [_row(0, close=10.0), _row(0, close=11.0)])
+    assert conn.cur.executed == []
 
 
 def test_empty_input_does_nothing():
@@ -246,3 +255,70 @@ def test_preview_series_matches_write_raw_counts_and_writes_nothing():
 def test_preview_series_refuses_more_than_one_series():
     with pytest.raises(ValueError, match="exactly one series"):
         preview_series(FakeConn(), [_row(0), _row(1, vendor="alpaca", kind="sip_rth")])
+
+
+def test_each_series_is_locked_before_its_stored_rows_are_read():
+    conn = FakeConn()
+    _write(conn, [_row(0), _row(0, vendor="alpaca", kind="sip_rth")])
+    kinds = [
+        "lock" if "pg_advisory_xact_lock" in sql else "read" if sql.startswith('SELECT "ti') else ""
+        for sql, _ in conn.cur.executed
+    ]
+    assert [k for k in kinds if k] == ["lock", "read", "lock", "read"]
+    assert conn.sql("SELECT pg_advisory_xact_lock")[0][1] == ["SPY|5m|alpaca|sip_rth"]
+
+
+def test_preview_series_locks_the_series_first():
+    conn = FakeConn()
+    preview_series(conn, [_row(0)])
+    assert "pg_advisory_xact_lock" in conn.cur.executed[0][0]
+    assert conn.cur.executed[1][0].startswith('SELECT "timestamp"')
+
+
+def test_preview_reports_the_new_timestamps():
+    conn = FakeConn([_stored(_row(0))])
+    delta = preview_series(conn, [_row(0), _row(1)])
+    assert delta.new_timestamps == (_row(1).timestamp,)
+
+
+# --- hold_pending (phase 191 plan 05, review finding 4) ------------------------------------
+
+
+def _hold(conn, rows, **kw):
+    args = dict(
+        load_id=LOAD,
+        request_id=REQUEST,
+        vendor_codes=VENDORS,
+        kind_codes=KINDS,
+        future_tolerance_s=3600,
+        now=NOW,
+    )
+    args.update(kw)
+    return hold_pending(conn, rows, **args)
+
+
+def test_hold_pending_logs_offered_values_as_pending_revisions_and_writes_no_raw():
+    conn = FakeConn()
+    assert _hold(conn, [_row(0, close=12.0), _row(1, close=13.0)]) == 2
+    assert not conn.sql("INSERT INTO ohlcv_raw")
+    assert not conn.sql("SELECT")
+    ((sql, params),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert sql.count("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)") == 2
+    first = params[:14]
+    # load_id, symbol, timeframe, timestamp, offered o/h/l/c/volume, label, vendor, kind, request, origin
+    assert first[0] == LOAD and first[1:3] == ["SPY", "5m"]
+    assert first[4:9] == [9.0, 11.0, 8.5, 12.0, 100]
+    assert first[9:] == ["ibkr_named", "ibkr", "named", REQUEST, "pending"]
+
+
+def test_hold_pending_validates_like_write_raw_before_any_sql():
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="vendor 'nope'"):
+        _hold(conn, [_row(vendor="nope")])
+    assert conn.cur.executed == []
+
+
+def test_hold_pending_of_nothing_writes_nothing():
+    conn = FakeConn()
+    assert _hold(conn, []) == 0
+    assert conn.cur.executed == []

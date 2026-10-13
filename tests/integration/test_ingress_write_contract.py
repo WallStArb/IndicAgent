@@ -416,3 +416,53 @@ def test_raw_contract_self_restatement_below_the_floor_is_logged_with_vendor_and
         assert len(rows) == 10 and set(rows) == {("ibkr", "named", "raw", 10.5)}
     finally:
         _raw_cleanup(conn, symbol)
+
+
+def test_raw_contract_refusal_is_durable_selection_never_promotes_the_held_values(db):
+    """Review finding 4: refuse, then re-offer the same values, then assert raw and canonical hold
+    the original answer and the refused values sit as pending revisions."""
+    conn, symbol = db
+    min_stored = 500
+    try:
+        _apply_raw(conn, _raw_rows(symbol, min_stored + 100))
+        before_raw = conn.execute(
+            "SELECT count(*), sum(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
+        ).fetchone()
+        before_canonical = conn.execute(
+            "SELECT count(*), sum(close) FROM market_data_ohlcv WHERE symbol = %s", (symbol,)
+        ).fetchone()
+        restated = _raw_rows(symbol, min_stored + 100)
+        restated = [
+            r if i >= 50 else RawRow(**{**r.__dict__, "close": 77.0})
+            for i, r in enumerate(restated)
+        ]  # 50 / 600 changed = 8% > 2%
+        for _ in range(2):  # the second offer is an unchanged re-offer of the refused values
+            result = _apply_raw(conn, restated)
+            assert result.refused is True and result.n_held == 50 and result.selected_slots == 0
+        assert (
+            conn.execute(
+                "SELECT count(*), sum(close) FROM ohlcv_raw WHERE symbol = %s", (symbol,)
+            ).fetchone()
+            == before_raw
+        )
+        assert (
+            conn.execute(
+                "SELECT count(*), sum(close) FROM market_data_ohlcv WHERE symbol = %s", (symbol,)
+            ).fetchone()
+            == before_canonical
+        )
+        pending = conn.execute(
+            "SELECT count(*), min(old_close), max(old_close) FROM ohlcv_revision "
+            "WHERE symbol = %s AND origin = 'pending'",
+            (symbol,),
+        ).fetchone()
+        assert pending == (100, 77.0, 77.0)  # 50 rows per refused offer
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM ohlcv_revision WHERE symbol = %s AND origin <> 'pending'",
+                (symbol,),
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        _raw_cleanup(conn, symbol)

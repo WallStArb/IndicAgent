@@ -17,7 +17,9 @@ are sink-level facts (whose run this is, which vendor answered).
 
 Buffer discipline: the sync sink auto-flushes once pending() reaches max_buffer_rows (it owns its
 connection); the async sink's flush takes the caller's connection, so its caller owns the same
-check (APR key infra.ohlcv_observation.copy_batch_rows). A failed flush leaves the buffer intact.
+check (APR key infra.ohlcv_observation.copy_batch_rows). A failed flush restores the
+rows it took, in order; the buffer is handed over by swap, so a request added while a flush is
+awaiting its COPY is kept (review of 191-01..03, finding 12).
 """
 
 from __future__ import annotations
@@ -134,7 +136,15 @@ class _Buffer:
         self._requests.append(_request_row(record, caller=self._caller, source=self._source))
 
     def take_rows(self) -> list[tuple]:
-        return self._requests
+        """Hand the buffered rows over and start a fresh buffer in one step, so a request added
+        while a flush awaits its COPY lands in the new buffer and survives. A failed flush gives
+        the rows back through `restore`."""
+        rows, self._requests = self._requests, []
+        return rows
+
+    def restore(self, rows: list[tuple]) -> None:
+        """Put rows a failed flush could not write back ahead of anything added since."""
+        self._requests = rows + self._requests
 
     def take_requests(self, request_ids: Any) -> list[tuple]:
         """Remove and return the buffered rows whose request_id is in `request_ids`, keeping
@@ -149,9 +159,6 @@ class _Buffer:
             (taken if str(row[0]) in wanted else kept).append(row)
         self._requests = kept
         return taken
-
-    def clear(self) -> None:
-        self._requests = []
 
     def pending(self) -> int:
         return len(self._requests)
@@ -194,23 +201,26 @@ class RequestSink:
         if not requests:
             return 0
         n_requests = len(requests)
-        # SET LOCAL ROLE only reverts at a real transaction boundary. A caller transaction already
-        # open would demote conn.transaction() to a savepoint and leak the role past the flush.
-        if self._conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
-            raise RuntimeError(
-                "RequestSink.flush requires an idle connection: an open caller "
-                "transaction would trap SET LOCAL ROLE past the flush"
-            )
-        # Connection health first (a dead connection fails here, not mid-COPY); commit ends the
-        # check's own implicit transaction so the write transaction below is top-level.
-        with self._conn.cursor() as cur:
-            cur.execute("SELECT 1")
-        self._conn.commit()
-        with self._conn.transaction():
+        try:
+            # SET LOCAL ROLE only reverts at a real transaction boundary. A caller transaction
+            # already open would demote conn.transaction() to a savepoint and leak the role.
+            if self._conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
+                raise RuntimeError(
+                    "RequestSink.flush requires an idle connection: an open caller "
+                    "transaction would trap SET LOCAL ROLE past the flush"
+                )
+            # Connection health first (a dead connection fails here, not mid-COPY); commit ends
+            # the check's own implicit transaction so the write transaction below is top-level.
             with self._conn.cursor() as cur:
-                cur.execute(f"SET LOCAL ROLE {_ROLE}")
-                write_request_rows(cur, requests)
-        self._buffer.clear()
+                cur.execute("SELECT 1")
+            self._conn.commit()
+            with self._conn.transaction():
+                with self._conn.cursor() as cur:
+                    cur.execute(f"SET LOCAL ROLE {_ROLE}")
+                    write_request_rows(cur, requests)
+        except BaseException:
+            self._buffer.restore(requests)
+            raise
         logger.info(
             "ohlcv_request_writer.flushed", caller=self._buffer.caller, n_requests=n_requests
         )
@@ -241,18 +251,21 @@ class AsyncRequestSink:
         if not requests:
             return 0
         n_requests = len(requests)
-        # asyncpg also demotes a nested transaction() to a savepoint, which would trap the role.
-        if conn.is_in_transaction():
-            raise RuntimeError(
-                "AsyncRequestSink.flush requires an idle connection: an open "
-                "caller transaction would trap SET LOCAL ROLE past the flush"
-            )
-        async with conn.transaction():
-            await conn.execute(f"SET LOCAL ROLE {_ROLE}")
-            await conn.copy_records_to_table(
-                "ohlcv_request", records=requests, columns=list(_REQUEST_COLUMNS)
-            )
-        self._buffer.clear()
+        try:
+            # asyncpg also demotes a nested transaction() to a savepoint, which would trap the role.
+            if conn.is_in_transaction():
+                raise RuntimeError(
+                    "AsyncRequestSink.flush requires an idle connection: an open "
+                    "caller transaction would trap SET LOCAL ROLE past the flush"
+                )
+            async with conn.transaction():
+                await conn.execute(f"SET LOCAL ROLE {_ROLE}")
+                await conn.copy_records_to_table(
+                    "ohlcv_request", records=requests, columns=list(_REQUEST_COLUMNS)
+                )
+        except BaseException:
+            self._buffer.restore(requests)
+            raise
         logger.info(
             "ohlcv_request_writer.flushed", caller=self._buffer.caller, n_requests=n_requests
         )
