@@ -65,6 +65,10 @@ _ALLOW_LIST: dict[str, str] = {
         "volume > 0 filter would let the loader insert over a stored zero-volume bar -- a "
         "stored slot is answered no matter its volume."
     ),
+    "scripts/ops/bars/ops_raw_backfill.py": (
+        "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "
+        "table because the backfill copies every vendor-labelled row, volume 0 included."
+    ),
     "scripts/ops/bars/ops_source_policy.py": (
         "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
         "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "

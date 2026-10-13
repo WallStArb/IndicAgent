@@ -1,0 +1,805 @@
+"""One-shot backfill of ohlcv_raw from the three old stores (phase 191 plan 03).
+
+TEMPORARY: deleted at phase 191 close (plan 17), together with its APR key
+`infra.raw_backfill.statement_timeout_s`.
+
+Reads `ohlcv_intraday_raw_archive`, `ohlcv_observation` and the vendor-labelled rows of
+`market_data_ohlcv`; writes `ohlcv_raw` only. It never refetches and never writes the old stores,
+so it runs while the fetcher timer runs. Pass order is archive, observation, canonical, all
+`INSERT ... ON CONFLICT (timestamp, symbol, timeframe, vendor, kind) DO NOTHING`: the stores that
+know the true arrival time (archive `archived_at`, observation `fetched_at` and `request_id`) win a
+duplicate key over canonical rows, which carry none. A rerun is idempotent. No id and no timestamp
+is invented: `served_at`, `request_id` and `load_id` are NULL unless the source store holds them.
+
+Modes: `--bulk` and `--delta` (the same windowed pass; a window is skipped when its three source
+counts equal those recorded in the progress file when it was last loaded, so a kill resumes and a
+delta reloads only windows the live writers have grown), `--check` (the balance report). `--bulk`
+and `--delta` are dry runs unless `--apply`. Revision reconstruction is plan 04's.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import math
+import re
+import shutil
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import psycopg
+from psycopg import IsolationLevel
+
+from src.config.config_service import ConfigService
+from src.config.settings import get_settings
+from src.intelligence.bars.vendor_kind import (
+    LABEL_TO_VENDOR_KIND,
+    VENDOR_DERIVED,
+    observation_kind,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_LOG_DIR = _REPO_ROOT / "logs"
+_PROGRESS_FILE = _LOG_DIR / "raw_backfill_progress.jsonl"
+
+_BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
+_TIMEOUT_KEY = "infra.raw_backfill.statement_timeout_s"
+
+_FIRST_YEAR = 1999  # earliest bar in any old store is 1999-01 (observation); empty windows are free
+_TEST_CALLER = "test-%%"  # doubled: every statement runs with parameters
+_EXCLUDED_DERIVED_LABEL = "derived_5m"
+_EXCLUDED_SYNTHETIC_LABEL = "synthetic_fill"
+
+_SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
+
+_RAW_COLS = (
+    "timestamp, symbol, timeframe, vendor, kind, open, high, low, close, volume, "
+    "served_at, request_id, load_id"
+)
+_CONFLICT = "ON CONFLICT (timestamp, symbol, timeframe, vendor, kind) DO NOTHING"
+_VALUES5 = "(open, high, low, close, volume)"
+
+
+# --------------------------------------------------------------------------------------
+# SQL builders (pure; the label and observation mappings come from vendor_kind only)
+# --------------------------------------------------------------------------------------
+
+
+def _lit(token: str) -> str:
+    """A SQL string literal for a code constant; refuses anything but a plain token."""
+    if not _SAFE_TOKEN.match(token):
+        raise ValueError(f"refusing to render {token!r} into SQL")
+    return f"'{token}'"
+
+
+def vendor_labels() -> dict[str, tuple[str, str]]:
+    """Label to (vendor, kind) for every raw-eligible source label (derived rows are not raw)."""
+    return {
+        label: pair for label, pair in LABEL_TO_VENDOR_KIND.items() if pair[0] != VENDOR_DERIVED
+    }
+
+
+def build_vendor_kind_values_sql() -> str:
+    """VALUES rows (label, vendor, kind) rendered from the vendor_kind label map."""
+    rows = [
+        f"({_lit(label)}, {_lit(vendor)}, {_lit(kind)})"
+        for label, (vendor, kind) in vendor_labels().items()
+    ]
+    return ",\n        ".join(rows)
+
+
+def map_observation_triples(triples: list[tuple[str, str, str]]) -> list[tuple[str, str, str, str]]:
+    """(source, route, what_to_show) to (..., kind) through observation_kind; vendor is source.
+
+    observation_kind raises ValueError for an unmapped triple: the backfill stops there rather
+    than guessing a kind.
+    """
+    return [(s, r, w, observation_kind(s, r, w)) for s, r, w in sorted(set(triples))]
+
+
+def build_observation_values_sql(mapped: list[tuple[str, str, str, str]]) -> str:
+    """VALUES rows (source, route, what_to_show, vendor, kind) for the observation join."""
+    rows = [
+        f"({_lit(source)}, {_lit(route)}, {_lit(wts)}, {_lit(source)}, {_lit(kind)})"
+        for source, route, wts, kind in mapped
+    ]
+    if not rows:
+        raise ValueError("no observation (source, route, what_to_show) triples to map")
+    return ",\n        ".join(rows)
+
+
+def archive_select_sql() -> str:
+    """Archive rows of vendor labels; served_at is the true archived_at."""
+    return f"""
+    SELECT a.timestamp, a.symbol, a.timeframe, l.vendor, l.kind,
+           a.open, a.high, a.low, a.close, a.volume,
+           a.archived_at AS served_at, NULL::uuid AS request_id, NULL::uuid AS load_id
+      FROM ohlcv_intraday_raw_archive a
+      JOIN (VALUES
+        {build_vendor_kind_values_sql()}
+      ) AS l(label, vendor, kind) ON l.label = a.source
+     WHERE a.symbol = %(symbol)s AND a.timestamp >= %(lo)s AND a.timestamp < %(hi)s"""
+
+
+def canonical_select_sql() -> str:
+    """Vendor-labelled canonical rows outside 1d; every provenance column NULL (none is known).
+
+    1d canonical rows are daily-rule outputs derived from observations, not raw sources, so the
+    whole 1d timeframe is excluded; derived_5m and synthetic_fill are not in the label map."""
+    return f"""
+    SELECT m.timestamp, m.symbol, m.timeframe, l.vendor, l.kind,
+           m.open, m.high, m.low, m.close, m.volume,
+           NULL::timestamptz AS served_at, NULL::uuid AS request_id, NULL::uuid AS load_id
+      FROM market_data_ohlcv m
+      JOIN (VALUES
+        {build_vendor_kind_values_sql()}
+      ) AS l(label, vendor, kind) ON l.label = m.source
+     WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
+       AND m.timeframe <> '1d'"""
+
+
+def _observation_rows_cte(obs_values_sql: str) -> str:
+    return f"""
+    obs AS (
+        SELECT o.request_id, o.symbol, o.bar_date, m.vendor, m.kind,
+               o.open, o.high, o.low, o.close, o.volume, o.fetched_at
+          FROM ohlcv_observation o
+          JOIN ohlcv_request r ON r.request_id = o.request_id
+          JOIN (VALUES
+            {obs_values_sql}
+          ) AS m(source, route, what_to_show, vendor, kind)
+            ON m.source = o.source AND m.route = o.route AND m.what_to_show = o.what_to_show
+         WHERE o.symbol = %(symbol)s
+           AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date
+           AND r.caller NOT LIKE '{_TEST_CALLER}'
+    )"""
+
+
+def observation_current_cte(obs_values_sql: str) -> str:
+    """CTE chain ending in `current_obs`: per (symbol, bar_date, vendor, kind) the latest value and
+    the request that first served that value (the first row of the latest run of equal values).
+
+    The latest run starts after the last differing value, so a value that changed and reverted is
+    stamped with the revert, not the original serve."""
+    return f"""
+    {_observation_rows_cte(obs_values_sql)},
+    flagged AS (
+        SELECT obs.*,
+               CASE WHEN ROW(open, high, low, close, volume) IS DISTINCT FROM ROW(
+                        lag(open) OVER w, lag(high) OVER w, lag(low) OVER w,
+                        lag(close) OVER w, lag(volume) OVER w)
+                    THEN 1 ELSE 0 END AS chg
+          FROM obs
+        WINDOW w AS (PARTITION BY symbol, bar_date, vendor, kind ORDER BY fetched_at, request_id)
+    ),
+    runs AS (
+        SELECT flagged.*,
+               sum(chg) OVER (PARTITION BY symbol, bar_date, vendor, kind
+                              ORDER BY fetched_at, request_id) AS run
+          FROM flagged
+    ),
+    last_run AS (
+        SELECT runs.*,
+               run = max(run) OVER (PARTITION BY symbol, bar_date, vendor, kind) AS is_last
+          FROM runs
+    ),
+    current_obs AS (
+        SELECT DISTINCT ON (symbol, bar_date, vendor, kind)
+               (bar_date::timestamp AT TIME ZONE 'UTC') AS timestamp,
+               symbol, '1d'::text AS timeframe, vendor, kind,
+               open, high, low, close, volume,
+               fetched_at AS served_at, request_id, NULL::uuid AS load_id
+          FROM last_run
+         WHERE is_last
+         ORDER BY symbol, bar_date, vendor, kind, fetched_at, request_id
+    )"""
+
+
+def observation_select_sql(obs_values_sql: str) -> str:
+    """Observation rows as raw rows: current value, served_at and request_id of its first serve."""
+    return (
+        f"WITH {observation_current_cte(obs_values_sql)}\n    SELECT {_RAW_COLS} FROM current_obs"
+    )
+
+
+def insert_sql(select_sql: str) -> str:
+    """INSERT ... SELECT ... ON CONFLICT DO NOTHING around one pass's select."""
+    return f"INSERT INTO ohlcv_raw ({_RAW_COLS}) {select_sql} {_CONFLICT}"
+
+
+def count_sql(select_sql: str) -> str:
+    """Row count of a pass's select (dry run)."""
+    return f"SELECT count(*) FROM ({select_sql}) AS s"
+
+
+def split_range(lo: datetime, hi: datetime, parts: int) -> list[tuple[datetime, datetime]]:
+    """Split [lo, hi) into `parts` day-aligned sub-ranges (an observation key never straddles)."""
+    parts = max(1, parts)
+    days = max(1, (hi - lo).days)
+    parts = min(parts, days)
+    edges = [lo + (hi - lo) * i // parts for i in range(parts)]
+    edges = [e.replace(hour=0, minute=0, second=0, microsecond=0) for e in edges]
+    edges = sorted(set(edges)) + [hi]
+    return list(zip(edges[:-1], edges[1:], strict=True))
+
+
+def window_bounds(year: int) -> tuple[datetime, datetime]:
+    return datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC)
+
+
+# --------------------------------------------------------------------------------------
+# Windowed load
+# --------------------------------------------------------------------------------------
+
+
+@dataclass
+class WindowCounts:
+    canonical: int
+    archive: int
+    observation: int
+
+    def total(self) -> int:
+        return self.canonical + self.archive + self.observation
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "canonical": self.canonical,
+            "archive": self.archive,
+            "observation": self.observation,
+        }
+
+
+def count_window(cur: psycopg.Cursor, obs_values_sql: str, symbol: str, lo, hi) -> WindowCounts:
+    params = {"symbol": symbol, "lo": lo, "hi": hi}
+    cur.execute(count_sql(canonical_select_sql()), params)
+    canonical = cur.fetchone()[0]
+    cur.execute(count_sql(archive_select_sql()), params)
+    archive = cur.fetchone()[0]
+    cur.execute(
+        f"""WITH {_observation_rows_cte(obs_values_sql)} SELECT count(*) FROM obs""", params
+    )
+    observation = cur.fetchone()[0]
+    return WindowCounts(canonical, archive, observation)
+
+
+def load_progress(path: Path) -> dict[tuple[str, int], dict[str, int]]:
+    """Last recorded source counts per (symbol, year) window."""
+    done: dict[tuple[str, int], dict[str, int]] = {}
+    if not path.exists():
+        return done
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        done[(rec["symbol"], rec["year"])] = rec["counts"]
+    return done
+
+
+def window_is_current(
+    done: dict[tuple[str, int], dict[str, int]], symbol: str, year: int, counts: WindowCounts
+) -> bool:
+    """True when the window was loaded and its three source counts have not changed since."""
+    return done.get((symbol, year)) == counts.as_dict()
+
+
+@dataclass
+class RunTotals:
+    windows_seen: int = 0
+    windows_skipped: int = 0
+    windows_loaded: int = 0
+    inserted: dict[str, int] = field(
+        default_factory=lambda: {"archive": 0, "observation": 0, "canonical": 0}
+    )
+    candidates: dict[str, int] = field(
+        default_factory=lambda: {"archive": 0, "observation": 0, "canonical": 0}
+    )
+
+
+def check_disk(min_free_gb: float) -> None:
+    free_gb = shutil.disk_usage("/").free / 1024**3
+    if free_gb < min_free_gb:
+        raise SystemExit(f"STOP: free disk {free_gb:.0f} GB below --min-free-gb {min_free_gb}")
+
+
+def run_windows(
+    conn: psycopg.Connection,
+    *,
+    symbols: list[str],
+    years: range,
+    obs_values_sql: str,
+    batch_rows: int,
+    apply: bool,
+    min_free_gb: float,
+    progress_path: Path,
+) -> RunTotals:
+    done = load_progress(progress_path)
+    totals = RunTotals()
+    t0 = time.monotonic()
+    for sym_i, symbol in enumerate(symbols):
+        if apply:
+            check_disk(min_free_gb)
+        for year in years:
+            lo, hi = window_bounds(year)
+            totals.windows_seen += 1
+            with conn.cursor() as cur:
+                # counts and inserts share one snapshot so the recorded counts are what was read
+                counts = count_window(cur, obs_values_sql, symbol, lo, hi)
+                if counts.total() == 0:
+                    conn.rollback()
+                    continue
+                if window_is_current(done, symbol, year, counts):
+                    totals.windows_skipped += 1
+                    conn.rollback()
+                    continue
+                parts = math.ceil(counts.total() / max(1, batch_rows))
+                selects = (
+                    ("archive", archive_select_sql()),
+                    ("observation", observation_select_sql(obs_values_sql)),
+                    ("canonical", canonical_select_sql()),
+                )
+                for name, select in selects:
+                    for sub_lo, sub_hi in split_range(lo, hi, parts):
+                        params = {"symbol": symbol, "lo": sub_lo, "hi": sub_hi}
+                        if apply:
+                            cur.execute(insert_sql(select), params)
+                            totals.inserted[name] += max(0, cur.rowcount)
+                        else:
+                            cur.execute(count_sql(select), params)
+                            totals.candidates[name] += cur.fetchone()[0]
+            if apply:
+                conn.commit()
+                with progress_path.open("a") as fh:
+                    fh.write(
+                        json.dumps(
+                            {
+                                "symbol": symbol,
+                                "year": year,
+                                "counts": counts.as_dict(),
+                                "at": datetime.now(UTC).isoformat(),
+                            }
+                        )
+                        + "\n"
+                    )
+                done[(symbol, year)] = counts.as_dict()
+            else:
+                conn.rollback()
+            totals.windows_loaded += 1
+        if (sym_i + 1) % 10 == 0 or sym_i + 1 == len(symbols):
+            print(
+                f"[{datetime.now(UTC):%H:%M:%S}] {sym_i + 1}/{len(symbols)} symbols "
+                f"({symbol}) loaded={totals.windows_loaded} skipped={totals.windows_skipped} "
+                f"inserted={totals.inserted} elapsed={time.monotonic() - t0:.0f}s",
+                flush=True,
+            )
+    return totals
+
+
+# --------------------------------------------------------------------------------------
+# Balance check
+# --------------------------------------------------------------------------------------
+
+
+def _count_class_sql(source_cte: str) -> str:
+    """Twin comparison of a source CTE `src` against ohlcv_raw on the full key."""
+    return f"""
+    WITH {source_cte}
+    SELECT count(*) AS n,
+           count(*) FILTER (WHERE r.symbol IS NULL) AS missing,
+           count(*) FILTER (WHERE r.symbol IS NOT NULL AND
+               ROW(r.open, r.high, r.low, r.close, r.volume)
+               IS NOT DISTINCT FROM ROW(src.open, src.high, src.low, src.close, src.volume))
+               AS equal,
+           count(*) FILTER (WHERE r.symbol IS NOT NULL AND
+               ROW(r.open, r.high, r.low, r.close, r.volume)
+               IS DISTINCT FROM ROW(src.open, src.high, src.low, src.close, src.volume)) AS diff
+      FROM src
+      LEFT JOIN ohlcv_raw r
+        ON r.timestamp = src.timestamp AND r.symbol = src.symbol
+       AND r.timeframe = src.timeframe AND r.vendor = src.vendor AND r.kind = src.kind"""
+
+
+def _wrap_src(select_sql: str) -> str:
+    return f"src AS ({select_sql})"
+
+
+# Twin comparison for rows present in both canonical and archive: the raw value belongs to the
+# archive (pass order), so a canonical diff is explained only when the archive holds the raw value.
+_CANONICAL_VS_ARCHIVE_SQL = f"""
+    SELECT count(*) AS pair_rows,
+           count(*) FILTER (WHERE ROW(a.open, a.high, a.low, a.close, a.volume)
+               IS DISTINCT FROM ROW(m.open, m.high, m.low, m.close, m.volume)) AS disagree
+      FROM market_data_ohlcv m
+      JOIN ohlcv_intraday_raw_archive a
+        ON a.timestamp = m.timestamp AND a.symbol = m.symbol AND a.timeframe = m.timeframe
+       AND a.source = m.source
+     WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
+       AND m.timeframe <> '1d'
+       AND m.source IN ({", ".join(_lit(label) for label in vendor_labels())})"""
+
+_CANONICAL_DISAGREE_SAMPLE_SQL = f"""
+    SELECT m.timestamp, m.symbol, m.timeframe, m.source
+      FROM market_data_ohlcv m
+      JOIN ohlcv_intraday_raw_archive a
+        ON a.timestamp = m.timestamp AND a.symbol = m.symbol AND a.timeframe = m.timeframe
+       AND a.source = m.source
+     WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
+       AND m.timeframe <> '1d'
+       AND m.source IN ({", ".join(_lit(label) for label in vendor_labels())})
+       AND ROW(a.open, a.high, a.low, a.close, a.volume)
+           IS DISTINCT FROM ROW(m.open, m.high, m.low, m.close, m.volume)
+     LIMIT %(limit)s"""
+
+_EXCLUSION_SQL = """
+    SELECT source, (timeframe = '1d') AS is_1d, count(*)
+      FROM market_data_ohlcv
+     WHERE symbol = %(symbol)s AND timestamp >= %(lo)s AND timestamp < %(hi)s
+     GROUP BY 1, 2"""
+
+_ARCHIVE_EXCLUSION_SQL = """
+    SELECT source, count(*)
+      FROM ohlcv_intraday_raw_archive
+     WHERE symbol = %(symbol)s AND timestamp >= %(lo)s AND timestamp < %(hi)s
+     GROUP BY 1"""
+
+_TEST_OBS_SQL = f"""
+    SELECT count(*)
+      FROM ohlcv_observation o JOIN ohlcv_request r ON r.request_id = o.request_id
+     WHERE o.symbol = %(symbol)s AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date
+       AND r.caller LIKE '{_TEST_CALLER}'"""
+
+_RAW_PROVENANCE_SQL = """
+    SELECT timeframe, served_at IS NULL, request_id IS NULL, load_id IS NULL, count(*)
+      FROM ohlcv_raw
+     WHERE symbol = %(symbol)s AND timestamp >= %(lo)s AND timestamp < %(hi)s
+     GROUP BY 1, 2, 3, 4"""
+
+
+def _canonical_1d_twin_sql(vendor_case_values: str) -> str:
+    return f"""
+    WITH obs_keys AS (
+        SELECT DISTINCT o.symbol, o.bar_date, o.source
+          FROM ohlcv_observation o JOIN ohlcv_request r ON r.request_id = o.request_id
+         WHERE o.symbol = %(symbol)s AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date
+           AND r.caller NOT LIKE '{_TEST_CALLER}'
+    )
+    SELECT m.source, count(*) AS n, count(k.symbol) AS with_twin
+      FROM market_data_ohlcv m
+      JOIN (VALUES {vendor_case_values}) AS l(label, vendor) ON l.label = m.source
+      LEFT JOIN obs_keys k
+        ON k.symbol = m.symbol AND k.bar_date = (m.timestamp AT TIME ZONE 'UTC')::date
+       AND k.source = l.vendor
+     WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
+       AND m.timeframe = '1d'
+     GROUP BY 1"""
+
+
+def _union_keys_sql(obs_values_sql: str) -> str:
+    """Distinct source keys of the three stores in a window (the reverse-direction count)."""
+    values = build_vendor_kind_values_sql()
+    return f"""
+    WITH {_observation_rows_cte(obs_values_sql)}
+    SELECT count(*) FROM (
+        SELECT a.timestamp, a.symbol, a.timeframe, l.vendor, l.kind
+          FROM ohlcv_intraday_raw_archive a
+          JOIN (VALUES {values}) AS l(label, vendor, kind) ON l.label = a.source
+         WHERE a.symbol = %(symbol)s AND a.timestamp >= %(lo)s AND a.timestamp < %(hi)s
+        UNION
+        SELECT m.timestamp, m.symbol, m.timeframe, l.vendor, l.kind
+          FROM market_data_ohlcv m
+          JOIN (VALUES {values}) AS l(label, vendor, kind) ON l.label = m.source
+         WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
+           AND m.timeframe <> '1d'
+        UNION
+        SELECT (bar_date::timestamp AT TIME ZONE 'UTC'), symbol, '1d', vendor, kind FROM obs
+    ) u"""
+
+
+def empty_class() -> dict[str, int]:
+    return {"source_rows": 0, "twin_equal": 0, "twin_missing": 0, "twin_diff": 0}
+
+
+def new_report_totals() -> dict[str, Any]:
+    return {
+        "canonical_vendor": empty_class(),
+        "archive": empty_class(),
+        "observation": empty_class(),
+        "observation_provenance_mismatch": 0,
+        "exclusions": {
+            _EXCLUDED_DERIVED_LABEL: 0,
+            _EXCLUDED_SYNTHETIC_LABEL: 0,
+            "1d_canonical_with_observation_twin": 0,
+            "1d_canonical_residue_no_observation_twin": 0,
+            "test_caller_observations": 0,
+        },
+        "unlabelled_source_rows": {"canonical": {}, "archive": {}},
+        "store_disagreement": {"canonical_vs_archive": 0, "pair_rows": 0, "sample": []},
+        "raw_rows": 0,
+        "raw_rows_without_source_key": 0,
+        "raw_null_provenance": {},
+        "residue_1d_by_symbol": {},
+    }
+
+
+def finalize_report(totals: dict[str, Any]) -> dict[str, Any]:
+    """The report's arithmetic: unexplained rows, value mismatches and the exit code."""
+    can = totals["canonical_vendor"]
+    unlabelled = sum(totals["unlabelled_source_rows"]["canonical"].values()) + sum(
+        totals["unlabelled_source_rows"]["archive"].values()
+    )
+    twin_missing = can["twin_missing"] + totals["archive"]["twin_missing"]
+    twin_missing += totals["observation"]["twin_missing"]
+    # a canonical value diff against raw is explained only by a store disagreement with the
+    # archive, which is itself counted and gated below
+    value_mismatches = (
+        totals["archive"]["twin_diff"]
+        + totals["observation"]["twin_diff"]
+        + totals["observation_provenance_mismatch"]
+        + max(0, can["twin_diff"] - totals["store_disagreement"]["canonical_vs_archive"])
+    )
+    null_1d_request = sum(
+        n
+        for key, n in totals["raw_null_provenance"].items()
+        if key.startswith("1d|") and key.split("|")[2] == "request_id_null"
+    )
+    unexplained = (
+        twin_missing + unlabelled + totals["raw_rows_without_source_key"] + null_1d_request
+    )
+    totals["unexplained"] = unexplained
+    totals["value_mismatches"] = value_mismatches
+    totals["exit_code"] = int(
+        unexplained > 0
+        or value_mismatches > 0
+        or totals["store_disagreement"]["canonical_vs_archive"] > 0
+    )
+    return totals
+
+
+def run_check(
+    conn: psycopg.Connection,
+    *,
+    symbols: list[str],
+    years: range,
+    obs_values_sql: str,
+    sample_limit: int,
+) -> dict[str, Any]:
+    """The balance report. Every count is read inside the caller's one REPEATABLE READ snapshot."""
+    totals = new_report_totals()
+    vendor_values = ", ".join(
+        f"({_lit(label)}, {_lit(v)})" for label, (v, _) in vendor_labels().items()
+    )
+    obs_current = f"{observation_current_cte(obs_values_sql)}, src AS (SELECT * FROM current_obs)"
+    t0 = time.monotonic()
+    with conn.cursor() as cur:
+        for sym_i, symbol in enumerate(symbols):
+            for year in years:
+                lo, hi = window_bounds(year)
+                p = {"symbol": symbol, "lo": lo, "hi": hi}
+                counts = count_window(cur, obs_values_sql, symbol, lo, hi)
+                cur.execute(_EXCLUSION_SQL, p)
+                excl_rows = cur.fetchall()
+                cur.execute(_ARCHIVE_EXCLUSION_SQL, p)
+                arch_excl = cur.fetchall()
+                cur.execute(_TEST_OBS_SQL, p)
+                test_n = cur.fetchone()[0]
+                if counts.total() == 0 and not excl_rows and not arch_excl and test_n == 0:
+                    continue
+                totals["exclusions"]["test_caller_observations"] += test_n
+                labels = vendor_labels()
+                for source, is_1d, n in excl_rows:
+                    if is_1d and source in labels:
+                        continue
+                    if source == _EXCLUDED_DERIVED_LABEL and not is_1d:
+                        totals["exclusions"][_EXCLUDED_DERIVED_LABEL] += n
+                    elif source == _EXCLUDED_SYNTHETIC_LABEL:
+                        totals["exclusions"][_EXCLUDED_SYNTHETIC_LABEL] += n
+                    elif source in labels:
+                        continue
+                    else:
+                        bucket = totals["unlabelled_source_rows"]["canonical"]
+                        bucket[source] = bucket.get(source, 0) + n
+                for source, n in arch_excl:
+                    if source in labels:
+                        continue
+                    if source == _EXCLUDED_SYNTHETIC_LABEL:
+                        totals["exclusions"][_EXCLUDED_SYNTHETIC_LABEL] += n
+                    else:
+                        bucket = totals["unlabelled_source_rows"]["archive"]
+                        bucket[source] = bucket.get(source, 0) + n
+
+                for cls, cte in (
+                    ("canonical_vendor", _wrap_src(canonical_select_sql())),
+                    ("archive", _wrap_src(archive_select_sql())),
+                    ("observation", obs_current),
+                ):
+                    cur.execute(_count_class_sql(cte), p)
+                    n, missing, equal, diff = cur.fetchone()
+                    c = totals[cls]
+                    c["source_rows"] += n
+                    c["twin_missing"] += missing
+                    c["twin_equal"] += equal
+                    c["twin_diff"] += diff
+                cur.execute(
+                    f"""WITH {obs_current}
+                    SELECT count(*) FROM src s JOIN ohlcv_raw r
+                      ON r.timestamp = s.timestamp AND r.symbol = s.symbol
+                     AND r.timeframe = s.timeframe AND r.vendor = s.vendor AND r.kind = s.kind
+                    WHERE r.served_at IS DISTINCT FROM s.served_at
+                       OR r.request_id IS DISTINCT FROM s.request_id""",
+                    p,
+                )
+                totals["observation_provenance_mismatch"] += cur.fetchone()[0]
+
+                cur.execute(_CANONICAL_VS_ARCHIVE_SQL, p)
+                pair_rows, disagree = cur.fetchone()
+                sd = totals["store_disagreement"]
+                sd["pair_rows"] += pair_rows
+                sd["canonical_vs_archive"] += disagree
+                if disagree and len(sd["sample"]) < sample_limit:
+                    cur.execute(_CANONICAL_DISAGREE_SAMPLE_SQL, {**p, "limit": sample_limit})
+                    sd["sample"].extend(
+                        [[str(t), s, tf, src] for t, s, tf, src in cur.fetchall()][
+                            : sample_limit - len(sd["sample"])
+                        ]
+                    )
+
+                cur.execute(_canonical_1d_twin_sql(vendor_values), p)
+                for _source, n, with_twin in cur.fetchall():
+                    totals["exclusions"]["1d_canonical_with_observation_twin"] += with_twin
+                    residue = n - with_twin
+                    totals["exclusions"]["1d_canonical_residue_no_observation_twin"] += residue
+                    if residue:
+                        by = totals["residue_1d_by_symbol"]
+                        by[symbol] = by.get(symbol, 0) + residue
+
+                cur.execute(_RAW_PROVENANCE_SQL, p)
+                for tf, s_null, r_null, l_null, n in cur.fetchall():
+                    totals["raw_rows"] += n
+                    key = "|".join(
+                        [
+                            tf,
+                            "served_at_null" if s_null else "served_at_set",
+                            "request_id_null" if r_null else "request_id_set",
+                            "load_id_null" if l_null else "load_id_set",
+                        ]
+                    )
+                    d = totals["raw_null_provenance"]
+                    d[key] = d.get(key, 0) + n
+                cur.execute(_union_keys_sql(obs_values_sql), p)
+                union_n = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT count(*) FROM ohlcv_raw WHERE symbol = %(symbol)s "
+                    "AND timestamp >= %(lo)s AND timestamp < %(hi)s",
+                    p,
+                )
+                raw_n = cur.fetchone()[0]
+                totals["raw_rows_without_source_key"] += max(0, raw_n - union_n)
+            if (sym_i + 1) % 25 == 0 or sym_i + 1 == len(symbols):
+                print(
+                    f"[{datetime.now(UTC):%H:%M:%S}] check {sym_i + 1}/{len(symbols)} "
+                    f"({symbol}) elapsed={time.monotonic() - t0:.0f}s",
+                    flush=True,
+                )
+    return finalize_report(totals)
+
+
+# --------------------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------------------
+
+
+async def _read_apr() -> tuple[int, int]:
+    cfg = ConfigService(get_settings().database_url)
+    await cfg.initialize()
+    try:
+        batch_rows = int(await cfg.get(_BATCH_ROWS_KEY, 50_000))
+        timeout_s = int(await cfg.get(_TIMEOUT_KEY, 7200))
+    finally:
+        await cfg.close()
+    return batch_rows, timeout_s
+
+
+def _observation_values(conn: psycopg.Connection) -> str:
+    with conn.cursor() as cur:
+        cur.execute("SELECT DISTINCT source, route, what_to_show FROM ohlcv_observation")
+        triples = [(s, r, w) for s, r, w in cur.fetchall()]
+    conn.rollback()
+    return build_observation_values_sql(map_observation_triples(triples))
+
+
+def _symbols(conn: psycopg.Connection, requested: list[str] | None) -> list[str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT symbol FROM instruments ORDER BY symbol")
+        known = [r[0] for r in cur.fetchall()]
+    conn.rollback()
+    if not requested:
+        return known
+    missing = sorted(set(requested) - set(known))
+    if missing:
+        raise SystemExit(f"unknown symbols: {missing}")
+    return sorted(requested)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--bulk", action="store_true", help="load every window not yet current")
+    mode.add_argument("--delta", action="store_true", help="reload windows whose counts changed")
+    mode.add_argument("--check", action="store_true", help="balance report, exit 1 on failure")
+    parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
+    parser.add_argument("--symbols", nargs="*", help="restrict to these symbols")
+    parser.add_argument(
+        "--min-free-gb", type=float, default=None, help="abort below this free disk"
+    )
+    parser.add_argument("--sample-limit", type=int, default=20)
+    parser.add_argument("--first-year", type=int, default=_FIRST_YEAR)
+    args = parser.parse_args()
+    if args.apply and args.min_free_gb is None:
+        parser.error("--apply requires --min-free-gb")
+
+    batch_rows, timeout_s = asyncio.run(_read_apr())
+    years = range(args.first_year, datetime.now(UTC).year + 1)
+    conn = psycopg.connect(get_settings().database_url)
+    try:
+        conn.isolation_level = IsolationLevel.REPEATABLE_READ
+        with conn.cursor() as cur:
+            cur.execute(f"SET statement_timeout = {int(timeout_s) * 1000}")
+        conn.commit()
+        symbols = _symbols(conn, args.symbols)
+        obs_values_sql = _observation_values(conn)
+        _LOG_DIR.mkdir(exist_ok=True)
+        if args.check:
+            report = run_check(
+                conn,
+                symbols=symbols,
+                years=years,
+                obs_values_sql=obs_values_sql,
+                sample_limit=args.sample_limit,
+            )
+            conn.rollback()
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            out = _LOG_DIR / f"raw_backfill_balance_{stamp}.json"
+            report["generated_at"] = stamp
+            report["isolation"] = "REPEATABLE READ, one snapshot"
+            out.write_text(json.dumps(report, indent=2, sort_keys=True))
+            print(
+                json.dumps(
+                    {k: v for k, v in report.items() if k != "residue_1d_by_symbol"}, indent=2
+                )
+            )
+            print(f"report: {out}")
+            return int(report["exit_code"])
+        totals = run_windows(
+            conn,
+            symbols=symbols,
+            years=years,
+            obs_values_sql=obs_values_sql,
+            batch_rows=batch_rows,
+            apply=args.apply,
+            min_free_gb=args.min_free_gb or 0.0,
+            progress_path=_PROGRESS_FILE,
+        )
+        print(
+            json.dumps(
+                {
+                    "mode": "apply" if args.apply else "dry-run",
+                    "windows_seen": totals.windows_seen,
+                    "windows_loaded": totals.windows_loaded,
+                    "windows_skipped": totals.windows_skipped,
+                    "inserted": totals.inserted,
+                    "candidate_rows": totals.candidates,
+                },
+                indent=2,
+            )
+        )
+        return 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

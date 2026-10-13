@@ -51,6 +51,10 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "Reads: counts synthetic slots for the masked-slot baseline; read-only."
     ),
+    "scripts/ops/bars/ops_raw_backfill.py": (
+        "Reads and comparisons: the balance check counts synthetic_fill rows as an explained "
+        "exclusion; the backfill never copies them into ohlcv_raw (phase 191 plan 03)."
+    ),
 }
 
 
