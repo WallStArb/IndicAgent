@@ -13,7 +13,9 @@ no benefit). UPDATE and DELETE do not exist here, by design and by grants.
 Record arguments are duck-typed and carry the RequestRecord contract: request_id, fetch_run_id,
 symbol, timeframe, route, what_to_show, primary_exchange, window_start, window_end, ib_req_id,
 outcome, error_code, error_text, n_bars, client_id, requested_at, answered_at. caller and source
-are sink-level facts (whose run this is, which vendor answered).
+are sink-level facts (whose run this is, which vendor answered). partial_bars (migration 479) is
+NULL unless the fetch layer noted the answer's incomplete bars with `note_partial` before the row
+left the buffer.
 
 Buffer discipline: the sync sink auto-flushes once pending() reaches max_buffer_rows (it owns its
 connection); the async sink's flush takes the caller's connection, so its caller owns the same
@@ -52,6 +54,7 @@ _REQUEST_COLUMNS = (
     "caller",
     "requested_at",
     "answered_at",
+    "partial_bars",
 )
 
 # The content digest of the answer a chunk stored, an optional 20th value on a request row; the
@@ -117,7 +120,14 @@ def _request_row(record: Any, *, caller: str, source: str) -> tuple:
         caller,
         record.requested_at,
         record.answered_at,
+        None,
     )
+
+
+# Values in a request row as the sinks buffer it (no content digest), and the position of
+# partial_bars in it (the last column).
+REQUEST_ROW_WIDTH = len(_REQUEST_COLUMNS)
+_PARTIAL_INDEX = REQUEST_ROW_WIDTH - 1
 
 
 class _Buffer:
@@ -168,6 +178,18 @@ class _Buffer:
     def pending(self) -> int:
         return len(self._requests)
 
+    def note_partial(self, request_id: Any, partial_bars: str) -> None:
+        """Record on a buffered request row the bars its answer served that were not complete
+        vendor answers (src/intelligence/bars/complete_bars.py; JSON text of [{t,o,h,l,c,v}]).
+        The row must still be buffered: a request is noted between on_request and the persist
+        of its bars, never after its row was written (that would lose the record, so it raises)."""
+        wanted = str(request_id)
+        for i, row in enumerate(self._requests):
+            if str(row[0]) == wanted:
+                self._requests[i] = (*row[:_PARTIAL_INDEX], partial_bars)
+                return
+        raise LookupError(f"request {wanted} is not buffered; its partial bars would be lost")
+
 
 class RequestSink:
     """Sync (psycopg 3) fetch ledger writer: append-only COPY under the writer role."""
@@ -196,6 +218,10 @@ class RequestSink:
     def take_requests(self, request_ids: Any) -> list[tuple]:
         """Hand over the buffered rows for `request_ids` WITHOUT flushing."""
         return self._buffer.take_requests(request_ids)
+
+    def note_partial(self, request_id: Any, partial_bars: str) -> None:
+        """See _Buffer.note_partial."""
+        self._buffer.note_partial(request_id, partial_bars)
 
     def reconnect(self, conn: Any) -> None:
         """Swap in a fresh connection, keeping the buffered rows (the only buffer-preserving
@@ -268,6 +294,10 @@ class AsyncRequestSink:
 
     def on_request(self, record: Any) -> None:
         self._buffer.add_request(record)
+
+    def note_partial(self, request_id: Any, partial_bars: str) -> None:
+        """See _Buffer.note_partial."""
+        self._buffer.note_partial(request_id, partial_bars)
 
     def pending(self) -> int:
         return self._buffer.pending()

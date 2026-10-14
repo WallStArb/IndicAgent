@@ -60,7 +60,7 @@ from services.ohlcv_ingress_contract import (
     read_raw_params,
 )
 from services.ohlcv_raw_writer import RawRow
-from services.ohlcv_request_writer import write_request_rows
+from services.ohlcv_request_writer import REQUEST_ROW_WIDTH, write_request_rows
 from src.intelligence.bars.digest import bar_content_digest
 
 _REQUEST_ROLE = "ohlcv_observation_writer"
@@ -79,7 +79,8 @@ class PersistResult:
 
 
 # ohlcv_request row layout (services/ohlcv_request_writer._REQUEST_COLUMNS).
-_REQ_ID, _REQ_OUTCOME, _REQ_N_BARS, _REQUEST_COLUMNS_WITHOUT_DIGEST = 0, 11, 14, 19
+_REQ_ID, _REQ_OUTCOME, _REQ_N_BARS = 0, 11, 14
+_REQUEST_COLUMNS_WITHOUT_DIGEST = REQUEST_ROW_WIDTH
 
 
 def persist_chunk_atomically(

@@ -72,6 +72,7 @@ from scripts.infrastructure.backfill._history_fetch import (
     fetch_per_contract,
 )
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
+from services.complete_bar_gate import keep_complete
 from services.ohlcv_coverage_writer import DESTINATION_RAW, FETCH_STATUSES, CoverageDelta
 from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
@@ -247,6 +248,10 @@ class FetchContext:
     # provider call per symbol serves every timeframe's head row.
     first_bars_checked: set[tuple[str, str, str]] = field(default_factory=set)
     head_lookups: dict[tuple[str, str], datetime | None] = field(default_factory=dict)
+    # APR threshold.bar_integrity.session_close_settle_s (migration 479): a bar ending at or
+    # after its session close is a complete answer only this long after the close. Loaded by
+    # the fetcher at context build; None refuses to persist (a silent zero would keep partials).
+    settle: timedelta | None = None
 
     @property
     def vendor(self) -> str:
@@ -268,11 +273,6 @@ class FetchContext:
                     pass
         self.conn = self.connect()
         return self.conn
-
-
-def _daily_session_complete(bar: Any, answered_at: datetime) -> bool:
-    stamp = bar["timestamp"] if isinstance(bar, dict) else bar.timestamp
-    return session_complete_at(stamp.date(), answered_at)
 
 
 def _raw_rows(symbol: str, timeframe: str, bars: list[Any], record: Any | None) -> list[RawRow]:
@@ -317,14 +317,22 @@ def _raw_rows(symbol: str, timeframe: str, bars: list[Any], record: Any | None) 
 
 
 class _ChunkPersister:
-    """The on_chunk side of one timeframe's fetch (CD-04).
+    """The persist side of one timeframe's fetch (CD-04).
 
-    Every provider chunk commits through persist_chunk_atomically with the request rows the
-    provider reported for it (recorded before on_chunk, todo 462 order) and the series'
-    CoverageDelta, so answer, bars and ledger land in one transaction. A daily (1d) answer
-    arrives through on_observation instead, because its raw kind comes from the request's route
-    and what_to_show; it carries no coverage update (the daily derivation stage refreshes the 1d
-    bounds). 15m and 1h are ordinary raw rows.
+    Every answered request's bars arrive through on_observation together with the request's
+    record (reported first through on_request, todo 462 order) and commit through
+    persist_chunk_atomically with that request row and, intraday, the series' CoverageDelta, so
+    answer, bars and ledger land in one transaction. A daily answer's raw kind comes from the
+    request's route and what_to_show; it carries no coverage update (the daily derivation stage
+    refreshes the 1d bounds). 15m and 1h are ordinary raw rows.
+
+    Complete bars only (second review of 191-07, finding 5): before anything is offered, the
+    answer is split by src/intelligence/bars/complete_bars.py against the request's own
+    answered_at and window end, every vendor alike. A bar that straddles the request end, was
+    still forming when the vendor answered, or closes the session and was answered before the
+    settle delay is not this source's answer: it is written onto the request row
+    (`ohlcv_request.partial_bars`), logged with its values, and not offered to raw; the gap
+    planner keeps its slot a gap. 1d keeps D-191-J (complete at the session close).
 
     A refused chunk does not stop the walk: the persist helper has already recorded its answer,
     the contract held the offered values as pending revisions and wrote the refused load row, so
@@ -359,26 +367,54 @@ class _ChunkPersister:
         self.n_held = 0
         self.n_unselected = 0
         self.unmapped: list[str] = []
+        # Every stamp an answer handed in, complete or not: the item's defensive re-offer of
+        # returned bars skips them (a held-back partial must not slip in without its record).
+        self.answered: set[datetime] = set()
+        self.n_partial = 0
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
         self.request_ids.append(record.request_id)
         self.clock.touch()
 
-    async def on_chunk(self, chunk_bars: list[Any]) -> None:
-        self.persist(chunk_bars)
-
     def on_observation(self, record: Any, bars: list[Any]) -> None:
-        """A daily answer (the provider calls this synchronously after on_request)."""
-        self.persist(bars, record=record)
+        """One request's answer (the provider calls this synchronously after on_request)."""
+        self.persist(
+            bars,
+            record=record,
+            answered_at=record.answered_at,
+            request_end=None if self.daily else record.window_end,
+        )
 
-    def persist(self, bars: list[Any], *, record: Any | None = None) -> None:
-        if record is not None and self.daily:
-            # D-191-J: a 1d bar of a session still open at answered_at is forming, not a vendor
-            # answer for the day. Raw is last-wins, so offering it would log the partial as a
-            # restatement when the completed bar arrives. The request row stays buffered; the
-            # planner keeps the session a gap until a run sees it whole.
-            bars = [b for b in bars if _daily_session_complete(b, record.answered_at)]
+    def persist(
+        self,
+        bars: list[Any],
+        *,
+        answered_at: datetime,
+        request_end: datetime | None,
+        record: Any | None = None,
+    ) -> None:
+        """Offer an answer's complete bars. `answered_at` is the answer time (a lower bound
+        when no record carries it); `request_end` the request's end (None for 1d)."""
+        if self.ctx.settle is None:
+            raise RuntimeError("FetchContext.settle is not loaded (APR session_close_settle_s)")
+        self.answered.update(b["timestamp"] if isinstance(b, dict) else b.timestamp for b in bars)
+        bars, partial, partial_text = keep_complete(
+            bars,
+            self.timeframe,
+            answered_at=answered_at,
+            request_end=request_end,
+            settle=self.ctx.settle,
+            symbol=self.symbol,
+            caller="ibkr_history_fetcher",
+        )
+        if partial:
+            # D-191-J and its intraday analogue: raw is last-wins, so offering the partial would
+            # log the completed bar as a restatement later. The request row stays buffered with
+            # the partial values on it; the planner keeps the slot a gap.
+            self.n_partial += len(partial)
+            if record is not None:
+                self.ctx.sink.note_partial(record.request_id, partial_text)
         if not bars:
             return
         request_rows = self.ctx.sink.take_requests(list(self.request_ids))
@@ -820,8 +856,9 @@ async def fetch_item(
     )
     capture = _capture_kwargs(ctx.sink, ctx.fetch_run_id)
     capture["on_request"] = persister.on_request
-    if d1_capture:
-        capture["on_observation"] = persister.on_observation
+    # Every answer reaches the persister with its request record, intraday too, so each bar is
+    # judged against the answer time and window end of the request that served it (finding 5).
+    capture["on_observation"] = persister.on_observation
 
     n_returned = 0
     failed: list[str] = []
@@ -835,6 +872,7 @@ async def fetch_item(
         # end); the legacy planner's 1m range ends at the slot's start, so 1m asks through
         # the slot's end, capped at now so a bar still forming stays a gap.
         fetch_end = min(gap_end + interval, ctx.end_dt) if timeframe == "1m" else gap_end
+        asked_at = datetime.now(UTC)
         try:
             bars = await ctx.provider.fetch_historical_bars(
                 symbol=symbol,
@@ -842,7 +880,7 @@ async def fetch_item(
                 start=gap_start,
                 end=fetch_end,
                 continuous=use_cont,
-                on_chunk=None if d1_capture else persister.on_chunk,
+                on_chunk=None,
                 on_empty_history=observed.append if is_oldest else None,
                 **capture,
             )
@@ -861,9 +899,13 @@ async def fetch_item(
                 failed.append(f"{gap_start.date()}-{gap_end.date()}: {n_failed_chunks} chunk(s)")
             n_returned += len(bars)
             if not d1_capture:
-                # Defensive: the provider hands every chunk to on_chunk, but a returned bar
-                # that missed it must still land with its coverage, never be dropped.
-                persister.persist([b for b in bars if b.timestamp not in persister.persisted])
+                # Defensive: the provider hands every answer to on_observation, but a returned
+                # bar that missed it must still land with its coverage, never be dropped. With no
+                # record, it is judged against the time the window was asked (a lower bound on
+                # the answer) and the window's end.
+                missed = [b for b in bars if b.timestamp not in persister.answered]
+                if missed:
+                    persister.persist(missed, answered_at=asked_at, request_end=fetch_end)
             if is_oldest and not use_cont:
                 if d1_capture:
                     # Plan 185-19: 1d empty history is derived from the recorded answers

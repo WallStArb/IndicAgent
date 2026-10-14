@@ -19,6 +19,7 @@ for 1m/4h; 1d moved to D1 in task 1b.
 
 from __future__ import annotations
 
+import json
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
@@ -52,7 +53,7 @@ WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" >= %s AND "
 # covered); `no_data` is the provider's definitive nothing-traded. timeout and failed never
 # reach the set.
 _ANSWERED_WINDOWS_SQL = """
-SELECT r.window_start, r.window_end
+SELECT r.window_start, r.window_end, r.partial_bars
 FROM ohlcv_request r
 WHERE r.symbol = %s AND r.timeframe = %s AND r.source = %s AND r.what_to_show = %s
   AND r.route = ANY(%s) AND r.outcome = ANY(%s) AND r.window_start IS NOT NULL
@@ -94,7 +95,19 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
             ),
         )
         rows = cur.fetchall()
-    return AnsweredWindows.from_rows([(_aware(r[0]), _aware(r[1])) for r in rows])
+    # A bar the answer served incomplete (migration 479, finding 5) is not an answer for its
+    # slot: the window covers every other slot, never that one.
+    partial = {
+        _aware(datetime.fromisoformat(bar["t"])) for r in rows for bar in _partial_list(r[2])
+    }
+    return AnsweredWindows.from_rows([(_aware(r[0]), _aware(r[1])) for r in rows], partial=partial)
+
+
+def _partial_list(value: Any) -> list[dict[str, Any]]:
+    """ohlcv_request.partial_bars as a list (psycopg returns jsonb decoded; a str is parsed)."""
+    if value is None:
+        return []
+    return json.loads(value) if isinstance(value, str) else list(value)
 
 
 def detect_gaps_from_record(

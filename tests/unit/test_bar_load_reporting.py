@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pandas as pd
@@ -68,7 +69,9 @@ def test_nightly_summary_counts_refused_and_held_and_does_not_print_applied(monk
     sink = SimpleNamespace(flush=lambda: 0)
     policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
     summary = asyncio.run(
-        ops_bar_nightly._run(Leaf(), None, sink, policy, None, ["SPY"], None, None, True)
+        ops_bar_nightly._run(
+            Leaf(), None, sink, policy, None, timedelta(minutes=30), ["SPY"], None, None, True
+        )
     )
     assert summary["refused"] == 1 and summary["held"] == 1 and summary["errors"] == 0
     line = ops_bar_nightly.summary_line(summary, apply=True)
@@ -94,3 +97,69 @@ def test_unselected_slots_are_reported_and_fail_the_night():
     summary = {"authored": 4, "raw_1d": 0, "errors": 0, "refused": 0, "held": 0, "unselected": 6}
     assert "6 unselected" in ops_bar_nightly.summary_line(summary, apply=True)
     assert ops_bar_nightly.exit_code(summary) == 1
+
+
+def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monkeypatch):
+    """Second review of 191-07, finding 5: the Alpaca leaf has no forming-bar rule, so the
+    nightly splits every page against the time it asked; a bar still forming is not offered to
+    raw and its values go onto the window's last request row."""
+    offered: list[pd.DataFrame] = []
+
+    def fake_series(conn, policy, symbol, frame, *, params, write):
+        offered.append(frame)
+        return LoadResult(n_offered=len(frame))
+
+    monkeypatch.setattr(ops_bar_nightly, "load_series", fake_series)
+    monkeypatch.setattr(ops_bar_nightly, "load_frame", lambda *a, **k: LoadResult())
+    now = datetime.now(UTC)
+    forming = now.replace(second=0, microsecond=0) - timedelta(minutes=now.minute % 5)
+
+    def bar(ts):
+        return SimpleNamespace(timestamp=ts, open=1, high=1, low=1, close=1, volume=1)
+
+    pages = {
+        "5m": SimpleNamespace(bars=[bar(datetime(2026, 10, 9, 13, 30, tzinfo=UTC)), bar(forming)]),
+        "1d": SimpleNamespace(bars=[]),
+    }
+
+    class Leaf:
+        def __init__(self, sink):
+            self.sink = sink
+
+        async def connect(self):
+            pass
+
+        async def close(self):
+            pass
+
+        async def fetch_ohlcv(self, request, budget):
+            self.sink.on_request(SimpleNamespace(request_id=f"req-{request.timeframe}"))
+            return pages[request.timeframe]
+
+    noted: list[tuple[str, str]] = []
+    inner = SimpleNamespace(
+        on_request=lambda record: None,
+        note_partial=lambda rid, text: noted.append((rid, text)),
+        flush=lambda: 0,
+    )
+    sink = ops_bar_nightly._NightlySink(inner)
+    policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
+    summary = asyncio.run(
+        ops_bar_nightly._run(
+            Leaf(sink),
+            None,
+            sink,
+            policy,
+            None,
+            timedelta(minutes=30),
+            ["SPY"],
+            None,
+            now + timedelta(days=1),
+            True,
+        )
+    )
+    assert summary["partial"] == 1 and summary["errors"] == 0
+    assert list(offered[0]["t"]) == [datetime(2026, 10, 9, 13, 30, tzinfo=UTC)]
+    [(request_id, text)] = noted
+    assert request_id == "req-5m" and forming.isoformat() in text
+    assert "1 incomplete bars held back" in ops_bar_nightly.summary_line(summary, apply=True)

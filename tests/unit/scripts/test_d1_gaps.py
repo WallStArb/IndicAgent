@@ -11,6 +11,7 @@ no ranges; the same name with the no_data row deleted returns the head.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -64,7 +65,7 @@ _STORED_TAIL = [(_t(15, 0),), (_t(15, 15),), (_t(15, 30),)]
 
 class TestDetectGapsFromRecord:
     def test_fully_fetched_name_with_a_recorded_no_data_head_returns_no_ranges(self):
-        conn = _FakeConn(_STORED_TAIL, [(_t(14, 30), _t(15, 0))])
+        conn = _FakeConn(_STORED_TAIL, [(_t(14, 30), _t(15, 0), None)])
         plan = detect_gaps_from_record(
             conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="ibkr", now=_NOW
         )
@@ -251,7 +252,7 @@ class TestDetectGaps1dFromD1:
     def test_a_no_data_window_spanning_whole_session_days_is_not_a_gap(self):
         conn = _FakeConn(
             [(self._midnight(self._D3), None)],
-            [(self._midnight(self._D1), self._midnight(self._D3))],
+            [(self._midnight(self._D1), self._midnight(self._D3), None)],
         )
         plan = detect_gaps_1d_from_d1(
             conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=self._NOW_1D
@@ -455,7 +456,7 @@ class TestDetectGaps1dFromD1:
 
 class TestLoadAnsweredWindows:
     def test_reads_the_vendors_smart_trades_answers_only(self):
-        conn = _FakeConn([(_t(14, 30), _t(15, 0)), (_t(15, 0), _t(15, 30))])
+        conn = _FakeConn([(_t(14, 30), _t(15, 0), None), (_t(15, 0), _t(15, 30), None)])
         windows = load_answered_windows(conn, "SPY", "15m", "ibkr")
         sql, params = conn.queries[0]
         assert params == ("SPY", "15m", "ibkr", "TRADES", ["SMART"], ["bars", "no_data"])
@@ -465,6 +466,18 @@ class TestLoadAnsweredWindows:
         # insert may have failed)
         assert "EXISTS" in sql
         assert windows.starts == (_t(14, 30),) and windows.ends == (_t(15, 30),)
+        assert "partial_bars" in sql
+
+    def test_a_slot_an_answer_served_incomplete_is_not_answered(self):
+        """Migration 479 (finding 5): the window holds 14:45, but the answer recorded its bar
+        as partial, so the slot stays a gap; jsonb arrives decoded or as text."""
+        partial = [{"t": "2026-01-02T14:45:00+00:00", "o": 1, "h": 1, "l": 1, "c": 1, "v": 5}]
+        for value in (partial, json.dumps(partial)):
+            conn = _FakeConn([(_t(14, 30), _t(15, 30), value)])
+            windows = load_answered_windows(conn, "SPY", "15m", "ibkr")
+            assert windows.covers(_t(14, 30), timedelta(minutes=15))
+            assert not windows.covers(_t(14, 45), timedelta(minutes=15))
+            assert windows.covers(_t(15, 0), timedelta(minutes=15))
 
     def test_one_sql_serves_every_timeframe_and_corroborates_in_raw_by_vendor(self):
         seen = set()

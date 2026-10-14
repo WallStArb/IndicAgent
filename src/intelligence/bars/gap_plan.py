@@ -67,12 +67,19 @@ class AnsweredWindows:
 
     starts: tuple[datetime, ...] = ()
     ends: tuple[datetime, ...] = ()
+    # Slots an answer served as an incomplete bar (ohlcv_request.partial_bars, migration 479):
+    # never covered, whatever window holds them, so the planner asks them again.
+    partial: frozenset[datetime] = frozenset()
 
     def __bool__(self) -> bool:
         return bool(self.starts)
 
     @classmethod
-    def from_rows(cls, rows: Iterable[tuple[datetime, datetime]]) -> AnsweredWindows:
+    def from_rows(
+        cls,
+        rows: Iterable[tuple[datetime, datetime]],
+        partial: Iterable[datetime] = (),
+    ) -> AnsweredWindows:
         """Merge overlapping or touching (window_start, window_end) rows."""
         merged: list[tuple[datetime, datetime]] = []
         for start, end in sorted(row for row in rows if row[1] > row[0]):
@@ -80,11 +87,11 @@ class AnsweredWindows:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
-        return cls(tuple(s for s, _ in merged), tuple(e for _, e in merged))
+        return cls(tuple(s for s, _ in merged), tuple(e for _, e in merged), frozenset(partial))
 
     def covers(self, slot: datetime, interval: timedelta) -> bool:
         """True when the whole bar starting at `slot` lies inside a window."""
-        if not self.starts:
+        if not self.starts or slot in self.partial:
             return False
         i = bisect_right(self.starts, slot) - 1
         return i >= 0 and slot + interval <= self.ends[i]

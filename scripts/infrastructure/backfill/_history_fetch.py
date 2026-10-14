@@ -29,6 +29,7 @@ from typing import Any
 import psycopg
 import structlog
 
+from services.complete_bar_gate import keep_complete, read_settle
 from services.ohlcv_ingress_contract import DEFAULT_CALLER, apply_raw_contract
 from services.ohlcv_raw_writer import RawRow
 from src.config.contracts import (
@@ -268,6 +269,7 @@ async def fetch_per_contract(
                 print(f"    {contract_sym}: skip (qualify failed)")
                 continue
 
+            asked_at = datetime.now(UTC)
             ohlcv_bars = await provider.fetch_historical_bars(
                 symbol=contract_sym,
                 timeframe=timeframe,
@@ -292,7 +294,13 @@ async def fetch_per_contract(
 
             # Store bars under actual contract symbol
             n = store_bars(
-                db_conn, bar_dicts, instrument.symbol, timeframe, actual_symbol=contract_sym
+                db_conn,
+                bar_dicts,
+                instrument.symbol,
+                timeframe,
+                actual_symbol=contract_sym,
+                asked_at=asked_at,
+                request_end=contract_end,
             )
             total_bars += n
 
@@ -842,9 +850,19 @@ def store_bars(
     timeframe: str,
     actual_symbol: str | None = None,
     *,
+    asked_at: datetime | None = None,
+    request_end: datetime | None = None,
     caller: str = DEFAULT_CALLER,
 ) -> int:
     """Offer bars to ohlcv_raw through the raw-first ingress contract. Returns the rows offered.
+
+    Complete bars only (second review of 191-07, finding 5): `asked_at` is when the caller asked
+    (a lower bound on the answer time) and `request_end` the end it asked for; a bar that was
+    still forming, straddles the end or closes the session before the settle delay is held back
+    (logged with its values by services/complete_bar_gate; these callers have no request row).
+    A caller that passes no `asked_at` is judged at the time of this call: an upper bound on the
+    answer time, seconds after it. Only services/backfill_feature_factory relies on that, because
+    editing it renames every feature unit it writes (its own file is in its code key); todo 535.
 
     Args:
         conn: psycopg connection
@@ -873,6 +891,19 @@ def store_bars(
             "store_bars refuses timeframe 1d: a daily answer's raw kind comes from its route "
             "and what_to_show, which the fetcher's observation handler carries"
         )
+    with conn.cursor() as cur:
+        settle = read_settle(cur)
+    bars, _partial, _text = keep_complete(
+        bars,
+        timeframe,
+        answered_at=asked_at or datetime.now(UTC),
+        request_end=request_end,
+        settle=settle,
+        symbol=actual_symbol or symbol,
+        caller=caller,
+    )
+    if not bars:
+        return 0
     store_symbol = actual_symbol or symbol
     rows = []
     for b in bars:

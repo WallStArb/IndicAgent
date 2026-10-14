@@ -637,27 +637,6 @@ def align_request_end(end: datetime, timeframe: str) -> datetime:
     return datetime.fromtimestamp(epoch - epoch % size, tz=UTC)
 
 
-def complete_intraday_bars(
-    bars: list[OHLCVBar], timeframe: str, request_end: datetime, now: datetime
-) -> tuple[list[OHLCVBar], list[OHLCVBar]]:
-    """(kept, dropped): an intraday bar whose grid block ends after the request end (it
-    straddles the edge) or after `now` (it is still forming) is not a complete vendor answer and
-    is dropped (the intraday analogue of D-191-J). 1d bars pass through; D-191-J judges them by
-    session close. The grid block end is the bar's grid start plus its size, an upper bound on
-    the bar's own end (a session's last bar may end earlier at the close), so a bar kept is
-    always whole."""
-    size = _INTRADAY_BAR_SECONDS.get(timeframe)
-    if size is None:
-        return list(bars), []
-    limit = min(request_end, now)
-    kept: list[OHLCVBar] = []
-    dropped: list[OHLCVBar] = []
-    for bar in bars:
-        block_end = align_request_end(bar.timestamp, timeframe) + timedelta(seconds=size)
-        (kept if block_end <= limit else dropped).append(bar)
-    return kept, dropped
-
-
 def _safe_request_callback(callback, *args) -> None:
     """Run a caller's sync request callback (D-05). A lost D1 row must be loud,
     never silent: log the failure, then re-raise into the fetch."""
@@ -1087,10 +1066,9 @@ class IBKRProvider:
                         source=source_tag,
                     )
                 )
-            # endDateTime is empty (now): the last intraday bar may still be forming
-            continuous_bars, _forming = complete_intraday_bars(
-                continuous_bars, timeframe, datetime.now(UTC), datetime.now(UTC)
-            )
+            # Every served bar goes back, the forming one too: which bars are complete answers
+            # is policy, decided by the fetch layer against the request's answer time
+            # (src/intelligence/bars/complete_bars.py), never in this leaf.
             all_bars.extend(continuous_bars)
             if on_chunk and continuous_bars:
                 await on_chunk(continuous_bars)
@@ -1365,18 +1343,8 @@ class IBKRProvider:
                         source=source_tag,
                     )
                 )
-            chunk_bars, partial = complete_intraday_bars(
-                chunk_bars, timeframe, chunk_end, datetime.now(UTC)
-            )
-            if partial:
-                slog.warning(
-                    "ibkr.hist_partial_bars_dropped",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    chunk_end=chunk_end.isoformat(),
-                    stamps=[b.timestamp.isoformat() for b in partial[:5]],
-                    n=len(partial),
-                )
+            # Every served bar is handed on with its request record; the complete-bar rule
+            # (straddling, forming, unsettled closing bars) is the fetch layer's policy.
             walk_bars.extend(chunk_bars)
             if on_chunk and chunk_bars:
                 await on_chunk(chunk_bars)

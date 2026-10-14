@@ -209,10 +209,14 @@ async def _apply(
             print("cannot connect to IBKR gateway")
             return 2
 
+        # (asked_at, request end) per symbol: store_bars judges complete bars against them.
+        asked: dict[str, tuple[datetime, datetime]] = {}
+
         async def fetch(target: RecoveryTarget) -> list[dict[str, Any]]:
             instrument = instruments.get(target.symbol)
             if instrument is None or not await provider.qualify_instrument(instrument):
                 return []
+            asked[target.symbol] = (datetime.now(UTC), target.end)
             bars = await provider.fetch_historical_bars(
                 target.symbol, _TIMEFRAME, target.start, target.end, route=target.route
             )
@@ -232,7 +236,14 @@ async def _apply(
         report = await recover(
             targets,
             fetch=fetch,
-            store=lambda symbol, bars: store_bars(conn, bars, symbol, _TIMEFRAME),
+            store=lambda symbol, bars: store_bars(
+                conn,
+                bars,
+                symbol,
+                _TIMEFRAME,
+                asked_at=asked[symbol][0],
+                request_end=asked[symbol][1],
+            ),
             run_grid_stage=lambda names: run_derivation_stage(
                 "grid", "--changed-only", "--symbols", ",".join(names), "--apply"
             ),

@@ -98,6 +98,19 @@ class TestStoreBars:
         calls = self._contract(monkeypatch)
         assert store_bars(MagicMock(), [], "ESH6", "5m") == 0 and calls == []
 
+    def test_a_bar_forming_when_asked_is_held_back(self, monkeypatch):
+        """Second review of 191-07, finding 5: the ad hoc callers pass the time they asked; a
+        bar whose block had not ended then is not a complete answer and never reaches raw."""
+        from scripts.infrastructure.backfill._history_fetch import store_bars
+
+        calls = self._contract(monkeypatch)
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value.fetchone.return_value = ("1800",)
+        first, second = self._bar(0), self._bar(1)
+        asked_at = second["timestamp"] + timedelta(minutes=2)
+        n = store_bars(conn, [first, second], "ESH6", "5m", asked_at=asked_at, request_end=asked_at)
+        assert n == 1 and [r.timestamp for r in calls[0]["rows"]] == [first["timestamp"]]
+
 
 class TestClusterGapRanges:
     """cluster_gap_ranges() -- found 2026-08-11 via AA (Alcoa Corporation, which

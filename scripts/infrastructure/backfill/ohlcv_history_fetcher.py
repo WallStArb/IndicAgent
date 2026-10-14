@@ -137,6 +137,7 @@ from scripts.ops.bars.ops_split_detect import (  # noqa: E402
     split_rule_from_apr,
 )
 from services.bar_reconciliation_audit import NIGHTLY_STATUS_FILE  # noqa: E402
+from services.complete_bar_gate import read_settle  # noqa: E402
 from services.ohlcv_coverage_writer import (  # noqa: E402
     rebuild_from_stored_state,
     record_fetch_outcome,
@@ -822,6 +823,8 @@ class OHLCVHistoryFetcher(BaseBatch):
                     fresh_heads[(vendor, symbol, tf)] = value
                 for (symbol, tf), value in empty_history.load_tape_floors(conn, vendor).items():
                     tape_floors[(vendor, symbol, tf)] = value
+            with conn.cursor() as cur:
+                settle = read_settle(cur)
         finally:
             conn.close()
         sink = RequestSink(
@@ -847,6 +850,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             days_override=self.args.days,
             per_contract=self.args.per_contract,
             overlap_sessions=plan.overlap_sessions,
+            settle=settle,
         )
 
     async def _run_subprocess(self, argv: list[str]) -> int:

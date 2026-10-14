@@ -290,3 +290,14 @@ def test_an_answered_window_ending_at_the_opening_bars_end_covers_it():
         slots, slots[1:], answered, timedelta(hours=1), run_end=datetime(2026, 7, 15, tzinfo=UTC)
     )
     assert plan == []
+
+
+def test_a_partial_slot_is_never_covered_and_stays_a_gap():
+    """Migration 479 (second review of 191-07, finding 5): a bar an answer served incomplete is
+    not an answer for its slot, whatever window holds it, so the planner asks it again."""
+    t0 = datetime(2026, 10, 12, 19, 50, tzinfo=UTC)
+    t1 = t0 + timedelta(minutes=5)
+    windows = AnsweredWindows.from_rows([(t0, t1 + timedelta(minutes=30))], partial=[t1])
+    assert windows.covers(t0, timedelta(minutes=5)) and not windows.covers(t1, timedelta(minutes=5))
+    plan = plan_gaps([t0, t1], [], windows, timedelta(minutes=5), run_end=t1 + timedelta(hours=1))
+    assert plan == [(t1, t1 + timedelta(minutes=5))]

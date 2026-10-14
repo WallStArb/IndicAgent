@@ -282,31 +282,54 @@ def test_request_sink_taken_requests_never_flush_twice():
     assert sink.flush() == 0 and conn.copies == []
 
 
-def _request_values(n: int = 19) -> tuple:
+def _request_values(n: int = 20) -> tuple:
     return tuple(range(n))
 
 
 def test_request_sink_write_request_rows_without_a_digest_copies_the_original_columns():
     conn = FakeConnection()
-    write_request_rows(conn.cursor(), [_request_values(19)])
+    write_request_rows(conn.cursor(), [_request_values(20)])
     sql, rows = conn.copies[0]
-    assert "content_digest" not in sql and sql.count(",") == 18
-    assert rows == [_request_values(19)]
+    assert "content_digest" not in sql and sql.count(",") == 19
+    assert "answered_at, partial_bars)" in sql
+    assert rows == [_request_values(20)]
 
 
 def test_request_sink_write_request_rows_with_a_digest_adds_the_column():
     conn = FakeConnection()
-    write_request_rows(conn.cursor(), [_request_values(20)])
+    write_request_rows(conn.cursor(), [_request_values(21)])
     sql, rows = conn.copies[0]
-    assert sql.startswith("COPY ohlcv_request (") and sql.count(",") == 19
-    assert "answered_at, content_digest)" in sql
-    assert rows == [_request_values(20)]
+    assert sql.startswith("COPY ohlcv_request (") and sql.count(",") == 20
+    assert "partial_bars, content_digest)" in sql
+    assert rows == [_request_values(21)]
+
+
+def test_a_buffered_request_row_carries_its_partial_bars_and_defaults_to_null():
+    """Migration 479 (finding 5): the fetch layer notes an answer's incomplete bars on the
+    request row before it leaves the buffer; every other row writes NULL."""
+    conn = FakeConnection()
+    sink = RequestSink(conn, caller="unit-test")
+    run = new_fetch_run_id()
+    noted, plain = _record(run, str(uuid.uuid4())), _record(run, str(uuid.uuid4()))
+    sink.on_request(noted)
+    sink.on_request(plain)
+    sink.note_partial(noted.request_id, '[{"t": "2026-10-12T19:55:00+00:00"}]')
+    rows = {str(row[0]): row for row in sink.take_requests([noted.request_id, plain.request_id])}
+    assert rows[noted.request_id][-1] == '[{"t": "2026-10-12T19:55:00+00:00"}]'
+    assert rows[plain.request_id][-1] is None
+    assert len(rows[plain.request_id]) == 20
+
+
+def test_noting_partial_bars_on_a_request_no_longer_buffered_is_loud():
+    sink = RequestSink(FakeConnection(), caller="unit-test")
+    with pytest.raises(LookupError, match="not buffered"):
+        sink.note_partial(str(uuid.uuid4()), "[]")
 
 
 def test_request_sink_write_request_rows_refuses_mixed_widths_before_any_sql():
     conn = FakeConnection()
     with pytest.raises(ValueError, match="all"):
-        write_request_rows(conn.cursor(), [_request_values(19), _request_values(20)])
+        write_request_rows(conn.cursor(), [_request_values(20), _request_values(21)])
     assert conn.statements == []
 
 

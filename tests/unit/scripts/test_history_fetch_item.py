@@ -12,6 +12,7 @@ Real sleeps are a few milliseconds at most.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -379,12 +380,16 @@ class FakeSink:
 
     def __init__(self) -> None:
         self.requests: list[SimpleNamespace] = []
+        self.partials: list[tuple[str, str]] = []
         self.total_requests = 0
         self.flushes = 0
         self.fail_flush = False
 
     def on_request(self, record) -> None:
         self.requests.append(record)
+
+    def note_partial(self, request_id, partial_bars: str) -> None:
+        self.partials.append((str(request_id), partial_bars))
 
     def take_requests(self, request_ids) -> list:
         wanted = {str(rid) for rid in request_ids}
@@ -446,6 +451,7 @@ class FakeProvider:
             timeframe=kwargs["timeframe"],
             route=route,
             what_to_show="TRADES",
+            window_end=kwargs["end"],
             answered_at=datetime.now(UTC),
         )
 
@@ -472,7 +478,10 @@ class FakeProvider:
                 if on_observation is not None:
                     on_observation(venue, bars[2:])
             else:
-                on_request(self._record(kwargs, "SMART"))
+                record = self._record(kwargs, "SMART")
+                on_request(record)
+                if on_observation is not None and bars:
+                    on_observation(record, bars)
         if kwargs.get("on_chunk") is not None and bars:
             await kwargs["on_chunk"](bars)
         self.last_fetch_failed_chunks = self.failed_chunks_by_tf.get(tf, 0)
@@ -655,6 +664,7 @@ def _ctx(provider: FakeProvider, **overrides) -> FetchContext:
         empty_reverify_days=7,
         fresh_heads={},
         first_bars={},
+        settle=timedelta(minutes=30),
     )
     fields.update(overrides)
     return FetchContext(**fields)
@@ -866,10 +876,10 @@ def test_item_fetch_writes_no_placeholder_and_no_backfill_status():
         assert "INSERT INTO backfill_status" not in Path(module.__file__).read_text()
 
 
-def test_returned_bars_missed_by_on_chunk_are_still_persisted_atomically(env):
+def test_returned_bars_missed_by_on_observation_are_still_persisted_atomically(env):
     class NoChunkProvider(FakeProvider):
         async def fetch_historical_bars(self, **kwargs):
-            kwargs = dict(kwargs, on_chunk=None)
+            kwargs = dict(kwargs, on_observation=None)
             return await super().fetch_historical_bars(**kwargs)
 
     _fetch(_ctx(NoChunkProvider()), _row("15m"))
@@ -878,13 +888,17 @@ def test_returned_bars_missed_by_on_chunk_are_still_persisted_atomically(env):
 
 
 class TwoChunkProvider(FakeProvider):
-    """Hands the walk's bars over in two chunks, newest first, as the backward walk does."""
+    """Hands the walk's bars over in two answers, newest first, as the backward walk does."""
 
     async def fetch_historical_bars(self, **kwargs):
-        on_chunk = kwargs.pop("on_chunk")
-        bars = await super().fetch_historical_bars(**kwargs, on_chunk=None)
-        await on_chunk(bars[2:])
-        await on_chunk(bars[:2])
+        on_request, on_observation = kwargs["on_request"], kwargs["on_observation"]
+        bars = await super().fetch_historical_bars(
+            **dict(kwargs, on_request=None, on_observation=None)
+        )
+        for chunk in (bars[2:], bars[:2]):
+            record = self._record(kwargs, "SMART")
+            on_request(record)
+            on_observation(record, chunk)
         return bars
 
 
@@ -1241,11 +1255,11 @@ def test_port_capture_and_checkpoint_wiring(env):
     for call in provider.calls:
         assert call["on_request"] is not None
         assert call["fetch_run_id"] == _RUN_ID
-        if call["timeframe"] == "1d":
-            assert callable(call["on_observation"])
-        else:
-            assert call.get("on_observation") is None
-    # Every answered request commits with its chunk (the 15m chunk, and each 1d answer through
+        # Every answer reaches the persister with its request record (finding 5), never
+        # through on_chunk.
+        assert callable(call["on_observation"])
+        assert call.get("on_chunk") is None
+    # Every answered request commits with its chunk (the 15m answer and each 1d answer through
     # on_observation); the sink flushes once per item and finds nothing left.
     assert ctx.sink.total_requests == 0
     assert ctx.sink.flushes == 6
@@ -1265,13 +1279,12 @@ def test_port_15m_and_1d_both_persist_to_raw_and_1d_carries_no_coverage(env):
     assert sum(1 for p in env.persist if p.coverage is None) == 6  # two 1d answers per symbol
 
 
-def test_port_1d_fetch_persists_through_on_observation_not_on_chunk(env):
+def test_port_every_fetch_persists_through_on_observation_not_on_chunk(env):
     provider, ctx, _ = _run_symbols(env)
     on_chunk_by_tf = {
         c["timeframe"]: c.get("on_chunk") for c in provider.calls if c["symbol"] == "AAA"
     }
-    assert callable(on_chunk_by_tf["15m"])
-    assert on_chunk_by_tf["1d"] is None
+    assert on_chunk_by_tf == {"15m": None, "1d": None}
     assert sorted(p.rows[0].timeframe for p in env.persist) == ["15m"] * 3 + ["1d"] * 6
 
 
@@ -1605,3 +1618,110 @@ def test_reserve_asks_replace_the_planner_and_never_infer_empty_history(env):
     assert [(c["start"], c["end"]) for c in provider.calls] == asks
     assert all(c["on_empty_history"] is None for c in provider.calls)
     assert env.reconciled == [] and outcome.status in ("ok", "no_data")
+
+
+# --- complete bars at the fetch layer (second review of 191-07, finding 5) -------------------
+
+
+def _intraday_record(answered_at: datetime, window_end: datetime) -> SimpleNamespace:
+    return SimpleNamespace(
+        request_id=str(uuid.uuid4()),
+        route="SMART",
+        what_to_show="TRADES",
+        window_end=window_end,
+        answered_at=answered_at,
+    )
+
+
+def _five(ts: datetime, volume: int = 10) -> OHLCVBar:
+    return OHLCVBar(
+        symbol="AAA",
+        timeframe="5m",
+        timestamp=ts,
+        open=1.0,
+        high=2.0,
+        low=0.5,
+        close=1.5,
+        volume=volume,
+        source="ibkr",
+    )
+
+
+def _persister_5m(sink: FakeSink | None = None):
+    ctx = _ctx(FakeProvider(), sink=sink or FakeSink())
+    return ctx, item_mod._ChunkPersister(ctx, "AAA", "5m", ProgressClock())
+
+
+def test_a_bar_forming_at_the_answer_time_is_held_back_and_written_on_its_request(env):
+    """ADM 2026-10-12 19:55 served mid-bar: judged against the request's answered_at, not the
+    time the bars are parsed; its values go onto the request row, nothing reaches raw."""
+    ctx, persister = _persister_5m()
+    record = _intraday_record(
+        datetime(2026, 10, 12, 19, 57, 30, tzinfo=UTC), datetime(2026, 10, 13, tzinfo=UTC)
+    )
+    done, forming = (
+        _five(datetime(2026, 10, 12, 19, 50, tzinfo=UTC)),
+        _five(datetime(2026, 10, 12, 19, 55, tzinfo=UTC), volume=380_459),
+    )
+    persister.on_observation(record, [done, forming])
+    assert [r.timestamp for r in env.persist[0].rows] == [done.timestamp]
+    assert persister.n_partial == 1
+    [(request_id, text)] = ctx.sink.partials
+    assert request_id == record.request_id
+    assert json.loads(text) == [
+        {"t": "2026-10-12T19:55:00+00:00", "o": 1.0, "h": 2.0, "l": 0.5, "c": 1.5, "v": 380459}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("answered", "kept"),
+    [
+        (datetime(2026, 10, 12, 20, 10, tzinfo=UTC), False),  # before the 30 min settle
+        (datetime(2026, 10, 12, 20, 31, tzinfo=UTC), True),
+    ],
+)
+def test_the_session_closing_bar_is_complete_only_after_the_settle_delay(env, answered, kept):
+    """The closing cross revises the last bar after the close (ADM 19:55: 380,459 then
+    380,759), so it is an answer only once the settle delay has passed."""
+    _ctx_, persister = _persister_5m()
+    closing = _five(datetime(2026, 10, 12, 19, 55, tzinfo=UTC))
+    persister.on_observation(
+        _intraday_record(answered, datetime(2026, 10, 13, tzinfo=UTC)), [closing]
+    )
+    assert bool(env.persist) is kept and persister.n_partial == (0 if kept else 1)
+
+
+def test_a_bar_straddling_the_request_end_is_held_back(env):
+    """KRE 2007-06-25 14:00: a request ending inside the bar truncates it."""
+    _ctx_, persister = _persister_5m()
+    whole = _five(datetime(2007, 6, 25, 13, 55, tzinfo=UTC))
+    straddler = _five(datetime(2007, 6, 25, 14, 0, tzinfo=UTC), volume=0)
+    record = _intraday_record(
+        datetime(2026, 10, 14, tzinfo=UTC), datetime(2007, 6, 25, 14, 2, 29, tzinfo=UTC)
+    )
+    persister.on_observation(record, [whole, straddler])
+    assert [r.timestamp for r in env.persist[0].rows] == [whole.timestamp]
+    assert persister.n_partial == 1
+
+
+def test_a_held_back_bar_is_not_re_offered_by_the_items_missed_bar_path(env):
+    """The returned list holds the forming bar too; the defensive re-offer of bars that missed
+    on_observation must not slip it into raw without its record."""
+    future = datetime.now(UTC) + timedelta(days=1)
+    bar = _five(future.replace(hour=15, minute=0, second=0, microsecond=0))
+    provider = FakeProvider(bars_by_tf={"5m": [bar]})
+    ctx = _ctx(provider, tf_fetch_config={"5m": (10, False)})
+    _fetch(ctx, _row("5m"))
+    assert env.persist == []
+    assert len(ctx.sink.partials) == 1
+
+
+def test_a_context_without_the_settle_delay_refuses_to_persist(env):
+    persister = item_mod._ChunkPersister(
+        _ctx(FakeProvider(), settle=None), "AAA", "5m", ProgressClock()
+    )
+    with pytest.raises(RuntimeError, match="settle"):
+        persister.on_observation(
+            _intraday_record(datetime.now(UTC), datetime.now(UTC)),
+            [_five(datetime(2024, 1, 2, 15, tzinfo=UTC))],
+        )
