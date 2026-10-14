@@ -1,28 +1,34 @@
 {
  "version": "1.0",
- "timestamp": "2026-10-14T11:10:00Z",
+ "timestamp": "2026-10-14T13:00:00Z",
  "phase": "191",
  "phase_name": "unified-raw-bar-table",
- "plan": "191-07 (the row-for-row gate) executing",
+ "plan": "191-07 done (gate zero unexplained; summary 089f95426); read-only review of its diff running",
  "status": "in_progress",
  "completed_tasks": [
   "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
   "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
   "migrations 473 to 478 applied (477 origin pending, 478 head_kind floors)",
-  "full reconcile applied: 6,151 canonical-only values logged as revisions"
+  "full reconcile applied: 6,151 canonical-only values logged as revisions",
+  "191-07 executed: Alpaca 5m spans (1,641 rows), session filter, selection lock, gate over 318.9M rows zero unexplained; 9,211 explained slots on 57 series NOT yet repaired"
  ],
  "remaining_tasks": [
-  "191-07 executing (executor a7f538b4832be9299): Alpaca 5m policy spans, session filter, selection lock, row-for-row gate sharded by symbol; stops and reports if the gate has an unexplained residual",
-  "191-08 (daily stage) and 191-10 (split_detection) must land before the fetcher resumes; 191-09, 11 to 25 after, serially, one gsd-executor each; 17 and 19 time-gated; 20 needs the owner Tradier deletion checkpoint",
-  "after each plan: a fresh-context read-only review of its diff, fix findings, then the next plan (AGY out to about 10-16, Codex out to 10-15; use a fresh-context Claude reviewer)",
-  "186-26 feature_vectors rebuild not during plans 04 to 14; todos 505 and 395; 12 raw rows without a source key to locate in the 07 gate; PSKY, QRVO, WBD excluded from the 1d queue for an unknown cause"
+  "Read review_claude_07.md (scratchpad of session 0e396051, or rerun a fresh read-only review of commits b2ffcaec4..089f95426), fix findings",
+  "Raw repair of the 9,211 explained slots BEFORE the fetcher resumes (order in 191-07-SUMMARY.md: refresh 148 stale raw keys from canonical; restore 6,168 raw rows to the accepted value and hold the later serve as pending revisions; accept 2,619 additions and 276 vendor differences as catch-up); then verify by rolled-back selection probe (must insert 0, replace 0)",
+  "191-08 (daily stage) and 191-10 (split_detection) must land before the fetcher resumes; 191-09 and 11 to 25 after, serially, one gsd-executor each, each followed by a fresh-context read-only review and a fix executor; 17 and 19 time-gated; 20 needs the owner Tradier deletion checkpoint",
+  "todos 505 and 395; PSKY, QRVO, WBD excluded from the 1d queue for an unknown cause; onboarding a new name must add its 5m policy span"
  ],
  "blockers": [
   "Cutover window open since 2026-10-13T19:00:40Z: ten units held (logs/raw_cutover_window.json), none resumed. The fetcher timer and service stay held until plans 06, 08 and 10 have summaries (resume guard refuses; override flag is logged). The 5m backfill is paused until then.",
   "Do not run ops_bar_nightly or ops_bar_load against live data before plan 07 verifies the Alpaca 5m spans (Alpaca 5m writes raw but no canonical row lands)."
  ],
- "human_actions_pending": ["owner acknowledgement of D-191-B, D and G", "plan 20 Tradier deletion checkpoint"],
- "uncommitted_files": ["dashboard/package.json (another session's dependency bumps; not ours)"],
- "next_action": "When the 07 executor reports: read its gate residual, launch a read-only review of the 07 diff, fix findings, then launch the 191-08 executor.",
+ "human_actions_pending": [
+  "owner acknowledgement of D-191-B, D and G",
+  "plan 20 Tradier deletion checkpoint"
+ ],
+ "uncommitted_files": [
+  "dashboard/package.json (another session's dependency bumps; not ours)"
+ ],
+ "next_action": "Check the 07 review result, then launch the raw-repair executor, then the 191-08 executor.",
  "context_notes": "Owner principle 2026-10-13: fetch per source, agnostic to other sources; gap = this source's expected slots minus its own raw minus its own answered windows; canonical derived from raw plus policy; a refusal belongs to selection (held series keep stored raw current, pending revisions). Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Plans 05 to 19 carry amendments from the reviews. Usage limits killed two agents on 2026-10-13/14: executors should commit finished work before long steps."
 }
