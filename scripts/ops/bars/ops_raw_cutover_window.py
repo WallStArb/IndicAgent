@@ -6,8 +6,12 @@ TEMPORARY: deleted at phase 191 close with the other cutover scaffolding.
 reads or writes the old stores or canonical bars, records the held list in
 `logs/raw_cutover_window.json`, and never kills a running batch: timers are stopped first, a
 running batch service is left to finish on its own within a bounded wait, and the open aborts
-(nothing recorded) if it does not. `clear` marks a unit as cut over (the reader plan's evidence
-file must exist); `resume` restarts a cleared unit and drops it from the record; `resume --all`
+if it does not (the record is written first with state "opening", so a re-run keeps the recorded
+active state of timers it already stopped). `clear` marks a unit as cut over (the reader plan's evidence
+file must exist); `resume` restarts a cleared unit and drops it from the record, refusing a unit whose dependencies
+(`UNIT_DEPENDENCIES`: the fetcher timer needs its service, which needs bar derivation) are
+uncleared, and the fetcher pair until plans 06, 08 and 10 have summaries unless
+`--override-fetcher-plan-gate` (logged); `resume --all`
 refuses while any unit is uncleared; `status` prints the record.
 
 The module set is computed from the `_ALLOW_LIST` keys of the canonical writer-boundary test plus
@@ -50,6 +54,28 @@ READER_MODULES = (
 )
 
 Systemctl = Callable[..., str]
+
+_PHASE_DIR = _REPO_ROOT / ".planning" / "phases" / "191-unified-raw-bar-table"
+_OVERRIDE_LOG = _REPO_ROOT / "logs" / "raw_cutover_window_overrides.log"
+
+FETCHER_TIMER = "indicagent-ibkr-history-fetcher.timer"
+FETCHER_SERVICE = "indicagent-ibkr-history-fetcher.service"
+
+# Modules the fetcher service runs: bar_derivation as a subprocess, the rest in-process. Only
+# bar_derivation has a unit of its own; the others are covered by clearing the fetcher service.
+FETCHER_RUNS_MODULES = ("bar_derivation", "split_detection", "bar_hold", "ohlcv_coverage_writer")
+MODULE_UNITS = {"bar_derivation": "indicagent-bar-derivation.service"}
+
+# unit -> units that must be cleared (or already resumed) before it may resume. A timer needs
+# the service it triggers; the fetcher service needs every unit whose module it runs.
+UNIT_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    FETCHER_TIMER: (FETCHER_SERVICE,),
+    FETCHER_SERVICE: tuple(MODULE_UNITS.values()),
+}
+
+# The fetcher pair also stays held until these plans have a SUMMARY (planner and coverage on raw,
+# split detection and the daily rule on raw, the selection gate).
+FETCHER_PLANS = ("191-06", "191-08", "191-10")
 
 
 class WindowError(RuntimeError):
@@ -150,8 +176,38 @@ def open_window(
     batch_services: set[str],
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
-    """Stop timers, stop non-batch services, wait for batch services to exit, then record."""
-    active_at_open = {n: ctl("is-active", n).strip() == "active" for n in names}
+    """Stop timers, stop non-batch services, wait for batch services to exit, then record.
+
+    The pre-stop active state is persisted (state "opening") before anything is stopped, so an
+    open that aborts at the bounded wait and is re-run keeps the timers' resume action."""
+    prior = _load(record) if record.exists() else None
+    if prior is not None and prior.get("state", "open") != "opening":
+        raise WindowError(f"window already open: {record}")
+    recorded = {u["name"]: u["active_at_open"] for u in (prior or {}).get("units", [])}
+    active_at_open = {
+        n: recorded[n] if n in recorded else ctl("is-active", n).strip() == "active" for n in names
+    }
+    units = []
+    for name in names:
+        if name.endswith(".timer"):
+            action = "start" if active_at_open[name] else "none"
+        else:
+            action = "start" if active_at_open[name] and name not in batch_services else "none"
+        units.append(
+            {
+                "name": name,
+                "cleared_by": None,
+                "evidence": None,
+                "active_at_open": active_at_open[name],
+                "resume_action": action,
+            }
+        )
+    data = {
+        "opened_at": (prior or {}).get("opened_at", _now()),
+        "state": "opening",
+        "units": units,
+    }
+    _save(record, data)
     for name in names:
         if name.endswith(".timer") and active_at_open[name]:
             ctl("stop", name)
@@ -171,22 +227,7 @@ def open_window(
                 f"stopped, rerun open once they exit): {', '.join(running)}"
             )
         sleep(poll_s)
-    units = []
-    for name in names:
-        if name.endswith(".timer"):
-            action = "start" if active_at_open[name] else "none"
-        else:
-            action = "start" if active_at_open[name] and name not in batch_services else "none"
-        units.append(
-            {
-                "name": name,
-                "cleared_by": None,
-                "evidence": None,
-                "active_at_open": active_at_open[name],
-                "resume_action": action,
-            }
-        )
-    data = {"opened_at": _now(), "units": units}
+    data["state"] = "open"
     _save(record, data)
     return data
 
@@ -203,28 +244,107 @@ def clear_unit(record: Path, name: str, plan: str, evidence: Path) -> None:
     _save(record, data)
 
 
+def fetcher_plans_done(phase_dir: Path = _PHASE_DIR) -> list[str]:
+    """Fetcher gate plans that have a SUMMARY.md in the phase directory."""
+    return [p for p in FETCHER_PLANS if (phase_dir / f"{p}-SUMMARY.md").exists()]
+
+
+def _dependency_closure(name: str) -> list[str]:
+    seen: list[str] = []
+    stack = list(UNIT_DEPENDENCIES.get(name, ()))
+    while stack:
+        dep = stack.pop(0)
+        if dep not in seen:
+            seen.append(dep)
+            stack.extend(UNIT_DEPENDENCIES.get(dep, ()))
+    return seen
+
+
+def _check_resumable(
+    data: dict,
+    unit: dict,
+    fetcher_plans_done_fn: Callable[[], list[str]],
+    override: bool,
+) -> None:
+    name = unit["name"]
+    if unit["cleared_by"] is None:
+        raise WindowError(f"refusing to resume uncleared unit {name}")
+    held = {u["name"]: u for u in data["units"]}
+    uncleared = [
+        d for d in _dependency_closure(name) if d in held and held[d]["cleared_by"] is None
+    ]
+    if uncleared:
+        raise WindowError(
+            f"refusing to resume {name}: it runs or triggers uncleared {', '.join(uncleared)}"
+        )
+    if name in (FETCHER_TIMER, FETCHER_SERVICE):
+        missing = [p for p in FETCHER_PLANS if p not in fetcher_plans_done_fn()]
+        if missing and not override:
+            raise WindowError(
+                f"refusing to resume {name}: the fetcher stays held until plans "
+                f"{', '.join(FETCHER_PLANS)} are done (no SUMMARY for {', '.join(missing)}); "
+                "override only with --override-fetcher-plan-gate (logged)"
+            )
+        if missing:
+            entry = {"unit": name, "missing_plans": missing, "at": _now()}
+            data.setdefault("fetcher_gate_overrides", []).append(entry)
+
+
+def _log_override(data: dict, start: int, log: Path) -> None:
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a") as fh:
+        for entry in data.get("fetcher_gate_overrides", [])[start:]:
+            fh.write(json.dumps({"event": "fetcher_plan_gate_override", **entry}) + "\n")
+
+
 def _resume(data: dict, unit: dict, ctl: Systemctl) -> None:
     if unit.get("resume_action", "start") == "start":
         ctl("start", unit["name"])
     data["units"] = [u for u in data["units"] if u["name"] != unit["name"]]
 
 
-def resume_unit(record: Path, name: str, ctl: Systemctl) -> None:
+def resume_unit(
+    record: Path,
+    name: str,
+    ctl: Systemctl,
+    *,
+    fetcher_plans_done: Callable[[], list[str]] | None = None,
+    override_fetcher_plan_gate: bool = False,
+    override_log: Path = _OVERRIDE_LOG,
+) -> None:
+    done_fn = (
+        fetcher_plans_done if fetcher_plans_done is not None else globals()["fetcher_plans_done"]
+    )
     data = _load(record)
     unit = next((u for u in data["units"] if u["name"] == name), None)
     if unit is None:
         raise WindowError(f"{name} is not in the record")
-    if unit["cleared_by"] is None:
-        raise WindowError(f"refusing to resume uncleared unit {name}")
+    start = len(data.get("fetcher_gate_overrides", []))
+    _check_resumable(data, unit, done_fn, override_fetcher_plan_gate)
+    _log_override(data, start, override_log)
     _resume(data, unit, ctl)
     _save(record, data)
 
 
-def resume_all(record: Path, ctl: Systemctl) -> None:
+def resume_all(
+    record: Path,
+    ctl: Systemctl,
+    *,
+    fetcher_plans_done: Callable[[], list[str]] | None = None,
+    override_fetcher_plan_gate: bool = False,
+    override_log: Path = _OVERRIDE_LOG,
+) -> None:
+    done_fn = (
+        fetcher_plans_done if fetcher_plans_done is not None else globals()["fetcher_plans_done"]
+    )
     data = _load(record)
     uncleared = [u["name"] for u in data["units"] if u["cleared_by"] is None]
     if uncleared:
         raise WindowError(f"refusing resume --all, uncleared: {', '.join(uncleared)}")
+    start = len(data.get("fetcher_gate_overrides", []))
+    for unit in data["units"]:
+        _check_resumable(data, unit, done_fn, override_fetcher_plan_gate)
+    _log_override(data, start, override_log)
     for unit in list(data["units"]):
         _resume(data, unit, ctl)
     _save(record, data)
@@ -282,6 +402,7 @@ def main() -> int:
     group = p_resume.add_mutually_exclusive_group(required=True)
     group.add_argument("--unit")
     group.add_argument("--all", action="store_true")
+    p_resume.add_argument("--override-fetcher-plan-gate", action="store_true")
     args = parser.parse_args()
     try:
         if args.cmd == "open":
@@ -289,8 +410,6 @@ def main() -> int:
             if args.dry_run:
                 print("\n".join(names))
                 return 0
-            if _RECORD.exists():
-                raise WindowError(f"window already open: {_RECORD}")
             open_window(
                 names,
                 _RECORD,
@@ -306,9 +425,18 @@ def main() -> int:
             clear_unit(_RECORD, args.unit, args.plan, Path(args.evidence))
         elif args.cmd == "resume":
             if args.all:
-                resume_all(_RECORD, _real_systemctl)
+                resume_all(
+                    _RECORD,
+                    _real_systemctl,
+                    override_fetcher_plan_gate=args.override_fetcher_plan_gate,
+                )
             else:
-                resume_unit(_RECORD, args.unit, _real_systemctl)
+                resume_unit(
+                    _RECORD,
+                    args.unit,
+                    _real_systemctl,
+                    override_fetcher_plan_gate=args.override_fetcher_plan_gate,
+                )
     except WindowError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1

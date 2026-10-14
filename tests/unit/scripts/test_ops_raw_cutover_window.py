@@ -133,7 +133,39 @@ def test_open_aborts_when_a_service_does_not_exit(tmp_path: Path):
             batch_services={"a.service"},
             sleep=lambda _s: None,
         )
-    assert not record.exists()
+    # the pre-stop active state is persisted before anything is stopped (finding 9)
+    assert json.loads(record.read_text())["state"] == "opening"
+
+
+def test_open_retry_after_abort_keeps_the_recorded_active_state(tmp_path: Path):
+    record = tmp_path / "w.json"
+    ctl = FakeSystemctl({"a.timer", "a.service"})
+    with pytest.raises(mod.WindowError):
+        mod.open_window(
+            ["a.timer", "a.service"],
+            record,
+            ctl,
+            wait_s=0,
+            poll_s=0,
+            batch_services={"a.service"},
+            sleep=lambda _s: None,
+        )
+    assert ("stop", "a.timer") in ctl.calls
+    ctl.active.discard("a.service")  # the batch run exits; the timer is already stopped
+    data = mod.open_window(
+        ["a.timer", "a.service"],
+        record,
+        ctl,
+        wait_s=0,
+        poll_s=0,
+        batch_services={"a.service"},
+        sleep=lambda _s: None,
+    )
+    timer = next(u for u in data["units"] if u["name"] == "a.timer")
+    assert timer["active_at_open"] is True and timer["resume_action"] == "start"
+    assert data["state"] == "open"
+    with pytest.raises(mod.WindowError, match="already open"):
+        mod.open_window(["a.timer"], record, ctl, wait_s=0, poll_s=0, batch_services=set())
 
 
 def _record(path: Path, names: list[str]) -> None:
@@ -186,3 +218,86 @@ def test_resume_starts_timers_and_services_that_were_active(tmp_path: Path):
     mod.resume_all(record, ctl)
     assert ("start", "a.timer") in ctl.calls
     assert json.loads(record.read_text())["units"] == []
+
+
+FETCHER_TIMER = "indicagent-ibkr-history-fetcher.timer"
+FETCHER_SERVICE = "indicagent-ibkr-history-fetcher.service"
+DERIVATION = "indicagent-bar-derivation.service"
+
+
+def _clear(record: Path, *names: str) -> None:
+    for name in names:
+        mod.clear_unit(record, name, "191-X", record)
+
+
+def test_dependency_map_matches_the_systemd_units():
+    for unit, deps in mod.UNIT_DEPENDENCIES.items():
+        assert (mod._SYSTEMD_DIR / unit).exists(), unit
+        for dep in deps:
+            assert (mod._SYSTEMD_DIR / dep).exists(), dep
+    timer_text = (mod._SYSTEMD_DIR / FETCHER_TIMER).read_text()
+    assert mod._unit_target(timer_text, FETCHER_TIMER) in mod.UNIT_DEPENDENCIES[FETCHER_TIMER]
+    # every module the fetcher service runs that has a unit of its own is a dependency
+    for module, unit in mod.MODULE_UNITS.items():
+        assert module in mod.FETCHER_RUNS_MODULES
+        assert unit in mod.UNIT_DEPENDENCIES[FETCHER_SERVICE]
+        assert module in mod._exec_tokens((mod._SYSTEMD_DIR / unit).read_text())
+    assert {"bar_derivation", "split_detection", "bar_hold"} <= set(mod.FETCHER_RUNS_MODULES)
+
+
+def test_timer_resume_refuses_while_its_service_is_uncleared(tmp_path: Path):
+    record = tmp_path / "w.json"
+    _record(record, [FETCHER_TIMER, FETCHER_SERVICE, DERIVATION])
+    _clear(record, FETCHER_TIMER)
+    with pytest.raises(mod.WindowError, match=FETCHER_SERVICE):
+        mod.resume_unit(record, FETCHER_TIMER, FakeSystemctl(set()), fetcher_plans_done=lambda: [])
+
+
+def test_timer_resume_refuses_while_a_module_it_runs_is_uncleared(tmp_path: Path):
+    record = tmp_path / "w.json"
+    _record(record, [FETCHER_TIMER, FETCHER_SERVICE, DERIVATION])
+    _clear(record, FETCHER_TIMER, FETCHER_SERVICE)
+    ctl = FakeSystemctl(set())
+    with pytest.raises(mod.WindowError, match=DERIVATION):
+        mod.resume_unit(
+            record, FETCHER_TIMER, ctl, fetcher_plans_done=lambda: list(mod.FETCHER_PLANS)
+        )
+    assert ctl.calls == []
+
+
+def test_fetcher_stays_held_until_plans_06_08_10_done(tmp_path: Path):
+    record = tmp_path / "w.json"
+    _record(record, [FETCHER_TIMER, FETCHER_SERVICE, DERIVATION])
+    _clear(record, FETCHER_TIMER, FETCHER_SERVICE, DERIVATION)
+    ctl = FakeSystemctl(set())
+    with pytest.raises(mod.WindowError, match=r"191-08.*191-10"):
+        mod.resume_unit(record, FETCHER_TIMER, ctl, fetcher_plans_done=lambda: ["191-06"])
+    with pytest.raises(mod.WindowError, match="191-06"):
+        mod.resume_all(record, ctl, fetcher_plans_done=lambda: [])
+    assert ctl.calls == []
+    log = tmp_path / "override.log"
+    mod.resume_unit(
+        record,
+        FETCHER_TIMER,
+        ctl,
+        fetcher_plans_done=lambda: [],
+        override_fetcher_plan_gate=True,
+        override_log=log,
+    )
+    assert ("start", FETCHER_TIMER) in ctl.calls
+    assert FETCHER_TIMER in log.read_text() and "override" in log.read_text()
+    saved = json.loads(record.read_text())
+    assert saved["fetcher_gate_overrides"]
+
+
+def test_non_fetcher_units_resume_without_the_plan_gate(tmp_path: Path):
+    record = tmp_path / "w.json"
+    _record(record, [DERIVATION])
+    _clear(record, DERIVATION)
+    mod.resume_unit(record, DERIVATION, FakeSystemctl(set()), fetcher_plans_done=lambda: [])
+
+
+def test_fetcher_plans_done_reads_summaries(tmp_path: Path):
+    (tmp_path / "191-06-SUMMARY.md").write_text("x")
+    (tmp_path / "191-10-SUMMARY.md").write_text("x")
+    assert mod.fetcher_plans_done(tmp_path) == ["191-06", "191-10"]
