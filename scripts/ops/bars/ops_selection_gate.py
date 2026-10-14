@@ -36,25 +36,36 @@ market_data_ohlcv) is introspected once through information_schema; a table with
 column is read on (vendor, kind) directly, a table with a `source` column is read through
 vendor_kind.LABEL_TO_VENDOR_KIND.
 
-Classes. A difference is real unless the recorded evidence of a refusal explains it, and every
-explained slot is counted and listed per series beside the zero (never folded into it):
-- refused_self_restatement: same (vendor, kind), values differ, and an `ohlcv_revision` row for
-  exactly that key holds the canonical value. Raw current is a later serve of the vendor's own
-  history that the retired path refused (canonical kept the accepted value, plan 04 logged it).
-- restated_after_copy: same (vendor, kind), values differ, and an `ohlcv_revision` row for exactly
-  that key holds the SELECTED (raw current) value. The retired fetcher restated the canonical row
-  after the raw copy was taken and logged the value it displaced; the copy never saw the change,
-  so raw is stale and canonical is the vendor's later serve. Counted here and a data defect to
-  repair in raw before anything writes selection over those keys (the summary names the count).
-- refused_cross_vendor: the vendor or kind differs, or raw holds a row canonical lacks, on a
-  session date covered by a refused `ohlcv_load` of the series whose source is the selected
-  vendor (the retired path refused an IBKR chunk that disagreed with Alpaca canonical and kept
-  its rows only in the archive). Plan 05 deleted that path.
-Refused values (D-191-I): a `pending` revision value must appear in neither canonical nor the
-selection; the report shows `refused_value_in_canonical` and `refused_value_selected` and both must
-be 0.
+Refused serves. A raw row is served by a refused load when its load_id is a refused `ohlcv_load`
+of the series, or (rows the raw backfill copied, load_id NULL) its served_at equals the loaded_at
+of a refused load of the same vendor. A later applied load with destination raw of the same vendor
+that covers the row's UTC date and is a vendor serve (not a backfill or repair record) re-served
+the slot under the per-source contract, so the row is no longer a refused serve. A refused serve
+is HELD (D-191-I) when it displaced the vendor's own value at the key: canonical holds the same
+(vendor, kind) with another value, or a non-pending revision of the key logs another value. A
+refused serve with no own value on record (a new slot, or a slot only another vendor holds) was
+refused by the retired contract against another vendor's canonical row, which the per-source
+contract (D-191-K) does not recognise; it is the vendor's own answer and selection may take it.
 
-Exit codes: 0 clean; 1 differences remain; 2 BLOCKER (--emit-spans: a date no ranking reproduces).
+Classes. A difference is real unless the recorded evidence explains it for the exact key, and every
+explained slot is counted and listed per series beside the zero (never folded into it):
+- refused_self_restatement: same (vendor, kind), values differ, and the raw row is a refused serve
+  of that vendor. Canonical kept the value the vendor served before; raw holds the refused serve.
+- restated_after_copy: same (vendor, kind), values differ, the raw row is not a refused serve, and
+  of the two values the raw one was logged as displaced most recently (by `ohlcv_load.loaded_at`).
+  The retired fetcher restated the canonical row after the raw copy was taken; the copy never saw
+  the change, so raw is stale and canonical is the vendor's later serve.
+- refused_cross_vendor: the selected row is a refused serve that is not held, and either canonical
+  has no row at the slot, or canonical is another vendor whose own raw row equals canonical (a
+  same-vendor, different-kind difference is never explained here).
+Refused values (D-191-I): a `pending` revision value or a held refused serve must appear in
+neither canonical nor the selection; the report shows `refused_value_in_canonical` and
+`refused_value_selected`.
+
+Exit codes: 0 clean (canonical equals the selection exactly and no refused value is selected); 1
+real differences, a refused value in canonical, or canonical rows with a label outside the vendor
+map; 2 BLOCKER (--emit-spans: a date no ranking reproduces); 3 explained residue (only explained
+classes differ, or a held refused serve would be selected): not clean, nothing may resume on it.
 """
 
 from __future__ import annotations
@@ -112,10 +123,15 @@ SELF_RESTATEMENT = "refused_self_restatement"
 RESTATED_AFTER_COPY = "restated_after_copy"
 CROSS_VENDOR = "refused_cross_vendor"
 REAL = "real"
+EXIT_CLEAN, EXIT_REAL, EXIT_BLOCKER, EXIT_RESIDUE = 0, 1, 2, 3
+# ohlcv_load callers that record values the ledgers already held (the raw backfill's
+# reconstruction, the 191-07 repair); never a vendor serve, so they never re-serve a slot.
+NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191"})
 
 Values = tuple  # (open, high, low, close, volume)
 VK = tuple[str, str]  # (vendor, kind)
 Row = tuple[VK, Values]
+Key = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 
 
 # --------------------------------------------------------------------------------------
@@ -123,18 +139,127 @@ Row = tuple[VK, Values]
 # --------------------------------------------------------------------------------------
 
 
+def utc_date(ts: datetime) -> date:
+    """ohlcv_load.requested_start/end are the UTC dates of the load's first and last stamps."""
+    return ts.astimezone(UTC).date()
+
+
+@dataclass(frozen=True)
+class LoadFact:
+    """One ohlcv_load row of the series."""
+
+    load_id: Any
+    vendor: str
+    first: date
+    last: date
+    outcome: str
+    loaded_at: datetime
+    destination: str
+    caller: str
+
+    def covers(self, ts: datetime) -> bool:
+        return self.first <= utc_date(ts) <= self.last
+
+    @property
+    def is_serve(self) -> bool:
+        return self.caller not in NON_SERVE_CALLERS
+
+
+def later_serve(
+    ts: datetime,
+    vendor: str,
+    after: datetime,
+    loads: Iterable[LoadFact],
+    *,
+    destination: str | None = None,
+) -> LoadFact | None:
+    """An applied vendor serve of `vendor` loaded after `after` whose window covers `ts` (the
+    first found), optionally restricted to one destination."""
+    for load in loads:
+        if (
+            load.vendor == vendor
+            and load.outcome == "applied"
+            and load.is_serve
+            and load.loaded_at > after
+            and load.covers(ts)
+            and (destination is None or load.destination == destination)
+        ):
+            return load
+    return None
+
+
+def refused_serve_map(
+    serves: Mapping[Key, tuple[datetime | None, Any]], loads: Sequence[LoadFact]
+) -> dict[Key, LoadFact]:
+    """The raw rows served by a refused load and not re-served since (module docstring).
+
+    `serves` maps a raw key to its (served_at, load_id); rows a refused load cannot have served
+    may be left out by the caller (the database read prefilters on the refused loads)."""
+    refused = [load for load in loads if load.outcome == "refused"]
+    by_id = {load.load_id: load for load in refused}
+    by_time = {(load.vendor, load.loaded_at): load for load in refused}
+    out: dict[Key, LoadFact] = {}
+    for key, (served_at, load_id) in serves.items():
+        ts, vendor, _kind = key
+        load = by_id.get(load_id) if load_id is not None else by_time.get((vendor, served_at))
+        if load is None or load.vendor != vendor:
+            continue
+        if later_serve(ts, vendor, load.loaded_at, loads, destination="raw") is not None:
+            continue  # re-served under the per-source contract after the refusal
+        out[key] = load
+    return out
+
+
 @dataclass
 class Evidence:
     """What the ledgers record about one (symbol, timeframe) series.
 
-    revisions: (timestamp, vendor, kind) -> every old value tuple logged for the key (any origin,
-    `pending` included). refused_windows: vendor -> [(first_date, last_date)] of refused loads.
-    pending: (timestamp, vendor, kind) -> offered values held as pending revisions.
+    revisions: key -> [(loaded_at, old values)] of every non-pending revision row of the key.
+    pending: key -> offered values held as pending revisions.
+    refused_serves: key -> the refused load that served the raw row (refused_serve_map).
+    raw: key -> values of every raw row of the series.
+    loads: every ohlcv_load row of the series.
     """
 
-    revisions: dict[tuple[datetime, str, str], set[Values]] = field(default_factory=dict)
-    refused_windows: dict[str, list[tuple[date, date]]] = field(default_factory=dict)
-    pending: dict[tuple[datetime, str, str], set[Values]] = field(default_factory=dict)
+    revisions: dict[Key, list[tuple[datetime | None, Values]]] = field(default_factory=dict)
+    pending: dict[Key, set[Values]] = field(default_factory=dict)
+    refused_serves: dict[Key, LoadFact] = field(default_factory=dict)
+    raw: dict[Key, Values] = field(default_factory=dict)
+    loads: list[LoadFact] = field(default_factory=list)
+
+    def logged(self, key: Key) -> set[Values]:
+        return {values for _, values in self.revisions.get(key, ())}
+
+    def latest_of(self, key: Key, candidates: Iterable[Values]) -> Values | None:
+        """Of `candidates`, the value whose revision row was logged last; None when none is
+        logged or two are logged at the same instant."""
+        wanted = set(candidates)
+        stamped = [
+            (at or datetime.min.replace(tzinfo=UTC), values)
+            for at, values in self.revisions.get(key, ())
+            if values in wanted
+        ]
+        if not stamped:
+            return None
+        last = max(at for at, _ in stamped)
+        winners = {values for at, values in stamped if at == last}
+        return next(iter(winners)) if len(winners) == 1 else None
+
+    def held(self, key: Key, canonical: Row | None) -> bool:
+        """A refused serve that displaced the vendor's own value at the key (D-191-I)."""
+        raw_value = self.raw.get(key)
+        if key not in self.refused_serves or raw_value is None:
+            return False
+        if canonical is not None and canonical[0] == key[1:]:
+            if canonical[1] != raw_value:
+                return True
+            # canonical holds the refused value and an applied serve of the vendor covered the
+            # slot after the refusal: the retired path wrote canonical from that serve, so the
+            # vendor served this value again and it was accepted
+            refused_at = self.refused_serves[key].loaded_at
+            if later_serve(key[0], key[1], refused_at, self.loads) is not None:
+                return False
+        return any(values != raw_value for values in self.logged(key))
 
 
 def classify(
@@ -142,7 +267,8 @@ def classify(
 ) -> tuple[str, str] | None:
     """(difference kind, class) of one slot, None when the slot matches.
 
-    The class is REAL unless the recorded evidence of a refusal explains the difference.
+    The class is REAL unless the recorded evidence explains the difference for the exact key
+    (module docstring).
     """
     if canonical is None and selected is None:
         return None
@@ -156,17 +282,20 @@ def classify(
         kind = VENDOR_KIND
     else:
         kind = VALUE
-    if kind == VALUE and canonical is not None:
-        key = (ts, canonical[0][0], canonical[0][1])
-        logged = evidence.revisions.get(key, ())
-        if canonical[1] in logged:
+    if kind == VALUE and canonical is not None and selected is not None:
+        key = (ts, *canonical[0])
+        if key in evidence.refused_serves:
             return kind, SELF_RESTATEMENT
-        if selected is not None and selected[1] in logged:
+        if evidence.latest_of(key, (canonical[1], selected[1])) == selected[1]:
             return kind, RESTATED_AFTER_COPY
+        return kind, REAL
     if kind in (ONLY_SELECTED, VENDOR_KIND) and selected is not None:
-        day = session_date(ts)
-        for first, last in evidence.refused_windows.get(selected[0][0], ()):
-            if first <= day <= last:
+        skey = (ts, *selected[0])
+        if skey in evidence.refused_serves and not evidence.held(skey, canonical):
+            if canonical is None:
+                return kind, CROSS_VENDOR
+            own = evidence.raw.get((ts, *canonical[0]))
+            if canonical[0][0] != selected[0][0] and own == canonical[1]:
                 return kind, CROSS_VENDOR
     return kind, REAL
 
@@ -220,6 +349,12 @@ class SeriesDiff:
     refused_value_in_canonical: int = 0
     refused_value_selected: int = 0
     pending_rows: int = 0
+    # raw rows served by a refused load and not re-served since, and of those the selected ones
+    # that are not held (a legacy cross-vendor refusal; selection may take them)
+    refused_serves: int = 0
+    refused_serves_selected_not_held: int = 0
+    # canonical rows of the series whose source label is outside the vendor map (never compared)
+    unmapped_canonical: int = 0
 
     @property
     def n_real(self) -> int:
@@ -236,10 +371,12 @@ class SeriesDiff:
         return dict(out)
 
     def clean(self) -> bool:
+        """Canonical equals the selection exactly and no refused value is in either."""
         return (
-            self.n_real == 0
+            not self.kinds
             and not self.refused_value_in_canonical
             and not self.refused_value_selected
+            and not self.unmapped_canonical
         )
 
 
@@ -328,6 +465,17 @@ def compare_series(
         row = selected.get(ts)
         if row is not None and row[0] == (vendor, kind) and row[1] in offered:
             diff.refused_value_selected += 1
+    diff.refused_serves = len(evidence.refused_serves)
+    for key in evidence.refused_serves:
+        ts = key[0]
+        served = (key[1:], evidence.raw.get(key))
+        c, s = canonical.get(ts), selected.get(ts)
+        if evidence.held(key, c):
+            # a held value (D-191-I) must reach neither canonical nor the selection
+            diff.refused_value_in_canonical += c == served
+            diff.refused_value_selected += s == served
+        elif s == served:
+            diff.refused_serves_selected_not_held += 1
     return diff
 
 
@@ -523,12 +671,16 @@ def derive_spans(
         starts.append((dates[-1] + timedelta(days=1), options[0]))
     spans: list[SpanRow] = []
     stamps = sorted(canonical)
-    first_bar = stamps[0].astimezone(UTC).isoformat() if stamps else ""
-    last_bar = stamps[-1].astimezone(UTC).isoformat() if stamps else ""
     for n, (valid_from, ranking) in enumerate(starts):
         if ranking == tuple(default):
             continue
         end = starts[n + 1][0] if n + 1 < len(starts) else None
+        # evidence of THIS span: the canonical rows whose session date it covers
+        inside = [
+            ts
+            for ts in stamps
+            if valid_from <= session_date(ts) and (end is None or session_date(ts) < end)
+        ]
         spans.append(
             SpanRow(
                 timeframe,
@@ -537,53 +689,68 @@ def derive_spans(
                 end,
                 ranking[0],
                 ranking[1] if len(ranking) > 1 else None,
-                len(canonical),
-                first_bar,
-                last_bar,
+                len(inside),
+                inside[0].astimezone(UTC).isoformat() if inside else "",
+                inside[-1].astimezone(UTC).isoformat() if inside else "",
             )
         )
     return SpanPlan(symbol, timeframe, spans, blockers, ranking_by_date)
 
 
+_SUMMED_KEYS = (
+    "series",
+    "series_clean",
+    "series_with_real_differences",
+    "n_canonical",
+    "n_selected",
+    "n_months",
+    "n_months_digest_mismatch",
+    "real_differences",
+    "refused_value_in_canonical",
+    "refused_value_selected",
+    "pending_rows",
+    "skipped_null_volume",
+    "off_grid_candidates",
+    "unselected_slots",
+    "refused_serves",
+    "refused_serves_selected_not_held",
+    "unmapped_canonical_rows",
+)
+
+
+def check_shards(metas: Sequence[Mapping[str, Any]]) -> None:
+    """SystemExit unless the reports are one unsharded run or every shard K/N of one N once,
+    all over the same target and timeframes."""
+    shards = [m.get("shard") for m in metas]
+    if any(s is None for s in shards):
+        if len(metas) != 1:
+            raise SystemExit("merge: an unsharded report cannot be merged with others")
+        return
+    parsed = [tuple(int(x) for x in str(s).split("/")) for s in shards]
+    counts = {n for _, n in parsed}
+    if len(counts) != 1:
+        raise SystemExit(f"merge: shards of different N: {sorted(shards)}")
+    (n,) = counts
+    indexes = sorted(k for k, _ in parsed)
+    if indexes != list(range(n)):
+        raise SystemExit(f"merge: need shards 0..{n - 1} once each, got {sorted(shards)}")
+    for field_name in ("target", "timeframes", "with_spans"):
+        if len({json.dumps(m.get(field_name), sort_keys=True) for m in metas}) != 1:
+            raise SystemExit(f"merge: shards disagree on {field_name}")
+
+
 def merge_reports(reports: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Total several shard compare reports (same keys as `build_report`)."""
-    total: dict[str, Any] = {
-        "series": 0,
-        "series_clean": 0,
-        "series_with_real_differences": 0,
-        "n_canonical": 0,
-        "n_selected": 0,
-        "n_months": 0,
-        "n_months_digest_mismatch": 0,
-        "real_differences": 0,
-        "explained": Counter(),
-        "refused_value_in_canonical": 0,
-        "refused_value_selected": 0,
-        "pending_rows": 0,
-        "skipped_null_volume": 0,
-        "off_grid_candidates": 0,
-        "unselected_slots": 0,
-        "by_timeframe": {},
-    }
+    """Total several shard compare reports (same keys as `build_report`). The shard set must be
+    complete and disjoint (check_shards) and a series may appear in one shard only."""
+    check_shards([rep.get("meta", {}) for rep in reports])
+    total: dict[str, Any] = dict.fromkeys(_SUMMED_KEYS, 0)
+    total["explained"] = Counter()
+    total["by_timeframe"] = {}
     series_list: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
     for rep in reports:
-        for key in (
-            "series",
-            "series_clean",
-            "series_with_real_differences",
-            "n_canonical",
-            "n_selected",
-            "n_months",
-            "n_months_digest_mismatch",
-            "real_differences",
-            "refused_value_in_canonical",
-            "refused_value_selected",
-            "pending_rows",
-            "skipped_null_volume",
-            "off_grid_candidates",
-            "unselected_slots",
-        ):
-            total[key] += rep["totals"][key]
+        for key in _SUMMED_KEYS:
+            total[key] += rep["totals"].get(key, 0)
         for cls, n in rep["totals"]["explained"].items():
             total["explained"][cls] += n
         for tf, sub in rep["totals"]["by_timeframe"].items():
@@ -592,19 +759,33 @@ def merge_reports(reports: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             )
             for k in cur:
                 cur[k] += sub[k]
-        series_list.extend(rep["series_not_clean"])
+        for entry in rep["series_not_clean"]:
+            series = (entry["symbol"], entry["timeframe"])
+            if series in seen:
+                raise SystemExit(f"merge: series {series} appears in more than one report")
+            seen.add(series)
+            series_list.append(entry)
     total["explained"] = dict(total["explained"])
-    return {"totals": total, "series_not_clean": series_list}
+    return {
+        "meta": {"merged": [rep.get("meta", {}) for rep in reports]},
+        "totals": total,
+        "series_not_clean": series_list,
+    }
 
 
 def verdict(totals: Mapping[str, Any]) -> int:
-    """0 clean, 1 differences remain (the refused-value checks are part of clean)."""
-    dirty = (
+    """EXIT_CLEAN only when canonical equals the selection exactly. Real differences, a refused
+    value in canonical or an unmapped canonical label are EXIT_REAL; anything else that differs
+    (explained classes) or a held refused serve the selection would promote is EXIT_RESIDUE."""
+    if (
         totals["real_differences"]
         or totals["refused_value_in_canonical"]
-        or totals["refused_value_selected"]
-    )
-    return 1 if dirty else 0
+        or totals.get("unmapped_canonical_rows", 0)
+    ):
+        return EXIT_REAL
+    if sum(totals["explained"].values()) or totals["refused_value_selected"]:
+        return EXIT_RESIDUE
+    return EXIT_CLEAN
 
 
 # --------------------------------------------------------------------------------------
@@ -620,13 +801,26 @@ _POLICY_SQL = (
     "FROM bar_source_policy"
 )
 _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE namespace = 'bar_kind'"
+# Revision rows of the series, reached through its loads (ohlcv_revision's primary key starts
+# with load_id; there is no index on its symbol), with the load's loaded_at for ordering.
 _REVISION_SQL = (
-    'SELECT "timestamp", vendor, kind, old_open, old_high, old_low, old_close, old_volume, origin '
-    "FROM ohlcv_revision WHERE symbol = %s AND timeframe = %s"
+    'SELECT v."timestamp", v.vendor, v.kind, v.old_open, v.old_high, v.old_low, v.old_close, '
+    "v.old_volume, v.origin, l.loaded_at FROM ohlcv_load l JOIN ohlcv_revision v "
+    "ON v.load_id = l.load_id AND v.symbol = l.symbol AND v.timeframe = l.timeframe "
+    "WHERE l.symbol = %s AND l.timeframe = %s"
 )
-_REFUSED_SQL = (
-    "SELECT source, requested_start, requested_end FROM ohlcv_load "
-    "WHERE symbol = %s AND timeframe = %s AND outcome = 'refused'"
+_LOADS_SQL = (
+    "SELECT load_id, source, requested_start, requested_end, outcome, loaded_at, destination, "
+    "caller FROM ohlcv_load WHERE symbol = %s AND timeframe = %s"
+)
+# Raw rows a refused load may have served: its load_id, or (backfill copies) its loaded_at.
+_SERVES_SQL = (
+    'SELECT "timestamp", vendor, kind, served_at, load_id FROM ohlcv_raw '
+    "WHERE symbol = %s AND timeframe = %s AND (served_at = ANY(%s) OR load_id = ANY(%s))"
+)
+_UNMAPPED_SQL = (
+    "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s "
+    "AND (source IS NULL OR NOT (source = ANY(%s)))"
 )
 
 
@@ -673,18 +867,53 @@ def read_canonical(
     return {r[0]: (labels[r[1]], tuple(r[2:7])) for r in cur.fetchall()}
 
 
-def read_evidence(cur: Any, symbol: str, timeframe: str) -> Evidence:
-    evidence = Evidence()
+def read_loads(cur: Any, symbol: str, timeframe: str) -> list[LoadFact]:
+    cur.execute(_LOADS_SQL, (symbol, timeframe))
+    return [LoadFact(*row) for row in cur.fetchall()]
+
+
+def read_evidence(
+    cur: Any, symbol: str, timeframe: str, candidates: Sequence[Candidate]
+) -> Evidence:
+    evidence = Evidence(
+        raw={
+            (c.timestamp, c.vendor, c.kind): (c.open, c.high, c.low, c.close, c.volume)
+            for c in candidates
+        }
+    )
     cur.execute(_REVISION_SQL, (symbol, timeframe))
-    for ts, vendor, kind, o, h, lo, c, v, origin in cur.fetchall():
+    for ts, vendor, kind, o, h, lo, c, v, origin, loaded_at in cur.fetchall():
         values = (o, h, lo, c, v)
-        evidence.revisions.setdefault((ts, vendor, kind), set()).add(values)
         if origin == "pending":
             evidence.pending.setdefault((ts, vendor, kind), set()).add(values)
-    cur.execute(_REFUSED_SQL, (symbol, timeframe))
-    for source, first, last in cur.fetchall():
-        evidence.refused_windows.setdefault(source, []).append((first, last))
+        else:
+            evidence.revisions.setdefault((ts, vendor, kind), []).append((loaded_at, values))
+    loads = evidence.loads = read_loads(cur, symbol, timeframe)
+    refused = [load for load in loads if load.outcome == "refused"]
+    if refused:
+        cur.execute(
+            _SERVES_SQL,
+            (
+                symbol,
+                timeframe,
+                [load.loaded_at for load in refused],
+                [load.load_id for load in refused],
+            ),
+        )
+        serves = {(r[0], r[1], r[2]): (r[3], r[4]) for r in cur.fetchall()}
+        evidence.refused_serves = refused_serve_map(serves, loads)
     return evidence
+
+
+def count_unmapped(cur: Any, target: str, mode: str, symbol: str, timeframe: str) -> int:
+    """Canonical rows whose source label is outside LABEL_TO_VENDOR_KIND (NULL included): the
+    gate never compares them, so they are counted and fail the verdict instead of vanishing."""
+    if mode == "vendor":
+        return 0  # (vendor, kind) columns are the key itself; NOT NULL in the v2 schema
+    cur.execute(
+        _UNMAPPED_SQL.format(target=target), (symbol, timeframe, list(LABEL_TO_VENDOR_KIND))
+    )
+    return int(cur.fetchone()[0])
 
 
 def read_candidates(cur: Any, symbol: str, timeframe: str) -> list[Candidate]:
@@ -776,6 +1005,9 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
         "skipped_null_volume": sum(d.skipped_null_volume for d in diffs),
         "off_grid_candidates": sum(d.off_grid for d in diffs),
         "unselected_slots": sum(d.unselected for d in diffs),
+        "refused_serves": sum(d.refused_serves for d in diffs),
+        "refused_serves_selected_not_held": sum(d.refused_serves_selected_not_held for d in diffs),
+        "unmapped_canonical_rows": sum(d.unmapped_canonical for d in diffs),
         "by_timeframe": {},
     }
     explained: Counter = Counter()
@@ -800,11 +1032,14 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
             "counts": {f"{kind}/{cls}": n for (kind, cls), n in sorted(d.kinds.items())},
             "refused_value_in_canonical": d.refused_value_in_canonical,
             "refused_value_selected": d.refused_value_selected,
+            "refused_serves": d.refused_serves,
+            "refused_serves_selected_not_held": d.refused_serves_selected_not_held,
+            "unmapped_canonical": d.unmapped_canonical,
             "unselected": d.unselected,
             "samples": d.samples,
         }
         for d in diffs
-        if d.kinds or not d.clean()
+        if not d.clean() or d.refused_serves
     ]
     return {"meta": dict(meta), "totals": totals, "series_not_clean": not_clean}
 
@@ -868,23 +1103,24 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
         for timeframe in args.timeframes:
             with conn.cursor() as cur:
                 canonical = read_canonical(cur, args.target, mode, symbol, timeframe)
+                unmapped = count_unmapped(cur, args.target, mode, symbol, timeframe)
                 candidates = read_candidates(cur, symbol, timeframe)
-                if not canonical and not candidates:
+                if not canonical and not candidates and not unmapped:
                     continue
-                evidence = read_evidence(cur, symbol, timeframe)
+                evidence = read_evidence(cur, symbol, timeframe, candidates)
             conn.rollback()
             selected, counts = selected_rows(candidates, policy, kind_order)
-            diffs.append(
-                compare_series(
-                    symbol,
-                    timeframe,
-                    canonical,
-                    selected,
-                    evidence,
-                    sample_limit=args.sample_limit,
-                    counts=counts,
-                )
+            diff = compare_series(
+                symbol,
+                timeframe,
+                canonical,
+                selected,
+                evidence,
+                sample_limit=args.sample_limit,
+                counts=counts,
             )
+            diff.unmapped_canonical = unmapped
+            diffs.append(diff)
         if n % 25 == 0 or n == len(symbols):
             print(
                 f"[{datetime.now(UTC):%H:%M:%S}] compare {n}/{len(symbols)} ({symbol}) "
@@ -921,7 +1157,7 @@ def run_emit_spans(conn: psycopg.Connection, args: argparse.Namespace) -> int:
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates:
                     continue
-                evidence = read_evidence(cur, symbol, timeframe)
+                evidence = read_evidence(cur, symbol, timeframe, candidates)
             conn.rollback()
             plan = derive_spans(
                 symbol,
