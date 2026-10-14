@@ -51,6 +51,12 @@ class LoadResult:
     n_unchanged: int = 0
     n_held: int = 0
     refused: bool = False
+    n_refused_series: int = 0
+
+    @property
+    def n_landed(self) -> int:
+        """Offered rows that reached ohlcv_raw (everything not held as a pending revision)."""
+        return self.n_offered - self.n_held
 
     def plus(self, ingress: IngressResult | None) -> LoadResult:
         if ingress is None:
@@ -62,7 +68,16 @@ class LoadResult:
             self.n_unchanged + ingress.n_unchanged,
             self.n_held + ingress.n_held,
             self.refused or ingress.refused,
+            self.n_refused_series + len(ingress.refused_series),
         )
+
+
+def load_status(*, apply: bool, held: int) -> str:
+    """The run's status word: APPLIED only when nothing was held as a refused series' pending
+    revisions; a held row means a vendor restated its own history and needs a decision."""
+    if not apply:
+        return "PLANNED"
+    return "APPLIED" if held == 0 else "HELD (applied, refused series held, see ohlcv_load)"
 
 
 def frame_to_raw_rows(

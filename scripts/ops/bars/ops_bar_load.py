@@ -21,7 +21,7 @@ from pathlib import Path
 
 import psycopg
 
-from services.bar_load import LoadPolicy, load_series
+from services.bar_load import LoadPolicy, load_series, load_status
 from services.ohlcv_ingress_contract import read_raw_params
 from src.config.settings import get_settings
 from src.intelligence.bars.vendor_ingress import vendor_ingress
@@ -83,7 +83,7 @@ def main() -> int:
     finally:
         conn.close()
 
-    mode = "APPLIED" if args.apply else "PLANNED"
+    mode = load_status(apply=args.apply, held=held)
     print(f"{mode}: {total} rows offered, {new} written, {unchanged} unchanged, {held} held")
     return 1 if held else 0
 

@@ -35,7 +35,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import psycopg
 
-from services.bar_load import LoadPolicy, load_frame, load_series
+from services.bar_load import LoadPolicy, load_frame, load_series, load_status
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
@@ -109,17 +109,27 @@ def main() -> int:
     finally:
         conn.close()
 
-    print(
-        f"{'APPLIED' if args.apply else 'PLANNED'}: {summary['authored']} 5m rows offered to raw, "
-        f"{summary['raw_1d']} 1d rows offered to raw, {summary['errors']} errors"
+    print(summary_line(summary, apply=args.apply))
+    return exit_code(summary)
+
+
+def summary_line(summary: dict, *, apply: bool) -> str:
+    return (
+        f"{load_status(apply=apply, held=summary['held'])}: {summary['authored']} 5m rows "
+        f"offered to raw, {summary['raw_1d']} 1d rows offered to raw, {summary['errors']} "
+        f"errors, {summary['refused']} refused series, {summary['held']} held"
     )
-    return 1 if summary["errors"] else 0
+
+
+def exit_code(summary: dict) -> int:
+    """Non-zero for an error or any held row: a refused series is not a clean night."""
+    return 1 if summary["errors"] or summary["held"] else 0
 
 
 async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write: bool) -> dict:
     budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(minutes=30), max_requests=500)
     await leaf.connect()
-    summary = {"authored": 0, "raw_1d": 0, "errors": 0}
+    summary = {"authored": 0, "raw_1d": 0, "errors": 0, "refused": 0, "held": 0}
     try:
         for symbol in universe:
             try:
@@ -141,6 +151,8 @@ async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write:
                             conn, policy_5m, symbol, frame, params=params, write=write
                         )
                         summary["authored"] += result.n_offered
+                        summary["refused"] += result.n_refused_series
+                        summary["held"] += result.n_held
                     elif write and len(frame):
                         result = load_frame(
                             conn,
@@ -154,6 +166,8 @@ async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write:
                             params=params,
                         )
                         summary["raw_1d"] += result.n_offered
+                        summary["refused"] += result.n_refused_series
+                        summary["held"] += result.n_held
             except Exception as error:  # noqa: BLE001 - one name fails, the night continues
                 summary["errors"] += 1
                 print(f"{symbol}: ERROR {type(error).__name__}: {error}", flush=True)
