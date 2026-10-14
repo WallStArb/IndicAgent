@@ -42,7 +42,7 @@ import math
 import numbers
 import uuid
 from collections import defaultdict
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -90,6 +90,9 @@ _RAW_COLUMNS = (
 # served_at is the database clock (the write's transaction time), so it takes no parameter.
 _RAW_ROW = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now(),%s,%s)"
 _RAW_PARAMS_PER_ROW = _RAW_ROW.count("%s")
+# A repair carries the serve time of the answer it puts back (or NULL when unknown): served_at
+# means "when the vendor served this value", never the repair's write time (review 2, low item).
+_RAW_ROW_STAMPED = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
 _INSERT_SQL = f"INSERT INTO ohlcv_raw ({', '.join(_RAW_COLUMNS)}) VALUES " "{values}"
 _UPSERT_TAIL = (
     ' ON CONFLICT ("timestamp", symbol, timeframe, vendor, kind) DO UPDATE SET '
@@ -257,10 +260,13 @@ def _raw_params(row: RawRow, request_id: uuid.UUID, load_id: uuid.UUID) -> list[
 
 
 def _write_raw_rows(cur: Any, rows: list[list[Any]], *, batch_rows: int, tail: str = "") -> None:
-    size = min(batch_rows, _MAX_PARAMS // _RAW_PARAMS_PER_ROW)
+    if not rows:
+        return
+    template = _RAW_ROW_STAMPED if len(rows[0]) == _RAW_ROW_STAMPED.count("%s") else _RAW_ROW
+    size = min(batch_rows, _MAX_PARAMS // template.count("%s"))
     for start in range(0, len(rows), size):
         chunk = rows[start : start + size]
-        sql = _INSERT_SQL.format(values=",".join([_RAW_ROW] * len(chunk))) + tail
+        sql = _INSERT_SQL.format(values=",".join([template] * len(chunk))) + tail
         cur.execute(sql, [value for row in chunk for value in row])
 
 
@@ -322,6 +328,8 @@ def write_raw(
     future_tolerance_s: int,
     now: datetime | None = None,
     repair: bool = False,
+    served_at: Mapping[datetime, datetime | None] | None = None,
+    restamp: bool = False,
 ) -> list[RawDelta]:
     """Classify and write one chunk of vendor-served bars; return one RawDelta per series.
 
@@ -332,12 +340,19 @@ def write_raw(
     `repair=True` is the 191-07 raw repair (scripts/ops/bars/ops_raw_repair.py): it puts back a
     value the vendor served and the ledgers hold, under its own repair load, so there is no
     vendor request to name and `request_id` may be None (the replaced value is still logged).
+    A repair passes `served_at` (timestamp -> the serve time of the answer it puts back, None
+    when unknown) instead of the write time. `restamp=True` (repair only) rewrites served_at and
+    the lineage ids of rows whose values are unchanged and logs nothing; a changed row raises.
     """
     if load_id is None or (request_id is None and not repair):
         raise ValueError(
             "write_raw requires load_id and request_id (only the backfill writes NULLs, and a "
             "repair a NULL request_id)"
         )
+    if (served_at is not None or restamp) and not repair:
+        raise ValueError("served_at and restamp are repair-only")
+    if restamp and served_at is None:
+        raise ValueError("restamp needs served_at")
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
     latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
@@ -363,9 +378,23 @@ def write_raw(
             stored = {r[0]: (r[1], r[2], r[3], r[4], r[5], label) for r in fetched}
             old_request = {r[0]: r[6] for r in fetched}
             delta = classify({ts: _values(keyed[ts]) for ts in stamps}, stored)
-            new_rows += [_raw_params(keyed[ts], request_id, load_id) for ts in sorted(delta.new)]
+
+            def params_of(ts: datetime, _keyed: dict = keyed) -> list[Any]:
+                row = _raw_params(_keyed[ts], request_id, load_id)
+                if served_at is None:
+                    return row
+                return [*row[:10], served_at.get(ts), *row[10:]]
+
+            if restamp:
+                if delta.new or delta.changed:
+                    raise ValueError(
+                        f"restamp of {symbol} {timeframe} {vendor}/{kind}: "
+                        f"{len(delta.new)} new and {len(delta.changed)} changed rows"
+                    )
+                changed_rows += [params_of(ts) for ts in stamps]
+            new_rows += [params_of(ts) for ts in sorted(delta.new)]
             for ts in sorted(delta.changed):
-                changed_rows.append(_raw_params(keyed[ts], request_id, load_id))
+                changed_rows.append(params_of(ts))
                 old = delta.changed[ts][1]
                 revisions.append(
                     (
@@ -575,3 +604,68 @@ def hold_legacy_refusal(
         with conn.cursor() as cur:
             _write_revisions(cur, held)
     return len(held)
+
+
+_WITHDRAW_SQL = (
+    "DELETE FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND vendor = %s AND kind = %s "
+    'AND "timestamp" = %s AND open = %s AND high = %s AND low = %s AND close = %s '
+    "AND volume IS NOT DISTINCT FROM %s"
+)
+
+
+def withdraw_raw_rows(conn: Any, rows: Iterable[RawRow], *, load_id: uuid.UUID) -> int:
+    """Remove raw rows that hold a value the vendor's accepted answers never gave (the one-time
+    re-judgment of the retired path's refused loads, scripts/ops/bars/ops_refusal_rejudge.py):
+    the raw backfill copied a refused offer into raw where the vendor stored nothing of its
+    own, and the per-source contract holds the whole refused offer, new bars included.
+
+    Each row's value is logged first as an ohlcv_revision row (origin raw) under `load_id` (the
+    caller's repair load), so the value is never lost (it also stays pending under its refused
+    load and in the archive); a row is deleted only when its stored value still equals the
+    given one. Returns the rows removed. Never commits."""
+    if load_id is None:
+        raise ValueError("withdraw_raw_rows requires the repair load_id")
+    removed = 0
+    revisions: list[tuple] = []
+    deletes: list[tuple] = []
+    with conn.cursor() as cur:
+        for (symbol, timeframe, vendor, kind), keyed in sorted(_group_by_series(rows).items()):
+            _lock_series(cur, symbol, timeframe, vendor, kind)
+            label = _label(vendor, kind)
+            for ts in sorted(keyed):
+                values = _values(keyed[ts])[:5]
+                revisions.append(
+                    (load_id, symbol, timeframe, ts, *values, label, vendor, kind, None, _ORIGIN)
+                )
+                deletes.append((symbol, timeframe, vendor, kind, ts, *values))
+        _write_revisions(cur, revisions)
+        for params in deletes:
+            cur.execute(_WITHDRAW_SQL, params)
+            removed += cur.rowcount
+    return removed
+
+
+_RELEASE_SQL = (
+    "DELETE FROM ohlcv_revision WHERE load_id = %s AND symbol = %s AND timeframe = %s "
+    "AND vendor = %s AND kind = %s AND origin = 'pending' AND \"timestamp\" = ANY(%s)"
+)
+
+
+def release_legacy_pending(
+    conn: Any,
+    symbol: str,
+    timeframe: str,
+    vendor: str,
+    kind: str,
+    *,
+    load_id: uuid.UUID,
+    timestamps: Sequence[datetime],
+) -> int:
+    """Remove `pending` holds the 191-07 repair wrote under a retired-path refused load whose
+    one-time re-judgment no longer holds those keys (accepted, or the vendor answered the key
+    again). The offered values stay in the archive under the same load and, where accepted, in
+    raw. Only origin `pending` rows are touched. Returns the rows removed. Never commits."""
+    with conn.cursor() as cur:
+        _lock_series(cur, symbol, timeframe, vendor, kind)
+        cur.execute(_RELEASE_SQL, (load_id, symbol, timeframe, vendor, kind, sorted(timestamps)))
+        return cur.rowcount

@@ -41,12 +41,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.intelligence.bars.selection import Candidate, PolicyRow, select_slots
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
-from src.intelligence.bars.vendor_kind import vendor_kind_to_label
+from src.intelligence.bars.vendor_kind import VENDOR_KIND_TO_LABEL, vendor_kind_to_label
 
 DIRECT_TIMEFRAMES = frozenset({"1m", "5m", "4h"}) - DERIVATION_OWNED_TIMEFRAMES
 
@@ -94,6 +94,7 @@ _LINEAGE_SQL = (
 )
 
 HeldKey = tuple[datetime, str, str]  # (timestamp, vendor, kind)
+_ONE_US = timedelta(microseconds=1)
 
 
 def held_keys(
@@ -265,3 +266,47 @@ def select_and_write(
     return SelectionResult(
         n_new, n_changed, n_unchanged, n_skipped, n_unselected, n_off_grid, n_held
     )
+
+
+_RAW_AT_SQL = (
+    'SELECT "timestamp", symbol, timeframe, vendor, kind, open, high, low, close, volume '
+    'FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND "timestamp" = ANY(%s)'
+)
+_RETRACT_SQL = (
+    'DELETE FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s AND "timestamp" = %s '
+    "AND source = ANY(%s)"
+)
+
+
+def retract_unselected_slots(
+    conn: Any,
+    *,
+    symbol: str,
+    timeframe: str,
+    timestamps: Sequence[datetime],
+    policy_rows: Sequence[PolicyRow],
+    kind_order: Mapping[str, int],
+) -> int:
+    """Delete the canonical vendor row at each of `timestamps` where selection from raw now
+    yields no winner (missing is NaN, never a stale value). Only for slots a caller withdrew
+    from raw on purpose (the one-time re-judgment of the retired path's refused loads,
+    scripts/ops/bars/ops_refusal_rejudge.py); the routine selection never deletes. Same lock as
+    `select_and_write`. Returns the rows deleted. Never commits."""
+    if timeframe not in DIRECT_TIMEFRAMES:
+        raise ValueError(f"retract covers direct timeframes only, not {timeframe!r}")
+    if not timestamps:
+        return 0
+    labels = sorted(VENDOR_KIND_TO_LABEL.values())
+    removed = 0
+    with conn.cursor() as cur:
+        cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
+        cur.execute(_RAW_AT_SQL, (symbol, timeframe, sorted(timestamps)))
+        candidates = [Candidate(*row) for row in cur.fetchall()]
+        start, end = min(timestamps), max(timestamps)
+        held = read_held_keys(cur, symbol, timeframe, start, end + _ONE_US, candidates)
+        candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
+        winners = {w.timestamp for w in select_slots(candidates, policy_rows, kind_order).winners}
+        for ts in sorted(set(timestamps) - winners):
+            cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, labels))
+            removed += cur.rowcount
+    return removed

@@ -47,6 +47,10 @@ _ALLOW_LIST: dict[str, str] = {
         "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "
         "table because the backfill copies every vendor-labelled row, volume 0 included."
     ),
+    "scripts/ops/bars/ops_refusal_rejudge.py": (
+        "TEMPORARY retire: 191-17. The one-time re-judgment of refused loads reads canonical at "
+        "the offered keys to reconstruct the vendor's own stored value, zero-volume rows included."
+    ),
     "scripts/ops/bars/ops_selection_gate.py": (
         "PERMANENT: standing proof that canonical is a pure function of raw plus policy (191-07). "
         "It compares every canonical vendor row, zero-volume provider bars included, with the "

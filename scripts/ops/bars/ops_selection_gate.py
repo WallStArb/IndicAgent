@@ -139,8 +139,8 @@ HELD_IN_RAW = "held_in_raw"
 REAL = "real"
 EXIT_CLEAN, EXIT_REAL, EXIT_BLOCKER, EXIT_RESIDUE = 0, 1, 2, 3
 # ohlcv_load callers that record values the ledgers already held (the raw backfill's
-# reconstruction, the 191-07 repair); never a vendor serve, so they never re-serve a slot.
-NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191"})
+# reconstruction, the 191-07 repair and refusal re-judge); never a vendor serve, so they never re-serve a slot.
+NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191", "refusal-rejudge-191"})
 
 Values = tuple  # (open, high, low, close, volume)
 VK = tuple[str, str]  # (vendor, kind)
@@ -186,13 +186,12 @@ class RequestFact:
     answered_at: datetime
 
 
-def match_request_windows(
+def match_requests(
     loads: Iterable[LoadFact], requests: Iterable[RequestFact], match_s: float
-) -> dict[Any, tuple[datetime, datetime]]:
-    """load_id -> the window of the request it persisted: the latest answered request of the same
-    vendor at most `match_s` seconds before the load (the retired path wrote no request id on
-    the load; APR infra.selection_gate.request_load_match_s). A load with no such request has no
-    window."""
+) -> dict[Any, RequestFact]:
+    """load_id -> the request it persisted: the latest answered request of the same vendor at
+    most `match_s` seconds before the load (the retired path wrote no request id on the load;
+    APR infra.selection_gate.request_load_match_s). A load with no such request is absent."""
     by_vendor: dict[str, list[RequestFact]] = defaultdict(list)
     for request in requests:
         by_vendor[request.vendor].append(request)
@@ -200,7 +199,7 @@ def match_request_windows(
     for vendor, rows in by_vendor.items():
         rows.sort(key=lambda r: r.answered_at)
         answered[vendor] = [r.answered_at for r in rows]
-    out: dict[Any, tuple[datetime, datetime]] = {}
+    out: dict[Any, RequestFact] = {}
     tolerance = timedelta(seconds=match_s)
     for load in loads:
         stamps = answered.get(load.vendor)
@@ -208,9 +207,18 @@ def match_request_windows(
             continue
         i = bisect.bisect_right(stamps, load.loaded_at) - 1
         if i >= 0 and load.loaded_at - stamps[i] <= tolerance:
-            request = by_vendor[load.vendor][i]
-            out[load.load_id] = (request.window_start, request.window_end)
+            out[load.load_id] = by_vendor[load.vendor][i]
     return out
+
+
+def match_request_windows(
+    loads: Iterable[LoadFact], requests: Iterable[RequestFact], match_s: float
+) -> dict[Any, tuple[datetime, datetime]]:
+    """load_id -> the window of the request it persisted (match_requests)."""
+    return {
+        load_id: (request.window_start, request.window_end)
+        for load_id, request in match_requests(loads, requests, match_s).items()
+    }
 
 
 class LaterServes:

@@ -47,6 +47,7 @@ _RAW_WRITER = "services/ohlcv_raw_writer.py"
 
 _BACKFILL = "scripts/ops/bars/ops_raw_backfill.py"
 _REPAIR = "scripts/ops/bars/ops_raw_repair.py"
+_REJUDGE = "scripts/ops/bars/ops_refusal_rejudge.py"
 
 # table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
 # records: sources MAY overlap between writers now (vendor names are shared by the ingress
@@ -82,6 +83,14 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "TEMPORARY retire: 191-17. The 191-07 raw repair records one load per (series, "
             "vendor) it puts back to the accepted value (destination raw, outcome applied, "
             "caller raw-repair-191); its raw rows and revisions go through the raw writer.",
+        ),
+        _REJUDGE: (
+            frozenset({"ibkr"}),
+            frozenset({"refusal-rejudge-191"}),
+            "TEMPORARY retire: 191-17. The one-time re-judgment of the retired path's refused "
+            "loads (191-07 second review, finding 2) records one load per series it writes "
+            "(destination raw, outcome applied); raw rows, revisions and pending holds go "
+            "through the raw writer.",
         ),
     },
     "ohlcv_revision": {

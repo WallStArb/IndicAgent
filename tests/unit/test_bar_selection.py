@@ -350,3 +350,22 @@ def test_writer_never_selects_a_held_raw_value():
     assert result.held == 1
     ((_, params),) = _inserts(conn)
     assert params[6] == 10.1 and params[8] == "alpaca"
+
+
+def test_retract_deletes_a_canonical_row_only_where_no_vendor_holds_the_slot():
+    from services.bar_selection import retract_unselected_slots
+
+    kept = _cand("alpaca", "sip_rth", i=1)
+    conn = FakeConn([kept])
+    conn.cur.rowcount = 1
+    n = retract_unselected_slots(
+        conn,
+        symbol="SPY",
+        timeframe="5m",
+        timestamps=[T0, kept.timestamp],
+        policy_rows=[DEFAULT],
+        kind_order=KIND_ORDER,
+    )
+    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
+    # slot 0 has no raw row left: its canonical row goes; slot 1 keeps Alpaca's
+    assert n == 1 and [d[2] for d in deletes] == [T0]

@@ -408,3 +408,60 @@ def test_hold_legacy_refusal_validates_before_any_sql():
     with pytest.raises(ValueError, match="vendor 'nope'"):
         _legacy(conn, [_row(vendor="nope")])
     assert conn.cur.executed == []
+
+
+# --- second review of 191-07: served_at on repairs, restamp, withdraw, release -------------
+
+
+def test_a_repair_carries_the_serve_time_of_the_answer_not_its_write_time():
+    served = datetime(2026, 10, 12, 23, 23, tzinfo=UTC)
+    conn = FakeConn([_stored(_row(0), close=10.5, request_id=None)])
+    _write(conn, [_row(0)], request_id=None, repair=True, served_at={T0: served})
+    ((sql, params),) = conn.sql("INSERT INTO ohlcv_raw")
+    assert "now()" not in sql and params[10] == served and params[-2:] == [None, LOAD]
+
+
+def test_served_at_and_restamp_are_repair_only():
+    with pytest.raises(ValueError, match="repair-only"):
+        _write(FakeConn(), [_row()], served_at={T0: NOW})
+
+
+def test_restamp_rewrites_lineage_of_unchanged_rows_and_refuses_a_changed_one():
+    conn = FakeConn([_stored(_row(0))])
+    (delta,) = _write(
+        conn, [_row(0)], request_id=None, repair=True, served_at={T0: None}, restamp=True
+    )
+    assert delta.unchanged == 1 and not conn.sql("INSERT INTO ohlcv_revision")
+    ((sql, params),) = conn.sql("INSERT INTO ohlcv_raw")
+    assert "ON CONFLICT" in sql and params[10] is None and params[-1] == LOAD
+    changed = FakeConn([_stored(_row(0), close=10.5)])
+    with pytest.raises(ValueError, match="restamp"):
+        _write(changed, [_row(0)], request_id=None, repair=True, served_at={T0: None}, restamp=True)
+
+
+def test_withdraw_logs_the_value_before_removing_the_row():
+    from services.ohlcv_raw_writer import withdraw_raw_rows
+
+    conn = FakeConn()
+    conn.cur.rowcount = 1
+    assert withdraw_raw_rows(conn, [_row(0, close=12.0)], load_id=LOAD) == 1
+    kinds = [
+        s.split()[0] + " " + s.split()[2]
+        for s, _ in conn.cur.executed
+        if not s.startswith("SELECT")
+    ]
+    assert kinds == ["INSERT ohlcv_revision", "DELETE ohlcv_raw"]
+    ((_, rev),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert rev[7] == 12.0 and rev[-1] == "raw"
+    ((delete_sql, delete_params),) = conn.sql("DELETE FROM ohlcv_raw")
+    assert "close = %s" in delete_sql and delete_params[8] == 12.0
+
+
+def test_release_touches_pending_rows_of_one_load_only():
+    from services.ohlcv_raw_writer import release_legacy_pending
+
+    conn = FakeConn()
+    conn.cur.rowcount = 2
+    n = release_legacy_pending(conn, "SPY", "5m", "ibkr", "named", load_id=LOAD, timestamps=[T0])
+    ((sql, params),) = conn.sql("DELETE FROM ohlcv_revision")
+    assert n == 2 and "origin = 'pending'" in sql and params[0] == LOAD
