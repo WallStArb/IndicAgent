@@ -751,11 +751,13 @@ architecture) — unrelated numbering scheme, see `AlphaEngine`.
 **Banned:** (none)
 **Avoid:** "measurement layer" or "I1-I4" as a stage name (I1-I4 names the legacy plugin-tier
 sub-structure *within* Stage 0's mechanism, not the stage itself)
-**Status:** active (mechanism live); sub-tier taxonomy (`docs/research/archive/feature-registry.md`'s
-`0_atomic`/`1_interaction`/`2_theory`) was proposed against the `feature_registry` table, which
-Phase 170 (migration 311, 2026-08-10) dropped outright — `concept_registry` is the sole
-feature-lifecycle system now. The sub-tier taxonomy proposal itself was never re-targeted at
-`concept_registry` and should be treated as stale, not just relocated
+**Status:** active (mechanism live), and so is the feature tier taxonomy: `0_atomic` (plain
+transforms of the data, no theory), `1_interaction` (a combination with a stated hypothesis),
+`2_theory` (assumes a market theory, e.g. support and resistance). First proposed against the
+`feature_registry` table (`docs/research/archive/feature-registry.md`); Phase 170's cutover
+(migration 311, 2026-08-10) carried it into `concept_registry.metadata->>'tier'` for every
+feature row, the three codes are CVR namespace `tier`, and `vocabulary_drift.py` audits it.
+Corrected 2026-10-14: an earlier note here called the taxonomy stale.
 **Canonical doc:** `docs/intelligence/intelligence-layer-architecture.md`
 
 ---
