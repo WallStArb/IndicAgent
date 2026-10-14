@@ -13,7 +13,10 @@ Per explained slot of a series (the gate's classes, the same evidence):
     the raw writer under a repair load (the refused value is logged as the replaced value, origin
     raw) and, where no applied serve of the vendor covered the slot after the refusal, holds the
     refused value as a `pending` revision under the ORIGINAL refused load (D-191-I). Where a later
-    applied serve covered it, the vendor already answered again: `restore` only.
+    applied serve answered the exact slot (gate.LaterServes: a raw or revision row of that load
+    at the slot, or its request window holding the whole bar), the vendor already answered
+    again: `restore` only. A later load whose dates merely include the slot's date is no
+    evidence, and the refused value is held.
   - at a chunk edge (an IBKR request of the series ended inside the bar, review finding 2): one
     of the two values is a truncated bar. The one with the higher volume is the whole bar (a
     truncated bar counts a subset of the trades). Raw truncated: `restore`, no pending (a partial
@@ -76,7 +79,7 @@ RESTORE = "restore"
 RESTORE_PENDING = "restore_pending"
 SELECT = "select"
 RESERVE = "reserve"
-BAR_SECONDS = {"1m": 60, "5m": 300, "4h": 14400}
+BAR_SECONDS = gate.BAR_SECONDS
 _FAR_PAST = datetime(1990, 1, 1, tzinfo=UTC)
 _FAR_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
 _LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
@@ -289,10 +292,10 @@ def canonical_changes(
 # --------------------------------------------------------------------------------------
 
 
-def read_series(cur: Any, symbol: str, timeframe: str, policy, kind_order):
+def read_series(cur: Any, symbol: str, timeframe: str, policy, kind_order, match_s: float):
     canonical = gate.read_canonical(cur, "market_data_ohlcv", "source", symbol, timeframe)
     candidates = gate.read_candidates(cur, symbol, timeframe)
-    evidence = gate.read_evidence(cur, symbol, timeframe, candidates)
+    evidence = gate.read_evidence(cur, symbol, timeframe, candidates, match_s=match_s)
     vendors = {k[1] for k in evidence.refused_serves} | {"ibkr"}
     ends: list[datetime] = []
     for vendor in sorted(vendors):
@@ -306,7 +309,9 @@ def _raw_row(symbol: str, timeframe: str, action: SlotAction, values: gate.Value
     return RawRow(action.timestamp, symbol, timeframe, action.vendor, action.kind, *values)
 
 
-def apply_series(conn: Any, plan_in: SeriesPlan, params: Any, policy, kind_order) -> dict[str, Any]:
+def apply_series(
+    conn: Any, plan_in: SeriesPlan, params: Any, policy, kind_order, match_s: float
+) -> dict[str, Any]:
     """Re-plan under the series lock and write it (module docstring); the caller commits."""
     symbol, timeframe = plan_in.symbol, plan_in.timeframe
     # Lock order as the ingress contract takes it: the raw writer's series locks first, then the
@@ -317,7 +322,7 @@ def apply_series(conn: Any, plan_in: SeriesPlan, params: Any, policy, kind_order
             cur.execute(_LOCK_SQL, ("|".join((symbol, timeframe, vendor, kind)),))
         cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
         canonical, candidates, evidence, selected, ends = read_series(
-            cur, symbol, timeframe, policy, kind_order
+            cur, symbol, timeframe, policy, kind_order, match_s
         )
     plan = plan_series(symbol, timeframe, canonical, selected, evidence, ends)
     if plan.blockers:
@@ -427,7 +432,7 @@ def _stamp() -> str:
 
 
 def run(args: argparse.Namespace) -> int:
-    batch_rows, timeout_s = asyncio.run(gate._read_apr())
+    batch_rows, timeout_s, match_s = asyncio.run(gate._read_apr())
     del batch_rows  # the writers take the raw contract's own settings below
     conn = gate.open_connection(timeout_s)
     out = Path(args.out) if args.out else gate._LOG_DIR / f"raw_repair_191_{_stamp()}.json"
@@ -444,7 +449,7 @@ def run(args: argparse.Namespace) -> int:
             for timeframe in args.timeframes:
                 with conn.cursor() as cur:
                     canonical, _cands, evidence, selected, ends = read_series(
-                        cur, symbol, timeframe, policy, kind_order
+                        cur, symbol, timeframe, policy, kind_order, match_s
                     )
                 conn.rollback()
                 plan = plan_series(symbol, timeframe, canonical, selected, evidence, ends)
@@ -470,7 +475,7 @@ def run(args: argparse.Namespace) -> int:
                     )
                     continue
                 try:
-                    done = apply_series(conn, plan, params, policy, kind_order)
+                    done = apply_series(conn, plan, params, policy, kind_order, match_s)
                     conn.commit()
                 except Exception as error:
                     conn.rollback()

@@ -412,7 +412,7 @@ def test_merge_refuses_a_missing_repeated_or_mixed_shard():
         gate.merge_reports([_report(1, shard="0/2"), _report(1, shard="1/2")])
 
 
-def test_refused_serve_map_matches_by_load_id_or_served_at_and_honours_a_later_raw_serve():
+def test_refused_serve_map_matches_by_load_id_or_served_at_and_honours_an_exact_later_serve():
     ts = datetime(2026, 10, 5, 15, 0, tzinfo=UTC)
     refused = _load(load_id="R")
     by_id = (ts, "ibkr", "named")
@@ -421,25 +421,67 @@ def test_refused_serve_map_matches_by_load_id_or_served_at_and_honours_a_later_r
     serves = {by_id: (None, "R"), by_time: (REFUSED_AT, None), other_vendor: (REFUSED_AT, None)}
     assert set(gate.refused_serve_map(serves, [refused])) == {by_id, by_time}
     later = REFUSED_AT + timedelta(hours=1)
-    # a later applied raw serve of the same vendor covering the date re-served the slot
     reserved = _load("applied", later, destination="raw", load_id="A")
-    assert gate.refused_serve_map(serves, [refused, reserved]) == {}
+    # a later applied raw serve whose request window holds both bars re-served them
+    window = {"A": (ts - timedelta(hours=1), ts + timedelta(hours=1))}
+    index = gate.LaterServes([refused, reserved], windows=window)
+    assert gate.refused_serve_map(serves, [refused, reserved], index) == {}
+    # the same load with no exact-key evidence re-served nothing, whatever its dates
+    assert set(gate.refused_serve_map(serves, [refused, reserved])) == {by_id, by_time}
     # a legacy (canonical-era) serve, a backfill or repair record, or an earlier load does not
     for load in (
         _load("applied", later, load_id="L"),
         _load("applied", later, destination="raw", caller="raw-repair-191", load_id="P"),
         _load("applied", REFUSED_AT - timedelta(hours=1), destination="raw", load_id="E"),
-        _load("applied", later, destination="raw", first=date(2026, 10, 6), load_id="W"),
     ):
-        assert set(gate.refused_serve_map(serves, [refused, load])) == {by_id, by_time}
+        index = gate.LaterServes([refused, load], windows={load.load_id: window["A"]})
+        assert set(gate.refused_serve_map(serves, [refused, load], index)) == {by_id, by_time}
 
 
-def test_later_serve_finds_a_covering_applied_vendor_serve():
-    ts = datetime(2026, 10, 5, 15, 0, tzinfo=UTC)
-    loads = [_load("applied", REFUSED_AT + timedelta(minutes=1), load_id="A")]
-    assert gate.later_serve(ts, "ibkr", REFUSED_AT, loads) is loads[0]
-    assert gate.later_serve(ts, "ibkr", REFUSED_AT, loads, destination="raw") is None
-    assert gate.later_serve(ts, "alpaca", REFUSED_AT, loads) is None
+def test_a_later_serve_needs_exact_key_evidence_not_the_date():
+    # ADM f40ff724: the request asked 20:10 to 00:05 the night of 2026-10-12; its load's dates
+    # include the 16:00-19:55 slots, but it never answered them
+    slot = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)
+    load = _load("applied", REFUSED_AT + timedelta(hours=12), load_id="F")
+    window = {
+        "F": (datetime(2026, 10, 12, 20, 10, tzinfo=UTC), datetime(2026, 10, 13, 0, 5, tzinfo=UTC))
+    }
+    assert gate.LaterServes([load], windows=window).find(slot, "ibkr", REFUSED_AT) is None
+    # a window that holds the whole bar is evidence; one that ends inside the bar is not
+    whole = {"F": (slot - timedelta(hours=4), slot + timedelta(minutes=5))}
+    assert gate.LaterServes([load], windows=whole).find(slot, "ibkr", REFUSED_AT) is load
+    cut = {"F": (slot - timedelta(hours=4), slot + timedelta(minutes=2))}
+    assert gate.LaterServes([load], windows=cut).find(slot, "ibkr", REFUSED_AT) is None
+    # per-row evidence: the load logged a revision or wrote a raw row at the slot
+    rows = {slot: {"F"}}
+    assert gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", REFUSED_AT) is load
+    # only a later load, of the vendor, applied and a vendor serve
+    assert gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", load.loaded_at) is None
+    assert gate.LaterServes([load], slot_loads=rows).find(slot, "alpaca", REFUSED_AT) is None
+    assert (
+        gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", REFUSED_AT, destination="raw")
+        is None
+    )
+
+
+def test_a_load_takes_the_window_of_the_request_answered_just_before_it():
+    at = datetime(2026, 10, 12, 12, 15, 17, 192000, tzinfo=UTC)
+    load = _load("applied", at, load_id="G")
+    late = _load("applied", at + timedelta(minutes=5), load_id="H")
+    requests = [
+        gate.RequestFact(
+            "ibkr", at - timedelta(days=150), at - timedelta(days=1), at - timedelta(seconds=40)
+        ),
+        gate.RequestFact(
+            "ibkr",
+            at - timedelta(days=300),
+            at - timedelta(days=151),
+            at - timedelta(milliseconds=46),
+        ),
+        gate.RequestFact("alpaca", at, at, at),
+    ]
+    windows = gate.match_request_windows([load, late], requests, match_s=5)
+    assert windows == {"G": (at - timedelta(days=300), at - timedelta(days=151))}
 
 
 def test_spans_carry_their_own_evidence_not_the_whole_series():
@@ -669,6 +711,10 @@ def test_a_refused_value_canonical_took_from_a_later_applied_serve_is_not_held()
             load_id="A",
         )
     )
+    # its dates include the slot, which is no evidence on its own
+    assert evidence.held(key, canonical)
+    # GE 043784e0 logged the displaced value at the key: per-row evidence it served the slot
+    evidence.slot_loads = {ts: {"A"}}
     assert not evidence.held(key, canonical)
     diff = gate.compare_series("SPY", "5m", {ts: canonical}, {ts: canonical}, evidence)
     assert diff.refused_value_in_canonical == 0 and diff.clean()

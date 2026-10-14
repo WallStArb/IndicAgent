@@ -63,12 +63,26 @@ def test_a_refused_self_restatement_off_the_edge_is_restored_and_held_when_not_r
 
 
 def test_a_refused_value_the_vendor_answered_again_is_restored_without_a_hold():
-    # GE 2021-09-01: refused at 12:14:31, an applied load re-served the day at 12:15:17
+    # GE 2021-09-01: refused at 12:14:31, an applied load re-served the slot at 12:15:17 (its
+    # request window holds the bar)
     ts = datetime(2021, 9, 1, 16, 55, tzinfo=UTC)
     later = _load("applied", REFUSED_AT + timedelta(seconds=46), lid="A")
     canonical, selected, evidence = _self(ts, _v(64.7616), _v(64.76), loads=[later])
+    evidence.windows = {"A": (datetime(2021, 6, 11, tzinfo=UTC), datetime(2021, 11, 7, tzinfo=UTC))}
     (slot,) = _plan(canonical, selected, evidence).actions
     assert slot.action == repair.RESTORE and "A" in slot.reason
+
+
+def test_a_later_load_covering_the_date_but_not_the_slot_does_not_excuse_it():
+    # ADM 2026-10-12 19:55: the later load's request asked 20:10 to 00:05 the same night
+    ts = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)
+    later = _load("applied", REFUSED_AT + timedelta(hours=12), lid="F")
+    canonical, selected, evidence = _self(ts, _v(81.0, 380459), _v(81.0, 380759), loads=[later])
+    evidence.windows = {
+        "F": (datetime(2026, 10, 12, 20, 10, tzinfo=UTC), datetime(2026, 10, 13, 0, 5, tzinfo=UTC))
+    }
+    (slot,) = _plan(canonical, selected, evidence).actions
+    assert (slot.action, slot.refused_load_id) == (repair.RESTORE_PENDING, "R")
 
 
 def test_at_an_edge_a_truncated_refused_serve_is_restored_and_a_whole_one_waits_for_a_re_serve():

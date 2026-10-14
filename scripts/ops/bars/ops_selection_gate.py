@@ -39,8 +39,10 @@ vendor_kind.LABEL_TO_VENDOR_KIND.
 Refused serves. A raw row is served by a refused load when its load_id is a refused `ohlcv_load`
 of the series, or (rows the raw backfill copied, load_id NULL) its served_at equals the loaded_at
 of a refused load of the same vendor. A later applied load with destination raw of the same vendor
-that covers the row's UTC date and is a vendor serve (not a backfill or repair record) re-served
-the slot under the per-source contract, so the row is no longer a refused serve. A refused serve
+that is a vendor serve (not a backfill or repair record) and answered the exact slot re-served it
+under the per-source contract, so the row is no longer a refused serve. Exact means a raw or
+revision row of that load at the slot, or its request window holding the whole bar (LaterServes);
+a load whose UTC dates merely include the slot's date answers nothing. A refused serve
 is HELD (D-191-I) when it displaced the vendor's own value at the key: canonical holds the same
 (vendor, kind) with another value, or a non-pending revision of the key logs another value. A
 refused serve with no own value on record (a new slot, or a slot only another vendor holds) was
@@ -72,6 +74,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import bisect
 import hashlib
 import json
 import re
@@ -111,6 +114,8 @@ _TIMEOUT_KEY = "infra.raw_backfill.statement_timeout_s"
 _PLAN = "191-07"
 SPAN_REASON = "reproduces canonical (selection gate, plan 191-07)"
 DEFAULT_TIMEFRAMES = ("1m", "5m", "4h")
+BAR_SECONDS = {"1m": 60, "5m": 300, "4h": 14400}  # bar lengths, not tunables
+_MATCH_KEY = "infra.selection_gate.request_load_match_s"
 _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # difference kinds
@@ -157,65 +162,123 @@ class LoadFact:
     destination: str
     caller: str
 
-    def covers(self, ts: datetime) -> bool:
-        return self.first <= utc_date(ts) <= self.last
-
     @property
     def is_serve(self) -> bool:
         return self.caller not in NON_SERVE_CALLERS
 
 
-def later_serve(
-    ts: datetime,
-    vendor: str,
-    after: datetime,
-    loads: Iterable[LoadFact],
-    *,
-    destination: str | None = None,
-) -> LoadFact | None:
-    """An applied vendor serve of `vendor` loaded after `after` whose window covers `ts` (the
-    first found), optionally restricted to one destination."""
+@dataclass(frozen=True)
+class RequestFact:
+    """One answered (`bars`) ohlcv_request row of the series."""
+
+    vendor: str
+    window_start: datetime
+    window_end: datetime
+    answered_at: datetime
+
+
+def match_request_windows(
+    loads: Iterable[LoadFact], requests: Iterable[RequestFact], match_s: float
+) -> dict[Any, tuple[datetime, datetime]]:
+    """load_id -> the window of the request it persisted: the latest answered request of the same
+    vendor at most `match_s` seconds before the load (the retired path wrote no request id on
+    the load; APR infra.selection_gate.request_load_match_s). A load with no such request has no
+    window."""
+    by_vendor: dict[str, list[RequestFact]] = defaultdict(list)
+    for request in requests:
+        by_vendor[request.vendor].append(request)
+    answered: dict[str, list[datetime]] = {}
+    for vendor, rows in by_vendor.items():
+        rows.sort(key=lambda r: r.answered_at)
+        answered[vendor] = [r.answered_at for r in rows]
+    out: dict[Any, tuple[datetime, datetime]] = {}
+    tolerance = timedelta(seconds=match_s)
     for load in loads:
-        if (
-            load.vendor == vendor
-            and load.outcome == "applied"
-            and load.is_serve
-            and load.loaded_at > after
-            and load.covers(ts)
-            and (destination is None or load.destination == destination)
-        ):
-            return load
-    return None
+        stamps = answered.get(load.vendor)
+        if not stamps:
+            continue
+        i = bisect.bisect_right(stamps, load.loaded_at) - 1
+        if i >= 0 and load.loaded_at - stamps[i] <= tolerance:
+            request = by_vendor[load.vendor][i]
+            out[load.load_id] = (request.window_start, request.window_end)
+    return out
 
 
 class LaterServes:
-    """later_serve memoized per (UTC date, vendor, after, destination) over one series' loads:
-    a series holds thousands of loads and tens of thousands of refused serves."""
+    """Exact-key later serves of one series (second review of plan 191-07, finding 1).
 
-    def __init__(self, loads: Iterable[LoadFact]) -> None:
-        self.loads = [load for load in loads if load.outcome == "applied" and load.is_serve]
+    An applied vendor serve of `vendor` loaded after `after` answered the slot `ts` only on
+    exact-key evidence, in this order:
+    1. per row: the load wrote a raw row or a non-pending revision row at `ts` (`slot_loads`);
+    2. its request window: the request the load persisted (`windows`, match_request_windows)
+       holds the whole bar [ts, ts + bar].
+    A load whose UTC dates merely include the slot's date is not evidence: ADM f40ff724 asked
+    20:10 to 00:05 and excused nothing before 20:10. A request window only ever understates what
+    IBKR served ("N D" counts sessions; GE 043784e0 served 2021-11-05 from a Monday pre-market
+    window), so a covering window never claims a slot the vendor did not answer. With neither,
+    the slot was not answered again and the refused value stays held.
+    """
+
+    def __init__(
+        self,
+        loads: Iterable[LoadFact],
+        *,
+        windows: Mapping[Any, tuple[datetime, datetime]] | None = None,
+        slot_loads: Mapping[datetime, set[Any]] | None = None,
+        bar: timedelta = timedelta(minutes=5),
+    ) -> None:
+        self.loads = sorted(
+            (load for load in loads if load.outcome == "applied" and load.is_serve),
+            key=lambda load: load.loaded_at,
+        )
+        self._times = [load.loaded_at for load in self.loads]
+        self.windows = dict(windows or {})
+        self.slot_loads = slot_loads or {}
+        self.bar = bar
         self._memo: dict[tuple, LoadFact | None] = {}
 
     def find(
         self, ts: datetime, vendor: str, after: datetime, destination: str | None = None
     ) -> LoadFact | None:
-        key = (utc_date(ts), vendor, after, destination)
+        key = (ts, vendor, after, destination)
         if key not in self._memo:
-            self._memo[key] = later_serve(ts, vendor, after, self.loads, destination=destination)
+            self._memo[key] = self._find(ts, vendor, after, destination)
         return self._memo[key]
+
+    def _find(
+        self, ts: datetime, vendor: str, after: datetime, destination: str | None
+    ) -> LoadFact | None:
+        start = bisect.bisect_right(self._times, after)
+        later = [
+            load
+            for load in self.loads[start:]
+            if load.vendor == vendor and (destination is None or load.destination == destination)
+        ]
+        wrote = self.slot_loads.get(ts, ())
+        for load in later:
+            if load.load_id in wrote:
+                return load
+        for load in later:
+            window = self.windows.get(load.load_id)
+            if window is not None and window[0] <= ts and ts + self.bar <= window[1]:
+                return load
+        return None
 
 
 def refused_serve_map(
-    serves: Mapping[Key, tuple[datetime | None, Any]], loads: Sequence[LoadFact]
+    serves: Mapping[Key, tuple[datetime | None, Any]],
+    loads: Sequence[LoadFact],
+    later: LaterServes | None = None,
 ) -> dict[Key, LoadFact]:
     """The raw rows served by a refused load and not re-served since (module docstring).
 
     `serves` maps a raw key to its (served_at, load_id); rows a refused load cannot have served
-    may be left out by the caller (the database read prefilters on the refused loads)."""
+    may be left out by the caller (the database read prefilters on the refused loads). `later`
+    carries the series' exact-key evidence; without it nothing counts as re-served."""
     refused = [load for load in loads if load.outcome == "refused"]
     by_id = {load.load_id: load for load in refused}
     by_time = {(load.vendor, load.loaded_at): load for load in refused}
-    later = LaterServes(loads)
+    later = later or LaterServes(loads)
     out: dict[Key, LoadFact] = {}
     for key, (served_at, load_id) in serves.items():
         ts, vendor, _kind = key
@@ -237,6 +300,9 @@ class Evidence:
     refused_serves: key -> the refused load that served the raw row (refused_serve_map).
     raw: key -> values of every raw row of the series.
     loads: every ohlcv_load row of the series.
+    windows: load_id -> the request window the load persisted (match_request_windows).
+    slot_loads: timestamp -> load_ids that wrote a raw row or a non-pending revision there.
+    bar: the series' bar length (exact-key window evidence holds the whole bar).
     """
 
     revisions: dict[Key, list[tuple[datetime | None, Values]]] = field(default_factory=dict)
@@ -244,15 +310,23 @@ class Evidence:
     refused_serves: dict[Key, LoadFact] = field(default_factory=dict)
     raw: dict[Key, Values] = field(default_factory=dict)
     loads: list[LoadFact] = field(default_factory=list)
-    _later: tuple[tuple[int, int], LaterServes] | None = field(
+    windows: dict[Any, tuple[datetime, datetime]] = field(default_factory=dict)
+    slot_loads: dict[datetime, set[Any]] = field(default_factory=dict)
+    bar: timedelta = timedelta(minutes=5)
+    _later: tuple[tuple[int, int, int, int], LaterServes] | None = field(
         default=None, repr=False, compare=False
     )
 
     def later(self) -> LaterServes:
-        """The memoized later-serve index of `loads`, rebuilt when the list changes."""
-        token = (id(self.loads), len(self.loads))
+        """The memoized exact-key later-serve index, rebuilt when its inputs change."""
+        token = (id(self.loads), len(self.loads), len(self.windows), len(self.slot_loads))
         if self._later is None or self._later[0] != token:
-            self._later = (token, LaterServes(self.loads))
+            self._later = (
+                token,
+                LaterServes(
+                    self.loads, windows=self.windows, slot_loads=self.slot_loads, bar=self.bar
+                ),
+            )
         return self._later[1]
 
     def logged(self, key: Key) -> set[Values]:
@@ -281,9 +355,9 @@ class Evidence:
         if canonical is not None and canonical[0] == key[1:]:
             if canonical[1] != raw_value:
                 return True
-            # canonical holds the refused value and an applied serve of the vendor covered the
-            # slot after the refusal: the retired path wrote canonical from that serve, so the
-            # vendor served this value again and it was accepted
+            # canonical holds the refused value and an applied serve of the vendor answered the
+            # exact slot after the refusal (LaterServes): the retired path wrote canonical from
+            # that serve, so the vendor served this value again and it was accepted
             refused_at = self.refused_serves[key].loaded_at
             if self.later().find(key[0], key[1], refused_at) is not None:
                 return False
@@ -833,7 +907,7 @@ _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE name
 # with load_id; there is no index on its symbol), with the load's loaded_at for ordering.
 _REVISION_SQL = (
     'SELECT v."timestamp", v.vendor, v.kind, v.old_open, v.old_high, v.old_low, v.old_close, '
-    "v.old_volume, v.origin, l.loaded_at FROM ohlcv_load l JOIN ohlcv_revision v "
+    "v.old_volume, v.origin, l.loaded_at, v.load_id FROM ohlcv_load l JOIN ohlcv_revision v "
     "ON v.load_id = l.load_id AND v.symbol = l.symbol AND v.timeframe = l.timeframe "
     "WHERE l.symbol = %s AND l.timeframe = %s"
 )
@@ -845,6 +919,17 @@ _LOADS_SQL = (
 _SERVES_SQL = (
     'SELECT "timestamp", vendor, kind, served_at, load_id FROM ohlcv_raw '
     "WHERE symbol = %s AND timeframe = %s AND (served_at = ANY(%s) OR load_id = ANY(%s))"
+)
+# Answered requests of the series (exact-key re-serve evidence: the window a load persisted).
+_REQUESTS_SQL = (
+    "SELECT source, window_start, window_end, answered_at FROM ohlcv_request "
+    "WHERE symbol = %s AND timeframe = %s AND outcome = 'bars' AND window_start IS NOT NULL "
+    "AND answered_at IS NOT NULL"
+)
+# Raw rows that name the load that wrote them (per-row re-serve evidence).
+_RAW_LOADS_SQL = (
+    'SELECT "timestamp", load_id FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s '
+    "AND load_id IS NOT NULL"
 )
 _UNMAPPED_SQL = (
     "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s "
@@ -901,22 +986,32 @@ def read_loads(cur: Any, symbol: str, timeframe: str) -> list[LoadFact]:
 
 
 def read_evidence(
-    cur: Any, symbol: str, timeframe: str, candidates: Sequence[Candidate]
+    cur: Any, symbol: str, timeframe: str, candidates: Sequence[Candidate], *, match_s: float
 ) -> Evidence:
+    """Everything the ledgers record about one series; `match_s` is the APR request-to-load
+    match tolerance (infra.selection_gate.request_load_match_s)."""
     evidence = Evidence(
         raw={
             (c.timestamp, c.vendor, c.kind): (c.open, c.high, c.low, c.close, c.volume)
             for c in candidates
-        }
+        },
+        bar=timedelta(seconds=BAR_SECONDS.get(timeframe, 300)),
     )
     cur.execute(_REVISION_SQL, (symbol, timeframe))
-    for ts, vendor, kind, o, h, lo, c, v, origin, loaded_at in cur.fetchall():
+    for ts, vendor, kind, o, h, lo, c, v, origin, loaded_at, load_id in cur.fetchall():
         values = (o, h, lo, c, v)
         if origin == "pending":
             evidence.pending.setdefault((ts, vendor, kind), set()).add(values)
         else:
             evidence.revisions.setdefault((ts, vendor, kind), []).append((loaded_at, values))
+            evidence.slot_loads.setdefault(ts, set()).add(load_id)
+    cur.execute(_RAW_LOADS_SQL, (symbol, timeframe))
+    for ts, load_id in cur.fetchall():
+        evidence.slot_loads.setdefault(ts, set()).add(load_id)
     loads = evidence.loads = read_loads(cur, symbol, timeframe)
+    cur.execute(_REQUESTS_SQL, (symbol, timeframe))
+    requests = [RequestFact(*row) for row in cur.fetchall()]
+    evidence.windows = match_request_windows(loads, requests, match_s)
     refused = [load for load in loads if load.outcome == "refused"]
     if refused:
         cur.execute(
@@ -929,7 +1024,7 @@ def read_evidence(
             ),
         )
         serves = {(r[0], r[1], r[2]): (r[3], r[4]) for r in cur.fetchall()}
-        evidence.refused_serves = refused_serve_map(serves, loads)
+        evidence.refused_serves = refused_serve_map(serves, loads, evidence.later())
     return evidence
 
 
@@ -992,15 +1087,17 @@ def shard_of(symbols: Sequence[str], shard: str | None) -> list[str]:
     return [s for i, s in enumerate(sorted(symbols)) if i % count == index]
 
 
-async def _read_apr() -> tuple[int, int]:
+async def _read_apr() -> tuple[int, int, float]:
+    """(batch rows, statement timeout s, request-to-load match tolerance s) from the APR."""
     cfg = ConfigService(get_settings().database_url)
     await cfg.initialize()
     try:
         batch_rows = int(await cfg.get(_BATCH_ROWS_KEY, 50_000))
         timeout_s = int(await cfg.get(_TIMEOUT_KEY, 7200))
+        match_s = float(await cfg.get(_MATCH_KEY, 5))
     finally:
         await cfg.close()
-    return batch_rows, timeout_s
+    return batch_rows, timeout_s, match_s
 
 
 def open_connection(timeout_s: int) -> psycopg.Connection:
@@ -1135,7 +1232,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates and not unmapped:
                     continue
-                evidence = read_evidence(cur, symbol, timeframe, candidates)
+                evidence = read_evidence(cur, symbol, timeframe, candidates, match_s=args.match_s)
             conn.rollback()
             selected, counts = selected_rows(candidates, policy, kind_order)
             diff = compare_series(
@@ -1185,7 +1282,7 @@ def run_emit_spans(conn: psycopg.Connection, args: argparse.Namespace) -> int:
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates:
                     continue
-                evidence = read_evidence(cur, symbol, timeframe, candidates)
+                evidence = read_evidence(cur, symbol, timeframe, candidates, match_s=args.match_s)
             conn.rollback()
             plan = derive_spans(
                 symbol,
@@ -1557,7 +1654,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.spans:
             parser.error("--apply-spans needs --spans FILE...")
         return run_apply_spans(args)
-    batch_rows, timeout_s = asyncio.run(_read_apr())
+    batch_rows, timeout_s, args.match_s = asyncio.run(_read_apr())
     conn = open_connection(timeout_s)
     try:
         if args.compare:
