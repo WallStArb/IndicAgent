@@ -21,7 +21,9 @@ Modes (exactly one):
 --apply-spans   write the candidate rows of --spans files through ops_source_policy.insert_row
                 (the policy table's one writer); dry run unless --apply.
 --idempotence   run the live selection writer over a spread of names inside a transaction that
-                is always rolled back and report rows inserted or replaced (must be 0).
+                is always rolled back and report rows inserted or replaced (must be 0 for names
+                that already match; --exclude-report leaves the not-clean series out of the
+                spread, and --symbols names the ones to probe instead).
 --merge         total several shard reports into one verdict.
 --locate-unsourced
                 raw rows that no old store holds a key for (plan 04's balance check counted a
@@ -1061,21 +1063,16 @@ async def _apply_rows(rows: Sequence[Mapping[str, Any]], policy_writer: Any) -> 
 
 
 def spread_names(by_vendor: Mapping[str, Sequence[str]], n: int) -> list[str]:
-    """`n` names spread across the vendor groups, round robin, each group in sorted order."""
+    """`n` names spread over the vendor groups: an equal share of each (the first groups take
+    the remainder), evenly spaced through the group's sorted names."""
     groups = [sorted(v) for _, v in sorted(by_vendor.items()) if v]
+    if not groups:
+        return []
+    base, extra = divmod(n, len(groups))
     picked: list[str] = []
-    seen: set[str] = set()
-    i = 0
-    while len(picked) < n and any(i < len(g) for g in groups):
-        for g in groups:
-            if i < len(g) and len(picked) < n:
-                # spread through the group rather than taking the first names
-                step = max(1, len(g) // max(1, n // len(groups)))
-                name = g[min((i * step) % len(g), len(g) - 1)]
-                if name not in seen:
-                    seen.add(name)
-                    picked.append(name)
-        i += 1
+    for i, group in enumerate(groups):
+        take = min(len(group), base + (1 if i < extra else 0))
+        picked += [group[(j * len(group)) // take] for j in range(take)]
     return picked
 
 
@@ -1097,9 +1094,15 @@ def run_idempotence(conn: psycopg.Connection, args: argparse.Namespace, batch_ro
             for symbol, source, n in cur.fetchall():
                 if symbol not in dominant or n > dominant[symbol][1]:
                     dominant[symbol] = (source, n)
+            excluded = {
+                entry["symbol"]
+                for path in args.exclude_report
+                for entry in json.loads(Path(path).read_text())["series_not_clean"]
+            }
             by_source: dict[str, list[str]] = defaultdict(list)
             for symbol, (source, _) in dominant.items():
-                by_source[source].append(symbol)
+                if symbol not in excluded:
+                    by_source[source].append(symbol)
             names = spread_names(by_source, args.idempotence_names)
     conn.rollback()
     print(f"idempotence over {len(names)} names ({timeframe}): {', '.join(names)}")
@@ -1270,6 +1273,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--sample-limit", type=int, default=20)
     parser.add_argument("--idempotence-names", type=int, default=25)
+    parser.add_argument(
+        "--exclude-report",
+        nargs="*",
+        default=[],
+        help="--idempotence: compare reports whose not-clean series are left out of the name spread "
+        "(the claim is about names that already match)",
+    )
     parser.add_argument("--idempotence-timeframe", default="5m", choices=sorted(DIRECT_TIMEFRAMES))
     args = parser.parse_args(argv)
     bad = sorted(set(args.timeframes) - DIRECT_TIMEFRAMES)
