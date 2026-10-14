@@ -6,6 +6,12 @@ It is a research system first. Trading is one possible output of it, and the lar
 
 The discipline is borrowed on purpose from two places. From Renaissance Technologies and Jim Simons, proof before belief: intuition proposes and measurement decides. From Elon Musk's five-step process, question first, delete second, simplify third, and only then speed up and automate.
 
+## Cloud native, AI native, API first
+
+- **API first.** Everything the platform knows is served over a FastAPI service: REST for queries, and Server-Sent Events for live streams. Market data, health, drift, validation and the controlled vocabulary each have their own routes, configuration has its own HTTP API, and a Next.js dashboard is just another client. Nothing is reachable only from inside a script.
+- **Cloud native, self-hosted.** It is built the way cloud systems are: containerized infrastructure, a durable and replayable event bus (Redpanda, Kafka-compatible) so any service can fail and resume from its offset, a dependency graph that orders restarts, health checks and watchdogs on every service, scaling driven by measured consumer lag, and full observability (OpenTelemetry, Prometheus, Grafana, Loki, Tempo, Alertmanager). It runs on one self-hosted server today and moves to a cloud without a redesign.
+- **AI native.** It is designed, built, reviewed and operated with AI agents working under the same rules as the code: planning and execution workflows, independent cross-model reviews before a design is adopted, and documentation written to be read by agents as well as people. The research direction is agentic too (see Where it is going), inside the same evidence gates.
+
 ---
 
 ## Where it stands
