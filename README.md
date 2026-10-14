@@ -118,9 +118,67 @@ Further information domains are designed to clear the same measurement before th
 
 ---
 
-## History
+## The first generation: built, now archived
 
-The first generation (2026) was an event-driven, real-time pipeline: eight analytical tiers, a specialist agent swarm and a language-model narrative layer. Its flaw was not the engineering but the method: its signal plugins encoded human theories about what a good setup looks like, so it could only find edges someone already believed in. It was removed in phase 185 (archive tag `archive/v2x-ai-stack-2026-10`) in favor of measurement-first discovery. Its design remains documented in [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md).
+The first generation was built and run in production in early 2026, then archived in
+October 2026 (phase 185, plan 45) when the work moved to measurement-first discovery. The
+code is preserved at the git tag `archive/v2x-ai-stack-2026-10`, and its design is
+documented in [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md).
+Figures below describe it as it ran at the time.
+
+**An event-driven, real-time pipeline.** Eight analytical tiers ran end to end in under
+10 ms per bar, live across 60 instruments spanning futures, ETFs, FX and crypto, computing
+about 729 data points per bar, per symbol, per timeframe, every one persisted and streamed.
+
+| Tier | What it did |
+|---|---|
+| **I1** Raw indicators | 28 plugins, about 50 data points (RSI, MACD, Bollinger, ATR, VWAP, OFI, CVD), computed incrementally per bar |
+| **I2** Composite events | Second-derivative measures: momentum inflection and trend exhaustion, scored before they complete |
+| **I3** Market structure | Swings, support and resistance zones, market profile (POC and value area), anchored VWAP, session levels |
+| **I4** Regime classification | Six independent models: GARCH, a Kalman filter, an HMM, BOCPD changepoints, the Hurst exponent and Shannon entropy |
+| **I5** Pattern detection | Divergences, volatility squeezes, classical chart patterns |
+| **I6** Smart money and confluence | An institutional order-flow model across six timeframes: breaks of structure, fair value gaps, order blocks, liquidity pools |
+| **I7** Trading setups | 36 setups, each a full trade thesis with entry, stop and target, scored by a six-bucket confluence model requiring cross-tier agreement |
+| **I8** AI narrative | Structured language-model analysis of every high-confidence setup, plus scheduled cross-asset synthesis |
+
+Every setup passed a deterministic ten-stage quality pipeline before it was emitted:
+confidence clamping, decay for repeated fires, confluence scoring, structural and regime
+gates, time-of-day adjustment, isotonic calibration against real outcomes, ranking by
+rolling Sharpe, review by the specialist agents, and a final completeness check.
+
+**The specialist agent swarm: a council, not an oracle.** Five independent agents each
+assessed one dimension of a setup: cross-asset correlation, regime coherence, the
+counterfactual bear case, historical analogs, and a mandatory adversarial skeptic that
+challenged every other agent's conclusion. Their outputs composed into a calibrated
+multiplier, so no single agent moved the result alone. The language-model layer was
+multi-provider (a local model on GPU with a cloud fallback and per-provider circuit
+breakers), so no single vendor was a dependency either.
+
+**Empirical memory.** A pgvector store embedded market and setup context as vectors and
+retrieved the most similar historical episodes at decision time, grounding agent
+judgments in precedent the way a trader draws on experience. It included a Markov
+regime-transition prior and drift monitoring, and trusted nothing before 30 resolved
+observations.
+
+**The learning agent council.** The same council pattern applied to model training: a
+LightGBM pipeline with a walk-forward 60/20/20 temporal split, per-regime segments gated
+at 100 observations, retraining only when enough new data had arrived, every model
+versioned in MLflow, and data validation and feature discovery as their own stages,
+orchestrated with LangGraph.
+
+**Designed, never built: the head trader.** A synthesis agent to take the swarm's view,
+the portfolio and the regime, and make the final call, the way a desk's portfolio manager
+synthesizes a technician, a risk manager and a flow trader. The risk agent's halt
+authority sat above it by design: the head trader could decide whether to trade, never
+whether risk limits applied.
+
+**Why it was archived.** The engineering held up; the method did not. Its setup plugins
+encoded human theories of what a good trade looks like, so it could only find edges
+someone already believed in, and it observed outcomes only where a hand-made filter
+fired. The current generation keeps the lessons (the council pattern, adversarial
+review, calibration against outcomes, shadow governance) and replaces the method with
+measurement on every bar. The agentic direction above is where those ideas return,
+inside the current evidence gates.
 
 ---
 
