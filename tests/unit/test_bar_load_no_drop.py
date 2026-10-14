@@ -1,28 +1,27 @@
-"""Bar load engine no-drop semantics (todo 528 R1): extended and rows another
-source holds are archived raw, never dropped; a vendor's own canonical rows are
-a no-op, never re-archived. The split counts are exact."""
+"""Bar load engine no-drop semantics (todo 528 R1, phase 191 plan 05).
+
+Raw is stored per source: the loader offers every row the vendor served to ohlcv_raw, regular
+hours and extended hours alike, whatever any other source holds. Nothing is split, skipped or
+dropped before the contract. Every offered row appears in ohlcv_raw or, when the contract refuses
+the vendor's restatement of its own history, in the explicit pending list (the refused series'
+held rows); the LoadResult counts add up to the rows offered.
+"""
 
 from __future__ import annotations
-
-from datetime import datetime
 
 import pandas as pd
 import pytest
 
+from scripts.infrastructure.backfill._intraday_persist import PersistResult
 from services import bar_load
-from services.bar_load import (
-    LoadPolicy,
-    archive_frame_to_tuples,
-    archive_rows,
-    load_series,
-    split_series,
-)
+from services.bar_load import LoadPolicy, frame_to_raw_rows, load_frame, load_series
+from services.ohlcv_ingress_contract import IngressResult
 
 POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test-load")
 
 
 def _frame(rows: list[str]) -> pd.DataFrame:
-    """ISO stamps -> canonical frame; grid stamps are 13:30/13:35 UTC (RTH)."""
+    """ISO stamps -> canonical frame; 13:30/13:35 UTC are RTH slots, 12:00 is pre-market."""
     stamps = [pd.Timestamp(t, tz="UTC") for t in rows]
     return pd.DataFrame(
         {
@@ -36,141 +35,110 @@ def _frame(rows: list[str]) -> pd.DataFrame:
     )
 
 
-class _FakeCursor:
-    def __init__(self, queries: dict[str, list]):
-        self._queries = queries
+@pytest.fixture
+def persisted(monkeypatch):
+    """persist_chunk_atomically replaced by a recorder; `refuse` marks every chunk refused."""
+    state = type("State", (), {"calls": [], "refuse": False})()
 
-    def execute(self, sql: str, args=None) -> None:
-        self._rows = [
-            (stamp,) for stamp in self._queries.get("other" if "source <>" in sql else "all", [])
-        ]
-
-    def fetchall(self) -> list:
-        return self._rows
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args) -> bool:
-        return False
-
-
-class _FakeConn:
-    def __init__(self, all_stored: list = None, other_stored: list = None):
-        self._queries = {"all": all_stored or [], "other": other_stored or []}
-        self.transactions = 0
-
-    def cursor(self) -> _FakeCursor:
-        return _FakeCursor(self._queries)
-
-    class _Tx:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args) -> bool:
-            return False
-
-    def transaction(self) -> _FakeConn._Tx:
-        self.transactions += 1
-        return self._Tx()
-
-
-def _stamp(iso: str) -> datetime:
-    return pd.Timestamp(iso, tz="UTC").to_pydatetime()
-
-
-def test_archive_frame_to_tuples_carries_source_and_null_base() -> None:
-    rows = archive_frame_to_tuples(
-        _frame(["2026-10-09 13:30:00"]), "SPY", source="alpaca", timeframe="5m"
-    )
-    assert rows == [
-        (
-            _stamp("2026-10-09 13:30:00"),
-            "SPY",
-            "5m",
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            100,
-            "alpaca",
-            None,
+    def fake(conn, *, request_rows, raw_rows, coverage=None, caller, params=None, **kw):
+        state.calls.append({"rows": list(raw_rows), "coverage": coverage, "caller": caller})
+        refused = state.refuse
+        return PersistResult(
+            0,
+            len(raw_rows),
+            IngressResult(
+                n_offered=len(raw_rows),
+                n_new=0 if refused else len(raw_rows),
+                n_changed=0,
+                n_unchanged=0,
+                refused=refused,
+                selected_slots=0,
+                n_held=len(raw_rows) if refused else 0,
+            ),
         )
-    ]
+
+    monkeypatch.setattr(bar_load, "persist_chunk_atomically", fake)
+    return state
 
 
-def test_archive_rows_chunks_and_skips_empty(monkeypatch) -> None:
-    calls: list[tuple] = []
-
-    def fake_insert(cur, rows, *, caller, params=None):
-        calls.extend(rows)
-        return len(rows)
-
-    monkeypatch.setattr(bar_load, "insert_fetched_archive_rows", fake_insert)
-    conn = _FakeConn()
-    assert archive_rows(conn, [], caller="test") == 0
-    assert calls == [] and conn.transactions == 0
-
-    rows = archive_frame_to_tuples(
-        _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"]),
-        "SPY",
-        source="alpaca",
-        timeframe="5m",
-    )
-    assert archive_rows(conn, rows, caller="test") == 2
-    assert len(calls) == 2 and conn.transactions == 1
+def test_frame_rows_carry_the_vendor_and_its_kind_and_keep_every_row() -> None:
+    frame = _frame(["2026-10-09 12:00:00", "2026-10-09 13:30:00", "2026-10-09 13:35:00"])
+    rows = frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m")
+    assert [r.timestamp.hour for r in rows] == [12, 13, 13]
+    assert {(r.vendor, r.kind, r.timeframe, r.symbol) for r in rows} == {
+        ("alpaca", "sip_rth", "5m", "SPY")
+    }
+    assert rows[0].volume == 100 and isinstance(rows[0].volume, int)
 
 
-def test_split_series_four_way() -> None:
-    # 13:30 nobody holds (new), 13:35 ibkr holds (held), 14:00 alpaca holds
-    # itself (own), 12:00 pre-market (extended)
-    frame = _frame(
-        ["2026-10-09 13:30:00", "2026-10-09 13:35:00", "2026-10-09 14:00:00", "2026-10-09 12:00:00"]
-    )
-    all_stored = [_stamp("2026-10-09 13:35:00"), _stamp("2026-10-09 14:00:00")]
-    other_stored = [_stamp("2026-10-09 13:35:00")]
-    new, held, own, extended = split_series(
-        _FakeConn(all_stored, other_stored), "SPY", "5m", frame, vendor="alpaca"
-    )
-    assert len(new) == 1 and len(held) == 1 and len(own) == 1 and len(extended) == 1
+def test_five_minute_is_not_derivation_owned_and_the_grid_helpers_are_gone() -> None:
+    from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
+
+    assert "5m" not in DERIVATION_OWNED_TIMEFRAMES
+    for retired in ("session_grid", "grid_stamps_utc", "filter_frame_to_grid"):
+        assert not hasattr(bar_load, retired)
 
 
-def test_split_series_own_rows_are_never_archived() -> None:
-    # a rerun: every in-grid stamp is alpaca's own canonical answer
+def test_every_row_is_offered_regardless_of_session_grid_or_other_sources(persisted) -> None:
+    frame = _frame(["2026-10-09 12:00:00", "2026-10-09 13:30:00", "2026-10-09 13:35:00"])
+    result = load_series(object(), POLICY, "SPY", frame, write=True)
+    (call,) = persisted.calls
+    assert len(call["rows"]) == 3  # pre-market included; nothing consulted another source
+    assert (result.n_offered, result.n_new, result.refused) == (3, 3, False)
+
+
+def test_dry_run_writes_nothing_and_plans_the_offered_count(persisted) -> None:
     frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"])
-    all_stored = [_stamp("2026-10-09 13:30:00"), _stamp("2026-10-09 13:35:00")]
-    new, held, own, extended = split_series(
-        _FakeConn(all_stored, []), "SPY", "5m", frame, vendor="alpaca"
+    result = load_series(object(), POLICY, "SPY", frame, write=False)
+    assert persisted.calls == [] and result.n_offered == 2
+
+
+def test_chunks_commit_separately_and_coverage_names_the_vendor(persisted) -> None:
+    frame = _frame([f"2026-10-09 13:{m:02d}:00" for m in range(30, 50, 5)] * 1)
+    progress: list[tuple[int, int]] = []
+    result = load_series(
+        object(),
+        POLICY,
+        "SPY",
+        frame,
+        write=True,
+        chunk_rows=3,
+        on_chunk=lambda a, b: progress.append((a, b)),
     )
-    assert len(new) == 0 and len(held) == 0 and len(own) == 2 and len(extended) == 0
+    assert [len(c["rows"]) for c in persisted.calls] == [3, 1]
+    assert progress == [(3, 4), (4, 4)] and result.n_offered == 4
+    coverage = persisted.calls[0]["coverage"]
+    assert (coverage.symbol, coverage.timeframe, coverage.provider) == ("SPY", "5m", "alpaca")
 
 
-def test_load_series_dry_run_splits_and_writes_nothing(monkeypatch) -> None:
-    monkeypatch.setattr(
-        bar_load,
-        "insert_fetched_archive_rows",
-        lambda *a, **k: pytest.fail("archive write without --apply"),
+def test_load_frame_without_coverage_is_a_raw_only_capture(persisted) -> None:
+    frame = _frame(["2026-10-09 00:00:00"])
+    load_frame(
+        object(),
+        "SPY",
+        frame,
+        vendor="alpaca",
+        timeframe="1d",
+        caller="x-1d",
+        write=True,
+        coverage=False,
     )
-    frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00", "2026-10-09 12:00:00"])
-    conn = _FakeConn()
-    planned, skipped_stored, dropped_extended = load_series(
-        conn, POLICY, "SPY", frame, params=None, write=False
-    )
-    assert (planned, skipped_stored, dropped_extended) == (2, 0, 1)
+    assert persisted.calls[0]["coverage"] is None and persisted.calls[0]["caller"] == "x-1d"
 
 
-def test_load_series_archives_extended_when_grid_is_empty(monkeypatch) -> None:
-    calls: list[tuple] = []
+def test_a_refused_series_is_reported_as_held_never_dropped(persisted) -> None:
+    persisted.refuse = True
+    frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"])
+    result = load_series(object(), POLICY, "SPY", frame, write=True)
+    assert result.refused is True and result.n_held == 2 and result.n_new == 0
+    assert result.n_offered == result.n_new + result.n_changed + result.n_unchanged + result.n_held
 
-    def fake_insert(cur, rows, *, caller, params=None):
-        calls.extend(rows)
-        return len(rows)
 
-    monkeypatch.setattr(bar_load, "insert_fetched_archive_rows", fake_insert)
-    frame = _frame(["2026-10-09 12:00:00"])
-    conn = _FakeConn()
-    applied, skipped_stored, dropped_extended = load_series(
-        conn, POLICY, "SPY", frame, params=None, write=True
-    )
-    assert (applied, skipped_stored, dropped_extended) == (0, 0, 1)
-    assert len(calls) == 1 and calls[0][1] == "SPY"
+def test_the_derivation_owned_timeframe_fence_still_refuses_a_policy() -> None:
+    with pytest.raises(ValueError, match="derivation-owned"):
+        LoadPolicy(vendor="alpaca", timeframe="15m", caller="x")
+
+
+def test_the_loader_defines_no_split_or_archive_helper() -> None:
+    for retired in ("split_series", "archive_rows", "archive_frame_to_tuples", "drop_stored_rows"):
+        assert not hasattr(bar_load, retired)

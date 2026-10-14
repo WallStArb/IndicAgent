@@ -25,7 +25,6 @@ import pytest
 
 from scripts.infrastructure.backfill import _intraday_persist
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
-from services.intraday_raw_archive import insert_fetched_archive_rows
 from services.ohlcv_coverage_writer import (
     CoverageDelta,
     rebuild_from_stored_state,
@@ -33,6 +32,7 @@ from services.ohlcv_coverage_writer import (
     refresh_1d_bounds,
     upsert_coverage,
 )
+from services.ohlcv_raw_writer import RawRow
 from tests.integration.conftest import TEST_DB_URL
 
 _N_BARS = 3
@@ -56,6 +56,7 @@ def _cleanup(conn: psycopg.Connection, symbol: str) -> None:
     with conn.transaction():
         conn.execute("DELETE FROM ohlcv_coverage WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM market_data_ohlcv WHERE symbol = %s", (symbol,))
+        conn.execute("DELETE FROM ohlcv_raw WHERE symbol = %s", (symbol,))
         # The ingress contract writes ohlcv_load (FK RESTRICT on instruments) and revisions.
         conn.execute("DELETE FROM ohlcv_revision WHERE symbol = %s", (symbol,))
         conn.execute("DELETE FROM ohlcv_load WHERE symbol = %s", (symbol,))
@@ -69,11 +70,11 @@ def _cleanup(conn: psycopg.Connection, symbol: str) -> None:
 def _counts(conn: psycopg.Connection, symbol: str) -> tuple[int, int, int]:
     return tuple(
         conn.execute(f"SELECT count(*) FROM {table} WHERE symbol = %s", (symbol,)).fetchone()[0]
-        for table in ("ohlcv_request", "ohlcv_intraday_raw_archive", "ohlcv_coverage")
+        for table in ("ohlcv_request", "ohlcv_raw", "ohlcv_coverage")
     )
 
 
-def _chunk(symbol: str) -> tuple[list[tuple], list[tuple]]:
+def _chunk(symbol: str) -> tuple[list[tuple], list[RawRow]]:
     hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     timestamps = [hour + timedelta(minutes=15 * i) for i in range(_N_BARS)]
     now = datetime.now(UTC)
@@ -98,7 +99,10 @@ def _chunk(symbol: str) -> tuple[list[tuple], list[tuple]]:
         now,
         now,
     )
-    bars = [(ts, symbol, "15m", 10.0, 11.0, 9.0, 10.5, 100, "ibkr", None) for ts in timestamps]
+    bars = [
+        RawRow(ts, symbol, "15m", "ibkr", "generic", 10.0, 11.0, 9.0, 10.5, 100)
+        for ts in timestamps
+    ]
     return [request], bars
 
 
@@ -117,15 +121,15 @@ def live():
 
 def _persist(conn: psycopg.Connection, symbol: str) -> tuple[int, int]:
     requests, bars = _chunk(symbol)
-    return persist_chunk_atomically(
+    result = persist_chunk_atomically(
         conn,
         request_rows=requests,
-        archive_rows=bars,
-        write_archive_rows=insert_fetched_archive_rows,
+        raw_rows=bars,
         coverage=CoverageDelta(
             symbol=symbol, timeframe="15m", destination="archive", fetched_at=datetime.now(UTC)
         ),
     )
+    return result.n_requests, result.n_rows
 
 
 def test_request_bars_and_coverage_commit_together(live):
@@ -209,16 +213,19 @@ def test_rebuild_from_stored_state_recomputes_stale_rows_in_place(live):
     leaves the row stale; the rebuild recomputes its bounds and count from the stored bars
     and keeps the failure counter, and a scoped rebuild touches only its symbol."""
     conn, symbol = live
-    _persist(conn, symbol)  # ledger row: _N_BARS archive rows, ok, 0 failures
+    _persist(conn, symbol)  # ledger row: _N_BARS rows, ok, 0 failures
     hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
-    extra = [
-        (hour + timedelta(minutes=15 * i), symbol, "15m", 10.0, 11.0, 9.0, 10.5, 100, "ibkr", None)
-        for i in range(_N_BARS, _N_BARS + 2)
-    ]
-    # Bars stored with no coverage delta, as the lane did, plus one charged failure.
+    # The rebuild still recomputes from the archive table until plan 191-06 repoints it onto
+    # ohlcv_raw, so the stored state it reads is seeded there directly (test-only SQL): all
+    # _N_BARS + 2 bars, stored with no coverage delta, as the lane did, plus one charged failure.
     with conn.transaction():
-        with conn.cursor() as cur:
-            insert_fetched_archive_rows(cur, extra)
+        for i in range(_N_BARS + 2):
+            conn.execute(
+                "INSERT INTO ohlcv_intraday_raw_archive "
+                '("timestamp", symbol, timeframe, open, high, low, close, volume, source) '
+                "VALUES (%s, %s, '15m', 10, 11, 9, 10.5, 100, 'ibkr')",
+                (hour + timedelta(minutes=15 * i), symbol),
+            )
     with conn.transaction():
         with conn.cursor() as cur:
             cur.execute("SET LOCAL ROLE bar_derivation_writer")

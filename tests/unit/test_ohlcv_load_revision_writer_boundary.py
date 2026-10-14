@@ -61,11 +61,12 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
         ),
         _INGRESS: (
             frozenset({"ibkr", "alpaca"}),
-            frozenset({"ibkr-history-fetch", "alpaca-5m-load", "alpaca-raw-archive-backfill"}),
+            frozenset({"ibkr-history-fetch", "alpaca-5m-load"}),
             "PERMANENT: the ingress write contract records one load per (symbol, timeframe, "
-            "vendor, kind) series of every chunk it records (destination raw from phase 191 plan "
-            "04; market_data_ohlcv and archive until plan 191-05 switches the callers), outcome "
-            "applied or refused (plans 185-39 and 191-04). Never the caller raw-backfill-191.",
+            "vendor, kind) series of every chunk it records (destination raw; the fetcher, the "
+            "Alpaca loader and store_bars all write through it since phase 191 plan 05), "
+            "outcome applied or refused (plans 185-39, 191-04 and 191-05). Never the caller "
+            "raw-backfill-191.",
         ),
         _BACKFILL: (
             frozenset({"*"}),
@@ -84,17 +85,13 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "stored vendor rows the archive does not hold equal (origin archive_segment) "
             "before they leave market_data_ohlcv (plans 185-31 and 185-38).",
         ),
-        _INGRESS: (
-            frozenset({"ibkr", "alpaca"}),
-            frozenset({"ibkr-history-fetch", "alpaca-5m-load", "alpaca-raw-archive-backfill"}),
-            "PERMANENT: the old values of every bar an ingress chunk changed, under that "
-            "chunk's own load row (origin load; plan 185-39).",
-        ),
         _RAW_WRITER: (
             frozenset({"origin:raw"}),
             frozenset({"origin:raw"}),
             "PERMANENT: the raw writer logs the old values of a vendor's restated ohlcv_raw row "
-            "(origin raw; phase 191 plan 02) under the load row the ingress contract inserted. "
+            "(origin raw; phase 191 plan 02) and the offered values of a refused series it holds "
+            "instead of writing (origin pending; plan 191-05, migration 477) under the load row "
+            "the ingress contract inserted. "
             "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
             "the revision origin, not a caller.",
         ),

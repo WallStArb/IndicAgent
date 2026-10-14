@@ -2,10 +2,10 @@
 
 services/intraday_raw_archive.py is the single owner module of the raw
 intraday archive: it holds bar_derivation's archive-from-table INSERT ...
-SELECT (moved there byte-identical in plan 12) and insert_fetched_archive_rows()
-for fetched chunks. BarDerivation and the backfill persist helper both call
-into it; any other INSERT or COPY into the table fails CI unless this
-allow-list is edited, which forces a single-writer justification into the diff.
+SELECT (moved there byte-identical in plan 12) and, since phase 191 plan 05,
+nothing else (the fetch path writes ohlcv_raw). Any other INSERT or COPY into
+the table fails CI unless this allow-list is edited, which forces a
+single-writer justification into the diff.
 
 CI-clean: no DB, no network -- pure filesystem grep.
 """
@@ -29,11 +29,11 @@ _SEARCH_DIRS = ("services", "src", "scripts")
 # (file, reason) -- every ohlcv_intraday_raw_archive write in the tree must appear here.
 _ALLOW_LIST: dict[str, str] = {
     "services/intraday_raw_archive.py": (
-        "PERMANENT: the single owner module of the raw intraday archive (phase 185 "
-        "plan 12, single_writer / T-185-12-06). Holds the archive-from-table INSERT "
-        "... SELECT (moved byte-identical out of bar_derivation) and "
-        "insert_fetched_archive_rows() for fetched chunks; BarDerivation and the "
-        "backfill persist helper both route through this module."
+        "TEMPORARY retire: 191-16 (phase 191 plan 05: read-side legacy). The owner module of "
+        "the raw intraday archive (phase 185 plan 12, single_writer / T-185-12-06). It holds "
+        "only the archive-from-table INSERT ... SELECT that bar_derivation imports back until "
+        "plan 08 moves derivation onto ohlcv_raw; the fetcher and the Alpaca loader no longer "
+        "write the archive."
     ),
 }
 

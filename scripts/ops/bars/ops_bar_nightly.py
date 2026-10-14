@@ -2,10 +2,10 @@
 
 For every active instrument, pulls the recent tail straight from the vendor's
 HistoryProvider leaf and writes it through the load engine -- no scratch, no
-campaign: request rows land via the D1 sink, 5m authors canonically
-(``load_series``, which archives non-authored rows per todo 528 R1), and 1d is
-raw-capture only (``archive_rows``; the engine's writer fence refuses 1d, so a
-vendor daily can never author -- IBKR owns 1d).
+campaign: request rows land via the D1 sink, 5m is offered to ohlcv_raw
+(``load_series``; selection decides canonical), and 1d is raw capture only
+(``load_frame`` without coverage; the engine's writer fence refuses a 1d
+policy, so a vendor daily can never author -- IBKR owns 1d).
 
 The vendor is a CLI choice dispatched through the ``history_leaf`` factory and
 the HistoryProvider protocol; a new capture vendor is one leaf plus one registry
@@ -35,13 +35,8 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import psycopg
 
-from services.bar_load import (
-    LoadPolicy,
-    archive_frame_to_tuples,
-    archive_rows,
-    load_series,
-)
-from services.ohlcv_ingress_contract import read_params
+from services.bar_load import LoadPolicy, load_frame, load_series
+from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
 from src.providers import history_leaf
@@ -89,7 +84,7 @@ def main() -> int:
         end = datetime.now(UTC)
         start = end - timedelta(days=window_days)
         with conn.cursor() as cur:
-            params = read_params(cur)
+            params = read_raw_params(cur)
         universe = args.symbols or [
             instrument.symbol for instrument in get_active_contracts(settings, dimension="backfill")
         ]
@@ -115,8 +110,8 @@ def main() -> int:
         conn.close()
 
     print(
-        f"{'APPLIED' if args.apply else 'PLANNED'}: {summary['authored']} 5m rows authored, "
-        f"{summary['raw_1d']} 1d rows archived raw, {summary['errors']} errors"
+        f"{'APPLIED' if args.apply else 'PLANNED'}: {summary['authored']} 5m rows offered to raw, "
+        f"{summary['raw_1d']} 1d rows offered to raw, {summary['errors']} errors"
     )
     return 1 if summary["errors"] else 0
 
@@ -142,18 +137,23 @@ async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write:
                     )
                     frame = _bars_frame(page.bars)
                     if load_canonical:
-                        applied, _, _ = load_series(
+                        result = load_series(
                             conn, policy_5m, symbol, frame, params=params, write=write
                         )
-                        summary["authored"] += applied
-                    else:
-                        rows = archive_frame_to_tuples(
-                            frame, symbol, source=policy_5m.vendor, timeframe="1d"
+                        summary["authored"] += result.n_offered
+                    elif write and len(frame):
+                        result = load_frame(
+                            conn,
+                            symbol,
+                            frame,
+                            vendor=policy_5m.vendor,
+                            timeframe="1d",
+                            caller=CALLER_1D.format(vendor=policy_5m.vendor),
+                            write=True,
+                            coverage=False,
+                            params=params,
                         )
-                        if write and rows:
-                            summary["raw_1d"] += archive_rows(
-                                conn, rows, caller=CALLER_1D.format(vendor=policy_5m.vendor)
-                            )
+                        summary["raw_1d"] += result.n_offered
             except Exception as error:  # noqa: BLE001 - one name fails, the night continues
                 summary["errors"] += 1
                 print(f"{symbol}: ERROR {type(error).__name__}: {error}", flush=True)

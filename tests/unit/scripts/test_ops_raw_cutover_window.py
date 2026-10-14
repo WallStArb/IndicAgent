@@ -77,7 +77,7 @@ def test_module_set_includes_allow_list_keys_and_readers():
     for reader in mod.READER_MODULES:
         assert reader in modules
     assert "bar_selection" in modules and "bar_writer" in modules
-    assert "_history_fetch" in modules
+    assert "bar_derivation" in modules and "ohlcv_history_fetcher" in modules
 
 
 class FakeSystemctl:

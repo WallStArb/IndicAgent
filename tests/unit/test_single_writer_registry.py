@@ -105,8 +105,9 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         Writer(
             "services/ohlcv_observation_writer.py",
             reason="TEMPORARY: the D1 writer's request rows, duplicated in "
-            "ohlcv_request_writer.py until plan 05 stops the fetcher importing it "
-            "(retire: 191-16)",
+            "ohlcv_request_writer.py. The fetcher stopped importing it in plan 191-05; "
+            "ops_bar_nightly, ops_venue_study and ops_d1_bootstrap still do until plans 191-10 "
+            "and 191-11 (retire: 191-16)",
         ),
     ),
     "ohlcv_empty_history": (

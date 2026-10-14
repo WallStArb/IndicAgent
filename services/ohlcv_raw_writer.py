@@ -468,3 +468,19 @@ def hold_pending(
         with conn.cursor() as cur:
             _write_revisions(cur, held)
     return len(held)
+
+
+def read_stored_closes(
+    conn: Any,
+    symbol: str,
+    timeframe: str,
+    vendor: str,
+    kind: str,
+    timestamps: Iterable[datetime],
+) -> dict[datetime, float]:
+    """The stored raw closes of ONE (symbol, timeframe, vendor, kind) series at `timestamps`:
+    a vendor's own answers only, for the update lane's overlap judgment (stored close versus
+    the fresh close of the same source)."""
+    with conn.cursor() as cur:
+        cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, sorted(set(timestamps))))
+        return {row[0]: row[4] for row in cur.fetchall()}

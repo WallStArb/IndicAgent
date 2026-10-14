@@ -9,9 +9,8 @@ venue recovery) take FetcherLock themselves.
 What lives here: per-contract futures discovery and storage, the APR overlays onto
 src/providers/ibkr.py's module constants (chunk days, request timeout, retries, venue
 fallback, rate limit) and onto this module's batch sizes, the legacy grid gap planner
-(detect_gaps, cluster_gap_ranges), the D1 capture kwargs and flush, the 1m aggregation,
-the roll-chain seed, and the bar store paths through the ingress write contract
-(_insert_market_data_rows, _insert_archive_rows, store_bars).
+(detect_gaps, cluster_gap_ranges), the D1 capture kwargs and flush, the roll-chain seed, and the bar store path through the raw-first ingress contract
+(store_bars).
 
 Plan 189-08 renamed this module from the historical pipeline CLI script (`git log
 --follow` shows its history) and removed its CLI, the two-tier IBKR history lease, the
@@ -23,18 +22,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import psycopg
 import structlog
 
-from services.intraday_raw_archive import insert_fetched_archive_rows
-from services.ohlcv_ingress_contract import (
-    DEFAULT_CALLER,
-    DESTINATION_GRID,
-    apply_ingress_contract,
-)
+from services.ohlcv_ingress_contract import DEFAULT_CALLER, apply_raw_contract
+from services.ohlcv_raw_writer import RawRow
 from src.config.contracts import (
     FUTURES_ROLL_CYCLES,
     MONTH_CODE_TO_NUM,
@@ -42,10 +38,10 @@ from src.config.contracts import (
     get_expiry_date,
 )
 from src.config.settings import Settings, get_active_contracts
-from src.core.bar_normalizer import SOURCE_DERIVED_1M
 from src.core.database_manager import DatabaseManager
 from src.core.models import AssetClass, ContractMetadata, Instrument
 from src.intelligence.bars.gap_plan import AnsweredWindows, expected_grid_slots
+from src.intelligence.bars.vendor_kind import label_to_vendor_kind
 from src.providers import IBKRProvider, ibkr
 
 _log = structlog.get_logger(__name__)
@@ -65,22 +61,12 @@ _log = structlog.get_logger(__name__)
 
 
 _EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for the fetcher's IBKR fetches
-# Timeframes whose fetch persists real provider bars only, every asset class (todo 462,
-# plan 185-18): no synthetic fill ever reaches market_data_ohlcv from these fetches at
-# 5m or 1m, and 15m/1h are archive-bound raw observations (plan 12). The interim flag
-# that gated this is retired -- it is the default behavior now. 1d joined in task 1b
 # Timeframes whose gap detection comes from the shared record planner
 # (detect_gaps_from_record): expected slots minus stored observations minus recorded
 # coverage, with the provider-verified empty span folded in. 1m stays on the legacy
-# grid difference until its own record migration; 1d moved to D1 in task 1b
-# (detect_gaps_1d_from_d1), so it is planned but never stored.
+# grid difference until its own record migration; 1d is planned from the recorded
+# daily answers (detect_gaps_1d_from_d1).
 _RECORD_PLAN_TFS = frozenset({"5m", "15m", "1h"})
-# Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Their fetches
-# persist into ohlcv_intraday_raw_archive through services/intraday_raw_archive's
-# single-writer module, gap detection reads that archive and expects IBKR's own RTH
-# grid, and no synthetic fill is ever produced for them -- the grid readers see is
-# derived from 5m by services/bar_derivation.py (the fetcher's grid stage).
-_ARCHIVE_TFS = frozenset({"15m", "1h"})
 _OBSERVATION_BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
 _OBSERVATION_BATCH_ROWS_FALLBACK = 50_000  # migration 380 APR seed
 
@@ -603,37 +589,25 @@ def _load_observation_batch_rows(settings: Settings) -> int:
     return _OBSERVATION_BATCH_ROWS_FALLBACK
 
 
-def _capture_kwargs(tf: str, sink: Any, fetch_run_id: str) -> dict[str, Any]:
-    """Provider fetch kwargs for D1 capture (D-05/D-16/D-20): every timeframe
-    reports its requests; only 1d delivers observations, because D1 stores 1d
-    bars only -- intraday answers live on as request outcomes for D4 to
-    re-verify from."""
-    kwargs: dict[str, Any] = {"on_request": sink.on_request, "fetch_run_id": fetch_run_id}
-    if tf == "1d":
-        kwargs = dict(kwargs, on_observation=sink.on_observation)
-    return kwargs
+def _capture_kwargs(sink: Any, fetch_run_id: str) -> dict[str, Any]:
+    """Provider fetch kwargs for request capture (D-05/D-16/D-20): every timeframe reports its
+    requests to the fetch ledger sink. The 1d caller adds `on_observation` (the persister's
+    handler), because only the daily answer carries the route and what_to_show that decide its
+    raw kind; intraday chunks arrive through on_chunk."""
+    return {"on_request": sink.on_request, "fetch_run_id": fetch_run_id}
 
 
 def _flush_capture(sink: Any, settings: Settings) -> tuple[int, int]:
-    """Flush the D1 sink, reconnecting its dedicated connection once if it died.
+    """Flush the fetch ledger sink, reconnecting its dedicated connection once if it died.
 
-    A flush failure raises (the symbol fails loudly): D-05 rows are raw answers
-    that must never be dropped silently.
+    A flush failure raises (the symbol fails loudly): D-05 request rows must never be
+    dropped silently.
     """
     try:
         return sink.flush()
     except psycopg.OperationalError:
         sink.reconnect(connect_db(settings))
         return sink.flush()
-
-
-# FX and crypto: IBKR *can* return higher-TF bars for major pairs (EURUSD, GBPUSD, etc.).
-# The named fetch above attempts all TFs directly. This deep 1m window + derivation is
-# a fallback for any TFs that IBKR didn't return bars for (e.g. exotic pairs, thin crypto).
-#   FX (IDEALPRO/MIDPOINT): up to ~6 months of 1m available. 180d → ~1,300 derived 1h bars.
-#   Crypto (PAXOS/AGGTRADES): Paxos data reliable for ~90d. 90d → ~2,160 derived 1h bars.
-_1M_DAYS_FX: int = 180
-_1M_DAYS_CRYPTO: int = 90
 
 
 # ---------------------------------------------------------------------------
@@ -720,103 +694,6 @@ async def seed_roll_chain(settings: Settings, db: DatabaseManager) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# DB fetch/store layer
-# ---------------------------------------------------------------------------
-
-_FETCH_BARS_SQL = """
-SELECT timestamp, open, high, low, close, volume, source
-FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s
-ORDER BY timestamp ASC
-"""
-
-_FETCH_BARS_SINCE_SQL = """
-SELECT timestamp, open, high, low, close, volume, source
-FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s
-ORDER BY timestamp ASC
-"""
-
-_FETCH_BARS_BASE_SQL = """
-SELECT timestamp, open, high, low, close, volume, source
-FROM market_data_ohlcv
-WHERE symbol LIKE %s AND timeframe = %s
-ORDER BY timestamp ASC
-"""
-
-_FETCH_BARS_BASE_SINCE_SQL = """
-SELECT timestamp, open, high, low, close, volume, source
-FROM market_data_ohlcv
-WHERE symbol LIKE %s AND timeframe = %s AND timestamp >= %s
-ORDER BY timestamp ASC
-"""
-
-# Measured 2026-08-11 against live psycopg3 (not EXPLAIN, which re-plans every call
-# and overstates the gap): a single multi-row VALUES INSERT per 1000-row batch runs
-# ~2x faster than the same rows via executemany()'s one-tuple-per-statement template
-# (0.0265ms/row vs 0.0515ms/row, 20k-row live benchmark). This is a different approach
-# than forward_return_writer.py's chunked executemany() (which relies on psycopg 3.1+
-# batching executemany() internally -- see ic_engine.py's comment on that same
-# tradeoff) -- the live benchmark here shows executemany()'s internal batching still
-# leaves real per-statement overhead that a genuine multi-row VALUES statement avoids,
-# at least for this bulk-insert shape. Not yet reconciled with those other call sites
-# or promoted to a shared helper -- see todo 301.
-_STORE_BATCH_SIZE = 1000
-_STORE_ROW_PLACEHOLDERS = "(" + ",".join(["%s"] * 9) + ")"
-# Plain multi-row INSERT of new rows (plan 185-39): the ingress write contract classifies a chunk
-# against the stored rows first, so a conflict never reaches this statement.
-_STORE_VALUES_SQL = (
-    "INSERT INTO market_data_ohlcv "
-    "(timestamp, symbol, timeframe, open, high, low, close, volume, source) VALUES "
-    "{values}"
-)
-# The same insert for the changed set: the latest answer wins, and the contract has already
-# written the replaced values to ohlcv_revision. An upsert, not a raw UPDATE of the compressed
-# hypertable, so the market_data_ohlcv writer boundary allow-list stays empty.
-_STORE_REPLACE_SQL = (
-    _STORE_VALUES_SQL + " ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET "
-    "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
-    "volume = EXCLUDED.volume, source = EXCLUDED.source"
-)
-
-
-def _load_ohlcv_insert_batch_size_config(settings: Settings) -> None:
-    """Overlay infra.backfill.ohlcv_insert_batch_size (migration 313) onto
-    _STORE_BATCH_SIZE in place, same pattern as the _load_ibkr_* loaders above --
-    store_bars() reads this module constant fresh on every call. Falls back to the
-    hardcoded default (1000) if the APR key isn't present, isn't a positive int, or
-    the DB is unreachable. A non-positive value must never reach store_bars(): 0
-    makes range(0, len(params), 0) raise on every insert, and a negative value makes
-    the chunk loop yield zero iterations, so store_bars() would silently write
-    nothing while still returning len(params) -- callers would log "N bars stored"
-    and mark the tf fetched (fetched_tfs.add(tf)) for data that was never persisted.
-    """
-    global _STORE_BATCH_SIZE
-    try:
-        conn = connect_db(settings)
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT config_value FROM config_state "
-                    "WHERE config_key = 'infra.backfill.ohlcv_insert_batch_size'"
-                )
-                row = cur.fetchone()
-        finally:
-            conn.close()
-        if row is not None:
-            value = int(row[0])
-            if value < 1:
-                print(
-                    f"  (APR ohlcv_insert_batch_size={value} is not positive, "
-                    "using hardcoded default 1000)"
-                )
-            else:
-                _STORE_BATCH_SIZE = value
-    except Exception as error:
-        print(f"  (APR ohlcv_insert_batch_size lookup failed, using hardcoded default: {error})")
-
-
 _TF_MINUTES: dict[str, int] = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440}
 
 
@@ -839,9 +716,7 @@ def detect_gaps(
     Plan 185-18 task 1a moved 5m/15m/1h to the shared record planner
     (detect_gaps_from_record, fed by gap_plan.plan_gaps); this grid
     difference stays as the legacy fallback for 1m, 4h and 1d (1d migrates
-    in task 1b). 15m/1h read the archive (plan 12): their stored bars live in
-    ohlcv_intraday_raw_archive, so market_data_ohlcv would report every slot
-    missing and refetch everything.
+    in task 1b).
 
     `answered` is the provider-answered request coverage (todo 462). With no placeholder rows
     stored, a slot the provider answered "nothing traded" is otherwise indistinguishable from
@@ -851,12 +726,9 @@ def detect_gaps(
     if not expected:
         return []
 
-    stored_table = (
-        "ohlcv_intraday_raw_archive" if timeframe in _ARCHIVE_TFS else "market_data_ohlcv"
-    )
     with db_conn.cursor() as cur:
         cur.execute(
-            f"""SELECT timestamp FROM {stored_table}
+            """SELECT timestamp FROM market_data_ohlcv
                WHERE symbol = %s AND timeframe = %s
                  AND timestamp >= %s AND timestamp <= %s""",
             (symbol, timeframe, start_dt, end_dt),
@@ -962,205 +834,65 @@ def connect_db(settings: Settings) -> Any:
     return conn
 
 
-def aggregate_bars_from_1m(bars_1m: list[dict], target_tf: str) -> list[dict]:
-    """Aggregate 1m OHLCV bars to a higher timeframe by flooring to window boundaries."""
-    minutes = _TF_MINUTES[target_tf]
-    windows: dict[datetime, list[dict]] = {}
-    for bar in bars_1m:
-        ts = bar["timestamp"]
-        if minutes < 1440:
-            # Floor using total elapsed minutes from midnight so multi-hour TFs (e.g. 4h)
-            # snap to correct boundaries. Minute-only floor (ts.minute // minutes) breaks
-            # for any TF where minutes >= 60 because ts.hour is left unchanged.
-            total = ts.hour * 60 + ts.minute
-            floored_total = (total // minutes) * minutes
-            floored = ts.replace(
-                hour=floored_total // 60,
-                minute=floored_total % 60,
-                second=0,
-                microsecond=0,
-            )
-        else:
-            floored = ts.replace(hour=0, minute=0, second=0, microsecond=0)
-        windows.setdefault(floored, []).append(bar)
-
-    result = []
-    for window_start in sorted(windows):
-        w = windows[window_start]
-        result.append(
-            {
-                "timestamp": window_start,
-                "open": w[0]["open"],
-                "high": max(b["high"] for b in w),
-                "low": min(b["low"] for b in w),
-                "close": w[-1]["close"],
-                "volume": sum(b.get("volume", 0) or 0 for b in w),
-                "source": SOURCE_DERIVED_1M,
-            }
-        )
-    return result
-
-
-def fetch_bars(conn: Any, symbol: str, timeframe: str, since: datetime | None = None) -> list[dict]:
-    """Fetch stored OHLCV bars for *symbol* + *timeframe*, ordered oldest-first.
-
-    For futures contracts (e.g. ESM6), also stitches bars from all historical
-    contract symbols sharing the same base (ESH6, ESZ5, …) so full history is
-    available regardless of which contract was front-month at fetch time.
-    Duplicate timestamps across contracts are deduplicated (last-seen wins).
-
-    Args:
-        since: If provided, only fetch bars on or after this timestamp.
-    """
-    parsed = _parse_contract_symbol(symbol)
-    is_futures = parsed is not None
-
-    # Determine query and params based on contract type
-    if is_futures:
-        base_pattern = f"{parsed[0]}%"
-        query = _FETCH_BARS_BASE_SINCE_SQL if since else _FETCH_BARS_BASE_SQL
-        params = (base_pattern, timeframe, since) if since else (base_pattern, timeframe)
-    else:
-        query = _FETCH_BARS_SINCE_SQL if since else _FETCH_BARS_SQL
-        params = (symbol, timeframe, since) if since else (symbol, timeframe)
-
-    with conn.cursor() as cur:
-        cur.execute(query, params)
-        rows = cur.fetchall()
-
-    bars = [
-        {
-            "timestamp": row[0] if row[0].tzinfo else row[0].replace(tzinfo=UTC),
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "open": float(row[1]),
-            "high": float(row[2]),
-            "low": float(row[3]),
-            "close": float(row[4]),
-            "volume": float(row[5]),
-            "source": row[6] or "historical_backfill",
-        }
-        for row in rows
-    ]
-
-    if is_futures:
-        # Deduplicate by timestamp — last-seen wins (SQL already ordered by timestamp ASC)
-        seen: dict[datetime, dict] = {b["timestamp"]: b for b in bars}
-        return list(seen.values())  # Preserves insertion order (Python 3.7+)
-
-    return bars
-
-
-def _write_market_data_batches(sql_template: str, cur: Any, params: list[tuple]) -> None:
-    for i in range(0, len(params), _STORE_BATCH_SIZE):
-        chunk = params[i : i + _STORE_BATCH_SIZE]
-        sql = sql_template.format(values=",".join([_STORE_ROW_PLACEHOLDERS] * len(chunk)))
-        cur.execute(sql, [value for row in chunk for value in row])
-
-
-def _insert_market_data_rows(cur: Any, params: list[tuple]) -> int:
-    """Write one chunk to market_data_ohlcv by the ingress write contract (plan 185-39; the
-    default store_bars destination, 5m/1m from plan 185-18 on; 15m/1h route to the archive and
-    1d is refused outright in task 1b).
-
-    Stored rows for the chunk's keys are read and each row is classified new, changed or
-    unchanged by exact value: new rows are inserted, changed rows are rewritten with their old
-    values recorded in ohlcv_revision, unchanged rows are not written, and one ohlcv_load row
-    (source ibkr) records the counts. A chunk that revises more than the refusal ratio raises
-    RevisionRefused before any write. Returns the rows offered (the persist helper's coverage
-    arithmetic depends on that).
-    """
-    return apply_ingress_contract(
-        cur,
-        params,
-        destination=DESTINATION_GRID,
-        caller=DEFAULT_CALLER,
-        write_new=lambda c, rows: _write_market_data_batches(_STORE_VALUES_SQL, c, rows),
-        write_changed=lambda c, rows: _write_market_data_batches(_STORE_REPLACE_SQL, c, rows),
-    )
-
-
-def _insert_market_data_rows_waived(cur: Any, params: list[tuple]) -> int:
-    """_insert_market_data_rows with the revision refusal waived for a recorded corporate
-    action: the fetcher's escalation re-fetch rewrites a rescaled series (plan 189-10). Every
-    changed row is still recorded in ohlcv_revision; the load row names the waiver."""
-    return apply_ingress_contract(
-        cur,
-        params,
-        destination=DESTINATION_GRID,
-        caller=DEFAULT_CALLER,
-        write_new=lambda c, rows: _write_market_data_batches(_STORE_VALUES_SQL, c, rows),
-        write_changed=lambda c, rows: _write_market_data_batches(_STORE_REPLACE_SQL, c, rows),
-        waived=True,
-    )
-
-
-def _insert_archive_rows(cur: Any, params: list[tuple]) -> int:
-    """Archive destination for 15m/1h fetched chunks (plan 12): routes through
-    services/intraday_raw_archive, the table's single writer (base is NULL on
-    fetched bars; batch_id stays NULL). Accepts both call shapes: store_bars'
-    9-column row tuples and the atomic persist helper's 10-column rows (base
-    already included)."""
-    rows = params if len(params[0]) == 10 else [row + (None,) for row in params]
-    return insert_fetched_archive_rows(cur, rows, batch_size=_STORE_BATCH_SIZE)
-
-
 def store_bars(
     conn: Any,
     bars: list[dict],
     symbol: str,
     timeframe: str,
     actual_symbol: str | None = None,
-    write_rows: Any | None = None,
+    *,
+    caller: str = DEFAULT_CALLER,
 ) -> int:
-    """Upsert bars into the destination for `timeframe`. Returns count inserted.
+    """Offer bars to ohlcv_raw through the raw-first ingress contract. Returns the rows offered.
 
     Args:
         conn: psycopg connection
-        bars: List of bar dicts with timestamp, open, high, low, close, volume
+        bars: List of bar dicts with timestamp, open, high, low, close, volume and source (the
+            bar source label, mapped to (vendor, kind) by vendor_kind; a label with no pair raises)
         symbol: Used for contract lookup (e.g., current active contract)
         timeframe: Timeframe string
         actual_symbol: If provided, stores bars under this symbol instead of `symbol`.
             Enables per-contract storage when fetching historical contracts.
-        write_rows: (cur, params) -> int for the destination's own insert; defaults
-            to the market_data_ohlcv multi-row insert. 15m/1h callers pass the
-            archive writer (plan 12); plan 18's persist helper takes the same
-            function as a parameter, so this module owns no bar-table INSERT for
-            the archive path.
 
-    Refuses timeframe "1d" outright (plan 185-18 task 1b): market_data_ohlcv's
-    1d rows belong to services/bar_derivation's daily stage (D-06/D-15 single
-    writer); the fetcher captures 1d answers into D1 only. The per-contract
-    opt-in mode is the one remaining caller that can hit this -- its per-
-    contract except prints the refusal.
+    The write is one transaction: the load row, the raw rows and the canonical selection commit
+    together or not at all. A series the vendor restated beyond the threshold is refused (held as
+    pending revisions, raw untouched) and raises, so a caller never counts a refused chunk as
+    stored. These ad hoc callers (the per-contract opt-in mode, the backfill feature factory, the
+    venue recovery and the chunk probe) have no ohlcv_request ledger row: the raw rows carry a
+    fresh request_id.
+
+    Refuses timeframe "1d" outright (plan 185-18 task 1b): the fetcher's 1d answers arrive with a
+    route and what_to_show (the persister's on_observation), which decide their raw kind; a bare
+    bar dict has neither.
     """
     if not bars:
         return 0
     if timeframe == "1d":
         raise RuntimeError(
-            "store_bars refuses timeframe 1d: market_data_ohlcv 1d rows are owned by "
-            "services/bar_derivation's daily stage (plan 185-18 task 1b); this "
-            "fetcher captures 1d answers into D1 only"
+            "store_bars refuses timeframe 1d: a daily answer's raw kind comes from its route "
+            "and what_to_show, which the fetcher's observation handler carries"
         )
-    if write_rows is None:
-        write_rows = _insert_market_data_rows
-    # Use actual_symbol if provided (for historical contracts), otherwise use symbol
     store_symbol = actual_symbol or symbol
-    params = [
-        (
-            b["timestamp"],
-            store_symbol,
-            timeframe,
-            b["open"],
-            b["high"],
-            b["low"],
-            b["close"],
-            b["volume"],
-            b["source"],
+    rows = []
+    for b in bars:
+        vendor, kind = label_to_vendor_kind(b["source"])
+        rows.append(
+            RawRow(
+                timestamp=b["timestamp"],
+                symbol=store_symbol,
+                timeframe=timeframe,
+                vendor=vendor,
+                kind=kind,
+                open=b["open"],
+                high=b["high"],
+                low=b["low"],
+                close=b["close"],
+                volume=None if b["volume"] is None else int(b["volume"]),
+            )
         )
-        for b in bars
-    ]
-    with conn.cursor() as cur:
-        write_rows(cur, params)
-    conn.commit()
-    return len(params)
+    with conn.transaction():
+        result = apply_raw_contract(conn, rows, caller=caller, request_id=uuid.uuid4())
+    if result.refused:
+        detail = "; ".join(series.detail for series in result.refused_series)
+        raise RuntimeError(f"store_bars: {symbol} {timeframe} refused: {detail}")
+    return len(rows)

@@ -1,19 +1,20 @@
-"""Tests for scripts/infrastructure/backfill/_intraday_persist.py (plan 12, task 1b).
+"""Tests for scripts/infrastructure/backfill/_intraday_persist.py (plan 12, task 1b; plan 191-05).
 
-The helper makes a fetched chunk's answer atomic (todo 462, T-185-12-07): the
-chunk's ohlcv_request rows and its destination bar rows commit in one
-transaction, so a recorded answer can never outrun its stored bars. The
-helper owns no INSERT for any table: request rows go through
-services/ohlcv_observation_writer.write_request_rows (the sink's own row
-writer, keeping ohlcv_request at one INSERT definition) and the bar rows go
-through the caller-supplied destination writer (the archive's
-insert_fetched_archive_rows here, the pipeline's 5m store in plan 18).
+The helper makes a fetched chunk's answer atomic (todo 462, T-185-12-07): the chunk's raw rows
+(through the raw-first ingress contract), its ohlcv_request rows and, when asked, its
+ohlcv_coverage update commit in ONE transaction, so a recorded answer can never outrun its stored
+bars. The helper owns no INSERT for any table: raw rows go through
+services/ohlcv_ingress_contract.apply_raw_contract and request rows through
+services/ohlcv_request_writer.write_request_rows (the fetch ledger writer, keeping ohlcv_request at
+one INSERT definition).
 
-ObservationSink.flush() must never run inside the transaction: flush demands
-an idle connection and opens its own transaction, so an open helper
-transaction would trap its SET LOCAL ROLE. The helper takes the request rows
-as data (the caller pulled them off the sink buffer via the new public
-take_requests method) and never touches the sink.
+The raw write runs first because the request row's content digest is NULL for a refused chunk
+(nothing was stored), and that is known only after the contract has run.
+
+RequestSink.flush() must never run inside the transaction: flush demands an idle connection and
+opens its own transaction, so an open helper transaction would trap its SET LOCAL ROLE. The helper
+takes the request rows as data (the caller pulled them off the sink buffer via take_requests) and
+never touches the sink.
 """
 
 from __future__ import annotations
@@ -37,11 +38,13 @@ from services.ohlcv_coverage_writer import (
     record_fetch_outcome,
     upsert_coverage,
 )
-from services.ohlcv_ingress_contract import RevisionRefused
-from services.ohlcv_observation_writer import write_request_rows
+from services.ohlcv_ingress_contract import IngressResult
+from services.ohlcv_raw_writer import RawRow
+from services.ohlcv_request_writer import write_request_rows
 
+_REQUEST_ID = uuid.uuid4()
 _REQUEST_ROW = (
-    uuid.uuid4(),
+    _REQUEST_ID,
     uuid.uuid4(),
     "SPY",
     "15m",
@@ -62,18 +65,19 @@ _REQUEST_ROW = (
     datetime(2026, 9, 27, 14, 30, tzinfo=UTC),
 )
 
-_ARCHIVE_ROW = (
-    datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
-    "SPY",
-    "15m",
-    600.0,
-    601.0,
-    599.0,
-    600.5,
-    1000,
-    "ibkr",
-    None,
-)
+_T0 = datetime(2026, 9, 27, 13, 30, tzinfo=UTC)
+_T1 = datetime(2026, 9, 27, 13, 45, tzinfo=UTC)
+_T2 = datetime(2026, 9, 27, 14, 0, tzinfo=UTC)
+_FETCHED_AT = datetime(2026, 9, 27, 14, 30, tzinfo=UTC)
+
+
+def _bar(
+    ts: datetime = _T0, volume: int | None = 1000, *, symbol: str = "SPY", tf: str = "15m"
+) -> RawRow:
+    return RawRow(ts, symbol, tf, "ibkr", "named", 600.0, 601.0, 599.0, 600.5, volume)
+
+
+_RAW_ROW = _bar()
 
 
 class FakeConn:
@@ -84,7 +88,6 @@ class FakeConn:
         self.statements: list[tuple[str, bool]] = []
         self.copies: list[tuple[str, list[tuple]]] = []
         self.fail_on = fail_on
-        self.existing: list[datetime] = []  # timestamps the destination already stores
         self.params: dict[str, object] = {}
         self._in_txn = False
         self.transaction_status = (
@@ -127,7 +130,7 @@ class FakeCursor:
         self.rowcount = 0
 
     def fetchall(self) -> list[tuple]:
-        return [(ts,) for ts in self._conn.existing]
+        return []
 
     def __enter__(self) -> FakeCursor:
         return self
@@ -162,238 +165,223 @@ class _RecordingCopy:
         return False
 
 
-@pytest.fixture()
-def archive_writer():
-    calls: list[tuple[object, list[tuple]]] = []
-
-    def _write(cur, rows):
-        cur.execute("INSERT INTO ohlcv_intraday_raw_archive (...)", [])
-        calls.append((cur, rows))
-        return len(rows)
-
-    _write.calls = calls
-    return _write
-
-
-def test_request_and_archive_rows_commit_in_one_transaction(archive_writer):
-    conn = FakeConn()
-    n_requests, n_rows = persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
+def _result(rows: list[RawRow], *, refused: bool = False, existing=()) -> IngressResult:
+    stamps = sorted({r.timestamp for r in rows} - set(existing))
+    return IngressResult(
+        n_offered=len(rows),
+        n_new=0 if refused else len(stamps),
+        n_changed=0,
+        n_unchanged=0,
+        refused=refused,
+        selected_slots=0,
+        n_held=len(stamps) if refused else 0,
+        new_timestamps=() if refused else tuple(stamps),
     )
-    assert (n_requests, n_rows) == (1, 1)
+
+
+@pytest.fixture()
+def contract(monkeypatch):
+    """apply_raw_contract replaced by a recorder that issues one statement on the connection (so
+    the test sees it inside the transaction) and returns a scripted IngressResult."""
+    state = SimpleNamespace(calls=[], refused=False, existing=(), fail=False, read_params=[])
+
+    def fake(conn, rows, *, caller, request_id, params=None, waived=False):
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO ohlcv_raw (<contract>)", [])
+        if state.fail:
+            raise RuntimeError("forced failure in contract")
+        state.calls.append(
+            {
+                "rows": list(rows),
+                "caller": caller,
+                "request_id": request_id,
+                "waived": waived,
+                "params": params,
+            }
+        )
+        return _result(rows, refused=state.refused, existing=state.existing)
+
+    def fake_read_params(cur):
+        cur.execute("SELECT <read raw params>", None)
+        state.read_params.append(cur)
+        return "read-params"
+
+    monkeypatch.setattr(_intraday_persist, "apply_raw_contract", fake)
+    monkeypatch.setattr(_intraday_persist, "read_raw_params", fake_read_params)
+    return state
+
+
+def test_raw_and_request_rows_commit_in_one_transaction(contract):
+    conn = FakeConn()
+    result = persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
+    assert (result.n_requests, result.n_rows) == (1, 1)
     kinds = [sql for sql, _inside in conn.statements]
     assert kinds[0] == "<begin>"
     assert kinds[-1] == "<commit>"
-    # Inside ONE transaction: role for the request rows, then role for the
-    # archive rows. No nested transaction, no separate commit in between.
     inside = [sql for sql, inside in conn.statements if inside]
     assert inside == [
+        "SELECT <read raw params>",
+        "SET LOCAL ROLE bar_derivation_writer",
+        "INSERT INTO ohlcv_raw (<contract>)",
         "SET LOCAL ROLE ohlcv_observation_writer",
         conn.copies[0][0],
         "<copy done>",
-        "SET LOCAL ROLE bar_derivation_writer",
-        "INSERT INTO ohlcv_intraday_raw_archive (...)",
     ]
     # The request row carries the content digest of the answer the chunk stored (plan 185-39).
-    assert conn.copies[0][1] == [_REQUEST_ROW + (chunk_digest([_ARCHIVE_ROW]),)]
-    assert archive_writer.calls[0][1] == [_ARCHIVE_ROW]
+    assert conn.copies[0][1] == [_REQUEST_ROW + (chunk_digest([_RAW_ROW]),)]
+    assert contract.calls[0]["rows"] == [_RAW_ROW]
 
 
-def test_failure_on_the_archive_insert_rolls_back_the_request_row(archive_writer):
-    conn = FakeConn(fail_on="ohlcv_intraday_raw_archive")
-    with pytest.raises(RuntimeError, match="forced failure"):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=archive_writer,
-        )
+def test_failure_in_the_contract_rolls_back_and_writes_no_request_row(contract):
+    contract.fail = True
+    conn = FakeConn()
+    with pytest.raises(RuntimeError, match="forced failure in contract"):
+        persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
     kinds = [sql for sql, _ in conn.statements]
-    assert kinds[-1] == "<rollback>"
-    assert "<commit>" not in kinds  # the answer never lands without its bars
+    assert kinds[-1] == "<rollback>" and "<commit>" not in kinds
+    assert conn.copies == []  # the answer is never recorded without its bars
 
 
-def test_failure_on_the_request_insert_rolls_back_the_archive_rows(archive_writer):
+def test_failure_on_the_request_insert_rolls_back_the_raw_rows(contract):
     conn = FakeConn(fail_on="ohlcv_request")
     with pytest.raises(RuntimeError, match="forced failure"):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=archive_writer,
-        )
+        persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
     kinds = [sql for sql, _ in conn.statements]
     assert kinds[-1] == "<rollback>"
     assert "<commit>" not in kinds
-    assert archive_writer.calls == []  # the archive write never ran
+    assert contract.calls  # the raw write ran inside the transaction that rolled back
 
 
-def test_helper_refuses_a_connection_that_is_not_idle(archive_writer):
+def test_helper_refuses_a_connection_that_is_not_idle(contract):
     conn = FakeConn(idle=False)
     with pytest.raises(RuntimeError, match="idle connection"):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=archive_writer,
-        )
-    assert conn.statements == []  # nothing written, no transaction opened
+        persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
+    assert conn.statements == [] and contract.calls == []
 
 
-def test_helper_never_flushes_inside_its_transaction(archive_writer):
-    """The chunk path's contract: between BEGIN and COMMIT only the two role
-    switches, the request COPY and the destination write appear -- no sink
-    flush (which would demand an idle connection and open its own
-    transaction, trapping SET LOCAL ROLE)."""
+def test_helper_never_flushes_inside_its_transaction(contract):
     conn = FakeConn()
-    persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
-    )
+    persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
     inside = [sql for sql, inside_flag in conn.statements if inside_flag]
     assert all(
-        sql.startswith(("SET LOCAL ROLE", "COPY ohlcv_request", "INSERT INTO"))
+        sql.startswith(("SET LOCAL ROLE", "COPY ohlcv_request", "INSERT INTO", "SELECT <read"))
         or sql == "<copy done>"
         for sql in inside
     )
     assert not any("flush" in sql.lower() for sql in inside)
 
 
-def test_helper_defines_no_insert_of_its_own_for_any_table():
-    """single_writer: ohlcv_request's one INSERT definition is the sink's COPY;
-    the archive's one INSERT definition is services/intraday_raw_archive's."""
+def test_helper_defines_no_insert_of_its_own_and_knows_no_archive_or_observation_table():
+    """single_writer: ohlcv_request's one INSERT definition is the request writer's COPY and
+    ohlcv_raw's is the raw writer's; nothing here reaches the retired stores."""
     source = inspect.getsource(_intraday_persist)
-    assert "INSERT INTO ohlcv_request" not in source
-    assert "INSERT INTO ohlcv_intraday_raw_archive" not in source
-    assert "ObservationSink" not in source
-    assert ".flush(" not in source
-    # The request rows go through the sink module's own row writer.
-    assert "write_request_rows" in source
+    code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+    body = code.split('"""', 2)[2]  # past the module docstring
+    assert "INSERT INTO ohlcv_request" not in body
+    assert "INSERT INTO ohlcv_raw" not in body
+    for retired in ("ohlcv_intraday_raw_archive", "archive_refusal_rows", "RevisionRefused"):
+        assert retired not in body
+    assert "ObservationSink" not in body and ".flush(" not in body
+    assert "write_request_rows" in body and "apply_raw_contract" in body
 
 
-def test_request_rows_written_through_the_sink_row_writer(archive_writer):
-    """write_request_rows is the same function the sink's flush path uses, so
-    ohlcv_request keeps exactly one row-writing shape."""
+def test_request_rows_written_through_the_request_writer_row_writer():
     conn = FakeConn()
     write_request_rows(conn.cursor(), [_REQUEST_ROW])
     assert conn.copies[0][0].startswith("COPY ohlcv_request (")
     assert conn.copies[0][1] == [_REQUEST_ROW]
 
 
-def test_digest_is_the_chunk_content_digest_and_null_without_bars(archive_writer):
+def test_digest_is_the_chunk_content_digest_and_null_without_bars(contract):
     no_bars = _REQUEST_ROW[:11] + ("no_data",) + _REQUEST_ROW[12:14] + (0,) + _REQUEST_ROW[15:]
     conn = FakeConn()
-    persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW, no_bars],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
-    )
+    persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW, no_bars], raw_rows=[_RAW_ROW])
     with_bars, without = conn.copies[0][1]
     assert len(with_bars) == 20 and len(without) == 20
-    assert with_bars[-1] == chunk_digest([_ARCHIVE_ROW])
+    assert with_bars[-1] == chunk_digest([_RAW_ROW])
     assert len(with_bars[-1]) == 64
     assert without[-1] is None
 
 
 def test_digest_moves_with_the_answer_and_ignores_duplicate_timestamps():
-    other = _ARCHIVE_ROW[:6] + (600.6,) + _ARCHIVE_ROW[7:]
-    assert chunk_digest([_ARCHIVE_ROW]) != chunk_digest([other])
-    assert chunk_digest([other, _ARCHIVE_ROW]) == chunk_digest([_ARCHIVE_ROW])
+    other = RawRow(_T0, "SPY", "15m", "ibkr", "named", 600.0, 601.0, 599.0, 600.6, 1000)
+    assert chunk_digest([_RAW_ROW]) != chunk_digest([other])
+    assert chunk_digest([other, _RAW_ROW]) == chunk_digest([_RAW_ROW])
 
 
-def test_request_row_with_a_digest_already_attached_is_refused(archive_writer):
+def test_request_row_with_a_digest_already_attached_is_refused(contract):
     conn = FakeConn()
     with pytest.raises(ValueError, match="without a digest column"):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW + ("x",)],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=archive_writer,
-        )
+        persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW + ("x",)], raw_rows=[_RAW_ROW])
 
 
-def test_a_refused_chunk_rolls_back_then_records_requests_and_the_refused_load(make_refusal):
-    def refusing_writer(cur, rows):
-        raise make_refusal()
-
+def test_a_refused_chunk_still_records_its_request_rows_with_a_null_digest(contract):
+    """Refusal is not an exception any more: the contract recorded the refused load and held the
+    values; the request rows commit in the same transaction with digest NULL (nothing stored)."""
+    contract.refused = True
     conn = FakeConn()
-    with pytest.raises(RevisionRefused):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=refusing_writer,
-        )
+    result = persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
+    assert result.ingress.refused is True
     kinds = [sql for sql, _ in conn.statements]
-    assert kinds.count("<rollback>") == 1 and kinds.count("<commit>") == 1
-    assert kinds.index("<rollback>") < kinds.index("<commit>")
-    # The second transaction wrote the request row (digest NULL) and the refused load row.
-    assert conn.copies[-1][1] == [_REQUEST_ROW + (None,)]
-    load_sql = [sql for sql, _ in conn.statements if sql.startswith("INSERT INTO ohlcv_load")]
-    assert len(load_sql) == 1
-    params = next(v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_load"))
-    assert "refused" in params and "ibkr" in params
-    detail = [p for p in params if isinstance(p, str) and p.startswith("refused:")]
-    assert detail and "0.0300" in detail[0]
+    assert kinds.count("<commit>") == 1 and "<rollback>" not in kinds
+    assert conn.copies[0][1] == [_REQUEST_ROW + (None,)]
 
 
-def test_a_refusal_with_rows_captures_them_in_the_raw_archive_with_n_archived(make_refusal):
-    """The refusal's served rows land in the raw archive in the same second transaction
-    (todo 528) and the archived count rides the refusal row's n_archived."""
-
-    def refusing_writer(cur, rows):
-        raise make_refusal(rows=[_ARCHIVE_ROW])
-
-    conn = FakeConn()
-    with pytest.raises(RevisionRefused):
-        persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=refusing_writer,
-        )
-    kinds = [sql for sql, _ in conn.statements]
-
-    def _idx(prefix: str) -> int:
-        return next(i for i, k in enumerate(kinds) if k.startswith(prefix))
-
-    assert kinds.index("<rollback>") < _idx("INSERT INTO ohlcv_intraday_raw_archive")
-    assert _idx("INSERT INTO ohlcv_intraday_raw_archive") < _idx("INSERT INTO ohlcv_load")
-    archive_params = next(
-        v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_intraday_raw_archive")
+def test_the_raw_rows_carry_the_chunks_answering_request_id(contract):
+    no_bars = _REQUEST_ROW[:11] + ("no_data",) + _REQUEST_ROW[12:14] + (0,) + _REQUEST_ROW[15:]
+    later_empty = (uuid.uuid4(),) + no_bars[1:]
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[_REQUEST_ROW, later_empty], raw_rows=[_RAW_ROW]
     )
-    assert len(archive_params) == 10  # the 10-tuple archive shape
-    load_params = next(v for k, v in conn.params.items() if k.startswith("INSERT INTO ohlcv_load"))
-    assert load_params[-1] == 1  # n_archived: the refusal's one served row
+    assert contract.calls[0]["request_id"] == _REQUEST_ID
 
 
-def test_empty_chunk_is_a_noop(archive_writer):
+def test_an_explicit_request_id_wins_and_a_chunk_without_requests_gets_a_fresh_one(contract):
+    explicit = uuid.uuid4()
+    persist_chunk_atomically(FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], request_id=explicit)
+    persist_chunk_atomically(FakeConn(), request_rows=[], raw_rows=[_RAW_ROW])
+    assert contract.calls[0]["request_id"] == explicit
+    assert isinstance(contract.calls[1]["request_id"], uuid.UUID)
+    assert contract.calls[1]["request_id"] != explicit
+
+
+def test_caller_and_waiver_reach_the_contract(contract):
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], caller="alpaca-5m-load", waived=True
+    )
+    assert contract.calls[0]["caller"] == "alpaca-5m-load" and contract.calls[0]["waived"] is True
+
+
+def test_preread_contract_params_reach_the_contract_and_are_not_read_again(contract):
+    sentinel = object()
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], params=sentinel  # type: ignore[arg-type]
+    )
+    assert contract.calls[0]["params"] is sentinel and contract.read_params == []
+
+
+def test_the_contract_settings_are_read_before_the_role_switch(contract):
+    """bar_derivation_writer holds no grant on config_state, the CVR or bar_source_policy (found
+    by the integration test under the real role): the read happens as the connection's user."""
     conn = FakeConn()
-    assert persist_chunk_atomically(
-        conn, request_rows=[], archive_rows=[], write_archive_rows=archive_writer
-    ) == (0, 0)
+    persist_chunk_atomically(conn, request_rows=[], raw_rows=[_RAW_ROW])
+    statements = [sql for sql, _ in conn.statements]
+    assert statements.index("SELECT <read raw params>") < statements.index(
+        "SET LOCAL ROLE bar_derivation_writer"
+    )
+    assert contract.calls[0]["params"] == "read-params"
+
+
+def test_empty_chunk_is_a_noop(contract):
+    conn = FakeConn()
+    result = persist_chunk_atomically(conn, request_rows=[], raw_rows=[])
+    assert (result.n_requests, result.n_rows, result.ingress) == (0, 0, None)
     assert conn.statements == []
 
 
 # ---------------------------------------------------------------------------
 # Coverage: the third write (phase 189 plan 01, CD-03/CD-04)
 # ---------------------------------------------------------------------------
-
-
-def _bar(ts: datetime, volume: int = 1000, *, symbol: str = "SPY", tf: str = "15m") -> tuple:
-    return (ts, symbol, tf, 600.0, 601.0, 599.0, 600.5, volume, "ibkr", None)
-
-
-_T0 = datetime(2026, 9, 27, 13, 30, tzinfo=UTC)
-_T1 = datetime(2026, 9, 27, 13, 45, tzinfo=UTC)
-_T2 = datetime(2026, 9, 27, 14, 0, tzinfo=UTC)
-_FETCHED_AT = datetime(2026, 9, 27, 14, 30, tzinfo=UTC)
 
 
 def _delta(destination: str = "archive") -> CoverageDelta:
@@ -416,66 +404,54 @@ def recorded_upserts(monkeypatch):
     return calls
 
 
-def test_coverage_write_is_the_third_write_inside_the_same_transaction(archive_writer):
+def test_coverage_write_is_the_third_write_inside_the_same_transaction(contract):
     conn = FakeConn()
-    assert persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
-        coverage=_delta(),
-    ) == (1, 1)
+    result = persist_chunk_atomically(
+        conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW], coverage=_delta()
+    )
+    assert (result.n_requests, result.n_rows) == (1, 1)
     kinds = [sql for sql, _ in conn.statements]
     assert kinds[0] == "<begin>" and kinds[-1] == "<commit>"
     inside = [sql for sql, inside_flag in conn.statements if inside_flag]
-    assert inside[:4] == [
+    assert inside[:6] == [
+        "SELECT <read raw params>",
+        "SET LOCAL ROLE bar_derivation_writer",
+        "INSERT INTO ohlcv_raw (<contract>)",
         "SET LOCAL ROLE ohlcv_observation_writer",
         conn.copies[0][0],
         "<copy done>",
-        "SET LOCAL ROLE bar_derivation_writer",
     ]
-    assert inside[4].lstrip().startswith("SELECT timestamp FROM ohlcv_intraday_raw_archive")
-    assert inside[5] == "INSERT INTO ohlcv_intraday_raw_archive (...)"
-    assert inside[6].lstrip().startswith("INSERT INTO ohlcv_coverage")
-    assert len(inside) == 7
+    assert inside[6] == "SET LOCAL ROLE bar_derivation_writer"
+    assert inside[7].lstrip().startswith("INSERT INTO ohlcv_coverage")
+    assert len(inside) == 8
 
 
-def test_no_coverage_means_no_coverage_sql(archive_writer):
+def test_no_coverage_means_no_coverage_sql(contract):
     conn = FakeConn()
-    persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
-    )
+    persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
     assert not any("ohlcv_coverage" in sql for sql, _ in conn.statements)
-    assert not any(sql.lstrip().startswith("SELECT") for sql, _ in conn.statements)
+    selects = [sql for sql, _ in conn.statements if sql.lstrip().startswith("SELECT")]
+    assert selects == ["SELECT <read raw params>"]
 
 
-def test_failure_in_the_coverage_upsert_rolls_back_everything(archive_writer):
+def test_failure_in_the_coverage_upsert_rolls_back_everything(contract):
     conn = FakeConn(fail_on="ohlcv_coverage")
     with pytest.raises(RuntimeError, match="forced failure"):
         persist_chunk_atomically(
-            conn,
-            request_rows=[_REQUEST_ROW],
-            archive_rows=[_ARCHIVE_ROW],
-            write_archive_rows=archive_writer,
-            coverage=_delta(),
+            conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW], coverage=_delta()
         )
     kinds = [sql for sql, _ in conn.statements]
     assert kinds[-1] == "<rollback>"
     assert "<commit>" not in kinds
-    assert archive_writer.calls  # the bars were offered, and roll back with the coverage
+    assert contract.calls  # the bars were offered, and roll back with the coverage
 
 
-def test_archive_counts_only_timestamps_not_already_stored(archive_writer, recorded_upserts):
-    conn = FakeConn()
-    conn.existing = [_T0]
+def test_coverage_counts_only_rows_the_raw_write_found_new(contract, recorded_upserts):
+    contract.existing = (_T0,)
     persist_chunk_atomically(
-        conn,
+        FakeConn(),
         request_rows=[],
-        archive_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
-        write_archive_rows=archive_writer,
+        raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
         coverage=_delta("archive"),
     )
     (call,) = recorded_upserts
@@ -484,60 +460,47 @@ def test_archive_counts_only_timestamps_not_already_stored(archive_writer, recor
     assert (call["earliest"], call["latest"]) == (_T1, _T2)
 
 
-def test_grid_counts_only_new_tradeable_rows(archive_writer, recorded_upserts):
-    conn = FakeConn()
-    conn.existing = [_T0]
+def test_grid_counts_only_new_tradeable_rows(contract, recorded_upserts):
+    contract.existing = (_T0,)
     persist_chunk_atomically(
-        conn,
+        FakeConn(),
         request_rows=[],
-        archive_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
-        write_archive_rows=archive_writer,
+        raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2), _bar(_T1.replace(minute=50), None)],
         coverage=_delta("grid"),
     )
     (call,) = recorded_upserts
     assert call["n_new_rows"] == 1
     assert (call["earliest"], call["latest"]) == (_T2, _T2)
-    assert "FROM market_data_ohlcv" in conn.statements[2][0]
 
 
-def test_bounds_fall_back_to_offered_rows_when_nothing_new(archive_writer, recorded_upserts):
-    conn = FakeConn()
-    conn.existing = [_T0, _T1]
+def test_bounds_fall_back_to_offered_rows_when_nothing_new(contract, recorded_upserts):
+    contract.existing = (_T0, _T1)
     persist_chunk_atomically(
-        conn,
-        request_rows=[],
-        archive_rows=[_bar(_T0), _bar(_T1)],
-        write_archive_rows=archive_writer,
-        coverage=_delta(),
+        FakeConn(), request_rows=[], raw_rows=[_bar(_T0), _bar(_T1)], coverage=_delta()
     )
     (call,) = recorded_upserts
     assert call["n_new_rows"] == 0
     assert (call["earliest"], call["latest"]) == (_T0, _T1)
 
 
-def test_duplicate_timestamps_in_a_chunk_count_once(archive_writer, recorded_upserts):
-    conn = FakeConn()
+def test_a_refused_chunk_does_not_move_the_coverage_bounds(contract, recorded_upserts):
+    contract.refused = True
     persist_chunk_atomically(
-        conn,
-        request_rows=[],
-        archive_rows=[_bar(_T0), _bar(_T0)],
-        write_archive_rows=archive_writer,
-        coverage=_delta(),
+        FakeConn(), request_rows=[], raw_rows=[_bar(_T0), _bar(_T1)], coverage=_delta()
     )
-    assert recorded_upserts[0]["n_new_rows"] == 1
+    assert recorded_upserts == []  # nothing landed, so the stored bounds do not widen
 
 
-def test_rows_for_another_series_are_refused_before_any_sql(archive_writer):
+def test_rows_for_another_series_are_refused_before_any_sql(contract):
     conn = FakeConn()
     with pytest.raises(ValueError, match="series"):
         persist_chunk_atomically(
             conn,
             request_rows=[_REQUEST_ROW],
-            archive_rows=[_bar(_T0, symbol="QQQ")],
-            write_archive_rows=archive_writer,
+            raw_rows=[_bar(_T0, symbol="QQQ")],
             coverage=_delta(),
         )
-    assert conn.statements == []
+    assert conn.statements == [] and contract.calls == []
 
 
 def test_coverage_delta_rejects_an_unknown_destination():
@@ -549,7 +512,7 @@ def test_coverage_delta_defaults_to_the_ibkr_stored_state_label():
     assert _delta().provider == "ibkr"
 
 
-def test_a_non_default_provider_on_the_delta_reaches_the_upsert(archive_writer, recorded_upserts):
+def test_a_non_default_provider_on_the_delta_reaches_the_upsert(contract, recorded_upserts):
     """T-190-02b: the coverage row is labeled by the vendor that actually fetched the chunk.
     The helper threads the delta's provider through untouched; a second vendor's coverage can
     never silently record as ibkr."""
@@ -562,11 +525,7 @@ def test_a_non_default_provider_on_the_delta_reaches_the_upsert(archive_writer, 
         provider="alpaca",
     )
     persist_chunk_atomically(
-        conn,
-        request_rows=[_REQUEST_ROW],
-        archive_rows=[_ARCHIVE_ROW],
-        write_archive_rows=archive_writer,
-        coverage=alpaca,
+        conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW], coverage=alpaca
     )
     (call,) = recorded_upserts
     assert call["delta"].provider == "alpaca"

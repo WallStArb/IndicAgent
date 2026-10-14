@@ -7,396 +7,96 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[3]))
 
-from src.core.bar_normalizer import SOURCE_DERIVED_1M
-
-
-def test_aggregate_bars_from_1m_5m_groups_correctly():
-    """Five 1m bars in the same 5m window produce one aggregated bar."""
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    base = datetime(2026, 3, 7, 9, 30, 0, tzinfo=UTC)
-    bars = [
-        {
-            "timestamp": base.replace(minute=30 + i),
-            "open": 100 + i,
-            "high": 105 + i,
-            "low": 99 + i,
-            "close": 101 + i,
-            "volume": 10,
-        }
-        for i in range(5)
-    ]
-    result = aggregate_bars_from_1m(bars, "5m")
-    assert len(result) == 1
-    agg = result[0]
-    assert agg["timestamp"] == base.replace(minute=30)
-    assert agg["open"] == bars[0]["open"]
-    assert agg["close"] == bars[-1]["close"]
-    assert agg["high"] == max(b["high"] for b in bars)
-    assert agg["low"] == min(b["low"] for b in bars)
-    assert agg["volume"] == 50
-    assert agg["source"] == SOURCE_DERIVED_1M
-
-
-def test_aggregate_bars_from_1m_splits_across_windows():
-    """Bars spanning two 5m windows produce two aggregated bars."""
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    base = datetime(2026, 3, 7, 9, 33, 0, tzinfo=UTC)
-    bars = [
-        {
-            "timestamp": base.replace(minute=33),
-            "open": 100,
-            "high": 102,
-            "low": 99,
-            "close": 101,
-            "volume": 5,
-        },
-        {
-            "timestamp": base.replace(minute=34),
-            "open": 101,
-            "high": 103,
-            "low": 100,
-            "close": 102,
-            "volume": 5,
-        },
-        {
-            "timestamp": base.replace(minute=35),
-            "open": 102,
-            "high": 104,
-            "low": 101,
-            "close": 103,
-            "volume": 5,
-        },
-    ]
-    result = aggregate_bars_from_1m(bars, "5m")
-    assert len(result) == 2
-    assert result[0]["timestamp"] == base.replace(minute=30)
-    assert result[1]["timestamp"] == base.replace(minute=35)
-
-
-def test_aggregate_bars_from_1m_daily_floors_to_midnight():
-    """1d aggregation floors timestamps to midnight."""
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    bars = [
-        {
-            "timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC),
-            "open": 100,
-            "high": 105,
-            "low": 99,
-            "close": 104,
-            "volume": 100,
-        },
-        {
-            "timestamp": datetime(2026, 3, 7, 15, 0, tzinfo=UTC),
-            "open": 104,
-            "high": 106,
-            "low": 103,
-            "close": 105,
-            "volume": 200,
-        },
-    ]
-    result = aggregate_bars_from_1m(bars, "1d")
-    assert len(result) == 1
-    assert result[0]["timestamp"] == datetime(2026, 3, 7, 0, 0, tzinfo=UTC)
-    assert result[0]["volume"] == 300
-
-
-def test_aggregate_bars_from_1m_none_volume_treated_as_zero():
-    """None volume values (FX has no volume) are treated as 0."""
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    base = datetime(2026, 3, 7, 9, 30, tzinfo=UTC)
-    bars = [
-        {
-            "timestamp": base,
-            "open": 1.10,
-            "high": 1.11,
-            "low": 1.09,
-            "close": 1.105,
-            "volume": None,
-        },
-        {
-            "timestamp": base.replace(minute=31),
-            "open": 1.105,
-            "high": 1.112,
-            "low": 1.104,
-            "close": 1.11,
-            "volume": None,
-        },
-    ]
-    result = aggregate_bars_from_1m(bars, "5m")
-    assert result[0]["volume"] == 0
-
-
-def test_aggregate_bars_from_1m_4h_floors_to_4h_boundaries():
-    """4h aggregation must group to 00:00, 04:00, 08:00, ... boundaries.
-
-    Bug: the old minute-only floor left ts.hour unchanged, making each hour
-    its own bucket and producing 1h bars stored as 4h.
-    """
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    def _bar(h: int, m: int, close: float) -> dict:
-        return {
-            "timestamp": datetime(2026, 3, 7, h, m, tzinfo=UTC),
-            "open": close - 0.5,
-            "high": close + 1,
-            "low": close - 1,
-            "close": close,
-            "volume": 100,
-        }
-
-    bars = [
-        _bar(0, 0, 100.0),
-        _bar(0, 30, 101.0),
-        _bar(1, 0, 102.0),
-        _bar(2, 0, 103.0),
-        _bar(3, 30, 104.0),
-        _bar(4, 0, 200.0),
-        _bar(5, 0, 201.0),
-        _bar(7, 30, 202.0),
-    ]
-    result = aggregate_bars_from_1m(bars, "4h")
-    assert (
-        len(result) == 2
-    ), f"Expected 2 4h windows, got {len(result)}: {[r['timestamp'] for r in result]}"
-    assert result[0]["timestamp"] == datetime(2026, 3, 7, 0, 0, tzinfo=UTC)
-    assert result[1]["timestamp"] == datetime(2026, 3, 7, 4, 0, tzinfo=UTC)
-    assert result[0]["open"] == bars[0]["open"]
-    assert result[0]["close"] == bars[4]["close"]  # last bar in 00:00-03:59 window
-    assert result[0]["volume"] == 500  # 5 bars × 100
-    assert result[1]["volume"] == 300  # 3 bars × 100
-
-
-def test_aggregate_bars_from_1m_1h_floors_correctly():
-    """1h aggregation: bars at 09:00-09:59 and 10:00-10:59 form two buckets."""
-    from scripts.infrastructure.backfill._history_fetch import (
-        aggregate_bars_from_1m,
-    )
-
-    bars = [
-        {
-            "timestamp": datetime(2026, 3, 7, 9, 0, tzinfo=UTC),
-            "open": 1,
-            "high": 2,
-            "low": 0,
-            "close": 1.5,
-            "volume": 10,
-        },
-        {
-            "timestamp": datetime(2026, 3, 7, 9, 30, tzinfo=UTC),
-            "open": 1.5,
-            "high": 2,
-            "low": 1,
-            "close": 2,
-            "volume": 20,
-        },
-        {
-            "timestamp": datetime(2026, 3, 7, 10, 0, tzinfo=UTC),
-            "open": 2,
-            "high": 3,
-            "low": 1.5,
-            "close": 2.5,
-            "volume": 30,
-        },
-    ]
-    result = aggregate_bars_from_1m(bars, "1h")
-    assert len(result) == 2
-    assert result[0]["timestamp"] == datetime(2026, 3, 7, 9, 0, tzinfo=UTC)
-    assert result[1]["timestamp"] == datetime(2026, 3, 7, 10, 0, tzinfo=UTC)
-
 
 def _ts_bf(hour, minute):
     return datetime(2026, 2, 1, hour, minute, 0, tzinfo=UTC)
 
 
-class _ContractCursor:
-    """A cursor the ingress write contract can run against: stored rows scripted, every
-    statement recorded, the two APR thresholds served (plan 185-39)."""
+class TestStoreBars:
+    """store_bars offers bar dicts to ohlcv_raw through the raw-first ingress contract (plan 191-05)."""
 
-    def __init__(self, stored=None):
-        self.stored = stored or []
-        self.statements: list[tuple[str, object]] = []
-        self._result: list[tuple] = []
+    @staticmethod
+    def _bar(i=0, source="ibkr_named", **over):
+        bar = {
+            "timestamp": _ts_bf(9, 30) + timedelta(minutes=5 * i),
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.5,
+            "volume": 1000,
+            "source": source,
+        }
+        bar.update(over)
+        return bar
 
-    def execute(self, sql, params=None):
-        self.statements.append((sql, params))
-        if sql.startswith("SELECT config_key"):
-            self._result = [
-                ("threshold.bar_integrity.max_revision_ratio", "0.02"),
-                ("threshold.bar_integrity.revision_ratio_min_stored", "500"),
-            ]
-        elif sql.startswith("SELECT"):
-            self._result = self.stored
+    @staticmethod
+    def _contract(monkeypatch, *, refused=False):
+        from scripts.infrastructure.backfill import _history_fetch as pipe
+        from services.ohlcv_ingress_contract import IngressResult, RefusedSeries
 
-    def fetchall(self):
-        return self._result
+        calls = []
 
-
-class TestFetchAndStoreBars:
-    def test_fetch_1m_bars_queries_correct_table(self):
-        from scripts.infrastructure.backfill._history_fetch import (
-            fetch_bars,
-        )
-
-        mock_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-        mock_cursor.fetchall.return_value = [
-            (
-                datetime(2026, 2, 1, 9, 30, tzinfo=UTC),
-                100.0,
-                101.0,
-                99.0,
-                100.5,
-                1000,
-                "ibkr_named",
+        def fake(conn, rows, *, caller, request_id, params=None, waived=False):
+            calls.append({"rows": list(rows), "caller": caller, "request_id": request_id})
+            series = (
+                (RefusedSeries("ESH6", "5m", "ibkr", "named", 0.5, 0.02, 3, 6, "refused: x"),)
+                if refused
+                else ()
             )
-        ]
-        rows = fetch_bars(mock_conn, "ESH6", "1m")
-        assert len(rows) == 1 and rows[0]["symbol"] == "ESH6" and "timestamp" in rows[0]
+            return IngressResult(len(rows), len(rows), 0, 0, refused, 0, series)
 
-    def test_store_bars_issues_one_batched_insert(self):
-        # store_bars() batches new rows into a single multi-row VALUES INSERT per
-        # _STORE_BATCH_SIZE-row chunk instead of executemany()'s one-statement-
-        # per-row template -- measured ~2x faster against live psycopg3
-        # (2026-08-11, see the constant's own comment). Since plan 185-39 the insert is
-        # plain (the ingress write contract classifies against stored rows first, so a
-        # conflict never reaches it) and sits between the contract's reads and its load row.
-        from scripts.infrastructure.backfill._history_fetch import (
-            store_bars,
-        )
+        monkeypatch.setattr(pipe, "apply_raw_contract", fake)
+        return calls
 
-        cur = _ContractCursor()
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = cur
-        bars = [
-            {
-                "timestamp": _ts_bf(9, 30),
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 1000,
-                "source": "ibkr_named",
-            }
-        ]
-        n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
-        assert n == 1
-        inserts = [
-            (s, p) for s, p in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")
-        ]
-        assert len(inserts) == 1
-        sql, params = inserts[0]
-        assert "ON CONFLICT" not in sql
-        assert params == [
-            _ts_bf(9, 30),
-            "ESH6",
-            "5m",
-            100.0,
-            101.0,
-            99.0,
-            100.5,
-            1000,
-            "ibkr_named",
-        ]
-        assert len([s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_load")]) == 1
-        mock_conn.commit.assert_called_once()
+    def test_bars_become_raw_rows_with_the_vendor_and_kind_of_their_label(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
 
-    def test_store_bars_chunks_across_batch_size(self):
-        # A row count spanning multiple _STORE_BATCH_SIZE chunks must issue one
-        # insert per chunk, not one giant statement or one row-by-row loop.
-        from scripts.infrastructure.backfill._history_fetch import (
-            _STORE_BATCH_SIZE,
-            store_bars,
-        )
+        calls = self._contract(monkeypatch)
+        conn = MagicMock()
+        n = store_bars(conn, [self._bar(0), self._bar(1, source="ibkr_venue")], "ESH6", "5m")
+        assert n == 2
+        (call,) = calls
+        assert [(r.vendor, r.kind) for r in call["rows"]] == [("ibkr", "named"), ("ibkr", "venue")]
+        assert (call["rows"][0].symbol, call["rows"][0].timeframe) == ("ESH6", "5m")
+        assert call["rows"][0].volume == 1000 and isinstance(call["rows"][0].volume, int)
+        assert call["caller"] == "ibkr-history-fetch"
+        assert call["request_id"] is not None
+        conn.transaction.assert_called_once()  # the write is one transaction
 
-        cur = _ContractCursor()
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = cur
-        n_rows = _STORE_BATCH_SIZE + 5
-        bars = [
-            {
-                "timestamp": _ts_bf(9, 30) + timedelta(minutes=5 * i),
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 1000,
-                "source": "ibkr_named",
-            }
-            for i in range(n_rows)
-        ]
-        n = store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
-        assert n == n_rows
-        inserts = [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
-        assert len(inserts) == 2
+    def test_actual_symbol_stores_under_the_contract_symbol(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
 
-    def test_store_bars_second_identical_answer_writes_nothing(self):
-        from scripts.infrastructure.backfill._history_fetch import (
-            store_bars,
-        )
+        calls = self._contract(monkeypatch)
+        store_bars(MagicMock(), [self._bar()], "ESM6", "5m", actual_symbol="ESH6")
+        assert calls[0]["rows"][0].symbol == "ESH6"
 
-        bars = [
-            {
-                "timestamp": _ts_bf(9, 30) + timedelta(minutes=5 * i),
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 1000,
-                "source": "ibkr_named",
-            }
-            for i in range(3)
-        ]
-        stored = [(b["timestamp"], 100.0, 101.0, 99.0, 100.5, 1000, "ibkr_named") for b in bars]
-        cur = _ContractCursor(stored)
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = cur
-        assert store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m") == 3
-        assert not [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
-        assert not [s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_revision")]
+    def test_a_none_volume_stays_none(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
 
-    def test_store_bars_changed_bar_is_an_upsert_with_its_revision(self):
-        from scripts.infrastructure.backfill._history_fetch import (
-            store_bars,
-        )
+        calls = self._contract(monkeypatch)
+        store_bars(MagicMock(), [self._bar(volume=None)], "ESH6", "5m")
+        assert calls[0]["rows"][0].volume is None
 
-        ts = _ts_bf(9, 30)
-        stored = [(ts, 100.0, 101.0, 99.0, 100.0, 1000, "ibkr_named")]
-        cur = _ContractCursor(stored)
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value = cur
-        bars = [
-            {
-                "timestamp": ts,
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 100.5,
-                "volume": 1000,
-                "source": "ibkr_named",
-            }
-        ]
-        store_bars(mock_conn, bars, symbol="ESH6", timeframe="5m")
-        (sql,) = [s for s, _ in cur.statements if s.startswith("INSERT INTO market_data_ohlcv")]
-        assert "ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET" in sql
-        assert "DO NOTHING" not in sql
-        assert (
-            len([s for s, _ in cur.statements if s.startswith("INSERT INTO ohlcv_revision")]) == 1
-        )
+    def test_a_label_without_a_vendor_kind_pair_raises_before_any_write(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
+
+        calls = self._contract(monkeypatch)
+        with pytest.raises(KeyError, match="no_such_label"):
+            store_bars(MagicMock(), [self._bar(source="no_such_label")], "ESH6", "5m")
+        assert calls == []
+
+    def test_a_refused_series_raises_so_the_caller_never_counts_it_stored(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
+
+        self._contract(monkeypatch, refused=True)
+        with pytest.raises(RuntimeError, match="refused: refused: x"):
+            store_bars(MagicMock(), [self._bar()], "ESH6", "5m")
+
+    def test_no_bars_is_a_noop(self, monkeypatch):
+        from scripts.infrastructure.backfill._history_fetch import store_bars
+
+        calls = self._contract(monkeypatch)
+        assert store_bars(MagicMock(), [], "ESH6", "5m") == 0 and calls == []
 
 
 class TestClusterGapRanges:
@@ -477,100 +177,6 @@ class TestClusterGapRanges:
             assert pipeline.cluster_gap_ranges(gaps) == [(gaps[0][0], gaps[1][1])]
         finally:
             pipeline._GAP_CLUSTER_MAX_DAYS = original
-
-
-class TestLoadOhlcvInsertBatchSizeConfig:
-    """infra.backfill.ohlcv_insert_batch_size (migration 313) overlays
-    _STORE_BATCH_SIZE, mirroring the _load_ibkr_* loader pattern. A non-positive
-    value must be rejected rather than applied: 0 makes store_bars()'s chunk loop
-    raise (range() step must not be zero), and a negative value makes it silently
-    write nothing while still reporting the row count as stored.
-    """
-
-    def _restore_default(self):
-        import scripts.infrastructure.backfill._history_fetch as pipeline
-
-        pipeline._STORE_BATCH_SIZE = 1000
-
-    def test_overlays_positive_value(self):
-        import scripts.infrastructure.backfill._history_fetch as pipeline
-        from scripts.infrastructure.backfill._history_fetch import (
-            _load_ohlcv_insert_batch_size_config,
-        )
-
-        try:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_cursor.fetchone.return_value = ("500",)
-            with patch(
-                "scripts.infrastructure.backfill._history_fetch.connect_db",
-                return_value=mock_conn,
-            ):
-                _load_ohlcv_insert_batch_size_config(MagicMock())
-            assert pipeline._STORE_BATCH_SIZE == 500
-        finally:
-            self._restore_default()
-
-    def test_rejects_zero_and_keeps_default(self):
-        import scripts.infrastructure.backfill._history_fetch as pipeline
-        from scripts.infrastructure.backfill._history_fetch import (
-            _load_ohlcv_insert_batch_size_config,
-        )
-
-        try:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_cursor.fetchone.return_value = ("0",)
-            with patch(
-                "scripts.infrastructure.backfill._history_fetch.connect_db",
-                return_value=mock_conn,
-            ):
-                _load_ohlcv_insert_batch_size_config(MagicMock())
-            assert pipeline._STORE_BATCH_SIZE == 1000
-        finally:
-            self._restore_default()
-
-    def test_rejects_negative_and_keeps_default(self):
-        import scripts.infrastructure.backfill._history_fetch as pipeline
-        from scripts.infrastructure.backfill._history_fetch import (
-            _load_ohlcv_insert_batch_size_config,
-        )
-
-        try:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_cursor.fetchone.return_value = ("-10",)
-            with patch(
-                "scripts.infrastructure.backfill._history_fetch.connect_db",
-                return_value=mock_conn,
-            ):
-                _load_ohlcv_insert_batch_size_config(MagicMock())
-            assert pipeline._STORE_BATCH_SIZE == 1000
-        finally:
-            self._restore_default()
-
-    def test_missing_key_keeps_default(self):
-        import scripts.infrastructure.backfill._history_fetch as pipeline
-        from scripts.infrastructure.backfill._history_fetch import (
-            _load_ohlcv_insert_batch_size_config,
-        )
-
-        try:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_cursor.fetchone.return_value = None
-            with patch(
-                "scripts.infrastructure.backfill._history_fetch.connect_db",
-                return_value=mock_conn,
-            ):
-                _load_ohlcv_insert_batch_size_config(MagicMock())
-            assert pipeline._STORE_BATCH_SIZE == 1000
-        finally:
-            self._restore_default()
 
 
 class TestLoadGapClusterMaxDaysConfig:
@@ -981,13 +587,12 @@ def test_fetch_start_makes_a_full_depth_1d_window_one_request():
 
 
 class TestArchiveGridRouting:
-    """Plan 12 (D-15/D-06): 15m and 1h are archive-bound raw observations. Gap
-    detection reads ohlcv_intraday_raw_archive for them and expects IBKR's own
-    RTH grid (09:30 partial 1h bar then clock hours), and their store path goes
-    through services/intraday_raw_archive.insert_fetched_archive_rows -- never
-    market_data_ohlcv."""
+    """Plan 12 (D-15/D-06): gap detection expects IBKR's own RTH grid (09:30 partial 1h bar
+    then clock hours). Since plan 191-05 there is no archive store path: 15m and 1h are ordinary
+    raw rows, and the legacy grid difference reads market_data_ohlcv only (plan 191-06 moves the
+    planner onto raw)."""
 
-    def test_detect_gaps_15m_reads_the_archive_table(self):
+    def test_detect_gaps_15m_has_no_archive_branch(self):
         from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
@@ -1007,8 +612,8 @@ class TestArchiveGridRouting:
                 "NYSE",
             )
         sql = mock_cursor.execute.call_args.args[0]
-        assert "ohlcv_intraday_raw_archive" in sql
-        assert "market_data_ohlcv" not in sql
+        assert "ohlcv_intraday_raw_archive" not in sql
+        assert "FROM market_data_ohlcv" in sql
 
     def test_detect_gaps_5m_still_reads_market_data_ohlcv(self):
         from scripts.infrastructure.backfill._history_fetch import (
@@ -1111,70 +716,6 @@ class TestArchiveGridRouting:
         mock_conn, _ = _make_mock_conn(fetchall_result)
         return mock_conn
 
-    def test_store_bars_routes_to_the_injected_writer(self):
-        from scripts.infrastructure.backfill._history_fetch import (
-            store_bars,
-        )
-
-        bars = [
-            {
-                "timestamp": datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
-                "open": 600.0,
-                "high": 601.0,
-                "low": 599.0,
-                "close": 600.5,
-                "volume": 1000,
-                "source": "ibkr",
-            }
-        ]
-        mock_conn = MagicMock()
-        written = []
-
-        def fake_writer(cur, rows):
-            written.append(rows)
-            return len(rows)
-
-        n = store_bars(mock_conn, bars, "SPY", "1h", write_rows=fake_writer)
-        assert n == 1
-        assert written == [
-            [
-                (
-                    datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
-                    "SPY",
-                    "1h",
-                    600.0,
-                    601.0,
-                    599.0,
-                    600.5,
-                    1000,
-                    "ibkr",
-                )
-            ]
-        ]
-        # Nothing touched the raw table behind the caller's back.
-        mock_conn.cursor.return_value.__enter__.return_value.execute.assert_not_called()
-        mock_conn.commit.assert_called_once()
-
-    def test_store_bars_default_still_writes_market_data_ohlcv(self):
-        from scripts.infrastructure.backfill import _history_fetch as pipe
-
-        bars = [
-            {
-                "timestamp": datetime(2026, 9, 27, 13, 30, tzinfo=UTC),
-                "open": 600.0,
-                "high": 601.0,
-                "low": 599.0,
-                "close": 600.5,
-                "volume": 1000,
-                "source": "ibkr_named",
-            }
-        ]
-        mock_conn = MagicMock()
-        with patch.object(pipe, "_insert_market_data_rows", return_value=1) as mock_insert:
-            n = pipe.store_bars(mock_conn, bars, "SPY", "5m")
-        assert n == 1
-        assert mock_insert.call_count == 1
-
 
 def test_the_interim_flag_and_module_are_gone():
     """Plan 185-18 task 1a acceptance, CI-enforced: no --real-bars-only flag and
@@ -1231,25 +772,15 @@ def test_store_bars_refuses_1d():
 
 
 class TestCaptureKwargs:
-    """Ported from the retired d1-capture test file (plan 189-08): every timeframe
-    reports its requests, only 1d delivers observations into D1."""
+    """Every timeframe reports its requests to the fetch ledger sink; the 1d caller adds its own
+    on_observation (the persister's), because only a daily answer's request carries the route and
+    what_to_show that decide its raw kind (plan 191-05)."""
 
     _RUN_ID = "00000000-0000-4000-8000-000000000189"
 
-    def test_1d_gets_requests_and_observations(self):
+    def test_requests_and_the_run_id_only(self):
         from scripts.infrastructure.backfill._history_fetch import _capture_kwargs
 
         sink = MagicMock()
-        kwargs = _capture_kwargs("1d", sink, self._RUN_ID)
-        assert kwargs["on_request"] == sink.on_request
-        assert kwargs["on_observation"] == sink.on_observation
-        assert kwargs["fetch_run_id"] == self._RUN_ID
-
-    def test_intraday_gets_requests_only(self):
-        from scripts.infrastructure.backfill._history_fetch import _capture_kwargs
-
-        sink = MagicMock()
-        kwargs = _capture_kwargs("5m", sink, self._RUN_ID)
-        assert kwargs["on_request"] == sink.on_request
-        assert kwargs["fetch_run_id"] == self._RUN_ID
-        assert "on_observation" not in kwargs
+        kwargs = _capture_kwargs(sink, self._RUN_ID)
+        assert kwargs == {"on_request": sink.on_request, "fetch_run_id": self._RUN_ID}

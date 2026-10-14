@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,7 +32,8 @@ from scripts.infrastructure.backfill._history_fetch_item import (
     fetch_item_with_retries,
     run_with_stall_bound,
 )
-from services.ohlcv_ingress_contract import DESTINATION_GRID as ingress_contract_grid
+from scripts.infrastructure.backfill._intraday_persist import PersistResult
+from services.ohlcv_raw_writer import RawRow
 from src.core.models import AssetClass
 from src.providers.base import OHLCVBar
 
@@ -322,8 +324,9 @@ def test_gateway_lost_raised_inside_the_item_is_not_charged(monkeypatch):
 # ---------------------------------------------------------------------------
 # Part 2: fetch_item
 # ---------------------------------------------------------------------------
-# Rules as they stand after plans 185-18 (shared gap planner; 1d is D1-only and stores no
-# bar), 185-19 (1d empty history reconciled from D1 after the flush) and 185-22 (1d overlap).
+# Rules as they stand after plans 185-18 (shared gap planner), 185-19 (1d empty history
+# reconciled from the recorded answers after the flush), 185-22 (1d overlap) and 191-05 (every
+# chunk, daily answers included, persists to ohlcv_raw through the raw-first contract).
 
 _END = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 # What the record planner (5m/15m/1h) returns: end-exclusive, through the last slot's end.
@@ -335,7 +338,7 @@ _D1_GAP = (date(2024, 1, 1), date(2024, 1, 15))
 _RUN_ID = "item-test-run-id"
 
 
-def _bars(symbol: str, tf: str, n: int = 4) -> list[OHLCVBar]:
+def _bars(symbol: str, tf: str, n: int = 4, source: str = "ibkr") -> list[OHLCVBar]:
     return [
         OHLCVBar(
             symbol=symbol,
@@ -346,7 +349,7 @@ def _bars(symbol: str, tf: str, n: int = 4) -> list[OHLCVBar]:
             low=99.0 + i,
             close=100.5 + i,
             volume=1_000 * (i + 1),
-            source="ibkr",
+            source=source,
         )
         for i in range(n)
     ]
@@ -372,19 +375,16 @@ class FakeConn:
 
 
 class FakeSink:
+    """The fetch ledger sink (RequestSink): buffers requests, hands chunk requests over."""
+
     def __init__(self) -> None:
         self.requests: list[SimpleNamespace] = []
-        self.observations: list[tuple[object, list]] = []
         self.total_requests = 0
-        self.total_observations = 0
         self.flushes = 0
         self.fail_flush = False
 
     def on_request(self, record) -> None:
         self.requests.append(record)
-
-    def on_observation(self, record, bars) -> None:
-        self.observations.append((record, bars))
 
     def take_requests(self, request_ids) -> list:
         wanted = {str(rid) for rid in request_ids}
@@ -392,14 +392,13 @@ class FakeSink:
         self.requests = [rec for rec in self.requests if str(rec.request_id) not in wanted]
         return taken
 
-    def flush(self) -> tuple[int, int]:
+    def flush(self) -> int:
         self.flushes += 1
         if self.fail_flush:
             raise RuntimeError("D1 flush failed")
-        n = (len(self.requests), len(self.observations))
-        self.total_requests += n[0]
-        self.total_observations += n[1]
-        self.requests, self.observations = [], []
+        n = len(self.requests)
+        self.total_requests += n
+        self.requests = []
         return n
 
 
@@ -441,11 +440,12 @@ class FakeProvider:
     def _record(self, kwargs: dict, route: str) -> SimpleNamespace:
         self._n_records += 1
         return SimpleNamespace(
-            request_id=f"{kwargs['symbol']}-{kwargs['timeframe']}-{route}-{self._n_records}",
+            request_id=str(uuid.uuid4()),
             fetch_run_id=kwargs.get("fetch_run_id"),
             symbol=kwargs["symbol"],
             timeframe=kwargs["timeframe"],
             route=route,
+            what_to_show="TRADES",
         )
 
     async def fetch_historical_bars(self, **kwargs) -> list[OHLCVBar]:
@@ -489,7 +489,7 @@ class SpyClock(ProgressClock):
 
 
 @pytest.fixture
-def env(monkeypatch):
+def env(monkeypatch, make_ingress_result):
     """Patch every DB-touching helper at the _history_fetch_item module level."""
     rec = SimpleNamespace(
         persist=[],
@@ -501,19 +501,35 @@ def env(monkeypatch):
         record_gaps=[_RECORD_GAP],
         legacy_gaps=[_LEGACY_GAP],
         d1_gaps=[_D1_GAP],
-        bars_1m=[],
+        refuse_next=False,
     )
 
-    def fake_persist(conn, *, request_rows, archive_rows, write_archive_rows, coverage=None):
+    def fake_persist(
+        conn,
+        *,
+        request_rows,
+        raw_rows,
+        coverage=None,
+        caller="ibkr-history-fetch",
+        waived=False,
+        request_id=None,
+        params=None,
+    ):
+        refused = rec.refuse_next
+        rec.refuse_next = False
         rec.persist.append(
             SimpleNamespace(
                 requests=list(request_rows),
-                rows=list(archive_rows),
-                writer=write_archive_rows,
+                rows=list(raw_rows),
                 coverage=coverage,
+                waived=waived,
+                request_id=request_id,
+                refused=refused,
             )
         )
-        return len(request_rows), len(archive_rows)
+        return PersistResult(
+            len(request_rows), len(raw_rows), rec.ingress(len(raw_rows), refused=refused)
+        )
 
     def fake_record_planner(conn, symbol, tf, start, end, expected_slots, **kwargs):
         rec.gap_calls.append(
@@ -552,6 +568,7 @@ def env(monkeypatch):
         return rec.per_contract_bars, []
 
     rec.per_contract_bars = 12
+    rec.ingress = make_ingress_result
     monkeypatch.setattr(item_mod, "persist_chunk_atomically", fake_persist)
     monkeypatch.setattr(item_mod, "detect_gaps_from_record", fake_record_planner)
     monkeypatch.setattr(item_mod, "detect_gaps_1d_from_d1", fake_d1_planner)
@@ -561,7 +578,6 @@ def env(monkeypatch):
         item_mod, "load_answered_windows", lambda conn, symbol, tf: ("answered", symbol, tf)
     )
     monkeypatch.setattr(item_mod, "fetch_per_contract", fake_per_contract)
-    monkeypatch.setattr(item_mod, "fetch_bars", lambda conn, symbol, tf: list(rec.bars_1m))
     monkeypatch.setattr(
         item_mod.empty_history,
         "apply_empty_range",
@@ -719,45 +735,77 @@ def test_non_nyse_1d_is_refused_loudly(env):
 # --- persistence routing (CD-04) -------------------------------------------
 
 
-def test_15m_chunks_persist_atomically_into_the_archive_with_coverage(env):
+def test_15m_chunks_persist_atomically_as_ordinary_raw_rows_with_coverage(env):
     ctx = _ctx(FakeProvider())
     outcome = _fetch(ctx, _row("15m"))
     assert outcome.status == "ok" and outcome.n_bars == 4
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is history_fetch._insert_archive_rows
-    assert call.coverage.destination == "archive"
+    assert call.coverage.destination == "archive"  # plan 191-06 moves coverage onto raw
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", "15m")
     assert len(call.requests) == 1  # the chunk's answer, taken off the sink
     assert call.requests[0].timeframe == "15m"
-    assert all(len(r) == 10 and r[1] == "AAA" and r[2] == "15m" for r in call.rows)
+    assert all(
+        isinstance(r, RawRow) and r.symbol == "AAA" and r.timeframe == "15m" for r in call.rows
+    )
+    assert {(r.vendor, r.kind) for r in call.rows} == {("ibkr", "generic")}
 
 
 @pytest.mark.parametrize("tf", ["5m", "1m"])
-def test_grid_timeframe_chunks_persist_atomically_into_the_grid_with_coverage(env, tf):
+def test_grid_timeframe_chunks_persist_atomically_with_coverage(env, tf):
     ctx = _ctx(FakeProvider())
     outcome = _fetch(ctx, _row(tf))
     assert outcome.status == "ok"
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is history_fetch._insert_market_data_rows
     assert call.coverage.destination == "grid"
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", tf)
-    assert all(len(r) == 9 and r[2] == tf for r in call.rows)
+    assert all(isinstance(r, RawRow) and r.timeframe == tf for r in call.rows)
     assert call.requests  # grid timeframes record their answers atomically too
     assert outcome.n_grid_source_rows == (4 if tf == "5m" else 0)
 
 
-def test_1d_captures_to_d1_and_persists_nothing(env):
+def test_a_5m_chunk_lands_in_raw_as_kind_named_and_a_1d_answer_as_smart_trades(env):
+    """T-191-16 at the item: the kind is what the vendor served. An intraday chunk's kind comes
+    from the bar's label (ibkr_named), a daily answer's from its request's route and what_to_show.
+    """
+    five = _fetch(
+        _ctx(FakeProvider(bars_by_tf={"5m": _bars("AAA", "5m", source="ibkr_named")})), _row("5m")
+    )
+    assert five.status == "ok"
+    assert {(r.vendor, r.kind) for r in env.persist[0].rows} == {("ibkr", "named")}
+    env.persist.clear()
+    daily = _fetch(
+        _ctx(FakeProvider(bars_by_tf={"1d": _bars("AAA", "1d", 4, "ibkr_named")})), _row("1d")
+    )
+    assert daily.status == "ok"
+    kinds = [{(r.vendor, r.kind) for r in call.rows} for call in env.persist]
+    assert kinds == [{("ibkr", "smart_trades")}, {("ibkr", "venue_nyse")}]
+
+
+def test_1d_answers_persist_to_raw_one_chunk_per_request_with_no_coverage(env):
     ctx = _ctx(FakeProvider())
     outcome = _fetch(ctx, _row("1d"))
     assert outcome.status == "ok" and outcome.n_bars == 4
-    assert env.persist == []
+    assert len(env.persist) == 2  # the SMART answer and the former-venue recovery
     assert ctx.provider.calls[0]["on_chunk"] is None
-    assert ctx.sink.total_observations == 2 and ctx.sink.total_requests == 2
-    # D2 owns the 1d grid: the caller derives from this start.
+    assert callable(ctx.provider.calls[0]["on_observation"])
+    for call in env.persist:
+        assert call.coverage is None  # the daily derivation stage refreshes the 1d bounds
+        assert len(call.requests) == 1
+        assert str(call.request_id) == str(call.requests[0].request_id)
+    # D2 owns the canonical 1d grid: the caller derives from this start.
     assert outcome.derive_1d_since == history_fetch._fetch_start(_END, 7300)
     assert outcome.n_grid_source_rows == 0
+
+
+def test_a_1d_answer_with_an_unmapped_route_fails_the_item_loudly(env):
+    class OddRouteProvider(FakeProvider):
+        def _record(self, kwargs, route):
+            return super()._record(kwargs, "ZZZZ" if route == "NYSE" else route)
+
+    outcome = _fetch(_ctx(OddRouteProvider()), _row("1d"))
+    assert outcome.status == "error" and "unmapped" in (outcome.error or "")
 
 
 def test_4h_stores_real_bars_only(env):
@@ -801,62 +849,40 @@ class TwoChunkProvider(FakeProvider):
         return bars
 
 
-def _refusing_first_persist(monkeypatch, env, make_refusal):
-    """persist_chunk_atomically refuses the first chunk (as the helper does: the answer and
-    the archive capture are recorded, then RevisionRefused propagates) and accepts the rest."""
-    accept = item_mod.persist_chunk_atomically
-
-    def persist(conn, **kwargs):
-        if not env.persist:
-            env.persist.append(SimpleNamespace(rows=list(kwargs["archive_rows"]), refused=True))
-            raise make_refusal(rows=list(kwargs["archive_rows"]))
-        return accept(conn, **kwargs)
-
-    monkeypatch.setattr(item_mod, "persist_chunk_atomically", persist)
-
-
-def _stored_from(monkeypatch, label):
-    """The stored rows under the refused slots carry `label` as their source."""
-    stored_row = (1.0, 1.0, 1.0, 1.0, 1, label)
-
-    def fake_read_stored(cur, destination, symbol, timeframe, timestamps):
-        return dict.fromkeys(timestamps, stored_row)
-
-    monkeypatch.setattr(item_mod, "read_stored", fake_read_stored)
-
-
-def test_a_refused_chunk_is_archived_and_the_walk_continues(env, monkeypatch, make_refusal):
-    """Capture law: a refused chunk's rows are archived and the walk goes on to older chunks;
-    the refused bars are not re-offered as missed by on_chunk, and the refusal still fails the
-    item (ledger, escalation and run exit code see it as before)."""
-    _refusing_first_persist(monkeypatch, env, make_refusal)
-    _stored_from(monkeypatch, "ibkr_named")  # the vendor restating its own history
+def test_a_refused_chunk_is_held_the_walk_continues_and_the_item_fails(env):
+    """The contract held a refused chunk's values as pending revisions and wrote nothing to
+    raw; the walk goes on to older chunks, the refused bars are not re-offered as missed by
+    on_chunk, and the refusal fails the item (ledger, escalation and run exit code see it)."""
+    env.refuse_next = True
     outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
     assert len(env.persist) == 2 and env.persist[0].refused
-    assert outcome.n_bars == 2  # only the accepted chunk is canonical
-    assert outcome.status == "error" and "refused: changed" in (outcome.error or "")
+    assert outcome.n_bars == 2  # only the accepted chunk counts as stored
+    assert outcome.status == "error" and "refused: ibkr restated" in (outcome.error or "")
 
 
-def test_a_refusal_over_another_vendors_rows_is_answered_not_an_error(
-    env, monkeypatch, make_refusal
-):
-    """Source policy working as designed (IBKR 5m over Alpaca-canonical): the rows are
-    archived and the item counts as answered, so the Alpaca-covered walk does not go red."""
-    _refusing_first_persist(monkeypatch, env, make_refusal)
-    _stored_from(monkeypatch, "alpaca")
-    outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
-    assert outcome.status == "ok" and outcome.error is None
-
-
-def test_a_refused_walk_skips_the_fx_derivation(env, monkeypatch, make_refusal):
-    """The 1m derivation must not author bars the direct fetch's refusal just blocked."""
-    _refusing_first_persist(monkeypatch, env, make_refusal)
-    derived = []
-    monkeypatch.setattr(item_mod, "_fx_derive", lambda *a: derived.append(a))
-    outcome = _fetch(
-        _ctx(FakeProvider()), _row("15m"), instrument=_instrument(asset_class=AssetClass.FX)
+def test_item_status_follows_the_ingress_result_not_a_stored_label(env):
+    """T-191-18: whether a refusal is an error is the contract's classification (a vendor
+    restating its OWN stored raw rows); the item holds no cross-vendor refusal logic at all."""
+    for retired in ("_authored_by_other_vendor", "_stored_closes", "_fx_derive"):
+        assert not hasattr(item_mod._ChunkPersister, retired) and not hasattr(item_mod, retired)
+    assert not hasattr(
+        item_mod._ChunkPersister(_ctx(FakeProvider()), "A", "5m", ProgressClock()),
+        "policy_refusals",
     )
-    assert outcome.status == "error" and derived == []
+    source = Path(item_mod.__file__).read_text()
+    for gone in ("chunk_refused_archived", "LABEL_VENDOR", "policy_refusals", "read_stored("):
+        assert gone not in source, gone
+
+
+def test_the_fx_derivation_fallback_is_retired_a_derived_bar_is_not_a_vendor_answer(env):
+    """Raw stores what vendors served; the 1m-derived fallback wrote derived bars, so it is
+    gone. An FX item whose direct fetch stored nothing is no_data, with no 1m deep fetch."""
+    provider = FakeProvider(bars_by_tf={})
+    outcome = _fetch(
+        _ctx(provider), _row("5m", symbol="EURUSD"), instrument=_instrument("EURUSD", AssetClass.FX)
+    )
+    assert outcome.status == "no_data"
+    assert [c["timeframe"] for c in provider.calls] == ["5m"]
 
 
 # --- plan-driven vendor semantics (phase 190 plan 04) --------------------------
@@ -1032,65 +1058,6 @@ def test_fresh_stored_head_floors_without_a_lookup(env):
     assert env.gap_calls[0].start == datetime(2015, 3, 2, tzinfo=UTC)
 
 
-def _fx_1m_rows() -> list[dict]:
-    return [
-        {
-            "timestamp": datetime(2026, 9, 1, 10, m, tzinfo=UTC),
-            "open": 1.1,
-            "high": 1.2,
-            "low": 1.0,
-            "close": 1.15,
-            "volume": 10.0,
-            "source": "ibkr",
-        }
-        for m in range(30)
-    ]
-
-
-def test_fx_fallback_derives_from_one_deep_1m_fetch_per_symbol(env):
-    provider = FakeProvider(bars_by_tf={"1m": _bars("EURUSD", "1m", 6)})
-    env.bars_1m = _fx_1m_rows()
-    ctx = _ctx(provider)
-    fx = _instrument("EURUSD", AssetClass.FX)
-    first = _fetch(ctx, _row("5m", symbol="EURUSD"), instrument=fx)
-    second = _fetch(ctx, _row("15m", symbol="EURUSD"), instrument=fx)
-
-    deep_calls = [c for c in provider.calls if c["timeframe"] == "1m"]
-    assert len(deep_calls) == 1
-    assert deep_calls[0]["start"] == (_END - timedelta(days=history_fetch._1M_DAYS_FX)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    assert deep_calls[0]["on_request"] is not None  # the deep fetch's answers are recorded
-    by_series = {(p.coverage.timeframe, p.coverage.destination) for p in env.persist}
-    assert ("1m", "grid") in by_series  # the deep fetch's own chunks
-    assert ("5m", "grid") in by_series  # derived grid timeframe
-    assert ("15m", "archive") in by_series  # derived archive timeframe
-    assert first.status == second.status == "ok"
-    assert first.n_grid_source_rows > 0  # derived 5m rows still promote the grid
-
-
-def test_fx_fallback_skipped_when_the_direct_fetch_stored_bars(env):
-    provider = FakeProvider()
-    _fetch(
-        _ctx(provider),
-        _row("5m", symbol="EURUSD"),
-        instrument=_instrument("EURUSD", AssetClass.FX),
-    )
-    assert [c["timeframe"] for c in provider.calls] == ["5m"]
-
-
-def test_fx_fallback_never_derives_1d(env):
-    provider = FakeProvider(bars_by_tf={"1m": _bars("EURUSD", "1m", 6)})
-    env.bars_1m = _fx_1m_rows()
-    outcome = _fetch(
-        _ctx(provider),
-        _row("1d", symbol="EURUSD"),
-        instrument=_instrument("EURUSD", AssetClass.FX),
-    )
-    assert [c["timeframe"] for c in provider.calls] == ["1d"]
-    assert outcome.status == "no_data"
-
-
 def test_per_contract_futures_route_through_fetch_per_contract(env):
     provider = FakeProvider()
     ctx = _ctx(provider, per_contract=True)
@@ -1163,40 +1130,37 @@ def test_port_capture_and_checkpoint_wiring(env):
         assert call["on_request"] is not None
         assert call["fetch_run_id"] == _RUN_ID
         if call["timeframe"] == "1d":
-            assert call["on_observation"] == ctx.sink.on_observation
+            assert callable(call["on_observation"])
         else:
             assert call.get("on_observation") is None
-    # Intraday requests commit with their chunk; the 1d pair and its observations flush
-    # once per item.
-    assert ctx.sink.total_observations == 6
-    assert ctx.sink.total_requests == 6
+    # Every answered request commits with its chunk (the 15m chunk, and each 1d answer through
+    # on_observation); the sink flushes once per item and finds nothing left.
+    assert ctx.sink.total_requests == 0
     assert ctx.sink.flushes == 6
-    assert sum(len(p.requests) for p in env.persist) == 3
+    assert sum(len(p.requests) for p in env.persist) == 3 + 6
     for call in env.persist:
-        assert len(call.requests) == 1 and len(call.rows) == 4
-        assert call.rows[0][2] == "15m"
-        assert call.writer is history_fetch._insert_archive_rows
+        assert len(call.requests) == 1
 
 
-def test_port_15m_is_archive_bound_and_1d_is_d1_only(env):
+def test_port_15m_and_1d_both_persist_to_raw_and_1d_carries_no_coverage(env):
     _run_symbols(env)
     planners = sorted((c.symbol, c.tf, c.planner) for c in env.gap_calls)
     assert planners == sorted(
         [(s, "15m", "record") for s in ("AAA", "BBB", "CCC")]
         + [(s, "1d", "d1") for s in ("AAA", "BBB", "CCC")]
     )
-    assert {p.coverage.timeframe for p in env.persist} == {"15m"}
+    assert {p.coverage.timeframe for p in env.persist if p.coverage is not None} == {"15m"}
+    assert sum(1 for p in env.persist if p.coverage is None) == 6  # two 1d answers per symbol
 
 
-def test_port_1d_fetch_captures_to_d1_and_persists_no_chunk(env):
+def test_port_1d_fetch_persists_through_on_observation_not_on_chunk(env):
     provider, ctx, _ = _run_symbols(env)
     on_chunk_by_tf = {
         c["timeframe"]: c.get("on_chunk") for c in provider.calls if c["symbol"] == "AAA"
     }
     assert callable(on_chunk_by_tf["15m"])
     assert on_chunk_by_tf["1d"] is None
-    assert [p.rows[0][2] for p in env.persist] == ["15m"] * 3
-    assert ctx.sink.total_observations == 6
+    assert sorted(p.rows[0].timeframe for p in env.persist) == ["15m"] * 3 + ["1d"] * 6
 
 
 def test_port_daily_stage_runs_for_touched_symbols_on_the_clean_path(env):
@@ -1214,9 +1178,8 @@ def test_port_5m_chunks_persist_atomically_into_the_grid(env):
     assert [(c.symbol, c.tf, c.planner) for c in env.gap_calls] == [("AAA", "5m", "record")]
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.writer is history_fetch._insert_market_data_rows
-    assert call.rows[0][1] == "AAA" and call.rows[0][2] == "5m"
-    assert len(call.rows[0]) == 9  # the grid row shape (no base column)
+    assert call.rows[0].symbol == "AAA" and call.rows[0].timeframe == "5m"
+    assert isinstance(call.rows[0], RawRow)
     assert len(call.requests) == 1
 
 
@@ -1333,17 +1296,18 @@ def test_an_overlap_merges_with_a_planned_tail_gap_into_one_ask(env):
 def test_the_overlap_pairs_stored_and_fresh_closes_for_the_fetcher_to_judge(env, monkeypatch):
     stored_at = {}
 
-    def fake_stored(conn, symbol, timeframe, timestamps):
-        stored_at["asked"] = (symbol, timeframe, sorted(timestamps))
+    def fake_stored(conn, symbol, timeframe, vendor, kind, timestamps):
+        stored_at["asked"] = (symbol, timeframe, vendor, kind, sorted(timestamps))
         # The first two fresh bars overlap stored ones on the old (doubled) scale.
         return {ts: 2.0 * (100.5 + i) for i, ts in enumerate(sorted(timestamps)[:2])}
 
-    monkeypatch.setattr(item_mod, "_stored_closes", fake_stored)
+    monkeypatch.setattr(item_mod, "read_stored_closes", fake_stored)
     env.record_gaps = []  # the overlap is the only ask
     outcome = _fetch(
         _ctx(FakeProvider()), _row("5m", latest=_5M_LATEST, status="ok"), overlap_days=3
     )
-    assert stored_at["asked"][:2] == ("AAA", "5m")
+    # The stored side is the SAME source's own raw rows (ibkr generic here), never another vendor's.
+    assert stored_at["asked"][:4] == ("AAA", "5m", "ibkr", "generic")
     assert outcome.overlap_pairs == ((201.0, 100.5), (203.0, 101.5))
 
 
@@ -1351,8 +1315,20 @@ def test_no_overlap_means_no_stored_read_and_no_pairs(env, monkeypatch):
     def no_read(*args):
         raise AssertionError("only an overlap-verified item reads stored closes")
 
-    monkeypatch.setattr(item_mod, "_stored_closes", no_read)
+    monkeypatch.setattr(item_mod, "read_stored_closes", no_read)
     outcome = _fetch(_ctx(FakeProvider()), _row("5m", latest=_5M_LATEST, status="ok"))
+    assert outcome.overlap_pairs == ()
+
+
+def test_the_vendor_parity_timeframes_are_never_overlap_verified(env, monkeypatch):
+    def no_read(*args):
+        raise AssertionError("15m and 1h parity rows are not overlap-verified")
+
+    monkeypatch.setattr(item_mod, "read_stored_closes", no_read)
+    env.record_gaps = []
+    outcome = _fetch(
+        _ctx(FakeProvider()), _row("15m", latest=_5M_LATEST, status="ok"), overlap_days=3
+    )
     assert outcome.overlap_pairs == ()
 
 
@@ -1365,10 +1341,10 @@ def test_a_5m_refetch_re_asks_the_whole_depth_including_stored_slots(env):
     start = history_fetch._fetch_start(_END, 7300)
     assert [(c["start"], c["end"]) for c in provider.calls] == [(start, _END)]
     assert outcome.status == "ok"
-    assert env.persist[0].writer is history_fetch._insert_market_data_rows
+    assert env.persist[0].waived is False
 
 
-def test_a_waived_refetch_writes_through_the_waived_grid_writer(env):
+def test_a_waived_refetch_passes_the_waiver_to_the_contract(env):
     _fetch(
         _ctx(FakeProvider()),
         _row("5m", latest=_5M_LATEST, status="ok"),
@@ -1376,7 +1352,7 @@ def test_a_waived_refetch_writes_through_the_waived_grid_writer(env):
         refetch=True,
         waived=True,
     )
-    assert env.persist[0].writer is history_fetch._insert_market_data_rows_waived
+    assert env.persist[0].waived is True
 
 
 def test_a_1d_refetch_re_asks_every_session_of_the_depth_window(env):
@@ -1395,18 +1371,20 @@ def test_a_1d_refetch_re_asks_every_session_of_the_depth_window(env):
     assert outcome.derive_1d_since is not None
 
 
-def test_stored_closes_reads_through_the_ingress_contracts_destination(monkeypatch):
-    """_stored_closes goes through the ingress contract's read_stored, whose _STORED_TABLES
-    is keyed by the ingress contract's own DESTINATION_GRID ("market_data_ohlcv"). The
-    coverage ledger's same-named constant ("grid") is a fetch-destination label, and passing
-    it raised KeyError('grid') on every update-lane item with stored rows: SPY and AAPL in
-    the Task 2 pilot's first run, 13 items in its third (189-10 Task 2 finding)."""
-    seen = {}
+def test_overlap_pairs_read_each_source_series_separately(monkeypatch):
+    """Rows of two (vendor, kind) series in one chunk are paired against their own stored
+    closes: another source's row at the same slot is not an overlap."""
+    ts = datetime(2026, 10, 1, 14, 30, tzinfo=UTC)
+    rows = [
+        RawRow(ts, "SPY", "5m", "ibkr", "named", 1.0, 1.0, 1.0, 10.0, 1),
+        RawRow(ts, "SPY", "5m", "alpaca", "sip_rth", 1.0, 1.0, 1.0, 20.0, 1),
+    ]
+    asked = []
 
-    def fake_read_stored(cur, destination, symbol, timeframe, timestamps):
-        seen["destination"] = destination
-        return {}
+    def fake_stored(conn, symbol, timeframe, vendor, kind, timestamps):
+        asked.append((vendor, kind))
+        return {ts: 5.0} if vendor == "ibkr" else {}
 
-    monkeypatch.setattr(item_mod, "read_stored", fake_read_stored)
-    item_mod._stored_closes(FakeConn(), "SPY", "5m", [datetime(2026, 10, 1, tzinfo=UTC)])
-    assert seen["destination"] == ingress_contract_grid
+    monkeypatch.setattr(item_mod, "read_stored_closes", fake_stored)
+    assert item_mod._overlap_pairs(object(), "SPY", "5m", rows) == [(5.0, 10.0)]
+    assert asked == [("alpaca", "sip_rth"), ("ibkr", "named")]

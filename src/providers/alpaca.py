@@ -11,9 +11,9 @@ Conventions, from the 521 admission build's measured rulings
   convention); ``"none"`` maps to ``raw``. Anything else raises: a silent
   convention mismatch is forbidden.
 - There is no native RTH knob on Alpaca's bars endpoint: the session
-  convention is the engine's grid (``services.bar_load.split_series``), which
-  routes out-of-grid bars to the raw archive instead of dropping them. The
-  leaf therefore returns every bar the vendor serves for the window;
+  convention is applied downstream (canonical selection), and the load engine
+  (``services.bar_load``) offers every served bar to ohlcv_raw, in session or
+  out. The leaf therefore returns every bar the vendor serves for the window;
   ``rth_only`` is consumed downstream, never here.
 
 Pacing: one sustained request rate, APR-backed

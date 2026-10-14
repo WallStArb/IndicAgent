@@ -52,7 +52,7 @@ Flow (CD-01/CD-02/CD-07):
            record_fetch_outcome(...)       -- one ledger write per item (not on gateway loss)
       -> overlap judgment: 1d splits recorded (185-22), 1d and 5m breaches collected
       -> escalation re-fetch of those names, full depth, same connection, same lock
-      -> disconnect; final D1 sink flush
+      -> disconnect; final request ledger flush
       -> daily stage + 1d ledger refresh -> grid stage
       -> SLA gauge, status file, run summary
     FetcherLock.release()
@@ -143,7 +143,7 @@ from services.ohlcv_coverage_writer import (  # noqa: E402
     refresh_1d_bounds,
     reset_failures,
 )
-from services.ohlcv_observation_writer import ObservationSink, new_fetch_run_id  # noqa: E402
+from services.ohlcv_request_writer import RequestSink, new_fetch_run_id  # noqa: E402
 from services.split_detection import judge_overlap_pairs, overlap_pairs  # noqa: E402
 from src.config.settings import (  # noqa: E402
     Settings,
@@ -169,7 +169,7 @@ _DERIVATION_SCRIPT = project_root / "services" / "bar_derivation.py"
 # The update lane's intraday overlap applies to the grid source timeframe: 5m is the one
 # intraday series stored direct (the grid derives 15m and 1h from it).
 _INTRADAY_UPDATE_TF = "5m"
-# The parity sample's vendor timeframes (archive-bound in the item, _history_fetch._ARCHIVE_TFS).
+# The parity sample's vendor timeframes (ordinary raw rows keyed by vendor).
 _PARITY_TFS = ("15m", "1h")
 # The split judgment's APR keys (threshold.seam.*, as ops_split_detect reads them).
 _SEAM_KEYS = ("threshold.seam.rel_tol", "threshold.seam.min_run", "threshold.seam.ratio_snap_tol")
@@ -208,12 +208,12 @@ _TSV_COLUMNS = (
     "lane",
     "due_reason",
 )
-# Names holding 5m rows and vendor archive rows: the parity sample's eligible set.
+# Names holding 5m rows and vendor 15m/1h raw rows: the parity sample's eligible set.
 _PARITY_ELIGIBLE_SQL = (
     "SELECT c.symbol FROM ohlcv_coverage c WHERE c.timeframe = '5m' "
     "AND c.earliest_timestamp IS NOT NULL AND c.symbol = ANY($1::text[]) "
-    "AND EXISTS (SELECT 1 FROM ohlcv_intraday_raw_archive a "
-    "WHERE a.symbol = c.symbol AND a.timeframe = ANY($2::text[]))"
+    "AND EXISTS (SELECT 1 FROM ohlcv_raw r "
+    "WHERE r.symbol = c.symbol AND r.timeframe = ANY($2::text[]))"
 )
 # A corporate action recorded after the series' last applied ingress load before this run:
 # the stored rows have not been reconciled with it, so the escalation re-fetch may rewrite them.
@@ -469,7 +469,7 @@ class RunPlan:
 def item_lane(plan: RunPlan, row: CoverageRow, *, full_scan: bool = False) -> tuple[str, bool, int]:
     """(lane, full_scan, overlap_days) for one item; pure.
 
-    parity: the vendor sample, asked from its latest archive bar, never a full depth;
+    parity: the vendor sample, asked from its latest raw bar, never a full depth;
     gap_fill: the series' gap-fill session (or --full-scan), the full depth window;
     backfill: never fetched or last failed, the item plans the full depth by itself;
     update: since the latest stored bar, 5m widened by the overlap days (1d's overlap is the
@@ -751,7 +751,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             first_bars = empty_history.load_first_bars(conn, list(plan.candidates.instruments))
         finally:
             conn.close()
-        sink = ObservationSink(
+        sink = RequestSink(
             self._connect(),
             caller=_OBSERVATION_CALLER,
             max_buffer_rows=_history_fetch._load_observation_batch_rows(self.settings),
@@ -884,7 +884,7 @@ class OHLCVHistoryFetcher(BaseBatch):
         now: datetime,
     ) -> tuple[tuple[str, str], ...]:
         """This ISO week's parity sample (design section 7): vendor 15m and 1h for
-        infra.backfill.grid_parity_sample_names_per_week names holding 5m and archive rows.
+        infra.backfill.grid_parity_sample_names_per_week names holding 5m and vendor 15m/1h raw rows.
         Default runs only: an explicit run asks exactly what it names."""
         tfs = [tf for tf in _PARITY_TFS if tf in tf_fetch_config]
         if not self._is_default_run() or lanes.parity_names_per_week <= 0 or not tfs:
@@ -1071,7 +1071,7 @@ class OHLCVHistoryFetcher(BaseBatch):
     async def _loop(self, pool: Any, plan: RunPlan, contexts: Sequence[Any]) -> _LoopState:
         """Run the queue with one worker per context (infra.backfill.fetch_concurrency).
 
-        Each worker holds its own connection and observation sink; the provider, the request
+        Each worker holds its own connection and request ledger sink; the provider, the request
         limiter and every DB write path stay as they were (the persist calls are synchronous, so
         the event loop serializes the writes). Workers overlap only while a request is in flight.
         One context is the serial loop."""
@@ -1439,7 +1439,6 @@ class OHLCVHistoryFetcher(BaseBatch):
         loaders stay fetcher-owned; each provider in the run loads its leaf-native overlays
         through its registry entry (soft fallback, never a raise)."""
         settings = self.settings
-        _history_fetch._load_ohlcv_insert_batch_size_config(settings)
         _history_fetch._load_gap_cluster_max_days_config(settings)
         for name in providers:
             self._registry[name].load_overlays(settings)

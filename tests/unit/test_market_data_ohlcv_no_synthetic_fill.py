@@ -36,10 +36,6 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Definition only: SOURCE_SYNTHETIC_FILL, the label the archive refuses and D7 compares "
         "against; nothing builds a row with it (plan 185-42 deleted the fill path)."
     ),
-    "services/intraday_raw_archive.py": (
-        "Refusal and read filter: the archive insert raises on a synthetic_fill row and its "
-        "copy statement excludes the source (the filter goes with 185-39's archive statements)."
-    ),
     "services/ohlcv_raw_writer.py": (
         "Refusal: write_raw raises on a synthetic_fill vendor or kind before any SQL (ohlcv_raw "
         "holds vendor answers only; phase 191 plan 02)."

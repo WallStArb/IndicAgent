@@ -39,12 +39,11 @@ _ALLOW_LIST: dict[str, str] = {
     ),
     "scripts/infrastructure/backfill/_history_fetch.py": (
         "PERMANENT: the phase 189 fetcher's helper library (plan 189-08 made it of the "
-        "historical pipeline). Its raw-table reads (detect_gaps, fetch_bars) and the "
-        "provider-bar store paths treat any stored slot, zero-volume provider bars included, "
-        "as already answered, so a closed slot is not re-requested from IBKR forever; the "
-        "tradeable view's volume > 0 filter would break that. The store holds real rows only "
-        "since plan 185-25, and plan 185-32 deleted the last placeholder path (migration 444 "
-        "refuses synthetic_fill)."
+        "historical pipeline). Its raw-table read (detect_gaps, the legacy grid difference for "
+        "1m and 4h) treats any stored slot, zero-volume provider bars included, as already "
+        "answered, so a closed slot is not re-requested from IBKR forever; the tradeable "
+        "view's volume > 0 filter would break that. Plan 191-06 moves the planner onto "
+        "ohlcv_raw."
     ),
     "scripts/infrastructure/backfill/_d1_gaps.py": (
         "PERMANENT (todo 462, plan 185-18): reads stored slot timestamps for gap planning "
@@ -58,12 +57,6 @@ _ALLOW_LIST: dict[str, str] = {
         "(D-26); its completeness and masked-slot checks (todo 462) classify placeholder and "
         "zero-volume rows, and its late-heads check reads the earliest canonical row of any "
         "real source."
-    ),
-    "services/bar_load.py": (
-        "BAR LOAD ENGINE (todo 521): first-writer-stays reads stored slot stamps directly "
-        "from the raw table (one indexed range query per name) because the tradeable view's "
-        "volume > 0 filter would let the loader insert over a stored zero-volume bar -- a "
-        "stored slot is answered no matter its volume."
     ),
     "scripts/ops/bars/ops_raw_backfill.py": (
         "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "

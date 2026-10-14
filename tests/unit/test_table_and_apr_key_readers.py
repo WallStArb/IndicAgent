@@ -145,7 +145,13 @@ _KEEP_TABLES: dict[str, str] = {
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
 # infra.raw_backfill.statement_timeout_s is read by scripts/ops/bars/ops_raw_backfill.py; plan 17
 # deletes that script and must then add a retire entry here (or a retire migration) for the key.
-_PENDING_RETIREMENT: dict[str, str] = {}
+_PENDING_RETIREMENT: dict[str, str] = {
+    "infra.backfill.ohlcv_insert_batch_size": (
+        "retire: 191-16. Its only reader was the fetcher's market_data_ohlcv / archive insert "
+        "batching, deleted by plan 191-05 (the raw write batches by "
+        "infra.ohlcv_observation.copy_batch_rows)."
+    ),
+}
 
 
 def table_has_reader(table: str, corpus: str) -> bool:

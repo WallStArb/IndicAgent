@@ -22,7 +22,7 @@ from pathlib import Path
 import psycopg
 
 from services.bar_load import LoadPolicy, load_series
-from services.ohlcv_ingress_contract import read_params
+from services.ohlcv_ingress_contract import read_raw_params
 from src.config.settings import get_settings
 from src.intelligence.bars.vendor_ingress import vendor_ingress
 
@@ -50,7 +50,7 @@ def main() -> int:
     artifacts = ingress.read_artifacts(artifact_dir, symbols=args.symbols)
     symbols = args.symbols or sorted(artifacts)
 
-    total = skipped_stored = dropped_extended = 0
+    total = new = unchanged = held = 0
 
     # autocommit: persist_chunk_atomically demands an IDLE connection so its
     # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
@@ -58,37 +58,34 @@ def main() -> int:
     conn = psycopg.connect(get_settings().database_url, autocommit=True)
     try:
         with conn.cursor() as cur:
-            params = read_params(cur)
+            params = read_raw_params(cur)
 
         for symbol in symbols:
             frame = artifacts.get(symbol)
             if frame is None:
                 print(f"{symbol}: no artifact, skipping", flush=True)
                 continue
-            rows, skipped, dropped = load_series(
-                conn, policy, symbol, frame, params=params, write=args.apply
-            )
-            skipped_stored += skipped
-            dropped_extended += dropped
-            total += rows
+            result = load_series(conn, policy, symbol, frame, params=params, write=args.apply)
+            total += result.n_offered
+            new += result.n_new + result.n_changed
+            unchanged += result.n_unchanged
+            held += result.n_held
             if args.apply:
                 print(
-                    f"{symbol}: applied {rows} ({skipped} stored, {dropped} extended)",
+                    f"{symbol}: offered {result.n_offered} ({result.n_new} new, "
+                    f"{result.n_changed} changed, {result.n_unchanged} unchanged, "
+                    f"{result.n_held} held)",
                     flush=True,
                 )
             else:
-                print(f"{symbol}: {rows} new ({skipped} stored, {dropped} extended)", flush=True)
+                print(f"{symbol}: {result.n_offered} to offer", flush=True)
 
     finally:
         conn.close()
 
     mode = "APPLIED" if args.apply else "PLANNED"
-    print(
-        f"{mode}: {total} rows, {skipped_stored} stored-held "
-        f"{'archived' if args.apply else 'to archive'}, "
-        f"{dropped_extended} extended {'archived' if args.apply else 'to archive'}"
-    )
-    return 0
+    print(f"{mode}: {total} rows offered, {new} written, {unchanged} unchanged, {held} held")
+    return 1 if held else 0
 
 
 if __name__ == "__main__":

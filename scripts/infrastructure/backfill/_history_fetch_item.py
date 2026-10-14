@@ -8,10 +8,12 @@ helpers) so it can be tested alone and so a single name can never hold the run:
 
 - CD-01: one fetcher, one item at a time; the queue decides order, this module decides how
   one item is fetched.
-- CD-04: every provider-returned chunk, archive timeframes (15m/1h) and grid timeframes
-  (5m/1d/1m) alike, commits through _intraday_persist.persist_chunk_atomically together with
-  its request rows and its ohlcv_coverage update, so the ledger never describes bars that did
-  not land and no answered request outruns its bars.
+- CD-04: every provider-returned chunk (1m, 5m, 15m, 1h and the daily answers) commits through
+  _intraday_persist.persist_chunk_atomically into ohlcv_raw, together with its request rows and
+  its ohlcv_coverage update, so the ledger never describes bars that did not land and no
+  answered request outruns its bars. Raw is stored per source, agnostic to every other source:
+  the item never asks what another vendor holds. The one refusal left is a vendor restating
+  its OWN stored raw rows beyond the threshold, which fails the item (phase 191 plan 05).
 - CD-05: the outcome is classified so the ledger only charges genuine failures. A correct
   empty answer is 'no_data', never 'error'; a lost gateway is not the item's fault at all.
 - CD-08: a progress-aware stall bound cancels an item whose provider went silent, reconnects
@@ -22,7 +24,7 @@ helpers) so it can be tested alone and so a single name can never hold the run:
 The fetch helpers (gap detection, store paths, per-contract futures, 1m derivation, D1
 capture) live in _history_fetch.py, the CLI-free helper library plan 189-08 made of the
 historical pipeline. Every timeframe stores real provider bars only (plan 185-32), so no
-item writes a placeholder or fetch bookkeeping. All provider access goes through IBKRProvider methods;
+item writes a placeholder, a derived bar or fetch bookkeeping. All provider access goes through IBKRProvider methods;
 src/providers/ibkr.py stays the only ib_async importer.
 
 Phase 190 (provider history plane unification): this module IS the ibkr registry entry's
@@ -41,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -59,22 +62,14 @@ from scripts.infrastructure.backfill._d1_gaps import (
 )
 from scripts.infrastructure.backfill._fetch_queue import ProviderPlan
 from scripts.infrastructure.backfill._history_fetch import (
-    _1M_DAYS_CRYPTO,
-    _1M_DAYS_FX,
-    _ARCHIVE_TFS,
     _EMPTY_HISTORY_PROVIDER,
     _RECORD_PLAN_TFS,
     _TF_MINUTES,
     _capture_kwargs,
     _fetch_start,
     _flush_capture,
-    _insert_archive_rows,
-    _insert_market_data_rows,
-    _insert_market_data_rows_waived,
-    aggregate_bars_from_1m,
     cluster_gap_ranges,
     detect_gaps,
-    fetch_bars,
     fetch_per_contract,
 )
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
@@ -84,12 +79,11 @@ from services.ohlcv_coverage_writer import (
     FETCH_STATUSES,
     CoverageDelta,
 )
-from services.ohlcv_ingress_contract import DESTINATION_GRID as INGRESS_GRID_DESTINATION
-from services.ohlcv_ingress_contract import RevisionRefused, read_stored
+from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions
-from src.intelligence.bars.sources import LABEL_VENDOR
+from src.intelligence.bars.vendor_kind import label_to_vendor_kind, observation_kind
 from src.providers import ibkr
 from src.providers.base import EmptyHistory, HistoryProvider
 
@@ -97,11 +91,10 @@ logger = structlog.get_logger(__name__)
 
 # The 5m grid is the source the 15m/1h grid is derived from (services/bar_derivation.py).
 _GRID_SOURCE_TF = "5m"
-# Timeframes the FX/crypto 1m deep fetch derives when the direct fetch stored nothing (kept
-# from the pipeline for asset_agnostic; no FX/crypto name is active today). 1d left this
-# fallback in plan 185-18 task 1b: its grid rows are the daily derivation's.
-_FX_DERIVED_TFS = frozenset({"5m", "15m", "1h"})
-_FX_SOURCE_TF = "1m"
+# The vendor parity sample's timeframes. Their rows are ordinary raw rows keyed by vendor; the
+# set only keeps the two coverage rules that predate raw (every new row counts, no overlap
+# verification) until plan 191-06 moves coverage onto raw.
+_VENDOR_PARITY_TFS = frozenset({"15m", "1h"})
 
 # The stall bound is checked this many times per stall_timeout_s. Derived check cadence, not a
 # tunable: the bound itself is infra.ibkr.history_request_timeout (APR); three checks per
@@ -239,7 +232,6 @@ class FetchContext:
     conn: Any = None
     qualified: dict[str, bool] = field(default_factory=dict)
     heads_checked: set[str] = field(default_factory=set)
-    fx_derived: set[str] = field(default_factory=set)
 
     def get_conn(self) -> Any:
         """A live connection: the pipeline's SELECT 1 probe and reconnect, in one place."""
@@ -256,22 +248,45 @@ class FetchContext:
         return self.conn
 
 
-def _bar_row(symbol: str, timeframe: str, bar: Any, *, archive: bool) -> tuple:
-    """One bar as the destination writer's row: the grid 9-tuple, or the archive 10-tuple
-    whose trailing base is NULL on fetched bars. Accepts an OHLCVBar or a bar dict."""
-    get = bar.get if isinstance(bar, dict) else lambda key: getattr(bar, key)
-    row = (
-        get("timestamp"),
-        symbol,
-        timeframe,
-        get("open"),
-        get("high"),
-        get("low"),
-        get("close"),
-        get("volume"),
-        get("source"),
-    )
-    return row + (None,) if archive else row
+def _raw_rows(symbol: str, timeframe: str, bars: list[Any], record: Any | None) -> list[RawRow]:
+    """Provider bars as RawRow. Accepts an OHLCVBar or a bar dict.
+
+    Vendor and kind are what the vendor served. A daily answer's kind comes from the request that
+    carried it (route and what_to_show through vendor_kind.observation_kind: smart_trades,
+    smart_adjusted or one venue_<route> kind; an unmapped pair raises). An intraday chunk's kind
+    comes from the bar's source label (ibkr_named is (ibkr, named)), so 15m and 1h are ordinary
+    raw rows with no separate path.
+    """
+    daily_request: tuple[str, str] | None = None
+    if timeframe == "1d":
+        if record is None:
+            raise ValueError(f"{symbol} 1d bars reach the persister without their request record")
+        daily_request = (record.route, record.what_to_show)
+    rows = []
+    for bar in bars:
+
+        def get(key: str, _bar: Any = bar) -> Any:
+            return _bar[key] if isinstance(_bar, dict) else getattr(_bar, key)
+
+        vendor, kind = label_to_vendor_kind(get("source"))
+        if daily_request is not None:
+            kind = observation_kind(vendor, *daily_request)
+        volume = get("volume")
+        rows.append(
+            RawRow(
+                timestamp=get("timestamp"),
+                symbol=symbol,
+                timeframe=timeframe,
+                vendor=vendor,
+                kind=kind,
+                open=get("open"),
+                high=get("high"),
+                low=get("low"),
+                close=get("close"),
+                volume=None if volume is None else int(volume),
+            )
+        )
+    return rows
 
 
 class _ChunkPersister:
@@ -279,16 +294,16 @@ class _ChunkPersister:
 
     Every provider chunk commits through persist_chunk_atomically with the request rows the
     provider reported for it (recorded before on_chunk, todo 462 order) and the series'
-    CoverageDelta, so answer, bars and ledger land in one transaction. The pipeline did this
-    for 15m/1h/5m only; 1m and the placeholder-path timeframes now join (1d persists nothing:
-    its answers are D1 rows, plan 185-18 task 1b).
+    CoverageDelta, so answer, bars and ledger land in one transaction. A daily (1d) answer
+    arrives through on_observation instead, because its raw kind comes from the request's route
+    and what_to_show; it carries no coverage update (the daily derivation stage refreshes the 1d
+    bounds). 15m and 1h are ordinary raw rows.
 
     A refused chunk does not stop the walk: the persist helper has already recorded its answer,
-    archived its served rows and written the refused load row (todo 528), so the provider goes
-    on to older history. A refusal over rows another vendor authored is the source policy
-    working as designed: it is kept in `policy_refusals` and the item still counts as answered.
-    Any other refusal (a vendor restating its own history) is kept in `refusals` and fails
-    the item.
+    the contract held the offered values as pending revisions and wrote the refused load row, so
+    the provider goes on to older history. The only refusal is a vendor restating its OWN stored
+    raw rows beyond the threshold; it is kept in `refusals` and fails the item. A difference
+    from another vendor is not a refusal and never reaches this class.
     """
 
     def __init__(
@@ -305,21 +320,14 @@ class _ChunkPersister:
         self.symbol = symbol
         self.timeframe = timeframe
         self.clock = clock
-        self.archive = timeframe in _ARCHIVE_TFS
-        if waived and self.archive:
-            raise ValueError(f"{symbol} {timeframe}: the revision waiver covers the grid only")
-        self.verify_overlap = verify_overlap and not self.archive
-        self.writer = (
-            _insert_archive_rows
-            if self.archive
-            else (_insert_market_data_rows_waived if waived else _insert_market_data_rows)
-        )
+        self.daily = timeframe == "1d"
+        self.verify_overlap = verify_overlap and timeframe not in _VENDOR_PARITY_TFS
+        self.waived = waived
         self.request_ids: list[Any] = []
         self.persisted: set[datetime] = set()
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
         self.refusals: list[str] = []
-        self.policy_refusals: list[str] = []
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
@@ -329,69 +337,69 @@ class _ChunkPersister:
     async def on_chunk(self, chunk_bars: list[Any]) -> None:
         self.persist(chunk_bars)
 
-    def persist(self, bars: list[Any]) -> None:
+    def on_observation(self, record: Any, bars: list[Any]) -> None:
+        """A daily answer (the provider calls this synchronously after on_request)."""
+        self.persist(bars, record=record)
+
+    def persist(self, bars: list[Any], *, record: Any | None = None) -> None:
         if not bars:
             return
         request_rows = self.ctx.sink.take_requests(list(self.request_ids))
         self.request_ids.clear()
-        rows = [_bar_row(self.symbol, self.timeframe, b, archive=self.archive) for b in bars]
+        rows = _raw_rows(self.symbol, self.timeframe, bars, record)
         conn = self.ctx.get_conn()
         if self.verify_overlap:
-            fresh = {row[0]: row[6] for row in rows}
-            stored = _stored_closes(conn, self.symbol, self.timeframe, sorted(fresh))
-            self.overlap_pairs.extend(
-                (float(stored[ts]), float(fresh[ts])) for ts in sorted(stored)
-            )
-        try:
-            _, n_rows = persist_chunk_atomically(
-                conn,
-                request_rows=request_rows,
-                archive_rows=rows,
-                write_archive_rows=self.writer,
-                coverage=CoverageDelta(
+            self.overlap_pairs.extend(_overlap_pairs(conn, self.symbol, self.timeframe, rows))
+        parity = self.timeframe in _VENDOR_PARITY_TFS
+        result = persist_chunk_atomically(
+            conn,
+            request_rows=request_rows,
+            raw_rows=rows,
+            coverage=(
+                None
+                if self.daily
+                else CoverageDelta(
                     self.symbol,
                     self.timeframe,
-                    DESTINATION_ARCHIVE if self.archive else DESTINATION_GRID,
+                    DESTINATION_ARCHIVE if parity else DESTINATION_GRID,
                     fetched_at=datetime.now(UTC),
-                ),
-            )
-            self.n_rows += n_rows
-        except RevisionRefused as error:
-            stamps = [row[0] for row in rows]
-            detail = f"{min(stamps).date()}-{max(stamps).date()}: {error.detail}"
-            if self._authored_by_other_vendor(conn, error, stamps):
-                self.policy_refusals.append(detail)
-            else:
-                self.refusals.append(detail)
+                )
+            ),
+            waived=self.waived,
+            request_id=uuid.UUID(str(record.request_id)) if record is not None else None,
+        )
+        ingress = result.ingress
+        if ingress is not None and ingress.refused:
+            stamps = [row.timestamp for row in rows]
+            for series in ingress.refused_series:
+                self.refusals.append(f"{min(stamps).date()}-{max(stamps).date()}: {series.detail}")
             logger.warning(
-                "ibkr_history_fetcher.chunk_refused_archived",
+                "ibkr_history_fetcher.chunk_refused_held",
                 symbol=self.symbol,
                 timeframe=self.timeframe,
-                n_served=len(error.rows),
-                detail=error.detail,
+                n_held=ingress.n_held,
+                detail=ingress.refused_series[0].detail,
             )
-        self.persisted.update(row[0] for row in rows)
+        else:
+            self.n_rows += result.n_rows
+        self.persisted.update(row.timestamp for row in rows)
         self.clock.touch()
 
-    def _authored_by_other_vendor(
-        self, conn: Any, error: RevisionRefused, stamps: list[datetime]
-    ) -> bool:
-        """True when every stored row the refused chunk overlaps came from another vendor."""
-        if self.archive:
-            return False
-        with conn.cursor() as cur:
-            stored = read_stored(cur, INGRESS_GRID_DESTINATION, self.symbol, self.timeframe, stamps)
-        vendors = {LABEL_VENDOR.get(values[5]) for values in stored.values()}
-        return bool(vendors) and None not in vendors and error.load.source not in vendors
 
-
-def _stored_closes(
-    conn: Any, symbol: str, timeframe: str, timestamps: list[datetime]
-) -> dict[datetime, float]:
-    """Stored grid closes at `timestamps` (the ingress contract's own stored-row read)."""
-    with conn.cursor() as cur:
-        stored = read_stored(cur, INGRESS_GRID_DESTINATION, symbol, timeframe, timestamps)
-    return {ts: values[3] for ts, values in stored.items()}
+def _overlap_pairs(
+    conn: Any, symbol: str, timeframe: str, rows: list[RawRow]
+) -> list[tuple[float, float]]:
+    """(stored close, fresh close) for every fresh row whose slot the SAME source already stores
+    in raw, read before the write (the update lane's overlap judgment). Another vendor's row at
+    the slot is not an overlap."""
+    fresh: dict[tuple[str, str], dict[datetime, float]] = {}
+    for row in rows:
+        fresh.setdefault((row.vendor, row.kind), {})[row.timestamp] = row.close
+    pairs: list[tuple[float, float]] = []
+    for (vendor, kind), closes in sorted(fresh.items()):
+        stored = read_stored_closes(conn, symbol, timeframe, vendor, kind, closes)
+        pairs.extend((float(stored[ts]), float(closes[ts])) for ts in sorted(stored))
+    return pairs
 
 
 def _merge_windows(windows: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
@@ -610,15 +618,15 @@ async def fetch_item(
     Ported from the historical pipeline script's main()._run_fetch_stage as it
     stands after plans 185-18 (shared gap planner, D1-only 1d), 185-19 (1d empty history
     reconciled from D1) and 185-22 (1d overlap). Changes versus the pipeline:
-    - CD-04: every non-1d chunk persists atomically with its requests and CoverageDelta.
+    - CD-04: every chunk persists atomically with its requests (and CoverageDelta, non-1d).
     - Todo 387: a fully covered series is planned from its latest bar, not 20 years back.
     - CD-05: the outcome is classified (ok / no_data / error) for the ledger.
     - CD-08: the clock is touched on every answered request and persisted chunk.
     - The head lookup, qualify and FX/crypto 1m deep fetch are cached per symbol per run.
 
-    A 1d item stores no bar (D2 owns the 1d grid). When it delivered bars it returns
-    derive_1d_since; the caller runs the daily derivation stage for those symbols, as the
-    pipeline did after its loop.
+    A 1d item stores its answers in ohlcv_raw only, one kind per route and what_to_show (D2 owns
+    the canonical 1d grid). When it delivered bars it returns derive_1d_since; the caller runs
+    the daily derivation stage for those symbols, as the pipeline did after its loop.
 
     Raises GatewayLost when the client is down and cannot be reconnected, and lets a sink
     flush failure raise (phase 185 D-05: raw answers are never dropped silently);
@@ -672,19 +680,12 @@ async def fetch_item(
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
     use_cont = use_continuous and fetch_days > 14 and is_futures
     persister = _ChunkPersister(
-        ctx, symbol, timeframe, clock, verify_overlap=overlap, waived=waived and not d1_capture
+        ctx, symbol, timeframe, clock, verify_overlap=overlap, waived=waived
     )
-    capture = _capture_kwargs(timeframe, ctx.sink, ctx.fetch_run_id)
+    capture = _capture_kwargs(ctx.sink, ctx.fetch_run_id)
+    capture["on_request"] = persister.on_request
     if d1_capture:
-        base_on_request = capture["on_request"]
-
-        def on_request_1d(record: Any) -> None:
-            base_on_request(record)
-            clock.touch()
-
-        capture["on_request"] = on_request_1d
-    else:
-        capture["on_request"] = persister.on_request
+        capture["on_observation"] = persister.on_observation
 
     n_returned = 0
     failed: list[str] = []
@@ -747,26 +748,8 @@ async def fetch_item(
             )
 
     n_bars = n_returned if d1_capture else persister.n_rows
-    if (
-        not d1_capture
-        and n_bars == 0
-        and not persister.refusals
-        and not persister.policy_refusals
-        and instrument.asset_class in (AssetClass.FX, AssetClass.CRYPTO)
-        and timeframe in _FX_DERIVED_TFS
-    ):
-        try:
-            n_bars = await _fx_derive(ctx, instrument, timeframe, clock)
-        except Exception as error:
-            failed.append(f"1m derivation: {error}")
-            logger.error(
-                "ibkr_history_fetcher.fx_derivation_failed",
-                symbol=symbol,
-                timeframe=timeframe,
-                error=str(error),
-            )
 
-    # D1 flush once per item (phase 185 D-05): a failure raises, the item fails loudly.
+    # Ledger flush once per item (phase 185 D-05): a failure raises, the item fails loudly.
     _flush_capture(ctx.sink, ctx.settings)
     if reconcile_1d:
         empty_history.reconcile_empty_history(
@@ -775,7 +758,7 @@ async def fetch_item(
 
     failed.extend(persister.refusals)
     failure = "; ".join(failed) if failed else None
-    answered = n_bars > 0 or bool(persister.policy_refusals)
+    answered = n_bars > 0
     status = "error" if failed else ("ok" if answered else "no_data")
     return ItemOutcome(
         symbol,
@@ -787,47 +770,6 @@ async def fetch_item(
         derive_1d_since=start_dt if d1_capture and n_returned > 0 else None,
         overlap_pairs=tuple(persister.overlap_pairs),
     )
-
-
-async def _fx_derive(
-    ctx: FetchContext, instrument: Any, timeframe: str, clock: ProgressClock
-) -> int:
-    """FX/crypto fallback: derive `timeframe` from 1m when its direct fetch stored nothing.
-
-    Kept from the pipeline for asset_agnostic (no FX/crypto name is active today). The deep
-    1m fetch runs once per symbol per run; its chunks and every derived timeframe's rows
-    persist atomically with their coverage. The pipeline derived every missing timeframe at
-    once after the symbol's loop; per item, each missing timeframe derives from the stored 1m.
-    Returns the derived rows persisted.
-    """
-    symbol = instrument.symbol
-    if symbol not in ctx.fx_derived:
-        ctx.fx_derived.add(symbol)
-        deep_days = _1M_DAYS_FX if instrument.asset_class == AssetClass.FX else _1M_DAYS_CRYPTO
-        deep_start = _midnight(ctx.end_dt - timedelta(days=deep_days))
-        deep = _ChunkPersister(ctx, symbol, _FX_SOURCE_TF, clock)
-        capture = dict(
-            _capture_kwargs(_FX_SOURCE_TF, ctx.sink, ctx.fetch_run_id),
-            on_request=deep.on_request,
-        )
-        bars = await ctx.provider.fetch_historical_bars(
-            symbol=symbol,
-            timeframe=_FX_SOURCE_TF,
-            start=deep_start,
-            end=ctx.end_dt,
-            continuous=False,
-            on_chunk=deep.on_chunk,
-            **capture,
-        )
-        deep.persist([b for b in bars if b.timestamp not in deep.persisted])
-        if getattr(ctx.provider, "last_fetch_failed_chunks", 0):
-            raise RuntimeError(f"{symbol}/1m deep fetch: chunks failed every retry")
-    bars_1m = fetch_bars(ctx.get_conn(), symbol, _FX_SOURCE_TF)
-    if not bars_1m:
-        return 0
-    derived = _ChunkPersister(ctx, symbol, timeframe, clock)
-    derived.persist(aggregate_bars_from_1m(bars_1m, timeframe))
-    return derived.n_rows
 
 
 async def fetch_item_with_retries(

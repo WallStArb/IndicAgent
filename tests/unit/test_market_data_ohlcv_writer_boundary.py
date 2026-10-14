@@ -50,32 +50,11 @@ _ALLOW_LIST: dict[str, str] = {
         "verified by value and only then deleted. Registered in service_auditor.py's "
         "_DAG_ORDER and _ONESHOT_UNITS as indicagent-bar-derivation."
     ),
-    "scripts/infrastructure/backfill/_history_fetch.py": (
-        "PERMANENT: the phase 189 fetcher's provider-bar store (plan 189-08 made this helper "
-        "library of the historical pipeline): raw provider observations at the five- and "
-        "one-minute timeframes only -- the derivation never rewrites those (D-15); "
-        "real-bars-only since plan 185-18 (todo 462), so no synthetic fill reaches the "
-        "table, and five-minute chunks commit through the atomic persist helper under the "
-        "185-39 write contract. Daily bars stopped landing here in plan 185-18 task 1b: "
-        "the fetch captures them into D1 and services/bar_derivation.py owns the daily "
-        "rows. The hourly and quarter-hour fetches are archive-bound raw observations "
-        "(plan 12) routed through services/intraday_raw_archive.py; the grid readers see "
-        "them derived from five-minute bars by bar_derivation (the fetcher's grid stage)."
-    ),
     "services/bar_writer.py": (
         "PERMANENT: the streaming-path bar writer persists provider bars at the one- "
         "and five-minute timeframes only (the live path is dormant while the IBKR feed "
         "is down). Plan 185-18 task 1b made it refuse the derivation-owned timeframes "
         "(daily, hourly, quarter-hour) with a logged warning."
-    ),
-    "services/ohlcv_ingress_contract.py": (
-        "PERMANENT (todo 521, 2026-10-09): the ingress contract now hosts the grid table's "
-        "shared write shapes (MARKET_DATA_INSERT_HEAD / MARKET_DATA_UPSERT_TAIL / "
-        "write_market_data_batches) so every bar writer keeps one INSERT owner; the "
-        "constant-time classification happens before any of these run. It executes only "
-        "through a caller's write_new/write_changed callbacks -- the IBKR fetcher's private "
-        "copies reconcile onto these under todo 301. The contract's own INSERT (ohlcv_load, "
-        "ohlcv_revision) is the 185-39 write record, already part of the 185-39 design."
     ),
 }
 
@@ -83,17 +62,7 @@ _ALLOW_LIST: dict[str, str] = {
 # Writers other than the daily stage that cannot write the derivation-owned timeframes (1d,
 # 15m, 1h) without referencing the DERIVATION_OWNED_TIMEFRAMES fence: why each cannot (plan
 # 185-38: the daily stage is the only 1d writer).
-_FENCE_EXEMPT: dict[str, str] = {
-    "scripts/infrastructure/backfill/_history_fetch.py": (
-        "its raw write is the five- and one-minute persist path only; daily answers go to D1 "
-        "and hourly and quarter-hour answers to the archive (plan 185-18 task 1b)"
-    ),
-    "services/ohlcv_ingress_contract.py": (
-        "it is the classification layer every bar writer routes through, the daily stage "
-        "included: it owns no timeframe policy of its own -- each caller's fence governs "
-        "what the caller may write through it (todo 521 added the shared grid write shapes)"
-    ),
-}
+_FENCE_EXEMPT: dict[str, str] = {}
 
 
 @functools.lru_cache(maxsize=1)

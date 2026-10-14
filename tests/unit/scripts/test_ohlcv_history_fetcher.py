@@ -282,7 +282,6 @@ def _no_side_effects(monkeypatch):
         "_load_ibkr_retry_config",
         "_load_ibkr_venue_fallback_config",
         "_load_ibkr_rate_limit_config",
-        "_load_ohlcv_insert_batch_size_config",
         "_load_gap_cluster_max_days_config",
     ):
         monkeypatch.setattr(hf._history_fetch, loader, lambda settings: None)
@@ -460,7 +459,7 @@ class _RecordingPool:
                             "config_value": "2",
                         },
                     ]
-                if "ohlcv_intraday_raw_archive" in sql:
+                if "ohlcv_raw" in sql:
                     return [{"symbol": s} for s in eligible]
                 if "FROM ohlcv_coverage" in sql:
                     return [
@@ -987,10 +986,11 @@ async def test_the_parity_sample_adds_15m_and_1h_for_sampled_eligible_names_only
     assert len(sampled) == 2 and set(sampled) <= {"AAA", "BBB", "CCC"}
     assert set(plan.parity) == {(s, tf) for s in sampled for tf in ("15m", "1h")}
     assert set(plan.parity) <= set(plan.candidates.pairs)
-    # Held once asked this ISO week; the archive is their destination (the item routes 15m/1h).
+    # Held once asked this ISO week; the vendor 15m/1h rows are ordinary raw rows.
     week_start = fq.parity_week_start(datetime.now(UTC).date())
     assert all(plan.queue.current_after_by_series[p] == week_start for p in plan.parity)
-    assert {"15m", "1h"} <= set(hf._history_fetch._ARCHIVE_TFS)
+    assert {"15m", "1h"} == set(hf._PARITY_TFS)
+    assert not hasattr(hf._history_fetch, "_ARCHIVE_TFS")
     lane = hf._TSV_COLUMNS.index("lane")
     sym = hf._TSV_COLUMNS.index("symbol")
     tf = hf._TSV_COLUMNS.index("timeframe")
@@ -1415,3 +1415,13 @@ def test_unknown_providers_lists_ranked_and_held_ghosts():
     queue.ranked_snapshot = lambda: [fq.RankedItem(ibkr_row, (), False, -1, 0, 1)]  # type: ignore[method-assign]
     queue.held_snapshot = lambda: []  # type: ignore[method-assign]
     assert hf._unknown_providers(queue, ["ibkr"]) == []
+
+
+def test_the_fetcher_uses_the_request_ledger_sink_and_reads_no_retired_store():
+    """Plan 191-05: the fetch ledger sink is services/ohlcv_request_writer.RequestSink; the
+    fetcher imports neither the observation writer nor reads the archive."""
+    source = Path(hf.__file__).read_text()
+    assert "from services.ohlcv_request_writer import RequestSink" in source
+    assert "ohlcv_observation_writer" not in source and "ObservationSink" not in source
+    assert "ohlcv_intraday_raw_archive" not in source
+    assert "FROM ohlcv_raw r" in hf._PARITY_ELIGIBLE_SQL
