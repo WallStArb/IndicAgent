@@ -47,9 +47,11 @@ ANSWERED_OUTCOMES: tuple[str, ...] = ("bars", "no_data")
 COVERAGE_ROUTE = "SMART"
 COVERAGE_WHAT_TO_SHOW = "TRADES"
 
-# IBKR serves NYSE 15m/1h on its own RTH grid (a 09:30 partial 1h bar then
-# clock hours; :00/:15/:30/:45 at 15m), so those timeframes' expected slots are
-# session-anchored rather than on-the-hour UTC (plan 12's 42-name hole).
+# IBKR serves NYSE 15m/1h on its own RTH grid (a 09:30 partial 1h bar then clock hours --
+# 13:30, 14:00, 15:00 UTC in summer, 14:30, 15:00, 16:00 in winter; :00/:15/:30/:45 at 15m), so
+# those timeframes' expected slots are session-anchored rather than on-the-hour UTC (plan 12's
+# 42-name hole). The 1h grid is verified against stored AAPL stamps on 2026-07-14, 2026-01-14
+# and the 2025-11-28 half day.
 _RTH_GRID_TFS = frozenset({"15m", "1h"})
 _GRID_TF_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
 
@@ -215,16 +217,29 @@ def expected_grid_slots(
 
 
 def _rth_grid_slots(timeframe: str, start_dt: datetime, end_dt: datetime) -> list[datetime]:
-    """Session-anchored RTH slots for every NYSE session overlapping the window."""
+    """Session-anchored RTH slots for every NYSE session overlapping the window.
+
+    15m: open-anchored, a 15 minute step. 1h: the opening bar at the session open (a 30 minute
+    partial bar when the session opens at :30), then one bar per clock hour until the close;
+    stepping open + n hours would expect :30 stamps IBKR never serves."""
     interval = timedelta(minutes=_GRID_TF_MINUTES[timeframe])
     sessions = nyse_sessions(start_dt.date() - timedelta(days=1), end_dt.date() + timedelta(days=1))
     slots: list[datetime] = []
     for session_open, session_close in sessions.values():
         slot = session_open
+        if timeframe == "1h":
+            # Subsequent bars start on the clock hour after the open.
+            next_hour = session_open.replace(minute=0, second=0, microsecond=0)
+            if next_hour <= session_open:
+                next_hour += interval
         while slot < session_close:
             if start_dt <= slot <= end_dt:
                 slots.append(slot)
-            slot += interval
+            if timeframe == "1h":
+                slot = next_hour
+                next_hour += interval
+            else:
+                slot += interval
     return slots
 
 
@@ -251,13 +266,20 @@ def plan_gaps(
     horizon = sorted({slot for slot in slots if slot < run_end})
     if not horizon:
         return []
+    # A slot's end is one interval on, or the next slot's start when that comes first (a grid
+    # whose opening bar is shorter than the interval: IBKR's 09:30 1h bar ends at 10:00), so a
+    # request window ends where the bar ends and adjacent slots are contiguous.
+    slot_end = {
+        slot: min(slot + interval, following) if following > slot else slot + interval
+        for slot, following in zip(horizon, [*horizon[1:], horizon[-1]], strict=True)
+    }
     stored_set = set(stored)
     spans = [(empty_from, through) for empty_from, through in empty_ranges if through >= empty_from]
     missing = [
         slot
         for slot in horizon
         if slot not in stored_set
-        and not answered.covers(slot, interval)
+        and not answered.covers(slot, slot_end[slot] - slot)
         and not any(empty_from <= slot <= through for empty_from, through in spans)
     ]
     if not missing:
@@ -266,9 +288,9 @@ def plan_gaps(
     run_start = missing[0]
     prev = missing[0]
     for slot in missing[1:]:
-        if slot - prev != interval:
-            ranges.append((run_start, min(prev + interval, run_end)))
+        if slot != slot_end[prev]:
+            ranges.append((run_start, min(slot_end[prev], run_end)))
             run_start = slot
         prev = slot
-    ranges.append((run_start, min(prev + interval, run_end)))
+    ranges.append((run_start, min(slot_end[prev], run_end)))
     return ranges

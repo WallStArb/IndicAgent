@@ -22,6 +22,7 @@ from src.intelligence.bars.gap_plan import (
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
     AnsweredWindows,
+    expected_grid_slots,
     plan_gaps,
 )
 
@@ -207,3 +208,85 @@ class TestConfirmedEmptySpans:
         from src.intelligence.bars.gap_plan import confirmed_empty_spans
 
         assert confirmed_empty_spans({"SMART": [self._w(1, 5)]}, [], slack=self._DAY) == []
+
+
+# --- the 1h RTH grid is IBKR's stamping: the opening bar, then clock hours (review finding 5) ---
+
+
+def _hhmm(slots):
+    return [slot.strftime("%H:%M") for slot in slots]
+
+
+def _day_slots(year, month, day, timeframe="1h"):
+    return expected_grid_slots(
+        "nyse",
+        "NYSE",
+        timeframe,
+        datetime(year, month, day, tzinfo=UTC),
+        datetime(year, month, day, 23, 59, tzinfo=UTC),
+    )
+
+
+def test_1h_grid_summer_is_the_330_bar_then_clock_hours():
+    # AAPL 2026-07-14 as stored by IBKR
+    assert _hhmm(_day_slots(2026, 7, 14)) == [
+        "13:30", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00"
+    ]  # fmt: skip
+
+
+def test_1h_grid_winter_is_the_430_bar_then_clock_hours():
+    # AAPL 2026-01-14 as stored by IBKR
+    assert _hhmm(_day_slots(2026, 1, 14)) == [
+        "14:30", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"
+    ]  # fmt: skip
+
+
+def test_1h_grid_half_day_stops_at_the_early_close():
+    # 2025-11-28 closes 13:00 ET: the last bar starts 12:00 ET (17:00 UTC)
+    assert _hhmm(_day_slots(2025, 11, 28)) == ["14:30", "15:00", "16:00", "17:00"]
+
+
+def test_15m_grid_is_unchanged_open_anchored_quarters():
+    slots = _day_slots(2026, 7, 14, "15m")
+    assert slots[0].strftime("%H:%M") == "13:30" and slots[-1].strftime("%H:%M") == "19:45"
+    assert len(slots) == 26
+
+
+def test_a_missing_opening_bar_asks_only_its_own_half_hour():
+    slots = _day_slots(2026, 7, 14)
+    stored = slots[1:]
+    plan = plan_gaps(
+        slots,
+        stored,
+        AnsweredWindows(),
+        timedelta(hours=1),
+        run_end=datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    assert plan == [
+        (datetime(2026, 7, 14, 13, 30, tzinfo=UTC), datetime(2026, 7, 14, 14, 0, tzinfo=UTC))
+    ]
+
+
+def test_the_opening_bar_and_the_next_hour_form_one_contiguous_window():
+    slots = _day_slots(2026, 7, 14)
+    plan = plan_gaps(
+        slots,
+        slots[2:],
+        AnsweredWindows(),
+        timedelta(hours=1),
+        run_end=datetime(2026, 7, 15, tzinfo=UTC),
+    )
+    assert plan == [
+        (datetime(2026, 7, 14, 13, 30, tzinfo=UTC), datetime(2026, 7, 14, 15, 0, tzinfo=UTC))
+    ]
+
+
+def test_an_answered_window_ending_at_the_opening_bars_end_covers_it():
+    slots = _day_slots(2026, 7, 14)
+    answered = AnsweredWindows.from_rows(
+        [(datetime(2026, 7, 14, 13, 30, tzinfo=UTC), datetime(2026, 7, 14, 14, 0, tzinfo=UTC))]
+    )
+    plan = plan_gaps(
+        slots, slots[1:], answered, timedelta(hours=1), run_end=datetime(2026, 7, 15, tzinfo=UTC)
+    )
+    assert plan == []

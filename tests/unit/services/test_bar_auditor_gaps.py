@@ -140,7 +140,10 @@ def _async_conn(fetch_results: list[list]) -> AsyncMock:
 async def test_htf_gap_plan_matches_the_shared_planner():
     """The auditor's plan IS plan_gaps for the same inputs (plan acceptance)."""
     agent = _auditor()
-    stored = [(datetime(2026, 1, 2, h, 30, tzinfo=UTC),) for h in range(14, 21) if h != 16]
+    # IBKR's winter 1h stamps: the 09:30 bar at 14:30, then clock hours 15:00 .. 20:00.
+    stored = [(datetime(2026, 1, 2, 14, 30, tzinfo=UTC),)] + [
+        (datetime(2026, 1, 2, h, 0, tzinfo=UTC),) for h in range(15, 21) if h != 17
+    ]
     conn = _async_conn([stored, [], []])  # stored, answered, empty span
 
     plan = await agent._plan_htf_gaps(
@@ -165,14 +168,14 @@ async def test_htf_gap_plan_matches_the_shared_planner():
     assert (
         plan
         == expected
-        == [(datetime(2026, 1, 2, 16, 30, tzinfo=UTC), datetime(2026, 1, 2, 17, 30, tzinfo=UTC))]
+        == [(datetime(2026, 1, 2, 17, 0, tzinfo=UTC), datetime(2026, 1, 2, 18, 0, tzinfo=UTC))]
     )
 
 
 @pytest.mark.asyncio
 async def test_htf_gap_plan_counts_a_definitive_no_data_window_as_covered():
     agent = _auditor()
-    stored = [(datetime(2026, 1, 2, h, 30, tzinfo=UTC),) for h in range(15, 21)]
+    stored = [(datetime(2026, 1, 2, h, 0, tzinfo=UTC),) for h in range(15, 21)]
     answered = [
         (datetime(2026, 1, 2, 14, 30, tzinfo=UTC), datetime(2026, 1, 2, 15, 30, tzinfo=UTC))
     ]
@@ -221,7 +224,7 @@ async def test_htf_gap_plan_folds_a_fresh_confirmed_empty_span():
             3,  # n_confirming_chunks
         )
     ]
-    stored = [(datetime(2026, 1, 2, h, 30, tzinfo=UTC),) for h in range(15, 21)]
+    stored = [(datetime(2026, 1, 2, h, 0, tzinfo=UTC),) for h in range(16, 21)]
     conn = _async_conn([stored, [], empty_row])
 
     plan = await agent._plan_htf_gaps(

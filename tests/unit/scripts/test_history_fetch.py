@@ -661,7 +661,10 @@ class TestArchiveGridRouting:
             datetime(2024, 6, 3, 0, 0, tzinfo=UTC),
             datetime(2024, 6, 3, 23, 59, tzinfo=UTC),
         )
-        assert slots == [datetime(2024, 6, 3, h, 30, tzinfo=UTC) for h in range(13, 20)]
+        # The 09:30 bar (13:30 UTC), then clock hours: IBKR never stamps 14:30 .. 19:30.
+        assert slots == [datetime(2024, 6, 3, 13, 30, tzinfo=UTC)] + [
+            datetime(2024, 6, 3, h, 0, tzinfo=UTC) for h in range(14, 20)
+        ]
 
     def test_15m_nyse_expected_slots_are_session_anchored_quarters(self):
         from scripts.infrastructure.backfill._history_fetch import (
@@ -705,7 +708,7 @@ class TestArchiveGridRouting:
             detect_gaps,
         )
 
-        stored = [(datetime(2024, 6, 3, h, 30, tzinfo=UTC),) for h in range(14, 20)]
+        stored = [(datetime(2024, 6, 3, h, 0, tzinfo=UTC),) for h in range(14, 20)]
         mock_conn = self._mock_conn_for(stored)
         gaps = detect_gaps(
             mock_conn,
