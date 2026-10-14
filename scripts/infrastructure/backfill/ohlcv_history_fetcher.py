@@ -1062,7 +1062,11 @@ class OHLCVHistoryFetcher(BaseBatch):
         print(f"run summary: {json.dumps(self.summary, default=str)}")
         if loop.gateway_lost:
             raise RuntimeError(f"IBKR gateway lost mid-run at {loop.gateway_lost}")
-        failed = loop.n_error > 0 or any(rc != 0 for rc in stage_codes.values())
+        failed = (
+            loop.n_error > 0
+            or loop.n_held_series > 0
+            or any(rc != 0 for rc in stage_codes.values())
+        )
         nothing_succeeded = loop.n_error > 0 and loop.n_ok + loop.n_no_data == 0
         self.completion_status = (
             "failed" if nothing_succeeded else "partial" if failed else "success"
@@ -1469,6 +1473,9 @@ class _LoopState:
     n_ok: int = 0
     n_no_data: int = 0
     n_error: int = 0
+    # Items that held a refused series (settled ok) and the offered rows held (review finding 7).
+    n_held_series: int = 0
+    n_held: int = 0
     n_bars: int = 0
     n_grid_source_rows: int = 0
     budget_exhausted: bool = False
@@ -1486,6 +1493,9 @@ class _LoopState:
             self.n_no_data += 1
         else:
             self.n_error += 1
+        if outcome.held:
+            self.n_held_series += len(outcome.held)
+            self.n_held += outcome.n_held
         self.n_bars += outcome.n_bars
         self.n_grid_source_rows += outcome.n_grid_source_rows
         # Only a clean 1d item is derived and its ledger bounds refreshed (189-03 interface).
@@ -1498,6 +1508,8 @@ class _LoopState:
             "n_ok": self.n_ok,
             "n_no_data": self.n_no_data,
             "n_error": self.n_error,
+            "n_held_series": self.n_held_series,
+            "n_held": self.n_held,
             "n_bars": self.n_bars,
             "n_grid_source_rows": self.n_grid_source_rows,
             "n_1d_derived": len(self.touched_1d),

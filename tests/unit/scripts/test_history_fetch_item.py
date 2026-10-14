@@ -850,15 +850,26 @@ class TwoChunkProvider(FakeProvider):
         return bars
 
 
-def test_a_refused_chunk_is_held_the_walk_continues_and_the_item_fails(env):
+def test_a_refused_chunk_is_held_the_walk_continues_and_the_item_settles_held(env):
     """The contract held a refused chunk's values as pending revisions and wrote nothing to
-    raw; the walk goes on to older chunks, the refused bars are not re-offered as missed by
-    on_chunk, and the refusal fails the item (ledger, escalation and run exit code see it)."""
+    raw; the walk goes on to older chunks and the refused bars are not re-offered as missed by
+    on_chunk. The refusal is a held state, not a failure (review finding 7): the item settles
+    ok so it does not burn the consecutive-failure budget or force a full-window refetch, and
+    the held series and row count ride on the outcome for the run summary."""
     env.refuse_next = True
     outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
     assert len(env.persist) == 2 and env.persist[0].refused
     assert outcome.n_bars == 2  # only the accepted chunk counts as stored
-    assert outcome.status == "error" and "refused: ibkr restated" in (outcome.error or "")
+    assert outcome.status == "ok" and outcome.error is None
+    assert len(outcome.held) == 1 and "refused: ibkr restated" in outcome.held[0]
+    assert outcome.n_held > 0
+
+
+def test_an_item_whose_every_chunk_is_refused_settles_held_not_no_data(env):
+    env.refuse_next = True
+    outcome = _fetch(_ctx(FakeProvider()), _row("5m"))
+    assert outcome.n_bars == 0
+    assert outcome.status == "ok" and outcome.held and outcome.n_held > 0
 
 
 def test_item_status_follows_the_ingress_result_not_a_stored_label(env):

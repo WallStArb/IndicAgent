@@ -780,6 +780,25 @@ async def test_one_outcome_write_per_item_with_its_status(tmp_path, _no_side_eff
     assert '"status": "partial"' in (tmp_path / "status.json").read_text()
 
 
+async def test_a_held_series_is_loud_in_the_summary_and_makes_the_run_partial(
+    tmp_path, _no_side_effects
+):
+    """Review finding 7: a refusal settles the item (status ok, no failure counted) but the run
+    summary carries the held series and rows and the run is partial, never silently success."""
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        if row.symbol == "AAA":
+            return _outcome(row, "ok", held=("refused: ibkr restated 9 / 99",), n_held=9)
+        return _outcome(row, "ok")
+
+    fetcher, _ = _fetcher(tmp_path, _plan([_ranked(s) for s in ("AAA", "BBB")]), fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None and status == "partial"
+    assert fetcher.summary["n_held_series"] == 1 and fetcher.summary["n_held"] == 9
+    assert fetcher.summary["n_error"] == 0
+    assert [o[2] for o in _no_side_effects.outcomes] == ["ok", "ok"]  # no failure charged
+
+
 async def test_a_run_where_every_item_errors_is_failed_not_partial(tmp_path, _no_side_effects):
     async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
         return _outcome(row, "error")

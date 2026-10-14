@@ -104,6 +104,17 @@ _READ_STORED_SQL = (
     'AND "timestamp" = ANY(%s)'
 )
 
+# Pending values already held for a series' keys. Reached through the series' refused loads so
+# the ohlcv_revision primary key (load_id first) is the access path; no index on the series.
+_READ_PENDING_SQL = (
+    'SELECT r."timestamp", r.old_open, r.old_high, r.old_low, r.old_close, r.old_volume '
+    "FROM ohlcv_load l JOIN ohlcv_revision r "
+    "ON r.load_id = l.load_id AND r.symbol = l.symbol AND r.timeframe = l.timeframe "
+    "WHERE l.symbol = %s AND l.timeframe = %s AND l.source = %s AND l.destination = 'raw' "
+    "AND l.outcome = 'refused' AND r.vendor = l.source AND r.kind = %s AND r.origin = 'pending' "
+    'AND r."timestamp" = ANY(%s)'
+)
+
 _REVISION_COLUMNS = (
     "load_id",
     "symbol",
@@ -436,20 +447,30 @@ def hold_pending(
     `rows` are the offered rows of a refused series that differ from the stored row (changed and
     new; unchanged rows need no hold). Each becomes an ohlcv_revision row of origin `pending`
     under the refused load, with the OFFERED value in the old_* columns. Validation is the same as
-    `write_raw`'s, before any SQL. Returns the number of rows held. Never commits.
+    `write_raw`'s, before any SQL. A row whose identical value is already pending for the same
+    key (an earlier refused load of the series) is not written again, so offering a refused
+    series repeatedly does not multiply its hold (review finding 7). Returns the number of rows
+    held, new or already pending. Never commits.
     """
     if load_id is None or request_id is None:
         raise ValueError("hold_pending requires load_id and request_id")
     latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
     held: list[tuple] = []
+    n_held = 0
     for (symbol, timeframe, vendor, kind), keyed in sorted(
         _group_by_series(
             rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
         ).items()
     ):
         label = _label(vendor, kind)
+        with conn.cursor() as cur:
+            cur.execute(_READ_PENDING_SQL, (symbol, timeframe, vendor, kind, sorted(keyed)))
+            already = {(r[0], *r[1:6]) for r in cur.fetchall()}
+        n_held += sum(1 for ts in keyed if (ts, *_values(keyed[ts])[:5]) in already)
         for ts in sorted(keyed):
             values = _values(keyed[ts])
+            if (ts, *values[:5]) in already:
+                continue
             held.append(
                 (
                     load_id,
@@ -467,7 +488,7 @@ def hold_pending(
     if held:
         with conn.cursor() as cur:
             _write_revisions(cur, held)
-    return len(held)
+    return n_held + len(held)
 
 
 def read_stored_closes(

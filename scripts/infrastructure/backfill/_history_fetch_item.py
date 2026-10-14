@@ -126,6 +126,11 @@ class ItemOutcome:
     # daily derivation stage for these symbols and refreshes the 1d ledger bounds from
     # here (plan 185-18 task 1b: D2 is the sole 1d writer, so fetch_item never stores 1d).
     derive_1d_since: datetime | None = None
+    # Refused series held as pending revisions this item (the contract's refusal text) and the
+    # offered rows held. A refusal is a held state, not a failure (review finding 7): the item
+    # settles so it neither burns the failure budget nor forces a full-window refetch.
+    held: tuple[str, ...] = ()
+    n_held: int = 0
     # Update lane (plan 189-10): (stored close, fresh close) for every fresh grid bar whose
     # slot was already stored, read before the write. The fetcher judges them
     # (_fetch_queue.judge_overlap) and escalates a rescaled series in the same run.
@@ -307,7 +312,8 @@ class _ChunkPersister:
     A refused chunk does not stop the walk: the persist helper has already recorded its answer,
     the contract held the offered values as pending revisions and wrote the refused load row, so
     the provider goes on to older history. The only refusal is a vendor restating its OWN stored
-    raw rows beyond the threshold; it is kept in `refusals` and fails the item. A difference
+    raw rows beyond the threshold; it is kept in `refusals` and reported on the outcome as held (the item settles; the run is
+    partial). A difference
     from another vendor is not a refusal and never reaches this class.
     """
 
@@ -333,6 +339,7 @@ class _ChunkPersister:
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
         self.refusals: list[str] = []
+        self.n_held = 0
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
@@ -381,6 +388,7 @@ class _ChunkPersister:
         )
         ingress = result.ingress
         if ingress is not None and ingress.refused:
+            self.n_held += ingress.n_held
             stamps = [row.timestamp for row in rows]
             for series in ingress.refused_series:
                 self.refusals.append(f"{min(stamps).date()}-{max(stamps).date()}: {series.detail}")
@@ -767,9 +775,9 @@ async def fetch_item(
             ctx.get_conn(), "1d", _EMPTY_HISTORY_PROVIDER, symbols=[symbol]
         )
 
-    failed.extend(persister.refusals)
     failure = "; ".join(failed) if failed else None
-    answered = n_bars > 0
+    held = tuple(persister.refusals)
+    answered = n_bars > 0 or bool(held)
     status = "error" if failed else ("ok" if answered else "no_data")
     return ItemOutcome(
         symbol,
@@ -780,6 +788,8 @@ async def fetch_item(
         error=failure,
         derive_1d_since=start_dt if d1_capture and n_returned > 0 else None,
         overlap_pairs=tuple(persister.overlap_pairs),
+        held=held,
+        n_held=persister.n_held,
     )
 
 

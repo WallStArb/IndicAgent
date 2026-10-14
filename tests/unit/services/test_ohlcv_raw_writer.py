@@ -301,7 +301,8 @@ def test_hold_pending_logs_offered_values_as_pending_revisions_and_writes_no_raw
     conn = FakeConn()
     assert _hold(conn, [_row(0, close=12.0), _row(1, close=13.0)]) == 2
     assert not conn.sql("INSERT INTO ohlcv_raw")
-    assert not conn.sql("SELECT")
+    ((select_sql, _),) = conn.sql("SELECT")  # only the pending dedupe read, never ohlcv_raw
+    assert "ohlcv_raw" not in select_sql and "origin = 'pending'" in select_sql
     ((sql, params),) = conn.sql("INSERT INTO ohlcv_revision")
     assert sql.count("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)") == 2
     first = params[:14]
@@ -322,3 +323,37 @@ def test_hold_pending_of_nothing_writes_nothing():
     conn = FakeConn()
     assert _hold(conn, []) == 0
     assert conn.cur.executed == []
+
+
+def _pending(row: RawRow) -> tuple:
+    return (row.timestamp, row.open, row.high, row.low, row.close, row.volume)
+
+
+def test_hold_pending_skips_values_already_pending_for_the_key():
+    """Review finding 7: a refused series offered again unchanged does not rewrite its hold."""
+    first, second = _row(0, close=12.0), _row(1, close=13.0)
+    conn = FakeConn([_pending(first)])
+    assert _hold(conn, [first, second]) == 2  # both are held; only one is new
+    ((_, params),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert len(params) == 14 and params[3] == second.timestamp
+
+
+def test_hold_pending_of_an_identical_reoffer_inserts_nothing():
+    rows = [_row(0, close=12.0), _row(1, close=13.0)]
+    conn = FakeConn([_pending(r) for r in rows])
+    assert _hold(conn, rows) == 2
+    assert not conn.sql("INSERT INTO ohlcv_revision")
+
+
+def test_hold_pending_logs_a_new_value_for_a_key_that_is_already_pending():
+    old = _row(0, close=12.0)
+    conn = FakeConn([_pending(old)])
+    assert _hold(conn, [_row(0, close=12.5)]) == 1
+    assert len(conn.sql("INSERT INTO ohlcv_revision")) == 1
+
+
+def test_hold_pending_dedupe_is_null_volume_safe():
+    row = _row(0, close=12.0, volume=None)
+    conn = FakeConn([_pending(row)])
+    _hold(conn, [row])
+    assert not conn.sql("INSERT INTO ohlcv_revision")
