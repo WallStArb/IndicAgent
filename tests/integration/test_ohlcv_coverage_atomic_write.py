@@ -346,3 +346,28 @@ def test_a_second_provider_upserts_a_distinct_row(live):
                 (symbol,),
             ).fetchall()
             assert rows == [("alpaca", 2), ("ibkr", 3)]
+
+
+def test_rebuild_zeroes_a_provider_row_with_no_raw_and_no_requests(live):
+    """Review finding 4 (plan 191-06): a pre-191 Tradier-era 1d bound under the ibkr label, with
+    no ibkr raw row and no ibkr request, is zeroed; a row that still has raw is untouched, and
+    the fetcher's own state (status, failure counter) is never touched."""
+    conn, symbol = live
+    day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    with conn.transaction():
+        _insert_raw(conn, symbol, "1d", "tradier", "consolidated", [day - timedelta(days=2)])
+        conn.execute(
+            "INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, "
+            "row_count, provider, last_fetch_status, consecutive_failures) "
+            "VALUES (%s, '1d', %s, %s, 2954, 'ibkr', 'error', 6)",
+            (symbol, day - timedelta(days=9), day - timedelta(days=2)),
+        )
+    with conn.transaction():
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL ROLE bar_derivation_writer")
+            assert rebuild_from_stored_state(cur, [symbol], provider="ibkr") == 1
+    assert conn.execute(
+        "SELECT earliest_timestamp, latest_timestamp, row_count, last_fetch_status, "
+        "consecutive_failures FROM ohlcv_coverage WHERE symbol = %s AND provider = 'ibkr'",
+        (symbol,),
+    ).fetchone() == (None, None, 0, "error", 6)

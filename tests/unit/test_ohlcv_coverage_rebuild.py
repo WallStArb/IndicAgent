@@ -28,7 +28,7 @@ class _Cursor:
 def test_rebuild_reads_only_the_providers_vendor_rows_of_raw():
     cur = _Cursor()
     rebuild_from_stored_state(cur, ["AAA"], provider="ibkr")
-    ((sql, params),) = cur.calls
+    (sql, params), _zero = cur.calls
     assert "FROM ohlcv_raw" in sql
     assert "vendor = %(provider)s" in sql
     assert "count(DISTINCT" in sql
@@ -39,8 +39,9 @@ def test_rebuild_reads_only_the_providers_vendor_rows_of_raw():
 
 def test_rebuild_with_no_provider_runs_every_provider_once_in_order():
     cur = _Cursor()
-    assert rebuild_from_stored_state(cur) == len(REBUILD_PROVIDERS)
-    assert [p["provider"] for _, p in cur.calls] == list(REBUILD_PROVIDERS)
+    assert rebuild_from_stored_state(cur) == 2 * len(REBUILD_PROVIDERS)  # upsert + zeroing each
+    upserts = [(sql, p) for sql, p in cur.calls if sql.lstrip().startswith("INSERT")]
+    assert [p["provider"] for _, p in upserts] == list(REBUILD_PROVIDERS)
     assert set(REBUILD_PROVIDERS) == {"ibkr", "alpaca"}
 
 
@@ -53,7 +54,7 @@ def test_rebuild_scoped_to_no_symbols_issues_no_sql():
 def test_each_providers_status_comes_from_its_own_requests_only():
     cur = _Cursor()
     rebuild_from_stored_state(cur)
-    by_provider = {p["provider"]: sql for sql, p in cur.calls}
+    by_provider = {p["provider"]: sql for sql, p in cur.calls if sql.lstrip().startswith("INSERT")}
     assert "source = 'ibkr'" in by_provider["ibkr"]
     assert "source = 'alpaca'" in by_provider["alpaca"]
     assert "source = 'alpaca'" not in by_provider["ibkr"]
@@ -69,8 +70,38 @@ def test_unknown_provider_raises_before_any_sql():
 def test_refresh_1d_reads_the_providers_raw_rows_of_every_kind():
     cur = _Cursor()
     refresh_1d_bounds(cur, ["B", "A", "A"], provider="ibkr")
-    ((sql, params),) = cur.calls
+    (sql, params), _zero = cur.calls
     assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
     assert "kind" not in sql  # a slot counts once whatever its kinds
     assert "market_data_ohlcv" not in sql
     assert params == ("ibkr", "ibkr", ["A", "B"])
+
+
+def test_rebuild_zeroes_a_provider_row_that_has_no_raw_row_of_its_own():
+    cur = _Cursor()
+    rebuild_from_stored_state(cur, ["AAA"], provider="ibkr")
+    _upsert, (sql, params) = cur.calls
+    assert sql.lstrip().startswith("UPDATE ohlcv_coverage")
+    assert "SET earliest_timestamp = NULL, latest_timestamp = NULL, row_count = 0" in sql
+    assert "c.provider = %(provider)s" in sql
+    assert "NOT EXISTS" in sql and "m.vendor = c.provider" in sql
+    # status, counter and last_fetched_at describe the fetcher's outcomes: never touched here
+    for untouched in ("last_fetch_status", "consecutive_failures", "last_fetched_at"):
+        assert untouched not in sql
+    assert params == {"provider": "ibkr", "symbols": ["AAA"]}
+
+
+def test_unscoped_rebuild_zeroes_across_every_series_of_the_provider():
+    cur = _Cursor()
+    rebuild_from_stored_state(cur, provider="alpaca")
+    _upsert, (sql, params) = cur.calls
+    assert "symbol = ANY" not in sql
+    assert params == {"provider": "alpaca"}
+
+
+def test_refresh_1d_zeroes_a_symbol_the_provider_holds_no_1d_raw_for():
+    cur = _Cursor()
+    refresh_1d_bounds(cur, ["QRVO"], provider="ibkr")
+    _refresh, (sql, params) = cur.calls
+    assert "c.timeframe = '1d'" in sql and "NOT EXISTS" in sql
+    assert params == {"provider": "ibkr", "symbols": ["QRVO"]}

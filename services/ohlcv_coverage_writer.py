@@ -172,6 +172,23 @@ ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
 """
 
 
+# A ledger row that states bounds or a row count for a series the provider holds no raw row of
+# is stale state under that provider's label (a pre-191 Tradier-era 1d bound labeled ibkr): the
+# row equals a direct count over the provider's own raw, which is zero. The upsert above only
+# reaches series present in raw or in requests, so this zeroes the rest. Fetch status, the
+# failure counter and last_fetched_at are untouched: they describe the fetcher's own outcomes.
+_ZERO_NO_RAW_SQL = """
+UPDATE ohlcv_coverage c
+SET earliest_timestamp = NULL, latest_timestamp = NULL, row_count = 0
+WHERE c.provider = %(provider)s {where}
+  AND (c.row_count <> 0 OR c.earliest_timestamp IS NOT NULL OR c.latest_timestamp IS NOT NULL)
+  AND NOT EXISTS (
+      SELECT 1 FROM ohlcv_raw m
+      WHERE m.symbol = c.symbol AND m.timeframe = c.timeframe AND m.vendor = c.provider
+  )
+"""
+
+
 def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr") -> int:
     """Recompute the 1d bounds and row count of `symbols` from the provider's own raw rows.
 
@@ -180,14 +197,20 @@ def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr
     the queue's 1d staleness reads what this vendor holds. Counted in distinct session
     stamps (a vendor's listing-venue and adjusted kinds share a stamp). Recomputed, not
     widened: a vendor may restate a history. Fetch status and the failure counter are left to
-    record_fetch_outcome. A symbol with no raw 1d row of the provider is left untouched.
+    record_fetch_outcome. A symbol with no raw 1d row of the provider has its row zeroed (no
+    bounds, no rows): the ledger never states bars the provider does not hold.
     Runs under SET LOCAL ROLE bar_derivation_writer. Returns rows written.
     """
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
     cur.execute(_REFRESH_1D_SQL, (provider, provider, symbol_list))
-    return int(cur.rowcount)
+    written = int(cur.rowcount)
+    cur.execute(
+        _ZERO_NO_RAW_SQL.format(where="AND c.timeframe = '1d' AND c.symbol = ANY(%(symbols)s)"),
+        {"provider": provider, "symbols": symbol_list},
+    )
+    return written + int(cur.rowcount)
 
 
 # The per-source aggregate: every row derives from this vendor's own ohlcv_raw rows, grouped by
@@ -265,7 +288,8 @@ def rebuild_from_stored_state(
     stored bars without going through persist_chunk_atomically leaves rows stale or missing.
     This is the same aggregate over ohlcv_raw, per source: earliest, latest and row_count
     (distinct slots) are recomputed (not widened) from the rows of `vendor = provider`, whether
-    or not another vendor's rows are canonical there; missing series are inserted. The
+    or not another vendor's rows are canonical there; missing series are inserted, and a provider row
+    with no raw row of its own is zeroed. The
     provider's own request shape (_REBUILD_FILTERS) advances last_fetched_at and
     last_fetch_status only when it is newer than what the ledger holds. `provider` None
     rebuilds every provider (REBUILD_PROVIDERS). An unknown provider raises before any SQL (a
@@ -289,7 +313,9 @@ def rebuild_from_stored_state(
     if symbols is None:
         sql = _REBUILD_SQL.format(where="", request_where=request_filter)
         cur.execute(sql, {"provider": provider})
-        return int(cur.rowcount)
+        written = int(cur.rowcount)
+        cur.execute(_ZERO_NO_RAW_SQL.format(where=""), {"provider": provider})
+        return written + int(cur.rowcount)
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
@@ -298,7 +324,12 @@ def rebuild_from_stored_state(
         request_where=f"{request_filter} AND symbol = ANY(%(symbols)s)",
     )
     cur.execute(sql, {"provider": provider, "symbols": symbol_list})
-    return int(cur.rowcount)
+    written = int(cur.rowcount)
+    cur.execute(
+        _ZERO_NO_RAW_SQL.format(where="AND c.symbol = ANY(%(symbols)s)"),
+        {"provider": provider, "symbols": symbol_list},
+    )
+    return written + int(cur.rowcount)
 
 
 def reset_failures(cur: Any, symbol: str, timeframe: str | None, *, provider: str = "ibkr") -> int:
