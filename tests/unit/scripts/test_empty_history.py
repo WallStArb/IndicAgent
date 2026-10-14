@@ -108,56 +108,44 @@ def test_record_without_a_prior_range_stores_the_observed_range():
     assert params[6] == 2
 
 
-def test_record_head_stores_only_a_successful_lookup():
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
-    assert cur.execute.call_args.args[1] == ("GEV", "ibkr", _dt(2024, 3, 27))
-
-
 # ---------------------------------------------------------------------------
-# Phase 190 plan 03 Task 2: per-TF provider head writes and reads (wave-5 gate)
+# Provider heads: per-(symbol, timeframe) verified rows; seeded floors are not heads
 # ---------------------------------------------------------------------------
 
 
-def test_record_head_per_tf_upserts_the_three_column_key():
-    """The per-TF head upsert is written for migration 465's key shape. WAVE-5 ACTIVATION
-    GATE: it is NOT the live path until 190-06 Task 2 applies 465 and flips the write - its
-    ON CONFLICT (symbol, provider, timeframe) has no matching unique index on the live
-    tables (PK (symbol, provider)) before that flip."""
+def test_record_head_upserts_a_verified_row_at_the_three_column_key():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
     eh.record_head_per_tf(conn, "GEV", "ibkr", "5m", _dt(2024, 3, 27))
     sql = cur.execute.call_args.args[0]
-    assert "(symbol, provider, timeframe, head_ts, verified_at)" in sql
+    assert "(symbol, provider, timeframe, head_ts, verified_at, head_kind)" in sql
     assert "ON CONFLICT (symbol, provider, timeframe)" in sql
+    # a successful lookup replaces a seeded floor: the row becomes a verified head
+    assert "head_kind = 'verified'" in sql
     assert cur.execute.call_args.args[1] == ("GEV", "ibkr", "5m", _dt(2024, 3, 27))
 
 
-def test_record_head_stays_the_old_shape_live_path():
-    """While 465 is un-applied the live write path is the old (symbol, provider) upsert."""
-    conn = MagicMock()
-    cur = conn.cursor.return_value.__enter__.return_value
-    eh.record_head(conn, "GEV", "ibkr", _dt(2024, 3, 27))
-    sql = cur.execute.call_args.args[0]
-    assert "timeframe" not in sql.split("VALUES")[0].split("(")[1].split(")")[0]
-    assert "ON CONFLICT (symbol, provider)" in sql
-
-
-def test_load_fresh_heads_per_tf_prefers_the_timeframe_row():
-    """The per-TF read (same wave-5 gate): a timeframe row beats the provider's
-    NULL-timeframe (pre-465 1d) row for the same symbol."""
+def test_load_fresh_heads_reads_verified_rows_only_keyed_by_symbol_and_timeframe():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
     cur.fetchall.return_value = [
         ("GEV", "5m", _dt(2024, 3, 27)),
-        ("GEV", None, _dt(2010, 1, 4)),
-        ("TMUS", None, _dt(2007, 4, 19)),
+        ("GEV", "1d", _dt(2010, 1, 4)),
     ]
-    heads = eh.load_fresh_heads_per_tf(conn, "ibkr", "5m", 90)
-    assert heads == {"GEV": _dt(2024, 3, 27), "TMUS": _dt(2007, 4, 19)}
-    sql = cur.execute.call_args.args[0]
-    assert "timeframe = %s OR timeframe IS NULL" in sql
+    heads = eh.load_fresh_heads(conn, "ibkr", 90)
+    # the 5m and 1d rows of one symbol never overwrite each other
+    assert heads == {("GEV", "5m"): _dt(2024, 3, 27), ("GEV", "1d"): _dt(2010, 1, 4)}
+    sql, params = cur.execute.call_args.args
+    assert "head_kind = 'verified'" in sql
+    assert params == ("ibkr", 90)
+
+
+def test_load_tape_floors_reads_only_the_seeded_floor_rows():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = [("GEV", "1d", _dt(2000, 1, 3))]
+    assert eh.load_tape_floors(conn, "ibkr") == {("GEV", "1d"): _dt(2000, 1, 3)}
+    assert "head_kind = 'floor'" in cur.execute.call_args.args[0]
 
 
 # --- raw is per source: pre-history and real-bar probes read the asking vendor's rows -------
@@ -187,14 +175,17 @@ def test_has_bar_between_reads_only_the_vendors_own_raw_rows():
     assert params == ("GEV", "1d", "ibkr", _dt(2024, 1, 1), _dt(2024, 2, 1))
 
 
-def test_first_bars_are_the_vendors_oldest_raw_bar():
+def test_first_bar_is_the_vendors_oldest_raw_bar_for_the_named_timeframe():
     conn = MagicMock()
     cur = conn.cursor.return_value.__enter__.return_value
-    cur.fetchall.return_value = [("GEV", _dt(2020, 1, 1)), ("NEW", None)]
-    assert eh.load_first_bars(conn, ["GEV", "NEW"], "ibkr") == {"GEV": _dt(2020, 1, 1)}
+    cur.fetchone.return_value = (_dt(2020, 1, 1),)
+    assert eh.load_first_bar(conn, "GEV", "5m", "ibkr") == _dt(2020, 1, 1)
     sql, params = cur.execute.call_args.args
-    assert "FROM ohlcv_raw" in sql and "m.vendor = %s" in sql
-    assert params == ("ibkr", ["GEV", "NEW"])
+    # naming the timeframe lets the (symbol, timeframe, timestamp) index serve the MIN
+    assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql and "timeframe = %s" in sql
+    assert params == ("GEV", "5m", "ibkr")
+    cur.fetchone.return_value = (None,)
+    assert eh.load_first_bar(conn, "NEW", "5m", "ibkr") is None
 
 
 def test_reconcile_asks_the_providers_own_raw_whether_the_window_is_pre_history(monkeypatch):

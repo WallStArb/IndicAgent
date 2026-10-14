@@ -498,6 +498,7 @@ def env(monkeypatch, make_ingress_result):
         reconciled=[],
         reconciled_1d=[],
         heads_recorded=[],
+        first_bar_reads=[],
         per_contract=[],
         record_gaps=[_RECORD_GAP],
         legacy_gaps=[_LEGACY_GAP],
@@ -605,7 +606,14 @@ def env(monkeypatch, make_ingress_result):
         or {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0},
     )
     monkeypatch.setattr(
-        item_mod.empty_history, "record_head", lambda *a, **k: rec.heads_recorded.append(a)
+        item_mod.empty_history,
+        "load_first_bar",
+        lambda conn, symbol, timeframe, vendor: rec.first_bar_reads.append(
+            (symbol, timeframe, vendor)
+        ),
+    )
+    monkeypatch.setattr(
+        item_mod.empty_history, "record_head_per_tf", lambda *a, **k: rec.heads_recorded.append(a)
     )
     return rec
 
@@ -1056,8 +1064,12 @@ def test_head_lookup_once_per_symbol_floors_the_window(env):
     ctx = _ctx(provider)
     _fetch(ctx, _row("15m"))
     _fetch(ctx, _row("1h"))
-    assert provider.head_calls == ["AAA"]
-    assert len(env.heads_recorded) == 1
+    assert provider.head_calls == ["AAA"]  # one provider lookup serves both timeframes
+    # one head row per (symbol, vendor, timeframe), written under ctx.vendor
+    assert [(a[1], a[2], a[3]) for a in env.heads_recorded] == [
+        ("AAA", "ibkr", "15m"),
+        ("AAA", "ibkr", "1h"),
+    ]
     # Head snapped to midnight UTC so the listing day's own bars are still asked for.
     assert env.gap_calls[0].start == datetime(2016, 10, 18, tzinfo=UTC)
     assert env.gap_calls[1].start == datetime(2016, 10, 18, tzinfo=UTC)
@@ -1087,17 +1099,75 @@ def test_no_head_lookup_for_single_request_timeframes_futures_or_tail_windows(en
 
 def test_no_head_lookup_when_stored_history_reaches_the_window_start(env):
     provider = FakeProvider()
-    ctx = _ctx(provider, first_bars={"AAA": datetime(2000, 1, 3, tzinfo=UTC)})
+    ctx = _ctx(provider, first_bars={("ibkr", "AAA", "15m"): datetime(2000, 1, 3, tzinfo=UTC)})
     _fetch(ctx, _row("15m"))
     assert provider.head_calls == []
 
 
 def test_fresh_stored_head_floors_without_a_lookup(env):
     provider = FakeProvider()
-    ctx = _ctx(provider, fresh_heads={"AAA": datetime(2015, 3, 2, 14, 30, tzinfo=UTC)})
+    ctx = _ctx(
+        provider, fresh_heads={("ibkr", "AAA", "15m"): datetime(2015, 3, 2, 14, 30, tzinfo=UTC)}
+    )
     _fetch(ctx, _row("15m"))
     assert provider.head_calls == []
     assert env.gap_calls[0].start == datetime(2015, 3, 2, tzinfo=UTC)
+
+
+def test_the_first_bar_is_read_lazily_once_and_only_when_a_lookup_depends_on_it(env):
+    provider = FakeProvider()
+    ctx = _ctx(provider)
+    _fetch(ctx, _row("15m"))
+    _fetch(ctx, _row("15m"))
+    # one read per (vendor, symbol, timeframe) for the run, none for single-request series
+    assert env.first_bar_reads == [("AAA", "15m", "ibkr")]
+    _fetch(ctx, _row("1d"))  # one 1d request covers the depth: no lookup, so no read
+    assert ("AAA", "1d", "ibkr") not in env.first_bar_reads
+
+
+def test_a_seeded_tape_floor_is_not_a_head_the_lookup_still_runs(env):
+    """Migration 478: a seeded floor says nothing exists before it, never where the symbol's
+    history begins, so it must not stop the head lookup; the verified answer then floors."""
+    provider = FakeProvider()
+    provider.head_answer = (datetime(2021, 1, 4, 14, 30, tzinfo=UTC), None)
+    floor = datetime(2000, 1, 3, tzinfo=UTC)
+    ctx = _ctx(provider, tape_floors={("ibkr", "AAA", "15m"): floor})
+    _fetch(ctx, _row("15m"))
+    assert provider.head_calls == ["AAA"]
+    assert env.gap_calls[0].start == datetime(2021, 1, 4, tzinfo=UTC)
+
+
+def test_the_tape_floor_bounds_the_window_when_the_lookup_fails(env):
+    provider = FakeProvider()  # no head answer: the lookup fails
+    floor = datetime(2016, 5, 6, 22, 0, tzinfo=UTC)
+    ctx = _ctx(provider, tape_floors={("ibkr", "AAA", "15m"): floor})
+    _fetch(ctx, _row("15m"))
+    assert env.gap_calls[0].start == datetime(2016, 5, 6, tzinfo=UTC)
+    assert env.heads_recorded == []  # a failed lookup and a floor are never stored as a head
+
+
+def test_heads_and_first_bars_are_read_for_the_items_own_vendor(env):
+    provider = FakeProvider()
+    other = datetime(2015, 3, 2, tzinfo=UTC)
+    ctx = _ctx(provider, fresh_heads={("alpaca", "AAA", "15m"): other})
+    _fetch(ctx, _row("15m"))
+    assert provider.head_calls == ["AAA"]  # alpaca's verified head never floors ibkr's item
+
+
+def test_a_failed_window_wholly_before_the_head_is_not_a_series_failure(env):
+    provider = FakeProvider()
+    provider.raise_on_fetch = RuntimeError("IBKR 162 no data")
+    head = datetime(2021, 1, 4, tzinfo=UTC)
+    ctx = _ctx(provider, fresh_heads={("ibkr", "AAA", "15m"): head})
+    env.record_gaps = [(datetime(2018, 1, 2, tzinfo=UTC), datetime(2018, 1, 3, tzinfo=UTC))]
+    outcome = _fetch(ctx, _row("15m"))
+    assert outcome.status != "error"
+    # ...but the same failure at or after the head still counts
+    env.record_gaps = [(datetime(2021, 2, 1, tzinfo=UTC), datetime(2021, 2, 2, tzinfo=UTC))]
+    assert (
+        _fetch(_ctx(provider, fresh_heads={("ibkr", "AAA", "15m"): head}), _row("15m")).status
+        == "error"
+    )
 
 
 def test_per_contract_futures_route_through_fetch_per_contract(env):

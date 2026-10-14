@@ -62,7 +62,6 @@ from scripts.infrastructure.backfill._d1_gaps import (
 )
 from scripts.infrastructure.backfill._fetch_queue import ProviderPlan
 from scripts.infrastructure.backfill._history_fetch import (
-    _EMPTY_HISTORY_PROVIDER,
     _RECORD_PLAN_TFS,
     _TF_MINUTES,
     _capture_kwargs,
@@ -221,10 +220,16 @@ class FetchContext:
     tf_fetch_config: Mapping[str, tuple[int, bool]]
     end_dt: datetime
     run_started_at: datetime
-    empty_ranges: Mapping[tuple[str, str], Any]
+    # Run-level provider state, keyed (vendor, symbol, timeframe) so one shared context serves
+    # every vendor of the run and an item reads only its own vendor's records (raw is per
+    # source). empty_ranges: recorded pre-history spans; fresh_heads: verified provider heads;
+    # tape_floors: seeded one-direction floors (nothing exists before them, they are not heads);
+    # first_bars: the vendor's oldest own raw bar, read lazily by _head_floor and cached here.
+    empty_ranges: Mapping[tuple[str, str, str], Any]
     empty_reverify_days: int
-    fresh_heads: dict[str, datetime]
-    first_bars: Mapping[str, datetime]
+    fresh_heads: dict[tuple[str, str, str], datetime]
+    first_bars: dict[tuple[str, str, str], datetime]
+    tape_floors: Mapping[tuple[str, str, str], datetime] = field(default_factory=dict)
     days_override: int | None = None
     per_contract: bool = False
     # Plan 185-22 (D-21): re-ask the last N 1d sessions so a split shows as a constant ratio.
@@ -235,7 +240,10 @@ class FetchContext:
     plan: ProviderPlan | None = None
     conn: Any = None
     qualified: dict[str, bool] = field(default_factory=dict)
-    heads_checked: set[str] = field(default_factory=set)
+    # (vendor, symbol) -> the head lookup's answer this run (None: the lookup failed); one
+    # provider call per symbol serves every timeframe's head row.
+    first_bars_checked: set[tuple[str, str, str]] = field(default_factory=set)
+    head_lookups: dict[tuple[str, str], datetime | None] = field(default_factory=dict)
 
     @property
     def vendor(self) -> str:
@@ -483,39 +491,66 @@ async def _ensure_qualified(ctx: FetchContext, instrument: Any) -> bool:
     return ctx.qualified[symbol]
 
 
+def _vendor_first_bar(
+    ctx: FetchContext, vendor: str, symbol: str, timeframe: str
+) -> datetime | None:
+    """The vendor's oldest own raw bar for the series, read once per run and cached."""
+    key = (vendor, symbol, timeframe)
+    if key not in ctx.first_bars and key not in ctx.first_bars_checked:
+        ctx.first_bars_checked.add(key)
+        found = empty_history.load_first_bar(ctx.get_conn(), symbol, timeframe, vendor)
+        if found is not None:
+            ctx.first_bars[key] = found
+    return ctx.first_bars.get(key)
+
+
 async def _head_floor(
     ctx: FetchContext, instrument: Any, timeframe: str, start_dt: datetime, *, tail: bool
 ) -> datetime | None:
-    """The provider head snapped to midnight UTC, or None (migration 355).
+    """The earliest instant worth asking for this series, snapped to midnight UTC, or None.
 
-    Looked up at most once per symbol per run, never for futures (the head is the named
-    front month's, the long timeframes come from the continuous contract), never for a tail
-    window, and only when this timeframe needs more than one chunk and stored history does
-    not already reach the window start. A failed lookup applies no floor and is retried next
-    run, never stored. Snapped to midnight: the head is the first trade's time, and a 1d bar
-    is stamped 00:00, so flooring to the date skips less, never more.
+    A verified provider head (migration 355/465, one row per symbol and timeframe) wins; with
+    none, the lookup runs when this timeframe needs more than one chunk and the vendor's own
+    stored history does not already reach the window start, and its answer is recorded for
+    the timeframe. A seeded tape floor is only the fallback bound when no head is known: it
+    says nothing exists before it, never where the symbol's history begins. Never for futures
+    (the head is the named front month's, the long timeframes come from the continuous
+    contract), never for a tail window. One provider lookup per symbol per run serves every
+    timeframe. A failed lookup is not stored and is retried next run. Snapped to midnight: the
+    head is the first trade's time and a 1d bar is stamped 00:00, so flooring to the date
+    skips less, never more.
     """
     symbol = instrument.symbol
     if instrument.asset_class == AssetClass.FUTURES:
         return None
-    head_ts = ctx.fresh_heads.get(symbol)
+    vendor = ctx.vendor
+    key = (vendor, symbol, timeframe)
+    head_ts = ctx.fresh_heads.get(key)
     single_request = _depth_days(ctx, timeframe) <= ibkr._MAX_CHUNK_DAYS.get(timeframe, 0)
-    first_bar = ctx.first_bars.get(symbol)
-    if (
-        head_ts is None
-        and not tail
-        and not single_request
-        and symbol not in ctx.heads_checked
-        and (first_bar is None or first_bar > start_dt)
-    ):
-        ctx.heads_checked.add(symbol)
-        head_ts, head_error = await ctx.provider.get_head_timestamp(symbol)
+    if head_ts is None and not tail and not single_request:
+        first_bar = _vendor_first_bar(ctx, vendor, symbol, timeframe)
+        needs_head = first_bar is None or first_bar > start_dt
+    else:
+        needs_head = False
+    if needs_head:
+        lookup_key = (vendor, symbol)
+        if lookup_key not in ctx.head_lookups:
+            head_ts, head_error = await ctx.provider.get_head_timestamp(symbol)
+            ctx.head_lookups[lookup_key] = head_ts
+            if head_ts is None:
+                logger.info("ibkr_history_fetcher.no_head", symbol=symbol, error=str(head_error))
+        head_ts = ctx.head_lookups[lookup_key]
         if head_ts is not None:
-            empty_history.record_head(ctx.get_conn(), symbol, _EMPTY_HISTORY_PROVIDER, head_ts)
-            ctx.fresh_heads[symbol] = head_ts
-        else:
-            logger.info("ibkr_history_fetcher.no_head", symbol=symbol, error=str(head_error))
+            empty_history.record_head_per_tf(ctx.get_conn(), symbol, vendor, timeframe, head_ts)
+            ctx.fresh_heads[key] = head_ts
+    if head_ts is None:
+        head_ts = ctx.tape_floors.get(key)
     return _midnight(head_ts) if head_ts is not None else None
+
+
+def _before_head(window_end: datetime, head_floor: datetime | None) -> bool:
+    """True when the whole window lies at or before the vendor's head (or tape floor)."""
+    return head_floor is not None and window_end <= head_floor
 
 
 def _plan_gaps(
@@ -535,7 +570,7 @@ def _plan_gaps(
     """
     symbol, end_dt = instrument.symbol, ctx.end_dt
     vendor = ctx.vendor
-    empty = ctx.empty_ranges.get((symbol, timeframe))
+    empty = ctx.empty_ranges.get((vendor, symbol, timeframe))
     # The no-data evidence threshold is the item plan's (phase 190); the leaf module's own
     # constant is the fallback for a context built without one.
     min_confirmations = (
@@ -789,7 +824,16 @@ async def fetch_item(
             )
             # A chunk that failed every retry does not raise; the window is incomplete.
             n_failed_chunks = getattr(ctx.provider, "last_fetch_failed_chunks", 0)
-            if n_failed_chunks:
+            if n_failed_chunks and _before_head(gap_end, head_floor):
+                # The vendor holds nothing before its head: a failed ask for that span is not
+                # a series failure and must not walk the series toward its exclusion.
+                logger.info(
+                    "ibkr_history_fetcher.failure_before_head_ignored",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    window_end=str(gap_end.date()),
+                )
+            elif n_failed_chunks:
                 failed.append(f"{gap_start.date()}-{gap_end.date()}: {n_failed_chunks} chunk(s)")
             n_returned += len(bars)
             if not d1_capture:
@@ -806,14 +850,23 @@ async def fetch_item(
                         ctx.get_conn(),
                         symbol,
                         timeframe,
-                        _EMPTY_HISTORY_PROVIDER,
+                        ctx.vendor,
                         (gap_start, gap_end),
                         observed[-1] if observed else None,
-                        ctx.empty_ranges.get((symbol, timeframe)),
+                        ctx.empty_ranges.get((ctx.vendor, symbol, timeframe)),
                         # chunk boundaries sit a day apart
                         timedelta(days=1) + interval,
                     )
         except Exception as error:
+            if _before_head(gap_end, head_floor):
+                logger.info(
+                    "ibkr_history_fetcher.failure_before_head_ignored",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    window_end=str(gap_end.date()),
+                    error=str(error),
+                )
+                continue
             failed.append(f"{gap_start.date()}-{gap_end.date()}: {error}")
             logger.error(
                 "ibkr_history_fetcher.window_failed",
@@ -829,9 +882,7 @@ async def fetch_item(
     # Ledger flush once per item (phase 185 D-05): a failure raises, the item fails loudly.
     _flush_capture(ctx.sink, ctx.settings)
     if reconcile_1d:
-        empty_history.reconcile_empty_history(
-            ctx.get_conn(), "1d", _EMPTY_HISTORY_PROVIDER, symbols=[symbol]
-        )
+        empty_history.reconcile_empty_history(ctx.get_conn(), "1d", ctx.vendor, symbols=[symbol])
 
     unmapped = tuple(persister.unmapped)
     if unmapped:

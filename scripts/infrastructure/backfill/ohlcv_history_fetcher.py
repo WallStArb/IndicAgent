@@ -743,14 +743,21 @@ class OHLCVHistoryFetcher(BaseBatch):
     def _default_context(self, provider: Any, plan: RunPlan, fetch_run_id: str) -> FetchContext:
         conn = self._connect()
         try:
-            empty_ranges = empty_history.load(conn, _history_fetch._EMPTY_HISTORY_PROVIDER)
             reverify_days = empty_history.load_reverify_days(conn)
-            fresh_heads = empty_history.load_fresh_heads(
-                conn, _history_fetch._EMPTY_HISTORY_PROVIDER, reverify_days
-            )
-            first_bars = empty_history.load_first_bars(
-                conn, list(plan.candidates.instruments), _history_fetch._EMPTY_HISTORY_PROVIDER
-            )
+            vendors = sorted(plan.providers) or [default_provider()]
+            empty_ranges: dict[tuple[str, str, str], Any] = {}
+            fresh_heads: dict[tuple[str, str, str], datetime] = {}
+            tape_floors: dict[tuple[str, str, str], datetime] = {}
+            # Raw is per source: each vendor of the run loads only its own records.
+            for vendor in vendors:
+                for (symbol, tf), value in empty_history.load(conn, vendor).items():
+                    empty_ranges[(vendor, symbol, tf)] = value
+                for (symbol, tf), value in empty_history.load_fresh_heads(
+                    conn, vendor, reverify_days
+                ).items():
+                    fresh_heads[(vendor, symbol, tf)] = value
+                for (symbol, tf), value in empty_history.load_tape_floors(conn, vendor).items():
+                    tape_floors[(vendor, symbol, tf)] = value
         finally:
             conn.close()
         sink = RequestSink(
@@ -771,7 +778,8 @@ class OHLCVHistoryFetcher(BaseBatch):
             empty_ranges=empty_ranges,
             empty_reverify_days=reverify_days,
             fresh_heads=fresh_heads,
-            first_bars=first_bars,
+            first_bars={},
+            tape_floors=tape_floors,
             days_override=self.args.days,
             per_contract=self.args.per_contract,
             overlap_sessions=plan.overlap_sessions,

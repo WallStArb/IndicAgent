@@ -1,7 +1,7 @@
 """Live-DB proof of the per-TF provider head write (phase 190 plan 03, contract point 5).
 
-record_head_per_tf is the migration 465 shape and is NOT the live path until the 190-06
-cutover applies 465 and flips the write. This test applies 465's provider_head re-key inside
+record_head_per_tf is the migration 465 shape and the live head write since the 190-06
+cutover (head_kind is migration 478's column). This test applies the provider_head re-key inside
 one force-rolled-back transaction (the 190-02 post-flip pattern), proves the upsert writes
 distinct per-timeframe rows under the new PK, and asserts the live PK is untouched. Runs on
 indicagent_test; a synthetic symbol, so no real series is touched.
@@ -59,6 +59,10 @@ def test_record_head_per_tf_upserts_distinct_timeframe_rows(live):
             conn.execute("ALTER TABLE ohlcv_provider_head DROP CONSTRAINT ohlcv_provider_head_pkey")
             conn.execute(
                 "ALTER TABLE ohlcv_provider_head ADD PRIMARY KEY (symbol, provider, timeframe)"
+            )
+            conn.execute(  # migration 478's column, in the same rolled-back transaction
+                "ALTER TABLE ohlcv_provider_head ADD COLUMN IF NOT EXISTS head_kind text "
+                "NOT NULL DEFAULT 'verified'"
             )
             shim = _NoCommit(conn)
             empty_history.record_head_per_tf(shim, symbol, "ibkr", "5m", head_ts)
