@@ -688,6 +688,40 @@ def test_canonical_rows_outside_the_vendor_map_are_counted_not_skipped():
     assert gate.count_unmapped(cur, "market_data_ohlcv_v2", "vendor", "SPY", "5m") == 0
 
 
+def test_a_derived_label_in_a_direct_timeframe_counts_as_unmapped():
+    """read_canonical never compares a derived row; in 1m/5m/4h selection is the only writer,
+    so a derived label there is counted (second review of 191-07, low item)."""
+
+    class _CountCur(_Cur):
+        def fetchone(self):
+            return (0,)
+
+    cur = _CountCur([])
+    gate.count_unmapped(cur, "market_data_ohlcv", "source", "SPY", "5m")
+    assert "derived_5m" not in cur.params[2] and "ibkr_named" in cur.params[2]
+    gate.count_unmapped(cur, "market_data_ohlcv", "source", "SPY", "15m")
+    assert "derived_5m" in cur.params[2]  # a derived timeframe keeps the whole label map
+
+
+def test_a_canonical_session_spliced_from_two_vendors_is_counted_residue():
+    """Second review of 191-07, finding 3 (52 of 57 series on 2026-10-09): selection takes a
+    session whole from one vendor, so a mixed canonical session is never clean."""
+    canonical = _canonical(_day(DAY1, ALPACA, n=2), [(DAY1 + timedelta(minutes=10), IBKR, 10.0)])
+    canonical.update(_canonical(_day(DAY2, IBKR)))
+    assert gate.mixed_vendor_sessions(canonical) == 1
+    report = _report(0, mixed_vendor_sessions=1)
+    assert report["totals"]["mixed_vendor_sessions"] == 1
+    assert gate.verdict(report["totals"]) == gate.EXIT_RESIDUE
+
+
+def test_the_gate_selects_a_session_whole_from_a_complete_fallback():
+    alpaca_first = PolicyRow("5m", "SPY", date(2026, 10, 1), None, "alpaca", "ibkr")
+    raw = _raw(_day(DAY1, ALPACA, n=2), _day(DAY1, IBKR, n=3))
+    selected, counts = gate.selected_rows(raw, [DEFAULT_I, alpaca_first], KIND_ORDER)
+    assert {row[0] for row in selected.values()} == {IBKR} and len(selected) == 3
+    assert (counts["sessions_fallback"], counts["sessions_incomplete"]) == (1, 0)
+
+
 def test_a_refused_value_canonical_took_from_a_later_applied_serve_is_not_held():
     # GE 2021-11-05 19:40: refused at 12:14, then an applied serve at 15:47 put the same value in
     # canonical and logged the 4-decimal value it displaced

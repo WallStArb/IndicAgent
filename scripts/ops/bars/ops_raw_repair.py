@@ -223,21 +223,6 @@ def plan_series(
     return plan
 
 
-def selection_windows(
-    reserve_slots: Sequence[datetime], seconds: int
-) -> list[tuple[datetime, datetime]]:
-    """[start, end) UTC windows covering every instant except the reserve slots' bars
-    [ts, ts + seconds): selection is per slot, so only those slots keep their canonical row."""
-    windows: list[tuple[datetime, datetime]] = []
-    start = _FAR_PAST
-    for ts in sorted(set(reserve_slots)):
-        if ts > start:
-            windows.append((start, ts))
-        start = max(start, ts + timedelta(seconds=seconds))
-    windows.append((start, _FAR_FUTURE))
-    return windows
-
-
 def repaired_candidates(
     candidates: Sequence[Candidate], actions: Sequence[SlotAction]
 ) -> list[Candidate]:
@@ -396,20 +381,20 @@ def apply_series(
         repaired_candidates(candidates, plan.actions), policy, kind_order, evidence.held_keys
     )
     changes, n_new, n_replaced = canonical_changes(canonical, after, reserve)
-    got_new = got_replaced = 0
-    for start, end in selection_windows(reserve, BAR_SECONDS[timeframe]):
-        result = select_and_write(
-            conn,
-            symbols=[symbol],
-            timeframe=timeframe,
-            start=start,
-            end=end,
-            policy_rows=policy,
-            kind_order=kind_order,
-            batch_rows=params.write.batch_rows,
-        )
-        got_new += result.new
-        got_replaced += result.changed
+    # Selection takes each session whole (finding 3 of the second review), so the series is
+    # selected in one pass and the reserve slots are excluded by stamp, never by window.
+    result = select_and_write(
+        conn,
+        symbols=[symbol],
+        timeframe=timeframe,
+        start=_FAR_PAST,
+        end=_FAR_FUTURE,
+        policy_rows=policy,
+        kind_order=kind_order,
+        batch_rows=params.write.batch_rows,
+        exclude=frozenset(reserve),
+    )
+    got_new, got_replaced = result.new, result.changed
     if (got_new, got_replaced) != (n_new, n_replaced):
         raise RuntimeError(
             f"{symbol} {timeframe}: selection wrote new {got_new} replaced {got_replaced}, "

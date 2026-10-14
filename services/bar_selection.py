@@ -33,6 +33,14 @@ re-serve. The ingress contract never writes a refused value to raw, so in the li
 is empty; the rule lives in the writer so that no reselection, from any caller, can promote a
 legacy one. `read_held_keys` is the one definition; the selection gate reads it too.
 
+Session-level fallback (second review of plan 191-07, finding 3). Selection takes each session
+whole from one vendor (src/intelligence/bars/selection.py), so a write is widened to the whole
+NYSE sessions its window touches (America/New_York midnight to midnight): a vendor switch is
+written across the session, never half of it. Slots the chosen vendor does not hold when no
+vendor is complete are retracted from canonical (`dropped`; missing is NaN, never the other
+vendor's bar). Every session not taken from its primary is logged
+(`bar_selection.session_choice`) and counted on the result.
+
 Until plan 13 renames the column, the canonical row carries the `source` label of its
 (vendor, kind). `canonical_columns` and `_INSERT_HEAD` are the only two places that change then.
 """
@@ -41,10 +49,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
-from src.intelligence.bars.selection import Candidate, PolicyRow, select_slots
+import structlog
+
+from src.intelligence.bars.selection import (
+    SESSION_TZ,
+    Candidate,
+    PolicyRow,
+    select_slots,
+    session_date,
+)
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import VENDOR_KIND_TO_LABEL, vendor_kind_to_label
 
@@ -95,6 +111,19 @@ _LINEAGE_SQL = (
 
 HeldKey = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 _ONE_US = timedelta(microseconds=1)
+
+logger = structlog.get_logger(__name__)
+
+
+def session_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """[start, end) widened to whole NYSE session dates: America/New_York midnight of start's
+    session date to the midnight after the session date of the last instant before `end`."""
+    first = session_date(start)
+    last = session_date(end - _ONE_US)
+    return (
+        datetime.combine(first, time.min, SESSION_TZ),
+        datetime.combine(last + timedelta(days=1), time.min, SESSION_TZ),
+    )
 
 
 def held_keys(
@@ -173,6 +202,9 @@ class SelectionResult:
     unselected: int = 0
     off_grid: int = 0
     held: int = 0  # raw rows left out because they hold a refused value (read_held_keys)
+    sessions_fallback: int = 0  # sessions taken whole from a vendor other than the primary
+    sessions_incomplete: int = 0  # sessions no ranked vendor held whole
+    dropped: int = 0  # slots left out by the session rule (canonical rows retracted)
 
 
 def canonical_columns(vendor: str, kind: str) -> str:
@@ -214,8 +246,11 @@ def select_and_write(
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
     batch_rows: int,
+    exclude: frozenset[datetime] | set[datetime] = frozenset(),
 ) -> SelectionResult:
-    """Select the canonical rows of [start, end) for `symbols` from ohlcv_raw and write them.
+    """Select the canonical rows of the whole sessions [start, end) touches for `symbols` from
+    ohlcv_raw and write them (module docstring). `exclude` names stamps left exactly as they
+    are (a repair's slots awaiting a re-serve): neither written nor retracted.
 
     Raises ValueError for a timeframe other than 1m, 5m or 4h and LookupError when a held slot
     has no policy row (nothing for that symbol is written before the raise).
@@ -228,19 +263,39 @@ def select_and_write(
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
     n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = n_held = 0
+    n_fallback = n_incomplete = n_dropped = 0
+    start, end = session_window(start, end)
+    labels = sorted(VENDOR_KIND_TO_LABEL.values())
     with conn.cursor() as cur:
         for symbol in sorted(set(symbols)):
             cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
             cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
             candidates = [Candidate(*row) for row in cur.fetchall()]
             held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
-            if held:
-                candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
-                n_held += len(held)
-            outcome = select_slots(candidates, policy_rows, kind_order)
+            n_held += len(held)
+            outcome = select_slots(candidates, policy_rows, kind_order, held)
             n_unselected += outcome.n_unselected
             n_off_grid += outcome.n_off_grid
-            winners = outcome.winners
+            for choice in outcome.choices:
+                n_fallback += choice.vendor != choice.ranking[0]
+                n_incomplete += not choice.complete
+                logger.info(
+                    "bar_selection.session_choice",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    session=choice.session.isoformat(),
+                    ranking=list(choice.ranking),
+                    vendor=choice.vendor,
+                    complete=choice.complete,
+                    n_slots=choice.n_slots,
+                    n_vendor_slots=choice.n_vendor_slots,
+                )
+            for _symbol, _tf, ts in outcome.dropped:
+                if ts in exclude:
+                    continue
+                cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, labels))
+                n_dropped += cur.rowcount
+            winners = [w for w in outcome.winners if w.timestamp not in exclude]
             if not winners:
                 continue
             cur.execute(_READ_CANONICAL_SQL, (symbol, timeframe, start, end))
@@ -264,14 +319,19 @@ def select_and_write(
             n_new += len(new_rows)
             n_changed += len(changed_rows)
     return SelectionResult(
-        n_new, n_changed, n_unchanged, n_skipped, n_unselected, n_off_grid, n_held
+        n_new,
+        n_changed,
+        n_unchanged,
+        n_skipped,
+        n_unselected,
+        n_off_grid,
+        n_held,
+        n_fallback,
+        n_incomplete,
+        n_dropped,
     )
 
 
-_RAW_AT_SQL = (
-    'SELECT "timestamp", symbol, timeframe, vendor, kind, open, high, low, close, volume '
-    'FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND "timestamp" = ANY(%s)'
-)
 _RETRACT_SQL = (
     'DELETE FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s AND "timestamp" = %s '
     "AND source = ANY(%s)"
@@ -298,15 +358,20 @@ def retract_unselected_slots(
         return 0
     labels = sorted(VENDOR_KIND_TO_LABEL.values())
     removed = 0
+    # selection is per session (one vendor each), so the whole sessions of the stamps are read
+    start, end = session_window(min(timestamps), max(timestamps) + _ONE_US)
     with conn.cursor() as cur:
         cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
-        cur.execute(_RAW_AT_SQL, (symbol, timeframe, sorted(timestamps)))
+        cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
         candidates = [Candidate(*row) for row in cur.fetchall()]
-        start, end = min(timestamps), max(timestamps)
-        held = read_held_keys(cur, symbol, timeframe, start, end + _ONE_US, candidates)
-        candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
-        winners = {w.timestamp for w in select_slots(candidates, policy_rows, kind_order).winners}
-        for ts in sorted(set(timestamps) - winners):
+        held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
+        outcome = select_slots(candidates, policy_rows, kind_order, held)
+        # a held slot keeps its canonical row (no decision yet); every other slot without a
+        # winner is retracted
+        keep = {w.timestamp for w in outcome.winners} | {
+            c.timestamp for c in candidates if (c.timestamp, c.vendor, c.kind) in held
+        }
+        for ts in sorted(set(timestamps) - keep):
             cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, labels))
             removed += cur.rowcount
     return removed

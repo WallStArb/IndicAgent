@@ -6,6 +6,7 @@ Fakes only: no database. The cases are the review's (191-07-REVIEW.md findings 2
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 from scripts.ops.bars import ops_raw_repair as repair
 from scripts.ops.bars import ops_selection_gate as gate
@@ -143,15 +144,13 @@ def test_a_held_value_already_in_canonical_blocks_the_series():
     assert plan.blockers and "held refused value" in plan.blockers[0]
 
 
-def test_selection_windows_leave_out_only_the_reserve_slots():
-    slot = datetime(2026, 5, 15, 15, 25, tzinfo=UTC)
-    (a_start, a_end), (b_start, b_end) = repair.selection_windows([slot], 300)
-    assert (a_start, a_end) == (repair._FAR_PAST, slot)
-    assert (b_start, b_end) == (slot + timedelta(minutes=5), repair._FAR_FUTURE)
-    assert repair.selection_windows([], 300) == [(repair._FAR_PAST, repair._FAR_FUTURE)]
-    # adjacent slots merge into one gap
-    two = repair.selection_windows([slot, slot + timedelta(minutes=5)], 300)
-    assert len(two) == 2 and two[1][0] == slot + timedelta(minutes=10)
+def test_reserve_slots_are_excluded_by_stamp_not_by_window():
+    """Selection takes each session whole (second review, finding 3): a window that stops at a
+    reserve slot would be widened to the whole session and re-select it, so the repair selects
+    the series once and names the reserve slots in `exclude`."""
+    assert not hasattr(repair, "selection_windows")
+    body = Path(repair.__file__).read_text()
+    assert "exclude=frozenset(reserve)" in body
 
 
 def test_expected_canonical_changes_follow_the_repaired_raw_and_skip_reserve_dates():

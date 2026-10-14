@@ -479,6 +479,14 @@ class SeriesDiff:
     unmapped_canonical: int = 0
     # current raw rows holding a refused value, left out of the selection (read_held_keys)
     held_raw_rows: int = 0
+    # canonical sessions holding rows of more than one vendor (second review of 191-07,
+    # finding 3): selection takes a session whole from one vendor, so any is residue
+    mixed_vendor_sessions: int = 0
+    # the selection's session choices (not differences): sessions taken whole from a fallback,
+    # sessions no vendor held whole, and the slots the latter left out
+    sessions_fallback: int = 0
+    sessions_incomplete: int = 0
+    session_dropped_slots: int = 0
 
     @property
     def n_real(self) -> int:
@@ -502,6 +510,7 @@ class SeriesDiff:
             and not self.refused_value_selected
             and not self.unmapped_canonical
             and not self.held_raw_rows
+            and not self.mixed_vendor_sessions
         )
 
 
@@ -512,11 +521,9 @@ def selected_rows(
     held: set[Key] | frozenset[Key] = frozenset(),
 ) -> tuple[dict[datetime, Row], dict[str, int]]:
     """The rows the live writer would write: winners with a volume (a NULL-volume winner is
-    skipped and counted, as bar_selection does), held keys left out before ranking (as
-    bar_selection does)."""
-    if held:
-        candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
-    outcome = select_slots(candidates, policy_rows, kind_order)
+    skipped and counted, as bar_selection does), one vendor per session, held keys never
+    winning (as bar_selection does)."""
+    outcome = select_slots(candidates, policy_rows, kind_order, held)
     rows: dict[datetime, Row] = {}
     skipped = 0
     for w in outcome.winners:
@@ -528,7 +535,18 @@ def selected_rows(
         "skipped_null_volume": skipped,
         "off_grid": outcome.n_off_grid,
         "unselected": outcome.n_unselected,
+        "sessions_fallback": sum(c.vendor != c.ranking[0] for c in outcome.choices),
+        "sessions_incomplete": sum(not c.complete for c in outcome.choices),
+        "session_dropped_slots": len(outcome.dropped),
     }
+
+
+def mixed_vendor_sessions(canonical: Mapping[datetime, Row]) -> int:
+    """Sessions (NYSE session dates) whose canonical rows come from more than one vendor."""
+    vendors: dict[date, set[str]] = defaultdict(set)
+    for ts, (vk, _values) in canonical.items():
+        vendors[session_date(ts)].add(vk[0])
+    return sum(1 for held in vendors.values() if len(held) > 1)
 
 
 def diff_rows(
@@ -561,8 +579,16 @@ def compare_series(
 ) -> SeriesDiff:
     """Compare one series; month digests first, a row-level diff only for differing months."""
     diff = SeriesDiff(symbol, timeframe, n_canonical=len(canonical), n_selected=len(selected))
-    for name in ("skipped_null_volume", "off_grid", "unselected"):
+    for name in (
+        "skipped_null_volume",
+        "off_grid",
+        "unselected",
+        "sessions_fallback",
+        "sessions_incomplete",
+        "session_dropped_slots",
+    ):
         setattr(diff, name, (counts or {}).get(name, 0))
+    diff.mixed_vendor_sessions = mixed_vendor_sessions(canonical)
     canon_digest, sel_digest = month_digests(canonical), month_digests(selected)
     months = sorted(canon_digest.keys() | sel_digest.keys())
     diff.n_months = len(months)
@@ -846,6 +872,10 @@ _SUMMED_KEYS = (
     "refused_serves_selected_not_held",
     "unmapped_canonical_rows",
     "held_raw_rows",
+    "mixed_vendor_sessions",
+    "sessions_fallback",
+    "sessions_incomplete",
+    "session_dropped_slots",
 )
 
 
@@ -907,7 +937,8 @@ def merge_reports(reports: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 def verdict(totals: Mapping[str, Any]) -> int:
     """EXIT_CLEAN only when canonical equals the selection exactly. Real differences, a refused
     value in canonical or an unmapped canonical label are EXIT_REAL; anything else that differs
-    (explained classes) or a held refused serve the selection would promote is EXIT_RESIDUE."""
+    (explained classes), a held refused serve the selection would promote or a canonical session
+    spliced from two vendors is EXIT_RESIDUE."""
     if (
         totals["real_differences"]
         or totals["refused_value_in_canonical"]
@@ -918,6 +949,7 @@ def verdict(totals: Mapping[str, Any]) -> int:
         sum(totals["explained"].values())
         or totals["refused_value_selected"]
         or totals.get("held_raw_rows", 0)
+        or totals.get("mixed_vendor_sessions", 0)
     ):
         return EXIT_RESIDUE
     return EXIT_CLEAN
@@ -1063,13 +1095,13 @@ def read_evidence(
 
 
 def count_unmapped(cur: Any, target: str, mode: str, symbol: str, timeframe: str) -> int:
-    """Canonical rows whose source label is outside LABEL_TO_VENDOR_KIND (NULL included): the
-    gate never compares them, so they are counted and fail the verdict instead of vanishing."""
+    """Canonical rows the gate never compares, counted so they fail the verdict instead of
+    vanishing: a source label outside LABEL_TO_VENDOR_KIND (NULL included) and, in a direct
+    timeframe (1m, 5m, 4h: selection's, never the derivation's), a derived label too."""
     if mode == "vendor":
         return 0  # (vendor, kind) columns are the key itself; NOT NULL in the v2 schema
-    cur.execute(
-        _UNMAPPED_SQL.format(target=target), (symbol, timeframe, list(LABEL_TO_VENDOR_KIND))
-    )
+    allowed = vendor_labels() if timeframe in DIRECT_TIMEFRAMES else LABEL_TO_VENDOR_KIND
+    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe, list(allowed)))
     return int(cur.fetchone()[0])
 
 
@@ -1168,6 +1200,10 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
         "refused_serves_selected_not_held": sum(d.refused_serves_selected_not_held for d in diffs),
         "unmapped_canonical_rows": sum(d.unmapped_canonical for d in diffs),
         "held_raw_rows": sum(d.held_raw_rows for d in diffs),
+        "mixed_vendor_sessions": sum(d.mixed_vendor_sessions for d in diffs),
+        "sessions_fallback": sum(d.sessions_fallback for d in diffs),
+        "sessions_incomplete": sum(d.sessions_incomplete for d in diffs),
+        "session_dropped_slots": sum(d.session_dropped_slots for d in diffs),
         "by_timeframe": {},
     }
     explained: Counter = Counter()
@@ -1196,6 +1232,7 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
             "refused_serves_selected_not_held": d.refused_serves_selected_not_held,
             "unmapped_canonical": d.unmapped_canonical,
             "held_raw_rows": d.held_raw_rows,
+            "mixed_vendor_sessions": d.mixed_vendor_sessions,
             "unselected": d.unselected,
             "samples": d.samples,
         }

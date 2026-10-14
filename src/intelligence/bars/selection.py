@@ -24,6 +24,19 @@ Two rules added at the selection gate (plan 191-07, review of plans 04 and 05):
 - Dates. A policy span is matched by the NYSE session date (America/New_York calendar date of the
   stamp), not the UTC date: a post-close stamp after 00:00 UTC belongs to the session it closes.
 
+Session-level fallback (second review of plan 191-07, finding 3). A fallback never fills single
+slots of a session the primary served: vendors differ in what they count (Alpaca SIP volume runs
+1.1 to 2x IBKR's on the same bar), so a session spliced from two vendors puts a step into every
+volume feature and the 15m/1h derivation (52 of 57 series on 2026-10-09, Alpaca mornings and IBKR
+afternoons). Per (symbol, timeframe, session date) the session's slots are those any ranked vendor
+holds; a vendor is complete when it holds all of them. The session is taken whole from the first
+ranked vendor that is complete. When none is, it is taken from the vendor holding the most of
+them (ties by rank) and the slots only another vendor holds are left out (`dropped`: the writer
+retracts a canonical row there, missing is NaN). Every session not taken from the primary is
+recorded in `SelectionOutcome.choices`. A held candidate (a raw row holding a refused value,
+services/bar_selection.read_held_keys) counts toward its vendor's completeness but never wins: its
+slot gets no winner and is not dropped, so canonical keeps its row there until a decision.
+
 Pure Ring 1: no database access, no services imports.
 """
 
@@ -163,6 +176,20 @@ def select_slot(
 
 
 @dataclass(frozen=True)
+class SessionChoice:
+    """A session not taken whole from its primary vendor (module docstring)."""
+
+    symbol: str
+    timeframe: str
+    session: date
+    ranking: tuple[str, ...]
+    vendor: str  # the vendor the session was taken from
+    complete: bool  # False: no ranked vendor held every slot; the others' slots were dropped
+    n_slots: int  # the session's slots (held by any ranked vendor)
+    n_vendor_slots: int  # of those, the chosen vendor's
+
+
+@dataclass(frozen=True)
 class SelectionOutcome:
     """The result of selecting a candidate set: winners plus the counts a loader must report."""
 
@@ -170,40 +197,93 @@ class SelectionOutcome:
     n_slots: int  # on-grid slots with at least one candidate
     n_unselected: int  # of those, slots no ranked vendor holds (nothing is written for them)
     n_off_grid: int  # candidates dropped by the session rule
+    # slots of a session another ranked vendor held but the chosen vendor did not (no complete
+    # vendor): no winner, and the writer retracts a canonical row there
+    dropped: tuple[tuple[str, str, datetime], ...] = ()
+    choices: tuple[SessionChoice, ...] = ()  # sessions not taken from the primary
+    n_held: int = 0  # slots whose chosen vendor's candidate is held: no winner, not dropped
+
+
+Key = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 
 
 def select_slots(
     candidates: Iterable[Candidate],
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
+    held: frozenset[Key] | set[Key] = frozenset(),
 ) -> SelectionOutcome:
-    """Select the winner of every on-grid slot present in `candidates`, with the counts."""
+    """Select the winner of every on-grid slot present in `candidates`, one vendor per session
+    (module docstring), with the counts. `held` keys count toward completeness, never win."""
     on_grid, off_grid = partition_session(candidates)
-    slots: dict[tuple[str, str, datetime], list[Candidate]] = defaultdict(list)
+    sessions: dict[tuple[str, str, date], dict[datetime, list[Candidate]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for c in on_grid:
-        slots[(c.symbol, c.timeframe, c.timestamp)].append(c)
-    rankings: dict[tuple[str, str, date], list[str]] = {}
+        sessions[(c.symbol, c.timeframe, session_date(c.timestamp))][c.timestamp].append(c)
     scopes: dict[tuple[str, str], list[PolicyRow]] = {}
     winners: list[Candidate] = []
-    for (symbol, timeframe, timestamp), held in sorted(slots.items()):
-        day = session_date(timestamp)
-        ranking = rankings.get((symbol, timeframe, day))
-        if ranking is None:
-            scoped = scopes.get((symbol, timeframe))
-            if scoped is None:
-                # the table holds a row per decision of every series; rank over this one's only
-                scoped = scopes[(symbol, timeframe)] = [
-                    p
-                    for p in policy_rows
-                    if p.timeframe == timeframe and p.symbol in (None, symbol)
-                ]
-            ranking = rankings[(symbol, timeframe, day)] = rank_vendors(
-                scoped, symbol, timeframe, day
+    dropped: list[tuple[str, str, datetime]] = []
+    choices: list[SessionChoice] = []
+    n_slots = n_unselected = n_held = 0
+    for (symbol, timeframe, day), slots in sorted(sessions.items()):
+        scoped = scopes.get((symbol, timeframe))
+        if scoped is None:
+            # the table holds a row per decision of every series; rank over this one's only
+            scoped = scopes[(symbol, timeframe)] = [
+                p for p in policy_rows if p.timeframe == timeframe and p.symbol in (None, symbol)
+            ]
+        ranking = rank_vendors(scoped, symbol, timeframe, day)
+        n_slots += len(slots)
+        # per slot, each ranked vendor's best selectable candidate, or None when it holds only
+        # held ones (they count toward completeness, never win)
+        by_vendor: dict[str, dict[datetime, Candidate | None]] = {v: {} for v in ranking}
+        for ts, here in slots.items():
+            free = [c for c in here if (c.timestamp, c.vendor, c.kind) not in held]
+            for vendor in ranking:
+                if select_slot(here, [vendor], kind_order) is not None:
+                    by_vendor[vendor][ts] = select_slot(free, [vendor], kind_order)
+        session_slots = set().union(*(set(v) for v in by_vendor.values()))
+        n_unselected += len(slots) - len(session_slots)
+        if not session_slots:
+            continue
+        complete = [v for v in ranking if len(by_vendor[v]) == len(session_slots)]
+        if complete:
+            chosen = complete[0]
+        else:
+            most = max(len(by_vendor[v]) for v in ranking)
+            chosen = next(v for v in ranking if len(by_vendor[v]) == most)
+        if chosen != ranking[0] or not complete:
+            choices.append(
+                SessionChoice(
+                    symbol,
+                    timeframe,
+                    day,
+                    tuple(ranking),
+                    chosen,
+                    bool(complete),
+                    len(session_slots),
+                    len(by_vendor[chosen]),
+                )
             )
-        winner = select_slot(held, ranking, kind_order)
-        if winner is not None:
-            winners.append(winner)
-    return SelectionOutcome(winners, len(slots), len(slots) - len(winners), len(off_grid))
+        for ts in sorted(session_slots):
+            if ts not in by_vendor[chosen]:
+                dropped.append((symbol, timeframe, ts))
+                continue
+            winner = by_vendor[chosen][ts]
+            if winner is None:
+                n_held += 1
+            else:
+                winners.append(winner)
+    return SelectionOutcome(
+        winners,
+        n_slots,
+        n_unselected,
+        len(off_grid),
+        tuple(dropped),
+        tuple(choices),
+        n_held,
+    )
 
 
 def select_all(
