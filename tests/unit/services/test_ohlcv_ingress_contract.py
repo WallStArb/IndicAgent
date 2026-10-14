@@ -299,3 +299,22 @@ def test_read_raw_params_missing_key_is_a_loud_error():
     cur = FakeCursor(config={contract.MAX_RATIO_KEY: 0.02, contract.MIN_STORED_KEY: 500})
     with pytest.raises(RuntimeError, match="missing from config_state"):
         read_raw_params(cur)
+
+
+def test_raw_contract_counts_a_null_volume_winner_with_the_unselected_slots(monkeypatch):
+    """191-07 review (low): the writer skips a NULL-volume winner and the slot keeps its previous
+    canonical row, so the offered row reached raw and no canonical row took it."""
+    from services.bar_selection import SelectionResult
+
+    def fake_select(conn, **kwargs):
+        return SelectionResult(new=0, changed=0, unchanged=0, skipped_null_volume=2, unselected=1)
+
+    monkeypatch.setattr(contract, "select_and_write", fake_select)
+    result = apply_raw_contract(
+        RawFakeConn(),
+        [_raw(0)],
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        params=_RAW_PARAMS,
+    )
+    assert result.n_unselected == 3

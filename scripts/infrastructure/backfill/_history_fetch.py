@@ -896,4 +896,9 @@ def store_bars(
     if result.refused:
         detail = "; ".join(series.detail for series in result.refused_series)
         raise RuntimeError(f"store_bars: {symbol} {timeframe} refused: {detail}")
+    if result.n_unselected:
+        raise RuntimeError(
+            f"store_bars: {symbol} {timeframe}: {result.n_unselected} slots reached raw but no "
+            "ranked vendor selects them (no bar_source_policy span ranks this vendor)"
+        )
     return len(rows)

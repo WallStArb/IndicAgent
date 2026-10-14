@@ -221,7 +221,8 @@ def _at(ts, vendor="alpaca", kind="sip_rth", symbol="SPY", tf="5m", volume=100):
 
 def test_rth_grid_is_open_inclusive_close_exclusive_with_early_closes():
     stamps = rth_grid_stamps("5m", 2025, 2026)
-    day = datetime(2026, 10, 12, tzinfo=UTC)
+    day = {s for s in stamps if s.date() == date(2026, 10, 12)}
+    assert len(day) == 78  # a full session: 09:30 to 15:55 EDT
     assert datetime(2026, 10, 12, 13, 30, tzinfo=UTC) in stamps  # 09:30 EDT open
     assert datetime(2026, 10, 12, 19, 55, tzinfo=UTC) in stamps  # 15:55 EDT, last bar
     assert datetime(2026, 10, 12, 20, 0, tzinfo=UTC) not in stamps  # the close itself
@@ -229,7 +230,7 @@ def test_rth_grid_is_open_inclusive_close_exclusive_with_early_closes():
     # 2025-11-28 closes 13:00 EST: last bar 12:55 EST = 17:55 UTC
     assert datetime(2025, 11, 28, 17, 55, tzinfo=UTC) in stamps
     assert datetime(2025, 11, 28, 18, 0, tzinfo=UTC) not in stamps
-    assert day.date() == date(2026, 10, 12)
+    assert len({s for s in stamps if s.date() == date(2025, 11, 28)}) == 42  # 09:30 to 12:55 EST
 
 
 def test_extended_hours_candidates_never_enter_selection():

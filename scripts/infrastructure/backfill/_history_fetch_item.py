@@ -126,6 +126,9 @@ class ItemOutcome:
     # settles so it neither burns the failure budget nor forces a full-window refetch.
     held: tuple[str, ...] = ()
     n_held: int = 0
+    # Slots this item put in raw that no ranked vendor selects (D-191-L rule 4): the rows are
+    # in raw, canonical has none for them. The run is partial while any exist (191-07 review).
+    n_unselected: int = 0
     # 1d requests whose route or what_to_show has no raw kind (review finding 11): not stored,
     # the rest of the window is; the item ends error with an `unmapped_kind:` message.
     unmapped: tuple[str, ...] = ()
@@ -354,6 +357,7 @@ class _ChunkPersister:
         self.n_rows = 0
         self.refusals: list[str] = []
         self.n_held = 0
+        self.n_unselected = 0
         self.unmapped: list[str] = []
 
     def on_request(self, record: Any) -> None:
@@ -427,6 +431,14 @@ class _ChunkPersister:
             )
         else:
             self.n_rows += result.n_rows
+            if ingress is not None and ingress.n_unselected:
+                self.n_unselected += ingress.n_unselected
+                logger.error(
+                    "ibkr_history_fetcher.chunk_unselected",
+                    symbol=self.symbol,
+                    timeframe=self.timeframe,
+                    n_unselected=ingress.n_unselected,
+                )
         self.persisted.update(row.timestamp for row in rows)
         self.clock.touch()
 
@@ -902,6 +914,7 @@ async def fetch_item(
         overlap_pairs=tuple(persister.overlap_pairs),
         held=held,
         n_held=persister.n_held,
+        n_unselected=persister.n_unselected,
         unmapped=unmapped,
     )
 

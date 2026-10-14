@@ -1446,3 +1446,13 @@ def test_the_fetcher_uses_the_request_ledger_sink_and_reads_no_retired_store():
     assert "ohlcv_observation_writer" not in source and "ObservationSink" not in source
     assert "ohlcv_intraday_raw_archive" not in source
     assert "FROM ohlcv_raw r" in hf._PARITY_ELIGIBLE_SQL
+
+
+def test_unselected_slots_are_counted_and_make_the_run_partial():
+    """191-07 review (low): an item whose rows reached raw with no ranked vendor is not a clean
+    success; the loop counts the slots and the run status is partial."""
+    state = hf._LoopState()
+    state.add(ItemOutcome("SPY", "5m", "ok", n_bars=10, n_unselected=4))
+    assert state.n_unselected == 4 and state.counts()["n_unselected"] == 4
+    source = Path(hf.__file__).read_text()
+    assert "or loop.n_unselected > 0" in source

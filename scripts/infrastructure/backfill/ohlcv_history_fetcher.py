@@ -1075,6 +1075,7 @@ class OHLCVHistoryFetcher(BaseBatch):
         failed = (
             loop.n_error > 0
             or loop.n_held_series > 0
+            or loop.n_unselected > 0
             or any(rc != 0 for rc in stage_codes.values())
         )
         nothing_succeeded = loop.n_error > 0 and loop.n_ok + loop.n_no_data == 0
@@ -1486,6 +1487,8 @@ class _LoopState:
     # Items that held a refused series (settled ok) and the offered rows held (review finding 7).
     n_held_series: int = 0
     n_held: int = 0
+    # Slots items put in raw that no ranked vendor selects (191-07 review): the run is partial.
+    n_unselected: int = 0
     n_bars: int = 0
     n_grid_source_rows: int = 0
     budget_exhausted: bool = False
@@ -1506,6 +1509,7 @@ class _LoopState:
         if outcome.held:
             self.n_held_series += len(outcome.held)
             self.n_held += outcome.n_held
+        self.n_unselected += outcome.n_unselected
         self.n_bars += outcome.n_bars
         self.n_grid_source_rows += outcome.n_grid_source_rows
         # Only a clean 1d item is derived and its ledger bounds refreshed (189-03 interface).
@@ -1520,6 +1524,7 @@ class _LoopState:
             "n_error": self.n_error,
             "n_held_series": self.n_held_series,
             "n_held": self.n_held,
+            "n_unselected": self.n_unselected,
             "n_bars": self.n_bars,
             "n_grid_source_rows": self.n_grid_source_rows,
             "n_1d_derived": len(self.touched_1d),

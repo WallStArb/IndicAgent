@@ -415,7 +415,10 @@ def apply_raw_contract(
             batch_rows=params.write.batch_rows,
         )
         selected += result.new + result.changed
-        unselected += result.unselected
+        # A NULL-volume winner is skipped by the writer and leaves the slot's previous canonical
+        # row in place: the offered row reached raw and no canonical row took it, so it counts
+        # with the unselected slots (191-07 review, low finding).
+        unselected += result.unselected + result.skipped_null_volume
     return IngressResult(
         n_offered=len(rows),
         n_new=n_new,
