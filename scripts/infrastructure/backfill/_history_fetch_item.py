@@ -82,7 +82,7 @@ from services.ohlcv_coverage_writer import (
 from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
-from src.intelligence.bars.sessions import nyse_sessions
+from src.intelligence.bars.sessions import nyse_sessions, session_complete_at
 from src.intelligence.bars.vendor_kind import label_to_vendor_kind, observation_kind
 from src.providers import ibkr
 from src.providers.base import EmptyHistory, HistoryProvider
@@ -248,6 +248,11 @@ class FetchContext:
         return self.conn
 
 
+def _daily_session_complete(bar: Any, answered_at: datetime) -> bool:
+    stamp = bar["timestamp"] if isinstance(bar, dict) else bar.timestamp
+    return session_complete_at(stamp.date(), answered_at)
+
+
 def _raw_rows(symbol: str, timeframe: str, bars: list[Any], record: Any | None) -> list[RawRow]:
     """Provider bars as RawRow. Accepts an OHLCVBar or a bar dict.
 
@@ -342,6 +347,12 @@ class _ChunkPersister:
         self.persist(bars, record=record)
 
     def persist(self, bars: list[Any], *, record: Any | None = None) -> None:
+        if record is not None and self.daily:
+            # D-191-J: a 1d bar of a session still open at answered_at is forming, not a vendor
+            # answer for the day. Raw is last-wins, so offering it would log the partial as a
+            # restatement when the completed bar arrives. The request row stays buffered; the
+            # planner keeps the session a gap until a run sees it whole.
+            bars = [b for b in bars if _daily_session_complete(b, record.answered_at)]
         if not bars:
             return
         request_rows = self.ctx.sink.take_requests(list(self.request_ids))

@@ -14,8 +14,10 @@ is invented: `served_at`, `request_id` and `load_id` are NULL unless the source 
 Modes: `--bulk` and `--delta` (the same windowed pass; a window is skipped when its three source
 counts equal those recorded in the progress file when it was last loaded, so a kill resumes and a
 delta reloads only windows the live writers have grown), `--check` (the balance report).
-`--revisions` reconstructs ohlcv_revision from the observation history (plan 04, D-191-E). `--bulk`,
-`--delta` and `--revisions` are dry runs unless `--apply`.
+`--revisions` reconstructs ohlcv_revision from the observation history (plan 04, D-191-E); a value
+run first served before its bar's session closed is a forming bar and is not logged (D-191-J).
+`--prune-forming-revisions` rebuilds the reconstruction of symbols that hold such rows. `--bulk`,
+`--delta`, `--revisions` and `--prune-forming-revisions` are dry runs unless `--apply`.
 """
 
 from __future__ import annotations
@@ -30,7 +32,8 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +43,7 @@ from psycopg import IsolationLevel
 from services.ohlcv_raw_writer import CANONICAL_ONLY_KINDS
 from src.config.config_service import ConfigService
 from src.config.settings import get_settings
+from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.vendor_kind import (
     LABEL_TO_VENDOR_KIND,
     VENDOR_DERIVED,
@@ -406,12 +410,29 @@ _REVISION_ORDINAL = re.compile(r"revisions ordinal=(\d+);")
 _REVISION_BATCH = 1000
 
 
+_SESSION_CLOSE_FIRST_YEAR = 1999
+
+
+@lru_cache(maxsize=1)
+def session_close_values_sql() -> str:
+    """VALUES rows (bar_date, close instant) of every NYSE session through today (D-191-J)."""
+    sessions = nyse_sessions(date(_SESSION_CLOSE_FIRST_YEAR, 1, 1), datetime.now(UTC).date())
+    return ",\n            ".join(
+        f"('{day.isoformat()}'::date, '{close.isoformat()}'::timestamptz)"
+        for day, (_open, close) in sorted(sessions.items())
+    )
+
+
 def superseded_runs_cte(obs_values_sql: str) -> str:
     """CTE chain ending in `superseded`: one row per value run that a later run replaced.
 
     A run is a maximal sequence of equal OHLCV values of one (symbol, bar_date, vendor, kind) in
     arrival order (fetched_at, request_id). `run` counts from 1; the restatement that replaced
-    run N is restatement ordinal N. request_id is the request that first served the run."""
+    run N is restatement ordinal N. request_id is the request that first served the run.
+
+    A run first served before the bar's NYSE session closed is a forming bar, not a vendor
+    restating its own history: it is never superseded evidence (D-191-J). Run numbers are kept,
+    so the surviving rows keep their ordinals."""
     return f"""
     {_observation_rows_cte(obs_values_sql, windowed=False)},
     flagged AS (
@@ -431,6 +452,7 @@ def superseded_runs_cte(obs_values_sql: str) -> str:
     ),
     grouped AS (
         SELECT symbol, bar_date, vendor, kind, run,
+               min(fetched_at) AS first_fetched_at,
                (array_agg(request_id ORDER BY fetched_at, request_id))[1] AS request_id,
                (array_agg(open ORDER BY fetched_at, request_id))[1] AS open,
                (array_agg(high ORDER BY fetched_at, request_id))[1] AS high,
@@ -446,7 +468,11 @@ def superseded_runs_cte(obs_values_sql: str) -> str:
                    max(run) OVER (PARTITION BY symbol, bar_date, vendor, kind) AS last_run
               FROM grouped
         ) g
+          LEFT JOIN (VALUES
+            {session_close_values_sql()}
+          ) AS sc(bar_date, close_at) ON sc.bar_date = g.bar_date
          WHERE g.run < g.last_run
+           AND (sc.close_at IS NULL OR g.first_fetched_at >= sc.close_at)
     )"""
 
 
@@ -573,6 +599,61 @@ def write_revision_loads(
             )
             revisions += len(chunk)
     return loads, revisions
+
+
+def forming_revision_symbols_sql() -> str:
+    """Symbols holding a reconstruction revision whose run was first served before its session
+    closed (D-191-J): the rows the old, unfiltered reconstruction wrote from forming bars."""
+    return f"""
+    SELECT DISTINCT r.symbol
+      FROM ohlcv_revision r
+      JOIN ohlcv_load l ON l.load_id = r.load_id
+      JOIN ohlcv_observation o
+        ON o.request_id = r.request_id AND o.symbol = r.symbol
+       AND o.bar_date = (r."timestamp" AT TIME ZONE 'UTC')::date
+      JOIN (VALUES
+            {session_close_values_sql()}
+      ) AS sc(bar_date, close_at) ON sc.bar_date = o.bar_date
+     WHERE l.caller = '{_REVISION_CALLER}' AND l.detail LIKE '%%revisions ordinal=%%'
+       AND r.origin = 'raw' AND r.timeframe = '1d'
+       AND o.fetched_at < sc.close_at
+     ORDER BY r.symbol"""
+
+
+def rebuild_symbol_revisions(
+    conn: psycopg.Connection, symbol: str, *, obs_values_sql: str
+) -> tuple[int, int]:
+    """One transaction: delete the symbol's reconstruction loads (their revisions cascade), then
+    rewrite them from the filtered superseded runs. Returns (loads, revisions) written."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM ohlcv_load WHERE caller = %s AND destination = 'raw' AND symbol = %s",
+            (_REVISION_CALLER, symbol),
+        )
+        cur.execute(superseded_runs_sql(obs_values_sql), {"symbol": symbol})
+        runs = cur.fetchall()
+        loads, revisions = write_revision_loads(cur, plan_revision_loads(symbol, runs), set())
+    conn.commit()
+    return loads, revisions
+
+
+def run_prune_forming_revisions(
+    conn: psycopg.Connection, *, symbols: list[str], obs_values_sql: str, apply: bool
+) -> dict[str, int]:
+    """Rebuild reconstruction revisions for every symbol that holds forming-bar rows."""
+    with conn.cursor() as cur:
+        cur.execute(forming_revision_symbols_sql())
+        affected = [r[0] for r in cur.fetchall()]
+    conn.rollback()
+    wanted = set(symbols)
+    affected = [s for s in affected if s in wanted]
+    totals = {"affected_symbols": len(affected), "loads": 0, "revisions": 0}
+    if apply:
+        for symbol in affected:
+            loads, revisions = rebuild_symbol_revisions(conn, symbol, obs_values_sql=obs_values_sql)
+            totals["loads"] += loads
+            totals["revisions"] += revisions
+    return totals
 
 
 def revision_balance_sql(obs_values_sql: str) -> str:
@@ -1190,6 +1271,11 @@ def main() -> int:
     mode.add_argument(
         "--revisions", action="store_true", help="reconstruct ohlcv_revision from observations"
     )
+    mode.add_argument(
+        "--prune-forming-revisions",
+        action="store_true",
+        help="rebuild reconstruction revisions of symbols holding forming-bar rows (D-191-J)",
+    )
     parser.add_argument("--apply", action="store_true", help="write (default: dry run)")
     parser.add_argument("--symbols", nargs="*", help="restrict to these symbols")
     parser.add_argument(
@@ -1254,6 +1340,12 @@ def main() -> int:
                 since=datetime.fromisoformat(args.since),
             )
             print(json.dumps({"mode": "apply" if args.apply else "dry-run", **rec}))
+            return 0
+        if args.prune_forming_revisions:
+            prune = run_prune_forming_revisions(
+                conn, symbols=symbols, obs_values_sql=obs_values_sql, apply=args.apply
+            )
+            print(json.dumps({"mode": "apply" if args.apply else "dry-run", **prune}))
             return 0
         if args.revisions:
             rev_totals = run_revisions(

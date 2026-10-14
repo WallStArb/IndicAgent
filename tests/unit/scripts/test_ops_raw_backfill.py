@@ -191,6 +191,16 @@ def test_superseded_runs_sql_is_symbol_wide_and_excludes_test_callers():
     assert "ORDER BY fetched_at, request_id" in sql
 
 
+def test_superseded_runs_exclude_runs_first_served_before_the_session_close():
+    sql = mod.superseded_runs_sql(_obs_sql())
+    assert "min(fetched_at) AS first_fetched_at" in sql
+    assert "g.first_fetched_at >= sc.close_at" in sql
+    # AAPL 2026-09-30: a session close row (20:00 UTC) is in the calendar VALUES
+    assert "('2026-09-30'::date, '2026-09-30T20:00:00+00:00'::timestamptz)" in sql
+    # the balance check applies the same filter, so wrongly stored rows surface as unexplained
+    assert "g.first_fetched_at >= sc.close_at" in mod.revision_balance_sql(_obs_sql())
+
+
 def test_windowed_observation_cte_is_unchanged():
     assert "%(lo)s" in mod.observation_current_cte(_obs_sql())
 
@@ -269,3 +279,44 @@ def test_canonical_disagreeing_select_is_driven_from_the_archive_twin():
     sql = mod.canonical_disagreeing_select_sql()
     assert "FROM ohlcv_intraday_raw_archive a" in sql and "m.source = a.source" in sql
     assert "m.timeframe <> '1d'" in sql and "'ibkr_fallback'" not in sql
+
+
+def test_forming_revision_select_targets_runs_first_served_before_the_close():
+    sql = mod.forming_revision_symbols_sql()
+    assert "l.caller = 'raw-backfill-191'" in sql
+    assert "o.fetched_at < sc.close_at" in sql
+    assert "('2026-09-30'::date, '2026-09-30T20:00:00+00:00'::timestamptz)" in sql
+
+
+def test_rebuild_deletes_reconstruction_loads_then_rewrites():
+    calls: list[str] = []
+
+    class Cur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def execute(self, sql, params=None):
+            calls.append(sql.split()[0] + " " + ("ohlcv_load" if "ohlcv_load" in sql else "other"))
+
+        def fetchall(self):
+            return []
+
+    class Conn:
+        commits = 0
+
+        def cursor(self):
+            return Cur()
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            pass
+
+    conn = Conn()
+    mod.rebuild_symbol_revisions(conn, "AAA", obs_values_sql=_obs_sql())
+    assert calls[0] == "DELETE ohlcv_load"
+    assert conn.commits == 1

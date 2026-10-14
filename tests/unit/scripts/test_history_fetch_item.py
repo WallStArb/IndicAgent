@@ -446,6 +446,7 @@ class FakeProvider:
             timeframe=kwargs["timeframe"],
             route=route,
             what_to_show="TRADES",
+            answered_at=datetime.now(UTC),
         )
 
     async def fetch_historical_bars(self, **kwargs) -> list[OHLCVBar]:
@@ -1388,3 +1389,51 @@ def test_overlap_pairs_read_each_source_series_separately(monkeypatch):
     monkeypatch.setattr(item_mod, "read_stored_closes", fake_stored)
     assert item_mod._overlap_pairs(object(), "SPY", "5m", rows) == [(5.0, 10.0)]
     assert asked == [("alpaca", "sip_rth"), ("ibkr", "named")]
+
+
+def _daily_record(answered_at: datetime) -> SimpleNamespace:
+    return SimpleNamespace(
+        request_id=str(uuid.uuid4()),
+        route="SMART",
+        what_to_show="TRADES",
+        answered_at=answered_at,
+    )
+
+
+def _daily_bar(day: date) -> OHLCVBar:
+    return OHLCVBar(
+        symbol="AAA",
+        timeframe="1d",
+        timestamp=datetime(day.year, day.month, day.day, tzinfo=UTC),
+        open=1.0,
+        high=2.0,
+        low=0.5,
+        close=1.5,
+        volume=10,
+        source="ibkr",
+    )
+
+
+def test_daily_bar_of_an_unfinished_session_is_not_offered_to_raw(env):
+    """D-191-J: a 1d bar answered before its session closes is a forming bar. Raw is last-wins,
+    so offering it would log the partial as an origin raw revision when the completed bar
+    arrives."""
+    persister = item_mod._ChunkPersister(_ctx(FakeProvider()), "AAA", "1d", ProgressClock())
+    record = _daily_record(datetime(2026, 9, 30, 18, 1, tzinfo=UTC))  # close is 20:00 UTC
+    persister.on_observation(record, [_daily_bar(date(2026, 9, 30))])
+    assert env.persist == []
+    assert persister.n_rows == 0 and persister.persisted == set()
+
+
+def test_daily_answer_keeps_complete_sessions_and_drops_only_the_forming_one(env):
+    persister = item_mod._ChunkPersister(_ctx(FakeProvider()), "AAA", "1d", ProgressClock())
+    record = _daily_record(datetime(2026, 9, 30, 18, 1, tzinfo=UTC))
+    persister.on_observation(record, [_daily_bar(date(2026, 9, 29)), _daily_bar(date(2026, 9, 30))])
+    assert [r.timestamp.date() for r in env.persist[0].rows] == [date(2026, 9, 29)]
+
+
+def test_daily_answer_after_the_close_is_offered_whole(env):
+    persister = item_mod._ChunkPersister(_ctx(FakeProvider()), "AAA", "1d", ProgressClock())
+    record = _daily_record(datetime(2026, 9, 30, 21, 0, tzinfo=UTC))
+    persister.on_observation(record, [_daily_bar(date(2026, 9, 30))])
+    assert len(env.persist[0].rows) == 1
