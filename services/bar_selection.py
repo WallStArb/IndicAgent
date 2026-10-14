@@ -90,7 +90,7 @@ _REFUSED_LOADS_SQL = (
     "WHERE symbol = %s AND timeframe = %s AND outcome = 'refused'"
 )
 _PENDING_SQL = (
-    'SELECT "timestamp", vendor, kind, old_open, old_high, old_low, old_close, old_volume '
+    'SELECT "timestamp", vendor, kind, old_open, old_high, old_low, old_close, old_volume, load_id '
     "FROM ohlcv_revision WHERE load_id = ANY(%s) AND symbol = %s AND timeframe = %s "
     'AND origin = \'pending\' AND "timestamp" >= %s AND "timestamp" < %s'
 )
@@ -108,6 +108,17 @@ _LINEAGE_SQL = (
     'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s '
     "AND (load_id = ANY(%s) OR (load_id IS NULL AND served_at = ANY(%s)))"
 )
+
+# The load writing the current raw row at a pending key: a later applied vendor serve that wrote
+# raw answered the key again, and the contract accepted it, so its value is no longer held.
+_RAW_WRITER_SQL = (
+    'SELECT r."timestamp", r.vendor, r.kind, l.loaded_at, l.outcome, l.destination, l.caller '
+    "FROM ohlcv_raw r JOIN ohlcv_load l ON l.load_id = r.load_id "
+    'WHERE r.symbol = %s AND r.timeframe = %s AND r."timestamp" = ANY(%s)'
+)
+# ohlcv_load callers that record values the ledgers already held (the raw backfill's
+# reconstruction, the 191-07 repair and the refusal re-judge): never a vendor serve.
+NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191", "refusal-rejudge-191"})
 
 HeldKey = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 _ONE_US = timedelta(microseconds=1)
@@ -132,15 +143,18 @@ def held_keys(
     pending: Mapping[HeldKey, set[tuple]],
     refused_served: set[HeldKey],
     displaced: Mapping[HeldKey, set[tuple]],
+    answered_again: set[HeldKey] | frozenset[HeldKey] = frozenset(),
 ) -> set[HeldKey]:
     """The candidates whose current raw value is a held refused value (module docstring): equal
     to a pending value of the key, or served by a refused load where the backfill logged another
-    own value it displaced."""
+    own value it displaced. A key in `answered_again` (its current raw row was written by an
+    applied vendor serve after the refusal: the vendor served the value again and the contract
+    accepted it, e.g. a --reserve-keys re-serve) is not held by its pending value."""
     out: set[HeldKey] = set()
     for c in candidates:
         key = (c.timestamp, c.vendor, c.kind)
         values = (c.open, c.high, c.low, c.close, c.volume)
-        if values in pending.get(key, ()):
+        if values in pending.get(key, ()) and key not in answered_again:
             out.add(key)
         elif key in refused_served and any(v != values for v in displaced.get(key, ())):
             out.add(key)
@@ -164,8 +178,27 @@ def read_held_keys(
     load_ids = [r[0] for r in refused]
     cur.execute(_PENDING_SQL, (load_ids, symbol, timeframe, start, end))
     pending: dict[HeldKey, set[tuple]] = {}
-    for ts, vendor, kind, *values in cur.fetchall():
-        pending.setdefault((ts, vendor, kind), set()).add(tuple(values))
+    refused_at: dict[HeldKey, datetime] = {}  # the latest refusal holding a value at the key
+    loaded = {r[0]: r[2] for r in refused}
+    for ts, vendor, kind, *rest in cur.fetchall():
+        key = (ts, vendor, kind)
+        pending.setdefault(key, set()).add(tuple(rest[:5]))
+        at = loaded.get(rest[5])
+        if at is not None and (key not in refused_at or at > refused_at[key]):
+            refused_at[key] = at
+    answered_again: set[HeldKey] = set()
+    if pending:
+        cur.execute(_RAW_WRITER_SQL, (symbol, timeframe, sorted({k[0] for k in pending})))
+        for ts, vendor, kind, at, outcome, destination, caller in cur.fetchall():
+            key = (ts, vendor, kind)
+            if (
+                key in refused_at
+                and outcome == "applied"
+                and destination == "raw"
+                and caller not in NON_SERVE_CALLERS
+                and at > refused_at[key]
+            ):
+                answered_again.add(key)
     cur.execute(_DISPLACED_SQL, (symbol, timeframe, start, end))
     displaced: dict[HeldKey, set[tuple]] = {}
     for ts, vendor, kind, *values in cur.fetchall():
@@ -183,7 +216,11 @@ def read_held_keys(
             ):
                 refused_served.add((ts, vendor, kind))
     return held_keys(
-        candidates, pending=pending, refused_served=refused_served, displaced=displaced
+        candidates,
+        pending=pending,
+        refused_served=refused_served,
+        displaced=displaced,
+        answered_again=answered_again,
     )
 
 

@@ -324,12 +324,16 @@ def test_held_keys_are_pending_values_or_refused_serves_that_displaced_an_own_va
 class HeldCursor(FakeCursor):
     """FakeCursor with one refused load whose value is held pending at the first slot."""
 
-    def __init__(self, raw, canonical, pending):
+    def __init__(self, raw, canonical, pending, writers=()):
         super().__init__(raw, canonical)
         self.pending = pending
+        self.writers = list(writers)
 
     def execute(self, sql, params=None):
-        if "FROM ohlcv_load WHERE" in sql and "refused" in sql:
+        if "JOIN ohlcv_load l ON l.load_id = r.load_id" in sql:
+            self.executed.append((sql, list(params or ())))
+            self._result = self.writers
+        elif "FROM ohlcv_load WHERE" in sql and "refused" in sql:
             self.executed.append((sql, list(params or ())))
             self._result = [("R", "ibkr", T0 - timedelta(days=1))]
         elif "origin = 'pending'" in sql:
@@ -342,7 +346,7 @@ class HeldCursor(FakeCursor):
 def test_writer_never_selects_a_held_raw_value():
     held = _cand("ibkr", "named", i=0, close=10.9)
     alpaca = _cand("alpaca", "sip_rth", i=0, close=10.1)
-    pending = [(held.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100)]
+    pending = [(held.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100, "R")]
     conn = FakeConn([held, alpaca])
     conn.cur = HeldCursor([held, alpaca], [], pending)
     result = _run(conn)
@@ -501,3 +505,21 @@ def test_without_policy_rows_the_writer_reads_the_series_policy_under_its_lock()
     assert lock < read and result.new == 1
     ((_, params),) = _inserts(conn)
     assert params[8] == "alpaca"
+
+
+def test_a_pending_value_the_vendor_served_again_and_the_contract_accepted_is_not_held():
+    """A --reserve-keys re-serve that returns the held value is accepted (the vendor answered
+    again); its raw row names an applied vendor load after the refusal, so the pending value no
+    longer holds the key. A repair or backfill load writing the same value is no serve."""
+    from services.bar_selection import read_held_keys
+
+    raw = _cand("ibkr", "named", i=0, close=10.9)
+    pending = [(raw.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100, "R")]
+    after = T0  # the refusal was at T0 - 1 day (HeldCursor)
+    for caller, held in (("ibkr-history-fetch", set()), ("raw-repair-191", {raw.timestamp})):
+        writers = [(raw.timestamp, "ibkr", "named", after, "applied", "raw", caller)]
+        cur = HeldCursor([raw], [], pending, writers)
+        keys = read_held_keys(
+            cur, "SPY", "5m", T0 - timedelta(days=2), T0 + timedelta(days=1), [raw]
+        )
+        assert {k[0] for k in keys} == held

@@ -95,6 +95,7 @@ import psycopg  # noqa: E402
 
 from services.bar_selection import (  # noqa: E402
     DIRECT_TIMEFRAMES,
+    NON_SERVE_CALLERS,
     read_held_keys,
     select_and_write,
 )
@@ -138,9 +139,7 @@ CROSS_VENDOR = "refused_cross_vendor"
 HELD_IN_RAW = "held_in_raw"
 REAL = "real"
 EXIT_CLEAN, EXIT_REAL, EXIT_BLOCKER, EXIT_RESIDUE = 0, 1, 2, 3
-# ohlcv_load callers that record values the ledgers already held (the raw backfill's
-# reconstruction, the 191-07 repair and refusal re-judge); never a vendor serve, so they never re-serve a slot.
-NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191", "refusal-rejudge-191"})
+# ohlcv_load callers that never re-serve a slot: services.bar_selection.NON_SERVE_CALLERS.
 
 Values = tuple  # (open, high, low, close, volume)
 VK = tuple[str, str]  # (vendor, kind)
@@ -331,6 +330,8 @@ class Evidence:
     slot_loads: dict[datetime, set[Any]] = field(default_factory=dict)
     bar: timedelta = timedelta(minutes=5)
     held_keys: set[Key] = field(default_factory=set)
+    # pending keys the vendor served again after the refusal, accepted (left out of `pending`)
+    answered_again: set[Key] = field(default_factory=set)
     _later: tuple[tuple[int, int, int, int], LaterServes] | None = field(
         default=None, repr=False, compare=False
     )
@@ -1091,6 +1092,16 @@ def read_evidence(
         serves = {(r[0], r[1], r[2]): (r[3], r[4]) for r in cur.fetchall()}
         evidence.refused_serves = refused_serve_map(serves, loads, evidence.later())
     evidence.held_keys = read_held_keys(cur, symbol, timeframe, _FAR_PAST, _FAR_FUTURE, candidates)
+    # A pending value the current raw row equals but that read_held_keys does not hold was served
+    # again by an applied vendor load after the refusal and accepted (a re-serve): it is the
+    # vendor's answer now, not a refused value, so the refused-value counts skip that key.
+    for key in [
+        k
+        for k, offered in evidence.pending.items()
+        if evidence.raw.get(k) in offered and k not in evidence.held_keys
+    ]:
+        evidence.answered_again.add(key)
+        del evidence.pending[key]
     return evidence
 
 
