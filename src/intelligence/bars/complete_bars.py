@@ -15,8 +15,8 @@ policy never enters a leaf). The intraday analogue of D-191-J; 1d keeps D-191-J'
 at the session close, `session_complete_at`), so a daily bar is judged exactly as before.
 
 A bar is judged against the ANSWER time of the request that served it, never the time the bars
-are parsed or written. The grid block end (the bar's grid start plus its size) is an upper bound
-on the bar's own end (a session's first bar on a coarse grid, 13:30 on 1h or 4h, is the short
+are parsed or written. The grid block end (the bar's grid start plus its size, capped at the
+session close for a regular-hours bar) is an upper bound on the bar's own end (a session's first bar on a coarse grid, 13:30 on 1h or 4h, is the short
 first bar of its block), so a bar kept is always whole.
 
 Pure Ring 1: no database, no clock.
@@ -92,6 +92,10 @@ def split_complete[T](
         ts = _stamp(bar)
         end = block_end(ts, timeframe)
         session = bounds.get(session_date(ts))
+        if session is not None and session[0] <= ts < session[1]:
+            # a regular-hours bar ends at the close at the latest: the winter 4h 20:00 UTC bar
+            # holds 15:00 to 16:00 ET, not its 20:00 to 24:00 grid block (second review, low)
+            end = min(end, session[1])
         ok = (
             end <= answered_at
             and (request_end is None or end <= request_end)

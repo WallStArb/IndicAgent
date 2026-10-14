@@ -85,3 +85,27 @@ def test_a_bar_starting_inside_its_block_is_partial_but_a_session_open_is_not():
     assert split_complete([cut], "5m", answered_at=later)[1] == [cut]
     session_open = _bar(datetime(2026, 3, 9, 13, 30, tzinfo=UTC))
     assert split_complete([session_open], "1h", answered_at=later)[0] == [session_open]
+
+
+def test_a_winter_4h_closing_bar_ends_at_the_close_not_its_grid_block():
+    """2026-01-14 20:00 UTC (15:00 EST) 4h bar holds the last session hour; its grid block runs
+    to 24:00, but it is complete at the 21:00 close plus the settle delay."""
+    bar = {"timestamp": datetime(2026, 1, 14, 20, tzinfo=UTC)}
+    settle = timedelta(minutes=30)
+    end = datetime(2026, 1, 14, 22, tzinfo=UTC)
+    kept, _ = split_complete(
+        [bar],
+        "4h",
+        answered_at=datetime(2026, 1, 14, 21, 31, tzinfo=UTC),
+        request_end=end,
+        settle=settle,
+    )
+    assert kept == [bar]
+    _, held = split_complete(
+        [bar],
+        "4h",
+        answered_at=datetime(2026, 1, 14, 21, 10, tzinfo=UTC),
+        request_end=end,
+        settle=settle,
+    )
+    assert held == [bar]
