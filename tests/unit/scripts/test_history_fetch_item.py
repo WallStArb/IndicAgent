@@ -1448,3 +1448,20 @@ def test_daily_answer_after_the_close_is_offered_whole(env):
     record = _daily_record(datetime(2026, 9, 30, 21, 0, tzinfo=UTC))
     persister.on_observation(record, [_daily_bar(date(2026, 9, 30))])
     assert len(env.persist[0].rows) == 1
+
+
+class UnlistedVenueProvider(FakeProvider):
+    """A 1d walk whose former-venue recovery routes to a venue with no kind mapping."""
+
+    def _record(self, kwargs: dict, route: str):
+        return super()._record(kwargs, "EDGX" if route == "NYSE" else route)
+
+
+def test_an_unmapped_daily_route_fails_that_item_loudly_without_dropping_the_window(env):
+    """Review finding 11: the SMART answer is stored, the unmapped venue answer is not, and the
+    item ends error with a distinct unmapped_kind outcome instead of raising out of the walk."""
+    outcome = _fetch(_ctx(UnlistedVenueProvider()), _row("1d"))
+    assert len(env.persist) == 1  # the SMART answer landed
+    assert outcome.status == "error"
+    assert outcome.unmapped and "EDGX" in outcome.unmapped[0]
+    assert (outcome.error or "").startswith("unmapped_kind:")

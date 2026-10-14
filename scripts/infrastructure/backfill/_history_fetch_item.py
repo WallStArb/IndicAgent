@@ -83,7 +83,11 @@ from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions, session_complete_at
-from src.intelligence.bars.vendor_kind import label_to_vendor_kind, observation_kind
+from src.intelligence.bars.vendor_kind import (
+    UnmappedObservation,
+    label_to_vendor_kind,
+    observation_kind,
+)
 from src.providers import ibkr
 from src.providers.base import EmptyHistory, HistoryProvider
 
@@ -131,6 +135,9 @@ class ItemOutcome:
     # settles so it neither burns the failure budget nor forces a full-window refetch.
     held: tuple[str, ...] = ()
     n_held: int = 0
+    # 1d requests whose route or what_to_show has no raw kind (review finding 11): not stored,
+    # the rest of the window is; the item ends error with an `unmapped_kind:` message.
+    unmapped: tuple[str, ...] = ()
     # Update lane (plan 189-10): (stored close, fresh close) for every fresh grid bar whose
     # slot was already stored, read before the write. The fetcher judges them
     # (_fetch_queue.judge_overlap) and escalates a rescaled series in the same run.
@@ -340,6 +347,7 @@ class _ChunkPersister:
         self.n_rows = 0
         self.refusals: list[str] = []
         self.n_held = 0
+        self.unmapped: list[str] = []
 
     def on_request(self, record: Any) -> None:
         self.ctx.sink.on_request(record)
@@ -364,7 +372,18 @@ class _ChunkPersister:
             return
         request_rows = self.ctx.sink.take_requests(list(self.request_ids))
         self.request_ids.clear()
-        rows = _raw_rows(self.symbol, self.timeframe, bars, record)
+        try:
+            rows = _raw_rows(self.symbol, self.timeframe, bars, record)
+        except UnmappedObservation as error:
+            # The request row stays buffered for the ledger; the walk goes on.
+            self.unmapped.append(str(error))
+            logger.error(
+                "ibkr_history_fetcher.unmapped_kind",
+                symbol=self.symbol,
+                timeframe=self.timeframe,
+                error=str(error),
+            )
+            return
         conn = self.ctx.get_conn()
         if self.verify_overlap:
             self.overlap_pairs.extend(_overlap_pairs(conn, self.symbol, self.timeframe, rows))
@@ -775,6 +794,9 @@ async def fetch_item(
             ctx.get_conn(), "1d", _EMPTY_HISTORY_PROVIDER, symbols=[symbol]
         )
 
+    unmapped = tuple(persister.unmapped)
+    if unmapped:
+        failed.insert(0, "unmapped_kind: " + "; ".join(unmapped))
     failure = "; ".join(failed) if failed else None
     held = tuple(persister.refusals)
     answered = n_bars > 0 or bool(held)
@@ -790,6 +812,7 @@ async def fetch_item(
         overlap_pairs=tuple(persister.overlap_pairs),
         held=held,
         n_held=persister.n_held,
+        unmapped=unmapped,
     )
 
 

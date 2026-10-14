@@ -60,6 +60,11 @@ _DIGEST_COLUMN = "content_digest"
 
 _ROLE = "ohlcv_observation_writer"
 
+# Which of these request_ids already exist: asked once after a flush whose COMMIT outcome is
+# unknown (the COPY ran, then the transaction exit raised), before the restored rows are written.
+_EXISTING_SQL = "SELECT request_id FROM ohlcv_request WHERE request_id = ANY(%s)"
+_EXISTING_SQL_ASYNC = "SELECT request_id FROM ohlcv_request WHERE request_id = ANY($1::uuid[])"
+
 # Default = the migration 380 APR seed for infra.ohlcv_observation.copy_batch_rows; callers with
 # ConfigService access should read the key and pass it instead.
 _DEFAULT_MAX_BUFFER_ROWS = 50_000
@@ -177,6 +182,8 @@ class RequestSink:
     ) -> None:
         self._conn = conn
         self._buffer = _Buffer(caller=caller, source=source, max_buffer_rows=max_buffer_rows)
+        # The last flush failed after its COPY ran: the server may have committed those rows.
+        self._commit_unknown = False
 
     def on_request(self, record: Any) -> None:
         self._buffer.add_request(record)
@@ -195,12 +202,21 @@ class RequestSink:
         recovery when the old connection died mid-run)."""
         self._conn = conn
 
+    def _without_written(self, requests: list[tuple]) -> list[tuple]:
+        """Drop the rows the server already holds (a flush whose COMMIT outcome was unknown)."""
+        with self._conn.cursor() as cur:
+            cur.execute(_EXISTING_SQL, ([row[0] for row in requests],))
+            existing = {str(r[0]) for r in cur.fetchall()}
+        self._conn.commit()
+        return [row for row in requests if str(row[0]) not in existing]
+
     def flush(self) -> int:
-        """Write the buffered request rows; return how many."""
+        """Write the buffered request rows; return how many (rows an ambiguous earlier commit
+        already wrote are not written again and not counted)."""
         requests = self._buffer.take_rows()
         if not requests:
             return 0
-        n_requests = len(requests)
+        copied = False
         try:
             # SET LOCAL ROLE only reverts at a real transaction boundary. A caller transaction
             # already open would demote conn.transaction() to a savepoint and leak the role.
@@ -214,13 +230,22 @@ class RequestSink:
             with self._conn.cursor() as cur:
                 cur.execute("SELECT 1")
             self._conn.commit()
-            with self._conn.transaction():
-                with self._conn.cursor() as cur:
-                    cur.execute(f"SET LOCAL ROLE {_ROLE}")
-                    write_request_rows(cur, requests)
+            if self._commit_unknown:
+                requests = self._without_written(requests)
+                self._commit_unknown = bool(requests)
+            if requests:
+                with self._conn.transaction():
+                    with self._conn.cursor() as cur:
+                        cur.execute(f"SET LOCAL ROLE {_ROLE}")
+                        write_request_rows(cur, requests)
+                    copied = True
         except BaseException:
             self._buffer.restore(requests)
+            if copied:
+                self._commit_unknown = True
             raise
+        self._commit_unknown = False
+        n_requests = len(requests)
         logger.info(
             "ohlcv_request_writer.flushed", caller=self._buffer.caller, n_requests=n_requests
         )
@@ -239,6 +264,7 @@ class AsyncRequestSink:
         max_buffer_rows: int = _DEFAULT_MAX_BUFFER_ROWS,
     ) -> None:
         self._buffer = _Buffer(caller=caller, source=source, max_buffer_rows=max_buffer_rows)
+        self._commit_unknown = False  # as RequestSink: the last flush failed after its COPY
 
     def on_request(self, record: Any) -> None:
         self._buffer.add_request(record)
@@ -250,7 +276,7 @@ class AsyncRequestSink:
         requests = self._buffer.take_rows()
         if not requests:
             return 0
-        n_requests = len(requests)
+        copied = False
         try:
             # asyncpg also demotes a nested transaction() to a savepoint, which would trap the role.
             if conn.is_in_transaction():
@@ -258,14 +284,25 @@ class AsyncRequestSink:
                     "AsyncRequestSink.flush requires an idle connection: an open "
                     "caller transaction would trap SET LOCAL ROLE past the flush"
                 )
-            async with conn.transaction():
-                await conn.execute(f"SET LOCAL ROLE {_ROLE}")
-                await conn.copy_records_to_table(
-                    "ohlcv_request", records=requests, columns=list(_REQUEST_COLUMNS)
-                )
+            if self._commit_unknown:
+                found = await conn.fetch(_EXISTING_SQL_ASYNC, [row[0] for row in requests])
+                existing = {str(r[0]) for r in found}
+                requests = [row for row in requests if str(row[0]) not in existing]
+                self._commit_unknown = bool(requests)
+            if requests:
+                async with conn.transaction():
+                    await conn.execute(f"SET LOCAL ROLE {_ROLE}")
+                    await conn.copy_records_to_table(
+                        "ohlcv_request", records=requests, columns=list(_REQUEST_COLUMNS)
+                    )
+                    copied = True
         except BaseException:
             self._buffer.restore(requests)
+            if copied:
+                self._commit_unknown = True
             raise
+        self._commit_unknown = False
+        n_requests = len(requests)
         logger.info(
             "ohlcv_request_writer.flushed", caller=self._buffer.caller, n_requests=n_requests
         )

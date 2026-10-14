@@ -113,6 +113,11 @@ def vendor_kind_to_label(vendor: str, kind: str) -> str:
         raise KeyError(f"(vendor, kind) = ({vendor!r}, {kind!r}) has no source label") from None
 
 
+class UnmappedObservation(ValueError):
+    """A (source, route, what_to_show) with no raw kind: a route or request type nobody mapped.
+    The fetcher reports it per item as `unmapped_kind` instead of failing the whole window."""
+
+
 def observation_kind(source: str, route: str, what_to_show: str) -> str:
     """The raw kind of an ohlcv_observation row, from its source (vendor), route, what_to_show.
 
@@ -128,7 +133,7 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
                 return "smart_adjusted"
         elif what_to_show == _TRADES and route not in (ROUTE_TRADIER, ROUTE_ALPACA):
             if route not in VENUE_ROUTES:
-                raise ValueError(
+                raise UnmappedObservation(
                     f"unmapped ibkr listing-venue route {route!r}; add it to VENUE_ROUTES "
                     "and seed its bar_kind code"
                 )
@@ -139,7 +144,7 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
     elif source == VENDOR_ALPACA and route in (ROUTE_ALPACA, _ROUTE_LEGACY_IMPORT):
         if what_to_show == _TRADES:
             return "sip_rth"
-    raise ValueError(
+    raise UnmappedObservation(
         f"unmapped observation (source={source!r}, route={route!r}, what_to_show={what_to_show!r})"
     )
 

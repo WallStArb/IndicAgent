@@ -364,3 +364,82 @@ def test_sync_flush_failure_keeps_the_buffer_in_order():
     conn.transaction_status = psycopg.pq.TransactionStatus.IDLE
     assert sink.flush() == 2
     assert conn.copies[0][1][0][0] == uuid.UUID(str(first.request_id))
+
+
+class _CommitLostConnection(FakeConnection):
+    """The COPY ran, then the transaction exit (the COMMIT) raised: the server may have committed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.lose_commit = True
+
+    def transaction(self) -> _FakeTransaction:
+        conn = self
+
+        class Tx(_FakeTransaction):
+            def __exit__(self, *exc: object) -> bool:
+                super().__exit__(*exc)
+                if conn.lose_commit and exc[0] is None:
+                    raise OSError("connection lost during COMMIT")
+                return False
+
+        return Tx(self)
+
+
+def test_sync_restore_after_an_ambiguous_commit_does_not_reinsert_written_rows():
+    """Review finding 12: the server committed before the connection died; the restored rows
+    would hit the request_id key on the next flush and wedge the buffer."""
+    conn = _CommitLostConnection()
+    sink = RequestSink(conn, caller="unit-test")
+    kept = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    written = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(written)
+    with pytest.raises(OSError):
+        sink.flush()
+    assert sink.pending() == 1
+    sink.on_request(kept)
+    conn.lose_commit = False
+    conn.latest_rows = [(uuid.UUID(str(written.request_id)),)]  # the existence check finds it
+    assert sink.flush() == 1
+    assert [row[0] for row in conn.copies[-1][1]] == [uuid.UUID(str(kept.request_id))]
+    assert any("FROM ohlcv_request WHERE request_id" in sql for sql, _ in conn.statements)
+
+
+def test_sync_flush_failure_before_the_copy_does_not_run_the_existence_check():
+    conn, sink = _sink()
+    conn.transaction_status = psycopg.pq.TransactionStatus.INTRANS
+    sink.on_request(_record(new_fetch_run_id(), str(uuid.uuid4())))
+    with pytest.raises(RuntimeError):
+        sink.flush()
+    conn.transaction_status = psycopg.pq.TransactionStatus.IDLE
+    assert sink.flush() == 1
+    assert not any("FROM ohlcv_request WHERE request_id" in sql for sql, _ in conn.statements)
+
+
+@pytest.mark.asyncio
+async def test_async_restore_after_an_ambiguous_commit_does_not_reinsert_written_rows():
+    class LostCommit(FakeAsyncConnection):
+        lose = True
+
+        def transaction(self):
+            conn = self
+
+            class Tx(_FakeAsyncTransaction):
+                async def __aexit__(self, *exc: object) -> bool:
+                    await super().__aexit__(*exc)
+                    if conn.lose and exc[0] is None:
+                        raise OSError("connection lost during COMMIT")
+                    return False
+
+            return Tx(self)
+
+    sink = AsyncRequestSink(caller="unit-test")
+    written = _record(new_fetch_run_id(), str(uuid.uuid4()))
+    sink.on_request(written)
+    conn = LostCommit()
+    with pytest.raises(OSError):
+        await sink.flush(conn)
+    conn.lose = False
+    conn.latest_rows = [(uuid.UUID(str(written.request_id)),)]
+    assert await sink.flush(conn) == 0
+    assert sink.pending() == 0

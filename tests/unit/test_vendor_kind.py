@@ -114,3 +114,28 @@ def test_each_listing_venue_route_is_its_own_raw_kind():
 def test_unlisted_venue_route_raises_naming_the_route():
     with pytest.raises(ValueError, match="unmapped ibkr listing-venue route 'EDGX'"):
         observation_kind("ibkr", "EDGX", "TRADES")
+
+
+def test_unmapped_observation_is_a_distinct_error_type_and_still_a_value_error():
+    from src.intelligence.bars.vendor_kind import UnmappedObservation
+
+    assert issubclass(UnmappedObservation, ValueError)
+    with pytest.raises(UnmappedObservation):
+        observation_kind("ibkr", "EDGX", "TRADES")
+    with pytest.raises(UnmappedObservation):
+        observation_kind("ibkr", "SMART", "MIDPOINT")
+
+
+def test_apr_venue_fallback_seed_is_a_subset_of_venue_routes():
+    """Review finding 11: a venue added to the APR list without a kind mapping would fail every
+    1d window for the names that route there."""
+    import json
+    import re
+    from pathlib import Path
+
+    from src.intelligence.bars.vendor_kind import VENUE_ROUTES
+
+    text = Path("production/migrations/374_former_venue_history_recovery.sql").read_text()
+    seed = re.search(r"\('infra\.ibkr\.venue_fallback\.exchanges', '(\[[^']*\])'", text)
+    assert seed is not None
+    assert set(json.loads(seed.group(1))) <= set(VENUE_ROUTES)
