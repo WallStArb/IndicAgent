@@ -1589,3 +1589,19 @@ def test_a_refetch_asks_stored_slots_again_while_a_plain_run_asks_only_the_gaps(
     plain = len(env.persist)
     _fetch(_ctx(FakeProvider()), row, refetch=True)
     assert plain == 0 and len(env.persist) > 0
+
+
+# --- the re-serve lane (191-07 review finding 2) ---------------------------------------
+
+
+def test_reserve_asks_replace_the_planner_and_never_infer_empty_history(env):
+    asks = [
+        (datetime(2016, 2, 4, 5, tzinfo=UTC), datetime(2016, 2, 5, 5, tzinfo=UTC)),
+        (datetime(2026, 5, 15, 4, tzinfo=UTC), datetime(2026, 5, 16, 4, tzinfo=UTC)),
+    ]
+    provider = FakeProvider()
+    outcome = _fetch(_ctx(provider), _row("5m", latest=_COVERED_LATEST, status="ok"), asks=asks)
+    assert env.gap_calls == []  # no planner question: exactly the asked windows
+    assert [(c["start"], c["end"]) for c in provider.calls] == asks
+    assert all(c["on_empty_history"] is None for c in provider.calls)
+    assert env.reconciled == [] and outcome.status in ("ok", "no_data")

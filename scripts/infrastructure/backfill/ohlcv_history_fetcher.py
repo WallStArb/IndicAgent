@@ -85,10 +85,10 @@ import os
 import sys
 import time
 import traceback
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -151,6 +151,7 @@ from src.config.settings import (  # noqa: E402
     get_all_futures_contracts,
 )
 from src.core.agent.base_batch import BaseBatch  # noqa: E402
+from src.intelligence.bars.selection import SESSION_TZ  # noqa: E402
 from src.intelligence.bars.sessions import nyse_sessions  # noqa: E402
 from src.observability.metrics import OHLCV_COVERAGE_SLA_BREACHED_SERIES  # noqa: E402
 from src.providers import IBKRProvider  # noqa: E402
@@ -323,6 +324,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zero consecutive_failures through the ledger writer and exit.",
     )
     parser.add_argument(
+        "--reserve-keys",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Re-serve lane (191-07 review finding 2): ask exactly the session dates of these "
+            "keys again through the normal fetch path, under the lock, instead of the queue. "
+            "PATH is an ops_raw_repair.py report (its reserve_keys) or a JSON list of "
+            "{symbol, timeframe, timestamp}. Sets --dimension backfill, --symbols and "
+            "--timeframes from the keys."
+        ),
+    )
+    parser.add_argument(
         "--rebuild-coverage",
         action="store_true",
         help=(
@@ -343,7 +356,52 @@ def validate_args(args: argparse.Namespace) -> str | None:
         )
     if getattr(args, "overlap_sessions", None) is not None and args.overlap_sessions < 0:
         return f"--overlap-sessions must be >= 0, got {args.overlap_sessions}"
+    if getattr(args, "reserve_keys", None) and (
+        args.dimension or args.timeframes or args.symbols or args.full_scan
+    ):
+        return "--reserve-keys takes its symbols and timeframes from the keys; pass it alone"
     return None
+
+
+def reserve_asks(payload: Any) -> dict[tuple[str, str], list[tuple[datetime, datetime]]]:
+    """(symbol, timeframe) -> the [start, end) UTC windows of the keys' NYSE session dates.
+
+    `payload` is an ops_raw_repair.py report (its "reserve_keys") or a list of keys, each with
+    symbol, timeframe and an ISO timestamp. A session date is its America/New_York day, the
+    date a selection span matches (D-191-L), so the window holds the whole session the key is
+    in. Raises ValueError on an empty or malformed key list."""
+    keys = payload.get("reserve_keys") if isinstance(payload, dict) else payload
+    if not keys:
+        raise ValueError("no reserve keys")
+    days: dict[tuple[str, str], set[date]] = defaultdict(set)
+    for key in keys:
+        stamp = datetime.fromisoformat(key["timestamp"])
+        if stamp.tzinfo is None:
+            raise ValueError(f"naive reserve key timestamp {key['timestamp']!r}")
+        days[(key["symbol"], key["timeframe"])].add(stamp.astimezone(SESSION_TZ).date())
+    out: dict[tuple[str, str], list[tuple[datetime, datetime]]] = {}
+    for series, dates in sorted(days.items()):
+        out[series] = [
+            (
+                datetime.combine(day, datetime.min.time(), SESSION_TZ).astimezone(UTC),
+                datetime.combine(
+                    day + timedelta(days=1), datetime.min.time(), SESSION_TZ
+                ).astimezone(UTC),
+            )
+            for day in sorted(dates)
+        ]
+    return out
+
+
+def apply_reserve_scope(
+    args: argparse.Namespace, asks: Mapping[tuple[str, str], Any]
+) -> argparse.Namespace:
+    """The run's scope from the keys: every active instrument dimension, the keys' symbols and
+    timeframes (the candidates must hold each instrument the lane asks for)."""
+    args.dimension = "backfill"
+    args.symbols = ",".join(sorted({symbol for symbol, _ in asks}))
+    args.timeframes = ",".join(sorted({timeframe for _, timeframe in asks}))
+    return args
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -572,6 +630,7 @@ def _ibkr_entry_fetch(
         config: Any,
         reconnect: Callable[[], Awaitable[bool]],
         on_tick: Callable[[], None] | None,
+        asks: Sequence[tuple[datetime, datetime]] | None = None,
     ) -> ItemOutcome:
         ctx.plan = plan
         outcome = await fetch_fn(
@@ -586,6 +645,7 @@ def _ibkr_entry_fetch(
             reconnect=reconnect,
             on_tick=on_tick,
             provider_plan=plan,
+            **({"asks": asks} if asks is not None else {}),
         )
         # The ibkr fetch path labels its outcomes (the loop records them provider-labeled).
         return replace(outcome, provider=row.provider)
@@ -711,6 +771,10 @@ class OHLCVHistoryFetcher(BaseBatch):
         self._report_overlap = report_overlap or self._report_overlap_fact
         self._tick_s: float | None = None
         self.summary: dict[str, Any] = {}
+        self._reserve_asks: dict[tuple[str, str], list[tuple[datetime, datetime]]] = {}
+        if getattr(args, "reserve_keys", None):
+            self._reserve_asks = reserve_asks(json.loads(Path(args.reserve_keys).read_text()))
+            apply_reserve_scope(args, self._reserve_asks)
 
     # -- seams' defaults ----------------------------------------------------
 
@@ -1042,8 +1106,11 @@ class OHLCVHistoryFetcher(BaseBatch):
                 self._context_factory(primary, plan, fetch_run_id)
                 for _ in range(max(1, plan.config.fetch_concurrency) - 1)
             ]
-            loop = await self._loop(pool, plan, [ctx, *extra_ctxs])
-            if not loop.gateway_lost:
+            if self._reserve_asks:
+                loop = await self._reserve(plan, ctx)
+            else:
+                loop = await self._loop(pool, plan, [ctx, *extra_ctxs])
+            if not loop.gateway_lost and not self._reserve_asks:
                 escalation_code = await self._escalate(
                     pool, plan, ctx, loop, fetch_run_id, run_started_at
                 )
@@ -1167,6 +1234,7 @@ class OHLCVHistoryFetcher(BaseBatch):
         overlap_days: int = 0,
         refetch: bool = False,
         waived: bool = False,
+        asks: Sequence[tuple[datetime, datetime]] | None = None,
     ) -> ItemOutcome:
         """Dispatch the item through its provider's registry entry (T-190-13): the loop
         never calls a provider-specific path, and an entry failure surfaces as the item's
@@ -1188,6 +1256,7 @@ class OHLCVHistoryFetcher(BaseBatch):
                 config=plan.config,
                 reconnect=leaf.connect,
                 on_tick=self._notify,
+                **({"asks": asks} if asks is not None else {}),
             )
         except Exception as error:
             logger.error(
@@ -1205,6 +1274,37 @@ class OHLCVHistoryFetcher(BaseBatch):
                 provider=row.provider,
                 error=f"{type(error).__name__}: {error}",
             )
+
+    # -- the re-serve lane (191-07 review finding 2) -------------------------------------
+
+    async def _reserve(self, plan: RunPlan, ctx: Any) -> _LoopState:
+        """Ask each reserve series' session dates again, serially, on the open connection.
+
+        The answers go through the item's persister and the ingress contract like any fetch:
+        a whole bar that differs from a truncated stored one is a small-window restatement and
+        lands last-wins; an unchanged one is re-served under an applied raw load, which the
+        selection gate reads as the vendor's answer again."""
+        state = _LoopState()
+        provider = default_provider()
+        for (symbol, timeframe), asks in sorted(self._reserve_asks.items()):
+            state.lanes["reserve"] += 1
+            if symbol not in plan.candidates.instruments:
+                logger.error("ibkr_history_fetcher.reserve_unknown_symbol", symbol=symbol)
+                state.add(
+                    ItemOutcome(
+                        symbol, timeframe, "error", provider=provider, error="not an active symbol"
+                    )
+                )
+                continue
+            row = CoverageRow(symbol, timeframe, None, None, None, 0, None, None, provider)
+            outcome = await self._fetch_one(plan, ctx, row, full_scan=False, asks=asks)
+            self._notify()
+            if outcome.gateway_lost:
+                state.gateway_lost = f"{provider}/{symbol}/{timeframe} (reserve)"
+                return state
+            self._record_outcome(ctx, outcome)
+            state.add(outcome)
+        return state
 
     # -- the update lane's escalation (plan 189-10 Task 1, todo 507) --------------------
 

@@ -44,7 +44,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -723,8 +723,13 @@ async def fetch_item(
     overlap_days: int = 0,
     refetch: bool = False,
     waived: bool = False,
+    asks: Sequence[tuple[datetime, datetime]] | None = None,
 ) -> ItemOutcome:
     """Fetch one (symbol, timeframe) with the pipeline loop body's rules (CD-01/04/05).
+
+    `asks` (the re-serve lane, 191-07 review finding 2): exactly these [start, end) windows are
+    asked again, stored or not, instead of the planner's gaps; nothing is inferred about empty
+    history from them. Every answer goes through the same persister and ingress contract.
 
     Plan 189-10's lanes (the fetcher decides them per item): the update lane asks a covered
     series from its latest bar, `overlap_days` earlier for a grid series, and reports the
@@ -776,25 +781,32 @@ async def fetch_item(
         return ItemOutcome(symbol, timeframe, status, n_bars=n_bars, error=error)
 
     start_dt = _fetch_start(ctx.end_dt, fetch_days)
-    tail = not refetch and not _needs_full_window(row, full_scan=full_scan)
-    overlap = tail and overlap_days > 0 and timeframe in _RECORD_PLAN_TFS
-    if tail:
-        tail_start = _midnight(row.latest_timestamp)
-        if overlap:
-            tail_start -= timedelta(days=overlap_days)
-        start_dt = max(start_dt, tail_start)
-    head_floor = await _head_floor(ctx, instrument, timeframe, start_dt, tail=tail)
-    if head_floor is not None and head_floor > start_dt:
-        start_dt = head_floor
+    head_floor: datetime | None = None
+    if asks is not None:
+        overlap = False
+        gaps = _merge_windows(list(asks))
+        if gaps:
+            start_dt = gaps[0][0]
+    else:
+        tail = not refetch and not _needs_full_window(row, full_scan=full_scan)
+        overlap = tail and overlap_days > 0 and timeframe in _RECORD_PLAN_TFS
+        if tail:
+            tail_start = _midnight(row.latest_timestamp)
+            if overlap:
+                tail_start -= timedelta(days=overlap_days)
+            start_dt = max(start_dt, tail_start)
+        head_floor = await _head_floor(ctx, instrument, timeframe, start_dt, tail=tail)
+        if head_floor is not None and head_floor > start_dt:
+            start_dt = head_floor
 
-    gaps = _with_verification_asks(
-        ctx,
-        timeframe,
-        start_dt,
-        _plan_gaps(ctx, instrument, timeframe, start_dt),
-        overlap=overlap,
-        refetch=refetch,
-    )
+        gaps = _with_verification_asks(
+            ctx,
+            timeframe,
+            start_dt,
+            _plan_gaps(ctx, instrument, timeframe, start_dt),
+            overlap=overlap,
+            refetch=refetch,
+        )
     clock.touch()
     if not gaps:
         return ItemOutcome(symbol, timeframe, "ok")
@@ -818,7 +830,7 @@ async def fetch_item(
         # Only the oldest window can be pre-history; its walk's definitive no-data answers
         # are what ohlcv_empty_history records.
         observed: list[EmptyHistory] = []
-        is_oldest = (gap_start, gap_end) == windows[0]
+        is_oldest = asks is None and (gap_start, gap_end) == windows[0]
         # The record and D1 planners are end-exclusive (gap_end is the last missing slot's
         # end); the legacy planner's 1m range ends at the slot's start, so 1m asks through
         # the slot's end, capped at now so a bar still forming stays a gap.
@@ -932,6 +944,7 @@ async def fetch_item_with_retries(
     refetch: bool = False,
     waived: bool = False,
     provider_plan: Any | None = None,
+    asks: Sequence[tuple[datetime, datetime]] | None = None,
 ) -> ItemOutcome:
     """fetch_item under the stall bound, retried after a stall at most request_retries
     times (CD-08).
@@ -983,6 +996,7 @@ async def fetch_item_with_retries(
                 overlap_days=overlap_days,
                 refetch=refetch,
                 waived=waived,
+                asks=asks,
             )
 
         try:

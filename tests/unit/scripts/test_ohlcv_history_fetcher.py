@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import functools
+import json
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -1456,3 +1457,68 @@ def test_unselected_slots_are_counted_and_make_the_run_partial():
     assert state.n_unselected == 4 and state.counts()["n_unselected"] == 4
     source = Path(hf.__file__).read_text()
     assert "or loop.n_unselected > 0" in source
+
+
+# ---------------------------------------------------------------------------
+# The re-serve lane (191-07 review finding 2)
+# ---------------------------------------------------------------------------
+
+_RESERVE_REPORT = {
+    "reserve_keys": [
+        {"symbol": "TMUS", "timeframe": "5m", "timestamp": "2016-02-04T19:05:00+00:00"},
+        {"symbol": "TMUS", "timeframe": "5m", "timestamp": "2016-02-04T19:10:00+00:00"},
+        {"symbol": "HD", "timeframe": "5m", "timestamp": "2026-05-15T15:25:00+00:00"},
+    ]
+}
+
+
+def test_reserve_asks_are_whole_session_dates_per_series():
+    asks = hf.reserve_asks(_RESERVE_REPORT)
+    assert asks == {
+        ("HD", "5m"): [
+            (datetime(2026, 5, 15, 4, tzinfo=UTC), datetime(2026, 5, 16, 4, tzinfo=UTC))
+        ],
+        ("TMUS", "5m"): [
+            (datetime(2016, 2, 4, 5, tzinfo=UTC), datetime(2016, 2, 5, 5, tzinfo=UTC))
+        ],
+    }
+    assert hf.reserve_asks(_RESERVE_REPORT["reserve_keys"]) == asks
+    with pytest.raises(ValueError, match="no reserve keys"):
+        hf.reserve_asks({"reserve_keys": []})
+    with pytest.raises(ValueError, match="naive"):
+        hf.reserve_asks([{"symbol": "HD", "timeframe": "5m", "timestamp": "2026-05-15T15:25:00"}])
+
+
+def test_reserve_keys_are_passed_alone_and_set_the_scope(tmp_path):
+    assert hf.validate_args(_args("--reserve-keys", "x.json", "--symbols", "HD")) is not None
+    assert hf.validate_args(_args("--reserve-keys", "x.json")) is None
+    path = tmp_path / "keys.json"
+    path.write_text(json.dumps(_RESERVE_REPORT))
+    fetcher, _seen = _fetcher(
+        tmp_path, _plan([_ranked("HD", "5m")]), args=_args("--reserve-keys", str(path))
+    )
+    assert (fetcher.args.dimension, fetcher.args.symbols, fetcher.args.timeframes) == (
+        "backfill",
+        "HD,TMUS",
+        "5m",
+    )
+
+
+async def test_the_reserve_lane_asks_exactly_the_key_dates_and_skips_the_queue(tmp_path):
+    path = tmp_path / "keys.json"
+    path.write_text(json.dumps(_RESERVE_REPORT))
+    asked: list[tuple[str, Any]] = []
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        asked.append((row.symbol, kw.get("asks")))
+        return _outcome(row)
+
+    plan = _plan([_ranked("HD", "5m"), _ranked("TMUS", "5m"), _ranked("QQQ", "5m")])
+    fetcher, seen = _fetcher(
+        tmp_path, plan, args=_args("--reserve-keys", str(path)), fetch_fn=fetch
+    )
+    status, error = await _run(fetcher)
+    assert error is None and status == "success"
+    assert [s for s, _ in asked] == ["HD", "TMUS"]  # the queue's QQQ is never asked
+    assert all(a is not None and len(a) == 1 for _, a in asked)
+    assert "judged" not in seen  # no escalation in the re-serve lane
