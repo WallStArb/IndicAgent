@@ -28,8 +28,8 @@ Per explained slot of a series (the gate's classes, the same evidence):
 Equal or missing volumes at an edge cannot say which bar is whole: `reserve`. A real difference or
 a held refused value already in canonical stops the series (nothing written).
 
-A `reserve` slot's whole session date is left out of the selection this script runs, so canonical
-keeps its row there until the vendor serves the slot again through the fetcher (the edge fix in
+A `reserve` slot is left out of the selection this script runs, so canonical keeps its row there
+until the vendor serves the slot again through the fetcher (the edge fix in
 src/providers/ibkr.py makes that serve whole), and the gate reports the slot until then (exit 3).
 Every reserve key is written to the report for that re-serve.
 
@@ -37,8 +37,7 @@ Apply, per series in one transaction: the selection advisory lock of the series
 (bar_selection|symbol|timeframe, the same key select_and_write takes) is held from the re-read
 through the commit, the plan is recomputed under it, the repair load is recorded, raw is written
 through services/ohlcv_raw_writer.py (write_raw repair mode, hold_legacy_refusal), and
-services/bar_selection.select_and_write re-selects every date of the series except the reserve
-dates. The canonical rows selection changes are computed first with the same pure function and
+services/bar_selection.select_and_write re-selects the whole series except the reserve slots. The canonical rows selection changes are computed first with the same pure function and
 written to the report; a selection result that disagrees with that count rolls the series back.
 Dry run by default; --apply writes.
 
@@ -58,7 +57,7 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +68,7 @@ from scripts.ops.bars import ops_selection_gate as gate  # noqa: E402
 from services.bar_selection import select_and_write  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
 from services.ohlcv_raw_writer import RawRow, hold_legacy_refusal, write_raw  # noqa: E402
-from src.intelligence.bars.selection import SESSION_TZ, Candidate, session_date  # noqa: E402
+from src.intelligence.bars.selection import Candidate  # noqa: E402
 
 CALLER = "raw-repair-191"
 DESTINATION_RAW = "raw"
@@ -138,8 +137,8 @@ class SeriesPlan:
     def by_action(self) -> Counter:
         return Counter(a.action for a in self.actions)
 
-    def reserve_dates(self) -> list[date]:
-        return sorted({session_date(a.timestamp) for a in self.actions if a.action == RESERVE})
+    def reserve_slots(self) -> list[datetime]:
+        return sorted({a.timestamp for a in self.actions if a.action == RESERVE})
 
 
 def at_edge(ts: datetime, seconds: int, request_ends: Sequence[datetime]) -> bool:
@@ -221,17 +220,17 @@ def plan_series(
     return plan
 
 
-def selection_windows(reserve_dates: Sequence[date]) -> list[tuple[datetime, datetime]]:
-    """[start, end) UTC windows covering every instant except the session dates given (each
-    session date is its America/New_York calendar day)."""
+def selection_windows(
+    reserve_slots: Sequence[datetime], seconds: int
+) -> list[tuple[datetime, datetime]]:
+    """[start, end) UTC windows covering every instant except the reserve slots' bars
+    [ts, ts + seconds): selection is per slot, so only those slots keep their canonical row."""
     windows: list[tuple[datetime, datetime]] = []
     start = _FAR_PAST
-    for day in sorted(set(reserve_dates)):
-        day_start = datetime.combine(day, time(), SESSION_TZ).astimezone(UTC)
-        day_end = datetime.combine(day + timedelta(days=1), time(), SESSION_TZ).astimezone(UTC)
-        if day_start > start:
-            windows.append((start, day_start))
-        start = max(start, day_end)
+    for ts in sorted(set(reserve_slots)):
+        if ts > start:
+            windows.append((start, ts))
+        start = max(start, ts + timedelta(seconds=seconds))
     windows.append((start, _FAR_FUTURE))
     return windows
 
@@ -259,16 +258,16 @@ def repaired_candidates(
 def canonical_changes(
     canonical: Mapping[datetime, gate.Row],
     selected: Mapping[datetime, gate.Row],
-    reserve_dates: Sequence[date],
+    reserve_slots: Sequence[datetime],
 ) -> tuple[list[dict[str, Any]], int, int]:
     """(changed slots with old and new rows, new count, replaced count) selection will write
-    outside the reserve dates; canonical rows selection does not hold are left alone, as the
+    outside the reserve slots; canonical rows selection does not hold are left alone, as the
     writer leaves them."""
-    skip = set(reserve_dates)
+    skip = set(reserve_slots)
     changes: list[dict[str, Any]] = []
     n_new = n_replaced = 0
     for ts in sorted(selected):
-        if session_date(ts) in skip:
+        if ts in skip:
             continue
         old, new = canonical.get(ts), selected[ts]
         if old == new:
@@ -387,11 +386,11 @@ def apply_series(conn: Any, plan_in: SeriesPlan, params: Any, policy, kind_order
             kind_codes=params.kind_codes,
             future_tolerance_s=params.write.future_tolerance_s,
         )
-    reserve = plan.reserve_dates()
+    reserve = plan.reserve_slots()
     after, _ = gate.selected_rows(repaired_candidates(candidates, plan.actions), policy, kind_order)
     changes, n_new, n_replaced = canonical_changes(canonical, after, reserve)
     got_new = got_replaced = 0
-    for start, end in selection_windows(reserve):
+    for start, end in selection_windows(reserve, BAR_SECONDS[timeframe]):
         result = select_and_write(
             conn,
             symbols=[symbol],

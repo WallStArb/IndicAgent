@@ -100,7 +100,7 @@ def test_restated_after_copy_at_an_edge_selects_a_whole_raw_bar_and_reserves_a_t
     )
     plan = _plan({ts: (IBKR, _v(38.44, 44345))}, {ts: (IBKR, _v(38.51, 6399))}, truncated_raw, end)
     assert [a.action for a in plan.actions] == [repair.RESERVE]
-    assert plan.reserve_dates() == [date(2007, 6, 25)]
+    assert plan.reserve_slots() == [ts]
     # off the edge raw is simply stale: restore the later serve
     plan = _plan({ts: (IBKR, _v(38.44, 44345))}, {ts: (IBKR, _v(38.51, 6399))}, truncated_raw)
     assert [a.action for a in plan.actions] == [repair.RESTORE]
@@ -129,15 +129,15 @@ def test_a_held_value_already_in_canonical_blocks_the_series():
     assert plan.blockers and "held refused value" in plan.blockers[0]
 
 
-def test_selection_windows_leave_out_whole_session_dates():
-    windows = repair.selection_windows([date(2026, 5, 15)])
-    assert len(windows) == 2
-    (a_start, a_end), (b_start, b_end) = windows
-    assert a_end == datetime(2026, 5, 15, 4, 0, tzinfo=UTC)  # 00:00 EDT
-    assert b_start == datetime(2026, 5, 16, 4, 0, tzinfo=UTC)
-    assert repair.selection_windows([]) == [(repair._FAR_PAST, repair._FAR_FUTURE)]
-    two = repair.selection_windows([date(2026, 5, 15), date(2026, 5, 16)])
-    assert len(two) == 2 and two[1][0] == datetime(2026, 5, 17, 4, 0, tzinfo=UTC)
+def test_selection_windows_leave_out_only_the_reserve_slots():
+    slot = datetime(2026, 5, 15, 15, 25, tzinfo=UTC)
+    (a_start, a_end), (b_start, b_end) = repair.selection_windows([slot], 300)
+    assert (a_start, a_end) == (repair._FAR_PAST, slot)
+    assert (b_start, b_end) == (slot + timedelta(minutes=5), repair._FAR_FUTURE)
+    assert repair.selection_windows([], 300) == [(repair._FAR_PAST, repair._FAR_FUTURE)]
+    # adjacent slots merge into one gap
+    two = repair.selection_windows([slot, slot + timedelta(minutes=5)], 300)
+    assert len(two) == 2 and two[1][0] == slot + timedelta(minutes=10)
 
 
 def test_expected_canonical_changes_follow_the_repaired_raw_and_skip_reserve_dates():
@@ -156,5 +156,5 @@ def test_expected_canonical_changes_follow_the_repaired_raw_and_skip_reserve_dat
     assert fixed[0].close == 10.0 and fixed[1] == cands[1]
     canonical = {t1: (IBKR, _v(10.0)), t2: (IBKR, _v(10.9))}
     selected = {c.timestamp: (IBKR, (c.open, c.high, c.low, c.close, c.volume)) for c in fixed}
-    changes, n_new, n_replaced = repair.canonical_changes(canonical, selected, [date(2026, 5, 15)])
+    changes, n_new, n_replaced = repair.canonical_changes(canonical, selected, [t2])
     assert (n_new, n_replaced) == (1, 0) and changes[0]["timestamp"].startswith("2026-05-18")
