@@ -101,6 +101,13 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 15. Item 10 (forming 15m/1h bar): the IBKR leaf now drops a bar still forming at the request end
     (eeb0fb7c6); plan 08 confirms whether that closes item 10 or the planner horizon still needs it.
 
+## Second review of the 07 fixes (2026-10-14, 191-07-FIXES-REVIEW.md)
+
+16. In progress: 88 slots excused by date-only evidence (HIGH), load-level judgment of legacy
+    refused loads, mixed-vendor sessions on 2026-10-09, selection skipping held keys, and the
+    complete-bar rule moved to the shared fetch layer for every vendor. Results go in
+    191-07-FIXES.md under "Second review fixes".
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land

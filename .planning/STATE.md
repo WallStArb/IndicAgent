@@ -46,8 +46,8 @@ bullets with current facts.
 ## Current position
 
 Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-14. Plans 01 to 07 done,
-each independently reviewed and fixed (reviews in the phase dir; 07 fixes in 191-07-FIXES.md, a
-fresh review of those fixes is next). Next: plan 08 (daily stage over raw), then 10 (evidence
+each independently reviewed and fixed (reviews in the phase dir; 07 fixes in 191-07-FIXES.md; their
+review found 1 HIGH and 4 MEDIUM, second fixes in progress). Next: plan 08 (daily stage over raw), then 10 (evidence
 readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
 
 - **Cutover window open since 2026-10-13T19:00:40Z:** ten units held (fetcher, reconciliation
