@@ -97,7 +97,7 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 13. Not built: a check that catches a calendar defect dropping a whole Alpaca day; resetting
     `price_sanity_status` and `base` when selection replaces a canonical row (verify whether they
     go stale first).
-14. D-191-M (the one-time catch-up of 2,895 refused_cross_vendor slots) needs owner acknowledgement.
+14. D-191-M (the one-time catch-up of 2,895 refused_cross_vendor slots): owner acknowledged 2026-10-14.
 15. Item 10 (forming 15m/1h bar): the IBKR leaf now drops a bar still forming at the request end
     (eeb0fb7c6); plan 08 confirms whether that closes item 10 or the planner horizon still needs it.
 

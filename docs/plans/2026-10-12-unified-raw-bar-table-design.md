@@ -214,7 +214,7 @@ The gate for plan 191-07 (`scripts/ops/bars/ops_selection_gate.py`) counts, besi
 
 ### D-191-M: explained is not clean; legacy refusals and chunk edges
 
-Status: planner decision (review of plan 191-07), owner acknowledgement pending
+Status: planner decision (review of plan 191-07), owner acknowledged 2026-10-14 ("we need complete bars from each source if they are available")
 
 1. The gate exits 0 only when canonical equals the selection exactly. Explained differences, or a held refused value the selection would take, exit 3 (explained residue); nothing resumes on 3.
 2. A refused serve is tied to the exact key: a raw row whose `load_id`, or (backfill copies) whose `served_at`, names a refused `ohlcv_load` of the same vendor, unless an applied vendor serve with destination raw covered the slot after the refusal. It is held (D-191-I) when it displaced the vendor's own value at that key. A retired-path refusal that judged the vendor against another vendor's canonical row is not a refusal under the per-source contract (D-191-K): where the vendor has no other value of its own at the key, its row is its own answer and selection takes it, once, as a catch-up.

@@ -25,7 +25,7 @@
     "Do not run ops_bar_nightly or ops_bar_load against live data before the fetcher resumes and the gate exits 0."
   ],
   "human_actions_pending": [
-    "owner acknowledgement of D-191-B, D, G and M",
+    "owner acknowledgement of D-191-B, D and G",
     "plan 20 Tradier deletion checkpoint"
   ],
   "uncommitted_files": [

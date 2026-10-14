@@ -55,7 +55,7 @@ readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff: 
   the 5m IBKR backfill is paused. Selection gate exits 3 (explained residue): 26 slots on 9 series
   need an IBKR re-serve (`--reserve-keys logs/raw_repair_191_rerun_dry.json`) once the fetcher
   runs. Derived 15m/1h over 3,022 repaired 5m slots are stale until bar-derivation resumes.
-  Owner acknowledgement pending: D-191-B, D, G, M; plan 20 (Tradier deletion) has an owner checkpoint.
+  Owner acknowledgement pending: D-191-B, D, G (M acknowledged 2026-10-14); plan 20 (Tradier deletion) has an owner checkpoint.
 
 - **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
   the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00
