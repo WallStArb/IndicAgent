@@ -54,6 +54,17 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 - Still open: items 2, 3, 4 and the `bar_derivation_writer` grant on `ohlcv_raw`; the CASCADE on
   `ohlcv_revision.load_id` (plan 25 Tradier retire).
 
+## Status after plan 191-07 code (2026-10-14)
+
+- Item 4 (spans by UTC date): done. Selection matches `bar_source_policy` spans by the NYSE session date;
+  kind `sip_rth` is a candidate only on the regular-hours grid (Alpaca's extended-hours bars stay in raw
+  and never reach canonical; D-191-L).
+- Item 2, no-winner half: the selection writer counts slots no ranked vendor holds (`unselected`); the
+  loader and nightly report them and fail on them. The NULL-volume half needs no change today (no raw row
+  of 1m, 5m or 4h has a NULL volume). Canonical rows selection no longer produces are not removed; the
+  selection gate reports them as `only_canonical` differences instead.
+- Advisory lock per (symbol, timeframe) before `select_and_write`, upsert tail on new rows: done.
+
 ## Open items from the plan 191-06 review (2026-10-14), not fixed in the 06 fixes
 
 6. Medium: any single route's `no_data` covers a 1d session. `_d1_gaps.py` (`_ANSWERED_WINDOWS_SQL`

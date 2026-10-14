@@ -23,6 +23,11 @@ Modes (exactly one):
 --idempotence   run the live selection writer over a spread of names inside a transaction that
                 is always rolled back and report rows inserted or replaced (must be 0).
 --merge         total several shard reports into one verdict.
+--locate-unsourced
+                raw rows that no old store holds a key for (plan 04's balance check counted a
+                dozen per window, never located): per symbol, the (timeframe, vendor, kind)
+                groups whose raw row count exceeds the distinct keys of archive, canonical vendor
+                rows (non-1d) and observation (1d), then the rows themselves.
 
 Canonical read contract (the same for plans 12, 13 and 14): `--target TABLE` (default
 market_data_ohlcv) is introspected once through information_schema; a table with a `vendor`
@@ -34,6 +39,11 @@ explained slot is counted and listed per series beside the zero (never folded in
 - refused_self_restatement: same (vendor, kind), values differ, and an `ohlcv_revision` row for
   exactly that key holds the canonical value. Raw current is a later serve of the vendor's own
   history that the retired path refused (canonical kept the accepted value, plan 04 logged it).
+- restated_after_copy: same (vendor, kind), values differ, and an `ohlcv_revision` row for exactly
+  that key holds the SELECTED (raw current) value. The retired fetcher restated the canonical row
+  after the raw copy was taken and logged the value it displaced; the copy never saw the change,
+  so raw is stale and canonical is the vendor's later serve. Counted here and a data defect to
+  repair in raw before anything writes selection over those keys (the summary names the count).
 - refused_cross_vendor: the vendor or kind differs, or raw holds a row canonical lacks, on a
   session date covered by a refused `ohlcv_load` of the series whose source is the selected
   vendor (the retired path refused an IBKR chunk that disagreed with Alpaca canonical and kept
@@ -76,7 +86,11 @@ from src.intelligence.bars.selection import (  # noqa: E402
     select_slots,
     session_date,
 )
-from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND, VENDOR_DERIVED  # noqa: E402
+from src.intelligence.bars.vendor_kind import (  # noqa: E402
+    LABEL_TO_VENDOR_KIND,
+    VENDOR_DERIVED,
+    observation_kind,
+)
 
 _LOG_DIR = project_root / "logs"
 _BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
@@ -93,6 +107,7 @@ VENDOR_KIND = "vendor_kind"
 VALUE = "value"
 # explained classes
 SELF_RESTATEMENT = "refused_self_restatement"
+RESTATED_AFTER_COPY = "restated_after_copy"
 CROSS_VENDOR = "refused_cross_vendor"
 REAL = "real"
 
@@ -141,8 +156,11 @@ def classify(
         kind = VALUE
     if kind == VALUE and canonical is not None:
         key = (ts, canonical[0][0], canonical[0][1])
-        if canonical[1] in evidence.revisions.get(key, ()):
+        logged = evidence.revisions.get(key, ())
+        if canonical[1] in logged:
             return kind, SELF_RESTATEMENT
+        if selected is not None and selected[1] in logged:
+            return kind, RESTATED_AFTER_COPY
     if kind in (ONLY_SELECTED, VENDOR_KIND) and selected is not None:
         day = session_date(ts)
         for first, last in evidence.refused_windows.get(selected[0][0], ()):
@@ -411,8 +429,10 @@ def derive_spans(
 ) -> SpanPlan:
     """The fewest date-contiguous ranking runs under which selection reproduces canonical.
 
-    Every ranking option is tried as a constant policy over all history; a session date is
-    feasible for an option when no REAL (unexplained) difference falls on it. A run keeps its
+    Every ranking option is tried as a constant policy over all history. A session date takes the
+    options that reproduce canonical exactly there; when none does, the options with no REAL
+    (unexplained) difference and the fewest explained ones, so a refusal-explained slot keeps
+    canonical's vendor wherever a ranking can. A run keeps its
     ranking while it stays feasible and, when it must change, takes the option feasible longest
     (ties by preference order). A date no option reproduces is a blocker date. Runs equal to the
     default ranking need no row; the last non-default run is open-ended, the rule going forward.
@@ -422,7 +442,8 @@ def derive_spans(
     dates = sorted(
         {session_date(ts) for ts in canonical} | {session_date(c.timestamp) for c in candidates}
     )
-    bad: dict[Ranking, set[date]] = {}
+    real: dict[Ranking, set[date]] = {}
+    explained: dict[Ranking, Counter] = {}
     for option in options:
         policy = [
             PolicyRow(
@@ -435,17 +456,34 @@ def derive_spans(
             )
         ]
         selected, _ = selected_rows(candidates, policy, kind_order)
-        bad[option] = {
-            session_date(ts)
-            for ts, (_, cls) in diff_rows(canonical, selected, evidence)
-            if cls == REAL
-        }
-    # next_bad[option][i] = first index >= i of a date infeasible for the option (len(dates) if none)
+        real[option] = set()
+        explained[option] = Counter()
+        for ts, (_, cls) in diff_rows(canonical, selected, evidence):
+            (
+                real[option].add(session_date(ts))
+                if cls == REAL
+                else explained[option].update([session_date(ts)])
+            )
+    # Feasible options of a date: those reproducing canonical exactly; when none does, those with
+    # no unexplained difference and the fewest explained ones (the closest to canonical).
+    feasible_at: list[set[Ranking]] = []
+    for day in dates:
+        exact = {o for o in options if day not in real[o] and not explained[o][day]}
+        if exact:
+            feasible_at.append(exact)
+            continue
+        clean = [o for o in options if day not in real[o]]
+        if not clean:
+            feasible_at.append(set())
+            continue
+        fewest = min(explained[o][day] for o in clean)
+        feasible_at.append({o for o in clean if explained[o][day] == fewest})
+    # next_bad[option][i] = first index >= i of a date the option cannot take (len(dates) if none)
     next_bad: dict[Ranking, list[int]] = {}
     for option in options:
         marks = [len(dates)] * (len(dates) + 1)
         for i in range(len(dates) - 1, -1, -1):
-            marks[i] = i if dates[i] in bad[option] else marks[i + 1]
+            marks[i] = marks[i + 1] if option in feasible_at[i] else i
         next_bad[option] = marks
     ranking_by_date: dict[date, Ranking] = {}
     blockers: list[date] = []
@@ -453,11 +491,11 @@ def derive_spans(
     current: Ranking | None = None
     i = 0
     while i < len(dates):
-        if current is not None and dates[i] not in bad[current]:
+        if current is not None and current in feasible_at[i]:
             ranking_by_date[dates[i]] = current
             i += 1
             continue
-        feasible = [o for o in options if dates[i] not in bad[o]]
+        feasible = [o for o in options if o in feasible_at[i]]
         if not feasible:
             blockers.append(dates[i])
             if current is not None:
@@ -1080,6 +1118,89 @@ def run_idempotence(conn: psycopg.Connection, args: argparse.Namespace, batch_ro
     return 0 if inserted == 0 and replaced == 0 else 1
 
 
+def locate_groups(cur: Any, symbol: str) -> list[tuple[str, str, str, int, int]]:
+    """(timeframe, vendor, kind, raw rows, distinct store keys) for each group where raw has
+    more rows than the stores have keys; the stores are those plan 04's balance check reads."""
+    labels = {
+        label: pair
+        for label, pair in vendor_labels().items()
+        if pair[1] not in ("fallback",)  # canonical-only kind, never raw
+    }
+    cur.execute(
+        "SELECT timeframe, vendor, kind, count(*) FROM ohlcv_raw WHERE symbol = %s GROUP BY 1, 2, 3",
+        (symbol,),
+    )
+    raw = {(tf, v, k): n for tf, v, k, n in cur.fetchall()}
+    keys: dict[tuple[str, str, str], set[datetime]] = defaultdict(set)
+    cur.execute(
+        'SELECT timeframe, source, "timestamp" FROM ohlcv_intraday_raw_archive WHERE symbol = %s',
+        (symbol,),
+    )
+    for tf, source, ts in cur.fetchall():
+        if source in labels:
+            keys[(tf, *labels[source])].add(ts)
+    cur.execute(
+        'SELECT timeframe, source, "timestamp" FROM market_data_ohlcv '
+        "WHERE symbol = %s AND timeframe <> '1d' AND source = ANY(%s)",
+        (symbol, list(labels)),
+    )
+    for tf, source, ts in cur.fetchall():
+        keys[(tf, *labels[source])].add(ts)
+    cur.execute(
+        "SELECT DISTINCT o.source, o.route, o.what_to_show, "
+        "(o.bar_date::timestamp AT TIME ZONE 'UTC') FROM ohlcv_observation o "
+        "JOIN ohlcv_request r USING (request_id) "
+        "WHERE o.symbol = %s AND r.caller NOT LIKE 'test-%%'",
+        (symbol,),
+    )
+    for source, route, wts, ts in cur.fetchall():
+        try:
+            kind = observation_kind(source, route, wts)
+        except ValueError:
+            continue
+        keys[("1d", source, kind)].add(ts)
+    return [
+        (tf, v, k, n, len(keys.get((tf, v, k), ())))
+        for (tf, v, k), n in sorted(raw.items())
+        if n > len(keys.get((tf, v, k), ()))
+    ]
+
+
+def run_locate_unsourced(conn: psycopg.Connection, args: argparse.Namespace) -> int:
+    with conn.cursor() as cur:
+        symbols = shard_of(series_symbols(cur, args.symbols), args.shard)
+    conn.rollback()
+    found: list[dict[str, Any]] = []
+    t0 = time.monotonic()
+    for n, symbol in enumerate(symbols, 1):
+        with conn.cursor() as cur:
+            groups = locate_groups(cur, symbol)
+        conn.rollback()
+        for tf, vendor, kind, n_raw, n_keys in groups:
+            found.append(
+                {
+                    "symbol": symbol,
+                    "timeframe": tf,
+                    "vendor": vendor,
+                    "kind": kind,
+                    "raw_rows": n_raw,
+                    "store_keys": n_keys,
+                    "excess": n_raw - n_keys,
+                }
+            )
+        if n % 50 == 0 or n == len(symbols):
+            print(
+                f"[{datetime.now(UTC):%H:%M:%S}] locate {n}/{len(symbols)} ({symbol}) "
+                f"elapsed={time.monotonic() - t0:.0f}s groups={len(found)}",
+                flush=True,
+            )
+    out = _out_path(args, "selection_gate_unsourced")
+    _write_json(out, {"meta": {"mode": "locate-unsourced", "shard": args.shard}, "groups": found})
+    print(json.dumps(found, indent=2, default=str))
+    print(f"report: {out}")
+    return 1 if found else 0
+
+
 def run_merge(args: argparse.Namespace) -> int:
     reports = [json.loads(Path(p).read_text()) for p in args.files]
     merged = merge_reports(reports)
@@ -1097,6 +1218,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode.add_argument("--emit-spans", action="store_true")
     mode.add_argument("--apply-spans", action="store_true")
     mode.add_argument("--idempotence", action="store_true")
+    mode.add_argument("--locate-unsourced", action="store_true")
     mode.add_argument("--merge", nargs="+", dest="files", metavar="REPORT")
     parser.add_argument("--timeframes", nargs="+", default=list(DEFAULT_TIMEFRAMES))
     parser.add_argument("--target", default="market_data_ohlcv")
@@ -1131,6 +1253,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_compare(conn, args)[1]
         if args.emit_spans:
             return run_emit_spans(conn, args)
+        if args.locate_unsourced:
+            return run_locate_unsourced(conn, args)
         return run_idempotence(conn, args, batch_rows)
     finally:
         conn.close()

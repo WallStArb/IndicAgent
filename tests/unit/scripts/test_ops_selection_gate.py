@@ -87,6 +87,19 @@ def test_value_difference_with_a_revision_holding_the_canonical_value_is_self_re
     assert diff.class_counts() == {gate.SELF_RESTATEMENT: 1}
 
 
+def test_a_revision_holding_the_raw_value_means_canonical_was_restated_after_the_copy():
+    ts = DAY1
+    canonical = (IBKR, _vals(10.4))  # the vendor's later serve
+    selected = (IBKR, _vals(10.0))  # raw still holds the value canonical displaced
+    evidence = gate.Evidence(revisions={(ts, "ibkr", "named"): {_vals(10.0)}})
+    assert gate.classify(ts, canonical, selected, evidence) == (
+        gate.VALUE,
+        gate.RESTATED_AFTER_COPY,
+    )
+    both = gate.Evidence(revisions={(ts, "ibkr", "named"): {_vals(10.0), _vals(10.4)}})
+    assert gate.classify(ts, canonical, selected, both)[1] == gate.SELF_RESTATEMENT
+
+
 def test_a_revision_for_another_value_or_key_does_not_explain_a_difference():
     ts = DAY1
     canonical = {ts: (IBKR, _vals(10.0))}
@@ -363,3 +376,48 @@ def test_apply_spans_is_a_dry_run_without_apply(tmp_path, capsys):
     assert "dry run: nothing written" in capsys.readouterr().out
     path.write_text(json.dumps({"spans": [row], "blockers": [{"symbol": "X"}]}))
     assert gate.main(["--apply-spans", "--spans", str(path), "--apply"]) == 2
+
+
+class _LocateCur:
+    """Answers the four reads of locate_groups in order: raw groups, archive, canonical, observation."""
+
+    def __init__(self, raw, archive, canonical, observation):
+        self.answers = [raw, archive, canonical, observation]
+        self.sql: list[str] = []
+        self._next: list = []
+
+    def execute(self, sql, params=None):
+        self.sql.append(sql)
+        self._next = self.answers.pop(0)
+
+    def fetchall(self):
+        return self._next
+
+
+def test_locate_groups_reports_only_groups_with_more_raw_rows_than_store_keys():
+    t1, t2, t3 = DAY1, DAY1 + timedelta(minutes=5), DAY1 + timedelta(minutes=10)
+    cur = _LocateCur(
+        raw=[
+            ("5m", "ibkr", "named", 3),
+            ("5m", "alpaca", "sip_rth", 2),
+            ("1d", "ibkr", "smart_trades", 2),
+        ],
+        archive=[("5m", "ibkr_named", t1), ("5m", "alpaca", t1), ("5m", "alpaca", t2)],
+        canonical=[("5m", "ibkr_named", t1), ("5m", "ibkr_named", t2)],  # t3 has no store key
+        observation=[
+            ("ibkr", "SMART", "TRADES", t1),
+            ("ibkr", "SMART", "TRADES", t2),
+            ("ibkr", "NOT_A_ROUTE", "TRADES", t3),  # unmapped route is skipped, not fatal
+        ],
+    )
+    assert gate.locate_groups(cur, "SPY") == [("5m", "ibkr", "named", 3, 2)]
+    assert "test-%%" in cur.sql[-1]
+
+
+def test_a_refusal_explained_day_takes_the_ranking_closest_to_canonical():
+    canonical = _canonical(_day(DAY1, ALPACA))
+    raw = _raw(_day(DAY1, IBKR, close=10.2), _day(DAY1, ALPACA))
+    evidence = gate.Evidence(refused_windows={"ibkr": [(date(2026, 10, 12), date(2026, 10, 12))]})
+    (span,) = _plan(canonical, raw, evidence).spans
+    # (ibkr, alpaca) would carry three explained differences; (alpaca, ibkr) carries none
+    assert (span.primary_source, span.fallback_source) == ("alpaca", "ibkr")

@@ -199,6 +199,19 @@ Status: planner decision (owner principle, 2026-10-13), owner acknowledgement pe
 
 Raw is stored per source and agnostic to every other source, so the gap planner asks one question: for this vendor, which slots of [A, B] are missing from its own `ohlcv_raw` rows, minus its own answered request windows (a definitive `no_data` included)? Every planner read carries the vendor (`ohlcv_raw.vendor`, `ohlcv_request.source`); the empty-history probes (`has_bar_before`, `has_bar_between`, `load_first_bars`), the queue's 1d currency read and the coverage ledger follow. No date cutoff restricts the question, and another vendor's rows, answers or the canonical selection never cover a slot. A stored 1d bar counts only when its session was complete when it was served (D-191-J). Two kinds of ask are not gaps and stay outside the planner (`_with_verification_asks`): the update lane's 5m overlap, the 1d session overlap, and the escalation refetch. They re-ask slots the vendor already holds, because a restated history (a split, a rescaled level) is visible only by comparing a fresh serve with the same source's stored values, which is what split detection and the 5m waiver read (plans 191-08 and 191-10). Deleting them would leave no restatement ever observed.
 
+### D-191-L: the selection session rule, session-date spans, and what a loader reports
+
+Status: planner decision (plan 191-07, review of plans 191-04 and 191-05), owner acknowledgement pending
+
+Four rules in selection and the loaders, each from the review of the raw-first writers.
+
+1. Session rule by kind. A raw kind defined as regular-hours (`sip_rth`, D-191-A) is a selection candidate only on the regular trading hours grid (open inclusive, close exclusive, 5 minute step, early closes from the NYSE calendar). Raw keeps every bar Alpaca served, pre- and post-market stamps included, and they never reach canonical 5m or the 15m/1h derivation. The rule is by kind, not a calendar filter on every vendor: IBKR answers an RTH request with its own session (bars to 16:00 ET on early-close days, a 14:30 UTC open on 2006-12-27 where the calendar says 14:32), canonical holds exactly those, and a vendor-blind filter would drop real rows.
+2. Spans match the NYSE session date (the `America/New_York` calendar date of the stamp), not the UTC date.
+3. One writer per series at a time: `select_and_write` takes `pg_advisory_xact_lock` on `bar_selection|symbol|timeframe` in sorted symbol order before reading, and every insert carries the upsert tail, so two writers of different vendors on one series neither collide on the canonical unique key nor overwrite each other's choice.
+4. A loader reports what it did not select. A slot that reached raw but that no ranked vendor holds is counted (`unselected`) and the loader and nightly status are not APPLIED and exit non-zero, the same way held rows are. Coverage is credited only for rows that landed in raw (a refused chunk credits nothing).
+
+The gate for plan 191-07 (`scripts/ops/bars/ops_selection_gate.py`) counts, beside its zero, the slots a recorded refusal explains (refused self restatement, refused cross-vendor, restated after the raw copy); each class needs ledger evidence for the exact key, and an unexplained difference is never folded into one.
+
 ### D-191-H: explicit deferrals
 
 Status: planner decision, owner acknowledgement pending
