@@ -193,6 +193,12 @@ Status: planner decision, owner acknowledgement pending
 
 A 1d bar served before its NYSE session closes (`session_complete_at(bar_date, answered_at)`, early closes included) is still forming. It is not a complete answer for the day and its later completion is not the vendor restating its own history. Raw is last-wins, so the rule has two halves. Live: `_ChunkPersister` does not offer such a bar to raw (the request row is kept; the planner leaves the session a gap until a run sees it whole). Reconstruction: a value run first served before the close is never superseded evidence, so `--revisions` skips it and keeps the other runs' ordinals; `--prune-forming-revisions` rebuilt the 929 smart_trades rows (929 symbols) the unfiltered reconstruction had logged. The boundary is the close instant, with no grace period: a bar answered at or after the close is complete. A date with no calendar session counts as complete once the date has passed. Origin: review finding 1 of plans 191-04 and 191-05.
 
+### D-191-K: the fetch question is per source
+
+Status: planner decision (owner principle, 2026-10-13), owner acknowledgement pending
+
+Raw is stored per source and agnostic to every other source, so the gap planner asks one question: for this vendor, which slots of [A, B] are missing from its own `ohlcv_raw` rows, minus its own answered request windows (a definitive `no_data` included)? Every planner read carries the vendor (`ohlcv_raw.vendor`, `ohlcv_request.source`); the empty-history probes (`has_bar_before`, `has_bar_between`, `load_first_bars`), the queue's 1d currency read and the coverage ledger follow. No date cutoff restricts the question, and another vendor's rows, answers or the canonical selection never cover a slot. A stored 1d bar counts only when its session was complete when it was served (D-191-J). Two kinds of ask are not gaps and stay outside the planner (`_with_verification_asks`): the update lane's 5m overlap, the 1d session overlap, and the escalation refetch. They re-ask slots the vendor already holds, because a restated history (a split, a rescaled level) is visible only by comparing a fresh serve with the same source's stored values, which is what split detection and the 5m waiver read (plans 191-08 and 191-10). Deleting them would leave no restatement ever observed.
+
 ### D-191-H: explicit deferrals
 
 Status: planner decision, owner acknowledgement pending

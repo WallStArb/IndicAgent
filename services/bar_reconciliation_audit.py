@@ -1263,7 +1263,8 @@ WHERE timeframe = ANY($1::text[]) AND loaded_at > $2
   AND (n_new + n_changed + coalesce(n_removed, 0)) > 0
 """
 _COVERAGE_ROWS_SQL = """
-SELECT symbol, timeframe, earliest_timestamp, latest_timestamp, row_count, last_fetch_status
+SELECT symbol, timeframe, provider, earliest_timestamp, latest_timestamp, row_count,
+       last_fetch_status
 FROM ohlcv_coverage WHERE symbol = ANY(%s)
 """
 _SESSION_MARGIN_DAYS = 3
@@ -1515,11 +1516,11 @@ def coverage_cache_drift(
         try:
             with conn.cursor() as cur:
                 cur.execute(_COVERAGE_ROWS_SQL, (list(symbols),))
-                committed = {(r[0], r[1]): tuple(r[2:]) for r in cur.fetchall()}
+                committed = {(r[0], r[1], r[2]): tuple(r[3:]) for r in cur.fetchall()}
                 cur.execute(f"SET LOCAL ROLE {_WRITER_ROLE}")
                 rebuild(cur, list(symbols))
                 cur.execute(_COVERAGE_ROWS_SQL, (list(symbols),))
-                rebuilt = {(r[0], r[1]): tuple(r[2:]) for r in cur.fetchall()}
+                rebuilt = {(r[0], r[1], r[2]): tuple(r[3:]) for r in cur.fetchall()}
         finally:
             conn.rollback()
             conn.close()

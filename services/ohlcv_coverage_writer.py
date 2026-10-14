@@ -12,10 +12,15 @@ tests/unit/test_ohlcv_coverage_writer_boundary.py), from two places:
   that did not land;
 - record_fetch_outcome / reset_failures, from the fetcher's per-item outcome write and its
   --reset-failures flag, so operators never hand-write the table;
-- refresh_1d_bounds, from the fetcher after the daily derivation stage (1d bars are D2's,
-  never a fetched chunk's, so their bounds are recomputed from the canonical rows);
+- refresh_1d_bounds, from the fetcher after its 1d answers landed (a 1d answer carries no
+  coverage delta, so its bounds are recomputed from the vendor's raw rows);
 - rebuild_from_stored_state, from the fetcher's --rebuild-coverage flag under its lock, which
-  recomputes every row from the stored bars when another writer stored bars around the ledger.
+  recomputes every row from the vendor's raw rows when another writer stored bars around the
+  ledger.
+
+Coverage is per source (phase 191 plan 06): a row (symbol, timeframe, provider) describes what
+that vendor holds in ohlcv_raw, counted in distinct slots, whether or not another vendor's rows
+are canonical at those slots.
 
 Every function takes a psycopg cursor whose transaction has already run
 SET LOCAL ROLE bar_derivation_writer (the only role granted SELECT, INSERT, UPDATE here).
@@ -41,14 +46,10 @@ from typing import Any
 FETCH_STATUSES = ("ok", "no_data", "error")
 _ERROR_STATUS = "error"
 
-# Fetch destination -> the bar table it stores into (schema identifiers, APR-exempt). 15m/1h
-# fetches land in the raw archive since 185-12; every other timeframe lands in the grid table.
-DESTINATION_ARCHIVE = "archive"
-DESTINATION_GRID = "grid"
-DESTINATION_TABLES = {
-    DESTINATION_ARCHIVE: "ohlcv_intraday_raw_archive",
-    DESTINATION_GRID: "market_data_ohlcv",
-}
+# Every fetched bar lands in ohlcv_raw, keyed by the vendor that served it (schema identifier,
+# APR-exempt). The one destination is kept as the delta's declared target so a caller that
+# still names another store fails loudly instead of crediting the wrong ledger.
+DESTINATION_RAW = "raw"
 
 _UPSERT_SQL = """
 INSERT INTO ohlcv_coverage (
@@ -80,8 +81,8 @@ ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
 
 @dataclass(frozen=True)
 class CoverageDelta:
-    """Which series one fetched chunk belongs to, where its bars are stored, and which
-    fetch plane authored the chunk.
+    """Which series one fetched chunk belongs to, where its bars are stored (ohlcv_raw), and
+    which vendor served the chunk.
 
     `provider` is the canonical tier's stored-state label (migration 464): the vendor whose
     fetch path actually produced the chunk, so a second vendor's coverage can never
@@ -97,28 +98,11 @@ class CoverageDelta:
     provider: str = "ibkr"
 
     def __post_init__(self) -> None:
-        if self.destination not in DESTINATION_TABLES:
+        if self.destination != DESTINATION_RAW:
             raise ValueError(
                 f"unknown coverage destination {self.destination!r}; "
-                f"expected one of {sorted(DESTINATION_TABLES)}"
+                f"the only destination is {DESTINATION_RAW!r}"
             )
-
-
-def existing_timestamps(
-    cur: Any, destination: str, symbol: str, timeframe: str, timestamps: Iterable[datetime]
-) -> set[datetime]:
-    """Timestamps among `timestamps` the destination table already stores for the series.
-
-    One indexed read, run before the bar insert so the caller can count how many offered rows
-    are genuinely new (the bar writers use ON CONFLICT DO NOTHING and return rows offered).
-    """
-    table = DESTINATION_TABLES[destination]
-    cur.execute(
-        f"SELECT timestamp FROM {table} "
-        "WHERE symbol = %s AND timeframe = %s AND timestamp = ANY(%s)",
-        (symbol, timeframe, list(timestamps)),
-    )
-    return {row[0] for row in cur.fetchall()}
 
 
 def upsert_coverage(
@@ -177,9 +161,9 @@ def record_fetch_outcome(
 
 _REFRESH_1D_SQL = """
 INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, row_count, provider)
-SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(*), %s
-FROM market_data_ohlcv_tradeable
-WHERE symbol = ANY(%s) AND timeframe = '1d'
+SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(DISTINCT "timestamp"), %s
+FROM ohlcv_raw
+WHERE vendor = %s AND timeframe = '1d' AND symbol = ANY(%s)
 GROUP BY symbol
 ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     earliest_timestamp = EXCLUDED.earliest_timestamp,
@@ -189,61 +173,39 @@ ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
 
 
 def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr") -> int:
-    """Recompute the 1d bounds and row count of `symbols` from the canonical 1d rows.
+    """Recompute the 1d bounds and row count of `symbols` from the provider's own raw rows.
 
-    A 1d fetch stores no bar (the daily derivation stage is the sole 1d writer, plan 185-18
-    task 1b), so no persist_chunk_atomically call ever moves a 1d series' bounds. The fetcher
-    calls this after the daily stage derived the symbols it fetched, so the queue's 1d
-    staleness reads the rows D2 wrote rather than the migration 432 bootstrap. Recomputed,
-    not widened: D2 may rewrite a 1d history (split re-derivation). Fetch status and the
-    failure counter are left to record_fetch_outcome. A symbol with no tradeable 1d row is
-    left untouched. The recomputed row carries the provider label (stored-state default
-    until a second provider exists). Runs under SET LOCAL ROLE bar_derivation_writer.
-    Returns rows written.
+    A 1d answer arrives as a daily observation, not a chunk, so no persist_chunk_atomically
+    call moves a 1d series' bounds. The fetcher calls this after the symbols it fetched, so
+    the queue's 1d staleness reads what this vendor holds. Counted in distinct session
+    stamps (a vendor's listing-venue and adjusted kinds share a stamp). Recomputed, not
+    widened: a vendor may restate a history. Fetch status and the failure counter are left to
+    record_fetch_outcome. A symbol with no raw 1d row of the provider is left untouched.
+    Runs under SET LOCAL ROLE bar_derivation_writer. Returns rows written.
     """
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
-    cur.execute(_REFRESH_1D_SQL, (provider, symbol_list))
+    cur.execute(_REFRESH_1D_SQL, (provider, provider, symbol_list))
     return int(cur.rowcount)
 
 
-# Migration 432's bootstrap aggregate, as an update-in-place. {where} is either empty or a
-# symbol filter; it is spliced into every source scan so a scoped rebuild reads only its rows.
-# The rebuilt rows carry the %(provider)s label of the rebuild's authoring plane.
+# The per-source aggregate: every row derives from this vendor's own ohlcv_raw rows, grouped by
+# (symbol, timeframe), counted in distinct slots (one slot is one stamp whatever its kinds).
+# {where} is either empty or a symbol filter; it is spliced into the raw scan so a scoped rebuild
+# reads only its rows. The rebuilt rows carry the %(provider)s label, which is the raw vendor.
 _REBUILD_SQL = """
 INSERT INTO ohlcv_coverage (
     symbol, timeframe, earliest_timestamp, latest_timestamp, row_count,
     last_fetched_at, last_fetch_status, provider
 )
-WITH grid AS (
+WITH bars AS (
     SELECT symbol, timeframe,
-           min("timestamp") AS earliest, max("timestamp") AS latest, count(*) AS n
-    FROM market_data_ohlcv_tradeable
-    {where}
+           min("timestamp") AS earliest, max("timestamp") AS latest,
+           count(DISTINCT "timestamp") AS n
+    FROM ohlcv_raw
+    WHERE vendor = %(provider)s {where}
     GROUP BY symbol, timeframe
-),
-archive AS (
-    SELECT symbol, timeframe,
-           min("timestamp") AS earliest, max("timestamp") AS latest, count(*) AS n
-    FROM ohlcv_intraday_raw_archive
-    {where}
-    GROUP BY symbol, timeframe
-),
-bars AS (
-    SELECT coalesce(g.symbol, a.symbol) AS symbol,
-           coalesce(g.timeframe, a.timeframe) AS timeframe,
-           LEAST(g.earliest, a.earliest) AS earliest,
-           GREATEST(g.latest, a.latest) AS latest,
-           GREATEST(coalesce(g.n, 0), coalesce(a.n, 0)) AS n
-    FROM grid g
-    FULL OUTER JOIN archive a
-      ON a.symbol = g.symbol AND a.timeframe = g.timeframe
-    WHERE coalesce(g.timeframe, a.timeframe) IN ('15m', '1h')
-    UNION ALL
-    SELECT symbol, timeframe, earliest, latest, n
-    FROM grid
-    WHERE timeframe NOT IN ('15m', '1h')
 ),
 requests AS (
     SELECT DISTINCT ON (symbol, timeframe)
@@ -281,37 +243,44 @@ ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
         ELSE ohlcv_coverage.last_fetch_status
     END
 """
-# Per-provider rebuild inputs (phase 190 plan 02; the design generalizes the IBKR-only
-# request filter). The alpaca entry lands with todo 521's leaf, never hand-written here.
+# Per-provider rebuild inputs: the provider's own request shape decides which ohlcv_request rows
+# advance the fetch status. A provider whose requests are not recorded in ohlcv_request (the
+# Alpaca loader writes none) advances nothing and keeps its stored status.
 _REBUILD_FILTERS: dict[str, str] = {
     "ibkr": (
-        "WHERE route = 'SMART' AND what_to_show = 'TRADES' "
+        "WHERE source = 'ibkr' AND route = 'SMART' AND what_to_show = 'TRADES' "
         "AND outcome IN ('bars', 'no_data', 'timeout', 'failed')"
-    )
+    ),
+    "alpaca": "WHERE source = 'alpaca' AND outcome IN ('bars', 'no_data', 'timeout', 'failed')",
 }
+REBUILD_PROVIDERS: tuple[str, ...] = tuple(_REBUILD_FILTERS)
 
 
 def rebuild_from_stored_state(
-    cur: Any, symbols: Iterable[str] | None = None, *, provider: str = "ibkr"
+    cur: Any, symbols: Iterable[str] | None = None, *, provider: str | None = None
 ) -> int:
-    """Recompute every ledger row's bounds and row count from the stored bars, in place.
+    """Recompute every ledger row's bounds and row count from the provider's raw rows, in place.
 
     Migration 432 bootstrapped the ledger once with ON CONFLICT DO NOTHING, so a writer that
-    stored bars without going through persist_chunk_atomically (the todo 449 lane, which ran
-    with coverage=None from 2026-10-02 to the 189-06 cutover) leaves rows stale or missing.
-    This is the same aggregate as that bootstrap, with DO UPDATE: earliest, latest and
-    row_count are recomputed (not widened) from market_data_ohlcv_tradeable and, for 15m/1h,
-    the raw archive; missing series are inserted. The provider's own request shape
-    (_REBUILD_FILTERS) advances last_fetched_at and last_fetch_status only when it is newer
-    than what the ledger holds; the rebuilt rows carry the provider label. An unknown
-    provider raises before any SQL (a new provider's filter arrives with its leaf, never
-    hand-written here). consecutive_failures is never touched: it counts the fetcher's own
-    item outcomes.
+    stored bars without going through persist_chunk_atomically leaves rows stale or missing.
+    This is the same aggregate over ohlcv_raw, per source: earliest, latest and row_count
+    (distinct slots) are recomputed (not widened) from the rows of `vendor = provider`, whether
+    or not another vendor's rows are canonical there; missing series are inserted. The
+    provider's own request shape (_REBUILD_FILTERS) advances last_fetched_at and
+    last_fetch_status only when it is newer than what the ledger holds. `provider` None
+    rebuilds every provider (REBUILD_PROVIDERS). An unknown provider raises before any SQL (a
+    new provider's filter arrives with its leaf, never hand-written here).
+    consecutive_failures is never touched: it counts the fetcher's own item outcomes.
 
     `symbols` scopes the rebuild (tests use a synthetic symbol); None rebuilds every series.
     Run under SET LOCAL ROLE bar_derivation_writer while holding the fetcher lock, so no
     persist_chunk_atomically delta can interleave. Returns rows inserted or updated.
     """
+    if provider is None:
+        symbol_arg = None if symbols is None else list(symbols)
+        return sum(
+            rebuild_from_stored_state(cur, symbol_arg, provider=name) for name in REBUILD_PROVIDERS
+        )
     if provider not in _REBUILD_FILTERS:
         raise ValueError(
             f"unknown coverage provider {provider!r}; expected one of {sorted(_REBUILD_FILTERS)}"
@@ -325,7 +294,7 @@ def rebuild_from_stored_state(
     if not symbol_list:
         return 0
     sql = _REBUILD_SQL.format(
-        where="WHERE symbol = ANY(%(symbols)s)",
+        where="AND symbol = ANY(%(symbols)s)",
         request_where=f"{request_filter} AND symbol = ANY(%(symbols)s)",
     )
     cur.execute(sql, {"provider": provider, "symbols": symbol_list})

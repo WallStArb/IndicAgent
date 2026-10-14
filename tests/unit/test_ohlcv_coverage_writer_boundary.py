@@ -108,5 +108,37 @@ def test_rebuild_filters_are_per_provider_and_unknown_providers_raise():
     assert '"ibkr":' in source
     assert "raise ValueError" in source
     assert "unknown coverage provider" in source
-    # The alpaca filter is NOT hand-written; it lands with todo 521's leaf.
-    assert '"alpaca"' not in source
+    # Alpaca's leaf landed (phase 190): its rows are rebuilt from its own raw rows too.
+    assert '"alpaca":' in source
+    assert source.index('"alpaca":') < source.index("REBUILD_PROVIDERS")
+
+
+def test_coverage_is_per_source_over_ohlcv_raw_only():
+    """Phase 191 plan 06: one destination (raw); the archive, the grid table and the canonical
+    view are not coverage inputs, and every raw scan is scoped to the provider's vendor."""
+    source = _writer_source()
+    assert 'DESTINATION_RAW = "raw"' in source
+    for gone in (
+        "DESTINATION_ARCHIVE",
+        "DESTINATION_GRID",
+        "DESTINATION_TABLES",
+        "ohlcv_intraday_raw_archive",
+        "market_data_ohlcv",
+        "existing_timestamps",
+    ):
+        assert gone not in source, gone
+    scans = re.findall(r"FROM ohlcv_raw\s+WHERE ([^\n]*)", source)
+    assert len(scans) == 2, scans  # the 1d refresh and the rebuild
+    assert all("vendor = " in scan for scan in scans), scans
+
+
+def test_the_writer_functions_are_the_listed_set():
+    source = _writer_source()
+    defs = set(re.findall(r"^def (\w+)\(", source, flags=re.MULTILINE))
+    assert defs == {
+        "upsert_coverage",
+        "record_fetch_outcome",
+        "refresh_1d_bounds",
+        "rebuild_from_stored_state",
+        "reset_failures",
+    }

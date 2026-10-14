@@ -85,3 +85,24 @@ def test_migration_is_additive_and_not_a_hypertable():
     sql = _sql()
     assert not re.search(r"(?i)\bDROP\s+[A-Z]", sql)
     assert "create_hypertable" not in sql
+
+
+# ---------------------------------------------------------------------------
+# Phase 191 plan 06: the raw destination needs no schema change
+# ---------------------------------------------------------------------------
+
+
+def test_the_ledger_has_no_destination_column_so_the_raw_destination_needs_no_migration():
+    """Coverage is keyed (symbol, timeframe, provider) and the destination exists only on the
+    in-memory CoverageDelta (services/ohlcv_coverage_writer.py). No DDL of migrations 432, 464
+    or 465 declares a destination column or a CHECK on one, so replacing 'archive' and 'grid'
+    with 'raw' is a code change only (phase 191 plan 06 omits the migration)."""
+    for name in (
+        "432_ohlcv_coverage.sql",
+        "464_ohlcv_coverage_provider_dimension.sql",
+        "465_provider_history_two_tier_keys.sql",
+    ):
+        ddl = _SQL_LINE_COMMENT_RE.sub("", read_source("production", "migrations", name))
+        # COMMENT ON strings may say "fetch destination"; no column or constraint is named so.
+        code = re.sub(r"(?s)COMMENT ON .*?;", "", ddl)
+        assert not re.search(r"(?i)\bdestination\b", code), name

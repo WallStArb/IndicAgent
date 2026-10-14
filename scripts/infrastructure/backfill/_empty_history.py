@@ -1,8 +1,11 @@
 """Provider-verified empty OHLCV history (ohlcv_empty_history, migration 354).
 
-Gap detection counts every expected session slot missing from market_data_ohlcv as a gap,
-so history the provider does not have (pre-listing, or simply not served) is re-requested
-every run and answered "no data" every time. This module remembers those answers:
+Gap detection counts every expected session slot missing from the provider's own ohlcv_raw rows
+as a gap, so history the provider does not have (pre-listing, or simply not served) is
+re-requested every run and answered "no data" every time. Raw is stored per source: whether a
+span is pre-history, and whether it holds a real bar, is judged against the asking provider's
+own raw rows and answers, never another vendor's or the canonical selection. This module
+remembers those answers:
 
 - `record()` stores the empty range a fetch's backward walk ended in, for the window that
   precedes a symbol's first bar (pre-history). Only IBKR's definitive "no data" answers
@@ -32,6 +35,7 @@ from src.intelligence.bars.gap_plan import (
     confirmed_empty_spans as _confirmed,
 )
 from src.intelligence.bars.sources import GRID_SOURCE_TF, GRID_TIMEFRAMES
+from src.intelligence.bars.vendor_kind import VENDOR_IBKR
 from src.providers.base import VENUE_ROUTE_ALIASES, EmptyHistory
 
 _REVERIFY_DAYS_KEY = "infra.backfill.empty_history_reverify_days"
@@ -101,26 +105,29 @@ def subtract(
     return kept
 
 
-def has_bar_before(conn: Any, symbol: str, timeframe: str, ts: datetime) -> bool:
-    """True if any real bar is older than `ts`, i.e. a window starting there is not
-    pre-history. The tradeable view is exact here: the store holds real rows only
-    (migration 444 refuses synthetic_fill)."""
+def has_bar_before(conn: Any, symbol: str, timeframe: str, ts: datetime, vendor: str) -> bool:
+    """True if `vendor` holds any raw bar older than `ts`, i.e. a window starting there is not
+    pre-history for that source. Per source: another vendor's earlier bars say nothing about
+    what this vendor serves."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable "
-            "WHERE symbol = %s AND timeframe = %s AND timestamp < %s)",
-            (symbol, timeframe, ts),
+            "SELECT EXISTS (SELECT 1 FROM ohlcv_raw "
+            'WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" < %s)',
+            (symbol, timeframe, vendor, ts),
         )
         return bool(cur.fetchone()[0])
 
 
-def has_bar_between(conn: Any, symbol: str, timeframe: str, start: datetime, end: datetime) -> bool:
-    """True if a real bar lies inside [start, end]: the span is not empty."""
+def has_bar_between(
+    conn: Any, symbol: str, timeframe: str, start: datetime, end: datetime, vendor: str
+) -> bool:
+    """True if `vendor` holds a raw bar inside [start, end]: the span is not empty for it."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable "
-            "WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s)",
-            (symbol, timeframe, start, end),
+            "SELECT EXISTS (SELECT 1 FROM ohlcv_raw "
+            "WHERE symbol = %s AND timeframe = %s AND vendor = %s "
+            'AND "timestamp" >= %s AND "timestamp" <= %s)',
+            (symbol, timeframe, vendor, start, end),
         )
         return bool(cur.fetchone()[0])
 
@@ -203,13 +210,13 @@ def load_fresh_heads(conn: Any, provider: str, reverify_days: int) -> dict[str, 
         return {r[0]: r[1] for r in cur.fetchall()}
 
 
-def load_first_bars(conn: Any, symbols: list[str]) -> dict[str, datetime]:
-    """Each symbol's oldest real bar across timeframes (one indexed MIN per symbol)."""
+def load_first_bars(conn: Any, symbols: list[str], vendor: str) -> dict[str, datetime]:
+    """Each symbol's oldest raw bar of `vendor` across timeframes (one indexed MIN per symbol)."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT s.symbol, (SELECT min(m.timestamp) FROM market_data_ohlcv_tradeable m "
-            "WHERE m.symbol = s.symbol) FROM unnest(%s::text[]) AS s(symbol)",
-            (symbols,),
+            'SELECT s.symbol, (SELECT min(m."timestamp") FROM ohlcv_raw m '
+            "WHERE m.symbol = s.symbol AND m.vendor = %s) FROM unnest(%s::text[]) AS s(symbol)",
+            (vendor, symbols),
         )
         return {r[0]: r[1] for r in cur.fetchall() if r[1] is not None}
 
@@ -335,7 +342,7 @@ def reconcile(
     overlaps_prior = prior is not None and prior.adjoins(window_start, window_end, timedelta(0))
     if observed is None and not overlaps_prior:
         return
-    if has_bar_before(conn, symbol, timeframe, window_start):
+    if has_bar_before(conn, symbol, timeframe, window_start, provider):
         return
     if observed is not None:
         record(
@@ -402,15 +409,16 @@ def _union(spans: list[ConfirmedSpan], slack: timedelta) -> list[ConfirmedSpan]:
 
 
 def _confirmed_spans(
-    conn: Any, symbol: str, timeframe: str, venues: list[str], slack: timedelta
+    conn: Any, symbol: str, timeframe: str, venues: list[str], slack: timedelta, vendor: str
 ) -> list[ConfirmedSpan]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT fetch_run_id, route, primary_exchange, window_start, window_end "
             "FROM ohlcv_request WHERE symbol = %s AND timeframe = %s "
             "AND what_to_show = 'TRADES' AND window_start IS NOT NULL "
-            "AND (outcome = 'no_data' OR (route = 'SMART' AND outcome = 'bars'))",
-            (symbol, timeframe),
+            "AND (outcome = 'no_data' OR (route = 'SMART' AND outcome = 'bars')) "
+            "AND source = %s",
+            (symbol, timeframe, vendor),
         )
         rows = cur.fetchall()
     runs: dict[Any, dict[str, list[tuple[datetime, datetime]]]] = defaultdict(
@@ -432,15 +440,16 @@ def _confirmed_spans(
     return [
         span
         for span in _union(spans, slack)
-        if not has_bar_between(conn, symbol, timeframe, span.start, span.end)
+        if not has_bar_between(conn, symbol, timeframe, span.start, span.end, vendor)
     ]
 
 
 def confirmed_empty_spans(
-    conn: Any, symbol: str, timeframe: str
+    conn: Any, symbol: str, timeframe: str, vendor: str = VENDOR_IBKR
 ) -> list[tuple[datetime, datetime]]:
     """Spans where SMART answered and every former venue other than the primary answered
-    no_data within one fetch run, with no real bar inside, read from ohlcv_request (D-20).
+    no_data within one fetch run, with no real bar of `vendor` inside, read from the vendor's
+    own ohlcv_request rows (D-20; the venue routes are an IBKR mechanism, so the default).
     A timeout or failure on any route leaves that run's span unconfirmed. Derived grid
     timeframes read their source's answers."""
     confirm_tf = _confirmation_timeframe(conn, timeframe)
@@ -450,6 +459,7 @@ def confirmed_empty_spans(
         confirm_tf,
         load_venue_routes(conn),
         timedelta(days=1) + _interval(confirm_tf),
+        vendor,
     )
     return [(s.start, s.end) for s in spans]
 
@@ -514,14 +524,14 @@ def reconcile_empty_history(
             cur.execute(
                 "SELECT DISTINCT symbol FROM ohlcv_request WHERE timeframe = %s "
                 "AND what_to_show = 'TRADES' AND outcome = 'no_data' "
-                "AND window_start IS NOT NULL AND route <> 'SMART'",
-                (timeframe,),
+                "AND window_start IS NOT NULL AND route <> 'SMART' AND source = %s",
+                (timeframe, provider),
             )
             candidates = {r[0] for r in cur.fetchall()} | set(rows)
 
     counts = {"kept": 0, "deleted": 0, "inserted": 0, "extended": 0}
     for symbol in sorted(candidates):
-        spans = _confirmed_spans(conn, symbol, confirm_tf, venues, slack)
+        spans = _confirmed_spans(conn, symbol, confirm_tf, venues, slack, provider)
         row = rows.get(symbol)
         if row is not None:
             _, empty_from, empty_through, verified_from = row
@@ -546,7 +556,9 @@ def reconcile_empty_history(
             counts["deleted"] += 1
         if derived:
             continue
-        pre_history = [s for s in spans if not has_bar_before(conn, symbol, timeframe, s.start)]
+        pre_history = [
+            s for s in spans if not has_bar_before(conn, symbol, timeframe, s.start, provider)
+        ]
         if pre_history:
             span = max(pre_history, key=lambda s: s.end)
             _record_span(conn, symbol, timeframe, provider, span, span.start)

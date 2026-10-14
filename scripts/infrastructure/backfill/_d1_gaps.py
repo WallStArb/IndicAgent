@@ -3,9 +3,11 @@ todo 462; design: docs/plans/2026-09-29-intraday-bar-store-redesign.md).
 
 plan_gaps (src/intelligence/bars/gap_plan.py) is the one pure definition of a
 missing bar. This module is its psycopg SQL-reading wrapper for the pipeline's
-synchronous connection: it loads the stored observations (the archive for the
-archive-bound 15m/1h, market_data_ohlcv for 5m, D1's ohlcv_observation for 1d),
-the answered request windows, and folds in a provider-verified
+synchronous connection. Raw is stored per source, agnostic to every other source, so
+the one question here is: for THIS vendor, which slots of [A, B] are missing from its
+own ohlcv_raw rows, minus its own answered request windows (a definitive no_data
+included)? Every read is filtered by `vendor`; another vendor's rows, answers and
+canonical selection never cover a slot. The wrapper also folds in a provider-verified
 ohlcv_empty_history span when it is fresh and sufficiently confirmed.
 services/ cannot import from scripts/, so bar_auditor keeps its own asyncpg
 readers around the same pure planner -- the SQL stays local per driver, the
@@ -34,76 +36,64 @@ from src.intelligence.bars.gap_plan import (
     fresh_empty_span,
     plan_gaps,
 )
-from src.intelligence.bars.sources import ROUTE_TRADIER
+from src.intelligence.bars.sessions import session_complete_at
+from src.intelligence.bars.vendor_kind import VENUE_ROUTES
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
-# Where a timeframe's stored observations live: the archive for the
-# archive-bound 15m/1h (their market_data_ohlcv rows are derived cache,
-# services/bar_derivation), the canonical grid table for 5m. The SQL is
-# written out per table (not .format-built) so the boundary scan in
-# tests/unit/test_market_data_ohlcv_boundary.py sees every raw-table read.
-_ARCHIVE_SLOTS_SQL = """
-SELECT timestamp FROM ohlcv_intraday_raw_archive
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
+# Every intraday slot this vendor holds, whatever the kind (an intraday series has one kind per
+# vendor today; a second would still be the same vendor's slot).
+_RAW_SLOTS_SQL = """
+SELECT DISTINCT "timestamp" FROM ohlcv_raw
+WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" >= %s AND "timestamp" <= %s
 """
-_GRID_SLOTS_SQL = """
-SELECT timestamp FROM market_data_ohlcv
-WHERE symbol = %s AND timeframe = %s AND timestamp >= %s AND timestamp <= %s
-"""
-_STORED_SLOTS_SQL: dict[str, str] = {
-    "5m": _GRID_SLOTS_SQL,
-    "15m": _ARCHIVE_SLOTS_SQL,
-    "1h": _ARCHIVE_SLOTS_SQL,
-}
-
-
-def _answered_windows_sql(table: str) -> str:
-    return (
-        """
+# The one answered-window read for every timeframe (todo 527's five copies). A `bars` answer
+# counts only when this vendor holds a raw row in its window (a lost insert never looks
+# covered); `no_data` is the provider's definitive nothing-traded. timeout and failed never
+# reach the set.
+_ANSWERED_WINDOWS_SQL = """
 SELECT r.window_start, r.window_end
 FROM ohlcv_request r
-WHERE r.symbol = %s AND r.timeframe = %s AND r.route = %s AND r.what_to_show = %s
-  AND r.outcome = ANY(%s) AND r.window_start IS NOT NULL
+WHERE r.symbol = %s AND r.timeframe = %s AND r.source = %s AND r.what_to_show = %s
+  AND r.route = ANY(%s) AND r.outcome = ANY(%s) AND r.window_start IS NOT NULL
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
-      SELECT 1 FROM """
-        + table
-        + """ m
-      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
+      SELECT 1 FROM ohlcv_raw m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe AND m.vendor = r.source
         AND m."timestamp" >= r.window_start AND m."timestamp" < r.window_end
     )
   )
 ORDER BY r.window_start
 """
-    )
+# Intraday answers are SMART TRADES requests; the daily no_data question is asked on SMART and
+# every former-venue route (D-20), and only a definitive nothing-traded covers a daily session.
+_INTRADAY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE,)
+_DAILY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE, *VENUE_ROUTES)
+_DAILY_OUTCOMES: tuple[str, ...] = ("no_data",)
 
 
-# The corroboration subquery reads the series' own table; the literals keep
-# the raw market_data_ohlcv read visible to the boundary scan.
-_ANSWERED_WINDOWS_SQL: dict[str, str] = {
-    "5m": _answered_windows_sql("market_data_ohlcv"),
-    "15m": _answered_windows_sql("ohlcv_intraday_raw_archive"),
-    "1h": _answered_windows_sql("ohlcv_intraday_raw_archive"),
-}
+def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -> AnsweredWindows:
+    """The answered TRADES windows `vendor` holds for (symbol, timeframe) (todo 462, 527).
 
-
-def load_answered_windows(conn: Any, symbol: str, timeframe: str) -> AnsweredWindows:
-    """Answered SMART TRADES windows for (symbol, timeframe) (todo 462).
-
-    A `bars` answer counts only when the series' own table has a stored row in
-    its window, so a failed bar insert never leaves a window that looks
-    covered; `no_data` is the provider's definitive nothing-traded. timeout and
-    failed outcomes never reach the window set.
+    Intraday: a `bars` or `no_data` SMART answer (the bars corroborated by a raw row of the
+    same vendor in the window). 1d: a definitive `no_data` window on any route the vendor
+    asks. Another source's requests never appear: the filter is the request's own source.
     """
-    sql = _ANSWERED_WINDOWS_SQL[timeframe]
+    daily = timeframe == "1d"
     with conn.cursor() as cur:
         cur.execute(
-            sql,
-            (symbol, timeframe, COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW, list(ANSWERED_OUTCOMES)),
+            _ANSWERED_WINDOWS_SQL,
+            (
+                symbol,
+                timeframe,
+                vendor,
+                COVERAGE_WHAT_TO_SHOW,
+                list(_DAILY_ROUTES if daily else _INTRADAY_ROUTES),
+                list(_DAILY_OUTCOMES if daily else ANSWERED_OUTCOMES),
+            ),
         )
         rows = cur.fetchall()
-    return AnsweredWindows.from_rows([(r[0], r[1]) for r in rows])
+    return AnsweredWindows.from_rows([(_aware(r[0]), _aware(r[1])) for r in rows])
 
 
 def detect_gaps_from_record(
@@ -114,13 +104,14 @@ def detect_gaps_from_record(
     end_dt: datetime,
     expected_slots: Sequence[datetime],
     *,
+    vendor: str,
     empty: EmptyRange | None = None,
     now: datetime | None = None,
     reverify_days: int | None = None,
     min_confirmations: int | None = None,
     on_skip: Callable[[EmptyRange], None] | None = None,
 ) -> list[tuple[datetime, datetime]]:
-    """The gap plan for (symbol, timeframe) over [start_dt, end_dt].
+    """The gap plan for (symbol, timeframe) over [start_dt, end_dt] for `vendor`'s own raw.
 
     `expected_slots` come from gap_plan.expected_grid_slots. The empty-history
     gate mirrors empty_history.apply_empty_range: a range suppresses slots only
@@ -136,10 +127,10 @@ def detect_gaps_from_record(
         )
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
     with conn.cursor() as cur:
-        cur.execute(_STORED_SLOTS_SQL[timeframe], (symbol, timeframe, start_dt, end_dt))
+        cur.execute(_RAW_SLOTS_SQL, (symbol, timeframe, vendor, start_dt, end_dt))
         rows = cur.fetchall()
     stored = [_aware(r[0]) for r in rows]
-    answered = load_answered_windows(conn, symbol, timeframe)
+    answered = load_answered_windows(conn, symbol, timeframe, vendor)
 
     return _plan_with_empty_gate(
         expected_slots,
@@ -155,24 +146,17 @@ def detect_gaps_from_record(
     )
 
 
-# 1d (plan 185-18 task 1b): the answers live in D1, not in any bar table. A
-# session is covered by a stored IBKR TRADES observation on its bar_date (any
-# IBKR route: a former-venue recovery observation covers its session exactly
-# like a SMART one, D-20), or by a definitive no_data window containing the
-# whole session day. Tradier's stored answers do not cover a session (owner,
-# 2026-10-12, todo 533: Tradier data is deleted once IBKR has been asked for
-# every span it covers), so IBKR is asked for them. Written out per query (not .format-built) so the boundary
-# scans see every raw-table read.
-_1D_OBSERVED_SESSIONS_SQL = """
-SELECT o.bar_date FROM ohlcv_observation o
-WHERE o.symbol = %s AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
-  AND o.route <> %s AND o.bar_date >= %s AND o.bar_date <= %s
-"""
-_1D_NO_DATA_WINDOWS_SQL = """
-SELECT r.window_start, r.window_end FROM ohlcv_request r
-WHERE r.symbol = %s AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
-  AND r.outcome = 'no_data' AND r.window_start IS NOT NULL
-ORDER BY r.window_start
+# 1d: a session is covered by a complete bar of this vendor's own TRADES answer on its date (any
+# kind: for IBKR smart_trades or a venue_<route> listing-venue route, D-20), or by a definitive
+# no_data window containing the whole session day. The dividend-adjusted series answers a
+# different question and covers nothing. Tradier's rows and requests belong to Tradier: IBKR is
+# asked for every session it has not itself answered (owner, 2026-10-12, todo 533). Raw kinds
+# are the per-route codes of vendor_kind, never the bare `venue` of the canonical tier.
+_1D_NOT_COVERAGE_KINDS: tuple[str, ...] = ("smart_adjusted",)
+_1D_STORED_SQL = """
+SELECT "timestamp", served_at FROM ohlcv_raw
+WHERE symbol = %s AND timeframe = '1d' AND vendor = %s AND kind <> ALL(%s)
+  AND "timestamp" >= %s AND "timestamp" < %s
 """
 _1D_INTERVAL = timedelta(days=1)
 
@@ -240,46 +224,56 @@ def detect_gaps_1d_from_d1(
     end: date,
     sessions: Mapping[date, Any],
     *,
+    vendor: str,
     empty: EmptyRange | None = None,
     now: datetime | None = None,
     reverify_days: int | None = None,
     min_confirmations: int | None = None,
     on_skip: Callable[[EmptyRange], None] | None = None,
 ) -> list[tuple[date, date]]:
-    """The 1d gap plan for `symbol` over [start, end], from D1 (task 1b).
+    """The 1d gap plan for `symbol` over [start, end], from `vendor`'s own raw.
 
     `sessions` is the NYSE session map (src.intelligence.bars.sessions.
-    nyse_sessions) over the window; a session date whose day has no observation
-    and no covering no_data window is a gap. One rule for every timeframe:
-    plan_gaps with a one-day interval over session-midnight slots. Windows come
-    back as contiguous end-exclusive (date, date) ranges -- the range ends at
-    the last missing session's own day end, so the ask covers that whole day.
+    nyse_sessions) over the window; a session date the vendor holds no complete bar for
+    and no covering no_data window is a gap. One rule for every timeframe: plan_gaps with
+    a one-day interval over session-midnight slots. Windows come back as contiguous
+    end-exclusive (date, date) ranges -- the range ends at the last missing session's own
+    day end, so the ask covers that whole day.
 
-    `now` caps the horizon exactly as the intraday readers cap theirs: a
-    session still forming is planned capped at now, so a no_data answer for the
-    truncated window cannot cover the completed day and the next run re-asks
-    it. Without `now` the horizon is the whole requested window. The
-    empty-history gate mirrors detect_gaps_from_record.
+    A stored bar counts only when its session was complete when the vendor served it
+    (session_complete_at(bar_date, served_at), D-191-J): a bar served while its session
+    was still forming is not the vendor's answer for the day and stays a gap until a run
+    sees the session whole. `now` caps the horizon exactly as the intraday readers cap
+    theirs, so a no_data answer for a truncated window cannot cover the completed day and
+    an unfinished current session is never asked for as a complete answer. Without `now`
+    the horizon is the whole requested window. The empty-history gate mirrors
+    detect_gaps_from_record.
     """
     if end < start:
         return []
     with conn.cursor() as cur:
-        cur.execute(_1D_OBSERVED_SESSIONS_SQL, (symbol, ROUTE_TRADIER, start, end))
-        observed_rows = cur.fetchall()
-    with conn.cursor() as cur:
-        cur.execute(_1D_NO_DATA_WINDOWS_SQL, (symbol,))
-        window_rows = cur.fetchall()
+        cur.execute(
+            _1D_STORED_SQL,
+            (
+                symbol,
+                vendor,
+                list(_1D_NOT_COVERAGE_KINDS),
+                midnight_utc(start),
+                midnight_utc(end) + _1D_INTERVAL,
+            ),
+        )
+        stored_rows = cur.fetchall()
+    answered = load_answered_windows(conn, symbol, "1d", vendor)
 
-    # A forming session's partial bar must not suppress its own slot: an
-    # observation on bar_date == now's date was fetched mid-session (the
-    # capped window asks it), and treating it as stored would pin the partial
-    # bar forever -- the completed session's real bar would never be re-asked.
-    # Same intent as the no_data capping in the docstring: a still-forming
-    # session stays a gap until a later run sees it whole. Historical runs
-    # (now=None) plan only completed sessions and keep every observation.
-    forming = now.date() if now is not None else None
-    stored = [midnight_utc(r[0]) for r in observed_rows if forming is None or r[0] < forming]
-    answered = AnsweredWindows.from_rows((_aware(r[0]), _aware(r[1])) for r in window_rows)
+    # A row without a serve time predates the serve stamp and counts (nothing to judge it by).
+    stored = sorted(
+        {
+            _aware(stamp)
+            for stamp, served_at in stored_rows
+            if served_at is None
+            or session_complete_at(_aware(stamp).date(), _aware(served_at), sessions)
+        }
+    )
     slots = [midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
     run_end = now if now is not None else midnight_utc(end) + _1D_INTERVAL
 

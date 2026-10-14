@@ -90,7 +90,7 @@ def _persist(conn, symbol, tf, rows, *, coverage=False, **kwargs):
         request_rows=[_request(symbol, tf, rows)],
         raw_rows=rows,
         coverage=(
-            CoverageDelta(symbol, tf, "grid", fetched_at=datetime.now(UTC)) if coverage else None
+            CoverageDelta(symbol, tf, "raw", fetched_at=datetime.now(UTC)) if coverage else None
         ),
         **kwargs,
     )
@@ -470,7 +470,9 @@ def test_raw_contract_refusal_is_durable_selection_never_promotes_the_held_value
             "WHERE symbol = %s AND origin = 'pending'",
             (symbol,),
         ).fetchone()
-        assert pending == (100, 77.0, 77.0)  # 50 rows per refused offer
+        # Review finding 7 (64c004f63): a re-offered refused series does not multiply its hold, so the
+        # second offer adds no pending row for a value already pending.
+        assert pending == (50, 77.0, 77.0)
         assert (
             conn.execute(
                 "SELECT count(*) FROM ohlcv_revision WHERE symbol = %s AND origin <> 'pending'",

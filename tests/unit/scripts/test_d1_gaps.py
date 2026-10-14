@@ -3,9 +3,9 @@
 `plan_gaps` (src/intelligence/bars/gap_plan.py) is the one pure definition of a
 missing bar; _d1_gaps is its psycopg SQL-reading wrapper for the fetch pipeline.
 These tests pin the wrapper's contract against a sequenced fake connection: the
-two queries it issues (stored observations, answered request windows), the table
-each timeframe reads, the empty-history folding with its freshness gate, and the
-plan's mandated case -- a fully fetched name with a recorded no_data head returns
+two queries it issues (this vendor's own raw rows, this vendor's answered request
+windows), the vendor scoping of both, the empty-history folding with its freshness
+gate, and the plan's mandated case -- a fully fetched name with a recorded no_data head returns
 no ranges; the same name with the no_data row deleted returns the head.
 """
 
@@ -66,14 +66,14 @@ class TestDetectGapsFromRecord:
     def test_fully_fetched_name_with_a_recorded_no_data_head_returns_no_ranges(self):
         conn = _FakeConn(_STORED_TAIL, [(_t(14, 30), _t(15, 0))])
         plan = detect_gaps_from_record(
-            conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, now=_NOW
+            conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="ibkr", now=_NOW
         )
         assert plan == []
 
     def test_same_name_with_the_no_data_row_deleted_returns_the_head(self):
         conn = _FakeConn(_STORED_TAIL, [])
         plan = detect_gaps_from_record(
-            conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, now=_NOW
+            conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="ibkr", now=_NOW
         )
         # End-exclusive: the head window ends at the last missing slot's end.
         assert plan == [(_t(14, 30), _t(15, 0))]
@@ -81,41 +81,56 @@ class TestDetectGapsFromRecord:
     def test_windows_are_end_exclusive_one_slot_gap_is_one_bar_interval(self):
         conn = _FakeConn([(_t(14, 45),)], [])
         plan = detect_gaps_from_record(
-            conn, "SPY", "15m", _t(14, 30), _t(15, 0), _HEAD_SLOTS[:3], now=_NOW
+            conn, "SPY", "15m", _t(14, 30), _t(15, 0), _HEAD_SLOTS[:3], vendor="ibkr", now=_NOW
         )
         assert plan == [(_t(14, 30), _t(14, 45))]
 
     def test_slot_still_forming_stays_a_gap_capped_at_the_run_end(self):
         conn = _FakeConn([], [])
         plan = detect_gaps_from_record(
-            conn, "SPY", "15m", _t(15, 0), _t(15, 7), [_t(15, 0), _t(15, 15)], now=_NOW
+            conn,
+            "SPY",
+            "15m",
+            _t(15, 0),
+            _t(15, 7),
+            [_t(15, 0), _t(15, 15)],
+            vendor="ibkr",
+            now=_NOW,
         )
         # The 15:15 slot starts after the run's end and is not planned; the
         # forming 15:00 slot is asked for, capped at the run's end.
         assert plan == [(_t(15, 0), _t(15, 7))]
 
-    def test_15m_and_1h_read_stored_observations_from_the_archive(self):
-        for tf in ("15m", "1h"):
+    def test_every_intraday_timeframe_reads_the_vendors_own_raw_rows(self):
+        for tf in ("5m", "15m", "1h"):
             conn = _FakeConn([], [])
-            detect_gaps_from_record(conn, "SPY", tf, _t(14, 30), _t(15, 30), [], now=_NOW)
+            detect_gaps_from_record(
+                conn, "SPY", tf, _t(14, 30), _t(15, 30), [], vendor="ibkr", now=_NOW
+            )
             stored_sql = conn.queries[0][0]
-            assert "ohlcv_intraday_raw_archive" in stored_sql
+            assert "FROM ohlcv_raw" in stored_sql
+            assert "vendor = %s" in stored_sql
+            assert "ohlcv_intraday_raw_archive" not in stored_sql
             assert "market_data_ohlcv" not in stored_sql
 
-    def test_5m_reads_stored_observations_from_market_data_ohlcv(self):
+    def test_stored_query_is_scoped_to_the_series_vendor_and_window(self):
         conn = _FakeConn([], [])
-        detect_gaps_from_record(conn, "SPY", "5m", _t(14, 30), _t(15, 30), [], now=_NOW)
-        stored_sql = conn.queries[0][0]
-        assert "FROM market_data_ohlcv" in stored_sql
-        assert "ohlcv_intraday_raw_archive" not in stored_sql
-
-    def test_stored_query_is_scoped_to_the_series_and_window(self):
-        conn = _FakeConn([], [])
-        detect_gaps_from_record(conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, now=_NOW)
+        detect_gaps_from_record(
+            conn, "SPY", "15m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="alpaca", now=_NOW
+        )
         sql, params = conn.queries[0]
         assert "symbol = %s" in sql and "timeframe = %s" in sql
-        assert "timestamp >= %s" in sql and "timestamp <= %s" in sql
-        assert params == ("SPY", "15m", _t(14, 30), _t(15, 30))
+        assert '"timestamp" >= %s' in sql and '"timestamp" <= %s' in sql
+        assert params == ("SPY", "15m", "alpaca", _t(14, 30), _t(15, 30))
+
+    def test_the_answered_window_read_is_scoped_to_the_same_vendor(self):
+        conn = _FakeConn([], [])
+        detect_gaps_from_record(
+            conn, "SPY", "5m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="alpaca", now=_NOW
+        )
+        sql, params = conn.queries[1]
+        assert "r.source = %s" in sql
+        assert params[2] == "alpaca"
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_head(self):
         empty = EmptyRange(
@@ -133,6 +148,7 @@ class TestDetectGapsFromRecord:
             _t(14, 30),
             _t(15, 30),
             _HEAD_SLOTS,
+            vendor="ibkr",
             empty=empty,
             now=_NOW,
             reverify_days=7,
@@ -158,6 +174,7 @@ class TestDetectGapsFromRecord:
             _t(14, 30),
             _t(15, 30),
             _HEAD_SLOTS,
+            vendor="ibkr",
             empty=empty,
             now=_NOW,
             reverify_days=7,
@@ -182,6 +199,7 @@ class TestDetectGapsFromRecord:
             _t(14, 30),
             _t(15, 30),
             _HEAD_SLOTS,
+            vendor="ibkr",
             empty=empty,
             now=_NOW,
             reverify_days=7,
@@ -192,7 +210,9 @@ class TestDetectGapsFromRecord:
     def test_timeframes_outside_the_record_planner_are_refused(self):
         conn = _FakeConn()
         with pytest.raises(ValueError, match="1m"):
-            detect_gaps_from_record(conn, "SPY", "1m", _t(14, 30), _t(15, 30), [], now=_NOW)
+            detect_gaps_from_record(
+                conn, "SPY", "1m", _t(14, 30), _t(15, 30), [], vendor="ibkr", now=_NOW
+            )
 
 
 class TestDetectGaps1dFromD1:
@@ -222,23 +242,26 @@ class TestDetectGaps1dFromD1:
         return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
     def test_sessions_with_observations_are_not_gaps(self):
-        conn = _FakeConn([(self._D1,), (self._D2,), (self._D3,)], [])
+        conn = _FakeConn([(self._midnight(d), None) for d in (self._D1, self._D2, self._D3)], [])
         plan = detect_gaps_1d_from_d1(
-            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+            conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=self._NOW_1D
         )
         assert plan == []
 
     def test_a_no_data_window_spanning_whole_session_days_is_not_a_gap(self):
-        conn = _FakeConn([(self._D3,)], [(self._midnight(self._D1), self._midnight(self._D3))])
+        conn = _FakeConn(
+            [(self._midnight(self._D3), None)],
+            [(self._midnight(self._D1), self._midnight(self._D3))],
+        )
         plan = detect_gaps_1d_from_d1(
-            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+            conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=self._NOW_1D
         )
         assert plan == []
 
     def test_missing_sessions_come_back_as_one_contiguous_end_exclusive_range(self):
-        conn = _FakeConn([(self._D3,)], [])
+        conn = _FakeConn([(self._midnight(self._D3), None)], [])
         plan = detect_gaps_1d_from_d1(
-            conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D
+            conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=self._NOW_1D
         )
         # End-exclusive: the range ends at the last missing session's own day end.
         assert plan == [(self._D1, self._D3)]
@@ -249,8 +272,10 @@ class TestDetectGaps1dFromD1:
         # once its day completes -- a no_data answer for the capped window cannot
         # cover the whole day.
         early = datetime(2026, 1, 6, 2, 0, tzinfo=UTC)
-        conn = _FakeConn([(self._D1,)], [])
-        plan = detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=early)
+        conn = _FakeConn([(self._midnight(self._D1), None)], [])
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=early
+        )
         assert plan == [(self._D2, self._D2)]
 
     def test_sessions_outside_the_requested_window_are_ignored(self):
@@ -260,30 +285,105 @@ class TestDetectGaps1dFromD1:
             datetime(2026, 1, 9, 21, 0, tzinfo=UTC),
         )
         conn = _FakeConn([], [])
-        plan = detect_gaps_1d_from_d1(conn, "SPY", self._D2, self._D3, sessions, now=self._NOW_1D)
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D2, self._D3, sessions, vendor="ibkr", now=self._NOW_1D
+        )
         assert plan == [(self._D2, date(2026, 1, 8))]
 
-    def test_observed_query_reads_ibkr_trades_on_any_route_but_not_tradier(self):
+    def test_stored_query_reads_the_vendors_own_raw_rows_except_the_adjusted_kind(self):
         conn = _FakeConn([], [])
-        detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D)
+        detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            vendor="ibkr",
+            now=self._NOW_1D,
+        )
         sql, params = conn.queries[0]
-        assert "FROM ohlcv_observation" in sql
+        assert "FROM ohlcv_raw" in sql
         assert "timeframe = '1d'" in sql
-        assert "what_to_show = 'TRADES'" in sql
-        # D-20: a former-venue observation covers its session exactly like a SMART one,
-        # so no IBKR route is filtered. Tradier's answers do not cover a session (owner
-        # 2026-10-12, todo 533): IBKR is asked for every span only Tradier answered.
-        assert "o.route <> %s" in sql
-        assert params == ("SPY", "TRADIER", self._D1, self._D3)
+        assert "vendor = %s" in sql
+        # D-20: a listing-venue bar covers its session exactly like a SMART one, so no route
+        # kind is named; the dividend-adjusted series covers nothing. Another vendor's rows
+        # never match the vendor filter (a tradier-only series leaves every session a gap).
+        assert "kind <> ALL(%s)" in sql
+        assert params[:3] == ("SPY", "ibkr", ["smart_adjusted"])
+        assert "ohlcv_observation" not in sql
 
-    def test_no_data_query_reads_definitive_no_data_windows_only(self):
+    def test_a_vendor_with_no_rows_of_its_own_has_every_session_as_a_gap(self):
+        # The query is vendor-scoped, so a tradier-only series returns no rows to the ibkr
+        # planner; the fake stands in for that empty result.
         conn = _FakeConn([], [])
-        detect_gaps_1d_from_d1(conn, "SPY", self._D1, self._D3, self._sessions(), now=self._NOW_1D)
+        plan = detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            vendor="ibkr",
+            now=self._NOW_1D,
+        )
+        assert plan == [(self._D1, date(2026, 1, 8))]
+
+    def test_a_bar_served_before_its_session_closed_is_not_coverage(self):
+        # D-191-J: the D2 bar was served at 18:00 UTC, before the 21:00 close, so it is a
+        # forming bar and the session stays a gap; D1 and D3 were served after their closes.
+        closed = lambda d: datetime(d.year, d.month, d.day, 22, 0, tzinfo=UTC)  # noqa: E731
+        forming = datetime(2026, 1, 6, 18, 0, tzinfo=UTC)
+        conn = _FakeConn(
+            [
+                (self._midnight(self._D1), closed(self._D1)),
+                (self._midnight(self._D2), forming),
+                (self._midnight(self._D3), closed(self._D3)),
+            ],
+            [],
+        )
+        plan = detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            vendor="ibkr",
+            now=self._NOW_1D,
+        )
+        assert plan == [(self._D2, self._D3)]
+
+    def test_a_bar_with_no_serve_stamp_still_counts(self):
+        conn = _FakeConn([(self._midnight(d), None) for d in (self._D1, self._D2, self._D3)], [])
+        plan = detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            vendor="ibkr",
+            now=self._NOW_1D,
+        )
+        assert plan == []
+
+    def test_no_data_query_reads_the_vendors_definitive_no_data_windows_only(self):
+        conn = _FakeConn([], [])
+        detect_gaps_1d_from_d1(
+            conn,
+            "SPY",
+            self._D1,
+            self._D3,
+            self._sessions(),
+            vendor="ibkr",
+            now=self._NOW_1D,
+        )
         sql, params = conn.queries[1]
         assert "FROM ohlcv_request" in sql
-        assert "outcome = 'no_data'" in sql
+        assert "r.source = %s" in sql
         assert "window_start IS NOT NULL" in sql
-        assert params == ("SPY",)
+        assert params[:4] == ("SPY", "1d", "ibkr", "TRADES")
+        assert params[4] == ["SMART", "AMEX", "ARCA", "BATS", "ISLAND", "NYSE"]
+        # Only a definitive nothing-traded covers a daily session; a bars answer is covered by
+        # the vendor's own bar row, never by the request.
+        assert params[5] == ["no_data"]
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_pre_listing_head(self):
         empty = EmptyRange(
@@ -292,7 +392,7 @@ class TestDetectGaps1dFromD1:
             verified_at=self._NOW_1D - timedelta(days=1),
             n_confirming_chunks=3,
         )
-        conn = _FakeConn([(self._D3,)], [])
+        conn = _FakeConn([(self._midnight(self._D3), None)], [])
         skipped: list[EmptyRange] = []
         plan = detect_gaps_1d_from_d1(
             conn,
@@ -300,6 +400,7 @@ class TestDetectGaps1dFromD1:
             self._D1,
             self._D3,
             self._sessions(),
+            vendor="ibkr",
             empty=empty,
             now=self._NOW_1D,
             reverify_days=7,
@@ -316,7 +417,7 @@ class TestDetectGaps1dFromD1:
             verified_at=self._NOW_1D - timedelta(days=30),
             n_confirming_chunks=3,
         )
-        conn = _FakeConn([(self._D3,)], [])
+        conn = _FakeConn([(self._midnight(self._D3), None)], [])
         skipped: list[EmptyRange] = []
         plan = detect_gaps_1d_from_d1(
             conn,
@@ -324,6 +425,7 @@ class TestDetectGaps1dFromD1:
             self._D1,
             self._D3,
             self._sessions(),
+            vendor="ibkr",
             empty=empty,
             now=self._NOW_1D,
             reverify_days=7,
@@ -335,21 +437,34 @@ class TestDetectGaps1dFromD1:
 
 
 class TestLoadAnsweredWindows:
-    def test_reads_smart_trades_answers_only(self):
+    def test_reads_the_vendors_smart_trades_answers_only(self):
         conn = _FakeConn([(_t(14, 30), _t(15, 0)), (_t(15, 0), _t(15, 30))])
-        windows = load_answered_windows(conn, "SPY", "15m")
+        windows = load_answered_windows(conn, "SPY", "15m", "ibkr")
         sql, params = conn.queries[0]
-        assert params == ("SPY", "15m", "SMART", "TRADES", ["bars", "no_data"])
+        assert params == ("SPY", "15m", "ibkr", "TRADES", ["SMART"], ["bars", "no_data"])
         assert "ohlcv_request" in sql
         assert "window_start IS NOT NULL" in sql
-        # a bars answer is covered only when a bar is stored in its window (the
+        # a bars answer is covered only when this vendor stored a bar in its window (the
         # insert may have failed)
         assert "EXISTS" in sql
         assert windows.starts == (_t(14, 30),) and windows.ends == (_t(15, 30),)
 
-    def test_corroboration_reads_the_archive_for_15m_and_the_grid_for_5m(self):
-        for tf, table in (("15m", "ohlcv_intraday_raw_archive"), ("5m", "market_data_ohlcv")):
+    def test_one_sql_serves_every_timeframe_and_corroborates_in_raw_by_vendor(self):
+        seen = set()
+        for tf in ("5m", "15m", "1h", "1d"):
             conn = _FakeConn([])
-            load_answered_windows(conn, "SPY", tf)
+            load_answered_windows(conn, "SPY", tf, "alpaca")
             sql = conn.queries[0][0]
-            assert f"FROM {table} m" in sql
+            seen.add(sql)
+            assert "FROM ohlcv_raw m" in sql
+            assert "m.vendor = r.source" in sql
+            assert "ohlcv_intraday_raw_archive" not in sql
+            assert "market_data_ohlcv" not in sql
+        assert len(seen) == 1
+
+    def test_tradier_requests_are_not_an_ibkr_answer(self):
+        conn = _FakeConn([])
+        load_answered_windows(conn, "SPY", "1d", "ibkr")
+        sql, params = conn.queries[0]
+        assert "r.source = %s" in sql
+        assert "tradier" not in params and "TRADIER" not in params[4]

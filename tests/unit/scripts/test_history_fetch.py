@@ -420,6 +420,7 @@ class TestDetectGaps:
             datetime(2026, 1, 4, 23, 59, tzinfo=UTC),
             "futures_24_5",
             "CME",
+            vendor="ibkr",
         )
         assert gaps == []
 
@@ -440,6 +441,7 @@ class TestDetectGaps:
                 datetime(2026, 1, 4, 23, 59, tzinfo=UTC),
                 "nyse",
                 "NYSE",
+                vendor="ibkr",
             )
         assert gaps == []
 
@@ -460,6 +462,7 @@ class TestDetectGaps:
                 datetime(2026, 1, 1, 23, 59, tzinfo=UTC),
                 "nyse",
                 "NYSE",
+                vendor="ibkr",
             )
         assert gaps == []
 
@@ -487,6 +490,7 @@ class TestDetectGaps:
                 "nyse",
                 "NYSE",
                 answered=answered,
+                vendor="ibkr",
             )
         # Only the 18:00 slot lies outside the answered window and has no bar.
         assert gaps == [
@@ -514,6 +518,7 @@ class TestDetectGaps:
                 datetime(2026, 1, 2, 18, 0, tzinfo=UTC),
                 "nyse",
                 "NYSE",
+                vendor="ibkr",
             )
         assert len(gaps) == 1
         assert gaps[0] == (
@@ -589,8 +594,8 @@ def test_fetch_start_makes_a_full_depth_1d_window_one_request():
 class TestArchiveGridRouting:
     """Plan 12 (D-15/D-06): gap detection expects IBKR's own RTH grid (09:30 partial 1h bar
     then clock hours). Since plan 191-05 there is no archive store path: 15m and 1h are ordinary
-    raw rows, and the legacy grid difference reads market_data_ohlcv only (plan 191-06 moves the
-    planner onto raw)."""
+    raw rows, and since plan 191-06 the legacy grid difference reads the asking vendor's own
+    ohlcv_raw rows for every timeframe."""
 
     def test_detect_gaps_15m_has_no_archive_branch(self):
         from scripts.infrastructure.backfill._history_fetch import (
@@ -610,12 +615,13 @@ class TestArchiveGridRouting:
                 datetime(2026, 1, 2, 20, 0, tzinfo=UTC),
                 "nyse",
                 "NYSE",
+                vendor="ibkr",
             )
         sql = mock_cursor.execute.call_args.args[0]
         assert "ohlcv_intraday_raw_archive" not in sql
-        assert "FROM market_data_ohlcv" in sql
+        assert "FROM ohlcv_raw" in sql
 
-    def test_detect_gaps_5m_still_reads_market_data_ohlcv(self):
+    def test_detect_gaps_reads_only_the_asking_vendors_raw_rows(self):
         from scripts.infrastructure.backfill._history_fetch import (
             detect_gaps,
         )
@@ -633,9 +639,12 @@ class TestArchiveGridRouting:
                 datetime(2026, 1, 2, 20, 0, tzinfo=UTC),
                 "nyse",
                 "NYSE",
+                vendor="ibkr",
             )
-        sql = mock_cursor.execute.call_args.args[0]
-        assert "FROM market_data_ohlcv" in sql
+        sql, params = mock_cursor.execute.call_args.args
+        assert "FROM ohlcv_raw" in sql and "market_data_ohlcv" not in sql
+        assert "vendor = %s" in sql
+        assert params[:3] == ("SPY", "5m", "ibkr")
 
     def test_1h_nyse_expected_slots_are_ibkrs_rth_grid(self):
         """IBKR serves 1h RTH as a 09:30 (13:30 UTC) partial bar then clock
@@ -706,6 +715,7 @@ class TestArchiveGridRouting:
             datetime(2024, 6, 3, 20, 0, tzinfo=UTC),
             "nyse",
             "NYSE",
+            vendor="ibkr",
         )
         assert gaps == [
             (datetime(2024, 6, 3, 13, 30, tzinfo=UTC), datetime(2024, 6, 3, 13, 30, tzinfo=UTC))

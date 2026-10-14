@@ -543,7 +543,7 @@ def test_a_stale_canonical_bar_queues_a_name_inside_a_longer_reconcile_interval(
 def _daily_pool(coverage, answers, canonical):
     pool = _pool(coverage)
     pool.conn.tables["FROM ohlcv_request"] = answers
-    pool.conn.tables["FROM market_data_ohlcv_tradeable"] = canonical
+    pool.conn.tables["FROM ohlcv_raw"] = canonical
     return pool
 
 
@@ -1237,3 +1237,11 @@ async def test_the_policy_read_is_batched_over_the_candidate_symbols():
     await queue.load(pool)
     policy_sql = next(s for s in pool.conn.queries if "bar_source_policy" in s)
     assert "symbol = ANY($1::text[]) OR symbol IS NULL" in policy_sql
+
+
+def test_the_daily_currency_read_is_the_providers_own_raw_not_the_canonical_view():
+    """Raw is per source (phase 191 plan 06): a provider's 1d series is current when ITS raw
+    holds the latest bar, whatever another vendor or the canonical selection holds."""
+    sql = fq._LATEST_OWN_1D_SQL
+    assert "FROM ohlcv_raw" in sql and "vendor = $3" in sql
+    assert "market_data_ohlcv" not in sql

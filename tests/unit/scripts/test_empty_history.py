@@ -158,3 +158,47 @@ def test_load_fresh_heads_per_tf_prefers_the_timeframe_row():
     assert heads == {"GEV": _dt(2024, 3, 27), "TMUS": _dt(2007, 4, 19)}
     sql = cur.execute.call_args.args[0]
     assert "timeframe = %s OR timeframe IS NULL" in sql
+
+
+# --- raw is per source: pre-history and real-bar probes read the asking vendor's rows -------
+
+
+def _probe_conn(answer: bool = False):
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchone.return_value = (answer,)
+    return conn, cur
+
+
+def test_has_bar_before_reads_only_the_vendors_own_raw_rows():
+    conn, cur = _probe_conn(True)
+    assert eh.has_bar_before(conn, "GEV", "5m", _dt(2024, 1, 1), "ibkr") is True
+    sql, params = cur.execute.call_args.args
+    assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
+    assert "market_data_ohlcv" not in sql
+    assert params == ("GEV", "5m", "ibkr", _dt(2024, 1, 1))
+
+
+def test_has_bar_between_reads_only_the_vendors_own_raw_rows():
+    conn, cur = _probe_conn(False)
+    assert eh.has_bar_between(conn, "GEV", "1d", _dt(2024, 1, 1), _dt(2024, 2, 1), "ibkr") is False
+    sql, params = cur.execute.call_args.args
+    assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
+    assert params == ("GEV", "1d", "ibkr", _dt(2024, 1, 1), _dt(2024, 2, 1))
+
+
+def test_first_bars_are_the_vendors_oldest_raw_bar():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = [("GEV", _dt(2020, 1, 1)), ("NEW", None)]
+    assert eh.load_first_bars(conn, ["GEV", "NEW"], "ibkr") == {"GEV": _dt(2020, 1, 1)}
+    sql, params = cur.execute.call_args.args
+    assert "FROM ohlcv_raw" in sql and "m.vendor = %s" in sql
+    assert params == ("ibkr", ["GEV", "NEW"])
+
+
+def test_reconcile_asks_the_providers_own_raw_whether_the_window_is_pre_history(monkeypatch):
+    seen = []
+    monkeypatch.setattr(eh, "has_bar_before", lambda *a: seen.append(a) or True)
+    eh.reconcile(MagicMock(), "GEV", "1h", "ibkr", _WINDOW, _OBSERVED, None, 2 * _D)
+    assert seen[0][-1] == "ibkr"

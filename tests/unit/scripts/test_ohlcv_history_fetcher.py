@@ -459,7 +459,9 @@ class _RecordingPool:
                             "config_value": "2",
                         },
                     ]
-                if "ohlcv_raw" in sql:
+                if (
+                    "FROM ohlcv_raw r" in sql
+                ):  # the parity-eligibility read (not the 1d currency read)
                     return [{"symbol": s} for s in eligible]
                 if "FROM ohlcv_coverage" in sql:
                     return [

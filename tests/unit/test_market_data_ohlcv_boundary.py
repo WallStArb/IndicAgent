@@ -37,21 +37,6 @@ _ALLOW_LIST: dict[str, str] = {
         "included; the tradeable view's volume > 0 filter would hide a stored zero-volume slot "
         "and re-write it as new on every run."
     ),
-    "scripts/infrastructure/backfill/_history_fetch.py": (
-        "PERMANENT: the phase 189 fetcher's helper library (plan 189-08 made it of the "
-        "historical pipeline). Its raw-table read (detect_gaps, the legacy grid difference for "
-        "1m and 4h) treats any stored slot, zero-volume provider bars included, as already "
-        "answered, so a closed slot is not re-requested from IBKR forever; the tradeable "
-        "view's volume > 0 filter would break that. Plan 191-06 moves the planner onto "
-        "ohlcv_raw."
-    ),
-    "scripts/infrastructure/backfill/_d1_gaps.py": (
-        "PERMANENT (todo 462, plan 185-18): reads stored slot timestamps for gap planning "
-        "(zero-volume provider bars count as covered, which the tradeable view's WHERE "
-        "volume > 0 filter would drop and turn into endless re-requests) and checks that a "
-        "`bars` ohlcv_request answer has at least one stored row in its window, so a failed "
-        "bar insert never leaves a window that looks covered."
-    ),
     "services/bar_reconciliation_audit.py": (
         "PERMANENT: D7 counts rows by source, including sources the tradeable view hides "
         "(D-26); its completeness and masked-slot checks (todo 462) classify placeholder and "

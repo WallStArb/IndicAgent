@@ -73,17 +73,13 @@ from scripts.infrastructure.backfill._history_fetch import (
     fetch_per_contract,
 )
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
-from services.ohlcv_coverage_writer import (
-    DESTINATION_ARCHIVE,
-    DESTINATION_GRID,
-    FETCH_STATUSES,
-    CoverageDelta,
-)
+from services.ohlcv_coverage_writer import DESTINATION_RAW, FETCH_STATUSES, CoverageDelta
 from services.ohlcv_raw_writer import RawRow, read_stored_closes
 from src.core.models import AssetClass
 from src.intelligence.bars.gap_plan import expected_grid_slots
 from src.intelligence.bars.sessions import nyse_sessions, session_complete_at
 from src.intelligence.bars.vendor_kind import (
+    VENDOR_IBKR,
     UnmappedObservation,
     label_to_vendor_kind,
     observation_kind,
@@ -95,10 +91,6 @@ logger = structlog.get_logger(__name__)
 
 # The 5m grid is the source the 15m/1h grid is derived from (services/bar_derivation.py).
 _GRID_SOURCE_TF = "5m"
-# The vendor parity sample's timeframes. Their rows are ordinary raw rows keyed by vendor; the
-# set only keeps the two coverage rules that predate raw (every new row counts, no overlap
-# verification) until plan 191-06 moves coverage onto raw.
-_VENDOR_PARITY_TFS = frozenset({"15m", "1h"})
 
 # The stall bound is checked this many times per stall_timeout_s. Derived check cadence, not a
 # tunable: the bound itself is infra.ibkr.history_request_timeout (APR); three checks per
@@ -245,6 +237,13 @@ class FetchContext:
     qualified: dict[str, bool] = field(default_factory=dict)
     heads_checked: set[str] = field(default_factory=set)
 
+    @property
+    def vendor(self) -> str:
+        """The source this run fetches for: every plan read and coverage row is scoped to it
+        (raw is stored per source). It is the item plan's provider name, data not a branch;
+        a context built without a plan is the IBKR fetcher's own."""
+        return self.plan.name if self.plan is not None else VENDOR_IBKR
+
     def get_conn(self) -> Any:
         """A live connection: the pipeline's SELECT 1 probe and reconnect, in one place."""
         if self.conn is not None:
@@ -339,7 +338,7 @@ class _ChunkPersister:
         self.timeframe = timeframe
         self.clock = clock
         self.daily = timeframe == "1d"
-        self.verify_overlap = verify_overlap and timeframe not in _VENDOR_PARITY_TFS
+        self.verify_overlap = verify_overlap
         self.waived = waived
         self.request_ids: list[Any] = []
         self.persisted: set[datetime] = set()
@@ -387,7 +386,6 @@ class _ChunkPersister:
         conn = self.ctx.get_conn()
         if self.verify_overlap:
             self.overlap_pairs.extend(_overlap_pairs(conn, self.symbol, self.timeframe, rows))
-        parity = self.timeframe in _VENDOR_PARITY_TFS
         result = persist_chunk_atomically(
             conn,
             request_rows=request_rows,
@@ -398,8 +396,9 @@ class _ChunkPersister:
                 else CoverageDelta(
                     self.symbol,
                     self.timeframe,
-                    DESTINATION_ARCHIVE if parity else DESTINATION_GRID,
+                    DESTINATION_RAW,
                     fetched_at=datetime.now(UTC),
+                    provider=self.ctx.vendor,
                 )
             ),
             waived=self.waived,
@@ -520,27 +519,22 @@ async def _head_floor(
 
 
 def _plan_gaps(
-    ctx: FetchContext,
-    instrument: Any,
-    timeframe: str,
-    start_dt: datetime,
-    *,
-    overlap: bool = False,
-    refetch: bool = False,
+    ctx: FetchContext, instrument: Any, timeframe: str, start_dt: datetime
 ) -> list[tuple[datetime, datetime]]:
-    """The asks for one (symbol, timeframe), through the shared planners (plan 185-18).
+    """The gap asks for one (symbol, timeframe) of ctx.vendor, through the shared planners.
 
-    1d: D1 session coverage (detect_gaps_1d_from_d1), plus the optional overlap window.
+    Raw is stored per source, agnostic to every other source, so the one question is: which
+    slots of [start_dt, end) are missing from THIS vendor's own ohlcv_raw rows, minus its own
+    answered request windows (a confirmed empty included)? Another vendor's rows, answers and
+    the canonical selection never cover a slot. No date cutoff restricts the question.
+
+    1d: the vendor's complete daily bars per NYSE session (detect_gaps_1d_from_d1).
     5m/15m/1h: the record planner (expected slots minus stored minus answered windows).
     Anything else (1m, 4h): the legacy grid difference with the empty-history gate.
     Every path folds in the provider-verified empty span under one freshness rule.
-
-    Plan 189-10: `overlap` adds [start_dt, end) to a record-planned series (the update lane
-    re-asks stored slots behind its latest bar; the planner never asks a stored slot).
-    `refetch` (the escalation after a restated overlap) asks the whole window, stored or not:
-    every 1d session of it, every record-planned slot of it.
     """
     symbol, end_dt = instrument.symbol, ctx.end_dt
+    vendor = ctx.vendor
     empty = ctx.empty_ranges.get((symbol, timeframe))
     # The no-data evidence threshold is the item plan's (phase 190); the leaf module's own
     # constant is the fallback for a context built without one.
@@ -577,8 +571,77 @@ def _plan_gaps(
             start_dt.date(),
             end_dt.date(),
             nyse_sessions(start_dt.date(), end_dt.date()),
+            vendor=vendor,
             **gate,
         )
+        return [(midnight_utc(s), midnight_utc(e)) for s, e in gaps_d]
+    if timeframe in _RECORD_PLAN_TFS:
+        return detect_gaps_from_record(
+            ctx.get_conn(),
+            symbol,
+            timeframe,
+            start_dt,
+            end_dt,
+            expected_grid_slots(
+                instrument.session_id, instrument.exchange, timeframe, start_dt, end_dt
+            ),
+            vendor=vendor,
+            **gate,
+        )
+    conn = ctx.get_conn()
+    gaps = detect_gaps(
+        conn,
+        symbol,
+        timeframe,
+        start_dt,
+        end_dt,
+        session_id=instrument.session_id,
+        exchange=instrument.exchange,
+        # Every timeframe stores real bars only (185-18, 185-32; migration 444 refuses a
+        # synthetic_fill row), so the answered windows always load: they are all that keeps
+        # a definitive no_data span from being re-asked forever (todo 462).
+        answered=load_answered_windows(conn, symbol, timeframe, vendor),
+        vendor=vendor,
+    )
+    kept = empty_history.apply_empty_range(
+        gaps,
+        empty,
+        ctx.run_started_at,
+        ctx.empty_reverify_days,
+        timedelta(minutes=_TF_MINUTES[timeframe]),
+        min_confirmations,
+    )
+    if kept != gaps and empty is not None:
+        note_skip(empty)
+    return kept
+
+
+def _with_verification_asks(
+    ctx: FetchContext,
+    timeframe: str,
+    start_dt: datetime,
+    gaps: list[tuple[datetime, datetime]],
+    *,
+    overlap: bool,
+    refetch: bool,
+) -> list[tuple[datetime, datetime]]:
+    """The gap asks plus the re-asks that verify what the vendor already served.
+
+    These are not gaps and the planner never produces them: a restated history (a split, a
+    rescaled price level) shows only when stored slots are asked again and compared with
+    the same source's own stored values, which is what the split detector and the update
+    lane's overlap judgment read (plans 191-08 and 191-10). Without them no restatement is
+    ever observed and the waiver that licenses a recorded split's refetch never fires. Kept
+    on purpose, outside the gap question:
+
+    - update lane (`overlap`, 5m): [start_dt, end) is re-asked behind the latest bar;
+    - 1d (`ctx.overlap_sessions`): the last N sessions are re-asked so a split shows as a
+      constant ratio (D-21);
+    - escalation (`refetch`): the whole window, stored or not, after a restated overlap.
+    """
+    end_dt = ctx.end_dt
+    if timeframe == "1d":
+        gaps_d = [(a.date(), b.date()) for a, b in gaps]
         if refetch:
             window = nyse_sessions(start_dt.date(), end_dt.date())
             gaps_d = with_overlap_window(gaps_d, window, end_dt.date(), len(window))
@@ -592,46 +655,9 @@ def _plan_gaps(
                 ctx.overlap_sessions,
             )
         return [(midnight_utc(s), midnight_utc(e)) for s, e in gaps_d]
-    if timeframe in _RECORD_PLAN_TFS:
-        planned = detect_gaps_from_record(
-            ctx.get_conn(),
-            symbol,
-            timeframe,
-            start_dt,
-            end_dt,
-            expected_grid_slots(
-                instrument.session_id, instrument.exchange, timeframe, start_dt, end_dt
-            ),
-            **gate,
-        )
-        if refetch or overlap:
-            return _merge_windows([*planned, (start_dt, end_dt)])
-        return planned
-    conn = ctx.get_conn()
-    gaps = detect_gaps(
-        conn,
-        symbol,
-        timeframe,
-        start_dt,
-        end_dt,
-        session_id=instrument.session_id,
-        exchange=instrument.exchange,
-        # Every timeframe stores real bars only (185-18, 185-32; migration 444 refuses a
-        # synthetic_fill row), so the answered windows always load: they are all that keeps
-        # a definitive no_data span from being re-asked forever (todo 462).
-        answered=load_answered_windows(conn, symbol, timeframe),
-    )
-    kept = empty_history.apply_empty_range(
-        gaps,
-        empty,
-        ctx.run_started_at,
-        ctx.empty_reverify_days,
-        timedelta(minutes=_TF_MINUTES[timeframe]),
-        min_confirmations,
-    )
-    if kept != gaps and empty is not None:
-        note_skip(empty)
-    return kept
+    if timeframe in _RECORD_PLAN_TFS and (refetch or overlap):
+        return _merge_windows([*gaps, (start_dt, end_dt)])
+    return gaps
 
 
 async def fetch_item(
@@ -708,7 +734,14 @@ async def fetch_item(
     if head_floor is not None and head_floor > start_dt:
         start_dt = head_floor
 
-    gaps = _plan_gaps(ctx, instrument, timeframe, start_dt, overlap=overlap, refetch=refetch)
+    gaps = _with_verification_asks(
+        ctx,
+        timeframe,
+        start_dt,
+        _plan_gaps(ctx, instrument, timeframe, start_dt),
+        overlap=overlap,
+        refetch=refetch,
+    )
     clock.touch()
     if not gaps:
         return ItemOutcome(symbol, timeframe, "ok")

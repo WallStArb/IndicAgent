@@ -720,10 +720,12 @@ def _daily_answer_sql(answer_filter: str) -> str:
 
 
 _LATEST_DAILY_ANSWER_SQL = _daily_answer_sql(_IBKR_DAILY_ANSWER_FILTER)
-_LATEST_CANONICAL_1D_SQL = (
-    'SELECT symbol, max("timestamp") AS latest FROM market_data_ohlcv_tradeable '
-    "WHERE timeframe = '1d' AND symbol = ANY($1::text[]) AND \"timestamp\" >= $2 "
-    "GROUP BY symbol"
+# The provider's own latest 1d bar in raw (raw is per source: another vendor's rows or the
+# canonical selection never make this provider's series look current).
+_LATEST_OWN_1D_SQL = (
+    'SELECT symbol, max("timestamp") AS latest FROM ohlcv_raw '
+    "WHERE timeframe = '1d' AND vendor = $3 AND symbol = ANY($1::text[]) "
+    'AND "timestamp" >= $2 GROUP BY symbol'
 )
 # The span-ownership tier (migration 446): which source authors a (symbol, timeframe) span.
 # The fetcher is a policy READER only - the sole writer stays scripts/ops/bars/
@@ -942,7 +944,7 @@ class PriorityQueue:
             answers_sql = _LATEST_DAILY_ANSWER_SQL
         async with pool.acquire() as conn:
             answers = await conn.fetch(answers_sql, self._provider, symbols, self.daily.last_close)
-            canonical = await conn.fetch(_LATEST_CANONICAL_1D_SQL, symbols, since)
+            canonical = await conn.fetch(_LATEST_OWN_1D_SQL, symbols, since, self._provider)
         return (
             {r["symbol"]: DailyAnswer(r["answered_at"], r["covered_window_end"]) for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},

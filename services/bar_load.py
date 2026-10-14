@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from scripts.infrastructure.backfill._intraday_persist import persist_chunk_atomically
-from services.ohlcv_coverage_writer import DESTINATION_GRID as COVERAGE_DESTINATION_GRID
+from services.ohlcv_coverage_writer import DESTINATION_RAW as COVERAGE_DESTINATION_RAW
 from services.ohlcv_coverage_writer import CoverageDelta
 from services.ohlcv_ingress_contract import IngressResult, RawContractParams
 from services.ohlcv_raw_writer import RawRow
@@ -145,7 +145,7 @@ def load_frame(
                 CoverageDelta(
                     symbol,
                     timeframe,
-                    COVERAGE_DESTINATION_GRID,
+                    COVERAGE_DESTINATION_RAW,
                     fetched_at=datetime.now(UTC),
                     provider=vendor,
                 )

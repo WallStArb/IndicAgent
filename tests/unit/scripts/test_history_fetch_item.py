@@ -540,6 +540,7 @@ def env(monkeypatch, make_ingress_result):
                 start=start,
                 end=end,
                 planner="record",
+                vendor=kwargs.get("vendor"),
                 min_confirmations=kwargs.get("min_confirmations"),
             )
         )
@@ -547,7 +548,14 @@ def env(monkeypatch, make_ingress_result):
 
     def fake_d1_planner(conn, symbol, start, end, sessions, **kwargs):
         rec.gap_calls.append(
-            SimpleNamespace(symbol=symbol, tf="1d", start=start, end=end, planner="d1")
+            SimpleNamespace(
+                symbol=symbol,
+                tf="1d",
+                start=start,
+                end=end,
+                planner="d1",
+                vendor=kwargs.get("vendor"),
+            )
         )
         return list(rec.d1_gaps)
 
@@ -559,6 +567,7 @@ def env(monkeypatch, make_ingress_result):
                 start=start,
                 end=end,
                 planner="legacy",
+                vendor=kwargs.get("vendor"),
                 answered=kwargs["answered"],
             )
         )
@@ -576,7 +585,9 @@ def env(monkeypatch, make_ingress_result):
     monkeypatch.setattr(item_mod, "detect_gaps", fake_legacy_planner)
     monkeypatch.setattr(item_mod, "expected_grid_slots", lambda *a: [])
     monkeypatch.setattr(
-        item_mod, "load_answered_windows", lambda conn, symbol, tf: ("answered", symbol, tf)
+        item_mod,
+        "load_answered_windows",
+        lambda conn, symbol, tf, vendor: ("answered", symbol, tf, vendor),
     )
     monkeypatch.setattr(item_mod, "fetch_per_contract", fake_per_contract)
     monkeypatch.setattr(
@@ -722,7 +733,10 @@ def test_each_timeframe_plans_through_its_shared_planner(env):
     }
     answered = {c.tf: c.answered for c in env.gap_calls if c.planner == "legacy"}
     # Plan 185-32: 4h is real bars only, so it reads its answered windows like 1m.
-    assert answered == {"1m": ("answered", "AAA", "1m"), "4h": ("answered", "AAA", "4h")}
+    assert answered == {
+        "1m": ("answered", "AAA", "1m", "ibkr"),
+        "4h": ("answered", "AAA", "4h", "ibkr"),
+    }
 
 
 def test_non_nyse_1d_is_refused_loudly(env):
@@ -731,6 +745,21 @@ def test_non_nyse_1d_is_refused_loudly(env):
     )
     with pytest.raises(ValueError, match="NYSE-only"):
         _fetch(_ctx(FakeProvider()), _row("1d"), instrument=instrument)
+
+
+# --- raw is per source: every plan read is scoped to the asking vendor (plan 191-06) ----
+
+
+@pytest.mark.parametrize("tf", ["1d", "5m", "15m", "1h", "1m", "4h"])
+def test_every_planner_is_asked_for_the_contexts_own_vendor(env, tf):
+    _fetch(_ctx(FakeProvider(), plan=_provider_plan(name="alpaca")), _row(tf))
+    assert {c.vendor for c in env.gap_calls} == {"alpaca"}
+    assert env.persist and {p.coverage.provider for p in env.persist if p.coverage} <= {"alpaca"}
+
+
+def test_a_context_without_a_plan_is_the_ibkr_fetchers_own(env):
+    _fetch(_ctx(FakeProvider(), plan=None), _row("5m"))
+    assert {c.vendor for c in env.gap_calls} == {"ibkr"}
 
 
 # --- persistence routing (CD-04) -------------------------------------------
@@ -742,7 +771,8 @@ def test_15m_chunks_persist_atomically_as_ordinary_raw_rows_with_coverage(env):
     assert outcome.status == "ok" and outcome.n_bars == 4
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.coverage.destination == "archive"  # plan 191-06 moves coverage onto raw
+    assert call.coverage.destination == "raw"
+    assert call.coverage.provider == "ibkr"
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", "15m")
     assert len(call.requests) == 1  # the chunk's answer, taken off the sink
     assert call.requests[0].timeframe == "15m"
@@ -759,7 +789,7 @@ def test_grid_timeframe_chunks_persist_atomically_with_coverage(env, tf):
     assert outcome.status == "ok"
     assert len(env.persist) == 1
     call = env.persist[0]
-    assert call.coverage.destination == "grid"
+    assert call.coverage.destination == "raw"
     assert (call.coverage.symbol, call.coverage.timeframe) == ("AAA", tf)
     assert all(isinstance(r, RawRow) and r.timeframe == tf for r in call.rows)
     assert call.requests  # grid timeframes record their answers atomically too
@@ -814,7 +844,7 @@ def test_4h_stores_real_bars_only(env):
     and plan 189-08 deleted the placeholder path (no normalize_bars, no store_bars here)."""
     _fetch(_ctx(FakeProvider()), _row("4h"))
     assert len(env.persist) == 1 and len(env.persist[0].rows) == 4
-    assert env.persist[0].coverage.destination == "grid"
+    assert env.persist[0].coverage.destination == "raw"
 
 
 def test_item_fetch_writes_no_placeholder_and_no_backfill_status():
@@ -1465,3 +1495,25 @@ def test_an_unmapped_daily_route_fails_that_item_loudly_without_dropping_the_win
     assert outcome.status == "error"
     assert outcome.unmapped and "EDGX" in outcome.unmapped[0]
     assert (outcome.error or "").startswith("unmapped_kind:")
+
+
+def test_the_gap_planner_knows_nothing_of_the_verification_lanes():
+    """D-191-K: the gap question is per source and pure; the overlap and refetch asks re-ask
+    slots the vendor already holds, so they sit in _with_verification_asks, outside it."""
+    import inspect
+
+    params = set(inspect.signature(item_mod._plan_gaps).parameters)
+    assert params == {"ctx", "instrument", "timeframe", "start_dt"}
+    assert {"overlap", "refetch"} <= set(
+        inspect.signature(item_mod._with_verification_asks).parameters
+    )
+
+
+@pytest.mark.parametrize("tf", ["5m", "1d"])
+def test_a_refetch_asks_stored_slots_again_while_a_plain_run_asks_only_the_gaps(env, tf):
+    row = _row(tf, latest=_COVERED_LATEST, status="ok")
+    env.record_gaps, env.d1_gaps = [], []
+    _fetch(_ctx(FakeProvider()), row)
+    plain = len(env.persist)
+    _fetch(_ctx(FakeProvider()), row, refetch=True)
+    assert plain == 0 and len(env.persist) > 0

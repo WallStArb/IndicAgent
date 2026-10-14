@@ -26,9 +26,9 @@ held the offered values as pending revisions (ohlcv_raw is untouched), the reque
 commit, and the result's `ingress.refused` tells the caller to fail the item.
 
 Coverage follows the raw write: the rows the contract found new move the series' bounds and row
-count (the grid destination counts tradeable rows only, volume > 0, matching the
-market_data_ohlcv_tradeable bootstrap); a refused chunk moves nothing. The CoverageDelta carries
-the authoring fetch plane's label (phase 190, migration 464), set where the delta is built.
+count (every new raw row of the vendor counts, tradeable or not: coverage describes what that
+vendor holds); a refused chunk moves nothing. The CoverageDelta carries the serving vendor's
+label (phase 190, migration 464), set where the delta is built.
 
 Discipline the caller owes:
 
@@ -51,11 +51,7 @@ from typing import Any
 import numpy as np
 import psycopg
 
-from services.ohlcv_coverage_writer import (
-    DESTINATION_GRID,
-    CoverageDelta,
-    upsert_coverage,
-)
+from services.ohlcv_coverage_writer import CoverageDelta, upsert_coverage
 from services.ohlcv_ingress_contract import (
     DEFAULT_CALLER,
     IngressResult,
@@ -200,14 +196,10 @@ def _upsert_coverage(
     cur: Any, rows: list[RawRow], ingress: IngressResult, coverage: CoverageDelta
 ) -> None:
     """Widen the series' stored bounds by the rows the raw write found new (under the bar-writer
-    role already set). The grid counts tradeable rows only (volume > 0), matching the
-    market_data_ohlcv_tradeable bootstrap; the archive counts every new row. Bounds follow the
-    counted rows; when none are new they still reflect the offered rows, which are stored."""
-    volume = {row.timestamp: row.volume for row in rows}
-    tradeable_only = coverage.destination == DESTINATION_GRID
-    new_timestamps = {
-        ts for ts in ingress.new_timestamps if not tradeable_only or (volume.get(ts) or 0) > 0
-    }
+    role already set). Coverage counts every row the vendor served, tradeable or not: it
+    describes what that vendor holds in ohlcv_raw. Bounds follow the new rows; when none are new
+    they still reflect the offered rows, which are stored."""
+    new_timestamps = set(ingress.new_timestamps)
     bounds = new_timestamps or {row.timestamp for row in rows}
     upsert_coverage(
         cur,

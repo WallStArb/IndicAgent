@@ -384,7 +384,7 @@ def test_empty_chunk_is_a_noop(contract):
 # ---------------------------------------------------------------------------
 
 
-def _delta(destination: str = "archive") -> CoverageDelta:
+def _delta(destination: str = "raw") -> CoverageDelta:
     return CoverageDelta(
         symbol="SPY", timeframe="15m", destination=destination, fetched_at=_FETCHED_AT
     )
@@ -452,25 +452,27 @@ def test_coverage_counts_only_rows_the_raw_write_found_new(contract, recorded_up
         FakeConn(),
         request_rows=[],
         raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
-        coverage=_delta("archive"),
+        coverage=_delta(),
     )
     (call,) = recorded_upserts
-    # archive: every new row counts, zero-volume included
+    # every new row counts, zero-volume included
     assert call["n_new_rows"] == 2
     assert (call["earliest"], call["latest"]) == (_T1, _T2)
 
 
-def test_grid_counts_only_new_tradeable_rows(contract, recorded_upserts):
+def test_coverage_counts_every_new_row_whether_or_not_it_is_tradeable(contract, recorded_upserts):
+    """Coverage describes what the vendor holds in raw: zero-volume and NULL-volume rows count
+    (the old grid destination counted volume > 0 only)."""
     contract.existing = (_T0,)
     persist_chunk_atomically(
         FakeConn(),
         request_rows=[],
         raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2), _bar(_T1.replace(minute=50), None)],
-        coverage=_delta("grid"),
+        coverage=_delta(),
     )
     (call,) = recorded_upserts
-    assert call["n_new_rows"] == 1
-    assert (call["earliest"], call["latest"]) == (_T2, _T2)
+    assert call["n_new_rows"] == 3
+    assert (call["earliest"], call["latest"]) == (_T1, _T2)
 
 
 def test_bounds_fall_back_to_offered_rows_when_nothing_new(contract, recorded_upserts):
@@ -503,9 +505,14 @@ def test_rows_for_another_series_are_refused_before_any_sql(contract):
     assert conn.statements == [] and contract.calls == []
 
 
-def test_coverage_delta_rejects_an_unknown_destination():
+@pytest.mark.parametrize("destination", ["nowhere", "archive", "grid"])
+def test_coverage_delta_rejects_every_destination_but_raw(destination):
+    """The archive and the grid are gone: a caller still naming one fails loudly instead of
+    crediting the wrong ledger."""
     with pytest.raises(ValueError, match="destination"):
-        CoverageDelta(symbol="SPY", timeframe="15m", destination="nowhere", fetched_at=_FETCHED_AT)
+        CoverageDelta(
+            symbol="SPY", timeframe="15m", destination=destination, fetched_at=_FETCHED_AT
+        )
 
 
 def test_coverage_delta_defaults_to_the_ibkr_stored_state_label():
@@ -520,7 +527,7 @@ def test_a_non_default_provider_on_the_delta_reaches_the_upsert(contract, record
     alpaca = CoverageDelta(
         symbol="SPY",
         timeframe="15m",
-        destination="archive",
+        destination="raw",
         fetched_at=_FETCHED_AT,
         provider="alpaca",
     )
@@ -537,7 +544,7 @@ def test_upsert_labels_the_row_from_the_delta_provider():
     conn = FakeConn()
     upsert_coverage(
         conn.cursor(),
-        CoverageDelta(symbol="SPY", timeframe="15m", destination="archive", fetched_at=_FETCHED_AT),
+        CoverageDelta(symbol="SPY", timeframe="15m", destination="raw", fetched_at=_FETCHED_AT),
         earliest=_T0,
         latest=_T1,
         n_new_rows=2,

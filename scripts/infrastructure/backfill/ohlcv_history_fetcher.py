@@ -748,7 +748,9 @@ class OHLCVHistoryFetcher(BaseBatch):
             fresh_heads = empty_history.load_fresh_heads(
                 conn, _history_fetch._EMPTY_HISTORY_PROVIDER, reverify_days
             )
-            first_bars = empty_history.load_first_bars(conn, list(plan.candidates.instruments))
+            first_bars = empty_history.load_first_bars(
+                conn, list(plan.candidates.instruments), _history_fetch._EMPTY_HISTORY_PROVIDER
+            )
         finally:
             conn.close()
         sink = RequestSink(

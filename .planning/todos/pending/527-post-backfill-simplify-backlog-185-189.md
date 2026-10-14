@@ -44,3 +44,7 @@ completes, highest cost first:
 
 Each numbered item is applied or explicitly declined with a reason in the findings doc; the
 before/after test suites stay green; nothing lands mid-backfill in the queue or write paths.
+
+## Progress (phase 191 plan 06, 2026-10-14)
+
+Item 1, the `_d1_gaps` copies: done. The 5m, 15m, 1h and 1d answered-window SQL is one constant (`_ANSWERED_WINDOWS_SQL`, parameterized by timeframe, vendor, routes and outcomes, corroborated in `ohlcv_raw` by the same vendor). Still open: the copies in `bar_derivation`, `bar_reconciliation_audit`, `bar_auditor` and `_empty_history` (the services cannot import from scripts, so the shared constant belongs in `gap_plan`), and the 5m shaper dedup (item 2, in `bar_derivation` and the audit, plan 10 or later).

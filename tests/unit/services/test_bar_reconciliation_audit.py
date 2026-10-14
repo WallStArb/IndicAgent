@@ -1181,6 +1181,7 @@ class _FakeConnection:
 _LEDGER = (
     "AAA",
     "5m",
+    "ibkr",
     datetime(2020, 1, 1, tzinfo=UTC),
     datetime(2025, 1, 1, tzinfo=UTC),
     100,
@@ -1206,7 +1207,7 @@ def _drift(lock, conn, rebuild=None):
 
 
 def test_coverage_cache_rebuild_is_rolled_back_never_committed_and_the_lock_released():
-    rebuilt = (*_LEDGER[:4], 101, "ok")  # the rebuild finds one more stored bar than the ledger
+    rebuilt = (*_LEDGER[:5], 101, "ok")  # the rebuild finds one more stored bar than the ledger
     lock, conn = _FakeLock(), _FakeConnection([_LEDGER], [rebuilt])
     result, calls = _drift(lock, conn)
     assert result == {"AAA": 1}
@@ -1219,9 +1220,20 @@ def test_coverage_cache_rebuild_is_rolled_back_never_committed_and_the_lock_rele
 def test_coverage_cache_equal_ledger_is_zero_drift_and_a_missing_row_is_drift():
     result, _ = _drift(_FakeLock(), _FakeConnection([_LEDGER], [_LEDGER]))
     assert result == {}
-    missing = ("BBB", "15m", None, None, 0, None)
+    missing = ("BBB", "15m", "ibkr", None, None, 0, None)
     result, _ = _drift(_FakeLock(), _FakeConnection([_LEDGER], [_LEDGER, missing]))
     assert result == {"BBB": 1}
+
+
+def test_coverage_cache_keys_rows_by_provider_so_two_vendors_never_collide():
+    """One (symbol, timeframe) now carries an ibkr and an alpaca row; keyed without the provider
+    the later row would overwrite the earlier and mask or invent drift."""
+    alpaca = ("AAA", "5m", "alpaca", _LEDGER[3], _LEDGER[4], 7, None)
+    same = _drift(_FakeLock(), _FakeConnection([_LEDGER, alpaca], [alpaca, _LEDGER]))[0]
+    assert same == {}
+    off = (*alpaca[:5], 8, None)
+    result, _ = _drift(_FakeLock(), _FakeConnection([_LEDGER, alpaca], [_LEDGER, off]))
+    assert result == {"AAA": 1}
 
 
 def test_coverage_cache_with_the_lock_held_does_nothing_and_never_connects():

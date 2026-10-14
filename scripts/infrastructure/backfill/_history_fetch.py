@@ -706,8 +706,10 @@ def detect_gaps(
     session_id: str,
     exchange: str,
     answered: AnsweredWindows | None = None,
+    *,
+    vendor: str,
 ) -> list[tuple[datetime, datetime]]:
-    """Detect gaps in OHLCV data, restricted to expected session slots.
+    """Detect gaps in `vendor`'s own raw OHLCV rows, restricted to expected session slots.
 
     Uses session-aware slot generation so maintenance windows and market
     closures are not reported as gaps.  Returns contiguous missing ranges
@@ -728,10 +730,10 @@ def detect_gaps(
 
     with db_conn.cursor() as cur:
         cur.execute(
-            """SELECT timestamp FROM market_data_ohlcv
-               WHERE symbol = %s AND timeframe = %s
-                 AND timestamp >= %s AND timestamp <= %s""",
-            (symbol, timeframe, start_dt, end_dt),
+            """SELECT DISTINCT "timestamp" FROM ohlcv_raw
+               WHERE symbol = %s AND timeframe = %s AND vendor = %s
+                 AND "timestamp" >= %s AND "timestamp" <= %s""",
+            (symbol, timeframe, vendor, start_dt, end_dt),
         )
         rows = cur.fetchall()
         actual: set[datetime] = {

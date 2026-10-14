@@ -68,7 +68,7 @@ class FakeConn:
         elif "FROM ohlcv_empty_history" in text and text.startswith("SELECT"):
             wanted = params[2] if len(params) > 2 else None
             self._last = [r for r in self.rows if wanted is None or r[0] in wanted]
-        elif "market_data_ohlcv_tradeable" in text:
+        elif "FROM ohlcv_raw" in text:
             self._last = [(self.first_bar_exists,)]
         else:
             self.writes.append((text.split(" (")[0].split(" WHERE")[0], params))
