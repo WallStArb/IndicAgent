@@ -60,7 +60,6 @@ _log = structlog.get_logger(__name__)
 # Roll methodology is proprietary IP — baked-in continuous series prevent future optimization.
 
 
-_EMPTY_HISTORY_PROVIDER = "ibkr"  # ohlcv_empty_history.provider for the fetcher's IBKR fetches
 # Timeframes whose gap detection comes from the shared record planner
 # (detect_gaps_from_record): expected slots minus stored observations minus recorded
 # coverage, with the provider-verified empty span folded in. 1m stays on the legacy

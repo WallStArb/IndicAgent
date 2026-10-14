@@ -46,6 +46,11 @@ ANSWERED_OUTCOMES: tuple[str, ...] = ("bars", "no_data")
 # routes widen this set where venue fallback applies; 1d-only today).
 COVERAGE_ROUTE = "SMART"
 COVERAGE_WHAT_TO_SHOW = "TRADES"
+# Raw kinds that answer a different question than the daily TRADES bar and so never cover a 1d
+# session, never move a 1d series' currency and never count in its coverage bounds: the
+# dividend-adjusted series (it also holds forming bars). One definition for the planner, the
+# fetch queue's currency read and the coverage ledger.
+DAILY_NOT_COVERAGE_KINDS: tuple[str, ...] = ("smart_adjusted",)
 
 # IBKR serves NYSE 15m/1h on its own RTH grid (a 09:30 partial 1h bar then clock hours --
 # 13:30, 14:00, 15:00 UTC in summer, 14:30, 15:00, 16:00 in winter; :00/:15/:30/:45 at 15m), so

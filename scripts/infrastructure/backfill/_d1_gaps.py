@@ -32,6 +32,7 @@ from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
     COVERAGE_ROUTE,
     COVERAGE_WHAT_TO_SHOW,
+    DAILY_NOT_COVERAGE_KINDS,
     AnsweredWindows,
     fresh_empty_span,
     plan_gaps,
@@ -152,7 +153,6 @@ def detect_gaps_from_record(
 # different question and covers nothing. Tradier's rows and requests belong to Tradier: IBKR is
 # asked for every session it has not itself answered (owner, 2026-10-12, todo 533). Raw kinds
 # are the per-route codes of vendor_kind, never the bare `venue` of the canonical tier.
-_1D_NOT_COVERAGE_KINDS: tuple[str, ...] = ("smart_adjusted",)
 _1D_STORED_SQL = """
 SELECT "timestamp", served_at FROM ohlcv_raw
 WHERE symbol = %s AND timeframe = '1d' AND vendor = %s AND kind <> ALL(%s)
@@ -257,7 +257,7 @@ def detect_gaps_1d_from_d1(
             (
                 symbol,
                 vendor,
-                list(_1D_NOT_COVERAGE_KINDS),
+                list(DAILY_NOT_COVERAGE_KINDS),
                 midnight_utc(start),
                 midnight_utc(end) + _1D_INTERVAL,
             ),

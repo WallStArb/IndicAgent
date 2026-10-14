@@ -1245,3 +1245,6 @@ def test_the_daily_currency_read_is_the_providers_own_raw_not_the_canonical_view
     sql = fq._LATEST_OWN_1D_SQL
     assert "FROM ohlcv_raw" in sql and "vendor = $3" in sql
     assert "market_data_ohlcv" not in sql
+    # the adjusted series (it holds forming bars) never moves currency, as in the 1d planner
+    assert "kind <> ALL($4::text[])" in sql
+    assert fq.DAILY_NOT_COVERAGE_KINDS == ("smart_adjusted",)

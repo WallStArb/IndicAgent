@@ -41,6 +41,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from src.intelligence.bars.gap_plan import DAILY_NOT_COVERAGE_KINDS
+
 # The ledger's CHECK values (migration 432). 'no_data' is a correct empty answer, never a
 # failure (CD-05); only 'error' counts toward infra.backfill.max_consecutive_failures.
 FETCH_STATUSES = ("ok", "no_data", "error")
@@ -159,11 +161,13 @@ def record_fetch_outcome(
     cur.execute(_OUTCOME_SQL, (symbol, timeframe, fetched_at, status, initial_failures, provider))
 
 
+_NOT_COVERAGE = list(DAILY_NOT_COVERAGE_KINDS)
+
 _REFRESH_1D_SQL = """
 INSERT INTO ohlcv_coverage (symbol, timeframe, earliest_timestamp, latest_timestamp, row_count, provider)
 SELECT symbol, '1d', min("timestamp"), max("timestamp"), count(DISTINCT "timestamp"), %s
 FROM ohlcv_raw
-WHERE vendor = %s AND timeframe = '1d' AND symbol = ANY(%s)
+WHERE vendor = %s AND timeframe = '1d' AND kind <> ALL(%s) AND symbol = ANY(%s)
 GROUP BY symbol
 ON CONFLICT (symbol, timeframe, provider) DO UPDATE SET
     earliest_timestamp = EXCLUDED.earliest_timestamp,
@@ -185,12 +189,14 @@ WHERE c.provider = %(provider)s {where}
   AND NOT EXISTS (
       SELECT 1 FROM ohlcv_raw m
       WHERE m.symbol = c.symbol AND m.timeframe = c.timeframe AND m.vendor = c.provider
+        AND NOT (m.timeframe = '1d' AND m.kind = ANY(%(not_coverage)s))
   )
 """
 
 
 def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr") -> int:
-    """Recompute the 1d bounds and row count of `symbols` from the provider's own raw rows.
+    """Recompute the 1d bounds and row count of `symbols` from the provider's own raw rows of the
+    kinds that cover a session (DAILY_NOT_COVERAGE_KINDS, the adjusted series, are left out).
 
     A 1d answer arrives as a daily observation, not a chunk, so no persist_chunk_atomically
     call moves a 1d series' bounds. The fetcher calls this after the symbols it fetched, so
@@ -204,11 +210,11 @@ def refresh_1d_bounds(cur: Any, symbols: Iterable[str], *, provider: str = "ibkr
     symbol_list = sorted(set(symbols))
     if not symbol_list:
         return 0
-    cur.execute(_REFRESH_1D_SQL, (provider, provider, symbol_list))
+    cur.execute(_REFRESH_1D_SQL, (provider, provider, list(DAILY_NOT_COVERAGE_KINDS), symbol_list))
     written = int(cur.rowcount)
     cur.execute(
         _ZERO_NO_RAW_SQL.format(where="AND c.timeframe = '1d' AND c.symbol = ANY(%(symbols)s)"),
-        {"provider": provider, "symbols": symbol_list},
+        {"provider": provider, "symbols": symbol_list, "not_coverage": _NOT_COVERAGE},
     )
     return written + int(cur.rowcount)
 
@@ -227,7 +233,7 @@ WITH bars AS (
            min("timestamp") AS earliest, max("timestamp") AS latest,
            count(DISTINCT "timestamp") AS n
     FROM ohlcv_raw
-    WHERE vendor = %(provider)s {where}
+    WHERE vendor = %(provider)s AND NOT (timeframe = '1d' AND kind = ANY(%(not_coverage)s)) {where}
     GROUP BY symbol, timeframe
 ),
 requests AS (
@@ -312,9 +318,12 @@ def rebuild_from_stored_state(
     request_filter = _REBUILD_FILTERS[provider]
     if symbols is None:
         sql = _REBUILD_SQL.format(where="", request_where=request_filter)
-        cur.execute(sql, {"provider": provider})
+        cur.execute(sql, {"provider": provider, "not_coverage": _NOT_COVERAGE})
         written = int(cur.rowcount)
-        cur.execute(_ZERO_NO_RAW_SQL.format(where=""), {"provider": provider})
+        cur.execute(
+            _ZERO_NO_RAW_SQL.format(where=""),
+            {"provider": provider, "not_coverage": _NOT_COVERAGE},
+        )
         return written + int(cur.rowcount)
     symbol_list = sorted(set(symbols))
     if not symbol_list:
@@ -323,11 +332,11 @@ def rebuild_from_stored_state(
         where="AND symbol = ANY(%(symbols)s)",
         request_where=f"{request_filter} AND symbol = ANY(%(symbols)s)",
     )
-    cur.execute(sql, {"provider": provider, "symbols": symbol_list})
+    cur.execute(sql, {"provider": provider, "symbols": symbol_list, "not_coverage": _NOT_COVERAGE})
     written = int(cur.rowcount)
     cur.execute(
         _ZERO_NO_RAW_SQL.format(where="AND c.symbol = ANY(%(symbols)s)"),
-        {"provider": provider, "symbols": symbol_list},
+        {"provider": provider, "symbols": symbol_list, "not_coverage": _NOT_COVERAGE},
     )
     return written + int(cur.rowcount)
 

@@ -34,7 +34,9 @@ def test_rebuild_reads_only_the_providers_vendor_rows_of_raw():
     assert "count(DISTINCT" in sql
     for old in ("ohlcv_intraday_raw_archive", "market_data_ohlcv"):
         assert old not in sql
-    assert params == {"provider": "ibkr", "symbols": ["AAA"]}
+    assert params == {"provider": "ibkr", "symbols": ["AAA"], "not_coverage": ["smart_adjusted"]}
+    # 1d counts only the kinds that cover a session, the same set the planner uses
+    assert "NOT (timeframe = '1d' AND kind = ANY(%(not_coverage)s))" in sql
 
 
 def test_rebuild_with_no_provider_runs_every_provider_once_in_order():
@@ -72,9 +74,10 @@ def test_refresh_1d_reads_the_providers_raw_rows_of_every_kind():
     refresh_1d_bounds(cur, ["B", "A", "A"], provider="ibkr")
     (sql, params), _zero = cur.calls
     assert "FROM ohlcv_raw" in sql and "vendor = %s" in sql
-    assert "kind" not in sql  # a slot counts once whatever its kinds
+    # a slot counts once whatever its covering kinds; the adjusted series is not one
+    assert "kind <> ALL(%s)" in sql
     assert "market_data_ohlcv" not in sql
-    assert params == ("ibkr", "ibkr", ["A", "B"])
+    assert params == ("ibkr", "ibkr", ["smart_adjusted"], ["A", "B"])
 
 
 def test_rebuild_zeroes_a_provider_row_that_has_no_raw_row_of_its_own():
@@ -88,7 +91,7 @@ def test_rebuild_zeroes_a_provider_row_that_has_no_raw_row_of_its_own():
     # status, counter and last_fetched_at describe the fetcher's outcomes: never touched here
     for untouched in ("last_fetch_status", "consecutive_failures", "last_fetched_at"):
         assert untouched not in sql
-    assert params == {"provider": "ibkr", "symbols": ["AAA"]}
+    assert params == {"provider": "ibkr", "symbols": ["AAA"], "not_coverage": ["smart_adjusted"]}
 
 
 def test_unscoped_rebuild_zeroes_across_every_series_of_the_provider():
@@ -96,7 +99,7 @@ def test_unscoped_rebuild_zeroes_across_every_series_of_the_provider():
     rebuild_from_stored_state(cur, provider="alpaca")
     _upsert, (sql, params) = cur.calls
     assert "symbol = ANY" not in sql
-    assert params == {"provider": "alpaca"}
+    assert params == {"provider": "alpaca", "not_coverage": ["smart_adjusted"]}
 
 
 def test_refresh_1d_zeroes_a_symbol_the_provider_holds_no_1d_raw_for():
@@ -104,4 +107,4 @@ def test_refresh_1d_zeroes_a_symbol_the_provider_holds_no_1d_raw_for():
     refresh_1d_bounds(cur, ["QRVO"], provider="ibkr")
     _refresh, (sql, params) = cur.calls
     assert "c.timeframe = '1d'" in sql and "NOT EXISTS" in sql
-    assert params == {"provider": "ibkr", "symbols": ["QRVO"]}
+    assert params == {"provider": "ibkr", "symbols": ["QRVO"], "not_coverage": ["smart_adjusted"]}

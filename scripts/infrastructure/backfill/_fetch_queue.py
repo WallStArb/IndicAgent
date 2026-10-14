@@ -94,6 +94,7 @@ from typing import Any
 import structlog
 
 from scripts.infrastructure.backfill._empty_history import _REVERIFY_DAYS_KEY
+from src.intelligence.bars.gap_plan import DAILY_NOT_COVERAGE_KINDS
 
 logger = structlog.get_logger(__name__)
 
@@ -721,11 +722,13 @@ def _daily_answer_sql(answer_filter: str) -> str:
 
 _LATEST_DAILY_ANSWER_SQL = _daily_answer_sql(_IBKR_DAILY_ANSWER_FILTER)
 # The provider's own latest 1d bar in raw (raw is per source: another vendor's rows or the
-# canonical selection never make this provider's series look current).
+# canonical selection never make this provider's series look current). The kinds that never
+# cover a session (the adjusted series, which holds forming bars) do not move it either, the
+# same rule the planner applies, so the queue and the planner agree on what is current.
 _LATEST_OWN_1D_SQL = (
     'SELECT symbol, max("timestamp") AS latest FROM ohlcv_raw '
     "WHERE timeframe = '1d' AND vendor = $3 AND symbol = ANY($1::text[]) "
-    'AND "timestamp" >= $2 GROUP BY symbol'
+    'AND "timestamp" >= $2 AND kind <> ALL($4::text[]) GROUP BY symbol'
 )
 # The span-ownership tier (migration 446): which source authors a (symbol, timeframe) span.
 # The fetcher is a policy READER only - the sole writer stays scripts/ops/bars/
@@ -944,7 +947,13 @@ class PriorityQueue:
             answers_sql = _LATEST_DAILY_ANSWER_SQL
         async with pool.acquire() as conn:
             answers = await conn.fetch(answers_sql, self._provider, symbols, self.daily.last_close)
-            canonical = await conn.fetch(_LATEST_OWN_1D_SQL, symbols, since, self._provider)
+            canonical = await conn.fetch(
+                _LATEST_OWN_1D_SQL,
+                symbols,
+                since,
+                self._provider,
+                list(DAILY_NOT_COVERAGE_KINDS),
+            )
         return (
             {r["symbol"]: DailyAnswer(r["answered_at"], r["covered_window_end"]) for r in answers},
             {r["symbol"]: r["latest"].astimezone(UTC).date() for r in canonical},
