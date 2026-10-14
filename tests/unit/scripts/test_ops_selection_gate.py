@@ -379,10 +379,10 @@ def test_apply_spans_is_a_dry_run_without_apply(tmp_path, capsys):
 
 
 class _LocateCur:
-    """Answers the four reads of locate_groups in order: raw groups, archive, canonical, observation."""
+    """Answers the three reads of locate_groups in order: raw groups, intraday store keys, observation."""
 
-    def __init__(self, raw, archive, canonical, observation):
-        self.answers = [raw, archive, canonical, observation]
+    def __init__(self, raw, intraday, observation):
+        self.answers = [raw, intraday, observation]
         self.sql: list[str] = []
         self._next: list = []
 
@@ -395,23 +395,23 @@ class _LocateCur:
 
 
 def test_locate_groups_reports_only_groups_with_more_raw_rows_than_store_keys():
-    t1, t2, t3 = DAY1, DAY1 + timedelta(minutes=5), DAY1 + timedelta(minutes=10)
+    d1, d2, d3 = date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5)
     cur = _LocateCur(
         raw=[
             ("5m", "ibkr", "named", 3),
             ("5m", "alpaca", "sip_rth", 2),
             ("1d", "ibkr", "smart_trades", 2),
         ],
-        archive=[("5m", "ibkr_named", t1), ("5m", "alpaca", t1), ("5m", "alpaca", t2)],
-        canonical=[("5m", "ibkr_named", t1), ("5m", "ibkr_named", t2)],  # t3 has no store key
+        intraday=[("5m", "ibkr_named", 2), ("5m", "alpaca", 2), ("5m", "derived_5m", 9)],
         observation=[
-            ("ibkr", "SMART", "TRADES", t1),
-            ("ibkr", "SMART", "TRADES", t2),
-            ("ibkr", "NOT_A_ROUTE", "TRADES", t3),  # unmapped route is skipped, not fatal
+            ("ibkr", "SMART", "TRADES", d1),
+            ("ibkr", "LEGACY_IMPORT", "TRADES", d1),  # the same session under two routes is one key
+            ("ibkr", "SMART", "TRADES", d2),
+            ("ibkr", "NOT_A_ROUTE", "TRADES", d3),  # unmapped route is skipped, not fatal
         ],
     )
     assert gate.locate_groups(cur, "SPY") == [("5m", "ibkr", "named", 3, 2)]
-    assert "test-%%" in cur.sql[-1]
+    assert "test-%%" in cur.sql[-1] and "UNION" in cur.sql[1]
 
 
 def test_a_refusal_explained_day_takes_the_ranking_closest_to_canonical():

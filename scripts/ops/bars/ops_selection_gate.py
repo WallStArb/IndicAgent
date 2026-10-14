@@ -1149,7 +1149,9 @@ def run_idempotence(conn: psycopg.Connection, args: argparse.Namespace, batch_ro
 
 def locate_groups(cur: Any, symbol: str) -> list[tuple[str, str, str, int, int]]:
     """(timeframe, vendor, kind, raw rows, distinct store keys) for each group where raw has
-    more rows than the stores have keys; the stores are those plan 04's balance check reads."""
+    more rows than the stores have keys; the stores are those plan 04's balance check reads
+    (archive and canonical vendor rows for the intraday timeframes, observation for 1d). The
+    counting runs in the database; only group counts come back."""
     labels = {
         label: pair
         for label, pair in vendor_labels().items()
@@ -1160,38 +1162,38 @@ def locate_groups(cur: Any, symbol: str) -> list[tuple[str, str, str, int, int]]
         (symbol,),
     )
     raw = {(tf, v, k): n for tf, v, k, n in cur.fetchall()}
-    keys: dict[tuple[str, str, str], set[datetime]] = defaultdict(set)
+    keys: Counter = Counter()
     cur.execute(
-        'SELECT timeframe, source, "timestamp" FROM ohlcv_intraday_raw_archive WHERE symbol = %s',
-        (symbol,),
+        "SELECT timeframe, source, count(*) FROM ("
+        '  SELECT timeframe, source, "timestamp" FROM ohlcv_intraday_raw_archive WHERE symbol = %s '
+        "  UNION "
+        '  SELECT timeframe, source, "timestamp" FROM market_data_ohlcv '
+        "   WHERE symbol = %s AND timeframe <> '1d' AND source = ANY(%s)"
+        ") u GROUP BY 1, 2",
+        (symbol, symbol, list(labels)),
     )
-    for tf, source, ts in cur.fetchall():
+    for tf, source, n in cur.fetchall():
         if source in labels:
-            keys[(tf, *labels[source])].add(ts)
+            keys[(tf, *labels[source])] += n
     cur.execute(
-        'SELECT timeframe, source, "timestamp" FROM market_data_ohlcv '
-        "WHERE symbol = %s AND timeframe <> '1d' AND source = ANY(%s)",
-        (symbol, list(labels)),
-    )
-    for tf, source, ts in cur.fetchall():
-        keys[(tf, *labels[source])].add(ts)
-    cur.execute(
-        "SELECT DISTINCT o.source, o.route, o.what_to_show, "
-        "(o.bar_date::timestamp AT TIME ZONE 'UTC') FROM ohlcv_observation o "
+        "SELECT o.source, o.route, o.what_to_show, o.bar_date FROM ohlcv_observation o "
         "JOIN ohlcv_request r USING (request_id) "
-        "WHERE o.symbol = %s AND r.caller NOT LIKE 'test-%%'",
+        "WHERE o.symbol = %s AND r.caller NOT LIKE 'test-%%' GROUP BY 1, 2, 3, 4",
         (symbol,),
     )
-    for source, route, wts, ts in cur.fetchall():
+    by_kind: dict[tuple[str, str], set[date]] = defaultdict(set)
+    for source, route, wts, day in cur.fetchall():
         try:
             kind = observation_kind(source, route, wts)
         except ValueError:
             continue
-        keys[("1d", source, kind)].add(ts)
+        by_kind[(source, kind)].add(day)
+    for (vendor, kind), days in by_kind.items():
+        keys[("1d", vendor, kind)] += len(days)
     return [
-        (tf, v, k, n, len(keys.get((tf, v, k), ())))
+        (tf, v, k, n, keys.get((tf, v, k), 0))
         for (tf, v, k), n in sorted(raw.items())
-        if n > len(keys.get((tf, v, k), ()))
+        if n > keys.get((tf, v, k), 0)
     ]
 
 
