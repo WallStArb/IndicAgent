@@ -421,3 +421,13 @@ def test_a_refusal_explained_day_takes_the_ranking_closest_to_canonical():
     (span,) = _plan(canonical, raw, evidence).spans
     # (ibkr, alpaca) would carry three explained differences; (alpaca, ibkr) carries none
     assert (span.primary_source, span.fallback_source) == ("alpaca", "ibkr")
+
+
+def test_rows_only_raw_holds_never_narrow_a_span_to_one_vendor():
+    # canonical stops with Alpaca on day 1; IBKR's refused rows for day 2 sit only in raw
+    canonical = _canonical(_day(DAY1, ALPACA))
+    raw = _raw(_day(DAY1, ALPACA), _day(DAY2, IBKR))
+    evidence = gate.Evidence(refused_windows={"ibkr": [(date(2026, 10, 13), date(2026, 10, 13))]})
+    (span,) = _plan(canonical, raw, evidence).spans
+    assert (span.primary_source, span.fallback_source) == ("ibkr", "alpaca")
+    assert span.valid_to is None

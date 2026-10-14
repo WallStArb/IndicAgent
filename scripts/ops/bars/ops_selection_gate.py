@@ -431,8 +431,10 @@ def derive_spans(
 
     Every ranking option is tried as a constant policy over all history. A session date takes the
     options that reproduce canonical exactly there; when none does, the options with no REAL
-    (unexplained) difference and the fewest explained ones, so a refusal-explained slot keeps
-    canonical's vendor wherever a ranking can. A run keeps its
+    (unexplained) difference and the fewest explained changes of a canonical row, so a
+    refusal-explained slot keeps canonical's vendor wherever a ranking can. A row only raw holds
+    (explained, no canonical row yet) is a catch-up and never narrows the ranking: a series must
+    not be left on one vendor because the other vendor's refused rows exist. A run keeps its
     ranking while it stays feasible and, when it must change, takes the option feasible longest
     (ties by preference order). A date no option reproduces is a blocker date. Runs equal to the
     default ranking need no row; the last non-default run is open-ended, the rule going forward.
@@ -458,12 +460,13 @@ def derive_spans(
         selected, _ = selected_rows(candidates, policy, kind_order)
         real[option] = set()
         explained[option] = Counter()
-        for ts, (_, cls) in diff_rows(canonical, selected, evidence):
-            (
+        for ts, (kind, cls) in diff_rows(canonical, selected, evidence):
+            if cls == REAL:
                 real[option].add(session_date(ts))
-                if cls == REAL
-                else explained[option].update([session_date(ts)])
-            )
+            elif kind != ONLY_SELECTED:
+                # a recorded refusal explains it, but it changes a canonical row; an explained
+                # row only raw holds is a catch-up, not a change, and costs nothing here
+                explained[option].update([session_date(ts)])
     # Feasible options of a date: those reproducing canonical exactly; when none does, those with
     # no unexplained difference and the fewest explained ones (the closest to canonical).
     feasible_at: list[set[Ranking]] = []
