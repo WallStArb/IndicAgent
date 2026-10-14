@@ -47,6 +47,12 @@ _ALLOW_LIST: dict[str, str] = {
         "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "
         "table because the backfill copies every vendor-labelled row, volume 0 included."
     ),
+    "scripts/ops/bars/ops_selection_gate.py": (
+        "PERMANENT: standing proof that canonical is a pure function of raw plus policy (191-07). "
+        "It compares every canonical vendor row, zero-volume provider bars included, with the "
+        "selection of ohlcv_raw; the tradeable view's volume > 0 filter would hide the very rows "
+        "the proof must equal."
+    ),
     "scripts/ops/bars/ops_source_policy.py": (
         "PERMANENT (plan 185-38): the admission sweep asks whether a name's canonical 1d series "
         "is Tradier today (any stored tradier 1d row, zero-volume provider bars included); the "

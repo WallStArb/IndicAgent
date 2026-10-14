@@ -52,6 +52,7 @@ class LoadResult:
     n_held: int = 0
     refused: bool = False
     n_refused_series: int = 0
+    n_unselected: int = 0
 
     @property
     def n_landed(self) -> int:
@@ -69,15 +70,22 @@ class LoadResult:
             self.n_held + ingress.n_held,
             self.refused or ingress.refused,
             self.n_refused_series + len(ingress.refused_series),
+            self.n_unselected + ingress.n_unselected,
         )
 
 
-def load_status(*, apply: bool, held: int) -> str:
+def load_status(*, apply: bool, held: int, unselected: int = 0) -> str:
     """The run's status word: APPLIED only when nothing was held as a refused series' pending
-    revisions; a held row means a vendor restated its own history and needs a decision."""
+    revisions and no landed slot lacks a canonical winner. A held row means a vendor restated
+    its own history and needs a decision; an unselected slot means the policy ranks no vendor
+    that holds it (the rows are in raw, canonical has nothing there)."""
     if not apply:
         return "PLANNED"
-    return "APPLIED" if held == 0 else "HELD (applied, refused series held, see ohlcv_load)"
+    if held:
+        return "HELD (applied, refused series held, see ohlcv_load)"
+    if unselected:
+        return "UNSELECTED (landed in raw, no canonical winner, see bar_source_policy)"
+    return "APPLIED"
 
 
 def frame_to_raw_rows(

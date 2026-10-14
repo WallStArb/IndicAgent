@@ -11,6 +11,19 @@ candidates cannot change the result. A missing policy row raises (a slot without
 loud, as the daily rule does). A slot no ranked vendor holds yields nothing (missing is NaN, no
 fill). Rows of vendor `derived` and kind `smart_adjusted` are never selected.
 
+Two rules added at the selection gate (plan 191-07, review of plans 04 and 05):
+- Session. A kind that is defined as regular-hours (`sip_rth`, D-191-A) is a candidate only on
+  the regular trading hours grid (open inclusive, close exclusive, 5 minute step from the NYSE
+  open, early closes included). Raw keeps every bar a vendor served, Alpaca's extended-hours bars
+  among them (kind `sip_rth` also holds pre- and post-market stamps); such a stamp is never a
+  candidate, so extended-hours bars cannot enter canonical 5m or the 15m/1h derivation that reads
+  it. The rule is by kind, not by vendor-blind calendar: IBKR answers an RTH request with its own
+  session (bars to 16:00 ET on early-close days, a 14:30 UTC open on 2006-12-27 where the calendar
+  says 14:32) and canonical holds exactly those, so a calendar filter on every vendor would drop
+  real canonical rows.
+- Dates. A policy span is matched by the NYSE session date (America/New_York calendar date of the
+  stamp), not the UTC date: a post-close stamp after 00:00 UTC belongs to the session it closes.
+
 Pure Ring 1: no database access, no services imports.
 """
 
@@ -19,11 +32,20 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from functools import lru_cache
+from zoneinfo import ZoneInfo
 
+from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.vendor_kind import VENDOR_DERIVED
 
 NEVER_SELECTED_KINDS = frozenset({"smart_adjusted"})
+
+# Timeframes with a regular-hours session grid, with the step in minutes, and the raw kinds
+# defined as regular-hours only (the others are the vendor's own answer to an RTH request).
+RTH_GRID_STEP_MINUTES: dict[str, int] = {"5m": 5}
+SESSION_BOUND_KINDS = frozenset({"sip_rth"})
+SESSION_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass(frozen=True)
@@ -55,6 +77,53 @@ class Candidate:
     low: float
     close: float
     volume: int | None
+
+
+@lru_cache(maxsize=16)
+def rth_grid_stamps(timeframe: str, first_year: int, last_year: int) -> frozenset[datetime]:
+    """Every regular-hours stamp of `timeframe` for the NYSE sessions of [first_year, last_year].
+
+    Open inclusive, close exclusive: a 16:00 ET close gives 09:30..15:55 (78 five minute stamps),
+    a 13:00 ET early close gives 09:30..12:55. Bounds come from the calendar, never a count.
+    """
+    step = timedelta(minutes=RTH_GRID_STEP_MINUTES[timeframe])
+    stamps: set[datetime] = set()
+    for open_ts, close_ts in nyse_sessions(
+        date(first_year, 1, 1), date(last_year, 12, 31)
+    ).values():
+        stamp = open_ts
+        while stamp < close_ts:
+            stamps.add(stamp.astimezone(UTC))
+            stamp += step
+    return frozenset(stamps)
+
+
+def partition_session(
+    candidates: Iterable[Candidate],
+) -> tuple[list[Candidate], list[Candidate]]:
+    """(on-grid, off-grid) candidates. Only session-bound kinds (`sip_rth`) at a timeframe with a
+    session grid are tested; every other candidate is on-grid."""
+    held = list(candidates)
+    years: dict[str, list[int]] = {}
+    for c in held:
+        if c.timeframe in RTH_GRID_STEP_MINUTES and c.kind in SESSION_BOUND_KINDS:
+            y = c.timestamp.astimezone(UTC).year
+            span = years.setdefault(c.timeframe, [y, y])
+            span[0], span[1] = min(span[0], y), max(span[1], y)
+    # One calendar year of slack each side: a stamp near a year boundary may belong to the
+    # neighbouring year's session in New York time.
+    grids = {tf: rth_grid_stamps(tf, lo - 1, hi + 1) for tf, (lo, hi) in years.items()}
+    on_grid: list[Candidate] = []
+    off_grid: list[Candidate] = []
+    for c in held:
+        grid = grids.get(c.timeframe) if c.kind in SESSION_BOUND_KINDS else None
+        (off_grid if grid is not None and c.timestamp not in grid else on_grid).append(c)
+    return on_grid, off_grid
+
+
+def session_date(timestamp: datetime) -> date:
+    """The NYSE session date of a stamp: its America/New_York calendar date."""
+    return timestamp.astimezone(SESSION_TZ).date()
 
 
 def rank_vendors(
@@ -93,19 +162,45 @@ def select_slot(
     return None
 
 
+@dataclass(frozen=True)
+class SelectionOutcome:
+    """The result of selecting a candidate set: winners plus the counts a loader must report."""
+
+    winners: list[Candidate]
+    n_slots: int  # on-grid slots with at least one candidate
+    n_unselected: int  # of those, slots no ranked vendor holds (nothing is written for them)
+    n_off_grid: int  # candidates dropped by the session rule
+
+
+def select_slots(
+    candidates: Iterable[Candidate],
+    policy_rows: Sequence[PolicyRow],
+    kind_order: Mapping[str, int],
+) -> SelectionOutcome:
+    """Select the winner of every on-grid slot present in `candidates`, with the counts."""
+    on_grid, off_grid = partition_session(candidates)
+    slots: dict[tuple[str, str, datetime], list[Candidate]] = defaultdict(list)
+    for c in on_grid:
+        slots[(c.symbol, c.timeframe, c.timestamp)].append(c)
+    rankings: dict[tuple[str, str, date], list[str]] = {}
+    winners: list[Candidate] = []
+    for (symbol, timeframe, timestamp), held in sorted(slots.items()):
+        day = session_date(timestamp)
+        ranking = rankings.get((symbol, timeframe, day))
+        if ranking is None:
+            ranking = rankings[(symbol, timeframe, day)] = rank_vendors(
+                policy_rows, symbol, timeframe, day
+            )
+        winner = select_slot(held, ranking, kind_order)
+        if winner is not None:
+            winners.append(winner)
+    return SelectionOutcome(winners, len(slots), len(slots) - len(winners), len(off_grid))
+
+
 def select_all(
     candidates: Iterable[Candidate],
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
 ) -> list[Candidate]:
-    """The winner of every slot present in `candidates`, sorted by (symbol, timeframe, timestamp)."""
-    slots: dict[tuple[str, str, datetime], list[Candidate]] = defaultdict(list)
-    for c in candidates:
-        slots[(c.symbol, c.timeframe, c.timestamp)].append(c)
-    winners: list[Candidate] = []
-    for (symbol, timeframe, timestamp), held in sorted(slots.items()):
-        ranking = rank_vendors(policy_rows, symbol, timeframe, timestamp.astimezone(UTC).date())
-        winner = select_slot(held, ranking, kind_order)
-        if winner is not None:
-            winners.append(winner)
-    return winners
+    """The winner of every on-grid slot present in `candidates`, sorted by (symbol, timeframe, timestamp)."""
+    return select_slots(candidates, policy_rows, kind_order).winners

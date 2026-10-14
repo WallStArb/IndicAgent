@@ -11,9 +11,13 @@ from services.bar_selection import SelectionResult, canonical_columns, select_an
 from src.intelligence.bars.selection import (
     Candidate,
     PolicyRow,
+    partition_session,
     rank_vendors,
+    rth_grid_stamps,
     select_all,
     select_slot,
+    select_slots,
+    session_date,
 )
 
 KIND_ORDER = {
@@ -171,7 +175,7 @@ def test_writer_inserts_new_winner_with_label():
     conn = FakeConn([_cand("ibkr", "named"), _cand("alpaca", "sip_rth", close=99.0)])
     assert _run(conn) == SelectionResult(1, 0, 0, 0)
     ((sql, params),) = _inserts(conn)
-    assert "ON CONFLICT" not in sql
+    assert "DO UPDATE" in sql  # new slots carry the upsert tail too (plan 191-07 review)
     assert params[-1] == "ibkr_named" and params[6] == 10.0
 
 
@@ -206,3 +210,88 @@ def test_canonical_columns_maps_label_and_raises_without_one():
     assert canonical_columns("alpaca", "sip_rth") == "alpaca"
     with pytest.raises(KeyError):
         canonical_columns("ibkr", "smart_trades")
+
+
+# --- plan 191-07 review amendments: session rule, session-date spans, lock, unselected counts ----
+
+
+def _at(ts, vendor="alpaca", kind="sip_rth", symbol="SPY", tf="5m", volume=100):
+    return Candidate(ts, symbol, tf, vendor, kind, 9.0, 11.0, 8.5, 10.0, volume)
+
+
+def test_rth_grid_is_open_inclusive_close_exclusive_with_early_closes():
+    stamps = rth_grid_stamps("5m", 2025, 2026)
+    day = datetime(2026, 10, 12, tzinfo=UTC)
+    assert datetime(2026, 10, 12, 13, 30, tzinfo=UTC) in stamps  # 09:30 EDT open
+    assert datetime(2026, 10, 12, 19, 55, tzinfo=UTC) in stamps  # 15:55 EDT, last bar
+    assert datetime(2026, 10, 12, 20, 0, tzinfo=UTC) not in stamps  # the close itself
+    assert datetime(2026, 10, 12, 13, 25, tzinfo=UTC) not in stamps  # pre-market
+    # 2025-11-28 closes 13:00 EST: last bar 12:55 EST = 17:55 UTC
+    assert datetime(2025, 11, 28, 17, 55, tzinfo=UTC) in stamps
+    assert datetime(2025, 11, 28, 18, 0, tzinfo=UTC) not in stamps
+    assert day.date() == date(2026, 10, 12)
+
+
+def test_extended_hours_candidates_never_enter_selection():
+    pre = datetime(2026, 10, 12, 8, 30, tzinfo=UTC)  # 04:30 EDT
+    post = datetime(2026, 10, 12, 20, 5, tzinfo=UTC)  # 16:05 EDT
+    in_session = _at(T0)
+    kept, dropped = partition_session([_at(pre), in_session, _at(post)])
+    assert kept == [in_session] and len(dropped) == 2
+    outcome = select_slots([_at(pre), in_session, _at(post)], [DEFAULT], KIND_ORDER)
+    assert [c.timestamp for c in outcome.winners] == [T0]
+    assert outcome.n_off_grid == 2
+
+
+def test_ibkr_own_session_is_not_filtered_by_the_calendar():
+    # IBKR serves bars to 16:00 ET on an early-close day; canonical holds them (CMCSA 2007-12-24).
+    after_early_close = datetime(2007, 12, 24, 18, 5, tzinfo=UTC)
+    stamp = _at(after_early_close, vendor="ibkr", kind="named")
+    old = PolicyRow("5m", None, date(2000, 1, 1), None, "ibkr", "alpaca")
+    assert select_all([stamp], [old], KIND_ORDER) == [stamp]
+    assert select_all([_at(after_early_close)], [old], KIND_ORDER) == []  # sip_rth is bound
+
+
+def test_no_session_grid_for_other_timeframes():
+    one_minute = _at(
+        datetime(2026, 10, 12, 8, 30, tzinfo=UTC), vendor="ibkr", kind="named", tf="1m"
+    )
+    policy = PolicyRow("1m", None, date(2020, 1, 1), None, "ibkr", None)
+    assert select_all([one_minute], [policy], KIND_ORDER) == [one_minute]
+
+
+def test_policy_span_matches_the_session_date_not_the_utc_date():
+    # 19:30 EST on 2026-11-02 is 00:30 UTC on 2026-11-03: the 11-02 session.
+    stamp = datetime(2026, 11, 3, 0, 30, tzinfo=UTC)
+    assert session_date(stamp) == date(2026, 11, 2)
+    span = PolicyRow("5m", "SPY", date(2026, 10, 1), date(2026, 11, 3), "alpaca", "ibkr")
+    ranking = rank_vendors([DEFAULT, span], "SPY", "5m", session_date(stamp))
+    assert ranking == ["alpaca", "ibkr"]
+    # an in-session stamp keeps its UTC date as the session date (EDT, same date)
+    assert session_date(T0) == date(2026, 10, 12)
+
+
+def test_unselected_counts_a_slot_no_ranked_vendor_holds():
+    ibkr_only = PolicyRow("5m", None, date(2020, 1, 1), None, "ibkr", None)
+    outcome = select_slots(
+        [_cand("alpaca", "sip_rth", i=0), _cand("ibkr", "named", i=1)], [ibkr_only], KIND_ORDER
+    )
+    assert (outcome.n_slots, outcome.n_unselected, len(outcome.winners)) == (2, 1, 1)
+
+
+def test_writer_locks_each_symbol_series_in_sorted_order_before_reading():
+    conn = FakeConn([_cand("ibkr", "named")])
+    _run(conn, symbols=["SPY", "AAPL"])
+    sql_seq = [s for s, _ in conn.cur.executed]
+    assert sql_seq[0].startswith("SELECT pg_advisory_xact_lock")
+    keys = [p[0] for s, p in conn.cur.executed if "pg_advisory_xact_lock" in s]
+    assert keys == ["bar_selection|AAPL|5m", "bar_selection|SPY|5m"]
+    assert "FROM ohlcv_raw" in sql_seq[1]
+
+
+def test_writer_counts_unselected_and_off_grid():
+    ibkr_only = PolicyRow("5m", None, date(2020, 1, 1), None, "ibkr", None)
+    pre = _at(datetime(2026, 10, 12, 8, 30, tzinfo=UTC))
+    conn = FakeConn([_cand("alpaca", "sip_rth"), pre])
+    result = _run(conn, policy_rows=[ibkr_only])
+    assert (result.unselected, result.off_grid, result.new) == (1, 1, 0)

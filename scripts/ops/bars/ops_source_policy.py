@@ -26,9 +26,14 @@ The exception row has no fallback: under primary ibkr d2-v2 admits no other vend
 fallback pair is Tradier primary, IBKR fallback), and a Tradier fill would put the series the
 evidence rejected back into the name's holes.
 
---add: one symbol row by hand (185-37), --evidence JSON required.
---close: close a name's open 1d symbol row at --valid-to (the only UPDATE the table's trigger
-allows); --reason required and printed, since the closed row's own fields are immutable.
+--add: one symbol row by hand (185-37), --evidence JSON required. `--timeframe` (default 1d)
+selects the series; a dated span may be added to a name that has other rows of the series as long
+as it overlaps none (the table's EXCLUDE constraint is the backstop). `--primary` and
+`--fallback` are checked at run time against the CVR `bar_vendor` codes (an unknown vendor is
+refused with the valid list); no vendor list lives in this file. The 5m Alpaca spans of the
+selection gate (plan 191-07, D-191-C) are written through `insert_row` only.
+--close: close a name's open symbol row of --timeframe at --valid-to (the only UPDATE the table's
+trigger allows); --reason required and printed, since the closed row's own fields are immutable.
 
 Rollback of an exception row: --close it and rerun the daily dry run.
 """
@@ -105,10 +110,20 @@ SELECT min(bar_date) FROM ohlcv_observation
 WHERE symbol = $1 AND timeframe = '1d' AND what_to_show = 'TRADES'
   AND route = ANY($2::text[])
 """
-_OPEN_SYMBOL_ROW_SQL = """
+_OVERLAPPING_ROW_SQL = """
 SELECT policy_id FROM bar_source_policy
-WHERE timeframe = '1d' AND symbol = $1 AND valid_to IS NULL
+WHERE timeframe = $1 AND symbol = $2
+  AND daterange(valid_from, valid_to, '[)') && daterange($3::date, $4::date, '[)')
+LIMIT 1
 """
+_VENDOR_CODES_SQL = """
+SELECT code FROM controlled_vocabulary
+WHERE namespace = 'bar_vendor' AND NOT is_deprecated ORDER BY sort_order, code
+"""
+# ingress mode per timeframe, as the migration 446 seeds state it
+INGRESS_MODE = {"1d": "observed", "15m": "derived", "1h": "derived"}
+DEFAULT_INGRESS_MODE = "direct"
+TIMEFRAMES = ("1d", "5m", "1m", "15m", "1h", "4h")
 _DECIDED_SYMBOLS_SQL = """
 SELECT DISTINCT symbol FROM bar_source_policy WHERE timeframe = '1d' AND symbol IS NOT NULL
 """
@@ -116,11 +131,11 @@ _INSERT_POLICY_SQL = """
 INSERT INTO bar_source_policy
     (timeframe, symbol, valid_from, valid_to, ingress_mode, primary_source, fallback_source,
      reason, evidence)
-VALUES ('1d', $1, $2, $3, 'observed', $4, $5, $6, $7::jsonb)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
 """
 _CLOSE_POLICY_SQL = """
-UPDATE bar_source_policy SET valid_to = $2
-WHERE timeframe = '1d' AND symbol = $1 AND valid_to IS NULL
+UPDATE bar_source_policy SET valid_to = $3
+WHERE timeframe = $1 AND symbol = $2 AND valid_to IS NULL
 """
 
 
@@ -247,15 +262,24 @@ def rows_to_write(rows: Sequence[SweepRow], *, decided: frozenset[str]) -> list[
 
 
 async def insert_row(conn: Any, row: dict[str, Any]) -> bool:
-    """Insert one symbol row in its own transaction; False (nothing written) if one is open."""
+    """Insert one symbol row in its own transaction; False (nothing written) if it would overlap
+    a row of the same (timeframe, symbol) series. `timeframe` defaults to 1d."""
+    timeframe = row.get("timeframe", "1d")
     async with conn.transaction():
-        if await conn.fetchval(_OPEN_SYMBOL_ROW_SQL, row["symbol"]) is not None:
+        if (
+            await conn.fetchval(
+                _OVERLAPPING_ROW_SQL, timeframe, row["symbol"], row["valid_from"], row["valid_to"]
+            )
+            is not None
+        ):
             return False
         await conn.execute(
             _INSERT_POLICY_SQL,
+            timeframe,
             row["symbol"],
             row["valid_from"],
             row["valid_to"],
+            INGRESS_MODE.get(timeframe, DEFAULT_INGRESS_MODE),
             row["primary_source"],
             row["fallback_source"],
             row["reason"],
@@ -264,9 +288,23 @@ async def insert_row(conn: Any, row: dict[str, Any]) -> bool:
     return True
 
 
-async def close_row(conn: Any, symbol: str, valid_to: date) -> int:
-    status = await conn.execute(_CLOSE_POLICY_SQL, symbol, valid_to)
+async def close_row(conn: Any, symbol: str, valid_to: date, timeframe: str = "1d") -> int:
+    status = await conn.execute(_CLOSE_POLICY_SQL, timeframe, symbol, valid_to)
     return int(str(status).rsplit(None, 1)[-1])
+
+
+async def read_vendor_codes(conn: Any) -> list[str]:
+    """The valid vendor codes: the CVR `bar_vendor` namespace, not deprecated."""
+    return [r["code"] for r in await conn.fetch(_VENDOR_CODES_SQL)]
+
+
+def check_vendors(codes: Sequence[str], *vendors: str | None) -> None:
+    """SystemExit naming the valid list when a given vendor is not a CVR bar_vendor code."""
+    for vendor in vendors:
+        if vendor is not None and vendor not in codes:
+            raise SystemExit(
+                f"unknown vendor {vendor!r}; valid bar_vendor codes: {', '.join(codes)}"
+            )
 
 
 async def _load(
@@ -398,7 +436,9 @@ async def _main(args: argparse.Namespace) -> int:
             )
             return await run_sweep(conn, symbols=symbols, apply=args.apply, report=args.report)
         if args.add:
+            check_vendors(await read_vendor_codes(conn), args.primary, args.fallback)
             row = {
+                "timeframe": args.timeframe,
                 "symbol": args.symbol,
                 "valid_from": _parse_date(args.valid_from),
                 "valid_to": _parse_date(args.valid_to) if args.valid_to else None,
@@ -411,16 +451,16 @@ async def _main(args: argparse.Namespace) -> int:
                 print(f"dry run: would insert {row}")
                 return 0
             if not await insert_row(conn, row):
-                print(f"refused: {args.symbol} has an open 1d symbol row")
+                print(f"refused: {args.symbol} {args.timeframe} has an overlapping policy row")
                 return 2
             print(f"inserted {args.symbol}")
             return 0
         if args.close:
-            print(f"close {args.symbol} at {args.valid_to}: {args.reason}")
+            print(f"close {args.symbol} {args.timeframe} at {args.valid_to}: {args.reason}")
             if not args.apply:
                 print("dry run: nothing closed (use --apply)")
                 return 0
-            n = await close_row(conn, args.symbol, _parse_date(args.valid_to))
+            n = await close_row(conn, args.symbol, _parse_date(args.valid_to), args.timeframe)
             print(f"closed {n} row(s)")
             return 0 if n == 1 else 2
         raise SystemExit("choose --admission-sweep, --add or --close")
@@ -440,8 +480,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--symbol")
     parser.add_argument("--valid-from")
     parser.add_argument("--valid-to")
-    parser.add_argument("--primary", choices=["tradier", "ibkr"])
-    parser.add_argument("--fallback", choices=["tradier", "ibkr"], default=None)
+    parser.add_argument("--timeframe", choices=TIMEFRAMES, default="1d")
+    parser.add_argument("--primary", help="a CVR bar_vendor code (checked at run time)")
+    parser.add_argument("--fallback", default=None, help="a CVR bar_vendor code or omitted")
     parser.add_argument("--reason")
     parser.add_argument("--evidence", help="JSON object")
     args = parser.parse_args(argv)

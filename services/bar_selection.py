@@ -15,6 +15,14 @@ logged to ohlcv_revision: ohlcv_raw holds both vendors' values, and canonical is
 from raw. A selected row with NULL volume is skipped and counted, not filled: market_data_ohlcv
 volume is NOT NULL and missing is never a placeholder.
 
+Review fixes (plan 191-07). Each (symbol, timeframe) is selected under a transaction-scoped advisory
+lock taken in sorted symbol order, so two writers of different vendors on one series cannot
+interleave their read-select-write steps; every insert, new slots included, carries the upsert
+tail, so a row that appeared anyway is overwritten by the deterministic choice rather than
+colliding on the canonical unique key. A slot with raw candidates but no ranked vendor is counted
+(`unselected`), not hidden: the loader reports it and fails on it. Extended-hours candidates are
+dropped before ranking (src/intelligence/bars/selection.py, session rule) and counted `off_grid`.
+
 Until plan 13 renames the column, the canonical row carries the `source` label of its
 (vendor, kind). `canonical_columns` and `_INSERT_HEAD` are the only two places that change then.
 """
@@ -26,7 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from src.intelligence.bars.selection import Candidate, PolicyRow, select_all
+from src.intelligence.bars.selection import Candidate, PolicyRow, select_slots
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 from src.intelligence.bars.vendor_kind import vendor_kind_to_label
 
@@ -41,6 +49,7 @@ _UPSERT_TAIL = (
     "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
     "volume = EXCLUDED.volume, source = EXCLUDED.source"
 )
+_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
 _ROW = "(%s,%s,%s,%s,%s,%s,%s,%s,%s)"
 _PARAMS_PER_ROW = _ROW.count("%s")
 _MAX_PARAMS = 65535  # psycopg's bind-parameter limit per statement
@@ -62,6 +71,8 @@ class SelectionResult:
     changed: int
     unchanged: int
     skipped_null_volume: int
+    unselected: int = 0
+    off_grid: int = 0
 
 
 def canonical_columns(vendor: str, kind: str) -> str:
@@ -83,12 +94,12 @@ def _canonical_row(c: Candidate) -> tuple:
     )
 
 
-def _write(cur: Any, rows: list[tuple], *, batch_rows: int, tail: str = "") -> None:
+def _write(cur: Any, rows: list[tuple], *, batch_rows: int) -> None:
     size = min(batch_rows, _MAX_PARAMS // _PARAMS_PER_ROW)
     for start in range(0, len(rows), size):
         chunk = rows[start : start + size]
         cur.execute(
-            _INSERT_HEAD + ",".join([_ROW] * len(chunk)) + tail,
+            _INSERT_HEAD + ",".join([_ROW] * len(chunk)) + _UPSERT_TAIL,
             [value for row in chunk for value in row],
         )
 
@@ -116,12 +127,16 @@ def select_and_write(
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
-    n_new = n_changed = n_unchanged = n_skipped = 0
+    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = 0
     with conn.cursor() as cur:
-        for symbol in sorted(symbols):
+        for symbol in sorted(set(symbols)):
+            cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
             cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
             candidates = [Candidate(*row) for row in cur.fetchall()]
-            winners = select_all(candidates, policy_rows, kind_order)
+            outcome = select_slots(candidates, policy_rows, kind_order)
+            n_unselected += outcome.n_unselected
+            n_off_grid += outcome.n_off_grid
+            winners = outcome.winners
             if not winners:
                 continue
             cur.execute(_READ_CANONICAL_SQL, (symbol, timeframe, start, end))
@@ -141,7 +156,7 @@ def select_and_write(
                 else:
                     changed_rows.append(row)
             _write(cur, new_rows, batch_rows=batch_rows)
-            _write(cur, changed_rows, batch_rows=batch_rows, tail=_UPSERT_TAIL)
+            _write(cur, changed_rows, batch_rows=batch_rows)
             n_new += len(new_rows)
             n_changed += len(changed_rows)
-    return SelectionResult(n_new, n_changed, n_unchanged, n_skipped)
+    return SelectionResult(n_new, n_changed, n_unchanged, n_skipped, n_unselected, n_off_grid)

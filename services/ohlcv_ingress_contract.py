@@ -200,6 +200,9 @@ class IngressResult:
     refused_series: tuple[RefusedSeries, ...] = ()
     n_held: int = 0
     new_timestamps: tuple[datetime, ...] = ()
+    # Slots that reached raw but that no ranked vendor holds (the policy gap a loader must not
+    # hide: the offered rows are in raw, canonical has no row for them).
+    n_unselected: int = 0
 
 
 def read_raw_params(cur: Any) -> RawContractParams:
@@ -397,7 +400,7 @@ def apply_raw_contract(
         n_unchanged += delta.unchanged
         new_timestamps.extend(delta.new_timestamps)
 
-    selected = 0
+    selected = unselected = 0
     for (symbol, timeframe), stamps in sorted(spans.items()):
         if (symbol, timeframe) in refused_slots or timeframe not in DIRECT_TIMEFRAMES:
             continue
@@ -412,6 +415,7 @@ def apply_raw_contract(
             batch_rows=params.write.batch_rows,
         )
         selected += result.new + result.changed
+        unselected += result.unselected
     return IngressResult(
         n_offered=len(rows),
         n_new=n_new,
@@ -422,4 +426,5 @@ def apply_raw_contract(
         refused_series=tuple(refused),
         n_held=n_held_total,
         new_timestamps=tuple(sorted(new_timestamps)),
+        n_unselected=unselected,
     )

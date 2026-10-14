@@ -50,7 +50,7 @@ def main() -> int:
     artifacts = ingress.read_artifacts(artifact_dir, symbols=args.symbols)
     symbols = args.symbols or sorted(artifacts)
 
-    total = new = unchanged = held = 0
+    total = new = unchanged = held = unselected = 0
 
     # autocommit: persist_chunk_atomically demands an IDLE connection so its
     # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
@@ -70,11 +70,12 @@ def main() -> int:
             new += result.n_new + result.n_changed
             unchanged += result.n_unchanged
             held += result.n_held
+            unselected += result.n_unselected
             if args.apply:
                 print(
                     f"{symbol}: offered {result.n_offered} ({result.n_new} new, "
                     f"{result.n_changed} changed, {result.n_unchanged} unchanged, "
-                    f"{result.n_held} held)",
+                    f"{result.n_held} held, {result.n_unselected} unselected)",
                     flush=True,
                 )
             else:
@@ -83,9 +84,12 @@ def main() -> int:
     finally:
         conn.close()
 
-    mode = load_status(apply=args.apply, held=held)
-    print(f"{mode}: {total} rows offered, {new} written, {unchanged} unchanged, {held} held")
-    return 1 if held else 0
+    mode = load_status(apply=args.apply, held=held, unselected=unselected)
+    print(
+        f"{mode}: {total} rows offered, {new} written, {unchanged} unchanged, {held} held, "
+        f"{unselected} unselected"
+    )
+    return 1 if held or unselected else 0
 
 
 if __name__ == "__main__":

@@ -121,8 +121,8 @@ class _FakeConn:
     def transaction(self):
         return self._Txn()
 
-    async def fetchval(self, sql, symbol):
-        assert "valid_to IS NULL" in sql
+    async def fetchval(self, sql, timeframe, symbol, valid_from, valid_to):
+        assert "&&" in sql and timeframe == "1d"
         return 1 if symbol in self.open_symbols else None
 
     async def execute(self, sql, *args):
@@ -138,8 +138,9 @@ def test_insert_refuses_a_row_overlapping_an_open_symbol_row():
     conn = _FakeConn(set())
     assert asyncio.run(policy.insert_row(conn, record)) is True
     (args,) = conn.inserted
-    assert args[0] == "X" and args[3] == "ibkr" and args[4] is None
-    assert json.loads(args[6])["n_common"] == 300
+    assert args[0] == "1d" and args[1] == "X" and args[4] == "observed"
+    assert args[5] == "ibkr" and args[6] is None
+    assert json.loads(args[8])["n_common"] == 300
 
 
 def test_add_requires_evidence():
@@ -196,6 +197,8 @@ def test_add_refuses_an_empty_evidence_object():
 class _CliConn:
     """Records every statement; the --close UPDATE reports `closed` rows (185-37 Task 1)."""
 
+    vendors = ("ibkr", "alpaca", "tradier", "derived")
+
     def __init__(self, closed: int = 1) -> None:
         self.statements: list[str] = []
         self.closed = closed
@@ -213,6 +216,10 @@ class _CliConn:
     async def fetchval(self, sql, *args):
         self.statements.append(sql)
         return None
+
+    async def fetch(self, sql, *args):
+        assert "controlled_vocabulary" in sql and "bar_vendor" in sql
+        return [{"code": c} for c in self.vendors]
 
     async def execute(self, sql, *args):
         self.statements.append(sql)
@@ -290,3 +297,81 @@ def test_close_targets_only_the_open_row_and_refuses_when_none_is_open(monkeypat
     assert _run_cli(monkeypatch, conn, [*_CLOSE, "--apply"]) == 0
     conn = _CliConn(closed=0)  # the name's row is already closed
     assert _run_cli(monkeypatch, conn, [*_CLOSE, "--apply"]) == 2
+
+
+_ALPACA_SPAN = [
+    "--add",
+    "--timeframe",
+    "5m",
+    "--symbol",
+    "AAPL",
+    "--valid-from",
+    "2016-01-01",
+    "--primary",
+    "alpaca",
+    "--reason",
+    "reproduces canonical",
+    "--evidence",
+    '{"n": 1}',
+]
+
+
+def test_vendor_choices_come_from_the_cvr_not_a_hardcoded_list(monkeypatch, capsys):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, _ALPACA_SPAN) == 0  # alpaca is a bar_vendor code
+    assert "dry run: would insert" in capsys.readouterr().out
+    assert conn.statements == []
+    conn = _CliConn()
+    conn.vendors = ("ibkr",)  # the same call against a vocabulary without alpaca is refused
+    with pytest.raises(SystemExit, match=r"unknown vendor 'alpaca'.*ibkr"):
+        _run_cli(monkeypatch, conn, _ALPACA_SPAN)
+
+
+def test_unknown_fallback_vendor_is_refused_with_the_valid_list(monkeypatch):
+    conn = _CliConn()
+    with pytest.raises(SystemExit, match="valid bar_vendor codes: ibkr, alpaca"):
+        _run_cli(monkeypatch, conn, [*_ALPACA_SPAN, "--fallback", "databento"])
+
+
+def test_five_minute_span_inserts_with_direct_ingress_mode(monkeypatch):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, [*_ALPACA_SPAN, "--apply"]) == 0
+    assert any("INSERT INTO bar_source_policy" in s for s in conn.statements)
+
+
+def test_ingress_mode_follows_the_timeframe():
+    rows = {
+        tf: policy.INGRESS_MODE.get(tf, policy.DEFAULT_INGRESS_MODE) for tf in policy.TIMEFRAMES
+    }
+    assert rows == {
+        "1d": "observed",
+        "5m": "direct",
+        "1m": "direct",
+        "15m": "derived",
+        "1h": "derived",
+        "4h": "direct",
+    }
+
+
+class _SpanConn(_FakeConn):
+    """Records the full bind arguments of a span insert; overlap only for symbols in `open_symbols`."""
+
+    async def fetchval(self, sql, timeframe, symbol, valid_from, valid_to):
+        return 1 if symbol in self.open_symbols else None
+
+
+def test_second_span_of_a_name_is_allowed_when_it_overlaps_nothing():
+    row = {
+        "timeframe": "5m",
+        "symbol": "AAPL",
+        "valid_from": date(2016, 1, 1),
+        "valid_to": date(2020, 1, 1),
+        "primary_source": "alpaca",
+        "fallback_source": "ibkr",
+        "reason": "r",
+        "evidence": {"n": 1},
+    }
+    conn = _SpanConn(set())
+    assert asyncio.run(policy.insert_row(conn, row)) is True
+    assert conn.inserted[0][0] == "5m" and conn.inserted[0][4] == "direct"
+    assert asyncio.run(policy.insert_row(_SpanConn({"AAPL"}), row)) is False

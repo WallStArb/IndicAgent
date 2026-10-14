@@ -115,21 +115,23 @@ def main() -> int:
 
 def summary_line(summary: dict, *, apply: bool) -> str:
     return (
-        f"{load_status(apply=apply, held=summary['held'])}: {summary['authored']} 5m rows "
-        f"offered to raw, {summary['raw_1d']} 1d rows offered to raw, {summary['errors']} "
-        f"errors, {summary['refused']} refused series, {summary['held']} held"
+        f"{load_status(apply=apply, held=summary['held'], unselected=summary['unselected'])}: "
+        f"{summary['authored']} 5m rows offered to raw, {summary['raw_1d']} 1d rows offered to "
+        f"raw, {summary['errors']} errors, {summary['refused']} refused series, "
+        f"{summary['held']} held, {summary['unselected']} unselected slots"
     )
 
 
 def exit_code(summary: dict) -> int:
-    """Non-zero for an error or any held row: a refused series is not a clean night."""
-    return 1 if summary["errors"] or summary["held"] else 0
+    """Non-zero for an error, a held row or an unselected slot: a refused series, or rows that
+    landed in raw with no canonical winner, are not a clean night."""
+    return 1 if summary["errors"] or summary["held"] or summary["unselected"] else 0
 
 
 async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write: bool) -> dict:
     budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(minutes=30), max_requests=500)
     await leaf.connect()
-    summary = {"authored": 0, "raw_1d": 0, "errors": 0, "refused": 0, "held": 0}
+    summary = {"authored": 0, "raw_1d": 0, "errors": 0, "refused": 0, "held": 0, "unselected": 0}
     try:
         for symbol in universe:
             try:
@@ -153,6 +155,7 @@ async def _run(leaf, conn, sink, policy_5m, params, universe, start, end, write:
                         summary["authored"] += result.n_offered
                         summary["refused"] += result.n_refused_series
                         summary["held"] += result.n_held
+                        summary["unselected"] += result.n_unselected
                     elif write and len(frame):
                         result = load_frame(
                             conn,

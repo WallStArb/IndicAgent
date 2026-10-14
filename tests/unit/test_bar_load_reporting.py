@@ -74,10 +74,23 @@ def test_nightly_summary_counts_refused_and_held_and_does_not_print_applied(monk
     line = ops_bar_nightly.summary_line(summary, apply=True)
     assert "APPLIED" not in line and "1 held" in line and "1 refused" in line
     assert ops_bar_nightly.exit_code(summary) == 1
-    clean = {"authored": 4, "raw_1d": 4, "errors": 0, "refused": 0, "held": 0}
+    clean = {"authored": 4, "raw_1d": 4, "errors": 0, "refused": 0, "held": 0, "unselected": 0}
     assert ops_bar_nightly.summary_line(clean, apply=True).startswith("APPLIED")
     assert ops_bar_nightly.exit_code(clean) == 0
 
 
 def test_ops_bar_load_uses_the_shared_status():
     assert ops_bar_load.load_status is load_status
+
+
+def test_unselected_slots_are_reported_and_fail_the_night():
+    ingress = IngressResult(4, 4, 0, 0, False, 1, n_unselected=3)
+    result = LoadResult().plus(ingress).plus(ingress)
+    assert result.n_unselected == 6
+    status = load_status(apply=True, held=0, unselected=6)
+    assert status != "APPLIED" and "UNSELECTED" in status
+    assert load_status(apply=True, held=2, unselected=6).startswith("HELD")
+    assert load_status(apply=False, held=0, unselected=6) == "PLANNED"
+    summary = {"authored": 4, "raw_1d": 0, "errors": 0, "refused": 0, "held": 0, "unselected": 6}
+    assert "6 unselected" in ops_bar_nightly.summary_line(summary, apply=True)
+    assert ops_bar_nightly.exit_code(summary) == 1
