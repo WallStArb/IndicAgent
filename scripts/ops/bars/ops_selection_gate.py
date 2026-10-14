@@ -93,7 +93,11 @@ sys.path.insert(0, str(project_root))
 
 import psycopg  # noqa: E402
 
-from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
+from services.bar_selection import (  # noqa: E402
+    DIRECT_TIMEFRAMES,
+    read_held_keys,
+    select_and_write,
+)
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.bars.selection import (  # noqa: E402
@@ -115,6 +119,8 @@ _PLAN = "191-07"
 SPAN_REASON = "reproduces canonical (selection gate, plan 191-07)"
 DEFAULT_TIMEFRAMES = ("1m", "5m", "4h")
 BAR_SECONDS = {"1m": 60, "5m": 300, "4h": 14400}  # bar lengths, not tunables
+_FAR_PAST = datetime(1990, 1, 1, tzinfo=UTC)
+_FAR_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
 _MATCH_KEY = "infra.selection_gate.request_load_match_s"
 _SAFE_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -127,6 +133,9 @@ VALUE = "value"
 SELF_RESTATEMENT = "refused_self_restatement"
 RESTATED_AFTER_COPY = "restated_after_copy"
 CROSS_VENDOR = "refused_cross_vendor"
+# canonical keeps the vendor's own value at a key whose current raw row holds a refused value
+# (services.bar_selection.read_held_keys); selection leaves the raw row out
+HELD_IN_RAW = "held_in_raw"
 REAL = "real"
 EXIT_CLEAN, EXIT_REAL, EXIT_BLOCKER, EXIT_RESIDUE = 0, 1, 2, 3
 # ohlcv_load callers that record values the ledgers already held (the raw backfill's
@@ -313,6 +322,7 @@ class Evidence:
     windows: dict[Any, tuple[datetime, datetime]] = field(default_factory=dict)
     slot_loads: dict[datetime, set[Any]] = field(default_factory=dict)
     bar: timedelta = timedelta(minutes=5)
+    held_keys: set[Key] = field(default_factory=set)
     _later: tuple[tuple[int, int, int, int], LaterServes] | None = field(
         default=None, repr=False, compare=False
     )
@@ -391,6 +401,8 @@ def classify(
         if evidence.latest_of(key, (canonical[1], selected[1])) == selected[1]:
             return kind, RESTATED_AFTER_COPY
         return kind, REAL
+    if canonical is not None and (ts, *canonical[0]) in evidence.held_keys:
+        return kind, HELD_IN_RAW
     if kind in (ONLY_SELECTED, VENDOR_KIND) and selected is not None:
         skey = (ts, *selected[0])
         if skey in evidence.refused_serves and not evidence.held(skey, canonical):
@@ -457,6 +469,8 @@ class SeriesDiff:
     refused_serves_selected_not_held: int = 0
     # canonical rows of the series whose source label is outside the vendor map (never compared)
     unmapped_canonical: int = 0
+    # current raw rows holding a refused value, left out of the selection (read_held_keys)
+    held_raw_rows: int = 0
 
     @property
     def n_real(self) -> int:
@@ -479,6 +493,7 @@ class SeriesDiff:
             and not self.refused_value_in_canonical
             and not self.refused_value_selected
             and not self.unmapped_canonical
+            and not self.held_raw_rows
         )
 
 
@@ -486,9 +501,13 @@ def selected_rows(
     candidates: Sequence[Candidate],
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
+    held: set[Key] | frozenset[Key] = frozenset(),
 ) -> tuple[dict[datetime, Row], dict[str, int]]:
     """The rows the live writer would write: winners with a volume (a NULL-volume winner is
-    skipped and counted, as bar_selection does)."""
+    skipped and counted, as bar_selection does), held keys left out before ranking (as
+    bar_selection does)."""
+    if held:
+        candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
     outcome = select_slots(candidates, policy_rows, kind_order)
     rows: dict[datetime, Row] = {}
     skipped = 0
@@ -568,6 +587,7 @@ def compare_series(
         if row is not None and row[0] == (vendor, kind) and row[1] in offered:
             diff.refused_value_selected += 1
     diff.refused_serves = len(evidence.refused_serves)
+    diff.held_raw_rows = len(evidence.held_keys)
     for key in evidence.refused_serves:
         ts = key[0]
         served = (key[1:], evidence.raw.get(key))
@@ -817,6 +837,7 @@ _SUMMED_KEYS = (
     "refused_serves",
     "refused_serves_selected_not_held",
     "unmapped_canonical_rows",
+    "held_raw_rows",
 )
 
 
@@ -885,7 +906,11 @@ def verdict(totals: Mapping[str, Any]) -> int:
         or totals.get("unmapped_canonical_rows", 0)
     ):
         return EXIT_REAL
-    if sum(totals["explained"].values()) or totals["refused_value_selected"]:
+    if (
+        sum(totals["explained"].values())
+        or totals["refused_value_selected"]
+        or totals.get("held_raw_rows", 0)
+    ):
         return EXIT_RESIDUE
     return EXIT_CLEAN
 
@@ -1025,6 +1050,7 @@ def read_evidence(
         )
         serves = {(r[0], r[1], r[2]): (r[3], r[4]) for r in cur.fetchall()}
         evidence.refused_serves = refused_serve_map(serves, loads, evidence.later())
+    evidence.held_keys = read_held_keys(cur, symbol, timeframe, _FAR_PAST, _FAR_FUTURE, candidates)
     return evidence
 
 
@@ -1133,6 +1159,7 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
         "refused_serves": sum(d.refused_serves for d in diffs),
         "refused_serves_selected_not_held": sum(d.refused_serves_selected_not_held for d in diffs),
         "unmapped_canonical_rows": sum(d.unmapped_canonical for d in diffs),
+        "held_raw_rows": sum(d.held_raw_rows for d in diffs),
         "by_timeframe": {},
     }
     explained: Counter = Counter()
@@ -1160,6 +1187,7 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
             "refused_serves": d.refused_serves,
             "refused_serves_selected_not_held": d.refused_serves_selected_not_held,
             "unmapped_canonical": d.unmapped_canonical,
+            "held_raw_rows": d.held_raw_rows,
             "unselected": d.unselected,
             "samples": d.samples,
         }
@@ -1234,7 +1262,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                     continue
                 evidence = read_evidence(cur, symbol, timeframe, candidates, match_s=args.match_s)
             conn.rollback()
-            selected, counts = selected_rows(candidates, policy, kind_order)
+            selected, counts = selected_rows(candidates, policy, kind_order, evidence.held_keys)
             diff = compare_series(
                 symbol,
                 timeframe,
@@ -1283,6 +1311,11 @@ def run_emit_spans(conn: psycopg.Connection, args: argparse.Namespace) -> int:
                 if not canonical and not candidates:
                     continue
                 evidence = read_evidence(cur, symbol, timeframe, candidates, match_s=args.match_s)
+                candidates = [
+                    c
+                    for c in candidates
+                    if (c.timestamp, c.vendor, c.kind) not in evidence.held_keys
+                ]
             conn.rollback()
             plan = derive_spans(
                 symbol,

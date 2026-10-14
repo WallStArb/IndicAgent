@@ -301,7 +301,7 @@ def read_series(cur: Any, symbol: str, timeframe: str, policy, kind_order, match
     for vendor in sorted(vendors):
         cur.execute(_REQUEST_ENDS_SQL, (symbol, timeframe, vendor))
         ends += [r[0] for r in cur.fetchall()]
-    selected, _ = gate.selected_rows(candidates, policy, kind_order)
+    selected, _ = gate.selected_rows(candidates, policy, kind_order, evidence.held_keys)
     return canonical, candidates, evidence, selected, ends
 
 
@@ -392,7 +392,9 @@ def apply_series(
             future_tolerance_s=params.write.future_tolerance_s,
         )
     reserve = plan.reserve_slots()
-    after, _ = gate.selected_rows(repaired_candidates(candidates, plan.actions), policy, kind_order)
+    after, _ = gate.selected_rows(
+        repaired_candidates(candidates, plan.actions), policy, kind_order, evidence.held_keys
+    )
     changes, n_new, n_replaced = canonical_changes(canonical, after, reserve)
     got_new = got_replaced = 0
     for start, end in selection_windows(reserve, BAR_SECONDS[timeframe]):

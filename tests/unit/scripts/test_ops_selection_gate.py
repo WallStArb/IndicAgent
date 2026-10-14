@@ -718,3 +718,19 @@ def test_a_refused_value_canonical_took_from_a_later_applied_serve_is_not_held()
     assert not evidence.held(key, canonical)
     diff = gate.compare_series("SPY", "5m", {ts: canonical}, {ts: canonical}, evidence)
     assert diff.refused_value_in_canonical == 0 and diff.clean()
+
+
+def test_a_held_raw_row_is_left_out_of_the_selection_and_is_residue():
+    # raw holds a refused value at the first slot (read_held_keys); canonical keeps IBKR's own
+    canonical = _canonical(_day(DAY1, IBKR))
+    raw = _raw(_day(DAY1, IBKR))
+    raw[0] = _cand(raw[0].timestamp, IBKR, close=10.9)
+    held = {(raw[0].timestamp, *IBKR)}
+    evidence = gate.Evidence(held_keys=held)
+    selected, _ = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER, held)
+    assert raw[0].timestamp not in selected
+    diff = gate.compare_series("SPY", "5m", canonical, selected, evidence)
+    assert diff.kinds == {(gate.ONLY_CANONICAL, gate.HELD_IN_RAW): 1}
+    assert diff.held_raw_rows == 1 and not diff.clean()
+    report = gate.build_report([diff], {})
+    assert gate.verdict(report["totals"]) == gate.EXIT_RESIDUE

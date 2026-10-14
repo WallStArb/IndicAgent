@@ -296,3 +296,57 @@ def test_writer_counts_unselected_and_off_grid():
     conn = FakeConn([_cand("alpaca", "sip_rth"), pre])
     result = _run(conn, policy_rows=[ibkr_only])
     assert (result.unselected, result.off_grid, result.new) == (1, 1, 0)
+
+
+# --- held keys (second review of plan 191-07, finding 4) ---------------------------------------
+
+
+def test_held_keys_are_pending_values_or_refused_serves_that_displaced_an_own_value():
+    from services.bar_selection import held_keys
+
+    held_value = _cand("ibkr", "named", i=0, close=10.9)
+    own_value = _cand("ibkr", "named", i=1, close=10.0)
+    copied = _cand("ibkr", "named", i=2, close=10.7)
+    unchanged = _cand("ibkr", "named", i=3, close=10.0)
+    key = lambda c: (c.timestamp, c.vendor, c.kind)  # noqa: E731
+    vals = lambda c, close=None: (c.open, c.high, c.low, close or c.close, c.volume)  # noqa: E731
+    held = held_keys(
+        [held_value, own_value, copied, unchanged],
+        pending={key(held_value): {vals(held_value)}, key(own_value): {vals(own_value, 10.5)}},
+        refused_served={key(copied), key(unchanged)},
+        displaced={key(copied): {vals(copied, 10.0)}},
+    )
+    # the pending value is current; a refused serve displaced the vendor's own value. A raw value
+    # other than the pending one, and a refused serve that displaced nothing, are not held.
+    assert held == {key(held_value), key(copied)}
+
+
+class HeldCursor(FakeCursor):
+    """FakeCursor with one refused load whose value is held pending at the first slot."""
+
+    def __init__(self, raw, canonical, pending):
+        super().__init__(raw, canonical)
+        self.pending = pending
+
+    def execute(self, sql, params=None):
+        if "FROM ohlcv_load WHERE" in sql and "refused" in sql:
+            self.executed.append((sql, list(params or ())))
+            self._result = [("R", "ibkr", T0 - timedelta(days=1))]
+        elif "origin = 'pending'" in sql:
+            self.executed.append((sql, list(params or ())))
+            self._result = self.pending
+        else:
+            super().execute(sql, params)
+
+
+def test_writer_never_selects_a_held_raw_value():
+    held = _cand("ibkr", "named", i=0, close=10.9)
+    alpaca = _cand("alpaca", "sip_rth", i=0, close=10.1)
+    pending = [(held.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100)]
+    conn = FakeConn([held, alpaca])
+    conn.cur = HeldCursor([held, alpaca], [], pending)
+    result = _run(conn)
+    # the held IBKR value is left out before ranking: the fallback vendor takes the slot
+    assert result.held == 1
+    ((_, params),) = _inserts(conn)
+    assert params[6] == 10.1 and params[8] == "alpaca"

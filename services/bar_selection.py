@@ -23,13 +23,23 @@ colliding on the canonical unique key. A slot with raw candidates but no ranked 
 (`unselected`), not hidden: the loader reports it and fails on it. Extended-hours candidates are
 dropped before ranking (src/intelligence/bars/selection.py, session rule) and counted `off_grid`.
 
+Held keys (second review of plan 191-07, finding 4). Selection never promotes a raw row that holds
+a refused value (D-191-I): a key is held when its current raw value equals a `pending` revision
+of a refused load of the series, or when its raw row was served by a refused load (its load_id,
+or for a backfill copy its served_at) and the raw backfill logged the vendor's own value it
+displaced there (a `raw-backfill-191` revision with other values). Such a candidate is left out
+before ranking and counted (`held`); canonical keeps its row at the slot until a decision or a
+re-serve. The ingress contract never writes a refused value to raw, so in the live path the set
+is empty; the rule lives in the writer so that no reselection, from any caller, can promote a
+legacy one. `read_held_keys` is the one definition; the selection gate reads it too.
+
 Until plan 13 renames the column, the canonical row carries the `source` label of its
 (vendor, kind). `canonical_columns` and `_INSERT_HEAD` are the only two places that change then.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -59,6 +69,94 @@ _READ_RAW_SQL = (
     'FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s '
     'AND "timestamp" < %s'
 )
+_REFUSED_LOADS_SQL = (
+    "SELECT load_id, source, loaded_at FROM ohlcv_load "
+    "WHERE symbol = %s AND timeframe = %s AND outcome = 'refused'"
+)
+_PENDING_SQL = (
+    'SELECT "timestamp", vendor, kind, old_open, old_high, old_low, old_close, old_volume '
+    "FROM ohlcv_revision WHERE load_id = ANY(%s) AND symbol = %s AND timeframe = %s "
+    'AND origin = \'pending\' AND "timestamp" >= %s AND "timestamp" < %s'
+)
+# The vendor values the raw backfill displaced with a refused serve (raw-backfill-191 logged them).
+_DISPLACED_SQL = (
+    'SELECT v."timestamp", v.vendor, v.kind, v.old_open, v.old_high, v.old_low, v.old_close, '
+    "v.old_volume FROM ohlcv_load l JOIN ohlcv_revision v "
+    "ON v.load_id = l.load_id AND v.symbol = l.symbol AND v.timeframe = l.timeframe "
+    "WHERE l.symbol = %s AND l.timeframe = %s AND l.caller = 'raw-backfill-191' "
+    'AND v.origin <> \'pending\' AND v."timestamp" >= %s AND v."timestamp" < %s'
+)
+# Lineage of the raw rows a refused load can have served (load_id, or served_at for the copies).
+_LINEAGE_SQL = (
+    'SELECT "timestamp", vendor, kind, served_at, load_id FROM ohlcv_raw '
+    'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s '
+    "AND (load_id = ANY(%s) OR (load_id IS NULL AND served_at = ANY(%s)))"
+)
+
+HeldKey = tuple[datetime, str, str]  # (timestamp, vendor, kind)
+
+
+def held_keys(
+    candidates: Iterable[Candidate],
+    *,
+    pending: Mapping[HeldKey, set[tuple]],
+    refused_served: set[HeldKey],
+    displaced: Mapping[HeldKey, set[tuple]],
+) -> set[HeldKey]:
+    """The candidates whose current raw value is a held refused value (module docstring): equal
+    to a pending value of the key, or served by a refused load where the backfill logged another
+    own value it displaced."""
+    out: set[HeldKey] = set()
+    for c in candidates:
+        key = (c.timestamp, c.vendor, c.kind)
+        values = (c.open, c.high, c.low, c.close, c.volume)
+        if values in pending.get(key, ()):
+            out.add(key)
+        elif key in refused_served and any(v != values for v in displaced.get(key, ())):
+            out.add(key)
+    return out
+
+
+def read_held_keys(
+    cur: Any,
+    symbol: str,
+    timeframe: str,
+    start: datetime,
+    end: datetime,
+    candidates: Sequence[Candidate],
+) -> set[HeldKey]:
+    """The held keys among `candidates` (raw rows of [start, end) of one series). A series with
+    no refused load has none and costs one indexed read."""
+    cur.execute(_REFUSED_LOADS_SQL, (symbol, timeframe))
+    refused = cur.fetchall()
+    if not refused or not candidates:
+        return set()
+    load_ids = [r[0] for r in refused]
+    cur.execute(_PENDING_SQL, (load_ids, symbol, timeframe, start, end))
+    pending: dict[HeldKey, set[tuple]] = {}
+    for ts, vendor, kind, *values in cur.fetchall():
+        pending.setdefault((ts, vendor, kind), set()).add(tuple(values))
+    cur.execute(_DISPLACED_SQL, (symbol, timeframe, start, end))
+    displaced: dict[HeldKey, set[tuple]] = {}
+    for ts, vendor, kind, *values in cur.fetchall():
+        displaced.setdefault((ts, vendor, kind), set()).add(tuple(values))
+    refused_served: set[HeldKey] = set()
+    if displaced:
+        by_id = {r[0]: r[1] for r in refused}
+        by_time = {(r[1], r[2]) for r in refused}
+        cur.execute(
+            _LINEAGE_SQL, (symbol, timeframe, start, end, load_ids, [r[2] for r in refused])
+        )
+        for ts, vendor, kind, served_at, load_id in cur.fetchall():
+            if (load_id is not None and by_id.get(load_id) == vendor) or (
+                load_id is None and (vendor, served_at) in by_time
+            ):
+                refused_served.add((ts, vendor, kind))
+    return held_keys(
+        candidates, pending=pending, refused_served=refused_served, displaced=displaced
+    )
+
+
 _READ_CANONICAL_SQL = (
     'SELECT "timestamp", open, high, low, close, volume, source FROM market_data_ohlcv '
     'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s'
@@ -73,6 +171,7 @@ class SelectionResult:
     skipped_null_volume: int
     unselected: int = 0
     off_grid: int = 0
+    held: int = 0  # raw rows left out because they hold a refused value (read_held_keys)
 
 
 def canonical_columns(vendor: str, kind: str) -> str:
@@ -127,12 +226,16 @@ def select_and_write(
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
-    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = 0
+    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = n_held = 0
     with conn.cursor() as cur:
         for symbol in sorted(set(symbols)):
             cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
             cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
             candidates = [Candidate(*row) for row in cur.fetchall()]
+            held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
+            if held:
+                candidates = [c for c in candidates if (c.timestamp, c.vendor, c.kind) not in held]
+                n_held += len(held)
             outcome = select_slots(candidates, policy_rows, kind_order)
             n_unselected += outcome.n_unselected
             n_off_grid += outcome.n_off_grid
@@ -159,4 +262,6 @@ def select_and_write(
             _write(cur, changed_rows, batch_rows=batch_rows)
             n_new += len(new_rows)
             n_changed += len(changed_rows)
-    return SelectionResult(n_new, n_changed, n_unchanged, n_skipped, n_unselected, n_off_grid)
+    return SelectionResult(
+        n_new, n_changed, n_unchanged, n_skipped, n_unselected, n_off_grid, n_held
+    )
