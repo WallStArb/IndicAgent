@@ -147,6 +147,13 @@ no prior is fitted to the program ledger, whose rows are too few and too heterog
   the shift null has too few effective draws on a span this short).
   One spend per span; if two books are frozen on the same span, the split is declared at the
   second freeze.
+- **Forward span reads.** The forward span is read only by the frozen book's forward runner and
+  the confirmation test. The S0 snapshot builder, the target kernel and `ic_measure` refuse any
+  `end_exclusive` past `alpha.validation.oos_start` before fetching. Any other read of bars at or
+  after the cutoff (an ad hoc query, a notebook, a one-off script) is a look at unsearched data:
+  it is recorded in the research ledger with its purpose, and if it informed a spec, family or
+  filter choice, the spend of that span is void and the cutoff rolls at the next freeze. A spec
+  chosen after such a look is counted as a look on the new vintage, not on the old one.
 - **Vintage roll.** When a confirmation is spent, pass or fail, the cutoff moves to the test
   date, the spent span joins the searched vintage, and a new screen budget is declared.
 - **Data floor.** A forward span with stale or missing bars fails integrity loudly. Confirmation

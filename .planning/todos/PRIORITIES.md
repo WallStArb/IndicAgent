@@ -131,6 +131,7 @@ until 185 and 186 land; session time goes to the build.
 
 | Todo | Why now |
 |---|---|
+| [536](pending/536-forward-span-read-guard-for-ad-hoc-queries.md) | New 2026-10-14, from the evidence framework section 7 amendment. Runner paths refuse reads past `alpha.validation.oos_start`, but an ad hoc SQL read of the forward span is unrestricted and unlogged, which can silently void the one-spend confirmation. Pick a mechanism (capped role or view, or audited reads) and a sink for recorded looks. |
 | [531](pending/531-schema-names-without-glossary-entries-rename-or-gloss.md) | Nine relations have live readers and no glossary entry (survey 2026-10-10): market_data_5m is a real naming violation, instrument_metadata overlaps instruments, the v2.x-era stack was never glossed, parity_certification_state looks dead. Gloss, rename, or drop each; nothing here blocks the rebuild. Fold into 533 step 1's glossary pass. |
 | [532](pending/532-session-coverage-verdict-denominator-anchors-at-first-bar-not-proven-span.md) | The session_coverage verdict anchors its denominator at the first 1d bar, so early-history holes cap old names' ratio forever (the 263-name set behind 186-26's d2_landed gate). If still red after the 06:00 UTC 2026-10-11 audit: methodology-ledger entry, then anchor at the proven span (526's concept) with an explicit hole policy. |
 
