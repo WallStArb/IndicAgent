@@ -85,8 +85,8 @@ One writer, `services/ohlcv_ingress_contract.py`, behind the existing `VendorIng
 
 1. Write raw first (classify, insert, log revisions), always, for every served bar including losers.
 2. Run canonical selection for the touched (symbol, timeframe, span). A slot whose policy primary is another vendor changes nothing in canonical.
-3. Refusal moves from "changed ratio against whatever is canonical" to "changed ratio against the same vendor's own stored raw rows". A vendor restating more than the allowed share of its own overlap (APR `max_revision_ratio`, today 0.02) is refused from canonical selection and flagged; raw still records it, because a refused answer is evidence. A cross-vendor difference never refuses.
-4. Fetch item status follows: a refusal is an error only when it is a self-restatement. Interim behavior shipped 2026-10-12 (0f066c302) approximates this from the stored source label; step 3 replaces it with the raw-level classification.
+3. Refusal moves from "changed ratio against whatever is canonical" to "changed ratio against the same vendor's own stored raw rows". A vendor restating more than the allowed share of its own overlap (APR `max_revision_ratio`, today 0.02, at least `revision_ratio_min_stored` rows stored) is refused, and the refusal is durable (D-191-I): no raw row of the series is written or replaced, the offered values that differ from the stored rows are logged as `ohlcv_revision` rows of origin `pending` (the old_* columns hold the offered value) under a refused `ohlcv_load`, and the stored rows stay current, so selection, which reads only current raw, can never promote a refused value, however often the same values are offered again. Only an explicit decision (a waived write, for a recorded corporate action) replaces the stored row. A cross-vendor difference never refuses.
+4. Fetch item status follows: a refusal is an error, and the only refusal left is a vendor restating its own stored raw rows. Raw is stored per source and agnostic to every other source: no fetch or write path asks what another vendor holds (the interim stored-label heuristic of 0f066c302 and its policy-refusal path are deleted).
 
 This removes the archive-overwrite hazard: there is no archive timeframe path, and 15m/1h vendor parity rows are ordinary raw rows keyed by vendor.
 
@@ -180,6 +180,12 @@ The bulk backfill (plan 03) only reads and runs with the fetcher live. The fetch
 Status: planner decision, owner acknowledgement pending
 
 This deviates from the Canonical section, which builds `market_data_ohlcv_v2` by `INSERT ... SELECT` from `ohlcv_raw` plus derived rows. Plan 12 builds v2 by copy-with-map from the live canonical table (label to (vendor, kind) through `vendor_kind`), and plan 14 swaps the names. The selection gate (plan 07) re-run on v2 is the proof that canonical is rebuildable from raw, so the build path does not need to be the selection path.
+
+### D-191-I: a refusal holds, it does not record
+
+Status: planner decision, owner acknowledgement pending
+
+This deviates from Ingress contract item 3 as first written ("raw still records it, because a refused answer is evidence"). Replacing the raw current row with a refused value let the next selection that touched the slot promote it into canonical (review finding 4, plan 191-05). The evidence survives as `pending` revisions (migration 477) instead, and the stored row stays current. Readers of restatement history filter `origin <> 'pending'`. The release is a waived write; an operator release command is not built.
 
 ### D-191-H: explicit deferrals
 

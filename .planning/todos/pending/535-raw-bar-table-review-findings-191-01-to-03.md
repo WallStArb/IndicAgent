@@ -37,6 +37,23 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
    when Tradier loads are deleted (plan 20); a deferrable `ohlcv_revision` FK would let
    `preview_series` go; `bar_derivation_writer` holds INSERT and UPDATE on `ohlcv_raw`.
 
+## Status after plan 191-05 (2026-10-13)
+
+- Item 1 (refusal does not last): done in 191-05, no new table. A refused series writes no raw row;
+  its offered values that differ from the stored rows are `ohlcv_revision` rows of origin `pending`
+  (migration 477, applied live at the window resume step); the stored rows stay current. Tests: unit
+  (refuse, unchanged re-offer, raw and selection untouched) and integration under the real role.
+  Plan 07's `refused_self_restatement` class should now count zero (amendment appended to plan 07);
+  a release command is not built (a waived write releases).
+- Item 5, advisory lock per series: done (`write_raw`, `preview_series`). Same key twice with different
+  values in one chunk: raises. Request-writer buffer: swapped, restored on failure. `fallback` into
+  raw: closed in 191-04.
+- Item 5, deferrable FK: decided against. A refused series must be classified before any write, so
+  `preview_series` stays whatever the FK does; the advisory lock now makes preview and write agree
+  by construction.
+- Still open: items 2, 3, 4 and the `bar_derivation_writer` grant on `ohlcv_raw`; the CASCADE on
+  `ohlcv_revision.load_id` (plan 25 Tradier retire).
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land

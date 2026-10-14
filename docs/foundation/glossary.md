@@ -2231,8 +2231,8 @@ reconciliation), and not a second canonical store. **Banned:** dropping non-auth
 rows (todo 528 R1); a vendor re-archiving its own canonical answer.
 **Status:** active, retiring with phase 191 (its rows fold into `ohlcv_raw`; the table drops in plan 16)
 (migration 383 + 468; no-drop engine since todo 528)
-**Code surface:** `services/intraday_raw_archive.py` (single writer);
-`services/bar_load.py` (`split_series`, `archive_rows`)
+**Code surface:** `services/intraday_raw_archive.py` (read side only since plan 191-05; the
+loader and the fetcher write `ohlcv_raw`)
 
 ### `source` (bar provenance) / `provider`
 
