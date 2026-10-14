@@ -339,12 +339,18 @@ def session_start(day: date) -> datetime:
     return datetime.combine(day, datetime.min.time(), SESSION_TZ).astimezone(UTC)
 
 
+_SELECTION_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+
+
 def write_and_reselect(conn: Any, *, mode: str, row: dict[str, Any]) -> Any:
     """The policy write and the re-selection of the window it changes, on one psycopg connection
     in the caller's transaction (the caller commits). Raises ValueError when the --add overlaps
     a row or the --close finds no open row. Returns the SelectionResult."""
     timeframe, symbol = row["timeframe"], row["symbol"]
     with conn.cursor() as cur:
+        # The series' selection lock first, held to the commit: an ingress chunk selecting this
+        # series waits, then reads the new policy under the same lock (select_and_write).
+        cur.execute(_SELECTION_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
         if mode == "add":
             cur.execute(
                 _PG_OVERLAPPING_ROW_SQL, (timeframe, symbol, row["valid_from"], row["valid_to"])

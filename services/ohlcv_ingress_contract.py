@@ -410,7 +410,9 @@ def apply_raw_contract(
             timeframe=timeframe,
             start=min(stamps),
             end=max(stamps) + timedelta(microseconds=1),
-            policy_rows=params.policy_rows,
+            # read under the series' selection lock, never the chunk's cached copy: a policy
+            # --reselect commits holding that lock (second review of 191-07, low item)
+            policy_rows=None,
             kind_order=params.kind_order,
             batch_rows=params.write.batch_rows,
         )

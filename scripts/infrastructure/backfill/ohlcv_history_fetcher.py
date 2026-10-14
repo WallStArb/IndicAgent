@@ -365,12 +365,16 @@ def validate_args(args: argparse.Namespace) -> str | None:
 
 
 def reserve_asks(payload: Any) -> dict[tuple[str, str], list[tuple[datetime, datetime]]]:
-    """(symbol, timeframe) -> the [start, end) UTC windows of the keys' NYSE session dates.
+    """(symbol, timeframe) -> the [open, close) UTC windows of the keys' NYSE sessions.
 
-    `payload` is an ops_raw_repair.py report (its "reserve_keys") or a list of keys, each with
-    symbol, timeframe and an ISO timestamp. A session date is its America/New_York day, the
-    date a selection span matches (D-191-L), so the window holds the whole session the key is
-    in. Raises ValueError on an empty or malformed key list."""
+    `payload` is an ops_raw_repair.py or ops_refusal_rejudge.py report (its "reserve_keys") or a
+    list of keys, each with symbol, timeframe and an ISO timestamp. A session date is its
+    America/New_York day, the date a selection span matches (D-191-L). The window is that
+    session exactly, open to close (early closes included), so the request ends at the close and
+    asks one session: a midnight-to-midnight day became a "2 D" request that re-served the prior
+    session too, whose late revisions counted toward the re-serve's restatement share (second
+    review of 191-07, low item). Raises ValueError on an empty or malformed key list or a key
+    whose date is not an NYSE session."""
     keys = payload.get("reserve_keys") if isinstance(payload, dict) else payload
     if not keys:
         raise ValueError("no reserve keys")
@@ -380,15 +384,15 @@ def reserve_asks(payload: Any) -> dict[tuple[str, str], list[tuple[datetime, dat
         if stamp.tzinfo is None:
             raise ValueError(f"naive reserve key timestamp {key['timestamp']!r}")
         days[(key["symbol"], key["timeframe"])].add(stamp.astimezone(SESSION_TZ).date())
+    every = {day for dates in days.values() for day in dates}
+    sessions = nyse_sessions(min(every), max(every))
+    missing = sorted(every - set(sessions))
+    if missing:
+        raise ValueError(f"reserve keys on non-session dates: {missing}")
     out: dict[tuple[str, str], list[tuple[datetime, datetime]]] = {}
     for series, dates in sorted(days.items()):
         out[series] = [
-            (
-                datetime.combine(day, datetime.min.time(), SESSION_TZ).astimezone(UTC),
-                datetime.combine(
-                    day + timedelta(days=1), datetime.min.time(), SESSION_TZ
-                ).astimezone(UTC),
-            )
+            (sessions[day][0].astimezone(UTC), sessions[day][1].astimezone(UTC))
             for day in sorted(dates)
         ]
     return out

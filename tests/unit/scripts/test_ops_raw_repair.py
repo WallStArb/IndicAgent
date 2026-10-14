@@ -171,3 +171,14 @@ def test_expected_canonical_changes_follow_the_repaired_raw_and_skip_reserve_dat
     selected = {c.timestamp: (IBKR, (c.open, c.high, c.low, c.close, c.volume)) for c in fixed}
     changes, n_new, n_replaced = repair.canonical_changes(canonical, selected, [t2])
     assert (n_new, n_replaced) == (1, 0) and changes[0]["timestamp"].startswith("2026-05-18")
+
+
+def test_a_restore_reads_its_value_from_the_ledger_never_from_canonical():
+    """Second review of 191-07, low item: the value put back must be a logged value of the same
+    vendor and kind at the key; canonical only names which one. Without that row it blocks."""
+    ts = datetime(2021, 11, 8, 14, 30, tzinfo=UTC)
+    canonical, selected, evidence = _self(ts, _v(68.5514), _v(68.55))
+    plan = _plan(canonical, selected, evidence)
+    assert any("not in the ibkr/named ledger" in b for b in plan.blockers)
+    evidence.revisions = {(ts, *IBKR): [(REFUSED_AT, _v(68.5514))]}
+    assert _plan(canonical, selected, evidence).blockers == []

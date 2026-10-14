@@ -187,6 +187,13 @@ def read_held_keys(
     )
 
 
+# The series' policy rows, read under its selection lock when the caller passes none (ingress):
+# a --reselect policy change commits while holding that lock, so a reader after it sees it.
+_POLICY_SQL = (
+    "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
+    "FROM bar_source_policy WHERE timeframe = %s AND (symbol IS NULL OR symbol = %s)"
+)
+
 _READ_CANONICAL_SQL = (
     'SELECT "timestamp", open, high, low, close, volume, source FROM market_data_ohlcv '
     'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s'
@@ -243,14 +250,16 @@ def select_and_write(
     timeframe: str,
     start: datetime,
     end: datetime,
-    policy_rows: Sequence[PolicyRow],
+    policy_rows: Sequence[PolicyRow] | None,
     kind_order: Mapping[str, int],
     batch_rows: int,
     exclude: frozenset[datetime] | set[datetime] = frozenset(),
 ) -> SelectionResult:
     """Select the canonical rows of the whole sessions [start, end) touches for `symbols` from
     ohlcv_raw and write them (module docstring). `exclude` names stamps left exactly as they
-    are (a repair's slots awaiting a re-serve): neither written nor retracted.
+    are (a repair's slots awaiting a re-serve): neither written nor retracted. `policy_rows`
+    None reads each series' policy under its selection lock (the ingress path: a cached policy
+    could predate a --reselect that committed while this caller waited for the lock).
 
     Raises ValueError for a timeframe other than 1m, 5m or 4h and LookupError when a held slot
     has no policy row (nothing for that symbol is written before the raise).
@@ -269,11 +278,15 @@ def select_and_write(
     with conn.cursor() as cur:
         for symbol in sorted(set(symbols)):
             cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
+            series_policy = policy_rows
+            if series_policy is None:
+                cur.execute(_POLICY_SQL, (timeframe, symbol))
+                series_policy = [PolicyRow(*row) for row in cur.fetchall()]
             cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
             candidates = [Candidate(*row) for row in cur.fetchall()]
             held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
             n_held += len(held)
-            outcome = select_slots(candidates, policy_rows, kind_order, held)
+            outcome = select_slots(candidates, series_policy, kind_order, held)
             n_unselected += outcome.n_unselected
             n_off_grid += outcome.n_off_grid
             for choice in outcome.choices:

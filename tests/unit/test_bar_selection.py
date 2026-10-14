@@ -478,3 +478,26 @@ def test_the_writer_leaves_excluded_stamps_untouched():
     ((_, params),) = _inserts(conn)
     written = {params[i] for i in range(0, len(params), 9)}
     assert written == {alpaca[i].timestamp for i in (1, 2, 3)} and result.new == 3
+
+
+def test_without_policy_rows_the_writer_reads_the_series_policy_under_its_lock():
+    """Ingress passes no policy: a --reselect policy change commits holding the series'
+    selection lock, so the policy is read after the lock, never from the chunk's cache."""
+
+    class PolicyCursor(FakeCursor):
+        def execute(self, sql, params=None):
+            if "FROM bar_source_policy" in sql:
+                self.executed.append((sql, list(params or ())))
+                self._result = [("5m", None, date(2020, 1, 1), None, "alpaca", "ibkr")]
+            else:
+                super().execute(sql, params)
+
+    conn = FakeConn([])
+    conn.cur = PolicyCursor([_cand("ibkr", "named"), _cand("alpaca", "sip_rth", close=99.0)], [])
+    result = _run(conn, policy_rows=None)
+    sqls = [s for s, _ in conn.cur.executed]
+    lock = next(i for i, s in enumerate(sqls) if "pg_advisory_xact_lock" in s)
+    read = next(i for i, s in enumerate(sqls) if "FROM bar_source_policy" in s)
+    assert lock < read and result.new == 1
+    ((_, params),) = _inserts(conn)
+    assert params[8] == "alpaca"

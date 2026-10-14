@@ -476,7 +476,9 @@ def test_reselect_of_a_close_re_selects_from_valid_to_on(monkeypatch):
     row = {"timeframe": "5m", "symbol": "AAPL", "valid_to": date(2026, 1, 5)}
     cur = _PgCursor()
     _result, seen = _reselect(monkeypatch, cur, "close", row)
-    assert "UPDATE bar_source_policy" in cur.executed[0][0]
+    # the series' selection lock comes before the policy write (second review, low item)
+    assert cur.executed[0] == (policy._SELECTION_LOCK_SQL, ("bar_selection|AAPL|5m",))
+    assert "UPDATE bar_source_policy" in cur.executed[1][0]
     assert seen["start"] == datetime(2026, 1, 5, 5, 0, tzinfo=UTC)  # 00:00 EST
     assert seen["end"] == policy._FAR_FUTURE
     with pytest.raises(ValueError, match="open rows closed"):

@@ -1472,16 +1472,22 @@ _RESERVE_REPORT = {
 }
 
 
-def test_reserve_asks_are_whole_session_dates_per_series():
+def test_reserve_asks_are_the_keys_sessions_open_to_close_per_series():
+    """Second review of 191-07, low item: the request ends at the session close and asks one
+    session; a midnight-to-midnight day was a "2 D" request that re-served the prior session."""
     asks = hf.reserve_asks(_RESERVE_REPORT)
     assert asks == {
         ("HD", "5m"): [
-            (datetime(2026, 5, 15, 4, tzinfo=UTC), datetime(2026, 5, 16, 4, tzinfo=UTC))
+            (datetime(2026, 5, 15, 13, 30, tzinfo=UTC), datetime(2026, 5, 15, 20, tzinfo=UTC))
         ],
         ("TMUS", "5m"): [
-            (datetime(2016, 2, 4, 5, tzinfo=UTC), datetime(2016, 2, 5, 5, tzinfo=UTC))
+            (datetime(2016, 2, 4, 14, 30, tzinfo=UTC), datetime(2016, 2, 4, 21, tzinfo=UTC))
         ],
     }
+    with pytest.raises(ValueError, match="non-session"):
+        hf.reserve_asks(
+            [{"symbol": "HD", "timeframe": "5m", "timestamp": "2026-05-16T15:00:00+00:00"}]
+        )
     assert hf.reserve_asks(_RESERVE_REPORT["reserve_keys"]) == asks
     with pytest.raises(ValueError, match="no reserve keys"):
         hf.reserve_asks({"reserve_keys": []})

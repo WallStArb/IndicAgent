@@ -220,6 +220,17 @@ def plan_series(
         row = canonical.get(key[0])
         if evidence.held(key, row) and row == (key[1:], evidence.raw.get(key)):
             plan.blockers.append(f"{key[0].isoformat()}: a held refused value is in canonical")
+    # A restore puts back a value the vendor served, read from the ledger (a revision row of the
+    # same vendor and kind at the key), never canonical's copy: canonical only names which of
+    # the logged values it is, and must equal it (second review of 191-07, low item).
+    for a in plan.actions:
+        if a.action in (RESTORE, RESTORE_PENDING):
+            logged = evidence.logged((a.timestamp, a.vendor, a.kind))
+            if a.canonical not in logged:
+                plan.blockers.append(
+                    f"{a.timestamp.isoformat()}: restore value is not in the {a.vendor}/{a.kind} "
+                    "ledger (canonical is never copied into raw)"
+                )
     return plan
 
 
