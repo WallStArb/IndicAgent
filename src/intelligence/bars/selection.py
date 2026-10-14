@@ -183,13 +183,22 @@ def select_slots(
     for c in on_grid:
         slots[(c.symbol, c.timeframe, c.timestamp)].append(c)
     rankings: dict[tuple[str, str, date], list[str]] = {}
+    scopes: dict[tuple[str, str], list[PolicyRow]] = {}
     winners: list[Candidate] = []
     for (symbol, timeframe, timestamp), held in sorted(slots.items()):
         day = session_date(timestamp)
         ranking = rankings.get((symbol, timeframe, day))
         if ranking is None:
+            scoped = scopes.get((symbol, timeframe))
+            if scoped is None:
+                # the table holds a row per decision of every series; rank over this one's only
+                scoped = scopes[(symbol, timeframe)] = [
+                    p
+                    for p in policy_rows
+                    if p.timeframe == timeframe and p.symbol in (None, symbol)
+                ]
             ranking = rankings[(symbol, timeframe, day)] = rank_vendors(
-                policy_rows, symbol, timeframe, day
+                scoped, symbol, timeframe, day
             )
         winner = select_slot(held, ranking, kind_order)
         if winner is not None:

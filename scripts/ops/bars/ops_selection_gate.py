@@ -68,7 +68,7 @@ import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -510,17 +510,23 @@ def derive_spans(
         runs.append((i, best))
         ranking_by_date[dates[i]] = best
         i += 1
-    # a run that starts mid-history after a blocker still begins at its first feasible date
+    # Run starts as dates. The first run covers any leading dates before its first feasible date.
+    starts = [
+        (dates[0] if n == 0 else dates[start], ranking) for n, (start, ranking) in enumerate(runs)
+    ]
+    # Going forward the rule is the preferred ranking (the default primary, the other vendor as
+    # fallback), never a ranking narrowed by what history needed: the day after the last date with
+    # data starts a tail run when the last run is anything else.
+    if starts and dates and starts[-1][1] != options[0]:
+        starts.append((dates[-1] + timedelta(days=1), options[0]))
     spans: list[SpanRow] = []
     stamps = sorted(canonical)
     first_bar = stamps[0].astimezone(UTC).isoformat() if stamps else ""
     last_bar = stamps[-1].astimezone(UTC).isoformat() if stamps else ""
-    for n, (start, ranking) in enumerate(runs):
+    for n, (valid_from, ranking) in enumerate(starts):
         if ranking == tuple(default):
             continue
-        end = dates[runs[n + 1][0]] if n + 1 < len(runs) else None
-        # the first run covers any leading dates before its first feasible date
-        valid_from = dates[0] if n == 0 else dates[start]
+        end = starts[n + 1][0] if n + 1 < len(starts) else None
         spans.append(
             SpanRow(
                 timeframe,
@@ -817,11 +823,30 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str))
 
 
+def candidate_policy(paths: Sequence[str]) -> list[PolicyRow]:
+    """Policy rows of --emit-spans files, to test a plan before it is written."""
+    rows: list[PolicyRow] = []
+    for path in paths:
+        for row in json.loads(Path(path).read_text())["spans"]:
+            span = SpanRow.from_json(row)
+            rows.append(
+                PolicyRow(
+                    span.timeframe,
+                    span.symbol,
+                    span.valid_from,
+                    span.valid_to,
+                    span.primary_source,
+                    span.fallback_source,
+                )
+            )
+    return rows
+
+
 def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     diffs: list[SeriesDiff] = []
     with conn.cursor() as cur:
         mode = introspect_target(cur, args.target)
-        policy = read_policy(cur)
+        policy = read_policy(cur) + candidate_policy(args.with_spans)
         kind_order = read_kind_order(cur)
         symbols = shard_of(series_symbols(cur, args.symbols), args.shard)
     conn.rollback()
@@ -833,6 +858,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
         "target_mode": mode,
         "timeframes": list(args.timeframes),
         "shard": args.shard,
+        "with_spans": list(args.with_spans),
         "n_symbols": len(symbols),
         "started": _stamp(),
     }
@@ -1231,6 +1257,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--out", default=None)
     parser.add_argument("--spans", nargs="*", default=[], help="--apply-spans: emit-spans files")
+    parser.add_argument(
+        "--with-spans",
+        nargs="*",
+        default=[],
+        help="--compare: add the rows of these emit-spans files to the policy (a plan is tested before it is written)",
+    )
     parser.add_argument(
         "--apply", action="store_true", help="--apply-spans: write (default dry run)"
     )

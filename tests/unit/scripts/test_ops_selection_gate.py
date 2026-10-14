@@ -418,9 +418,14 @@ def test_a_refusal_explained_day_takes_the_ranking_closest_to_canonical():
     canonical = _canonical(_day(DAY1, ALPACA))
     raw = _raw(_day(DAY1, IBKR, close=10.2), _day(DAY1, ALPACA))
     evidence = gate.Evidence(refused_windows={"ibkr": [(date(2026, 10, 12), date(2026, 10, 12))]})
-    (span,) = _plan(canonical, raw, evidence).spans
+    span, tail = _plan(canonical, raw, evidence).spans
     # (ibkr, alpaca) would carry three explained differences; (alpaca, ibkr) carries none
     assert (span.primary_source, span.fallback_source) == ("alpaca", "ibkr")
+    assert (tail.primary_source, tail.valid_from, tail.valid_to) == (
+        "ibkr",
+        date(2026, 10, 13),
+        None,
+    )
 
 
 def test_rows_only_raw_holds_never_narrow_a_span_to_one_vendor():
@@ -431,3 +436,27 @@ def test_rows_only_raw_holds_never_narrow_a_span_to_one_vendor():
     (span,) = _plan(canonical, raw, evidence).spans
     assert (span.primary_source, span.fallback_source) == ("ibkr", "alpaca")
     assert span.valid_to is None
+
+
+def test_candidate_policy_turns_emitted_spans_into_policy_rows(tmp_path):
+    canonical = _canonical(_day(DAY1, IBKR), _day(DAY2, ALPACA))
+    raw = _raw(_day(DAY1, IBKR), _day(DAY2, ALPACA))
+    (span,) = _plan(canonical, raw).spans
+    path = tmp_path / "spans.json"
+    path.write_text(json.dumps({"spans": [span.to_json()], "blockers": []}))
+    (row,) = gate.candidate_policy([str(path)])
+    assert row == PolicyRow("5m", "SPY", date(2026, 10, 12), None, "ibkr", "alpaca")
+
+
+def test_the_last_span_is_followed_by_the_preferred_ranking_going_forward():
+    canonical = _canonical(_day(DAY1, IBKR), _day(DAY2, ALPACA), _day(DAY3, ALPACA))
+    raw = _raw(
+        _day(DAY1, IBKR), _day(DAY2, IBKR, close=10.2), _day(DAY2, ALPACA), _day(DAY3, ALPACA)
+    )
+    spans = _plan(canonical, raw).spans
+    # one alpaca-first run reproduces all three days; the preferred ranking takes over after them
+    assert [(s.valid_from, s.valid_to, s.primary_source) for s in spans] == [
+        (date(2026, 10, 12), date(2026, 10, 15), "alpaca"),
+        (date(2026, 10, 15), None, "ibkr"),
+    ]
+    assert spans[-1].fallback_source == "alpaca"
