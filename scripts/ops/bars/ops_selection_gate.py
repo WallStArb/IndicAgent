@@ -188,6 +188,23 @@ def later_serve(
     return None
 
 
+class LaterServes:
+    """later_serve memoized per (UTC date, vendor, after, destination) over one series' loads:
+    a series holds thousands of loads and tens of thousands of refused serves."""
+
+    def __init__(self, loads: Iterable[LoadFact]) -> None:
+        self.loads = [load for load in loads if load.outcome == "applied" and load.is_serve]
+        self._memo: dict[tuple, LoadFact | None] = {}
+
+    def find(
+        self, ts: datetime, vendor: str, after: datetime, destination: str | None = None
+    ) -> LoadFact | None:
+        key = (utc_date(ts), vendor, after, destination)
+        if key not in self._memo:
+            self._memo[key] = later_serve(ts, vendor, after, self.loads, destination=destination)
+        return self._memo[key]
+
+
 def refused_serve_map(
     serves: Mapping[Key, tuple[datetime | None, Any]], loads: Sequence[LoadFact]
 ) -> dict[Key, LoadFact]:
@@ -198,13 +215,14 @@ def refused_serve_map(
     refused = [load for load in loads if load.outcome == "refused"]
     by_id = {load.load_id: load for load in refused}
     by_time = {(load.vendor, load.loaded_at): load for load in refused}
+    later = LaterServes(loads)
     out: dict[Key, LoadFact] = {}
     for key, (served_at, load_id) in serves.items():
         ts, vendor, _kind = key
         load = by_id.get(load_id) if load_id is not None else by_time.get((vendor, served_at))
         if load is None or load.vendor != vendor:
             continue
-        if later_serve(ts, vendor, load.loaded_at, loads, destination="raw") is not None:
+        if later.find(ts, vendor, load.loaded_at, destination="raw") is not None:
             continue  # re-served under the per-source contract after the refusal
         out[key] = load
     return out
@@ -226,6 +244,16 @@ class Evidence:
     refused_serves: dict[Key, LoadFact] = field(default_factory=dict)
     raw: dict[Key, Values] = field(default_factory=dict)
     loads: list[LoadFact] = field(default_factory=list)
+    _later: tuple[tuple[int, int], LaterServes] | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    def later(self) -> LaterServes:
+        """The memoized later-serve index of `loads`, rebuilt when the list changes."""
+        token = (id(self.loads), len(self.loads))
+        if self._later is None or self._later[0] != token:
+            self._later = (token, LaterServes(self.loads))
+        return self._later[1]
 
     def logged(self, key: Key) -> set[Values]:
         return {values for _, values in self.revisions.get(key, ())}
@@ -257,7 +285,7 @@ class Evidence:
             # slot after the refusal: the retired path wrote canonical from that serve, so the
             # vendor served this value again and it was accepted
             refused_at = self.refused_serves[key].loaded_at
-            if later_serve(key[0], key[1], refused_at, self.loads) is not None:
+            if self.later().find(key[0], key[1], refused_at) is not None:
                 return False
         return any(values != raw_value for values in self.logged(key))
 
