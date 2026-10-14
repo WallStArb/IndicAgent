@@ -34,6 +34,7 @@ WHY+WHAT: principles, naming rules, AI working rules. These change rarely.
 
 | File | Description |
 |------|-------------|
+| `north-star-truths.md` | The twenty-two truths in plain language, and where each is enforced |
 | `principles.md` | Renaissance principles applied to market intelligence |
 | `glossary.md` | Controlled vocabulary — every domain term has exactly one definition |
 | `product-laws.md` | Six philosophical and economic principles governing product reality |
