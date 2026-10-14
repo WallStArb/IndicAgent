@@ -212,6 +212,16 @@ Four rules in selection and the loaders, each from the review of the raw-first w
 
 The gate for plan 191-07 (`scripts/ops/bars/ops_selection_gate.py`) counts, beside its zero, the slots a recorded refusal explains (refused self restatement, refused cross-vendor, restated after the raw copy); each class needs ledger evidence for the exact key, and an unexplained difference is never folded into one.
 
+### D-191-M: explained is not clean; legacy refusals and chunk edges
+
+Status: planner decision (review of plan 191-07), owner acknowledgement pending
+
+1. The gate exits 0 only when canonical equals the selection exactly. Explained differences, or a held refused value the selection would take, exit 3 (explained residue); nothing resumes on 3.
+2. A refused serve is tied to the exact key: a raw row whose `load_id`, or (backfill copies) whose `served_at`, names a refused `ohlcv_load` of the same vendor, unless an applied vendor serve with destination raw covered the slot after the refusal. It is held (D-191-I) when it displaced the vendor's own value at that key. A retired-path refusal that judged the vendor against another vendor's canonical row is not a refusal under the per-source contract (D-191-K): where the vendor has no other value of its own at the key, its row is its own answer and selection takes it, once, as a catch-up.
+3. An intraday request that ends inside a bar truncates it. The IBKR leaf asks on the bar grid and drops any bar that straddles the request end or is still forming (the intraday analogue of D-191-J). Stored truncated bars are repaired from the vendor (the fetcher's `--reserve-keys` lane), never from canonical; where raw already holds the whole bar, selection takes it.
+4. `scripts/ops/bars/ops_raw_repair.py` makes raw the vendor's accepted answer on the explained slots: the accepted value goes back through the raw writer under a `raw-repair-191` load, the refused value becomes a `pending` revision under its original refused load where no later serve answered the slot, and no raw or revision row is deleted.
+5. A direct-timeframe policy span effective before today is written only with `--reselect`, which re-selects the window it changes in the same transaction.
+
 ### D-191-H: explicit deferrals
 
 Status: planner decision, owner acknowledgement pending
