@@ -34,12 +34,14 @@ _END = date(2026, 10, 2)
 
 
 def test_an_up_to_date_symbol_gets_exactly_the_overlap_window():
-    assert with_overlap_window([], _SESSIONS, _END, 5) == [(date(2026, 9, 28), date(2026, 10, 2))]
+    # End-exclusive: the window runs to the day after the last session, so that session itself
+    # is covered (a window ending at the last session's midnight never asked it).
+    assert with_overlap_window([], _SESSIONS, _END, 5) == [(date(2026, 9, 28), date(2026, 10, 3))]
 
 
 def test_the_window_counts_sessions_not_calendar_days():
     (window,) = with_overlap_window([], _SESSIONS, _END, 7)
-    assert window == (date(2026, 9, 24), date(2026, 10, 2))
+    assert window == (date(2026, 9, 24), date(2026, 10, 3))
 
 
 def test_zero_overlap_leaves_the_plan_untouched():
@@ -48,26 +50,36 @@ def test_zero_overlap_leaves_the_plan_untouched():
 
 
 def test_a_gap_inside_or_touching_the_overlap_merges_into_one_window():
-    gaps = [(date(2026, 9, 30), date(2026, 10, 1))]
-    assert with_overlap_window(gaps, _SESSIONS, _END, 5) == [(date(2026, 9, 28), date(2026, 10, 2))]
-    touching = [(date(2026, 9, 25), date(2026, 9, 25))]
+    gaps = [(date(2026, 9, 30), date(2026, 10, 2))]
+    assert with_overlap_window(gaps, _SESSIONS, _END, 5) == [(date(2026, 9, 28), date(2026, 10, 3))]
+    # An end-exclusive gap ending exactly where the overlap starts touches it and merges.
+    touching = [(date(2026, 9, 24), date(2026, 9, 30))]
     assert with_overlap_window(touching, _SESSIONS, _END, 3) == [
-        (date(2026, 9, 25), date(2026, 9, 25)),
-        (date(2026, 9, 30), date(2026, 10, 2)),
+        (date(2026, 9, 24), date(2026, 10, 3))
+    ]
+    apart = [(date(2026, 9, 24), date(2026, 9, 26))]
+    assert with_overlap_window(apart, _SESSIONS, _END, 3) == [
+        (date(2026, 9, 24), date(2026, 9, 26)),
+        (date(2026, 9, 30), date(2026, 10, 3)),
     ]
 
 
 def test_an_older_gap_stays_a_separate_window():
-    gaps = [(date(2026, 9, 14), date(2026, 9, 16))]
+    gaps = [(date(2026, 9, 14), date(2026, 9, 17))]
     assert with_overlap_window(gaps, _SESSIONS, _END, 3) == [
-        (date(2026, 9, 14), date(2026, 9, 16)),
-        (date(2026, 9, 30), date(2026, 10, 2)),
+        (date(2026, 9, 14), date(2026, 9, 17)),
+        (date(2026, 9, 30), date(2026, 10, 3)),
     ]
 
 
 def test_fewer_sessions_than_the_overlap_start_at_the_first_one():
     (window,) = with_overlap_window([], _SESSIONS, _END, 250)
-    assert window == (date(2026, 9, 14), date(2026, 10, 2))
+    assert window == (date(2026, 9, 14), date(2026, 10, 3))
+
+
+def test_the_last_session_is_inside_the_window():
+    (window,) = with_overlap_window([], _SESSIONS, _END, 1)
+    assert window == (_END, date(2026, 10, 3))
 
 
 def test_no_sessions_up_to_end_means_no_window():

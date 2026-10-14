@@ -244,9 +244,9 @@ def detect_gaps_1d_from_d1(
     (session_complete_at(bar_date, served_at), D-191-J): a bar served while its session
     was still forming is not the vendor's answer for the day and stays a gap until a run
     sees the session whole. `now` caps the horizon exactly as the intraday readers cap
-    theirs, so a no_data answer for a truncated window cannot cover the completed day and
-    an unfinished current session is never asked for as a complete answer. Without `now`
-    the horizon is the whole requested window. The empty-history gate mirrors
+    theirs: only sessions closed by `now` are planned, so an unfinished current session is never
+    asked and a closed one is asked from the moment it closes, not at the next 00:00 UTC.
+    Without `now` the horizon is the whole requested window. The empty-history gate mirrors
     detect_gaps_from_record.
     """
     if end < start:
@@ -274,8 +274,16 @@ def detect_gaps_1d_from_d1(
             or session_complete_at(_aware(stamp).date(), _aware(served_at), sessions)
         }
     )
-    slots = [midnight_utc(day) for day in sorted(sessions) if start <= day <= end]
-    run_end = now if now is not None else midnight_utc(end) + _1D_INTERVAL
+    # Only a session that has closed is plannable: asking a forming session returns a partial
+    # bar that never counts, and capping its window at `now` would collapse to a zero-length
+    # (D, D) ask. A 1d window is never capped at now; it ends at the last planned session's own
+    # day end, so the ask covers that whole day once the day is complete.
+    slots = [
+        midnight_utc(day)
+        for day in sorted(sessions)
+        if start <= day <= end and (now is None or session_complete_at(day, now, sessions))
+    ]
+    run_end = midnight_utc(end) + _1D_INTERVAL
 
     plan = _plan_with_empty_gate(
         slots,
@@ -303,8 +311,10 @@ def with_overlap_window(
     The nightly re-asks sessions D1 already answers so a fresh observation overlaps an
     earlier one and a split shows as a constant price ratio (services/split_detection.py).
     The planner never asks an answered session, so the overlap is added after planning, in
-    the planner's own (first session, last session) window shape; windows that touch or
-    overlap merge into one request. `overlap_sessions` of 0 returns the plan unchanged.
+    the planner's own end-exclusive (first session, day after the last session) shape, so the
+    last session itself is covered; windows that touch or overlap merge into one request.
+    `sessions` must hold only sessions closed at the run's time (a forming session is never
+    re-asked). `overlap_sessions` of 0 returns the plan unchanged.
     """
     planned = list(gaps)
     if overlap_sessions <= 0:
@@ -312,12 +322,12 @@ def with_overlap_window(
     eligible = sorted(day for day in sessions if day <= end)
     if not eligible:
         return planned
-    windows = sorted([*planned, (eligible[-overlap_sessions:][0], eligible[-1])])
+    windows = sorted([*planned, (eligible[-overlap_sessions:][0], eligible[-1] + _1D_INTERVAL)])
     merged: list[tuple[date, date]] = [windows[0]]
-    for start, last in windows[1:]:
-        prev_start, prev_last = merged[-1]
-        if start <= prev_last + timedelta(days=1):
-            merged[-1] = (prev_start, max(prev_last, last))
+    for window_start, window_end in windows[1:]:
+        prev_start, prev_end = merged[-1]
+        if window_start <= prev_end:
+            merged[-1] = (prev_start, max(prev_end, window_end))
         else:
-            merged.append((start, last))
+            merged.append((window_start, window_end))
     return merged

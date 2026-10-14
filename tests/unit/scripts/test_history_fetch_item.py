@@ -1280,7 +1280,9 @@ def _1d_window_starts(provider, symbol="AAA"):
 def _third_last_session():
     from src.intelligence.bars.sessions import nyse_sessions
 
-    return sorted(nyse_sessions(_END.date() - timedelta(days=30), _END.date()))[-3]
+    # The overlap re-asks closed sessions only: _END (12:00 UTC) falls inside its own session.
+    sessions = nyse_sessions(_END.date() - timedelta(days=30), _END.date())
+    return sorted(day for day, (_, close) in sessions.items() if close <= _END)[-3]
 
 
 def test_port_overlap_sessions_adds_the_recent_sessions_window_to_each_1d_symbol(env):

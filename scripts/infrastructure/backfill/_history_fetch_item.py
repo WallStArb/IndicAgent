@@ -46,7 +46,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -616,6 +616,12 @@ def _plan_gaps(
     return kept
 
 
+def _closed_sessions(first: date, now: datetime) -> list[date]:
+    """NYSE session dates from `first` through now's date whose session has closed at `now`."""
+    sessions = nyse_sessions(first, now.date())
+    return [day for day in sessions if session_complete_at(day, now, sessions)]
+
+
 def _with_verification_asks(
     ctx: FetchContext,
     timeframe: str,
@@ -643,14 +649,14 @@ def _with_verification_asks(
     if timeframe == "1d":
         gaps_d = [(a.date(), b.date()) for a, b in gaps]
         if refetch:
-            window = nyse_sessions(start_dt.date(), end_dt.date())
+            window = _closed_sessions(start_dt.date(), end_dt)
             gaps_d = with_overlap_window(gaps_d, window, end_dt.date(), len(window))
         elif ctx.overlap_sessions > 0:
             # Sessions back from end, with calendar slack for weekends and holidays.
             overlap_days = int(ctx.overlap_sessions * 1.6) + 10
             gaps_d = with_overlap_window(
                 gaps_d,
-                nyse_sessions(end_dt.date() - timedelta(days=overlap_days), end_dt.date()),
+                _closed_sessions(end_dt.date() - timedelta(days=overlap_days), end_dt),
                 end_dt.date(),
                 ctx.overlap_sessions,
             )

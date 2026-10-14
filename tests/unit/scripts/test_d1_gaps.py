@@ -266,17 +266,34 @@ class TestDetectGaps1dFromD1:
         # End-exclusive: the range ends at the last missing session's own day end.
         assert plan == [(self._D1, self._D3)]
 
-    def test_a_session_still_forming_is_not_planned_and_the_window_caps_at_now(self):
-        # Mid-session on the 6th: the 7th's slot has not started (not planned), and
-        # the 6th's ask is capped at now so the half-formed session is re-asked
-        # once its day completes -- a no_data answer for the capped window cannot
-        # cover the whole day.
+    def test_a_session_still_forming_is_not_planned(self):
+        # Mid-session on the 6th (02:00 UTC is the evening of the 5th in New York, D2 not
+        # started): D1 is stored, D2 and D3 are not complete, so nothing is asked.
         early = datetime(2026, 1, 6, 2, 0, tzinfo=UTC)
         conn = _FakeConn([(self._midnight(self._D1), None)], [])
         plan = detect_gaps_1d_from_d1(
             conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=early
         )
-        assert plan == [(self._D2, self._D2)]
+        assert plan == []
+        midday = datetime(2026, 1, 6, 18, 0, tzinfo=UTC)  # D2 still trading (closes 21:00)
+        conn = _FakeConn([(self._midnight(self._D1), None)], [])
+        assert (
+            detect_gaps_1d_from_d1(
+                conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=midday
+            )
+            == []
+        )
+
+    def test_a_closed_session_is_asked_the_moment_it_closes_never_a_zero_length_window(self):
+        # 22:00 UTC on the 6th: D2 closed at 21:00, before the next 00:00 UTC. The window is the
+        # whole session day (D2, D3), end-exclusive, never capped at now into (D2, D2).
+        closed = datetime(2026, 1, 6, 22, 0, tzinfo=UTC)
+        conn = _FakeConn([(self._midnight(self._D1), None)], [])
+        plan = detect_gaps_1d_from_d1(
+            conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=closed
+        )
+        assert plan == [(self._D2, self._D3)]
+        assert all(start < end for start, end in plan)
 
     def test_sessions_outside_the_requested_window_are_ignored(self):
         sessions = self._sessions()
