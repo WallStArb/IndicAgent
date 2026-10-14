@@ -321,16 +321,22 @@ def write_raw(
     batch_rows: int,
     future_tolerance_s: int,
     now: datetime | None = None,
+    repair: bool = False,
 ) -> list[RawDelta]:
     """Classify and write one chunk of vendor-served bars; return one RawDelta per series.
 
     `vendor_codes` and `kind_codes` are the caller's cached VocabularyService.active_codes
     sets. A key offered twice with different values raises ValueError before any SQL. Never
     commits: the caller's transaction owns the write.
+
+    `repair=True` is the 191-07 raw repair (scripts/ops/bars/ops_raw_repair.py): it puts back a
+    value the vendor served and the ledgers hold, under its own repair load, so there is no
+    vendor request to name and `request_id` may be None (the replaced value is still logged).
     """
-    if load_id is None or request_id is None:
+    if load_id is None or (request_id is None and not repair):
         raise ValueError(
-            "write_raw requires load_id and request_id (only the backfill writes NULLs)"
+            "write_raw requires load_id and request_id (only the backfill writes NULLs, and a "
+            "repair a NULL request_id)"
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
@@ -505,3 +511,67 @@ def read_stored_closes(
     with conn.cursor() as cur:
         cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, sorted(set(timestamps))))
         return {row[0]: row[4] for row in cur.fetchall()}
+
+
+_READ_HELD_SQL = (
+    'SELECT "timestamp" FROM ohlcv_revision WHERE load_id = %s AND symbol = %s '
+    "AND timeframe = %s AND vendor = %s AND kind = %s AND origin = 'pending' "
+    'AND "timestamp" = ANY(%s)'
+)
+
+
+def hold_legacy_refusal(
+    conn: Any,
+    rows: Iterable[RawRow],
+    *,
+    load_id: uuid.UUID,
+    vendor_codes: Collection[str],
+    kind_codes: Collection[str],
+    future_tolerance_s: int,
+    now: datetime | None = None,
+) -> int:
+    """Hold the values a retired-path refused load served as pending revisions (191-07 repair).
+
+    The raw backfill copied the archived serves of the retired path's refused loads into raw, so
+    those values became current; the repair puts the accepted value back (write_raw, repair) and
+    calls this to keep the refused value in the D-191-I form: an ohlcv_revision row of origin
+    `pending` under the ORIGINAL refused load, old_* holding the offered value. The refused
+    serve's request is not recorded (the retired path wrote no request id with it), so
+    request_id is NULL. Idempotent: a key already held under the load is skipped. Returns the
+    rows written. Never commits.
+    """
+    if load_id is None:
+        raise ValueError("hold_legacy_refusal requires the refused load_id")
+    latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
+    held: list[tuple] = []
+    for (symbol, timeframe, vendor, kind), keyed in sorted(
+        _group_by_series(
+            rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
+        ).items()
+    ):
+        label = _label(vendor, kind)
+        with conn.cursor() as cur:
+            cur.execute(_READ_HELD_SQL, (load_id, symbol, timeframe, vendor, kind, sorted(keyed)))
+            already = {r[0] for r in cur.fetchall()}
+        for ts in sorted(keyed):
+            if ts in already:
+                continue
+            values = _values(keyed[ts])
+            held.append(
+                (
+                    load_id,
+                    symbol,
+                    timeframe,
+                    ts,
+                    *values[:5],
+                    label,
+                    vendor,
+                    kind,
+                    None,
+                    _ORIGIN_PENDING,
+                )
+            )
+    if held:
+        with conn.cursor() as cur:
+            _write_revisions(cur, held)
+    return len(held)

@@ -11,6 +11,7 @@ from services.ohlcv_raw_writer import (
     BATCH_ROWS_KEY,
     FUTURE_TOLERANCE_KEY,
     RawRow,
+    hold_legacy_refusal,
     hold_pending,
     preview_series,
     read_write_params,
@@ -357,3 +358,53 @@ def test_hold_pending_dedupe_is_null_volume_safe():
     conn = FakeConn([_pending(row)])
     _hold(conn, [row])
     assert not conn.sql("INSERT INTO ohlcv_revision")
+
+
+# --- 191-07 repair: write_raw repair mode and hold_legacy_refusal -------------------------
+
+
+def test_repair_mode_writes_a_null_request_id_and_still_logs_the_replaced_value():
+    accepted = _row(0, close=10.0)
+    conn = FakeConn([_stored(_row(0), close=10.5, request_id=None)])
+    (delta,) = _write(conn, [accepted], request_id=None, repair=True)
+    assert (delta.new, delta.changed) == (0, 1)
+    ((_, rev),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert rev[7] == 10.5 and rev[-1] == "raw"
+    ((_, up),) = conn.sql("INSERT INTO ohlcv_raw")
+    assert up[-2:] == [None, LOAD]
+
+
+def test_repair_mode_still_needs_the_load_id():
+    with pytest.raises(ValueError, match="load_id"):
+        _write(FakeConn(), [_row()], load_id=None, request_id=None, repair=True)
+
+
+def _legacy(conn, rows, **kw):
+    args = dict(vendor_codes=VENDORS, kind_codes=KINDS, future_tolerance_s=3600, now=NOW)
+    args.update(kw)
+    return hold_legacy_refusal(conn, rows, load_id=kw.pop("load_id", LOAD), **args)
+
+
+def test_hold_legacy_refusal_writes_pending_rows_under_the_refused_load_with_no_request():
+    conn = FakeConn()
+    assert _legacy(conn, [_row(0, close=12.0)]) == 1
+    assert not conn.sql("INSERT INTO ohlcv_raw")
+    ((select_sql, select_params),) = conn.sql("SELECT")
+    assert "origin = 'pending'" in select_sql and select_params[0] == LOAD
+    ((_, params),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert params[0] == LOAD and params[4:9] == [9.0, 11.0, 8.5, 12.0, 100]
+    assert params[9:] == ["ibkr_named", "ibkr", "named", None, "pending"]
+
+
+def test_hold_legacy_refusal_is_idempotent_per_key():
+    row = _row(0, close=12.0)
+    conn = FakeConn([(row.timestamp,)])
+    assert _legacy(conn, [row]) == 0
+    assert not conn.sql("INSERT INTO ohlcv_revision")
+
+
+def test_hold_legacy_refusal_validates_before_any_sql():
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="vendor 'nope'"):
+        _legacy(conn, [_row(vendor="nope")])
+    assert conn.cur.executed == []

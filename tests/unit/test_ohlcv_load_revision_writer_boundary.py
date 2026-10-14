@@ -46,6 +46,7 @@ _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
 
 _BACKFILL = "scripts/ops/bars/ops_raw_backfill.py"
+_REPAIR = "scripts/ops/bars/ops_raw_repair.py"
 
 # table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
 # records: sources MAY overlap between writers now (vendor names are shared by the ingress
@@ -74,6 +75,13 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "TEMPORARY retire: 191-17. The --revisions mode writes one load per (symbol, vendor, "
             "restatement ordinal) with destination raw, outcome applied, caller raw-backfill-191 "
             "(phase 191 plan 04, D-191-E).",
+        ),
+        _REPAIR: (
+            frozenset({"*"}),
+            frozenset({"raw-repair-191"}),
+            "TEMPORARY retire: 191-17. The 191-07 raw repair records one load per (series, "
+            "vendor) it puts back to the accepted value (destination raw, outcome applied, "
+            "caller raw-repair-191); its raw rows and revisions go through the raw writer.",
         ),
     },
     "ohlcv_revision": {
@@ -164,3 +172,10 @@ def test_the_pattern_catches_each_write_form():
     assert pattern.search('conn.copy_records_to_table("ohlcv_revision", records=r)')
     assert not pattern.search("SELECT * FROM ohlcv_revision")
     assert not pattern.search("JOIN ohlcv_revision r ON r.load_id = l.load_id")
+
+
+def test_the_repair_caller_is_the_literal_the_module_writes_and_no_other_writer_uses_it():
+    repair = (_REPO_ROOT / _REPAIR).read_text()
+    assert 'CALLER = "raw-repair-191"' in repair
+    for module in (_INGRESS, _BACKFILL, _DERIVATION):
+        assert "raw-repair-191" not in (_REPO_ROOT / module).read_text()
