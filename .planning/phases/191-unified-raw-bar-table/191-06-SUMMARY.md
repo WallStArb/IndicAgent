@@ -24,7 +24,7 @@ metrics:
 
 # Phase 191 Plan 06: fetcher-side readers onto ohlcv_raw, per source Summary
 
-The gap planner, the answered-window and existence reads, the empty-history probes, the queue's 1d currency read and the coverage ledger now read the asking vendor's own `ohlcv_raw` rows and requests. Nothing in the fetch process reads `ohlcv_observation` or `ohlcv_intraday_raw_archive`, and another vendor's rows, answers or the canonical selection never cover a slot.
+The gap planner, the answered-window and existence reads, the empty-history probes, the queue's 1d currency read and the coverage ledger now read the asking vendor's own `ohlcv_raw` rows and requests. The planner, existence, queue and ledger reads touch neither `ohlcv_observation` nor `ohlcv_intraday_raw_archive`. The fetch process as a whole still reads `ohlcv_observation`: `ohlcv_history_fetcher.py` imports `split_detection.overlap_pairs` (`services/split_detection.py` reads `ohlcv_observation`) and the run-end daily stage runs through `bar_derivation.py`. The plan truth "no fetch-process module references `ohlcv_observation`" is therefore met only after plan 10 moves split detection and the evidence readers, and plan 08 moves the daily stage. Another vendor's rows, answers or the canonical selection never cover a slot.
 
 Code commit: `886e9c212` (one commit for both tasks: the item module wires the planner and the coverage destination together, so splitting them leaves a commit that does not import). This summary follows in its own commit.
 
@@ -74,7 +74,7 @@ The plan expected differences only where the old planner "ignored loser rows". T
 Unit and integration:
 - `tests/unit/` full run: exit 0 (two pre-existing skips), run after the code change (a later docstring-only edit was followed by the touched-area suites).
 - `tests/integration/test_ohlcv_coverage_atomic_write.py` (8 passed) and `test_ingress_write_contract.py` (one skip: no compressible chunk on the test database).
-- Greps from the plan: `grep -rnE "(FROM|JOIN|INTO|COPY)\s+(ohlcv_observation|ohlcv_intraday_raw_archive)" scripts/infrastructure services/ohlcv_coverage_writer.py services/bar_load.py` is empty; the coverage writer mentions neither old store. No file under `src/intelligence/research` or `statistics` changed, so `repro_frozen` is not required.
+- Greps from the plan (they cover the planner, writer and load modules named in the grep, not the fetcher's import of `split_detection`): `grep -rnE "(FROM|JOIN|INTO|COPY)\s+(ohlcv_observation|ohlcv_intraday_raw_archive)" scripts/infrastructure services/ohlcv_coverage_writer.py services/bar_load.py` is empty; the coverage writer mentions neither old store. No file under `src/intelligence/research` or `statistics` changed, so `repro_frozen` is not required.
 - ruff and black clean on touched files. mypy on `_d1_gaps.py`: two arg-type errors in lines that predate this plan (`Sequence` against `list`, `EmptyRange | None`).
 
 ## Coverage ledger rebuild and 20-row comparison

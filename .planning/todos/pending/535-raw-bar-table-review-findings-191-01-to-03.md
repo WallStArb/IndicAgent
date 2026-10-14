@@ -54,6 +54,26 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 - Still open: items 2, 3, 4 and the `bar_derivation_writer` grant on `ohlcv_raw`; the CASCADE on
   `ohlcv_revision.load_id` (plan 25 Tradier retire).
 
+## Open items from the plan 191-06 review (2026-10-14), not fixed in the 06 fixes
+
+6. Medium: any single route's `no_data` covers a 1d session. `_d1_gaps.py` (`_ANSWERED_WINDOWS_SQL`
+   with `_DAILY_ROUTES`) treats a `no_data` window on SMART or on any one listing-venue route as
+   covering the session; the empty-history rule (`confirmed_empty_spans`) requires every required
+   route to agree. Live mechanism: SCHW SMART `no_data` 2006-10-05..2010-03-04 over 651 venue
+   bars; DAL ISLAND `failed` while SMART/ARCA/AMEX/BATS answered `no_data` in the same run. No
+   hole found today (DAL and VRP are genuinely pre-listing), but a failed listing-venue walk under
+   a SMART `no_data` window would never be asked again. Fix: for 1d, the confirmed spans (every
+   required route `no_data` in one run) become the `no_data` coverage, not per-route windows.
+   Recommended placement: plan 191-08 (the daily rule), before the fetcher resumes, with a
+   fake-conn test of a SMART `no_data` over a span a venue route failed.
+10. Low: a forming 15m or 1h bar is asked, stored and counted as covered. `plan_gaps` caps the
+    forming slot at `run_end`; IBKR returns the partial bar; it is stored and counts as a slot.
+    5m is re-asked by the update overlap (last-wins), 15m and 1h have no overlap lane, so a
+    partial bar stays until a gap-fill restates it. Reach is limited (15m and 1h are parity and
+    derived series). Fix: drop intraday slots whose end is after `now` from the horizon, as the 1d
+    planner now does for unfinished sessions (`session_complete_at`). Recommended placement: plan
+    191-08 with item 6, one planner pass, so the intraday rule and the 1d rule are decided together.
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land
