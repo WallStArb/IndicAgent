@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-12T10:35:00.000Z"
+last_updated: "2026-10-14T18:00:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -45,9 +45,17 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 190 (Provider history plane unification) — COMPLETE 2026-10-10 (7/7 plans; the
-cutover: 465 + conflict-target flip at CUT_TS 11:59:48Z, unified fetcher verified, 07
-wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-14. Plans 01 to 07 done,
+each independently reviewed and fixed (reviews in the phase dir; 07 fixes in 191-07-FIXES.md, a
+fresh review of those fixes is next). Next: plan 08 (daily stage over raw), then 10 (evidence
+readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
+
+- **Cutover window open since 2026-10-13T19:00:40Z:** ten units held (fetcher, reconciliation
+  audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer);
+  the 5m IBKR backfill is paused. Selection gate exits 3 (explained residue): 26 slots on 9 series
+  need an IBKR re-serve (`--reserve-keys logs/raw_repair_191_rerun_dry.json`) once the fetcher
+  runs. Derived 15m/1h over 3,022 repaired 5m slots are stale until bar-derivation resumes.
+  Owner acknowledgement pending: D-191-B, D, G, M; plan 20 (Tradier deletion) has an owner checkpoint.
 
 - **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
   the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00
@@ -57,25 +65,17 @@ wrap-up landed; the backfill restart awaits the owner lifting the pull hold)
   marker after indicagent-87's 554-name derive pass, and data_layer_final_landed still
   requires 189-11 (vendor rows out of the grid -- 38.8M remain until that pass lands; do NOT
   drop the requirement). feature_vectors_v2 was found missing from the live DB and migration
-  425 was applied from the committed file (0 rows, awaiting the rebuild).
+  425 was applied from the committed file (0 rows, awaiting the rebuild). The rebuild does not
+  run during phase 191 plans 04 to 14.
 
-- **Deep 5m backfill RUNNING again 2026-10-12, two blockers fixed:** every IBKR ingress write
-  had failed since 2026-10-10 15:03 UTC (the load row carried the bar label `ibkr_named`, which
-  the `ohlcv_load` CHECK refuses; 1,594 windows, zero loads; fixed 33a177772, one label-to-vendor
-  map in `sources.LABEL_VENDOR` 31e61063c), and a refused chunk ended the provider's backward walk,
-  so Alpaca-covered names never reached older IBKR history (fixed 9c0695b7a: the refused rows are
-  archived, the refusal still fails the item, the walk continues). Gateway re-authed 08:32 UTC
-  after the nightly restart; the fetcher timer runs every 15 minutes on the fixed code.
-- **Todo 533 is P0 (owner 2026-10-12): the data layer's final state.** One raw table for every
-  vendor and timeframe (last-wins plus a revision log), canonical as a rebuildable selection,
-  `ohlcv_observation` and the intraday raw archive deleted, vendors as CVR data (Databento
-  onboards without a migration). Step 0 (pause the 15m/1h parity lane, fix the all-error
-  `partial` run status) and the design doc come next, then a phase. The 5m backfill keeps
-  running meanwhile: it is lossless and migrates without a refetch. Todo 530 closes with it.
+- **Todo 533 is P0 (owner 2026-10-12): the data layer's final state,** executed as phase 191.
+  Owner principle 2026-10-13: each source's raw data is fetched and stored agnostic to other
+  sources; canonical is a selection over raw. Review findings live in todo 535.
 
 - **Pull hold REOPENED for the deep 5m backfill (owner 2026-10-10 late):** the owner named the
   consumer for deep history (HMM p-values and IC at intraday horizons), which reopens todo
   523's 2006-2015 tail backfill; the fetcher timer is enabled again (22:06 EDT, IBKR connected).
+  Paused since 2026-10-13 by the phase 191 cutover window (see above).
   1d is already deep (median start 2006-06); the backfill's unique product is the 2006-2015
   intraday tail, ~18 days at the measured 88 requests/hour. The 186-26 rebuild runs in
   parallel (stable 2016+ units; old-year 5m units recompute after the backfill via digests).

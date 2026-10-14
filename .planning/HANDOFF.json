@@ -1,34 +1,37 @@
 {
- "version": "1.0",
- "timestamp": "2026-10-14T14:00:00Z",
- "phase": "191",
- "phase_name": "unified-raw-bar-table",
- "plan": "191-07 done and reviewed; fix executor for the review findings is next (not yet launched)",
- "status": "in_progress",
- "completed_tasks": [
-  "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
-  "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
-  "migrations 473 to 478 applied (477 origin pending, 478 head_kind floors)",
-  "full reconcile applied: 6,151 canonical-only values logged as revisions",
-  "191-07 executed: Alpaca 5m spans (1,641 rows), session filter, selection lock, gate over 318.9M rows zero unexplained; 9,211 explained slots on 57 series NOT yet repaired"
- ],
- "remaining_tasks": [
-  "FIX the 07 review (191-07-REVIEW.md in the phase dir, copied from the scratchpad; earlier reviews are 191-01-03-REVIEW.md, 191-04-05-REVIEW.md, 191-06-REVIEW.md): (1) HIGH gate exits 0 on 9,211 differing slots and refused_value_selected tests nothing (count raw rows served by a refused load; non-zero exit while explained value slots remain); (2) HIGH repair step (a) would write truncated 14:00 UTC edge bars into raw: fix the provider chunk edge in src/providers/ibkr.py:1132,1340 (align request end or drop the straddling/forming bar, the 5m analogue of D-191-J) and re-serve those keys instead of copying canonical into raw; (3) refused_self_restatement mislabels 17-22 slots; (4) repair step (b) premise wrong for most slots: repair through the raw writer under the selection lock with a new repair load, write refused values as pending under the original refused load_id only where no later applied serve exists, never delete the 6,146 raw-backfill-191 revision rows, then rerun the gate and idempotence over all 57 series (0 inserted, 0 replaced); (5) tighten refused_cross_vendor before plans 12-14 reuse it; (6) backdated spans must re-select [valid_from, valid_to) or be refused without a flag; (7) low items in the review",
-  "Raw repair of the 9,211 explained slots BEFORE the fetcher resumes (order in 191-07-SUMMARY.md: refresh 148 stale raw keys from canonical; restore 6,168 raw rows to the accepted value and hold the later serve as pending revisions; accept 2,619 additions and 276 vendor differences as catch-up); then verify by rolled-back selection probe (must insert 0, replace 0)",
-  "191-08 (daily stage) and 191-10 (split_detection) must land before the fetcher resumes; 191-09 and 11 to 25 after, serially, one gsd-executor each, each followed by a fresh-context read-only review and a fix executor; 17 and 19 time-gated; 20 needs the owner Tradier deletion checkpoint",
-  "todos 505 and 395; PSKY, QRVO, WBD excluded from the 1d queue for an unknown cause; onboarding a new name must add its 5m policy span"
- ],
- "blockers": [
-  "Cutover window open since 2026-10-13T19:00:40Z: ten units held (logs/raw_cutover_window.json), none resumed. The fetcher timer and service stay held until plans 06, 08 and 10 have summaries (resume guard refuses; override flag is logged). The 5m backfill is paused until then.",
-  "Do not run ops_bar_nightly or ops_bar_load against live data before plan 07 verifies the Alpaca 5m spans (Alpaca 5m writes raw but no canonical row lands)."
- ],
- "human_actions_pending": [
-  "owner acknowledgement of D-191-B, D and G",
-  "plan 20 Tradier deletion checkpoint"
- ],
- "uncommitted_files": [
-  "dashboard/package.json (another session's dependency bumps; not ours)"
- ],
- "next_action": "Launch a fix executor on 191-07-REVIEW.md (items 1-6, provider edge fix first), then the raw repair, then a fresh read-only review, then the 191-08 executor.",
- "context_notes": "Owner principle 2026-10-13: fetch per source, agnostic to other sources; gap = this source's expected slots minus its own raw minus its own answered windows; canonical derived from raw plus policy; a refusal belongs to selection (held series keep stored raw current, pending revisions). Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Plans 05 to 19 carry amendments from the reviews. Usage limits killed two agents on 2026-10-13/14: executors should commit finished work before long steps."
+  "version": "1.0",
+  "timestamp": "2026-10-14T18:00:00Z",
+  "phase": "191",
+  "phase_name": "unified-raw-bar-table",
+  "plan": "191-07 done, reviewed and fixed (191-07-FIXES.md); a fresh read-only review of the fixes is running or done (191-07-FIXES-REVIEW.md)",
+  "status": "in_progress",
+  "completed_tasks": [
+    "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
+    "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
+    "migrations 473 to 478 applied (477 origin pending, 478 head_kind floors)",
+    "full reconcile applied: 6,151 canonical-only values logged as revisions",
+    "191-07 executed: Alpaca 5m spans (1,641 rows), session filter, selection lock, gate over 318.9M rows zero unexplained; 9,211 explained slots on 57 series NOT yet repaired"
+  ],
+  "remaining_tasks": [
+    "Review of the 07 fixes, then any fix executor",
+    "Plan 191-08 (daily stage over raw; also todo 535 items 6, 10, 15)",
+    "Plan 191-10 (evidence readers)",
+    "Fetcher resume, --reserve-keys run, gate exit 0, re-derive stale 15m/1h",
+    "Plans 09, 11 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint)"
+  ],
+  "blockers": [
+    "Cutover window open since 2026-10-13T19:00:40Z: ten units held (logs/raw_cutover_window.json), none resumed. The resume guard refuses the fetcher until plans 06, 08 and 10 have summaries. The 5m backfill is paused.",
+    "Selection gate exits 3: 26 slots on 9 series need an IBKR re-serve (todo 535 item 11).",
+    "Do not run ops_bar_nightly or ops_bar_load against live data before the fetcher resumes and the gate exits 0."
+  ],
+  "human_actions_pending": [
+    "owner acknowledgement of D-191-B, D, G and M",
+    "plan 20 Tradier deletion checkpoint"
+  ],
+  "uncommitted_files": [
+    "dashboard/package.json (another session)",
+    "tests/unit/scripts/test_bar_campaign_preflight.py (one blank line, not ours)"
+  ],
+  "next_action": "Read 191-07-FIXES-REVIEW.md; if it has HIGH or MEDIUM findings, run a fix executor; then run the 191-08 executor, review, fix; then 191-10; then the fetcher may resume (run --reserve-keys logs/raw_repair_191_rerun_dry.json, then the selection gate, which must exit 0).",
+  "context_notes": "Owner principle 2026-10-13: fetch per source, agnostic to other sources; gap = this source's expected slots minus its own raw minus its own answered windows; canonical derived from raw plus policy; a refusal belongs to selection (held series keep stored raw current, pending revisions). Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Plans 05 to 19 carry amendments from the reviews. Usage limits killed two agents on 2026-10-13/14: executors should commit finished work before long steps."
 }

@@ -642,13 +642,13 @@ Plans:
 **Plans:** 25 plans
 
 Plans:
-- [ ] 191-01-PLAN.md - schema (ohlcv_raw, CVR bar_vendor/bar_kind, revision extension, widened checks), vendor_kind module, glossary, decision record D-191-A to H (R-191-01)
-- [ ] 191-02-PLAN.md - new writers as additive modules: raw writer with future-timestamp guard, pure selection plus canonical selection writer, request writer, CI guards (R-191-02, R-191-04)
-- [ ] 191-03-PLAN.md - bulk raw backfill from canonical, archive and observation with balance check, compression policy (R-191-03)
-- [ ] 191-04-PLAN.md - open the cutover window (stop fetcher, readers and canonical writers; per-unit clearance), delta backfill, revision key migration and reconstruction, raw-first contract entry point beside the old one (R-191-02)
-- [ ] 191-05-PLAN.md - fetch path writers switch, old contract entry point removed, boundary tests they break (R-191-04)
-- [ ] 191-06-PLAN.md - fetcher-side readers: coverage ledger and gap planner over raw (R-191-06)
-- [ ] 191-07-PLAN.md - selection rebuild gate (canonical equals selection from raw), Alpaca policy spans, fetcher resumes (R-191-05)
+- [x] 191-01-PLAN.md - schema (ohlcv_raw, CVR bar_vendor/bar_kind, revision extension, widened checks), vendor_kind module, glossary, decision record D-191-A to H (R-191-01)
+- [x] 191-02-PLAN.md - new writers as additive modules: raw writer with future-timestamp guard, pure selection plus canonical selection writer, request writer, CI guards (R-191-02, R-191-04)
+- [x] 191-03-PLAN.md - bulk raw backfill from canonical, archive and observation with balance check, compression policy (R-191-03)
+- [x] 191-04-PLAN.md - open the cutover window (stop fetcher, readers and canonical writers; per-unit clearance), delta backfill, revision key migration and reconstruction, raw-first contract entry point beside the old one (R-191-02)
+- [x] 191-05-PLAN.md - fetch path writers switch, old contract entry point removed, boundary tests they break (R-191-04)
+- [x] 191-06-PLAN.md - fetcher-side readers: coverage ledger and gap planner over raw (R-191-06)
+- [x] 191-07-PLAN.md - selection rebuild gate (canonical equals selection from raw), Alpaca policy spans, fetcher resumes (R-191-05)
 - [ ] 191-08-PLAN.md - daily rule and grid stage read raw; 1d equivalence check; conservative pairing rule (R-191-06)
 - [ ] 191-09-PLAN.md - canonical_bar_lineage and ohlcv_venue_head over raw first, then D7 and bar auditor; D7 and auditor units resume last (R-191-06)
 - [ ] 191-10-PLAN.md - evidence readers: split detection, listing venue, bar hold, dividend writer, nightly (R-191-06)

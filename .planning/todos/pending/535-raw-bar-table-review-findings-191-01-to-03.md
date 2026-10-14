@@ -85,6 +85,22 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
     planner now does for unfinished sessions (`session_complete_at`). Recommended placement: plan
     191-08 with item 6, one planner pass, so the intraday rule and the 1d rule are decided together.
 
+## Open items after the plan 191-07 fixes (2026-10-14, 191-07-FIXES.md)
+
+11. 26 slots on 9 series need an IBKR re-serve: 9 raw rows from refused loads (HD, HON, IGV, ISRG,
+    ITA 2026-05-15 15:25; RLAY 2026-10-09 14:10; SHY, TLT, TMUS 2026-10-09 19:05) and 17 TMUS
+    truncated 19:05 bars. Run the fetcher's `--reserve-keys logs/raw_repair_191_rerun_dry.json`
+    once the fetcher resumes, then the selection gate (must exit 0). A refused re-serve stays as
+    residue for a decision.
+12. Derived 15m/1h over the 2,619 added and 403 replaced 5m slots are stale until bar-derivation
+    resumes; re-derive those days when it does.
+13. Not built: a check that catches a calendar defect dropping a whole Alpaca day; resetting
+    `price_sanity_status` and `base` when selection replaces a canonical row (verify whether they
+    go stale first).
+14. D-191-M (the one-time catch-up of 2,895 refused_cross_vendor slots) needs owner acknowledgement.
+15. Item 10 (forming 15m/1h bar): the IBKR leaf now drops a bar still forming at the request end
+    (eeb0fb7c6); plan 08 confirms whether that closes item 10 or the planner horizon still needs it.
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land
