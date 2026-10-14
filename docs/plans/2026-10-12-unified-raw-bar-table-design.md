@@ -222,6 +222,114 @@ Status: planner decision (review of plan 191-07), owner acknowledged 2026-10-14 
 4. `scripts/ops/bars/ops_raw_repair.py` makes raw the vendor's accepted answer on the explained slots: the accepted value goes back through the raw writer under a `raw-repair-191` load, the refused value becomes a `pending` revision under its original refused load where no later serve answered the slot, and no raw or revision row is deleted.
 5. A direct-timeframe policy span effective before today is written only with `--reselect`, which re-selects the window it changes in the same transaction.
 
+#### D-191-M amendment (second review of plan 191-07, 2026-10-14)
+
+Status: planner decision, applied 2026-10-14. **Owner acknowledgement needed before plans 191-08 and 191-10 rely on it.**
+
+The amendment replaces items 2 to 4 where they differ.
+
+6. A legacy refused load is judged once, as a whole, under the per-source contract (D-191-K). The first repair split each such load key by key: new keys went to raw as a catch-up, changed keys were held. That matches neither outcome of the contract. `scripts/ops/bars/ops_refusal_rejudge.py` judged each of the 75 legacy refused 5m loads with `should_refuse` (`threshold.bar_integrity.max_revision_ratio` 0.02, `revision_ratio_min_stored` 500).
+   - The offer is the rows the load archived; complete bars only (item 8).
+   - The judgment is against the vendor's own values at the refusal, never another vendor's canonical row.
+   - Accepted: the offered values land last-wins; raw holds the vendor's latest complete answer at each key, and pending rows the first repair made for that load are released.
+   - Refused: every complete offered value that differs from the vendor's stored value is held pending under the original refused load, new keys included. Raw keeps the stored value. A key only that load supplied is withdrawn from raw, its value logged, and canonical is retracted there unless another vendor holds the session (missing is NaN).
+   - A load whose offer was never archived cannot be judged and is left as it is.
+7. A later serve excuses a refused value only on exact-key evidence: a raw or revision row of that load at the key, or the request window it persisted holding the whole bar (`infra.selection_gate.request_load_match_s` ties a legacy load to its request). A load whose dates include the slot is no evidence. A held value that the vendor serves again and the contract accepts is answered again and no longer held.
+8. A bar is a complete vendor answer only when its block ended at or before the request end and before the answer, and, for a bar ending at the session close, the answer came at least `threshold.bar_integrity.session_close_settle_s` (1,800 s) after the close.
+   - This is `src/intelligence/bars/complete_bars.py`, applied in the shared fetch layer to every vendor. It replaces item 3's leaf rule: policy never enters a leaf.
+   - A held-back bar is written on its request row (`ohlcv_request.partial_bars`), and the gap planner does not count its slot as answered.
+9. Selection takes each session whole from one vendor: the first ranked vendor holding every slot any ranked vendor holds. With none complete, it takes the vendor holding most, and the other vendor's slots are left empty. A session spliced from two vendors is never written, and the gate counts one as residue.
+
+Applied (`logs/refusal_rejudge_191_apply.json`): 53 accepted, 7 held, 15 unjudgeable.
+- Raw writes: 1,299 changed values, 438,346 rows restamped (served_at and lineage only), 3,469 withdrawn.
+- Pending rows: 3,542 added and 1,290 released, from 2,400 to 4,652.
+- Canonical: 1,331 rows replaced and 446 retracted.
+- Afterwards the selection gate over the 57 series exits 0.
+- 3,525 keys wait for an IBKR re-serve (`logs/reserve_keys_191_07.json`).
+
+The review expected ADM, AEP, AMT, ASML and BA to refuse above 2%. Judged against the vendor's own values (its denominator excludes Alpaca rows), they refuse at 3.9 to 5.8%, and AMZN refuses at 3.1% as well. The loads at about 0.3 to 0.7% apply. ECL, ELV and EMR apply at 1.3 to 1.4% of 3,393 own values, and TLT at 1.3%. GE d2adcf51 (the 2021-11 two-decimal serve) refuses at 40%.
+
+Per-load decisions ("Share" is changed over own stored; "Partial" is offered bars that were not complete answers):
+
+| Series | Refused load | Loaded (UTC) | Offered | Partial | Own stored | Changed | New | Share | Outcome |
+|---|---|---|---:|---:|---:|---:|---:|---:|---|
+| ADM | b0a0f500 | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| ADM | 898c4a50 | 2026-10-12 23:23 | 1,248 | 0 | 671 | 27 | 577 | 4.02% | held |
+| AEP | c69d6aef | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| AEP | 04f17062 | 2026-10-12 23:23 | 1,248 | 0 | 671 | 39 | 577 | 5.81% | held |
+| AGG | 6fa42c0e | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| AMT | 02320e48 | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| AMT | 59097ead | 2026-10-12 23:24 | 1,248 | 0 | 671 | 32 | 577 | 4.77% | held |
+| AMZN | fd861b88 | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| AMZN | 86c21967 | 2026-10-12 23:24 | 1,248 | 0 | 671 | 21 | 577 | 3.13% | held |
+| ASML | 04f5be01 | 2026-10-10 06:38 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| ASML | 49aa4190 | 2026-10-12 23:24 | 1,248 | 0 | 671 | 26 | 577 | 3.87% | held |
+| AVGO | a5fff3ac | 2026-10-10 13:04 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| BA | dd4c7a43 | 2026-10-10 07:11 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| BA | 4e945cfd | 2026-10-12 23:24 | 1,248 | 0 | 671 | 31 | 577 | 4.62% | held |
+| BAC | c2b4b7f7 | 2026-10-10 07:11 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| BKNG | 88664ca1 | 2026-10-10 07:12 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| CAT | ac03aadb | 2026-10-10 07:45 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| CCJ | 4b85467d | 2026-10-10 07:45 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| CRWD | 9c5587e4 | 2026-10-10 13:04 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| ECL | 5b018953 | 2026-10-12 08:55 | 11,700 | 0 | 3,393 | 47 | 8,307 | 1.39% | accepted |
+| EDV | 3e454cb8 | 2026-10-10 13:04 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| EEM | 08b0749b | 2026-10-12 08:56 | 11,700 | 0 | 11,152 | 57 | 548 | 0.51% | accepted |
+| EFA | da4f32a1 | 2026-10-12 08:57 | 11,700 | 0 | 11,152 | 59 | 548 | 0.53% | accepted |
+| ELV | 55da0971 | 2026-10-12 08:57 | 11,700 | 0 | 3,393 | 49 | 8,307 | 1.44% | accepted |
+| EMLC | 83e58b42 | 2026-10-10 13:05 | 0 | 0 | 0 | 0 | 0 | 0.00% | unjudgeable |
+| EMR | 274b2833 | 2026-10-12 08:58 | 11,700 | 0 | 3,393 | 43 | 8,307 | 1.27% | accepted |
+| EPD | 925de110 | 2026-10-12 08:59 | 11,700 | 0 | 11,152 | 52 | 548 | 0.47% | accepted |
+| EQIX | 219ce71b | 2026-10-12 08:59 | 11,700 | 0 | 11,152 | 48 | 548 | 0.43% | accepted |
+| ETR | 3c3027fd | 2026-10-12 09:00 | 11,700 | 0 | 11,152 | 46 | 548 | 0.41% | accepted |
+| EWG | 28d5b981 | 2026-10-12 09:01 | 11,700 | 0 | 11,152 | 73 | 548 | 0.65% | accepted |
+| EWJ | 952fc697 | 2026-10-12 09:01 | 11,700 | 0 | 11,152 | 53 | 548 | 0.48% | accepted |
+| EWT | 3398a7b5 | 2026-10-12 09:02 | 11,700 | 0 | 11,152 | 50 | 548 | 0.45% | accepted |
+| EWY | c7449de7 | 2026-10-12 09:03 | 11,700 | 0 | 11,152 | 19 | 548 | 0.17% | accepted |
+| EWZ | 60348c89 | 2026-10-12 09:03 | 11,700 | 0 | 11,152 | 80 | 548 | 0.72% | accepted |
+| EXEL | 272ac2d9 | 2026-10-12 09:04 | 11,700 | 0 | 11,152 | 2 | 548 | 0.02% | accepted |
+| EZU | a9442add | 2026-10-12 09:05 | 11,700 | 0 | 11,152 | 52 | 548 | 0.47% | accepted |
+| F | a05bd2c0 | 2026-10-12 09:05 | 11,700 | 0 | 11,152 | 72 | 548 | 0.65% | accepted |
+| FCX | e49b26a6 | 2026-10-12 09:06 | 11,700 | 0 | 11,153 | 32 | 547 | 0.29% | accepted |
+| FDX | e397e14a | 2026-10-12 09:07 | 11,700 | 0 | 11,152 | 53 | 548 | 0.48% | accepted |
+| FXE | 6743298b | 2026-10-12 10:27 | 11,699 | 0 | 11,183 | 31 | 516 | 0.28% | accepted |
+| FXI | 7319d39a | 2026-10-12 11:00 | 11,700 | 0 | 11,175 | 82 | 525 | 0.73% | accepted |
+| GDX | 05661ed6 | 2026-10-12 11:34 | 11,700 | 0 | 11,174 | 22 | 526 | 0.20% | accepted |
+| GE | 2b653430 | 2026-10-12 12:07 | 11,700 | 0 | 11,174 | 31 | 526 | 0.28% | accepted |
+| GE | d2adcf51 | 2026-10-12 12:14 | 11,664 | 0 | 11,664 | 4,680 | 0 | 40.12% | held |
+| GILD | 925bad59 | 2026-10-12 12:40 | 11,700 | 0 | 11,174 | 0 | 526 | 0.00% | accepted |
+| GLD | 6a570f7c | 2026-10-12 13:13 | 11,700 | 0 | 11,174 | 12 | 526 | 0.11% | accepted |
+| GOOGL | a0fdcec7 | 2026-10-12 13:46 | 11,700 | 0 | 11,173 | 11 | 527 | 0.10% | accepted |
+| GS | 2944e456 | 2026-10-12 14:19 | 11,700 | 0 | 11,173 | 0 | 527 | 0.00% | accepted |
+| HD | 0e9536f4 | 2026-10-12 16:18 | 11,646 | 1 | 11,079 | 1 | 566 | 0.01% | accepted |
+| HON | 54e14410 | 2026-10-12 16:51 | 11,701 | 2 | 11,133 | 1 | 566 | 0.01% | accepted |
+| IGV | 66b17962 | 2026-10-12 17:25 | 11,646 | 1 | 11,078 | 33 | 567 | 0.30% | accepted |
+| IHF | 4d65df86 | 2026-10-12 17:58 | 11,646 | 1 | 11,078 | 0 | 567 | 0.00% | accepted |
+| ISRG | 8c8f9cb4 | 2026-10-12 18:31 | 11,646 | 1 | 11,114 | 0 | 531 | 0.00% | accepted |
+| ITA | 82b09c9d | 2026-10-12 19:04 | 11,646 | 1 | 11,113 | 46 | 532 | 0.41% | accepted |
+| ITB | 55044fd9 | 2026-10-13 05:31 | 11,700 | 0 | 11,085 | 0 | 615 | 0.00% | accepted |
+| IWM | 30482284 | 2026-10-13 11:15 | 11,622 | 0 | 11,055 | 12 | 567 | 0.11% | accepted |
+| IYT | 6c575da6 | 2026-10-13 07:05 | 11,700 | 0 | 11,075 | 32 | 625 | 0.29% | accepted |
+| IYZ | 541f33b1 | 2026-10-13 07:21 | 11,700 | 0 | 11,075 | 0 | 625 | 0.00% | accepted |
+| JBHT | 01b9182e | 2026-10-13 11:17 | 11,700 | 0 | 11,133 | 0 | 567 | 0.00% | accepted |
+| JNJ | b80dd12f | 2026-10-13 11:21 | 11,700 | 0 | 11,134 | 0 | 566 | 0.00% | accepted |
+| JPM | 8c44bee8 | 2026-10-13 12:22 | 11,700 | 0 | 11,134 | 0 | 566 | 0.00% | accepted |
+| KO | 0d96feff | 2026-10-13 12:27 | 11,700 | 0 | 11,134 | 0 | 566 | 0.00% | accepted |
+| KRE | 6e29d04e | 2026-10-13 15:31 | 11,629 | 1 | 10,997 | 40 | 631 | 0.36% | accepted |
+| LEN | 736509eb | 2026-10-13 15:33 | 11,629 | 1 | 10,997 | 9 | 631 | 0.08% | accepted |
+| LLY | a2f00e53 | 2026-10-13 16:36 | 11,629 | 1 | 10,997 | 0 | 631 | 0.00% | accepted |
+| LMT | fde6219c | 2026-10-13 16:41 | 11,629 | 1 | 10,997 | 0 | 631 | 0.00% | accepted |
+| LQD | 488a21b2 | 2026-10-13 17:41 | 11,629 | 1 | 10,997 | 36 | 631 | 0.33% | accepted |
+| MCD | da38f5a9 | 2026-10-13 17:47 | 11,629 | 1 | 10,998 | 0 | 630 | 0.00% | accepted |
+| RLAY | bb2badd4 | 2026-10-13 04:25 | 624 | 0 | 486 | 0 | 138 | 0.00% | accepted |
+| SHY | d40e3f28 | 2026-10-13 03:51 | 624 | 0 | 545 | 3 | 79 | 0.55% | accepted |
+| TLT | 7f973c29 | 2026-10-13 03:51 | 624 | 0 | 545 | 7 | 79 | 1.28% | accepted |
+| TMUS | 9b5d5a86 | 2026-10-13 03:52 | 624 | 0 | 546 | 3 | 78 | 0.55% | accepted |
+| VIXY | ccad251e | 2026-10-13 04:25 | 624 | 0 | 613 | 0 | 11 | 0.00% | accepted |
+| VIXY | a48de0d4 | 2026-10-13 10:47 | 7,884 | 0 | 4,842 | 0 | 3,042 | 0.00% | accepted |
+| VIXY | 1c4d9f60 | 2026-10-13 10:49 | 11,700 | 0 | 10,140 | 0 | 1,560 | 0.00% | accepted |
+
+
 ### D-191-H: explicit deferrals
 
 Status: planner decision, owner acknowledgement pending

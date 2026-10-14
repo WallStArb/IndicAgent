@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-14T18:00:00.000Z"
+last_updated: "2026-10-15T00:30:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -46,16 +46,19 @@ bullets with current facts.
 ## Current position
 
 Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-14. Plans 01 to 07 done,
-each independently reviewed and fixed (reviews in the phase dir; 07 fixes in 191-07-FIXES.md; their
-review found 1 HIGH and 4 MEDIUM, second fixes in progress). Next: plan 08 (daily stage over raw), then 10 (evidence
-readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
+each independently reviewed and fixed (reviews in the phase dir; both rounds of 07 fixes in
+191-07-FIXES.md, the second done 2026-10-14). Next: a fresh-context review of the second 07 fixes,
+then plan 08 (daily stage over raw), then 10 (evidence readers); the fetcher resumes only after 06,
+08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
 
 - **Cutover window open since 2026-10-13T19:00:40Z:** ten units held (fetcher, reconciliation
   audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer);
-  the 5m IBKR backfill is paused. Selection gate exits 3 (explained residue): 26 slots on 9 series
-  need an IBKR re-serve (`--reserve-keys logs/raw_repair_191_rerun_dry.json`) once the fetcher
-  runs. Derived 15m/1h over 3,022 repaired 5m slots are stale until bar-derivation resumes.
-  Owner acknowledgement pending: D-191-B, D, G (M acknowledged 2026-10-14); plan 20 (Tradier deletion) has an owner checkpoint.
+  the 5m IBKR backfill is paused. Selection gate over the 57 series exits 0 and idempotence is
+  0/0, but 4,652 offered values are held pending and 3,525 keys need an IBKR re-serve
+  (`--reserve-keys logs/reserve_keys_191_07.json`) once the fetcher runs. Derived 15m/1h over the
+  repaired and re-selected 5m sessions are stale until bar-derivation resumes. Owner
+  acknowledgement pending: D-191-B, D, G and the D-191-M amendment (per-load re-judgment, needed
+  before plans 08 and 10); plan 20 (Tradier deletion) has an owner checkpoint.
 
 - **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
   the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00

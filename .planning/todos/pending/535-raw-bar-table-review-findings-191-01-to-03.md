@@ -87,11 +87,10 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 
 ## Open items after the plan 191-07 fixes (2026-10-14, 191-07-FIXES.md)
 
-11. 26 slots on 9 series need an IBKR re-serve: 9 raw rows from refused loads (HD, HON, IGV, ISRG,
-    ITA 2026-05-15 15:25; RLAY 2026-10-09 14:10; SHY, TLT, TMUS 2026-10-09 19:05) and 17 TMUS
-    truncated 19:05 bars. Run the fetcher's `--reserve-keys logs/raw_repair_191_rerun_dry.json`
-    once the fetcher resumes, then the selection gate (must exit 0). A refused re-serve stays as
-    residue for a decision.
+11. Superseded by item 17: the re-serve list is now `logs/reserve_keys_191_07.json`. The 9
+    refused-serve keys belong to loads the re-judgment accepted (raw and canonical hold the whole
+    bar); the 17 TMUS truncated bars were restored from the IBKR ledger and stay on the list to be
+    verified.
 12. Derived 15m/1h over the 2,619 added and 403 replaced 5m slots are stale until bar-derivation
     resumes; re-derive those days when it does.
 13. Not built: a check that catches a calendar defect dropping a whole Alpaca day; resetting
@@ -103,10 +102,38 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
 
 ## Second review of the 07 fixes (2026-10-14, 191-07-FIXES-REVIEW.md)
 
-16. In progress: 88 slots excused by date-only evidence (HIGH), load-level judgment of legacy
-    refused loads, mixed-vendor sessions on 2026-10-09, selection skipping held keys, and the
-    complete-bar rule moved to the shared fetch layer for every vendor. Results go in
-    191-07-FIXES.md under "Second review fixes".
+16. Done 2026-10-14 (191-07-FIXES.md, "Second review fixes"): exact-key re-serve evidence,
+    load-level re-judgment (53 accepted, 7 held, 15 unjudgeable; D-191-M amendment), session-level
+    selection (392 spliced sessions re-selected, 0 left), held keys never selected, complete-bar
+    rule in the shared fetch layer. Gate over the 57 series exits 0; idempotence 0/0.
+
+## Open after the second 07 fixes (2026-10-14)
+
+17. Re-serve owed: `ohlcv_history_fetcher.py --reserve-keys logs/reserve_keys_191_07.json` (3,525
+    keys, 99 session asks on 35 series) once the fetcher may run, then the gate and idempotence.
+    4,652 offered values are held pending. The gate reports them and exits 0 regardless: exit 0
+    is canonical equal to the selection, not "nothing owed".
+18. Owner acknowledgement of the D-191-M amendment (per-load table in the design doc) before
+    plans 08 and 10 rely on it.
+19. Truncated IBKR bars outside the 57 series: 22 IBKR 2026-10-09 14:10 bars under a fifth of
+    Alpaca's volume (a request ended about 14:12 UTC). Canonical holds the truncated bar for BLK
+    and XTL; all 22 are on the re-serve list. Retired-path fetches left no request rows, so the
+    universe-wide count is unknown. Build a detector (a vendor's bar far below the other vendor's
+    and its own session median at a stamp where a fetch of that day ended) before plan 10's
+    evidence readers trust intraday volume.
+20. Complete-bar rule gaps: `scripts/ops/bars/ops_bar_load.py` loads artifacts that carry no
+    answer time, so it cannot judge a forming bar (any next Alpaca campaign must record the pull
+    time per artifact, a lower bound on the answer); `services/backfill_feature_factory.py` calls
+    `store_bars` without `asked_at` (judged at call time, seconds late) because editing it renames
+    every feature unit it writes. Fix the factory call when its code key next changes anyway.
+21. Alpaca 2026-10-09: the one-time depth pull ran during the session, so each name's serve ends
+    at its pull time. Selection now takes those sessions whole from IBKR, or leaves them empty for
+    the six held series. Re-pull the day through the nightly runner when Alpaca capture reopens.
+22. Not built: `ops_selection_gate --apply-spans` has no staleness guard (refuse a spans file
+    older than the series' last load). Nothing runs it today.
+23. Derived 15m/1h are stale over every 5m session changed by the second fixes (23,750 re-selected
+    rows, 1,331 replaced, 446 retracted, 17 TMUS) on top of item 12; re-derive when bar-derivation
+    resumes.
 
 ## Acceptance
 
