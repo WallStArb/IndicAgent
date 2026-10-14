@@ -35,6 +35,14 @@ selection gate (plan 191-07, D-191-C) are written through `insert_row` only.
 --close: close a name's open symbol row of --timeframe at --valid-to (the only UPDATE the table's
 trigger allows); --reason required and printed, since the closed row's own fields are immutable.
 
+Backdated rows of a direct timeframe (1m, 5m, 4h; review finding 6 of plan 191-07). Selection
+re-selects only the window a load touches, so a span added (or closed) with a date before today
+would change historical canonical piecemeal, one later chunk at a time. Such a write is refused
+unless --reselect is given; with it the policy write and the re-selection of the changed window
+of that series ([valid_from, valid_to) for --add, [valid_to, open end) for --close) run in one
+transaction, and the selection gate is run over the series after the commit (its exit code is
+this command's). 1d, 15m and 1h are re-derived by their own stages and are not guarded here.
+
 Rollback of an exception row: --close it and rerun the daily dry run.
 """
 
@@ -55,6 +63,7 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
 
 import asyncpg  # noqa: E402
+import psycopg  # noqa: E402
 
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services._batch_utils import load_apr_dict_async  # noqa: E402
@@ -64,8 +73,11 @@ from services.bar_derivation import (  # noqa: E402
     _SELECT_DAILY_OBSERVATIONS_SQL,
     _SELECT_DAILY_SPLITS_SQL,
 )
+from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
+from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.derivation import Observation, SplitRecord  # noqa: E402
+from src.intelligence.bars.selection import SESSION_TZ  # noqa: E402
 from src.intelligence.bars.source_admission import (  # noqa: E402
     Admission,
     common_session_closes,
@@ -137,6 +149,24 @@ _CLOSE_POLICY_SQL = """
 UPDATE bar_source_policy SET valid_to = $3
 WHERE timeframe = $1 AND symbol = $2 AND valid_to IS NULL
 """
+# The same three statements for the --reselect path, which runs on one psycopg connection so the
+# policy write and select_and_write share a transaction.
+_PG_OVERLAPPING_ROW_SQL = (
+    _OVERLAPPING_ROW_SQL.replace("$1", "%s")
+    .replace("$2", "%s")
+    .replace("$3::date", "%s::date")
+    .replace("$4::date", "%s::date")
+)
+_PG_INSERT_POLICY_SQL = (
+    "INSERT INTO bar_source_policy (timeframe, symbol, valid_from, valid_to, ingress_mode, "
+    "primary_source, fallback_source, reason, evidence) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)"
+)
+_PG_CLOSE_POLICY_SQL = (
+    "UPDATE bar_source_policy SET valid_to = %s "
+    "WHERE timeframe = %s AND symbol = %s AND valid_to IS NULL"
+)
+_FAR_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -293,6 +323,87 @@ async def close_row(conn: Any, symbol: str, valid_to: date, timeframe: str = "1d
     return int(str(status).rsplit(None, 1)[-1])
 
 
+def session_today(now: datetime | None = None) -> date:
+    """Today's NYSE session date (spans match session dates, D-191-L)."""
+    return (now or datetime.now(UTC)).astimezone(SESSION_TZ).date()
+
+
+def backdated(timeframe: str, effective: date, today: date) -> bool:
+    """A direct-timeframe policy change effective before today: selection would apply it only
+    to the windows later loads touch, so it needs --reselect (module docstring)."""
+    return timeframe in DIRECT_TIMEFRAMES and effective < today
+
+
+def session_start(day: date) -> datetime:
+    """The UTC instant a session date begins (America/New_York midnight)."""
+    return datetime.combine(day, datetime.min.time(), SESSION_TZ).astimezone(UTC)
+
+
+def write_and_reselect(conn: Any, *, mode: str, row: dict[str, Any]) -> Any:
+    """The policy write and the re-selection of the window it changes, on one psycopg connection
+    in the caller's transaction (the caller commits). Raises ValueError when the --add overlaps
+    a row or the --close finds no open row. Returns the SelectionResult."""
+    timeframe, symbol = row["timeframe"], row["symbol"]
+    with conn.cursor() as cur:
+        if mode == "add":
+            cur.execute(
+                _PG_OVERLAPPING_ROW_SQL, (timeframe, symbol, row["valid_from"], row["valid_to"])
+            )
+            if cur.fetchone() is not None:
+                raise ValueError(f"{symbol} {timeframe} has an overlapping policy row")
+            cur.execute(
+                _PG_INSERT_POLICY_SQL,
+                (
+                    timeframe,
+                    symbol,
+                    row["valid_from"],
+                    row["valid_to"],
+                    INGRESS_MODE.get(timeframe, DEFAULT_INGRESS_MODE),
+                    row["primary_source"],
+                    row["fallback_source"],
+                    row["reason"],
+                    json.dumps(row["evidence"]),
+                ),
+            )
+            first, last = row["valid_from"], row["valid_to"]
+        else:
+            cur.execute(_PG_CLOSE_POLICY_SQL, (row["valid_to"], timeframe, symbol))
+            if cur.rowcount != 1:
+                raise ValueError(f"{symbol} {timeframe}: {cur.rowcount} open rows closed, not 1")
+            first, last = row["valid_to"], None
+        params = read_raw_params(cur)  # the policy as this transaction now sees it
+    return select_and_write(
+        conn,
+        symbols=[symbol],
+        timeframe=timeframe,
+        start=session_start(first),
+        end=session_start(last) if last else _FAR_FUTURE,
+        policy_rows=params.policy_rows,
+        kind_order=params.kind_order,
+        batch_rows=params.write.batch_rows,
+    )
+
+
+def run_reselect(settings: Any, *, mode: str, row: dict[str, Any]) -> int:
+    """--reselect: write and re-select in one transaction, then gate the series."""
+    from scripts.ops.bars import ops_selection_gate as gate
+
+    dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+    with psycopg.connect(dsn) as conn:
+        try:
+            result = write_and_reselect(conn, mode=mode, row=row)
+        except ValueError as error:
+            conn.rollback()
+            print(f"refused: {error}")
+            return 2
+        conn.commit()
+    print(
+        f"{mode} {row['symbol']} {row['timeframe']}: re-selected, new {result.new} replaced "
+        f"{result.changed} unchanged {result.unchanged} unselected {result.unselected}"
+    )
+    return gate.main(["--compare", "--symbols", row["symbol"], "--timeframes", row["timeframe"]])
+
+
 async def read_vendor_codes(conn: Any) -> list[str]:
     """The valid vendor codes: the CVR `bar_vendor` namespace, not deprecated."""
     return [r["code"] for r in await conn.fetch(_VENDOR_CODES_SQL)]
@@ -447,9 +558,17 @@ async def _main(args: argparse.Namespace) -> int:
                 "reason": args.reason,
                 "evidence": json.loads(args.evidence),
             }
+            if backdated(args.timeframe, row["valid_from"], session_today()) and not args.reselect:
+                print(
+                    f"refused: {args.timeframe} valid_from {row['valid_from']} is before today; "
+                    "a backdated direct-timeframe span needs --reselect (module docstring)"
+                )
+                return 2
             if not args.apply:
                 print(f"dry run: would insert {row}")
                 return 0
+            if args.reselect:
+                return run_reselect(settings, mode="add", row=row)
             if not await insert_row(conn, row):
                 print(f"refused: {args.symbol} {args.timeframe} has an overlapping policy row")
                 return 2
@@ -457,9 +576,22 @@ async def _main(args: argparse.Namespace) -> int:
             return 0
         if args.close:
             print(f"close {args.symbol} {args.timeframe} at {args.valid_to}: {args.reason}")
+            valid_to = _parse_date(args.valid_to)
+            if backdated(args.timeframe, valid_to, session_today()) and not args.reselect:
+                print(
+                    f"refused: {args.timeframe} valid_to {valid_to} is before today; closing "
+                    "a direct-timeframe span in the past needs --reselect (module docstring)"
+                )
+                return 2
             if not args.apply:
                 print("dry run: nothing closed (use --apply)")
                 return 0
+            if args.reselect:
+                return run_reselect(
+                    settings,
+                    mode="close",
+                    row={"timeframe": args.timeframe, "symbol": args.symbol, "valid_to": valid_to},
+                )
             n = await close_row(conn, args.symbol, _parse_date(args.valid_to), args.timeframe)
             print(f"closed {n} row(s)")
             return 0 if n == 1 else 2
@@ -485,6 +617,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fallback", default=None, help="a CVR bar_vendor code or omitted")
     parser.add_argument("--reason")
     parser.add_argument("--evidence", help="JSON object")
+    parser.add_argument(
+        "--reselect",
+        action="store_true",
+        help="direct timeframes: write a backdated row and re-select its window in one "
+        "transaction, then run the gate over the series (module docstring)",
+    )
     args = parser.parse_args(argv)
     _validate(args)
     return asyncio.run(_main(args))

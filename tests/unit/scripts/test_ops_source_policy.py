@@ -306,7 +306,7 @@ _ALPACA_SPAN = [
     "--symbol",
     "AAPL",
     "--valid-from",
-    "2016-01-01",
+    "2099-01-02",  # forward: a backdated direct span needs --reselect (tests below)
     "--primary",
     "alpaca",
     "--reason",
@@ -375,3 +375,109 @@ def test_second_span_of_a_name_is_allowed_when_it_overlaps_nothing():
     assert asyncio.run(policy.insert_row(conn, row)) is True
     assert conn.inserted[0][0] == "5m" and conn.inserted[0][4] == "direct"
     assert asyncio.run(policy.insert_row(_SpanConn({"AAPL"}), row)) is False
+
+
+# --- backdated direct-timeframe rows (191-07 review finding 6) ------------------------------
+
+_BACKDATED = [*_ALPACA_SPAN[:6], "2016-01-01", *_ALPACA_SPAN[7:]]
+
+
+def test_a_backdated_direct_span_is_refused_without_reselect(monkeypatch, capsys):
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, [*_BACKDATED, "--apply"]) == 2
+    assert "needs --reselect" in capsys.readouterr().out and conn.statements == []
+    # 1d rows are the daily rule's: the admission sweep's backdated rows stay allowed
+    assert _run_cli(monkeypatch, _CliConn(), [*_ADD, "--apply"]) == 0
+
+
+def test_closing_a_direct_span_in_the_past_is_refused_without_reselect(monkeypatch):
+    close_5m = [*_CLOSE, "--timeframe", "5m", "--apply"]
+    conn = _CliConn()
+    assert _run_cli(monkeypatch, conn, close_5m) == 2 and conn.statements == []
+
+
+def test_backdated_is_only_for_direct_timeframes_before_today():
+    today = date(2026, 10, 14)
+    assert policy.backdated("5m", date(2026, 10, 13), today)
+    assert not policy.backdated("5m", today, today)
+    assert not policy.backdated("1d", date(2006, 1, 3), today)
+    assert policy.session_today(datetime(2026, 10, 15, 2, 0, tzinfo=UTC)) == date(2026, 10, 14)
+
+
+class _PgCursor:
+    def __init__(self, overlap=None, rowcount=1):
+        self.executed: list[tuple[str, tuple]] = []
+        self.overlap, self.rowcount = overlap, rowcount
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchone(self):
+        return self.overlap
+
+
+class _PgConn:
+    def __init__(self, cur):
+        self.cur = cur
+
+    def cursor(self):
+        return self.cur
+
+
+def _reselect(monkeypatch, cur, mode, row):
+    seen = {}
+
+    class _Params:
+        policy_rows = ("p",)
+        kind_order = {"named": 1}
+
+        class write:  # noqa: N801 - mirrors RawContractParams.write
+            batch_rows = 7
+
+    monkeypatch.setattr(policy, "read_raw_params", lambda c: _Params)
+
+    def _select(conn, **kw):
+        seen.update(kw)
+        return "result"
+
+    monkeypatch.setattr(policy, "select_and_write", _select)
+    return policy.write_and_reselect(_PgConn(cur), mode=mode, row=row), seen
+
+
+def test_reselect_writes_the_span_and_re_selects_its_window_in_one_transaction(monkeypatch):
+    row = {
+        "timeframe": "5m",
+        "symbol": "AAPL",
+        "valid_from": date(2026, 3, 10),
+        "valid_to": date(2026, 8, 1),
+        "primary_source": "alpaca",
+        "fallback_source": "ibkr",
+        "reason": "r",
+        "evidence": {"n": 1},
+    }
+    cur = _PgCursor()
+    result, seen = _reselect(monkeypatch, cur, "add", row)
+    assert result == "result"
+    assert any("INSERT INTO bar_source_policy" in sql for sql, _ in cur.executed)
+    assert seen["symbols"] == ["AAPL"] and seen["timeframe"] == "5m" and seen["batch_rows"] == 7
+    assert seen["start"] == datetime(2026, 3, 10, 4, 0, tzinfo=UTC)  # 00:00 EDT
+    assert seen["end"] == datetime(2026, 8, 1, 4, 0, tzinfo=UTC)
+    with pytest.raises(ValueError, match="overlapping"):
+        _reselect(monkeypatch, _PgCursor(overlap=(1,)), "add", row)
+
+
+def test_reselect_of_a_close_re_selects_from_valid_to_on(monkeypatch):
+    row = {"timeframe": "5m", "symbol": "AAPL", "valid_to": date(2026, 1, 5)}
+    cur = _PgCursor()
+    _result, seen = _reselect(monkeypatch, cur, "close", row)
+    assert "UPDATE bar_source_policy" in cur.executed[0][0]
+    assert seen["start"] == datetime(2026, 1, 5, 5, 0, tzinfo=UTC)  # 00:00 EST
+    assert seen["end"] == policy._FAR_FUTURE
+    with pytest.raises(ValueError, match="open rows closed"):
+        _reselect(monkeypatch, _PgCursor(rowcount=0), "close", row)
