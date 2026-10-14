@@ -613,6 +613,51 @@ def _normalize_ib_bar_ts(raw_date) -> datetime:
     return ts
 
 
+# Intraday bar sizes in seconds. IBKR stamps every intraday bar on the UTC grid of its size: a
+# session-open bar such as 13:30 for 1h or 4h is the short first bar of its grid block (1h
+# 13:00-14:00, 4h 12:00-16:00), never a bar of its own grid. Bar sizes, not tunables.
+_INTRADAY_BAR_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
+
+
+def align_request_end(end: datetime, timeframe: str) -> datetime:
+    """`end` floored to the bar grid of an intraday timeframe (unchanged for 1d).
+
+    A request whose endDateTime falls inside a bar gets that bar truncated at the clock time:
+    the walk's chunks all kept the clock time of the run, so every chunk edge cut a bar
+    mid-session (KRE 2007-06-25 14:00 UTC, window end 14:02:29: 45.61 x4, volume 0, against the
+    whole bar's 45.65 and 9,500) and last-wins raw took the partial as a restatement. Aligned,
+    the bar starting at `end` is not asked and the one before it is whole. Chunk ends step back
+    by whole days, so one alignment at the walk's start keeps every chunk on the grid.
+    """
+    size = _INTRADAY_BAR_SECONDS.get(timeframe)
+    if size is None:
+        return end
+    stamp = end.astimezone(UTC)
+    epoch = int(stamp.timestamp())
+    return datetime.fromtimestamp(epoch - epoch % size, tz=UTC)
+
+
+def complete_intraday_bars(
+    bars: list[OHLCVBar], timeframe: str, request_end: datetime, now: datetime
+) -> tuple[list[OHLCVBar], list[OHLCVBar]]:
+    """(kept, dropped): an intraday bar whose grid block ends after the request end (it
+    straddles the edge) or after `now` (it is still forming) is not a complete vendor answer and
+    is dropped (the intraday analogue of D-191-J). 1d bars pass through; D-191-J judges them by
+    session close. The grid block end is the bar's grid start plus its size, an upper bound on
+    the bar's own end (a session's last bar may end earlier at the close), so a bar kept is
+    always whole."""
+    size = _INTRADAY_BAR_SECONDS.get(timeframe)
+    if size is None:
+        return list(bars), []
+    limit = min(request_end, now)
+    kept: list[OHLCVBar] = []
+    dropped: list[OHLCVBar] = []
+    for bar in bars:
+        block_end = align_request_end(bar.timestamp, timeframe) + timedelta(seconds=size)
+        (kept if block_end <= limit else dropped).append(bar)
+    return kept, dropped
+
+
 def _safe_request_callback(callback, *args) -> None:
     """Run a caller's sync request callback (D-05). A lost D1 row must be loud,
     never silent: log the failure, then re-raise into the fetch."""
@@ -1042,6 +1087,10 @@ class IBKRProvider:
                         source=source_tag,
                     )
                 )
+            # endDateTime is empty (now): the last intraday bar may still be forming
+            continuous_bars, _forming = complete_intraday_bars(
+                continuous_bars, timeframe, datetime.now(UTC), datetime.now(UTC)
+            )
             all_bars.extend(continuous_bars)
             if on_chunk and continuous_bars:
                 await on_chunk(continuous_bars)
@@ -1129,7 +1178,9 @@ class IBKRProvider:
         """
         walk_bars: list[OHLCVBar] = []
         chunk_days = _MAX_CHUNK_DAYS.get(timeframe, 6)
-        chunk_end = end
+        # On the bar grid, so no chunk edge cuts a bar (align_request_end); every later chunk end
+        # is a whole number of days earlier and stays on the grid.
+        chunk_end = align_request_end(end, timeframe)
         consecutive_no_data_chunks = 0
         # Span of the current run of consecutive definitive-no-data chunks.
         no_data_run_end: datetime | None = None
@@ -1313,6 +1364,18 @@ class IBKRProvider:
                         volume=int(bar.volume),
                         source=source_tag,
                     )
+                )
+            chunk_bars, partial = complete_intraday_bars(
+                chunk_bars, timeframe, chunk_end, datetime.now(UTC)
+            )
+            if partial:
+                slog.warning(
+                    "ibkr.hist_partial_bars_dropped",
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    chunk_end=chunk_end.isoformat(),
+                    stamps=[b.timestamp.isoformat() for b in partial[:5]],
+                    n=len(partial),
                 )
             walk_bars.extend(chunk_bars)
             if on_chunk and chunk_bars:
