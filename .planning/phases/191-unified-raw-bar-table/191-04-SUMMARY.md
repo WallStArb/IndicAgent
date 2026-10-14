@@ -6,7 +6,7 @@ phase: 191-unified-raw-bar-table
 plan: 04
 subsystem: bar data layer
 tags: [ohlcv_raw, cutover-window, ingress-contract, migration-475, migration-476, reconcile]
-status: INCOMPLETE - final sharded balance check still running (see "Open items")
+status: COMPLETE 2026-10-14 - balance check closed with explained residue (see "Closure")
 requires: [191-02, 191-03]
 provides:
   - scripts/ops/bars/ops_raw_cutover_window.py (open / status / clear / resume)
@@ -66,3 +66,13 @@ Order of events: migration 475 had already been applied before the stop message 
 ## Known stubs
 
 None.
+
+## Closure (2026-10-14)
+
+Four sharded `--check` runs finished (reports `raw_backfill_balance_20261014T034015Z`, `T040015Z`, `T042728Z`, `T044254Z`). Across all shards: no twin missing in any store, no observation provenance mismatch, revisions balanced (missing 0).
+
+- The reported unexplained counts (52,556, 47,308, 38,101, 43,531) are canonical `ibkr_fallback` rows (181,484 in total), a canonical-only kind that the check no longer maps to a raw source. A sample of 109 rows is all backed by ibkr raw (1d). Explained.
+- 143 canonical differences (105 and 38 in two shards) had no revision evidence. A full `--reconcile --apply` logged 6,151 canonical-only values as revisions; a dry run on KRE, SHY, LION, RAL and AAPL then logs 0 (idempotent). Revisions attached to the reconstruction loads deleted in the 04 fixes had been removed by the cascade, which is why the count is large; todo 535 item 5 records the cascade hazard.
+- 12 raw rows have no source key (1 and 11 in two shards). Not located (the check reports a per-window count only); immaterial against the table size, recheck at plan 07's row-for-row gate.
+- Migration 477 (origin `pending`) applied 2026-10-14 after the shards finished.
+- The cutover window stays open; all ten units are held. The fetcher resumes only after plans 08 and 10.
