@@ -4,7 +4,7 @@ A quantitative market research platform built to one standard: nothing is believ
 
 It is a research system first. Trading is one possible output of it, and the larger aim is an intelligence layer that improves its own machinery: the measurements it takes, how often and over what windows, and how the results are combined.
 
-The discipline is borrowed on purpose from two places. From Renaissance Technologies and Jim Simons, proof before belief: intuition proposes and measurement decides. From the five-step engineering mandate, question first, delete second, simplify third, and only then speed up and automate.
+The discipline is borrowed on purpose from two places. From Renaissance Technologies and Jim Simons, proof before belief: intuition proposes and measurement decides. From Elon Musk's five-step process, question first, delete second, simplify third, and only then speed up and automate.
 
 ---
 
@@ -26,6 +26,7 @@ Live status: [`.planning/STATE.md`](.planning/STATE.md). Every research verdict:
 Twenty-two truths in four groups. Full text, with where each one is enforced in the code: [`docs/foundation/north-star-truths.md`](docs/foundation/north-star-truths.md).
 
 **What counts as true**
+
 1. Proof before belief. Intuition proposes; measurement decides.
 2. The default is no edge. Every positive result carries the burden of proof.
 3. Judge only what could have been traded: prices someone could actually have had, after cost.
@@ -96,7 +97,7 @@ Adopted 2026-09-25 and amended 2026-09-26 ([`docs/plans/2026-09-24-evidence-fram
 
 Twelve families of ideas are designed or under study, each with a stated mechanism, a named counterparty and a falsification condition. They include same-time-of-day periodicity, overnight versus intraday returns, short-term reversal, residual and industry momentum, fund-to-constituent and cross-asset lead-lag, period-end marking, window dressing and tax-loss flows, options expiry, index reconstitution, price anchoring, volume and order flow, and a governed generative grammar over price and volume primitives.
 
-Many earlier ideas have been retired, and the reasons are kept: look-ahead found in a join, a real signal that did not survive cost, a market tilt mistaken for skill, a result that held only on the data it was fitted to, and a data fault that made a model look stronger than it was. The scorecard and every frozen verdict are in the [research ledger](docs/research/construction-verdict-ledger.md) and the [edge source thesis](docs/research/data-edge-source-thesis.md).
+Many earlier ideas have been retired, and the reasons are kept: look-ahead found in a join, a real signal that did not survive cost, a market tilt mistaken for skill, a result that held only on the data it was fitted to, and a data fault that made a model look stronger than it was. The first family studied shows how the bar works: its timing effect is statistically strong, but the edge sits at the opening and closing auction prints and no variant tried is net positive at measured spreads, so its book was refused. The scorecard and every frozen verdict are in the [research ledger](docs/research/construction-verdict-ledger.md) and the [edge source thesis](docs/research/data-edge-source-thesis.md).
 
 ---
 
@@ -118,17 +119,17 @@ Further information domains are designed to clear the same measurement before th
 
 ---
 
+## The stack
+
+Python (async), PostgreSQL with TimescaleDB, and Redpanda as a durable, replayable event bus. Services run under systemd with dependency order derived from a declared DAG. Observability through OpenTelemetry, Prometheus and Grafana. Market data from Interactive Brokers (`ib_async`) and Alpaca. Every tunable value lives in the Adaptive Parameter Registry, not in code.
+
+---
+
 ## The first generation: built, now archived
 
-The first generation was built and run in production in early 2026, then archived in
-October 2026 (phase 185, plan 45) when the work moved to measurement-first discovery. The
-code is preserved at the git tag `archive/v2x-ai-stack-2026-10`, and its design is
-documented in [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md).
-Figures below describe it as it ran at the time.
+The first generation was built and run in production in early 2026, then archived in October 2026 (phase 185, plan 45) when the work moved to measurement-first discovery. The code is preserved at the git tag `archive/v2x-ai-stack-2026-10`, and its design is documented in [`docs/architecture/architecture-v2-event-driven-pipeline.md`](docs/architecture/architecture-v2-event-driven-pipeline.md). Figures below describe it as it ran at the time.
 
-**An event-driven, real-time pipeline.** Eight analytical tiers ran end to end in under
-10 ms per bar, live across 60 instruments spanning futures, ETFs, FX and crypto, computing
-about 729 data points per bar, per symbol, per timeframe, every one persisted and streamed.
+**An event-driven, real-time pipeline.** Eight analytical tiers ran end to end in under 10 ms per bar, live across 60 instruments spanning futures, ETFs, FX and crypto, computing about 729 data points per bar, per symbol, per timeframe, every one persisted and streamed.
 
 | Tier | What it did |
 |---|---|
@@ -141,46 +142,21 @@ about 729 data points per bar, per symbol, per timeframe, every one persisted an
 | **I7** Trading setups | 36 setups, each a full trade thesis with entry, stop and target, scored by a six-bucket confluence model requiring cross-tier agreement |
 | **I8** AI narrative | Structured language-model analysis of every high-confidence setup, plus scheduled cross-asset synthesis |
 
-Every setup passed a deterministic ten-stage quality pipeline before it was emitted:
-confidence clamping, decay for repeated fires, confluence scoring, structural and regime
-gates, time-of-day adjustment, isotonic calibration against real outcomes, ranking by
-rolling Sharpe, review by the specialist agents, and a final completeness check.
+Every setup passed a deterministic ten-stage quality pipeline before it was emitted: confidence clamping, decay for repeated fires, confluence scoring, structural and regime gates, time-of-day adjustment, isotonic calibration against real outcomes, ranking by rolling Sharpe, review by the specialist agents, and a final completeness check.
 
-**The specialist agent swarm: a council, not an oracle.** Five independent agents each
-assessed one dimension of a setup: cross-asset correlation, regime coherence, the
-counterfactual bear case, historical analogs, and a mandatory adversarial skeptic that
-challenged every other agent's conclusion. Their outputs composed into a calibrated
-multiplier, so no single agent moved the result alone. The language-model layer was
-multi-provider (a local model on GPU with a cloud fallback and per-provider circuit
-breakers), so no single vendor was a dependency either.
+**The specialist agent swarm: a council, not an oracle.** Five independent agents each assessed one dimension of a setup: cross-asset correlation, regime coherence, the counterfactual bear case, historical analogs, and a mandatory adversarial skeptic that challenged every other agent's conclusion. Their outputs composed into a calibrated multiplier, so no single agent moved the result alone. The language-model layer was multi-provider (a local model on GPU with a cloud fallback and per-provider circuit breakers), so no single vendor was a dependency either.
 
-**Empirical memory.** A pgvector store embedded market and setup context as vectors and
-retrieved the most similar historical episodes at decision time, grounding agent
-judgments in precedent the way a trader draws on experience. It included a Markov
-regime-transition prior and drift monitoring, and trusted nothing before 30 resolved
-observations.
+**Empirical memory.** A pgvector store embedded market and setup context as vectors and retrieved the most similar historical episodes at decision time, grounding agent judgments in precedent the way a trader draws on experience. It included a Markov regime-transition prior and drift monitoring, and trusted nothing before 30 resolved observations.
 
-**The learning agent council.** The same council pattern applied to model training: a
-LightGBM pipeline with a walk-forward 60/20/20 temporal split, per-regime segments gated
-at 100 observations, retraining only when enough new data had arrived, every model
-versioned in MLflow, and data validation and feature discovery as their own stages,
-orchestrated with LangGraph.
+**The learning agent council.** The same council pattern applied to model training: a LightGBM pipeline with a walk-forward 60/20/20 temporal split, per-regime segments gated at 100 observations, retraining only when enough new data had arrived, every model versioned in MLflow, and data validation and feature discovery as their own stages, orchestrated with LangGraph.
 
-**Designed, never built: the head trader.** A synthesis agent to take the swarm's view,
-the portfolio and the regime, and make the final call, the way a desk's portfolio manager
-synthesizes a technician, a risk manager and a flow trader. The risk agent's halt
-authority sat above it by design: the head trader could decide whether to trade, never
-whether risk limits applied.
+**Designed, never built: the head trader.** A synthesis agent to take the swarm's view, the portfolio and the regime, and make the final call, the way a desk's portfolio manager synthesizes a technician, a risk manager and a flow trader. The risk agent's halt authority sat above it by design: the head trader could decide whether to trade, never whether risk limits applied.
 
-**Why it was archived.** The engineering held up; the method did not. Its setup plugins
-encoded human theories of what a good trade looks like, so it could only find edges
-someone already believed in, and it observed outcomes only where a hand-made filter
-fired. The current generation keeps the lessons (the council pattern, adversarial
-review, calibration against outcomes, shadow governance) and replaces the method with
-measurement on every bar. The agentic direction above is where those ideas return,
-inside the current evidence gates.
+**Why it was archived.** The engineering held up; the method did not. Its setup plugins encoded human theories of what a good trade looks like, so it could only find edges someone already believed in, and it observed outcomes only where a hand-made filter fired. The current generation keeps the lessons (the council pattern, adversarial review, calibration against outcomes, shadow governance) and replaces the method with measurement on every bar. The agentic direction above is where those ideas return, inside the current evidence gates.
 
 ---
+
+
 
 ## Documentation
 
