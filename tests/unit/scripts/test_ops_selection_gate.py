@@ -48,7 +48,7 @@ def _raw(*groups):
 def test_identical_series_totals_zero_and_no_row_level_work():
     canonical = _canonical(_day(DAY1, IBKR))
     selected, counts = gate.selected_rows(_raw(_day(DAY1, IBKR)), [DEFAULT_I], KIND_ORDER)
-    diff = gate.compare_series("SPY", "5m", canonical, selected, gate.Evidence(), counts=counts)
+    diff = gate.compare_series("SPY", "5m", canonical, selected, counts=counts)
     assert (diff.n_canonical, diff.n_selected) == (3, 3)
     assert diff.n_months_digest_mismatch == 0 and not diff.kinds and diff.clean()
 
@@ -58,7 +58,7 @@ def test_a_value_difference_without_evidence_is_real_and_localised_to_its_month(
     raw = _raw(_day(DAY1, IBKR))
     raw[1] = _cand(raw[1].timestamp, IBKR, close=10.5)
     selected, _ = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER)
-    diff = gate.compare_series("SPY", "5m", canonical, selected, gate.Evidence())
+    diff = gate.compare_series("SPY", "5m", canonical, selected)
     assert diff.kinds == {(gate.VALUE, gate.REAL): 1} and not diff.clean()
     assert diff.n_months == 1 and diff.n_months_digest_mismatch == 1
     assert diff.samples[0]["kind"] == "value" and diff.samples[0]["class"] == "real"
@@ -70,180 +70,9 @@ def test_row_level_diff_only_runs_for_a_differing_month():
     raw = _raw(_day(jan, IBKR), _day(DAY1, IBKR))
     raw[4] = _cand(raw[4].timestamp, IBKR, close=11.0)  # October only
     selected, _ = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER)
-    diff = gate.compare_series("SPY", "5m", canonical, selected, gate.Evidence())
+    diff = gate.compare_series("SPY", "5m", canonical, selected)
     assert (diff.n_months, diff.n_months_digest_mismatch) == (2, 1)
     assert sum(diff.kinds.values()) == 1
-
-
-REFUSED_AT = datetime(2026, 10, 12, 12, 14, 31, tzinfo=UTC)
-
-
-def _load(
-    outcome="refused",
-    at=REFUSED_AT,
-    first=date(2026, 10, 1),
-    last=date(2026, 10, 31),
-    vendor="ibkr",
-    destination="market_data_ohlcv",
-    caller="ibkr-history-fetch",
-    load_id=None,
-):
-    return gate.LoadFact(
-        load_id or f"{outcome}-{at.isoformat()}",
-        vendor,
-        first,
-        last,
-        outcome,
-        at,
-        destination,
-        caller,
-    )
-
-
-def _refused_evidence(raw_rows, *, revisions=None):
-    """Evidence whose listed raw rows were served by one refused IBKR load."""
-    load = _load()
-    raw = {(ts, *vk): values for ts, vk, values in raw_rows}
-    return gate.Evidence(
-        raw=raw,
-        refused_serves={key: load for key in raw if key[1] == "ibkr"},
-        revisions=revisions or {},
-    )
-
-
-def _refused_on(raw, day):
-    """Evidence: every raw row, and IBKR's rows of session `day` served by a refused load."""
-    load = _load()
-    return gate.Evidence(
-        raw={
-            (c.timestamp, c.vendor, c.kind): (c.open, c.high, c.low, c.close, c.volume) for c in raw
-        },
-        refused_serves={
-            (c.timestamp, c.vendor, c.kind): load
-            for c in raw
-            if c.vendor == "ibkr" and c.timestamp.date() == day
-        },
-    )
-
-
-def test_a_value_difference_on_a_refused_serve_is_self_restatement():
-    canonical = _canonical(_day(DAY1, IBKR))
-    raw = _raw(_day(DAY1, IBKR))
-    raw[0] = _cand(raw[0].timestamp, IBKR, close=10.9)
-    selected, _ = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER)
-    evidence = _refused_evidence([(raw[0].timestamp, IBKR, _vals(10.9))])
-    diff = gate.compare_series("SPY", "5m", canonical, selected, evidence)
-    assert diff.kinds == {(gate.VALUE, gate.SELF_RESTATEMENT): 1}
-    assert diff.n_real == 0 and diff.n_explained == 1
-    # explained is not clean: the held refused serve would be selected (D-191-I)
-    assert diff.refused_value_selected == 1 and not diff.clean()
-    assert diff.class_counts() == {gate.SELF_RESTATEMENT: 1}
-
-
-def test_a_logged_canonical_value_without_a_refused_serve_explains_nothing():
-    # review finding 3: logging alone (17 TMUS slots had no refused load) is not a refusal
-    ts = DAY1
-    evidence = gate.Evidence(revisions={(ts, "ibkr", "named"): [(REFUSED_AT, _vals(10.0))]})
-    assert gate.classify(ts, (IBKR, _vals(10.0)), (IBKR, _vals(10.9)), evidence) == (
-        gate.VALUE,
-        gate.REAL,
-    )
-
-
-def test_a_revision_holding_the_raw_value_means_canonical_was_restated_after_the_copy():
-    ts = DAY1
-    canonical = (IBKR, _vals(10.4))  # the vendor's later serve
-    selected = (IBKR, _vals(10.0))  # raw still holds the value canonical displaced
-    key = (ts, "ibkr", "named")
-    evidence = gate.Evidence(revisions={key: [(REFUSED_AT, _vals(10.0))]})
-    assert gate.classify(ts, canonical, selected, evidence) == (
-        gate.VALUE,
-        gate.RESTATED_AFTER_COPY,
-    )
-
-
-def test_when_both_values_are_logged_the_latest_revision_decides():
-    ts = DAY1
-    key = (ts, "ibkr", "named")
-    earlier, later = REFUSED_AT, REFUSED_AT + timedelta(days=1)
-    canonical, selected = (IBKR, _vals(10.4)), (IBKR, _vals(10.0))
-    # TMUS: full V1 displaced by truncated V2 (raw copied V2), then V2 displaced by V1 again
-    raw_last = gate.Evidence(revisions={key: [(earlier, _vals(10.4)), (later, _vals(10.0))]})
-    assert gate.classify(ts, canonical, selected, raw_last)[1] == gate.RESTATED_AFTER_COPY
-    # canonical's value displaced last and no refused serve: nothing explains raw
-    canon_last = gate.Evidence(revisions={key: [(earlier, _vals(10.0)), (later, _vals(10.4))]})
-    assert gate.classify(ts, canonical, selected, canon_last)[1] == gate.REAL
-    # a refused serve wins over the order: raw is the refused value
-    refused = gate.Evidence(
-        revisions=raw_last.revisions,
-        refused_serves={key: _load()},
-        raw={key: _vals(10.0)},
-    )
-    assert gate.classify(ts, canonical, selected, refused)[1] == gate.SELF_RESTATEMENT
-
-
-def test_a_revision_for_another_value_or_key_does_not_explain_a_difference():
-    ts = DAY1
-    canonical = {ts: (IBKR, _vals(10.0))}
-    selected = {ts: (IBKR, _vals(10.9))}
-    other_value = gate.Evidence(revisions={(ts, "ibkr", "named"): [(REFUSED_AT, _vals(9.9))]})
-    other_key = gate.Evidence(revisions={(ts, "alpaca", "sip_rth"): [(REFUSED_AT, _vals(10.0))]})
-    assert gate.classify(ts, canonical[ts], selected[ts], other_value) == (gate.VALUE, gate.REAL)
-    assert gate.classify(ts, canonical[ts], selected[ts], other_key) == (gate.VALUE, gate.REAL)
-
-
-def test_cross_vendor_needs_the_refused_serve_of_that_key_and_canonical_own_row_equal():
-    ts = DAY1
-    ibkr_row = (IBKR, _vals(10.2))
-    alpaca_row = (ALPACA, _vals())
-    evidence = _refused_evidence([(ts, IBKR, _vals(10.2)), (ts, ALPACA, _vals())])
-    # canonical Alpaca (its raw row equal), selection IBKR's refused, unheld serve
-    assert gate.classify(ts, alpaca_row, ibkr_row, evidence) == (
-        gate.VENDOR_KIND,
-        gate.CROSS_VENDOR,
-    )
-    # raw holds a row canonical lacks
-    assert gate.classify(ts, None, ibkr_row, evidence) == (gate.ONLY_SELECTED, gate.CROSS_VENDOR)
-    # canonical's own Alpaca raw row differs: the Alpaca divergence is not hidden (finding 5)
-    drift = _refused_evidence([(ts, IBKR, _vals(10.2)), (ts, ALPACA, _vals(10.7))])
-    assert gate.classify(ts, alpaca_row, ibkr_row, drift)[1] == gate.REAL
-    # the selected row was not served by a refused load: real, whatever the window says
-    plain = gate.Evidence(raw=evidence.raw)
-    assert gate.classify(ts, None, ibkr_row, plain)[1] == gate.REAL
-    # same vendor, different kind is never explained by a refusal
-    venue = (("ibkr", "venue"), _vals())
-    same_vendor = _refused_evidence([(ts, IBKR, _vals(10.2)), (ts, ("ibkr", "venue"), _vals())])
-    assert gate.classify(ts, venue, ibkr_row, same_vendor)[1] == gate.REAL
-
-
-def test_a_refused_serve_that_displaced_the_vendor_own_value_is_held_not_cross_vendor():
-    ts = DAY1
-    key = (ts, "ibkr", "named")
-    evidence = _refused_evidence(
-        [(ts, IBKR, _vals(10.2))], revisions={key: [(REFUSED_AT, _vals(10.0))]}
-    )
-    assert evidence.held(key, None)
-    assert gate.classify(ts, None, (IBKR, _vals(10.2)), evidence)[1] == gate.REAL
-    diff = gate.compare_series("SPY", "5m", {}, {ts: (IBKR, _vals(10.2))}, evidence)
-    assert diff.refused_value_selected == 1
-
-
-def test_rows_only_in_canonical_are_never_explained_by_a_refusal():
-    evidence = _refused_evidence([(DAY1, IBKR, _vals())])
-    assert gate.classify(DAY1, (IBKR, _vals()), None, evidence) == (gate.ONLY_CANONICAL, gate.REAL)
-
-
-def test_refused_values_must_appear_in_neither_canonical_nor_selection():
-    ts = DAY1
-    offered = _vals(10.77)
-    pending = gate.Evidence(pending={(ts, "ibkr", "named"): {offered}})
-    clean = gate.compare_series("SPY", "5m", {ts: (IBKR, _vals())}, {ts: (IBKR, _vals())}, pending)
-    assert clean.pending_rows == 1 and clean.clean()
-    promoted = gate.compare_series(
-        "SPY", "5m", {ts: (IBKR, offered)}, {ts: (IBKR, offered)}, pending
-    )
-    assert promoted.refused_value_in_canonical == 1 and promoted.refused_value_selected == 1
-    assert not promoted.clean()
 
 
 def test_null_volume_winner_is_skipped_and_counted_like_the_writer():
@@ -264,10 +93,8 @@ def test_extended_hours_alpaca_never_reaches_the_comparison():
 # --- spans -----------------------------------------------------------------------------------
 
 
-def _plan(canonical, raw, evidence=None, default=("ibkr",)):
-    return gate.derive_spans(
-        "SPY", "5m", canonical, raw, KIND_ORDER, evidence or gate.Evidence(), default
-    )
+def _plan(canonical, raw, default=("ibkr",)):
+    return gate.derive_spans("SPY", "5m", canonical, raw, KIND_ORDER, default)
 
 
 def test_ranking_options_prefer_the_default_primary_with_a_fallback():
@@ -321,7 +148,7 @@ def test_spans_reproduce_canonical_when_applied_as_policy():
         for s in _plan(canonical, raw).spans
     ]
     selected, _ = gate.selected_rows(raw, policy, KIND_ORDER)
-    diff = gate.compare_series("SPY", "5m", canonical, selected, gate.Evidence())
+    diff = gate.compare_series("SPY", "5m", canonical, selected)
     assert diff.clean() and not diff.kinds
 
 
@@ -331,16 +158,6 @@ def test_a_day_mixing_both_vendors_while_both_hold_it_is_a_blocker():
     raw = _raw(_day(DAY1, IBKR, n=3), _day(DAY1, ALPACA, n=3, close=10.1))
     plan = _plan(canonical, raw)
     assert plan.blocker_dates == [date(2026, 10, 12)]
-
-
-def test_the_same_mixed_day_is_explained_not_blocking_inside_a_refused_window():
-    mixed = _day(DAY1, IBKR, n=2) + [(DAY1 + timedelta(minutes=10), ALPACA, 10.0)]
-    canonical = _canonical(mixed)
-    # canonical's Alpaca row equals Alpaca's own raw row (otherwise the slot is real, finding 5)
-    raw = _raw(_day(DAY1, IBKR, n=3), _day(DAY1, ALPACA, n=3))
-    plan = _plan(canonical, raw, _refused_on(raw, date(2026, 10, 12)))
-    assert plan.blocker_dates == []
-    assert [(s.primary_source, s.fallback_source) for s in plan.spans] == [("ibkr", "alpaca")]
 
 
 def test_span_row_json_round_trip_and_reason():
@@ -356,12 +173,10 @@ def test_span_row_json_round_trip_and_reason():
 # --- report totals, merge, verdict ---------------------------------------------------------
 
 
-def _report(real, explained=0, shard=None, symbol="SPY", **counts):
+def _report(real, shard=None, symbol="SPY", **counts):
     kinds = {}
     if real:
         kinds[(gate.VALUE, gate.REAL)] = real
-    if explained:
-        kinds[(gate.VENDOR_KIND, gate.CROSS_VENDOR)] = explained
     diff = gate.SeriesDiff(symbol, "5m", n_canonical=10, n_selected=10, kinds=gate.Counter(kinds))
     for name, value in counts.items():
         setattr(diff, name, value)
@@ -373,14 +188,10 @@ def _report(real, explained=0, shard=None, symbol="SPY", **counts):
 
 def test_verdict_is_clean_only_when_canonical_equals_the_selection_exactly():
     assert gate.verdict(_report(0)["totals"]) == gate.EXIT_CLEAN
-    explained = _report(0, explained=3)
-    assert explained["totals"]["real_differences"] == 0
-    assert explained["totals"]["explained"] == {gate.CROSS_VENDOR: 3}
-    # finding 1: explained residue is not clean (it was exit 0)
-    assert gate.verdict(explained["totals"]) == gate.EXIT_RESIDUE == 3
-    assert gate.verdict(_report(0, refused_value_selected=1)["totals"]) == gate.EXIT_RESIDUE
+    assert gate.verdict(_report(0, mixed_vendor_sessions=1)["totals"]) == gate.EXIT_RESIDUE == 3
+    assert gate.verdict(_report(0, session_choices_unrecorded=2)["totals"]) == gate.EXIT_RESIDUE
+    assert gate.verdict(_report(0, sessions_partial=5)["totals"]) == gate.EXIT_CLEAN
     assert gate.verdict(_report(2)["totals"]) == gate.EXIT_REAL
-    assert gate.verdict(_report(0, refused_value_in_canonical=1)["totals"]) == gate.EXIT_REAL
     assert gate.verdict(_report(0, unmapped_canonical=4)["totals"]) == gate.EXIT_REAL
     assert _report(0, unmapped_canonical=4)["totals"]["unmapped_canonical_rows"] == 4
 
@@ -389,12 +200,12 @@ def test_merge_sums_a_complete_shard_set():
     merged = gate.merge_reports(
         [
             _report(1, shard="0/3", symbol="A"),
-            _report(0, explained=2, shard="1/3", symbol="B"),
+            _report(0, shard="1/3", symbol="B", sessions_partial=2),
             _report(0, shard="2/3", symbol="C"),
         ]
     )
     assert merged["totals"]["series"] == 3 and merged["totals"]["real_differences"] == 1
-    assert merged["totals"]["explained"] == {gate.CROSS_VENDOR: 2}
+    assert merged["totals"]["sessions_partial"] == 2
     assert merged["totals"]["by_timeframe"]["5m"]["n_canonical"] == 30
     assert len(merged["meta"]["merged"]) == 3
 
@@ -410,124 +221,6 @@ def test_merge_refuses_a_missing_repeated_or_mixed_shard():
         gate.merge_reports([_report(0), _report(0, shard="0/1")])
     with pytest.raises(SystemExit, match="more than one report"):
         gate.merge_reports([_report(1, shard="0/2"), _report(1, shard="1/2")])
-
-
-def test_refused_serve_map_matches_by_load_id_or_served_at_and_honours_an_exact_later_serve():
-    ts = datetime(2026, 10, 5, 15, 0, tzinfo=UTC)
-    refused = _load(load_id="R")
-    by_id = (ts, "ibkr", "named")
-    by_time = (ts + timedelta(minutes=5), "ibkr", "named")
-    other_vendor = (ts, "alpaca", "sip_rth")
-    serves = {by_id: (None, "R"), by_time: (REFUSED_AT, None), other_vendor: (REFUSED_AT, None)}
-    assert set(gate.refused_serve_map(serves, [refused])) == {by_id, by_time}
-    later = REFUSED_AT + timedelta(hours=1)
-    reserved = _load("applied", later, destination="raw", load_id="A")
-    # a later applied raw serve whose request window holds both bars re-served them
-    window = {"A": (ts - timedelta(hours=1), ts + timedelta(hours=1))}
-    index = gate.LaterServes([refused, reserved], windows=window)
-    assert gate.refused_serve_map(serves, [refused, reserved], index) == {}
-    # the same load with no exact-key evidence re-served nothing, whatever its dates
-    assert set(gate.refused_serve_map(serves, [refused, reserved])) == {by_id, by_time}
-    # a legacy (canonical-era) serve, a backfill or repair record, or an earlier load does not
-    for load in (
-        _load("applied", later, load_id="L"),
-        _load("applied", later, destination="raw", caller="raw-repair-191", load_id="P"),
-        _load("applied", REFUSED_AT - timedelta(hours=1), destination="raw", load_id="E"),
-    ):
-        index = gate.LaterServes([refused, load], windows={load.load_id: window["A"]})
-        assert set(gate.refused_serve_map(serves, [refused, load], index)) == {by_id, by_time}
-
-
-def test_a_later_serve_needs_exact_key_evidence_not_the_date():
-    # ADM f40ff724: the request asked 20:10 to 00:05 the night of 2026-10-12; its load's dates
-    # include the 16:00-19:55 slots, but it never answered them
-    slot = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)
-    load = _load("applied", REFUSED_AT + timedelta(hours=12), load_id="F")
-    window = {
-        "F": (datetime(2026, 10, 12, 20, 10, tzinfo=UTC), datetime(2026, 10, 13, 0, 5, tzinfo=UTC))
-    }
-    assert gate.LaterServes([load], windows=window).find(slot, "ibkr", REFUSED_AT) is None
-    # a window that holds the whole bar is evidence; one that ends inside the bar is not
-    whole = {"F": (slot - timedelta(hours=4), slot + timedelta(minutes=5))}
-    assert gate.LaterServes([load], windows=whole).find(slot, "ibkr", REFUSED_AT) is load
-    cut = {"F": (slot - timedelta(hours=4), slot + timedelta(minutes=2))}
-    assert gate.LaterServes([load], windows=cut).find(slot, "ibkr", REFUSED_AT) is None
-    # per-row evidence: the load logged a revision or wrote a raw row at the slot
-    rows = {slot: {"F"}}
-    assert gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", REFUSED_AT) is load
-    # only a later load, of the vendor, applied and a vendor serve
-    assert gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", load.loaded_at) is None
-    assert gate.LaterServes([load], slot_loads=rows).find(slot, "alpaca", REFUSED_AT) is None
-    assert (
-        gate.LaterServes([load], slot_loads=rows).find(slot, "ibkr", REFUSED_AT, destination="raw")
-        is None
-    )
-
-
-def test_a_load_takes_the_request_answered_just_before_it():
-    at = datetime(2026, 10, 12, 12, 15, 17, 192000, tzinfo=UTC)
-    load = _load("applied", at, load_id="G")
-    late = _load("applied", at + timedelta(minutes=5), load_id="H")
-    first = gate.RequestFact(
-        "ibkr", at - timedelta(days=150), at - timedelta(days=1), at - timedelta(seconds=40)
-    )
-    near = gate.RequestFact(
-        "ibkr", at - timedelta(days=300), at - timedelta(days=151), at - timedelta(milliseconds=46)
-    )
-    requests = [first, near, gate.RequestFact("alpaca", at, at, at)]
-    assert gate.match_requests([load, late], requests, match_s=5) == {"G": near}
-
-
-def _served_load(load_id, at, first, last, n_bars, n_new=0, outcome="applied"):
-    return gate.LoadFact(
-        load_id,
-        "ibkr",
-        first,
-        last,
-        outcome,
-        at,
-        "market_data_ohlcv",
-        "ibkr-history-fetch",
-        n_bars,
-        n_new,
-    )
-
-
-def test_the_served_range_is_the_loads_own_bars_not_its_request_window():
-    # ADM af8b35f1 / f40ff724 (third review of plan 191-07, finding 1): the request persisted
-    # 20:10 to 00:05 (IBKR counts a seconds duration in trading seconds); its 48 bars are 16:00
-    # to 19:55, the last 48 vendor keys before the asked end
-    day = date(2026, 10, 12)
-    keys = [datetime(2026, 9, 30, 19, 55, tzinfo=UTC)] + [
-        datetime(2026, 10, 12, 16, 0, tzinfo=UTC) + timedelta(minutes=5 * i) for i in range(48)
-    ]
-    at = datetime(2026, 10, 13, 4, 27, 1, tzinfo=UTC)
-    load = _served_load("F", at, day, day, 48, 48)
-    request = gate.RequestFact(
-        "ibkr",
-        datetime(2026, 10, 12, 20, 10, tzinfo=UTC),
-        datetime(2026, 10, 13, 0, 5, tzinfo=UTC),
-        at - timedelta(milliseconds=1),
-    )
-    ranges = gate.served_ranges([load], [request], {"ibkr": keys}, 5)
-    assert ranges == {"F": (keys[1], keys[-1] + timedelta(minutes=5))}
-    index = gate.LaterServes([load], windows=ranges)
-    assert index.find(keys[1], "ibkr", REFUSED_AT) is load
-    assert index.find(keys[0], "ibkr", REFUSED_AT) is None
-    # the keys do not end on the load's dates: no range is claimed
-    wrong = _served_load("W", at, date(2026, 10, 11), day, 48, 48)
-    assert gate.served_ranges([wrong], [request], {"ibkr": keys}, 5) == {}
-    # fewer keys than the load's bars: no range
-    assert gate.served_ranges([load], [request], {"ibkr": keys[:20]}, 5) == {}
-    # no matched request: a single-date load whose bar count equals the date's keys
-    assert gate.served_ranges([load], [], {"ibkr": keys}, 5) == ranges
-    # per-row evidence wins over the reconstruction; refused loads never get a range
-    rows = {"F": [keys[5], keys[9]]}
-    assert gate.served_ranges([load], [request], {"ibkr": keys}, 5, row_stamps=rows) == {
-        "F": (keys[5], keys[9] + timedelta(minutes=5))
-    }
-    refused = _served_load("R", at, day, day, 48, 0, outcome="refused")
-    assert gate.served_ranges([refused], [request], {"ibkr": keys}, 5) == {}
 
 
 def test_spans_carry_their_own_evidence_not_the_whole_series():
@@ -677,28 +370,6 @@ def test_locate_groups_reports_only_groups_with_more_raw_rows_than_store_keys():
     assert "test-%%" in cur.sql[-1] and "UNION" in cur.sql[1]
 
 
-def test_a_refusal_explained_day_takes_the_ranking_closest_to_canonical():
-    canonical = _canonical(_day(DAY1, ALPACA))
-    raw = _raw(_day(DAY1, IBKR, close=10.2), _day(DAY1, ALPACA))
-    span, tail = _plan(canonical, raw, _refused_on(raw, date(2026, 10, 12))).spans
-    # (ibkr, alpaca) would carry three explained differences; (alpaca, ibkr) carries none
-    assert (span.primary_source, span.fallback_source) == ("alpaca", "ibkr")
-    assert (tail.primary_source, tail.valid_from, tail.valid_to) == (
-        "ibkr",
-        date(2026, 10, 13),
-        None,
-    )
-
-
-def test_rows_only_raw_holds_never_narrow_a_span_to_one_vendor():
-    # canonical stops with Alpaca on day 1; IBKR's refused rows for day 2 sit only in raw
-    canonical = _canonical(_day(DAY1, ALPACA))
-    raw = _raw(_day(DAY1, ALPACA), _day(DAY2, IBKR))
-    (span,) = _plan(canonical, raw, _refused_on(raw, date(2026, 10, 13))).spans
-    assert (span.primary_source, span.fallback_source) == ("ibkr", "alpaca")
-    assert span.valid_to is None
-
-
 def test_candidate_policy_turns_emitted_spans_into_policy_rows(tmp_path):
     canonical = _canonical(_day(DAY1, IBKR), _day(DAY2, ALPACA))
     raw = _raw(_day(DAY1, IBKR), _day(DAY2, ALPACA))
@@ -766,54 +437,6 @@ def test_the_gate_selects_a_session_whole_from_a_complete_fallback():
     selected, counts = gate.selected_rows(raw, [DEFAULT_I, alpaca_first], KIND_ORDER)
     assert {row[0] for row in selected.values()} == {IBKR} and len(selected) == 3
     assert (counts["sessions_fallback"], counts["sessions_incomplete"]) == (1, 0)
-
-
-def test_a_refused_value_canonical_took_from_a_later_applied_serve_is_not_held():
-    # GE 2021-11-05 19:40: refused at 12:14, then an applied serve at 15:47 put the same value in
-    # canonical and logged the 4-decimal value it displaced
-    ts = datetime(2021, 11, 5, 19, 40, tzinfo=UTC)
-    key = (ts, "ibkr", "named")
-    refused = _load(first=date(2021, 9, 1), last=date(2022, 4, 5), load_id="R")
-    evidence = gate.Evidence(
-        raw={key: _vals(10.0)},
-        refused_serves={key: refused},
-        revisions={key: [(REFUSED_AT + timedelta(hours=3), _vals(10.0001))]},
-        loads=[refused],
-    )
-    canonical = (IBKR, _vals(10.0))
-    assert evidence.held(key, canonical)  # no later serve on record: canonical took a held value
-    evidence.loads.append(
-        _load(
-            "applied",
-            REFUSED_AT + timedelta(hours=3),
-            first=date(2021, 4, 5),
-            last=date(2021, 11, 5),
-            load_id="A",
-        )
-    )
-    # its dates include the slot, which is no evidence on its own
-    assert evidence.held(key, canonical)
-    # GE 043784e0 logged the displaced value at the key: per-row evidence it served the slot
-    evidence.slot_loads = {ts: {"A"}}
-    assert not evidence.held(key, canonical)
-    diff = gate.compare_series("SPY", "5m", {ts: canonical}, {ts: canonical}, evidence)
-    assert diff.refused_value_in_canonical == 0 and diff.clean()
-
-
-def test_a_held_raw_row_is_left_out_of_the_selection_and_is_residue():
-    # raw holds a refused value at the first slot (read_held_keys); canonical keeps IBKR's own
-    canonical = _canonical(_day(DAY1, IBKR))
-    raw = _raw(_day(DAY1, IBKR))
-    raw[0] = _cand(raw[0].timestamp, IBKR, close=10.9)
-    held = {(raw[0].timestamp, *IBKR)}
-    evidence = gate.Evidence(held_keys=held)
-    selected, _ = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER, held)
-    assert raw[0].timestamp not in selected
-    diff = gate.compare_series("SPY", "5m", canonical, selected, evidence)
-    assert diff.kinds == {(gate.ONLY_CANONICAL, gate.HELD_IN_RAW): 1}
-    assert diff.held_raw_rows == 1 and not diff.clean()
-    report = gate.build_report([diff], {})
-    assert gate.verdict(report["totals"]) == gate.EXIT_RESIDUE
 
 
 def test_session_choices_are_counted_partial_and_checked_against_their_record():

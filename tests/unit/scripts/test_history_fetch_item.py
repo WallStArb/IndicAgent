@@ -512,7 +512,7 @@ def env(monkeypatch, make_ingress_result):
         record_gaps=[_RECORD_GAP],
         legacy_gaps=[_LEGACY_GAP],
         d1_gaps=[_D1_GAP],
-        refuse_next=False,
+        flag_next=False,
     )
 
     def fake_persist(
@@ -522,24 +522,22 @@ def env(monkeypatch, make_ingress_result):
         raw_rows,
         coverage=None,
         caller="ibkr-history-fetch",
-        waived=False,
         request_id=None,
         params=None,
     ):
-        refused = rec.refuse_next
-        rec.refuse_next = False
+        flagged = rec.flag_next
+        rec.flag_next = False
         rec.persist.append(
             SimpleNamespace(
                 requests=list(request_rows),
                 rows=list(raw_rows),
                 coverage=coverage,
-                waived=waived,
                 request_id=request_id,
-                refused=refused,
+                flagged=flagged,
             )
         )
         return PersistResult(
-            len(request_rows), len(raw_rows), rec.ingress(len(raw_rows), refused=refused)
+            len(request_rows), len(raw_rows), rec.ingress(len(raw_rows), flagged=flagged)
         )
 
     def fake_record_planner(conn, symbol, tf, start, end, expected_slots, **kwargs):
@@ -902,31 +900,19 @@ class TwoChunkProvider(FakeProvider):
         return bars
 
 
-def test_a_refused_chunk_is_held_the_walk_continues_and_the_item_settles_held(env):
-    """The contract held a refused chunk's values as pending revisions and wrote nothing to
-    raw; the walk goes on to older chunks and the refused bars are not re-offered as missed by
-    on_chunk. The refusal is a held state, not a failure (review finding 7): the item settles
-    ok so it does not burn the consecutive-failure budget or force a full-window refetch, and
-    the held series and row count ride on the outcome for the run summary."""
-    env.refuse_next = True
+def test_a_flagged_restatement_lands_the_walk_continues_and_the_flag_rides_on_the_outcome(env):
+    """D-191-N: a restatement is written last-wins; the detector's flag is reported on the
+    outcome, never a held state or a failure."""
+    env.flag_next = True
     outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
-    assert len(env.persist) == 2 and env.persist[0].refused
-    assert outcome.n_bars == 2  # only the accepted chunk counts as stored
-    assert outcome.status == "ok" and outcome.error is None
-    assert len(outcome.held) == 1 and "refused: ibkr restated" in outcome.held[0]
-    assert outcome.n_held > 0
-
-
-def test_an_item_whose_every_chunk_is_refused_settles_held_not_no_data(env):
-    env.refuse_next = True
-    outcome = _fetch(_ctx(FakeProvider()), _row("5m"))
-    assert outcome.n_bars == 0
-    assert outcome.status == "ok" and outcome.held and outcome.n_held > 0
+    assert len(env.persist) == 2 and env.persist[0].flagged
+    assert outcome.n_bars == 4 and outcome.status == "ok" and outcome.error is None
+    assert len(outcome.flags) == 1 and "signatures ['share']" in outcome.flags[0]
 
 
 def test_item_status_follows_the_ingress_result_not_a_stored_label(env):
-    """T-191-18: whether a refusal is an error is the contract's classification (a vendor
-    restating its OWN stored raw rows); the item holds no cross-vendor refusal logic at all."""
+    """T-191-18: the item holds no cross-vendor refusal logic at all; the contract writes
+    last-wins (D-191-N)."""
     for retired in ("_authored_by_other_vendor", "_stored_closes", "_fx_derive"):
         assert not hasattr(item_mod._ChunkPersister, retired) and not hasattr(item_mod, retired)
     assert not hasattr(
@@ -1468,18 +1454,6 @@ def test_a_5m_refetch_re_asks_the_whole_depth_including_stored_slots(env):
     start = history_fetch._fetch_start(_END, 7300)
     assert [(c["start"], c["end"]) for c in provider.calls] == [(start, _END)]
     assert outcome.status == "ok"
-    assert env.persist[0].waived is False
-
-
-def test_a_waived_refetch_passes_the_waiver_to_the_contract(env):
-    _fetch(
-        _ctx(FakeProvider()),
-        _row("5m", latest=_5M_LATEST, status="ok"),
-        full_scan=True,
-        refetch=True,
-        waived=True,
-    )
-    assert env.persist[0].waived is True
 
 
 def test_a_1d_refetch_re_asks_every_session_of_the_depth_window(env):

@@ -8,8 +8,8 @@ services/ohlcv_ingress_contract.apply_raw_contract and request rows through
 services/ohlcv_request_writer.write_request_rows (the fetch ledger writer, keeping ohlcv_request at
 one INSERT definition).
 
-The raw write runs first because the request row's content digest is NULL for a refused chunk
-(nothing was stored), and that is known only after the contract has run.
+The raw write runs first because the request row's content digest is the digest of what the chunk
+stored (every offered row lands last-wins, D-191-N).
 
 RequestSink.flush() must never run inside the transaction: flush demands an idle connection and
 opens its own transaction, so an open helper transaction would trap its SET LOCAL ROLE. The helper
@@ -166,17 +166,15 @@ class _RecordingCopy:
         return False
 
 
-def _result(rows: list[RawRow], *, refused: bool = False, existing=()) -> IngressResult:
+def _result(rows: list[RawRow], *, existing=()) -> IngressResult:
     stamps = sorted({r.timestamp for r in rows} - set(existing))
     return IngressResult(
         n_offered=len(rows),
-        n_new=0 if refused else len(stamps),
+        n_new=len(stamps),
         n_changed=0,
         n_unchanged=0,
-        refused=refused,
         selected_slots=0,
-        n_held=len(stamps) if refused else 0,
-        new_timestamps=() if refused else tuple(stamps),
+        new_timestamps=tuple(stamps),
     )
 
 
@@ -184,9 +182,9 @@ def _result(rows: list[RawRow], *, refused: bool = False, existing=()) -> Ingres
 def contract(monkeypatch):
     """apply_raw_contract replaced by a recorder that issues one statement on the connection (so
     the test sees it inside the transaction) and returns a scripted IngressResult."""
-    state = SimpleNamespace(calls=[], refused=False, existing=(), fail=False, read_params=[])
+    state = SimpleNamespace(calls=[], existing=(), fail=False, read_params=[])
 
-    def fake(conn, rows, *, caller, request_id, params=None, waived=False):
+    def fake(conn, rows, *, caller, request_id, params=None):
         with conn.cursor() as cur:
             cur.execute("INSERT INTO ohlcv_raw (<contract>)", [])
         if state.fail:
@@ -196,11 +194,10 @@ def contract(monkeypatch):
                 "rows": list(rows),
                 "caller": caller,
                 "request_id": request_id,
-                "waived": waived,
                 "params": params,
             }
         )
-        return _result(rows, refused=state.refused, existing=state.existing)
+        return _result(rows, existing=state.existing)
 
     def fake_read_params(cur):
         cur.execute("SELECT <read raw params>", None)
@@ -316,18 +313,6 @@ def test_request_row_with_a_digest_already_attached_is_refused(contract):
         persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW + ("x",)], raw_rows=[_RAW_ROW])
 
 
-def test_a_refused_chunk_still_records_its_request_rows_with_a_null_digest(contract):
-    """Refusal is not an exception any more: the contract recorded the refused load and held the
-    values; the request rows commit in the same transaction with digest NULL (nothing stored)."""
-    contract.refused = True
-    conn = FakeConn()
-    result = persist_chunk_atomically(conn, request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
-    assert result.ingress.refused is True
-    kinds = [sql for sql, _ in conn.statements]
-    assert kinds.count("<commit>") == 1 and "<rollback>" not in kinds
-    assert conn.copies[0][1] == [_REQUEST_ROW + (None,)]
-
-
 def test_the_raw_rows_carry_the_chunks_answering_request_id(contract):
     no_bars = _REQUEST_ROW[:11] + ("no_data",) + _REQUEST_ROW[12:14] + (0,) + _REQUEST_ROW[15:]
     later_empty = (uuid.uuid4(),) + no_bars[1:]
@@ -346,11 +331,11 @@ def test_an_explicit_request_id_wins_and_a_chunk_without_requests_gets_a_fresh_o
     assert contract.calls[1]["request_id"] != explicit
 
 
-def test_caller_and_waiver_reach_the_contract(contract):
+def test_the_caller_reaches_the_contract(contract):
     persist_chunk_atomically(
-        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], caller="alpaca-5m-load", waived=True
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], caller="alpaca-5m-load"
     )
-    assert contract.calls[0]["caller"] == "alpaca-5m-load" and contract.calls[0]["waived"] is True
+    assert contract.calls[0]["caller"] == "alpaca-5m-load"
 
 
 def test_preread_contract_params_reach_the_contract_and_are_not_read_again(contract):
@@ -484,14 +469,6 @@ def test_bounds_fall_back_to_offered_rows_when_nothing_new(contract, recorded_up
     (call,) = recorded_upserts
     assert call["n_new_rows"] == 0
     assert (call["earliest"], call["latest"]) == (_T0, _T1)
-
-
-def test_a_refused_chunk_does_not_move_the_coverage_bounds(contract, recorded_upserts):
-    contract.refused = True
-    persist_chunk_atomically(
-        FakeConn(), request_rows=[], raw_rows=[_bar(_T0), _bar(_T1)], coverage=_delta()
-    )
-    assert recorded_upserts == []  # nothing landed, so the stored bounds do not widen
 
 
 def test_rows_for_another_series_are_refused_before_any_sql(contract):

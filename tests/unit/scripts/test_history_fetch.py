@@ -30,20 +30,15 @@ class TestStoreBars:
         return bar
 
     @staticmethod
-    def _contract(monkeypatch, *, refused=False):
+    def _contract(monkeypatch):
         from scripts.infrastructure.backfill import _history_fetch as pipe
-        from services.ohlcv_ingress_contract import IngressResult, RefusedSeries
+        from services.ohlcv_ingress_contract import IngressResult
 
         calls = []
 
-        def fake(conn, rows, *, caller, request_id, params=None, waived=False):
+        def fake(conn, rows, *, caller, request_id, params=None):
             calls.append({"rows": list(rows), "caller": caller, "request_id": request_id})
-            series = (
-                (RefusedSeries("ESH6", "5m", "ibkr", "named", 0.5, 0.02, 3, 6, "refused: x"),)
-                if refused
-                else ()
-            )
-            return IngressResult(len(rows), len(rows), 0, 0, refused, 0, series)
+            return IngressResult(len(rows), len(rows), 0, 0, 0)
 
         monkeypatch.setattr(pipe, "apply_raw_contract", fake)
         return calls
@@ -84,13 +79,6 @@ class TestStoreBars:
         with pytest.raises(KeyError, match="no_such_label"):
             store_bars(MagicMock(), [self._bar(source="no_such_label")], "ESH6", "5m")
         assert calls == []
-
-    def test_a_refused_series_raises_so_the_caller_never_counts_it_stored(self, monkeypatch):
-        from scripts.infrastructure.backfill._history_fetch import store_bars
-
-        self._contract(monkeypatch, refused=True)
-        with pytest.raises(RuntimeError, match="refused: refused: x"):
-            store_bars(MagicMock(), [self._bar()], "ESH6", "5m")
 
     def test_no_bars_is_a_noop(self, monkeypatch):
         from scripts.infrastructure.backfill._history_fetch import store_bars

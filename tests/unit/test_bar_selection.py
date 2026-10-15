@@ -301,80 +301,6 @@ def test_writer_counts_unselected_and_off_grid():
 # --- held keys (second review of plan 191-07, finding 4) ---------------------------------------
 
 
-def test_held_keys_are_pending_values_or_refused_serves_that_displaced_an_own_value():
-    from services.bar_selection import held_keys
-
-    held_value = _cand("ibkr", "named", i=0, close=10.9)
-    own_value = _cand("ibkr", "named", i=1, close=10.0)
-    copied = _cand("ibkr", "named", i=2, close=10.7)
-    unchanged = _cand("ibkr", "named", i=3, close=10.0)
-    key = lambda c: (c.timestamp, c.vendor, c.kind)  # noqa: E731
-    vals = lambda c, close=None: (c.open, c.high, c.low, close or c.close, c.volume)  # noqa: E731
-    held = held_keys(
-        [held_value, own_value, copied, unchanged],
-        pending={key(held_value): {vals(held_value)}, key(own_value): {vals(own_value, 10.5)}},
-        refused_served={key(copied), key(unchanged)},
-        displaced={key(copied): {vals(copied, 10.0)}},
-    )
-    # the pending value is current; a refused serve displaced the vendor's own value. A raw value
-    # other than the pending one, and a refused serve that displaced nothing, are not held.
-    assert held == {key(held_value), key(copied)}
-
-
-class HeldCursor(FakeCursor):
-    """FakeCursor with one refused load whose value is held pending at the first slot."""
-
-    def __init__(self, raw, canonical, pending, writers=()):
-        super().__init__(raw, canonical)
-        self.pending = pending
-        self.writers = list(writers)
-
-    def execute(self, sql, params=None):
-        if "JOIN ohlcv_load l ON l.load_id = r.load_id" in sql:
-            self.executed.append((sql, list(params or ())))
-            self._result = self.writers
-        elif "FROM ohlcv_load WHERE" in sql and "refused" in sql:
-            self.executed.append((sql, list(params or ())))
-            self._result = [("R", "ibkr", T0 - timedelta(days=1))]
-        elif "origin = 'pending'" in sql:
-            self.executed.append((sql, list(params or ())))
-            self._result = self.pending
-        else:
-            super().execute(sql, params)
-
-
-def test_writer_never_selects_a_held_raw_value():
-    held = _cand("ibkr", "named", i=0, close=10.9)
-    alpaca = _cand("alpaca", "sip_rth", i=0, close=10.1)
-    pending = [(held.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100, "R")]
-    conn = FakeConn([held, alpaca])
-    conn.cur = HeldCursor([held, alpaca], [], pending)
-    result = _run(conn)
-    # the held IBKR value never wins, and its slot is not handed to the fallback (that would
-    # splice a second vendor into the primary's session, finding 3): canonical keeps its row
-    assert result.held == 1
-    assert _inserts(conn) == [] and result.dropped == 0
-
-
-def test_retract_deletes_a_canonical_row_only_where_no_vendor_holds_the_slot():
-    from services.bar_selection import retract_unselected_slots
-
-    kept = _cand("alpaca", "sip_rth", i=1)
-    conn = FakeConn([kept])
-    conn.cur.rowcount = 1
-    n = retract_unselected_slots(
-        conn,
-        symbol="SPY",
-        timeframe="5m",
-        timestamps=[T0, kept.timestamp],
-        policy_rows=[DEFAULT],
-        kind_order=KIND_ORDER,
-    )
-    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
-    # slot 0 has no raw row left: its canonical row goes; slot 1 keeps Alpaca's
-    assert n == 1 and [d[2] for d in deletes] == [T0]
-
-
 # --- session-level fallback (second review of plan 191-07, finding 3) --------------------------
 
 # 2026-10-09 09:30 to 10:00 EDT: a six-slot "session" is enough for the rule (completeness is
@@ -464,16 +390,6 @@ def test_each_session_is_judged_on_its_own():
     assert by_day == {(S0.date(), "ibkr"), (day2.date(), "alpaca")}
 
 
-def test_a_held_candidate_counts_for_completeness_but_never_wins_or_drops():
-    alpaca = [_slot(i, "alpaca") for i in range(3)]
-    ibkr = [_slot(i, "ibkr") for i in range(3)]
-    held = {(alpaca[1].timestamp, "alpaca", "sip_rth")}
-    outcome = select_slots(alpaca + ibkr, [DEFAULT, ALPACA_FIRST], KIND_ORDER, held)
-    assert [w.timestamp for w in outcome.winners] == [alpaca[0].timestamp, alpaca[2].timestamp]
-    assert {w.vendor for w in outcome.winners} == {"alpaca"}
-    assert outcome.n_held == 1 and outcome.dropped == ()
-
-
 def test_the_writer_widens_to_whole_sessions_and_retracts_dropped_slots():
     """A window inside one session reads and writes the whole session (America/New_York
     midnight to midnight); a slot the session rule leaves out loses its canonical row."""
@@ -528,24 +444,6 @@ def test_without_policy_rows_the_writer_reads_the_series_policy_under_its_lock()
     assert lock < read and result.new == 1
     ((_, params),) = _inserts(conn)
     assert params[8] == "alpaca"
-
-
-def test_a_pending_value_the_vendor_served_again_and_the_contract_accepted_is_not_held():
-    """A --reserve-keys re-serve that returns the held value is accepted (the vendor answered
-    again); its raw row names an applied vendor load after the refusal, so the pending value no
-    longer holds the key. A repair or backfill load writing the same value is no serve."""
-    from services.bar_selection import read_held_keys
-
-    raw = _cand("ibkr", "named", i=0, close=10.9)
-    pending = [(raw.timestamp, "ibkr", "named", 9.0, 11.0, 8.5, 10.9, 100, "R")]
-    after = T0  # the refusal was at T0 - 1 day (HeldCursor)
-    for caller, held in (("ibkr-history-fetch", set()), ("raw-repair-191", {raw.timestamp})):
-        writers = [(raw.timestamp, "ibkr", "named", after, "applied", "raw", caller)]
-        cur = HeldCursor([raw], [], pending, writers)
-        keys = read_held_keys(
-            cur, "SPY", "5m", T0 - timedelta(days=2), T0 + timedelta(days=1), [raw]
-        )
-        assert {k[0] for k in keys} == held
 
 
 def test_the_writer_keeps_the_session_choices_of_the_sessions_it_selects():
