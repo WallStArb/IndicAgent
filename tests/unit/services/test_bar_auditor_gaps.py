@@ -195,8 +195,11 @@ async def test_htf_gap_plan_counts_a_definitive_no_data_window_as_covered():
 
 
 @pytest.mark.asyncio
-async def test_htf_gap_plan_reads_the_archive_for_15m_1h_and_the_grid_for_5m():
-    for tf, table in (("15m", "ohlcv_intraday_raw_archive"), ("5m", "market_data_ohlcv")):
+async def test_htf_gap_plan_reads_ibkr_raw_for_every_timeframe():
+    """One store (plan 191-09): stored slots and answered windows come from the IBKR vendor's
+    ohlcv_raw rows for 5m, 15m and 1h alike, as in the fetch pipeline's planner, and a refused
+    load's window is never counted as answered."""
+    for tf in ("5m", "15m", "1h"):
         agent = _auditor()
         conn = _async_conn([[], [], []])
         await agent._plan_htf_gaps(
@@ -208,9 +211,18 @@ async def test_htf_gap_plan_reads_the_archive_for_15m_1h_and_the_grid_for_5m():
             now=_WIN_END,
             reverify_days=7,
             min_confirmations=2,
+            load_match_s=5.0,
         )
-        stored_sql = conn.fetch.call_args_list[0].args[0]
-        assert table in stored_sql
+        stored = conn.fetch.call_args_list[0]
+        answered = conn.fetch.call_args_list[1]
+        assert "FROM ohlcv_raw" in stored.args[0] and "vendor = $3" in stored.args[0]
+        assert stored.args[1:4] == (_INSTRUMENT.symbol, tf, "ibkr")
+        assert "FROM ohlcv_raw m" in answered.args[0]
+        assert "l.outcome = 'refused'" in answered.args[0]
+        assert answered.args[3] == "ibkr" and answered.args[-1] == 5.0
+        for sql in (stored.args[0], answered.args[0]):
+            assert "ohlcv_intraday_raw_archive" not in sql
+            assert "market_data_ohlcv" not in sql
 
 
 @pytest.mark.asyncio

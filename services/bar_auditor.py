@@ -77,29 +77,42 @@ _ALL_AUDIT_TFS: list[str] = ["1m"] + _HTF_TF_NAMES_LIST
 # planner's count for the same record. 4h stays on the count-only warning
 # until its own migration.
 _HTF_PLAN_TFS = ("5m", "15m", "1h")
-# Where each planner tf's stored observations live (mirrors _d1_gaps'
-# _SERIES_TABLE: the archive for the archive-bound 15m/1h, the grid for 5m).
-_HTF_STORED_TABLES = {
-    "5m": "market_data_ohlcv",
-    "15m": "ohlcv_intraday_raw_archive",
-    "1h": "ohlcv_intraday_raw_archive",
-}
+# Every planner tf reads the stored slots of the vendor the gap requests go to (IBKR) from
+# ohlcv_raw, the one store (plan 191-09): the same reads as the fetch pipeline's planner
+# (scripts/infrastructure/backfill/_d1_gaps.py _RAW_SLOTS_SQL and _ANSWERED_WINDOWS_SQL), so the
+# auditor's count is the planner's for the same record. Canonical 5m is not IBKR's own record
+# (Alpaca serves part of it), so it is no longer read here.
+_HTF_GAP_VENDOR = "ibkr"
 _SELECT_HTF_STORED_SQL = """
-SELECT timestamp FROM {table}
-WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp <= $4
+SELECT DISTINCT "timestamp" FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = $2 AND vendor = $3 AND "timestamp" >= $4 AND "timestamp" <= $5
 """
+# A `bars` answer counts only when this vendor holds a raw row in its window, and never when the
+# load that persisted it was refused (third review of plan 191-07, finding 3; $7 is
+# infra.selection_gate.request_load_match_s, the request-to-load match window).
 _SELECT_HTF_ANSWERED_SQL = """
 SELECT r.window_start, r.window_end
 FROM ohlcv_request r
-WHERE r.symbol = $1 AND r.timeframe = $2 AND r.route = $3 AND r.what_to_show = $4
-  AND r.outcome = ANY($5::text[]) AND r.window_start IS NOT NULL
+WHERE r.symbol = $1 AND r.timeframe = $2 AND r.source = $3 AND r.route = $4
+  AND r.what_to_show = $5 AND r.outcome = ANY($6::text[]) AND r.window_start IS NOT NULL
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
-      SELECT 1 FROM {table} m
-      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
-        AND m.timestamp >= r.window_start AND m.timestamp < r.window_end
+      SELECT 1 FROM ohlcv_raw m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe AND m.vendor = r.source
+        AND m."timestamp" >= r.window_start AND m."timestamp" < r.window_end
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM ohlcv_load l
+    WHERE l.symbol = r.symbol AND l.timeframe = r.timeframe AND l.source = r.source
+      AND l.outcome = 'refused' AND l.loaded_at >= r.answered_at
+      AND l.loaded_at <= r.answered_at + make_interval(secs => $7)
+      AND NOT EXISTS (
+        SELECT 1 FROM ohlcv_request q
+        WHERE q.symbol = r.symbol AND q.timeframe = r.timeframe AND q.source = r.source
+          AND q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at
+      )
   )
 ORDER BY r.window_start
 """
@@ -114,6 +127,7 @@ WHERE symbol = $1 AND timeframe = $2 AND provider = 'ibkr'
 _HTF_SPAN_APR_KEYS = [
     "infra.backfill.empty_history_reverify_days",
     "infra.ibkr.no_data_confirmation_chunks",
+    "infra.selection_gate.request_load_match_s",
 ]
 
 # Retry schedule: after N-th attempt, wait this many seconds before re-emitting.
@@ -294,6 +308,7 @@ class BarAuditor(BaseDaemon):
         now: datetime,
         reverify_days: int,
         min_confirmations: int,
+        load_match_s: float = 0.0,
     ) -> list[tuple[datetime, datetime]]:
         """The shared planner's gap plan for (symbol, tf) over one audit window.
 
@@ -304,22 +319,19 @@ class BarAuditor(BaseDaemon):
         pipeline's _d1_gaps wrapper; these asyncpg readers are local because
         services/ does not import from scripts/.
         """
-        table = _HTF_STORED_TABLES[tf]
         stored_rows = await conn.fetch(
-            _SELECT_HTF_STORED_SQL.format(table=table),
-            instrument.symbol,
-            tf,
-            win_start,
-            win_end,
+            _SELECT_HTF_STORED_SQL, instrument.symbol, tf, _HTF_GAP_VENDOR, win_start, win_end
         )
         stored = [r[0] for r in stored_rows]
         answered_rows = await conn.fetch(
-            _SELECT_HTF_ANSWERED_SQL.format(table=table),
+            _SELECT_HTF_ANSWERED_SQL,
             instrument.symbol,
             tf,
+            _HTF_GAP_VENDOR,
             COVERAGE_ROUTE,
             COVERAGE_WHAT_TO_SHOW,
             list(ANSWERED_OUTCOMES),
+            load_match_s,
         )
         answered = AnsweredWindows.from_rows([(r[0], r[1]) for r in answered_rows])
         spans: list[tuple[datetime, datetime]] = []
@@ -425,9 +437,11 @@ class BarAuditor(BaseDaemon):
                 apr = await load_apr_dict_async(conn, list(_HTF_SPAN_APR_KEYS))
                 span_reverify_days = int(apr[_HTF_SPAN_APR_KEYS[0]])
                 span_min_confirmations = int(apr[_HTF_SPAN_APR_KEYS[1]])
+                load_match_s = float(apr[_HTF_SPAN_APR_KEYS[2]])
             except Exception as error:
                 span_reverify_days = 0
                 span_min_confirmations = 0
+                load_match_s = 0.0
                 self.logger.warning(
                     "bar_auditor.htf_span_apr_unavailable",
                     error=str(error),
@@ -517,6 +531,7 @@ class BarAuditor(BaseDaemon):
                                 now=now_utc,
                                 reverify_days=span_reverify_days,
                                 min_confirmations=span_min_confirmations,
+                                load_match_s=load_match_s,
                             )
                             if plan:
                                 self.logger.warning(
