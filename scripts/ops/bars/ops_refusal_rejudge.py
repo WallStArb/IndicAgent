@@ -89,6 +89,7 @@ TIMEFRAME = "5m"
 OWN: tuple[str, str] = ("ibkr", "named")
 SETTLE_KEY = "threshold.bar_integrity.session_close_settle_s"
 ACCEPTED, HELD, UNJUDGEABLE = "accepted", "held", "unjudgeable"
+_BAR = timedelta(minutes=5)
 _FAR_PAST = datetime(1990, 1, 1, tzinfo=UTC)
 _FAR_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
 _LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
@@ -160,6 +161,12 @@ class SeriesInputs:
     canon_before_repair: dict[datetime, tuple[tuple[str, str], Values] | None]
     slot_loads: dict[datetime, set[Any]]
     request_ends: list[datetime]
+    # load_id -> [first served stamp, last served stamp + bar] (gate.served_ranges): the exact
+    # keys an applied serve answered, never its request window (third review, finding 1)
+    ranges: dict[Any, tuple[datetime, datetime]] = field(default_factory=dict)
+    # timestamp -> when a later load first wrote the key (a load whose every bar was new): the
+    # key holds no value of the vendor's before that instant
+    first_written: dict[datetime, datetime] = field(default_factory=dict)
 
 
 @dataclass
@@ -180,11 +187,17 @@ def _own(row: tuple[tuple[str, str], Values] | None) -> Values | None:
 def canon_at(inputs: SeriesInputs, ts: datetime, t: datetime) -> tuple[Any, datetime | None]:
     """(canonical row at `ts` just before `t`, the time the retired path last wrote it before
     `t` or None): the old value of the earliest revision logged after `t`, else the canonical
-    row before the first repair."""
+    row before the first repair. A key a later load first wrote (`first_written` after `t`) and
+    no revision put on record at or before `t` held nothing at `t` (third review of plan
+    191-07, finding 1: ADM 2026-10-12 16:00 to 19:55 arrived at 04:27, after the 23:23
+    refusal, and read as stored at it)."""
     revs = inputs.canon_revisions.get(ts, [])
     after = [r for r in revs if r[0] > t]
     before = [r[0] for r in revs if r[0] <= t]
     written = max(before) if before else None
+    born = inputs.first_written.get(ts)
+    if born is not None and born > t and written is None:
+        return None, None
     if after:
         first = min(after, key=lambda r: r[0])
         return (first[1], first[2]), written
@@ -309,11 +322,8 @@ def decide_series(
                 continue
             request = inputs.requests.get(serve.load_id)
             wrote = serve.load_id in inputs.slot_loads.get(ts, ())
-            covered = (
-                request is not None
-                and request.window_start <= ts
-                and ts + timedelta(minutes=5) <= request.window_end
-            )
+            served = inputs.ranges.get(serve.load_id)
+            covered = served is not None and served[0] <= ts and ts + _BAR <= served[1]
             if not (wrote or covered):
                 continue
             if not _complete(ts, request, settle, serve.loaded_at):
@@ -416,12 +426,20 @@ _REVISIONS_SQL = (
     'WHERE l.symbol = %s AND l.timeframe = %s AND v."timestamp" = ANY(%s)'
 )
 _RAW_AT_SQL = (
-    'SELECT "timestamp", open, high, low, close, volume, served_at, load_id FROM ohlcv_raw '
+    'SELECT "timestamp", open, high, low, close, volume, served_at, load_id, request_id FROM ohlcv_raw '
     'WHERE symbol = %s AND timeframe = %s AND vendor = %s AND kind = %s AND "timestamp" = ANY(%s)'
 )
 _CANON_AT_SQL = (
     'SELECT "timestamp", source, open, high, low, close, volume FROM market_data_ohlcv '
     'WHERE symbol = %s AND timeframe = %s AND "timestamp" = ANY(%s)'
+)
+_VENDOR_KEYS_SQL = (
+    'SELECT DISTINCT "timestamp" FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s '
+    "AND vendor = %s ORDER BY 1"
+)
+_REVISION_LOADS_SQL = (
+    'SELECT "timestamp", load_id FROM ohlcv_revision WHERE symbol = %s AND timeframe = %s '
+    "AND origin <> 'pending'"
 )
 _REQUEST_ENDS_SQL = (
     "SELECT DISTINCT window_end FROM ohlcv_request WHERE symbol = %s AND timeframe = %s "
@@ -457,7 +475,7 @@ def _labels() -> dict[str, tuple[str, str]]:
 
 def read_inputs(
     cur: Any, symbol: str, match_s: float, before_repair: Mapping[datetime, Any]
-) -> tuple[SeriesInputs, dict[datetime, tuple[Values, Any, Any]], dict[Any, set[datetime]]]:
+) -> tuple[SeriesInputs, dict[datetime, tuple[Any, ...]], dict[Any, set[datetime]]]:
     """(inputs, current raw (values, served_at, load_id) of the vendor at the offered keys,
     existing pending stamps per refused load)."""
     loads = gate.read_loads(cur, symbol, TIMEFRAME)
@@ -492,10 +510,10 @@ def read_inputs(
             and caller not in gate.NON_SERVE_CALLERS
         ):
             canon_revisions[ts].append((loaded_at, (vendor, kind), (o, h, lo, c, v)))
-    raw: dict[datetime, tuple[Values, Any, Any]] = {}
+    raw: dict[datetime, tuple[Any, ...]] = {}
     cur.execute(_RAW_AT_SQL, (symbol, TIMEFRAME, *OWN, stamps))
-    for ts, o, h, lo, c, v, served_at, load_id in cur.fetchall():
-        raw[ts] = ((o, h, lo, c, v), served_at, load_id)
+    for ts, o, h, lo, c, v, served_at, load_id, request_id in cur.fetchall():
+        raw[ts] = ((o, h, lo, c, v), served_at, load_id, request_id)
         if load_id is not None:
             slot_loads[ts].add(load_id)
     cur.execute(_CANON_AT_SQL, (symbol, TIMEFRAME, stamps))
@@ -508,6 +526,7 @@ def read_inputs(
     }
     cur.execute(_REQUEST_ENDS_SQL, (symbol, TIMEFRAME, OWN[0]))
     ends = sorted(r[0] for r in cur.fetchall())
+    ranges, first_written = served_evidence(cur, symbol, loads, match_s)
     inputs = SeriesInputs(
         symbol,
         loads,
@@ -518,8 +537,50 @@ def read_inputs(
         canon_before,
         dict(slot_loads),
         ends,
+        ranges,
+        {ts: first_written[ts] for ts in stamps if ts in first_written},
     )
     return inputs, raw, dict(pending)
+
+
+def served_evidence(
+    cur: Any, symbol: str, loads: Sequence[gate.LoadFact], match_s: float
+) -> tuple[dict[Any, tuple[datetime, datetime]], dict[datetime, datetime]]:
+    """(load_id -> served range, timestamp -> first write) of the vendor's applied serves over
+    the whole series (gate.served_ranges). A serve whose every bar was new (n_new = n_bars) first
+    wrote each vendor key in its range."""
+    cur.execute(_VENDOR_KEYS_SQL, (symbol, TIMEFRAME, OWN[0]))
+    keys = [r[0] for r in cur.fetchall()]
+    rows: dict[datetime, set[Any]] = defaultdict(set)
+    cur.execute(gate._RAW_LOADS_SQL, (symbol, TIMEFRAME))
+    for ts, load_id in cur.fetchall():
+        rows[ts].add(load_id)
+    cur.execute(_REVISION_LOADS_SQL, (symbol, TIMEFRAME))
+    for ts, load_id in cur.fetchall():
+        rows[ts].add(load_id)
+    cur.execute(gate._REQUESTS_SQL, (symbol, TIMEFRAME))
+    requests = [gate.RequestFact(*r) for r in cur.fetchall()]
+    cur.execute(gate._RAW_REQUESTS_SQL, (symbol, TIMEFRAME))
+    request_rows = cur.fetchall()
+    ranges = gate.served_ranges(
+        loads,
+        requests,
+        {OWN[0]: keys},
+        match_s,
+        row_stamps=gate.load_row_stamps(rows, loads, requests, request_rows, match_s),
+        bar=_BAR,
+    )
+    first_written: dict[datetime, datetime] = {}
+    by_id = {load.load_id: load for load in loads}
+    for load_id, (start, end) in ranges.items():
+        load = by_id[load_id]
+        if load.vendor != OWN[0] or not load.n_bars or load.n_new != load.n_bars:
+            continue
+        lo, hi = bisect.bisect_left(keys, start), bisect.bisect_left(keys, end)
+        for ts in keys[lo:hi]:
+            if ts not in first_written or load.loaded_at < first_written[ts]:
+                first_written[ts] = load.loaded_at
+    return ranges, first_written
 
 
 @dataclass
@@ -541,14 +602,15 @@ class SeriesPlan:
 
 
 def linked_refused(
-    raw: Mapping[datetime, tuple[Values, Any, Any]], refused: Sequence[gate.LoadFact]
+    raw: Mapping[datetime, tuple[Any, ...]], refused: Sequence[gate.LoadFact]
 ) -> dict[datetime, Any]:
     """timestamp -> the refused load a raw row names (its load_id, or for a backfill copy with no
     load_id its served_at equal to the refused load's loaded_at)."""
     by_id = {load.load_id for load in refused}
     by_time = {load.loaded_at: load.load_id for load in refused}
     out: dict[datetime, Any] = {}
-    for ts, (_values, served_at, load_id) in raw.items():
+    for ts, row in raw.items():
+        served_at, load_id = row[1], row[2]
         if load_id is not None and load_id in by_id:
             out[ts] = load_id
         elif load_id is None and served_at in by_time:
@@ -558,7 +620,7 @@ def linked_refused(
 
 def plan_writes(
     decision: SeriesDecision,
-    raw: Mapping[datetime, tuple[Values, Any, Any]],
+    raw: Mapping[datetime, tuple[Any, ...]],
     pending: Mapping[Any, set[datetime]],
     repair_loads: set[Any],
     linked: Mapping[datetime, Any] | None = None,
@@ -745,6 +807,25 @@ def apply_series(
         ],
         "withdrawn": [
             {"timestamp": ts.isoformat(), "old": list(v)} for ts, v in sorted(plan.withdraw.items())
+        ],
+        # third review, low item: every released hold and every restamp with the lineage it
+        # replaced (a restamp overwrites served_at, load_id and request_id without a revision)
+        "released": {
+            str(k): [t.isoformat() for t in v]
+            for k, v in sorted(plan.release.items(), key=lambda kv: str(kv[0]))
+        },
+        "restamped": [
+            {
+                "timestamp": ts.isoformat(),
+                "old_served_at": None if raw[ts][1] is None else raw[ts][1].isoformat(),
+                "old_load_id": None if raw[ts][2] is None else str(raw[ts][2]),
+                "old_request_id": (
+                    None if len(raw[ts]) < 4 or raw[ts][3] is None else str(raw[ts][3])
+                ),
+                "new_served_at": None if new is None else new.isoformat(),
+                "new_load_id": str(load_id),
+            }
+            for ts, new in sorted(plan.restamp.items())
         ],
     }
 

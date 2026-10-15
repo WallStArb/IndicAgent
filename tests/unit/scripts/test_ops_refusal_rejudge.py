@@ -85,16 +85,68 @@ def test_a_refused_load_holds_every_differing_offer_new_bars_included():
 
 
 def test_a_held_offer_with_more_volume_than_raw_is_listed_for_a_re_serve():
-    ts = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)  # ADM: 380,459 kept, 380,759 held
-    stamps = [ts - timedelta(minutes=5 * i) for i in range(10)]
+    stamps = _slots(10)
     canon = {s: (IBKR, _v()) for s in stamps}
-    canon[ts] = (IBKR, _v(80.43, 380459))
+    canon[stamps[3]] = (IBKR, _v(10.0, 900))  # stored before the refusal, less volume
     offer = {s: _v(10.1) for s in stamps}
-    offer[ts] = _v(80.43, 380759)
+    offer[stamps[3]] = _v(10.0, 1000)
     decision = _decide(_inputs(offer, canon))
     assert decision.judgements[0].outcome == rj.HELD
     reasons = {r["timestamp"]: r["reason"] for r in decision.reserve}
-    assert "incomplete" in reasons[ts.isoformat()]
+    assert "incomplete" in reasons[stamps[3].isoformat()]
+
+
+def test_a_key_a_later_load_first_wrote_is_not_stored_at_the_refusal():
+    # ADM 898c4a50 (2026-10-12 23:23) was judged against 48 values f40ff724 first wrote at
+    # 04:27 the next morning (third review of plan 191-07, finding 1)
+    day = datetime(2026, 10, 12, 16, 0, tzinfo=UTC)
+    early = _slots(20)
+    late = [day + timedelta(minutes=5 * i) for i in range(10)]
+    canon = {ts: (IBKR, _v()) for ts in early + late}
+    offer = {ts: _v() for ts in early}
+    offer.update({ts: _v(10.3) for ts in late})  # would be 10 changed of 30 stored
+    inserted = REFUSED_AT + timedelta(hours=5)
+    later = _load("A", "applied", inserted)
+    inputs = _inputs(
+        offer,
+        canon,
+        loads=[_load("R", "refused", REFUSED_AT), later],
+        requests={"R": _request(REFUSED_AT), "A": _request(inserted, end=inserted)},
+    )
+    inputs.first_written = {ts: inserted for ts in late}
+    inputs.ranges = {"A": (late[0], late[-1] + timedelta(minutes=5))}
+    decision = _decide(inputs)
+    (judgement,) = decision.judgements
+    assert (judgement.n_stored, judgement.n_changed, judgement.n_new) == (20, 0, 10)
+    assert judgement.outcome == rj.ACCEPTED
+
+
+def test_a_later_serve_answers_the_keys_it_served_before_its_request_window_start():
+    # ADM af8b35f1 persisted 20:10 to 00:05 (trading-second duration) and served 16:00 to 19:55:
+    # the served range, not the window, decides; the held offer is answered again and released
+    day = datetime(2026, 10, 12, 16, 0, tzinfo=UTC)
+    early = _slots(20)
+    late = [day + timedelta(minutes=5 * i) for i in range(10)]
+    canon = {ts: (IBKR, _v()) for ts in early}
+    canon.update({ts: (IBKR, _v(10.2)) for ts in late})
+    offer = {ts: _v(10.5) for ts in early + late}
+    at = REFUSED_AT + timedelta(hours=5)
+    window = gate.RequestFact(
+        "ibkr", datetime(2026, 10, 12, 20, 10, tzinfo=UTC), at, at - timedelta(seconds=1)
+    )
+    inputs = _inputs(
+        offer,
+        canon,
+        loads=[_load("R", "refused", REFUSED_AT), _load("A", "applied", at)],
+        requests={"R": _request(REFUSED_AT), "A": window},
+    )
+    inputs.first_written = {ts: at for ts in late}
+    inputs.ranges = {"A": (late[0], late[-1] + timedelta(minutes=5))}
+    decision = _decide(inputs)
+    assert decision.judgements[0].outcome == rj.HELD
+    assert set(decision.pending["R"]) == set(early)
+    assert all(decision.target[ts].source == "serve A" for ts in late)
+    assert not {r["timestamp"] for r in decision.reserve} & {ts.isoformat() for ts in late}
 
 
 def test_a_later_serve_of_the_exact_key_supersedes_a_held_offer_and_dates_do_not():
@@ -102,15 +154,17 @@ def test_a_later_serve_of_the_exact_key_supersedes_a_held_offer_and_dates_do_not
     canon = {ts: (IBKR, _v()) for ts in stamps}
     offer = {ts: _v(10.5) for ts in stamps}
     later = _load("A", "applied", REFUSED_AT + timedelta(minutes=1))
-    window = gate.RequestFact("ibkr", stamps[0], stamps[9] + timedelta(minutes=5), later.loaded_at)
+    # the request window claims the whole day; only its served range counts
+    window = gate.RequestFact("ibkr", stamps[0], stamps[-1] + timedelta(minutes=5), later.loaded_at)
     inputs = _inputs(
         offer,
         canon,
         loads=[_load("R", "refused", REFUSED_AT), later],
         requests={"R": _request(REFUSED_AT), "A": window},
     )
+    inputs.ranges = {"A": (stamps[0], stamps[9] + timedelta(minutes=5))}
     decision = _decide(inputs)
-    # the first ten were answered again (window holds them): no hold; the rest stay held
+    # the first ten were answered again (served range holds them): no hold; the rest stay held
     assert set(decision.pending["R"]) == set(stamps[10:])
     assert decision.target[stamps[0]].source == "serve A"
 

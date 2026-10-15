@@ -169,6 +169,8 @@ class LoadFact:
     loaded_at: datetime
     destination: str
     caller: str
+    n_bars: int | None = None
+    n_new: int | None = None
 
     @property
     def is_serve(self) -> bool:
@@ -210,14 +212,88 @@ def match_requests(
     return out
 
 
-def match_request_windows(
-    loads: Iterable[LoadFact], requests: Iterable[RequestFact], match_s: float
-) -> dict[Any, tuple[datetime, datetime]]:
-    """load_id -> the window of the request it persisted (match_requests)."""
-    return {
-        load_id: (request.window_start, request.window_end)
+def vendor_keys_of(raw: Iterable[Key]) -> dict[str, list[datetime]]:
+    """vendor -> its sorted raw stamps (any kind, deduplicated)."""
+    out: dict[str, set[datetime]] = defaultdict(set)
+    for ts, vendor, _kind in raw:
+        out[vendor].add(ts)
+    return {vendor: sorted(stamps) for vendor, stamps in out.items()}
+
+
+def load_row_stamps(
+    slot_loads: Mapping[datetime, set[Any]],
+    loads: Iterable[LoadFact],
+    requests: Iterable[RequestFact],
+    request_rows: Iterable[tuple[datetime, datetime, str]],
+    match_s: float,
+) -> dict[Any, list[datetime]]:
+    """load_id -> stamps the ledger ties to it: rows naming the load (`slot_loads`) and raw rows
+    naming the request the load persisted (`request_rows`: (timestamp, answered_at, vendor))."""
+    loads = list(loads)
+    out: dict[Any, list[datetime]] = defaultdict(list)
+    for ts, ids in slot_loads.items():
+        for load_id in ids:
+            out[load_id].append(ts)
+    by_answer = {
+        (request.vendor, request.answered_at): load_id
         for load_id, request in match_requests(loads, requests, match_s).items()
     }
+    for ts, answered_at, vendor in request_rows:
+        load_id = by_answer.get((vendor, answered_at))
+        if load_id is not None:
+            out[load_id].append(ts)
+    return dict(out)
+
+
+def served_ranges(
+    loads: Iterable[LoadFact],
+    requests: Iterable[RequestFact],
+    vendor_keys: Mapping[str, Sequence[datetime]],
+    match_s: float,
+    *,
+    row_stamps: Mapping[Any, Sequence[datetime]] | None = None,
+    bar: timedelta = timedelta(minutes=5),
+) -> dict[Any, tuple[datetime, datetime]]:
+    """load_id -> [first served stamp, last served stamp + bar] of each applied vendor serve.
+
+    Third review of plan 191-07, finding 1: a request window is not the served range. IBKR counts
+    a seconds duration in trading seconds, so `window_start` (wall-clock end minus duration) can
+    start hours after the first bar served (ADM af8b35f1: window 20:10 to 00:05, bars 16:00 to
+    19:55). The range comes from the rows instead, in this order:
+    1. `row_stamps`: stamps the ledger ties to the load (raw rows naming its load_id or its
+       request_id, non-pending revision rows of the load); their first to last stamp.
+    2. Legacy loads with no rows: the load's own `n_bars` vendor keys ending before the end of
+       the request it persisted (`window_end` is the asked end, which is exact), accepted only
+       when the first and last of those keys fall on the load's `first_bar` and `last_bar` UTC
+       dates. A load with no matched request is accepted only when it is a single-date load
+       whose bar count equals the vendor's keys on that date.
+    A load none of these resolves has no range: nothing is claimed for it."""
+    rows = row_stamps or {}
+    matched = match_requests(loads, requests, match_s)
+    out: dict[Any, tuple[datetime, datetime]] = {}
+    for load in loads:
+        if load.outcome != "applied" or not load.is_serve:
+            continue
+        stamps = rows.get(load.load_id)
+        if stamps:
+            out[load.load_id] = (min(stamps), max(stamps) + bar)
+            continue
+        n = load.n_bars or 0
+        keys = vendor_keys.get(load.vendor, ())
+        if n <= 0 or not keys:
+            continue
+        request = matched.get(load.load_id)
+        if request is not None:
+            i = bisect.bisect_left(keys, request.window_end)
+            sel = keys[max(0, i - n) : i]
+        elif load.first == load.last:
+            day = [k for k in keys if utc_date(k) == load.first]
+            sel = day if len(day) == n else []
+        else:
+            continue
+        if len(sel) == n and utc_date(sel[0]) == load.first and utc_date(sel[-1]) == load.last:
+            out[load.load_id] = (sel[0], sel[-1] + bar)
+    return out
 
 
 class LaterServes:
@@ -226,13 +302,11 @@ class LaterServes:
     An applied vendor serve of `vendor` loaded after `after` answered the slot `ts` only on
     exact-key evidence, in this order:
     1. per row: the load wrote a raw row or a non-pending revision row at `ts` (`slot_loads`);
-    2. its request window: the request the load persisted (`windows`, match_request_windows)
-       holds the whole bar [ts, ts + bar].
-    A load whose UTC dates merely include the slot's date is not evidence: ADM f40ff724 asked
-    20:10 to 00:05 and excused nothing before 20:10. A request window only ever understates what
-    IBKR served ("N D" counts sessions; GE 043784e0 served 2021-11-05 from a Monday pre-market
-    window), so a covering window never claims a slot the vendor did not answer. With neither,
-    the slot was not answered again and the refused value stays held.
+    2. its served range (`windows`, served_ranges) holds the whole bar [ts, ts + bar].
+    A load whose UTC dates merely include the slot's date is not evidence, and neither is the
+    request window: IBKR's `window_start` is wall-clock end minus a duration it counts in trading
+    seconds or sessions (ADM f40ff724 persisted 20:10 to 00:05 and served 16:00 to 19:55). With
+    neither, the slot was not answered again and the refused value stays held.
     """
 
     def __init__(
@@ -316,7 +390,7 @@ class Evidence:
     refused_serves: key -> the refused load that served the raw row (refused_serve_map).
     raw: key -> values of every raw row of the series.
     loads: every ohlcv_load row of the series.
-    windows: load_id -> the request window the load persisted (match_request_windows).
+    windows: load_id -> the range the load served (served_ranges), never its request window.
     slot_loads: timestamp -> load_ids that wrote a raw row or a non-pending revision there.
     bar: the series' bar length (exact-key window evidence holds the whole bar).
     """
@@ -979,7 +1053,7 @@ _REVISION_SQL = (
 )
 _LOADS_SQL = (
     "SELECT load_id, source, requested_start, requested_end, outcome, loaded_at, destination, "
-    "caller FROM ohlcv_load WHERE symbol = %s AND timeframe = %s"
+    "caller, n_bars, n_new FROM ohlcv_load WHERE symbol = %s AND timeframe = %s"
 )
 # Raw rows a refused load may have served: its load_id, or (backfill copies) its loaded_at.
 _SERVES_SQL = (
@@ -996,6 +1070,11 @@ _REQUESTS_SQL = (
 _RAW_LOADS_SQL = (
     'SELECT "timestamp", load_id FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s '
     "AND load_id IS NOT NULL"
+)
+# Raw rows that name the request that served them (per-row served-range evidence).
+_RAW_REQUESTS_SQL = (
+    'SELECT r."timestamp", q.answered_at, q.source FROM ohlcv_raw r JOIN ohlcv_request q '
+    "ON q.request_id = r.request_id WHERE r.symbol = %s AND r.timeframe = %s"
 )
 _UNMAPPED_SQL = (
     "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s "
@@ -1077,7 +1156,16 @@ def read_evidence(
     loads = evidence.loads = read_loads(cur, symbol, timeframe)
     cur.execute(_REQUESTS_SQL, (symbol, timeframe))
     requests = [RequestFact(*row) for row in cur.fetchall()]
-    evidence.windows = match_request_windows(loads, requests, match_s)
+    cur.execute(_RAW_REQUESTS_SQL, (symbol, timeframe))
+    by_request = cur.fetchall()
+    evidence.windows = served_ranges(
+        loads,
+        requests,
+        vendor_keys_of(evidence.raw),
+        match_s,
+        row_stamps=load_row_stamps(evidence.slot_loads, loads, requests, by_request, match_s),
+        bar=evidence.bar,
+    )
     refused = [load for load in loads if load.outcome == "refused"]
     if refused:
         cur.execute(

@@ -464,24 +464,70 @@ def test_a_later_serve_needs_exact_key_evidence_not_the_date():
     )
 
 
-def test_a_load_takes_the_window_of_the_request_answered_just_before_it():
+def test_a_load_takes_the_request_answered_just_before_it():
     at = datetime(2026, 10, 12, 12, 15, 17, 192000, tzinfo=UTC)
     load = _load("applied", at, load_id="G")
     late = _load("applied", at + timedelta(minutes=5), load_id="H")
-    requests = [
-        gate.RequestFact(
-            "ibkr", at - timedelta(days=150), at - timedelta(days=1), at - timedelta(seconds=40)
-        ),
-        gate.RequestFact(
-            "ibkr",
-            at - timedelta(days=300),
-            at - timedelta(days=151),
-            at - timedelta(milliseconds=46),
-        ),
-        gate.RequestFact("alpaca", at, at, at),
+    first = gate.RequestFact(
+        "ibkr", at - timedelta(days=150), at - timedelta(days=1), at - timedelta(seconds=40)
+    )
+    near = gate.RequestFact(
+        "ibkr", at - timedelta(days=300), at - timedelta(days=151), at - timedelta(milliseconds=46)
+    )
+    requests = [first, near, gate.RequestFact("alpaca", at, at, at)]
+    assert gate.match_requests([load, late], requests, match_s=5) == {"G": near}
+
+
+def _served_load(load_id, at, first, last, n_bars, n_new=0, outcome="applied"):
+    return gate.LoadFact(
+        load_id,
+        "ibkr",
+        first,
+        last,
+        outcome,
+        at,
+        "market_data_ohlcv",
+        "ibkr-history-fetch",
+        n_bars,
+        n_new,
+    )
+
+
+def test_the_served_range_is_the_loads_own_bars_not_its_request_window():
+    # ADM af8b35f1 / f40ff724 (third review of plan 191-07, finding 1): the request persisted
+    # 20:10 to 00:05 (IBKR counts a seconds duration in trading seconds); its 48 bars are 16:00
+    # to 19:55, the last 48 vendor keys before the asked end
+    day = date(2026, 10, 12)
+    keys = [datetime(2026, 9, 30, 19, 55, tzinfo=UTC)] + [
+        datetime(2026, 10, 12, 16, 0, tzinfo=UTC) + timedelta(minutes=5 * i) for i in range(48)
     ]
-    windows = gate.match_request_windows([load, late], requests, match_s=5)
-    assert windows == {"G": (at - timedelta(days=300), at - timedelta(days=151))}
+    at = datetime(2026, 10, 13, 4, 27, 1, tzinfo=UTC)
+    load = _served_load("F", at, day, day, 48, 48)
+    request = gate.RequestFact(
+        "ibkr",
+        datetime(2026, 10, 12, 20, 10, tzinfo=UTC),
+        datetime(2026, 10, 13, 0, 5, tzinfo=UTC),
+        at - timedelta(milliseconds=1),
+    )
+    ranges = gate.served_ranges([load], [request], {"ibkr": keys}, 5)
+    assert ranges == {"F": (keys[1], keys[-1] + timedelta(minutes=5))}
+    index = gate.LaterServes([load], windows=ranges)
+    assert index.find(keys[1], "ibkr", REFUSED_AT) is load
+    assert index.find(keys[0], "ibkr", REFUSED_AT) is None
+    # the keys do not end on the load's dates: no range is claimed
+    wrong = _served_load("W", at, date(2026, 10, 11), day, 48, 48)
+    assert gate.served_ranges([wrong], [request], {"ibkr": keys}, 5) == {}
+    # fewer keys than the load's bars: no range
+    assert gate.served_ranges([load], [request], {"ibkr": keys[:20]}, 5) == {}
+    # no matched request: a single-date load whose bar count equals the date's keys
+    assert gate.served_ranges([load], [], {"ibkr": keys}, 5) == ranges
+    # per-row evidence wins over the reconstruction; refused loads never get a range
+    rows = {"F": [keys[5], keys[9]]}
+    assert gate.served_ranges([load], [request], {"ibkr": keys}, 5, row_stamps=rows) == {
+        "F": (keys[5], keys[9] + timedelta(minutes=5))
+    }
+    refused = _served_load("R", at, day, day, 48, 0, outcome="refused")
+    assert gate.served_ranges([refused], [request], {"ibkr": keys}, 5) == {}
 
 
 def test_spans_carry_their_own_evidence_not_the_whole_series():
