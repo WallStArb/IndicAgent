@@ -460,7 +460,9 @@ def test_one_changed_5m_bar_rewrites_exactly_its_15m_and_1h_bars_and_month():
     assert len(revisions) == 2
     load_ids = {str(row["timeframe"]): row["load_id"] for row in _load_counts(conn).values()}
     for rev in revisions:
-        load_id, symbol, tf, ts, o, h, lo, c, v, source, origin = rev
+        load_id, symbol, tf, ts, o, h, lo, c, v, source, origin, vendor, kind = rev
+        # ohlcv_revision's (vendor, kind) are NOT NULL since plan 191-04 (191-10 resume fix)
+        assert (vendor, kind) == ("derived", "5m_grid")
         old = old_by_key[(tf, ts)]
         assert (symbol, origin, source) == ("SPY", "load", SOURCE_DERIVED_5M)
         assert load_id == load_ids[tf]

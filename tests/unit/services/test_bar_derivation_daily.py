@@ -496,10 +496,10 @@ def test_apply_writes_the_contract_and_no_lineage():
     assert json.loads(load["detail"])["rule_version"] == RULE_VERSION
     # Old values of changed and removed rows, origin load, under the load row.
     revisions = conn.many("INSERT INTO ohlcv_revision")
-    assert {(r[3].date(), r[7], r[9], r[10]) for r in revisions} == {
-        (_D2, 11.5, "tradier", "load"),
-        (_D4, 13.0, "ibkr_named", "load"),
-        (_D5, 13.5, "tradier", "load"),
+    assert {(r[3].date(), r[7], r[9], r[10], r[11], r[12]) for r in revisions} == {
+        (_D2, 11.5, "tradier", "load", "tradier", "consolidated"),
+        (_D4, 13.0, "ibkr_named", "load", "ibkr", "named"),
+        (_D5, 13.5, "tradier", "load", "tradier", "consolidated"),
     }
     assert {r[0] for r in revisions} == {load["load_id"]}
     # Removed by key, new by insert, changed by the upsert on the changed set only.

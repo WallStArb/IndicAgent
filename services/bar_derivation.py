@@ -113,6 +113,7 @@ from src.intelligence.bars.sources import (
     GRID_TIMEFRAMES,
     SOURCE_DERIVED_5M,
 )
+from src.intelligence.bars.vendor_kind import label_to_vendor_kind
 from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
@@ -286,8 +287,8 @@ ON CONFLICT ("timestamp", symbol, timeframe) DO UPDATE SET
 _INSERT_LOAD_REVISION_SQL = """
 INSERT INTO ohlcv_revision
     (load_id, symbol, timeframe, "timestamp", old_open, old_high, old_low, old_close,
-     old_volume, old_source, origin)
-VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     old_volume, old_source, origin, vendor, kind)
+VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 """
 
 # Stale derived rows by key; the literal range ahead of ANY() keeps chunk exclusion on the
@@ -1315,7 +1316,15 @@ class BarDerivation(BaseBatch):
             return (datetime.fromtimestamp(ts, tz=UTC), symbol, tf, *values, base)
 
         def _revision(tf: str, ts: int, old: BarValues) -> tuple:
-            return (load_ids[tf], symbol, tf, datetime.fromtimestamp(ts, tz=UTC), *old, "load")
+            return (
+                load_ids[tf],
+                symbol,
+                tf,
+                datetime.fromtimestamp(ts, tz=UTC),
+                *old,
+                "load",
+                *label_to_vendor_kind(old[-1]),
+            )
 
         revisions = [
             _revision(tf, ts, old)
@@ -1878,10 +1887,13 @@ async def _apply_1d_delta(
     """Inside the caller's transaction: old values of changed and removed rows to ohlcv_revision
     (origin load) first, then removed rows deleted by key, new rows inserted, changed rows
     upserted (the changed set only, never a raw UPDATE of the compressed hypertable)."""
+    # ohlcv_revision is keyed by (vendor, kind) since plan 191-04: the old row's label maps to it.
+    olds = [(day, old) for day, (_new, old) in delta.changed.items()]
+    olds += list(delta.removed.items())
     revisions = [
-        (load_id, symbol, "1d", _utc_day(day), *old, "load")
-        for day, (_new, old) in delta.changed.items()
-    ] + [(load_id, symbol, "1d", _utc_day(day), *old, "load") for day, old in delta.removed.items()]
+        (load_id, symbol, "1d", _utc_day(day), *old, "load", *label_to_vendor_kind(old[-1]))
+        for day, old in olds
+    ]
     if revisions:
         await conn.executemany(_INSERT_LOAD_REVISION_SQL, revisions)
     if delta.removed:
