@@ -42,9 +42,14 @@ def test_detector_thresholds_come_from_config_state_and_a_missing_key_is_loud():
         "threshold.bar_integrity.restatement_signature_min_bars": "20",
         "threshold.bar_integrity.restatement_ratio_tolerance": "0.0005",
         "threshold.bar_integrity.restatement_shift_min_share": "0.5",
+        "threshold.bar_integrity.restatement_ratio_min_share": "0.8",
+        "threshold.bar_integrity.restatement_ratio_min_move": "0.002",
+        "threshold.bar_integrity.restatement_price_tick": "0.01",
+        "threshold.bar_integrity.restatement_volume_tolerance": "0.01",
+        "threshold.bar_integrity.restatement_volume_min_move": "0.2",
     }
     assert read_detector_params(FakeCursor(config=keys)) == DetectorParams(
-        0.02, 500, 20, 0.0005, 0.5
+        0.02, 500, 20, 0.0005, 0.5, 0.8, 0.002, 0.01, 0.01, 0.2
     )
     with pytest.raises(RuntimeError, match="missing from config_state"):
         read_detector_params(FakeCursor(config={}))

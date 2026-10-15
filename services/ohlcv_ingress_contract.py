@@ -68,12 +68,23 @@ FLAG_MIN_STORED_KEY = "threshold.bar_integrity.restatement_flag_min_stored"
 SIGNATURE_MIN_BARS_KEY = "threshold.bar_integrity.restatement_signature_min_bars"
 RATIO_TOLERANCE_KEY = "threshold.bar_integrity.restatement_ratio_tolerance"
 SHIFT_MIN_SHARE_KEY = "threshold.bar_integrity.restatement_shift_min_share"
+# Detector v2 (migration 485; fourth review of 191-07, finding 3).
+RATIO_MIN_SHARE_KEY = "threshold.bar_integrity.restatement_ratio_min_share"
+RATIO_MIN_MOVE_KEY = "threshold.bar_integrity.restatement_ratio_min_move"
+PRICE_TICK_KEY = "threshold.bar_integrity.restatement_price_tick"
+VOLUME_TOLERANCE_KEY = "threshold.bar_integrity.restatement_volume_tolerance"
+VOLUME_MIN_MOVE_KEY = "threshold.bar_integrity.restatement_volume_min_move"
 _DETECTOR_KEYS = (
     FLAG_SHARE_KEY,
     FLAG_MIN_STORED_KEY,
     SIGNATURE_MIN_BARS_KEY,
     RATIO_TOLERANCE_KEY,
     SHIFT_MIN_SHARE_KEY,
+    RATIO_MIN_SHARE_KEY,
+    RATIO_MIN_MOVE_KEY,
+    PRICE_TICK_KEY,
+    VOLUME_TOLERANCE_KEY,
+    VOLUME_MIN_MOVE_KEY,
 )
 # Bar lengths (a unit conversion, not a tunable).
 _BAR = {
@@ -134,6 +145,11 @@ def read_detector_params(cur: Any) -> DetectorParams:
         signature_min_bars=int(float(values[SIGNATURE_MIN_BARS_KEY])),
         ratio_tolerance=float(values[RATIO_TOLERANCE_KEY]),
         shift_min_share=float(values[SHIFT_MIN_SHARE_KEY]),
+        ratio_min_share=float(values[RATIO_MIN_SHARE_KEY]),
+        ratio_min_move=float(values[RATIO_MIN_MOVE_KEY]),
+        price_tick=float(values[PRICE_TICK_KEY]),
+        volume_tolerance=float(values[VOLUME_TOLERANCE_KEY]),
+        volume_min_move=float(values[VOLUME_MIN_MOVE_KEY]),
     )
 
 
