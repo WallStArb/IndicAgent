@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-15T13:30:00.000Z"
+last_updated: "2026-10-15T21:08:02.530Z"
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 2
-  total_plans: 105
-  completed_plans: 104
-  percent: 25
+  total_plans: 130
+  completed_plans: 117
+  percent: 22
 ---
 
 # Project State
@@ -55,8 +55,13 @@ from the old observation read (canonical behind serves after 2026-10-11; reasons
 review of 08 done (191-08-REVIEW.md, no HIGH). Plan 10 done and reviewed (2026-10-15, 191-10-SUMMARY.md and
 191-10-REVIEW.md, fixes landed). Fetcher resumed 2026-10-15: re-serve list fetched, selection
 gate exit 0 over the 38 re-served series, daily stage applied (canonical 1d to 2026-10-12, the
-1d catch-up through 2026-10-15 is running in the timer's fetcher runs), fetcher timer on. Next:
-verify the 1d catch-up, then plan 191-11. The feature rebuild (186-26) runs once, after the gate
+1d catch-up through 2026-10-15 is running in the timer's fetcher runs), fetcher timer on.
+Plan 11 done 2026-10-15 (191-11-SUMMARY.md): R6 over the raw plane exits 0; ops_d1_bootstrap,
+ops_venue_study and the two Tradier research scripts deleted; ops_head_rerun and ops_source_policy
+read raw; migration 490; bar-aggregator and bar-writer cleared; the D7 units and bar-auditor stay
+held for plan 09 (not yet run). 1d catch-up still running at 21:05 UTC (canonical 1d to
+2026-10-12; raw 2026-10-14 for 381 names). Next: fresh-context review of 11, then 12 (plan 09
+still owed before the window closes). The feature rebuild (186-26) runs once, after the gate
 is 0, canonical 1d is caught up and plans 11 to 14 have landed. Handoff: `.planning/HANDOFF.json`.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
