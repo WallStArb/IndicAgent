@@ -16,14 +16,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from scripts.infrastructure.backfill import _d1_gaps as d1_gaps
 from scripts.infrastructure.backfill._d1_gaps import (
     _MATCH_S_SQL,
+    daily_no_data_coverage,
     detect_gaps_1d_from_d1,
     detect_gaps_from_record,
     load_answered_windows,
+    subtract_windows,
 )
 from scripts.infrastructure.backfill._empty_history import EmptyRange
+from src.intelligence.bars.gap_plan import AnsweredWindows
 
 _Q = timedelta(minutes=15)
 
@@ -246,19 +248,6 @@ class TestDetectGaps1dFromD1:
     def _midnight(d: date) -> datetime:
         return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
-    @pytest.fixture(autouse=True)
-    def _confirmed_spans_from_the_fake(self, monkeypatch):
-        """The 1d answered windows are the confirmed empty spans (todo 535 item 6); here the
-        fake's second result stands in for them. TestDailyCoverageNeedsEveryRoute runs the real
-        rule."""
-        self.span_calls: list[tuple] = []
-
-        def fake(conn, symbol, timeframe, vendor):
-            self.span_calls.append((symbol, timeframe, vendor))
-            return [(r[0], r[1]) for r in conn.results.pop(0)]
-
-        monkeypatch.setattr(d1_gaps._empty_history, "confirmed_empty_spans", fake)
-
     def test_sessions_with_observations_are_not_gaps(self):
         conn = _FakeConn([(self._midnight(d), None) for d in (self._D1, self._D2, self._D3)], [])
         plan = detect_gaps_1d_from_d1(
@@ -269,7 +258,7 @@ class TestDetectGaps1dFromD1:
     def test_a_no_data_window_spanning_whole_session_days_is_not_a_gap(self):
         conn = _FakeConn(
             [(self._midnight(self._D3), None)],
-            [(self._midnight(self._D1), self._midnight(self._D3), None)],
+            [("SMART", "no_data", self._midnight(self._D1), self._midnight(self._D3), None, None)],
         )
         plan = detect_gaps_1d_from_d1(
             conn, "SPY", self._D1, self._D3, self._sessions(), vendor="ibkr", now=self._NOW_1D
@@ -399,7 +388,7 @@ class TestDetectGaps1dFromD1:
         )
         assert plan == []
 
-    def test_daily_coverage_is_the_vendors_confirmed_empty_spans(self):
+    def test_daily_coverage_reads_the_vendors_no_data_and_failed_answers(self):
         conn = _FakeConn([], [])
         detect_gaps_1d_from_d1(
             conn,
@@ -410,9 +399,11 @@ class TestDetectGaps1dFromD1:
             vendor="ibkr",
             now=self._NOW_1D,
         )
-        assert self.span_calls == [("SPY", "1d", "ibkr")]
-        # No per-route request read: one route's no_data never covers a session.
-        assert not any("FROM ohlcv_request" in sql for sql, _ in conn.queries)
+        sql, params = conn.queries[1]
+        assert "FROM ohlcv_request" in sql and "source = %(vendor)s" in sql
+        assert "outcome IN ('no_data', 'bars', 'failed', 'timeout')" in sql
+        assert (params["symbol"], params["vendor"], params["what"]) == ("SPY", "ibkr", "TRADES")
+        assert params["routes"] == ["SMART", "AMEX", "ARCA", "BATS", "ISLAND", "NYSE"]
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_pre_listing_head(self):
         empty = EmptyRange(
@@ -556,29 +547,68 @@ def test_a_partial_slot_is_cleared_by_a_later_answer_that_served_it_whole():
     assert live_partials([first, elsewhere]) == {_t(14, 45)}
 
 
-class TestDailyCoverageNeedsEveryRoute:
-    """Todo 535 item 6: a 1d session is answered only where SMART and every non-primary former
-    venue answered no_data in one run, the empty-history rule (D-20), with the real
-    _empty_history.confirmed_empty_spans over a scripted connection."""
+def _day(d: int) -> datetime:
+    return datetime(2008, 6, d, tzinfo=UTC)
 
-    _START = datetime(2006, 10, 5, tzinfo=UTC)
-    _END = datetime(2010, 3, 4, tzinfo=UTC)
-    _SESSION = datetime(2008, 6, 2, tzinfo=UTC)
 
-    def _windows(self, skip: tuple[str, ...]):
-        from tests.unit.scripts.test_empty_history_from_d1 import FakeConn, _answers
+_T_RUN = datetime(2026, 10, 1, tzinfo=UTC)
 
-        conn = FakeConn(requests={"SCHW": _answers("r1", self._START, self._END, skip=skip)})
-        return load_answered_windows(conn, "SCHW", "1d", "ibkr")
 
-    def test_smart_no_data_over_a_span_a_venue_route_failed_is_a_gap(self):
-        # SCHW-like: SMART no_data, ARCA failed (no no_data window): the session is asked again.
-        windows = self._windows(skip=("ARCA",))
-        assert not windows.covers(self._SESSION, timedelta(days=1))
+class TestDailyNoDataCoverage:
+    """Todo 535 item 6: a 1d session inside a no_data window is covered unless some route's
+    latest answer over it was a transport failure (a timeout, or a failure with error text)."""
 
-    def test_every_required_route_no_data_in_one_run_covers_the_session(self):
-        windows = self._windows(skip=("ISLAND",))  # ISLAND is the primary NASDAQ's own route
-        assert windows.covers(self._SESSION, timedelta(days=1))
+    def test_a_no_data_window_of_any_route_covers(self):
+        rows = [("SMART", "no_data", _day(2), _day(9), _T_RUN, None)]
+        assert daily_no_data_coverage(rows) == [(_day(2), _day(9))]
+
+    def test_a_venue_walk_a_connection_error_cut_under_smart_no_data_is_not_covered(self):
+        rows = [
+            ("SMART", "no_data", _day(2), _day(9), _T_RUN, None),
+            ("ISLAND", "failed", _day(4), _day(6), _T_RUN, "ConnectionError: Not connected"),
+        ]
+        coverage = daily_no_data_coverage(rows)
+        assert coverage == [(_day(2), _day(4)), (_day(6), _day(9))]
+        windows = AnsweredWindows.from_rows(coverage)
+        assert not windows.covers(_day(4), timedelta(days=1))
+        assert windows.covers(_day(3), timedelta(days=1))
+
+    def test_a_later_answer_of_the_same_route_closes_the_failure(self):
+        later = _T_RUN + timedelta(days=1)
+        for outcome in ("no_data", "bars"):
+            rows = [
+                ("SMART", "no_data", _day(2), _day(9), _T_RUN, None),
+                ("ISLAND", "failed", _day(4), _day(6), _T_RUN, "ConnectionError: Not connected"),
+                ("ISLAND", outcome, _day(3), _day(5), later, None),
+            ]
+            assert daily_no_data_coverage(rows) == [(_day(2), _day(5)), (_day(6), _day(9))]
+
+    def test_an_earlier_answer_or_another_route_does_not_close_it(self):
+        rows = [
+            ("SMART", "no_data", _day(2), _day(9), _T_RUN, None),
+            ("ISLAND", "no_data", _day(2), _day(9), _T_RUN - timedelta(days=1), None),
+            ("ARCA", "no_data", _day(2), _day(9), _T_RUN + timedelta(days=1), None),
+            ("ISLAND", "timeout", _day(4), _day(6), _T_RUN, None),
+        ]
+        assert daily_no_data_coverage(rows) == [(_day(2), _day(4)), (_day(6), _day(9))]
+
+    def test_an_ibkr_error_answer_without_error_text_withdraws_nothing(self):
+        # ISLAND refuses a name not listed on NASDAQ on every ask: no transport failure.
+        rows = [
+            ("SMART", "no_data", _day(2), _day(9), _T_RUN, None),
+            ("ISLAND", "failed", _day(4), _day(6), _T_RUN, None),
+        ]
+        assert daily_no_data_coverage(rows) == [(_day(2), _day(9))]
+
+    def test_bars_answers_cover_nothing_by_themselves(self):
+        assert daily_no_data_coverage([("SMART", "bars", _day(2), _day(9), _T_RUN, None)]) == []
+
+    def test_subtract_windows_is_end_exclusive_and_merged(self):
+        assert subtract_windows([(_day(2), _day(5)), (_day(5), _day(9))], [(_day(5), _day(6))]) == [
+            (_day(2), _day(5)),
+            (_day(6), _day(9)),
+        ]
+        assert subtract_windows([(_day(2), _day(9))], [(_day(1), _day(10))]) == []
 
 
 class TestIntradayHorizonStopsAtNow:

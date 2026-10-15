@@ -175,6 +175,28 @@ decision").
     ADM, AEP, AMT, AMZN, ASML, BA, GE) on top of items 12 and 23.
 29. `--apply-spans` staleness guard (item 22) is still not built.
 
+## Status after plan 191-08 (2026-10-15)
+
+- Item 10 and item 15: closed. The IBKR leaf's forming-bar drop (eeb0fb7c6) did not close item
+  10 alone: an ask whose window ran past `now` still recorded the dropped slot as answered.
+  `detect_gaps_from_record` now drops every slot whose bar has not ended by `now` (85dd6537b),
+  so no planner ask covers a forming bar.
+- Item 26: closed. The grid stage's answered-window read corroborates a `bars` answer on the
+  answering vendor's raw rows and excludes a window whose load was refused, the gap planner's
+  rule (03ab0a4a6). Its partial-slot handling (`live_partials`) is not ported: a missing slot an
+  answer served partial only loses its `partial_constituents` flag, which is a flag, not a bar.
+- Item 6: closed with a narrower rule than recommended, on measurement. 1d coverage stays every
+  route's no_data window, less any span where that route's latest answer was a transport
+  failure (a timeout, or a failure the provider raised with error text) not answered later by
+  the same route (`_d1_gaps.daily_no_data_coverage`). Measured 2026-10-15 over the 518 names
+  with an IBKR 1d no_data answer: the recommended all-routes rule would add 346,491 gap
+  sessions and withdrawing coverage on every failure 101,615 on 64 names, nearly all pre-listing
+  heads, because ISLAND fails structurally for non-NASDAQ names and SMART on pre-listing
+  windows (no error text, recurring on every ask). The transport-failure rule adds 2,467
+  sessions on one name, KNSL, whose ISLAND, AMEX and BATS walks over 2006-10-09..2016-07-28 were
+  lost to `ConnectionError: Not connected` under SMART and ARCA no_data: the hole the item
+  describes, asked once more on resume.
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land

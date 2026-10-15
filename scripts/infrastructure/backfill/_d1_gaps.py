@@ -28,7 +28,6 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
-from scripts.infrastructure.backfill import _empty_history
 from scripts.infrastructure.backfill._empty_history import EmptyRange
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
@@ -40,6 +39,7 @@ from src.intelligence.bars.gap_plan import (
     plan_gaps,
 )
 from src.intelligence.bars.sessions import session_complete_at
+from src.intelligence.bars.vendor_kind import VENUE_ROUTES
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
 # Every intraday slot this vendor holds, whatever the kind (an intraday series has one kind per
@@ -88,27 +88,42 @@ ORDER BY r.window_start
 MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
 _MATCH_S_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
 # Intraday answers are SMART TRADES requests. The daily no_data question is asked on SMART and
-# every former-venue route (D-20); a daily session is covered only where every required route
-# answered no_data in one fetch run (_empty_history.confirmed_empty_spans), never by one route's
-# no_data alone (todo 535 item 6).
+# every former-venue route (D-20); a definitive no_data window on any of them covers a session,
+# except where some route's latest answer over it was a transport failure (todo 535 item 6).
 _INTRADAY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE,)
+_DAILY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE, *VENUE_ROUTES)
+_DAILY_REQUESTS_SQL = """
+SELECT route, outcome, window_start, window_end, answered_at, error_text
+FROM ohlcv_request
+WHERE symbol = %(symbol)s AND timeframe = '1d' AND source = %(vendor)s
+  AND what_to_show = %(what)s AND route = ANY(%(routes)s)
+  AND outcome IN ('no_data', 'bars', 'failed', 'timeout')
+  AND window_start IS NOT NULL
+"""
 
 
 def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -> AnsweredWindows:
     """The answered TRADES windows `vendor` holds for (symbol, timeframe) (todo 462, 527).
 
     Intraday: a `bars` or `no_data` SMART answer (the bars corroborated by a raw row of the
-    same vendor in the window, and not refused by the contract). 1d: the spans every required
-    route (SMART and each former venue but the primary) answered no_data in one fetch run, with
-    no bar of the vendor inside (D-20, the empty-history rule): a single route's no_data covers
-    nothing, so a failed or timed-out listing-venue walk under a SMART no_data window is asked
-    again (todo 535 item 6; SCHW SMART no_data 2006-10-05..2010-03-04 over 651 venue bars).
+    same vendor in the window, and not refused by the contract). 1d: the definitive no_data
+    windows of SMART and the former venues (daily_no_data_coverage), less every span where a
+    route's latest answer was a transport failure, so a venue walk a dropped connection cut
+    under a SMART no_data window is asked again (todo 535 item 6).
     Another source's requests never appear: the filter is the request's own source.
     """
     if timeframe == "1d":
-        return AnsweredWindows.from_rows(
-            _empty_history.confirmed_empty_spans(conn, symbol, "1d", vendor)
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                _DAILY_REQUESTS_SQL,
+                {
+                    "symbol": symbol,
+                    "vendor": vendor,
+                    "what": COVERAGE_WHAT_TO_SHOW,
+                    "routes": list(_DAILY_ROUTES),
+                },
+            )
+            return AnsweredWindows.from_rows(daily_no_data_coverage(cur.fetchall()))
     with conn.cursor() as cur:
         cur.execute(_MATCH_S_SQL, (MATCH_S_KEY,))
         found = cur.fetchall()
@@ -134,6 +149,64 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
     return AnsweredWindows.from_rows(
         [(_aware(r[0]), _aware(r[1])) for r in rows], partial=live_partials(rows)
     )
+
+
+def daily_no_data_coverage(rows: Sequence[tuple]) -> list[tuple[datetime, datetime]]:
+    """The 1d no_data coverage from (route, outcome, window_start, window_end, answered_at,
+    error_text) rows.
+
+    Every no_data window covers, less the open transport failures: the part of a timed-out
+    window, or of a failed one the provider raised (error_text recorded: a connection or socket
+    error), that its own route has not answered (no_data or bars) later. A `failed` answer with
+    no error text is IBKR's own error event for the route (ISLAND for a name not listed on
+    NASDAQ, SMART over a pre-listing window); it recurs on every ask and withdraws nothing.
+    Measured 2026-10-15 over the 518 names with an IBKR 1d no_data answer: requiring every route
+    to agree in one run would turn 346,491 sessions into gaps and withdrawing coverage on every
+    failure 101,615 on 64 names, nearly all pre-listing heads re-asked forever for no answer.
+    """
+    answers: dict[str, list[tuple[datetime, datetime, datetime | None]]] = {}
+    failures: list[tuple[str, datetime, datetime, datetime | None]] = []
+    no_data: list[tuple[datetime, datetime]] = []
+    for route, outcome, start, end, answered, error_text in rows:
+        start, end = _aware(start), _aware(end)
+        at = _aware(answered) if answered is not None else None
+        if outcome == "timeout" or (outcome == "failed" and error_text):
+            failures.append((route, start, end, at))
+            continue
+        if outcome not in ("no_data", "bars"):
+            continue
+        answers.setdefault(route, []).append((start, end, at))
+        if outcome == "no_data":
+            no_data.append((start, end))
+    open_failures: list[tuple[datetime, datetime]] = []
+    for route, start, end, at in failures:
+        later = [
+            (s, e)
+            for s, e, answered_at in answers.get(route, [])
+            if at is None or (answered_at is not None and answered_at > at)
+        ]
+        open_failures.extend(subtract_windows([(start, end)], later))
+    return subtract_windows(no_data, open_failures)
+
+
+def subtract_windows(
+    windows: Iterable[tuple[datetime, datetime]], holes: Iterable[tuple[datetime, datetime]]
+) -> list[tuple[datetime, datetime]]:
+    """`windows` less `holes`, end-exclusive intervals; the result is merged and sorted."""
+    merged = AnsweredWindows.from_rows(windows)
+    cuts = AnsweredWindows.from_rows(holes)
+    out: list[tuple[datetime, datetime]] = []
+    for start, end in zip(merged.starts, merged.ends, strict=True):
+        cursor = start
+        for h_start, h_end in zip(cuts.starts, cuts.ends, strict=True):
+            if h_end <= cursor or h_start >= end:
+                continue
+            if h_start > cursor:
+                out.append((cursor, h_start))
+            cursor = max(cursor, h_end)
+        if cursor < end:
+            out.append((cursor, end))
+    return out
 
 
 def live_partials(rows: Sequence[tuple]) -> set[datetime]:
