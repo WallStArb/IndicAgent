@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 import psycopg
@@ -30,7 +31,10 @@ import psycopg
 from services.bar_load import LoadPolicy, load_series, load_status
 from services.ohlcv_ingress_contract import read_raw_params
 from src.config.settings import get_settings
-from src.intelligence.bars.vendor_ingress import vendor_ingress
+from src.intelligence.bars.vendor_ingress import check_answered_at, vendor_ingress
+
+# Largest plausible gap between an artifact's newest bar and its answer time (review of 191-08 M2).
+_LAG_KEY = "infra.alpaca.artifact_max_answer_lag_hours"
 
 
 def main() -> int:
@@ -57,6 +61,7 @@ def main() -> int:
     symbols = args.symbols or sorted(artifacts)
 
     total = new = unchanged = flagged = basis = superseded = unselected = 0
+    refused: list[str] = []
 
     # autocommit: persist_chunk_atomically demands an IDLE connection so its
     # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
@@ -65,6 +70,11 @@ def main() -> int:
     try:
         with conn.cursor() as cur:
             params = read_raw_params(cur)
+            cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (_LAG_KEY,))
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"APR key {_LAG_KEY} is not set (migration 487 seeds it)")
+        max_lag = timedelta(hours=float(row[0]))
 
         for symbol in symbols:
             frame = artifacts.get(symbol)
@@ -73,6 +83,12 @@ def main() -> int:
                 continue
             # the artifact's recorded fetch time: an old artifact never overwrites a newer serve
             answered_at = ingress.answered_at(artifact_dir, symbol)
+            try:
+                check_answered_at(answered_at, frame, max_lag=max_lag, where=symbol)
+            except ValueError as error:
+                print(f"{symbol}: refused: {error}", flush=True)
+                refused.append(symbol)
+                continue
             result = load_series(
                 conn,
                 policy,
@@ -110,7 +126,9 @@ def main() -> int:
         f"{superseded} superseded by a newer serve, {flagged} restatement-flagged series "
         f"({basis} basis-change), {unselected} unselected"
     )
-    return 1 if unselected or basis else 0
+    if refused:
+        print(f"refused {len(refused)} artifact(s) with an implausible answer time: {refused}")
+    return 1 if unselected or basis or refused else 0
 
 
 if __name__ == "__main__":

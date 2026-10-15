@@ -18,28 +18,35 @@ tunable.
 Every artifact also reports when the vendor answered it
 (``answered_at``): raw is last-wins by serve time (fourth review of
 191-07, finding 1), so a replayed artifact must carry its own fetch time,
-never the load time. The Alpaca pull records no answer time inside the
-parquet (todo 535 item 20), so its recorded fetch time is the file's
-modification time: the pull writes the file right after the answer, so
-the mtime is an upper bound within seconds of it, and it only moves if the
-file is rewritten (a copy that does not preserve mtime would make old data
-look new; keep artifacts in place).
+never the load time. The Alpaca pull records the time of its last page's
+answer in the parquet's schema metadata (``ANSWERED_AT_KEY``, review of
+191-08 M2) through ``write_alpaca_artifact``; a rewrite or copy keeps it.
+An artifact written before that has none, and falls back to the file's
+modification time, which a rewrite or a copy without preserved mtime moves.
+Either stamp is checked against the artifact's newest bar before a load
+(``check_answered_at``, APR ``infra.alpaca.artifact_max_answer_lag_hours``):
+a stamp at or before the newest bar, or later than it by more than the
+bound, is refused, so a re-stamped old artifact cannot pass as a fresh serve.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from src.intelligence.bars.sources import SOURCE_ALPACA
 
 #: Vendor stamp floors by timeframe vocabulary (a statistic definition of
 #: the grid, not an APR tunable).
 _STAMP_FLOOR: dict[str, str] = {"1m": "1min", "5m": "5min"}
+#: Parquet schema-metadata key holding the vendor's answer time (ISO 8601, UTC).
+ANSWERED_AT_KEY = b"indicagent.answered_at"
 
 
 @dataclass(frozen=True)
@@ -82,11 +89,50 @@ def _read_alpaca_5m(
     return frames
 
 
+def write_alpaca_artifact(frame: pd.DataFrame, path: Path, answered_at: datetime) -> None:
+    """Write one Alpaca artifact with the vendor's answer time in its schema metadata."""
+    if answered_at.tzinfo is None:
+        raise ValueError("answered_at must be timezone-aware")
+    table = pa.Table.from_pandas(frame, preserve_index=False)
+    metadata = dict(table.schema.metadata or {})
+    metadata[ANSWERED_AT_KEY] = answered_at.astimezone(UTC).isoformat().encode()
+    pq.write_table(table.replace_schema_metadata(metadata), path)
+
+
 def _alpaca_5m_answered_at(artifact_dir: Path, symbol: str) -> datetime:
-    """The recorded fetch time of one Alpaca 5m artifact: its modification time (module
-    docstring)."""
+    """The recorded fetch time of one Alpaca 5m artifact: the answer time the pull wrote into
+    its metadata, else (an artifact written before the stamp existed) its modification time
+    (module docstring)."""
     path = artifact_dir / f"{symbol}_5Min.parquet"
+    stamp = (pq.read_schema(path).metadata or {}).get(ANSWERED_AT_KEY)
+    if stamp is not None:
+        answered = datetime.fromisoformat(stamp.decode())
+        if answered.tzinfo is None:
+            raise ValueError(f"{path}: answered_at metadata {stamp!r} has no timezone")
+        return answered.astimezone(UTC)
     return datetime.fromtimestamp(path.stat().st_mtime, UTC)
+
+
+def check_answered_at(
+    answered_at: datetime, frame: pd.DataFrame, *, max_lag: timedelta, where: str
+) -> None:
+    """Refuse an artifact stamp that cannot be the vendor's answer time: not after the newest
+    bar's start, or later than it by more than `max_lag` (a rewritten or copied old artifact).
+    An empty frame has nothing to load and passes."""
+    if frame.empty:
+        return
+    newest = pd.Timestamp(frame["t"].max()).to_pydatetime()
+    if answered_at <= newest:
+        raise ValueError(
+            f"{where}: answered_at {answered_at.isoformat()} is not after the newest bar "
+            f"{newest.isoformat()}"
+        )
+    if answered_at - newest > max_lag:
+        raise ValueError(
+            f"{where}: answered_at {answered_at.isoformat()} is {answered_at - newest} after the "
+            f"newest bar {newest.isoformat()} (bound {max_lag}); a rewritten or copied artifact "
+            "would pass as a fresh serve"
+        )
 
 
 ALPACA_5M = VendorIngress(

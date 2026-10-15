@@ -26,6 +26,8 @@ from pathlib import Path
 import httpx
 import pandas as pd
 
+from src.intelligence.bars.vendor_ingress import write_alpaca_artifact
+
 SCRATCH = Path("data/scratch/alpaca-pilot/depth")
 UNIVERSE = Path("data/scratch/alpaca-pilot/intraday_universe_233.txt")
 ENV = Path(".env")
@@ -90,6 +92,7 @@ def main() -> None:
             n_requests += 1
             response = client.get(BASE, headers=headers, params=params)
             last_request_at = time.monotonic()
+            answered_at = datetime.now(UTC)
             with log_path.open("a") as log:
                 log.write(
                     json.dumps(
@@ -115,7 +118,8 @@ def main() -> None:
             if not page_token:
                 break
         frame = pd.DataFrame(rows)
-        frame.to_parquet(out, index=False)
+        # the last page's answer time travels with the artifact (review of 191-08, M2)
+        write_alpaca_artifact(frame, out, answered_at)
         done.write_text(f"{len(frame)} bars, {pages} pages, " f"{datetime.now(UTC).isoformat()}\n")
         n_done += 1
         print(

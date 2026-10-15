@@ -76,3 +76,40 @@ def test_an_artifact_reports_its_recorded_fetch_time_not_the_load_time(tmp_path)
     fetched = datetime(2026, 10, 9, 21, 5, tzinfo=UTC)
     os.utime(tmp_path / "SPY_5Min.parquet", (fetched.timestamp(), fetched.timestamp()))
     assert vendor_ingress("alpaca", "5m").answered_at(tmp_path, "SPY") == fetched
+
+
+def test_the_pulls_answer_time_in_the_metadata_wins_over_a_moved_mtime(tmp_path) -> None:
+    # review of 191-08, M2: a rewrite or copy moves the mtime; the recorded answer time stays
+    import os
+    from datetime import UTC, datetime
+
+    from src.intelligence.bars.vendor_ingress import write_alpaca_artifact
+
+    frame = pd.DataFrame(
+        {"t": ["2026-10-09T19:55:00Z"], "o": [1.0], "h": [1.0], "l": [1.0], "c": [1.0], "v": [1]}
+    )
+    answered = datetime(2026, 10, 9, 21, 5, tzinfo=UTC)
+    write_alpaca_artifact(frame, tmp_path / "SPY_5Min.parquet", answered)
+    later = datetime(2026, 12, 1, tzinfo=UTC).timestamp()
+    os.utime(tmp_path / "SPY_5Min.parquet", (later, later))
+    assert vendor_ingress("alpaca", "5m").answered_at(tmp_path, "SPY") == answered
+    read = vendor_ingress("alpaca", "5m").read_artifacts(tmp_path, None)["SPY"]
+    assert len(read) == 1
+    with pytest.raises(ValueError, match="timezone-aware"):
+        write_alpaca_artifact(frame, tmp_path / "X_5Min.parquet", datetime(2026, 10, 9))
+
+
+def test_an_implausible_answer_time_is_refused() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from src.intelligence.bars.vendor_ingress import check_answered_at
+
+    frame = pd.DataFrame({"t": pd.to_datetime(["2026-10-09T19:55:00Z"], utc=True)})
+    newest = datetime(2026, 10, 9, 19, 55, tzinfo=UTC)
+    lag = timedelta(hours=120)
+    check_answered_at(newest + timedelta(hours=1), frame, max_lag=lag, where="SPY")
+    check_answered_at(newest, frame.iloc[0:0], max_lag=lag, where="SPY")  # empty passes
+    with pytest.raises(ValueError, match="not after the newest bar"):
+        check_answered_at(newest, frame, max_lag=lag, where="SPY")
+    with pytest.raises(ValueError, match="rewritten or copied"):
+        check_answered_at(newest + timedelta(days=30), frame, max_lag=lag, where="SPY")
