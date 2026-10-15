@@ -374,3 +374,14 @@ def test_a_share_only_flag_is_no_basis_flag(selections):
         params=_RAW_PARAMS,
     )
     assert len(result.flagged) == 1 and result.n_basis_flagged == 0
+
+
+def test_a_review_names_its_reviewer_and_never_overwrites_a_first_review():
+    cur = FakeCursor()
+    cur.rowcount = 1
+    assert contract.mark_reviewed(cur, [_REQUEST], reviewed_by="brandon", note="split 2:1") == 1
+    ((sql, params),) = cur.statements
+    assert sql.startswith("UPDATE ohlcv_restatement_flag") and "reviewed_at IS NULL" in sql
+    assert params == ("brandon", "split 2:1", [_REQUEST])
+    with pytest.raises(ValueError, match="reviewer"):
+        contract.mark_reviewed(FakeCursor(), [_REQUEST], reviewed_by=" ", note="x")

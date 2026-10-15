@@ -1147,8 +1147,13 @@ class OHLCVHistoryFetcher(BaseBatch):
         print(f"run summary: {json.dumps(self.summary, default=str)}")
         if loop.gateway_lost:
             raise RuntimeError(f"IBKR gateway lost mid-run at {loop.gateway_lost}")
+        # A basis-change restatement landed last-wins (D-191-N) but the run is partial until it
+        # is reviewed (fourth review of 191-07, finding 2); a share-only flag is informational.
         failed = (
-            loop.n_error > 0 or loop.n_unselected > 0 or any(rc != 0 for rc in stage_codes.values())
+            loop.n_error > 0
+            or loop.n_unselected > 0
+            or loop.n_basis_flagged > 0
+            or any(rc != 0 for rc in stage_codes.values())
         )
         nothing_succeeded = loop.n_error > 0 and loop.n_ok + loop.n_no_data == 0
         self.completion_status = (
@@ -1590,8 +1595,10 @@ class _LoopState:
     n_ok: int = 0
     n_no_data: int = 0
     n_error: int = 0
-    # Items that held a refused series (settled ok) and the offered rows held (review finding 7).
     n_flagged_series: int = 0  # restatements flagged (written last-wins, D-191-N)
+    # Of those, basis-change flags: the run is partial until each is reviewed (fourth review of
+    # 191-07, finding 2).
+    n_basis_flagged: int = 0
     # Slots items put in raw that no ranked vendor selects (191-07 review): the run is partial.
     n_unselected: int = 0
     n_bars: int = 0
@@ -1612,6 +1619,7 @@ class _LoopState:
         else:
             self.n_error += 1
         self.n_flagged_series += len(outcome.flags)
+        self.n_basis_flagged += outcome.n_basis_flagged
         self.n_unselected += outcome.n_unselected
         self.n_bars += outcome.n_bars
         self.n_grid_source_rows += outcome.n_grid_source_rows
@@ -1626,6 +1634,7 @@ class _LoopState:
             "n_no_data": self.n_no_data,
             "n_error": self.n_error,
             "n_flagged_series": self.n_flagged_series,
+            "n_basis_flagged": self.n_basis_flagged,
             "n_unselected": self.n_unselected,
             "n_bars": self.n_bars,
             "n_grid_source_rows": self.n_grid_source_rows,

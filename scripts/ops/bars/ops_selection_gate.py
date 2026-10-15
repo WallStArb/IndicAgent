@@ -43,10 +43,16 @@ slots than the calendar grid is counted (`sessions_fallback`, `sessions_incomple
 `sessions_partial`), and its bar_session_choice row (migration 480) must equal the selection's
 choice (`session_choices_unrecorded` is residue).
 
+Basis-change review (fourth review of 191-07, finding 2): every restatement flag with a
+basis-change signature (price_ratio, volume_ratio, time_shift) that no reviewer has marked
+(scripts/ops/bars/ops_restatement_review.py) is counted, whatever its series
+(`unreviewed_basis_flags`, read once per run over the whole table), and is residue: a re-serve on
+a new basis landed last-wins and canonical may mix bases until someone has looked.
+
 Exit codes: 0 clean (canonical equals the selection exactly); 1 real differences or canonical rows
 with a label outside the vendor map; 2 BLOCKER (--emit-spans: a date no ranking reproduces); 3
-residue (a canonical session mixing vendors, or a session choice the durable record does not
-hold): not clean, nothing may resume on it.
+residue (a canonical session mixing vendors, a session choice the durable record does not hold,
+or an unreviewed basis-change restatement flag): not clean, nothing may resume on it.
 """
 
 from __future__ import annotations
@@ -72,6 +78,7 @@ sys.path.insert(0, str(project_root))
 import psycopg  # noqa: E402
 
 from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
+from services.ohlcv_ingress_contract import read_unreviewed_basis  # noqa: E402
 from src.config.config_service import ConfigService  # noqa: E402
 from src.config.settings import get_settings  # noqa: E402
 from src.intelligence.bars.selection import (  # noqa: E402
@@ -617,6 +624,10 @@ def merge_reports(reports: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
                 raise SystemExit(f"merge: series {series} appears in more than one report")
             seen.add(series)
             series_list.append(entry)
+    # read over the whole table by every shard: the same count, never summed
+    total["unreviewed_basis_flags"] = max(
+        (rep["totals"].get("unreviewed_basis_flags", 0) for rep in reports), default=0
+    )
     return {
         "meta": {"merged": [rep.get("meta", {}) for rep in reports]},
         "totals": total,
@@ -625,14 +636,33 @@ def merge_reports(reports: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def verdict(totals: Mapping[str, Any]) -> int:
-    """EXIT_CLEAN only when canonical equals the selection exactly. Real differences or an
-    unmapped canonical label are EXIT_REAL; a canonical session spliced from two vendors or a
-    session choice the durable record does not hold is EXIT_RESIDUE."""
+    """EXIT_CLEAN only when canonical equals the selection exactly and no basis-change flag
+    waits for review. Real differences or an unmapped canonical label are EXIT_REAL; a canonical
+    session spliced from two vendors, a session choice the durable record does not hold or an
+    unreviewed basis-change restatement flag is EXIT_RESIDUE."""
     if totals["real_differences"] or totals.get("unmapped_canonical_rows", 0):
         return EXIT_REAL
-    if totals.get("mixed_vendor_sessions", 0) or totals.get("session_choices_unrecorded", 0):
+    if (
+        totals.get("mixed_vendor_sessions", 0)
+        or totals.get("session_choices_unrecorded", 0)
+        or totals.get("unreviewed_basis_flags", 0)
+    ):
         return EXIT_RESIDUE
     return EXIT_CLEAN
+
+
+def count_unreviewed_basis(cur: Any) -> list[dict[str, Any]]:
+    """Every unreviewed basis-change restatement flag (the whole table, not only the series this
+    run compares), as report entries."""
+    return [
+        {
+            "load_id": str(row[0]),
+            "series": f"{row[1]} {row[2]} {row[3]}/{row[4]}",
+            "signatures": list(row[8]),
+            "detail": row[9],
+        }
+        for row in read_unreviewed_basis(cur)
+    ]
 
 
 # --------------------------------------------------------------------------------------
@@ -917,6 +947,11 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                 flush=True,
             )
     report = build_report(diffs, {**meta, "finished": _stamp()})
+    with conn.cursor() as cur:
+        flags = count_unreviewed_basis(cur)
+    conn.rollback()
+    report["totals"]["unreviewed_basis_flags"] = len(flags)
+    report["unreviewed_basis_flags"] = flags
     _write_json(out, report)
     print(json.dumps(report["totals"], indent=2, sort_keys=True))
     print(f"report: {out}")

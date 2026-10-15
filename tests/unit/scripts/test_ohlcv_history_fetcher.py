@@ -800,6 +800,21 @@ async def test_a_flagged_restatement_is_counted_and_never_makes_the_run_partial(
     assert fetcher.summary["n_flagged_series"] == 1 and fetcher.summary["n_error"] == 0
 
 
+async def test_a_basis_change_flag_makes_the_run_partial(tmp_path, _no_side_effects):
+    """Fourth review of 191-07, finding 2: a split re-serve lands last-wins, but the run is
+    partial until the flag is reviewed."""
+
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        if row.symbol == "AAA":
+            return _outcome(row, "ok", flags=("2026-10-01: price ratio 0.5",), n_basis_flagged=1)
+        return _outcome(row, "ok")
+
+    fetcher, _ = _fetcher(tmp_path, _plan([_ranked(s) for s in ("AAA", "BBB")]), fetch_fn=fetch)
+    status, error = await _run(fetcher)
+    assert error is None and status == "partial"
+    assert fetcher.summary["n_basis_flagged"] == 1 and fetcher.summary["n_error"] == 0
+
+
 async def test_a_run_where_every_item_errors_is_failed_not_partial(tmp_path, _no_side_effects):
     async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
         return _outcome(row, "error")

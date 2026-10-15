@@ -51,7 +51,12 @@ from services.ohlcv_raw_writer import (
     preview_series,
     write_raw,
 )
-from src.intelligence.bars.restatement import DetectorParams, Restatement, detect
+from src.intelligence.bars.restatement import (
+    BASIS_SIGNATURES,
+    DetectorParams,
+    Restatement,
+    detect,
+)
 from src.intelligence.bars.selection import PolicyRow
 from src.observability.metrics import counter
 
@@ -111,6 +116,20 @@ _INSERT_FLAG_SQL = (
     "INSERT INTO ohlcv_restatement_flag (load_id, symbol, timeframe, vendor, kind, n_stored, "
     "n_changed, share, signatures, ratio, shift_bars, detail) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+)
+# The review queue (migration 485; fourth review of 191-07, finding 2). A flag carrying a
+# basis-change signature stays unreviewed until a reviewer marks it; the selection gate fails
+# and the D7 gauge ohlcv_restatement_unreviewed_basis_flags stays nonzero meanwhile.
+BASIS_SIGNATURE_LIST = sorted(BASIS_SIGNATURES)
+UNREVIEWED_BASIS_SQL = (
+    "SELECT load_id, symbol, timeframe, vendor, kind, n_stored, n_changed, share, signatures, "
+    "detail, flagged_at FROM ohlcv_restatement_flag "
+    "WHERE reviewed_at IS NULL AND signatures && %s::text[] "
+    "ORDER BY flagged_at, symbol, timeframe"
+)
+_MARK_REVIEWED_SQL = (
+    "UPDATE ohlcv_restatement_flag SET reviewed_at = now(), reviewed_by = %s, review_note = %s "
+    "WHERE load_id = ANY(%s) AND reviewed_at IS NULL"
 )
 
 
@@ -299,6 +318,44 @@ def read_raw_params(cur: Any) -> RawContractParams:
     )
 
 
+def record_flag(cur: Any, load_id: uuid.UUID, series: SeriesKey, restatement: Restatement) -> None:
+    """Insert one ohlcv_restatement_flag row for a load the detector flagged (the table's one
+    INSERT; the retroactive run over a one-time write uses it too)."""
+    symbol, timeframe, vendor, kind = series
+    cur.execute(
+        _INSERT_FLAG_SQL,
+        (
+            load_id,
+            symbol,
+            timeframe,
+            vendor,
+            kind,
+            restatement.n_stored,
+            restatement.n_changed,
+            restatement.share,
+            list(restatement.signatures),
+            restatement.ratio,
+            restatement.shift_bars,
+            restatement.detail(),
+        ),
+    )
+
+
+def mark_reviewed(cur: Any, load_ids: list[uuid.UUID], *, reviewed_by: str, note: str) -> int:
+    """Mark flags reviewed (reviewed_at, reviewed_by and review_note together, migration 485);
+    a flag already reviewed keeps its first review. Returns the rows marked."""
+    if not reviewed_by.strip() or not note.strip():
+        raise ValueError("a review names its reviewer and carries a note")
+    cur.execute(_MARK_REVIEWED_SQL, (reviewed_by, note, list(load_ids)))
+    return cur.rowcount
+
+
+def read_unreviewed_basis(cur: Any) -> list[tuple]:
+    """Every flag with a basis-change signature that no reviewer has marked."""
+    cur.execute(UNREVIEWED_BASIS_SQL, (BASIS_SIGNATURE_LIST,))
+    return cur.fetchall()
+
+
 def _stored_at_offer(rows: list[RawRow], delta: RawDelta) -> dict[datetime, tuple]:
     """The vendor's stored values at the offered keys the load writes or confirms: the old value
     of a replaced row, the offered value of an unchanged one; a new key has none, and a
@@ -410,23 +467,7 @@ def apply_raw_contract(
             )
         if restatement.flagged:
             with conn.cursor() as cur:
-                cur.execute(
-                    _INSERT_FLAG_SQL,
-                    (
-                        load_id,
-                        symbol,
-                        timeframe,
-                        vendor,
-                        kind,
-                        restatement.n_stored,
-                        restatement.n_changed,
-                        restatement.share,
-                        list(restatement.signatures),
-                        restatement.ratio,
-                        restatement.shift_bars,
-                        restatement.detail(),
-                    ),
-                )
+                record_flag(cur, load_id, (symbol, timeframe, vendor, kind), restatement)
             for signature in restatement.signatures:
                 RESTATEMENT_FLAGS.add(1, {"vendor": vendor, "signature": signature})
             logger.warning(

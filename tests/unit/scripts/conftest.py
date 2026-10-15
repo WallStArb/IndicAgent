@@ -41,7 +41,10 @@ def make_ingress_result() -> Callable[..., IngressResult]:
     """What apply_raw_contract returns for `n` offered rows: all new by default; `flagged` adds a
     restatement flag (the rows land last-wins all the same, D-191-N)."""
 
-    def make(n: int, *, flagged: bool = False, stamps: tuple = ()) -> IngressResult:
+    def make(
+        n: int, *, flagged: bool = False, stamps: tuple = (), basis: bool = False
+    ) -> IngressResult:
+        signatures = ("share", "price_ratio") if basis else ("share",)
         flags = (
             (
                 FlaggedSeries(
@@ -50,10 +53,10 @@ def make_ingress_result() -> Callable[..., IngressResult]:
                     "ibkr",
                     "named",
                     uuid.uuid4(),
-                    Restatement(n, n, 1.0, ("share",)),
+                    Restatement(n, n, 1.0, signatures),
                 ),
             )
-            if flagged
+            if flagged or basis
             else ()
         )
         return IngressResult(

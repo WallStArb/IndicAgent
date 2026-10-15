@@ -580,7 +580,7 @@ groups:
               from: 600
               to: 0
             model:
-              expr: sum(last_over_time(ohlcv_load_refused_24h{source=~'ibkr|derived'}[36h]))
+              expr: sum(last_over_time(ohlcv_load_refused_24h{source='derived'}[36h])) + sum(last_over_time(ohlcv_restatement_unreviewed_basis_flags[36h]))
               intervalMs: 60000
               maxDataPoints: 43200
               refId: A
@@ -603,8 +603,8 @@ groups:
         execErrState: Error
         for: 5m
         annotations:
-          summary: "A revision-ratio refusal on an IBKR or derived load"
-          description: "ohlcv_load_refused_24h for sources ibkr and derived sums to {{ $value }} at the latest D7 run. The write contract refused a revision above threshold.bar_integrity.max_revision_ratio; read ohlcv_load.detail."
+          summary: "A refused derived load or an unreviewed basis-change restatement flag"
+          description: "Refused derived loads plus unreviewed basis-change restatement flags sum to {{ $value }} at the latest D7 run. IBKR loads are never refused (D-191-N); list the flags with scripts/ops/bars/ops_restatement_review.py and mark them reviewed."
         labels:
           severity: high
           contact_point: discord-ops

@@ -453,3 +453,48 @@ def test_session_choices_are_counted_partial_and_checked_against_their_record():
     diff = gate.SeriesDiff("SPY", "5m", 0, 0)
     diff.session_choices_unrecorded = 1
     assert not diff.clean()
+
+
+def test_an_unreviewed_basis_change_flag_is_residue_and_shards_do_not_sum_it():
+    # fourth review of 191-07, finding 2
+    flagged = _report(0)
+    flagged["totals"]["unreviewed_basis_flags"] = 2
+    assert gate.verdict(flagged["totals"]) == gate.EXIT_RESIDUE
+    reviewed = _report(0)
+    reviewed["totals"]["unreviewed_basis_flags"] = 0
+    assert gate.verdict(reviewed["totals"]) == gate.EXIT_CLEAN
+
+
+def test_the_unreviewed_flags_are_read_over_the_whole_table():
+    class Cur:
+        def __init__(self):
+            self.sql = []
+
+        def execute(self, sql, params=None):
+            self.sql.append((sql, params))
+
+        def fetchall(self):
+            from datetime import UTC, datetime
+
+            return [
+                (
+                    "L1",
+                    "GE",
+                    "5m",
+                    "ibkr",
+                    "named",
+                    1014,
+                    1014,
+                    1.0,
+                    ["share", "price_ratio"],
+                    "d",
+                    datetime(2026, 10, 15, tzinfo=UTC),
+                )
+            ]
+
+    cur = Cur()
+    (entry,) = gate.count_unreviewed_basis(cur)
+    assert entry["series"] == "GE 5m ibkr/named" and entry["signatures"][-1] == "price_ratio"
+    ((sql, params),) = cur.sql
+    assert "reviewed_at IS NULL" in sql and "symbol =" not in sql
+    assert set(params[0]) == {"price_ratio", "volume_ratio", "time_shift"}

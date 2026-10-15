@@ -121,6 +121,7 @@ from src.intelligence.bars.integrity_checks import (
     rebucket_5m,
     slot_coverage_by_year,
 )
+from src.intelligence.bars.restatement import BASIS_SIGNATURES
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
     CANONICAL_1D_SOURCES,
@@ -776,6 +777,16 @@ OHLCV_LOAD_REFUSED_24H = point_gauge(
     "ohlcv_load rows with outcome refused or gated in the 24 h before this D7 run, labeled by "
     "source only.",
 )
+OHLCV_RESTATEMENT_UNREVIEWED_BASIS = point_gauge(
+    "ohlcv_restatement_unreviewed_basis_flags",
+    "ohlcv_restatement_flag rows with a basis-change signature (price_ratio, volume_ratio, "
+    "time_shift) and no review at this D7 run (no labels; fourth review of 191-07, finding 2). "
+    "Cleared by scripts/ops/bars/ops_restatement_review.py --mark.",
+)
+_UNREVIEWED_BASIS_SQL = """
+SELECT count(*) FROM ohlcv_restatement_flag
+WHERE reviewed_at IS NULL AND signatures && $1::text[]
+"""
 # The ohlcv_load.source values a live writer loads under; each gets a gauge point every run. The
 # CHECK constraint still admits tradier for the deleted loader's history (plan 185-48).
 LOAD_SOURCES = ("ibkr", "derived")
@@ -1045,9 +1056,11 @@ def record_alert_gauges(
     run_start: datetime,
     max_age_hours: float,
     refused_by_source: Mapping[str, int],
+    unreviewed_basis_flags: int = 0,
 ) -> None:
-    """Record the four alert gauges. The age is how long the previous report had stood when this
-    run began (none on the first run); every load source records a point so a clear reads 0."""
+    """Record the five alert gauges. The age is how long the previous report had stood when this
+    run began (none on the first run); every load source records a point so a clear reads 0, and
+    the unreviewed basis-change flag count records every run so a review clears the alert."""
     for check, n in failing_by_check.items():
         BAR_INTEGRITY_FAILING_NAMES.set(n, {"check": check})
     if previous_verdict_at is not None:
@@ -1055,6 +1068,7 @@ def record_alert_gauges(
     BAR_INTEGRITY_REPORT_MAX_AGE_SECONDS.set(max_age_hours * 3600.0)
     for source in LOAD_SOURCES:
         OHLCV_LOAD_REFUSED_24H.set(refused_by_source.get(source, 0), {"source": source})
+    OHLCV_RESTATEMENT_UNREVIEWED_BASIS.set(unreviewed_basis_flags)
 
 
 class _Judged(NamedTuple):
@@ -1664,6 +1678,7 @@ class BarReconciliationAudit(BaseBatch):
         )
         async with pool.acquire() as conn:
             refused = await conn.fetch(_REFUSED_LOADS_24H_SQL, now - timedelta(hours=24))
+            unreviewed = await conn.fetchval(_UNREVIEWED_BASIS_SQL, sorted(BASIS_SIGNATURES))
         record_alert_gauges(
             failing_by_check=merge_failing_by_check(
                 zero_for_judged(verdicts.passing_by_check),
@@ -1675,6 +1690,7 @@ class BarReconciliationAudit(BaseBatch):
             run_start=now,
             max_age_hours=integ.report_max_age_hours,
             refused_by_source={r["source"]: r["n"] for r in refused},
+            unreviewed_basis_flags=int(unreviewed or 0),
         )
 
     # -- loaders -------------------------------------------------------------

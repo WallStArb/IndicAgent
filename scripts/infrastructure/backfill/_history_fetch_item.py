@@ -124,6 +124,10 @@ class ItemOutcome:
     derive_1d_since: datetime | None = None
     # Restatements the detector flagged this item (written last-wins all the same, D-191-N).
     flags: tuple[str, ...] = ()
+    # Of those, series flagged with a basis-change signature (a common price or volume
+    # multiple, a time shift): the run is partial until each is reviewed (fourth review of
+    # 191-07, finding 2; scripts/ops/bars/ops_restatement_review.py).
+    n_basis_flagged: int = 0
     # Slots this item put in raw that no ranked vendor selects (D-191-L rule 4): the rows are
     # in raw, canonical has none for them. The run is partial while any exist (191-07 review).
     n_unselected: int = 0
@@ -334,7 +338,7 @@ class _ChunkPersister:
     Every chunk is written last-wins (D-191-N): a vendor restating its OWN stored raw rows
     overwrites them and the old values are logged as revisions. A restatement the detector
     flags (share or basis-change signature) is kept in `flags` and reported on the outcome; it
-    never stops the walk or fails the item. A difference from another vendor is a different key
+    never stops the walk or fails the item, and a basis-change flag makes the run partial. A difference from another vendor is a different key
     and never reaches the detector. `waived` no longer changes the write; the escalation path
     still passes it for its log.
     """
@@ -361,6 +365,7 @@ class _ChunkPersister:
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
         self.flags: list[str] = []
+        self.n_basis_flagged = 0
         self.n_unselected = 0
         self.unmapped: list[str] = []
         # Every stamp an answer handed in, complete or not: the item's defensive re-offer of
@@ -455,6 +460,7 @@ class _ChunkPersister:
                 self.flags.append(
                     f"{min(stamps).date()}-{max(stamps).date()}: {flag.restatement.detail()}"
                 )
+            self.n_basis_flagged += ingress.n_basis_flagged
         self.n_rows += result.n_rows
         if ingress is not None and ingress.n_unselected:
             self.n_unselected += ingress.n_unselected
@@ -955,6 +961,7 @@ async def fetch_item(
         derive_1d_since=start_dt if d1_capture and n_returned > 0 else None,
         overlap_pairs=tuple(persister.overlap_pairs),
         flags=tuple(persister.flags),
+        n_basis_flagged=persister.n_basis_flagged,
         n_unselected=persister.n_unselected,
         unmapped=unmapped,
     )

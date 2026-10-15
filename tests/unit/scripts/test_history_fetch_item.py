@@ -912,6 +912,13 @@ def test_a_flagged_restatement_lands_the_walk_continues_and_the_flag_rides_on_th
     assert len(outcome.flags) == 1 and "signatures ['share']" in outcome.flags[0]
 
 
+def test_a_basis_change_flag_is_counted_on_the_outcome(env, monkeypatch, make_ingress_result):
+    """Fourth review of 191-07, finding 2: the fetcher makes the run partial on it."""
+    monkeypatch.setattr(env, "ingress", lambda n, flagged=False: make_ingress_result(n, basis=True))
+    outcome = _fetch(_ctx(TwoChunkProvider()), _row("5m"))
+    assert outcome.status == "ok" and outcome.n_basis_flagged == 2 and len(outcome.flags) == 2
+
+
 def test_item_status_follows_the_ingress_result_not_a_stored_label(env):
     """T-191-18: the item holds no cross-vendor refusal logic at all; the contract writes
     last-wins (D-191-N)."""
