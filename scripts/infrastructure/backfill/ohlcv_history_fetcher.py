@@ -1514,6 +1514,7 @@ class OHLCVHistoryFetcher(BaseBatch):
             )
         elif loop.touched_1d:
             symbols = sorted(loop.touched_1d)
+            stage_started = datetime.now(UTC)
             codes["daily"] = await self._run_stage(
                 [
                     python,
@@ -1527,11 +1528,35 @@ class OHLCVHistoryFetcher(BaseBatch):
             )
             if codes["daily"] == 0:
                 self._finish_1d(ctx, loop.touched_1d)
+            else:
+                # Per-name isolation (D-191-O): a failed or refused name never withholds the
+                # ledger refresh of the names whose daily load applied.
+                written = self._daily_applied_since(ctx, symbols, stage_started)
+                logger.warning(
+                    "ibkr_history_fetcher.daily_stage_partial",
+                    code=codes["daily"],
+                    n_symbols=len(symbols),
+                    n_applied=len(written),
+                )
+                if written:
+                    self._finish_1d(ctx, {s: t for s, t in loop.touched_1d.items() if s in written})
         if loop.n_grid_source_rows > 0:
             codes["grid"] = await self._run_stage(
                 [python, str(_DERIVATION_SCRIPT), "--stage", "grid", "--changed-only", "--apply"]
             )
         return codes
+
+    @staticmethod
+    def _daily_applied_since(ctx: Any, symbols: list[str], since: datetime) -> set[str]:
+        """The symbols whose daily derivation load applied at or after `since`."""
+        cur = ctx.get_conn().cursor()
+        cur.execute(
+            "SELECT DISTINCT symbol FROM ohlcv_load WHERE caller = 'bar_derivation-daily' "
+            "AND timeframe = '1d' AND outcome = 'applied' AND loaded_at >= %s "
+            "AND symbol = ANY(%s)",
+            (since, symbols),
+        )
+        return {row[0] for row in cur.fetchall()}
 
     def _finish_1d(self, ctx: Any, touched: Mapping[str, datetime]) -> None:
         """Refresh the 1d ledger bounds from the rows D2 just wrote. No fetch bookkeeping

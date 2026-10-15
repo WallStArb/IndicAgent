@@ -3,9 +3,10 @@
 Data layer integrity design (docs/plans/2026-10-06-data-layer-integrity-design.md) section 4:
 every writer of a bar table reads the stored rows for its keys, classifies each incoming row as
 new, changed or unchanged by exact value, writes only new and changed rows, records the old value
-of every changed or removed row in ohlcv_revision, and refuses a write that revises more than
-threshold.bar_integrity.max_revision_ratio of what is stored (a finding to look at, not to
-auto-apply), unless the caller waives it for a recorded corporate action.
+of every changed or removed row in ohlcv_revision. A write that revises more than
+threshold.bar_integrity.max_revision_ratio of what is stored is applied and flagged (vendor
+restatements are last-wins, D-191-N and D-191-O); a write that would delete more than that share
+is refused for that one name unless the caller waives it for a recorded corporate action.
 
 Pure functions, no I/O and no APR reads: callers pass the thresholds. One rule replaces each
 writer's ad hoc compare (the grid stage first; 185-36, 185-38 and 185-39 follow).
@@ -85,14 +86,27 @@ def revision_ratio(delta: WriteDelta, n_stored: int) -> float:
     return (len(delta.changed) + len(delta.removed)) / n_stored
 
 
-def should_refuse(
-    delta: WriteDelta, n_stored: int, max_ratio: float, *, min_stored: int, waived: bool
+def revision_flagged(
+    delta: WriteDelta, n_stored: int, max_ratio: float, *, min_stored: int
 ) -> bool:
     """True when the write revises more than `max_ratio` of at least `min_stored` stored rows.
 
-    Below `min_stored` every restatement is written and recorded (a fetcher tail window holds
-    about 78 5m bars and IBKR restates recent bars); `waived` is a recorded corporate action.
+    A flag, never a refusal (D-191-N, extended to derivation by D-191-O): a vendor restatement is
+    applied last-wins, its old values go to ohlcv_revision, and the flag marks the write for
+    review. Below `min_stored` nothing is flagged (a fetcher tail window holds about 78 5m bars).
     """
-    if waived or n_stored < min_stored:
+    return n_stored >= min_stored and revision_ratio(delta, n_stored) > max_ratio
+
+
+def refuse_removal(
+    delta: WriteDelta, n_stored: int, max_ratio: float, *, min_stored: int, waived: bool
+) -> bool:
+    """True when the write would delete more than `max_ratio` of at least `min_stored` stored rows.
+
+    Removal is not a restatement: no vendor served a new value, the canonical rule stopped
+    choosing the stored one (D-191-O). It refuses that one name; `waived` is a recorded corporate
+    action, policy change or restore.
+    """
+    if waived or n_stored < min_stored or n_stored <= 0:
         return False
-    return revision_ratio(delta, n_stored) > max_ratio
+    return len(delta.removed) / n_stored > max_ratio

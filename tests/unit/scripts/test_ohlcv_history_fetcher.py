@@ -157,6 +157,9 @@ class _FakeCursor:
     def execute(self, sql: str, params: Any = None) -> None:
         self.log.append(sql)
 
+    def fetchall(self) -> list[tuple]:
+        return []  # no applied daily load
+
 
 class _FakeConn:
     def __init__(self) -> None:
@@ -906,6 +909,26 @@ async def test_failed_daily_stage_skips_the_ledger_refresh_and_is_partial(
     status, error = await _run(fetcher)
     assert status == "partial"
     assert _no_side_effects.refreshed == []
+
+
+async def test_a_partial_daily_stage_refreshes_the_names_that_applied(
+    tmp_path, _no_side_effects, monkeypatch
+):
+    # Per-name isolation (D-191-O, todo 535 item 40): one failed name never withholds the
+    # ledger refresh of the names whose daily load applied.
+    async def fetch(ctx: Any, instrument: Any, row: Any, **kw: Any) -> ItemOutcome:
+        return _outcome(row, n_bars=5, derive_1d_since=datetime(2006, 10, 2, tzinfo=UTC))
+
+    monkeypatch.setattr(
+        hf.OHLCVHistoryFetcher,
+        "_daily_applied_since",
+        staticmethod(lambda ctx, symbols, since: {"AAA"}),
+    )
+    items = [_ranked("BBB", "1d"), _ranked("AAA", "1d")]
+    fetcher, seen = _fetcher(tmp_path, _plan(items), fetch_fn=fetch, stage_rc=1)
+    status, error = await _run(fetcher)
+    assert status == "partial"
+    assert _no_side_effects.refreshed == [["AAA"]]
 
 
 async def test_no_derive_skips_the_daily_stage_and_the_ledger_refresh(tmp_path, _no_side_effects):

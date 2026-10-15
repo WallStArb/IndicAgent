@@ -1,6 +1,6 @@
 """The write contract's pure core (plan 185-31; data layer integrity design section 4).
 
-classify compares incoming rows with stored rows by exact value; revision_ratio and should_refuse
+classify compares incoming rows with stored rows by exact value; revision_ratio, revision_flagged and refuse_removal
 decide whether a write revises too much of what is stored to apply without a look.
 """
 
@@ -12,8 +12,9 @@ from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
     classify,
+    refuse_removal,
+    revision_flagged,
     revision_ratio,
-    should_refuse,
 )
 
 _ROW: BarValues = (10.0, 10.5, 9.5, 10.25, 1000, "derived_5m")
@@ -99,23 +100,31 @@ def test_revision_ratio_counts_changed_and_removed_over_stored():
 
 
 @pytest.mark.parametrize(
-    ("n_changed", "n_stored", "waived", "expected"),
+    ("n_changed", "n_stored", "expected"),
     [
-        (1, 1_000, False, False),  # 0.1% revised: written and recorded
-        (30, 1_000, False, True),  # 3% revised: a finding
-        (2, 78, False, False),  # a 5m tail window: fewer stored rows than min_stored
-        (30, 1_000, True, False),  # a recorded corporate action waives it
-        (0, 0, False, False),  # nothing stored yet
+        (1, 1_000, False),  # 0.1% revised
+        (30, 1_000, True),  # 3% revised: flagged
+        (132, 4_665, True),  # GYRE, todo 535 item 40: 2.83% revised, flagged not refused
+        (2, 78, False),  # a 5m tail window: fewer stored rows than min_stored
+        (0, 0, False),  # nothing stored yet
     ],
 )
-def test_should_refuse(n_changed, n_stored, waived, expected):
+def test_revision_flagged(n_changed, n_stored, expected):
     delta = _delta(n_changed=n_changed)
-    assert should_refuse(delta, n_stored, 0.02, min_stored=500, waived=waived) is expected, (
-        n_changed,
-        n_stored,
-        waived,
-    )
+    assert revision_flagged(delta, n_stored, 0.02, min_stored=500) is expected
+    # A restatement is never refused (D-191-O): only removal refuses.
+    assert not refuse_removal(delta, n_stored, 0.02, min_stored=500, waived=False)
 
 
-def test_removed_rows_count_toward_refusal():
-    assert should_refuse(_delta(n_removed=30), 1_000, 0.02, min_stored=500, waived=False)
+@pytest.mark.parametrize(
+    ("n_removed", "n_stored", "waived", "expected"),
+    [
+        (1, 1_000, False, False),
+        (30, 1_000, False, True),  # 3% of canonical would be deleted: refused
+        (30, 1_000, True, False),  # a recorded corporate action waives it
+        (2, 78, False, False),  # below min_stored
+    ],
+)
+def test_refuse_removal(n_removed, n_stored, waived, expected):
+    delta = _delta(n_removed=n_removed)
+    assert refuse_removal(delta, n_stored, 0.02, min_stored=500, waived=waived) is expected

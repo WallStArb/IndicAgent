@@ -9,10 +9,12 @@ src/intelligence/bars/write_contract.py). One transaction per symbol:
 1. read the stored 15m/1h rows with their source, the grid's flags and the current digests;
    classify the derived rows against the stored derived rows by exact value (new, changed,
    unchanged, removed: a stored derived slot no longer derived);
-2. refuse the symbol when (changed + removed) / stored derived rows exceeds
+2. a restatement is applied last-wins (D-191-O): (changed + removed) / stored derived rows above
    threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
-   rows: its ohlcv_load rows commit with outcome refused, nothing else is written, and the batch
-   fails (a broad 5m restatement is a finding to look at, never auto-applied);
+   rows only flags the load (revision_flags in its detail, a warning log); removed rows alone
+   above that share refuse that one symbol (its ohlcv_load rows commit with outcome refused,
+   nothing else is written). A refused or failed symbol never discards another symbol's writes:
+   each symbol is its own transaction and the batch closes partial;
 3. under SET LOCAL ROLE bar_derivation_writer: one ohlcv_load row per grid timeframe (source
    derived, outcome applied, the four counts);
 4. a vendor 15m/1h row in canonical fails the symbol loud: vendor answers live in ohlcv_raw
@@ -51,9 +53,12 @@ set only, never a raw UPDATE of the compressed hypertable), and the fallback_sea
 pre_split_unrefetched and no_provider_volume flags through bar_scrub's write_flags; then one
 scrub_symbols call over the run's symbols and write_1d_digests at RULE_VERSION. A revision ratio
 above threshold.bar_integrity.max_revision_ratio over at least revision_ratio_min_stored stored
-rows refuses the symbol (only its refused load row commits) unless a corporate action or a 1d
+rows is applied and flagged (revision_flag in the load detail, a warning log; D-191-O, vendor
+restatements are last-wins). Removed rows alone above that share refuse the symbol (only its
+refused load row commits) unless a corporate action or a 1d
 bar_source_policy row was recorded or closed (closed_at, migration 460) after the symbol's
-previous applied daily load, or no such load exists. --changed-only skips a symbol with no
+previous applied daily load, or no such load exists. A refused or failed symbol is recorded and
+the batch closes partial; other symbols' writes stand. --changed-only skips a symbol with no
 answer, corporate action or policy record or close after that same per-symbol baseline. A held
 name (bar_hold_current, services/bar_hold.py; plan 185-51) is skipped whatever the scope: its
 report row has outcome held, the cause and zero counts, and nothing is read or written for it. No
@@ -118,8 +123,9 @@ from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
     classify,
+    refuse_removal,
+    revision_flagged,
     revision_ratio,
-    should_refuse,
 )
 from src.observability.metrics import counter
 from src.observability.otel import OTelInitError, init_otel_providers
@@ -359,6 +365,7 @@ _DAILY_REPORT_COLUMNS = (
     "refused_dates",
     "stale_only",
     "revision_ratio",
+    "revision_flag",
     "would_refuse",
     "waived",
     "error",
@@ -580,6 +587,7 @@ class _DailyResult:
     refused_dates: tuple[date, ...] = ()
     stale_only: int = 0
     revision_ratio: float = 0.0
+    revision_flag: bool = False
     would_refuse: bool = False
     waived: bool | None = None
     held: str = ""
@@ -591,6 +599,7 @@ class _DailyResult:
             "refused_interior": len(self.refused_dates),
             "refused_dates": ",".join(d.isoformat() for d in self.refused_dates),
             "revision_ratio": f"{self.revision_ratio:.6f}",
+            "revision_flag": str(self.revision_flag).lower(),
             "would_refuse": str(self.would_refuse).lower(),
             "waived": "" if self.waived is None else str(self.waived).lower(),
             "error": self.error or "",
@@ -607,6 +616,17 @@ def _stored_group(sources: set[str]) -> str:
     return "tradier_only" if sources == {"tradier"} else "mixed"
 
 
+def _batch_status(failed: list[str], n_written: int) -> str:
+    """Per-name isolation (D-191-O): a failed or refused name never fails the names that wrote.
+
+    completed: nothing failed; partial: some names failed and at least one wrote; failed:
+    names failed and none wrote.
+    """
+    if not failed:
+        return "completed"
+    return "partial" if n_written else "failed"
+
+
 def _utc_day(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
@@ -619,6 +639,7 @@ class _GridPlan:
     n_stored_derived: dict[str, int]
     n_vendor: dict[str, int]
     refusals: tuple[str, ...]
+    revision_flags: tuple[str, ...]
     flag_writes: list[tuple[tuple[str, int, str], dict[str, Any]]]
     flag_deletes: list[tuple[str, int, str]]
     digest_writes: list[tuple[str, datetime, datetime, str, int]]
@@ -943,9 +964,10 @@ class BarDerivation(BaseBatch):
                     await close_batch(
                         conn,
                         batch_id,
-                        status="failed" if failed else "completed",
+                        status=_batch_status(failed, totals["derived"]),
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
+                            "failed": failed,
                             "n_derived_rows": n_derived_rows,
                             "rows": rows,
                             "apply": self._apply,
@@ -1016,18 +1038,23 @@ class BarDerivation(BaseBatch):
                 n_vendor[tf] += 1
         deltas: dict[str, WriteDelta[int]] = {}
         refusals: list[str] = []
+        revision_flags: list[str] = []
         for tf in _GRID_TF_LIST:
             stored = stored_derived[tf]
             delta = classify(derived_values[tf], stored, removal_scope=stored.keys())
             deltas[tf] = delta
-            if should_refuse(
+            counts = (
+                f"({len(delta.changed)} changed + {len(delta.removed)} removed of "
+                f"{len(stored)} stored) > {limits.max_ratio}"
+            )
+            if revision_flagged(delta, len(stored), limits.max_ratio, min_stored=limits.min_stored):
+                revision_flags.append(
+                    f"{tf} revision ratio {revision_ratio(delta, len(stored)):.4f} {counts}"
+                )
+            if refuse_removal(
                 delta, len(stored), limits.max_ratio, min_stored=limits.min_stored, waived=False
             ):
-                refusals.append(
-                    f"{tf} revision ratio {revision_ratio(delta, len(stored)):.4f} "
-                    f"({len(delta.changed)} changed + {len(delta.removed)} removed of "
-                    f"{len(stored)} stored) > {limits.max_ratio}"
-                )
+                refusals.append(f"{tf} removal {counts}")
 
         stored_flags: dict[tuple[str, int, str], tuple[str, Any]] = {}
         for r in await conn.fetch(
@@ -1057,6 +1084,7 @@ class BarDerivation(BaseBatch):
             n_stored_derived={tf: len(stored_derived[tf]) for tf in _GRID_TF_LIST},
             n_vendor=n_vendor,
             refusals=tuple(refusals),
+            revision_flags=tuple(revision_flags),
             flag_writes=flag_writes,
             flag_deletes=flag_deletes,
             digest_writes=digest_writes,
@@ -1241,6 +1269,7 @@ class BarDerivation(BaseBatch):
                                 "n_stored_derived": plan.n_stored_derived[tf],
                                 "n_vendor_rows": plan.n_vendor[tf],
                                 "refusals": list(plan.refusals),
+                                "revision_flags": list(plan.revision_flags),
                             }
                         ),
                         _GRID_LOAD_CALLER,
@@ -1250,6 +1279,13 @@ class BarDerivation(BaseBatch):
                 if plan.refusals:
                     # The load rows are the recorded finding; nothing else is written.
                     return plan.result(symbol, n_derived)
+                if plan.revision_flags:
+                    self.logger.warning(
+                        "bar_derivation.revision_flag",
+                        stage=self._stage,
+                        symbol=symbol,
+                        flags=list(plan.revision_flags),
+                    )
                 await self._write_derived(
                     conn, symbol=symbol, base=base, plan=plan, load_ids=load_ids
                 )
@@ -1459,10 +1495,11 @@ class BarDerivation(BaseBatch):
                     await close_batch(
                         conn,
                         batch_id,
-                        status="failed" if failed else "completed",
+                        status=_batch_status(failed, totals["derived"]),
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
                             "rows": rows,
+                            "failed": failed,
                             **summary,
                             "apply": self._apply,
                             "changed_only": self._changed_only,
@@ -1542,7 +1579,10 @@ class BarDerivation(BaseBatch):
         scope = [d for d in stored if span_start <= d <= span_end]
         delta = classify(incoming, stored, removal_scope=scope)
         ratio = revision_ratio(delta, len(stored))
-        would_refuse = should_refuse(
+        flagged = revision_flagged(
+            delta, len(stored), params.limits.max_ratio, min_stored=params.limits.min_stored
+        )
+        would_refuse = refuse_removal(
             delta,
             len(stored),
             params.limits.max_ratio,
@@ -1557,7 +1597,7 @@ class BarDerivation(BaseBatch):
             symbol=symbol,
             outcome="refused" if refuse else "derived",
             error=(
-                f"{symbol}: refused: revision ratio {ratio:.4f} over {len(stored)} stored rows "
+                f"{symbol}: refused: {len(delta.removed)} removed of {len(stored)} stored rows "
                 f"exceeds {params.limits.max_ratio} with no recorded corporate action or policy "
                 "change since the last applied daily load"
                 if refuse
@@ -1579,6 +1619,7 @@ class BarDerivation(BaseBatch):
             stale_only=len(derived.stale_only),
             restated=len(derived.restated),
             revision_ratio=ratio,
+            revision_flag=flagged,
             would_refuse=would_refuse,
             waived=waived,
         )
@@ -1636,6 +1677,7 @@ class BarDerivation(BaseBatch):
                         "rule_version": RULE_VERSION,
                         "n_stored": result.n_stored,
                         "revision_ratio": result.revision_ratio,
+                        "revision_flag": result.revision_flag,
                         "waived": result.waived,
                         "head": result.head,
                         "refused_head": [d.isoformat() for d in derived.refused_head],
@@ -1651,6 +1693,16 @@ class BarDerivation(BaseBatch):
             )
             if result.outcome == "refused":
                 return
+            if result.revision_flag:
+                self.logger.warning(
+                    "bar_derivation.revision_flag",
+                    stage=self._stage,
+                    symbol=symbol,
+                    revision_ratio=round(result.revision_ratio, 6),
+                    changed=result.changed,
+                    removed=result.removed,
+                    n_stored=result.n_stored,
+                )
             await _apply_1d_delta(conn, symbol=symbol, load_id=load_id, base=base, delta=delta)
             # Replace the stage's flag rules for the symbol (delete-then-insert of the evaluated
             # rules, so a re-derivation clears a stale flag; D-21 quarantine per the APR list).
@@ -2042,6 +2094,7 @@ def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:
         "refused_interior": sum(len(r.refused_dates) for r in results),
         "stale_only": sum(r.stale_only for r in results),
         "restated": sum(r.restated for r in results),
+        "revision_flag": sum(r.revision_flag for r in results),
         "would_refuse": sum(r.would_refuse for r in results),
         "would_refuse_unwaived": sum(r.would_refuse and not r.waived for r in results),
     }

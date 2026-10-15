@@ -14,7 +14,7 @@ answers live in ohlcv_raw; phase 191 plan 08 deleted the archive step); new deri
 raw UPDATE) after their old values go to ohlcv_revision (origin load); stale derived rows
 deleted with their old values recorded; flags and digests written only where they differ. A
 revision ratio above threshold.bar_integrity.max_revision_ratio refuses the symbol (outcome
-refused, nothing written, the batch fails).
+applied and flagged, D-191-O).
 
 Derived values are checked against direct arithmetic over the same 5m fixture (plan 06's
 direct-oracle convention), never against the implementation's own aggregation path.
@@ -575,7 +575,8 @@ def bar_derivation_source() -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_a_broad_restatement_is_refused_recorded_and_fails_the_batch():
+def test_a_broad_restatement_is_applied_flagged_and_completes_the_batch():
+    # D-191-O: a 5m restatement re-derives the grid last-wins; the ratio only flags the load.
     fixture = _five_minute_fixture()
     stored, stored_flags, digests = _stored_from_first_run(fixture)
     shifted = [dict(r, close=r["close"] + 1.0) for r in stored]  # every derived row differs
@@ -589,19 +590,15 @@ def test_a_broad_restatement_is_refused_recorded_and_fails_the_batch():
             "threshold.bar_integrity.revision_ratio_min_stored": "5",
         },
     )
-    with pytest.raises(RuntimeError, match="refused"):
-        _run(conn)
-    assert _bar_writes(conn) == []
-    assert not _revisions(conn)
-    assert not _many_rows(conn, "INSERT INTO bar_content_digest")
+    assert _run(conn)["derived"] == 1
+    assert len(_upserted_bars(conn)) == 33
+    assert _revisions(conn)
     loads = _load_counts(conn)
-    assert {row["outcome"] for row in loads.values()} == {"refused"}
+    assert {row["outcome"] for row in loads.values()} == {"applied"}
     assert loads["15m"]["n_changed"] == 26
-    # The refusal is a recorded finding: its load rows commit.
-    i_load = _index(conn, "INSERT INTO ohlcv_load")
-    assert ("<commit>", "") in conn.calls[i_load:]
+    assert json.loads(str(loads["15m"]["detail"]))["revision_flags"]
     closed = [a for sql, a in conn.statements if "UPDATE bar_derivation_batch" in sql]
-    assert "failed" in closed[-1]
+    assert "completed" in closed[-1]
 
 
 def test_a_restatement_below_min_stored_is_written_not_refused():

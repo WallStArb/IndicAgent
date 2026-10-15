@@ -23,7 +23,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-_BATCH_STATUSES = ("completed", "failed")
+_BATCH_STATUSES = ("completed", "partial", "failed")
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 

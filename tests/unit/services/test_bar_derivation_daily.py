@@ -573,7 +573,45 @@ def _ratio_fixture(**conn_kwargs) -> FakeConn:
     )
 
 
-def test_revision_ratio_breach_writes_only_a_refused_load():
+def test_a_vendor_restatement_above_the_ratio_is_applied_and_flagged():
+    # Todo 535 item 40 (GYRE), D-191-O: changed values with no removal are a vendor restatement,
+    # applied last-wins like raw; the ratio only flags the load.
+    observations, stored = _fixture()
+    del stored["TEST"][_D5]  # no removal: only the changed share remains
+    conn = FakeConn(
+        observations=observations,
+        stored=stored,
+        apr={"threshold.bar_integrity.revision_ratio_min_stored": "5"},
+        waived=False,
+    )
+    result, _scrub = _run(conn)
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    assert load_args[6] == "applied"
+    assert json.loads(load_args[14])["revision_flag"] is True
+    assert conn.stored["TEST"][_D2]["close"] == 11.0
+    assert conn.many("INSERT INTO ohlcv_revision")
+    assert result["totals"]["derived"] == 1 and result["revision_flag"] == 1
+    assert not any("/* revision_waiver */" in sql for _kind, sql in conn.calls)
+
+
+def test_a_refused_name_never_discards_another_names_writes():
+    # Per-name isolation (D-191-O): one refused name; the other name's rows land and the batch
+    # closes partial, not failed.
+    observations, stored = _fixture()
+    observations["OK"] = [dict(o, symbol="OK") for o in observations["TEST"]]
+    conn = FakeConn(
+        observations=observations,
+        stored=stored,
+        apr={"threshold.bar_integrity.revision_ratio_min_stored": "5"},
+        waived=False,
+    )
+    with pytest.raises(RuntimeError, match="1 symbol failure"):
+        _run(conn, symbols=["TEST", "OK"])
+    assert conn.stored["OK"][_D2]["close"] == 11.0
+    assert conn.executed("UPDATE bar_derivation_batch")[-1][1] == "partial"
+
+
+def test_a_removal_breach_writes_only_a_refused_load():
     conn = _ratio_fixture(waived=False)
     with pytest.raises(RuntimeError, match="refused"):
         _run(conn)
