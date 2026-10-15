@@ -2,37 +2,29 @@
 
 Data layer integrity design (docs/plans/2026-10-06-data-layer-integrity-design.md) section 4 and
 the unified raw bar table design (docs/plans/2026-10-12-unified-raw-bar-table-design.md, Ingress
-contract). `apply_raw_contract` is the one entry point; it takes one chunk of vendor answers
-(`RawRow`, vendor and kind decided by the caller from what the vendor served) and, per
+contract, D-191-N). `apply_raw_contract` is the one entry point; it takes one chunk of vendor
+answers (`RawRow`, vendor and kind decided by the caller from what the vendor served) and, per
 (symbol, timeframe, vendor, kind) series, in the caller's one transaction:
 
 1. classifies the offer against the SAME series' stored raw rows (new, changed or unchanged by
    exact value; a bar missing from an answer is not a deletion; another vendor's row at the slot
    is a different key and never a revision);
-2. judges the overlap: when the vendor restated more of its own stored rows than
-   threshold.bar_integrity.max_revision_ratio allows, and at least
-   threshold.bar_integrity.revision_ratio_min_stored rows are stored (a fetcher tail window holds
-   about 78 5m bars and IBKR restates recent bars, so a small window is written and recorded,
-   never refused), the series is refused: an ohlcv_load row (outcome refused) is written, the
-   offered values that differ from the stored rows are held as pending revisions and ohlcv_raw is
-   not touched, so selection cannot promote them, now or on any later call;
-3. otherwise writes the ohlcv_load row, the raw rows (old values of changed rows go to
-   ohlcv_revision, origin raw) and runs canonical selection over the touched span for direct
-   timeframes (services/bar_selection.py).
-
-A refusal holds against small asks (third review of plan 191-07, finding 2). The 500-row minimum
-lets a one-session ask restate freely, so a re-serve of a held span would otherwise land the very
-values the refusal held. An offer that would change or insert a key still held under a refused
-load of the same vendor and kind (a live pending revision there that no later accepted serve
-answered) is refused whole, whatever its size: the re-serve lane verifies a refusal, it never
-overrides one. Each held key the offer answers is reported as `held_offer` (the vendor served the
-held value again), `stored_value` (it served the stored value: unchanged, nothing written) or
-`new_value`. Releasing a hold stays an explicit decision.
+2. writes the ohlcv_load row and the raw rows last-wins: a vendor's own re-serve always replaces
+   its stored value and the old value goes to ohlcv_revision (origin raw), so every overwrite is
+   recoverable (owner decision 2026-10-14, D-191-N: no load-level refusal, nothing held);
+3. runs the restatement detector (src/intelligence/bars/restatement.py) over the overlap: a load
+   whose changed share exceeds the APR flag share, or whose changes carry a basis-change
+   signature (a near-constant price ratio, a one-bar time shift), is logged as a warning, counted
+   on the `ohlcv_restatement_flags_total` metric and recorded in ohlcv_restatement_flag for
+   review. It never blocks the write;
+4. runs canonical selection over the touched span for direct timeframes
+   (services/bar_selection.py).
 
 Everything runs on the caller's connection, so the caller's one transaction covers the request
-rows, the bars, the load record and the coverage update. This module owns the INSERTs into
-ohlcv_load and reads the config and vocabulary tables; it owns no bar-table write (ohlcv_raw is
-services/ohlcv_raw_writer.py's, canonical is services/bar_selection.py's).
+rows, the bars, the load record, the flag and the coverage update. This module owns the INSERTs
+into ohlcv_load and ohlcv_restatement_flag and reads the config and vocabulary tables; it owns
+no bar-table write (ohlcv_raw is services/ohlcv_raw_writer.py's, canonical is
+services/bar_selection.py's).
 """
 
 from __future__ import annotations
@@ -46,46 +38,52 @@ from typing import Any
 
 import structlog
 
-from services.bar_selection import DIRECT_TIMEFRAMES, NON_SERVE_CALLERS, select_and_write
+from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write
 from services.ohlcv_raw_writer import (
     RawDelta,
     RawRow,
     RawWriteParams,
-    hold_pending,
     preview_series,
     write_raw,
 )
+from src.intelligence.bars.restatement import DetectorParams, Restatement, detect
 from src.intelligence.bars.selection import PolicyRow
-from src.intelligence.bars.write_contract import WriteDelta, revision_ratio, should_refuse
+from src.observability.metrics import counter
 
 # ohlcv_load.caller of an ingress chunk written outside a fetch context that names its own.
 DEFAULT_CALLER = "ibkr-history-fetch"
 OUTCOME_APPLIED = "applied"
-OUTCOME_REFUSED = "refused"
-
-HELD_OFFER, STORED_VALUE, NEW_VALUE = "held_offer", "stored_value", "new_value"
 
 logger = structlog.get_logger(__name__)
 
-# Pending values a refused load of the same vendor and kind holds at the offered keys, with the
-# refusal time (third review of plan 191-07, finding 2).
-_OPEN_HOLDS_SQL = (
-    'SELECT v."timestamp", v.old_open, v.old_high, v.old_low, v.old_close, v.old_volume, '
-    "l.loaded_at FROM ohlcv_revision v JOIN ohlcv_load l ON l.load_id = v.load_id "
-    "AND l.symbol = v.symbol AND l.timeframe = v.timeframe "
-    "WHERE v.symbol = %s AND v.timeframe = %s AND v.vendor = %s AND v.kind = %s "
-    "AND v.origin = 'pending' AND l.outcome = 'refused' AND v.\"timestamp\" = ANY(%s)"
-)
-# The load that wrote the current raw row at a held key: an applied vendor serve after the
-# refusal answered the key again (services/bar_selection.py read_held_keys), so it holds nothing.
-_RAW_WRITER_AT_SQL = (
-    'SELECT r."timestamp", l.loaded_at, l.outcome, l.destination, l.caller FROM ohlcv_raw r '
-    "JOIN ohlcv_load l ON l.load_id = r.load_id WHERE r.symbol = %s AND r.timeframe = %s "
-    'AND r.vendor = %s AND r.kind = %s AND r."timestamp" = ANY(%s)'
+RESTATEMENT_FLAGS = counter(
+    "ohlcv_restatement_flags_total",
+    "Vendor loads the restatement detector flagged (share or basis-change signature), by vendor "
+    "and signature; never blocks a write (D-191-N)",
 )
 
-MAX_RATIO_KEY = "threshold.bar_integrity.max_revision_ratio"
-MIN_STORED_KEY = "threshold.bar_integrity.revision_ratio_min_stored"
+# APR keys of the restatement detector (migration 481).
+FLAG_SHARE_KEY = "threshold.bar_integrity.restatement_flag_share"
+FLAG_MIN_STORED_KEY = "threshold.bar_integrity.restatement_flag_min_stored"
+SIGNATURE_MIN_BARS_KEY = "threshold.bar_integrity.restatement_signature_min_bars"
+RATIO_TOLERANCE_KEY = "threshold.bar_integrity.restatement_ratio_tolerance"
+SHIFT_MIN_SHARE_KEY = "threshold.bar_integrity.restatement_shift_min_share"
+_DETECTOR_KEYS = (
+    FLAG_SHARE_KEY,
+    FLAG_MIN_STORED_KEY,
+    SIGNATURE_MIN_BARS_KEY,
+    RATIO_TOLERANCE_KEY,
+    SHIFT_MIN_SHARE_KEY,
+)
+# Bar lengths (a unit conversion, not a tunable).
+_BAR = {
+    "1m": timedelta(minutes=1),
+    "5m": timedelta(minutes=5),
+    "15m": timedelta(minutes=15),
+    "1h": timedelta(hours=1),
+    "4h": timedelta(hours=4),
+    "1d": timedelta(days=1),
+}
 
 _INSERT_LOAD_SQL = (
     "INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, "
@@ -93,14 +91,11 @@ _INSERT_LOAD_SQL = (
     "n_unchanged, n_removed, n_archived) "
     "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
-
-
-@dataclass(frozen=True)
-class ContractParams:
-    """The two APR thresholds the refusal reads."""
-
-    max_ratio: float
-    min_stored: int
+_INSERT_FLAG_SQL = (
+    "INSERT INTO ohlcv_restatement_flag (load_id, symbol, timeframe, vendor, kind, n_stored, "
+    "n_changed, share, signatures, ratio, shift_bars, detail) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+)
 
 
 @dataclass(frozen=True)
@@ -121,20 +116,24 @@ class SeriesLoad:
     last_bar: date
 
 
-def read_params(cur: Any) -> ContractParams:
-    """Read the refusal thresholds from config_state; a missing key is a loud error."""
+def read_detector_params(cur: Any) -> DetectorParams:
+    """The restatement detector's thresholds from config_state; a missing key is loud."""
     cur.execute(
         "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
-        ([MAX_RATIO_KEY, MIN_STORED_KEY],),
+        (list(_DETECTOR_KEYS),),
     )
     values = {key: value for key, value in cur.fetchall()}
-    missing = {MAX_RATIO_KEY, MIN_STORED_KEY} - set(values)
+    missing = set(_DETECTOR_KEYS) - set(values)
     if missing:
         raise RuntimeError(
-            f"write contract thresholds missing from config_state: {sorted(missing)}"
+            f"restatement detector keys missing from config_state: {sorted(missing)}"
         )
-    return ContractParams(
-        max_ratio=float(values[MAX_RATIO_KEY]), min_stored=int(float(values[MIN_STORED_KEY]))
+    return DetectorParams(
+        flag_share=float(values[FLAG_SHARE_KEY]),
+        flag_min_stored=int(float(values[FLAG_MIN_STORED_KEY])),
+        signature_min_bars=int(float(values[SIGNATURE_MIN_BARS_KEY])),
+        ratio_tolerance=float(values[RATIO_TOLERANCE_KEY]),
+        shift_min_share=float(values[SHIFT_MIN_SHARE_KEY]),
     )
 
 
@@ -149,7 +148,6 @@ def _record_load(
     outcome: str,
     detail: str | None,
     load_id: uuid.UUID,
-    n_archived: int = 0,
 ) -> None:
     cur.execute(
         _INSERT_LOAD_SQL,
@@ -162,16 +160,16 @@ def _record_load(
             load.last_bar,
             outcome,
             load.n_bars,
-            0 if outcome == OUTCOME_REFUSED else load.n_new,
-            0 if outcome == OUTCOME_REFUSED else load.n_changed,
+            load.n_new,
+            load.n_changed,
             load.first_bar,
             load.last_bar,
             detail,
             load.caller,
             load.destination,
-            0 if outcome == OUTCOME_REFUSED else load.n_unchanged,
+            load.n_unchanged,
             0,
-            n_archived,
+            0,
         ),
     )
 
@@ -193,7 +191,7 @@ SeriesKey = tuple[str, str, str, str]  # symbol, timeframe, vendor, kind
 class RawContractParams:
     """Everything `apply_raw_contract` reads from the database, read once by the caller."""
 
-    thresholds: ContractParams
+    detector: DetectorParams
     write: RawWriteParams
     vendor_codes: frozenset[str]
     kind_codes: frozenset[str]
@@ -202,97 +200,39 @@ class RawContractParams:
 
 
 @dataclass(frozen=True)
-class RefusedSeries:
-    """A series whose vendor restated more of its own stored raw than the threshold allows."""
+class FlaggedSeries:
+    """A series the restatement detector flagged (written all the same, D-191-N)."""
 
     symbol: str
     timeframe: str
     vendor: str
     kind: str
-    ratio: float
-    max_ratio: float
-    n_changed: int
-    n_stored: int
-    detail: str
-    n_held: int = 0
-    # answers at keys a refused load still holds: (timestamp, held_offer | stored_value | new_value)
-    held_answers: tuple[tuple[datetime, str], ...] = ()
-
-
-def read_open_holds(
-    conn: Any, symbol: str, timeframe: str, vendor: str, kind: str, stamps: list[datetime]
-) -> dict[datetime, set[tuple]]:
-    """timestamp -> the values refused loads of this series still hold there. A key whose
-    current raw row an applied vendor serve wrote after the latest refusal holding it was
-    answered again and holds nothing."""
-    holds: dict[datetime, set[tuple]] = defaultdict(set)
-    refused_at: dict[datetime, datetime] = {}
-    with conn.cursor() as cur:
-        cur.execute(_OPEN_HOLDS_SQL, (symbol, timeframe, vendor, kind, stamps))
-        for ts, o, h, lo, c, v, at in cur.fetchall():
-            holds[ts].add((o, h, lo, c, v))
-            refused_at[ts] = max(at, refused_at.get(ts, at))
-        if not holds:
-            return {}
-        cur.execute(_RAW_WRITER_AT_SQL, (symbol, timeframe, vendor, kind, sorted(holds)))
-        for ts, at, outcome, destination, caller in cur.fetchall():
-            if (
-                ts in refused_at
-                and outcome == OUTCOME_APPLIED
-                and destination == DESTINATION_RAW
-                and caller not in NON_SERVE_CALLERS
-                and at > refused_at[ts]
-            ):
-                holds.pop(ts, None)
-    return dict(holds)
-
-
-def held_answers(
-    offered: Mapping[datetime, tuple],
-    holds: Mapping[datetime, set[tuple]],
-    writes: set[datetime],
-) -> dict[datetime, str]:
-    """What the offer answers at each held key: the held value again, the stored value (the key
-    is not among `writes`, the stamps the offer would change or insert), or a new value."""
-    out: dict[datetime, str] = {}
-    for ts, held in holds.items():
-        if ts not in offered:
-            continue
-        if offered[ts] in held:
-            out[ts] = HELD_OFFER
-        elif ts not in writes:
-            out[ts] = STORED_VALUE
-        else:
-            out[ts] = NEW_VALUE
-    return out
+    load_id: uuid.UUID
+    restatement: Restatement
 
 
 @dataclass(frozen=True)
 class IngressResult:
-    """What one `apply_raw_contract` call did. Counts cover the series that were written;
-    a refused series writes no raw row (its offered values are held as pending revisions) and
-    is counted in `n_held` only. `new_timestamps` are the timestamps of newly inserted raw rows."""
+    """What one `apply_raw_contract` call did. Every offered row is written last-wins;
+    `new_timestamps` are the timestamps of newly inserted raw rows; `flagged` lists the series
+    the restatement detector flagged for review."""
 
     n_offered: int
     n_new: int
     n_changed: int
     n_unchanged: int
-    refused: bool
     selected_slots: int
-    refused_series: tuple[RefusedSeries, ...] = ()
-    n_held: int = 0
     new_timestamps: tuple[datetime, ...] = ()
     # Slots that reached raw but that no ranked vendor holds (the policy gap a loader must not
     # hide: the offered rows are in raw, canonical has no row for them).
     n_unselected: int = 0
-    # every held key an offer answered: (symbol, timeframe, vendor, kind, timestamp, answer)
-    held_answers: tuple[tuple[str, str, str, str, datetime, str], ...] = ()
+    flagged: tuple[FlaggedSeries, ...] = ()
 
 
 def read_raw_params(cur: Any) -> RawContractParams:
-    """Thresholds and raw-writer settings from config_state, vocabulary codes from the CVR
+    """Detector thresholds and raw-writer settings from config_state, vocabulary codes from the CVR
     (`bar_vendor`, `bar_kind`) and the whole bar_source_policy; a missing APR key is loud."""
-    thresholds = read_params(cur)
+    detector = read_detector_params(cur)
     cur.execute(
         "SELECT config_key, config_value FROM config_state WHERE config_key = ANY(%s)",
         ([BATCH_ROWS_KEY, FUTURE_TOLERANCE_KEY],),
@@ -317,7 +257,7 @@ def read_raw_params(cur: Any) -> RawContractParams:
     )
     policy = tuple(PolicyRow(*row) for row in cur.fetchall())
     return RawContractParams(
-        thresholds=thresholds,
+        detector=detector,
         write=RawWriteParams(
             batch_rows=int(float(values[BATCH_ROWS_KEY])),
             future_tolerance_s=int(float(values[FUTURE_TOLERANCE_KEY])),
@@ -329,9 +269,17 @@ def read_raw_params(cur: Any) -> RawContractParams:
     )
 
 
-def _own_delta(delta: RawDelta) -> WriteDelta:
-    """The same-vendor delta as the pure contract's WriteDelta (counts only matter)."""
-    return WriteDelta(changed={ts: (old, old) for ts, old in delta.changed_old.items()})  # type: ignore[misc]
+def _stored_at_offer(rows: list[RawRow], delta: RawDelta) -> dict[datetime, tuple]:
+    """The vendor's stored values at the offered keys: the old value of a changed row, the
+    offered value of an unchanged one; a new key has none."""
+    new = set(delta.new_timestamps)
+    stored: dict[datetime, tuple] = {}
+    for row in rows:
+        if row.timestamp in delta.changed_old:
+            stored[row.timestamp] = tuple(delta.changed_old[row.timestamp])
+        elif row.timestamp not in new:
+            stored[row.timestamp] = (row.open, row.high, row.low, row.close, row.volume)
+    return stored
 
 
 def apply_raw_contract(
@@ -341,31 +289,21 @@ def apply_raw_contract(
     caller: str,
     request_id: uuid.UUID,
     params: RawContractParams | None = None,
-    waived: bool = False,
 ) -> IngressResult:
-    """Record one chunk of vendor answers in ohlcv_raw, then select canonical rows.
+    """Record one chunk of vendor answers in ohlcv_raw last-wins, then select canonical rows.
 
     Per (symbol, timeframe, vendor, kind) series, in one transaction on the caller's connection:
-    `preview_series` classifies the offer against the vendor's OWN stored raw rows, then
-    `should_refuse` judges the overlap. An accepted series gets an ohlcv_load row (source =
-    vendor, destination raw) and `write_raw`; it is then selected through
-    `bar_selection.select_and_write` over the span it touched, for direct timeframes (1m, 5m,
-    4h). Raw-only timeframes (15m, 1h, 1d) get no selection here.
+    `preview_series` classifies the offer against the vendor's OWN stored raw rows (the counts
+    the ohlcv_load row carries before `write_raw` logs revisions under it), the load row is
+    written (source = vendor, destination raw, outcome applied), `write_raw` replaces changed
+    rows (old values to ohlcv_revision) and inserts new ones, and the restatement detector
+    reports the overlap (flagged series are recorded in ohlcv_restatement_flag and logged; the
+    write stands). Direct timeframes (1m, 5m, 4h) are then selected over the span touched.
 
-    A refused series (the vendor restated more of its own history than the threshold allows)
-    is durable: it gets an ohlcv_load row (outcome refused), its offered rows that differ from
-    the stored rows are held as pending revisions (`hold_pending`), and ohlcv_raw is not
-    touched, so the stored rows stay current and selection, which reads only current raw, can
-    never promote a refused value, now or on any later call, however often the same values are
-    offered again. Only an explicit decision releases it: a waived write. A (symbol, timeframe)
-    with any refused series is not selected in this call.
-
-    A cross-vendor difference never refuses and never writes a revision row: the vendors are
-    different keys in ohlcv_raw. `waived` is the caller's statement that a recorded corporate
-    action explains the restatement: nothing is refused and the load detail names the waiver.
+    A cross-vendor difference is never a revision: the vendors are different keys in ohlcv_raw.
     """
     if not rows:
-        return IngressResult(0, 0, 0, 0, False, 0)
+        return IngressResult(0, 0, 0, 0, 0)
     with conn.cursor() as cur:
         params = params or read_raw_params(cur)
 
@@ -373,51 +311,23 @@ def apply_raw_contract(
     for row in rows:
         by_series[(row.symbol, row.timeframe, row.vendor, row.kind)].append(row)
 
-    n_new = n_changed = n_unchanged = n_held_total = 0
+    n_new = n_changed = n_unchanged = 0
     new_timestamps: list[datetime] = []
-    answers_out: list[tuple[str, str, str, str, datetime, str]] = []
-    refused: list[RefusedSeries] = []
-    refused_slots: set[tuple[str, str]] = set()
+    flagged: list[FlaggedSeries] = []
     spans: dict[tuple[str, str], list[datetime]] = defaultdict(list)
     for (symbol, timeframe, vendor, kind), series_rows in sorted(by_series.items()):
         stamps = sorted({r.timestamp for r in series_rows})
         # The role may INSERT an ohlcv_load row but not UPDATE it, so the counts are known
         # before the row is written; write_raw (below) then records the same findings.
         delta = preview_series(conn, series_rows)
-        own = _own_delta(delta)
-        refuse = should_refuse(
-            own,
-            delta.n_stored,
-            params.thresholds.max_ratio,
-            min_stored=params.thresholds.min_stored,
-            waived=waived,
+        latest = {r.timestamp: r for r in series_rows}
+        offered = {ts: (r.open, r.high, r.low, r.close, r.volume) for ts, r in latest.items()}
+        restatement = detect(
+            offered,
+            _stored_at_offer(list(latest.values()), delta),
+            _BAR.get(timeframe, timedelta(minutes=5)),
+            params.detector,
         )
-        holds = read_open_holds(conn, symbol, timeframe, vendor, kind, stamps)
-        writes = {*delta.changed_old, *delta.new_timestamps}
-        answers = held_answers(
-            {r.timestamp: (r.open, r.high, r.low, r.close, r.volume) for r in series_rows},
-            holds,
-            writes,
-        )
-        overrides = sorted(ts for ts in answers if ts in writes)
-        answers_out.extend(
-            (symbol, timeframe, vendor, kind, ts, answer) for ts, answer in sorted(answers.items())
-        )
-        if answers:
-            logger.info(
-                "ingress.held_keys_answered",
-                symbol=symbol,
-                timeframe=timeframe,
-                vendor=vendor,
-                kind=kind,
-                held_offer=sum(1 for a in answers.values() if a == HELD_OFFER),
-                stored_value=sum(1 for a in answers.values() if a == STORED_VALUE),
-                new_value=sum(1 for a in answers.values() if a == NEW_VALUE),
-                would_write=len(overrides),
-            )
-        # a held key changes only by an explicit decision, never by a small ask (finding 2)
-        held_refusal = bool(overrides) and not waived
-        refuse = refuse or held_refusal
         load = SeriesLoad(
             symbol=symbol,
             timeframe=timeframe,
@@ -433,69 +343,9 @@ def apply_raw_contract(
             last_bar=_utc_date(stamps[-1]),
         )
         load_id = uuid.uuid4()
-        detail: str | None
-        held_stamps = sorted({*delta.changed_old, *delta.new_timestamps}) if refuse else []
-        if refuse:
-            ratio = revision_ratio(own, delta.n_stored)
-            counts = {
-                a: sum(1 for x in answers.values() if x == a) for a in sorted(set(answers.values()))
-            }
-            reason = (
-                f"{len(overrides)} offered rows would change keys a refused load holds "
-                f"(answers {counts}); a hold is released only by an explicit decision"
-                if held_refusal
-                else f"> max {params.thresholds.max_ratio:.4f}"
-            )
-            detail = (
-                f"refused: {vendor} restated {delta.changed} / its stored "
-                f"{delta.n_stored} = {ratio:.4f}; {reason}; "
-                f"new {delta.new}, unchanged {delta.unchanged}; {len(held_stamps)} offered rows "
-                "held as pending revisions, the stored raw rows are unchanged"
-            )
-            refused.append(
-                RefusedSeries(
-                    symbol,
-                    timeframe,
-                    vendor,
-                    kind,
-                    ratio,
-                    params.thresholds.max_ratio,
-                    delta.changed,
-                    delta.n_stored,
-                    detail,
-                    n_held=len(held_stamps),
-                    held_answers=tuple(sorted(answers.items())),
-                )
-            )
-            refused_slots.add((symbol, timeframe))
-            # n_archived: offered rows recorded outside new/changed (unchanged ones equal the
-            # stored raw rows, the rest are the pending revisions), so the load still balances.
-            outcome, n_archived = OUTCOME_REFUSED, len(stamps)
-        else:
-            detail = (
-                f"waived: recorded corporate action; changed {delta.changed} / stored "
-                f"{delta.n_stored}"
-                if waived and delta.changed
-                else None
-            )
-            outcome, n_archived = OUTCOME_APPLIED, 0
-            spans[(symbol, timeframe)].extend(stamps)
+        detail = f"restatement flagged: {restatement.detail()}" if restatement.flagged else None
         with conn.cursor() as cur:
-            _record_load(
-                cur, load, outcome=outcome, detail=detail, load_id=load_id, n_archived=n_archived
-            )
-        if refuse:
-            latest = {r.timestamp: r for r in series_rows}
-            n_held_total += hold_pending(
-                conn,
-                [latest[ts] for ts in held_stamps],
-                load_id=load_id,
-                request_id=request_id,
-                vendor_codes=params.vendor_codes,
-                kind_codes=params.kind_codes,
-                future_tolerance_s=params.write.future_tolerance_s,
-            )
-            continue
+            _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
         (written,) = write_raw(
             conn,
             series_rows,
@@ -516,14 +366,46 @@ def apply_raw_contract(
                 f"{(written.new, written.changed, written.unchanged)} vs "
                 f"{(delta.new, delta.changed, delta.unchanged)}"
             )
+        if restatement.flagged:
+            with conn.cursor() as cur:
+                cur.execute(
+                    _INSERT_FLAG_SQL,
+                    (
+                        load_id,
+                        symbol,
+                        timeframe,
+                        vendor,
+                        kind,
+                        restatement.n_stored,
+                        restatement.n_changed,
+                        restatement.share,
+                        list(restatement.signatures),
+                        restatement.ratio,
+                        restatement.shift_bars,
+                        restatement.detail(),
+                    ),
+                )
+            for signature in restatement.signatures:
+                RESTATEMENT_FLAGS.add(1, {"vendor": vendor, "signature": signature})
+            logger.warning(
+                "ingress.restatement_flagged",
+                symbol=symbol,
+                timeframe=timeframe,
+                vendor=vendor,
+                kind=kind,
+                load_id=str(load_id),
+                detail=restatement.detail(),
+            )
+            flagged.append(FlaggedSeries(symbol, timeframe, vendor, kind, load_id, restatement))
         n_new += delta.new
         n_changed += delta.changed
         n_unchanged += delta.unchanged
         new_timestamps.extend(delta.new_timestamps)
+        spans[(symbol, timeframe)].extend(stamps)
 
     selected = unselected = 0
     for (symbol, timeframe), stamps in sorted(spans.items()):
-        if (symbol, timeframe) in refused_slots or timeframe not in DIRECT_TIMEFRAMES:
+        if timeframe not in DIRECT_TIMEFRAMES:
             continue
         result = select_and_write(
             conn,
@@ -547,11 +429,8 @@ def apply_raw_contract(
         n_new=n_new,
         n_changed=n_changed,
         n_unchanged=n_unchanged,
-        refused=bool(refused),
         selected_slots=selected,
-        refused_series=tuple(refused),
-        n_held=n_held_total,
         new_timestamps=tuple(sorted(new_timestamps)),
         n_unselected=unselected,
-        held_answers=tuple(answers_out),
+        flagged=tuple(flagged),
     )

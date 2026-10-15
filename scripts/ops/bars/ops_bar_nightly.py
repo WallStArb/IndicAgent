@@ -144,18 +144,18 @@ class _NightlySink:
 
 def summary_line(summary: dict, *, apply: bool) -> str:
     return (
-        f"{load_status(apply=apply, held=summary['held'], unselected=summary['unselected'])}: "
+        f"{load_status(apply=apply, unselected=summary['unselected'])}: "
         f"{summary['authored']} 5m rows offered to raw, {summary['raw_1d']} 1d rows offered to "
-        f"raw, {summary['errors']} errors, {summary['refused']} refused series, "
-        f"{summary['held']} held, {summary['unselected']} unselected slots, "
+        f"raw, {summary['errors']} errors, {summary['flagged']} restatement-flagged series, "
+        f"{summary['unselected']} unselected slots, "
         f"{summary.get('partial', 0)} incomplete bars held back"
     )
 
 
 def exit_code(summary: dict) -> int:
-    """Non-zero for an error, a held row or an unselected slot: a refused series, or rows that
-    landed in raw with no canonical winner, are not a clean night."""
-    return 1 if summary["errors"] or summary["held"] or summary["unselected"] else 0
+    """Non-zero for an error or an unselected slot (rows that landed in raw with no canonical
+    winner are not a clean night). Restatement flags are reported, never a failure (D-191-N)."""
+    return 1 if summary["errors"] or summary["unselected"] else 0
 
 
 async def _run(
@@ -167,8 +167,7 @@ async def _run(
         "authored": 0,
         "raw_1d": 0,
         "errors": 0,
-        "refused": 0,
-        "held": 0,
+        "flagged": 0,
         "unselected": 0,
         "partial": 0,
     }
@@ -206,8 +205,7 @@ async def _run(
                             conn, policy_5m, symbol, frame, params=params, write=write
                         )
                         summary["authored"] += result.n_offered
-                        summary["refused"] += result.n_refused_series
-                        summary["held"] += result.n_held
+                        summary["flagged"] += result.n_flagged_series
                         summary["unselected"] += result.n_unselected
                     elif write and len(frame):
                         result = load_frame(
@@ -222,8 +220,7 @@ async def _run(
                             params=params,
                         )
                         summary["raw_1d"] += result.n_offered
-                        summary["refused"] += result.n_refused_series
-                        summary["held"] += result.n_held
+                        summary["flagged"] += result.n_flagged_series
             except Exception as error:  # noqa: BLE001 - one name fails, the night continues
                 summary["errors"] += 1
                 print(f"{symbol}: ERROR {type(error).__name__}: {error}", flush=True)

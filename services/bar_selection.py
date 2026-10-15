@@ -23,16 +23,6 @@ colliding on the canonical unique key. A slot with raw candidates but no ranked 
 (`unselected`), not hidden: the loader reports it and fails on it. Extended-hours candidates are
 dropped before ranking (src/intelligence/bars/selection.py, session rule) and counted `off_grid`.
 
-Held keys (second review of plan 191-07, finding 4). Selection never promotes a raw row that holds
-a refused value (D-191-I): a key is held when its current raw value equals a `pending` revision
-of a refused load of the series, or when its raw row was served by a refused load (its load_id,
-or for a backfill copy its served_at) and the raw backfill logged the vendor's own value it
-displaced there (a `raw-backfill-191` revision with other values). Such a candidate is left out
-before ranking and counted (`held`); canonical keeps its row at the slot until a decision or a
-re-serve. The ingress contract never writes a refused value to raw, so in the live path the set
-is empty; the rule lives in the writer so that no reselection, from any caller, can promote a
-legacy one. `read_held_keys` is the one definition; the selection gate reads it too.
-
 Session-level fallback (second review of plan 191-07, finding 3). Selection takes each session
 whole from one vendor (src/intelligence/bars/selection.py), so a write is widened to the whole
 NYSE sessions its window touches (America/New_York midnight to midnight): a vendor switch is
@@ -49,7 +39,7 @@ Until plan 13 renames the column, the canonical row carries the `source` label o
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -88,42 +78,6 @@ _READ_RAW_SQL = (
     'FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s '
     'AND "timestamp" < %s'
 )
-_REFUSED_LOADS_SQL = (
-    "SELECT load_id, source, loaded_at FROM ohlcv_load "
-    "WHERE symbol = %s AND timeframe = %s AND outcome = 'refused'"
-)
-_PENDING_SQL = (
-    'SELECT "timestamp", vendor, kind, old_open, old_high, old_low, old_close, old_volume, load_id '
-    "FROM ohlcv_revision WHERE load_id = ANY(%s) AND symbol = %s AND timeframe = %s "
-    'AND origin = \'pending\' AND "timestamp" >= %s AND "timestamp" < %s'
-)
-# The vendor values the raw backfill displaced with a refused serve (raw-backfill-191 logged them).
-_DISPLACED_SQL = (
-    'SELECT v."timestamp", v.vendor, v.kind, v.old_open, v.old_high, v.old_low, v.old_close, '
-    "v.old_volume FROM ohlcv_load l JOIN ohlcv_revision v "
-    "ON v.load_id = l.load_id AND v.symbol = l.symbol AND v.timeframe = l.timeframe "
-    "WHERE l.symbol = %s AND l.timeframe = %s AND l.caller = 'raw-backfill-191' "
-    'AND v.origin <> \'pending\' AND v."timestamp" >= %s AND v."timestamp" < %s'
-)
-# Lineage of the raw rows a refused load can have served (load_id, or served_at for the copies).
-_LINEAGE_SQL = (
-    'SELECT "timestamp", vendor, kind, served_at, load_id FROM ohlcv_raw '
-    'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s '
-    "AND (load_id = ANY(%s) OR (load_id IS NULL AND served_at = ANY(%s)))"
-)
-
-# The load writing the current raw row at a pending key: a later applied vendor serve that wrote
-# raw answered the key again, and the contract accepted it, so its value is no longer held.
-_RAW_WRITER_SQL = (
-    'SELECT r."timestamp", r.vendor, r.kind, l.loaded_at, l.outcome, l.destination, l.caller '
-    "FROM ohlcv_raw r JOIN ohlcv_load l ON l.load_id = r.load_id "
-    'WHERE r.symbol = %s AND r.timeframe = %s AND r."timestamp" = ANY(%s)'
-)
-# ohlcv_load callers that record values the ledgers already held (the raw backfill's
-# reconstruction, the 191-07 repair and the refusal re-judge): never a vendor serve.
-NON_SERVE_CALLERS = frozenset({"raw-backfill-191", "raw-repair-191", "refusal-rejudge-191"})
-
-HeldKey = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 _ONE_US = timedelta(microseconds=1)
 
 logger = structlog.get_logger(__name__)
@@ -140,95 +94,6 @@ def session_window(start: datetime, end: datetime) -> tuple[datetime, datetime]:
     )
 
 
-def held_keys(
-    candidates: Iterable[Candidate],
-    *,
-    pending: Mapping[HeldKey, set[tuple]],
-    refused_served: set[HeldKey],
-    displaced: Mapping[HeldKey, set[tuple]],
-    answered_again: set[HeldKey] | frozenset[HeldKey] = frozenset(),
-) -> set[HeldKey]:
-    """The candidates whose current raw value is a held refused value (module docstring): equal
-    to a pending value of the key, or served by a refused load where the backfill logged another
-    own value it displaced. A key in `answered_again` (its current raw row was written by an
-    applied vendor serve after the refusal: the vendor served the value again and the contract
-    accepted it, e.g. a --reserve-keys re-serve) is not held by its pending value."""
-    out: set[HeldKey] = set()
-    for c in candidates:
-        key = (c.timestamp, c.vendor, c.kind)
-        values = (c.open, c.high, c.low, c.close, c.volume)
-        if values in pending.get(key, ()) and key not in answered_again:
-            out.add(key)
-        elif key in refused_served and any(v != values for v in displaced.get(key, ())):
-            out.add(key)
-    return out
-
-
-def read_held_keys(
-    cur: Any,
-    symbol: str,
-    timeframe: str,
-    start: datetime,
-    end: datetime,
-    candidates: Sequence[Candidate],
-) -> set[HeldKey]:
-    """The held keys among `candidates` (raw rows of [start, end) of one series). A series with
-    no refused load has none and costs one indexed read."""
-    cur.execute(_REFUSED_LOADS_SQL, (symbol, timeframe))
-    refused = cur.fetchall()
-    if not refused or not candidates:
-        return set()
-    load_ids = [r[0] for r in refused]
-    cur.execute(_PENDING_SQL, (load_ids, symbol, timeframe, start, end))
-    pending: dict[HeldKey, set[tuple]] = {}
-    refused_at: dict[HeldKey, datetime] = {}  # the latest refusal holding a value at the key
-    loaded = {r[0]: r[2] for r in refused}
-    for ts, vendor, kind, *rest in cur.fetchall():
-        key = (ts, vendor, kind)
-        pending.setdefault(key, set()).add(tuple(rest[:5]))
-        at = loaded.get(rest[5])
-        if at is not None and (key not in refused_at or at > refused_at[key]):
-            refused_at[key] = at
-    answered_again: set[HeldKey] = set()
-    if pending:
-        cur.execute(_RAW_WRITER_SQL, (symbol, timeframe, sorted({k[0] for k in pending})))
-        for ts, vendor, kind, at, outcome, destination, caller in cur.fetchall():
-            key = (ts, vendor, kind)
-            if (
-                key in refused_at
-                and outcome == "applied"
-                and destination == "raw"
-                and caller not in NON_SERVE_CALLERS
-                and at > refused_at[key]
-            ):
-                answered_again.add(key)
-    cur.execute(_DISPLACED_SQL, (symbol, timeframe, start, end))
-    displaced: dict[HeldKey, set[tuple]] = {}
-    for ts, vendor, kind, *values in cur.fetchall():
-        displaced.setdefault((ts, vendor, kind), set()).add(tuple(values))
-    refused_served: set[HeldKey] = set()
-    if displaced:
-        by_id = {r[0]: r[1] for r in refused}
-        by_time = {(r[1], r[2]) for r in refused}
-        cur.execute(
-            _LINEAGE_SQL, (symbol, timeframe, start, end, load_ids, [r[2] for r in refused])
-        )
-        for ts, vendor, kind, served_at, load_id in cur.fetchall():
-            if (load_id is not None and by_id.get(load_id) == vendor) or (
-                load_id is None and (vendor, served_at) in by_time
-            ):
-                refused_served.add((ts, vendor, kind))
-    return held_keys(
-        candidates,
-        pending=pending,
-        refused_served=refused_served,
-        displaced=displaced,
-        answered_again=answered_again,
-    )
-
-
-# The series' policy rows, read under its selection lock when the caller passes none (ingress):
-# a --reselect policy change commits while holding that lock, so a reader after it sees it.
 _POLICY_SQL = (
     "SELECT timeframe, symbol, valid_from, valid_to, primary_source, fallback_source "
     "FROM bar_source_policy WHERE timeframe = %s AND (symbol IS NULL OR symbol = %s)"
@@ -248,7 +113,6 @@ class SelectionResult:
     skipped_null_volume: int
     unselected: int = 0
     off_grid: int = 0
-    held: int = 0  # raw rows left out because they hold a refused value (read_held_keys)
     sessions_fallback: int = 0  # sessions taken whole from a vendor other than the primary
     sessions_incomplete: int = 0  # sessions no ranked vendor held whole
     dropped: int = 0  # slots left out by the session rule (canonical rows retracted)
@@ -311,7 +175,7 @@ def select_and_write(
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
-    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = n_held = 0
+    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = 0
     n_fallback = n_incomplete = n_dropped = 0
     start, end = session_window(start, end)
     labels = sorted(VENDOR_KIND_TO_LABEL.values())
@@ -324,9 +188,7 @@ def select_and_write(
                 series_policy = [PolicyRow(*row) for row in cur.fetchall()]
             cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
             candidates = [Candidate(*row) for row in cur.fetchall()]
-            held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
-            n_held += len(held)
-            outcome = select_slots(candidates, series_policy, kind_order, held)
+            outcome = select_slots(candidates, series_policy, kind_order)
             n_unselected += outcome.n_unselected
             n_off_grid += outcome.n_off_grid
             for choice in outcome.choices:
@@ -381,7 +243,6 @@ def select_and_write(
         n_skipped,
         n_unselected,
         n_off_grid,
-        n_held,
         n_fallback,
         n_incomplete,
         n_dropped,
@@ -449,43 +310,3 @@ _RETRACT_SQL = (
     'DELETE FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s AND "timestamp" = %s '
     "AND source = ANY(%s)"
 )
-
-
-def retract_unselected_slots(
-    conn: Any,
-    *,
-    symbol: str,
-    timeframe: str,
-    timestamps: Sequence[datetime],
-    policy_rows: Sequence[PolicyRow],
-    kind_order: Mapping[str, int],
-) -> int:
-    """Delete the canonical vendor row at each of `timestamps` where selection from raw now
-    yields no winner (missing is NaN, never a stale value). Only for slots a caller withdrew
-    from raw on purpose (the one-time re-judgment of the retired path's refused loads,
-    scripts/ops/bars/ops_refusal_rejudge.py). `select_and_write` also retracts, but only the
-    slots its session rule drops inside the sessions it selects; this one takes stamps the caller
-    names. Same lock as `select_and_write`. Returns the rows deleted. Never commits."""
-    if timeframe not in DIRECT_TIMEFRAMES:
-        raise ValueError(f"retract covers direct timeframes only, not {timeframe!r}")
-    if not timestamps:
-        return 0
-    labels = sorted(VENDOR_KIND_TO_LABEL.values())
-    removed = 0
-    # selection is per session (one vendor each), so the whole sessions of the stamps are read
-    start, end = session_window(min(timestamps), max(timestamps) + _ONE_US)
-    with conn.cursor() as cur:
-        cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
-        cur.execute(_READ_RAW_SQL, (symbol, timeframe, start, end))
-        candidates = [Candidate(*row) for row in cur.fetchall()]
-        held = read_held_keys(cur, symbol, timeframe, start, end, candidates)
-        outcome = select_slots(candidates, policy_rows, kind_order, held)
-        # a held slot keeps its canonical row (no decision yet); every other slot without a
-        # winner is retracted
-        keep = {w.timestamp for w in outcome.winners} | {
-            c.timestamp for c in candidates if (c.timestamp, c.vendor, c.kind) in held
-        }
-        for ts in sorted(set(timestamps) - keep):
-            cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, labels))
-            removed += cur.rowcount
-    return removed

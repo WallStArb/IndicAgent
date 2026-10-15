@@ -3,7 +3,7 @@
 Third review of plan 191-07, finding 4; migration 480. `services/bar_selection.py` keeps
 bar_session_choice current for every session it selects from now on; this one-time pass records
 the choices of the sessions it selected before the table existed. Per series, under the series'
-selection lock: read its raw rows and held keys, run the same session selection
+selection lock: read its raw rows, run the same session selection
 (`select_slots`), and write the choices through `record_session_choices`, the table's sole
 writer. Nothing else is written: canonical and raw are not touched (the selection gate proves
 canonical equals the selection separately). One transaction per series. Dry run by default.
@@ -14,21 +14,18 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
-from datetime import datetime
 from pathlib import Path
 
 project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
 
 from scripts.ops.bars import ops_selection_gate as gate  # noqa: E402
-from services.bar_selection import read_held_keys, record_session_choices  # noqa: E402
+from services.bar_selection import record_session_choices  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
 from src.intelligence.bars.selection import select_slots  # noqa: E402
 
 _SERIES_SQL = "SELECT symbol FROM instruments WHERE %s IS NOT NULL ORDER BY 1"  # empty series skip
 _LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
-_FAR_PAST = datetime.fromisoformat("1990-01-01T00:00:00+00:00")
-_FAR_FUTURE = datetime.fromisoformat("2100-01-01T00:00:00+00:00")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,10 +52,7 @@ def main(argv: list[str] | None = None) -> int:
             with conn.cursor() as cur:
                 cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{args.timeframe}",))
                 candidates = gate.read_candidates(cur, symbol, args.timeframe)
-                held = read_held_keys(
-                    cur, symbol, args.timeframe, _FAR_PAST, _FAR_FUTURE, candidates
-                )
-                outcome = select_slots(candidates, params.policy_rows, params.kind_order, held)
+                outcome = select_slots(candidates, params.policy_rows, params.kind_order)
                 totals["series"] += 1
                 totals["sessions"] += len(outcome.sessions)
                 totals["choices"] += len(outcome.choices)

@@ -12,13 +12,11 @@ Design: docs/plans/2026-10-12-unified-raw-bar-table-design.md (Schema, Ingress c
 A different vendor (or kind) at the same slot is a different key, hence a new row: a cross-vendor
 difference is a disagreement for selection to resolve, never a revision.
 
-The refusal decision is not made here. `preview_series` classifies one series without writing, the
-ingress contract applies `should_refuse` against the vendor's own stored overlap, and a series it
-refuses never reaches `write_raw`: `hold_pending` logs the offered values that differ from the
-stored row (changed and new) as ohlcv_revision rows of origin `pending` and leaves the raw rows
-untouched, so selection, which reads only current raw, cannot promote a refused value. A refusal
-therefore lasts until an explicit decision (a waived write) replaces the stored row. For origin
-`pending` the old_* columns hold the OFFERED value that was held, not a replaced one.
+Nothing is refused or held (owner decision 2026-10-14, D-191-N): a vendor's own re-serve always
+replaces its stored value last-wins and the old value is logged, so every overwrite is
+recoverable. `preview_series` classifies one series without writing so the ingress contract can
+record the load's counts (and run the restatement detector) before `write_raw` logs revisions
+under that load.
 
 A chunk that holds one key twice with different values raises: that is a vendor answer
 contradicting itself, evidence that must not be dropped silently by a last-wins dict. Every
@@ -42,7 +40,7 @@ import math
 import numbers
 import uuid
 from collections import defaultdict
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -66,7 +64,6 @@ CANONICAL_ONLY_KINDS = frozenset({"fallback", "5m_grid"})
 _MAX_PARAMS = 65535
 _REVISION_BATCH = 1000
 _ORIGIN = "raw"
-_ORIGIN_PENDING = "pending"
 # Transaction-scoped advisory lock per (symbol, timeframe, vendor, kind): taken before the stored
 # rows are read, released at the caller's COMMIT or ROLLBACK. Re-entrant within one session, so
 # preview_series and write_raw may both take it.
@@ -105,17 +102,6 @@ _READ_STORED_SQL = (
     'SELECT "timestamp", open, high, low, close, volume, request_id FROM ohlcv_raw '
     "WHERE symbol = %s AND timeframe = %s AND vendor = %s AND kind = %s "
     'AND "timestamp" = ANY(%s)'
-)
-
-# Pending values already held for a series' keys. Reached through the series' refused loads so
-# the ohlcv_revision primary key (load_id first) is the access path; no index on the series.
-_READ_PENDING_SQL = (
-    'SELECT r."timestamp", r.old_open, r.old_high, r.old_low, r.old_close, r.old_volume '
-    "FROM ohlcv_load l JOIN ohlcv_revision r "
-    "ON r.load_id = l.load_id AND r.symbol = l.symbol AND r.timeframe = l.timeframe "
-    "WHERE l.symbol = %s AND l.timeframe = %s AND l.source = %s AND l.destination = 'raw' "
-    "AND l.outcome = 'refused' AND r.vendor = l.source AND r.kind = %s AND r.origin = 'pending' "
-    'AND r."timestamp" = ANY(%s)'
 )
 
 _REVISION_COLUMNS = (
@@ -329,7 +315,6 @@ def write_raw(
     now: datetime | None = None,
     repair: bool = False,
     served_at: Mapping[datetime, datetime | None] | None = None,
-    restamp: bool = False,
 ) -> list[RawDelta]:
     """Classify and write one chunk of vendor-served bars; return one RawDelta per series.
 
@@ -337,22 +322,19 @@ def write_raw(
     sets. A key offered twice with different values raises ValueError before any SQL. Never
     commits: the caller's transaction owns the write.
 
-    `repair=True` is the 191-07 raw repair (scripts/ops/bars/ops_raw_repair.py): it puts back a
-    value the vendor served and the ledgers hold, under its own repair load, so there is no
-    vendor request to name and `request_id` may be None (the replaced value is still logged).
-    A repair passes `served_at` (timestamp -> the serve time of the answer it puts back, None
-    when unknown) instead of the write time. `restamp=True` (repair only) rewrites served_at and
-    the lineage ids of rows whose values are unchanged and logs nothing; a changed row raises.
+    `repair=True` writes a value the vendor served and the ledgers hold under its own load (the
+    one-time release of the held offers, D-191-N, scripts/ops/bars/ops_pending_release.py), so
+    there is no vendor request to name and `request_id` may be None (the replaced value is
+    still logged). A repair passes `served_at` (timestamp -> the serve time of the answer it
+    writes, None when unknown) instead of the write time.
     """
     if load_id is None or (request_id is None and not repair):
         raise ValueError(
             "write_raw requires load_id and request_id (only the backfill writes NULLs, and a "
             "repair a NULL request_id)"
         )
-    if (served_at is not None or restamp) and not repair:
-        raise ValueError("served_at and restamp are repair-only")
-    if restamp and served_at is None:
-        raise ValueError("restamp needs served_at")
+    if served_at is not None and not repair:
+        raise ValueError("served_at is repair-only")
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
     latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
@@ -385,13 +367,6 @@ def write_raw(
                     return row
                 return [*row[:10], served_at.get(ts), *row[10:]]
 
-            if restamp:
-                if delta.new or delta.changed:
-                    raise ValueError(
-                        f"restamp of {symbol} {timeframe} {vendor}/{kind}: "
-                        f"{len(delta.new)} new and {len(delta.changed)} changed rows"
-                    )
-                changed_rows += [params_of(ts) for ts in stamps]
             new_rows += [params_of(ts) for ts in sorted(delta.new)]
             for ts in sorted(delta.changed):
                 changed_rows.append(params_of(ts))
@@ -466,66 +441,6 @@ def preview_series(conn: Any, rows: Iterable[RawRow]) -> RawDelta:
     )
 
 
-def hold_pending(
-    conn: Any,
-    rows: Iterable[RawRow],
-    *,
-    load_id: uuid.UUID,
-    request_id: uuid.UUID,
-    vendor_codes: Collection[str],
-    kind_codes: Collection[str],
-    future_tolerance_s: int,
-    now: datetime | None = None,
-) -> int:
-    """Log refused rows as pending revisions and leave ohlcv_raw untouched.
-
-    `rows` are the offered rows of a refused series that differ from the stored row (changed and
-    new; unchanged rows need no hold). Each becomes an ohlcv_revision row of origin `pending`
-    under the refused load, with the OFFERED value in the old_* columns. Validation is the same as
-    `write_raw`'s, before any SQL. A row whose identical value is already pending for the same
-    key (an earlier refused load of the series) is not written again, so offering a refused
-    series repeatedly does not multiply its hold (review finding 7). Returns the number of rows
-    held, new or already pending. Never commits.
-    """
-    if load_id is None or request_id is None:
-        raise ValueError("hold_pending requires load_id and request_id")
-    latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
-    held: list[tuple] = []
-    n_held = 0
-    for (symbol, timeframe, vendor, kind), keyed in sorted(
-        _group_by_series(
-            rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
-        ).items()
-    ):
-        label = _label(vendor, kind)
-        with conn.cursor() as cur:
-            cur.execute(_READ_PENDING_SQL, (symbol, timeframe, vendor, kind, sorted(keyed)))
-            already = {(r[0], *r[1:6]) for r in cur.fetchall()}
-        n_held += sum(1 for ts in keyed if (ts, *_values(keyed[ts])[:5]) in already)
-        for ts in sorted(keyed):
-            values = _values(keyed[ts])
-            if (ts, *values[:5]) in already:
-                continue
-            held.append(
-                (
-                    load_id,
-                    symbol,
-                    timeframe,
-                    ts,
-                    *values[:5],
-                    label,
-                    vendor,
-                    kind,
-                    request_id,
-                    _ORIGIN_PENDING,
-                )
-            )
-    if held:
-        with conn.cursor() as cur:
-            _write_revisions(cur, held)
-    return n_held + len(held)
-
-
 def read_stored_closes(
     conn: Any,
     symbol: str,
@@ -540,132 +455,3 @@ def read_stored_closes(
     with conn.cursor() as cur:
         cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, sorted(set(timestamps))))
         return {row[0]: row[4] for row in cur.fetchall()}
-
-
-_READ_HELD_SQL = (
-    'SELECT "timestamp" FROM ohlcv_revision WHERE load_id = %s AND symbol = %s '
-    "AND timeframe = %s AND vendor = %s AND kind = %s AND origin = 'pending' "
-    'AND "timestamp" = ANY(%s)'
-)
-
-
-def hold_legacy_refusal(
-    conn: Any,
-    rows: Iterable[RawRow],
-    *,
-    load_id: uuid.UUID,
-    vendor_codes: Collection[str],
-    kind_codes: Collection[str],
-    future_tolerance_s: int,
-    now: datetime | None = None,
-) -> int:
-    """Hold the values a retired-path refused load served as pending revisions (191-07 repair).
-
-    The raw backfill copied the archived serves of the retired path's refused loads into raw, so
-    those values became current; the repair puts the accepted value back (write_raw, repair) and
-    calls this to keep the refused value in the D-191-I form: an ohlcv_revision row of origin
-    `pending` under the ORIGINAL refused load, old_* holding the offered value. The refused
-    serve's request is not recorded (the retired path wrote no request id with it), so
-    request_id is NULL. Idempotent: a key already held under the load is skipped. Returns the
-    rows written. Never commits.
-    """
-    if load_id is None:
-        raise ValueError("hold_legacy_refusal requires the refused load_id")
-    latest_allowed = (now or datetime.now(UTC)) + timedelta(seconds=future_tolerance_s)
-    held: list[tuple] = []
-    for (symbol, timeframe, vendor, kind), keyed in sorted(
-        _group_by_series(
-            rows, vendor_codes=vendor_codes, kind_codes=kind_codes, latest_allowed=latest_allowed
-        ).items()
-    ):
-        label = _label(vendor, kind)
-        with conn.cursor() as cur:
-            cur.execute(_READ_HELD_SQL, (load_id, symbol, timeframe, vendor, kind, sorted(keyed)))
-            already = {r[0] for r in cur.fetchall()}
-        for ts in sorted(keyed):
-            if ts in already:
-                continue
-            values = _values(keyed[ts])
-            held.append(
-                (
-                    load_id,
-                    symbol,
-                    timeframe,
-                    ts,
-                    *values[:5],
-                    label,
-                    vendor,
-                    kind,
-                    None,
-                    _ORIGIN_PENDING,
-                )
-            )
-    if held:
-        with conn.cursor() as cur:
-            _write_revisions(cur, held)
-    return len(held)
-
-
-_WITHDRAW_SQL = (
-    "DELETE FROM ohlcv_raw WHERE symbol = %s AND timeframe = %s AND vendor = %s AND kind = %s "
-    'AND "timestamp" = %s AND open = %s AND high = %s AND low = %s AND close = %s '
-    "AND volume IS NOT DISTINCT FROM %s"
-)
-
-
-def withdraw_raw_rows(conn: Any, rows: Iterable[RawRow], *, load_id: uuid.UUID) -> int:
-    """Remove raw rows that hold a value the vendor's accepted answers never gave (the one-time
-    re-judgment of the retired path's refused loads, scripts/ops/bars/ops_refusal_rejudge.py):
-    the raw backfill copied a refused offer into raw where the vendor stored nothing of its
-    own, and the per-source contract holds the whole refused offer, new bars included.
-
-    Each row's value is logged first as an ohlcv_revision row (origin raw) under `load_id` (the
-    caller's repair load), so the value is never lost (it also stays pending under its refused
-    load and in the archive); a row is deleted only when its stored value still equals the
-    given one. Returns the rows removed. Never commits."""
-    if load_id is None:
-        raise ValueError("withdraw_raw_rows requires the repair load_id")
-    removed = 0
-    revisions: list[tuple] = []
-    deletes: list[tuple] = []
-    with conn.cursor() as cur:
-        for (symbol, timeframe, vendor, kind), keyed in sorted(_group_by_series(rows).items()):
-            _lock_series(cur, symbol, timeframe, vendor, kind)
-            label = _label(vendor, kind)
-            for ts in sorted(keyed):
-                values = _values(keyed[ts])[:5]
-                revisions.append(
-                    (load_id, symbol, timeframe, ts, *values, label, vendor, kind, None, _ORIGIN)
-                )
-                deletes.append((symbol, timeframe, vendor, kind, ts, *values))
-        _write_revisions(cur, revisions)
-        for params in deletes:
-            cur.execute(_WITHDRAW_SQL, params)
-            removed += cur.rowcount
-    return removed
-
-
-_RELEASE_SQL = (
-    "DELETE FROM ohlcv_revision WHERE load_id = %s AND symbol = %s AND timeframe = %s "
-    "AND vendor = %s AND kind = %s AND origin = 'pending' AND \"timestamp\" = ANY(%s)"
-)
-
-
-def release_legacy_pending(
-    conn: Any,
-    symbol: str,
-    timeframe: str,
-    vendor: str,
-    kind: str,
-    *,
-    load_id: uuid.UUID,
-    timestamps: Sequence[datetime],
-) -> int:
-    """Remove `pending` holds the 191-07 repair wrote under a retired-path refused load whose
-    one-time re-judgment no longer holds those keys (accepted, or the vendor answered the key
-    again). The offered values stay in the archive under the same load and, where accepted, in
-    raw. Only origin `pending` rows are touched. Returns the rows removed. Never commits."""
-    with conn.cursor() as cur:
-        _lock_series(cur, symbol, timeframe, vendor, kind)
-        cur.execute(_RELEASE_SQL, (load_id, symbol, timeframe, vendor, kind, sorted(timestamps)))
-        return cur.rowcount

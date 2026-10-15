@@ -122,11 +122,8 @@ class ItemOutcome:
     # daily derivation stage for these symbols and refreshes the 1d ledger bounds from
     # here (plan 185-18 task 1b: D2 is the sole 1d writer, so fetch_item never stores 1d).
     derive_1d_since: datetime | None = None
-    # Refused series held as pending revisions this item (the contract's refusal text) and the
-    # offered rows held. A refusal is a held state, not a failure (review finding 7): the item
-    # settles so it neither burns the failure budget nor forces a full-window refetch.
-    held: tuple[str, ...] = ()
-    n_held: int = 0
+    # Restatements the detector flagged this item (written last-wins all the same, D-191-N).
+    flags: tuple[str, ...] = ()
     # Slots this item put in raw that no ranked vendor selects (D-191-L rule 4): the rows are
     # in raw, canonical has none for them. The run is partial while any exist (191-07 review).
     n_unselected: int = 0
@@ -334,12 +331,12 @@ class _ChunkPersister:
     (`ohlcv_request.partial_bars`), logged with its values, and not offered to raw; the gap
     planner keeps its slot a gap. 1d keeps D-191-J (complete at the session close).
 
-    A refused chunk does not stop the walk: the persist helper has already recorded its answer,
-    the contract held the offered values as pending revisions and wrote the refused load row, so
-    the provider goes on to older history. The only refusal is a vendor restating its OWN stored
-    raw rows beyond the threshold; it is kept in `refusals` and reported on the outcome as held (the item settles; the run is
-    partial). A difference
-    from another vendor is not a refusal and never reaches this class.
+    Every chunk is written last-wins (D-191-N): a vendor restating its OWN stored raw rows
+    overwrites them and the old values are logged as revisions. A restatement the detector
+    flags (share or basis-change signature) is kept in `flags` and reported on the outcome; it
+    never stops the walk or fails the item. A difference from another vendor is a different key
+    and never reaches the detector. `waived` no longer changes the write; the escalation path
+    still passes it for its log.
     """
 
     def __init__(
@@ -363,8 +360,7 @@ class _ChunkPersister:
         self.persisted: set[datetime] = set()
         self.overlap_pairs: list[tuple[float, float]] = []
         self.n_rows = 0
-        self.refusals: list[str] = []
-        self.n_held = 0
+        self.flags: list[str] = []
         self.n_unselected = 0
         self.unmapped: list[str] = []
         # Every stamp an answer handed in, complete or not: the item's defensive re-offer of
@@ -449,32 +445,24 @@ class _ChunkPersister:
                     provider=self.ctx.vendor,
                 )
             ),
-            waived=self.waived,
             request_id=uuid.UUID(str(record.request_id)) if record is not None else None,
         )
         ingress = result.ingress
-        if ingress is not None and ingress.refused:
-            self.n_held += ingress.n_held
+        if ingress is not None and ingress.flagged:
             stamps = [row.timestamp for row in rows]
-            for series in ingress.refused_series:
-                self.refusals.append(f"{min(stamps).date()}-{max(stamps).date()}: {series.detail}")
-            logger.warning(
-                "ibkr_history_fetcher.chunk_refused_held",
+            for flag in ingress.flagged:
+                self.flags.append(
+                    f"{min(stamps).date()}-{max(stamps).date()}: {flag.restatement.detail()}"
+                )
+        self.n_rows += result.n_rows
+        if ingress is not None and ingress.n_unselected:
+            self.n_unselected += ingress.n_unselected
+            logger.error(
+                "ibkr_history_fetcher.chunk_unselected",
                 symbol=self.symbol,
                 timeframe=self.timeframe,
-                n_held=ingress.n_held,
-                detail=ingress.refused_series[0].detail,
+                n_unselected=ingress.n_unselected,
             )
-        else:
-            self.n_rows += result.n_rows
-            if ingress is not None and ingress.n_unselected:
-                self.n_unselected += ingress.n_unselected
-                logger.error(
-                    "ibkr_history_fetcher.chunk_unselected",
-                    symbol=self.symbol,
-                    timeframe=self.timeframe,
-                    n_unselected=ingress.n_unselected,
-                )
         self.persisted.update(row.timestamp for row in rows)
         self.clock.touch()
 
@@ -954,8 +942,7 @@ async def fetch_item(
     if unmapped:
         failed.insert(0, "unmapped_kind: " + "; ".join(unmapped))
     failure = "; ".join(failed) if failed else None
-    held = tuple(persister.refusals)
-    answered = n_bars > 0 or bool(held)
+    answered = n_bars > 0
     status = "error" if failed else ("ok" if answered else "no_data")
     return ItemOutcome(
         symbol,
@@ -966,8 +953,7 @@ async def fetch_item(
         error=failure,
         derive_1d_since=start_dt if d1_capture and n_returned > 0 else None,
         overlap_pairs=tuple(persister.overlap_pairs),
-        held=held,
-        n_held=persister.n_held,
+        flags=tuple(persister.flags),
         n_unselected=persister.n_unselected,
         unmapped=unmapped,
     )

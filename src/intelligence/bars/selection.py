@@ -33,9 +33,8 @@ holds; a vendor is complete when it holds all of them. The session is taken whol
 ranked vendor that is complete. When none is, it is taken from the vendor holding the most of
 them (ties by rank) and the slots only another vendor holds are left out (`dropped`: the writer
 retracts a canonical row there, missing is NaN). Every session not taken from the primary is
-recorded in `SelectionOutcome.choices`. A held candidate (a raw row holding a refused value,
-services/bar_selection.read_held_keys) counts toward its vendor's completeness but never wins: its
-slot gets no winner and is not dropped, so canonical keeps its row there until a decision.
+recorded in `SelectionOutcome.choices`, as is a session whose chosen vendor holds fewer slots than
+the calendar's regular-hours grid.
 
 Pure Ring 1: no database access, no services imports.
 """
@@ -233,21 +232,16 @@ class SelectionOutcome:
     dropped: tuple[tuple[str, str, datetime], ...] = ()
     # sessions not taken whole from the primary, or holding fewer slots than the calendar grid
     choices: tuple[SessionChoice, ...] = ()
-    n_held: int = 0  # slots whose chosen vendor's candidate is held: no winner, not dropped
     sessions: tuple[date, ...] = ()  # every session date selected (the choices' scope)
-
-
-Key = tuple[datetime, str, str]  # (timestamp, vendor, kind)
 
 
 def select_slots(
     candidates: Iterable[Candidate],
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
-    held: frozenset[Key] | set[Key] = frozenset(),
 ) -> SelectionOutcome:
     """Select the winner of every on-grid slot present in `candidates`, one vendor per session
-    (module docstring), with the counts. `held` keys count toward completeness, never win."""
+    (module docstring), with the counts."""
     on_grid, off_grid = partition_session(candidates)
     sessions: dict[tuple[str, str, date], dict[datetime, list[Candidate]]] = defaultdict(
         lambda: defaultdict(list)
@@ -258,7 +252,7 @@ def select_slots(
     winners: list[Candidate] = []
     dropped: list[tuple[str, str, datetime]] = []
     choices: list[SessionChoice] = []
-    n_slots = n_unselected = n_held = 0
+    n_slots = n_unselected = 0
     for (symbol, timeframe, day), slots in sorted(sessions.items()):
         scoped = scopes.get((symbol, timeframe))
         if scoped is None:
@@ -268,14 +262,13 @@ def select_slots(
             ]
         ranking = rank_vendors(scoped, symbol, timeframe, day)
         n_slots += len(slots)
-        # per slot, each ranked vendor's best selectable candidate, or None when it holds only
-        # held ones (they count toward completeness, never win)
-        by_vendor: dict[str, dict[datetime, Candidate | None]] = {v: {} for v in ranking}
+        # per slot, each ranked vendor's best candidate
+        by_vendor: dict[str, dict[datetime, Candidate]] = {v: {} for v in ranking}
         for ts, here in slots.items():
-            free = [c for c in here if (c.timestamp, c.vendor, c.kind) not in held]
             for vendor in ranking:
-                if select_slot(here, [vendor], kind_order) is not None:
-                    by_vendor[vendor][ts] = select_slot(free, [vendor], kind_order)
+                best = select_slot(here, [vendor], kind_order)
+                if best is not None:
+                    by_vendor[vendor][ts] = best
         session_slots = set().union(*(set(v) for v in by_vendor.values()))
         n_unselected += len(slots) - len(session_slots)
         if not session_slots:
@@ -311,11 +304,7 @@ def select_slots(
             if ts not in by_vendor[chosen]:
                 dropped.append((symbol, timeframe, ts))
                 continue
-            winner = by_vendor[chosen][ts]
-            if winner is None:
-                n_held += 1
-            else:
-                winners.append(winner)
+            winners.append(by_vendor[chosen][ts])
     return SelectionOutcome(
         winners,
         n_slots,
@@ -323,7 +312,6 @@ def select_slots(
         len(off_grid),
         tuple(dropped),
         tuple(choices),
-        n_held,
         tuple(sorted({day for (_s, _t, day) in sessions})),
     )
 

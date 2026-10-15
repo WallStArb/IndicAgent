@@ -924,9 +924,6 @@ def store_bars(
         )
     with conn.transaction():
         result = apply_raw_contract(conn, rows, caller=caller, request_id=uuid.uuid4())
-    if result.refused:
-        detail = "; ".join(series.detail for series in result.refused_series)
-        raise RuntimeError(f"store_bars: {symbol} {timeframe} refused: {detail}")
     if result.n_unselected:
         raise RuntimeError(
             f"store_bars: {symbol} {timeframe}: {result.n_unselected} slots reached raw but no "

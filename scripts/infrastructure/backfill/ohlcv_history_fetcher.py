@@ -331,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Re-serve lane (191-07 review finding 2): ask exactly the session dates of these "
             "keys again through the normal fetch path, under the lock, instead of the queue. "
-            "PATH is an ops_raw_repair.py report (its reserve_keys) or a JSON list of "
+            "PATH is a report with a reserve_keys list or a JSON list of "
             "{symbol, timeframe, timestamp}. Sets --dimension backfill, --symbols and "
             "--timeframes from the keys."
         ),
@@ -367,7 +367,7 @@ def validate_args(args: argparse.Namespace) -> str | None:
 def reserve_asks(payload: Any) -> dict[tuple[str, str], list[tuple[datetime, datetime]]]:
     """(symbol, timeframe) -> the [open, close) UTC windows of the keys' NYSE sessions.
 
-    `payload` is an ops_raw_repair.py or ops_refusal_rejudge.py report (its "reserve_keys") or a
+    `payload` is a report with a "reserve_keys" list (logs/reserve_keys_191_07.json) or a
     list of keys, each with symbol, timeframe and an ISO timestamp. A session date is its
     America/New_York day, the date a selection span matches (D-191-L). The window is that
     session exactly, open to close (early closes included), so the request ends at the close and
@@ -1148,10 +1148,7 @@ class OHLCVHistoryFetcher(BaseBatch):
         if loop.gateway_lost:
             raise RuntimeError(f"IBKR gateway lost mid-run at {loop.gateway_lost}")
         failed = (
-            loop.n_error > 0
-            or loop.n_held_series > 0
-            or loop.n_unselected > 0
-            or any(rc != 0 for rc in stage_codes.values())
+            loop.n_error > 0 or loop.n_unselected > 0 or any(rc != 0 for rc in stage_codes.values())
         )
         nothing_succeeded = loop.n_error > 0 and loop.n_ok + loop.n_no_data == 0
         self.completion_status = (
@@ -1332,9 +1329,10 @@ class OHLCVHistoryFetcher(BaseBatch):
         Order (todo 507): the 1d judge records splits first (corporate_action), then the
         re-fetch asks the whole 1d depth (answered after the recording, so D2 counts it as
         post-split), then the run-end daily stage derives. A 5m breach is re-fetched through
-        the waived grid writer only when a corporate action recorded after the series' last
-        applied load explains it; without one the ingress contract would refuse the rewrite,
-        so the finding is recorded instead and the run is partial.
+        the escalation lane only when a corporate action recorded after the series' last applied
+        load explains it; without one the finding is recorded instead and the run is partial
+        (the contract writes last-wins either way, D-191-N; this decides only whether the whole
+        depth is asked again).
         """
         failed = False
         reasons_1d: Mapping[str, str] = {}
@@ -1593,8 +1591,7 @@ class _LoopState:
     n_no_data: int = 0
     n_error: int = 0
     # Items that held a refused series (settled ok) and the offered rows held (review finding 7).
-    n_held_series: int = 0
-    n_held: int = 0
+    n_flagged_series: int = 0  # restatements flagged (written last-wins, D-191-N)
     # Slots items put in raw that no ranked vendor selects (191-07 review): the run is partial.
     n_unselected: int = 0
     n_bars: int = 0
@@ -1614,9 +1611,7 @@ class _LoopState:
             self.n_no_data += 1
         else:
             self.n_error += 1
-        if outcome.held:
-            self.n_held_series += len(outcome.held)
-            self.n_held += outcome.n_held
+        self.n_flagged_series += len(outcome.flags)
         self.n_unselected += outcome.n_unselected
         self.n_bars += outcome.n_bars
         self.n_grid_source_rows += outcome.n_grid_source_rows
@@ -1630,8 +1625,7 @@ class _LoopState:
             "n_ok": self.n_ok,
             "n_no_data": self.n_no_data,
             "n_error": self.n_error,
-            "n_held_series": self.n_held_series,
-            "n_held": self.n_held,
+            "n_flagged_series": self.n_flagged_series,
             "n_unselected": self.n_unselected,
             "n_bars": self.n_bars,
             "n_grid_source_rows": self.n_grid_source_rows,

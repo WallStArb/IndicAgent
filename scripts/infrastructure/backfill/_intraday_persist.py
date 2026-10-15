@@ -20,14 +20,12 @@ transaction is the verified pattern from plans 11 and 12.
 The raw write runs before the request rows because each request row that answered with bars carries
 the content digest of the answer the chunk stored (design section 3, direct mode provenance;
 src/intelligence/bars/digest.py arithmetic over the chunk's rows, one per timestamp, last wins),
-and a chunk the contract refused stored nothing: its digest is NULL, which is known only once the
-contract has run. A refusal is data, not an exception: the contract recorded the refused load and
-held the offered values as pending revisions (ohlcv_raw is untouched), the request rows still
-commit, and the result's `ingress.refused` tells the caller to fail the item.
+and the contract writes every offered row last-wins (D-191-N): nothing is refused or held, so a
+request that answered with bars always carries the digest of what the chunk stored.
 
 Coverage follows the raw write: the rows the contract found new move the series' bounds and row
 count (every new raw row of the vendor counts, tradeable or not: coverage describes what that
-vendor holds); a refused chunk moves nothing. The CoverageDelta carries the serving vendor's
+vendor holds). The CoverageDelta carries the serving vendor's
 label (phase 190, migration 464), set where the delta is built.
 
 Discipline the caller owes:
@@ -90,7 +88,6 @@ def persist_chunk_atomically(
     raw_rows: list[RawRow],
     coverage: CoverageDelta | None = None,
     caller: str = DEFAULT_CALLER,
-    waived: bool = False,
     request_id: uuid.UUID | None = None,
     params: RawContractParams | None = None,
 ) -> PersistResult:
@@ -128,15 +125,13 @@ def persist_chunk_atomically(
                 caller=caller,
                 request_id=request_id or _answering_request_id(request_rows),
                 params=params,
-                waived=waived,
             )
         with conn.cursor() as cur:
             if request_rows:
-                refused = bool(ingress and ingress.refused)
-                stamped = [_with_digest(row, raw_rows, refused=refused) for row in request_rows]
+                stamped = [_with_digest(row, raw_rows) for row in request_rows]
                 cur.execute(f"SET LOCAL ROLE {_REQUEST_ROLE}")
                 write_request_rows(cur, stamped)
-            if coverage is not None and ingress is not None and not ingress.refused:
+            if coverage is not None and ingress is not None:
                 cur.execute(f"SET LOCAL ROLE {_BAR_ROLE}")
                 _upsert_coverage(cur, raw_rows, ingress, coverage)
     return PersistResult(len(request_rows), len(raw_rows), ingress)
@@ -169,7 +164,7 @@ def chunk_digest(rows: list[RawRow]) -> str:
     )
 
 
-def _with_digest(request_row: tuple, bar_rows: list[RawRow], *, refused: bool) -> tuple:
+def _with_digest(request_row: tuple, bar_rows: list[RawRow]) -> tuple:
     """The request row with its content digest appended: the chunk's digest when the request
     answered with bars and the chunk was stored, NULL otherwise."""
     if len(request_row) != _REQUEST_COLUMNS_WITHOUT_DIGEST:
@@ -178,7 +173,7 @@ def _with_digest(request_row: tuple, bar_rows: list[RawRow], *, refused: bool) -
             f"({_REQUEST_COLUMNS_WITHOUT_DIGEST} values); got {len(request_row)}"
         )
     has_bars = request_row[_REQ_OUTCOME] == "bars" and request_row[_REQ_N_BARS] > 0
-    stored = has_bars and bool(bar_rows) and not refused
+    stored = has_bars and bool(bar_rows)
     return request_row + ((chunk_digest(bar_rows) if stored else None),)
 
 

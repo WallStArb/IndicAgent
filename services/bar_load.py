@@ -49,15 +49,8 @@ class LoadResult:
     n_new: int = 0
     n_changed: int = 0
     n_unchanged: int = 0
-    n_held: int = 0
-    refused: bool = False
-    n_refused_series: int = 0
     n_unselected: int = 0
-
-    @property
-    def n_landed(self) -> int:
-        """Offered rows that reached ohlcv_raw (everything not held as a pending revision)."""
-        return self.n_offered - self.n_held
+    n_flagged_series: int = 0  # series the restatement detector flagged (written all the same)
 
     def plus(self, ingress: IngressResult | None) -> LoadResult:
         if ingress is None:
@@ -67,22 +60,18 @@ class LoadResult:
             self.n_new + ingress.n_new,
             self.n_changed + ingress.n_changed,
             self.n_unchanged + ingress.n_unchanged,
-            self.n_held + ingress.n_held,
-            self.refused or ingress.refused,
-            self.n_refused_series + len(ingress.refused_series),
             self.n_unselected + ingress.n_unselected,
+            self.n_flagged_series + len(ingress.flagged),
         )
 
 
-def load_status(*, apply: bool, held: int, unselected: int = 0) -> str:
-    """The run's status word: APPLIED only when nothing was held as a refused series' pending
-    revisions and no landed slot lacks a canonical winner. A held row means a vendor restated
-    its own history and needs a decision; an unselected slot means the policy ranks no vendor
-    that holds it (the rows are in raw, canonical has nothing there)."""
+def load_status(*, apply: bool, unselected: int = 0) -> str:
+    """The run's status word: APPLIED only when no landed slot lacks a canonical winner (an
+    unselected slot means the policy ranks no vendor that holds it: the rows are in raw,
+    canonical has nothing there). Restatements are written last-wins and flagged, never held
+    (D-191-N), so they do not change the status."""
     if not apply:
         return "PLANNED"
-    if held:
-        return "HELD (applied, refused series held, see ohlcv_load)"
     if unselected:
         return "UNSELECTED (landed in raw, no canonical winner, see bar_source_policy)"
     return "APPLIED"
