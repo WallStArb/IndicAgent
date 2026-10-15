@@ -32,7 +32,7 @@ import sys
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -107,12 +107,19 @@ def legacy_records(
     rows: Sequence[tuple[datetime, float, float, float, float, int]],
     *,
     fetch_run_id: str,
-    now: datetime,
 ) -> tuple[LegacyRequest, list[LegacyBar]]:
-    """One legacy request for a symbol's stored span and its bars (rows sorted by time)."""
+    """One legacy request for a symbol's stored span and its bars (rows sorted by time).
+
+    The corpus records no answer time, so the request is stamped with the earliest time the
+    whole span can have been answered: the UTC midnight after its last bar's date. Never the
+    import's own clock (review of 191-08, L1): raw is last-wins by serve time, and an import
+    stamped now would beat every serve made since the corpus was built.
+    """
     if not rows:
         raise ValueError(f"no stored rows for {symbol}; nothing to import")
     bars = [LegacyBar(*row) for row in rows]
+    last = bars[-1].timestamp.astimezone(UTC)
+    answered = datetime.combine(last.date() + timedelta(days=1), time(), tzinfo=UTC)
     request = LegacyRequest(
         request_id=str(uuid.uuid4()),
         fetch_run_id=fetch_run_id,
@@ -129,8 +136,8 @@ def legacy_records(
         error_text=None,
         n_bars=len(bars),
         client_id=None,
-        requested_at=now,
-        answered_at=now,
+        requested_at=answered,
+        answered_at=answered,
     )
     return request, bars
 
@@ -232,7 +239,7 @@ def run_legacy_import(settings: Settings) -> int:
         imported_rows = 0
         for i, symbol in enumerate(todo, 1):
             request, bars = legacy_records(
-                symbol, _stored_rows(read, symbol), fetch_run_id=fetch_run_id, now=datetime.now(UTC)
+                symbol, _stored_rows(read, symbol), fetch_run_id=fetch_run_id
             )
             sink.on_request(request)
             sink.on_observation(request, bars)

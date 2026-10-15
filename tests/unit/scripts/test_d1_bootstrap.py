@@ -27,13 +27,15 @@ def _rows():
 
 
 def test_legacy_records_map_to_request_and_observation_rows() -> None:
-    request, bars = mod.legacy_records("AAA", _rows(), fetch_run_id=_RUN, now=_NOW)
+    request, bars = mod.legacy_records("AAA", _rows(), fetch_run_id=_RUN)
     assert request.route == "LEGACY_IMPORT"
     assert request.outcome == "legacy_import"
     assert request.what_to_show == "TRADES"
     assert request.n_bars == 2
     assert request.window_start == _rows()[0][0]
     assert request.window_end == _rows()[1][0]
+    # review of 191-08 L1: stamped at the earliest possible answer, never the import clock
+    assert request.answered_at == request.requested_at == datetime(2020, 1, 4, tzinfo=UTC)
     req_row = _request_row(request, caller="d1-bootstrap", source="ibkr")
     assert req_row[5] == "LEGACY_IMPORT" and req_row[11] == "legacy_import"
     assert req_row[16] == "d1-bootstrap"
@@ -45,7 +47,7 @@ def test_legacy_records_map_to_request_and_observation_rows() -> None:
 
 def test_legacy_records_refuse_empty_symbol() -> None:
     with pytest.raises(ValueError):
-        mod.legacy_records("AAA", [], fetch_run_id=_RUN, now=_NOW)
+        mod.legacy_records("AAA", [], fetch_run_id=_RUN)
 
 
 def test_order_puts_mrna_and_alms_first() -> None:
