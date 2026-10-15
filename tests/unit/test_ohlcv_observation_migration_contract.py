@@ -109,3 +109,32 @@ def test_every_apr_key_appears_in_schema_state_and_history():
 def test_apr_history_rows_cite_migration_380():
     sql = _migration_text_no_comments()
     assert sql.count("'migration_380'") >= len(_APR_KEYS)
+
+
+# Migration 492 (plan 191-09 Task 2): the moved-name inventory over ohlcv_raw. 380 and 442 stay
+# the historical text; the live view is 492's.
+_VENUE_HEAD_492 = re.sub(
+    r"--[^\n]*",
+    "",
+    read_source("production", "migrations", "492_ohlcv_venue_head_over_raw.sql"),
+)
+
+
+def test_venue_head_492_reads_raw_venue_kinds_and_never_observations():
+    sql = re.sub(r"\s+", " ", _VENUE_HEAD_492)
+    assert sql.strip().startswith("BEGIN;") and sql.rstrip().endswith("COMMIT;")
+    assert "CREATE OR REPLACE VIEW ohlcv_venue_head" in sql
+    assert "ohlcv_observation" not in sql
+    assert "FROM ohlcv_raw v" in sql
+    assert "v.timeframe = '1d' AND v.vendor = 'ibkr' AND v.kind LIKE 'venue\\_%'" in sql
+    assert "upper(substr(v.kind, 7)) AS route" in sql
+    # The SMART head counts only rows a SMART request served (no LEGACY_IMPORT corpus rows).
+    assert "r.kind = 'smart_trades'" in sql and "q.route = 'SMART'" in sql
+    for column in (
+        "AS first_bar_date",
+        "AS last_bar_date",
+        "AS n_bars",
+        "sh.smart_head_date",
+        "AS pre_move",
+    ):
+        assert column in sql
