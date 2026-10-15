@@ -77,7 +77,7 @@ backfill and completeness check, not on `ohlcv_load` reconciliation alone.
 
 The code renamed to `ohlcv_history_fetcher.py` / `OHLCVHistoryFetcher`, but these external
 identities kept the ibkr name on purpose: `FETCHER_LOCK_NAME` ("ibkr_history_fetcher",
-sha256-keyed advisory lock shared by ops_d1_bootstrap, ops_venue_study,
+sha256-keyed advisory lock shared by
 ops_intraday_venue_recovery, the rate-limit probe, classification sourcing, the onboard
 manifest), the JOB label `ibkr-history-fetcher`, `LOCK_HELD_MESSAGE`,
 `logs/ibkr_history_fetcher_status.json` (read by the D7 audit in

@@ -101,18 +101,10 @@ _ALLOW_LIST: dict[str, str] = {
         "candidate contracts on the concrete IBKR leaf; same rationale as "
         "classification sourcing."
     ),
-    "scripts/ops/bars/ops_d1_bootstrap.py": (
-        "PERMANENT: manual IBKR ops tool (D1 capture bootstrap) run under "
-        "FetcherLock against the concrete leaf; the manual ops tools keep concrete "
-        "access until a reason to route them through the protocol exists."
-    ),
     "scripts/ops/bars/ops_intraday_venue_recovery.py": (
         "PERMANENT: manual IBKR ops tool (intraday venue recovery) run under "
-        "FetcherLock against the concrete leaf; same rationale as ops_d1_bootstrap."
-    ),
-    "scripts/ops/bars/ops_venue_study.py": (
-        "PERMANENT: manual IBKR ops tool (D3 venue study) run under FetcherLock "
-        "against the concrete leaf; same rationale as ops_d1_bootstrap."
+        "FetcherLock against the concrete leaf; the manual ops tools keep concrete "
+        "access until a reason to route them through the protocol exists."
     ),
     "services/backfill_feature_factory.py": (
         "PERMANENT (dormant DAG, unchanged this phase): the feature backfill "
