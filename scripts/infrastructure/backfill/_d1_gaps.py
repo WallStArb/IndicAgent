@@ -59,7 +59,7 @@ WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" >= %s AND "
 # answered at or before it, at most infra.selection_gate.request_load_match_s seconds earlier
 # (the retired path wrote no request id on the load; ops_selection_gate.match_requests).
 _ANSWERED_WINDOWS_SQL = """
-SELECT r.window_start, r.window_end, r.partial_bars
+SELECT r.window_start, r.window_end, r.partial_bars, r.answered_at
 FROM ohlcv_request r
 WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(vendor)s
   AND r.what_to_show = %(what)s AND r.route = ANY(%(routes)s) AND r.outcome = ANY(%(outcomes)s)
@@ -121,11 +121,38 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
         )
         rows = cur.fetchall()
     # A bar the answer served incomplete (migration 479, finding 5) is not an answer for its
-    # slot: the window covers every other slot, never that one.
-    partial = {
-        _aware(datetime.fromisoformat(bar["t"])) for r in rows for bar in _partial_list(r[2])
-    }
-    return AnsweredWindows.from_rows([(_aware(r[0]), _aware(r[1])) for r in rows], partial=partial)
+    # slot: the window covers every other slot, never that one, until a later answer whose window
+    # holds the slot serves it without listing it as partial (third review of 191-07, low item:
+    # a slot once partial was otherwise re-asked forever).
+    return AnsweredWindows.from_rows(
+        [(_aware(r[0]), _aware(r[1])) for r in rows], partial=live_partials(rows)
+    )
+
+
+def live_partials(rows: Sequence[tuple]) -> set[datetime]:
+    """Slots some answer served partial and no later answer covering them served whole.
+    `rows` are (window_start, window_end, partial_bars, answered_at)."""
+    marked: dict[datetime, datetime | None] = {}
+    for r in rows:
+        answered = _aware(r[3]) if len(r) > 3 and r[3] is not None else None
+        for bar in _partial_list(r[2]):
+            ts = _aware(datetime.fromisoformat(bar["t"]))
+            prior = marked.get(ts)
+            if ts not in marked or (answered is not None and (prior is None or answered > prior)):
+                marked[ts] = answered
+    live: set[datetime] = set()
+    for ts, at in marked.items():
+        cleared = at is not None and any(
+            len(r) > 3
+            and r[3] is not None
+            and _aware(r[3]) > at
+            and _aware(r[0]) <= ts < _aware(r[1])
+            and ts not in {_aware(datetime.fromisoformat(b["t"])) for b in _partial_list(r[2])}
+            for r in rows
+        )
+        if not cleared:
+            live.add(ts)
+    return live
 
 
 def _partial_list(value: Any) -> list[dict[str, Any]]:

@@ -536,3 +536,18 @@ class TestLoadAnsweredWindows:
 
         with pytest.raises(RuntimeError, match="request_load_match_s"):
             load_answered_windows(_Empty(), "SPY", "5m", "ibkr")
+
+
+def test_a_partial_slot_is_cleared_by_a_later_answer_that_served_it_whole():
+    """Third review of plan 191-07, low item: a slot once recorded partial was re-asked forever."""
+    from scripts.infrastructure.backfill._d1_gaps import live_partials
+
+    partial = [{"t": "2026-01-02T14:45:00+00:00"}]
+    first = (_t(14, 30), _t(15, 30), partial, _t(20, 0))
+    later_whole = (_t(14, 30), _t(15, 30), None, _t(21, 0))
+    later_partial_again = (_t(14, 30), _t(15, 30), partial, _t(21, 0))
+    elsewhere = (_t(15, 0), _t(15, 30), None, _t(21, 0))
+    assert live_partials([first]) == {_t(14, 45)}
+    assert live_partials([first, later_whole]) == set()
+    assert live_partials([first, later_partial_again]) == {_t(14, 45)}
+    assert live_partials([first, elsewhere]) == {_t(14, 45)}
