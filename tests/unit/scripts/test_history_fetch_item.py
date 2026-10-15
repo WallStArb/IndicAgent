@@ -523,6 +523,7 @@ def env(monkeypatch, make_ingress_result):
         coverage=None,
         caller="ibkr-history-fetch",
         request_id=None,
+        answered_at=None,
         params=None,
     ):
         flagged = rec.flag_next
@@ -533,6 +534,7 @@ def env(monkeypatch, make_ingress_result):
                 rows=list(raw_rows),
                 coverage=coverage,
                 request_id=request_id,
+                answered_at=answered_at,
                 flagged=flagged,
             )
         )

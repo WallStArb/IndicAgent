@@ -874,9 +874,9 @@ def store_bars(
             Enables per-contract storage when fetching historical contracts.
 
     The write is one transaction: the load row, the raw rows and the canonical selection commit
-    together or not at all. A series the vendor restated beyond the threshold is refused (held as
-    pending revisions, raw untouched) and raises, so a caller never counts a refused chunk as
-    stored. These ad hoc callers (the per-contract opt-in mode, the backfill feature factory, the
+    together or not at all. Rows are written last-wins by serve time (D-191-N; fourth review of
+    191-07, finding 1): their served_at is `asked_at` (else this call's time), and a value the
+    vendor served later than that stays in raw. These ad hoc callers (the per-contract opt-in mode, the backfill feature factory, the
     venue recovery and the chunk probe) have no ohlcv_request ledger row: the raw rows carry a
     fresh request_id.
 
@@ -893,10 +893,11 @@ def store_bars(
         )
     with conn.cursor() as cur:
         settle = read_settle(cur)
+    answered_at = asked_at or datetime.now(UTC)
     bars, _partial, _text = keep_complete(
         bars,
         timeframe,
-        answered_at=asked_at or datetime.now(UTC),
+        answered_at=answered_at,
         request_end=request_end,
         settle=settle,
         symbol=actual_symbol or symbol,
@@ -923,7 +924,11 @@ def store_bars(
             )
         )
     with conn.transaction():
-        result = apply_raw_contract(conn, rows, caller=caller, request_id=uuid.uuid4())
+        # served_at is the caller's answer time; without one, this call's time (seconds after
+        # the answer it was handed), never the database write time.
+        result = apply_raw_contract(
+            conn, rows, caller=caller, request_id=uuid.uuid4(), answered_at=answered_at
+        )
     if result.n_unselected:
         raise RuntimeError(
             f"store_bars: {symbol} {timeframe}: {result.n_unselected} slots reached raw but no "

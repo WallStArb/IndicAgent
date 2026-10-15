@@ -1,4 +1,5 @@
-"""Restatement flags are reported and never fail a load; unselected slots do (D-191-N, 191-05)."""
+"""Share-only restatement flags are reported and never fail a load; basis-change flags and
+unselected slots do (D-191-N, 191-05; fourth review of 191-07, finding 2)."""
 
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ def test_load_status_is_applied_whatever_was_flagged():
 
 
 def test_nightly_summary_counts_flagged_series_and_stays_applied(monkeypatch):
-    def fake_series(conn, policy, symbol, frame, *, params, write):
+    def fake_series(conn, policy, symbol, frame, *, params, write, answered_at=None):
         return LoadResult().plus(_flagged(len(frame)))
 
     def fake_frame(conn, symbol, frame, **kw):
@@ -106,7 +107,7 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
     raw and its values go onto the window's last request row."""
     offered: list[pd.DataFrame] = []
 
-    def fake_series(conn, policy, symbol, frame, *, params, write):
+    def fake_series(conn, policy, symbol, frame, *, params, write, answered_at=None):
         offered.append(frame)
         return LoadResult(n_offered=len(frame))
 
@@ -134,7 +135,9 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
             pass
 
         async def fetch_ohlcv(self, request, budget):
-            self.sink.on_request(SimpleNamespace(request_id=f"req-{request.timeframe}"))
+            self.sink.on_request(
+                SimpleNamespace(request_id=f"req-{request.timeframe}", answered_at=now)
+            )
             return pages[request.timeframe]
 
     noted: list[tuple[str, str]] = []
@@ -164,3 +167,37 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
     [(request_id, text)] = noted
     assert request_id == "req-5m" and forming.isoformat() in text
     assert "1 incomplete bars held back" in ops_bar_nightly.summary_line(summary, apply=True)
+
+
+def _basis(n: int) -> IngressResult:
+    flag = FlaggedSeries(
+        "SPY",
+        "5m",
+        "ibkr",
+        "named",
+        uuid.uuid4(),
+        Restatement(n, n, 1.0, ("share", "price_ratio"), ratio=0.5),
+    )
+    return IngressResult(n, 0, n, 0, 0, flagged=(flag,))
+
+
+def test_a_basis_change_flag_makes_the_load_partial_and_fails_the_night():
+    result = LoadResult().plus(_basis(78)).plus(_flagged(5))
+    assert (result.n_flagged_series, result.n_basis_flagged) == (2, 1)
+    status = load_status(apply=True, basis_flagged=1)
+    assert status.startswith("PARTIAL") and "ops_restatement_review" in status
+    summary = {
+        "authored": 78,
+        "raw_1d": 0,
+        "errors": 0,
+        "flagged": 1,
+        "basis_flagged": 1,
+        "unselected": 0,
+    }
+    assert ops_bar_nightly.summary_line(summary, apply=True).startswith("PARTIAL")
+    assert ops_bar_nightly.exit_code(summary) == 1
+
+
+def test_superseded_offers_are_counted_across_chunks():
+    ingress = IngressResult(4, 0, 0, 0, 0, n_superseded=4)
+    assert LoadResult().plus(ingress).plus(ingress).n_superseded == 8

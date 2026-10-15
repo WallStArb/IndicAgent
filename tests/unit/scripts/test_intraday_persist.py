@@ -67,6 +67,7 @@ _REQUEST_ROW = (
 )
 
 _T0 = datetime(2026, 9, 27, 13, 30, tzinfo=UTC)
+_ANSWERED = datetime(2026, 9, 27, 21, 0, tzinfo=UTC)
 _T1 = datetime(2026, 9, 27, 13, 45, tzinfo=UTC)
 _T2 = datetime(2026, 9, 27, 14, 0, tzinfo=UTC)
 _FETCHED_AT = datetime(2026, 9, 27, 14, 30, tzinfo=UTC)
@@ -184,7 +185,7 @@ def contract(monkeypatch):
     the test sees it inside the transaction) and returns a scripted IngressResult."""
     state = SimpleNamespace(calls=[], existing=(), fail=False, read_params=[])
 
-    def fake(conn, rows, *, caller, request_id, params=None):
+    def fake(conn, rows, *, caller, request_id, answered_at, params=None):
         with conn.cursor() as cur:
             cur.execute("INSERT INTO ohlcv_raw (<contract>)", [])
         if state.fail:
@@ -194,6 +195,7 @@ def contract(monkeypatch):
                 "rows": list(rows),
                 "caller": caller,
                 "request_id": request_id,
+                "answered_at": answered_at,
                 "params": params,
             }
         )
@@ -324,8 +326,12 @@ def test_the_raw_rows_carry_the_chunks_answering_request_id(contract):
 
 def test_an_explicit_request_id_wins_and_a_chunk_without_requests_gets_a_fresh_one(contract):
     explicit = uuid.uuid4()
-    persist_chunk_atomically(FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], request_id=explicit)
-    persist_chunk_atomically(FakeConn(), request_rows=[], raw_rows=[_RAW_ROW])
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], answered_at=_ANSWERED, request_id=explicit
+    )
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], answered_at=_ANSWERED
+    )
     assert contract.calls[0]["request_id"] == explicit
     assert isinstance(contract.calls[1]["request_id"], uuid.UUID)
     assert contract.calls[1]["request_id"] != explicit
@@ -333,7 +339,11 @@ def test_an_explicit_request_id_wins_and_a_chunk_without_requests_gets_a_fresh_o
 
 def test_the_caller_reaches_the_contract(contract):
     persist_chunk_atomically(
-        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], caller="alpaca-5m-load"
+        FakeConn(),
+        request_rows=[],
+        raw_rows=[_RAW_ROW],
+        answered_at=_ANSWERED,
+        caller="alpaca-5m-load",
     )
     assert contract.calls[0]["caller"] == "alpaca-5m-load"
 
@@ -341,7 +351,7 @@ def test_the_caller_reaches_the_contract(contract):
 def test_preread_contract_params_reach_the_contract_and_are_not_read_again(contract):
     sentinel = object()
     persist_chunk_atomically(
-        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], params=sentinel  # type: ignore[arg-type]
+        FakeConn(), request_rows=[], raw_rows=[_RAW_ROW], answered_at=_ANSWERED, params=sentinel  # type: ignore[arg-type]
     )
     assert contract.calls[0]["params"] is sentinel and contract.read_params == []
 
@@ -350,7 +360,7 @@ def test_the_contract_settings_are_read_before_the_role_switch(contract):
     """bar_derivation_writer holds no grant on config_state, the CVR or bar_source_policy (found
     by the integration test under the real role): the read happens as the connection's user."""
     conn = FakeConn()
-    persist_chunk_atomically(conn, request_rows=[], raw_rows=[_RAW_ROW])
+    persist_chunk_atomically(conn, request_rows=[], raw_rows=[_RAW_ROW], answered_at=_ANSWERED)
     statements = [sql for sql, _ in conn.statements]
     assert statements.index("SELECT <read raw params>") < statements.index(
         "SET LOCAL ROLE bar_derivation_writer"
@@ -437,6 +447,7 @@ def test_coverage_counts_only_rows_the_raw_write_found_new(contract, recorded_up
     persist_chunk_atomically(
         FakeConn(),
         request_rows=[],
+        answered_at=_ANSWERED,
         raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2)],
         coverage=_delta(),
     )
@@ -453,6 +464,7 @@ def test_coverage_counts_every_new_row_whether_or_not_it_is_tradeable(contract, 
     persist_chunk_atomically(
         FakeConn(),
         request_rows=[],
+        answered_at=_ANSWERED,
         raw_rows=[_bar(_T0), _bar(_T1, volume=0), _bar(_T2), _bar(_T1.replace(minute=50), None)],
         coverage=_delta(),
     )
@@ -464,7 +476,11 @@ def test_coverage_counts_every_new_row_whether_or_not_it_is_tradeable(contract, 
 def test_bounds_fall_back_to_offered_rows_when_nothing_new(contract, recorded_upserts):
     contract.existing = (_T0, _T1)
     persist_chunk_atomically(
-        FakeConn(), request_rows=[], raw_rows=[_bar(_T0), _bar(_T1)], coverage=_delta()
+        FakeConn(),
+        request_rows=[],
+        raw_rows=[_bar(_T0), _bar(_T1)],
+        answered_at=_ANSWERED,
+        coverage=_delta(),
     )
     (call,) = recorded_upserts
     assert call["n_new_rows"] == 0
@@ -558,3 +574,17 @@ def test_record_fetch_outcome_never_increments_on_no_data():
 
 def test_fetch_statuses_are_the_ledger_check_values():
     assert FETCH_STATUSES == ("ok", "no_data", "error")
+
+
+def test_the_answering_request_time_is_the_serve_time_and_a_loader_must_name_one(contract):
+    # fourth review of 191-07, finding 1: served_at is the vendor's answer time, never now()
+    persist_chunk_atomically(FakeConn(), request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW])
+    assert contract.calls[0]["answered_at"] == _REQUEST_ROW[18]
+    persist_chunk_atomically(
+        FakeConn(), request_rows=[_REQUEST_ROW], raw_rows=[_RAW_ROW], answered_at=_ANSWERED
+    )
+    assert contract.calls[1]["answered_at"] == _ANSWERED
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="answer time"):
+        persist_chunk_atomically(conn, request_rows=[], raw_rows=[_RAW_ROW])
+    assert conn.statements == []

@@ -96,6 +96,8 @@ _RAW_PARAMS = RawContractParams(
     policy_rows=(),
 )
 _REQUEST = uuid.uuid4()
+_ANSWERED = datetime(2026, 10, 1, 21, 0, tzinfo=UTC)
+_EARLIER = _ANSWERED - timedelta(days=2)
 
 
 def _raw(i: int, *, vendor="ibkr", kind="named", close=10.5, symbol="ZZ191A") -> RawRow:
@@ -149,8 +151,11 @@ class RawFakeConn:
         return [(s, p) for s, p in self.statements if s.startswith(prefix)]
 
 
-def _stored_raw(rows: list[RawRow]) -> list[tuple]:
-    return [(r.timestamp, r.open, r.high, r.low, r.close, r.volume, uuid.uuid4()) for r in rows]
+def _stored_raw(rows: list[RawRow], served_at=_EARLIER) -> list[tuple]:
+    return [
+        (r.timestamp, r.open, r.high, r.low, r.close, r.volume, uuid.uuid4(), served_at)
+        for r in rows
+    ]
 
 
 @pytest.fixture
@@ -176,6 +181,7 @@ def test_raw_contract_records_the_load_then_raw_then_selects(selections):
         [_raw(0), _raw(1)],
         caller="ibkr-history-fetch",
         request_id=_REQUEST,
+        answered_at=_ANSWERED,
         params=_RAW_PARAMS,
     )
     kinds = [s.split("(")[0].strip()[:40] for s, _ in conn.statements]
@@ -195,7 +201,12 @@ def test_raw_contract_cross_vendor_difference_is_never_a_revision_or_a_flag(sele
     conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
     alpaca = [_raw(i, vendor="alpaca", kind="sip_rth", close=99.0) for i in range(600)]
     result = apply_raw_contract(
-        conn, alpaca, caller="alpaca-5m-load", request_id=_REQUEST, params=_RAW_PARAMS
+        conn,
+        alpaca,
+        caller="alpaca-5m-load",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
     )
     assert result.flagged == () and result.n_new == 600 and result.n_changed == 0
     assert conn.starting("INSERT INTO ohlcv_revision") == []
@@ -206,7 +217,12 @@ def test_raw_contract_raw_only_timeframes_get_no_selection(selections):
     row = RawRow(_T0, "ZZ191A", "1h", "ibkr", "named", 10.0, 11.0, 9.0, 10.5, 100)
     conn = RawFakeConn()
     result = apply_raw_contract(
-        conn, [row], caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        conn,
+        [row],
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
     )
     assert result.n_new == 1 and selections == [] and result.selected_slots == 0
 
@@ -232,6 +248,7 @@ def test_raw_contract_counts_a_null_volume_winner_with_the_unselected_slots(monk
         [_raw(0)],
         caller="ibkr-history-fetch",
         request_id=_REQUEST,
+        answered_at=_ANSWERED,
         params=_RAW_PARAMS,
     )
     assert result.n_unselected == 3
@@ -245,7 +262,12 @@ def test_a_restatement_beyond_the_old_threshold_lands_last_wins_and_is_flagged(s
     conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
     restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]  # 5 % > 2 %
     result = apply_raw_contract(
-        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        conn,
+        restated,
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
     )
     assert result.n_changed == 30 and len(selections) == 1
     assert len(conn.starting("INSERT INTO ohlcv_raw")) == 1
@@ -265,7 +287,12 @@ def test_a_small_window_restatement_lands_and_is_not_flagged(selections):
     conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
     restated = [_raw(i, close=12.0) if i < 10 else _raw(i) for i in range(78)]  # 78 < 500
     result = apply_raw_contract(
-        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        conn,
+        restated,
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
     )
     assert result.n_changed == 10 and result.flagged == ()
     assert not [s for s, _ in conn.statements if s == contract._INSERT_FLAG_SQL]
@@ -277,7 +304,73 @@ def test_a_cross_vendor_series_and_a_restated_series_both_land(selections):
     restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
     alpaca = [_raw(i, vendor="alpaca", kind="sip_rth") for i in range(5)]
     result = apply_raw_contract(
-        conn, restated + alpaca, caller="x", request_id=_REQUEST, params=_RAW_PARAMS
+        conn,
+        restated + alpaca,
+        caller="x",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
     )
     assert result.n_new == 5 and result.n_changed == 30
     assert len(conn.starting("INSERT INTO ohlcv_raw")) == 2 and len(selections) == 1
+
+
+# --- last-wins by serve time and the basis-change gate (fourth review of 191-07) -------------
+
+
+def test_an_older_offer_is_superseded_counted_on_the_load_and_kept_out_of_the_detector(
+    selections,
+):
+    ibkr = [_raw(i) for i in range(600)]
+    later = _ANSWERED + timedelta(hours=6)
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr, served_at=later)})
+    replay = [_raw(i, close=12.0) for i in range(600)]  # an old artifact, answered earlier
+    result = apply_raw_contract(
+        conn,
+        replay,
+        caller="alpaca-5m-load",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
+    )
+    assert (result.n_changed, result.n_superseded, result.flagged) == (0, 600, ())
+    assert conn.starting("INSERT INTO ohlcv_raw") == []
+    ((_, revision),) = conn.starting("INSERT INTO ohlcv_revision")
+    assert {revision[i + 13] for i in range(0, len(revision), 14)} == {"superseded"}
+    load = conn.starting("INSERT INTO ohlcv_load")[0][1]
+    assert load[18] == 600 and "superseded" in load[12]
+
+
+def test_a_split_re_serve_is_a_basis_flag(selections):
+    ibkr = [_raw(i) for i in range(78)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    split = [
+        RawRow(r.timestamp, r.symbol, r.timeframe, r.vendor, r.kind, 5.0, 5.5, 4.5, 5.25, 200)
+        for r in ibkr
+    ]
+    result = apply_raw_contract(
+        conn,
+        split,
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
+    )
+    assert result.n_changed == 78 and result.n_basis_flagged == 1
+    (flagged,) = result.flagged
+    assert flagged.restatement.basis_change and "price_ratio" in flagged.restatement.signatures
+
+
+def test_a_share_only_flag_is_no_basis_flag(selections):
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=10.51) if i < 30 else _raw(i) for i in range(600)]
+    result = apply_raw_contract(
+        conn,
+        restated,
+        caller="x",
+        request_id=_REQUEST,
+        answered_at=_ANSWERED,
+        params=_RAW_PARAMS,
+    )
+    assert len(result.flagged) == 1 and result.n_basis_flagged == 0

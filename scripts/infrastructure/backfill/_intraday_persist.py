@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -77,7 +78,7 @@ class PersistResult:
 
 
 # ohlcv_request row layout (services/ohlcv_request_writer._REQUEST_COLUMNS).
-_REQ_ID, _REQ_OUTCOME, _REQ_N_BARS = 0, 11, 14
+_REQ_ID, _REQ_OUTCOME, _REQ_N_BARS, _REQ_ANSWERED_AT = 0, 11, 14, 18
 _REQUEST_COLUMNS_WITHOUT_DIGEST = REQUEST_ROW_WIDTH
 
 
@@ -89,6 +90,7 @@ def persist_chunk_atomically(
     coverage: CoverageDelta | None = None,
     caller: str = DEFAULT_CALLER,
     request_id: uuid.UUID | None = None,
+    answered_at: datetime | None = None,
     params: RawContractParams | None = None,
 ) -> PersistResult:
     """Commit one fetched chunk's raw rows, its request rows and (when `coverage` is given) its
@@ -97,15 +99,25 @@ def persist_chunk_atomically(
     `request_id` names the ohlcv_request that served the raw rows (lineage); by default it is the
     chunk's answering request (the last request row that answered with bars, else the last row),
     and a chunk with no request rows (a loader) gets a fresh id. `params` is the contract's
-    pre-read settings (a loader reads them once, the fetcher lets each chunk read them). Raises with the transaction rolled
-    back if any write fails: no answer is recorded without its bars, no bars land without their
-    answer, and the ledger never moves without both. A refused chunk does not raise; see the
-    module docstring.
+    pre-read settings (a loader reads them once, the fetcher lets each chunk read them).
+    `answered_at` is when the vendor answered the chunk, the served_at of its raw rows and the
+    serve time last-wins orders by (fourth review of plan 191-07, finding 1); by default the
+    answering request row's answered_at. A chunk with raw rows and neither raises before any
+    SQL: the write time is never a serve time. Raises with the transaction rolled back if any
+    write fails: no answer is recorded without its bars, no bars land without their answer, and
+    the ledger never moves without both.
     """
     if not request_rows and not raw_rows:
         return PersistResult(0, 0)
     if coverage is not None:
         _check_rows_match_series(raw_rows, coverage)
+    if raw_rows:
+        answered_at = answered_at or _answering_answered_at(request_rows)
+        if answered_at is None:
+            raise ValueError(
+                "persist_chunk_atomically: raw rows need the vendor's answer time (answered_at "
+                "or an answering request row carrying it)"
+            )
     if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:
         raise RuntimeError(
             "persist_chunk_atomically requires an idle connection: an open caller "
@@ -124,6 +136,7 @@ def persist_chunk_atomically(
                 raw_rows,
                 caller=caller,
                 request_id=request_id or _answering_request_id(request_rows),
+                answered_at=answered_at,
                 params=params,
             )
         with conn.cursor() as cur:
@@ -137,15 +150,28 @@ def persist_chunk_atomically(
     return PersistResult(len(request_rows), len(raw_rows), ingress)
 
 
-def _answering_request_id(request_rows: list[tuple]) -> uuid.UUID:
+def _answering_row(request_rows: list[tuple]) -> tuple | None:
     """The request that served a chunk: the provider reports every request at its outcome point
     and hands the chunk to on_chunk right after, so the last request that answered with bars is
-    the one. A chunk without request rows (a loader's frame) gets a fresh id."""
+    the one (else the last row; None without request rows)."""
     answering = [
         row for row in request_rows if row[_REQ_OUTCOME] == "bars" and row[_REQ_N_BARS] > 0
     ]
     candidates = answering or request_rows
-    return uuid.UUID(str(candidates[-1][_REQ_ID])) if candidates else uuid.uuid4()
+    return candidates[-1] if candidates else None
+
+
+def _answering_request_id(request_rows: list[tuple]) -> uuid.UUID:
+    """The answering request's id; a chunk without request rows (a loader's frame) gets a fresh
+    id."""
+    row = _answering_row(request_rows)
+    return uuid.UUID(str(row[_REQ_ID])) if row is not None else uuid.uuid4()
+
+
+def _answering_answered_at(request_rows: list[tuple]) -> datetime | None:
+    """The answering request's answer time, or None."""
+    row = _answering_row(request_rows)
+    return row[_REQ_ANSWERED_AT] if row is not None else None
 
 
 def chunk_digest(rows: list[RawRow]) -> str:

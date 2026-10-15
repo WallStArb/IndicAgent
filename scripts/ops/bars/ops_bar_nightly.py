@@ -128,10 +128,12 @@ class _NightlySink:
     def __init__(self, sink: RequestSink) -> None:
         self._sink = sink
         self.last_request_id: str | None = None
+        self.last_answered_at: datetime | None = None
 
     def on_request(self, record) -> None:
         self._sink.on_request(record)
         self.last_request_id = record.request_id
+        self.last_answered_at = record.answered_at
 
     def note_partial(self, partial_text: str) -> None:
         if self.last_request_id is None:
@@ -143,19 +145,28 @@ class _NightlySink:
 
 
 def summary_line(summary: dict, *, apply: bool) -> str:
+    status = load_status(
+        apply=apply,
+        unselected=summary["unselected"],
+        basis_flagged=summary.get("basis_flagged", 0),
+    )
     return (
-        f"{load_status(apply=apply, unselected=summary['unselected'])}: "
+        f"{status}: "
         f"{summary['authored']} 5m rows offered to raw, {summary['raw_1d']} 1d rows offered to "
-        f"raw, {summary['errors']} errors, {summary['flagged']} restatement-flagged series, "
+        f"raw, {summary['errors']} errors, {summary['flagged']} restatement-flagged series "
+        f"({summary.get('basis_flagged', 0)} basis-change), "
+        f"{summary.get('superseded', 0)} offers superseded by a newer serve, "
         f"{summary['unselected']} unselected slots, "
         f"{summary.get('partial', 0)} incomplete bars held back"
     )
 
 
 def exit_code(summary: dict) -> int:
-    """Non-zero for an error or an unselected slot (rows that landed in raw with no canonical
-    winner are not a clean night). Restatement flags are reported, never a failure (D-191-N)."""
-    return 1 if summary["errors"] or summary["unselected"] else 0
+    """Non-zero for an error, an unselected slot (rows that landed in raw with no canonical
+    winner are not a clean night) or a basis-change restatement flag (the write landed, D-191-N,
+    but the night is partial until the flag is reviewed; fourth review of 191-07, finding 2). A
+    share-only flag is reported, never a failure."""
+    return 1 if summary["errors"] or summary["unselected"] or summary.get("basis_flagged") else 0
 
 
 async def _run(
@@ -168,6 +179,8 @@ async def _run(
         "raw_1d": 0,
         "errors": 0,
         "flagged": 0,
+        "basis_flagged": 0,
+        "superseded": 0,
         "unselected": 0,
         "partial": 0,
     }
@@ -176,6 +189,7 @@ async def _run(
             try:
                 for timeframe, load_canonical in (("5m", True), ("1d", False)):
                     asked_at = datetime.now(UTC)
+                    sink.last_answered_at = None
                     page = await leaf.fetch_ohlcv(
                         HistoryRequest(
                             symbol=symbol,
@@ -187,6 +201,9 @@ async def _run(
                         ),
                         budget,
                     )
+                    # served_at: the leaf's answer time for this window (its last request),
+                    # else the time the page came back; never the write time
+                    answered_at = sink.last_answered_at or datetime.now(UTC)
                     complete, partial, partial_text = keep_complete(
                         page.bars,
                         timeframe,
@@ -202,10 +219,18 @@ async def _run(
                     frame = _bars_frame(complete)
                     if load_canonical:
                         result = load_series(
-                            conn, policy_5m, symbol, frame, params=params, write=write
+                            conn,
+                            policy_5m,
+                            symbol,
+                            frame,
+                            params=params,
+                            write=write,
+                            answered_at=answered_at,
                         )
                         summary["authored"] += result.n_offered
                         summary["flagged"] += result.n_flagged_series
+                        summary["basis_flagged"] += result.n_basis_flagged
+                        summary["superseded"] += result.n_superseded
                         summary["unselected"] += result.n_unselected
                     elif write and len(frame):
                         result = load_frame(
@@ -216,11 +241,14 @@ async def _run(
                             timeframe="1d",
                             caller=CALLER_1D.format(vendor=policy_5m.vendor),
                             write=True,
+                            answered_at=answered_at,
                             coverage=False,
                             params=params,
                         )
                         summary["raw_1d"] += result.n_offered
                         summary["flagged"] += result.n_flagged_series
+                        summary["basis_flagged"] += result.n_basis_flagged
+                        summary["superseded"] += result.n_superseded
             except Exception as error:  # noqa: BLE001 - one name fails, the night continues
                 summary["errors"] += 1
                 print(f"{symbol}: ERROR {type(error).__name__}: {error}", flush=True)

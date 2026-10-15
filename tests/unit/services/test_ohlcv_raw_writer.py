@@ -23,6 +23,9 @@ T0 = datetime(2026, 10, 12, 14, 30, tzinfo=UTC)
 LOAD = uuid.uuid4()
 REQUEST = uuid.uuid4()
 OLD_REQUEST = uuid.uuid4()
+ANSWERED = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)  # the offer's answer time
+EARLIER = ANSWERED - timedelta(days=3)
+LATER = ANSWERED + timedelta(hours=8)
 
 
 class FakeCursor:
@@ -79,14 +82,24 @@ def _row(i=0, *, vendor="ibkr", kind="named", close=10.0, volume=100, ts=None, *
     )
 
 
-def _stored(row: RawRow, *, close=None, request_id=OLD_REQUEST) -> tuple:
-    return (row.timestamp, row.open, row.high, row.low, close or row.close, row.volume, request_id)
+def _stored(row: RawRow, *, close=None, request_id=OLD_REQUEST, served_at=EARLIER) -> tuple:
+    return (
+        row.timestamp,
+        row.open,
+        row.high,
+        row.low,
+        close or row.close,
+        row.volume,
+        request_id,
+        served_at,
+    )
 
 
 def _write(conn, rows, **kw):
     args = dict(
         load_id=LOAD,
         request_id=REQUEST,
+        answered_at=ANSWERED,
         vendor_codes=VENDORS,
         kind_codes=KINDS,
         batch_rows=50_000,
@@ -102,8 +115,8 @@ def test_new_rows_insert_without_revision():
     (delta,) = _write(conn, [_row(0), _row(1)])
     assert (delta.new, delta.changed, delta.unchanged, delta.n_stored) == (2, 0, 0, 0)
     ((sql, params),) = conn.sql("INSERT INTO ohlcv_raw")
-    assert "ON CONFLICT" not in sql and sql.count("now()") == 2
-    assert params[-2:] == [REQUEST, LOAD]
+    assert "ON CONFLICT" not in sql and "now()" not in sql
+    assert params[10:13] == [ANSWERED, REQUEST, LOAD]  # served_at is the answer time
     assert not conn.sql("INSERT INTO ohlcv_revision")
 
 
@@ -128,7 +141,8 @@ def test_changed_row_replaced_and_old_values_logged():
     ((up_sql, up),) = conn.sql("INSERT INTO ohlcv_raw")
     assert up_sql.count("ON CONFLICT") == 1 and "DO UPDATE" in up_sql
     assert "served_at = EXCLUDED.served_at" in up_sql
-    assert up[-2:] == [REQUEST, LOAD]
+    assert "EXCLUDED.served_at >= ohlcv_raw.served_at" in up_sql  # the guard in SQL as well
+    assert up[-3:] == [ANSWERED, REQUEST, LOAD]
     # revision is written before the replacement; the writer never commits or rolls back
     order = [s for s, _ in conn.cur.executed]
     assert order.index(rev_sql) < order.index(up_sql)
@@ -195,7 +209,7 @@ def test_batches_respect_the_parameter_limit_and_batch_rows():
     conn = FakeConn()
     rows = [_row(i) for i in range(7)]
     _write(conn, rows, batch_rows=3)
-    sizes = [sql.count("now()") for sql, _ in conn.sql("INSERT INTO ohlcv_raw")]
+    sizes = [len(params) // 13 for _, params in conn.sql("INSERT INTO ohlcv_raw")]
     assert sizes == [3, 3, 1]
     big = FakeConn()
     _write(big, [_row(-i) for i in range(6000)], batch_rows=50_000)
@@ -216,7 +230,7 @@ def test_same_key_twice_with_different_values_raises_before_any_sql():
         _write(conn, [_row(0, close=10.0), _row(0, close=11.0)])
     assert conn.cur.executed == []
     with pytest.raises(ValueError, match="twice with different values"):
-        preview_series(conn, [_row(0, close=10.0), _row(0, close=11.0)])
+        preview_series(conn, [_row(0, close=10.0), _row(0, close=11.0)], answered_at=ANSWERED)
     assert conn.cur.executed == []
 
 
@@ -244,7 +258,7 @@ def test_preview_series_matches_write_raw_counts_and_writes_nothing():
     stored = [_stored(_row(0)), _stored(_row(1))]
     rows = [_row(0), _row(1, close=11.0), _row(2)]
     conn = FakeConn(stored)
-    delta = preview_series(conn, rows)
+    delta = preview_series(conn, rows, answered_at=ANSWERED)
     assert (delta.n_stored, delta.new, delta.changed, delta.unchanged) == (2, 1, 1, 1)
     assert [s for s, _ in conn.cur.executed if not s.startswith("SELECT")] == []
     written = _write(FakeConn(stored), rows)[0]
@@ -253,7 +267,9 @@ def test_preview_series_matches_write_raw_counts_and_writes_nothing():
 
 def test_preview_series_refuses_more_than_one_series():
     with pytest.raises(ValueError, match="exactly one series"):
-        preview_series(FakeConn(), [_row(0), _row(1, vendor="alpaca", kind="sip_rth")])
+        preview_series(
+            FakeConn(), [_row(0), _row(1, vendor="alpaca", kind="sip_rth")], answered_at=ANSWERED
+        )
 
 
 def test_each_series_is_locked_before_its_stored_rows_are_read():
@@ -269,47 +285,79 @@ def test_each_series_is_locked_before_its_stored_rows_are_read():
 
 def test_preview_series_locks_the_series_first():
     conn = FakeConn()
-    preview_series(conn, [_row(0)])
+    preview_series(conn, [_row(0)], answered_at=ANSWERED)
     assert "pg_advisory_xact_lock" in conn.cur.executed[0][0]
     assert conn.cur.executed[1][0].startswith('SELECT "timestamp"')
 
 
 def test_preview_reports_the_new_timestamps():
     conn = FakeConn([_stored(_row(0))])
-    delta = preview_series(conn, [_row(0), _row(1)])
+    delta = preview_series(conn, [_row(0), _row(1)], answered_at=ANSWERED)
     assert delta.new_timestamps == (_row(1).timestamp,)
 
 
-# --- write_raw repair mode (the one-time release of the held offers, D-191-N) -------------------------
+# --- last-wins by serve time (fourth review of 191-07, finding 1) ---------------------------
 
 
-def test_repair_mode_writes_a_null_request_id_and_still_logs_the_replaced_value():
-    accepted = _row(0, close=10.0)
-    conn = FakeConn([_stored(_row(0), close=10.5, request_id=None)])
-    (delta,) = _write(conn, [accepted], request_id=None, repair=True)
-    assert (delta.new, delta.changed) == (0, 1)
+def test_an_older_answer_offered_after_a_newer_one_leaves_raw_unchanged_and_logs_the_offer():
+    # raw holds the nightly's answer served LATER; a replayed artifact answered earlier offers
+    # the old value: raw keeps the newer answer, the offer is a superseded revision
+    newer = _row(0, close=10.0)
+    replay = _row(0, close=12.0)
+    conn = FakeConn([_stored(newer, served_at=LATER)])
+    (delta,) = _write(conn, [replay])
+    assert (delta.new, delta.changed, delta.unchanged, delta.superseded) == (0, 0, 0, 1)
+    assert delta.superseded_timestamps == (replay.timestamp,) and delta.changed_old == {}
+    assert not conn.sql("INSERT INTO ohlcv_raw")
     ((_, rev),) = conn.sql("INSERT INTO ohlcv_revision")
-    assert rev[7] == 10.5 and rev[-1] == "raw"
-    ((_, up),) = conn.sql("INSERT INTO ohlcv_raw")
-    assert up[-2:] == [None, LOAD]
+    assert rev[4:9] == [9.0, 11.0, 8.5, 12.0, 100]  # the offered (older) value
+    assert rev[-2:] == [REQUEST, "superseded"]
 
 
-def test_repair_mode_still_needs_the_load_id():
-    with pytest.raises(ValueError, match="load_id"):
-        _write(FakeConn(), [_row()], load_id=None, request_id=None, repair=True)
+def test_a_newer_answer_replaces_and_an_equal_serve_time_replaces():
+    for stored_at in (EARLIER, ANSWERED, None):
+        conn = FakeConn([_stored(_row(0), close=10.0, served_at=stored_at)])
+        (delta,) = _write(conn, [_row(0, close=12.0)])
+        assert (delta.changed, delta.superseded) == (1, 0), stored_at
 
 
-# --- served_at on repairs -------------
+def test_one_chunk_splits_replaced_and_superseded_rows_by_each_stored_serve_time():
+    conn = FakeConn(
+        [
+            _stored(_row(0), close=10.0, served_at=EARLIER),
+            _stored(_row(1), close=10.0, served_at=LATER),
+        ]
+    )
+    (delta,) = _write(conn, [_row(0, close=12.0), _row(1, close=12.0), _row(2)])
+    assert (delta.new, delta.changed, delta.superseded) == (1, 1, 1)
+    ((_, revs),) = conn.sql("INSERT INTO ohlcv_revision")
+    assert [revs[13], revs[27]] == ["raw", "superseded"]  # 14 columns per revision row
+    preview = preview_series(
+        FakeConn(
+            [
+                _stored(_row(0), close=10.0, served_at=EARLIER),
+                _stored(_row(1), close=10.0, served_at=LATER),
+            ]
+        ),
+        [_row(0, close=12.0), _row(1, close=12.0), _row(2)],
+        answered_at=ANSWERED,
+    )
+    assert (preview.new, preview.changed, preview.superseded) == (1, 1, 1)
 
 
-def test_a_repair_carries_the_serve_time_of_the_answer_not_its_write_time():
-    served = datetime(2026, 10, 12, 23, 23, tzinfo=UTC)
-    conn = FakeConn([_stored(_row(0), close=10.5, request_id=None)])
-    _write(conn, [_row(0)], request_id=None, repair=True, served_at={T0: served})
-    ((sql, params),) = conn.sql("INSERT INTO ohlcv_raw")
-    assert "now()" not in sql and params[10] == served and params[-2:] == [None, LOAD]
+@pytest.mark.parametrize("bad", [None, datetime(2026, 10, 12, 19, 55)])
+def test_the_answer_time_is_required_and_tz_aware(bad):
+    conn = FakeConn()
+    with pytest.raises(ValueError, match="answered_at"):
+        _write(conn, [_row(0)], answered_at=bad)
+    assert conn.cur.executed == []
 
 
-def test_served_at_is_repair_only():
-    with pytest.raises(ValueError, match="repair-only"):
-        _write(FakeConn(), [_row()], served_at={T0: NOW})
+def test_an_answer_time_in_the_future_raises():
+    with pytest.raises(ValueError, match="future"):
+        _write(FakeConn(), [_row(0)], answered_at=NOW + timedelta(hours=2))
+
+
+def test_the_repair_mode_is_gone():
+    with pytest.raises(TypeError):
+        _write(FakeConn(), [_row()], repair=True)

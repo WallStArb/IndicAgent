@@ -51,6 +51,8 @@ class LoadResult:
     n_unchanged: int = 0
     n_unselected: int = 0
     n_flagged_series: int = 0  # series the restatement detector flagged (written all the same)
+    n_basis_flagged: int = 0  # of those, flagged with a basis-change signature: run is partial
+    n_superseded: int = 0  # offers older than the stored answer: logged, raw unchanged
 
     def plus(self, ingress: IngressResult | None) -> LoadResult:
         if ingress is None:
@@ -62,18 +64,24 @@ class LoadResult:
             self.n_unchanged + ingress.n_unchanged,
             self.n_unselected + ingress.n_unselected,
             self.n_flagged_series + len(ingress.flagged),
+            self.n_basis_flagged + ingress.n_basis_flagged,
+            self.n_superseded + ingress.n_superseded,
         )
 
 
-def load_status(*, apply: bool, unselected: int = 0) -> str:
+def load_status(*, apply: bool, unselected: int = 0, basis_flagged: int = 0) -> str:
     """The run's status word: APPLIED only when no landed slot lacks a canonical winner (an
     unselected slot means the policy ranks no vendor that holds it: the rows are in raw,
-    canonical has nothing there). Restatements are written last-wins and flagged, never held
-    (D-191-N), so they do not change the status."""
+    canonical has nothing there) and no series carries a basis-change flag. Restatements are
+    written last-wins and flagged, never held (D-191-N); a share-only flag is informational, a
+    basis-change flag (a common price or volume multiple, a time shift) makes the run partial
+    until ops_restatement_review.py marks it reviewed (fourth review of 191-07, finding 2)."""
     if not apply:
         return "PLANNED"
     if unselected:
         return "UNSELECTED (landed in raw, no canonical winner, see bar_source_policy)"
+    if basis_flagged:
+        return "PARTIAL (basis-change restatement flagged, review with ops_restatement_review.py)"
     return "APPLIED"
 
 
@@ -114,6 +122,7 @@ def load_frame(
     timeframe: str,
     caller: str,
     write: bool,
+    answered_at: datetime | None = None,
     coverage: bool = True,
     params: RawContractParams | None = None,
     chunk_rows: int = CHUNK_ROWS,
@@ -122,12 +131,17 @@ def load_frame(
     """Offer one vendor frame to ohlcv_raw in chunks, one transaction per chunk; a dry run
     (`write` False) plans nothing beyond the offered count.
 
-    `coverage` adds the same-transaction ohlcv_coverage upsert for the series (labeled with the
-    vendor); a raw-only capture such as the nightly 1d passes False. Rerunning is idempotent: an
-    unchanged row writes nothing.
+    `answered_at` is when the vendor answered the frame (the nightly's request answer time, a
+    campaign artifact's recorded fetch time), required for a write: raw is last-wins by serve
+    time, so replaying an old artifact after a newer serve logs the older values as superseded
+    and leaves raw unchanged. `coverage` adds the same-transaction ohlcv_coverage upsert for the
+    series (labeled with the vendor); a raw-only capture such as the nightly 1d passes False.
+    Rerunning is idempotent: an unchanged row writes nothing.
     """
     if not write:
         return LoadResult(n_offered=len(frame))
+    if answered_at is None:
+        raise ValueError(f"load_frame {symbol}: a write needs the vendor's answer time")
     rows = frame_to_raw_rows(frame, symbol, vendor=vendor, timeframe=timeframe)
     result = LoadResult()
     for start in range(0, len(rows), chunk_rows):
@@ -137,6 +151,7 @@ def load_frame(
             request_rows=[],
             raw_rows=chunk,
             caller=caller,
+            answered_at=answered_at,
             params=params,
             coverage=(
                 CoverageDelta(
@@ -163,13 +178,15 @@ def load_series(
     frame: pd.DataFrame,
     *,
     write: bool,
+    answered_at: datetime | None = None,
     params: RawContractParams | None = None,
     chunk_rows: int = CHUNK_ROWS,
     on_chunk=None,
 ) -> LoadResult:
     """Load one symbol's frame under a policy; a dry run plans only the offered count. The
-    frame must carry a tz-aware UTC `t` column plus the OHLCV columns. Everything vendor-blind
-    is the engine; the policy only names the writer."""
+    frame must carry a tz-aware UTC `t` column plus the OHLCV columns, and a write the vendor's
+    answer time (`load_frame`). Everything vendor-blind is the engine; the policy only names
+    the writer."""
     return load_frame(
         conn,
         symbol,
@@ -178,6 +195,7 @@ def load_series(
         timeframe=policy.timeframe,
         caller=policy.caller,
         write=write,
+        answered_at=answered_at,
         params=params,
         chunk_rows=chunk_rows,
         on_chunk=on_chunk,

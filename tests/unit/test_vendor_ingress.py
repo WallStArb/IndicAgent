@@ -65,3 +65,14 @@ def test_stamp_floor_matches_timeframe_vocabulary() -> None:
     assert stamp_floor("1m") == "1min"
     with pytest.raises(KeyError):
         stamp_floor("1d")
+
+
+def test_an_artifact_reports_its_recorded_fetch_time_not_the_load_time(tmp_path) -> None:
+    # fourth review of 191-07, finding 1: a replayed artifact keeps its own serve time
+    import os
+    from datetime import UTC, datetime
+
+    _write_parquet(tmp_path, "SPY", ["2026-10-09T13:30:00Z"])
+    fetched = datetime(2026, 10, 9, 21, 5, tzinfo=UTC)
+    os.utime(tmp_path / "SPY_5Min.parquet", (fetched.timestamp(), fetched.timestamp()))
+    assert vendor_ingress("alpaca", "5m").answered_at(tmp_path, "SPY") == fetched

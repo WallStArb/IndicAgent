@@ -34,13 +34,31 @@ def _frame(rows: list[str]) -> pd.DataFrame:
     )
 
 
+ANSWERED = pd.Timestamp("2026-10-09 21:00", tz="UTC").to_pydatetime()
+
+
+def test_a_write_without_the_answer_time_raises(persisted) -> None:
+    # fourth review of 191-07, finding 1: served_at is never the load time
+    frame = _frame(["2026-10-09 13:30:00"])
+    with pytest.raises(ValueError, match="answer time"):
+        load_series(object(), POLICY, "SPY", frame, write=True)
+    assert persisted.calls == []
+
+
 @pytest.fixture
 def persisted(monkeypatch):
     """persist_chunk_atomically replaced by a recorder; every row lands new."""
     state = type("State", (), {"calls": []})()
 
     def fake(conn, *, request_rows, raw_rows, coverage=None, caller, params=None, **kw):
-        state.calls.append({"rows": list(raw_rows), "coverage": coverage, "caller": caller})
+        state.calls.append(
+            {
+                "rows": list(raw_rows),
+                "coverage": coverage,
+                "caller": caller,
+                "answered_at": kw.get("answered_at"),
+            }
+        )
         return PersistResult(
             0,
             len(raw_rows),
@@ -77,8 +95,9 @@ def test_five_minute_is_not_derivation_owned_and_the_grid_helpers_are_gone() -> 
 
 def test_every_row_is_offered_regardless_of_session_grid_or_other_sources(persisted) -> None:
     frame = _frame(["2026-10-09 12:00:00", "2026-10-09 13:30:00", "2026-10-09 13:35:00"])
-    result = load_series(object(), POLICY, "SPY", frame, write=True)
+    result = load_series(object(), POLICY, "SPY", frame, write=True, answered_at=ANSWERED)
     (call,) = persisted.calls
+    assert call["answered_at"] == ANSWERED  # the artifact's answer time is the serve time
     assert len(call["rows"]) == 3  # pre-market included; nothing consulted another source
     assert (result.n_offered, result.n_new) == (3, 3)
 
@@ -98,6 +117,7 @@ def test_chunks_commit_separately_and_coverage_names_the_vendor(persisted) -> No
         "SPY",
         frame,
         write=True,
+        answered_at=ANSWERED,
         chunk_rows=3,
         on_chunk=lambda a, b: progress.append((a, b)),
     )
@@ -117,6 +137,7 @@ def test_load_frame_without_coverage_is_a_raw_only_capture(persisted) -> None:
         timeframe="1d",
         caller="x-1d",
         write=True,
+        answered_at=ANSWERED,
         coverage=False,
     )
     assert persisted.calls[0]["coverage"] is None and persisted.calls[0]["caller"] == "x-1d"

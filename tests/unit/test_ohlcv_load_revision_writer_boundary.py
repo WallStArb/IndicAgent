@@ -46,7 +46,6 @@ _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
 
 _BACKFILL = "scripts/ops/bars/ops_raw_backfill.py"
-_RELEASE = "scripts/ops/bars/ops_pending_release.py"
 
 # table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
 # records: sources MAY overlap between writers now (vendor names are shared by the ingress
@@ -76,13 +75,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "restatement ordinal) with destination raw, outcome applied, caller raw-backfill-191 "
             "(phase 191 plan 04, D-191-E).",
         ),
-        _RELEASE: (
-            frozenset({"*"}),
-            frozenset({"pending-release-191"}),
-            "TEMPORARY retire: 191-17. The one-time release of the held offers (D-191-N) records "
-            "one load per series it writes last-wins (destination raw, outcome applied); its raw "
-            "rows and displaced values go through the raw writer.",
-        ),
     },
     "ohlcv_revision": {
         _DERIVATION: (
@@ -94,10 +86,11 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "before they leave market_data_ohlcv (plans 185-31 and 185-38).",
         ),
         _RAW_WRITER: (
-            frozenset({"origin:raw"}),
-            frozenset({"origin:raw"}),
+            frozenset({"origin:raw", "origin:superseded"}),
+            frozenset({"origin:raw", "origin:superseded"}),
             "PERMANENT: the raw writer logs the old values of a vendor's restated ohlcv_raw row "
-            "(origin raw; phase 191 plan 02) under the load row its caller inserted. "
+            "(origin raw; phase 191 plan 02) and an offer older than the stored answer (origin "
+            "superseded; migration 485) under the load row its caller inserted. "
             "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
             "the revision origin, not a caller.",
         ),
@@ -106,13 +99,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             frozenset({"raw-backfill-191"}),
             "TEMPORARY retire: 191-17. The --revisions mode writes the superseded observation "
             "value runs as origin raw revisions under raw-backfill-191 loads (phase 191 plan 04).",
-        ),
-        _RELEASE: (
-            frozenset({"origin:pending"}),
-            frozenset({"origin:pending"}),
-            "TEMPORARY retire: 191-17. The one-time release of the held offers (D-191-N) deletes "
-            "each pending row whose offer it wrote to raw and turns a superseded one into an "
-            "ordinary revision (origin raw); migration 481 then retires the pending origin.",
         ),
     },
 }
@@ -177,10 +163,3 @@ def test_the_pattern_catches_each_write_form():
     assert pattern.search('conn.copy_records_to_table("ohlcv_revision", records=r)')
     assert not pattern.search("SELECT * FROM ohlcv_revision")
     assert not pattern.search("JOIN ohlcv_revision r ON r.load_id = l.load_id")
-
-
-def test_the_release_caller_is_the_literal_the_module_writes_and_no_other_writer_uses_it():
-    release = (_REPO_ROOT / _RELEASE).read_text()
-    assert 'CALLER = "pending-release-191"' in release
-    for module in (_INGRESS, _BACKFILL, _DERIVATION):
-        assert "pending-release-191" not in (_REPO_ROOT / module).read_text()

@@ -9,14 +9,19 @@ answers (`RawRow`, vendor and kind decided by the caller from what the vendor se
 1. classifies the offer against the SAME series' stored raw rows (new, changed or unchanged by
    exact value; a bar missing from an answer is not a deletion; another vendor's row at the slot
    is a different key and never a revision);
-2. writes the ohlcv_load row and the raw rows last-wins: a vendor's own re-serve always replaces
-   its stored value and the old value goes to ohlcv_revision (origin raw), so every overwrite is
-   recoverable (owner decision 2026-10-14, D-191-N: no load-level refusal, nothing held);
-3. runs the restatement detector (src/intelligence/bars/restatement.py) over the overlap: a load
-   whose changed share exceeds the APR flag share, or whose changes carry a basis-change
-   signature (a near-constant price ratio, a one-bar time shift), is logged as a warning, counted
-   on the `ohlcv_restatement_flags_total` metric and recorded in ohlcv_restatement_flag for
-   review. It never blocks the write;
+2. writes the ohlcv_load row and the raw rows last-wins by serve time: a vendor's own re-serve
+   answered at or after the stored row's served_at replaces it and the old value goes to
+   ohlcv_revision (origin raw), so every overwrite is recoverable (owner decision 2026-10-14,
+   D-191-N: no load-level refusal, nothing held); an offer older than the stored answer (an
+   artifact replay) leaves raw unchanged and is logged as origin superseded (fourth review of
+   plan 191-07, finding 1). `answered_at` is the vendor's answer time, never the write time;
+3. runs the restatement detector (src/intelligence/bars/restatement.py) over the rows the load
+   replaces: a load whose changed share exceeds the APR flag share, or whose changes carry a
+   basis-change signature (a common price or volume multiple, a one-bar time shift), is logged
+   as a warning, counted on the `ohlcv_restatement_flags_total` metric and recorded in
+   ohlcv_restatement_flag for review. It never blocks the write; a basis-change flag makes the
+   caller's run partial (`IngressResult.n_basis_flagged`) and fails the selection gate until it
+   is reviewed (scripts/ops/bars/ops_restatement_review.py);
 4. runs canonical selection over the touched span for direct timeframes
    (services/bar_selection.py).
 
@@ -99,8 +104,8 @@ _BAR = {
 _INSERT_LOAD_SQL = (
     "INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, "
     "outcome, n_bars, n_new, n_changed, first_bar, last_bar, detail, caller, destination, "
-    "n_unchanged, n_removed, n_archived) "
-    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    "n_unchanged, n_removed, n_archived, n_superseded) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 )
 _INSERT_FLAG_SQL = (
     "INSERT INTO ohlcv_restatement_flag (load_id, symbol, timeframe, vendor, kind, n_stored, "
@@ -125,6 +130,7 @@ class SeriesLoad:
     n_unchanged: int
     first_bar: date
     last_bar: date
+    n_superseded: int = 0
 
 
 def read_detector_params(cur: Any) -> DetectorParams:
@@ -186,6 +192,7 @@ def _record_load(
             load.n_unchanged,
             0,
             0,
+            load.n_superseded,
         ),
     )
 
@@ -243,6 +250,13 @@ class IngressResult:
     # hide: the offered rows are in raw, canonical has no row for them).
     n_unselected: int = 0
     flagged: tuple[FlaggedSeries, ...] = ()
+    # changed offers older than the stored answer: logged as superseded, raw untouched
+    n_superseded: int = 0
+
+    @property
+    def n_basis_flagged(self) -> int:
+        """Series flagged with a basis-change signature: the run is partial (finding 2)."""
+        return sum(1 for flag in self.flagged if flag.restatement.basis_change)
 
 
 def read_raw_params(cur: Any) -> RawContractParams:
@@ -286,14 +300,15 @@ def read_raw_params(cur: Any) -> RawContractParams:
 
 
 def _stored_at_offer(rows: list[RawRow], delta: RawDelta) -> dict[datetime, tuple]:
-    """The vendor's stored values at the offered keys: the old value of a changed row, the
-    offered value of an unchanged one; a new key has none."""
-    new = set(delta.new_timestamps)
+    """The vendor's stored values at the offered keys the load writes or confirms: the old value
+    of a replaced row, the offered value of an unchanged one; a new key has none, and a
+    superseded offer is left out (it changes nothing in raw)."""
+    skip = set(delta.new_timestamps) | set(delta.superseded_timestamps)
     stored: dict[datetime, tuple] = {}
     for row in rows:
         if row.timestamp in delta.changed_old:
             stored[row.timestamp] = tuple(delta.changed_old[row.timestamp])
-        elif row.timestamp not in new:
+        elif row.timestamp not in skip:
             stored[row.timestamp] = (row.open, row.high, row.low, row.close, row.volume)
     return stored
 
@@ -304,9 +319,11 @@ def apply_raw_contract(
     *,
     caller: str,
     request_id: uuid.UUID,
+    answered_at: datetime,
     params: RawContractParams | None = None,
 ) -> IngressResult:
-    """Record one chunk of vendor answers in ohlcv_raw last-wins, then select canonical rows.
+    """Record one chunk of vendor answers in ohlcv_raw last-wins by serve time, then select
+    canonical rows. `answered_at` is when the vendor answered the chunk (module docstring).
 
     Per (symbol, timeframe, vendor, kind) series, in one transaction on the caller's connection:
     `preview_series` classifies the offer against the vendor's OWN stored raw rows (the counts
@@ -327,7 +344,7 @@ def apply_raw_contract(
     for row in rows:
         by_series[(row.symbol, row.timeframe, row.vendor, row.kind)].append(row)
 
-    n_new = n_changed = n_unchanged = 0
+    n_new = n_changed = n_unchanged = n_superseded = 0
     new_timestamps: list[datetime] = []
     flagged: list[FlaggedSeries] = []
     spans: dict[tuple[str, str], list[datetime]] = defaultdict(list)
@@ -335,9 +352,14 @@ def apply_raw_contract(
         stamps = sorted({r.timestamp for r in series_rows})
         # The role may INSERT an ohlcv_load row but not UPDATE it, so the counts are known
         # before the row is written; write_raw (below) then records the same findings.
-        delta = preview_series(conn, series_rows)
+        delta = preview_series(conn, series_rows, answered_at=answered_at)
         latest = {r.timestamp: r for r in series_rows}
-        offered = {ts: (r.open, r.high, r.low, r.close, r.volume) for ts, r in latest.items()}
+        older = set(delta.superseded_timestamps)
+        offered = {
+            ts: (r.open, r.high, r.low, r.close, r.volume)
+            for ts, r in latest.items()
+            if ts not in older
+        }
         restatement = detect(
             offered,
             _stored_at_offer(list(latest.values()), delta),
@@ -357,9 +379,15 @@ def apply_raw_contract(
             n_unchanged=delta.unchanged,
             first_bar=_utc_date(stamps[0]),
             last_bar=_utc_date(stamps[-1]),
+            n_superseded=delta.superseded,
         )
         load_id = uuid.uuid4()
-        detail = f"restatement flagged: {restatement.detail()}" if restatement.flagged else None
+        notes = []
+        if restatement.flagged:
+            notes.append(f"restatement flagged: {restatement.detail()}")
+        if delta.superseded:
+            notes.append(f"{delta.superseded} offers older than the stored answer superseded")
+        detail = "; ".join(notes) or None
         with conn.cursor() as cur:
             _record_load(cur, load, outcome=OUTCOME_APPLIED, detail=detail, load_id=load_id)
         (written,) = write_raw(
@@ -367,20 +395,18 @@ def apply_raw_contract(
             series_rows,
             load_id=load_id,
             request_id=request_id,
+            answered_at=answered_at,
             vendor_codes=params.vendor_codes,
             kind_codes=params.kind_codes,
             batch_rows=params.write.batch_rows,
             future_tolerance_s=params.write.future_tolerance_s,
         )
-        if (written.new, written.changed, written.unchanged) != (
-            delta.new,
-            delta.changed,
-            delta.unchanged,
-        ):
+        found = (written.new, written.changed, written.unchanged, written.superseded)
+        previewed = (delta.new, delta.changed, delta.unchanged, delta.superseded)
+        if found != previewed:
             raise RuntimeError(
                 f"raw write disagrees with its preview for {symbol} {timeframe} {vendor} {kind}: "
-                f"{(written.new, written.changed, written.unchanged)} vs "
-                f"{(delta.new, delta.changed, delta.unchanged)}"
+                f"{found} vs {previewed}"
             )
         if restatement.flagged:
             with conn.cursor() as cur:
@@ -416,6 +442,7 @@ def apply_raw_contract(
         n_new += delta.new
         n_changed += delta.changed
         n_unchanged += delta.unchanged
+        n_superseded += delta.superseded
         new_timestamps.extend(delta.new_timestamps)
         spans[(symbol, timeframe)].extend(stamps)
 
@@ -449,4 +476,5 @@ def apply_raw_contract(
         new_timestamps=tuple(sorted(new_timestamps)),
         n_unselected=unselected,
         flagged=tuple(flagged),
+        n_superseded=n_superseded,
     )

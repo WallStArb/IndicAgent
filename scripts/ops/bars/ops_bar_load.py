@@ -11,6 +11,12 @@ one campaign loader.
 
 Dry run is the default: without --apply this plans and prints, writing
 nothing.
+
+Each artifact is offered with its recorded fetch time (the seam's
+``answered_at``), so raw stays last-wins by serve time: replaying an
+artifact after the nightly re-served a key logs the older value as
+superseded and leaves raw unchanged. A basis-change restatement flag makes
+the run PARTIAL and exits 1, like an unselected slot.
 """
 
 from __future__ import annotations
@@ -50,7 +56,7 @@ def main() -> int:
     artifacts = ingress.read_artifacts(artifact_dir, symbols=args.symbols)
     symbols = args.symbols or sorted(artifacts)
 
-    total = new = unchanged = flagged = unselected = 0
+    total = new = unchanged = flagged = basis = superseded = unselected = 0
 
     # autocommit: persist_chunk_atomically demands an IDLE connection so its
     # per-chunk conn.transaction() owns BEGIN/COMMIT (psycopg's `with conn:`
@@ -65,17 +71,31 @@ def main() -> int:
             if frame is None:
                 print(f"{symbol}: no artifact, skipping", flush=True)
                 continue
-            result = load_series(conn, policy, symbol, frame, params=params, write=args.apply)
+            # the artifact's recorded fetch time: an old artifact never overwrites a newer serve
+            answered_at = ingress.answered_at(artifact_dir, symbol)
+            result = load_series(
+                conn,
+                policy,
+                symbol,
+                frame,
+                params=params,
+                write=args.apply,
+                answered_at=answered_at,
+            )
             total += result.n_offered
             new += result.n_new + result.n_changed
             unchanged += result.n_unchanged
             flagged += result.n_flagged_series
+            basis += result.n_basis_flagged
+            superseded += result.n_superseded
             unselected += result.n_unselected
             if args.apply:
                 print(
-                    f"{symbol}: offered {result.n_offered} ({result.n_new} new, "
-                    f"{result.n_changed} changed, {result.n_unchanged} unchanged, "
-                    f"{result.n_flagged_series} flagged, {result.n_unselected} unselected)",
+                    f"{symbol}: offered {result.n_offered} answered {answered_at.isoformat()} "
+                    f"({result.n_new} new, {result.n_changed} changed, "
+                    f"{result.n_unchanged} unchanged, {result.n_superseded} superseded, "
+                    f"{result.n_flagged_series} flagged, {result.n_basis_flagged} basis-change, "
+                    f"{result.n_unselected} unselected)",
                     flush=True,
                 )
             else:
@@ -84,12 +104,13 @@ def main() -> int:
     finally:
         conn.close()
 
-    mode = load_status(apply=args.apply, unselected=unselected)
+    mode = load_status(apply=args.apply, unselected=unselected, basis_flagged=basis)
     print(
         f"{mode}: {total} rows offered, {new} written, {unchanged} unchanged, "
-        f"{flagged} restatement-flagged series, {unselected} unselected"
+        f"{superseded} superseded by a newer serve, {flagged} restatement-flagged series "
+        f"({basis} basis-change), {unselected} unselected"
     )
-    return 1 if unselected else 0
+    return 1 if unselected or basis else 0
 
 
 if __name__ == "__main__":

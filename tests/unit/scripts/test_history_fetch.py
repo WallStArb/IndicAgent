@@ -36,8 +36,15 @@ class TestStoreBars:
 
         calls = []
 
-        def fake(conn, rows, *, caller, request_id, params=None):
-            calls.append({"rows": list(rows), "caller": caller, "request_id": request_id})
+        def fake(conn, rows, *, caller, request_id, answered_at, params=None):
+            calls.append(
+                {
+                    "rows": list(rows),
+                    "caller": caller,
+                    "request_id": request_id,
+                    "answered_at": answered_at,
+                }
+            )
             return IngressResult(len(rows), len(rows), 0, 0, 0)
 
         monkeypatch.setattr(pipe, "apply_raw_contract", fake)
@@ -56,6 +63,7 @@ class TestStoreBars:
         assert call["rows"][0].volume == 1000 and isinstance(call["rows"][0].volume, int)
         assert call["caller"] == "ibkr-history-fetch"
         assert call["request_id"] is not None
+        assert call["answered_at"].tzinfo is not None  # the answer time, never the DB clock
         conn.transaction.assert_called_once()  # the write is one transaction
 
     def test_actual_symbol_stores_under_the_contract_symbol(self, monkeypatch):

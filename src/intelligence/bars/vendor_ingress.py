@@ -14,12 +14,23 @@ Alpaca parquet pulls) and is deliberately not unified behind this seam.
 Pure with respect to the database: artifact paths in, frames out. The
 5min/1min stamp floor derives from the timeframe's own vocabulary, not a
 tunable.
+
+Every artifact also reports when the vendor answered it
+(``answered_at``): raw is last-wins by serve time (fourth review of
+191-07, finding 1), so a replayed artifact must carry its own fetch time,
+never the load time. The Alpaca pull records no answer time inside the
+parquet (todo 535 item 20), so its recorded fetch time is the file's
+modification time: the pull writes the file right after the answer, so
+the mtime is an upper bound within seconds of it, and it only moves if the
+file is rewritten (a copy that does not preserve mtime would make old data
+look new; keep artifacts in place).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -37,14 +48,16 @@ class VendorIngress:
 
     ``read_artifacts`` maps an artifact directory to ``{symbol: frame}``
     with the canonical columns and UTC stamps floored to the timeframe
-    grid. ``artifact_dir`` is the directory a caller means when it names
-    none.
+    grid. ``answered_at`` maps (directory, symbol) to the artifact's
+    recorded fetch time (tz-aware UTC). ``artifact_dir`` is the directory
+    a caller means when it names none.
     """
 
     source: str
     timeframe: str
     artifact_dir: Path
     read_artifacts: Callable[[Path, list[str] | None], dict[str, pd.DataFrame]]
+    answered_at: Callable[[Path, str], datetime]
 
 
 def _read_alpaca_5m(
@@ -69,11 +82,19 @@ def _read_alpaca_5m(
     return frames
 
 
+def _alpaca_5m_answered_at(artifact_dir: Path, symbol: str) -> datetime:
+    """The recorded fetch time of one Alpaca 5m artifact: its modification time (module
+    docstring)."""
+    path = artifact_dir / f"{symbol}_5Min.parquet"
+    return datetime.fromtimestamp(path.stat().st_mtime, UTC)
+
+
 ALPACA_5M = VendorIngress(
     source=SOURCE_ALPACA,
     timeframe="5m",
     artifact_dir=Path("data/scratch/alpaca-pilot/depth"),
     read_artifacts=_read_alpaca_5m,
+    answered_at=_alpaca_5m_answered_at,
 )
 
 _INGRESSES: dict[tuple[str, str], VendorIngress] = {
