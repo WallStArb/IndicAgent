@@ -318,3 +318,111 @@ def test_raw_contract_counts_a_null_volume_winner_with_the_unselected_slots(monk
         params=_RAW_PARAMS,
     )
     assert result.n_unselected == 3
+
+
+# --- a refusal holds against small asks (third review of plan 191-07, finding 2) ------------
+
+_REFUSED_AT = datetime(2026, 10, 12, 12, 14, tzinfo=UTC)
+
+
+class HeldFakeConn(RawFakeConn):
+    """RawFakeConn plus pending holds of a refused load (timestamp -> values) and the loads that
+    wrote the current raw rows (timestamp -> (loaded_at, outcome, destination, caller))."""
+
+    def __init__(self, stored, holds, writers=None) -> None:
+        super().__init__(stored)
+        self.holds = holds
+        self.writers = writers or {}
+
+    def cursor(self):
+        conn = self
+        base = RawFakeConn._Cur(self)
+        execute = base.execute
+
+        def run(sql, params=None):
+            execute(sql, params)
+            if sql == contract._OPEN_HOLDS_SQL:
+                stamps = params[4]
+                base._result = [
+                    (ts, *values, _REFUSED_AT) for ts, values in conn.holds.items() if ts in stamps
+                ]
+            elif sql == contract._RAW_WRITER_AT_SQL:
+                stamps = params[4]
+                base._result = [(ts, *w) for ts, w in conn.writers.items() if ts in stamps]
+
+        base.execute = run
+        return base
+
+
+def _vals(row: RawRow) -> tuple:
+    return (row.open, row.high, row.low, row.close, row.volume)
+
+
+def test_a_one_session_ask_cannot_land_values_a_refused_load_holds(selections):
+    # GE d2adcf51: refused at 40 % over its span; a one-session ask (78 bars, under the 500-row
+    # minimum) serving the same two-decimal values must not land them (old code: accepted)
+    stored = [_raw(i) for i in range(78)]
+    held = {_raw(i).timestamp: _vals(_raw(i, close=10.0)) for i in range(0, 78, 2)}
+    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
+    offer = [_raw(i, close=10.0) if i % 2 == 0 else _raw(i) for i in range(78)]
+    result = apply_raw_contract(
+        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert result.refused and result.n_changed == 0 and result.n_held == 39
+    assert conn.starting("INSERT INTO ohlcv_raw") == [] and selections == []
+    assert {a for *_, a in result.held_answers} == {contract.HELD_OFFER}
+    assert len(result.held_answers) == 39
+    load = conn.starting("INSERT INTO ohlcv_load")[0][1]
+    assert load[6] == "refused" and "explicit decision" in load[12]
+
+
+def test_a_re_serve_of_a_withdrawn_held_key_is_reported_not_landed(selections):
+    # ADM 2026-10-01: raw holds no row (withdrawn), the held offer is pending; the vendor
+    # serves the held value again: verified and reported, still held
+    stored = [_raw(i) for i in range(10)]
+    held = {_raw(10).timestamp: _vals(_raw(10))}
+    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
+    result = apply_raw_contract(
+        conn,
+        [_raw(i) for i in range(11)],
+        caller="ibkr-history-fetch",
+        request_id=_REQUEST,
+        params=_RAW_PARAMS,
+    )
+    assert result.refused and result.n_new == 0
+    assert result.held_answers == (
+        ("ZZ191A", "5m", "ibkr", "named", _raw(10).timestamp, contract.HELD_OFFER),
+    )
+    assert conn.starting("INSERT INTO ohlcv_raw") == []
+
+
+def test_an_ask_serving_the_stored_value_at_a_held_key_is_judged_normally(selections):
+    stored = [_raw(i) for i in range(10)]
+    held = {_raw(3).timestamp: _vals(_raw(3, close=10.0))}
+    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
+    offer = [_raw(i) for i in range(10)] + [_raw(10)]
+    result = apply_raw_contract(
+        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert not result.refused and result.n_new == 1
+    assert [a for *_, a in result.held_answers] == [contract.STORED_VALUE]
+
+
+def test_a_new_value_at_a_held_key_is_refused_and_one_answered_again_holds_nothing(selections):
+    stored = [_raw(i) for i in range(10)]
+    held = {_raw(3).timestamp: _vals(_raw(3, close=10.0))}
+    offer = [_raw(i, close=10.7) if i == 3 else _raw(i) for i in range(10)]
+    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
+    result = apply_raw_contract(
+        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert result.refused and [a for *_, a in result.held_answers] == [contract.NEW_VALUE]
+    # the current raw row was written by an applied raw serve after the refusal: no hold left
+    later = (_REFUSED_AT + timedelta(hours=1), "applied", "raw", "ibkr-history-fetch")
+    conn = HeldFakeConn(
+        {("ibkr", "named"): _stored_raw(stored)}, held, writers={_raw(3).timestamp: later}
+    )
+    result = apply_raw_contract(
+        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+    )
+    assert not result.refused and result.n_changed == 1 and result.held_answers == ()
