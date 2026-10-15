@@ -262,6 +262,10 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     0.0283 over 4,665 stored rows with no corporate action. Canonical equals IBKR raw on every
     shared key, so the rows behind the 2.8% (a source switch or removed rows) need one look;
     by owner direction no per-symbol repair, a shared-code fix or a todo 512 candidate.
+    Measured 2026-10-15 (191-09): the refusal fails the whole daily batch (18:31 UTC run derived
+    1,497 names and 27,455 new rows, wrote none), so canonical 1d ends 2026-10-12 for every name
+    and lineage_missing grows with each IBKR re-serve (2,310 visible bars at 22:30 UTC; GYRE's
+    share is 132 bars of 2015 whose canonical value raw displaced to ohlcv_revision).
 41. Old-store migration tooling left by 191-11 (plan 16 owns): `scripts/ops/bars/ops_raw_backfill.py`
     (the plan 03 backfill; its source is the two old stores) and `ops_selection_gate.locate_groups`
     (plan 04's balance diagnostic) still read `ohlcv_observation` and `ohlcv_intraday_raw_archive`

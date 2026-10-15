@@ -1,42 +1,43 @@
 {
-  "version": "1.0",
-  "timestamp": "2026-10-15T21:10:00Z",
-  "phase": "191",
-  "phase_name": "unified-raw-bar-table",
-  "plan": "191-11 done 2026-10-15; next: fresh-context review of 11, then 191-12 (191-09 still owed)",
-  "status": "in_progress",
-  "completed_tasks": [
-    "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
-    "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
-    "migrations 473 to 484 applied (477 origin pending, retired by 482; 480 bar_session_choice; 481 restatement flag and APR; 483 truncated-bar scan APR; 484 primary slot count)",
-    "191-07 executed and fixed in three rounds; owner decision D-191-N 2026-10-14: vendor re-serves last-wins, old values logged, nothing held, no refusal; restatement detector reports instead",
-    "all 4,652 held offers released last-wins (4,572 written, 80 superseded by a later serve; logs/pending_release_191_apply.json); pending origin retired",
-    "gap planner never counts a refused answer's window as answered; 58 lost IBKR sessions on AGG AVGO BAC BKNG CAT CCJ CRWD EDV EMLC are gaps and on the re-serve list",
-    "bar_session_choice backfilled over 1,551 5m series (3,081,879 choices; 3,060,986 fallback by absence, 354 by shortfall)",
-    "gate --compare over the 57 series exit 0 (0 real, 0 mixed, 0 unrecorded choices), idempotence 0/0, full unit suite passes",
-    "191-08 executed: daily stage (d2-v3) and grid read ohlcv_raw; archive-from-table step and services/intraday_raw_archive.py deleted; D7, ops_source_policy and two research scripts share read_daily_inputs; equivalence --all exits 0 (1,460/1,502 digest-equal in span, 42 explained: identical from raw and observations, canonical behind serves after 2026-10-11); todo 535 items 6 (transport-failure rule, measured), 10, 15, 26 closed; item 30 (ETHA volume basis x3) opened",
-    "191-10 started 2026-10-15: split baseline over all 37 1d SMART TRADES fetch runs with the observation-based code saved to logs/split_baseline_20261015T113603Z.json (gitignored, on disk; 13 detections: 12 CTVA unclassified rescales and ETHA 2026-09-30 1/3 split, all in run 790b2d1d)",
-    "191-10 split_detection reads ohlcv_raw + ohlcv_revision ordered by ohlcv_request.answered_at (9c524c71a): pairing in Python (pair_answers), only names the run changed are read (1 min for all 37 runs), forming earlier answers excluded; detections over all 37 1d runs equal the baseline plus one explained HYG 2007 unexplained restatement (191-10-SPLIT-BASELINE-DIFF.json); WIP patch removed",
-    "191-10 done: split detection, listing venue, bar_hold and the IBKR dividend derivation read ohlcv_raw + ohlcv_revision (9c524c71a 64563cdd1 d0b7713ce); baselines equal (split 13/13 plus one explained HYG 2007 restatement; venue 1,502/1,502; bar_hold 30/30; dividends 39/39 events, span one forming session shorter); M2 Alpaca answer-time metadata + APR bound, migration 487 (a0f2c131b); L1 legacy import stamp (e9e96b2f9); IBKR 4h series deleted as a written data-quality delete, migration 488, todo 512 record, todo 535 items 36-38 (fffa2cd10)",
-    "191-10 review fixes (2026-10-15): legacy import re-stamped to 2026-09-29 (931 requests, 10,098 raw rows, 0 values changed; the review's 212 keys are real SMART answers, kept); superseded offers never pair (e11271811); bar_derivation revision vendor/kind fix (0d9daf04e) after the grid failed 231 names; re-serve run 32c497ca 38/38 ok; grid re-run 231 derived 0 failed; selection gate --compare over the 38 re-served series exit 0; daily stage applied (1,497 derived, canonical 1d to 2026-10-12; GYRE refused, todo 535 item 40); bar-derivation, fetcher pair and dividend units cleared and resumed; fetcher timer re-enabled 2026-10-15 18:41 UTC",
-    "191-11 done (3b23c8c5b 0add3a02d e10b7015d b5d15b92a f1f4dcaa4 6ea305434): R6 rewritten over ohlcv_load destination raw + ohlcv_raw + ohlcv_revision, live exit 0 (191-07 re-judge restamp the one explained class, 352,975 ibkr 5m rows); ops_d1_bootstrap, ops_venue_study, swap_1d_primary_measure, vendor_basis_study deleted after no-caller greps; ops_head_rerun (moved set 90/90 equal, BNO BSY unresolved to verified_empty explained) and ops_source_policy read raw; migration 490 retires infra.bar_campaign.bootstrap_years; services/README updated; bar-aggregator and bar-writer cleared from the window; todo 535 item 41"
-  ],
-  "remaining_tasks": [
-    "Verify the 1d catch-up: at 21:05 UTC canonical 1d still ended 2026-10-12 and raw smart_trades held 2026-10-14 for 381 names; after the fetcher runs finish and the daily stage runs, confirm market_data_ohlcv 1d max date is the latest completed session for the 1d-eligible names; re-run the daily stage changed-only if the fetcher did not derive",
-    "Fresh-context review of 191-11, then fixes",
-    "Plan 191-09 (D7, bar_auditor, canonical_bar_lineage, ohlcv_venue_head over raw); it clears the three units still held (bar-reconciliation-audit timer and service, bar-auditor)",
-    "GYRE daily refusal (todo 535 item 40)",
-    "Plans 12 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint); plan 16 deletes ops_raw_backfill and ops_selection_gate.locate_groups after its last balance (todo 535 item 41)",
-    "Feature rebuild (186-26) runs once, after the 191 selection gate is 0, canonical 1d is caught up and plans 11 to 14 have landed"
-  ],
-  "blockers": [
-    "Cutover window still open for plan 09's units (bar-reconciliation-audit timer and service, bar-auditor; logs/raw_cutover_window.json); the fetcher and its timer are running."
-  ],
-  "human_actions_pending": [
-    "owner acknowledgement of D-191-B, D and G",
-    "plan 20 Tradier deletion checkpoint"
-  ],
-  "uncommitted_files": [],
-  "next_action": "Check the 1d catch-up; then a fresh-context review of 191-11; then 191-12 (or 191-09 first if the window must close before 12's window two).",
-  "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15). Owner 2026-10-15: Alpaca 1d as a second daily source is a post-191 todo. ohlcv_raw compression (migration 486) ran 2026-10-15; check logs/ohlcv_raw_compress_486.log ends DONE."
+ "version": "1.0",
+ "timestamp": "2026-10-15T23:10:00Z",
+ "phase": "191",
+ "phase_name": "unified-raw-bar-table",
+ "plan": "191-09 done 2026-10-15 (window closed); next: fresh-context review of 191-11 and 191-09, then 191-12",
+ "status": "in_progress",
+ "completed_tasks": [
+  "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
+  "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
+  "migrations 473 to 484 applied (477 origin pending, retired by 482; 480 bar_session_choice; 481 restatement flag and APR; 483 truncated-bar scan APR; 484 primary slot count)",
+  "191-07 executed and fixed in three rounds; owner decision D-191-N 2026-10-14: vendor re-serves last-wins, old values logged, nothing held, no refusal; restatement detector reports instead",
+  "all 4,652 held offers released last-wins (4,572 written, 80 superseded by a later serve; logs/pending_release_191_apply.json); pending origin retired",
+  "gap planner never counts a refused answer's window as answered; 58 lost IBKR sessions on AGG AVGO BAC BKNG CAT CCJ CRWD EDV EMLC are gaps and on the re-serve list",
+  "bar_session_choice backfilled over 1,551 5m series (3,081,879 choices; 3,060,986 fallback by absence, 354 by shortfall)",
+  "gate --compare over the 57 series exit 0 (0 real, 0 mixed, 0 unrecorded choices), idempotence 0/0, full unit suite passes",
+  "191-08 executed: daily stage (d2-v3) and grid read ohlcv_raw; archive-from-table step and services/intraday_raw_archive.py deleted; D7, ops_source_policy and two research scripts share read_daily_inputs; equivalence --all exits 0 (1,460/1,502 digest-equal in span, 42 explained: identical from raw and observations, canonical behind serves after 2026-10-11); todo 535 items 6 (transport-failure rule, measured), 10, 15, 26 closed; item 30 (ETHA volume basis x3) opened",
+  "191-10 started 2026-10-15: split baseline over all 37 1d SMART TRADES fetch runs with the observation-based code saved to logs/split_baseline_20261015T113603Z.json (gitignored, on disk; 13 detections: 12 CTVA unclassified rescales and ETHA 2026-09-30 1/3 split, all in run 790b2d1d)",
+  "191-10 split_detection reads ohlcv_raw + ohlcv_revision ordered by ohlcv_request.answered_at (9c524c71a): pairing in Python (pair_answers), only names the run changed are read (1 min for all 37 runs), forming earlier answers excluded; detections over all 37 1d runs equal the baseline plus one explained HYG 2007 unexplained restatement (191-10-SPLIT-BASELINE-DIFF.json); WIP patch removed",
+  "191-10 done: split detection, listing venue, bar_hold and the IBKR dividend derivation read ohlcv_raw + ohlcv_revision (9c524c71a 64563cdd1 d0b7713ce); baselines equal (split 13/13 plus one explained HYG 2007 restatement; venue 1,502/1,502; bar_hold 30/30; dividends 39/39 events, span one forming session shorter); M2 Alpaca answer-time metadata + APR bound, migration 487 (a0f2c131b); L1 legacy import stamp (e9e96b2f9); IBKR 4h series deleted as a written data-quality delete, migration 488, todo 512 record, todo 535 items 36-38 (fffa2cd10)",
+  "191-10 review fixes (2026-10-15): legacy import re-stamped to 2026-09-29 (931 requests, 10,098 raw rows, 0 values changed; the review's 212 keys are real SMART answers, kept); superseded offers never pair (e11271811); bar_derivation revision vendor/kind fix (0d9daf04e) after the grid failed 231 names; re-serve run 32c497ca 38/38 ok; grid re-run 231 derived 0 failed; selection gate --compare over the 38 re-served series exit 0; daily stage applied (1,497 derived, canonical 1d to 2026-10-12; GYRE refused, todo 535 item 40); bar-derivation, fetcher pair and dividend units cleared and resumed; fetcher timer re-enabled 2026-10-15 18:41 UTC",
+  "191-11 done (3b23c8c5b 0add3a02d e10b7015d b5d15b92a f1f4dcaa4 6ea305434): R6 rewritten over ohlcv_load destination raw + ohlcv_raw + ohlcv_revision, live exit 0 (191-07 re-judge restamp the one explained class, 352,975 ibkr 5m rows); ops_d1_bootstrap, ops_venue_study, swap_1d_primary_measure, vendor_basis_study deleted after no-caller greps; ops_head_rerun (moved set 90/90 equal, BNO BSY unresolved to verified_empty explained) and ops_source_policy read raw; migration 490 retires infra.bar_campaign.bootstrap_years; services/README updated; bar-aggregator and bar-writer cleared from the window; todo 535 item 41",
+  "191-09 done: canonical_bar_lineage (migration 491, set join) and ohlcv_venue_head (492) over ohlcv_raw; bar_auditor and D7 read raw + revision (1513a7d50 7ea18274c eccc76745 e20808496); D7 baseline diff at two fixed nows zero unexplained (191-09-D7-BASELINE-DIFF.json); lineage_missing now counts canonical bars raw displaced (2,310 visible, canonical behind); all three held units cleared and resumed 22:52 UTC, window record empty (closed); first raw-based D7 run started 22:52:58 UTC"
+ ],
+ "remaining_tasks": [
+  "Canonical 1d ends 2026-10-12 (latest complete session 2026-10-15): the daily stage's 2026-10-15 18:31 UTC apply failed whole on the GYRE refusal (todo 535 item 40); until it applies, lineage_missing and late_heads (AES, BKNG) report canonical behind raw, and test_d2_single_writer_live's lineage assertion fails live",
+  "Verify the 1d catch-up: at 21:05 UTC canonical 1d still ended 2026-10-12 and raw smart_trades held 2026-10-14 for 381 names; after the fetcher runs finish and the daily stage runs, confirm market_data_ohlcv 1d max date is the latest completed session for the 1d-eligible names; re-run the daily stage changed-only if the fetcher did not derive",
+  "Fresh-context review of 191-11 and 191-09, then fixes",
+  "GYRE daily refusal (todo 535 item 40)",
+  "Plans 12 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint); plan 16 deletes ops_raw_backfill and ops_selection_gate.locate_groups after its last balance (todo 535 item 41)",
+  "Feature rebuild (186-26) runs once, after the 191 selection gate is 0, canonical 1d is caught up and plans 11 to 14 have landed"
+ ],
+ "blockers": [
+  "Daily stage blocked by the GYRE derivation-stage refusal (todo 535 item 40): one refused name fails the whole batch, so canonical 1d does not advance."
+ ],
+ "human_actions_pending": [
+  "owner acknowledgement of D-191-B, D and G",
+  "plan 20 Tradier deletion checkpoint"
+ ],
+ "uncommitted_files": [],
+ "next_action": "Fresh-context review of 191-11 and 191-09; then 191-12. Decide the GYRE refusal (todo 535 item 40) so the daily stage applies and canonical 1d reaches the latest complete session.",
+ "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15). Owner 2026-10-15: Alpaca 1d as a second daily source is a post-191 todo. ohlcv_raw compression (migration 486) ran 2026-10-15; check logs/ohlcv_raw_compress_486.log ends DONE."
 }

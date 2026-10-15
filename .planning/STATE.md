@@ -45,7 +45,7 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 08 done;
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 11 done;
 01 to 07 independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
 191-07-FIXES.md, the third with the owner's last-wins decision D-191-N). Plan 08 (2026-10-15):
 the daily stage and the grid read ohlcv_raw; the rule over raw is digest-equal to canonical 1d
@@ -58,10 +58,13 @@ gate exit 0 over the 38 re-served series, daily stage applied (canonical 1d to 2
 1d catch-up through 2026-10-15 is running in the timer's fetcher runs), fetcher timer on.
 Plan 11 done 2026-10-15 (191-11-SUMMARY.md): R6 over the raw plane exits 0; ops_d1_bootstrap,
 ops_venue_study and the two Tradier research scripts deleted; ops_head_rerun and ops_source_policy
-read raw; migration 490; bar-aggregator and bar-writer cleared; the D7 units and bar-auditor stay
-held for plan 09 (not yet run). 1d catch-up still running at 21:05 UTC (canonical 1d to
-2026-10-12; raw 2026-10-14 for 381 names). Next: fresh-context review of 11, then 12 (plan 09
-still owed before the window closes). The feature rebuild (186-26) runs once, after the gate
+read raw; migration 490; bar-aggregator and bar-writer cleared.
+Plan 09 done 2026-10-15 (191-09-SUMMARY.md): D7, bar_auditor, canonical_bar_lineage (migration
+491) and ohlcv_venue_head (492) read ohlcv_raw; D7 baseline diff zero unexplained; the three held
+units cleared and resumed 22:52 UTC, cutover window closed. Canonical 1d ends 2026-10-12 (latest
+complete session 2026-10-15): the 2026-10-15 daily apply failed whole on the GYRE refusal (todo
+535 item 40), so lineage_missing now reports about 2,300 canonical bars behind raw. Next:
+fresh-context review of 11 and 09, then 12. The feature rebuild (186-26) runs once, after the gate
 is 0, canonical 1d is caught up and plans 11 to 14 have landed. Handoff: `.planning/HANDOFF.json`.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
@@ -99,7 +102,7 @@ is 0, canonical 1d is caught up and plans 11 to 14 have landed. Handoff: `.plann
 - **Pull hold REOPENED for the deep 5m backfill (owner 2026-10-10 late):** the owner named the
   consumer for deep history (HMM p-values and IC at intraday horizons), which reopens todo
   523's 2006-2015 tail backfill; the fetcher timer is enabled again (22:06 EDT, IBKR connected).
-  Paused since 2026-10-13 by the phase 191 cutover window (see above).
+  Paused 2026-10-13 to 2026-10-15 by the phase 191 cutover window (closed); the timer is on.
   1d is already deep (median start 2006-06); the backfill's unique product is the 2006-2015
   intraday tail, ~18 days at the measured 88 requests/hour. The 186-26 rebuild runs in
   parallel (stable 2016+ units; old-year 5m units recompute after the backfill via digests).
