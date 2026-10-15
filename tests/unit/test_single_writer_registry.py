@@ -91,6 +91,20 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
         ),
     ),
     "ohlcv_raw": Covered("tests/unit/test_ohlcv_raw_writer_boundary.py"),
+    # Selection's durable session record (migration 480; third review of plan 191-07).
+    "bar_session_choice": (
+        Writer(
+            "services/bar_selection.py",
+            reason="record_session_choices: the selection writer keeps it equal to its choices",
+        ),
+    ),
+    # Restatement flags for review (migration 481, D-191-N).
+    "ohlcv_restatement_flag": (
+        Writer(
+            "services/ohlcv_ingress_contract.py",
+            reason="the ingress contract records each load the restatement detector flags",
+        ),
+    ),
     "ohlcv_observation": (
         Writer(
             "services/ohlcv_observation_writer.py",
