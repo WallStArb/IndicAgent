@@ -24,7 +24,9 @@ from services.bar_selection import record_session_choices  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
 from src.intelligence.bars.selection import select_slots  # noqa: E402
 
-_SERIES_SQL = "SELECT symbol FROM instruments WHERE %s IS NOT NULL ORDER BY 1"  # empty series skip
+_SERIES_SQL = (
+    "SELECT symbol FROM instruments ORDER BY 1"  # a series with no raw rows writes nothing
+)
 _LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
 
 
@@ -45,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.symbols:
                 symbols = args.symbols
             else:
-                cur.execute(_SERIES_SQL, (args.timeframe,))
+                cur.execute(_SERIES_SQL)
                 symbols = [r[0] for r in cur.fetchall()]
         conn.rollback()
         for n, symbol in enumerate(symbols, 1):
