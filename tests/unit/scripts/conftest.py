@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
 
-from services.ohlcv_ingress_contract import IngressResult, RefusedSeries
+from services.ohlcv_ingress_contract import FlaggedSeries, IngressResult
 from services.ohlcv_raw_writer import RawRow
+from src.intelligence.bars.restatement import Restatement
 
 
 @pytest.fixture
@@ -36,38 +38,32 @@ def make_raw_row() -> Callable[..., RawRow]:
 
 @pytest.fixture
 def make_ingress_result() -> Callable[..., IngressResult]:
-    """What apply_raw_contract returns for `n` offered rows: all new by default, or refused
-    (a vendor restating its own stored rows: nothing written, every offered row held)."""
+    """What apply_raw_contract returns for `n` offered rows: all new by default; `flagged` adds a
+    restatement flag (the rows land last-wins all the same, D-191-N)."""
 
-    def make(n: int, *, refused: bool = False, stamps: tuple = ()) -> IngressResult:
-        series = (
+    def make(n: int, *, flagged: bool = False, stamps: tuple = ()) -> IngressResult:
+        flags = (
             (
-                RefusedSeries(
+                FlaggedSeries(
                     "SPY",
                     "5m",
                     "ibkr",
                     "named",
-                    0.03,
-                    0.02,
-                    n,
-                    n,
-                    f"refused: ibkr restated {n} / its stored {n} = 0.0300 > max 0.0200",
-                    n_held=n,
+                    uuid.uuid4(),
+                    Restatement(n, n, 1.0, ("share",)),
                 ),
             )
-            if refused
+            if flagged
             else ()
         )
         return IngressResult(
             n_offered=n,
-            n_new=0 if refused else n,
+            n_new=n,
             n_changed=0,
             n_unchanged=0,
-            refused=refused,
             selected_slots=0,
-            refused_series=series,
-            n_held=n if refused else 0,
-            new_timestamps=() if refused else stamps,
+            new_timestamps=stamps,
+            flagged=flags,
         )
 
     return make

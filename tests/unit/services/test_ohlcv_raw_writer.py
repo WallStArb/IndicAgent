@@ -11,8 +11,6 @@ from services.ohlcv_raw_writer import (
     BATCH_ROWS_KEY,
     FUTURE_TOLERANCE_KEY,
     RawRow,
-    hold_legacy_refusal,
-    hold_pending,
     preview_series,
     read_write_params,
     write_raw,
@@ -282,85 +280,7 @@ def test_preview_reports_the_new_timestamps():
     assert delta.new_timestamps == (_row(1).timestamp,)
 
 
-# --- hold_pending (phase 191 plan 05, review finding 4) ------------------------------------
-
-
-def _hold(conn, rows, **kw):
-    args = dict(
-        load_id=LOAD,
-        request_id=REQUEST,
-        vendor_codes=VENDORS,
-        kind_codes=KINDS,
-        future_tolerance_s=3600,
-        now=NOW,
-    )
-    args.update(kw)
-    return hold_pending(conn, rows, **args)
-
-
-def test_hold_pending_logs_offered_values_as_pending_revisions_and_writes_no_raw():
-    conn = FakeConn()
-    assert _hold(conn, [_row(0, close=12.0), _row(1, close=13.0)]) == 2
-    assert not conn.sql("INSERT INTO ohlcv_raw")
-    ((select_sql, _),) = conn.sql("SELECT")  # only the pending dedupe read, never ohlcv_raw
-    assert "ohlcv_raw" not in select_sql and "origin = 'pending'" in select_sql
-    ((sql, params),) = conn.sql("INSERT INTO ohlcv_revision")
-    assert sql.count("(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)") == 2
-    first = params[:14]
-    # load_id, symbol, timeframe, timestamp, offered o/h/l/c/volume, label, vendor, kind, request, origin
-    assert first[0] == LOAD and first[1:3] == ["SPY", "5m"]
-    assert first[4:9] == [9.0, 11.0, 8.5, 12.0, 100]
-    assert first[9:] == ["ibkr_named", "ibkr", "named", REQUEST, "pending"]
-
-
-def test_hold_pending_validates_like_write_raw_before_any_sql():
-    conn = FakeConn()
-    with pytest.raises(ValueError, match="vendor 'nope'"):
-        _hold(conn, [_row(vendor="nope")])
-    assert conn.cur.executed == []
-
-
-def test_hold_pending_of_nothing_writes_nothing():
-    conn = FakeConn()
-    assert _hold(conn, []) == 0
-    assert conn.cur.executed == []
-
-
-def _pending(row: RawRow) -> tuple:
-    return (row.timestamp, row.open, row.high, row.low, row.close, row.volume)
-
-
-def test_hold_pending_skips_values_already_pending_for_the_key():
-    """Review finding 7: a refused series offered again unchanged does not rewrite its hold."""
-    first, second = _row(0, close=12.0), _row(1, close=13.0)
-    conn = FakeConn([_pending(first)])
-    assert _hold(conn, [first, second]) == 2  # both are held; only one is new
-    ((_, params),) = conn.sql("INSERT INTO ohlcv_revision")
-    assert len(params) == 14 and params[3] == second.timestamp
-
-
-def test_hold_pending_of_an_identical_reoffer_inserts_nothing():
-    rows = [_row(0, close=12.0), _row(1, close=13.0)]
-    conn = FakeConn([_pending(r) for r in rows])
-    assert _hold(conn, rows) == 2
-    assert not conn.sql("INSERT INTO ohlcv_revision")
-
-
-def test_hold_pending_logs_a_new_value_for_a_key_that_is_already_pending():
-    old = _row(0, close=12.0)
-    conn = FakeConn([_pending(old)])
-    assert _hold(conn, [_row(0, close=12.5)]) == 1
-    assert len(conn.sql("INSERT INTO ohlcv_revision")) == 1
-
-
-def test_hold_pending_dedupe_is_null_volume_safe():
-    row = _row(0, close=12.0, volume=None)
-    conn = FakeConn([_pending(row)])
-    _hold(conn, [row])
-    assert not conn.sql("INSERT INTO ohlcv_revision")
-
-
-# --- 191-07 repair: write_raw repair mode and hold_legacy_refusal -------------------------
+# --- write_raw repair mode (the one-time release of the held offers, D-191-N) -------------------------
 
 
 def test_repair_mode_writes_a_null_request_id_and_still_logs_the_replaced_value():
@@ -379,38 +299,7 @@ def test_repair_mode_still_needs_the_load_id():
         _write(FakeConn(), [_row()], load_id=None, request_id=None, repair=True)
 
 
-def _legacy(conn, rows, **kw):
-    args = dict(vendor_codes=VENDORS, kind_codes=KINDS, future_tolerance_s=3600, now=NOW)
-    args.update(kw)
-    return hold_legacy_refusal(conn, rows, load_id=kw.pop("load_id", LOAD), **args)
-
-
-def test_hold_legacy_refusal_writes_pending_rows_under_the_refused_load_with_no_request():
-    conn = FakeConn()
-    assert _legacy(conn, [_row(0, close=12.0)]) == 1
-    assert not conn.sql("INSERT INTO ohlcv_raw")
-    ((select_sql, select_params),) = conn.sql("SELECT")
-    assert "origin = 'pending'" in select_sql and select_params[0] == LOAD
-    ((_, params),) = conn.sql("INSERT INTO ohlcv_revision")
-    assert params[0] == LOAD and params[4:9] == [9.0, 11.0, 8.5, 12.0, 100]
-    assert params[9:] == ["ibkr_named", "ibkr", "named", None, "pending"]
-
-
-def test_hold_legacy_refusal_is_idempotent_per_key():
-    row = _row(0, close=12.0)
-    conn = FakeConn([(row.timestamp,)])
-    assert _legacy(conn, [row]) == 0
-    assert not conn.sql("INSERT INTO ohlcv_revision")
-
-
-def test_hold_legacy_refusal_validates_before_any_sql():
-    conn = FakeConn()
-    with pytest.raises(ValueError, match="vendor 'nope'"):
-        _legacy(conn, [_row(vendor="nope")])
-    assert conn.cur.executed == []
-
-
-# --- second review of 191-07: served_at on repairs, restamp, withdraw, release -------------
+# --- served_at on repairs -------------
 
 
 def test_a_repair_carries_the_serve_time_of_the_answer_not_its_write_time():
@@ -421,47 +310,6 @@ def test_a_repair_carries_the_serve_time_of_the_answer_not_its_write_time():
     assert "now()" not in sql and params[10] == served and params[-2:] == [None, LOAD]
 
 
-def test_served_at_and_restamp_are_repair_only():
+def test_served_at_is_repair_only():
     with pytest.raises(ValueError, match="repair-only"):
         _write(FakeConn(), [_row()], served_at={T0: NOW})
-
-
-def test_restamp_rewrites_lineage_of_unchanged_rows_and_refuses_a_changed_one():
-    conn = FakeConn([_stored(_row(0))])
-    (delta,) = _write(
-        conn, [_row(0)], request_id=None, repair=True, served_at={T0: None}, restamp=True
-    )
-    assert delta.unchanged == 1 and not conn.sql("INSERT INTO ohlcv_revision")
-    ((sql, params),) = conn.sql("INSERT INTO ohlcv_raw")
-    assert "ON CONFLICT" in sql and params[10] is None and params[-1] == LOAD
-    changed = FakeConn([_stored(_row(0), close=10.5)])
-    with pytest.raises(ValueError, match="restamp"):
-        _write(changed, [_row(0)], request_id=None, repair=True, served_at={T0: None}, restamp=True)
-
-
-def test_withdraw_logs_the_value_before_removing_the_row():
-    from services.ohlcv_raw_writer import withdraw_raw_rows
-
-    conn = FakeConn()
-    conn.cur.rowcount = 1
-    assert withdraw_raw_rows(conn, [_row(0, close=12.0)], load_id=LOAD) == 1
-    kinds = [
-        s.split()[0] + " " + s.split()[2]
-        for s, _ in conn.cur.executed
-        if not s.startswith("SELECT")
-    ]
-    assert kinds == ["INSERT ohlcv_revision", "DELETE ohlcv_raw"]
-    ((_, rev),) = conn.sql("INSERT INTO ohlcv_revision")
-    assert rev[7] == 12.0 and rev[-1] == "raw"
-    ((delete_sql, delete_params),) = conn.sql("DELETE FROM ohlcv_raw")
-    assert "close = %s" in delete_sql and delete_params[8] == 12.0
-
-
-def test_release_touches_pending_rows_of_one_load_only():
-    from services.ohlcv_raw_writer import release_legacy_pending
-
-    conn = FakeConn()
-    conn.cur.rowcount = 2
-    n = release_legacy_pending(conn, "SPY", "5m", "ibkr", "named", load_id=LOAD, timestamps=[T0])
-    ((sql, params),) = conn.sql("DELETE FROM ohlcv_revision")
-    assert n == 2 and "origin = 'pending'" in sql and params[0] == LOAD

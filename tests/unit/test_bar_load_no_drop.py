@@ -2,9 +2,8 @@
 
 Raw is stored per source: the loader offers every row the vendor served to ohlcv_raw, regular
 hours and extended hours alike, whatever any other source holds. Nothing is split, skipped or
-dropped before the contract. Every offered row appears in ohlcv_raw or, when the contract refuses
-the vendor's restatement of its own history, in the explicit pending list (the refused series'
-held rows); the LoadResult counts add up to the rows offered.
+dropped before the contract. Every offered row lands in ohlcv_raw last-wins (D-191-N: nothing is
+refused or held); the LoadResult counts add up to the rows offered.
 """
 
 from __future__ import annotations
@@ -37,23 +36,20 @@ def _frame(rows: list[str]) -> pd.DataFrame:
 
 @pytest.fixture
 def persisted(monkeypatch):
-    """persist_chunk_atomically replaced by a recorder; `refuse` marks every chunk refused."""
-    state = type("State", (), {"calls": [], "refuse": False})()
+    """persist_chunk_atomically replaced by a recorder; every row lands new."""
+    state = type("State", (), {"calls": []})()
 
     def fake(conn, *, request_rows, raw_rows, coverage=None, caller, params=None, **kw):
         state.calls.append({"rows": list(raw_rows), "coverage": coverage, "caller": caller})
-        refused = state.refuse
         return PersistResult(
             0,
             len(raw_rows),
             IngressResult(
                 n_offered=len(raw_rows),
-                n_new=0 if refused else len(raw_rows),
+                n_new=len(raw_rows),
                 n_changed=0,
                 n_unchanged=0,
-                refused=refused,
                 selected_slots=0,
-                n_held=len(raw_rows) if refused else 0,
             ),
         )
 
@@ -84,7 +80,7 @@ def test_every_row_is_offered_regardless_of_session_grid_or_other_sources(persis
     result = load_series(object(), POLICY, "SPY", frame, write=True)
     (call,) = persisted.calls
     assert len(call["rows"]) == 3  # pre-market included; nothing consulted another source
-    assert (result.n_offered, result.n_new, result.refused) == (3, 3, False)
+    assert (result.n_offered, result.n_new) == (3, 3)
 
 
 def test_dry_run_writes_nothing_and_plans_the_offered_count(persisted) -> None:
@@ -124,14 +120,6 @@ def test_load_frame_without_coverage_is_a_raw_only_capture(persisted) -> None:
         coverage=False,
     )
     assert persisted.calls[0]["coverage"] is None and persisted.calls[0]["caller"] == "x-1d"
-
-
-def test_a_refused_series_is_reported_as_held_never_dropped(persisted) -> None:
-    persisted.refuse = True
-    frame = _frame(["2026-10-09 13:30:00", "2026-10-09 13:35:00"])
-    result = load_series(object(), POLICY, "SPY", frame, write=True)
-    assert result.refused is True and result.n_held == 2 and result.n_new == 0
-    assert result.n_offered == result.n_new + result.n_changed + result.n_unchanged + result.n_held
 
 
 def test_the_derivation_owned_timeframe_fence_still_refuses_a_policy() -> None:

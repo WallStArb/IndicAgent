@@ -11,7 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from services.ohlcv_ingress_contract import ContractParams, read_params
+from services.ohlcv_ingress_contract import read_detector_params
+from src.intelligence.bars.restatement import DetectorParams
 
 _T0 = datetime(2026, 10, 1, 13, 30, tzinfo=UTC)
 
@@ -34,14 +35,19 @@ class FakeCursor:
         return self._result
 
 
-def test_thresholds_come_from_config_state_and_a_missing_key_is_loud():
+def test_detector_thresholds_come_from_config_state_and_a_missing_key_is_loud():
     keys = {
-        "threshold.bar_integrity.max_revision_ratio": "0.02",
-        "threshold.bar_integrity.revision_ratio_min_stored": "500",
+        "threshold.bar_integrity.restatement_flag_share": "0.02",
+        "threshold.bar_integrity.restatement_flag_min_stored": "500",
+        "threshold.bar_integrity.restatement_signature_min_bars": "20",
+        "threshold.bar_integrity.restatement_ratio_tolerance": "0.0005",
+        "threshold.bar_integrity.restatement_shift_min_share": "0.5",
     }
-    assert read_params(FakeCursor(config=keys)) == ContractParams(0.02, 500)
+    assert read_detector_params(FakeCursor(config=keys)) == DetectorParams(
+        0.02, 500, 20, 0.0005, 0.5
+    )
     with pytest.raises(RuntimeError, match="missing from config_state"):
-        read_params(FakeCursor(config={}))
+        read_detector_params(FakeCursor(config={}))
 
 
 def test_the_retired_entry_point_and_refusal_exception_are_gone():
@@ -57,6 +63,10 @@ def test_the_retired_entry_point_and_refusal_exception_are_gone():
         "write_market_data_batches",
         "MARKET_DATA_INSERT_HEAD",
         "LABEL_VENDOR",
+        "RefusedSeries",
+        "OUTCOME_REFUSED",
+        "read_open_holds",
+        "held_answers",
     ):
         assert not hasattr(module, retired), retired
 
@@ -69,12 +79,11 @@ import services.ohlcv_ingress_contract as contract  # noqa: E402
 from services.ohlcv_ingress_contract import (  # noqa: E402
     RawContractParams,
     apply_raw_contract,
-    read_raw_params,
 )
 from services.ohlcv_raw_writer import RawRow, RawWriteParams  # noqa: E402
 
 _RAW_PARAMS = RawContractParams(
-    thresholds=ContractParams(max_ratio=0.02, min_stored=500),
+    detector=DetectorParams(0.02, 500, 20, 0.0005, 0.5),
     write=RawWriteParams(batch_rows=50_000, future_tolerance_s=3600),
     vendor_codes=frozenset({"ibkr", "alpaca"}),
     kind_codes=frozenset({"named", "sip_rth"}),
@@ -171,112 +180,21 @@ def test_raw_contract_records_the_load_then_raw_then_selects(selections):
     assert not conn.starting("UPDATE ohlcv_load")  # the role may INSERT a load row, not UPDATE
     load_params = conn.starting("INSERT INTO ohlcv_load")[0][1]
     assert load_params[3] == "ibkr" and load_params[14] == "raw"
-    assert (result.n_offered, result.n_new, result.n_changed, result.refused) == (2, 2, 0, False)
+    assert (result.n_offered, result.n_new, result.n_changed, result.flagged) == (2, 2, 0, ())
     assert len(selections) == 1 and selections[0]["timeframe"] == "5m"
     assert result.selected_slots == 1
 
 
-def test_raw_contract_cross_vendor_difference_never_refuses_or_logs_a_revision(selections):
+def test_raw_contract_cross_vendor_difference_is_never_a_revision_or_a_flag(selections):
     ibkr = [_raw(i) for i in range(600)]
     conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
     alpaca = [_raw(i, vendor="alpaca", kind="sip_rth", close=99.0) for i in range(600)]
     result = apply_raw_contract(
         conn, alpaca, caller="alpaca-5m-load", request_id=_REQUEST, params=_RAW_PARAMS
     )
-    assert result.refused is False and result.n_new == 600 and result.n_changed == 0
+    assert result.flagged == () and result.n_new == 600 and result.n_changed == 0
     assert conn.starting("INSERT INTO ohlcv_revision") == []
     assert len(selections) == 1
-
-
-def test_raw_contract_refused_series_is_held_as_pending_and_raw_is_untouched(selections):
-    ibkr = [_raw(i) for i in range(600)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]  # 5% > 2%
-    result = apply_raw_contract(
-        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert result.refused is True and len(result.refused_series) == 1
-    series = result.refused_series[0]
-    assert series.n_changed == 30 and series.vendor == "ibkr" and series.n_held == 30
-    # The stored rows stay current: no raw write at all, so selection cannot promote the values.
-    assert conn.starting("INSERT INTO ohlcv_raw") == []
-    ((_, revision),) = conn.starting("INSERT INTO ohlcv_revision")
-    rows = [revision[i : i + 14] for i in range(0, len(revision), 14)]
-    assert len(rows) == 30 and {r[13] for r in rows} == {"pending"}
-    assert all(r[4:8] == [10.0, 11.0, 9.0, 12.0] for r in rows)
-    assert result.n_held == 30 and result.n_changed == 0 and result.n_new == 0
-    assert selections == []
-    load = conn.starting("INSERT INTO ohlcv_load")[0][1]
-    assert load[6] == "refused" and load[8:10] == (0, 0) and load[17] == 600
-    assert "held as pending" in load[12]
-
-
-def test_raw_contract_refused_series_holds_new_rows_too_and_writes_no_raw(selections):
-    ibkr = [_raw(i) for i in range(600)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    offered = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)] + [_raw(600)]
-    result = apply_raw_contract(
-        conn, offered, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert result.refused and result.n_held == 31 and result.n_new == 0
-    assert conn.starting("INSERT INTO ohlcv_raw") == []
-    assert result.new_timestamps == ()
-
-
-def test_raw_contract_refusal_survives_an_unchanged_reoffer(selections):
-    """Refuse, then re-offer the same values: still refused, raw never moves, nothing selected."""
-    ibkr = [_raw(i) for i in range(600)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
-    for _ in range(2):
-        result = apply_raw_contract(
-            conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-        )
-        assert result.refused is True and result.selected_slots == 0
-    assert conn.starting("INSERT INTO ohlcv_raw") == []
-    assert selections == []
-    assert len(conn.starting("INSERT INTO ohlcv_load")) == 2  # each offer is recorded
-
-
-def test_raw_contract_a_refused_series_does_not_stop_the_other_series_from_landing(selections):
-    ibkr = [_raw(i) for i in range(600)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
-    alpaca = [_raw(i, vendor="alpaca", kind="sip_rth") for i in range(5)]
-    result = apply_raw_contract(
-        conn, restated + alpaca, caller="x", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert result.refused and result.n_new == 5
-    assert len(conn.starting("INSERT INTO ohlcv_raw")) == 1
-    assert selections == []  # the (symbol, timeframe) slot has a refused series: not selected
-
-
-def test_raw_contract_small_window_restatement_is_written_not_refused(selections):
-    ibkr = [_raw(i) for i in range(78)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    restated = [_raw(i, close=12.0) if i < 10 else _raw(i) for i in range(78)]  # 78 < 500
-    result = apply_raw_contract(
-        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert result.refused is False and result.n_changed == 10
-    assert len(selections) == 1
-
-
-def test_raw_contract_waiver_refuses_nothing_and_names_the_waiver(selections):
-    ibkr = [_raw(i) for i in range(600)]
-    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
-    restated = [_raw(i, close=12.0) for i in range(600)]
-    result = apply_raw_contract(
-        conn,
-        restated,
-        caller="ibkr-history-fetch",
-        request_id=_REQUEST,
-        params=_RAW_PARAMS,
-        waived=True,
-    )
-    assert result.refused is False and result.n_changed == 600
-    load = conn.starting("INSERT INTO ohlcv_load")[0][1]
-    assert load[6] == "applied" and "waived" in load[12]
 
 
 def test_raw_contract_raw_only_timeframes_get_no_selection(selections):
@@ -293,12 +211,6 @@ def test_raw_contract_does_not_use_the_label_vendor_map():
 
     source = inspect.getsource(contract.apply_raw_contract)
     assert "LABEL_VENDOR" not in source
-
-
-def test_read_raw_params_missing_key_is_a_loud_error():
-    cur = FakeCursor(config={contract.MAX_RATIO_KEY: 0.02, contract.MIN_STORED_KEY: 500})
-    with pytest.raises(RuntimeError, match="missing from config_state"):
-        read_raw_params(cur)
 
 
 def test_raw_contract_counts_a_null_volume_winner_with_the_unselected_slots(monkeypatch):
@@ -320,109 +232,47 @@ def test_raw_contract_counts_a_null_volume_winner_with_the_unselected_slots(monk
     assert result.n_unselected == 3
 
 
-# --- a refusal holds against small asks (third review of plan 191-07, finding 2) ------------
-
-_REFUSED_AT = datetime(2026, 10, 12, 12, 14, tzinfo=UTC)
+# --- last-wins and the restatement detector (owner decision D-191-N) -------------------------
 
 
-class HeldFakeConn(RawFakeConn):
-    """RawFakeConn plus pending holds of a refused load (timestamp -> values) and the loads that
-    wrote the current raw rows (timestamp -> (loaded_at, outcome, destination, caller))."""
-
-    def __init__(self, stored, holds, writers=None) -> None:
-        super().__init__(stored)
-        self.holds = holds
-        self.writers = writers or {}
-
-    def cursor(self):
-        conn = self
-        base = RawFakeConn._Cur(self)
-        execute = base.execute
-
-        def run(sql, params=None):
-            execute(sql, params)
-            if sql == contract._OPEN_HOLDS_SQL:
-                stamps = params[4]
-                base._result = [
-                    (ts, *values, _REFUSED_AT) for ts, values in conn.holds.items() if ts in stamps
-                ]
-            elif sql == contract._RAW_WRITER_AT_SQL:
-                stamps = params[4]
-                base._result = [(ts, *w) for ts, w in conn.writers.items() if ts in stamps]
-
-        base.execute = run
-        return base
-
-
-def _vals(row: RawRow) -> tuple:
-    return (row.open, row.high, row.low, row.close, row.volume)
-
-
-def test_a_one_session_ask_cannot_land_values_a_refused_load_holds(selections):
-    # GE d2adcf51: refused at 40 % over its span; a one-session ask (78 bars, under the 500-row
-    # minimum) serving the same two-decimal values must not land them (old code: accepted)
-    stored = [_raw(i) for i in range(78)]
-    held = {_raw(i).timestamp: _vals(_raw(i, close=10.0)) for i in range(0, 78, 2)}
-    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
-    offer = [_raw(i, close=10.0) if i % 2 == 0 else _raw(i) for i in range(78)]
+def test_a_restatement_beyond_the_old_threshold_lands_last_wins_and_is_flagged(selections):
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]  # 5 % > 2 %
     result = apply_raw_contract(
-        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
     )
-    assert result.refused and result.n_changed == 0 and result.n_held == 39
-    assert conn.starting("INSERT INTO ohlcv_raw") == [] and selections == []
-    assert {a for *_, a in result.held_answers} == {contract.HELD_OFFER}
-    assert len(result.held_answers) == 39
+    assert result.n_changed == 30 and len(selections) == 1
+    assert len(conn.starting("INSERT INTO ohlcv_raw")) == 1
+    ((_, revision),) = conn.starting("INSERT INTO ohlcv_revision")
+    rows = [revision[i : i + 14] for i in range(0, len(revision), 14)]
+    assert len(rows) == 30 and {r[13] for r in rows} == {"raw"}  # old values logged
     load = conn.starting("INSERT INTO ohlcv_load")[0][1]
-    assert load[6] == "refused" and "explicit decision" in load[12]
+    assert load[6] == "applied" and "restatement flagged" in load[12]
+    ((flag,),) = [(p,) for s, p in conn.statements if s == contract._INSERT_FLAG_SQL]
+    assert flag[5:7] == (600, 30) and flag[8] == ["share"]
+    (flagged,) = result.flagged
+    assert flagged.restatement.signatures == ("share",)
 
 
-def test_a_re_serve_of_a_withdrawn_held_key_is_reported_not_landed(selections):
-    # ADM 2026-10-01: raw holds no row (withdrawn), the held offer is pending; the vendor
-    # serves the held value again: verified and reported, still held
-    stored = [_raw(i) for i in range(10)]
-    held = {_raw(10).timestamp: _vals(_raw(10))}
-    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
+def test_a_small_window_restatement_lands_and_is_not_flagged(selections):
+    ibkr = [_raw(i) for i in range(78)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=12.0) if i < 10 else _raw(i) for i in range(78)]  # 78 < 500
     result = apply_raw_contract(
-        conn,
-        [_raw(i) for i in range(11)],
-        caller="ibkr-history-fetch",
-        request_id=_REQUEST,
-        params=_RAW_PARAMS,
+        conn, restated, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
     )
-    assert result.refused and result.n_new == 0
-    assert result.held_answers == (
-        ("ZZ191A", "5m", "ibkr", "named", _raw(10).timestamp, contract.HELD_OFFER),
-    )
-    assert conn.starting("INSERT INTO ohlcv_raw") == []
+    assert result.n_changed == 10 and result.flagged == ()
+    assert not [s for s, _ in conn.statements if s == contract._INSERT_FLAG_SQL]
 
 
-def test_an_ask_serving_the_stored_value_at_a_held_key_is_judged_normally(selections):
-    stored = [_raw(i) for i in range(10)]
-    held = {_raw(3).timestamp: _vals(_raw(3, close=10.0))}
-    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
-    offer = [_raw(i) for i in range(10)] + [_raw(10)]
+def test_a_cross_vendor_series_and_a_restated_series_both_land(selections):
+    ibkr = [_raw(i) for i in range(600)]
+    conn = RawFakeConn({("ibkr", "named"): _stored_raw(ibkr)})
+    restated = [_raw(i, close=12.0) if i < 30 else _raw(i) for i in range(600)]
+    alpaca = [_raw(i, vendor="alpaca", kind="sip_rth") for i in range(5)]
     result = apply_raw_contract(
-        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
+        conn, restated + alpaca, caller="x", request_id=_REQUEST, params=_RAW_PARAMS
     )
-    assert not result.refused and result.n_new == 1
-    assert [a for *_, a in result.held_answers] == [contract.STORED_VALUE]
-
-
-def test_a_new_value_at_a_held_key_is_refused_and_one_answered_again_holds_nothing(selections):
-    stored = [_raw(i) for i in range(10)]
-    held = {_raw(3).timestamp: _vals(_raw(3, close=10.0))}
-    offer = [_raw(i, close=10.7) if i == 3 else _raw(i) for i in range(10)]
-    conn = HeldFakeConn({("ibkr", "named"): _stored_raw(stored)}, held)
-    result = apply_raw_contract(
-        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert result.refused and [a for *_, a in result.held_answers] == [contract.NEW_VALUE]
-    # the current raw row was written by an applied raw serve after the refusal: no hold left
-    later = (_REFUSED_AT + timedelta(hours=1), "applied", "raw", "ibkr-history-fetch")
-    conn = HeldFakeConn(
-        {("ibkr", "named"): _stored_raw(stored)}, held, writers={_raw(3).timestamp: later}
-    )
-    result = apply_raw_contract(
-        conn, offer, caller="ibkr-history-fetch", request_id=_REQUEST, params=_RAW_PARAMS
-    )
-    assert not result.refused and result.n_changed == 1 and result.held_answers == ()
+    assert result.n_new == 5 and result.n_changed == 30
+    assert len(conn.starting("INSERT INTO ohlcv_raw")) == 2 and len(selections) == 1
