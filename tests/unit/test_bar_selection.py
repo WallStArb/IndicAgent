@@ -168,7 +168,7 @@ def _run(conn, **kw):
 
 
 def _inserts(conn):
-    return [(s, p) for s, p in conn.cur.executed if s.startswith("INSERT")]
+    return [(s, p) for s, p in conn.cur.executed if s.startswith("INSERT INTO market_data_ohlcv")]
 
 
 def test_writer_inserts_new_winner_with_label():
@@ -378,7 +378,7 @@ def test_retract_deletes_a_canonical_row_only_where_no_vendor_holds_the_slot():
 # --- session-level fallback (second review of plan 191-07, finding 3) --------------------------
 
 # 2026-10-09 09:30 to 10:00 EDT: a six-slot "session" is enough for the rule (completeness is
-# relative to the slots the ranked vendors hold, not to a calendar count).
+# relative to the slots the ranked vendors hold; the calendar count only marks a session partial).
 S0 = datetime(2026, 10, 9, 13, 30, tzinfo=UTC)
 ALPACA_FIRST = PolicyRow("5m", "SPY", date(2026, 10, 1), date(2026, 10, 13), "alpaca", "ibkr")
 
@@ -407,11 +407,34 @@ def test_an_incomplete_primary_session_is_taken_whole_from_a_complete_fallback()
     assert choice.ranking == ("alpaca", "ibkr") and outcome.dropped == ()
 
 
-def test_a_complete_primary_keeps_its_session_and_records_nothing():
+def test_a_complete_primary_keeps_its_session_and_records_only_its_calendar_shortfall():
     alpaca = [_slot(i, "alpaca") for i in range(6)]
     ibkr = [_slot(i, "ibkr") for i in range(4)]
     outcome = select_slots(alpaca + ibkr, [DEFAULT, ALPACA_FIRST], KIND_ORDER)
-    assert {w.vendor for w in outcome.winners} == {"alpaca"} and outcome.choices == ()
+    assert {w.vendor for w in outcome.winners} == {"alpaca"}
+    # six of the calendar's 78 slots: taken whole from the primary, recorded as partial
+    (choice,) = outcome.choices
+    assert not choice.fallback and choice.complete and choice.partial
+    assert (choice.n_grid_slots, choice.n_vendor_grid_slots) == (78, 6)
+
+
+def test_a_whole_calendar_session_from_the_primary_records_nothing():
+    alpaca = [_slot(i, "alpaca") for i in range(78)]
+    ibkr = [_slot(i, "ibkr") for i in range(78)]
+    outcome = select_slots(alpaca + ibkr, [DEFAULT, ALPACA_FIRST], KIND_ORDER)
+    assert outcome.choices == () and outcome.sessions == (S0.date(),)
+
+
+def test_an_after_close_ibkr_bar_never_makes_a_regular_hours_vendor_incomplete():
+    # IBKR 5m raw holds after-close bars (SPY 16:00 to 16:10 ET, 2006 to 2010); under the union
+    # rule one would hand a whole Alpaca session to IBKR (third review of plan 191-07, low)
+    alpaca = [_slot(i, "alpaca") for i in range(78)]
+    ibkr = [_slot(i, "ibkr") for i in range(79)]  # the whole grid plus 16:00 ET
+    outcome = select_slots(alpaca + ibkr, [DEFAULT, ALPACA_FIRST], KIND_ORDER)
+    assert {w.vendor for w in outcome.winners} == {"alpaca"} and len(outcome.winners) == 78
+    assert outcome.choices == ()
+    # the after-close slot no regular-hours vendor holds is left out, never spliced in
+    assert [ts for *_x, ts in outcome.dropped] == [S0 + timedelta(minutes=5 * 78)]
 
 
 def test_with_no_complete_vendor_the_session_comes_from_the_one_holding_most_and_never_mixes():
@@ -467,7 +490,7 @@ def test_the_writer_widens_to_whole_sessions_and_retracts_dropped_slots():
     (read,) = [p for s, p in conn.cur.executed if "FROM ohlcv_raw" in s and "load_id" not in s]
     assert read[2] == datetime(2026, 10, 9, 4, tzinfo=UTC)  # 00:00 EDT
     assert read[3] == datetime(2026, 10, 10, 4, tzinfo=UTC)
-    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE")]
+    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
     assert [p[2] for p in deletes] == [S0 + timedelta(minutes=20)]
     assert (result.new, result.dropped, result.sessions_incomplete) == (4, 1, 1)
 
@@ -478,7 +501,7 @@ def test_the_writer_leaves_excluded_stamps_untouched():
     conn = FakeConn(alpaca + ibkr)
     excluded = {S0, S0 + timedelta(minutes=20)}
     result = _run(conn, policy_rows=[DEFAULT, ALPACA_FIRST], exclude=excluded)
-    assert not any(s.startswith("DELETE") for s, _ in conn.cur.executed)
+    assert not any(s.startswith("DELETE FROM market_data_ohlcv") for s, _ in conn.cur.executed)
     ((_, params),) = _inserts(conn)
     written = {params[i] for i in range(0, len(params), 9)}
     assert written == {alpaca[i].timestamp for i in (1, 2, 3)} and result.new == 3
@@ -523,3 +546,19 @@ def test_a_pending_value_the_vendor_served_again_and_the_contract_accepted_is_no
             cur, "SPY", "5m", T0 - timedelta(days=2), T0 + timedelta(days=1), [raw]
         )
         assert {k[0] for k in keys} == held
+
+
+def test_the_writer_keeps_the_session_choices_of_the_sessions_it_selects():
+    """Third review of plan 191-07, finding 4: a durable record, not only a log line."""
+    from services.bar_selection import _CLEAR_CHOICES_SQL, _UPSERT_CHOICE_SQL
+
+    alpaca = [_slot(i, "alpaca") for i in (0, 1, 2, 3)]
+    ibkr = [_slot(i, "ibkr") for i in (0, 4)]
+    conn = FakeConn(alpaca + ibkr)
+    conn.cur.rowcount = 1
+    _run(conn, policy_rows=[DEFAULT, ALPACA_FIRST])
+    (clear,) = [p for s, p in conn.cur.executed if s == _CLEAR_CHOICES_SQL]
+    assert clear == ["SPY", "5m", [S0.date()], [S0.date()]]
+    (upsert,) = [p for s, p in conn.cur.executed if s == _UPSERT_CHOICE_SQL]
+    assert upsert[2:8] == [S0.date(), "alpaca", ["alpaca", "ibkr"], False, 5, 4]
+    assert upsert[8:10] == [78, 4] and upsert[10] == [S0 + timedelta(minutes=20)]

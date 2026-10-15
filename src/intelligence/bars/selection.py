@@ -175,9 +175,28 @@ def select_slot(
     return None
 
 
+@lru_cache(maxsize=64)
+def grid_by_session(timeframe: str, year: int) -> dict[date, frozenset[datetime]]:
+    """Session date -> its regular-hours grid stamps, for the sessions of `year`."""
+    out: dict[date, set[datetime]] = defaultdict(set)
+    for stamp in rth_grid_stamps(timeframe, year, year):
+        out[session_date(stamp)].add(stamp)
+    return {day: frozenset(stamps) for day, stamps in out.items()}
+
+
+def session_grid(timeframe: str, day: date) -> frozenset[datetime] | None:
+    """The calendar's regular-hours stamps of session `day`; None for a timeframe without a
+    session grid or a date that is no NYSE session."""
+    if timeframe not in RTH_GRID_STEP_MINUTES:
+        return None
+    return grid_by_session(timeframe, day.year).get(day)
+
+
 @dataclass(frozen=True)
 class SessionChoice:
-    """A session not taken whole from its primary vendor (module docstring)."""
+    """A session not taken whole from its primary vendor, or taken whole but holding fewer
+    slots than the calendar's grid (module docstring; third review of plan 191-07, finding 4).
+    Persisted in bar_session_choice by services/bar_selection.py."""
 
     symbol: str
     timeframe: str
@@ -187,6 +206,18 @@ class SessionChoice:
     complete: bool  # False: no ranked vendor held every slot; the others' slots were dropped
     n_slots: int  # the session's slots (held by any ranked vendor)
     n_vendor_slots: int  # of those, the chosen vendor's
+    n_grid_slots: int | None = None  # the calendar's regular-hours slots (None: no grid)
+    n_vendor_grid_slots: int | None = None  # of those, the chosen vendor's
+    dropped: tuple[datetime, ...] = ()  # slots another vendor held that the session left out
+
+    @property
+    def fallback(self) -> bool:
+        return self.vendor != self.ranking[0]
+
+    @property
+    def partial(self) -> bool:
+        """The chosen vendor holds fewer regular-hours slots than the calendar has."""
+        return self.n_grid_slots is not None and (self.n_vendor_grid_slots or 0) < self.n_grid_slots
 
 
 @dataclass(frozen=True)
@@ -200,8 +231,10 @@ class SelectionOutcome:
     # slots of a session another ranked vendor held but the chosen vendor did not (no complete
     # vendor): no winner, and the writer retracts a canonical row there
     dropped: tuple[tuple[str, str, datetime], ...] = ()
-    choices: tuple[SessionChoice, ...] = ()  # sessions not taken from the primary
+    # sessions not taken whole from the primary, or holding fewer slots than the calendar grid
+    choices: tuple[SessionChoice, ...] = ()
     n_held: int = 0  # slots whose chosen vendor's candidate is held: no winner, not dropped
+    sessions: tuple[date, ...] = ()  # every session date selected (the choices' scope)
 
 
 Key = tuple[datetime, str, str]  # (timestamp, vendor, kind)
@@ -247,25 +280,33 @@ def select_slots(
         n_unselected += len(slots) - len(session_slots)
         if not session_slots:
             continue
-        complete = [v for v in ranking if len(by_vendor[v]) == len(session_slots)]
+        # Completeness is judged on the calendar's regular-hours slots where the timeframe has a
+        # grid: a vendor's after-close bar (IBKR SPY 16:00 to 16:10 ET) is no slot another
+        # vendor owes, so it never makes a regular-hours vendor incomplete (third review, low).
+        grid = session_grid(timeframe, day)
+        judged = session_slots & grid if grid is not None else session_slots
+        complete = [v for v in ranking if judged <= set(by_vendor[v])]
         if complete:
             chosen = complete[0]
         else:
-            most = max(len(by_vendor[v]) for v in ranking)
-            chosen = next(v for v in ranking if len(by_vendor[v]) == most)
-        if chosen != ranking[0] or not complete:
-            choices.append(
-                SessionChoice(
-                    symbol,
-                    timeframe,
-                    day,
-                    tuple(ranking),
-                    chosen,
-                    bool(complete),
-                    len(session_slots),
-                    len(by_vendor[chosen]),
-                )
-            )
+            most = max(len(judged & set(by_vendor[v])) for v in ranking)
+            chosen = next(v for v in ranking if len(judged & set(by_vendor[v])) == most)
+        left_out = tuple(ts for ts in sorted(session_slots) if ts not in by_vendor[chosen])
+        choice = SessionChoice(
+            symbol,
+            timeframe,
+            day,
+            tuple(ranking),
+            chosen,
+            bool(complete),
+            len(session_slots),
+            len(by_vendor[chosen]),
+            None if grid is None else len(grid),
+            None if grid is None else len(grid & set(by_vendor[chosen])),
+            left_out,
+        )
+        if choice.fallback or not choice.complete or choice.partial:
+            choices.append(choice)
         for ts in sorted(session_slots):
             if ts not in by_vendor[chosen]:
                 dropped.append((symbol, timeframe, ts))
@@ -283,6 +324,7 @@ def select_slots(
         tuple(dropped),
         tuple(choices),
         n_held,
+        tuple(sorted({day for (_s, _t, day) in sessions})),
     )
 
 

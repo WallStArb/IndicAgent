@@ -38,8 +38,10 @@ whole from one vendor (src/intelligence/bars/selection.py), so a write is widene
 NYSE sessions its window touches (America/New_York midnight to midnight): a vendor switch is
 written across the session, never half of it. Slots the chosen vendor does not hold when no
 vendor is complete are retracted from canonical (`dropped`; missing is NaN, never the other
-vendor's bar). Every session not taken from its primary is logged
-(`bar_selection.session_choice`) and counted on the result.
+vendor's bar). Every session not taken plainly (from its primary, complete, holding every
+calendar slot) is logged (`bar_selection.session_choice`), counted on the result and kept in
+bar_session_choice (migration 480; third review of plan 191-07, finding 4), whose sole writer is
+`record_session_choices`.
 
 Until plan 13 renames the column, the canonical row carries the `source` label of its
 (vendor, kind). `canonical_columns` and `_INSERT_HEAD` are the only two places that change then.
@@ -49,7 +51,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import structlog
@@ -58,6 +60,7 @@ from src.intelligence.bars.selection import (
     SESSION_TZ,
     Candidate,
     PolicyRow,
+    SessionChoice,
     select_slots,
     session_date,
 )
@@ -339,7 +342,10 @@ def select_and_write(
                     complete=choice.complete,
                     n_slots=choice.n_slots,
                     n_vendor_slots=choice.n_vendor_slots,
+                    n_grid_slots=choice.n_grid_slots,
+                    n_vendor_grid_slots=choice.n_vendor_grid_slots,
                 )
+            record_session_choices(cur, symbol, timeframe, outcome.sessions, outcome.choices)
             for _symbol, _tf, ts in outcome.dropped:
                 if ts in exclude:
                     continue
@@ -382,6 +388,63 @@ def select_and_write(
     )
 
 
+# The durable record of the session choices (migration 480; third review of plan 191-07,
+# finding 4): sessions selected that are plain now lose their row, the others are upserted.
+_CLEAR_CHOICES_SQL = (
+    "DELETE FROM bar_session_choice WHERE symbol = %s AND timeframe = %s "
+    "AND session_date = ANY(%s) AND NOT (session_date = ANY(%s))"
+)
+_UPSERT_CHOICE_SQL = (
+    "INSERT INTO bar_session_choice (symbol, timeframe, session_date, vendor, ranking, complete, "
+    "n_slots, n_vendor_slots, n_grid_slots, n_vendor_grid_slots, dropped) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    "ON CONFLICT (symbol, timeframe, session_date) DO UPDATE SET vendor = EXCLUDED.vendor, "
+    "ranking = EXCLUDED.ranking, complete = EXCLUDED.complete, n_slots = EXCLUDED.n_slots, "
+    "n_vendor_slots = EXCLUDED.n_vendor_slots, n_grid_slots = EXCLUDED.n_grid_slots, "
+    "n_vendor_grid_slots = EXCLUDED.n_vendor_grid_slots, dropped = EXCLUDED.dropped, "
+    "decided_at = now() WHERE (bar_session_choice.vendor, bar_session_choice.ranking, "
+    "bar_session_choice.complete, bar_session_choice.n_slots, bar_session_choice.n_vendor_slots, "
+    "bar_session_choice.n_grid_slots, bar_session_choice.n_vendor_grid_slots, "
+    "bar_session_choice.dropped) IS DISTINCT FROM (EXCLUDED.vendor, EXCLUDED.ranking, "
+    "EXCLUDED.complete, EXCLUDED.n_slots, EXCLUDED.n_vendor_slots, EXCLUDED.n_grid_slots, "
+    "EXCLUDED.n_vendor_grid_slots, EXCLUDED.dropped)"
+)
+
+
+def record_session_choices(
+    cur: Any,
+    symbol: str,
+    timeframe: str,
+    sessions: Sequence[date],
+    choices: Sequence[SessionChoice],
+) -> None:
+    """Make bar_session_choice hold exactly `choices` for the `sessions` selected (migration
+    480): the sole writer of the table, on the selection's own transaction and lock."""
+    if not sessions:
+        return
+    cur.execute(
+        _CLEAR_CHOICES_SQL,
+        (symbol, timeframe, list(sessions), [c.session for c in choices]),
+    )
+    for c in choices:
+        cur.execute(
+            _UPSERT_CHOICE_SQL,
+            (
+                symbol,
+                timeframe,
+                c.session,
+                c.vendor,
+                list(c.ranking),
+                c.complete,
+                c.n_slots,
+                c.n_vendor_slots,
+                c.n_grid_slots,
+                c.n_vendor_grid_slots,
+                list(c.dropped),
+            ),
+        )
+
+
 _RETRACT_SQL = (
     'DELETE FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s AND "timestamp" = %s '
     "AND source = ANY(%s)"
@@ -400,8 +463,9 @@ def retract_unselected_slots(
     """Delete the canonical vendor row at each of `timestamps` where selection from raw now
     yields no winner (missing is NaN, never a stale value). Only for slots a caller withdrew
     from raw on purpose (the one-time re-judgment of the retired path's refused loads,
-    scripts/ops/bars/ops_refusal_rejudge.py); the routine selection never deletes. Same lock as
-    `select_and_write`. Returns the rows deleted. Never commits."""
+    scripts/ops/bars/ops_refusal_rejudge.py). `select_and_write` also retracts, but only the
+    slots its session rule drops inside the sessions it selects; this one takes stamps the caller
+    names. Same lock as `select_and_write`. Returns the rows deleted. Never commits."""
     if timeframe not in DIRECT_TIMEFRAMES:
         raise ValueError(f"retract covers direct timeframes only, not {timeframe!r}")
     if not timestamps:
