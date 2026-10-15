@@ -1,0 +1,397 @@
+{
+  "plan": "191-08",
+  "check": "scripts/ops/bars/ops_d2_raw_equivalence.py --all",
+  "results": "logs/d2_raw_equivalence.jsonl (2026-10-15)",
+  "summary": {
+    "symbols": 1502,
+    "equal_in_stored_span": 1460,
+    "differing_in_span": 42,
+    "rule_errors": 0,
+    "differing_in_span_where_rule_over_observations_differs_from_rule_over_raw": 0
+  },
+  "classes": {
+    "rule_only_after_stored_end": "dates after the name's last stored canonical 1d date: canonical 1d stops at the cutover (the daily stage has not run since 2026-10-11 06:15 UTC; 191-04/05 amendment) while raw holds IBKR answers through 2026-10-12. 1,498 names."
+  },
+  "symbols": {
+    "ABT": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 88 of 88 rule-only dates were served after the last applied daily load (2026-10-11 06:12:53 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 87
+      }
+    },
+    "AEIS": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 54 of 54 rule-only dates were served after the last applied daily load (2026-10-11 06:12:55 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 53
+      }
+    },
+    "AMT": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 99 of 99 rule-only dates were served after the last applied daily load (2026-10-11 06:12:59 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 98
+      }
+    },
+    "BAX": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 88 of 88 rule-only dates were served after the last applied daily load (2026-10-11 06:13:07 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 87
+      }
+    },
+    "CAG": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 1761 of 1761 rule-only dates were served after the last applied daily load (2026-10-11 06:13:13 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1760
+      }
+    },
+    "CFR": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 6751 of 6751 rule-only dates were served after the last applied daily load (2026-10-11 06:13:17 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 6750
+      }
+    },
+    "CNH": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 3163 of 3163 rule-only dates were served after the last applied daily load (2026-10-11 06:13:20 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 3162
+      }
+    },
+    "CSL": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 1760 of 1760 rule-only dates were served after the last applied daily load (2026-10-11 06:13:25 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1759
+      }
+    },
+    "CTVA": {
+      "tags": [
+        "value"
+      ],
+      "reason": "held name (bar_hold_current, 1d): the daily stage skips it and never rewrote it; canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 8 of 8 rule-only dates were served after the last applied daily load (2026-10-07 11:36:13 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "value": 1848
+      }
+    },
+    "CVBF": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 90 of 90 rule-only dates were served after the last applied daily load (2026-10-11 06:13:26 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 89
+      }
+    },
+    "CWST": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 54 of 54 rule-only dates were served after the last applied daily load (2026-10-11 06:13:27 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 53
+      }
+    },
+    "EEM": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 2 of 2 rule-only dates were served after the last applied daily load (2026-10-11 06:13:34 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1
+      }
+    },
+    "EQIX": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 2 of 2 rule-only dates were served after the last applied daily load (2026-10-11 06:13:38 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1
+      }
+    },
+    "EWI": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 88 of 88 rule-only dates were served after the last applied daily load (2026-10-11 06:13:41 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 87
+      }
+    },
+    "FLR": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 44 of 44 rule-only dates were served after the last applied daily load (2026-10-11 06:13:47 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 43
+      }
+    },
+    "FR": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:13:48 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "G": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 4795 of 4795 rule-only dates were served after the last applied daily load (2026-10-11 06:13:51 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 4794
+      }
+    },
+    "GPK": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 93 of 93 rule-only dates were served after the last applied daily load (2026-10-11 06:13:54 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 92
+      }
+    },
+    "GYRE": {
+      "tags": [
+        "rule_only",
+        "value"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 118 of 118 rule-only dates were served after the last applied daily load (2026-10-11 06:13:56 UTC) and the daily stage has not run since; the 132 value dates are among 250 smart_trades values IBKR re-served after that load",
+      "n_by_tag": {
+        "rule_only": 117,
+        "value": 132
+      }
+    },
+    "HAE": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:13:56 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "HXL": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:14:00 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "IGV": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 3 of 3 rule-only dates were served after the last applied daily load (2026-10-11 06:14:03 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 2
+      }
+    },
+    "KBE": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 2 of 2 rule-only dates were served after the last applied daily load (2026-10-11 06:14:10 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1
+      }
+    },
+    "LION": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 575 of 575 rule-only dates were served after the last applied daily load (2026-10-11 06:14:15 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 574
+      }
+    },
+    "MKSI": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 54 of 54 rule-only dates were served after the last applied daily load (2026-10-11 06:14:23 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 53
+      }
+    },
+    "MRK": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 197 of 197 rule-only dates were served after the last applied daily load (2026-10-11 06:14:25 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 196
+      }
+    },
+    "MSI": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 89 of 89 rule-only dates were served after the last applied daily load (2026-10-11 06:14:26 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 88
+      }
+    },
+    "NWBI": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 90 of 90 rule-only dates were served after the last applied daily load (2026-10-11 06:14:33 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 89
+      }
+    },
+    "NWN": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:14:33 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "RS": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:14:51 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "SHW": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 99 of 99 rule-only dates were served after the last applied daily load (2026-10-11 06:14:56 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 98
+      }
+    },
+    "SITM": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 1696 of 1696 rule-only dates were served after the last applied daily load (2026-10-11 06:14:57 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1695
+      }
+    },
+    "TDG": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 88 of 88 rule-only dates were served after the last applied daily load (2026-10-11 06:15:04 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 87
+      }
+    },
+    "TTMI": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 4 of 4 rule-only dates were served after the last applied daily load (2026-10-11 06:15:10 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 3
+      }
+    },
+    "UNIT": {
+      "tags": [
+        "stored_only"
+      ],
+      "reason": "canonical stale, not a cutover effect (rule over observations equal to rule over raw): on 2026-10-12 22:48 UTC IBKR re-served 2,853 smart_trades values from 2015-04-27 on another scale (45.63 against Tradier 27.61 on 2015-04-27), after the last applied daily load (2026-10-11 06:15 UTC); the seam test now refuses the five ibkr_fallback head dates 2015-04-20..24 that canonical holds",
+      "n_by_tag": {
+        "stored_only": 5
+      }
+    },
+    "VIAV": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 1761 of 1761 rule-only dates were served after the last applied daily load (2026-10-11 06:15:16 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1760
+      }
+    },
+    "VTR": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 88 of 88 rule-only dates were served after the last applied daily load (2026-10-11 06:15:20 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 87
+      }
+    },
+    "VZ": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 1538 of 1538 rule-only dates were served after the last applied daily load (2026-10-11 06:15:20 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 1537
+      }
+    },
+    "WCC": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 71 of 71 rule-only dates were served after the last applied daily load (2026-10-11 06:15:21 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 70
+      }
+    },
+    "WTS": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 53 of 53 rule-only dates were served after the last applied daily load (2026-10-11 06:15:25 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 52
+      }
+    },
+    "XLE": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 131 of 131 rule-only dates were served after the last applied daily load (2026-10-11 06:15:27 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 130
+      }
+    },
+    "XLP": {
+      "tags": [
+        "rule_only"
+      ],
+      "reason": "canonical stale, not a cutover effect: the rule over ohlcv_observation gives the same series as over raw (0 differing dates); 131 of 131 rule-only dates were served after the last applied daily load (2026-10-11 06:15:27 UTC) and the daily stage has not run since",
+      "n_by_tag": {
+        "rule_only": 130
+      }
+    }
+  }
+}
