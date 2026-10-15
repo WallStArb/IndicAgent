@@ -135,6 +135,46 @@ archive value kept with the canonical value as a revision) went to the 191-04 ex
     rows, 1,331 replaced, 446 retracted, 17 TMUS) on top of item 12; re-derive when bar-derivation
     resumes.
 
+## Third review of the 07 fixes and the last-wins decision (2026-10-14, D-191-N)
+
+Owner decision 2026-10-14 (D-191-N): a vendor's re-serve always overwrites its raw value
+last-wins, the old value is logged, nothing is held and no load is refused; a restatement
+detector reports instead. Fixes recorded in `191-07-FIXES.md` ("Third review fixes and last-wins
+decision").
+
+- Item 1 (refusal durability) and item 16: superseded by D-191-N; holds released
+  (`ops_pending_release.py`: 4,572 written, 80 superseded), migration 482 drops the pending
+  origin.
+- Item 11 and item 17: superseded by the regenerated `logs/reserve_keys_191_07.json` (4,569 keys,
+  103 session asks on 38 series): 58 IBKR sessions lost under the 2026-10-10 refusals on AGG,
+  AVGO, BAC, BKNG, CAT, CCJ, CRWD, EDV, EMLC (the planner now asks them too), 22 truncated
+  2026-10-09 14:10 bars, 17 TMUS 19:05 verifications, 6 partial-only keys still missing from raw.
+  Still owed once the fetcher may run.
+- Item 18 (owner acknowledgement of the D-191-M amendment): moot, superseded by D-191-N.
+- Item 19: the truncated-bar scan is built (`ops_truncated_bar_scan.py`, APR
+  `threshold.bar_integrity.truncated_bar_volume_ratio`, migration 483). Open, see item 27.
+
+## Open after the third review fixes (2026-10-14)
+
+24. GE 5m 2021-11-08 to 2021-11-24: 1,014 IBKR bars now hold the two-decimal values of the
+    refused d2adcf51 serve (latest answer, D-191-N) inside four-decimal history. Nothing to fix
+    by hand (owner 2026-10-14); a later IBKR re-serve of that span overwrites them last-wins.
+    The restatement detector would flag such a serve going forward only by share, not by
+    signature (rounding is no constant ratio).
+25. The fetcher's `waived` parameter chain (`_history_fetch_item`, `ohlcv_history_fetcher`
+    escalation) no longer changes any write; it only decides whether an overlap breach is
+    re-fetched at full depth. Delete or rename it the next time the fetcher changes.
+26. `services/bar_derivation.py` keeps its own answered-window read (`_SELECT_ANSWERED_WINDOWS_SQL`)
+    and does not exclude refused windows as the gap planner now does (finding 3). Check whether
+    the grid stage can treat a refused 5m window as answered; fix with plan 08.
+27. Truncated-bar scan: BLK and XTL alone give about 100 candidates each over history at the
+    0.2 threshold, most of them older than the request ledger. Calibrate the threshold (or add a
+    request-end condition) and run it over the universe before plan 10's evidence readers trust
+    intraday volume; only then add its keys to the re-serve list.
+28. Derived 15m/1h are stale over every session the release re-selected (4,572 raw writes on
+    ADM, AEP, AMT, AMZN, ASML, BA, GE) on top of items 12 and 23.
+29. `--apply-spans` staleness guard (item 22) is still not built.
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land
