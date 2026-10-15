@@ -1,26 +1,40 @@
-"""Capture completeness check (todo 528 rule R6): served = authored + archived.
+"""Capture completeness check (todo 528 rule R6, phase 191 plan 11): every served bar is in raw.
 
-Reads the `ohlcv_load` ledger and the two stores and prints, per
-(source, timeframe), whether every vendor-served bar is accounted for:
-canonical rows (grid destination) plus raw-archive rows (archive
-destination) plus explicit refusals must cover the served count. Zero
-`unexplained` is the invariant; nonzero rows mean bars reached the floor
-somewhere and name the (source, timeframe) to investigate.
+Reads the `ohlcv_load` ledger rows of destination `raw` and the raw plane (`ohlcv_raw`,
+`ohlcv_revision`) and prints, per (source, timeframe), whether every vendor-served bar is
+accounted for. Zero `unexplained` is the invariant; a nonzero row names the (source, timeframe)
+to investigate. Four terms, each a loss or an unledgered write if nonzero:
 
-Caveats the report carries rather than hides: a revision-refused chunk's
-served rows are captured by the raw archive (todo 528) and the archived
-count rides the refusal row's n_archived; `refused_bars` is the remainder a
-refusal did not archive (rows the archive already held under another
-source), separated from true loss; on the archive side an unchanged
-re-offer's bars are already in the store and a removed bar is a recorded
-deletion, so neither is loss; re-loads still make the ledger's served count
-an upper bound, so the check is a monitor, not a proof.
+- ledger_gap: served - (new + changed + unchanged + removed + superseded + refused_archived).
+  Every served bar of a load is one of those outcomes (D-191-N: last-wins, nothing held).
+- revision_gap: (changed + removed) - the load's ohlcv_revision rows of origin `raw`. A
+  replaced or removed raw value is never dropped: its old value is in the revision log.
+- lost_new: max(0, new - removed - current), where `current` counts raw rows whose last writer
+  is a ledgered load. Each newly inserted key stays current unless a recorded removal took it.
+- unledgered: max(0, current - new - changed). A raw row cannot carry a load_id the ledger
+  never counted as a new or changed write (an unchanged re-serve does not move load_id).
+
+One explained class, `restamped`: the one-time re-judgment of the retired refused loads
+(caller refusal-rejudge-191, plan 191-07, tool deleted under D-191-N) restamped the served_at
+and load_id of every row of each re-judged serve without changing a value; its n_bars counts
+only the offers it judged. Rows a re-judge load last wrote are counted apart, and the upper
+bound for them is relaxed to the restamp (their changed values are still in revision_gap).
+
+The raw rows the plan 03 backfill wrote carry load_id NULL and predate the raw ledger: their
+balance against the two old stores was checked when they were written (plans 03 and 04).
+Ledger rows of the old destinations (d1, archive, vendor loads into market_data_ohlcv) are that
+history and are not judged here; derived loads into market_data_ohlcv are not vendor serves.
+
+`current` is counted per symbol from the small ledger (raw is compressed with segmentby symbol,
+timeframe, vendor; every raw read filters all three), inside one repeatable-read snapshot so a
+concurrent fetcher write lands on both sides or neither.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import timedelta
 
 import pandas as pd
 import psycopg
@@ -28,141 +42,128 @@ import psycopg
 from src.config.settings import get_settings
 
 _LEDGER_SQL = """
-SELECT source, timeframe, destination, outcome,
-       sum(n_bars) AS served,
-       sum(n_new + n_changed) AS written,
-       sum(n_unchanged) AS unchanged,
-       sum(n_removed) AS removed,
-       sum(n_archived) AS refused_archived
-FROM ohlcv_load
-WHERE caller NOT LIKE 'test-%'
-GROUP BY source, timeframe, destination, outcome
+SELECT l.source, l.timeframe,
+       sum(l.n_bars) AS served,
+       sum(l.n_new) AS new,
+       sum(l.n_changed) AS changed,
+       sum(coalesce(l.n_unchanged, 0)) AS unchanged,
+       sum(l.n_removed) AS removed,
+       sum(l.n_superseded) AS superseded,
+       sum(l.n_archived) AS refused_archived,
+       coalesce(sum(v.n), 0) AS revisions
+FROM ohlcv_load l
+LEFT JOIN (
+    SELECT load_id, count(*) AS n FROM ohlcv_revision WHERE origin = 'raw' GROUP BY load_id
+) v USING (load_id)
+WHERE l.destination = 'raw' AND l.caller NOT LIKE 'test-%'
+GROUP BY l.source, l.timeframe
 """
 
-_STORE_SQL = """
-SELECT CASE
-           WHEN source = 'derived_5m' THEN 'derived'
-           WHEN source = 'ibkr_named' THEN 'ibkr'
-           ELSE source
-       END AS source,
-       timeframe, count(*) AS rows
-FROM {table}
-GROUP BY 1, timeframe
+# The series whose raw rows a ledgered load last wrote, with the span to bound the chunk scan.
+_SERIES_SQL = """
+SELECT symbol, timeframe, source, caller = %(restamp)s, array_agg(load_id),
+       min(first_bar), max(last_bar), sum(n_new + n_changed)
+FROM ohlcv_load
+WHERE destination = 'raw' AND caller NOT LIKE 'test-%%' AND n_new + n_changed > 0
+GROUP BY symbol, timeframe, source, caller = %(restamp)s
 """
+
+_CURRENT_SQL = """
+SELECT count(*) FROM ohlcv_raw
+WHERE symbol = %s AND timeframe = %s AND vendor = %s
+  AND "timestamp" >= %s AND "timestamp" < %s
+  AND load_id = ANY(%s)
+"""
+
+_RESTAMP_CALLER = "refusal-rejudge-191"
+
+_COUNT_COLS = (
+    "served",
+    "new",
+    "changed",
+    "unchanged",
+    "removed",
+    "superseded",
+    "refused_archived",
+    "revisions",
+    "current",
+    "restamp_current",
+    "restamp_written",
+)
 
 
 def _classify(report: pd.DataFrame) -> pd.DataFrame:
-    """The pure arithmetic over the joined ledger-and-stores frame: the refused split and
-    the unexplained loss. Module-level so the rule is testable without a database."""
-    # A refused chunk's served rows are captured by the raw archive (todo 528) and the
-    # count rides the refusal row's n_archived: it is neither loss nor refusal remainder.
-    report["refused_bars"] = (
-        report["served"] - report["written"] - report["removed"] - report["refused_archived"]
-    ).clip(lower=0)
-    # Negative raw deltas mean the ledger covers a shorter window than the store
-    # (legacy/pre-448 corpus): loss is only ever served bars with no store row.
-    raw_grid = (
-        report["served"] - report["refused_bars"] - report["canonical"] - report["refused_archived"]
-    )
-    # The archive is append-only, so an unchanged re-offer's bars are already in the
-    # store and already counted by the load that first wrote them: served double-counts
-    # them exactly once, and an archive-removed bar is a recorded deletion, not loss.
-    raw_arch = (
-        report["archive_served"]
-        - report["archive_unchanged"]
-        - report["archive_removed"]
+    """The pure arithmetic over the joined ledger-and-raw frame. Module-level so the rule is
+    testable without a database."""
+    report["ledger_gap"] = report["served"] - (
+        report["new"]
+        + report["changed"]
+        + report["unchanged"]
+        + report["removed"]
+        + report["superseded"]
         + report["refused_archived"]
-        - report["archive"]
     )
-    report["preledger_rows"] = (-(raw_grid.clip(upper=0)) - raw_arch.clip(upper=0)).clip(lower=0)
-    report["unexplained"] = raw_grid.clip(lower=0) + raw_arch.clip(lower=0)
+    report["revision_gap"] = report["changed"] + report["removed"] - report["revisions"]
+    report["lost_new"] = (
+        report["new"] - report["removed"] - report["current"] - report["restamp_current"]
+    ).clip(lower=0)
+    report["unledgered"] = (
+        report["current"] - (report["new"] + report["changed"] - report["restamp_written"])
+    ).clip(lower=0)
+    report["restamped"] = (report["restamp_current"] - report["restamp_written"]).clip(lower=0)
+    report["unexplained"] = (
+        report["ledger_gap"].abs()
+        + report["revision_gap"].abs()
+        + report["lost_new"]
+        + report["unledgered"]
+    )
     return report
 
 
-def _build_report(
-    ledger: pd.DataFrame, canonical: pd.DataFrame, archive: pd.DataFrame
-) -> pd.DataFrame:
-    """Join the ledger's buckets and the two stores into the frame `_classify` consumes.
-
-    The ledger's source is the writer plane (`ohlcv_load_source_check`: tradier, ibkr,
-    derived, alpaca) while grid rows carry the bar label derived_5m and authored IBKR
-    rows carry ibkr_named; the store side is normalized to the writer label so the two
-    vocabularies join (verified 2026-10-10: no store row carries a bare 'ibkr' or
-    'derived' source, and sampled ibkr-5m ledger spans are fully occupied under
-    ibkr_named). A refusal's
-    n_archived is by nature cross-destination (refused grid rows land in the archive
-    store), so refused grid rows form their own bucket joined in once, never a column
-    of a destination partition that would drop it. An archive-destination refusal is
-    not in the bucket: its served bars already count in archive_served and its
-    upserted rows return to the same store, so the refused_archived adjustment would
-    double-count it there (the rare legacy path stays visible in the ohlcv_load
-    ledger)."""
-    stores = canonical.join(archive, how="outer")
-    grid = (
-        ledger[ledger["destination"] == "market_data_ohlcv"]
-        .groupby(["source", "timeframe"])[["served", "written", "removed"]]
-        .sum()
+def _build_report(ledger: pd.DataFrame, current: pd.DataFrame) -> pd.DataFrame:
+    """Join the ledger buckets and the current-row counts on (source, timeframe)."""
+    report = ledger.set_index(["source", "timeframe"]).join(
+        current.set_index(["source", "timeframe"]), how="outer"
     )
-    arch = (
-        ledger[ledger["destination"] == "archive"]
-        .groupby(["source", "timeframe"])[["served", "unchanged", "removed"]]
-        .sum()
-        .rename(
-            columns={
-                "served": "archive_served",
-                "unchanged": "archive_unchanged",
-                "removed": "archive_removed",
-            }
-        )
-    )
-    refused = (
-        ledger[(ledger["outcome"] == "refused") & (ledger["destination"] == "market_data_ohlcv")]
-        .groupby(["source", "timeframe"])[["refused_archived"]]
-        .sum()
-    )
-    report = stores.join(grid, how="outer").join(arch, how="outer").join(refused, how="outer")
     report = report.fillna(0)
-    for col in (
-        "served",
-        "written",
-        "removed",
-        "refused_archived",
-        "archive_served",
-        "archive_unchanged",
-        "archive_removed",
-        "canonical",
-        "archive",
-    ):
+    for col in _COUNT_COLS:
         report[col] = report[col].astype("int64")
     return _classify(report)
 
 
-def _report(conn) -> pd.DataFrame:
+def _report(conn: psycopg.Connection) -> pd.DataFrame:
     with conn.cursor() as cur:
         cur.execute(_LEDGER_SQL)
-        ledger = pd.DataFrame(
-            cur.fetchall(),
-            columns=[
-                "source",
-                "timeframe",
-                "destination",
-                "outcome",
-                "served",
-                "written",
-                "unchanged",
-                "removed",
-                "refused_archived",
-            ],
-        )
-        frames = []
-        for table, label in (
-            ("market_data_ohlcv", "canonical"),
-            ("ohlcv_intraday_raw_archive", "archive"),
-        ):
-            cur.execute(_STORE_SQL.format(table=table))
-            df = pd.DataFrame(cur.fetchall(), columns=["source", "timeframe", label])
-            frames.append(df.set_index(["source", "timeframe"]))
-    return _build_report(ledger, frames[0], frames[1]).reset_index()
+        ledger = pd.DataFrame(cur.fetchall(), columns=["source", "timeframe", *_COUNT_COLS[:-3]])
+        cur.execute(_SERIES_SQL, {"restamp": _RESTAMP_CALLER})
+        series = cur.fetchall()
+        counts: dict[tuple[str, str], list[int]] = {}
+        for symbol, timeframe, source, restamp, load_ids, first, last, written in series:
+            if first is None or last is None:
+                raise SystemExit(f"raw load of {symbol} {timeframe} wrote bars but has no span")
+            cur.execute(
+                _CURRENT_SQL,
+                (
+                    symbol,
+                    timeframe,
+                    source,
+                    first - timedelta(days=1),
+                    last + timedelta(days=2),
+                    load_ids,
+                ),
+            )
+            bucket = counts.setdefault((source, timeframe), [0, 0, 0])
+            n = int(cur.fetchone()[0])
+            if restamp:
+                bucket[1] += n
+                bucket[2] += int(written)
+            else:
+                bucket[0] += n
+    current = pd.DataFrame(
+        [(s, tf, *b) for (s, tf), b in counts.items()],
+        columns=["source", "timeframe", "current", "restamp_current", "restamp_written"],
+    )
+    return _build_report(ledger, current).reset_index()
 
 
 def main() -> int:
@@ -174,19 +175,19 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    conn = psycopg.connect(get_settings().database_url, autocommit=True)
-    try:
+    with psycopg.connect(get_settings().database_url) as conn:
+        conn.isolation_level = psycopg.IsolationLevel.REPEATABLE_READ
+        conn.read_only = True
         report = _report(conn)
-    finally:
-        conn.close()
+        conn.rollback()
 
-    pd.set_option("display.width", 160)
+    pd.set_option("display.width", 200)
     print(report.to_string(index=False))
     bad = report[report["unexplained"] != 0]
     if not bad.empty:
         print(f"UNEXPLAINED: {len(bad)} (source, timeframe) rows above")
         return 1 if args.gate else 0
-    print("OK: every served bar is authored or archived (refusals separated)")
+    print("OK: every served raw bar is new, changed, unchanged, removed or superseded, and in raw")
     return 0
 
 
