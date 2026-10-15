@@ -45,20 +45,27 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-14. Plans 01 to 07 done,
-each independently reviewed and fixed (reviews in the phase dir; both rounds of 07 fixes in
-191-07-FIXES.md, the second done 2026-10-14). Next: a fresh-context review of the second 07 fixes,
-then plan 08 (daily stage over raw), then 10 (evidence readers); the fetcher resumes only after 06,
-08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 07 done,
+each independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
+191-07-FIXES.md, the third with the owner's last-wins decision D-191-N done 2026-10-15). Next: a
+fresh-context review of the third 07 fixes, then plan 08 (daily stage over raw), then 10 (evidence
+readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff:
+`.planning/HANDOFF.json`.
+
+- **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
+  last-wins, the old value is logged, nothing is held and no load is refused; a restatement
+  detector (`ohlcv_restatement_flag`, APR `threshold.bar_integrity.restatement_*`) reports. All
+  4,652 holds were released (4,572 written, 80 superseded) and the pending origin retired
+  (migration 482). Session choices are durable in `bar_session_choice` (migrations 480, 484).
 
 - **Cutover window open since 2026-10-13T19:00:40Z:** ten units held (fetcher, reconciliation
   audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer);
   the 5m IBKR backfill is paused. Selection gate over the 57 series exits 0 and idempotence is
-  0/0, but 4,652 offered values are held pending and 3,525 keys need an IBKR re-serve
-  (`--reserve-keys logs/reserve_keys_191_07.json`) once the fetcher runs. Derived 15m/1h over the
-  repaired and re-selected 5m sessions are stale until bar-derivation resumes. Owner
-  acknowledgement pending: D-191-B, D, G and the D-191-M amendment (per-load re-judgment, needed
-  before plans 08 and 10); plan 20 (Tradier deletion) has an owner checkpoint.
+  0/0; 4,569 keys need an IBKR re-serve (`--reserve-keys logs/reserve_keys_191_07.json`, 58
+  lost sessions on nine series, truncated and partial bars) once the fetcher runs. Derived
+  15m/1h over the released and re-selected 5m sessions are stale until bar-derivation resumes.
+  Owner acknowledgement pending: D-191-B, D, G; plan 20 (Tradier deletion) has an owner
+  checkpoint.
 
 - **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
   the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00
