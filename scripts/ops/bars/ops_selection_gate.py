@@ -253,11 +253,14 @@ def selected_rows(
     }
 
 
-ChoiceRecord = tuple  # (session_date, vendor, complete, n_slots, n_vendor_slots, n_grid, n_vg)
+ChoiceRecord = (
+    tuple  # (session_date, vendor, complete, n_slots, n_vendor_slots, n_grid, n_vg, n_pg)
+)
 
 _CHOICES_SQL = (
     "SELECT session_date, vendor, complete, n_slots, n_vendor_slots, n_grid_slots, "
-    "n_vendor_grid_slots FROM bar_session_choice WHERE symbol = %s AND timeframe = %s"
+    "n_vendor_grid_slots, n_primary_grid_slots FROM bar_session_choice "
+    "WHERE symbol = %s AND timeframe = %s"
 )
 
 
@@ -270,6 +273,7 @@ def choice_record(c: Any) -> ChoiceRecord:
         c.n_vendor_slots,
         c.n_grid_slots,
         c.n_vendor_grid_slots,
+        c.n_primary_grid_slots,
     )
 
 

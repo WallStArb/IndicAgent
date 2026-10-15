@@ -460,3 +460,15 @@ def test_the_writer_keeps_the_session_choices_of_the_sessions_it_selects():
     (upsert,) = [p for s, p in conn.cur.executed if s == _UPSERT_CHOICE_SQL]
     assert upsert[2:8] == [S0.date(), "alpaca", ["alpaca", "ibkr"], False, 5, 4]
     assert upsert[8:10] == [78, 4] and upsert[10] == [S0 + timedelta(minutes=20)]
+    assert upsert[11] == 4  # the primary (alpaca) held four of the calendar's slots
+
+
+def test_a_fallback_by_absence_records_zero_primary_slots():
+    """A session the primary holds nothing of (IBKR-first names whose IBKR 5m backfill has not
+    reached the date) is a fallback by absence, told apart from a shortfall by the record."""
+    alpaca = [_slot(i, "alpaca") for i in range(78)]
+    (choice,) = select_slots(alpaca, [DEFAULT], KIND_ORDER).choices
+    assert choice.fallback and choice.n_primary_grid_slots == 0
+    ibkr = [_slot(i, "ibkr") for i in range(70)]
+    (choice,) = select_slots(alpaca + ibkr, [DEFAULT], KIND_ORDER).choices
+    assert choice.fallback and choice.n_primary_grid_slots == 70

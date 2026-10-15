@@ -208,6 +208,9 @@ class SessionChoice:
     n_grid_slots: int | None = None  # the calendar's regular-hours slots (None: no grid)
     n_vendor_grid_slots: int | None = None  # of those, the chosen vendor's
     dropped: tuple[datetime, ...] = ()  # slots another vendor held that the session left out
+    # the ranked-first vendor's regular-hours slots: 0 says the primary held nothing that
+    # session (a fallback by absence), more says it held part (a fallback by shortfall)
+    n_primary_grid_slots: int | None = None
 
     @property
     def fallback(self) -> bool:
@@ -297,6 +300,7 @@ def select_slots(
             None if grid is None else len(grid),
             None if grid is None else len(grid & set(by_vendor[chosen])),
             left_out,
+            None if grid is None else len(grid & set(by_vendor[ranking[0]])),
         )
         if choice.fallback or not choice.complete or choice.partial:
             choices.append(choice)

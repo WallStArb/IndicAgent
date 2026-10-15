@@ -257,18 +257,20 @@ _CLEAR_CHOICES_SQL = (
 )
 _UPSERT_CHOICE_SQL = (
     "INSERT INTO bar_session_choice (symbol, timeframe, session_date, vendor, ranking, complete, "
-    "n_slots, n_vendor_slots, n_grid_slots, n_vendor_grid_slots, dropped) "
-    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+    "n_slots, n_vendor_slots, n_grid_slots, n_vendor_grid_slots, dropped, n_primary_grid_slots) "
+    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
     "ON CONFLICT (symbol, timeframe, session_date) DO UPDATE SET vendor = EXCLUDED.vendor, "
     "ranking = EXCLUDED.ranking, complete = EXCLUDED.complete, n_slots = EXCLUDED.n_slots, "
     "n_vendor_slots = EXCLUDED.n_vendor_slots, n_grid_slots = EXCLUDED.n_grid_slots, "
     "n_vendor_grid_slots = EXCLUDED.n_vendor_grid_slots, dropped = EXCLUDED.dropped, "
+    "n_primary_grid_slots = EXCLUDED.n_primary_grid_slots, "
     "decided_at = now() WHERE (bar_session_choice.vendor, bar_session_choice.ranking, "
     "bar_session_choice.complete, bar_session_choice.n_slots, bar_session_choice.n_vendor_slots, "
     "bar_session_choice.n_grid_slots, bar_session_choice.n_vendor_grid_slots, "
-    "bar_session_choice.dropped) IS DISTINCT FROM (EXCLUDED.vendor, EXCLUDED.ranking, "
-    "EXCLUDED.complete, EXCLUDED.n_slots, EXCLUDED.n_vendor_slots, EXCLUDED.n_grid_slots, "
-    "EXCLUDED.n_vendor_grid_slots, EXCLUDED.dropped)"
+    "bar_session_choice.dropped, bar_session_choice.n_primary_grid_slots) IS DISTINCT FROM "
+    "(EXCLUDED.vendor, EXCLUDED.ranking, EXCLUDED.complete, EXCLUDED.n_slots, "
+    "EXCLUDED.n_vendor_slots, EXCLUDED.n_grid_slots, EXCLUDED.n_vendor_grid_slots, "
+    "EXCLUDED.dropped, EXCLUDED.n_primary_grid_slots)"
 )
 
 
@@ -302,6 +304,7 @@ def record_session_choices(
                 c.n_grid_slots,
                 c.n_vendor_grid_slots,
                 list(c.dropped),
+                c.n_primary_grid_slots,
             ),
         )
 
