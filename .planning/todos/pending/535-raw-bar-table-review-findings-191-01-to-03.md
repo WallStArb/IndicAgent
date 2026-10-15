@@ -210,3 +210,21 @@ decision").
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land
 before plan 191-07.
+
+## Fourth review of the 07 fixes (2026-10-15, 191-07-FIXES3-REVIEW.md)
+
+Done: finding 1 (raw last-wins by serve time, superseded origin; ce723eab8), finding 2 (basis
+flags partial, gate class, review CLI, D7 gauge; edb793e79), finding 3 (detector v2; 7c9fe3bf4,
+APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Open (scope cut):
+
+30. Finding 4: rewrite tests/integration/test_ingress_write_contract.py for last-wins, the
+    revision log and serve-time ordering against the real DB (it still passes `waived`).
+31. Finding 5: selection judges a session with no stamp on the calendar grid on an empty set
+    (166 bar_session_choice rows, 2006-12-27 and two others); judge on the vendor's slots, record
+    n_grid_slots NULL (migration 485 documents it), reclassify through record_session_choices.
+32. Finding 6: run the detector retroactively over the GE 2021-11 release load (via
+    ohlcv_ingress_contract.record_flag) so the review queue starts complete.
+33. Finding 7: batch record_session_choices into one multi-row upsert and clear all-off-grid
+    sessions (pass every session date of the window).
+34. Finding 8 rest: delete the inert `waived` chain (_history_fetch_item, ohlcv_history_fetcher).
+35. Not run after this round: full unit suite and the selection gate --compare over the 57 series.
