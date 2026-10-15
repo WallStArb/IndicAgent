@@ -61,7 +61,7 @@ INSERT INTO bar_hold
 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9::text::jsonb, $10, $11::uuid)
 """
 
-# Each route's latest TRADES answer against the canonical bar of the same date, over the
+# Each route's current raw TRADES value against the canonical bar of the same date, over the
 # affected dates ($2 NULL: from the first canonical bar). The rescale a vendor applied reads as
 # canonical/latest; first and last date are where it differs from 1 by more than $4. Canonical
 # is the tradeable view (compute and measurement never read the raw table).
@@ -73,13 +73,18 @@ WITH canon AS (
       AND ($2::date IS NULL OR "timestamp" >= ($2::date)::timestamp AT TIME ZONE 'UTC')
       AND "timestamp" < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
 ), latest AS (
-    SELECT DISTINCT ON (o.route, o.bar_date) o.route, o.bar_date, o.close
-    FROM ohlcv_observation o
-    JOIN ohlcv_request q ON q.request_id = o.request_id
-    WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
-      AND o.route IN ('SMART', 'TRADIER') AND q.caller NOT LIKE 'test-%'
-      AND ($2::date IS NULL OR o.bar_date >= $2::date) AND o.bar_date <= $3::date
-    ORDER BY o.route, o.bar_date, o.fetched_at DESC
+    -- The current raw value per date (last-wins by serve time, D-191-N; plan 191-10). SMART is
+    -- IBKR smart_trades a SMART request served (a legacy import row is no route evidence),
+    -- TRADIER the Tradier consolidated series.
+    SELECT q.route, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, r.close
+    FROM ohlcv_raw r
+    JOIN ohlcv_request q ON q.request_id = r.request_id
+    WHERE r.symbol = $1 AND r.timeframe = '1d'
+      AND (r.vendor, r.kind) IN (('ibkr', 'smart_trades'), ('tradier', 'consolidated'))
+      AND q.route IN ('SMART', 'TRADIER') AND q.what_to_show = 'TRADES'
+      AND q.caller NOT LIKE 'test-%'
+      AND ($2::date IS NULL OR r."timestamp" >= ($2::date)::timestamp AT TIME ZONE 'UTC')
+      AND r."timestamp" < ($3::date + 1)::timestamp AT TIME ZONE 'UTC'
 )
 SELECT l.route,
        count(*) AS n_dates,

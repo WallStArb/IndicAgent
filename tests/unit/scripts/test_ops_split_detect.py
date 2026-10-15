@@ -291,7 +291,7 @@ class OpsConn:
             return [{"request_id": r} for r in args[1] if r in self.requests]
         if "FROM bar_hold_current" in flat:
             return [h for h in self.holds if h["symbol"] == args[0]]
-        if "ohlcv_observation" in flat:
+        if "_VENDOR_RATIOS" in flat or "market_data_ohlcv_tradeable" in flat:
             return self.ratios
         raise AssertionError(flat)
 

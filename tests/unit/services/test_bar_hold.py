@@ -59,7 +59,7 @@ class FakeConn:
     async def fetch(self, sql, *args):
         flat = " ".join(sql.split())
         self.fetched.append((flat, args))
-        if "ohlcv_observation" in flat:
+        if "_VENDOR_RATIOS" in flat or "market_data_ohlcv_tradeable" in flat:
             return self.ratios
         assert "bar_hold_current" in flat, flat
         if "symbol = $1" in flat:
@@ -181,4 +181,6 @@ def test_vendor_ratios_compare_each_routes_latest_answer_with_the_canonical_bar(
     assert ratios["TRADIER"]["first_date"] == "2019-05-24"
     sql, args = conn.fetched[0]
     assert "market_data_ohlcv_tradeable" in sql and "q.caller NOT LIKE 'test-%'" in sql
+    # Plan 191-10: the vendors' values come from ohlcv_raw, never the observation store.
+    assert "FROM ohlcv_raw r" in sql and "ohlcv_observation" not in sql
     assert args == ("CTVA", None, date(2026, 9, 30), 0.002)

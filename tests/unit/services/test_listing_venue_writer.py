@@ -273,3 +273,22 @@ class TestReconcileSpans:
     def test_plan_is_a_noop_only_when_it_writes_nothing(self, desired):
         plan = reconcile_spans(desired, desired)
         assert plan.is_noop
+
+
+def test_the_daily_evidence_reads_raw_kinds_never_the_observation_store():
+    """Plan 191-10: venue bars are raw kinds venue_<route>; the SMART head counts only rows a
+    SMART request served (a legacy import row is no route evidence); the official close is
+    Tradier's consolidated raw series."""
+    import services.listing_venue_writer as lvw
+
+    reads = (
+        lvw._FIRST_BAR_SQL,
+        lvw._SMART_HEAD_SQL,
+        lvw._VENUE_BARS_SQL,
+        lvw._OFFICIAL_CLOSE_SQL,
+    )
+    for sql in reads:
+        assert "ohlcv_raw" in sql and "ohlcv_observation" not in sql and "timeframe = '1d'" in sql
+    assert "'venue_' || lower(v)" in lvw._VENUE_BARS_SQL
+    assert "q.route = 'SMART'" in lvw._SMART_HEAD_SQL
+    assert "kind = 'consolidated'" in lvw._OFFICIAL_CLOSE_SQL

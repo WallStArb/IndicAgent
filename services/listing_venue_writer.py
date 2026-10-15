@@ -52,7 +52,7 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
-from src.intelligence.bars.sources import SOURCE_TRADIER
+from src.intelligence.bars.vendor_kind import VENDOR_TRADIER
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
 
@@ -240,19 +240,23 @@ def reconcile_spans(existing: Sequence[Span], desired: Sequence[Span]) -> SpanPl
 # ---------------------------------------------------------------------------
 
 _UNIVERSE_SQL = "SELECT i.symbol FROM instruments i WHERE {clause} ORDER BY i.symbol"
-# D1 rows a test wrote (caller 'test-...') are provenance-excluded, as in bar_derivation.
+# Daily evidence is read from ohlcv_raw 1d (plan 191-10): one current value per key, last-wins
+# by serve time (D-191-N). Rows a test request wrote (caller 'test-...') are
+# provenance-excluded, as in bar_derivation; a legacy row has no request and counts. The IBKR
+# and Tradier series are the ones the observation store held (Alpaca 1d is not D1 evidence).
 _FIRST_BAR_SQL = """
-SELECT o.symbol, min(o.bar_date) AS first_bar
-FROM ohlcv_observation o JOIN ohlcv_request q ON q.request_id = o.request_id
-WHERE o.symbol = ANY($1::text[]) AND q.caller NOT LIKE 'test-%'
-GROUP BY o.symbol
+SELECT r.symbol, (min(r."timestamp") AT TIME ZONE 'UTC')::date AS first_bar
+FROM ohlcv_raw r LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = ANY($1::text[]) AND r.timeframe = '1d' AND r.vendor IN ('ibkr', 'tradier')
+  AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
+GROUP BY r.symbol
 """
 _SMART_HEAD_SQL = """
-SELECT o.symbol, min(o.bar_date) AS head
-FROM ohlcv_observation o JOIN ohlcv_request q ON q.request_id = o.request_id
-WHERE o.symbol = ANY($1::text[]) AND o.source = 'ibkr' AND o.route = 'SMART'
-  AND o.what_to_show = 'TRADES' AND q.caller NOT LIKE 'test-%'
-GROUP BY o.symbol
+SELECT r.symbol, (min(r."timestamp") AT TIME ZONE 'UTC')::date AS head
+FROM ohlcv_raw r JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = ANY($1::text[]) AND r.timeframe = '1d' AND r.vendor = 'ibkr'
+  AND r.kind = 'smart_trades' AND q.route = 'SMART' AND q.caller NOT LIKE 'test-%'
+GROUP BY r.symbol
 """
 _PRIMARY_SQL = """
 SELECT DISTINCT ON (symbol) symbol, primary_exchange, request_id::text, answered_at
@@ -268,15 +272,21 @@ WHERE symbol = ANY($1::text[]) AND route = ANY($2::text[])
   AND pre_move AND smart_head_date IS NOT NULL
 ORDER BY symbol, route
 """
+# One raw kind per listing-venue route (migration 476): venue_<route lower case>.
 _VENUE_BARS_SQL = """
-SELECT DISTINCT ON (route, bar_date) route, bar_date, close, volume FROM ohlcv_observation
-WHERE symbol = $1 AND route = ANY($2::text[]) AND what_to_show = 'TRADES' AND bar_date < $3
-ORDER BY route, bar_date, fetched_at DESC
+SELECT upper(substr(kind, 7)) AS route, ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+       close, volume
+FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = '1d' AND vendor = 'ibkr'
+  AND kind = ANY(SELECT 'venue_' || lower(v) FROM unnest($2::text[]) AS v)
+  AND "timestamp" < $3::date::timestamptz
+ORDER BY kind, "timestamp"
 """
 _OFFICIAL_CLOSE_SQL = """
-SELECT DISTINCT ON (bar_date) bar_date, close FROM ohlcv_observation
-WHERE symbol = $1 AND source = $2 AND bar_date < $3
-ORDER BY bar_date, fetched_at DESC
+SELECT ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, close FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = 'consolidated'
+  AND "timestamp" < $3::date::timestamptz
+ORDER BY "timestamp"
 """
 _VENUE_REQUESTS_SQL = """
 SELECT route, array_agg(request_id::text ORDER BY answered_at) AS ids FROM ohlcv_request
@@ -439,7 +449,7 @@ class ListingVenueWriter(BaseBatch):
                     bars[r["route"]][r["bar_date"]] = (r["close"], float(r["volume"] or 0))
                 official = {
                     r["bar_date"]: r["close"]
-                    for r in await conn.fetch(_OFFICIAL_CLOSE_SQL, symbol, SOURCE_TRADIER, head)
+                    for r in await conn.fetch(_OFFICIAL_CLOSE_SQL, symbol, VENDOR_TRADIER, head)
                 }
                 requests = {
                     r["route"]: list(r["ids"])
