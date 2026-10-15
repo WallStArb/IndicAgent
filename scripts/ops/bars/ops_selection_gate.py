@@ -562,6 +562,12 @@ class SeriesDiff:
     sessions_fallback: int = 0
     sessions_incomplete: int = 0
     session_dropped_slots: int = 0
+    # sessions the chosen vendor holds only partly against the calendar's regular-hours grid
+    # (third review of 191-07, finding 4): counted, a property of the data, not residue
+    sessions_partial: int = 0
+    # sessions whose bar_session_choice row (migration 480) disagrees with the selection's
+    # choice, or is missing or stale: residue, the durable record must equal the selection
+    session_choices_unrecorded: int = 0
 
     @property
     def n_real(self) -> int:
@@ -586,6 +592,7 @@ class SeriesDiff:
             and not self.unmapped_canonical
             and not self.held_raw_rows
             and not self.mixed_vendor_sessions
+            and not self.session_choices_unrecorded
         )
 
 
@@ -594,11 +601,15 @@ def selected_rows(
     policy_rows: Sequence[PolicyRow],
     kind_order: Mapping[str, int],
     held: set[Key] | frozenset[Key] = frozenset(),
+    choices_out: list[ChoiceRecord] | None = None,
 ) -> tuple[dict[datetime, Row], dict[str, int]]:
     """The rows the live writer would write: winners with a volume (a NULL-volume winner is
     skipped and counted, as bar_selection does), one vendor per session, held keys never
-    winning (as bar_selection does)."""
+    winning (as bar_selection does). `choices_out` receives the session choices as the rows
+    bar_session_choice must hold."""
     outcome = select_slots(candidates, policy_rows, kind_order, held)
+    if choices_out is not None:
+        choices_out.extend(choice_record(c) for c in outcome.choices)
     rows: dict[datetime, Row] = {}
     skipped = 0
     for w in outcome.winners:
@@ -613,7 +624,35 @@ def selected_rows(
         "sessions_fallback": sum(c.vendor != c.ranking[0] for c in outcome.choices),
         "sessions_incomplete": sum(not c.complete for c in outcome.choices),
         "session_dropped_slots": len(outcome.dropped),
+        "sessions_partial": sum(c.partial for c in outcome.choices),
     }
+
+
+ChoiceRecord = tuple  # (session_date, vendor, complete, n_slots, n_vendor_slots, n_grid, n_vg)
+
+_CHOICES_SQL = (
+    "SELECT session_date, vendor, complete, n_slots, n_vendor_slots, n_grid_slots, "
+    "n_vendor_grid_slots FROM bar_session_choice WHERE symbol = %s AND timeframe = %s"
+)
+
+
+def choice_record(c: Any) -> ChoiceRecord:
+    return (
+        c.session,
+        c.vendor,
+        c.complete,
+        c.n_slots,
+        c.n_vendor_slots,
+        c.n_grid_slots,
+        c.n_vendor_grid_slots,
+    )
+
+
+def unrecorded_choices(expected: Iterable[ChoiceRecord], recorded: Iterable[ChoiceRecord]) -> int:
+    """Sessions whose recorded choice differs from the selection's, or is missing or stale."""
+    want = {r[0]: tuple(r) for r in expected}
+    have = {r[0]: tuple(r) for r in recorded}
+    return sum(1 for day in want.keys() | have.keys() if want.get(day) != have.get(day))
 
 
 def mixed_vendor_sessions(canonical: Mapping[datetime, Row]) -> int:
@@ -661,6 +700,7 @@ def compare_series(
         "sessions_fallback",
         "sessions_incomplete",
         "session_dropped_slots",
+        "sessions_partial",
     ):
         setattr(diff, name, (counts or {}).get(name, 0))
     diff.mixed_vendor_sessions = mixed_vendor_sessions(canonical)
@@ -951,6 +991,8 @@ _SUMMED_KEYS = (
     "sessions_fallback",
     "sessions_incomplete",
     "session_dropped_slots",
+    "sessions_partial",
+    "session_choices_unrecorded",
 )
 
 
@@ -1025,6 +1067,7 @@ def verdict(totals: Mapping[str, Any]) -> int:
         or totals["refused_value_selected"]
         or totals.get("held_raw_rows", 0)
         or totals.get("mixed_vendor_sessions", 0)
+        or totals.get("session_choices_unrecorded", 0)
     ):
         return EXIT_RESIDUE
     return EXIT_CLEAN
@@ -1303,6 +1346,8 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
         "sessions_fallback": sum(d.sessions_fallback for d in diffs),
         "sessions_incomplete": sum(d.sessions_incomplete for d in diffs),
         "session_dropped_slots": sum(d.session_dropped_slots for d in diffs),
+        "sessions_partial": sum(d.sessions_partial for d in diffs),
+        "session_choices_unrecorded": sum(d.session_choices_unrecorded for d in diffs),
         "by_timeframe": {},
     }
     explained: Counter = Counter()
@@ -1332,6 +1377,7 @@ def build_report(diffs: Sequence[SeriesDiff], meta: Mapping[str, Any]) -> dict[s
             "unmapped_canonical": d.unmapped_canonical,
             "held_raw_rows": d.held_raw_rows,
             "mixed_vendor_sessions": d.mixed_vendor_sessions,
+            "session_choices_unrecorded": d.session_choices_unrecorded,
             "unselected": d.unselected,
             "samples": d.samples,
         }
@@ -1405,8 +1451,13 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                 if not canonical and not candidates and not unmapped:
                     continue
                 evidence = read_evidence(cur, symbol, timeframe, candidates, match_s=args.match_s)
+                cur.execute(_CHOICES_SQL, (symbol, timeframe))
+                recorded = [tuple(r) for r in cur.fetchall()]
             conn.rollback()
-            selected, counts = selected_rows(candidates, policy, kind_order, evidence.held_keys)
+            expected: list[ChoiceRecord] = []
+            selected, counts = selected_rows(
+                candidates, policy, kind_order, evidence.held_keys, choices_out=expected
+            )
             diff = compare_series(
                 symbol,
                 timeframe,
@@ -1417,6 +1468,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
                 counts=counts,
             )
             diff.unmapped_canonical = unmapped
+            diff.session_choices_unrecorded = unrecorded_choices(expected, recorded)
             diffs.append(diff)
         if n % 25 == 0 or n == len(symbols):
             print(

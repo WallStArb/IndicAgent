@@ -814,3 +814,19 @@ def test_a_held_raw_row_is_left_out_of_the_selection_and_is_residue():
     assert diff.held_raw_rows == 1 and not diff.clean()
     report = gate.build_report([diff], {})
     assert gate.verdict(report["totals"]) == gate.EXIT_RESIDUE
+
+
+def test_session_choices_are_counted_partial_and_checked_against_their_record():
+    # third review of plan 191-07, finding 4: a session the vendor holds only partly against the
+    # calendar is counted; the persisted choice must equal the selection's
+    raw = _raw(_day(DAY1, IBKR, n=48))
+    expected: list = []
+    _selected, counts = gate.selected_rows(raw, [DEFAULT_I], KIND_ORDER, choices_out=expected)
+    assert counts["sessions_partial"] == 1 and len(expected) == 1
+    assert gate.unrecorded_choices(expected, expected) == 0
+    assert gate.unrecorded_choices(expected, []) == 1
+    stale = [(date(2020, 1, 2), "ibkr", True, 78, 78, 78, 70)]
+    assert gate.unrecorded_choices(expected, expected + stale) == 1
+    diff = gate.SeriesDiff("SPY", "5m", 0, 0)
+    diff.session_choices_unrecorded = 1
+    assert not diff.clean()
