@@ -13,20 +13,22 @@ Daemon and batch entry points (Ring 2). Each `services/<concept>.py` runs as
 - Who writes what: `docs/foundation/canonical-truth-registry.md`.
 - Commands: `docs/reference/cheatsheet.md`.
 
-## Data layer services (phase 185)
+## Data layer services (phases 185 and 191)
 
 | Service | Role |
 |---|---|
-| `bar_derivation.py` | The one writer of canonical 1d (rule d2-v2, source from `bar_source_policy`) and the derived 15m/1h grid |
+| `ohlcv_raw_writer.py` | The one writer of `ohlcv_raw` (every vendor answer, last-wins by serve time) and its `ohlcv_revision` log (phase 191) |
+| `ohlcv_ingress_contract.py` | The raw-first ingress contract every fetch path writes through (`ohlcv_load` ledger rows) |
+| `ohlcv_request_writer.py` | The fetch ledger writer (`ohlcv_request`) |
+| `bar_derivation.py` | The one writer of canonical 1d (rule d2-v3 over `ohlcv_raw`, source from `bar_source_policy`) and the derived 15m/1h grid |
 | `bar_scrub.py` | Scrub rules; flags in `bar_quality_flag`, run by the daily stage |
 | `bar_reconciliation_audit.py` | D7: integrity findings and the `bar_integrity` verdicts promotion reads |
-| `ohlcv_observation_writer.py` | D1 writer (`ohlcv_request`, `ohlcv_observation`) for every fetch path |
-| `intraday_raw_archive.py` | Frozen archive of vendor 15m/1h answers |
+| `ohlcv_observation_writer.py` | Retired D1 writer: no caller since plan 191-11; deleted with `ohlcv_observation` in plan 191-16 |
 | `listing_venue_writer.py` | D6 listing venue spans |
 | `dividend_event_writer.py` | Dividend events (Yahoo) |
 
-The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ibkr_history_fetcher.py`)
-run by `indicagent-ibkr-history-fetcher.timer`, disabled by the owner until plan 189-10. The
+The IBKR history fetcher is a script (`scripts/infrastructure/backfill/ohlcv_history_fetcher.py`)
+run by `indicagent-ibkr-history-fetcher.timer`. The
 Tradier daily loader and its units were deleted in plan 185-48 (the account is not funded).
 
 ## Removed

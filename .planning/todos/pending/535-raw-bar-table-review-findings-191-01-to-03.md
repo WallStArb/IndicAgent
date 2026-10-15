@@ -262,3 +262,13 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     0.0283 over 4,665 stored rows with no corporate action. Canonical equals IBKR raw on every
     shared key, so the rows behind the 2.8% (a source switch or removed rows) need one look;
     by owner direction no per-symbol repair, a shared-code fix or a todo 512 candidate.
+41. Old-store migration tooling left by 191-11 (plan 16 owns): `scripts/ops/bars/ops_raw_backfill.py`
+    (the plan 03 backfill; its source is the two old stores) and `ops_selection_gate.locate_groups`
+    (plan 04's balance diagnostic) still read `ohlcv_observation` and `ohlcv_intraday_raw_archive`
+    by design. Plan 16 runs the last balance check with them, then deletes both with the stores.
+    The comment in `scripts/infrastructure/backfill/_fetcher_lock.py` (lines 6 and 32) still names
+    the deleted ops_d1_bootstrap and ops_venue_study; it was left because the live fetcher imports
+    the module; fix it at the next fetcher-module edit. `ops_head_rerun`'s first bar per request
+    is now the earliest bar its id names in raw or the revision log (last-wins moves a re-served
+    bar's request id; a head re-ask is the only request over its oldest window, so its head is
+    unaffected).
