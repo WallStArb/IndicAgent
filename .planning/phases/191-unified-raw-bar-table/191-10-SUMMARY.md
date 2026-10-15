@@ -121,3 +121,37 @@ after review.
 ## Self-Check: PASSED
 
 The commits above exist on main. Migrations 487 and 488 were applied live and committed.
+
+## Review fixes and resume (2026-10-15, 191-10-REVIEW.md)
+
+- Finding 1: re-stamped the 931 d1 legacy-import requests and the 10,098 current raw rows they
+  wrote to 2026-09-29 00:00 UTC, the midnight after their last bar. `scripts/ops/bars/ops_legacy_restamp.py`
+  is a logged, idempotent, one-shot script: a re-run moves 0, and the log is
+  `logs/legacy_restamp_20261015T174031Z.json`. No value changed (0 keys would flip). The
+  review's 212 keys on 80 names did not hold legacy values. They held the same run's SMART
+  TRADES fetch: real IBKR answers of 2026-09-30, later than the serves they displaced, which
+  last-wins keeps. So no re-resolution was needed, and those requests keep their real times.
+  0 keys hold a d1-bootstrap value over a later-answered serve.
+- Finding 2: `_run_values` drops superseded offers and reads rows in a fixed order. The new
+  test failed on the old code. The 39-name dividend derivation is unchanged.
+- Finding 3: todo 535 item 39 (note only).
+- IBKR 4h: feature_vectors and market_regimes (column `tf`) hold no 4h rows.
+- Resume: the gateway was logged in with the API port open. I cleared bar-derivation (191-08
+  evidence), the fetcher pair and the dividend units (191-10 evidence) and resumed them. The
+  reconciliation audit, bar_auditor, bar_aggregator and bar_writer stay held for plan 11
+  (bar_reconciliation_audit and bar_auditor still read the old stores).
+- Re-serve run `--reserve-keys logs/reserve_keys_191_07.json` (fetch run 32c497ca): 38 items,
+  all ok, 9,483 bars, 0 flagged, 0 unselected. Its grid stage failed 231 names: bar_derivation
+  wrote ohlcv_revision rows without vendor and kind, which have been NOT NULL since plan 04.
+  [Rule 1] fixed in 0d9daf04e for both the grid and the daily delta. The grid re-run then
+  derived 231 names with 0 failed (1,786 new rows, 13,990 changed, 25 removed).
+- Selection gate `--compare` over the 38 re-served 5m series: exit 0. That is 0 real
+  differences, 0 mixed-vendor sessions, 0 unrecorded choices, 0 unselected slots and
+  0 unreviewed basis flags (`logs/gate_compare_191_10.json`).
+- Daily stage (changed only, applied): 1,497 names derived, 27,455 new rows, 132 changed,
+  5 removed. Canonical 1d now ends at 2026-10-12, the raw maximum (1,492 names). GYRE is
+  refused by the derivation-stage rule: a revision ratio of 0.0283 over 4,665 stored rows,
+  with no recorded corporate action. Its canonical equals IBKR raw on all 4,665 shared keys,
+  so the rows behind the 2.8% are open (todo 535 item 40). One name is held (bar_hold).
+- The fetcher timer is re-enabled because the gate exited 0. Its runs fetch 1d for 2026-10-13
+  and 10-14 and continue the deep 5m backfill.

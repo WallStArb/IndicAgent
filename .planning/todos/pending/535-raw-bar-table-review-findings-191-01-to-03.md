@@ -258,3 +258,7 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     of 2026-09-30, later than the displaced serves), which last-wins keeps by design. 0 keys
     hold a d1-bootstrap value over a later-answered serve. feature_vectors and market_regimes
     hold no 4h rows (tf column), so migration 488 left nothing derived behind.
+40. GYRE daily refusal (2026-10-15 resume): the derivation-stage rule refuses a revision ratio of
+    0.0283 over 4,665 stored rows with no corporate action. Canonical equals IBKR raw on every
+    shared key, so the rows behind the 2.8% (a source switch or removed rows) need one look;
+    by owner direction no per-symbol repair, a shared-code fix or a todo 512 candidate.
