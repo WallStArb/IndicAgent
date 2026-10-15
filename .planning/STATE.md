@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-15T00:30:00.000Z"
+last_updated: "2026-10-15T13:30:00.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
@@ -45,12 +45,15 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 07 done,
-each independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
-191-07-FIXES.md, the third with the owner's last-wins decision D-191-N done 2026-10-15). Next: a
-fresh-context review of the third 07 fixes, then plan 08 (daily stage over raw), then 10 (evidence
-readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff:
-`.planning/HANDOFF.json`.
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 08 done;
+01 to 07 independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
+191-07-FIXES.md, the third with the owner's last-wins decision D-191-N). Plan 08 (2026-10-15):
+the daily stage and the grid read ohlcv_raw; the rule over raw is digest-equal to canonical 1d
+over the stored span on 1,460 of 1,502 names, and the 42 others derive identically from raw and
+from the old observation read (canonical behind serves after 2026-10-11; reasons in
+191-D2-EQUIVALENCE-EXPLAINED.json); todo 535 items 6, 10, 15, 26 closed. Next: a fresh-context
+review of 08, then plan 10 (evidence readers); the fetcher resumes only after 06, 08 and 10 have
+summaries. Handoff: `.planning/HANDOFF.json`.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
   last-wins, the old value is logged, nothing is held and no load is refused; a restatement
@@ -65,7 +68,9 @@ readers); the fetcher resumes only after 06, 08 and 10 have summaries. Handoff:
   lost sessions on nine series, truncated and partial bars) once the fetcher runs. Derived
   15m/1h over the released and re-selected 5m sessions are stale until bar-derivation resumes.
   Owner acknowledgement pending: D-191-B, D, G; plan 20 (Tradier deletion) has an owner
-  checkpoint.
+  checkpoint. Findings for the owner from 08: UNIT's IBKR 1d history re-served on another scale
+  2026-10-12 (the next daily apply drops five 2015-04 fallback bars); ETHA's IBKR 1d and 5m
+  volumes differ by exactly 3 (todo 535 item 30).
 
 - **186-26 blocked at its D-32 gates 2026-10-10 late (nothing launched, executor evidence in
   the phase dir):** bar_coverage verdicts stale against tonight's grid (refreshes at the 06:00

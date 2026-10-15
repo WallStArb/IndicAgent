@@ -1,9 +1,9 @@
 {
   "version": "1.0",
-  "timestamp": "2026-10-15T09:10:00Z",
+  "timestamp": "2026-10-15T13:30:00Z",
   "phase": "191",
   "phase_name": "unified-raw-bar-table",
-  "plan": "191-07: third review fixes and the D-191-N last-wins decision done 2026-10-15 (191-07-FIXES.md, 'Third review fixes and last-wins decision'); next plan 191-08",
+  "plan": "191-08: daily stage and grid over ohlcv_raw done 2026-10-15 (191-08-SUMMARY.md); next a fresh-context review of 08, then 191-10",
   "status": "in_progress",
   "completed_tasks": [
     "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
@@ -13,13 +13,14 @@
     "all 4,652 held offers released last-wins (4,572 written, 80 superseded by a later serve; logs/pending_release_191_apply.json); pending origin retired",
     "gap planner never counts a refused answer's window as answered; 58 lost IBKR sessions on AGG AVGO BAC BKNG CAT CCJ CRWD EDV EMLC are gaps and on the re-serve list",
     "bar_session_choice backfilled over 1,551 5m series (3,081,879 choices; 3,060,986 fallback by absence, 354 by shortfall)",
-    "gate --compare over the 57 series exit 0 (0 real, 0 mixed, 0 unrecorded choices), idempotence 0/0, full unit suite passes"
+    "gate --compare over the 57 series exit 0 (0 real, 0 mixed, 0 unrecorded choices), idempotence 0/0, full unit suite passes",
+    "191-08 executed: daily stage (d2-v3) and grid read ohlcv_raw; archive-from-table step and services/intraday_raw_archive.py deleted; D7, ops_source_policy and two research scripts share read_daily_inputs; equivalence --all exits 0 (1,460/1,502 digest-equal in span, 42 explained: identical from raw and observations, canonical behind serves after 2026-10-11); todo 535 items 6 (transport-failure rule, measured), 10, 15, 26 closed; item 30 (ETHA volume basis x3) opened"
   ],
   "remaining_tasks": [
-    "Fresh-context review of the third 07 fixes and D-191-N (commits b8990554e..HEAD)",
-    "Plan 191-08 (daily stage over raw; also todo 535 items 6, 10, 15, 26)",
-    "Plan 191-10 (evidence readers; truncated-bar scan calibration and universe run first, todo 535 item 27)",
-    "Fetcher resume, --reserve-keys logs/reserve_keys_191_07.json (4,569 keys, 103 session asks on 38 series), gate and idempotence, re-derive stale 15m/1h",
+    "Fresh-context review of 191-08 (commits 03ab0a4a6..HEAD for 08: 03ab0a4a6 4279340f9 85dd6537b cbbc7386b a8c5a7689 and the docs commit), then fixes",
+    "Fresh-context review of the third 07 fixes and D-191-N, if the concurrent review-fix executor has not closed it",
+    "Plan 191-10 (evidence readers; truncated-bar scan calibration and universe run first, todo 535 item 27; D-191-D pairing function with its two tests lives here and in 09)",
+    "Fetcher resume, --reserve-keys logs/reserve_keys_191_07.json, gate and idempotence, re-derive stale 15m/1h; first daily apply re-derives the 42 behind names (UNIT drops five 2015-04 fallback bars) and KNSL is re-asked over 2006-10-09..2016-07-28 once",
     "Plans 09, 11 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint)"
   ],
   "blockers": [
@@ -31,6 +32,6 @@
     "plan 20 Tradier deletion checkpoint"
   ],
   "uncommitted_files": [],
-  "next_action": "Spawn a fresh-context review of the third 07 fixes and D-191-N (191-07-FIXES.md 'Third review fixes and last-wins decision'). Then the 191-08 executor, review, fix; then 191-10; then the fetcher may resume (--reserve-keys logs/reserve_keys_191_07.json).",
-  "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches."
+  "next_action": "Spawn a fresh-context review of 191-08 (191-08-SUMMARY.md, deviations 1 to 11). Then fix, then 191-10; then the fetcher may resume (--reserve-keys logs/reserve_keys_191_07.json).",
+  "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it."
 }
