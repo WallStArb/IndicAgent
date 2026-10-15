@@ -1,4 +1,4 @@
-"""Split inference from overlapping D1 observations (phase 185 plan 22, D-21).
+"""Split inference from overlapping 1d answers (phase 185 plan 22, D-21; over raw since 191-10).
 
 The fetcher's update lane re-asks the last infra.backfill.update_overlap_sessions_1d sessions,
 so every fresh SMART TRADES observation overlaps an earlier one in D1. IBKR re-scales history
@@ -12,7 +12,7 @@ constant run that is no split ratio (CTVA's 39/7 spin-off rescale) is an unclass
 which the caller holds and never records as a split. Sizeable differences that are not a
 constant run are reported as unexplained. Volume never enters the decision.
 
-This module only reads D1 and decides. The fetcher (ohlcv_history_fetcher.py) records, re-fetches
+This module only reads ohlcv_raw, ohlcv_revision and ohlcv_request and decides. The fetcher (ohlcv_history_fetcher.py) records, re-fetches
 and re-derives in its own run (plan 189-10, todo 507); ops_split_detect.py does it by hand.
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import numpy as np
@@ -54,31 +54,63 @@ class DetectedSplit:
     unclassified: bool = False
 
 
-# Each overlapping date of this run's SMART TRADES answers, paired with the latest earlier
-# SMART TRADES observation of that date from another run. Test callers never count (D1 is
-# append-only, so their rows stay; bar_derivation excludes them the same way).
-_OVERLAP_PAIRS_SQL = """
-WITH new AS (
-    SELECT o.symbol, o.bar_date, o.close, o.request_id::text AS request_id, q.answered_at
-    FROM ohlcv_observation o
-    JOIN ohlcv_request q ON q.request_id = o.request_id
-    WHERE q.fetch_run_id = $1::uuid AND q.route = 'SMART' AND q.what_to_show = 'TRADES'
-      AND q.outcome = 'bars' AND q.timeframe = '1d' AND q.caller NOT LIKE 'test-%'
-), prev AS (
-    SELECT DISTINCT ON (n.symbol, n.bar_date)
-           n.symbol, n.bar_date, o.close AS prev_close, o.request_id::text AS request_id
-    FROM new n
-    JOIN ohlcv_observation o
-      ON o.symbol = n.symbol AND o.bar_date = n.bar_date AND o.what_to_show = 'TRADES'
-    JOIN ohlcv_request q ON q.request_id = o.request_id
-    WHERE q.route = 'SMART' AND q.fetch_run_id <> $1::uuid AND q.answered_at < n.answered_at
-      AND q.caller NOT LIKE 'test-%'
-    ORDER BY n.symbol, n.bar_date, o.fetched_at DESC
+# Overlap pairs over raw (plan 191-10). Raw is last-wins by serve time (D-191-N), so a
+# request's 1d SMART TRADES answers live in two places: the current ohlcv_raw row it wrote, and
+# the ohlcv_revision rows holding values it served that a later serve displaced (a revision's
+# request_id is the request that served old_*; origin superseded holds an offer older than
+# raw). Answers are ordered by ohlcv_request.answered_at reached through request_id, never by
+# ohlcv_load.loaded_at (the plan 04 reconstructed loads were all written at backfill time).
+# Test callers never count.
+
+# The run's 1d SMART TRADES requests and the dates each one asked (window bounds, UTC dates;
+# a NULL window_start asked all history).
+_RUN_REQUESTS_SQL = """
+SELECT q.request_id::text AS request_id, q.symbol, q.answered_at,
+       (q.window_start AT TIME ZONE 'UTC')::date AS lo,
+       (q.window_end AT TIME ZONE 'UTC')::date AS hi
+FROM ohlcv_request q
+WHERE q.fetch_run_id = $1::uuid AND q.route = 'SMART' AND q.what_to_show = 'TRADES'
+  AND q.outcome = 'bars' AND q.timeframe = '1d' AND q.caller NOT LIKE 'test-%'
+"""
+
+# Names where the run wrote a value over an earlier one: a revision row holds the run's own
+# (later displaced) answer, or the current raw row at a revised key is the run's. A name the
+# run left unchanged has ratio 1 on every date and nothing to judge; skipping it keeps a
+# full-history run off a full scan of raw.
+_CHANGED_SYMBOLS_SQL = """
+WITH revised AS (
+    SELECT v.symbol, v."timestamp", v.request_id
+    FROM ohlcv_revision v
+    WHERE v.timeframe = '1d' AND v.vendor = 'ibkr' AND v.kind = 'smart_trades'
+      AND v.symbol = ANY($2::text[])
 )
-SELECT n.symbol, n.bar_date, p.prev_close, n.close AS new_close,
-       n.request_id AS new_request_id, p.request_id AS prev_request_id, n.answered_at
-FROM new n JOIN prev p ON p.symbol = n.symbol AND p.bar_date = n.bar_date
-ORDER BY n.symbol, n.bar_date
+SELECT v.symbol FROM revised v WHERE v.request_id = ANY($1::uuid[])
+UNION
+SELECT v.symbol FROM revised v
+JOIN ohlcv_raw r ON r.symbol = v.symbol AND r."timestamp" = v."timestamp"
+ AND r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
+WHERE r.request_id = ANY($1::uuid[])
+"""
+
+# Every recorded 1d SMART TRADES answer of the names in [lo, hi): raw rows and displaced values.
+_ANSWERS_SQL = """
+WITH served AS (
+    SELECT r.symbol, r."timestamp", r.close, r.request_id
+    FROM ohlcv_raw r
+    WHERE r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
+      AND r.symbol = ANY($1::text[]) AND r."timestamp" >= $2 AND r."timestamp" < $3
+      AND r.request_id IS NOT NULL
+    UNION ALL
+    SELECT v.symbol, v."timestamp", v.old_close, v.request_id
+    FROM ohlcv_revision v
+    WHERE v.timeframe = '1d' AND v.vendor = 'ibkr' AND v.kind = 'smart_trades'
+      AND v.symbol = ANY($1::text[]) AND v."timestamp" >= $2 AND v."timestamp" < $3
+      AND v.request_id IS NOT NULL
+)
+SELECT sv.symbol, (sv."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, sv.close,
+       sv.request_id::text AS request_id, q.answered_at, q.fetch_run_id::text AS fetch_run_id
+FROM served sv JOIN ohlcv_request q ON q.request_id = sv.request_id
+WHERE q.caller NOT LIKE 'test-%'
 """
 
 
@@ -171,16 +203,90 @@ def _judge_symbol(
     return found
 
 
-async def overlap_pairs(conn: Any, fetch_run_id: str) -> dict[str, list[Any]]:
-    """`fetch_run_id`'s overlap pairs per symbol: each fresh SMART TRADES close of a completed
-    session with the most recent earlier observation of that date. The session of the
-    answer's own UTC date is left out because it may still be forming."""
-    rows = await conn.fetch(_OVERLAP_PAIRS_SQL, fetch_run_id)
-    by_symbol: dict[str, list[Any]] = defaultdict(list)
-    for row in rows:
-        if row["bar_date"] < row["answered_at"].date():
-            by_symbol[row["symbol"]].append(row)
+def pair_answers(
+    fetch_run_id: str, run_requests: list[Any], answers: list[Any]
+) -> dict[str, list[dict[str, Any]]]:
+    """Overlap pairs per symbol from the run's requests and the recorded answers (pure).
+
+    For each date a run request asked (the latest-answered request covering it), the fresh
+    close is the run's own recorded answer, or, when the run recorded none there, the earlier
+    answer itself: a re-serve equal to the stored value writes nothing (D-191-N), so the date
+    is an unchanged pair. That keeps the seam runs and the overlap verdict's median on the same
+    overlap the observation store gave. The earlier answer is the latest from another run
+    answered before the fresh one, of a complete session (answered after the bar's UTC date):
+    a forming value completing is no restatement (191-04/05 review). The fresh side leaves out
+    the session of its own answer date, which may still be forming.
+    """
+    reqs: dict[str, list[Any]] = defaultdict(list)
+    run_ids = set()
+    for r in run_requests:
+        reqs[r["symbol"]].append(r)
+        run_ids.add(r["request_id"])
+    own: dict[tuple[str, date], Any] = {}
+    earlier: dict[tuple[str, date], list[Any]] = defaultdict(list)
+    for a in answers:
+        key = (a["symbol"], a["bar_date"])
+        if a["request_id"] in run_ids:
+            if key not in own or a["answered_at"] > own[key]["answered_at"]:
+                own[key] = a
+        elif a["fetch_run_id"] != fetch_run_id and a["bar_date"] < a["answered_at"].date():
+            earlier[key].append(a)
+    by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for key in sorted(set(own) | set(earlier)):
+        symbol, bar_date = key
+        covering = [
+            r
+            for r in reqs.get(symbol, ())
+            if (r["lo"] is None or bar_date >= r["lo"]) and bar_date <= r["hi"]
+        ]
+        if not covering:
+            continue
+        mine = own.get(key)
+        request = max(covering, key=lambda r: r["answered_at"])
+        new_id = mine["request_id"] if mine else request["request_id"]
+        answered_at = mine["answered_at"] if mine else request["answered_at"]
+        if bar_date >= answered_at.date():
+            continue
+        prior = [e for e in earlier.get(key, ()) if e["answered_at"] < answered_at]
+        if not prior:
+            continue
+        prev = max(prior, key=lambda e: e["answered_at"])
+        by_symbol[symbol].append(
+            {
+                "symbol": symbol,
+                "bar_date": bar_date,
+                "prev_close": prev["close"],
+                "new_close": mine["close"] if mine else prev["close"],
+                "new_request_id": new_id,
+                "prev_request_id": prev["request_id"],
+                "answered_at": answered_at,
+            }
+        )
     return dict(by_symbol)
+
+
+async def overlap_pairs(conn: Any, fetch_run_id: str) -> dict[str, list[Any]]:
+    """`fetch_run_id`'s overlap pairs per symbol over ohlcv_raw and ohlcv_revision
+    (pair_answers), for the names where the run changed a stored value."""
+    run_requests = await conn.fetch(_RUN_REQUESTS_SQL, fetch_run_id)
+    if not run_requests:
+        return {}
+    ids = sorted({r["request_id"] for r in run_requests})
+    names = sorted({r["symbol"] for r in run_requests})
+    changed = {r["symbol"] for r in await conn.fetch(_CHANGED_SYMBOLS_SQL, ids, names)}
+    run_requests = [r for r in run_requests if r["symbol"] in changed]
+    if not run_requests:
+        return {}
+    unbounded = any(r["lo"] is None for r in run_requests)
+    lo = date.min if unbounded else min(r["lo"] for r in run_requests)
+    hi = max(r["hi"] for r in run_requests) + timedelta(days=1)
+    answers = await conn.fetch(
+        _ANSWERS_SQL,
+        sorted(changed),
+        datetime.combine(lo, time(), tzinfo=UTC),
+        datetime.combine(hi, time(), tzinfo=UTC),
+    )
+    return pair_answers(fetch_run_id, run_requests, answers)
 
 
 def judge_overlap_pairs(

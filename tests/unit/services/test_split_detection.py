@@ -1,9 +1,10 @@
-"""Plan 185-22 (D-21): splits inferred from overlapping D1 observations.
+"""Plan 185-22 (D-21), moved to raw in plan 191-10: splits inferred from overlapping 1d answers.
 
-detect_overlap_splits pairs each new SMART TRADES observation of a fetch run with the latest
-earlier one for the same date and reads the stored/fresh close ratio: a constant run is a
-split IBKR re-scaled history for; sizeable non-constant differences are reported as
-unexplained and never recorded as a split. Against a fake connection.
+detect_overlap_splits pairs each SMART TRADES answer of a fetch run (its ohlcv_raw row, or a
+value of it ohlcv_revision holds) with the latest earlier answer of the same date, ordered by
+ohlcv_request.answered_at, and reads the stored/fresh close ratio: a constant run is a split
+IBKR re-scaled history for; sizeable non-constant differences are reported as unexplained and
+never recorded as a split. Against a fake connection.
 """
 
 from __future__ import annotations
@@ -13,7 +14,14 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from services.split_detection import DetectedSplit, detect_overlap_splits
+from services.split_detection import (
+    _ANSWERS_SQL,
+    _CHANGED_SYMBOLS_SQL,
+    _RUN_REQUESTS_SQL,
+    DetectedSplit,
+    detect_overlap_splits,
+    pair_answers,
+)
 from src.intelligence.bars.corporate_actions import SplitRatioRule
 
 _KW = {
@@ -43,13 +51,53 @@ def _days(n, start=date(2026, 9, 1)):
 
 
 class FakeConn:
+    """Serves the three reads from overlap-pair rows: each row becomes an earlier answer of
+    another run (a day before the fresh one) and the run's own answer of that date."""
+
     def __init__(self, rows):
         self.rows = rows
         self.calls: list[tuple[str, tuple]] = []
 
     async def fetch(self, sql, *args):
         self.calls.append((sql, args))
-        return self.rows
+        if sql == _RUN_REQUESTS_SQL:
+            seen = {(r["symbol"], r["new_request_id"]): r for r in self.rows}
+            return [
+                {
+                    "request_id": rid,
+                    "symbol": sym,
+                    "answered_at": r["answered_at"],
+                    "lo": None,
+                    "hi": r["answered_at"].date(),
+                }
+                for (sym, rid), r in seen.items()
+            ]
+        if sql == _CHANGED_SYMBOLS_SQL:
+            return [{"symbol": sym} for sym in args[1]]
+        assert sql == _ANSWERS_SQL
+        out = []
+        for r in self.rows:
+            out.append(
+                {
+                    "symbol": r["symbol"],
+                    "bar_date": r["bar_date"],
+                    "close": r["prev_close"],
+                    "request_id": r["prev_request_id"],
+                    "answered_at": r["answered_at"] - timedelta(days=1),
+                    "fetch_run_id": "other",
+                }
+            )
+            out.append(
+                {
+                    "symbol": r["symbol"],
+                    "bar_date": r["bar_date"],
+                    "close": r["new_close"],
+                    "request_id": r["new_request_id"],
+                    "answered_at": r["answered_at"],
+                    "fetch_run_id": _RUN,
+                }
+            )
+        return out
 
 
 def _run(rows, **kw):
@@ -115,12 +163,81 @@ def test_symbols_are_judged_independently():
     assert [(s.symbol, round(s.factor, 6)) for s in splits] == [("AAA", 3.0)]
 
 
-def test_the_query_is_scoped_to_the_run_and_excludes_test_callers():
-    _, conn = _run([])
-    sql, args = conn.calls[0]
-    assert args == (_RUN,)
-    assert "q.caller NOT LIKE 'test-%'" in sql
-    assert "q.fetch_run_id <> $1" in sql and "q.route = 'SMART'" in sql
+def test_the_reads_are_scoped_to_the_run_and_read_raw_and_revision_only():
+    rows = [_row("XYZ", d, 300.0, 100.0) for d in _days(10)]
+    _, conn = _run(rows)
+    assert [c[0] for c in conn.calls] == [_RUN_REQUESTS_SQL, _CHANGED_SYMBOLS_SQL, _ANSWERS_SQL]
+    assert conn.calls[0][1] == (_RUN,)
+    for sql in (_RUN_REQUESTS_SQL, _ANSWERS_SQL):
+        assert "q.caller NOT LIKE 'test-%'" in sql
+    assert "q.fetch_run_id = $1" in _RUN_REQUESTS_SQL and "q.route = 'SMART'" in _RUN_REQUESTS_SQL
+    for sql in (_CHANGED_SYMBOLS_SQL, _ANSWERS_SQL):
+        assert "ohlcv_raw" in sql and "ohlcv_revision" in sql
+        assert "ohlcv_observation" not in sql and "loaded_at" not in sql
+
+
+class _NothingChanged(FakeConn):
+    async def fetch(self, sql, *args):
+        if sql == _CHANGED_SYMBOLS_SQL:
+            self.calls.append((sql, args))
+            return []
+        return await super().fetch(sql, *args)
+
+
+def test_a_run_that_changed_no_name_reads_no_answers():
+    conn = _NothingChanged([_row("XYZ", d, 1.0, 1.0) for d in _days(3)])
+    assert asyncio.run(detect_overlap_splits(conn, fetch_run_id=_RUN, **_KW)) == []
+    assert [c[0] for c in conn.calls] == [_RUN_REQUESTS_SQL, _CHANGED_SYMBOLS_SQL]
+
+
+def _req(rid, answered, lo=None, hi=date(2026, 10, 3)):
+    return {"request_id": rid, "symbol": "XYZ", "answered_at": answered, "lo": lo, "hi": hi}
+
+
+def _ans(day, close, rid, answered, run="other"):
+    return {
+        "symbol": "XYZ",
+        "bar_date": day,
+        "close": close,
+        "request_id": rid,
+        "answered_at": answered,
+        "fetch_run_id": run,
+    }
+
+
+def test_an_unchanged_re_serve_pairs_with_the_earlier_answer_itself():
+    day = date(2026, 9, 1)
+    pairs = pair_answers(
+        _RUN, [_req("n1", _ANSWERED)], [_ans(day, 10.0, "p1", _ANSWERED - timedelta(days=3))]
+    )
+    (row,) = pairs["XYZ"]
+    assert (row["prev_close"], row["new_close"], row["new_request_id"]) == (10.0, 10.0, "n1")
+
+
+def test_the_latest_earlier_answer_by_answered_at_is_the_partner():
+    day = date(2026, 9, 1)
+    answers = [
+        _ans(day, 10.0, "old", _ANSWERED - timedelta(days=9)),
+        _ans(day, 11.0, "mid", _ANSWERED - timedelta(days=2)),
+        _ans(day, 12.0, "later", _ANSWERED + timedelta(days=1)),
+        _ans(day, 33.0, "n1", _ANSWERED, run=_RUN),
+    ]
+    (row,) = pair_answers(_RUN, [_req("n1", _ANSWERED)], answers)["XYZ"]
+    assert (row["prev_close"], row["prev_request_id"], row["new_close"]) == (11.0, "mid", 33.0)
+
+
+def test_a_forming_earlier_answer_is_no_partner():
+    day = date(2026, 9, 1)
+    forming = datetime(2026, 9, 1, 18, 0, tzinfo=UTC)
+    answers = [_ans(day, 9.0, "f", forming), _ans(day, 10.0, "n1", _ANSWERED, run=_RUN)]
+    assert pair_answers(_RUN, [_req("n1", _ANSWERED)], answers) == {}
+
+
+def test_a_date_outside_every_run_window_is_not_paired():
+    day = date(2026, 9, 1)
+    answers = [_ans(day, 10.0, "p1", _ANSWERED - timedelta(days=3))]
+    reqs = [_req("n1", _ANSWERED, lo=date(2026, 9, 20))]
+    assert pair_answers(_RUN, reqs, answers) == {}
 
 
 def test_a_non_positive_close_raises_loudly_with_the_symbol():

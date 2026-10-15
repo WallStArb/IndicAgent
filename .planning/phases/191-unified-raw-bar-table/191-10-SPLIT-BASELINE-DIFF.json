@@ -1,0 +1,105 @@
+{
+ "baseline": "logs/split_baseline_20261015T113603Z.json (observation code, 37 runs, 13 detections)",
+ "after": "raw+revision code, same 37 runs, 14 detections",
+ "explained": {
+  "HYG c9b625b5 2007-06-12..2007-09-25 unexplained factor 1.0031": "new: ohlcv_revision holds 30 HYG 2007 SMART TRADES values served 2026-09-30 10:12 and displaced by this run (ratios 0.9936 to 1.0010, non-constant); a real vendor restatement the old code paired against a different observation; reported as unexplained, never a split",
+  "changed-pair counts lower on 430e66e5, 9115da48, c2646a23, b81f9f2e, f29214a1": "differing observation values those runs answered that the plan 04 raw backfill kept no revision of (only the latest value per key reached raw); none of them produced a detection in the baseline",
+  "pair counts higher on 58ed0b3a, 790b2d1d, c9b625b5": "unchanged re-serves inside the run windows now pair with the earlier answer; ratio 1, no detection effect"
+ },
+ "per_run": {
+  "430e66e5-2f77-4e79-9192-b73b1392f7e9": {
+   "old_pairs": 1394,
+   "new_pairs": 0,
+   "old_changed": 683,
+   "new_changed": 0,
+   "only_old": [],
+   "only_new": []
+  },
+  "58ed0b3a-572e-4da9-936e-509c86250398": {
+   "old_pairs": 300,
+   "new_pairs": 15933,
+   "old_changed": 4,
+   "new_changed": 2,
+   "only_old": [],
+   "only_new": []
+  },
+  "790b2d1d-3363-407d-ba71-c3030bd1bc97": {
+   "old_pairs": 3478,
+   "new_pairs": 294340,
+   "old_changed": 2487,
+   "new_changed": 2404,
+   "only_old": [
+    {
+     "effective_date": "2026-09-30",
+     "factor": 5.571126761,
+     "first_date": "2020-08-07",
+     "n_evidence": 4,
+     "symbol": "CTVA",
+     "unclassified": true,
+     "unexplained": false
+    }
+   ],
+   "only_new": [
+    {
+     "effective_date": "2026-09-30",
+     "factor": 5.571126761,
+     "first_date": "2020-08-07",
+     "n_evidence": 5,
+     "symbol": "CTVA",
+     "unclassified": true,
+     "unexplained": false
+    }
+   ]
+  },
+  "9115da48-e963-4ba9-b881-1ab78be0fe36": {
+   "old_pairs": 50,
+   "new_pairs": 0,
+   "old_changed": 26,
+   "new_changed": 0,
+   "only_old": [],
+   "only_new": []
+  },
+  "b81f9f2e-b462-4900-ab4f-beaeec7c20b0": {
+   "old_pairs": 146,
+   "new_pairs": 229,
+   "old_changed": 132,
+   "new_changed": 0,
+   "only_old": [],
+   "only_new": []
+  },
+  "c2646a23-fbfe-4a00-a083-d8a38a65a209": {
+   "old_pairs": 249,
+   "new_pairs": 0,
+   "old_changed": 119,
+   "new_changed": 0,
+   "only_old": [],
+   "only_new": []
+  },
+  "c9b625b5-5fc4-4656-8b49-06fd93062123": {
+   "old_pairs": 29354,
+   "new_pairs": 37938,
+   "old_changed": 0,
+   "new_changed": 212,
+   "only_old": [],
+   "only_new": [
+    {
+     "effective_date": "2007-09-25",
+     "factor": 1.003061419,
+     "first_date": "2007-06-12",
+     "n_evidence": 2,
+     "symbol": "HYG",
+     "unclassified": false,
+     "unexplained": true
+    }
+   ]
+  },
+  "f29214a1-7e67-4159-a99c-3dd9bb50c00b": {
+   "old_pairs": 2,
+   "new_pairs": 179,
+   "old_changed": 1,
+   "new_changed": 0,
+   "only_old": [],
+   "only_new": []
+  }
+ }
+}
