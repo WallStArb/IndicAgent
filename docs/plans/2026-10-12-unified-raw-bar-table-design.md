@@ -85,7 +85,7 @@ One writer, `services/ohlcv_ingress_contract.py`, behind the existing `VendorIng
 
 1. Write raw first (classify, insert, log revisions), always, for every served bar including losers.
 2. Run canonical selection for the touched (symbol, timeframe, span). A slot whose policy primary is another vendor changes nothing in canonical.
-3. Refusal moves from "changed ratio against whatever is canonical" to "changed ratio against the same vendor's own stored raw rows". A vendor restating more than the allowed share of its own overlap (APR `max_revision_ratio`, today 0.02, at least `revision_ratio_min_stored` rows stored) is refused, and the refusal is durable (D-191-I): no raw row of the series is written or replaced, the offered values that differ from the stored rows are logged as `ohlcv_revision` rows of origin `pending` (the old_* columns hold the offered value) under a refused `ohlcv_load`, and the stored rows stay current, so selection, which reads only current raw, can never promote a refused value, however often the same values are offered again. Only an explicit decision (a waived write, for a recorded corporate action) replaces the stored row. A cross-vendor difference never refuses.
+3. (Superseded 2026-10-14 by D-191-N: every vendor re-serve is written last-wins and reported by the restatement detector; nothing below about refusal or pending holds applies any more.) Refusal moves from "changed ratio against whatever is canonical" to "changed ratio against the same vendor's own stored raw rows". A vendor restating more than the allowed share of its own overlap (APR `max_revision_ratio`, today 0.02, at least `revision_ratio_min_stored` rows stored) is refused, and the refusal is durable (D-191-I): no raw row of the series is written or replaced, the offered values that differ from the stored rows are logged as `ohlcv_revision` rows of origin `pending` (the old_* columns hold the offered value) under a refused `ohlcv_load`, and the stored rows stay current, so selection, which reads only current raw, can never promote a refused value, however often the same values are offered again. Only an explicit decision (a waived write, for a recorded corporate action) replaces the stored row. A cross-vendor difference never refuses.
 4. Fetch item status follows: a refusal is an error, and the only refusal left is a vendor restating its own stored raw rows. Raw is stored per source and agnostic to every other source: no fetch or write path asks what another vendor holds (the interim stored-label heuristic of 0f066c302 and its policy-refusal path are deleted).
 
 This removes the archive-overwrite hazard: there is no archive timeframe path, and 15m/1h vendor parity rows are ordinary raw rows keyed by vendor.
@@ -183,7 +183,7 @@ This deviates from the Canonical section, which builds `market_data_ohlcv_v2` by
 
 ### D-191-I: a refusal holds, it does not record
 
-Status: planner decision, owner acknowledgement pending
+Status: superseded 2026-10-14 by D-191-N (owner decision: last-wins, nothing held, no refusal). Kept as the record of what ran until then.
 
 This deviates from Ingress contract item 3 as first written ("raw still records it, because a refused answer is evidence"). Replacing the raw current row with a refused value let the next selection that touched the slot promote it into canonical (review finding 4, plan 191-05). The evidence survives as `pending` revisions (migration 477) instead, and the stored row stays current. Readers of restatement history filter `origin <> 'pending'`. The release is a waived write; an operator release command is not built.
 
@@ -224,7 +224,7 @@ Status: planner decision (review of plan 191-07), owner acknowledged 2026-10-14 
 
 #### D-191-M amendment (second review of plan 191-07, 2026-10-14)
 
-Status: planner decision, applied 2026-10-14. **Owner acknowledgement needed before plans 191-08 and 191-10 rely on it.**
+Status: superseded 2026-10-14 by D-191-N. Applied once on 2026-10-14; its holds were released by D-191-N and its tool deleted. No owner acknowledgement is owed. Items 7 and 8 (served-range evidence and the complete-bar rule) and item 9 (whole-session selection) survive in D-191-N; items 2, 4 and 6 (refused serves, the raw repair's holds, the per-load re-judgment) do not.
 
 The amendment replaces items 2 to 4 where they differ.
 
@@ -249,7 +249,7 @@ Applied (`logs/refusal_rejudge_191_apply.json`): 53 accepted, 7 held, 15 unjudge
 
 The review expected ADM, AEP, AMT, ASML and BA to refuse above 2%. Judged against the vendor's own values (its denominator excludes Alpaca rows), they refuse at 3.9 to 5.8%, and AMZN refuses at 3.1% as well. The loads at about 0.3 to 0.7% apply. ECL, ELV and EMR apply at 1.3 to 1.4% of 3,393 own values, and TLT at 1.3%. GE d2adcf51 (the 2021-11 two-decimal serve) refuses at 40%.
 
-Per-load decisions ("Share" is changed over own stored; "Partial" is offered bars that were not complete answers):
+Per-load decisions ("Share" is changed over own stored; "Partial" is offered bars that were not complete answers). **Superseded by D-191-N.** The third review found the six 2026-10-12 23:23 loads (ADM, AEP, AMT, AMZN, ASML, BA) judged against 48 values a later load first wrote at 04:27; corrected they stand at 623 stored and 14, 19, 18, 15, 14 and 16 changed (2.25%, 3.05%, 2.89%, 2.41%, 2.25%, 2.57%). Every hold in this table was released last-wins under D-191-N, so the table is history only:
 
 | Series | Refused load | Loaded (UTC) | Offered | Partial | Own stored | Changed | New | Share | Outcome |
 |---|---|---|---:|---:|---:|---:|---:|---:|---|
@@ -329,6 +329,22 @@ Per-load decisions ("Share" is changed over own stored; "Partial" is offered bar
 | VIXY | a48de0d4 | 2026-10-13 10:47 | 7,884 | 0 | 4,842 | 0 | 3,042 | 0.00% | accepted |
 | VIXY | 1c4d9f60 | 2026-10-13 10:49 | 11,700 | 0 | 10,140 | 0 | 1,560 | 0.00% | accepted |
 
+
+### D-191-N: last-wins; a restatement is detected and reported, never refused or held
+
+Status: owner decision, 2026-10-14 (supersedes D-191-I, the refusal parts of Ingress contract item 3, and D-191-M items 2, 4 and 6 with its amendment)
+
+A vendor's own re-serve always overwrites its raw value last-wins, and the old value is logged as an `ohlcv_revision` row (origin raw) under the load that replaced it. Nothing is held pending and no load is refused. The revision log already makes every overwrite recoverable; routine restatements (the closing auction's volume on the 15:55 ET bar, late prints) are the vendor correcting itself; the refusal machinery cost far more than the risk it guarded.
+
+1. Ingress (`services/ohlcv_ingress_contract.py`) writes every series of a chunk last-wins and selects the touched sessions. `should_refuse` stays only in the derivation stage (`services/bar_derivation.py`), which judges derived output, not a vendor serve.
+2. A restatement detector (`src/intelligence/bars/restatement.py`, migration 481) reports each load's changed share of the vendor's stored rows and two basis-change signatures: a near-constant price ratio over many changed bars, and a one-bar time shift. A flagged load is logged as a warning, counted on `ohlcv_restatement_flags_total` and recorded in `ohlcv_restatement_flag` for review. It never blocks a write. Thresholds are APR (`threshold.bar_integrity.restatement_*`).
+3. The holds that existed were released once (`scripts/ops/bars/ops_pending_release.py`, 2026-10-14) by latest answer per key: the offer was timed at the answer of the request its refused load persisted, the raw value at its writing serve or the served range of a later serve (exact-key evidence, `scripts/ops/bars/_ledger_evidence.py`). 4,572 offers were written to raw with the displaced values logged; 80 offers (the six 2026-10-12 loads' keys the vendor answered again at 04:27 to 05:31) were older than raw and kept as ordinary revisions. Migration 482 removed the `pending` origin.
+4. Removed with the decision: the pending hold writers, the held-key skip in selection, the re-serve excuse logic, the refused and explained classes of the selection gate, `ops_refusal_rejudge.py` and `ops_raw_repair.py`. Kept: the revision log, the archive, the complete-bar rule (D-191-M item 8) and whole-session selection (item 9).
+5. The selection gate proves canonical equals the selection of raw exactly; any difference is real. Residue (exit 3) is a canonical session mixing vendors or a session choice the durable record (`bar_session_choice`, migration 480) does not hold.
+6. Session choices are data. `bar_session_choice` keeps every session not taken plainly (the fallback vendor, no complete vendor, or fewer slots than the calendar grid), so features can condition on the vendor of a session. The vendors' volume levels differ (IBKR to Alpaca 5m volume about 0.38 on BKNG and 0.62 to 0.95 on MSFT, 2023 to 2025), so a fallback session is a day-level volume step. That is a recorded property of the data; no volume rescaling is applied.
+7. The gap planner never counts the window of a request whose own load was refused as answered (third review of 191-07, finding 3). Historical refused loads remain in `ohlcv_load`; their windows stay gaps until the vendor answers them.
+
+Measured before the release (owner request, 2026-10-14): every changed bar the six 2026-10-12 loads were judged on lies in one session, 2026-09-23, 19 days before the serve and mid-session, not at the close. ADM 14 and AMT 18 changed bars are price-only; AEP 16 price, 2 volume, 1 both; AMZN 2 price, 11 volume, 2 both; ASML 9 price, 5 volume; BA 14 price, 1 volume, 1 both. Price changes are at most one cent (at most 1.2 bp); volume changes at most 8.3%. Every one of the six held 77 of 78 IBKR bars that day. Alpaca's bars match neither value. A volume-only settle-window rule would therefore not have changed these refusals (none of the bars was within a settle window of its close or serve); under it the shares would have been unchanged. Under D-191-N the question is moot.
 
 ### D-191-H: explicit deferrals
 
