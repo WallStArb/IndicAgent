@@ -197,6 +197,15 @@ decision").
   lost to `ConnectionError: Not connected` under SMART and ARCA no_data: the hole the item
   describes, asked once more on resume.
 
+30. Found by plan 191-08's live grid check (`test_derived_grid_live`, sessions whose canonical
+    5m is IBKR's own): the derived 1h volume against IBKR's 1d smart_trades volume has a
+    per-name median deficit beyond 0.005 on CTVA (held, bar_hold), ETHA and MDGL. ETHA's ratio
+    is exactly 3.000 over 557 sessions (2024-07-23 to 2026-10-09; the 1d values were served
+    2026-10-08 to 10-11): the 1d and 5m volumes are on different share bases, a corporate
+    action one of the two series reflects. Aggregate rates pass. Decide with the corporate
+    action evidence (split_detection) before plan 10's readers trust ETHA volume; the test stays
+    strict until then.
+
 ## Acceptance
 
 Each item is fixed in the plan that owns it, or deleted with a reason here. Findings 1 and 2 land

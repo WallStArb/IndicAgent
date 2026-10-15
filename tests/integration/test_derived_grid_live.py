@@ -18,7 +18,9 @@ D-15 identity checks after the rewrite:
   non-quarantined 5m open, exactly (an internal identity of the grid; it holds
   for every name, whichever source its canonical 1d comes from);
 - the derived 1h volume, close and first open agree with IBKR's own SMART
-  TRADES 1d observation in D1 (the latest per symbol and date), never with
+  TRADES 1d answer (the current ohlcv_raw smart_trades row) on sessions whose canonical
+  5m is IBKR's own (since phase 191 selection a session may be Alpaca's, a different volume
+  basis, D-191-N item 6), never with
   canonical 1d: canonical 1d is Tradier for most names and its consolidated
   volume is a different basis (data layer integrity design section 7, volume
   definitions). Agreement is a rate, not an identity: closing-auction prints,
@@ -30,15 +32,15 @@ D-15 identity checks after the rewrite:
   under those rates; the worst names (VIXY volume 66%, GE open 88% through its
   2021-2024 corporate actions) are vendor-basis findings for 185-37 and D7, and
   pass only as part of the aggregate;
-- the archive holds the stored observations the rewrite removed (per derived
-  symbol the archived 15m/1h rows are non-zero, and the latest completed grid
-  batch's detail records the same total it verified and removed);
+- canonical 15m/1h hold derived rows only: vendor 15m/1h answers live in
+  ohlcv_raw (phase 191 plan 08 deleted the archive-from-table step, and the
+  grid stage fails loud on a vendor grid row), and raw holds the vendor parity
+  rows the old archive kept;
 - bar_content_digest_current covers 5m, 15m and 1h for every derived symbol.
 """
 
 from __future__ import annotations
 
-import json
 import random
 
 import psycopg
@@ -227,14 +229,13 @@ def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
             SELECT DISTINCT symbol FROM market_data_ohlcv
             WHERE timeframe = '1h' AND source = 'derived_5m'
         ), obs AS (
-            SELECT DISTINCT ON (o.symbol, o.bar_date)
-                   o.symbol, o.bar_date, o.open, o.close, o.volume
-            FROM ohlcv_observation o
-            JOIN ohlcv_request q ON q.request_id = o.request_id
-            WHERE o.timeframe = '1d' AND o.route = 'SMART' AND o.what_to_show = 'TRADES'
-              AND q.source = 'ibkr' AND q.caller NOT LIKE 'test-%%'
-              AND o.symbol IN (SELECT symbol FROM derived)
-            ORDER BY o.symbol, o.bar_date, o.fetched_at DESC, o.request_id DESC
+            SELECT r.symbol, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+                   r.open, r.close, r.volume
+            FROM ohlcv_raw r
+            LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+            WHERE r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
+              AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%%')
+              AND r.symbol IN (SELECT symbol FROM derived)
         ), h AS (
             SELECT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d,
                    sum(volume) AS vol,
@@ -243,10 +244,17 @@ def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
             FROM market_data_ohlcv
             WHERE timeframe = '1h' AND source = 'derived_5m'
             GROUP BY 1, 2
+        ), alpaca_days AS (
+            SELECT DISTINCT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d
+            FROM market_data_ohlcv
+            WHERE timeframe = '5m' AND source = 'alpaca'
+              AND symbol IN (SELECT symbol FROM derived)
         ), j AS (
             SELECT h.symbol, h.vol, obs.volume, h.o1, obs.open, h.c1, obs.close
             FROM h JOIN obs ON obs.symbol = h.symbol AND obs.bar_date = h.d
             WHERE obs.volume > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM alpaca_days a WHERE a.symbol = h.symbol AND a.d = h.d)
         ), per AS (
             SELECT symbol,
                    percentile_cont(0.5) WITHIN GROUP (
@@ -276,48 +284,22 @@ def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
     ), f"median 1h volume deficit beyond {_MAX_ABS_MEDIAN_VOLUME_DEFICIT}: {off_names} (worst {worst_median})"
 
 
-def test_archive_holds_the_removed_observations(conn):
+def test_canonical_grid_holds_derived_rows_only_and_raw_holds_vendor_parity(conn):
     cur = conn.cursor()
     symbols = _derived_symbols(cur)
     if not symbols:
         pytest.skip("no derived 1h symbols yet (rewrite has not run)")
-    # Per derived symbol the rewrite kept its stored observations in the archive.
     cur.execute("""
-        SELECT count(*), count(DISTINCT symbol) FROM ohlcv_intraday_raw_archive
-        WHERE timeframe IN ('15m', '1h')
-          AND symbol IN (SELECT DISTINCT symbol FROM market_data_ohlcv
-                         WHERE timeframe = '1h' AND source = 'derived_5m')
+        SELECT count(*) FROM market_data_ohlcv
+        WHERE timeframe IN ('15m', '1h') AND source IS DISTINCT FROM 'derived_5m'
         """)
-    n_archive, n_symbols = cur.fetchone()
-    assert n_archive > 0
-    assert n_symbols > 0
-    # The archive holds observations only: no placeholder ever leaks in.
+    assert cur.fetchone()[0] == 0, "vendor 15m/1h rows in canonical"
+    # The vendor parity rows the old archive kept are raw rows of their vendor now.
     cur.execute("""
-        SELECT count(*) FROM ohlcv_intraday_raw_archive
-        WHERE timeframe IN ('15m', '1h') AND source = 'synthetic_fill'
+        SELECT count(DISTINCT symbol) FROM ohlcv_raw
+        WHERE timeframe IN ('15m', '1h') AND vendor = 'ibkr'
         """)
-    assert cur.fetchone()[0] == 0, "synthetic_fill rows in the raw archive"
-    # The latest completed grid batch recorded the removal total it verified;
-    # rows it newly tagged with its batch_id are a subset of that total (earlier
-    # batches' rows keep their own tag under ON CONFLICT DO NOTHING).
-    cur.execute("""
-        SELECT detail FROM bar_derivation_batch
-        WHERE stage = 'grid' AND status = 'completed'
-        ORDER BY started_at DESC LIMIT 1
-        """)
-    row = cur.fetchone()
-    assert row is not None
-    detail = row[0] if isinstance(row[0], dict) else json.loads(row[0])
-    recorded = detail.get("n_archive_rows")
-    assert recorded is not None, "grid batch detail lacks n_archive_rows"
-    cur.execute("""
-        SELECT count(*) FROM ohlcv_intraday_raw_archive a
-        JOIN bar_derivation_batch b ON b.batch_id = a.batch_id
-        WHERE b.started_at = (SELECT max(started_at) FROM bar_derivation_batch
-                              WHERE stage = 'grid' AND status = 'completed')
-        """)
-    tagged = cur.fetchone()[0]
-    assert tagged <= recorded, f"batch tagged {tagged} archive rows but recorded {recorded}"
+    assert cur.fetchone()[0] > 0, "no IBKR 15m/1h parity rows in ohlcv_raw"
 
 
 def test_digest_current_covers_5m_15m_1h_for_derived_symbols(conn):
