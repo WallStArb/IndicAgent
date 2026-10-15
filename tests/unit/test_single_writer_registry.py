@@ -123,6 +123,11 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             "ops_bar_nightly, ops_venue_study and ops_d1_bootstrap still do until plans 191-10 "
             "and 191-11 (retire: 191-16)",
         ),
+        Writer(
+            "scripts/ops/bars/ops_legacy_restamp.py",
+            reason="TEMPORARY: one-shot re-stamp of the 931 d1 legacy-import requests to the "
+            "earliest possible answer (review of 191-10, finding 1); idempotent (retire: 191-17)",
+        ),
     ),
     "ohlcv_empty_history": (
         Writer(
