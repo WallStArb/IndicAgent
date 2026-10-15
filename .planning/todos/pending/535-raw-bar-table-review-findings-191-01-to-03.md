@@ -228,3 +228,23 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     sessions (pass every session date of the window).
 34. Finding 8 rest: delete the inert `waived` chain (_history_fetch_item, ohlcv_history_fetcher).
 35. Not run after this round: full unit suite and the selection gate --compare over the 57 series.
+
+## Plan 191-10 (2026-10-15)
+
+36. M1 of the 08 review (open, not cheap): an unchanged re-serve does not advance served_at, so
+    replaying an artifact fetched between a change and a later confirm replaces the confirmed
+    value. Fix with a separate `confirmed_at` column (advanced on an unchanged offer whose answer
+    is later, no revision row); served_at stays the change time so the 1d changed-since probe
+    does not re-trigger nightly. Until then replays are safe only for artifacts older than the
+    oldest unconfirmed serve. M2 (Alpaca answer-time stamp and plausibility bound, migration
+    487) and L1 (legacy import stamp) are closed in 191-10.
+37. Deletion rule for IBKR intraday vendor 15m/1h (owner 2026-10-15): per name, delete the IBKR
+    vendor 15m and 1h raw rows once IBKR 5m raw covers the same span and the 15m/1h derived from
+    it match the vendor's 15m/1h within the parity tolerance (todo 524). Each deleted value is
+    logged to ohlcv_revision first, as a written data-quality delete under todo 512's record
+    (template: migration 488). Until then vendor 15m/1h is the only pre-2016 intraday history
+    and stays.
+38. Revision gap seen in 191-10: the plan 04 backfill kept no revision of observation values that
+    were not the latest per key, so five 1d fetch runs (430e66e5, 9115da48, c2646a23, b81f9f2e,
+    f29214a1) can no longer be re-judged for restatements they saw (none produced a detection;
+    191-10-SPLIT-BASELINE-DIFF.json). Forward runs are complete: every displacement is logged.

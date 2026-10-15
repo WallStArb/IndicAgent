@@ -56,3 +56,13 @@ exactly"): BNY, CF, CPAY, MGM, WELL (IBKR steps inside the run), DOV (IBKR steps
 the run ends on one bad Tradier print), EWS (head basis 10.42 bp against 10), EWT, ELE, LION, W,
 KDP (the 185-37 rule leaves the run undecided), PATK (Tradier steps inside the run), NEXN (IBKR
 interior removals, day-to-day vendor noise). All but BNY block D7's vendor_basis_run.
+
+## Record: written data-quality deletes applied
+
+- 2026-10-15, migration 488 (phase 191 plan 10, owner request 2026-10-15): IBKR 4h series.
+  Rule written the same day before it was applied: 4h is no timeframe of the data layer's end
+  state, and nothing fetches, derives or reads these rows. Not a name exclusion: LLY and MSFT
+  stay active; only the 4h series goes. Deleted row counts: ohlcv_raw 2,184 (LLY 432, MSFT
+  1,752; 2023-08-08 to 2026-08-06), market_data_ohlcv 2,184 (equal to raw on every key),
+  ohlcv_coverage 2; bar_source_policy 4h row closed (valid_to 2026-10-15). Every raw value was
+  logged to ohlcv_revision first (origin raw, 2 ohlcv_load rows, caller dq-delete-191-10).
