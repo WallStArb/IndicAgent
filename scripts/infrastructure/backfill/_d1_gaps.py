@@ -52,11 +52,18 @@ WHERE symbol = %s AND timeframe = %s AND vendor = %s AND "timestamp" >= %s AND "
 # counts only when this vendor holds a raw row in its window (a lost insert never looks
 # covered); `no_data` is the provider's definitive nothing-traded. timeout and failed never
 # reach the set.
+#
+# A `bars` answer whose load the contract refused is no answer (third review of plan 191-07,
+# finding 3): its offer is held or lost, so counting its window as answered would leave the
+# vendor's slots a permanent silent hole. A load persists the latest request of its series
+# answered at or before it, at most infra.selection_gate.request_load_match_s seconds earlier
+# (the retired path wrote no request id on the load; ops_selection_gate.match_requests).
 _ANSWERED_WINDOWS_SQL = """
 SELECT r.window_start, r.window_end, r.partial_bars
 FROM ohlcv_request r
-WHERE r.symbol = %s AND r.timeframe = %s AND r.source = %s AND r.what_to_show = %s
-  AND r.route = ANY(%s) AND r.outcome = ANY(%s) AND r.window_start IS NOT NULL
+WHERE r.symbol = %(symbol)s AND r.timeframe = %(timeframe)s AND r.source = %(vendor)s
+  AND r.what_to_show = %(what)s AND r.route = ANY(%(routes)s) AND r.outcome = ANY(%(outcomes)s)
+  AND r.window_start IS NOT NULL
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
@@ -65,8 +72,21 @@ WHERE r.symbol = %s AND r.timeframe = %s AND r.source = %s AND r.what_to_show = 
         AND m."timestamp" >= r.window_start AND m."timestamp" < r.window_end
     )
   )
+  AND NOT EXISTS (
+    SELECT 1 FROM ohlcv_load l
+    WHERE l.symbol = r.symbol AND l.timeframe = r.timeframe AND l.source = r.source
+      AND l.outcome = 'refused' AND l.loaded_at >= r.answered_at
+      AND l.loaded_at <= r.answered_at + make_interval(secs => %(match_s)s)
+      AND NOT EXISTS (
+        SELECT 1 FROM ohlcv_request q
+        WHERE q.symbol = r.symbol AND q.timeframe = r.timeframe AND q.source = r.source
+          AND q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at
+      )
+  )
 ORDER BY r.window_start
 """
+MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
+_MATCH_S_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
 # Intraday answers are SMART TRADES requests; the daily no_data question is asked on SMART and
 # every former-venue route (D-20), and only a definitive nothing-traded covers a daily session.
 _INTRADAY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE,)
@@ -78,21 +98,26 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
     """The answered TRADES windows `vendor` holds for (symbol, timeframe) (todo 462, 527).
 
     Intraday: a `bars` or `no_data` SMART answer (the bars corroborated by a raw row of the
-    same vendor in the window). 1d: a definitive `no_data` window on any route the vendor
+    same vendor in the window, and not refused by the contract). 1d: a definitive `no_data` window on any route the vendor
     asks. Another source's requests never appear: the filter is the request's own source.
     """
     daily = timeframe == "1d"
     with conn.cursor() as cur:
+        cur.execute(_MATCH_S_SQL, (MATCH_S_KEY,))
+        found = cur.fetchall()
+        if not found:
+            raise RuntimeError(f"{MATCH_S_KEY} missing from config_state")
         cur.execute(
             _ANSWERED_WINDOWS_SQL,
-            (
-                symbol,
-                timeframe,
-                vendor,
-                COVERAGE_WHAT_TO_SHOW,
-                list(_DAILY_ROUTES if daily else _INTRADAY_ROUTES),
-                list(_DAILY_OUTCOMES if daily else ANSWERED_OUTCOMES),
-            ),
+            {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "vendor": vendor,
+                "what": COVERAGE_WHAT_TO_SHOW,
+                "routes": list(_DAILY_ROUTES if daily else _INTRADAY_ROUTES),
+                "outcomes": list(_DAILY_OUTCOMES if daily else ANSWERED_OUTCOMES),
+                "match_s": float(found[0][0]),
+            },
         )
         rows = cur.fetchall()
     # A bar the answer served incomplete (migration 479, finding 5) is not an answer for its

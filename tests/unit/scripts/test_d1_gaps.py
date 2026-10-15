@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from scripts.infrastructure.backfill._d1_gaps import (
+    _MATCH_S_SQL,
     detect_gaps_1d_from_d1,
     detect_gaps_from_record,
     load_answered_windows,
@@ -44,6 +45,8 @@ class _FakeCursor:
         self._conn.queries.append((sql, params))
 
     def fetchall(self) -> list:
+        if self._conn.queries and self._conn.queries[-1][0] == _MATCH_S_SQL:
+            return [("5",)]  # the APR request-to-load match tolerance (config_state)
         return self._conn.results.pop(0)
 
 
@@ -129,9 +132,9 @@ class TestDetectGapsFromRecord:
         detect_gaps_from_record(
             conn, "SPY", "5m", _t(14, 30), _t(15, 30), _HEAD_SLOTS, vendor="alpaca", now=_NOW
         )
-        sql, params = conn.queries[1]
-        assert "r.source = %s" in sql
-        assert params[2] == "alpaca"
+        sql, params = conn.queries[2]
+        assert "r.source = %(vendor)s" in sql
+        assert params["vendor"] == "alpaca"
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_head(self):
         empty = EmptyRange(
@@ -393,15 +396,20 @@ class TestDetectGaps1dFromD1:
             vendor="ibkr",
             now=self._NOW_1D,
         )
-        sql, params = conn.queries[1]
+        sql, params = conn.queries[2]
         assert "FROM ohlcv_request" in sql
-        assert "r.source = %s" in sql
+        assert "r.source = %(vendor)s" in sql
         assert "window_start IS NOT NULL" in sql
-        assert params[:4] == ("SPY", "1d", "ibkr", "TRADES")
-        assert params[4] == ["SMART", "AMEX", "ARCA", "BATS", "ISLAND", "NYSE"]
+        assert (params["symbol"], params["timeframe"], params["vendor"], params["what"]) == (
+            "SPY",
+            "1d",
+            "ibkr",
+            "TRADES",
+        )
+        assert params["routes"] == ["SMART", "AMEX", "ARCA", "BATS", "ISLAND", "NYSE"]
         # Only a definitive nothing-traded covers a daily session; a bars answer is covered by
         # the vendor's own bar row, never by the request.
-        assert params[5] == ["no_data"]
+        assert params["outcomes"] == ["no_data"]
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_pre_listing_head(self):
         empty = EmptyRange(
@@ -458,8 +466,16 @@ class TestLoadAnsweredWindows:
     def test_reads_the_vendors_smart_trades_answers_only(self):
         conn = _FakeConn([(_t(14, 30), _t(15, 0), None), (_t(15, 0), _t(15, 30), None)])
         windows = load_answered_windows(conn, "SPY", "15m", "ibkr")
-        sql, params = conn.queries[0]
-        assert params == ("SPY", "15m", "ibkr", "TRADES", ["SMART"], ["bars", "no_data"])
+        sql, params = conn.queries[1]
+        assert params == {
+            "symbol": "SPY",
+            "timeframe": "15m",
+            "vendor": "ibkr",
+            "what": "TRADES",
+            "routes": ["SMART"],
+            "outcomes": ["bars", "no_data"],
+            "match_s": 5.0,
+        }
         assert "ohlcv_request" in sql
         assert "window_start IS NOT NULL" in sql
         # a bars answer is covered only when this vendor stored a bar in its window (the
@@ -484,7 +500,7 @@ class TestLoadAnsweredWindows:
         for tf in ("5m", "15m", "1h", "1d"):
             conn = _FakeConn([])
             load_answered_windows(conn, "SPY", tf, "alpaca")
-            sql = conn.queries[0][0]
+            sql = conn.queries[1][0]
             seen.add(sql)
             assert "FROM ohlcv_raw m" in sql
             assert "m.vendor = r.source" in sql
@@ -495,6 +511,28 @@ class TestLoadAnsweredWindows:
     def test_tradier_requests_are_not_an_ibkr_answer(self):
         conn = _FakeConn([])
         load_answered_windows(conn, "SPY", "1d", "ibkr")
-        sql, params = conn.queries[0]
-        assert "r.source = %s" in sql
-        assert "tradier" not in params and "TRADIER" not in params[4]
+        sql, params = conn.queries[1]
+        assert "r.source = %(vendor)s" in sql
+        assert "tradier" not in params.values() and "TRADIER" not in params["routes"]
+
+    def test_a_refused_answer_never_covers_its_window(self):
+        """Third review of plan 191-07, finding 3: BAC's refused 2026-09-27..10-10 window held
+        IBKR rows on 09-28 to 09-30, so its lost 10-01..10-09 sessions read as answered. A bars
+        request whose own load (the latest request at or before it, within the APR tolerance)
+        was refused is excluded."""
+        conn = _FakeConn([])
+        load_answered_windows(conn, "BAC", "5m", "ibkr")
+        sql, params = conn.queries[1]
+        assert "l.outcome = 'refused'" in sql and "make_interval(secs => %(match_s)s)" in sql
+        assert "q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at" in sql
+        assert params["match_s"] == 5.0
+
+    def test_a_missing_match_tolerance_is_loud(self):
+        class _Empty(_FakeConn):
+            def cursor(self):
+                cur = _FakeCursor(self)
+                cur.fetchall = lambda: []
+                return cur
+
+        with pytest.raises(RuntimeError, match="request_load_match_s"):
+            load_answered_windows(_Empty(), "SPY", "5m", "ibkr")
