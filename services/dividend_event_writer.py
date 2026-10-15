@@ -189,21 +189,27 @@ def require_cvr_codes(rows: Sequence[Any]) -> None:
 
 
 def _run_values(rows: Sequence[Any], fetch_run_id: uuid.UUID, what: str) -> dict[date, Any]:
-    """The answers one fetch run gave for a series, by bar_date (route SMART). Identical repeats
-    collapse; two different values for one day in one run raise."""
+    """The answers one fetch run gave for a series that raw stored, by bar_date (route SMART).
+    A superseded offer (older than raw when offered) was never stored and never counts
+    (review of 191-10, finding 2). Rows are read in a fixed order (current first, then by serve
+    time), so the result never depends on the query's row order. Identical repeats collapse;
+    two different stored values for one day in one run raise."""
     out: dict[date, Any] = {}
-    for row in rows:
-        if row["fetch_run_id"] != fetch_run_id or row["route"] != "SMART":
-            continue
-        if row["origin"] == "superseded" and row["bar_date"] in out:
-            continue
+    stored = [
+        r
+        for r in rows
+        if r["fetch_run_id"] == fetch_run_id
+        and r["route"] == "SMART"
+        and r["origin"] != "superseded"
+    ]
+    for row in sorted(stored, key=lambda r: (not r["current"], r["served_at"], r["close"])):
         earlier = out.get(row["bar_date"])
         if earlier is not None and earlier["close"] != row["close"]:
             raise ValueError(
                 f"fetch run {fetch_run_id} answered {what} {row['bar_date']} twice with "
                 f"different closes ({earlier['close']} and {row['close']})"
             )
-        out[row["bar_date"]] = row
+        out.setdefault(row["bar_date"], row)
     return out
 
 

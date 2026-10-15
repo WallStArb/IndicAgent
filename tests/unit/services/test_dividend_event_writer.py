@@ -610,3 +610,23 @@ def test_default_fetch_run_is_the_latest_paired_run():
     _run_writer(conn, [_equity("JPM")], fetch_run_id=None)
     expected = derive_ibkr_events(_series(closes, dividends), MARGIN, STABLE)
     assert sorted(conn.events[("JPM", SOURCE_IBKR)]) == [e.ex_date for e in expected.events]
+
+
+def test_a_runs_superseded_offer_never_pairs_on_either_side_in_any_row_order():
+    """Review of 191-10, finding 2: a value the run offered but raw never stored (origin
+    superseded) pairs on neither side, and the outcome does not depend on row order."""
+    day, other = _START, _START + timedelta(1)
+    a_served = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
+    offer = {"served": a_served, "current": False, "origin": "superseded"}
+    adjusted = [
+        _answer(day, 9.0, _RUN, served=a_served),
+        _answer(other, 7.7, _RUN, **offer),  # the run's only adjusted answer of `other`
+    ]
+    trades = [
+        _answer(day, 55.0, _RUN, **offer),  # superseded TRADES offer of the run
+        _answer(day, 10.0, _RUN, served=a_served),
+    ]
+    for t_rows in (trades, trades[::-1]):
+        paired, adj = pair_d1_series(t_rows, adjusted, _RUN)
+        assert adj == {day: 9.0}
+        assert paired == {day: 10.0}
