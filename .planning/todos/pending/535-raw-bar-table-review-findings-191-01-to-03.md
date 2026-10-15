@@ -248,3 +248,13 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     were not the latest per key, so five 1d fetch runs (430e66e5, 9115da48, c2646a23, b81f9f2e,
     f29214a1) can no longer be re-judged for restatements they saw (none produced a detection;
     191-10-SPLIT-BASELINE-DIFF.json). Forward runs are complete: every displacement is logged.
+39. Review of 191-10, finding 3 (LOW, note only): the Alpaca answer-time guard bounds the stamp
+    against the newest bar only, so a re-stamped or copied old artifact whose newest bar is
+    under 120 h old passes, and its older bars inherit the stamp. The stamp is plain parquet
+    metadata: a mistake guard, not tamper-proof. Tighten only if artifacts are ever copied.
+    Finding 1 of the same review is closed: the 931 legacy-import requests and their 10,098
+    current raw rows are re-stamped to 2026-09-29 (ops_legacy_restamp.py, no value changed);
+    the 212 keys it listed hold values from the same run's SMART TRADES fetch (real IBKR answers
+    of 2026-09-30, later than the displaced serves), which last-wins keeps by design. 0 keys
+    hold a d1-bootstrap value over a later-answered serve. feature_vectors and market_regimes
+    hold no 4h rows (tf column), so migration 488 left nothing derived behind.
