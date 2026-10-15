@@ -195,3 +195,15 @@ def test_plan_writes_withdraws_restores_restamps_and_releases():
     plan = rj.plan_writes(decision, raw, {"R": {a}}, set(), {c: "R"})
     assert plan.withdraw == {a: _v(1.0)} and set(plan.write) == {b}
     assert plan.restamp == {c: REFUSED_AT} and plan.release == {"R": [a]}
+
+
+def test_the_stored_basis_falls_back_to_the_vendors_raw_row_when_canonical_moved():
+    # session-level selection took ADM 2026-09-23 whole from Alpaca without a revision row:
+    # the vendor's stored value is its raw row, unless a re-judge load wrote or withdrew it
+    ts = DAY
+    raw = {ts: (_v(), None, None)}
+    canon_now = {ts: (ALPACA, _v(11.0))}
+    assert rj._stored_basis(ts, {}, canon_now, raw, set()) == (IBKR, _v())
+    assert rj._stored_basis(ts, {}, canon_now, raw, {ts}) == (ALPACA, _v(11.0))
+    assert rj._stored_basis(ts, {}, {ts: (IBKR, _v(9.5))}, raw, set()) == (IBKR, _v(9.5))
+    assert rj._stored_basis(ts, {ts: None}, canon_now, raw, set()) is None

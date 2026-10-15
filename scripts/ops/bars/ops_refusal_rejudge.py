@@ -496,6 +496,7 @@ def read_inputs(
     canon_revisions: dict[datetime, list] = defaultdict(list)
     slot_loads: dict[datetime, set[Any]] = defaultdict(set)
     pending: dict[Any, set[datetime]] = defaultdict(set)
+    rejudged: set[datetime] = set()  # keys a re-judge load wrote or withdrew in raw
     cur.execute(_REVISIONS_SQL, (symbol, TIMEFRAME, stamps))
     for row in cur.fetchall():
         ts, vendor, kind, o, h, lo, c, v, origin, loaded_at, load_id, caller, outcome, dest = row
@@ -503,6 +504,8 @@ def read_inputs(
             if (vendor, kind) == OWN:
                 pending[load_id].add(ts)
             continue
+        if caller == CALLER and (vendor, kind) == OWN:
+            rejudged.add(ts)
         slot_loads[ts].add(load_id)
         if (
             dest == "market_data_ohlcv"
@@ -521,9 +524,7 @@ def read_inputs(
     for ts, source, o, h, lo, c, v in cur.fetchall():
         vk = labels.get(source)
         canon_now[ts] = None if vk is None else (vk, (o, h, lo, c, v))
-    canon_before = {
-        ts: before_repair[ts] if ts in before_repair else canon_now.get(ts) for ts in stamps
-    }
+    canon_before = {ts: _stored_basis(ts, before_repair, canon_now, raw, rejudged) for ts in stamps}
     cur.execute(_REQUEST_ENDS_SQL, (symbol, TIMEFRAME, OWN[0]))
     ends = sorted(r[0] for r in cur.fetchall())
     ranges, first_written = served_evidence(cur, symbol, loads, match_s)
@@ -541,6 +542,28 @@ def read_inputs(
         {ts: first_written[ts] for ts in stamps if ts in first_written},
     )
     return inputs, raw, dict(pending)
+
+
+def _stored_basis(
+    ts: datetime,
+    before_repair: Mapping[datetime, Any],
+    canon_now: Mapping[datetime, Any],
+    raw: Mapping[datetime, tuple[Any, ...]],
+    rejudged: set[datetime],
+) -> Any:
+    """The canonical row the reconstruction starts from at `ts` (third review of plan 191-07):
+    the first repair's report, else canonical now when it is the vendor's, else the vendor's own
+    raw row when no re-judge load wrote or withdrew it. Selection replaced canonical rows in the
+    second round without a revision (session-level selection took ADM 2026-09-23 whole from
+    Alpaca), so canonical alone no longer shows the vendor's stored values; raw keeps them."""
+    if ts in before_repair:
+        return before_repair[ts]
+    now = canon_now.get(ts)
+    if _own(now) is not None:
+        return now
+    if ts in raw and ts not in rejudged:
+        return (OWN, tuple(raw[ts][0]))
+    return now
 
 
 def served_evidence(
