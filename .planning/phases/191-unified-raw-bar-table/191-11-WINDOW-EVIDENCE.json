@@ -1,0 +1,13 @@
+{
+  "plan": "191-11",
+  "written_at": "2026-10-15",
+  "cleared": {
+    "indicagent-bar-aggregator.service": "services/bar_aggregator.py holds no reference to ohlcv_observation or ohlcv_intraday_raw_archive (grep -nE 'ohlcv_observation|ohlcv_intraday_raw_archive' empty); unit inactive and disabled before the window opened (active_at_open false, resume_action none): the streaming path is dormant",
+    "indicagent-bar-writer.service": "services/bar_writer.py holds no reference to either old store (same grep empty); inactive and disabled before the window opened (active_at_open false, resume_action none)"
+  },
+  "still_held_for_plan_191_09": {
+    "indicagent-bar-reconciliation-audit.timer": "services/bar_reconciliation_audit.py still reads ohlcv_observation (about lines 812-981) and the archive (about line 1259); plan 191-09 converts it with a D7 baseline diff and clears it",
+    "indicagent-bar-reconciliation-audit.service": "same module, plan 191-09",
+    "indicagent-bar-auditor.service": "services/bar_auditor.py maps 15m/1h to ohlcv_intraday_raw_archive (about line 84); plan 191-09"
+  }
+}
