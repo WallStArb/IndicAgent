@@ -1,9 +1,9 @@
 {
   "version": "1.0",
-  "timestamp": "2026-10-15T12:10:00Z",
+  "timestamp": "2026-10-15T15:15:00Z",
   "phase": "191",
   "phase_name": "unified-raw-bar-table",
-  "plan": "191-10 paused by owner 2026-10-15 during Task 1 (split_detection); no 191-10 commit of code yet",
+  "plan": "191-10 in progress: split_detection over raw done (9c524c71a); listing_venue_writer, bar_hold and Task 2 remain",
   "status": "in_progress",
   "completed_tasks": [
     "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
@@ -15,12 +15,13 @@
     "bar_session_choice backfilled over 1,551 5m series (3,081,879 choices; 3,060,986 fallback by absence, 354 by shortfall)",
     "gate --compare over the 57 series exit 0 (0 real, 0 mixed, 0 unrecorded choices), idempotence 0/0, full unit suite passes",
     "191-08 executed: daily stage (d2-v3) and grid read ohlcv_raw; archive-from-table step and services/intraday_raw_archive.py deleted; D7, ops_source_policy and two research scripts share read_daily_inputs; equivalence --all exits 0 (1,460/1,502 digest-equal in span, 42 explained: identical from raw and observations, canonical behind serves after 2026-10-11); todo 535 items 6 (transport-failure rule, measured), 10, 15, 26 closed; item 30 (ETHA volume basis x3) opened",
-    "191-10 started 2026-10-15: split baseline over all 37 1d SMART TRADES fetch runs with the observation-based code saved to logs/split_baseline_20261015T113603Z.json (gitignored, on disk; 13 detections: 12 CTVA unclassified rescales and ETHA 2026-09-30 1/3 split, all in run 790b2d1d)"
+    "191-10 started 2026-10-15: split baseline over all 37 1d SMART TRADES fetch runs with the observation-based code saved to logs/split_baseline_20261015T113603Z.json (gitignored, on disk; 13 detections: 12 CTVA unclassified rescales and ETHA 2026-09-30 1/3 split, all in run 790b2d1d)",
+    "191-10 split_detection reads ohlcv_raw + ohlcv_revision ordered by ohlcv_request.answered_at (9c524c71a): pairing in Python (pair_answers), only names the run changed are read (1 min for all 37 runs), forming earlier answers excluded; detections over all 37 1d runs equal the baseline plus one explained HYG 2007 unexplained restatement (191-10-SPLIT-BASELINE-DIFF.json); WIP patch removed"
   ],
   "remaining_tasks": [
     "Fresh-context review of 191-08 (commits 03ab0a4a6..HEAD for 08: 03ab0a4a6 4279340f9 85dd6537b cbbc7386b a8c5a7689 and the docs commit), then fixes",
     "Fresh-context review of the third 07 fixes and D-191-N, if the concurrent review-fix executor has not closed it",
-    "Plan 191-10, resume at Task 1: the raw+revision rewrite of services/split_detection._OVERLAP_PAIRS_SQL is saved, unverified, as .planning/phases/191-unified-raw-bar-table/191-10-WIP-split_detection.patch (git apply it). It is correct in shape but too slow: the unchanged-pair inference (dates in the run's request windows with no answer of the run) scans full 20-year windows over the ohlcv_raw hypertable; EXPLAIN on run 790b2d1d exceeded 240 s. Fix options: restrict unchanged pairs to symbols where the run has a changed answer, or drop them (changed answers alone give the same seam/residual detections; only judge_overlap's median reason label changes). Then compare against the baseline with the scratch script logic (judge every run, diff detections), tests, then listing_venue_writer, bar_hold, Task 2 (dividend pairing D-191-D, nightly), plus fold-ins M2 (Alpaca fetch-time sidecar and APR plausibility bound) and L1 (ops_d1_bootstrap answered_at) from 191-08-REVIEW.md, M1 to todo 535. Do not resume held units; the orchestrator resumes after review.",
+    "Plan 191-10: rest of Task 1 (listing_venue_writer reads venue_% and smart_trades raw kinds, not ohlcv_observation lines 246-277; bar_hold line 77 reads raw; baseline each before editing; tests), Task 2 (dividend_event_writer D-191-D pairing with both branches and two tests, CVR vendor/kind inputs, ops_bar_nightly on the new contract), fold-ins M2 (Alpaca fetch-time sidecar plus APR plausibility bound) and L1 (ops_d1_bootstrap answered_at) from 191-08-REVIEW.md, M1 to todo 535, SUMMARY. Do not resume held units; the orchestrator resumes after review.",
     "Fetcher resume, --reserve-keys logs/reserve_keys_191_07.json, gate and idempotence, re-derive stale 15m/1h; first daily apply re-derives the 42 behind names (UNIT drops five 2015-04 fallback bars) and KNSL is re-asked over 2006-10-09..2016-07-28 once",
     "Plans 09, 11 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint)"
   ],
@@ -33,6 +34,6 @@
     "plan 20 Tradier deletion checkpoint"
   ],
   "uncommitted_files": [],
-  "next_action": "Resume 191-10 Task 1: git apply the WIP patch, make the overlap query fast (see remaining_tasks), diff against logs/split_baseline_20261015T113603Z.json, then continue the plan.",
+  "next_action": "Resume 191-10 Task 1 at listing_venue_writer: baseline its venue evidence read for a fixed name set, switch the observation reads to ohlcv_raw kinds venue_% and smart_trades, diff, then bar_hold the same way; commit; then Task 2.",
   "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15)."
 }
