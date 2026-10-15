@@ -13,8 +13,8 @@ holes are visible from its own data.
 Source "yahoo": declared cash dividends by ex-date with the split-adjusted close, full history.
 
 Source "ibkr_adjusted_last_ratio" (D5, phase 185 plan 21): derived from the paired TRADES and
-ADJUSTED_LAST closes D1 stored for one fetch run (ohlcv_observation, route SMART), never from a
-live IBKR fetch. IBKR's ADJUSTED_LAST close is the TRADES close times a cumulative dividend
+ADJUSTED_LAST closes of one fetch run read from ohlcv_raw and ohlcv_revision (plan 191-10,
+pair_d1_series), never from a live IBKR fetch. IBKR's ADJUSTED_LAST close is the TRADES close times a cumulative dividend
 factor; with r_t = adjusted_t / close_t, an ex-date t steps the ratio by
 r_t / r_{t-1} = 1 / (1 - amount / close_{t-1}). ADJUSTED_LAST is quoted to the cent, so with no
 dividend r moves by at most 0.005/close_t + 0.005/close_{t-1} when both series use the same
@@ -54,6 +54,7 @@ import math
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from typing import Any
 
 import asyncpg
 
@@ -85,15 +86,33 @@ _HALF_TICK = 0.005
 # The rounding bound is attained exactly when an unrounded adjusted close ends in half a cent;
 # this relative slack keeps floating-point error at that tie from reading as a step.
 _FLOAT_SLACK = 1e-9
-# One D1 series (TRADES or ADJUSTED_LAST closes) for one symbol and fetch run: the two series
-# pair only within one fetch_run_id, because IBKR re-bases ADJUSTED_LAST on every new dividend.
-_D1_SERIES_SQL = (
-    "SELECT r.fetch_run_id, o.bar_date, o.close FROM ohlcv_observation o "
-    "JOIN ohlcv_request r ON r.request_id = o.request_id "
-    "WHERE o.symbol = $1 AND r.timeframe = '1d' AND r.route = 'SMART' "
-    "AND r.what_to_show = $2 AND r.outcome = 'bars' AND r.fetch_run_id = $3 "
-    "ORDER BY o.bar_date"
+# The IBKR inputs as raw series (plan 191-10). Vendor and kinds are CVR codes (bar_vendor,
+# bar_kind; todo 504): the writer refuses to run when the vocabulary lacks one.
+IBKR_VENDOR = "ibkr"
+TRADES_KIND = "smart_trades"
+ADJUSTED_KIND = "smart_adjusted"
+_CVR_SQL = (
+    "SELECT namespace, code FROM controlled_vocabulary "
+    "WHERE namespace IN ('bar_vendor', 'bar_kind')"
 )
+# Every recorded 1d answer of one raw series: the current ohlcv_raw row (last-wins by serve
+# time, D-191-N) and the displaced values ohlcv_revision holds (old_close, served by the
+# revision's request). A legacy row without a request keeps its served_at. Test callers never
+# count.
+_D1_ANSWERS_SQL = """
+SELECT (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, r.close,
+       COALESCE(r.served_at, q.answered_at) AS served_at, q.fetch_run_id, q.route,
+       TRUE AS current, NULL::text AS origin
+FROM ohlcv_raw r LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.vendor = $2 AND r.kind = $3
+  AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
+UNION ALL
+SELECT (v."timestamp" AT TIME ZONE 'UTC')::date, v.old_close, q.answered_at, q.fetch_run_id,
+       q.route, FALSE, v.origin
+FROM ohlcv_revision v JOIN ohlcv_request q ON q.request_id = v.request_id
+WHERE v.symbol = $1 AND v.timeframe = '1d' AND v.vendor = $2 AND v.kind = $3
+  AND q.caller NOT LIKE 'test-%'
+"""
 # The latest fetch run holding both series for a symbol (the --fetch-run-id default).
 _D1_LATEST_RUN_SQL = (
     "SELECT r.fetch_run_id FROM ohlcv_request r "
@@ -155,29 +174,83 @@ def join_adjustment_pairs(
     return [(d, trades[d], adjusted[d]) for d in sorted(t_days)]
 
 
-def d1_close_series(
-    rows: Sequence[tuple[uuid.UUID, date, float]], fetch_run_id: uuid.UUID
-) -> dict[date, float]:
-    """{bar_date: close} from one D1 series (fetch_run_id, bar_date, close rows). Pure.
+def require_cvr_codes(rows: Sequence[Any]) -> None:
+    """Raise unless CVR holds the IBKR vendor and both raw kinds the writer reads (todo 504:
+    the inputs are vocabulary, not an in-code route list)."""
+    have = {(r["namespace"], r["code"]) for r in rows}
+    want = {
+        ("bar_vendor", IBKR_VENDOR),
+        ("bar_kind", TRADES_KIND),
+        ("bar_kind", ADJUSTED_KIND),
+    }
+    missing = sorted(want - have)
+    if missing:
+        raise RuntimeError(f"controlled_vocabulary lacks the dividend writer's inputs: {missing}")
 
-    Refuses a row from any other fetch run: TRADES and ADJUSTED_LAST pair only within
-    one run, and a cross-run pair would step the ratio at re-basing seams, not dividends.
-    Refuses an empty series and a duplicate bar_date (two requests of one run answering
-    the same day would silently pick one close).
-    """
-    if not rows:
-        raise ValueError(f"no observations in fetch run {fetch_run_id}")
-    closes: dict[date, float] = {}
-    for run_id, bar_date, close in rows:
-        if run_id != fetch_run_id:
+
+def _run_values(rows: Sequence[Any], fetch_run_id: uuid.UUID, what: str) -> dict[date, Any]:
+    """The answers one fetch run gave for a series, by bar_date (route SMART). Identical repeats
+    collapse; two different values for one day in one run raise."""
+    out: dict[date, Any] = {}
+    for row in rows:
+        if row["fetch_run_id"] != fetch_run_id or row["route"] != "SMART":
+            continue
+        if row["origin"] == "superseded" and row["bar_date"] in out:
+            continue
+        earlier = out.get(row["bar_date"])
+        if earlier is not None and earlier["close"] != row["close"]:
             raise ValueError(
-                f"observation from fetch run {run_id} inside series for {fetch_run_id}: "
-                "TRADES and ADJUSTED_LAST pair only within one fetch run"
+                f"fetch run {fetch_run_id} answered {what} {row['bar_date']} twice with "
+                f"different closes ({earlier['close']} and {row['close']})"
             )
-        if bar_date in closes:
-            raise ValueError(f"duplicate observation for {bar_date} in fetch run {fetch_run_id}")
-        closes[bar_date] = close
-    return closes
+        out[row["bar_date"]] = row
+    return out
+
+
+def pair_d1_series(
+    trades: Sequence[Any], adjusted: Sequence[Any], fetch_run_id: uuid.UUID
+) -> tuple[dict[date, float], dict[date, float]]:
+    """({bar_date: TRADES close}, {bar_date: ADJUSTED_LAST close}) for `fetch_run_id` from raw
+    answers (_D1_ANSWERS_SQL rows). Pure.
+
+    The ADJUSTED_LAST series is the run's own answers of complete sessions (a bar answered on
+    its own UTC date may be forming, D-191-J): IBKR re-bases it with every new dividend, so
+    one run is one basis. Each date's TRADES close pairs by D-191-D, read through the revision
+    log:
+    1. the run's own TRADES answer (same fetch_run_id through request_id, raw or revision);
+    2. otherwise the TRADES value stored when the adjusted answer was served: the latest
+       TRADES answer, current or displaced, served no later than it. A TRADES row restated
+       after the adjusted serve never pairs; its displaced earlier value does. Last-wins raw
+       keeps the request of the first serve on an unchanged re-serve, so step 1 alone would
+       miss dates.
+    Superseded offers (older than raw when offered) were never stored and never pair. A date
+    with neither is left out, which join_adjustment_pairs refuses loudly inside the overlap.
+    """
+    adj = {
+        day: row
+        for day, row in _run_values(adjusted, fetch_run_id, "ADJUSTED_LAST").items()
+        if day < row["served_at"].astimezone(UTC).date()
+    }
+    if not adj:
+        raise ValueError(f"no ADJUSTED_LAST answers in fetch run {fetch_run_id}")
+    own_trades = _run_values(trades, fetch_run_id, "TRADES")
+    stored: dict[date, list[Any]] = {}
+    for row in trades:
+        if row["origin"] != "superseded" and row["served_at"] is not None:
+            stored.setdefault(row["bar_date"], []).append(row)
+    paired: dict[date, float] = {}
+    for day, a in adj.items():
+        if day in own_trades:
+            paired[day] = own_trades[day]["close"]
+            continue
+        before = [r for r in stored.get(day, ()) if r["served_at"] <= a["served_at"]]
+        if before:
+            paired[day] = max(before, key=lambda r: r["served_at"])["close"]
+    for day, row in own_trades.items():
+        paired.setdefault(day, row["close"])
+    if not paired:
+        raise ValueError(f"no TRADES answers pair with fetch run {fetch_run_id}")
+    return paired, {day: row["close"] for day, row in adj.items()}
 
 
 def vanished_ex_dates(stored: set[date], derivation: Derivation) -> list[date]:
@@ -348,6 +421,8 @@ class DividendEventWriter(BaseBatch):
     async def execute(self, pool: asyncpg.Pool) -> None:
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(conn, ["threshold.dividend_event.%"])
+            if SOURCE_IBKR in self._sources:
+                require_cvr_codes(await conn.fetch(_CVR_SQL))
         margin = float(_cfg(apr, "threshold.dividend_event.noise_margin", 1.25))
         stable = int(_cfg(apr, "threshold.dividend_event.stable_sessions", 3))
         match_days = int(_cfg(apr, "threshold.dividend_event.ex_date_match_days", 5))
@@ -483,9 +558,9 @@ class DividendEventWriter(BaseBatch):
     ) -> Derivation:
         """Read one source for one symbol and derive its events; raises _SymbolFailure.
 
-        The IBKR branch reads the paired TRADES and ADJUSTED_LAST closes D1 holds for
-        `run_id` (route SMART) instead of fetching them: both series come from one fetch
-        run, because IBKR re-bases ADJUSTED_LAST on every new dividend."""
+        The IBKR branch reads the TRADES and ADJUSTED_LAST raw series instead of fetching
+        them and pairs them for `run_id` (pair_d1_series, D-191-D): the adjusted series is
+        one run's, because IBKR re-bases ADJUSTED_LAST on every new dividend."""
         symbol = instrument.symbol
         if source == SOURCE_YAHOO:
             rows, error = await yahoo.fetch_daily_close_and_dividends(symbol)
@@ -496,23 +571,11 @@ class DividendEventWriter(BaseBatch):
             except ValueError as invalid:
                 raise _SymbolFailure(str(invalid)) from invalid
         assert conn is not None and run_id is not None
-        trades_rows = await conn.fetch(_D1_SERIES_SQL, symbol, "TRADES", run_id)
-        if not trades_rows:
-            raise _SymbolFailure(f"no TRADES observations for {symbol} in fetch run {run_id}")
-        adjusted_rows = await conn.fetch(_D1_SERIES_SQL, symbol, "ADJUSTED_LAST", run_id)
-        if not adjusted_rows:
-            raise _SymbolFailure(
-                f"no ADJUSTED_LAST observations for {symbol} in fetch run {run_id}"
-            )
+        trades_rows = await conn.fetch(_D1_ANSWERS_SQL, symbol, IBKR_VENDOR, TRADES_KIND)
+        adjusted_rows = await conn.fetch(_D1_ANSWERS_SQL, symbol, IBKR_VENDOR, ADJUSTED_KIND)
         try:
-            return derive_ibkr_events(
-                join_adjustment_pairs(
-                    d1_close_series(trades_rows, run_id),
-                    d1_close_series(adjusted_rows, run_id),
-                ),
-                margin,
-                stable,
-            )
+            trades, adjusted = pair_d1_series(trades_rows, adjusted_rows, run_id)
+            return derive_ibkr_events(join_adjustment_pairs(trades, adjusted), margin, stable)
         except ValueError as invalid:
             raise _SymbolFailure(str(invalid)) from invalid
 

@@ -8,7 +8,7 @@ rounded to the cent.
 import asyncio
 import json
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,12 +19,13 @@ from services.dividend_event_writer import (
     SOURCE_IBKR,
     Derivation,
     DividendEvent,
-    d1_close_series,
     derive_ibkr_events,
     derive_yahoo_events,
     disagreeing_yields,
     join_adjustment_pairs,
+    pair_d1_series,
     reconcile,
+    require_cvr_codes,
     vanished_ex_dates,
 )
 from src.core.models import AssetClass
@@ -240,8 +241,8 @@ def test_a_disagreement_inside_ibkr_rounding_is_not_reported():
 
 
 # ---------------------------------------------------------------------------
-# D1 route (phase 185 plan 21): the IBKR branch reads the paired TRADES and
-# ADJUSTED_LAST closes ohlcv_observation holds for one fetch_run_id instead of
+# D1 route (phase 185 plan 21; raw since plan 191-10): the IBKR branch pairs the TRADES and
+# ADJUSTED_LAST raw series for one fetch_run_id (pair_d1_series, D-191-D) instead of
 # fetching them, and near misses become dividend_date_dispute rows inside the
 # per-symbol transaction instead of rolling the symbol back.
 # ---------------------------------------------------------------------------
@@ -300,9 +301,21 @@ class FakeDividendConn:
                     "config_value": "0.10",
                 },
             ]
-        if "ohlcv_observation" in sql:
-            symbol, what_to_show, run_id = args
-            return self.d1.get(symbol, {}).get((what_to_show, run_id), [])
+        if "controlled_vocabulary" in sql:
+            return [
+                {"namespace": "bar_vendor", "code": "ibkr"},
+                {"namespace": "bar_kind", "code": "smart_trades"},
+                {"namespace": "bar_kind", "code": "smart_adjusted"},
+            ]
+        if "ohlcv_raw" in sql:  # the raw series as current rows, one serve after every bar
+            symbol, _vendor, kind = args
+            what = {"smart_trades": "TRADES", "smart_adjusted": "ADJUSTED_LAST"}[kind]
+            return [
+                _answer(d, c, run)
+                for (w, _run_key), rows in self.d1.get(symbol, {}).items()
+                if w == what
+                for run, d, c in rows
+            ]
         if "AS dividend_yield" in sql:  # _write: this source's stored events
             symbol, source = args
             return [
@@ -401,15 +414,94 @@ def _run_writer(conn, instruments, sources=("ibkr",), fetch_run_id=_RUN):
         dividend_event_writer.get_active_contracts = original
 
 
-def test_d1_close_series_pairs_one_run_and_refuses_mixing():
-    rows = [(_RUN, _START, 10.0), (_RUN, _START + timedelta(1), 11.0)]
-    assert d1_close_series(rows, _RUN) == {_START: 10.0, _START + timedelta(1): 11.0}
-    with pytest.raises(ValueError, match="within one fetch run"):
-        d1_close_series([(_RUN, _START, 10.0), (_RUN_OTHER, _START + timedelta(1), 11.0)], _RUN)
-    with pytest.raises(ValueError, match="duplicate"):
-        d1_close_series([(_RUN, _START, 10.0), (_RUN, _START, 10.1)], _RUN)
-    with pytest.raises(ValueError, match="no observations"):
-        d1_close_series([], _RUN)
+_SERVED = datetime(2030, 1, 2, 12, 0, tzinfo=UTC)
+
+
+def _answer(day, close, run, *, served=_SERVED, current=True, origin=None, route="SMART"):
+    return {
+        "bar_date": day,
+        "close": close,
+        "served_at": served,
+        "fetch_run_id": run,
+        "route": route,
+        "current": current,
+        "origin": origin,
+    }
+
+
+def test_pair_d1_series_takes_the_runs_own_answers():
+    days = [_START, _START + timedelta(1)]
+    trades = [_answer(d, c, _RUN) for d, c in zip(days, (10.0, 11.0), strict=True)]
+    adjusted = [_answer(d, c, _RUN) for d, c in zip(days, (9.0, 9.9), strict=True)]
+    assert pair_d1_series(trades, adjusted, _RUN) == (
+        {days[0]: 10.0, days[1]: 11.0},
+        {days[0]: 9.0, days[1]: 9.9},
+    )
+    with pytest.raises(ValueError, match="twice with different closes"):
+        pair_d1_series(trades + [_answer(days[0], 10.5, _RUN)], adjusted, _RUN)
+    with pytest.raises(ValueError, match="no ADJUSTED_LAST answers"):
+        pair_d1_series(trades, adjusted, _RUN_OTHER)
+
+
+def test_trades_restated_after_the_adjusted_serve_never_pairs_by_ordering():
+    """D-191-D (a): the current TRADES row was restated after the adjusted serve. It must not
+    pair; the run's own answer (same fetch_run_id) does, and without one the value stored at
+    the adjusted serve (now in the revision log) does."""
+    day = _START
+    a_served = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
+    adjusted = [_answer(day, 9.0, _RUN, served=a_served)]
+    restated = _answer(day, 30.0, _RUN_OTHER, served=a_served + timedelta(days=8))
+    same_run = _answer(day, 10.0, _RUN, served=a_served, current=False, origin="raw")
+    trades, _ = pair_d1_series([restated, same_run], adjusted, _RUN)
+    assert trades == {day: 10.0}
+    earlier = uuid.UUID("55555555-5555-5555-5555-555555555555")
+    displaced = _answer(
+        day, 10.0, earlier, served=a_served - timedelta(days=1), current=False, origin="raw"
+    )
+    trades, _ = pair_d1_series([restated, displaced], adjusted, _RUN)
+    assert trades == {day: 10.0}
+    trades_only_restated, _ = pair_d1_series(
+        [restated, _answer(day + timedelta(1), 1.0, _RUN)], adjusted, _RUN
+    )
+    assert day not in trades_only_restated
+
+
+def test_trades_unchanged_for_the_date_pairs_by_ordering_although_the_name_split_later():
+    """D-191-D (b): TRADES for this date was served before the adjusted answer by another run
+    and never changed (the split restated other dates). The ordering pair is accepted."""
+    day = _START
+    a_served = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
+    adjusted = [_answer(day, 9.0, _RUN, served=a_served)]
+    unchanged = _answer(day, 10.0, _RUN_OTHER, served=a_served - timedelta(days=30))
+    later_split = _answer(day + timedelta(1), 5.0, _RUN_OTHER, served=a_served + timedelta(days=8))
+    trades, _ = pair_d1_series([unchanged, later_split], adjusted, _RUN)
+    assert trades[day] == 10.0
+
+
+def test_a_superseded_offer_or_a_forming_adjusted_bar_never_pairs():
+    day = _START
+    a_served = datetime(2026, 9, 30, 18, 0, tzinfo=UTC)
+    adjusted = [
+        _answer(day, 9.0, _RUN, served=a_served),
+        _answer(a_served.date(), 9.5, _RUN, served=a_served),  # forming on its answer date
+    ]
+    offer = _answer(
+        day, 99.0, _RUN_OTHER, served=a_served - timedelta(1), current=False, origin="superseded"
+    )
+    trades, adj = pair_d1_series([offer, _answer(day + timedelta(1), 1.0, _RUN)], adjusted, _RUN)
+    assert day not in trades and a_served.date() not in adj
+
+
+def test_the_writer_refuses_to_run_without_its_cvr_codes():
+    require_cvr_codes(
+        [
+            {"namespace": "bar_vendor", "code": "ibkr"},
+            {"namespace": "bar_kind", "code": "smart_trades"},
+            {"namespace": "bar_kind", "code": "smart_adjusted"},
+        ]
+    )
+    with pytest.raises(RuntimeError, match="smart_adjusted"):
+        require_cvr_codes([{"namespace": "bar_vendor", "code": "ibkr"}])
 
 
 @pytest.mark.parametrize(
@@ -465,7 +557,7 @@ def test_d1_route_refuses_series_from_two_fetch_runs():
             }
         }
     )
-    with pytest.raises(RuntimeError, match="no ADJUSTED_LAST observations"):
+    with pytest.raises(RuntimeError, match="no ADJUSTED_LAST answers"):
         _run_writer(conn, [_equity("JPM")])
     assert conn.events == {} and conn.disputes == []
 
