@@ -5,7 +5,8 @@ IBKR history fetcher (ohlcv_history_fetcher.py, the only IBKR history CLI) re-as
 old window under verify-only (SMART, then every venue in
 infra.ibkr.venue_fallback.exchanges) and every answer lands in ohlcv_request /
 ohlcv_observation (D-16). This script only orchestrates and classifies from those
-stored answers; it never stores venue bars (D-17, plan 13 verdict).
+stored answers (ohlcv_request plus ohlcv_raw and ohlcv_revision since plan 191-11); it never
+stores venue bars (D-17, plan 13 verdict).
 
 Each late name ends with one disposition, from D1 alone (D-20):
   moved                 venue bars exist before the name's SMART head
@@ -45,6 +46,7 @@ from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
+from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS
 from src.providers.base import VENUE_ROUTE_ALIASES
 
 _logger = structlog.get_logger(__name__)
@@ -213,14 +215,40 @@ def _late_names(conn: Any) -> dict[str, date]:
         return {row[0]: row[1] for row in cur.fetchall()}
 
 
+# The first bar each request answered (plan 191-11: ohlcv_raw replaces ohlcv_observation). Raw
+# is last-wins: a bar's current row names the request that last served it and every earlier
+# value is an ohlcv_revision row naming its own request, so the union over both is every bar a
+# request served whose value is still on record. A head re-ask is the only request covering its
+# oldest window, so its first bar is current in raw. Every raw read names symbol, timeframe and
+# vendor (the compression segment).
+_FIRST_BARS_SQL = """
+SELECT request_id, MIN(("timestamp" AT TIME ZONE 'UTC')::date)
+FROM (
+    SELECT request_id, "timestamp" FROM ohlcv_raw
+    WHERE symbol = ANY(%(symbols)s) AND timeframe = '1d' AND vendor = 'ibkr'
+      AND request_id = ANY(%(ids)s)
+    UNION ALL
+    SELECT request_id, "timestamp" FROM ohlcv_revision
+    WHERE symbol = ANY(%(symbols)s) AND timeframe = '1d' AND vendor = 'ibkr'
+      AND request_id = ANY(%(ids)s)
+) served
+GROUP BY request_id
+"""
+
+
+def _first_bars(cur: Any, symbols: Sequence[str], request_ids: Sequence[Any]) -> dict[Any, date]:
+    if not request_ids:
+        return {}
+    cur.execute(_FIRST_BARS_SQL, {"symbols": list(symbols), "ids": list(request_ids)})
+    return dict(cur.fetchall())
+
+
 def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequest]]:
     out: dict[str, list[HeadRequest]] = {s: [] for s in symbols}
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT r.symbol, r.route, r.outcome, r.window_start, r.window_end,
-                   (SELECT MIN(o.bar_date) FROM ohlcv_observation o
-                     WHERE o.request_id = r.request_id),
+            SELECT r.request_id, r.symbol, r.route, r.outcome, r.window_start, r.window_end,
                    r.answered_at, r.source, r.primary_exchange
             FROM ohlcv_request r
             WHERE r.timeframe = '1d' AND r.what_to_show = 'TRADES'
@@ -229,7 +257,10 @@ def _load_requests(conn: Any, symbols: Sequence[str]) -> dict[str, list[HeadRequ
             """,
             (list(symbols),),
         )
-        for sym, route, outcome, ws, we, first_bar, answered, source, primary in cur.fetchall():
+        rows = cur.fetchall()
+        first_bars = _first_bars(cur, symbols, [row[0] for row in rows if row[3] == "bars"])
+        for rid, sym, route, outcome, ws, we, answered, source, primary in rows:
+            first_bar = first_bars.get(rid)
             if source != _IBKR_SOURCE or route == "TRADIER":
                 continue
             out[sym].append(
@@ -332,13 +363,14 @@ def _moved_detail(conn: Any, moved: Sequence[str]) -> dict[str, list[tuple[str, 
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT symbol, route, MIN(bar_date), MAX(bar_date)
-            FROM ohlcv_observation
-            WHERE symbol = ANY(%s) AND timeframe = '1d' AND what_to_show = 'TRADES'
-              AND source = 'ibkr' AND route NOT IN ('SMART', 'LEGACY_IMPORT', 'TRADIER')
-            GROUP BY symbol, route ORDER BY symbol, route
+            SELECT symbol, upper(substr(kind, 7)), MIN(("timestamp" AT TIME ZONE 'UTC')::date),
+                   MAX(("timestamp" AT TIME ZONE 'UTC')::date)
+            FROM ohlcv_raw
+            WHERE symbol = ANY(%s) AND timeframe = '1d' AND vendor = 'ibkr'
+              AND kind = ANY(%s)
+            GROUP BY symbol, kind ORDER BY symbol, kind
             """,
-            (list(moved),),
+            (list(moved), list(VENUE_ROUTE_KINDS)),
         )
         for sym, route, first, last in cur.fetchall():
             detail[sym].append((route, first, last))

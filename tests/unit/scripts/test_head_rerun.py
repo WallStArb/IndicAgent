@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -94,7 +95,12 @@ class _FakeCursor:
         self.executed.append((sql, params))
 
     def fetchall(self) -> list[tuple[Any, ...]]:
-        return self._rows
+        sql = self.executed[-1][0]
+        if "ohlcv_raw" in sql:
+            # plan 191-11: the first bar per request, from raw and the revision log
+            ids = set(self.executed[-1][1]["ids"])
+            return [(r[0], r[-1]) for r in self._rows if r[0] in ids and r[-1] is not None]
+        return [r[:-1] for r in self._rows]
 
 
 class _FakeConn:
@@ -106,9 +112,26 @@ class _FakeConn:
 
 
 def _row(route: str, outcome: str, first_bar: date | None, source: str) -> tuple[Any, ...]:
+    """A request row as _load_requests reads it, with the request's first served bar appended
+    (the fake cursor answers the raw first-bar query from it)."""
     ws = datetime(2006, 10, 5, tzinfo=UTC)
     we = datetime(2016, 2, 2, tzinfo=UTC)
-    return ("XYZ", route, outcome, ws, we, first_bar, _T0, source, None)
+    rid = uuid.uuid4()
+    return (rid, "XYZ", route, outcome, ws, we, _T0, source, None, first_bar)
+
+
+def test_load_requests_reads_first_bars_from_raw_and_revision_not_observation() -> None:
+    rows = [_row("ARCA", "bars", date(2009, 3, 2), "ibkr"), _row("SMART", "no_data", None, "ibkr")]
+    conn = _FakeConn(rows)
+    loaded = mod._load_requests(conn, ["XYZ"])
+    sqls = " ".join(sql for sql, _ in conn.cur.executed)
+    assert "ohlcv_observation" not in sqls
+    assert "ohlcv_raw" in sqls and "ohlcv_revision" in sqls
+    assert "vendor = 'ibkr'" in sqls and "timeframe = '1d'" in sqls
+    by_route = {r.route: r.first_bar for r in loaded["XYZ"]}
+    assert by_route == {"ARCA": date(2009, 3, 2), "SMART": None}
+    # only answers with bars are looked up
+    assert conn.cur.executed[-1][1]["ids"] == [rows[0][0]]
 
 
 def test_load_requests_excludes_tradier_answers() -> None:

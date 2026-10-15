@@ -483,3 +483,32 @@ def test_reselect_of_a_close_re_selects_from_valid_to_on(monkeypatch):
     assert seen["end"] == policy._FAR_FUTURE
     with pytest.raises(ValueError, match="open rows closed"):
         _reselect(monkeypatch, _PgCursor(rowcount=0), "close", row)
+
+
+def test_load_first_date_comes_from_the_raw_inputs_not_the_observation_store(monkeypatch) -> None:
+    """Plan 191-11: valid_from's first date is the earliest TRADES date among the d2-v2 routes
+    in the same raw read (LEGACY_IMPORT included, venue routes and ADJUSTED_LAST excluded)."""
+
+    class _Obs:
+        def __init__(self, route: str, day: int, what_to_show: str = "TRADES") -> None:
+            self.route, self.bar_date, self.what_to_show = route, date(2020, 1, day), what_to_show
+
+    inputs = [
+        _Obs("SMART", 9),
+        _Obs("LEGACY_IMPORT", 5),
+        _Obs("ARCA", 1),
+        _Obs("SMART", 2, "ADJUSTED_LAST"),
+    ]
+
+    async def _read(conn, symbol):
+        return inputs, []
+
+    class _Conn:
+        async def fetchval(self, sql, *args):
+            assert "ohlcv_observation" not in sql
+            return False
+
+    monkeypatch.setattr(policy, "read_daily_inputs", _read)
+    _obs, _splits, incumbent, first = asyncio.run(policy._load(_Conn(), "X"))
+    assert first == date(2020, 1, 5)
+    assert incumbent is False

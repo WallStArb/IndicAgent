@@ -117,11 +117,6 @@ _INCUMBENT_SQL = """
 SELECT EXISTS (SELECT 1 FROM market_data_ohlcv
                WHERE symbol = $1 AND timeframe = '1d' AND source = 'tradier')
 """
-_FIRST_OBSERVATION_SQL = """
-SELECT min(bar_date) FROM ohlcv_observation
-WHERE symbol = $1 AND timeframe = '1d' AND what_to_show = 'TRADES'
-  AND route = ANY($2::text[])
-"""
 _OVERLAPPING_ROW_SQL = """
 SELECT policy_id FROM bar_source_policy
 WHERE timeframe = $1 AND symbol = $2
@@ -433,8 +428,10 @@ async def _load(
     observations = [o for o in inputs if o.route in _ROUTES]
     incumbent = bool(await conn.fetchval(_INCUMBENT_SQL, symbol))
     # valid_from covers every route d2-v2 reads (LEGACY_IMPORT included), so no earlier date
-    # falls back to the Tradier default.
-    first = await conn.fetchval(_FIRST_OBSERVATION_SQL, symbol, list(_D2V2_ROUTES))
+    # falls back to the Tradier default. The raw read already holds them (plan 191-11: the
+    # first TRADES date comes from the same current raw rows, not from ohlcv_observation).
+    dates = [o.bar_date for o in inputs if o.route in _D2V2_ROUTES and o.what_to_show == "TRADES"]
+    first = min(dates) if dates else None
     return observations, splits, incumbent, first
 
 
