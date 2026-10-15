@@ -52,8 +52,11 @@ the daily stage and the grid read ohlcv_raw; the rule over raw is digest-equal t
 over the stored span on 1,460 of 1,502 names, and the 42 others derive identically from raw and
 from the old observation read (canonical behind serves after 2026-10-11; reasons in
 191-D2-EQUIVALENCE-EXPLAINED.json); todo 535 items 6, 10, 15, 26 closed. Next: a fresh-context
-review of 08, then plan 10 (evidence readers); the fetcher resumes only after 06, 08 and 10 have
-summaries. Handoff: `.planning/HANDOFF.json`.
+review of 08 done (191-08-REVIEW.md, no HIGH). Plan 10 paused by the owner 2026-10-15 in Task 1:
+split baseline saved (logs/split_baseline_20261015T113603Z.json), the raw+revision split query
+is an unverified WIP patch (191-10-WIP-split_detection.patch, too slow on full-history runs);
+nothing written to the DB. Next: resume 10 Task 1 per HANDOFF.json; the fetcher resumes only
+after 06, 08 and 10 have summaries. Handoff: `.planning/HANDOFF.json`.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
   last-wins, the old value is logged, nothing is held and no load is refused; a restatement

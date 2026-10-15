@@ -1,0 +1,94 @@
+diff --git a/services/split_detection.py b/services/split_detection.py
+index eed0eec3c..fff9b50ef 100644
+--- a/services/split_detection.py
++++ b/services/split_detection.py
+@@ -55,27 +55,75 @@ class DetectedSplit:
+ 
+ 
+ # Each overlapping date of this run's SMART TRADES answers, paired with the latest earlier
+-# SMART TRADES observation of that date from another run. Test callers never count (D1 is
+-# append-only, so their rows stay; bar_derivation excludes them the same way).
++# answer of that date from another run (plan 191-10). Raw is last-wins by serve time (D-191-N),
++# so a request's answers live in two places: the current ohlcv_raw row it wrote, and the
++# ohlcv_revision rows holding values it served that a later serve displaced (revision request_id
++# is the request that served old_*; origin superseded holds an offer older than raw). Answers
++# are ordered by ohlcv_request.answered_at reached through request_id, never by
++# ohlcv_load.loaded_at (the plan 04 reconstructed loads were all written at backfill time).
++# A re-serve equal to the stored value writes nothing, so a date inside one of the run's
++# request windows with no answer of the run is an unchanged pair (fresh = the earlier answer):
++# kept so the overlap verdict's median and the seam runs see the same overlap as before.
++# An earlier answer counts only when it was of a complete session (answered after the bar's
++# UTC date); a forming value completing is no restatement. Test callers never count.
+ _OVERLAP_PAIRS_SQL = """
+-WITH new AS (
+-    SELECT o.symbol, o.bar_date, o.close, o.request_id::text AS request_id, q.answered_at
+-    FROM ohlcv_observation o
+-    JOIN ohlcv_request q ON q.request_id = o.request_id
++WITH runreq AS (
++    SELECT q.request_id, q.symbol, q.answered_at,
++           (q.window_start AT TIME ZONE 'UTC')::date AS lo,
++           (q.window_end AT TIME ZONE 'UTC')::date AS hi
++    FROM ohlcv_request q
+     WHERE q.fetch_run_id = $1::uuid AND q.route = 'SMART' AND q.what_to_show = 'TRADES'
+       AND q.outcome = 'bars' AND q.timeframe = '1d' AND q.caller NOT LIKE 'test-%'
++), span AS (
++    SELECT symbol, min(lo) AS lo, max(hi) AS hi, bool_or(lo IS NULL) AS unbounded
++    FROM runreq GROUP BY symbol
++), served AS (
++    SELECT r.symbol, r."timestamp", r.close, r.request_id
++    FROM ohlcv_raw r JOIN span s ON s.symbol = r.symbol
++    WHERE r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
++      AND r.request_id IS NOT NULL
++      AND (s.unbounded OR r."timestamp" >= s.lo::timestamptz)
++      AND r."timestamp" < (s.hi + 1)::timestamptz
++    UNION ALL
++    SELECT v.symbol, v."timestamp", v.old_close, v.request_id
++    FROM ohlcv_revision v JOIN span s ON s.symbol = v.symbol
++    WHERE v.timeframe = '1d' AND v.vendor = 'ibkr' AND v.kind = 'smart_trades'
++      AND v.request_id IS NOT NULL
++      AND (s.unbounded OR v."timestamp" >= s.lo::timestamptz)
++      AND v."timestamp" < (s.hi + 1)::timestamptz
++), answers AS (
++    SELECT sv.symbol, (sv."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, sv.close,
++           sv.request_id, q.answered_at, q.fetch_run_id
++    FROM served sv JOIN ohlcv_request q ON q.request_id = sv.request_id
++    WHERE q.caller NOT LIKE 'test-%'
++), covered AS (
++    SELECT DISTINCT ON (a.symbol, a.bar_date)
++           a.symbol, a.bar_date, rr.request_id, rr.answered_at
++    FROM answers a
++    JOIN runreq rr ON rr.symbol = a.symbol
++     AND (rr.lo IS NULL OR a.bar_date >= rr.lo) AND a.bar_date <= rr.hi
++    ORDER BY a.symbol, a.bar_date, rr.answered_at DESC
++), own AS (
++    SELECT DISTINCT ON (a.symbol, a.bar_date)
++           a.symbol, a.bar_date, a.close, a.request_id, a.answered_at
++    FROM answers a JOIN runreq rr ON rr.request_id = a.request_id
++    ORDER BY a.symbol, a.bar_date, a.answered_at DESC
++), new AS (
++    SELECT c.symbol, c.bar_date, o.close,
++           COALESCE(o.request_id, c.request_id)::text AS request_id,
++           COALESCE(o.answered_at, c.answered_at) AS answered_at
++    FROM covered c
++    LEFT JOIN own o ON o.symbol = c.symbol AND o.bar_date = c.bar_date
+ ), prev AS (
+     SELECT DISTINCT ON (n.symbol, n.bar_date)
+-           n.symbol, n.bar_date, o.close AS prev_close, o.request_id::text AS request_id
++           n.symbol, n.bar_date, a.close AS prev_close, a.request_id::text AS request_id
+     FROM new n
+-    JOIN ohlcv_observation o
+-      ON o.symbol = n.symbol AND o.bar_date = n.bar_date AND o.what_to_show = 'TRADES'
+-    JOIN ohlcv_request q ON q.request_id = o.request_id
+-    WHERE q.route = 'SMART' AND q.fetch_run_id <> $1::uuid AND q.answered_at < n.answered_at
+-      AND q.caller NOT LIKE 'test-%'
+-    ORDER BY n.symbol, n.bar_date, o.fetched_at DESC
++    JOIN answers a ON a.symbol = n.symbol AND a.bar_date = n.bar_date
++    WHERE a.fetch_run_id <> $1::uuid AND a.answered_at < n.answered_at
++      AND a.bar_date < (a.answered_at AT TIME ZONE 'UTC')::date
++    ORDER BY n.symbol, n.bar_date, a.answered_at DESC
+ )
+-SELECT n.symbol, n.bar_date, p.prev_close, n.close AS new_close,
++SELECT n.symbol, n.bar_date, p.prev_close, COALESCE(n.close, p.prev_close) AS new_close,
+        n.request_id AS new_request_id, p.request_id AS prev_request_id, n.answered_at
+ FROM new n JOIN prev p ON p.symbol = n.symbol AND p.bar_date = n.bar_date
+ ORDER BY n.symbol, n.bar_date
