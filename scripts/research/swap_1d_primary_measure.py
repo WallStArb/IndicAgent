@@ -730,9 +730,9 @@ async def measure_census(conn: Any, args: argparse.Namespace) -> dict[str, Any]:
 
 
 async def measure_classify(conn: Any, apr: dict[str, str], tsv: Path | None) -> dict[str, Any]:
-    from services.bar_derivation import _SELECT_DAILY_OBSERVATIONS_SQL, _SELECT_DAILY_SPLITS_SQL
+    from services.bar_derivation import _SELECT_DAILY_SPLITS_SQL, read_daily_inputs
     from src.intelligence.bars.daily_rule import current_closes
-    from src.intelligence.bars.derivation import Observation, SplitRecord
+    from src.intelligence.bars.derivation import SplitRecord
     from src.intelligence.bars.source_admission import common_session_closes
 
     window = int(apr[_KEY_WINDOW])
@@ -744,15 +744,8 @@ async def measure_classify(conn: Any, apr: dict[str, str], tsv: Path | None) -> 
     out_rows: list[dict[str, Any]] = []
     for r in await conn.fetch(_ACTIVE_SQL):
         symbol = r["symbol"]
-        obs = [
-            Observation(
-                request_id=o["request_id"], route=o["route"], bar_date=o["bar_date"],
-                open=o["open"], high=o["high"], low=o["low"], close=o["close"],
-                volume=o["volume"], fetched_at=o["fetched_at"], legacy=o["legacy"],
-                what_to_show=o["what_to_show"],
-            )  # fmt: skip
-            for o in await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, ["TRADIER", "SMART"])
-        ]
+        inputs, _splits_unused = await read_daily_inputs(conn, symbol)
+        obs = [o for o in inputs if o.route in ("TRADIER", "SMART")]
         splits = [
             SplitRecord(
                 effective_date=s["effective_date"], recorded_at=s["recorded_at"],

@@ -22,6 +22,7 @@ from src.intelligence.bars.daily_rule import (
     RULE_VERSION,
     PolicyRow,
     derive_daily_v2,
+    observation_from_raw,
     resolve_policy,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
@@ -642,3 +643,61 @@ def test_rjf_after_a_hypothetical_split_restates_only_where_ibkr_agrees():
         by_day[d].source == "tradier" and by_day[d].flags == (FLAG_PRE_SPLIT,) for d in early
     )
     assert all(by_day[d].source == SOURCE_IBKR_FALLBACK for d in restated)
+
+
+# --- raw-row inputs (phase 191 plan 08) ------------------------------------------------------
+
+
+def _as_raw(observations: list[Observation]) -> list[Observation]:
+    """The cases in raw-row shape, built as the 1d backfill built ohlcv_raw
+    (scripts/ops/bars/ops_raw_backfill.observation_current_cte): per (date, vendor, kind) the
+    latest value, stamped with the fetch and request of the first serve of its latest run of
+    equal values; SMART and LEGACY_IMPORT TRADES share kind smart_trades. Then mapped back by
+    observation_from_raw, as the daily stage reads it."""
+    series = {"TRADIER": ("tradier", "consolidated"), "SMART": ("ibkr", "smart_trades")}
+    series["LEGACY_IMPORT"] = series["SMART"]
+    keyed: dict[tuple, list[Observation]] = {}
+    for o in sorted(observations, key=lambda o: (o.fetched_at, o.request_id)):
+        keyed.setdefault((o.bar_date, *series[o.route]), []).append(o)
+    raw: list[Observation] = []
+    for (day, vendor, kind), history in keyed.items():
+        values = [(o.open, o.high, o.low, o.close, o.volume) for o in history]
+        first = len(values) - 1
+        while first > 0 and values[first - 1] == values[-1]:
+            first -= 1
+        served = history[first]
+        raw.append(
+            observation_from_raw(
+                request_id=served.request_id,
+                vendor=vendor,
+                kind=kind,
+                bar_date=day,
+                open=served.open,
+                high=served.high,
+                low=served.low,
+                close=served.close,
+                volume=served.volume,
+                served_at=served.fetched_at,
+                legacy=served.legacy,
+            )
+        )
+    return raw
+
+
+@pytest.mark.parametrize("symbol", ["RJF", "REX", "DAL", "ETHA", "INDA"])
+def test_known_cases_derive_identically_from_raw_rows(symbol):
+    observations, splits = _case(symbol)
+    expected = _derive(observations, splits=splits, symbol=symbol)
+    from_raw = _derive(_as_raw(observations), splits=splits, symbol=symbol)
+    as_bars = lambda r: [  # noqa: E731
+        (b.bar_date, b.open, b.high, b.low, b.close, b.volume, b.source, b.flags) for b in r.bars
+    ]
+    assert as_bars(from_raw) == as_bars(expected)
+    assert from_raw.flags == expected.flags
+    assert from_raw.refused_interior == expected.refused_interior
+    assert (from_raw.head, from_raw.refused_head, from_raw.restated, from_raw.stale_only) == (
+        expected.head,
+        expected.refused_head,
+        expected.restated,
+        expected.stale_only,
+    )

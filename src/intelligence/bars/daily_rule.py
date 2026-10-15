@@ -57,6 +57,14 @@ market_data_ohlcv_tradeable (migration 446), so no IBKR SMART volume is spliced 
 volume series (IBKR SMART counts about half of Tradier's consolidated volume; todo 518). A
 missing provider volume carries the no_provider_volume flag.
 
+Inputs from raw (phase 191 plan 08): the stage reads the current ohlcv_raw 1d rows of
+RAW_DAILY_SERIES, one per (date, vendor, kind), and observation_from_raw turns each into the
+rule's Observation: Tradier consolidated is route TRADIER, IBKR smart_trades is route SMART, or
+LEGACY_IMPORT when the request that first served the value was the corpus import. fetched_at is
+the raw row's served_at (when the current value was first served; an unchanged re-serve does not
+move it), request_id the request that first served it. Raw is last-wins (D-191-N), so a date
+carries one value per series and the rule's choice among observations collapses to that value.
+
 Pure: no database, no APR reads (thresholds are parameters), deterministic under input order.
 """
 
@@ -95,6 +103,13 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 _PRIMARY_LABEL = {VENDOR_TRADIER: "tradier", VENDOR_IBKR: "ibkr_named"}
+
+# The raw 1d series d2-v3 reads, as (vendor, kind). Listing-venue kinds and smart_adjusted are
+# never inputs (the D-17 venue study failed; adjusted bars are never canonical).
+RAW_DAILY_SERIES: tuple[tuple[str, str], ...] = (
+    (VENDOR_TRADIER, "consolidated"),
+    (VENDOR_IBKR, "smart_trades"),
+)
 _ROUTE_VENDOR = {ROUTE_TRADIER: VENDOR_TRADIER, ROUTE_SMART: VENDOR_IBKR, ROUTE_LEGACY: VENDOR_IBKR}
 
 
@@ -140,6 +155,49 @@ class DailyV2Result:
     # Dates whose primary answered only on a stale scale and whose fallback's current-scale
     # answer was served instead (d2-v3).
     restated: list[date] = field(default_factory=list)
+
+
+def observation_from_raw(
+    *,
+    request_id: str | None,
+    vendor: str,
+    kind: str,
+    bar_date: date,
+    open: float,
+    high: float,
+    low: float,
+    close: float,
+    volume: int | None,
+    served_at: datetime | None,
+    legacy: bool,
+) -> Observation:
+    """One current ohlcv_raw 1d row as the rule's Observation (module docstring, Inputs).
+
+    A row without served_at has no arrival time to judge its scale by; the ingress contract
+    refuses such a write and the 1d backfill stamped every row, so one here is a defect and
+    raises rather than guessing current or stale. A NULL request_id (a legacy migrated row)
+    becomes the empty id: it is no split's evidence.
+    """
+    if served_at is None:
+        raise ValueError(f"raw 1d row ({vendor}, {kind}) on {bar_date} has no served_at")
+    if (vendor, kind) == (VENDOR_TRADIER, "consolidated"):
+        route = ROUTE_TRADIER
+    elif (vendor, kind) == (VENDOR_IBKR, "smart_trades"):
+        route = ROUTE_LEGACY if legacy else ROUTE_SMART
+    else:
+        raise ValueError(f"raw ({vendor!r}, {kind!r}) is not a d2-v3 input series")
+    return Observation(
+        request_id=request_id or "",
+        route=route,
+        bar_date=bar_date,
+        open=open,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        fetched_at=served_at,
+        legacy=route == ROUTE_LEGACY,
+    )
 
 
 def resolve_policy(rows: Sequence[PolicyRow], symbol: str, bar_date: date) -> PolicyRow:

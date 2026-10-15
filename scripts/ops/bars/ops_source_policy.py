@@ -68,10 +68,8 @@ import psycopg  # noqa: E402
 from services._batch_utils import cfg as _cfg  # noqa: E402
 from services._batch_utils import load_apr_dict_async  # noqa: E402
 from services.bar_derivation import (  # noqa: E402
-    _D2V2_ROUTES,
     _DISCOVER_DAILY_SYMBOLS_SQL,
-    _SELECT_DAILY_OBSERVATIONS_SQL,
-    _SELECT_DAILY_SPLITS_SQL,
+    read_daily_inputs,
 )
 from services.bar_selection import DIRECT_TIMEFRAMES, select_and_write  # noqa: E402
 from services.ohlcv_ingress_contract import read_raw_params  # noqa: E402
@@ -90,6 +88,8 @@ ACTION_ROUTE = "route_185_37"
 ACTION_KEEP = "keep_no_overlap"
 _PLAN = "185-38"
 _ROUTES = ("TRADIER", "SMART")
+# Every route d2-v3 reads, for the first-observation date (LEGACY_IMPORT included).
+_D2V2_ROUTES = ("TRADIER", "SMART", "LEGACY_IMPORT")
 _KEY_OVERLAP = "threshold.bar_integrity.tradier_admission_min_overlap_sessions"
 _KEY_SHARE = "threshold.bar_integrity.tradier_admission_min_agree_share"
 _KEY_TOL = "threshold.bar_integrity.fallback_basis_tolerance_bp"
@@ -427,32 +427,10 @@ def check_vendors(codes: Sequence[str], *vendors: str | None) -> None:
 async def _load(
     conn: Any, symbol: str
 ) -> tuple[list[Observation], list[SplitRecord], bool, date | None]:
-    obs_rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_ROUTES))
-    observations = [
-        Observation(
-            request_id=r["request_id"],
-            route=r["route"],
-            bar_date=r["bar_date"],
-            open=r["open"],
-            high=r["high"],
-            low=r["low"],
-            close=r["close"],
-            volume=r["volume"],
-            fetched_at=r["fetched_at"],
-            legacy=r["legacy"],
-            what_to_show=r["what_to_show"],
-        )
-        for r in obs_rows
-    ]
-    splits = [
-        SplitRecord(
-            effective_date=r["effective_date"],
-            recorded_at=r["recorded_at"],
-            factor=r["factor"],
-            evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-        )
-        for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
-    ]
+    # The daily stage's own raw read (phase 191 plan 08); the sweep measures the vendors' own
+    # answers, so the corpus import (route LEGACY_IMPORT) stays out as before.
+    inputs, splits = await read_daily_inputs(conn, symbol)
+    observations = [o for o in inputs if o.route in _ROUTES]
     incumbent = bool(await conn.fetchval(_INCUMBENT_SQL, symbol))
     # valid_from covers every route d2-v2 reads (LEGACY_IMPORT included), so no earlier date
     # falls back to the Tradier default.

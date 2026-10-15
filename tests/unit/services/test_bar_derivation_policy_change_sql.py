@@ -23,6 +23,8 @@ import asyncpg
 import pytest
 
 from services.bar_derivation import (
+    _RAW_DAILY_KINDS,
+    _RAW_DAILY_VENDORS,
     _SELECT_DAILY_CHANGED_SINCE_SQL,
     _SELECT_REVISION_WAIVER_SQL,
 )
@@ -58,8 +60,8 @@ CREATE TEMP TABLE bar_derivation_batch (
 CREATE TEMP TABLE ohlcv_request (
     request_id int, symbol text, timeframe text, what_to_show text, outcome text, caller text,
     answered_at timestamptz);
-CREATE TEMP TABLE ohlcv_observation (
-    request_id int, symbol text, timeframe text, what_to_show text, route text);
+CREATE TEMP TABLE ohlcv_raw (
+    request_id int, symbol text, timeframe text, vendor text, kind text, served_at timestamptz);
 CREATE TEMP TABLE bar_source_policy (
     timeframe text, symbol text, valid_to date, primary_source text,
     recorded_at timestamptz, closed_at timestamptz);
@@ -81,8 +83,10 @@ async def conn() -> AsyncIterator[asyncpg.Connection]:
             _T0,
         )
         await connection.execute(
-            "INSERT INTO ohlcv_observation VALUES"
-            " (1, 'TEST', '1d', 'TRADES', 'SMART'), (2, 'OTHER', '1d', 'TRADES', 'SMART')"
+            "INSERT INTO ohlcv_raw VALUES"
+            " (1, 'TEST', '1d', 'ibkr', 'smart_trades', $1),"
+            " (2, 'OTHER', '1d', 'ibkr', 'smart_trades', $1)",
+            _T0,
         )
         # Legacy loads with no batch: the baseline is loaded_at.
         await connection.execute(
@@ -123,7 +127,9 @@ async def _waived(conn: asyncpg.Connection, symbol: str = "TEST") -> bool:
 
 
 async def _probe(conn: asyncpg.Connection, symbol: str = "TEST") -> asyncpg.Record:
-    return await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
+    return await conn.fetchrow(
+        _SELECT_DAILY_CHANGED_SINCE_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+    )
 
 
 async def test_baseline_nothing_changed_since_the_last_load(conn):
@@ -186,8 +192,13 @@ async def test_a_default_row_closed_after_the_load_still_waives(conn):
 
 
 async def test_new_answers_after_the_symbols_own_load_are_due_past_a_later_batch(conn):
+    # A changed raw value served after the symbol's load (served_at moves only on a change).
     await conn.execute(
         "INSERT INTO ohlcv_request VALUES (3, 'TEST', '1d', 'TRADES', 'bars', 'fetcher', $1)",
+        _LOAD + timedelta(minutes=5),
+    )
+    await conn.execute(
+        "INSERT INTO ohlcv_raw VALUES (3, 'TEST', '1d', 'ibkr', 'smart_trades', $1)",
         _LOAD + timedelta(minutes=5),
     )
     await conn.execute(
@@ -229,11 +240,35 @@ async def test_a_refused_or_restore_load_is_not_the_baseline(conn):
     assert (await _probe(conn))["policy_since"]
 
 
+async def test_an_unchanged_re_serve_after_the_load_is_not_due(conn):
+    # A request answered after the load whose values equal raw writes nothing: the rule's
+    # inputs are unchanged, so the symbol is not due (served_at did not move).
+    await conn.execute(
+        "INSERT INTO ohlcv_request VALUES (5, 'TEST', '1d', 'TRADES', 'bars', 'fetcher', $1)",
+        _LOAD + timedelta(minutes=5),
+    )
+    assert not (await _probe(conn))["obs_since"]
+
+
+async def test_a_venue_or_test_caller_row_is_no_daily_input(conn):
+    await conn.execute(
+        "INSERT INTO ohlcv_request VALUES (6, 'VEN', '1d', 'TRADES', 'bars', 'test-x', $1)", _T0
+    )
+    await conn.execute(
+        "INSERT INTO ohlcv_raw VALUES (NULL, 'VEN', '1d', 'ibkr', 'venue_arca', $1),"
+        " (6, 'VEN', '1d', 'ibkr', 'smart_trades', $1)",
+        _T0,
+    )
+    assert not (await _probe(conn, "VEN"))["has_obs"]
+
+
 async def test_a_symbol_with_no_applied_load_is_due(conn):
     await conn.execute(
         "INSERT INTO ohlcv_request VALUES (4, 'NEW', '1d', 'TRADES', 'bars', 'fetcher', $1)", _T0
     )
-    await conn.execute("INSERT INTO ohlcv_observation VALUES (4, 'NEW', '1d', 'TRADES', 'SMART')")
+    await conn.execute(
+        "INSERT INTO ohlcv_raw VALUES (4, 'NEW', '1d', 'ibkr', 'smart_trades', $1)", _T0
+    )
     assert (await _probe(conn, "NEW"))["obs_since"]
     assert await _waived(conn, "NEW")
 

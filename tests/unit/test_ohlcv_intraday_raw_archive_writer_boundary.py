@@ -1,11 +1,10 @@
 """CI guard: ohlcv_intraday_raw_archive has one writer (phase 185 plan 12, T-185-12-06).
 
-services/intraday_raw_archive.py is the single owner module of the raw
-intraday archive: it holds bar_derivation's archive-from-table INSERT ...
-SELECT (moved there byte-identical in plan 12) and, since phase 191 plan 05,
-nothing else (the fetch path writes ohlcv_raw). Any other INSERT or COPY into
-the table fails CI unless this allow-list is edited, which forces a
-single-writer justification into the diff.
+The archive has no writer since phase 191 plan 08: the fetch path writes ohlcv_raw (plan 05)
+and plan 08 deleted bar_derivation's archive-from-table INSERT ... SELECT with its owner module
+services/intraday_raw_archive.py. The table stays read-only until plan 191-16 drops it; any
+INSERT or COPY into it fails CI unless this allow-list is edited, which forces a justification
+into the diff.
 
 CI-clean: no DB, no network -- pure filesystem grep.
 """
@@ -26,16 +25,8 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 _WRITER_PATTERN = re.compile(r"\b(?:INSERT\s+INTO|COPY)\s+ohlcv_intraday_raw_archive\b")
 _SEARCH_DIRS = ("services", "src", "scripts")
 
-# (file, reason) -- every ohlcv_intraday_raw_archive write in the tree must appear here.
-_ALLOW_LIST: dict[str, str] = {
-    "services/intraday_raw_archive.py": (
-        "TEMPORARY retire: 191-16 (phase 191 plan 05: read-side legacy). The owner module of "
-        "the raw intraday archive (phase 185 plan 12, single_writer / T-185-12-06). It holds "
-        "only the archive-from-table INSERT ... SELECT that bar_derivation imports back until "
-        "plan 08 moves derivation onto ohlcv_raw; the fetcher and the Alpaca loader no longer "
-        "write the archive."
-    ),
-}
+# (file, reason) -- every ohlcv_intraday_raw_archive write in the tree must appear here (none).
+_ALLOW_LIST: dict[str, str] = {}
 
 
 @functools.lru_cache(maxsize=1)
@@ -50,10 +41,9 @@ def test_every_archive_writer_is_on_the_allow_list():
         _ALLOW_LIST,
         what="`ohlcv_intraday_raw_archive` write(s)",
         remedy=(
-            "services/intraday_raw_archive.py is the table's only writer (plan 12, "
-            "single_writer). If this is a genuine new write path, route it through "
-            "that module instead; only edit _ALLOW_LIST here with a review-ready "
-            "reason for making it a second writer."
+            "the archive is read-only until plan 191-16 drops it; vendor answers go to "
+            "ohlcv_raw through the ingress contract. Only edit _ALLOW_LIST here with a "
+            "review-ready reason."
         ),
     )
 

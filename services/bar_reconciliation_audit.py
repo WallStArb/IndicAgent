@@ -70,13 +70,14 @@ from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
-    _D2V2_ROUTES,
+    _RAW_DAILY_KINDS,
+    _RAW_DAILY_VENDORS,
     _SELECT_1D_FLAG_RULES_SQL,
     _SELECT_5M_FLAGS_SQL,
     _SELECT_5M_SQL,
     _SELECT_CURRENT_1D_DIGESTS_SQL,
     _SELECT_CURRENT_GRID_DIGESTS_SQL,
-    _SELECT_DAILY_OBSERVATIONS_SQL,
+    _SELECT_DAILY_RAW_SQL,
     _SELECT_DAILY_SPLITS_SQL,
     _SELECT_POLICY_1D_SQL,
     _SELECT_STORED_1D_SQL,
@@ -92,7 +93,7 @@ from src.core.bar_accumulator import _TF_MINUTES
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.models import AssetClass
-from src.intelligence.bars.daily_rule import PolicyRow
+from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
 from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE, Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
 from src.intelligence.bars.gap_plan import (
@@ -1087,19 +1088,21 @@ def _policy_rows(rows: Iterable[Mapping[str, Any]]) -> list[PolicyRow]:
 
 
 def _observations(rows: Iterable[Mapping[str, Any]]) -> list[Observation]:
+    """The daily stage's raw 1d inputs as observations (phase 191 plan 08: D7 reads exactly
+    what bar_derivation derives from, daily_rule.observation_from_raw)."""
     return [
-        Observation(
+        observation_from_raw(
             request_id=r["request_id"],
-            route=r["route"],
+            vendor=r["vendor"],
+            kind=r["kind"],
             bar_date=r["bar_date"],
             open=r["open"],
             high=r["high"],
             low=r["low"],
             close=r["close"],
             volume=r["volume"],
-            fetched_at=r["fetched_at"],
+            served_at=r["served_at"],
             legacy=r["legacy"],
-            what_to_show=r["what_to_show"],
         )
         for r in rows
     ]
@@ -2148,7 +2151,9 @@ class BarReconciliationAudit(BaseBatch):
         return NameInputs1d(
             symbol=symbol,
             observations=_observations(
-                await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_D2V2_ROUTES))
+                await conn.fetch(
+                    _SELECT_DAILY_RAW_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+                )
             ),
             policy_rows=policy_rows,
             splits=_splits(await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)),

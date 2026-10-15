@@ -602,7 +602,7 @@ class _FakeConn:
             return []
         symbol = args[0]
         data = self.names[symbol]
-        if sql == audit._SELECT_DAILY_OBSERVATIONS_SQL:
+        if sql == audit._SELECT_DAILY_RAW_SQL:
             return data["observations"]
         if sql == audit._SELECT_STORED_1D_SQL:
             return data["stored"]
@@ -622,15 +622,15 @@ class _FakeConn:
 def _obs_row(day, close):
     return {
         "request_id": f"r-{day}",
-        "route": "TRADIER",
+        "vendor": "tradier",
+        "kind": "consolidated",
         "bar_date": day,
         "open": close,
         "high": close + 1,
         "low": close - 1,
         "close": close,
         "volume": 1000,
-        "fetched_at": datetime(2024, 1, 20, tzinfo=UTC),
-        "what_to_show": "TRADES",
+        "served_at": datetime(2024, 1, 20, tzinfo=UTC),
         "legacy": False,
     }
 

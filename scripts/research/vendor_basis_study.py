@@ -527,11 +527,11 @@ def _raw_latest(observations: Sequence[Any], route: str) -> dict[date, float]:
 async def run_study(args: argparse.Namespace) -> int:
     from services.bar_derivation import (
         _DISCOVER_DAILY_SYMBOLS_SQL,
-        _SELECT_DAILY_OBSERVATIONS_SQL,
         _SELECT_DAILY_SPLITS_SQL,
+        read_daily_inputs,
     )
     from src.intelligence.bars.daily_rule import current_closes
-    from src.intelligence.bars.derivation import Observation, SplitRecord
+    from src.intelligence.bars.derivation import SplitRecord
     from src.intelligence.bars.vendor_basis import blocking, canonical_vendor
 
     started = time.perf_counter()
@@ -558,24 +558,8 @@ async def run_study(args: argparse.Namespace) -> int:
         if evidence_dir:
             evidence_dir.mkdir(parents=True, exist_ok=True)
         for symbol in names:
-            obs = [
-                Observation(
-                    request_id=r["request_id"],
-                    route=r["route"],
-                    bar_date=r["bar_date"],
-                    open=r["open"],
-                    high=r["high"],
-                    low=r["low"],
-                    close=r["close"],
-                    volume=r["volume"],
-                    fetched_at=r["fetched_at"],
-                    legacy=r["legacy"],
-                    what_to_show=r["what_to_show"],
-                )
-                for r in await conn.fetch(
-                    _SELECT_DAILY_OBSERVATIONS_SQL, symbol, ["TRADIER", "SMART"]
-                )
-            ]
+            inputs, _splits_unused = await read_daily_inputs(conn, symbol)
+            obs = [o for o in inputs if o.route in ("TRADIER", "SMART")]
             action_rows = await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
             splits = [
                 SplitRecord(

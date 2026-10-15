@@ -3,15 +3,14 @@
 Fakes only, no DB (todo 494). A fake pool answers the read shapes the grid stage issues
 (config_state APR rows, DISTINCT-symbol discovery over tradeable 5m, per-symbol 5m bars,
 5m flag rules, the stored 15m/1h rows with their source, the stored grid flags, the current
-5m/15m/1h digests, the answered 5m windows, the vendor-removal verify) and records every call in
+5m/15m/1h digests, the answered 5m windows) and records every call in
 order.
 
 The contract under test (plan 185-31, data layer integrity design section 4): per symbol, one
 transaction reads the stored 15m/1h rows, classifies the derived rows against the stored derived
 rows by exact value (src/intelligence/bars/write_contract.py), and writes only what differs:
-one ohlcv_load row per grid timeframe; stored vendor rows archived, their differing archive
-observations recorded in ohlcv_revision (origin archive_segment), verified by value and only
-then deleted; new derived rows inserted; changed rows upserted (ON CONFLICT DO UPDATE, never a
+one ohlcv_load row per grid timeframe; a stored vendor 15m/1h row fails the symbol loud (vendor
+answers live in ohlcv_raw; phase 191 plan 08 deleted the archive step); new derived rows inserted; changed rows upserted (ON CONFLICT DO UPDATE, never a
 raw UPDATE) after their old values go to ohlcv_revision (origin load); stale derived rows
 deleted with their old values recorded; flags and digests written only where they differ. A
 revision ratio above threshold.bar_integrity.max_revision_ratio refuses the symbol (outcome
@@ -106,7 +105,6 @@ class FakeConn:
         stored_grid: dict[str, list[dict]] | None = None,
         stored_grid_flags: dict[str, list[dict]] | None = None,
         current_digests: dict[str, list[tuple]] | None = None,
-        verify_row: dict[str, object] | None = None,
         answered_windows: dict[str, list[tuple[datetime, datetime]]] | None = None,
         answered_since: bool = False,
         apr: dict[str, str] | None = None,
@@ -117,10 +115,13 @@ class FakeConn:
         self.stored_grid_flags = stored_grid_flags or {}
         # symbol -> [(timeframe, range_start, digest)]
         self.current_digests = current_digests or {}
-        self.verify_row = verify_row
         self.answered_windows = answered_windows or {}
         self.answered_since = answered_since
-        self.apr = {"infra.bar_derivation.grid_symbol_batch": "10", **(apr or {})}
+        self.apr = {
+            "infra.bar_derivation.grid_symbol_batch": "10",
+            "infra.selection_gate.request_load_match_s": "120",
+            **(apr or {}),
+        }
         self.calls: list[tuple[str, str]] = []
         self.statements: list[tuple[str, tuple]] = []
         self.executemany_calls: list[tuple[str, list[tuple]]] = []
@@ -138,9 +139,6 @@ class FakeConn:
 
     def transaction(self) -> FakeConn._Txn:
         return self._Txn(self)
-
-    def _vendor_rows(self, symbol: str) -> list[dict]:
-        return [r for r in self.stored_grid.get(symbol, []) if r["source"] != SOURCE_DERIVED_5M]
 
     async def fetch(self, sql: str, *args: object) -> list[object]:
         self.calls.append(("fetch", sql))
@@ -193,10 +191,7 @@ class FakeConn:
         self.calls.append(("fetchrow", sql))
         if "answered_since" in sql:
             return {"answered_since": self.answered_since}
-        assert "/* vendor_removal_verify */" in sql, f"unexpected fetchrow: {sql}"
-        if self.verify_row is not None:
-            return self.verify_row
-        return {"n_removable": len(self._vendor_rows(str(args[0]))), "n_unmatched": 0}
+        raise AssertionError(f"unexpected fetchrow: {sql}")
 
     async def fetchval(self, sql: str, *args: object) -> object:
         self.calls.append(("fetchval", sql))
@@ -206,8 +201,6 @@ class FakeConn:
     async def execute(self, sql: str, *args: object) -> str:
         self.calls.append(("execute", sql))
         self.statements.append((sql, tuple(args)))
-        if "/* delete_vendor_rows */" in sql:
-            return f"DELETE {len(self._vendor_rows(str(args[0])))}"
         if "/* delete_stale_derived */" in sql:
             return f"DELETE {len(args[2])}"
         if sql.lstrip().startswith("DELETE"):
@@ -529,7 +522,7 @@ def test_a_stored_derived_row_no_longer_derived_is_removed_with_its_old_value():
 
 
 # ---------------------------------------------------------------------------
-# Stored vendor rows: archive, archive_segment revisions, verify by value, delete
+# Stored vendor rows: a defect, never archived or deleted (phase 191 plan 08)
 # ---------------------------------------------------------------------------
 
 
@@ -546,79 +539,33 @@ def _vendor(tf: str, ts: datetime, close: float) -> dict:
     }
 
 
-def test_stored_vendor_rows_are_archived_recorded_verified_then_deleted():
-    fixture = _five_minute_fixture()
-    vendor = [
-        _vendor("15m", _SESSION_OPEN, 99.0),  # the key a derived row replaces
-        _vendor("1h", _SESSION_OPEN - timedelta(days=30), 98.0),  # older than any 5m
-    ]
-    conn = FakeConn(bars={"SPY": fixture}, stored_grid={"SPY": vendor})
-    totals = _run(conn)
-    assert totals["derived"] == 1 and totals["failed"] == 0
-
-    i_load = _index(conn, "INSERT INTO ohlcv_load")
-    i_archive = _index(conn, "INSERT INTO ohlcv_intraday_raw_archive")
-    i_segment = _index(conn, "'archive_segment'")
-    i_verify = _index(conn, "/* vendor_removal_verify */", kind="fetchrow")
-    i_delete = _index(conn, "/* delete_vendor_rows */")
-    i_insert = _index(conn, "INSERT INTO market_data_ohlcv", kind="executemany")
-    assert i_load < i_archive < i_segment < i_verify < i_delete < i_insert
-
-    # The archive_segment revision is one INSERT ... SELECT per grid timeframe, under that
-    # timeframe's load row, keeping a stored vendor row whose archived row is not equal.
-    load_ids = {str(row["timeframe"]): row["load_id"] for row in _load_counts(conn).values()}
-    segment = [(sql, a) for sql, a in conn.statements if "'archive_segment'" in sql]
-    assert sorted((a[1], a[2]) for _, a in segment) == sorted(
-        (tf, load_ids[tf]) for tf in ("15m", "1h")
-    )
-    segment_sql = segment[0][0]
-    assert "INSERT INTO ohlcv_revision" in segment_sql
-    assert "LEFT JOIN ohlcv_intraday_raw_archive" in segment_sql
-    for field in ("open", "high", "low", "close", "volume"):
-        assert f"a.{field} <> m.{field}" in segment_sql
-    assert "IS DISTINCT FROM 'derived_5m'" in segment_sql
-
-    verify_sql = next(sql for k, sql in conn.calls if "/* vendor_removal_verify */" in sql)
-    assert "ohlcv_intraday_raw_archive" in verify_sql and "ohlcv_revision" in verify_sql
-    delete_sql, delete_args = next(
-        (sql, a) for sql, a in conn.statements if "/* delete_vendor_rows */" in sql
-    )
-    assert "IS DISTINCT FROM 'derived_5m'" in delete_sql
-    assert list(delete_args[1]) == ["15m", "1h"]
-
-    # The derived row at the vendor key is new (the vendor row is not a derived revision).
-    assert any(r[2] == "15m" and r[0] == _SESSION_OPEN for r in _inserted_bars(conn))
-    assert not _upserted_bars(conn)
-    detail = [a for sql, a in conn.statements if "UPDATE bar_derivation_batch" in sql]
-    assert detail and json.loads(detail[-1][2])["n_archive_rows"] == 2
-
-
-def test_an_unmatched_vendor_row_fails_the_symbol_and_writes_nothing():
+def test_a_stored_vendor_row_fails_the_symbol_loud_and_writes_nothing():
     fixture = _five_minute_fixture()
     conn = FakeConn(
         bars={"SPY": fixture},
         stored_grid={"SPY": [_vendor("15m", _SESSION_OPEN, 99.0)]},
-        verify_row={"n_removable": 1, "n_unmatched": 1},
     )
-    with pytest.raises(RuntimeError, match="1 symbol failure"):
+    with pytest.raises(RuntimeError, match="vendor rows in canonical derivation-owned"):
         _run(conn)
-    assert not any("DELETE FROM market_data_ohlcv" in s for s in _bar_writes(conn))
+    assert not _bar_writes(conn)
     assert not _inserted_bars(conn) and not _upserted_bars(conn)
+    assert not any("INSERT INTO ohlcv_load" in sql for sql, _ in conn.statements)
     assert ("<rollback>", "") in conn.calls
     closed = [a for sql, a in conn.statements if "UPDATE bar_derivation_batch" in sql]
     assert closed[-1][0] == _BATCH_ID and "failed" in closed[-1]
 
 
-def test_a_removable_count_that_disagrees_with_the_read_fails_the_symbol():
-    fixture = _five_minute_fixture()
-    conn = FakeConn(
-        bars={"SPY": fixture},
-        stored_grid={"SPY": [_vendor("15m", _SESSION_OPEN, 99.0)]},
-        verify_row={"n_removable": 2, "n_unmatched": 0},
-    )
-    with pytest.raises(RuntimeError, match="1 symbol failure"):
-        _run(conn)
-    assert not _bar_writes(conn)
+def test_the_grid_stage_no_longer_touches_the_archive():
+    source = Path(bar_derivation_source()).read_text()
+    assert "ohlcv_intraday_raw_archive" not in source
+    assert "intraday_raw_archive" not in source
+    assert "archive_segment" not in source
+
+
+def bar_derivation_source() -> str:
+    from services import bar_derivation
+
+    return str(bar_derivation.__file__)
 
 
 # ---------------------------------------------------------------------------
@@ -715,10 +662,10 @@ def test_changed_only_selects_symbol_with_new_answered_window():
 
 def test_dry_run_reads_and_classifies_but_writes_nothing():
     fixture = _five_minute_fixture()
-    conn = FakeConn(bars={"SPY": fixture}, stored_grid={"SPY": [_vendor("15m", _SESSION_OPEN, 1)]})
+    conn = FakeConn(bars={"SPY": fixture})
     totals = _run(conn, apply=False)
     assert totals["derived"] == 1 and totals["derived_rows"] == 33
-    assert totals["rows_new"] == 33 and totals["vendor_rows_removed"] == 1
+    assert totals["rows_new"] == 33
     assert not conn.statements, conn.statements
     assert not conn.executemany_calls
     assert not any(k == "fetchval" for k, _ in conn.calls)
@@ -858,6 +805,25 @@ def test_answered_windows_sql_parameterizes_the_route():
     sql = bar_derivation._SELECT_ANSWERED_WINDOWS_SQL
     assert "r.route = $3" in sql
     assert "r.what_to_show = $4" in sql
+
+
+def test_answered_windows_corroborate_by_the_vendors_raw_rows_and_skip_refused_loads():
+    # Todo 535 item 26: the gap planner's rule (_d1_gaps._ANSWERED_WINDOWS_SQL), so a refused
+    # 5m window is never an answer here either.
+    from services import bar_derivation
+
+    flat = " ".join(bar_derivation._SELECT_ANSWERED_WINDOWS_SQL.split())
+    assert "FROM ohlcv_raw m" in flat and "m.vendor = r.source" in flat
+    assert "market_data_ohlcv" not in flat
+    assert "l.outcome = 'refused' AND l.loaded_at >= r.answered_at" in flat
+    assert "make_interval(secs => $5)" in flat
+
+
+def test_the_match_window_is_required_from_apr():
+    conn = FakeConn(bars={"SPY": _five_minute_fixture()})
+    del conn.apr["infra.selection_gate.request_load_match_s"]
+    with pytest.raises(RuntimeError, match="request_load_match_s missing"):
+        _run(conn)
 
 
 def test_the_grid_uses_the_write_contract_and_no_segment_rewrite():

@@ -15,11 +15,9 @@ src/intelligence/bars/write_contract.py). One transaction per symbol:
    fails (a broad 5m restatement is a finding to look at, never auto-applied);
 3. under SET LOCAL ROLE bar_derivation_writer: one ohlcv_load row per grid timeframe (source
    derived, outcome applied, the four counts);
-4. stored vendor rows (IBKR 15m/1h, any source but derived_5m) are archived into
-   ohlcv_intraday_raw_archive; a vendor row whose archived observation under the same key is
-   not equal (IBKR restated it inside its revision window; todo 490) goes to ohlcv_revision with
-   origin archive_segment; the verify then requires every vendor row to have an equal archive or
-   revision row before the vendor rows are deleted (raw observations are permanent);
+4. a vendor 15m/1h row in canonical fails the symbol loud: vendor answers live in ohlcv_raw
+   (phase 191 plan 08 deleted the archive-from-table step), and only this stage writes the grid
+   timeframes;
 5. old values of changed and removed derived rows go to ohlcv_revision (origin load); new rows
    are inserted, changed rows upserted (ON CONFLICT DO UPDATE on the changed set only, never a
    raw UPDATE of the compressed hypertable), stale rows deleted by key;
@@ -35,15 +33,16 @@ tradeable 5m bars is skipped with outcome no_5m and its stored rows stay as they
 answered 5m window arrived since. Default is a dry run: the same reads and classification, zero
 writes, no batch row; --apply is the explicit opt-in.
 
-Daily stage (plans 17 and 36). Per symbol: load the D1 TRADES observations of routes TRADIER,
-SMART and LEGACY_IMPORT, the 1d bar_source_policy rows (read once per run) and the
+Daily stage (plans 17 and 36; reads ohlcv_raw since phase 191 plan 08). Per symbol: load the
+current raw 1d rows of Tradier consolidated and IBKR smart_trades (daily_rule.RAW_DAILY_SERIES;
+the corpus import is told by its request's route), the 1d bar_source_policy rows (read once per run) and the
 corporate_action_current splits with their evidence, and run the pure d2-v3 rule
 (src/intelligence/bars/daily_rule.py): the source the policy row of each date names, IBKR as a
 recorded head, a basis-tested interior fallback, or the basis-tested restated answer where the
 Tradier primary answered only on a stale scale (data layer integrity design section 2 and the
 Amendment 2026-10-07; plan 185-52). The canonical bars
 are classified by the write contract against the stored 1d rows of every canonical source, with
-removal inside the name's derived span (its first to last observed date). A dry run (the default)
+removal inside the name's derived span (its first to last raw date). A dry run (the default)
 writes nothing and reports per name (--report writes a TSV). The apply path, one transaction per
 symbol under SET LOCAL ROLE bar_derivation_writer: one ohlcv_load row (source derived, outcome
 applied or refused, the four counts), old values of changed and removed rows to ohlcv_revision
@@ -84,17 +83,18 @@ from services._batch_utils import load_apr_dict_async
 from services.bar_derivation_batch import close_batch, open_batch
 from services.bar_hold import held as read_held
 from services.bar_scrub import FlagRow, scrub_symbols, write_flags
-from services.intraday_raw_archive import ARCHIVE_FROM_TABLE_SQL
 from src.config.settings import Settings
 from src.core.agent.base_batch import BaseBatch
 from src.intelligence.bars.daily_rule import (
     FLAG_FALLBACK_SEAM,
     FLAG_NO_VOLUME,
     FLAG_PRE_SPLIT,
+    RAW_DAILY_SERIES,
     RULE_VERSION,
     DailyV2Result,
     PolicyRow,
     derive_daily_v2,
+    observation_from_raw,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import DIGEST_ALGORITHM, bar_content_digest, month_ranges
@@ -111,7 +111,6 @@ from src.intelligence.bars.sources import (
     GRID_RULE_VERSION,
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
-    ROUTE_TRADIER,
     SOURCE_DERIVED_5M,
 )
 from src.intelligence.bars.write_contract import (
@@ -156,10 +155,11 @@ _GRID_ROW_COUNTS = (
     "rows_changed",
     "rows_unchanged",
     "rows_removed",
-    "vendor_rows_removed",
-    "archive_segment_rows",
 )
 _SESSION_MARGIN_DAYS = 3
+# The gap planner's request-to-load match window (scripts/infrastructure/backfill/_d1_gaps.py);
+# required, never defaulted: a missing key fails the run.
+_MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
 
 _DISCOVER_SYMBOLS_SQL = """
 SELECT DISTINCT symbol FROM market_data_ohlcv_tradeable WHERE timeframe = '5m' ORDER BY symbol
@@ -186,9 +186,12 @@ WHERE symbol = $1 AND timeframe = '5m'
 # Answered SMART TRADES 5m windows (todo 462's coverage rule, plan 185-18: the
 # outcome set, the covered route and the merge/cover semantics all come from the
 # shared planner module, src/intelligence/bars/gap_plan.py). A `bars` answer
-# counts only when a stored 5m row corroborates it: the request record and the
-# bars still commit separately at 5m in this daemon's read path, so a lost
-# chunk must not make a window look covered.
+# counts only when the answering vendor holds a raw 5m row in its window (a lost
+# chunk must not make a window look covered), and never when the contract refused
+# the load that persisted it (todo 535 item 26: the gap planner's rule, finding 3 of
+# the third 191-07 review, in scripts/infrastructure/backfill/_d1_gaps.py; a load
+# persists the latest request of its series answered at most $5 seconds earlier,
+# APR infra.selection_gate.request_load_match_s).
 _SELECT_ANSWERED_WINDOWS_SQL = """
 SELECT r.window_start, r.window_end
 FROM ohlcv_request r
@@ -198,10 +201,21 @@ WHERE r.symbol = $1 AND r.timeframe = '5m' AND r.route = $3
   AND (
     r.outcome = 'no_data'
     OR EXISTS (
-      SELECT 1 FROM market_data_ohlcv m
-      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe
-        AND m.timestamp >= r.window_start AND m.timestamp < r.window_end
+      SELECT 1 FROM ohlcv_raw m
+      WHERE m.symbol = r.symbol AND m.timeframe = r.timeframe AND m.vendor = r.source
+        AND m."timestamp" >= r.window_start AND m."timestamp" < r.window_end
     )
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM ohlcv_load l
+    WHERE l.symbol = r.symbol AND l.timeframe = r.timeframe AND l.source = r.source
+      AND l.outcome = 'refused' AND l.loaded_at >= r.answered_at
+      AND l.loaded_at <= r.answered_at + make_interval(secs => $5)
+      AND NOT EXISTS (
+        SELECT 1 FROM ohlcv_request q
+        WHERE q.symbol = r.symbol AND q.timeframe = r.timeframe AND q.source = r.source
+          AND q.answered_at > r.answered_at AND q.answered_at <= l.loaded_at
+      )
   )
 ORDER BY r.window_start
 """
@@ -220,11 +234,6 @@ SELECT EXISTS (
           '-infinity'::timestamptz)
 ) AS answered_since
 """
-
-# The archive's single owner module (services/intraday_raw_archive.py, plan 12) defines this
-# INSERT ... SELECT of a symbol's stored vendor 15m/1h rows; the archive writer-boundary CI test
-# fails on any other INSERT into it.
-_INSERT_ARCHIVE_SQL = ARCHIVE_FROM_TABLE_SQL
 
 # The stored 15m/1h rows of a symbol, vendor and derived, with their source: the write
 # contract's "stored" side (read inside the symbol's transaction on --apply).
@@ -251,58 +260,6 @@ WHERE symbol = $1 AND timeframe = ANY($2::text[])
 _INSERT_LOAD_SQL = """
 INSERT INTO ohlcv_load (load_id, symbol, timeframe, source, requested_start, requested_end, outcome, n_bars, n_new, n_changed, n_unchanged, n_removed, first_bar, last_bar, detail, caller, batch_id, destination)
 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::uuid, $18)
-"""
-
-# A stored vendor row whose archived observation under the same key is not equal (IBKR restated
-# the bar inside its revision window after the archive kept the first write; todo 490): its
-# stored value is the second observation, kept here before the row leaves market_data_ohlcv.
-# One statement per grid timeframe, under that timeframe's load row ($3).
-_INSERT_ARCHIVE_SEGMENT_REVISION_SQL = """
-INSERT INTO ohlcv_revision
-    (load_id, symbol, timeframe, "timestamp", old_open, old_high, old_low, old_close,
-     old_volume, old_source, origin)
-SELECT $3::uuid, m.symbol, m.timeframe, m."timestamp", m.open, m.high, m.low, m.close,
-       m.volume, m.source, 'archive_segment'
-FROM market_data_ohlcv m
-LEFT JOIN ohlcv_intraday_raw_archive a
-    ON a.symbol = m.symbol AND a.timeframe = m.timeframe AND a."timestamp" = m."timestamp"
-WHERE m.symbol = $1 AND m.timeframe = $2 AND m.source IS DISTINCT FROM 'derived_5m'
-  AND (a."timestamp" IS NULL
-       OR a.open <> m.open OR a.high <> m.high OR a.low <> m.low OR a.close <> m.close
-       OR a.volume <> m.volume OR a.source IS DISTINCT FROM m.source)
-"""
-
-# Removal is verified by value, row by row: a stored vendor row may leave only when the archive
-# holds an equal row under its key or this transaction's loads ($3) hold an equal
-# archive_segment revision of it. n_unmatched must be 0 and n_removable must equal the vendor
-# rows the classification read. IS NOT DISTINCT FROM keeps a NULL from passing as a match.
-_VENDOR_REMOVAL_VERIFY_SQL = """
-/* vendor_removal_verify */
-SELECT count(*)::bigint AS n_removable,
-       count(*) FILTER (WHERE NOT (
-           (a."timestamp" IS NOT NULL
-            AND a.open IS NOT DISTINCT FROM m.open AND a.high IS NOT DISTINCT FROM m.high
-            AND a.low IS NOT DISTINCT FROM m.low AND a.close IS NOT DISTINCT FROM m.close
-            AND a.volume IS NOT DISTINCT FROM m.volume AND a.source IS NOT DISTINCT FROM m.source)
-           OR (r."timestamp" IS NOT NULL
-            AND r.old_open IS NOT DISTINCT FROM m.open AND r.old_high IS NOT DISTINCT FROM m.high
-            AND r.old_low IS NOT DISTINCT FROM m.low AND r.old_close IS NOT DISTINCT FROM m.close
-            AND r.old_volume IS NOT DISTINCT FROM m.volume
-            AND r.old_source IS NOT DISTINCT FROM m.source)
-       ))::bigint AS n_unmatched
-FROM market_data_ohlcv m
-LEFT JOIN ohlcv_intraday_raw_archive a
-    ON a.symbol = m.symbol AND a.timeframe = m.timeframe AND a."timestamp" = m."timestamp"
-LEFT JOIN ohlcv_revision r
-    ON r.load_id = ANY($3::uuid[]) AND r.origin = 'archive_segment'
-   AND r.symbol = m.symbol AND r.timeframe = m.timeframe AND r."timestamp" = m."timestamp"
-WHERE m.symbol = $1 AND m.timeframe = ANY($2::text[]) AND m.source IS DISTINCT FROM 'derived_5m'
-"""
-
-_DELETE_VENDOR_ROWS_SQL = """
-/* delete_vendor_rows */
-DELETE FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND source IS DISTINCT FROM 'derived_5m'
 """
 
 _INSERT_BAR_SQL = """
@@ -378,9 +335,8 @@ _DAILY_LOAD_CALLER = "bar_derivation-daily"
 # A restore from the pre-cutover 1d snapshot (plan 185-38): same contract, its own caller.
 _RESTORE_LOAD_CALLER = "bar_derivation-restore"
 _DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
-# D1 routes d2-v2 reads: Tradier, IBKR SMART, and the stored corpus's import as IBKR's lowest
-# rank. Venue routes stay out (the D-17 venue study failed).
-_D2V2_ROUTES = (ROUTE_TRADIER, "SMART", "LEGACY_IMPORT")
+_RAW_DAILY_VENDORS = [vendor for vendor, _kind in RAW_DAILY_SERIES]
+_RAW_DAILY_KINDS = [kind for _vendor, kind in RAW_DAILY_SERIES]
 _DAILY_OUTCOMES = ("derived", "unchanged", "no_observations", "refused", "failed", "held")
 _DAILY_ROW_COUNTS = ("new", "changed", "unchanged", "removed")
 _DAILY_REPORT_COLUMNS = (
@@ -415,19 +371,23 @@ WHERE is_active AND compute_eligible_1d
 ORDER BY symbol
 """
 
-# The d2-v2 routes' TRADES observations ($2 = _D2V2_ROUTES). The request join keeps test
-# fixtures out: a request whose caller starts 'test-' never becomes a canonical bar (2026-10-03:
-# fixture rows on SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5).
-_SELECT_DAILY_OBSERVATIONS_SQL = """
-SELECT o.request_id::text AS request_id, o.route, o.bar_date,
-       o.open, o.high, o.low, o.close, o.volume, o.fetched_at,
-       o.what_to_show, (o.route = 'LEGACY_IMPORT') AS legacy
-FROM ohlcv_observation o
-JOIN ohlcv_request q ON q.request_id = o.request_id
-WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
-  AND o.route = ANY($2::text[])
-  AND q.caller NOT LIKE 'test-%'
-ORDER BY o.bar_date, o.fetched_at, o.request_id
+# The current raw 1d rows of the d2-v3 series ($2 vendors, $3 kinds, zipped pairwise:
+# daily_rule.RAW_DAILY_SERIES). The request join keeps test fixtures out: a value first served
+# by a request whose caller starts 'test-' never becomes a canonical bar (2026-10-03: fixture
+# rows on SPY 2024-01-02 to 01-04 would have replaced closes of 472 with 100.5). A row with no
+# request (a legacy migrated row) is no test row. legacy marks the corpus import.
+_SELECT_DAILY_RAW_SQL = """
+SELECT r.request_id::text AS request_id, r.vendor, r.kind,
+       (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+       r.open, r.high, r.low, r.close, r.volume, r.served_at,
+       COALESCE(q.route = 'LEGACY_IMPORT', false) AS legacy
+FROM ohlcv_raw r
+JOIN unnest($2::text[], $3::text[]) AS s(vendor, kind)
+  ON s.vendor = r.vendor AND s.kind = r.kind
+LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = $1 AND r.timeframe = '1d'
+  AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
+ORDER BY r."timestamp", r.vendor, r.kind
 """
 
 _SELECT_DAILY_SPLITS_SQL = """
@@ -496,23 +456,27 @@ last_load AS (
 # count as changed at recorded_at only). GREATEST ignores NULL. Format with p = the alias.
 _POLICY_CHANGED_AT = "GREATEST({p}.recorded_at, {p}.closed_at)"
 
-# --changed-only: a symbol is due when a TRADES request was answered, or a corporate action or a
-# 1d source policy row (the symbol's or the default) was recorded or closed, after its baseline.
+# --changed-only: a symbol is due when a raw value of its d2-v3 series was served (served_at moves
+# only when the value changes, and the rule reads nothing else of a serve), or a corporate action
+# or a 1d source policy row (the symbol's or the default) was recorded or closed, after its
+# baseline. $2/$3 as _SELECT_DAILY_RAW_SQL.
 _SELECT_DAILY_CHANGED_SINCE_SQL = f"""
 /* changed_since */
 WITH {_LAST_DAILY_LOAD_CTE}
 SELECT EXISTS (
-    SELECT 1 FROM ohlcv_observation o
-    JOIN ohlcv_request q ON q.request_id = o.request_id
-    WHERE o.symbol = $1 AND o.timeframe = '1d' AND o.what_to_show = 'TRADES'
-      AND q.caller NOT LIKE 'test-%'
+    SELECT 1 FROM ohlcv_raw r
+    JOIN unnest($2::text[], $3::text[]) AS s(vendor, kind)
+      ON s.vendor = r.vendor AND s.kind = r.kind
+    LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+    WHERE r.symbol = $1 AND r.timeframe = '1d'
+      AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
 ) AS has_obs,
 EXISTS (
-    SELECT 1 FROM ohlcv_request r
-    WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.what_to_show = 'TRADES'
-      AND r.outcome IN ('bars', 'legacy_import')
-      AND r.caller NOT LIKE 'test-%'
-      AND r.answered_at > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
+    SELECT 1 FROM ohlcv_raw r
+    JOIN unnest($2::text[], $3::text[]) AS s(vendor, kind)
+      ON s.vendor = r.vendor AND s.kind = r.kind
+    WHERE r.symbol = $1 AND r.timeframe = '1d'
+      AND r.served_at > COALESCE((SELECT at FROM last_load), '-infinity'::timestamptz)
 ) AS obs_since,
 EXISTS (
     SELECT 1 FROM corporate_action_current c
@@ -584,8 +548,6 @@ class _SymbolResult(NamedTuple):
     rows_changed: int = 0
     rows_unchanged: int = 0
     rows_removed: int = 0
-    vendor_rows_removed: int = 0
-    archive_segment_rows: int = 0
 
 
 class _RevisionLimits(NamedTuple):
@@ -660,14 +622,7 @@ class _GridPlan:
     flag_deletes: list[tuple[str, int, str]]
     digest_writes: list[tuple[str, datetime, datetime, str, int]]
 
-    def result(
-        self,
-        symbol: str,
-        n_derived: int,
-        *,
-        n_vendor_removed: int = 0,
-        n_archive_segment: int = 0,
-    ) -> _SymbolResult:
+    def result(self, symbol: str, n_derived: int) -> _SymbolResult:
         counts = {
             "rows_new": sum(len(d.new) for d in self.deltas.values()),
             "rows_changed": sum(len(d.changed) for d in self.deltas.values()),
@@ -677,14 +632,18 @@ class _GridPlan:
         if self.refusals:
             error = f"{symbol}: refused: {'; '.join(self.refusals)}"
             return _SymbolResult("refused", error, n_derived, **counts)
-        return _SymbolResult(
-            "derived",
-            None,
-            n_derived,
-            **counts,
-            vendor_rows_removed=n_vendor_removed,
-            archive_segment_rows=n_archive_segment,
-        )
+        return _SymbolResult("derived", None, n_derived, **counts)
+
+
+def _vendor_rows_error(symbol: str, plan: _GridPlan) -> str:
+    """A vendor 15m/1h row in canonical is a defect: vendor answers live in ohlcv_raw and the
+    grid timeframes are derivation-owned (DERIVATION_OWNED_TIMEFRAMES); the stage stops loud
+    rather than overwrite or delete a row it did not write (phase 191 plan 08)."""
+    found = ", ".join(f"{tf} {n}" for tf, n in plan.n_vendor.items() if n)
+    return (
+        f"{symbol}: vendor rows in canonical derivation-owned timeframes ({found}); "
+        "no writer but bar_derivation may write 15m/1h canonical rows"
+    )
 
 
 def _rowcount(status: str) -> int:
@@ -886,6 +845,7 @@ class BarDerivation(BaseBatch):
         self._report_path = report_path
         self._rewrite_digests = rewrite_digests
         self._restore_snapshot = restore_snapshot
+        self._match_s = 0.0  # read from APR at the grid run's start
         if rewrite_digests and restore_snapshot:
             raise ValueError("--rewrite-digests and --restore-snapshot are separate runs")
         if (rewrite_digests or restore_snapshot) and stage != "daily":
@@ -903,8 +863,11 @@ class BarDerivation(BaseBatch):
     async def _execute_grid(self, pool: asyncpg.Pool) -> dict[str, int]:
         async with pool.acquire() as conn:
             apr = await load_apr_dict_async(
-                conn, ["infra.bar_derivation.%", "threshold.bar_integrity.%"]
+                conn, ["infra.bar_derivation.%", "threshold.bar_integrity.%", _MATCH_S_KEY]
             )
+            if _MATCH_S_KEY not in apr:
+                raise RuntimeError(f"{_MATCH_S_KEY} missing from config_state")
+            self._match_s = float(apr[_MATCH_S_KEY])
             symbol_batch = int(
                 _cfg(apr, "infra.bar_derivation.grid_symbol_batch", _DEFAULT_SYMBOL_BATCH)
             )
@@ -983,9 +946,6 @@ class BarDerivation(BaseBatch):
                         detail={
                             "totals": {k: n for k, n in totals.items() if n},
                             "n_derived_rows": n_derived_rows,
-                            # Stored vendor 15m/1h rows the verify matched by value and the
-                            # vendor DELETE removed (archive or archive_segment revision).
-                            "n_archive_rows": rows["vendor_rows_removed"],
                             "rows": rows,
                             "apply": self._apply,
                             "changed_only": self._changed_only,
@@ -1019,6 +979,7 @@ class BarDerivation(BaseBatch):
             list(ANSWERED_OUTCOMES),
             COVERAGE_ROUTE,
             COVERAGE_WHAT_TO_SHOW,
+            self._match_s,
         )
         return AnsweredWindows.from_rows([(r["window_start"], r["window_end"]) for r in rows])
 
@@ -1233,12 +1194,16 @@ class BarDerivation(BaseBatch):
         }
         if not self._apply:
             plan = await self._plan_grid(conn, **planning)
-            return plan.result(symbol, n_derived, n_vendor_removed=sum(plan.n_vendor.values()))
+            if sum(plan.n_vendor.values()):
+                return _SymbolResult("failed", _vendor_rows_error(symbol, plan), 0)
+            return plan.result(symbol, n_derived)
 
         assert batch_id is not None  # --apply always opens a batch
         try:
             async with conn.transaction():
                 plan = await self._plan_grid(conn, **planning)
+                if sum(plan.n_vendor.values()):
+                    raise _SymbolFailure(_vendor_rows_error(symbol, plan))
                 await conn.execute(_WRITER_ROLE_SQL)
                 load_ids = {tf: str(uuid4()) for tf in _GRID_TF_LIST}
                 outcome = "refused" if plan.refusals else "applied"
@@ -1284,16 +1249,6 @@ class BarDerivation(BaseBatch):
                 if plan.refusals:
                     # The load rows are the recorded finding; nothing else is written.
                     return plan.result(symbol, n_derived)
-                n_vendor = sum(plan.n_vendor.values())
-                n_archive_segment = 0
-                if n_vendor:
-                    n_archive_segment = await self._remove_vendor_rows(
-                        conn,
-                        symbol=symbol,
-                        batch_id=batch_id,
-                        load_ids=load_ids,
-                        n_vendor=n_vendor,
-                    )
                 await self._write_derived(
                     conn, symbol=symbol, base=base, plan=plan, load_ids=load_ids
                 )
@@ -1343,44 +1298,7 @@ class BarDerivation(BaseBatch):
                     )
         except Exception as error:
             return _SymbolResult("failed", f"{symbol}: {error}", 0)
-        return plan.result(
-            symbol, n_derived, n_vendor_removed=n_vendor, n_archive_segment=n_archive_segment
-        )
-
-    async def _remove_vendor_rows(
-        self,
-        conn: asyncpg.Connection,
-        *,
-        symbol: str,
-        batch_id: str,
-        load_ids: dict[str, str],
-        n_vendor: int,
-    ) -> int:
-        """Archive, record differing observations, verify by value, then delete (todo 490).
-
-        Runs inside the symbol's transaction; any mismatch raises _SymbolFailure and the whole
-        symbol rolls back, so nothing leaves market_data_ohlcv without a kept equal copy.
-        Returns the number of archive_segment revision rows written.
-        """
-        await conn.execute(_INSERT_ARCHIVE_SQL, symbol, _GRID_TF_LIST, batch_id)
-        n_segment = 0
-        for tf in _GRID_TF_LIST:
-            n_segment += _rowcount(
-                await conn.execute(_INSERT_ARCHIVE_SEGMENT_REVISION_SQL, symbol, tf, load_ids[tf])
-            )
-        verify = await conn.fetchrow(
-            _VENDOR_REMOVAL_VERIFY_SQL, symbol, _GRID_TF_LIST, list(load_ids.values())
-        )
-        if verify["n_unmatched"] or verify["n_removable"] != n_vendor:
-            raise _SymbolFailure(
-                f"vendor removal verify failed: {verify['n_unmatched']} of "
-                f"{verify['n_removable']} stored vendor rows have no equal archive or revision "
-                f"row (classification read {n_vendor})"
-            )
-        n_deleted = _rowcount(await conn.execute(_DELETE_VENDOR_ROWS_SQL, symbol, _GRID_TF_LIST))
-        if n_deleted != n_vendor:
-            raise _SymbolFailure(f"vendor delete removed {n_deleted} rows, verified {n_vendor}")
-        return n_segment
+        return plan.result(symbol, n_derived)
 
     async def _write_derived(
         self,
@@ -1454,53 +1372,7 @@ class BarDerivation(BaseBatch):
                     f"infra.bar_derivation.daily_write_method={method!r}: only "
                     f"{_DAILY_WRITE_METHOD!r} is implemented (185-01 measurement b)"
                 )
-            params = _DailyParams(
-                window=int(
-                    _cfg(
-                        apr,
-                        "threshold.bar_integrity.fallback_basis_window_sessions",
-                        _DEFAULT_BASIS_WINDOW_SESSIONS,
-                    )
-                ),
-                tolerance_bp=float(
-                    _cfg(
-                        apr,
-                        "threshold.bar_integrity.fallback_basis_tolerance_bp",
-                        _DEFAULT_BASIS_TOLERANCE_BP,
-                    )
-                ),
-                limits=_RevisionLimits(
-                    max_ratio=float(
-                        _cfg(
-                            apr,
-                            "threshold.bar_integrity.max_revision_ratio",
-                            _DEFAULT_MAX_REVISION_RATIO,
-                        )
-                    ),
-                    min_stored=int(
-                        _cfg(
-                            apr,
-                            "threshold.bar_integrity.revision_ratio_min_stored",
-                            _DEFAULT_REVISION_MIN_STORED,
-                        )
-                    ),
-                ),
-                quarantine_rules=frozenset(
-                    json.loads(str(_cfg(apr, "threshold.bar_scrub.quarantine_rules", "[]")))
-                ),
-                policy=tuple(
-                    PolicyRow(
-                        timeframe=r["timeframe"],
-                        symbol=r["symbol"],
-                        valid_from=r["valid_from"],
-                        valid_to=r["valid_to"],
-                        ingress_mode=r["ingress_mode"],
-                        primary_source=r["primary_source"],
-                        fallback_source=r["fallback_source"],
-                    )
-                    for r in await conn.fetch(_SELECT_POLICY_1D_SQL)
-                ),
-            )
+            params = await read_daily_params(conn, apr)
             targets = (
                 list(self._symbols)
                 if self._symbols
@@ -1618,41 +1490,18 @@ class BarDerivation(BaseBatch):
         # Probe first (cheap EXISTS, one round trip): the nightly --changed-only pass skips the
         # observation load and the derivation for symbols with nothing new since their own last
         # applied daily load (_LAST_DAILY_LOAD_CTE).
-        probe = await conn.fetchrow(_SELECT_DAILY_CHANGED_SINCE_SQL, symbol)
+        probe = await conn.fetchrow(
+            _SELECT_DAILY_CHANGED_SINCE_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS
+        )
         if not probe["has_obs"]:
             return _DailyResult(symbol, "no_observations")
         if self._changed_only and not (
             probe["obs_since"] or probe["action_since"] or probe["policy_since"]
         ):
             return _DailyResult(symbol, "unchanged")
-        obs_rows = await conn.fetch(_SELECT_DAILY_OBSERVATIONS_SQL, symbol, list(_D2V2_ROUTES))
-        if not obs_rows:
+        observations, splits = await read_daily_inputs(conn, symbol)
+        if not observations:
             return _DailyResult(symbol, "no_observations")
-        splits = [
-            SplitRecord(
-                effective_date=r["effective_date"],
-                recorded_at=r["recorded_at"],
-                factor=r["factor"],
-                evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
-            )
-            for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
-        ]
-        observations = [
-            Observation(
-                request_id=r["request_id"],
-                route=r["route"],
-                bar_date=r["bar_date"],
-                open=r["open"],
-                high=r["high"],
-                low=r["low"],
-                close=r["close"],
-                volume=r["volume"],
-                fetched_at=r["fetched_at"],
-                legacy=r["legacy"],
-                what_to_show=r["what_to_show"],
-            )
-            for r in obs_rows
-        ]
         derived = derive_daily_v2(
             observations,
             params.policy,
@@ -2085,6 +1934,91 @@ class _DailyParams(NamedTuple):
     limits: _RevisionLimits
     quarantine_rules: frozenset[str]
     policy: tuple[PolicyRow, ...]
+
+
+async def read_daily_params(conn: Any, apr: dict) -> _DailyParams:
+    """The daily stage's per-run inputs: APR thresholds and every 1d policy row."""
+    return _DailyParams(
+        window=int(
+            _cfg(
+                apr,
+                "threshold.bar_integrity.fallback_basis_window_sessions",
+                _DEFAULT_BASIS_WINDOW_SESSIONS,
+            )
+        ),
+        tolerance_bp=float(
+            _cfg(
+                apr,
+                "threshold.bar_integrity.fallback_basis_tolerance_bp",
+                _DEFAULT_BASIS_TOLERANCE_BP,
+            )
+        ),
+        limits=_RevisionLimits(
+            max_ratio=float(
+                _cfg(
+                    apr,
+                    "threshold.bar_integrity.max_revision_ratio",
+                    _DEFAULT_MAX_REVISION_RATIO,
+                )
+            ),
+            min_stored=int(
+                _cfg(
+                    apr,
+                    "threshold.bar_integrity.revision_ratio_min_stored",
+                    _DEFAULT_REVISION_MIN_STORED,
+                )
+            ),
+        ),
+        quarantine_rules=frozenset(
+            json.loads(str(_cfg(apr, "threshold.bar_scrub.quarantine_rules", "[]")))
+        ),
+        policy=tuple(
+            PolicyRow(
+                timeframe=r["timeframe"],
+                symbol=r["symbol"],
+                valid_from=r["valid_from"],
+                valid_to=r["valid_to"],
+                ingress_mode=r["ingress_mode"],
+                primary_source=r["primary_source"],
+                fallback_source=r["fallback_source"],
+            )
+            for r in await conn.fetch(_SELECT_POLICY_1D_SQL)
+        ),
+    )
+
+
+async def read_daily_inputs(conn: Any, symbol: str) -> tuple[list[Observation], list[SplitRecord]]:
+    """The symbol's d2-v3 inputs: its current raw 1d rows of RAW_DAILY_SERIES as observations
+    (daily_rule.observation_from_raw) and its current corporate actions."""
+    rows = await conn.fetch(_SELECT_DAILY_RAW_SQL, symbol, _RAW_DAILY_VENDORS, _RAW_DAILY_KINDS)
+    observations = [
+        observation_from_raw(
+            request_id=r["request_id"],
+            vendor=r["vendor"],
+            kind=r["kind"],
+            bar_date=r["bar_date"],
+            open=r["open"],
+            high=r["high"],
+            low=r["low"],
+            close=r["close"],
+            volume=r["volume"],
+            served_at=r["served_at"],
+            legacy=r["legacy"],
+        )
+        for r in rows
+    ]
+    if not observations:
+        return [], []
+    splits = [
+        SplitRecord(
+            effective_date=r["effective_date"],
+            recorded_at=r["recorded_at"],
+            factor=r["factor"],
+            evidence_request_ids=tuple(r["evidence_request_ids"] or ()),
+        )
+        for r in await conn.fetch(_SELECT_DAILY_SPLITS_SQL, symbol)
+    ]
+    return observations, splits
 
 
 def _daily_summary(results: list[_DailyResult]) -> dict[str, int]:

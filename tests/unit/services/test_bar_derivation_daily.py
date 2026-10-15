@@ -54,18 +54,28 @@ def _ts(day: date) -> datetime:
     return datetime(day.year, day.month, day.day, tzinfo=UTC)
 
 
+_ROUTE_SERIES = {
+    "TRADIER": ("tradier", "consolidated"),
+    "SMART": ("ibkr", "smart_trades"),
+    "LEGACY_IMPORT": ("ibkr", "smart_trades"),
+    "ARCA": ("ibkr", "venue_arca"),
+}
+
+
 def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None = 100) -> dict:
+    """A current ohlcv_raw 1d row as the daily read returns it (phase 191 plan 08)."""
+    vendor, kind = _ROUTE_SERIES[route]
     return {
         "request_id": f"{route}-{day.isoformat()}",
-        "route": route,
+        "vendor": vendor,
+        "kind": kind,
         "bar_date": day,
         "open": close,
         "high": close,
         "low": close,
         "close": close,
         "volume": volume,
-        "fetched_at": _FETCHED,
-        "what_to_show": "TRADES",
+        "served_at": _FETCHED,
         "legacy": route == "LEGACY_IMPORT",
     }
 
@@ -183,9 +193,13 @@ class FakeConn:
             return [(symbol,) for symbol in sorted(self.observations)]
         if "FROM bar_source_policy" in sql:
             return self.policy
-        if "ohlcv_observation" in sql:
-            routes = set(args[1])  # type: ignore[arg-type]
-            return [o for o in self.observations.get(str(args[0]), []) if o["route"] in routes]
+        if "FROM ohlcv_raw" in sql:
+            series = set(zip(args[1], args[2], strict=True))  # type: ignore[arg-type]
+            return [
+                o
+                for o in self.observations.get(str(args[0]), [])
+                if (o["vendor"], o["kind"]) in series
+            ]
         if "corporate_action_current" in sql:
             return self.splits.get(str(args[0]), [])
         if "/* stored_1d */" in sql:
@@ -402,7 +416,7 @@ def _restated_fixture() -> FakeConn:
     days = [date(2024, 1, d) for d in (2, 3, 4, 5, 8, 9, 10)]
     refetch = datetime(2026, 10, 9, tzinfo=UTC)
     obs = [_obs(d, 20.0) for d in days]
-    obs += [{**_obs(d, 10.0, route="SMART"), "fetched_at": refetch} for d in days]
+    obs += [{**_obs(d, 10.0, route="SMART"), "served_at": refetch} for d in days]
     split = {
         "effective_date": date(2026, 10, 15),
         "recorded_at": datetime(2026, 10, 8, tzinfo=UTC),
@@ -660,7 +674,7 @@ def test_changed_only_skips_symbol_without_new_answers():
     conn = FakeConn(observations=observations, stored=stored, changed_since={"TEST": False})
     result, _ = _run(conn, changed_only=True)
     assert result["totals"]["unchanged"] == 1
-    assert not any("ohlcv_observation" in sql for kind, sql in conn.calls if kind == "fetch")
+    assert not any("FROM ohlcv_raw" in sql for kind, sql in conn.calls if kind == "fetch")
     assert not conn.statements or all("ohlcv_load" not in sql for sql, _ in conn.statements)
 
 
@@ -708,12 +722,64 @@ def test_daily_stage_calls_d2v2_and_writes_no_lineage():
     assert not re.search(r"(?:INSERT\s+INTO|UPDATE|COPY)\s+canonical_bar_lineage\b", source)
 
 
-def test_observation_read_takes_the_d2v2_routes():
-    from services.bar_derivation import _D2V2_ROUTES, _SELECT_DAILY_OBSERVATIONS_SQL
+def test_daily_read_takes_the_raw_d2v3_series_and_excludes_test_callers():
+    from services.bar_derivation import _SELECT_DAILY_RAW_SQL as sql
+    from src.intelligence.bars.daily_rule import RAW_DAILY_SERIES
 
-    assert set(_D2V2_ROUTES) == {"TRADIER", "SMART", "LEGACY_IMPORT"}
-    assert "o.route = ANY($2::text[])" in _SELECT_DAILY_OBSERVATIONS_SQL
-    assert "q.caller NOT LIKE 'test-%'" in _SELECT_DAILY_OBSERVATIONS_SQL
+    assert set(RAW_DAILY_SERIES) == {("tradier", "consolidated"), ("ibkr", "smart_trades")}
+    flat = " ".join(sql.split())
+    assert "FROM ohlcv_raw r" in flat and "ohlcv_observation" not in flat
+    assert "LEFT JOIN ohlcv_request q ON q.request_id = r.request_id" in flat
+    # A NULL request_id (legacy migrated row) is no test row; a test caller's value never is.
+    assert "(q.caller IS NULL OR q.caller NOT LIKE 'test-%')" in flat
+    assert "COALESCE(q.route = 'LEGACY_IMPORT', false) AS legacy" in flat
+
+
+def test_changed_since_reads_raw_serves_not_observations():
+    from services.bar_derivation import _SELECT_DAILY_CHANGED_SINCE_SQL as sql
+
+    flat = " ".join(sql.split())
+    assert "ohlcv_observation" not in flat
+    assert "r.served_at > COALESCE((SELECT at FROM last_load)" in flat
+
+
+def test_venue_rows_never_reach_the_rule():
+    observations, stored = _fixture()
+    observations["TEST"].append(_obs(_D5, 99.0, route="ARCA"))
+    conn = FakeConn(observations=observations, stored=stored)
+    result, _ = _run(conn)
+    plain = FakeConn(observations=_fixture()[0], stored=_fixture()[1])
+    expected, _ = _run(plain)
+    assert result["rows"] == expected["rows"]
+
+
+def test_legacy_import_value_ranks_below_smart_and_is_stale_across_a_split():
+    from src.intelligence.bars.daily_rule import observation_from_raw
+
+    common = dict(
+        request_id="r1",
+        vendor="ibkr",
+        kind="smart_trades",
+        bar_date=_D1,
+        open=1.0,
+        high=1.0,
+        low=1.0,
+        close=1.0,
+        volume=1,
+        served_at=_FETCHED,
+    )
+    assert observation_from_raw(**common, legacy=True).route == "LEGACY_IMPORT"
+    assert observation_from_raw(**common, legacy=True).legacy
+    assert observation_from_raw(**common, legacy=False).route == "SMART"
+    tradier = observation_from_raw(
+        **{**common, "vendor": "tradier", "kind": "consolidated"}, legacy=False
+    )
+    assert tradier.route == "TRADIER" and tradier.fetched_at == _FETCHED
+    with pytest.raises(ValueError, match="not a d2-v3 input"):
+        observation_from_raw(**{**common, "kind": "venue_arca"}, legacy=False)
+    with pytest.raises(ValueError, match="no served_at"):
+        observation_from_raw(**{**common, "served_at": None}, legacy=False)
+    assert observation_from_raw(**{**common, "request_id": None}, legacy=False).request_id == ""
 
 
 def test_write_1d_digests_reads_every_canonical_source():
@@ -874,7 +940,7 @@ def test_a_held_name_is_skipped_scoped_or_not_and_its_bars_are_never_read(tmp_pa
     assert held["outcome"] == "held"
     assert (held["new"], held["changed"], held["removed"]) == ("0", "0", "0")
     assert held["error"] == "" and "unclassified_rescale" in held["held"]  # the cause
-    read_for = [sql for kind, sql in conn.calls if kind == "fetch" and "ohlcv_observation" in sql]
+    read_for = [sql for kind, sql in conn.calls if kind == "fetch" and "FROM ohlcv_raw" in sql]
     assert len(read_for) == 1  # TEST only
 
 

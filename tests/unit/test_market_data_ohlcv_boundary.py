@@ -47,6 +47,10 @@ _ALLOW_LIST: dict[str, str] = {
         "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "
         "table because the backfill copies every vendor-labelled row, volume 0 included."
     ),
+    "scripts/ops/bars/ops_d2_raw_equivalence.py": (
+        "TEMPORARY retire: 191-17 (one-shot equivalence check, deleted at close). Compares the "
+        "daily rule over raw with every stored canonical 1d row, zero-volume rows included."
+    ),
     "scripts/ops/bars/ops_truncated_bar_scan.py": (
         "PERMANENT: the read-only truncated-bar scan reports whether canonical holds a candidate "
         "bar (a reselect promotes a truncated raw bar), zero-volume rows included (191-07)."
@@ -107,18 +111,10 @@ _ALLOW_LIST: dict[str, str] = {
         "tradeable view hides, as phase 185 known-answer fixtures (D-10); read-only"
     ),
     "services/bar_derivation.py": (
-        "PERMANENT: the derivation archives and replaces stored 15m/1h rows and later "
-        "writes canonical 1d; it must address the raw table (D-06, D-15). The archive "
-        "INSERT ... SELECT, the archive checksum verify and the segment DELETE all "
-        "operate on exactly the stored segment being replaced, placeholders included -- "
-        "the tradeable view's WHERE volume > 0 filter would hide the placeholder rows "
-        "the DELETE must remove and skew the checksums."
-    ),
-    "services/intraday_raw_archive.py": (
-        "PERMANENT: the archive's single owner module (plan 12). Its "
-        "ARCHIVE_FROM_TABLE_SQL is bar_derivation's INSERT ... SELECT moved here "
-        "byte-identical; it reads exactly the stored 15m/1h segment being archived, "
-        "placeholders excluded by source <> 'synthetic_fill'."
+        "PERMANENT: the single writer of the 15m/1h grid and canonical 1d (D-06, D-15); its "
+        "write contract classifies against every stored row of those timeframes, so it must "
+        "address the table, not the tradeable view, whose volume > 0 filter would hide "
+        "stored rows the contract must see (a vendor grid row fails the stage loud)."
     ),
 }
 
