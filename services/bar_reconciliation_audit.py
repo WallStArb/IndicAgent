@@ -131,6 +131,7 @@ from src.intelligence.bars.sources import (
     SOURCE_IBKR_FALLBACK,
     SOURCE_TRADIER,
 )
+from src.intelligence.bars.vendor_kind import VENDOR_IBKR
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -239,6 +240,70 @@ def check_adjusted_vs_trades(
                 samples.append(f"{symbol}|{day.isoformat()}")
             prev = (day, ratio)
     return CheckResult(len(samples), tuple(samples))
+
+
+def value_as_of(
+    current: tuple[float, datetime | None] | None,
+    displaced: Sequence[tuple[float, datetime]],
+    at: datetime,
+) -> float | None:
+    """The close raw held for one bar at `at`, read back through the revision log (D-191-N:
+    raw is last-wins and every overwrite logs the old value under the replacing load).
+
+    `current` is raw's (close, served_at) now; `displaced` the (old close, displacing load's
+    time) of each overwrite. The earliest overwrite after `at` displaced the value held at
+    `at`. With none, the current value was held if it was served by then; a value first served
+    after `at` was not held (None). Pure.
+    """
+    later = [(loaded_at, close) for close, loaded_at in displaced if loaded_at > at]
+    if later:
+        return min(later)[1]
+    if current is None:
+        return None
+    close, served_at = current
+    return close if served_at is None or served_at <= at else None
+
+
+class AdjustedRun(NamedTuple):
+    run_end: datetime  # the run's last answer plus the request-to-load window (persisted by)
+    adjusted_from: datetime | None  # NULL window_start: a whole-history ask
+    adjusted_to: datetime | None
+    adjusted_answered: datetime
+
+
+def adjusted_pairs(
+    run: AdjustedRun,
+    current: Mapping[tuple[str, date], tuple[float, datetime | None]],
+    displaced: Mapping[tuple[str, date], Sequence[tuple[float, datetime]]],
+    pair_from: date,
+) -> list[tuple[date, float, float]]:
+    """(day, TRADES close, ADJUSTED_LAST close) for one symbol's latest run with both series:
+    each day of the run's ADJUSTED_LAST span from `pair_from` on, complete when answered (a bar
+    of the answer's own UTC date may be forming, D-191-J), with both closes as raw held them
+    when the run ended (D-191-D read through the revision log, as plan 191-10's dividend
+    writer does): the run's own TRADES answer pairs; a TRADES value restated after the run
+    never does, its displaced earlier value does. A day missing either close is left out.
+
+    `current` and `displaced` are keyed by (kind, day). Pure.
+    """
+    answered = run.adjusted_answered.astimezone(UTC).date()
+    first = pair_from
+    if run.adjusted_from is not None:
+        first = max(first, run.adjusted_from.astimezone(UTC).date())
+    last = answered - timedelta(days=1)
+    if run.adjusted_to is not None:
+        last = min(last, run.adjusted_to.astimezone(UTC).date())
+    rows: list[tuple[date, float, float]] = []
+    day = first
+    while day <= last:
+        trades, adjusted = (
+            value_as_of(current.get((kind, day)), displaced.get((kind, day), ()), run.run_end)
+            for kind in (_KIND_TRADES, _KIND_ADJUSTED)
+        )
+        if trades is not None and adjusted is not None:
+            rows.append((day, trades, adjusted))
+        day += timedelta(days=1)
+    return rows
 
 
 def check_daily_vs_intraday(
@@ -799,55 +864,75 @@ _NEWEST_VERDICT_SQL = """
 SELECT max(evaluated_at) FROM integrity_monitor WHERE monitor_type = $1
 """
 
+_KIND_TRADES = "smart_trades"  # raw kind of IBKR SMART TRADES (vendor_kind.BAR_KINDS)
+_KIND_ADJUSTED = "smart_adjusted"  # raw kind of IBKR SMART ADJUSTED_LAST
+
 _APR_PATTERNS = [
     "threshold.bar_reconciliation.%",
     "infra.bar_derivation.%",
     "infra.ibkr.venue_fallback.%",
     "threshold.bar_integrity.%",
     "infra.bar_integrity.%",
+    "infra.selection_gate.request_load_match_s",
 ]
 
+# The stores are ohlcv_raw and ohlcv_revision (plan 191-09): one current row per (bar, vendor,
+# kind), last-wins (D-191-N); a former route is a vendor and kind (SMART TRADES = ibkr
+# smart_trades, SMART ADJUSTED_LAST = ibkr smart_adjusted, a listing venue = ibkr venue_<route>,
+# TRADIER = tradier consolidated). The stored corpus's LEGACY_IMPORT rows were loaded into
+# smart_trades by their source; reads that judged route SMART alone keep them out through the
+# serving request's route. served_at is the serve of the current value (fetched_at before).
 _SMART_OBS_SQL = """
-SELECT DISTINCT ON (symbol, bar_date) symbol, bar_date, open, close, volume, fetched_at
-FROM ohlcv_observation
-WHERE symbol = ANY($1::text[]) AND bar_date >= $2
-  AND source = 'ibkr' AND route = 'SMART' AND what_to_show = $3
-ORDER BY symbol, bar_date, fetched_at DESC
+SELECT r.symbol, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, r.open, r.close,
+       r.volume, COALESCE(r.served_at, q.answered_at) AS fetched_at
+FROM ohlcv_raw r JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.symbol = ANY($1::text[]) AND r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = $3
+  AND r."timestamp" >= $2::date::timestamp AT TIME ZONE 'UTC' AND q.route = 'SMART'
+ORDER BY r.symbol, r."timestamp"
 """
 _VENUE_OBS_SQL = """
-SELECT DISTINCT ON (o.symbol, o.bar_date, o.route) o.symbol, o.bar_date, o.route, o.close
-FROM ohlcv_request r
-JOIN ohlcv_observation o ON o.request_id = r.request_id
-WHERE r.timeframe = '1d' AND r.source = 'ibkr' AND r.what_to_show = 'TRADES'
-  AND r.outcome = 'bars' AND r.route = ANY($2::text[]) AND o.bar_date >= $1
-ORDER BY o.symbol, o.bar_date, o.route, o.fetched_at DESC
+SELECT r.symbol, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
+       upper(substr(r.kind, 7)) AS route, r.close
+FROM ohlcv_raw r
+WHERE r.timeframe = '1d' AND r.vendor = 'ibkr'
+  AND r.kind = ANY(SELECT 'venue_' || lower(v) FROM unnest($2::text[]) AS v)
+  AND r."timestamp" >= $1::date::timestamp AT TIME ZONE 'UTC'
+ORDER BY r.symbol, r."timestamp", r.kind
 """
-# The latest ADJUSTED_LAST answer per symbol paired with the TRADES answer of the same fetch
-# run: a fetch made mid-session holds a partial last bar in both series, so pairing across
-# runs compares a partial bar with a final one (seen live: AMPH 2026-09-30, fetched 18:02 UTC).
-_ADJUSTED_PAIRS_SQL = """
-WITH latest AS (
-    SELECT DISTINCT ON (symbol) symbol, request_id, fetch_run_id
+# The latest fetch run per symbol that answered both SMART series, when it ended (its last
+# answer), and the span and answer time of its ADJUSTED_LAST request(s): one run is one
+# ADJUSTED_LAST basis (IBKR re-bases the series with every dividend).
+_ADJUSTED_RUNS_SQL = """
+SELECT DISTINCT ON (symbol) symbol, run_end, adjusted_from, adjusted_to, adjusted_answered
+FROM (
+    SELECT symbol, fetch_run_id, max(answered_at) AS run_end,
+           min(window_start) FILTER (WHERE what_to_show = 'ADJUSTED_LAST') AS adjusted_from,
+           max(window_end) FILTER (WHERE what_to_show = 'ADJUSTED_LAST') AS adjusted_to,
+           min(answered_at) FILTER (WHERE what_to_show = 'ADJUSTED_LAST') AS adjusted_answered
     FROM ohlcv_request
-    WHERE timeframe = '1d' AND source = 'ibkr' AND route = 'SMART'
-      AND what_to_show = 'ADJUSTED_LAST' AND outcome = 'bars'
-    ORDER BY symbol, answered_at DESC
-), paired AS (
-    SELECT l.symbol, l.request_id AS adjusted_id, t.request_id AS trades_id
-    FROM latest l
-    JOIN LATERAL (
-        SELECT r.request_id FROM ohlcv_request r
-        WHERE r.fetch_run_id = l.fetch_run_id AND r.symbol = l.symbol AND r.timeframe = '1d'
-          AND r.source = 'ibkr' AND r.route = 'SMART' AND r.what_to_show = 'TRADES'
-          AND r.outcome = 'bars'
-        ORDER BY r.answered_at DESC LIMIT 1
-    ) t ON true
-)
-SELECT p.symbol, a.bar_date, t.close AS trades_close, a.close AS adjusted_close
-FROM paired p
-JOIN ohlcv_observation a ON a.request_id = p.adjusted_id AND a.bar_date >= $1
-JOIN ohlcv_observation t ON t.request_id = p.trades_id AND t.bar_date = a.bar_date
-ORDER BY p.symbol, a.bar_date
+    WHERE timeframe = '1d' AND source = 'ibkr' AND route = 'SMART' AND outcome = 'bars'
+      AND what_to_show IN ('TRADES', 'ADJUSTED_LAST') AND caller NOT LIKE 'test-%'
+      AND fetch_run_id IS NOT NULL
+    GROUP BY symbol, fetch_run_id
+    HAVING count(DISTINCT what_to_show) = 2
+) runs
+ORDER BY symbol, run_end DESC
+"""
+# Both SMART series from $1 on, as raw holds them now and as each change displaced them: an
+# ohlcv_revision row holds the value a load replaced, and that load's time bounds it. Offers
+# older than raw when offered (origin superseded) were never stored.
+_PAIR_CURRENT_SQL = """
+SELECT symbol, kind, ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, close, served_at
+FROM ohlcv_raw
+WHERE timeframe = '1d' AND vendor = $2 AND kind = ANY($3::text[])
+  AND "timestamp" >= $1::date::timestamp AT TIME ZONE 'UTC'
+"""
+_PAIR_DISPLACED_SQL = """
+SELECT v.symbol, v.kind, (v."timestamp" AT TIME ZONE 'UTC')::date AS bar_date, v.old_close,
+       l.loaded_at
+FROM ohlcv_revision v JOIN ohlcv_load l ON l.load_id = v.load_id
+WHERE v.timeframe = '1d' AND v.vendor = $2 AND v.kind = ANY($3::text[])
+  AND v."timestamp" >= $1::date::timestamp AT TIME ZONE 'UTC' AND v.origin <> 'superseded'
 """
 _LISTING_SQL = """
 SELECT DISTINCT ON (symbol) symbol, primary_exchange FROM ohlcv_request
@@ -876,16 +961,13 @@ _QUARANTINE_1D_SQL = """
 SELECT symbol, timestamp FROM bar_quality_flag
 WHERE timeframe = '1d' AND quarantine AND timestamp >= $1
 """
+# Per moved-name candidate: the first venue-routed bar and the SMART head, both from the
+# moved-name inventory (ohlcv_venue_head, over ohlcv_raw since migration 492).
 _VENUE_FIRST_SQL = """
-SELECT r.symbol, min(o.bar_date) AS first_bar
-FROM ohlcv_request r JOIN ohlcv_observation o ON o.request_id = r.request_id
-WHERE r.timeframe = '1d' AND r.source = 'ibkr' AND r.what_to_show = 'TRADES'
-  AND r.outcome = 'bars' AND r.route = ANY($1::text[])
-GROUP BY r.symbol
-"""
-_SMART_HEAD_SQL = """
-SELECT min(bar_date) FROM ohlcv_observation
-WHERE symbol = $1 AND source = 'ibkr' AND route = 'SMART' AND what_to_show = 'TRADES'
+SELECT symbol, min(first_bar_date) AS first_bar, min(smart_head_date) AS smart_head
+FROM ohlcv_venue_head
+WHERE route = ANY($1::text[])
+GROUP BY symbol
 """
 # Raw table (allow-listed): the earliest canonical row of any real source.
 _CANONICAL_HEAD_SQL = """
@@ -974,16 +1056,17 @@ ORDER BY symbol
 """
 _VENDOR_PAIRS_SQL = """
 WITH i AS (
-    SELECT DISTINCT ON (bar_date) bar_date, close, volume FROM ohlcv_observation
-    WHERE symbol = $1 AND source = 'ibkr' AND route = 'SMART' AND what_to_show = 'TRADES'
-    ORDER BY bar_date, fetched_at DESC
+    SELECT r."timestamp", r.close, r.volume
+    FROM ohlcv_raw r JOIN ohlcv_request q ON q.request_id = r.request_id
+    WHERE r.symbol = $1 AND r.timeframe = '1d' AND r.vendor = 'ibkr' AND r.kind = 'smart_trades'
+      AND q.route = 'SMART'
 ), t AS (
-    SELECT DISTINCT ON (bar_date) bar_date, close, volume FROM ohlcv_observation
-    WHERE symbol = $1 AND source = $2
-    ORDER BY bar_date, fetched_at DESC
+    SELECT "timestamp", close, volume FROM ohlcv_raw
+    WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = 'consolidated'
 )
-SELECT extract(year FROM i.bar_date)::int AS year, i.close, t.close, i.volume, t.volume
-FROM i JOIN t USING (bar_date)
+SELECT extract(year FROM i."timestamp" AT TIME ZONE 'UTC')::int AS year, i.close, t.close,
+       i.volume, t.volume
+FROM i JOIN t USING ("timestamp")
 """
 _ALREADY_RECORDED_SQL = """
 SELECT 1 FROM integrity_monitor WHERE monitor_type = $1 AND training_window_end = $2 LIMIT 1
@@ -1165,6 +1248,10 @@ class _Params:
     venues: tuple[str, ...]
     venue_timeframes: tuple[str, ...]
     switches: dict[str, bool]
+    # A request's answer is persisted by a load at most this many seconds later (migration
+    # 479's infra.selection_gate.request_load_match_s); the adjusted pairing reads raw as of
+    # the run's last answer plus this window.
+    load_match_s: float = 5.0
 
     @classmethod
     def from_apr(cls, apr: Mapping[str, Any]) -> _Params:
@@ -1194,6 +1281,7 @@ class _Params:
                 name: bool(_cfg(apr, f"infra.bar_derivation.{name}", False))
                 for name in ("venue_bars_1d", "venue_bars_intraday", "intraday_recovery_unlocked")
             },
+            load_match_s=float(_cfg(apr, "infra.selection_gate.request_load_match_s", 5.0)),
         )
 
 
@@ -1254,10 +1342,11 @@ _RAW_5M_SLOTS_SQL = """
 SELECT "timestamp" FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = '5m' AND source IS DISTINCT FROM $2
 """
+# IBKR's own 15m/1h bars, the grid parity reference (the archive table until plan 191-09).
 _ARCHIVE_ROWS_SQL = """
 SELECT timeframe, "timestamp", open, high, low, close, volume
-FROM ohlcv_intraday_raw_archive
-WHERE symbol = $1 AND timeframe = ANY($2::text[])
+FROM ohlcv_raw
+WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND vendor = 'ibkr' AND kind = 'named'
 """
 # Raw table (allow-listed): the stray vendor rows are exactly what the tradeable view would hide.
 _STRAY_VENDOR_SQL = """
@@ -1706,7 +1795,7 @@ class BarReconciliationAudit(BaseBatch):
         symbols = sorted({r["symbol"] for r in venue_rows})
         if not symbols:
             return _Judged(CheckResult(0, ()), 0)
-        smart_rows = await conn.fetch(_SMART_OBS_SQL, symbols, window.judge_from, "TRADES")
+        smart_rows = await conn.fetch(_SMART_OBS_SQL, symbols, window.judge_from, _KIND_TRADES)
         listing = {
             r["symbol"]: r["primary_exchange"] for r in await conn.fetch(_LISTING_SQL, symbols)
         }
@@ -1729,9 +1818,32 @@ class BarReconciliationAudit(BaseBatch):
     @staticmethod
     async def _adjusted_vs_trades(conn: Any, params: _Params, window: _Window) -> _Judged:
         pair_from = window.session_before(1)
-        pairs: dict[str, list[tuple[date, float, float]]] = defaultdict(list)
-        for r in await conn.fetch(_ADJUSTED_PAIRS_SQL, pair_from):
-            pairs[r["symbol"]].append((r["bar_date"], r["trades_close"], r["adjusted_close"]))
+        kinds = [_KIND_TRADES, _KIND_ADJUSTED]
+        current: dict[str, dict[tuple[str, date], tuple[float, datetime | None]]] = defaultdict(
+            dict
+        )
+        for r in await conn.fetch(_PAIR_CURRENT_SQL, pair_from, VENDOR_IBKR, kinds):
+            current[r["symbol"]][(r["kind"], r["bar_date"])] = (r["close"], r["served_at"])
+        displaced: dict[str, dict[tuple[str, date], list[tuple[float, datetime]]]] = defaultdict(
+            lambda: defaultdict(list)
+        )
+        for r in await conn.fetch(_PAIR_DISPLACED_SQL, pair_from, VENDOR_IBKR, kinds):
+            displaced[r["symbol"]][(r["kind"], r["bar_date"])].append(
+                (r["old_close"], r["loaded_at"])
+            )
+        pairs: dict[str, list[tuple[date, float, float]]] = {}
+        for r in await conn.fetch(_ADJUSTED_RUNS_SQL):
+            run = AdjustedRun(
+                r["run_end"] + timedelta(seconds=params.load_match_s),
+                r["adjusted_from"],
+                r["adjusted_to"],
+                r["adjusted_answered"],
+            )
+            series = adjusted_pairs(
+                run, current.get(r["symbol"], {}), displaced.get(r["symbol"], {}), pair_from
+            )
+            if series:
+                pairs[r["symbol"]] = series
         if not pairs:
             return _Judged(CheckResult(0, ()), 0)
         explained = {
@@ -1748,7 +1860,7 @@ class BarReconciliationAudit(BaseBatch):
         lookback = set(window.lookback)
         latest = [
             (r["symbol"], r["bar_date"], r["fetched_at"])
-            for r in await conn.fetch(_SMART_OBS_SQL, active, window.judge_from, "TRADES")
+            for r in await conn.fetch(_SMART_OBS_SQL, active, window.judge_from, _KIND_TRADES)
             if r["bar_date"] in lookback
         ]
         return _Judged(check_partial_daily(latest, window.sessions), len(latest))
@@ -1765,7 +1877,7 @@ class BarReconciliationAudit(BaseBatch):
         lookback = set(window.lookback)
         daily = {
             (r["symbol"], r["bar_date"]): (r["open"], r["close"], r["volume"])
-            for r in await conn.fetch(_SMART_OBS_SQL, compute, window.judge_from, "TRADES")
+            for r in await conn.fetch(_SMART_OBS_SQL, compute, window.judge_from, _KIND_TRADES)
             if r["bar_date"] in lookback and r["fetched_at"] >= window.sessions[r["bar_date"]][1]
         }
         fine = await conn.fetch(
@@ -1809,8 +1921,7 @@ class BarReconciliationAudit(BaseBatch):
         lineage: dict[str, date] = {}
         for r in await conn.fetch(_VENUE_FIRST_SQL, list(params.venues)):
             symbol = r["symbol"]
-            smart_head = await conn.fetchval(_SMART_HEAD_SQL, symbol)
-            inventory[symbol] = min(d for d in (r["first_bar"], smart_head) if d is not None)
+            inventory[symbol] = min(d for d in (r["first_bar"], r["smart_head"]) if d is not None)
             head = await conn.fetchval(_CANONICAL_HEAD_SQL, symbol)
             if head is not None:
                 lineage[symbol] = head.date()

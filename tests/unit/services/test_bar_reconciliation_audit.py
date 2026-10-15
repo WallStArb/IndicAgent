@@ -1467,3 +1467,106 @@ def test_d7_has_no_tradier_refused_check():
     assert not hasattr(audit, "check_tradier_refused")
     assert not hasattr(audit, "_TRADIER_LATEST_LOAD_SQL")
     assert "_REFUSED_LOADS_24H_SQL" in source
+
+
+# ---------------------------------------------------------------------------
+# Plan 191-09: D7 reads ohlcv_raw and ohlcv_revision; ADJUSTED_LAST pairs by D-191-D.
+# ---------------------------------------------------------------------------
+
+
+def test_d7_reads_no_retired_store():
+    import re
+
+    source = read_source("services", "bar_reconciliation_audit.py")
+    assert not re.search(
+        r"(FROM|JOIN|INTO|COPY)\s+(ohlcv_observation|ohlcv_intraday_raw_archive)\b", source
+    )
+    assert "FROM ohlcv_raw" in audit._ARCHIVE_ROWS_SQL and "kind = 'named'" in (
+        audit._ARCHIVE_ROWS_SQL
+    )
+    assert "q.route = 'SMART'" in audit._SMART_OBS_SQL
+    assert "FROM ohlcv_venue_head" in audit._VENUE_FIRST_SQL
+    assert not hasattr(audit, "_SMART_HEAD_SQL")
+
+
+_DAY1, _DAY2, _DAY3 = date(2026, 10, 7), date(2026, 10, 8), date(2026, 10, 9)
+_T_OLD = datetime(2026, 10, 10, 1, tzinfo=UTC)  # an earlier run's serve
+_T_RUN = datetime(2026, 10, 10, 2, tzinfo=UTC)  # the adjusted run's serves
+_T_END = datetime(2026, 10, 10, 2, 5, tzinfo=UTC)  # the adjusted run's last answer
+_T_LATER = datetime(2026, 10, 11, 2, tzinfo=UTC)  # a later serve
+_RUN = audit.AdjustedRun(
+    run_end=_T_END,
+    adjusted_from=datetime(2026, 10, 7, tzinfo=UTC),
+    adjusted_to=datetime(2026, 10, 10, tzinfo=UTC),
+    adjusted_answered=_T_RUN,
+)
+_T, _A = "smart_trades", "smart_adjusted"
+_ADJ = {(_A, d): (9.0, _T_RUN) for d in (_DAY1, _DAY2, _DAY3)}
+
+
+def test_value_as_of_reads_back_through_the_revision_log():
+    # Held then, overwritten later: the displaced value is the one held.
+    assert audit.value_as_of((20.0, _T_LATER), [(10.0, _T_LATER)], _T_END) == 10.0
+    # Two overwrites after the time: the earliest one displaced the value held.
+    later2 = _T_LATER + timedelta(days=1)
+    assert audit.value_as_of((30.0, later2), [(20.0, later2), (10.0, _T_LATER)], _T_END) == 10.0
+    # An overwrite before the time does not matter; the current value was held.
+    assert audit.value_as_of((20.0, _T_OLD), [(10.0, _T_OLD)], _T_END) == 20.0
+    # First served after the time: nothing was held.
+    assert audit.value_as_of((20.0, _T_LATER), [], _T_END) is None
+    assert audit.value_as_of(None, [], _T_END) is None
+
+
+def test_d7_trades_restated_after_the_adjusted_run_never_pairs_by_ordering():
+    # DAY2's TRADES value was restated after the run: the value held when the run ended pairs,
+    # the restated one never does.
+    current = {
+        **_ADJ,
+        (_T, _DAY1): (10.0, _T_OLD),
+        (_T, _DAY2): (20.0, _T_LATER),
+        (_T, _DAY3): (10.0, _T_OLD),
+    }
+    displaced = {(_T, _DAY2): [(10.0, _T_LATER)]}
+    rows = audit.adjusted_pairs(_RUN, current, displaced, _DAY1)
+    assert rows == [(_DAY1, 10.0, 9.0), (_DAY2, 10.0, 9.0), (_DAY3, 10.0, 9.0)]
+
+
+def test_the_runs_own_trades_answer_pairs_even_when_restated_later():
+    # The run itself changed DAY2's TRADES value (11.0, displacing 10.0 at the run's serve);
+    # a later serve restated it again (20.0). The run's own answer pairs.
+    current = {**_ADJ, (_T, _DAY2): (20.0, _T_LATER)}
+    displaced = {(_T, _DAY2): [(10.0, _T_RUN), (11.0, _T_LATER)]}
+    assert audit.adjusted_pairs(_RUN, current, displaced, _DAY1) == [(_DAY2, 11.0, 9.0)]
+
+
+def test_d7_trades_unchanged_for_the_date_pairs_although_the_name_split_later():
+    # The name split later (DAY3's TRADES restated after the run); DAY1 and DAY2 kept their
+    # value, served before the run, so they pair; DAY3 pairs its value held at the run.
+    current = {
+        **_ADJ,
+        (_T, _DAY1): (10.0, _T_OLD),
+        (_T, _DAY2): (10.0, _T_OLD),
+        (_T, _DAY3): (5.0, _T_LATER),
+    }
+    displaced = {(_T, _DAY3): [(10.0, _T_LATER)]}
+    assert audit.adjusted_pairs(_RUN, current, displaced, _DAY1) == [
+        (_DAY1, 10.0, 9.0),
+        (_DAY2, 10.0, 9.0),
+        (_DAY3, 10.0, 9.0),
+    ]
+
+
+def test_a_whole_history_ask_pairs_from_pair_from_to_the_day_before_its_answer():
+    run = audit.AdjustedRun(_T_END, None, None, _T_RUN)
+    current = {**_ADJ, **{(_T, d): (10.0, _T_OLD) for d in (_DAY1, _DAY2, _DAY3)}}
+    assert [d for d, _, _ in audit.adjusted_pairs(run, current, {}, _DAY2)] == [_DAY2, _DAY3]
+
+
+def test_pairs_start_at_pair_from_and_stop_before_the_answer_date():
+    current = {**_ADJ, **{(_T, d): (10.0, _T_OLD) for d in (_DAY1, _DAY2, _DAY3)}}
+    current[(_A, date(2026, 10, 10))] = (9.0, _T_RUN)  # forming: answered on its own date
+    current[(_T, date(2026, 10, 10))] = (10.0, _T_RUN)
+    assert audit.adjusted_pairs(_RUN, current, {}, _DAY2) == [
+        (_DAY2, 10.0, 9.0),
+        (_DAY3, 10.0, 9.0),
+    ]

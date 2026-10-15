@@ -1,0 +1,197 @@
+{
+ "plan": "191-09",
+ "baseline_files": [
+  "logs/d7_baseline_20261015T211119Z.json",
+  "logs/d7_baseline_20261015T211119Z_at20261001.json"
+ ],
+ "after_files": [
+  "logs/d7_after_20261015T211119Z.json",
+  "logs/d7_after_20261015T211119Z_at20261001.json"
+ ],
+ "method": "each D7 loader whose reads changed, run at a fixed now, before any view change (old stores) and after (raw code in a scratch worktree); vendor_agreement compared in the first run only",
+ "runs": {
+  "now_2026-10-15T21:00Z": {
+   "route_disagreement": {
+    "old": [
+     0,
+     0
+    ],
+    "new": [
+     0,
+     0
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "adjusted_vs_trades": {
+    "old": [
+     0,
+     0
+    ],
+    "new": [
+     0,
+     0
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "partial_daily": {
+    "old": [
+     0,
+     2994
+    ],
+    "new": [
+     0,
+     3941
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "daily_vs_intraday": {
+    "old": [
+     11,
+     230
+    ],
+    "new": [
+     12,
+     235
+    ],
+    "only_old": [],
+    "only_new": [
+     "AMD|2026-10-12|volume"
+    ]
+   },
+   "late_heads": {
+    "old": [
+     25,
+     94
+    ],
+    "new": [
+     27,
+     94
+    ],
+    "only_old": [],
+    "only_new": [
+     "AES|first_trade=1999-10-04|head=2000-01-03",
+     "BKNG|first_trade=1999-08-13|head=2000-01-03"
+    ]
+   },
+   "listing_venue_coverage": {
+    "old": [
+     19,
+     58
+    ],
+    "new": [
+     19,
+     58
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "lineage_missing": {
+    "old_visible": 0,
+    "new_visible": 2310,
+    "old_hidden": 0,
+    "new_hidden": 2
+   },
+   "grid_parity_reference_rows_10_names": {
+    "equal": true
+   }
+  },
+  "now_2026-10-01T12:00Z": {
+   "route_disagreement": {
+    "old": [
+     0,
+     144
+    ],
+    "new": [
+     0,
+     144
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "adjusted_vs_trades": {
+    "old": [
+     1,
+     4653
+    ],
+    "new": [
+     1,
+     3724
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "partial_daily": {
+    "old": [
+     0,
+     7640
+    ],
+    "new": [
+     0,
+     7640
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "daily_vs_intraday": {
+    "old": [
+     30,
+     1158
+    ],
+    "new": [
+     30,
+     1158
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "late_heads": {
+    "old": [
+     25,
+     94
+    ],
+    "new": [
+     27,
+     94
+    ],
+    "only_old": [],
+    "only_new": [
+     "AES|first_trade=1999-10-04|head=2000-01-03",
+     "BKNG|first_trade=1999-08-13|head=2000-01-03"
+    ]
+   },
+   "listing_venue_coverage": {
+    "old": [
+     19,
+     58
+    ],
+    "new": [
+     19,
+     58
+    ],
+    "only_old": [],
+    "only_new": []
+   },
+   "lineage_missing": {
+    "old_visible": 0,
+    "new_visible": 2315,
+    "old_hidden": 0,
+    "new_hidden": 2
+   },
+   "grid_parity_reference_rows_10_names": {
+    "equal": true
+   }
+  }
+ },
+ "vendor_agreement": "all 27 years differ: n_both higher (2000: 7,209 -> 15,443); 63 names hold 134,392 pre-2026 IBKR SMART rows served after the observation store froze (2026-10-13 15:21 UTC), so the IBKR-Tradier overlap grew; per-year differ rates stay in the same band",
+ "explained": {
+  "partial_daily judged up (2,994 -> 3,941 at 10-15)": "raw holds IBKR serves of 2026-10-13..15 the frozen observation store never saw; 0 findings both",
+  "daily_vs_intraday AMD|2026-10-12|volume": "IBKR re-served AMD 2026-10-12 at 2026-10-15 19:47 UTC with volume 8,359,647 (8,314,910 before); the restated value is judged",
+  "late_heads AES, BKNG": "SMART serves of 2026-10-15 reach 1999 (smart head 2006 in the old store); canonical 1d still starts 2000-01-03, a real finding until the daily stage re-derives",
+  "adjusted_vs_trades judged 4,653 -> 3,724 at 10-01 (finding 1 = 1, same sample)": "the 2026-09-30 ADJUSTED_LAST bar was answered 19:59 UTC, before that session closed; the raw reading excludes a bar answered on its own date (D-191-J), the old one paired the forming bar (931 names x 1 step)",
+  "lineage_missing 0 -> about 2,300 visible": "canonical 1d bars whose value raw displaced to ohlcv_revision (CTVA 1,848, GYRE 132, then 1 to 4 sessions on about 240 names restated 2026-10-05..12); grows while the fetcher re-serves; the daily stage has not applied since 2026-10-11 (2026-10-15 18:31 run failed on the GYRE refusal)"
+ },
+ "unexplained": []
+}
