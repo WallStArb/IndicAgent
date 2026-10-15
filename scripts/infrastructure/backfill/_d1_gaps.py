@@ -28,6 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+from scripts.infrastructure.backfill import _empty_history
 from scripts.infrastructure.backfill._empty_history import EmptyRange
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
@@ -39,7 +40,6 @@ from src.intelligence.bars.gap_plan import (
     plan_gaps,
 )
 from src.intelligence.bars.sessions import session_complete_at
-from src.intelligence.bars.vendor_kind import VENUE_ROUTES
 
 _TF_MINUTES: dict[str, int] = {"5m": 5, "15m": 15, "1h": 60}
 # Every intraday slot this vendor holds, whatever the kind (an intraday series has one kind per
@@ -87,21 +87,28 @@ ORDER BY r.window_start
 """
 MATCH_S_KEY = "infra.selection_gate.request_load_match_s"
 _MATCH_S_SQL = "SELECT config_value FROM config_state WHERE config_key = %s"
-# Intraday answers are SMART TRADES requests; the daily no_data question is asked on SMART and
-# every former-venue route (D-20), and only a definitive nothing-traded covers a daily session.
+# Intraday answers are SMART TRADES requests. The daily no_data question is asked on SMART and
+# every former-venue route (D-20); a daily session is covered only where every required route
+# answered no_data in one fetch run (_empty_history.confirmed_empty_spans), never by one route's
+# no_data alone (todo 535 item 6).
 _INTRADAY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE,)
-_DAILY_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE, *VENUE_ROUTES)
-_DAILY_OUTCOMES: tuple[str, ...] = ("no_data",)
 
 
 def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -> AnsweredWindows:
     """The answered TRADES windows `vendor` holds for (symbol, timeframe) (todo 462, 527).
 
     Intraday: a `bars` or `no_data` SMART answer (the bars corroborated by a raw row of the
-    same vendor in the window, and not refused by the contract). 1d: a definitive `no_data` window on any route the vendor
-    asks. Another source's requests never appear: the filter is the request's own source.
+    same vendor in the window, and not refused by the contract). 1d: the spans every required
+    route (SMART and each former venue but the primary) answered no_data in one fetch run, with
+    no bar of the vendor inside (D-20, the empty-history rule): a single route's no_data covers
+    nothing, so a failed or timed-out listing-venue walk under a SMART no_data window is asked
+    again (todo 535 item 6; SCHW SMART no_data 2006-10-05..2010-03-04 over 651 venue bars).
+    Another source's requests never appear: the filter is the request's own source.
     """
-    daily = timeframe == "1d"
+    if timeframe == "1d":
+        return AnsweredWindows.from_rows(
+            _empty_history.confirmed_empty_spans(conn, symbol, "1d", vendor)
+        )
     with conn.cursor() as cur:
         cur.execute(_MATCH_S_SQL, (MATCH_S_KEY,))
         found = cur.fetchall()
@@ -114,8 +121,8 @@ def load_answered_windows(conn: Any, symbol: str, timeframe: str, vendor: str) -
                 "timeframe": timeframe,
                 "vendor": vendor,
                 "what": COVERAGE_WHAT_TO_SHOW,
-                "routes": list(_DAILY_ROUTES if daily else _INTRADAY_ROUTES),
-                "outcomes": list(_DAILY_OUTCOMES if daily else ANSWERED_OUTCOMES),
+                "routes": list(_INTRADAY_ROUTES),
+                "outcomes": list(ANSWERED_OUTCOMES),
                 "match_s": float(found[0][0]),
             },
         )
@@ -192,6 +199,13 @@ def detect_gaps_from_record(
             f"{timeframe!r} stays on the legacy detect_gaps fallback"
         )
     interval = timedelta(minutes=_TF_MINUTES[timeframe])
+    # A slot whose bar has not ended by `now` is not plannable (todo 535 items 10 and 15, the
+    # intraday analogue of the 1d session_complete_at horizon): the leaf drops a forming bar
+    # (complete_intraday_bars), so an ask whose window covered it would record the slot as
+    # answered with no bar, a silent hole 15m and 1h never re-ask. The grid block end
+    # (slot + interval) bounds the bar's end, so a short opening bar waits at most one interval.
+    if now is not None:
+        expected_slots = [slot for slot in expected_slots if slot + interval <= now]
     with conn.cursor() as cur:
         cur.execute(_RAW_SLOTS_SQL, (symbol, timeframe, vendor, start_dt, end_dt))
         rows = cur.fetchall()

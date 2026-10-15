@@ -16,6 +16,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from scripts.infrastructure.backfill import _d1_gaps as d1_gaps
 from scripts.infrastructure.backfill._d1_gaps import (
     _MATCH_S_SQL,
     detect_gaps_1d_from_d1,
@@ -245,6 +246,19 @@ class TestDetectGaps1dFromD1:
     def _midnight(d: date) -> datetime:
         return datetime(d.year, d.month, d.day, tzinfo=UTC)
 
+    @pytest.fixture(autouse=True)
+    def _confirmed_spans_from_the_fake(self, monkeypatch):
+        """The 1d answered windows are the confirmed empty spans (todo 535 item 6); here the
+        fake's second result stands in for them. TestDailyCoverageNeedsEveryRoute runs the real
+        rule."""
+        self.span_calls: list[tuple] = []
+
+        def fake(conn, symbol, timeframe, vendor):
+            self.span_calls.append((symbol, timeframe, vendor))
+            return [(r[0], r[1]) for r in conn.results.pop(0)]
+
+        monkeypatch.setattr(d1_gaps._empty_history, "confirmed_empty_spans", fake)
+
     def test_sessions_with_observations_are_not_gaps(self):
         conn = _FakeConn([(self._midnight(d), None) for d in (self._D1, self._D2, self._D3)], [])
         plan = detect_gaps_1d_from_d1(
@@ -385,7 +399,7 @@ class TestDetectGaps1dFromD1:
         )
         assert plan == []
 
-    def test_no_data_query_reads_the_vendors_definitive_no_data_windows_only(self):
+    def test_daily_coverage_is_the_vendors_confirmed_empty_spans(self):
         conn = _FakeConn([], [])
         detect_gaps_1d_from_d1(
             conn,
@@ -396,20 +410,9 @@ class TestDetectGaps1dFromD1:
             vendor="ibkr",
             now=self._NOW_1D,
         )
-        sql, params = conn.queries[2]
-        assert "FROM ohlcv_request" in sql
-        assert "r.source = %(vendor)s" in sql
-        assert "window_start IS NOT NULL" in sql
-        assert (params["symbol"], params["timeframe"], params["vendor"], params["what"]) == (
-            "SPY",
-            "1d",
-            "ibkr",
-            "TRADES",
-        )
-        assert params["routes"] == ["SMART", "AMEX", "ARCA", "BATS", "ISLAND", "NYSE"]
-        # Only a definitive nothing-traded covers a daily session; a bars answer is covered by
-        # the vendor's own bar row, never by the request.
-        assert params["outcomes"] == ["no_data"]
+        assert self.span_calls == [("SPY", "1d", "ibkr")]
+        # No per-route request read: one route's no_data never covers a session.
+        assert not any("FROM ohlcv_request" in sql for sql, _ in conn.queries)
 
     def test_a_fresh_confirmed_empty_span_suppresses_the_pre_listing_head(self):
         empty = EmptyRange(
@@ -497,7 +500,7 @@ class TestLoadAnsweredWindows:
 
     def test_one_sql_serves_every_timeframe_and_corroborates_in_raw_by_vendor(self):
         seen = set()
-        for tf in ("5m", "15m", "1h", "1d"):
+        for tf in ("5m", "15m", "1h"):  # 1d reads the confirmed empty spans (item 6)
             conn = _FakeConn([])
             load_answered_windows(conn, "SPY", tf, "alpaca")
             sql = conn.queries[1][0]
@@ -510,7 +513,7 @@ class TestLoadAnsweredWindows:
 
     def test_tradier_requests_are_not_an_ibkr_answer(self):
         conn = _FakeConn([])
-        load_answered_windows(conn, "SPY", "1d", "ibkr")
+        load_answered_windows(conn, "SPY", "5m", "ibkr")
         sql, params = conn.queries[1]
         assert "r.source = %(vendor)s" in sql
         assert "tradier" not in params.values() and "TRADIER" not in params["routes"]
@@ -551,3 +554,56 @@ def test_a_partial_slot_is_cleared_by_a_later_answer_that_served_it_whole():
     assert live_partials([first, later_whole]) == set()
     assert live_partials([first, later_partial_again]) == {_t(14, 45)}
     assert live_partials([first, elsewhere]) == {_t(14, 45)}
+
+
+class TestDailyCoverageNeedsEveryRoute:
+    """Todo 535 item 6: a 1d session is answered only where SMART and every non-primary former
+    venue answered no_data in one run, the empty-history rule (D-20), with the real
+    _empty_history.confirmed_empty_spans over a scripted connection."""
+
+    _START = datetime(2006, 10, 5, tzinfo=UTC)
+    _END = datetime(2010, 3, 4, tzinfo=UTC)
+    _SESSION = datetime(2008, 6, 2, tzinfo=UTC)
+
+    def _windows(self, skip: tuple[str, ...]):
+        from tests.unit.scripts.test_empty_history_from_d1 import FakeConn, _answers
+
+        conn = FakeConn(requests={"SCHW": _answers("r1", self._START, self._END, skip=skip)})
+        return load_answered_windows(conn, "SCHW", "1d", "ibkr")
+
+    def test_smart_no_data_over_a_span_a_venue_route_failed_is_a_gap(self):
+        # SCHW-like: SMART no_data, ARCA failed (no no_data window): the session is asked again.
+        windows = self._windows(skip=("ARCA",))
+        assert not windows.covers(self._SESSION, timedelta(days=1))
+
+    def test_every_required_route_no_data_in_one_run_covers_the_session(self):
+        windows = self._windows(skip=("ISLAND",))  # ISLAND is the primary NASDAQ's own route
+        assert windows.covers(self._SESSION, timedelta(days=1))
+
+
+class TestIntradayHorizonStopsAtNow:
+    """Todo 535 items 10 and 15: a slot whose bar has not ended by `now` is never planned, so
+    no ask records a window over a bar the leaf drops as forming."""
+
+    def test_a_forming_slot_is_not_planned(self):
+        now = _t(15, 7)
+        conn = _FakeConn([], [])
+        plan = detect_gaps_from_record(
+            conn,
+            "SPY",
+            "15m",
+            _t(14, 30),
+            now,
+            [_t(14, 30), _t(14, 45), _t(15, 0)],
+            vendor="ibkr",
+            now=now,
+        )
+        assert plan == [(_t(14, 30), _t(15, 0))]
+
+    def test_a_slot_ending_exactly_at_now_is_planned(self):
+        now = _t(15, 15)
+        conn = _FakeConn([], [])
+        plan = detect_gaps_from_record(
+            conn, "SPY", "15m", _t(15, 0), now, [_t(15, 0)], vendor="ibkr", now=now
+        )
+        assert plan == [(_t(15, 0), _t(15, 15))]
