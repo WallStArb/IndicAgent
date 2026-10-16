@@ -317,3 +317,10 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     resume. Recorded only: L1 - the deleted stale window-one record survives as summary
     prose (logs/ is gitignored; the window script has no abort verb); L3 - one migration
     landed where the plan expected two consecutive numbers (harmless, now documented).
+44. Plan 13 executor finding (2026-10-16): `indicagent-api.service` is active and serves
+    src/api/routes/market_data.py, which plan 13 switched to (vendor, kind). It is not
+    among the window's ten held units. The running process serves old in-memory code
+    (queries `source`), which is correct against the live table until the swap. Plan 14
+    must hold it for the swap (stop before the rename, restart after with the new code);
+    a stale-code reader would 500 on every market-data request post-swap. Same list as
+    item 43's plan-14 riders (L4 fresh-prove in --swap, L2 failed-units cleanup at close).
