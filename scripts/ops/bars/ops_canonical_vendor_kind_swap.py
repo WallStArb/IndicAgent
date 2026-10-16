@@ -147,7 +147,9 @@ DIGEST_COLUMNS = (
     "base",
     "price_sanity_status",
 )
-_SOURCE_COLUMNS = frozenset(KEY_COLUMNS) | set(DIGEST_COLUMNS) | {"source"}
+# What the live table must carry: the digest columns with vendor and kind (the v2 side's names
+# for the mapped pair) exchanged for source, plus the key columns.
+_LIVE_COLUMNS = (frozenset(KEY_COLUMNS) | set(DIGEST_COLUMNS) | {"source"}) - {"vendor", "kind"}
 _PLAIN_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
@@ -526,7 +528,7 @@ def disk_plan(chunks: Sequence[ChunkInfo], free_bytes: int, margin: float) -> Di
 
 
 def digest_column_blockers(live_columns: Sequence[str]) -> list[str]:
-    expected = set(_SOURCE_COLUMNS)
+    expected = set(_LIVE_COLUMNS)
     live = set(live_columns)
     out = []
     if live - expected:
@@ -607,13 +609,15 @@ WHERE oid = %s::regclass
 """
 
 # The intended exchange: the live table's source column and its NOT VALID synthetic_fill check
-# have no v2 counterpart; v2 adds the vendor and kind NOT NULL constraints.
+# have no v2 counterpart; v2 adds the vendor and kind NOT NULL constraints, named after the
+# v2 table (the shared columns keep the live names, so the plan 14 renames stay mechanical).
 _DROPPED_COLUMNS = ("source",)
 _DROPPED_CONSTRAINTS = frozenset({"market_data_ohlcv_no_synthetic_fill"})
 _ADDED_COLUMNS = (("vendor", "text", True), ("kind", "text", True))
-_ADDED_CONSTRAINTS = frozenset(
-    {"market_data_ohlcv_v2_vendor_not_null", "market_data_ohlcv_v2_kind_not_null"}
-)
+
+
+def _added_constraint(column: str) -> str:
+    return f"market_data_ohlcv_v2_{column}_not_null"
 
 
 def index_base(name: str) -> str:
@@ -669,9 +673,9 @@ def shape_differences(old: TableShape, v2: TableShape) -> list[str]:
     # The expected v2 constraints: everything the live table carries except the NOT VALID
     # synthetic_fill check (its column is gone), plus the two NOT NULLs of the new columns.
     old_constraints = {n: d for n, d in old.constraints if n not in _DROPPED_CONSTRAINTS}
-    for (column, _, _), name in zip(_ADDED_COLUMNS, sorted(_ADDED_CONSTRAINTS), strict=True):
-        old_constraints[name] = f"NOT NULL {column}"
-    v2_constraints = {n: d for n, d in v2.constraints if n not in _ADDED_CONSTRAINTS}
+    for column, _, _ in _ADDED_COLUMNS:
+        old_constraints[_added_constraint(column)] = f"NOT NULL {column}"
+    v2_constraints = dict(v2.constraints)
     if v2_constraints != old_constraints:
         out.append(
             f"constraints: v2 {sorted(v2_constraints)} != expected {sorted(old_constraints)}"
