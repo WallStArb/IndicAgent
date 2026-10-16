@@ -303,3 +303,17 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     Re-run the drift scan after the catch-up completes and add rows for the same class.
     UNIT is excluded either way: IBKR re-served its own 1d history on another scale
     (2026-10-12, plan 08 finding); its 512 track owns it.
+43. Plan 191-12 review (2026-10-16, 191-12-REVIEW.md): PASS, no HIGH. M1 (evidence
+    accuracy, fixed same day): the committed WINDOW-EVIDENCE source breakdown quoted a
+    stale pre-window dry-run snapshot (ibkr_named 99140486, ibkr_fallback 194470, 2,664
+    short of 461,198,119) while citing the clean preflight log; corrected in the evidence
+    file to the final preflight values (99,142,349 / 195,271). No mapping gap: live
+    GROUP BY source gives exactly the five mapped labels summing exactly to the total.
+    Carried to plan 14 (executor prompt): L4 - `--swap` must require in code a fresh
+    `--prove` pass since the last build (count-equality resume could skip a same-count
+    wrong-values window; prove backstops it today, the swap must not rely on that); L2 -
+    window close must confirm the two held units sitting in failed state
+    (ibkr-history-fetcher.service, dividend-event-writer@yahoo.service) clear on timer
+    resume. Recorded only: L1 - the deleted stale window-one record survives as summary
+    prose (logs/ is gitignored; the window script has no abort verb); L3 - one migration
+    landed where the plan expected two consecutive numbers (harmless, now documented).

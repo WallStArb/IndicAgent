@@ -23,7 +23,8 @@
     "exit_code": 0,
     "log": "logs/vendor_kind_preflight_191_12.json",
     "disk": { "free_gib": 622.49, "copy_peak_gib": 34.29, "margin": 2.0, "required_gib": 68.58, "headroom_gib": 553.91 },
-    "sources": { "alpaca": 220108375, "derived_5m": 135090402, "ibkr_fallback": 194470, "ibkr_named": 99140486, "tradier": 6661722 },
+    "sources": { "alpaca": 220108375, "derived_5m": 135090402, "ibkr_fallback": 195271, "ibkr_named": 99142349, "tradier": 6661722 },
+    "sources_note": "corrected per 191-12-REVIEW.md M1: the originally committed figures (ibkr_fallback 194470, ibkr_named 99140486, 2664 short of the 461198119 total) were a stale pre-window dry-run snapshot taken while fetcher run a4428e8b was still writing; the final preflight at 2026-10-16T01:32:27Z (logs/vendor_kind_preflight_191_12.json) and the live GROUP BY both give the values above, summing exactly to 461198119",
     "shape_differences": []
   },
   "baseline_gate_live": {
