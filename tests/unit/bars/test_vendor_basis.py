@@ -187,11 +187,12 @@ def test_a_boundary_on_a_recorded_split_is_not_judged():
 # --- canonical side -----------------------------------------------------------------------------
 
 
-def test_canonical_vendor_maps_sources():
-    assert canonical_vendor("tradier") == VENDOR_TRADIER
-    for source in ("ibkr_named", "ibkr_fallback", "ibkr_venue"):
-        assert canonical_vendor(source) == VENDOR_IBKR
-    assert canonical_vendor("synthetic_fill") is None
+def test_canonical_vendor_maps_pairs():
+    assert canonical_vendor("tradier", "consolidated") == VENDOR_TRADIER
+    for kind in ("named", "fallback", "venue"):
+        assert canonical_vendor("ibkr", kind) == VENDOR_IBKR
+    assert canonical_vendor("ibkr", "5m_grid") is None  # not a canonical 1d pair
+    assert canonical_vendor("databento", "named") is None
 
 
 def test_blocking_only_when_the_canonical_side_is_discontinuous():

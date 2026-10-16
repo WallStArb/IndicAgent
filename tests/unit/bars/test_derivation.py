@@ -23,7 +23,8 @@ def test_frozen_dataclasses_reject_mutation():
         low=0.5,
         close=1.5,
         volume=10,
-        source="ibkr_named",
+        vendor="ibkr",
+        kind="named",
         request_ids=("r",),
         flags=(),
     )

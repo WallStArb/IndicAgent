@@ -159,12 +159,12 @@ def test_tradeable_view_nulls_fallback_volume_and_keeps_its_columns():
     assert "q.quarantine" in view
 
 
-def test_sources_export_the_fallback_label():
+def test_sources_export_the_canonical_1d_pairs():
     assert sources.SOURCE_IBKR_FALLBACK == "ibkr_fallback"
-    assert sources.SOURCE_IBKR_FALLBACK in sources.CANONICAL_1D_SOURCES
-    assert set(sources.CANONICAL_1D_SOURCES) == {
-        "ibkr_named",
-        "ibkr_venue",
-        "ibkr_fallback",
-        "tradier",
-    }
+    assert sources.CANONICAL_1D_SOURCES == (
+        ("ibkr", "named"),
+        ("ibkr", "venue"),
+        ("ibkr", "fallback"),
+        ("tradier", "consolidated"),
+    )
+    assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"

@@ -39,26 +39,31 @@ def test_no_sessions_is_vacuously_covered():
     assert session_coverage([], [], []) == 1.0
 
 
-def test_policy_conformance_accepts_the_primary_label():
-    d = _days(2)
-    assert policy_conformance([(d[0], "tradier")], _POLICY, set(), symbol="AAA") == []
+TRADIER = ("tradier", "consolidated")
+IBKR_NAMED = ("ibkr", "named")
+IBKR_FALLBACK = ("ibkr", "fallback")
 
 
-def test_policy_conformance_flags_a_contradicting_source():
+def test_policy_conformance_accepts_the_primary_pair():
     d = _days(2)
-    rows = [(d[0], "tradier"), (d[1], "ibkr_named")]
+    assert policy_conformance([(d[0], *TRADIER)], _POLICY, set(), symbol="AAA") == []
+
+
+def test_policy_conformance_flags_a_contradicting_pair():
+    d = _days(2)
+    rows = [(d[0], *TRADIER), (d[1], *IBKR_NAMED)]
     assert policy_conformance(rows, _POLICY, set(), symbol="AAA") == [d[1]]
 
 
 def test_fallback_only_where_tradier_has_no_observation():
     d = _days(2)
-    rows = [(d[0], "ibkr_fallback"), (d[1], "ibkr_fallback")]
+    rows = [(d[0], *IBKR_FALLBACK), (d[1], *IBKR_FALLBACK)]
     assert policy_conformance(rows, _POLICY, {d[1]}, symbol="AAA") == [d[1]]
 
 
-def test_ibkr_primary_symbol_row_expects_ibkr_named_and_no_fallback_label():
+def test_ibkr_primary_symbol_row_expects_ibkr_named_and_no_fallback_pair():
     d = _days(2)
-    rows = [(d[0], "ibkr_named"), (d[1], "ibkr_fallback")]
+    rows = [(d[0], *IBKR_NAMED), (d[1], *IBKR_FALLBACK)]
     assert policy_conformance(rows, _IBKR_PRIMARY, set(), symbol="XYZ") == [d[1]]
     assert policy_conformance(rows[:1], _IBKR_PRIMARY, set(), symbol="XYZ") == []
 
@@ -116,7 +121,7 @@ def _obs(day: date, close: float, route: str = "TRADIER") -> Observation:
     )
 
 
-def _stored(day: date, close: float, source: str = "tradier") -> StoredBar:
+def _stored(day: date, close: float, vendor: str = "tradier", kind: str = "consolidated"):
     return StoredBar(
         datetime(day.year, day.month, day.day, tzinfo=UTC),
         close,
@@ -124,7 +129,8 @@ def _stored(day: date, close: float, source: str = "tradier") -> StoredBar:
         close - 1,
         close,
         1000.0,
-        source,
+        vendor,
+        kind,
     )
 
 
@@ -146,7 +152,8 @@ def _clean() -> NameInputs1d:
             b.low,
             b.close,
             float(b.volume),
-            b.source,
+            b.vendor,
+            b.kind,
         )
         for b in derived.bars
     ]
@@ -207,9 +214,9 @@ def test_a_name_with_no_stored_bar_fails_coverage():
     assert not verdict.passed and verdict.metric_value == 0.0
 
 
-def test_a_contradicting_source_fails_policy_conformance():
+def test_a_contradicting_pair_fails_policy_conformance():
     inputs = _clean()
-    bad = [replace(inputs.stored[0], source="ibkr_named"), *inputs.stored[1:]]
+    bad = [replace(inputs.stored[0], vendor="ibkr", kind="named"), *inputs.stored[1:]]
     verdict = _by_check(_judge(replace(inputs, stored=bad)))["policy_conformance"]
     assert not verdict.passed and verdict.metric_value == 1.0
 
@@ -262,7 +269,7 @@ def test_report_age_fails_only_when_a_load_postdates_the_run():
     assert _by_check(_judge(replace(_clean(), latest_load_at=None)))["report_age"].passed
 
 
-def _basis_inputs(stored_source: str, tradier_steps: bool) -> NameInputs1d:
+def _basis_inputs(stored_pair: tuple[str, str], tradier_steps: bool) -> NameInputs1d:
     """IBKR runs 2x Tradier for 4 sessions mid-series; one vendor steps at the boundaries."""
     days = _SESSIONS
     observations = []
@@ -276,18 +283,18 @@ def _basis_inputs(stored_source: str, tradier_steps: bool) -> NameInputs1d:
         observations.append(_obs(day, tradier_close, "TRADIER"))
         observations.append(_obs(day, ibkr_close, "SMART"))
     inputs = replace(_clean(), observations=observations)
-    stored = [replace(b, source=stored_source) for b in inputs.stored]
+    stored = [replace(b, vendor=stored_pair[0], kind=stored_pair[1]) for b in inputs.stored]
     return replace(inputs, stored=stored)
 
 
 def test_vendor_run_blocks_only_when_the_canonical_side_is_the_one_that_steps():
     # Tradier steps down by half inside the run while IBKR is smooth: Tradier is the
     # discontinuous vendor, and the stored bars (tradier) are built from it.
-    stepping = _judge(_basis_inputs("tradier", tradier_steps=True))
+    stepping = _judge(_basis_inputs(TRADIER, tradier_steps=True))
     assert not _by_check(stepping)["vendor_basis_run"].passed
     assert stepping.basis_runs and stepping.blocking_runs
     # IBKR steps up inside the run while Tradier is smooth: the canonical Tradier side is fine.
-    smooth = _judge(_basis_inputs("tradier", tradier_steps=False))
+    smooth = _judge(_basis_inputs(TRADIER, tradier_steps=False))
     assert smooth.basis_runs and not smooth.blocking_runs
     assert _by_check(smooth)["vendor_basis_run"].passed
 
@@ -323,7 +330,8 @@ def _restated_inputs() -> NameInputs1d:
             b.low,
             b.close,
             float(b.volume),
-            b.source,
+            b.vendor,
+            b.kind,
         )
         for b in derived.bars
     ]
@@ -338,7 +346,7 @@ def _restated_inputs() -> NameInputs1d:
 
 def test_a_restated_fallback_name_conforms_and_recomputes():
     inputs = _restated_inputs()
-    assert {b.source for b in inputs.stored} == {"ibkr_fallback"}
+    assert {(b.vendor, b.kind) for b in inputs.stored} == {IBKR_FALLBACK}
     checks = _by_check(_judge(inputs))
     for check in ("policy_conformance", "canonical_recompute", "digest_fresh", "vendor_basis_run"):
         assert checks[check].passed, check

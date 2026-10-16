@@ -143,7 +143,7 @@ def test_topics_produced():
 
 
 def test_parse_payload_appends_tuple():
-    """_parse_payload returns (valid, invalid) tuple with valid containing a 10-element tuple."""
+    """_parse_payload returns (valid, invalid) tuple with valid containing an 11-element tuple."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m")
 
@@ -152,28 +152,54 @@ def test_parse_payload_appends_tuple():
     assert len(valid) == 1
     assert invalid == []
     row = valid[0]
-    assert len(row) == 10
+    assert len(row) == 11
     assert row[1] == "ESM6"  # symbol
     assert row[3] == "1m"  # timeframe (index 3 after base added at index 2)
     assert isinstance(row[0], datetime)  # ts must be a datetime object
 
 
 # ---------------------------------------------------------------------------
-# Test 5: _parse_payload sets source="live_1m" for 1m, "live_htf" for 5m+
+# Test 5: _parse_payload maps the payload label to (vendor, kind) for 1m only
 # ---------------------------------------------------------------------------
 
 
-def test_parse_payload_source_tagging():
-    """source='live_1m' for tf='1m'; source='live_htf' for all other TFs."""
+def test_parse_payload_vendor_kind_tagging():
+    """1m bars carry the payload label's (vendor, kind) pair; plan 191-13."""
     agent = _make_agent()
 
-    valid_1m, _ = agent._parse_payload(_make_bar_payload(tf="1m"))
-    valid_5m, _ = agent._parse_payload(_make_bar_payload(tf="5m"))
-    valid_4h, _ = agent._parse_payload(_make_bar_payload(tf="4h"))
+    valid_named, _ = agent._parse_payload(_make_bar_payload(tf="1m"))
+    generic = _make_bar_payload(tf="1m")
+    generic["source"] = "ibkr"
+    valid_generic, _ = agent._parse_payload(generic)
 
-    assert valid_1m[0][9] == "live_1m"
-    assert valid_5m[0][9] == "live_htf"
-    assert valid_4h[0][9] == "live_htf"
+    assert valid_named[0][9:11] == ("ibkr", "named")
+    assert valid_generic[0][9:11] == ("ibkr", "generic")
+
+
+def test_parse_payload_refuses_streaming_aggregate_timeframes():
+    """5m/4h aggregator output has no canonical (vendor, kind): refused with a logged
+    warning, never written under a made-up identity (plan 191-13)."""
+    agent = _make_agent()
+
+    for tf in ("5m", "4h"):
+        valid, invalid = agent._parse_payload(_make_bar_payload(tf=tf))
+        assert valid == [] and invalid == []
+
+    assert agent.logger.warning.call_count == 2  # once per distinct timeframe
+
+
+def test_parse_payload_unmapped_label_goes_to_dlq():
+    """A 1m payload whose label has no (vendor, kind) mapping is invalid (DLQ), not a
+    silent default; new labels must be mapped in vendor_kind first."""
+    agent = _make_agent()
+    payload = _make_bar_payload(tf="1m")
+    payload["source"] = "mystery_vendor"
+
+    valid, invalid = agent._parse_payload(payload)
+
+    assert valid == []
+    assert invalid == [payload]
+    agent.logger.warning.assert_called_once()
 
 
 class TestDerivationOwnedTimeframeFence:
@@ -189,7 +215,7 @@ class TestDerivationOwnedTimeframeFence:
         assert invalid == []
         assert agent.logger.warning.call_count == 1
 
-    @pytest.mark.parametrize("tf", ["1m", "5m"])
+    @pytest.mark.parametrize("tf", ["1m"])
     def test_streaming_tfs_still_parse_to_one_row(self, tf):
         agent = _make_agent()
         valid, invalid = agent._parse_payload(_make_bar_payload(tf=tf))
@@ -218,7 +244,7 @@ async def test_flush_batch_success():
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")]
+    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "ibkr", "named")]
 
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)
@@ -248,7 +274,7 @@ async def test_flush_batch_leaves_buffer_on_error():
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    row = (ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")
+    row = (ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "ibkr", "named")
     agent._buffer.append(row)
 
     mock_pool = AsyncMock()
@@ -369,8 +395,8 @@ async def test_flush_batch_increments_tf_counter():
     agent = _make_agent()
 
     ts = datetime(2026, 1, 1, 9, 30, 0, tzinfo=UTC)
-    # 10-tuple: (ts, symbol, base, tf, open, high, low, close, volume, source)
-    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "live_1m")]
+    # 11-tuple: (ts, symbol, base, tf, open, high, low, close, volume, vendor, kind)
+    batch = [(ts, "ESM6", "ES", "1m", 5200.0, 5210.0, 5195.0, 5205.0, 1000, "ibkr", "named")]
 
     mock_conn = AsyncMock()
     mock_conn.executemany = AsyncMock(return_value=None)

@@ -256,31 +256,19 @@ class _Cur:
         return self.rows
 
 
-def test_target_with_a_vendor_column_is_read_on_vendor_and_kind_directly():
+def test_a_target_with_vendor_and_kind_columns_is_read_directly():
     cur = _Cur(["timestamp", "symbol", "timeframe", "vendor", "kind", "volume"])
-    assert gate.introspect_target(cur, "market_data_ohlcv_v2") == "vendor"
+    gate.introspect_target(cur, "market_data_ohlcv")
     cur.rows = [(DAY1, "ibkr", "named", 9.0, 11.0, 8.5, 10.0, 100)]
-    out = gate.read_canonical(cur, "market_data_ohlcv_v2", "vendor", "SPY", "5m")
+    out = gate.read_canonical(cur, "market_data_ohlcv", "SPY", "5m")
     assert out == {DAY1: (IBKR, _vals())} and "vendor <>" in cur.sql
 
 
-def test_target_with_a_source_column_is_read_through_the_label_map():
-    cur = _Cur(["timestamp", "symbol", "timeframe", "source", "volume"])
-    assert gate.introspect_target(cur, "market_data_ohlcv") == "source"
-    cur.rows = [
-        (DAY1, "ibkr_named", 9.0, 11.0, 8.5, 10.0, 100),
-        (DAY2, "alpaca", 9.0, 11.0, 8.5, 10.0, 7),
-    ]
-    out = gate.read_canonical(cur, "market_data_ohlcv", "source", "SPY", "5m")
-    assert out[DAY1][0] == IBKR and out[DAY2][0] == ALPACA
-    assert "derived_5m" not in cur.params[2] and "ibkr_named" in cur.params[2]
-
-
-def test_target_name_is_validated_and_must_have_a_vendor_or_source_column():
+def test_target_name_is_validated_and_must_have_vendor_and_kind_columns():
     with pytest.raises(SystemExit, match="not a plain table name"):
         gate.introspect_target(_Cur([]), "x; drop table y")
-    with pytest.raises(SystemExit, match="neither"):
-        gate.introspect_target(_Cur(["timestamp"]), "market_data_ohlcv_x")
+    with pytest.raises(SystemExit, match="no \\(vendor, kind\\)"):
+        gate.introspect_target(_Cur(["timestamp", "source"]), "market_data_ohlcv_x")
 
 
 def test_default_ranking_needs_exactly_one_open_default_row():
@@ -301,7 +289,7 @@ def test_shards_partition_the_symbols():
 def test_idempotence_names_spread_across_both_vendor_groups():
     by = {
         "alpaca": [f"A{i:02d}" for i in range(40)],
-        "ibkr_named": [f"I{i:02d}" for i in range(40)],
+        "ibkr": [f"I{i:02d}" for i in range(40)],
     }
     names = gate.spread_names(by, 25)
     assert len(names) == len(set(names)) == 25
@@ -358,7 +346,9 @@ def test_locate_groups_reports_only_groups_with_more_raw_rows_than_store_keys():
             ("5m", "alpaca", "sip_rth", 2),
             ("1d", "ibkr", "smart_trades", 2),
         ],
-        intraday=[("5m", "ibkr_named", 2), ("5m", "alpaca", 2), ("5m", "derived_5m", 9)],
+        # the UNION of the archive (label column) and canonical ('vendor/kind' idents): the
+        # canonical side excludes derived and fallback rows in the SQL itself
+        intraday=[("5m", "ibkr_named", 2), ("5m", "alpaca", 2), ("4h", "ibkr/generic", 4)],
         observation=[
             ("ibkr", "SMART", "TRADES", d1),
             ("ibkr", "LEGACY_IMPORT", "TRADES", d1),  # the same session under two routes is one key
@@ -394,30 +384,21 @@ def test_the_last_span_is_followed_by_the_preferred_ranking_going_forward():
     assert spans[-1].fallback_source == "alpaca"
 
 
-def test_canonical_rows_outside_the_vendor_map_are_counted_not_skipped():
+def test_derived_vendor_rows_in_a_direct_timeframe_are_counted_not_skipped():
+    """(vendor, kind) are the NOT NULL key, so the old NULL/unmapped-label residue is
+    structurally gone; what remains is a derived vendor row in 1m/5m/4h, where selection
+    is the only writer (second review of 191-07, low item)."""
+
     class _CountCur(_Cur):
         def fetchone(self):
             return (2,)
 
     cur = _CountCur([])
-    assert gate.count_unmapped(cur, "market_data_ohlcv", "source", "SPY", "5m") == 2
-    assert "source IS NULL" in cur.sql and "ibkr_named" in cur.params[2]
-    assert gate.count_unmapped(cur, "market_data_ohlcv_v2", "vendor", "SPY", "5m") == 0
-
-
-def test_a_derived_label_in_a_direct_timeframe_counts_as_unmapped():
-    """read_canonical never compares a derived row; in 1m/5m/4h selection is the only writer,
-    so a derived label there is counted (second review of 191-07, low item)."""
-
-    class _CountCur(_Cur):
-        def fetchone(self):
-            return (0,)
-
-    cur = _CountCur([])
-    gate.count_unmapped(cur, "market_data_ohlcv", "source", "SPY", "5m")
-    assert "derived_5m" not in cur.params[2] and "ibkr_named" in cur.params[2]
-    gate.count_unmapped(cur, "market_data_ohlcv", "source", "SPY", "15m")
-    assert "derived_5m" in cur.params[2]  # a derived timeframe keeps the whole label map
+    assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "5m") == 2
+    assert "vendor = 'derived'" in cur.sql
+    # a derived timeframe is the derivation's own ground: no query, zero by construction
+    assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "15m") == 0
+    assert cur.params[1] == "5m"  # the second call never executed
 
 
 def test_a_canonical_session_spliced_from_two_vendors_is_counted_residue():

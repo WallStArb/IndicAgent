@@ -26,7 +26,10 @@ from src.intelligence.bars.daily_rule import (
     resolve_policy,
 )
 from src.intelligence.bars.derivation import Observation, SplitRecord
-from src.intelligence.bars.sources import SOURCE_IBKR_FALLBACK
+
+TRADIER = ("tradier", "consolidated")
+IBKR_NAMED = ("ibkr", "named")
+IBKR_FALLBACK = ("ibkr", "fallback")
 
 _FIXTURE = Path(__file__).parents[2] / "fixtures" / "bars" / "d2v2_known_cases.json"
 _WINDOW = 20
@@ -154,7 +157,12 @@ def test_tradier_date_takes_the_latest_tradier_observation():
     smart = _obs("SMART", day, 9.0, fetched_at=_T0 + timedelta(days=2), request_id="s")
     result = _derive([newer, smart, older])
     (bar,) = result.bars
-    assert (bar.close, bar.source, bar.request_ids, bar.flags) == (10.5, "tradier", ("t-new",), ())
+    assert (bar.close, (bar.vendor, bar.kind), bar.request_ids, bar.flags) == (
+        10.5,
+        TRADIER,
+        ("t-new",),
+        (),
+    )
     assert result.flags == [] and result.refused_interior == []
 
 
@@ -167,8 +175,8 @@ def test_head_is_admitted_as_fallback_with_a_seam_flag_on_the_first_tradier_bar(
     observations += [_obs("TRADIER", d, 10.0 / 1.0008, request_id=f"t{d}") for d in rest]
     result = _derive(observations)
     by_day = {b.bar_date: b for b in result.bars}
-    assert [by_day[d].source for d in head] == [SOURCE_IBKR_FALLBACK] * 3
-    assert all(by_day[d].source == "tradier" for d in rest)
+    assert [(by_day[d].vendor, by_day[d].kind) for d in head] == [IBKR_FALLBACK] * 3
+    assert all((by_day[d].vendor, by_day[d].kind) == TRADIER for d in rest)
     (seam,) = result.flags
     assert (seam.bar_date, seam.rule) == (rest[0], FLAG_FALLBACK_SEAM)
     assert seam.detail["n_common"] == _WINDOW
@@ -193,7 +201,7 @@ def _interior(offset_bp: float):
 def test_interior_hole_within_tolerance_is_admitted():
     hole, result = _interior(5.0)
     bar = next(b for b in result.bars if b.bar_date == hole)
-    assert bar.source == SOURCE_IBKR_FALLBACK and bar.request_ids == (f"s{hole}",)
+    assert (bar.vendor, bar.kind) == IBKR_FALLBACK and bar.request_ids == (f"s{hole}",)
     assert result.refused_interior == [] and result.admitted_interior == [hole]
     assert result.flags == []
 
@@ -316,8 +324,8 @@ def test_rjf_series_is_tradier_and_the_ibkr_pre_split_step_is_refused_as_interio
     observations, splits = _case("RJF")
     tradier = _latest(observations, "TRADIER")
     untouched = _derive(observations, splits=splits, symbol="RJF")
-    assert {b.bar_date: (b.source, b.close) for b in untouched.bars} == {
-        d: ("tradier", o.close) for d, o in tradier.items()
+    assert {b.bar_date: ((b.vendor, b.kind), b.close) for b in untouched.bars} == {
+        d: (TRADIER, o.close) for d, o in tradier.items()
     }
     # IBKR's own series steps +52% at 2021-09-22 (57.27 then 86.92); Tradier is continuous.
     assert _latest(observations, "SMART")[date(2021, 9, 21)].close == 57.27
@@ -326,7 +334,7 @@ def test_rjf_series_is_tradier_and_the_ibkr_pre_split_step_is_refused_as_interio
         result = _derive(holed, splits=splits, symbol="RJF")
         assert result.refused_interior == [hole]
         assert hole not in {b.bar_date for b in result.bars}
-        assert all(b.source == "tradier" for b in result.bars)
+        assert all((b.vendor, b.kind) == TRADIER for b in result.bars)
 
 
 def test_rex_follows_ibkr_under_its_exception_row():
@@ -335,10 +343,10 @@ def test_rex_follows_ibkr_under_its_exception_row():
     result = _derive(observations, policy=[_DEFAULT, rex], splits=splits, symbol="REX")
     smart = _latest(observations, "SMART")
     inside = [b for b in result.bars if b.bar_date < date(2025, 9, 9)]
-    assert inside and all(b.source == "ibkr_named" for b in inside)
+    assert inside and all((b.vendor, b.kind) == IBKR_NAMED for b in inside)
     assert all(b.close == smart[b.bar_date].close for b in inside)
     after = [b for b in result.bars if b.bar_date >= date(2025, 9, 9)]
-    assert after and all(b.source == "tradier" for b in after)
+    assert after and all((b.vendor, b.kind) == TRADIER for b in after)
     # No step across the range boundary (Tradier's own series halves before 2025-09-09).
     by_day = {b.bar_date: b.close for b in result.bars}
     assert abs(by_day[date(2025, 9, 9)] / by_day[date(2025, 9, 8)] - 1) < 0.05
@@ -358,10 +366,10 @@ def test_dal_head_is_ibkr_fallback_until_tradier_starts_with_one_seam():
         date(2007, 5, 1),
         date(2007, 5, 2),
     ]
-    assert [by_day[d].source for d in head] == [SOURCE_IBKR_FALLBACK] * 5
+    assert [(by_day[d].vendor, by_day[d].kind) for d in head] == [IBKR_FALLBACK] * 5
     assert by_day[date(2007, 4, 26)].close == 22.79  # the SMART answer
     assert by_day[date(2007, 4, 27)].close == 20.91  # the stored corpus (LEGACY_IMPORT)
-    assert all(b.source == "tradier" for d, b in by_day.items() if d >= date(2007, 5, 3))
+    assert all((b.vendor, b.kind) == TRADIER for d, b in by_day.items() if d >= date(2007, 5, 3))
     (seam,) = [f for f in result.flags if f.rule == FLAG_FALLBACK_SEAM]
     assert seam.bar_date == date(2007, 5, 3)
     assert seam.detail["n_head_bars"] == 5 and seam.detail["n_common"] == _WINDOW
@@ -376,7 +384,7 @@ def test_etha_serves_the_post_recording_scale_only():
     result = _derive(observations, splits=splits, symbol="ETHA")
     evidence = set(split.evidence_request_ids)
     for bar in result.bars:
-        assert bar.source == "tradier" and bar.flags == ()
+        assert (bar.vendor, bar.kind) == TRADIER and bar.flags == ()
         if bar.bar_date < split.effective_date:
             # Rescaled answers only: the refetch named as the split's evidence.
             assert set(bar.request_ids) <= evidence
@@ -392,7 +400,7 @@ def test_inda_interior_ibkr_bars_agree_with_tradier_and_are_admitted():
     assert len(holes) == 12
     assert result.admitted_interior == holes and result.refused_interior == []
     by_day = {b.bar_date: b for b in result.bars}
-    assert all(by_day[d].source == SOURCE_IBKR_FALLBACK for d in holes)
+    assert all((by_day[d].vendor, by_day[d].kind) == IBKR_FALLBACK for d in holes)
     # IBKR answered these sessions with no trades; the tradeable view hides volume 0.
     assert all(by_day[d].volume == 0 for d in holes)
 
@@ -423,7 +431,7 @@ def test_head_with_a_seam_beyond_tolerance_is_refused():
     head, rest, result = _headed(2.0)
     assert result.head == [] and result.refused_head == head
     assert {b.bar_date for b in result.bars} == set(rest)
-    assert all(b.source == "tradier" for b in result.bars)
+    assert all((b.vendor, b.kind) == TRADIER for b in result.bars)
     assert result.flags == []
 
 
@@ -495,7 +503,7 @@ def test_restated_fallback_replaces_a_stale_only_primary():
     days, observations, split = _restated_case()
     result = _derive(observations, splits=[split])
     assert [b.bar_date for b in result.bars] == days
-    assert all(b.source == SOURCE_IBKR_FALLBACK for b in result.bars)
+    assert all((b.vendor, b.kind) == IBKR_FALLBACK for b in result.bars)
     assert all(b.close == 10.0 and b.flags == () for b in result.bars)
     # The fallback bar keeps its own volume; the tradeable view reads it as NULL (migration 446).
     assert {b.volume for b in result.bars} == {300}
@@ -521,7 +529,7 @@ def test_a_stale_fallback_keeps_the_flagged_stale_primary():
     # Case (b): IBKR also fetched before recorded_at: today's d2-v2 behavior.
     days, observations, split = _restated_case(ibkr_fetched=_T0)
     result = _derive(observations, splits=[split])
-    assert all(b.source == "tradier" and b.close == 20.0 for b in result.bars)
+    assert all((b.vendor, b.kind) == TRADIER and b.close == 20.0 for b in result.bars)
     assert all(b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
     assert {f.rule for f in result.flags} == {FLAG_PRE_SPLIT}
     assert result.restated == []
@@ -531,14 +539,17 @@ def test_an_absent_fallback_keeps_the_flagged_stale_primary():
     # Cases (b) and (e): no IBKR answer at all, or none on some dates.
     days, observations, split = _restated_case(ibkr_days=[])
     result = _derive(observations, splits=[split])
-    assert all(b.source == "tradier" and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
+    assert all((b.vendor, b.kind) == TRADIER and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
     assert result.restated == []
     gap = days[10:13]
     days, observations, split = _restated_case(ibkr_days=[d for d in days if d not in gap])
     result = _derive(observations, splits=[split])
     by_day = {b.bar_date: b for b in result.bars}
     assert [b.bar_date for b in result.bars] == days
-    assert all(by_day[d].source == "tradier" and by_day[d].flags == (FLAG_PRE_SPLIT,) for d in gap)
+    assert all(
+        (by_day[d].vendor, by_day[d].kind) == TRADIER and by_day[d].flags == (FLAG_PRE_SPLIT,)
+        for d in gap
+    )
     assert result.restated == [d for d in days if d not in gap]
 
 
@@ -546,7 +557,7 @@ def test_a_restated_basis_outside_tolerance_keeps_the_flagged_stale_primary():
     # IBKR sits 15 bp off the restated Tradier close: no splice across a basis difference.
     days, observations, split = _restated_case(ibkr_offset_bp=15.0)
     result = _derive(observations, splits=[split])
-    assert all(b.source == "tradier" and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
+    assert all((b.vendor, b.kind) == TRADIER and b.flags == (FLAG_PRE_SPLIT,) for b in result.bars)
     assert result.restated == []
     _, inside, split = _restated_case(ibkr_offset_bp=8.0)
     assert len(_derive(inside, splits=[split]).restated) == len(days)
@@ -555,7 +566,7 @@ def test_a_restated_basis_outside_tolerance_keeps_the_flagged_stale_primary():
 def test_a_wrong_factor_measures_a_basis_break_and_restates_nothing():
     days, observations, _ = _restated_case()
     result = _derive(observations, splits=[_split_after(days, factor=3.0)])
-    assert result.restated == [] and all(b.source == "tradier" for b in result.bars)
+    assert result.restated == [] and all((b.vendor, b.kind) == TRADIER for b in result.bars)
 
 
 def test_no_split_leaves_the_rule_unchanged():
@@ -564,7 +575,7 @@ def test_no_split_leaves_the_rule_unchanged():
     observations = [_obs("TRADIER", d, 10.0, request_id=f"t{d}") for d in days]
     observations += [_obs("SMART", d, 10.0, fetched_at=_REFETCH, request_id=f"s{d}") for d in days]
     result = _derive(observations)
-    assert all(b.source == "tradier" and b.flags == () for b in result.bars)
+    assert all((b.vendor, b.kind) == TRADIER and b.flags == () for b in result.bars)
     assert result.restated == [] and result.flags == []
 
 
@@ -573,7 +584,7 @@ def test_a_voided_split_is_not_an_input_and_changes_nothing():
     # never reaches the rule; the daily stage reads that view (test_bar_derivation_daily).
     days, observations, split = _restated_case()
     voided = _derive(observations, splits=[])
-    assert all(b.source == "tradier" and b.close == 20.0 for b in voided.bars)
+    assert all((b.vendor, b.kind) == TRADIER and b.close == 20.0 for b in voided.bars)
     assert voided.restated == [] and voided.flags == []
     assert _derive(observations, splits=[split]).restated == days
 
@@ -587,7 +598,9 @@ def test_only_dates_before_the_split_are_restated():
     result = _derive(after, splits=[split])
     by_day = {b.bar_date: b for b in result.bars}
     assert result.restated == days[:14]
-    assert all(by_day[d].source == "tradier" and by_day[d].flags == () for d in days[14:])
+    assert all(
+        (by_day[d].vendor, by_day[d].kind) == TRADIER and by_day[d].flags == () for d in days[14:]
+    )
 
 
 def test_an_ibkr_primary_with_no_fallback_still_flags_a_stale_only_answer():
@@ -601,7 +614,7 @@ def test_an_ibkr_primary_with_no_fallback_still_flags_a_stale_only_answer():
     ]
     result = _derive(observations, policy=[ibkr_default], splits=[split])
     (bar,) = result.bars
-    assert (bar.source, bar.flags) == ("ibkr_named", (FLAG_PRE_SPLIT,))
+    assert ((bar.vendor, bar.kind), bar.flags) == (IBKR_NAMED, (FLAG_PRE_SPLIT,))
     assert result.restated == []
 
 
@@ -614,7 +627,7 @@ def test_an_admitted_head_stays_admitted_after_a_split():
     result = _derive(observations, splits=[_split_after(days)])
     assert result.head == head and result.refused_head == []
     assert result.restated == days[3:]
-    assert all(b.source == SOURCE_IBKR_FALLBACK for b in result.bars)
+    assert all((b.vendor, b.kind) == IBKR_FALLBACK for b in result.bars)
     # No Tradier bar is served, so there is no vendor seam to flag.
     assert result.flags == []
 
@@ -640,9 +653,10 @@ def test_rjf_after_a_hypothetical_split_restates_only_where_ibkr_agrees():
     assert restated and all(d >= step for d in restated)
     early = [d for d in by_day if d < date(2021, 9, 10)]
     assert early and all(
-        by_day[d].source == "tradier" and by_day[d].flags == (FLAG_PRE_SPLIT,) for d in early
+        (by_day[d].vendor, by_day[d].kind) == TRADIER and by_day[d].flags == (FLAG_PRE_SPLIT,)
+        for d in early
     )
-    assert all(by_day[d].source == SOURCE_IBKR_FALLBACK for d in restated)
+    assert all((by_day[d].vendor, by_day[d].kind) == IBKR_FALLBACK for d in restated)
 
 
 # --- raw-row inputs (phase 191 plan 08) ------------------------------------------------------
@@ -690,7 +704,8 @@ def test_known_cases_derive_identically_from_raw_rows(symbol):
     expected = _derive(observations, splits=splits, symbol=symbol)
     from_raw = _derive(_as_raw(observations), splits=splits, symbol=symbol)
     as_bars = lambda r: [  # noqa: E731
-        (b.bar_date, b.open, b.high, b.low, b.close, b.volume, b.source, b.flags) for b in r.bars
+        (b.bar_date, b.open, b.high, b.low, b.close, b.volume, (b.vendor, b.kind), b.flags)
+        for b in r.bars
     ]
     assert as_bars(from_raw) == as_bars(expected)
     assert from_raw.flags == expected.flags

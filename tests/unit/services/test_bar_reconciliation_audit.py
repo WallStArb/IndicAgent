@@ -339,25 +339,23 @@ class TestDividendFreshness:
 
 
 class TestStraySources:
-    def test_sources_the_derivation_does_not_write_count(self):
+    def test_pairs_the_derivation_does_not_write_count(self):
         counts = {
-            ("1d", "ibkr_named"): 10,
-            ("1d", "ibkr_venue"): 1,
-            ("1d", "tradier"): 50,
-            ("1d", "synthetic_fill"): 4,
-            ("1d", "yahoo"): 2,
-            ("15m", "derived_5m"): 100,
-            ("15m", "synthetic_fill"): 3,
-            ("15m", "ibkr_named"): 7,
-            ("1h", None): 1,
-            ("5m", "ibkr_named"): 999,  # 5m is not a derived timeframe: not judged
+            ("1d", ("ibkr", "named")): 10,
+            ("1d", ("ibkr", "venue")): 1,
+            ("1d", ("tradier", "consolidated")): 50,
+            ("1d", ("ibkr", "fallback")): 4,
+            ("1d", ("yahoo", "consolidated")): 2,
+            ("15m", ("derived", "5m_grid")): 100,
+            ("15m", ("ibkr", "named")): 7,
+            ("5m", ("ibkr", "named")): 999,  # 5m is not a derived timeframe: not judged
         }
         result = check_stray_sources(counts)
-        assert result.n_findings == 2 + 7 + 1
-        assert set(result.samples) == {"1d:yahoo=2", "15m:ibkr_named=7", "1h:NULL=1"}
+        assert result.n_findings == 2 + 7
+        assert set(result.samples) == {"1d:yahoo/consolidated=2", "15m:ibkr/named=7"}
 
-    def test_tradier_is_an_admitted_daily_source(self):
-        assert check_stray_sources({("1d", "tradier"): 5}).n_findings == 0
+    def test_tradier_is_an_admitted_daily_pair(self):
+        assert check_stray_sources({("1d", ("tradier", "consolidated")): 5}).n_findings == 0
 
 
 class TestSwitches:
@@ -635,7 +633,7 @@ def _obs_row(day, close):
     }
 
 
-def _stored_row(day, close, source="tradier"):
+def _stored_row(day, close, vendor="tradier", kind="consolidated"):
     return {
         "timestamp": datetime(day.year, day.month, day.day, tzinfo=UTC),
         "open": close,
@@ -643,7 +641,8 @@ def _stored_row(day, close, source="tradier"):
         "low": close - 1,
         "close": close,
         "volume": 1000.0,
-        "source": source,
+        "vendor": vendor,
+        "kind": kind,
         "base": None,
     }
 
@@ -658,7 +657,14 @@ def _good_name():
     digests = month_digests(
         [
             StoredBar(
-                r["timestamp"], r["open"], r["high"], r["low"], r["close"], r["volume"], r["source"]
+                r["timestamp"],
+                r["open"],
+                r["high"],
+                r["low"],
+                r["close"],
+                r["volume"],
+                r["vendor"],
+                r["kind"],
             )
             for r in stored
         ],
@@ -749,9 +755,9 @@ def test_findings_by_symbol_groups_seam_samples():
     }
 
 
-def test_ibkr_fallback_is_an_allowed_1d_source():
-    assert check_stray_sources({("1d", "ibkr_fallback"): 4}).n_findings == 0
-    assert check_stray_sources({("1d", "mystery"): 4}).n_findings == 4
+def test_ibkr_fallback_is_an_allowed_1d_pair():
+    assert check_stray_sources({("1d", ("ibkr", "fallback")): 4}).n_findings == 0
+    assert check_stray_sources({("1d", ("mystery", "x")): 4}).n_findings == 4
 
 
 def test_integrity_keys_are_loaded_by_the_audit():

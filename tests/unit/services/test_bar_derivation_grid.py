@@ -33,7 +33,9 @@ import pytest
 from services.bar_derivation import BarDerivation
 from src.intelligence.bars import gap_plan
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
-from src.intelligence.bars.sources import GRID_RULE_VERSION, SOURCE_DERIVED_5M
+from src.intelligence.bars.sources import GRID_RULE_VERSION
+
+DERIVED = ("derived", "5m_grid")
 
 _BATCH_ID = "11111111-1111-1111-1111-111111111111"
 # Monday 2024-06-03, regular NYSE session 13:30-20:00 UTC.
@@ -318,7 +320,8 @@ def _stored_from_first_run(fixture: list[tuple], **conn_kwargs: object):
             "low": r[5],
             "close": r[6],
             "volume": r[7],
-            "source": r[8],
+            "vendor": r[8],
+            "kind": r[9],
         }
         for r in _inserted_bars(conn)
     ]
@@ -352,7 +355,7 @@ def test_first_derivation_inserts_the_grid_and_records_one_load_per_timeframe():
     rows_15m = [r for r in _inserted_bars(conn) if r[2] == "15m"]
     rows_1h = [r for r in _inserted_bars(conn) if r[2] == "1h"]
     assert len(rows_15m) == 26 and len(rows_1h) == 7
-    assert all(r[8] == SOURCE_DERIVED_5M for r in rows_15m + rows_1h)
+    assert all((r[8], r[9]) == DERIVED for r in rows_15m + rows_1h)
     assert not _upserted_bars(conn)
 
     # Direct-oracle spot values: first 15m bar from fixture bars 0-2, last 1h bar
@@ -460,11 +463,11 @@ def test_one_changed_5m_bar_rewrites_exactly_its_15m_and_1h_bars_and_month():
     assert len(revisions) == 2
     load_ids = {str(row["timeframe"]): row["load_id"] for row in _load_counts(conn).values()}
     for rev in revisions:
-        load_id, symbol, tf, ts, o, h, lo, c, v, source, origin, vendor, kind = rev
+        load_id, symbol, tf, ts, o, h, lo, c, v, old_source, origin, vendor, kind = rev
         # ohlcv_revision's (vendor, kind) are NOT NULL since plan 191-04 (191-10 resume fix)
-        assert (vendor, kind) == ("derived", "5m_grid")
+        assert (vendor, kind) == DERIVED
         old = old_by_key[(tf, ts)]
-        assert (symbol, origin, source) == ("SPY", "load", SOURCE_DERIVED_5M)
+        assert (symbol, origin, old_source) == ("SPY", "load", "derived/5m_grid")
         assert load_id == load_ids[tf]
         assert (o, h, lo, c, v) == (
             old["open"],
@@ -499,7 +502,8 @@ def test_a_stored_derived_row_no_longer_derived_is_removed_with_its_old_value():
         "low": 0.5,
         "close": 1.5,
         "volume": 10,
-        "source": SOURCE_DERIVED_5M,
+        "vendor": "derived",
+        "kind": "5m_grid",
     }
     conn = FakeConn(
         bars={"SPY": fixture},
@@ -513,10 +517,11 @@ def test_a_stored_derived_row_no_longer_derived_is_removed_with_its_old_value():
     assert len(deletes) == 1
     sql, args = deletes[0]
     assert args[0] == "SPY" and args[1] == "15m" and list(args[2]) == [stale_ts]
-    assert "source = 'derived_5m'" in sql
+    assert "vendor = 'derived'" in sql
     (rev,) = _revisions(conn)
-    assert rev[2:4] == ("15m", stale_ts) and rev[4:10] == (1.0, 2.0, 0.5, 1.5, 10, "derived_5m")
-    assert rev[10] == "load"
+    assert rev[2:4] == ("15m", stale_ts) and rev[4:9] == (1.0, 2.0, 0.5, 1.5, 10)
+    assert rev[9] == "derived/5m_grid" and rev[10] == "load"
+    assert (rev[11], rev[12]) == DERIVED
     assert _load_counts(conn)["15m"]["n_removed"] == 1
     assert _index(conn, "INSERT INTO ohlcv_revision", kind="executemany") < _index(
         conn, "/* delete_stale_derived */"
@@ -537,7 +542,8 @@ def _vendor(tf: str, ts: datetime, close: float) -> dict:
         "low": close,
         "close": close,
         "volume": 500,
-        "source": "ibkr_named",
+        "vendor": "ibkr",
+        "kind": "named",
     }
 
 

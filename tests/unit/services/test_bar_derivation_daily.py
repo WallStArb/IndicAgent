@@ -80,7 +80,13 @@ def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None 
     }
 
 
-def _row(close: float, source: str = "tradier", volume: int | None = 100) -> dict:
+_1D_VENDORS = ("ibkr", "tradier")
+_1D_KINDS = ("consolidated", "fallback", "named", "venue")
+
+
+def _row(
+    close: float, vendor: str = "tradier", kind: str = "consolidated", volume: int | None = 100
+) -> dict:
     return {
         "open": close,
         "high": close,
@@ -88,7 +94,8 @@ def _row(close: float, source: str = "tradier", volume: int | None = 100) -> dic
         "close": close,
         "volume": volume,
         "base": "USD",
-        "source": source,
+        "vendor": vendor,
+        "kind": kind,
     }
 
 
@@ -107,7 +114,7 @@ def _fixture() -> tuple[dict[str, list[dict]], dict[str, dict[date, dict]]]:
             _D0: _row(9.0),
             _D1: _row(10.0),
             _D2: _row(11.5),
-            _D4: _row(13.0, source="ibkr_named"),
+            _D4: _row(13.0, vendor="ibkr", kind="named"),
             _D5: _row(13.5),
             _D6: _row(14.0),
         }
@@ -175,11 +182,11 @@ class FakeConn:
     def transaction(self) -> FakeConn._Txn:
         return self._Txn(self)
 
-    def _stored_rows(self, symbol: str, sources: tuple) -> list[dict]:
+    def _stored_rows(self, symbol: str, vendors: tuple, kinds: tuple) -> list[dict]:
         return [
             {**row, "timestamp": _ts(day)}
             for day, row in sorted(self.stored.get(symbol, {}).items())
-            if row["source"] in sources
+            if row["vendor"] in vendors and row["kind"] in kinds
         ]
 
     async def fetch(self, sql: str, *args: object) -> list[object]:
@@ -203,13 +210,13 @@ class FakeConn:
         if "corporate_action_current" in sql:
             return self.splits.get(str(args[0]), [])
         if "/* stored_1d */" in sql:
-            sources = tuple(args[1])  # type: ignore[arg-type]
-            self.stored_read_sources.append(sources)
-            return self._stored_rows(str(args[0]), sources)
-        if "source = ANY($2" in sql:
-            sources = tuple(args[1])  # type: ignore[arg-type]
-            self.digest_read_sources.append(sources)
-            return self._stored_rows(str(args[0]), sources)
+            vendors, kinds = tuple(args[1]), tuple(args[2])  # type: ignore[arg-type]
+            self.stored_read_sources.append((vendors, kinds))
+            return self._stored_rows(str(args[0]), vendors, kinds)
+        if "vendor = ANY($2" in sql:
+            vendors, kinds = tuple(args[1]), tuple(args[2])  # type: ignore[arg-type]
+            self.digest_read_sources.append((vendors, kinds))
+            return self._stored_rows(str(args[0]), vendors, kinds)
         if "bar_content_digest_current" in sql:
             return [
                 {
@@ -269,8 +276,9 @@ class FakeConn:
                     "low": row[5],
                     "close": row[6],
                     "volume": row[7],
-                    "source": row[8],
-                    "base": row[9],
+                    "vendor": row[8],
+                    "kind": row[9],
+                    "base": row[10],
                 }
         elif "INSERT INTO bar_content_digest" in sql:
             self.digest_rows.extend(args)
@@ -361,7 +369,7 @@ def test_dry_run_classifies_every_canonical_source_and_writes_nothing(tmp_path):
         "removed": 1,  # _D5; _D0 sits before the span and stays
     }
     assert result["totals"]["derived"] == 1
-    assert conn.stored_read_sources == [("ibkr_named", "ibkr_venue", "ibkr_fallback", "tradier")]
+    assert conn.stored_read_sources == [(_1D_VENDORS, _1D_KINDS)]
     # Nothing written: no statement, no batch, no scrub.
     assert conn.statements == [] and conn.executemany_calls == [] and scrub_calls == []
     assert not any("pg_class" in sql for _kind, sql in conn.calls)
@@ -401,7 +409,7 @@ def test_dry_run_reports_refused_heads(tmp_path):
     obs += [_obs(d, 200.0, route="SMART") for d in days]
     conn = FakeConn(
         observations={"TEST": obs},
-        stored={"TEST": {d: _row(200.0, source="ibkr_named") for d in days}},
+        stored={"TEST": {d: _row(200.0, vendor="ibkr", kind="named") for d in days}},
     )
     report = tmp_path / "dryrun.tsv"
     result, _ = _run(conn, apply=False, report_path=str(report))
@@ -446,7 +454,9 @@ def test_apply_records_restated_dates_in_the_load_detail():
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
     assert detail["rule_version"] == "d2-v3" and len(detail["restated"]) == 7
-    assert {r["source"] for r in conn.stored["TEST"].values()} == {"ibkr_fallback"}
+    assert {(r["vendor"], r["kind"]) for r in conn.stored["TEST"].values()} == {
+        ("ibkr", "fallback")
+    }
 
 
 def test_splits_are_read_from_the_current_view_so_void_rows_never_reach_the_rule():
@@ -673,7 +683,7 @@ def test_derivation_flags_go_through_write_flags_with_rule_d2v2():
     assert detail["n_head_bars"] == 1 and detail["median_ratio"] == 1.0
     assert by_rule[("no_provider_volume", date(2024, 1, 9))][6] is False
     head_bar = conn.stored["TEST"][days[0]]
-    assert head_bar["source"] == "ibkr_fallback"
+    assert (head_bar["vendor"], head_bar["kind"]) == ("ibkr", "fallback")
 
 
 def test_scrub_then_digests_at_d2v2_after_the_writes():
@@ -822,7 +832,6 @@ def test_legacy_import_value_ranks_below_smart_and_is_stale_across_a_split():
 
 def test_write_1d_digests_reads_every_canonical_source():
     from services.bar_derivation import write_1d_digests
-    from src.intelligence.bars.sources import CANONICAL_1D_SOURCES
 
     stored = {_D1: _row(10.0), _D2: _row(11.0)}
     conn = FakeConn(observations={}, stored={"TEST": stored})
@@ -830,7 +839,7 @@ def test_write_1d_digests_reads_every_canonical_source():
         write_1d_digests(conn, symbol="TEST", batch_id=_BATCH_ID, rule_version=RULE_VERSION)
     )
     assert n == 1
-    assert conn.digest_read_sources == [CANONICAL_1D_SOURCES]
+    assert conn.digest_read_sources == [(_1D_VENDORS, _1D_KINDS)]
     (row,) = conn.digest_rows
     assert row[4] == _digest([_D1, _D2], [10.0, 11.0])
     assert row[6] == RULE_VERSION and row[7] == 2 and row[8] == _BATCH_ID
@@ -907,10 +916,10 @@ def test_restore_rewrites_the_symbol_from_the_snapshot_through_the_contract(tmp_
     stored = {_D1: _row(10.0), _D2: _row(11.0), _D3: _row(12.0)}
     conn = FakeConn(observations={"TEST": [_obs(_D1, 10.0)]}, stored={"TEST": stored})
     result, scrub_calls = _run(conn, restore_snapshot=snapshot, symbols=["TEST"])
-    assert {d: (r["close"], r["source"]) for d, r in conn.stored["TEST"].items()} == {
-        _D1: (10.0, "tradier"),
-        _D2: (11.5, "ibkr_named"),
-        _D5: (13.5, "tradier"),
+    assert {d: (r["close"], (r["vendor"], r["kind"])) for d, r in conn.stored["TEST"].items()} == {
+        _D1: (10.0, ("tradier", "consolidated")),
+        _D2: (11.5, ("ibkr", "named")),
+        _D5: (13.5, ("tradier", "consolidated")),
     }
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     assert load_args[15] == "bar_derivation-restore" and load_args[6] == "applied"

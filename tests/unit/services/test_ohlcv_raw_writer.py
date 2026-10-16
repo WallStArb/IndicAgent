@@ -137,7 +137,7 @@ def test_changed_row_replaced_and_old_values_logged():
     ((rev_sql, rev),) = conn.sql("INSERT INTO ohlcv_revision")
     assert rev[0] == LOAD and rev[3] == row.timestamp
     assert rev[4:9] == [9.0, 11.0, 8.5, 10.0, 100]
-    assert rev[9:] == ["ibkr_named", "ibkr", "named", OLD_REQUEST, "raw"]
+    assert rev[9:] == ["ibkr/named", "ibkr", "named", OLD_REQUEST, "raw"]
     ((up_sql, up),) = conn.sql("INSERT INTO ohlcv_raw")
     assert up_sql.count("ON CONFLICT") == 1 and "DO UPDATE" in up_sql
     assert "served_at = EXCLUDED.served_at" in up_sql

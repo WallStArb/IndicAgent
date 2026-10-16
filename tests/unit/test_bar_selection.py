@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from services.bar_selection import SelectionResult, canonical_columns, select_and_write
+from services.bar_selection import SelectionResult, select_and_write
 from src.intelligence.bars.selection import (
     Candidate,
     PolicyRow,
@@ -171,19 +171,19 @@ def _inserts(conn):
     return [(s, p) for s, p in conn.cur.executed if s.startswith("INSERT INTO market_data_ohlcv")]
 
 
-def test_writer_inserts_new_winner_with_label():
+def test_writer_inserts_new_winner_with_vendor_and_kind():
     conn = FakeConn([_cand("ibkr", "named"), _cand("alpaca", "sip_rth", close=99.0)])
     assert _run(conn) == SelectionResult(1, 0, 0, 0)
     ((sql, params),) = _inserts(conn)
     assert "DO UPDATE" in sql  # new slots carry the upsert tail too (plan 191-07 review)
-    assert params[-1] == "ibkr_named" and params[6] == 10.0
+    assert params[-2:] == ["ibkr", "named"] and params[6] == 10.0
 
 
 def test_writer_replaces_changed_and_skips_unchanged():
     c0, c1 = _cand(i=0), _cand(i=1, close=12.0)
     canonical = [
-        (c0.timestamp, 9.0, 11.0, 8.5, 10.0, 100, "ibkr_named"),
-        (c1.timestamp, 9.0, 11.0, 8.5, 10.0, 100, "ibkr_named"),
+        (c0.timestamp, 9.0, 11.0, 8.5, 10.0, 100, "ibkr", "named"),
+        (c1.timestamp, 9.0, 11.0, 8.5, 10.0, 100, "ibkr", "named"),
     ]
     conn = FakeConn([c0, c1], canonical)
     assert _run(conn) == SelectionResult(0, 1, 1, 0)
@@ -204,12 +204,6 @@ def test_writer_refuses_non_direct_timeframes_and_missing_policy():
             _run(FakeConn([]), timeframe=tf)
     with pytest.raises(LookupError):
         _run(FakeConn([_cand()]), policy_rows=[])
-
-
-def test_canonical_columns_maps_label_and_raises_without_one():
-    assert canonical_columns("alpaca", "sip_rth") == "alpaca"
-    with pytest.raises(KeyError):
-        canonical_columns("ibkr", "smart_trades")
 
 
 # --- plan 191-07 review amendments: session rule, session-date spans, lock, unselected counts ----
@@ -419,7 +413,7 @@ def test_the_writer_leaves_excluded_stamps_untouched():
     result = _run(conn, policy_rows=[DEFAULT, ALPACA_FIRST], exclude=excluded)
     assert not any(s.startswith("DELETE FROM market_data_ohlcv") for s, _ in conn.cur.executed)
     ((_, params),) = _inserts(conn)
-    written = {params[i] for i in range(0, len(params), 9)}
+    written = {params[i] for i in range(0, len(params), 10)}
     assert written == {alpaca[i].timestamp for i in (1, 2, 3)} and result.new == 3
 
 
@@ -443,7 +437,7 @@ def test_without_policy_rows_the_writer_reads_the_series_policy_under_its_lock()
     read = next(i for i, s in enumerate(sqls) if "FROM bar_source_policy" in s)
     assert lock < read and result.new == 1
     ((_, params),) = _inserts(conn)
-    assert params[8] == "alpaca"
+    assert params[8:10] == ["alpaca", "sip_rth"]
 
 
 def test_the_writer_keeps_the_session_choices_of_the_sessions_it_selects():

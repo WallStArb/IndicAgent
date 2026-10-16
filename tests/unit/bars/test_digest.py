@@ -248,3 +248,22 @@ def test_month_ranges_year_boundary_and_empty() -> None:
 
 def test_algorithm_identifier() -> None:
     assert DIGEST_ALGORITHM == "sha256-bars-v1"
+
+
+def test_golden_digest_of_a_fixed_1d_series_is_unchanged_by_the_vendor_kind_switch() -> None:
+    """Plan 191-13 regression: the digest covers values and quarantine rule tokens only,
+    never a row's identity. The (vendor, kind) switch must not move this hash; if it
+    does, every stored bar_content_digest row went stale."""
+    ts = np.array([1704153600, 1704240000, 1704326400], dtype=np.int64)
+    close = np.array([101.10, 102.20, 103.30], dtype=np.float64)
+    open_ = np.array([100.00, 101.10, 102.20], dtype=np.float64)
+    digest = bar_content_digest(
+        ts,
+        open_,
+        np.maximum(open_, close) * 1.002,
+        np.minimum(open_, close) * 0.998,
+        close,
+        np.array([1000.0, 2000.0, 3000.0], dtype=np.float64),
+        [(), ("price_sanity",), ()],
+    )
+    assert digest == "9f2fdbafd1b678bfb905ba52a8fa4055110b2b8f86e4d58099bc819f4e3fa4b4"

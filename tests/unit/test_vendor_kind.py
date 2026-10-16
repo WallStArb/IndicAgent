@@ -33,10 +33,24 @@ def test_label_map_is_exactly_the_specified_nine():
     assert LABEL_TO_VENDOR_KIND == _EXPECTED
 
 
-def test_every_label_vendor_key_is_mapped_and_vendor_agrees():
-    for label, vendor in sources.LABEL_VENDOR.items():
-        assert label in LABEL_TO_VENDOR_KIND, f"new label {label!r} needs a (vendor, kind)"
-        assert LABEL_TO_VENDOR_KIND[label][0] == vendor
+def test_every_label_constant_is_mapped_and_none_else():
+    """Tripwire: the map is exactly the nine label constants, no more, no fewer (plan 13
+    replaced the LABEL_VENDOR cross-check, which was deleted with the label column)."""
+    from src.core import bar_normalizer
+
+    constants = {
+        bar_normalizer.SOURCE_IBKR_NAMED,
+        bar_normalizer.SOURCE_IBKR_VENUE,
+        bar_normalizer.SOURCE_IBKR_CONTINUOUS,
+        bar_normalizer.SOURCE_IBKR_OFFICIAL,
+        bar_normalizer.SOURCE_IBKR_GENERIC,
+        sources.SOURCE_IBKR_FALLBACK,
+        sources.SOURCE_TRADIER,
+        sources.SOURCE_ALPACA,
+        sources.SOURCE_DERIVED_5M,
+    }
+    assert set(LABEL_TO_VENDOR_KIND) == constants
+    assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"
 
 
 def test_inverse_round_trips_every_entry():

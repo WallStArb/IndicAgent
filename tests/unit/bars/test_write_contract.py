@@ -17,11 +17,11 @@ from src.intelligence.bars.write_contract import (
     revision_ratio,
 )
 
-_ROW: BarValues = (10.0, 10.5, 9.5, 10.25, 1000, "derived_5m")
+_ROW: BarValues = (10.0, 10.5, 9.5, 10.25, 1000, "derived", "5m_grid")
 
 
 def _with(row: BarValues, **changes: object) -> BarValues:
-    fields = ["open", "high", "low", "close", "volume", "source"]
+    fields = ["open", "high", "low", "close", "volume", "vendor", "kind"]
     values = list(row)
     for name, value in changes.items():
         values[fields.index(name)] = value
@@ -51,8 +51,8 @@ def test_one_differing_close_is_one_change_carrying_new_and_old():
     assert delta.unchanged == 1 and not delta.new and not delta.removed
 
 
-def test_a_source_only_difference_is_a_change():
-    stored = {("15m", 1): _with(_ROW, source="ibkr_named")}
+def test_an_identity_only_difference_is_a_change():
+    stored = {("15m", 1): _with(_ROW, vendor="ibkr", kind="named")}
     delta = classify({("15m", 1): _ROW}, stored)
     assert list(delta.changed) == [("15m", 1)]
 

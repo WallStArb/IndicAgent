@@ -18,8 +18,8 @@ from scripts.ops.bars.ops_d2_raw_equivalence import (
 _D1, _D2, _D3, _D4 = date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5)
 
 
-def _bar(close: float, source: str = "ibkr_named", volume: int | None = 100):
-    return (close, close, close, close, volume, source)
+def _bar(close: float, vendor: str = "ibkr", kind: str = "named", volume: int | None = 100):
+    return (close, close, close, close, volume, vendor, kind)
 
 
 def test_equal_series_have_equal_digests_and_no_tags():
@@ -28,8 +28,9 @@ def test_equal_series_have_equal_digests_and_no_tags():
     assert result.equal and result.tags == {} and result.as_dict()["equal_in_span"]
 
 
-def test_the_digest_sees_the_source_label_and_a_null_volume():
-    assert series_digest({_D1: _bar(1.0)}) != series_digest({_D1: _bar(1.0, "tradier")})
+def test_the_digest_sees_the_identity_pair_and_a_null_volume():
+    other = _bar(1.0, vendor="tradier", kind="consolidated")
+    assert series_digest({_D1: _bar(1.0)}) != series_digest({_D1: other})
     assert series_digest({_D1: _bar(1.0)}) != series_digest({_D1: _bar(1.0, volume=None)})
 
 
@@ -42,7 +43,11 @@ def test_dates_after_the_stored_end_are_their_own_tag_and_keep_the_span_equal():
 
 
 def test_every_kind_of_difference_is_tagged():
-    stored = {_D1: _bar(1.0), _D2: _bar(2.0), _D3: _bar(3.0, "tradier")}
+    stored = {
+        _D1: _bar(1.0),
+        _D2: _bar(2.0),
+        _D3: _bar(3.0, vendor="tradier", kind="consolidated"),
+    }
     rule = {_D2: _bar(2.5), _D3: _bar(3.0), _D4: _bar(4.0)}
     stored[_D4 + (_D4 - _D3)] = _bar(5.0)  # a later stored date makes _D4 inside the span
     result = compare("X", rule, stored)
