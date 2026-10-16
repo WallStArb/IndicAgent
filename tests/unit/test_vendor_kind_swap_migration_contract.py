@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.unit._migration_catalog import migration_catalog
 from tests.unit._source_grep_helpers import read_source
 
 _MIGRATIONS = Path(__file__).parent.parent.parent / "production" / "migrations"
@@ -105,3 +106,61 @@ def test_the_five_canonical_swap_apr_keys_are_seeded_with_history() -> None:
     # The copy runs while every writer is held; no masked-slot-era key rides along.
     assert "masked_audit" not in sql
     assert "infra.real_rows_swap" not in sql
+
+
+# --- the views swap migration (phase 191 plan 14) -------------------------------------------------
+
+
+def _views_migration_path() -> Path:
+    matches = sorted(_MIGRATIONS.glob("*_market_data_ohlcv_vendor_kind_views.sql"))
+    assert matches, "no *_market_data_ohlcv_vendor_kind_views.sql migration found"
+    return matches[0]
+
+
+def _views_sql() -> str:
+    stripped = re.sub(r"--[^\n]*", "", read_source(*_views_migration_path().parts[-3:]))
+    return re.sub(r"\s+", " ", stripped)
+
+
+def test_views_migration_renames_both_tables_as_literal_text_in_order() -> None:
+    sql = _views_sql()
+    first = "ALTER TABLE market_data_ohlcv RENAME TO market_data_ohlcv_old;"
+    second = "ALTER TABLE market_data_ohlcv_v2 RENAME TO market_data_ohlcv;"
+    # The catalog (tests/unit/_migration_catalog.py) parses ALTER RENAME from migration text
+    # only, applied in file order: the live table must rename away before v2 takes the name.
+    assert first in sql, "the live table's rename away is missing or not a literal statement"
+    assert second in sql, "v2's rename into place is missing or not a literal statement"
+    assert sql.index(first) < sql.index(second), "ohlcv must rename away before v2 takes the name"
+
+
+def test_views_migration_recreates_the_four_views_and_moves_the_policy() -> None:
+    sql = _views_sql()
+    for view in (
+        "market_data_ohlcv_tradeable",
+        "market_data_ohlcv_scrub_input",
+        "market_data_5m",
+        "canonical_bar_lineage",
+    ):
+        assert f"DROP VIEW {view};" in sql, f"{view} is not dropped"
+        assert f"CREATE VIEW {view} AS" in sql, f"{view} is not recreated"
+        assert sql.index(f"DROP VIEW {view};") < sql.index(f"CREATE VIEW {view} AS"), view
+    # ohlcv_venue_head moved onto ohlcv_raw in plan 09; the swap must never touch it.
+    assert "ohlcv_venue_head" not in sql
+    # The tradeable view nulls volume by kind, not by label.
+    assert "kind IN ('venue', 'fallback')" in sql
+    assert "ibkr_venue" not in sql and "ibkr_fallback" not in sql
+    # The original grants ride with the recreated views (market_data_5m carries none).
+    assert (
+        "GRANT SELECT ON market_data_ohlcv_tradeable, market_data_ohlcv_scrub_input, "
+        "canonical_bar_lineage TO bar_derivation_writer" in sql
+    )
+    # The compression policy moves with the name: same compress_after and schedule.
+    assert "alter_job" in sql and "scheduled => false" in sql
+    assert "add_compression_policy" in sql
+
+
+def test_views_migration_catalog_resolves_the_swapped_names() -> None:
+    tables, _ = migration_catalog()
+    assert "market_data_ohlcv" in tables
+    assert "market_data_ohlcv_old" in tables, "the kept original must resolve in the catalog"
+    assert _V2 not in tables, "v2 renamed away must no longer resolve in the catalog"
