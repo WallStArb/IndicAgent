@@ -1,12 +1,12 @@
 r"""market_data_ohlcv_v2 build: canonical `source` becomes `vendor` plus `kind` (phase 191 plan 12).
 
-Design doc step 7, first half (docs/plans/2026-10-12-unified-raw-bar-table-design.md). `UPDATE
-market_data_ohlcv` is banned and the dependent views block a column drop, so this is a rebuild:
-migration 496 creates an empty `market_data_ohlcv_v2` (structurally identical except `source` is
-`vendor text NOT NULL` plus `kind text NOT NULL`); this script copies the live table into it with
-the source-to-(vendor, kind) mapping rendered from vendor_kind.LABEL_TO_VENDOR_KIND, proves the
-copy equal, and opens nothing else. Plan 14 adds `--swap`, `--post-check` and `--rollback`; plan
-17 drops the kept original and runs the bare `VACUUM market_data_ohlcv;`.
+Design doc step 7, first half (docs/plans/2026-10-12-unified-raw-bar-table-design.md). Updating
+`market_data_ohlcv` in place is banned and the dependent views block a column drop, so this is a
+rebuild: migration 496 creates an empty `market_data_ohlcv_v2` (structurally identical except
+`source` is `vendor text NOT NULL` plus `kind text NOT NULL`); this script copies the live table
+into it with the source-to-(vendor, kind) mapping rendered from vendor_kind.LABEL_TO_VENDOR_KIND,
+proves the copy equal, and opens nothing else. Plan 14 adds `--swap`, `--post-check` and
+`--rollback`; plan 17 drops the kept original and runs the bare `VACUUM market_data_ohlcv;`.
 
 Planner decision D-191-G (owner acknowledgement pending): the build is a copy-with-map from the
 live canonical table rather than the design doc's INSERT SELECT from raw. Plan 07 proved
