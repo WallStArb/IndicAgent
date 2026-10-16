@@ -151,11 +151,31 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "batching, deleted by plan 191-05 (the raw write batches by "
         "infra.ohlcv_observation.copy_batch_rows)."
     ),
-    "market_data_ohlcv_v2": (
-        "retire: 191-17. The vendor/kind rebuild target (migration 496, plan 12), written and "
-        "read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py; plan 14 swaps the "
-        "names (v2 becomes market_data_ohlcv) and plan 17 deletes the script, whose commit adds "
-        "the retire entries for the five infra.canonical_swap.* keys the same step orphans."
+    "market_data_ohlcv_old": (
+        "retire: 191-17. The pre-swap label-column table, renamed away by the plan 14 swap "
+        "(migration 497) and kept for one nightly cycle; the writer registry holds it with an "
+        "empty writer tuple and plan 17's DROP TABLE clears both entries together."
+    ),
+    "infra.canonical_swap.copy_statement_timeout_s": (
+        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
+        "plan 17 deletes; its drop migration retires the five infra.canonical_swap.* keys "
+        "together (the v2 table they rebuilt is market_data_ohlcv since the plan 14 swap)."
+    ),
+    "infra.canonical_swap.disk_margin": (
+        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
+        "plan 17 deletes."
+    ),
+    "infra.canonical_swap.lock_timeout_s": (
+        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
+        "plan 17 deletes."
+    ),
+    "infra.canonical_swap.statement_timeout_s": (
+        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
+        "plan 17 deletes."
+    ),
+    "infra.canonical_swap.stats_flush_wait_s": (
+        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
+        "plan 17 deletes."
     ),
 }
 

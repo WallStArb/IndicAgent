@@ -6,8 +6,8 @@ D-15 identity checks after the rewrite:
 - no (symbol, session) has 1h rows at two different minutes (the old :00 grid
   and IBKR's :30 grid must never be visible together), scoped to derived
   symbols until todo 449's 5m backfill lets the rewrite reach the rest;
-- every derived symbol's 1h rows carry source derived_5m and anchor on the
-  session open (minute 30 on a 9:30 open; mcal also encodes real late opens,
+- every derived symbol's 1h rows carry vendor derived and kind 5m_grid and
+  anchor on the session open (minute 30 on a 9:30 open; mcal also encodes real late opens,
   e.g. 9:32 on 2006-12-27, Ford's moment of silence);
 - for sampled symbols and sessions, the derived 1h and 15m bars equal a direct
   SQL aggregation of the tradeable 5m (the direct-oracle convention; a thin
@@ -66,7 +66,7 @@ def conn():
 def _derived_symbols(cur) -> list[str]:
     cur.execute("""
         SELECT DISTINCT symbol FROM market_data_ohlcv
-        WHERE timeframe = '1h' AND source = 'derived_5m'
+        WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid'
         ORDER BY symbol
         """)
     return [r[0] for r in cur.fetchall()]
@@ -82,7 +82,7 @@ def test_no_session_has_1h_rows_at_two_minutes(conn):
             FROM market_data_ohlcv
             WHERE timeframe = '1h' AND volume > 0
               AND symbol IN (SELECT DISTINCT symbol FROM market_data_ohlcv
-                             WHERE timeframe = '1h' AND source = 'derived_5m')
+                             WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid')
             GROUP BY 1, 2
             HAVING count(DISTINCT extract(minute FROM "timestamp")) > 1
         ) x
@@ -96,8 +96,8 @@ def test_derived_symbols_1h_rows_are_derived_and_session_anchored(conn):
         SELECT count(*) FROM market_data_ohlcv
         WHERE timeframe = '1h'
           AND symbol IN (SELECT DISTINCT symbol FROM market_data_ohlcv
-                         WHERE timeframe = '1h' AND source = 'derived_5m')
-          AND source <> 'derived_5m'
+                         WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid')
+          AND NOT (vendor = 'derived' AND kind = '5m_grid')
         """)
     assert cur.fetchone()[0] == 0
     # Session-anchored, not hard :30: each 1h bar sits an integral number of
@@ -106,7 +106,7 @@ def test_derived_symbols_1h_rows_are_derived_and_session_anchored(conn):
         SELECT DISTINCT date_trunc('day', "timestamp")::date AS d,
                         extract(minute FROM "timestamp")::int AS minute
         FROM market_data_ohlcv
-        WHERE timeframe = '1h' AND source = 'derived_5m'
+        WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid'
         """)
     rows = {tuple(r) for r in cur.fetchall()}
     sessions = nyse_sessions(min(r[0] for r in rows), max(r[0] for r in rows))
@@ -133,7 +133,7 @@ def test_derived_bars_equal_direct_5m_aggregation(conn):
             """
             SELECT DISTINCT date_trunc('day', "timestamp")
             FROM market_data_ohlcv
-            WHERE symbol = %s AND timeframe = '15m' AND source = 'derived_5m'
+            WHERE symbol = %s AND timeframe = '15m' AND vendor = 'derived' AND kind = '5m_grid'
             ORDER BY 1
             """,
             (symbol,),
@@ -160,7 +160,7 @@ def test_derived_bars_equal_direct_5m_aggregation(conn):
                     SELECT count(*) FROM (
                         SELECT d."timestamp", d.open, d.high, d.low, d.close, d.volume
                         FROM market_data_ohlcv d
-                        WHERE d.symbol = %s AND d.timeframe = %s AND d.source = 'derived_5m'
+                        WHERE d.symbol = %s AND d.timeframe = %s AND d.vendor = 'derived' AND d.kind = '5m_grid'
                           AND d."timestamp" >= %s AND d."timestamp" < %s + interval '1 day'
                     ) der JOIN agg ON agg.bucket = der."timestamp"
                     WHERE der.open <> agg.open OR der.high <> agg.high
@@ -194,7 +194,7 @@ def test_first_1h_open_equals_the_first_5m_open_of_every_session(conn):
             SELECT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d,
                    min("timestamp") AS t0, (array_agg(open ORDER BY "timestamp"))[1] AS o1
             FROM market_data_ohlcv
-            WHERE symbol = ANY(%s) AND timeframe = '1h' AND source = 'derived_5m'
+            WHERE symbol = ANY(%s) AND timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid'
             GROUP BY 1, 2
         ), f AS (
             SELECT DISTINCT ON (t.symbol, h.d) t.symbol, h.d, t.open
@@ -227,7 +227,7 @@ def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
         """
         WITH derived AS (
             SELECT DISTINCT symbol FROM market_data_ohlcv
-            WHERE timeframe = '1h' AND source = 'derived_5m'
+            WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid'
         ), obs AS (
             SELECT r.symbol, (r."timestamp" AT TIME ZONE 'UTC')::date AS bar_date,
                    r.open, r.close, r.volume
@@ -242,12 +242,12 @@ def test_1h_volume_close_and_open_agree_with_ibkr_smart_1d_observations(conn):
                    (array_agg(open ORDER BY "timestamp"))[1] AS o1,
                    (array_agg(close ORDER BY "timestamp" DESC))[1] AS c1
             FROM market_data_ohlcv
-            WHERE timeframe = '1h' AND source = 'derived_5m'
+            WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid'
             GROUP BY 1, 2
         ), alpaca_days AS (
             SELECT DISTINCT symbol, ("timestamp" AT TIME ZONE 'America/New_York')::date AS d
             FROM market_data_ohlcv
-            WHERE timeframe = '5m' AND source = 'alpaca'
+            WHERE timeframe = '5m' AND vendor = 'alpaca'
               AND symbol IN (SELECT symbol FROM derived)
         ), j AS (
             SELECT h.symbol, h.vol, obs.volume, h.o1, obs.open, h.c1, obs.close
@@ -291,7 +291,7 @@ def test_canonical_grid_holds_derived_rows_only_and_raw_holds_vendor_parity(conn
         pytest.skip("no derived 1h symbols yet (rewrite has not run)")
     cur.execute("""
         SELECT count(*) FROM market_data_ohlcv
-        WHERE timeframe IN ('15m', '1h') AND source IS DISTINCT FROM 'derived_5m'
+        WHERE timeframe IN ('15m', '1h') AND NOT (vendor = 'derived' AND kind = '5m_grid')
         """)
     assert cur.fetchone()[0] == 0, "vendor 15m/1h rows in canonical"
     # The vendor parity rows the old archive kept are raw rows of their vendor now.
@@ -310,7 +310,7 @@ def test_digest_current_covers_5m_15m_1h_for_derived_symbols(conn):
     cur.execute("""
         SELECT symbol, count(DISTINCT timeframe) FROM bar_content_digest_current
         WHERE symbol IN (SELECT DISTINCT symbol FROM market_data_ohlcv
-                         WHERE timeframe = '1h' AND source = 'derived_5m')
+                         WHERE timeframe = '1h' AND vendor = 'derived' AND kind = '5m_grid')
         GROUP BY 1
         """)
     coverage = dict(cur.fetchall())

@@ -238,10 +238,12 @@ async def test_stored_values_equal_derive_daily_v2_for_a_sample_recomputed_from_
             r["bar_date"]: r
             for r in await conn.fetch(
                 "SELECT (\"timestamp\" AT TIME ZONE 'UTC')::date AS bar_date, open, high, low, "
-                "close, volume, source FROM market_data_ohlcv "
-                "WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($2::text[])",
+                "close, volume, vendor, kind FROM market_data_ohlcv "
+                "WHERE symbol = $1 AND timeframe = '1d' "
+                "AND vendor = ANY($2::text[]) AND kind = ANY($3::text[])",
                 symbol,
-                list(CANONICAL_1D_SOURCES),
+                _ALLOWED_1D_VENDORS,
+                _ALLOWED_1D_KINDS,
             )
         }
         assert derived, f"{symbol}: no derived bars"
@@ -255,7 +257,7 @@ async def test_stored_values_equal_derive_daily_v2_for_a_sample_recomputed_from_
             elif bar is None:
                 mismatches.append(f"{symbol} {bar_date}: stored but not derived")
             else:
-                for field in ("open", "high", "low", "close", "volume", "source"):
+                for field in ("open", "high", "low", "close", "volume", "vendor", "kind"):
                     if row[field] != getattr(bar, field):
                         mismatches.append(
                             f"{symbol} {bar_date} {field}: {row[field]} != {getattr(bar, field)}"
@@ -265,7 +267,7 @@ async def test_stored_values_equal_derive_daily_v2_for_a_sample_recomputed_from_
 
 
 async def test_digest_covers_every_1d_month_with_bars(conn):
-    gaps = await conn.fetch(_MONTHS_WITHOUT_DIGEST_SQL, list(CANONICAL_1D_SOURCES))
+    gaps = await conn.fetch(_MONTHS_WITHOUT_DIGEST_SQL, _ALLOWED_1D_VENDORS, _ALLOWED_1D_KINDS)
     assert not gaps, [(r["symbol"], f"{r['month']:%Y-%m}") for r in gaps[:10]]
 
 
@@ -283,11 +285,13 @@ async def test_no_scale_break_across_a_split_unless_flagged_pre_split_unrefetche
         for effective in dates:
             pair = await conn.fetch(
                 'SELECT "timestamp"::date AS bar_date, close FROM market_data_ohlcv '
-                "WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($3::text[]) "
+                "WHERE symbol = $1 AND timeframe = '1d' "
+                "AND vendor = ANY($3::text[]) AND kind = ANY($4::text[]) "
                 'AND "timestamp"::date <= $2 ORDER BY "timestamp" DESC LIMIT 2',
                 symbol,
                 effective,
-                list(CANONICAL_1D_SOURCES),
+                _ALLOWED_1D_VENDORS,
+                _ALLOWED_1D_KINDS,
             )
             if len(pair) < 2 or not pair[1]["close"]:
                 continue

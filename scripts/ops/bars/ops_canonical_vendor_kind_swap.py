@@ -36,6 +36,30 @@ Modes (exactly one; none is the preflight dry run):
               selection gate (`ops_selection_gate.py --compare --target market_data_ohlcv_v2`,
               timeframes 1m, 5m and 4h) and requires exit 0: v2 must be a pure function of raw
               plus policy, not merely a faithful copy of whatever canonical held.
+--swap        the plan 14 table swap. Requires the gates plus a clean --prove record (in
+              logs/vendor_kind_swap_state.json) newer than the last --build whose recorded
+              per-timeframe counts still match both tables (todo 535 item 43 L4: a hand-run
+              prove is not assumed, and count-equality resume could skip a same-count
+              wrong-values window). Stops indicagent-api.service before the locks (it reads
+              canonical on pre-plan-13 code that queries source, todo 535 item 44), then in one
+              transaction: ACCESS EXCLUSIVE locks with lock_timeout, write-counter stability
+              over one stats flush interval, and the views migration file executed as a single
+              unit (the renames, the index renames, the four view drop/create pairs with their
+              grants, the compression-policy move). The renames are never issued by any other
+              path. The old table stays as market_data_ohlcv_old; plan 17 drops it.
+--post-check  verifies the swap after the transaction: per-timeframe counts through the new
+              tradeable view equal the pre-swap values (also mechanically cross-checked through
+              the captured old view definition rebound onto market_data_ohlcv_old), the venue/
+              fallback volume-nulling holds, the research S0 SPY read is unchanged, the plan 07
+              gate and the plan 08 d2 equivalence re-run clean on the swapped table (small
+              symbol subsets via --gate-symbols / --equivalence-symbols), and ohlcv_venue_head
+              (not touched by the swap) kept its row count. On success it restarts
+              indicagent-api.service on the new code and verifies it answers.
+--rollback    reverses the renames, the index renames, the views (from the definitions captured
+              at --swap time) and the compression policy, if the post-check fails before any
+              unit is resumed. indicagent-api.service stays stopped after a rollback: its
+              running code would 500 against the restored old table; the blocker is surfaced
+              instead.
 
 Every mode refuses while a writer runs: counts taken from a moving table prove nothing. Exit
 status: 0 when every gate or check passes, 3 when any blocks or a step aborts, 2 on a usage
@@ -52,6 +76,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -72,10 +97,35 @@ from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND  # noqa: E402
 _JOB = "ops-vendor-kind-swap"
 _TABLE = "market_data_ohlcv"
 _V2_TABLE = "market_data_ohlcv_v2"
+_OLD_TABLE = "market_data_ohlcv_old"
 _WINDOW_RECORD = project_root / "logs" / "raw_cutover_window.json"
 _STATE_MD = project_root / ".planning" / "STATE.md"
 _GATE_MODULE = "scripts.ops.bars.ops_selection_gate"
 _GATE_REPORT_RE = re.compile(r"^report: (\S+)$", re.MULTILINE)
+
+# --- swap (phase 191 plan 14) ------------------------------------------------------------------
+
+# The four dependent views migration 497 recreates (ohlcv_venue_head is not one: plan 09 moved it
+# onto ohlcv_raw; the swap only checks its row count).
+_VIEWS = (
+    "market_data_ohlcv_tradeable",
+    "market_data_ohlcv_scrub_input",
+    "market_data_5m",
+    "canonical_bar_lineage",
+)
+_API_UNIT = "indicagent-api.service"
+_API_BASE = "http://localhost:8000"
+_API_START_TIMEOUT_S = 60.0
+# The swap's state record: what --build and --prove completed when, and what --swap captured for
+# --post-check and --rollback. Written only by this script; plan 17 deletes it with the script.
+_SWAP_STATE = project_root / "logs" / "vendor_kind_swap_state.json"
+_MIGRATIONS_DIR = project_root / "production" / "migrations"
+_MIGRATION_GLOB = "*_market_data_ohlcv_vendor_kind_views.sql"
+_RENAME_AWAY = f"ALTER TABLE {_TABLE} RENAME TO {_OLD_TABLE};"
+_RENAME_IN = f"ALTER TABLE {_V2_TABLE} RENAME TO {_TABLE};"
+_PROVE_CLEAN = "proven equal and gate-clean"
+_D2_MODULE = "scripts.ops.bars.ops_d2_raw_equivalence"
+_D2_OUT = project_root / "logs" / "d2_raw_equivalence_191_14.jsonl"
 
 EXIT_OK = 0
 EXIT_USAGE = 2
@@ -1081,19 +1131,19 @@ def _symbols(conn: Any, table: str) -> set[str]:
     return {row[0] for row in _rows(conn, query)}
 
 
-def run_selection_gate() -> tuple[dict[str, Any], list[str]]:
-    """The plan 07 selection gate against v2 (timeframes 1m, 5m and 4h, its defaults). v2 must be
-    a pure function of raw plus policy, not merely a faithful copy: exit 0 is required, and the
-    gate's own report file is loaded into this one."""
-    proc = subprocess.run(
-        [sys.executable, "-m", _GATE_MODULE, "--compare", "--target", _V2_TABLE],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=project_root,
-    )
+def run_selection_gate(
+    target: str = _V2_TABLE, symbols: Sequence[str] | None = None
+) -> tuple[dict[str, Any], list[str]]:
+    """The plan 07 selection gate (timeframes 1m, 5m and 4h, its defaults): against v2 at prove
+    time, against the swapped market_data_ohlcv at post-check time (a small symbol subset there).
+    The target must be a pure function of raw plus policy, not merely a faithful copy: exit 0 is
+    required, and the gate's own report file is loaded into this one."""
+    argv = [sys.executable, "-m", _GATE_MODULE, "--compare", "--target", target]
+    if symbols:
+        argv += ["--symbols", *symbols]
+    proc = subprocess.run(argv, capture_output=True, text=True, check=False, cwd=project_root)
     entry: dict[str, Any] = {
-        "command": f"{_GATE_MODULE} --compare --target {_V2_TABLE}",
+        "command": " ".join(argv[2:]),
         "exit_code": proc.returncode,
     }
     match = _GATE_REPORT_RE.search(proc.stdout)
@@ -1104,7 +1154,7 @@ def run_selection_gate() -> tuple[dict[str, Any], list[str]]:
     blockers = (
         []
         if proc.returncode == EXIT_OK
-        else [f"selection gate exit {proc.returncode} against {_V2_TABLE} (0 required)"]
+        else [f"selection gate exit {proc.returncode} against {target} (0 required)"]
     )
     if proc.returncode != EXIT_OK:
         entry["stdout_tail"] = proc.stdout[-2000:]
@@ -1137,6 +1187,8 @@ def run_prove(conn: Any) -> tuple[dict[str, Any], list[str]]:
         "rows_original": old_total,
         "rows_v2": v2_total,
         "rows_equal": old_total == v2_total,
+        "by_timeframe_original": table_tf_counts(conn, _TABLE),
+        "by_timeframe_v2": table_tf_counts(conn, _V2_TABLE),
         "missing_in_v2": result.missing_in_v2[:50],
         "n_missing_in_v2": len(result.missing_in_v2),
         "extra_in_v2": result.extra_in_v2[:50],
@@ -1161,9 +1213,523 @@ def run_prove(conn: Any) -> tuple[dict[str, Any], list[str]]:
     return report, blockers
 
 
+# --- swap: state record and the fresh-prove gate ------------------------------------------------
+
+
+def load_swap_state() -> dict[str, Any]:
+    if not _SWAP_STATE.exists():
+        return {}
+    return json.loads(_SWAP_STATE.read_text())
+
+
+def record_swap_state(section: str, entry: Mapping[str, Any]) -> None:
+    state = load_swap_state()
+    state[section] = dict(entry)
+    _SWAP_STATE.write_text(json.dumps(state, indent=2, default=str) + "\n")
+
+
+def _parse_iso(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def prove_blockers(
+    state: Mapping[str, Any],
+    old_counts: Mapping[str, int],
+    v2_counts: Mapping[str, int],
+) -> list[str]:
+    """The todo 535 item 43 L4 gate: --swap runs only on a clean --prove record newer than the
+    last --build whose recorded per-timeframe counts still match both tables. A prove run by hand
+    before the swap cannot be assumed, and count-equality resume could skip a same-count
+    wrong-values window, so nothing proceeds on a stale or moved record."""
+    prove = state.get("prove")
+    if not isinstance(prove, Mapping):
+        return [f"no --prove record in {_SWAP_STATE}: run --prove after the last --build"]
+    blockers: list[str] = []
+    if prove.get("result") != _PROVE_CLEAN:
+        blockers.append(f"prove record result is {prove.get('result')!r}; rerun --prove")
+    proved_at = _parse_iso(prove.get("completed_at"))
+    if proved_at is None:
+        blockers.append(f"prove completed_at {prove.get('completed_at')!r} is not a timestamp")
+    build = state.get("build")
+    if isinstance(build, Mapping):
+        built_at = _parse_iso(build.get("completed_at"))
+        if built_at is not None and proved_at is not None and proved_at <= built_at:
+            blockers.append("prove completed before the last build; rerun --prove")
+    recorded_old = prove.get("by_timeframe_original")
+    if isinstance(recorded_old, Mapping) and dict(recorded_old) != dict(old_counts):
+        blockers.append(
+            f"original counts moved since the prove: {dict(old_counts)} != {recorded_old}"
+        )
+    recorded_v2 = prove.get("by_timeframe_v2")
+    if isinstance(recorded_v2, Mapping) and dict(recorded_v2) != dict(v2_counts):
+        blockers.append(f"v2 counts moved since the prove: {dict(v2_counts)} != {recorded_v2}")
+    if prove.get("rows_original") != sum(old_counts.values()):
+        blockers.append("original row total moved since the prove")
+    if prove.get("rows_v2") != sum(v2_counts.values()):
+        blockers.append("v2 row total moved since the prove")
+    return blockers
+
+
+# --- swap: systemctl and facts ------------------------------------------------------------------
+
+
+def _systemctl(*args: str) -> tuple[int, str]:
+    """systemctl through the same sudo.ws -S mechanism ops_raw_cutover_window.py uses; the
+    password comes from the SUDO_PASS environment variable, never the repo."""
+    password = os.environ.get("SUDO_PASS")
+    if not password:
+        return 1, "SUDO_PASS not set: cannot run systemctl"
+    proc = subprocess.run(
+        ["/usr/bin/sudo.ws", "-S", "systemctl", *args],
+        input=f"{password}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.returncode, (proc.stdout + proc.stderr).strip()
+
+
+def _unit_state(unit: str) -> str:
+    result = subprocess.run(
+        ["systemctl", "is-active", unit], capture_output=True, text=True, check=False
+    )
+    return result.stdout.strip()
+
+
+def stop_api_service() -> str:
+    """todo 535 item 44: indicagent-api.service is an active canonical reader outside the
+    window's ten held units, and its running process serves pre-plan-13 code that queries
+    source; it would 500 on every market-data request against the swapped table."""
+    code, detail = _systemctl("stop", _API_UNIT)
+    state = _unit_state(_API_UNIT)
+    if code != 0 or state in {"active", "activating"}:
+        raise SwapAbortedError(f"cannot stop {_API_UNIT} before the locks: {detail or state}")
+    return f"{_API_UNIT} stopped (state {state})"
+
+
+def restart_api_and_verify() -> dict[str, Any]:
+    """Restart the api on the new (plan 13) code and verify it answers; called by --post-check
+    only on success."""
+    code, detail = _systemctl("start", _API_UNIT)
+    if code != 0:
+        return {"started": False, "detail": detail}
+    deadline = time.monotonic() + _API_START_TIMEOUT_S
+    state = _unit_state(_API_UNIT)
+    while state in {"activating", "reloading"} and time.monotonic() < deadline:
+        time.sleep(2.0)
+        state = _unit_state(_API_UNIT)
+    health: dict[str, Any] | None = None
+    if state == "active":
+        while time.monotonic() < deadline and health is None:
+            try:
+                with urllib.request.urlopen(f"{_API_BASE}/health", timeout=5) as response:
+                    health = json.loads(response.read())
+            except (OSError, ValueError):
+                time.sleep(2.0)
+    return {"started": state == "active", "state": state, "health": health}
+
+
+_VIEW_GRANTS_SQL = """
+SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE a.grantee::regrole::text END, a.privilege_type
+FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = %s::regclass ORDER BY 1, 2
+"""
+_VIEW_DEF_SQL = "SELECT pg_get_viewdef(%s::regclass, true)"
+_COMMENT_SQL = "SELECT coalesce(obj_description(%s::regclass, 'pg_class'), '')"
+_TRADEABLE_TF_SQL = "SELECT timeframe, count(*) FROM market_data_ohlcv_tradeable GROUP BY 1"
+_S0_SPY_SQL = (
+    'SELECT "timestamp", open, close, volume FROM market_data_ohlcv_tradeable '
+    "WHERE symbol = 'SPY' ORDER BY \"timestamp\" LIMIT 5"
+)
+_VENUE_HEAD_COUNT_SQL = "SELECT count(*) FROM ohlcv_venue_head"
+_VENUE_FALLBACK_VOLUME_SQL = (
+    "SELECT count(*) FROM market_data_ohlcv_tradeable "
+    "WHERE kind IN ('venue', 'fallback') AND volume IS NOT NULL"
+)
+
+
+def pre_swap_facts(conn: Any) -> dict[str, Any]:
+    """Everything --post-check and --rollback need from the pre-swap world, captured before the
+    locks: per-timeframe counts through the old tradeable view, the research S0 SPY read, the
+    row count of ohlcv_venue_head (not touched by the swap, only checked), the four views'
+    definitions, grants and comments, and the outgoing compression policy."""
+    with conn.cursor() as cur:
+        cur.execute(_TRADEABLE_TF_SQL)
+        tradeable = {tf: int(n) for tf, n in cur.fetchall()}
+        cur.execute(_S0_SPY_SQL)
+        spy_read = [[format_iso_ts(ts), o, c, v] for ts, o, c, v in cur.fetchall()]
+        cur.execute(_COMMENT_SQL, (_TABLE,))
+        table_comment = cur.fetchone()[0]
+        definitions: dict[str, str] = {}
+        grants: dict[str, list[list[str]]] = {}
+        comments: dict[str, str] = {}
+        for view in _VIEWS:
+            cur.execute(_VIEW_DEF_SQL, (view,))
+            definitions[view] = cur.fetchone()[0]
+            cur.execute(_VIEW_GRANTS_SQL, (view,))
+            grants[view] = [[g, p] for g, p in cur.fetchall()]
+            cur.execute(_COMMENT_SQL, (view,))
+            comments[view] = cur.fetchone()[0]
+    venue_head = int(_scalar(conn, _VENUE_HEAD_COUNT_SQL))
+    policy = _rows(conn, _POLICY_SQL, (_TABLE,))
+    return {
+        "tradeable_by_timeframe": tradeable,
+        "s0_spy_read": spy_read,
+        "venue_head_count": venue_head,
+        "view_definitions": definitions,
+        "view_grants": grants,
+        "view_comments": comments,
+        "table_comment": table_comment,
+        "policy": [[job, after, schedule, scheduled] for job, after, schedule, scheduled in policy],
+    }
+
+
+# --- swap: the exchange -------------------------------------------------------------------------
+
+
+def views_migration_path() -> Path:
+    matches = sorted(_MIGRATIONS_DIR.glob(_MIGRATION_GLOB))
+    if len(matches) != 1:
+        raise SwapAbortedError(
+            f"want exactly one {_MIGRATION_GLOB} migration in {_MIGRATIONS_DIR}, "
+            f"found {len(matches)}: {[m.name for m in matches]}"
+        )
+    return matches[0]
+
+
+_WRITE_COUNTERS_SQL = """
+WITH rels AS (
+    SELECT %s::regclass AS rel
+    UNION ALL
+    SELECT show_chunks(%s::regclass)
+    UNION ALL
+    SELECT format('%%I.%%I', cc.schema_name, cc.table_name)::regclass
+    FROM _timescaledb_catalog.hypertable h
+    JOIN _timescaledb_catalog.chunk c ON c.hypertable_id = h.id
+    JOIN _timescaledb_catalog.chunk cc ON cc.id = c.compressed_chunk_id
+    WHERE h.schema_name = 'public' AND h.table_name = %s
+)
+SELECT count(*), coalesce(sum(s.n_tup_ins + s.n_tup_upd + s.n_tup_del), 0)
+FROM rels LEFT JOIN pg_stat_all_tables s ON s.relid = rels.rel
+"""
+
+
+def write_counters(conn: Any, table: str) -> tuple[int, int]:
+    """(relations, writes) over the hypertable, its chunks and their compressed chunks: the
+    moving-table detector from the 439 swap. pg_stat_clear_snapshot first, so a cached stats
+    snapshot can never look stable."""
+    conn.execute("SELECT pg_stat_clear_snapshot()")
+    n_rels, n_writes = _rows(conn, _WRITE_COUNTERS_SQL, (table, table, table))[0]
+    return int(n_rels), int(n_writes)
+
+
+def dependent_views(conn: Any, table: str) -> list[str]:
+    return sorted(
+        row[0].split(".")[-1] for row in _rows(conn, _DEPENDENT_VIEWS_SQL, (table, table))
+    )
+
+
+def post_exchange_problems(conn: Any) -> list[str]:
+    """Verified inside the swap transaction, before it commits."""
+    problems: list[str] = []
+    if _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_OLD_TABLE}",)) is None:
+        problems.append(f"{_OLD_TABLE} does not exist after the exchange")
+    if _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_V2_TABLE}",)) is not None:
+        problems.append(f"{_V2_TABLE} still exists after the exchange")
+    if views := dependent_views(conn, _OLD_TABLE):
+        problems.append(f"views still reading {_OLD_TABLE}: {views}")
+    if new_views := dependent_views(conn, _TABLE):
+        if new_views != sorted(_VIEWS):
+            problems.append(
+                f"dependent views of the new table are {new_views}, want {sorted(_VIEWS)}"
+            )
+    else:
+        problems.append("no dependent views read the new table after the exchange")
+    columns = [row[0] for row in _rows(conn, _COLUMNS_SQL, (_TABLE,))]
+    if "source" in columns:
+        problems.append(f"the new {_TABLE} still carries a source column")
+    if "vendor" not in columns or "kind" not in columns:
+        problems.append(f"the new {_TABLE} lacks vendor/kind: {columns}")
+    return problems
+
+
+def run_swap(conn: Any, data_path: str) -> tuple[dict[str, Any], list[str]]:
+    refuse_if_writers(load_writer_state(conn))
+    gates, blockers = write_gates(conn, data_path)
+    report: dict[str, Any] = {"job": _JOB, "mode": "swap", "gates": gates}
+    if blockers:
+        report["result"] = "refused: nothing swapped"
+        return report, blockers
+
+    apr, _ = load_apr(conn)
+    swap_state = load_swap_state()
+    old_counts = table_tf_counts(conn, _TABLE)
+    v2_counts = table_tf_counts(conn, _V2_TABLE)
+    prove = prove_blockers(swap_state, old_counts, v2_counts)
+    if prove:
+        report["result"] = "refused: nothing swapped"
+        report["prove_gate"] = prove
+        return report, prove
+
+    migration = views_migration_path()
+    migration_sql = migration.read_text()
+    for statement in (_RENAME_AWAY, _RENAME_IN):
+        if statement not in migration_sql:
+            raise SwapAbortedError(f"{migration.name} lacks the literal statement {statement!r}")
+
+    _set_timeouts(conn, apr[APR_STATEMENT_TIMEOUT_S])
+    report["api_stop"] = stop_api_service()
+    facts = pre_swap_facts(conn)
+    report["pre_swap"] = {
+        "tradeable_by_timeframe": facts["tradeable_by_timeframe"],
+        "venue_head_count": facts["venue_head_count"],
+        "s0_spy_read": facts["s0_spy_read"],
+    }
+
+    stats_wait = apr[APR_STATS_WAIT_S]
+    time.sleep(stats_wait)
+    n_rels, counters_before = write_counters(conn, _TABLE)
+    refuse_if_writers(load_writer_state(conn))
+    started = time.monotonic()
+    with conn.transaction():
+        conn.execute(f"SET LOCAL lock_timeout = '{int(apr[APR_LOCK_TIMEOUT_S])}s'")
+        conn.execute(f"LOCK TABLE {_TABLE}, {_V2_TABLE} IN ACCESS EXCLUSIVE MODE")
+        time.sleep(stats_wait)
+        _rels, counters_after = write_counters(conn, _TABLE)
+        if counters_after != counters_before:
+            raise SwapAbortedError(
+                f"writes landed on {_TABLE} under the lock: {counters_before} -> {counters_after}"
+            )
+        for table, counts in ((_TABLE, old_counts), (_V2_TABLE, v2_counts)):
+            now_counts = table_tf_counts(conn, table)
+            if now_counts != counts:
+                raise SwapAbortedError(
+                    f"{table} counts moved under the lock: {now_counts} != {counts}"
+                )
+        conn.execute(migration_sql)
+        problems = post_exchange_problems(conn)
+        if problems:
+            raise SwapAbortedError("; ".join(problems))
+
+    record_swap_state(
+        "swap",
+        {
+            "completed_at": format_iso_ts(datetime.now(UTC)),
+            "migration": migration.name,
+            "relations": n_rels,
+            "write_counters": counters_before,
+            **facts,
+        },
+    )
+    report["result"] = "swapped"
+    report["seconds"] = round(time.monotonic() - started, 2)
+    report["state_file"] = str(_SWAP_STATE)
+    return report, []
+
+
+# --- post-check ---------------------------------------------------------------------------------
+
+
+def _rebound_view_counts(conn: Any, swap: Mapping[str, Any]) -> dict[str, int]:
+    """The captured old tradeable view definition rebound onto market_data_ohlcv_old and counted
+    per timeframe: a mechanical cross-check that the recreated view differs from the old one only
+    by the column exchange."""
+    definition = swap["view_definitions"]["market_data_ohlcv_tradeable"]
+    rebound = re.sub(rf"\b{_TABLE}\b", _OLD_TABLE, definition)
+    with conn.cursor() as cur:
+        cur.execute(f"CREATE TEMP VIEW _post_check_old_tradeable AS {rebound}")
+        cur.execute("SELECT timeframe, count(*) FROM _post_check_old_tradeable GROUP BY 1")
+        counts = {tf: int(n) for tf, n in cur.fetchall()}
+        cur.execute("DROP VIEW _post_check_old_tradeable")
+    return counts
+
+
+def run_d2_equivalence(symbols: Sequence[str]) -> tuple[dict[str, Any], list[str]]:
+    """The plan 08 d2 raw equivalence on a small symbol subset against the swapped table."""
+    argv = [
+        sys.executable,
+        "-m",
+        _D2_MODULE,
+        "--symbols",
+        *symbols,
+        "--fresh",
+        "--out",
+        str(_D2_OUT),
+    ]
+    proc = subprocess.run(argv, capture_output=True, text=True, check=False, cwd=project_root)
+    entry: dict[str, Any] = {
+        "command": " ".join(argv[2:]),
+        "exit_code": proc.returncode,
+        "out_file": str(_D2_OUT),
+    }
+    blockers = (
+        []
+        if proc.returncode == EXIT_OK
+        else [f"d2 equivalence exit {proc.returncode} (0 required)"]
+    )
+    if proc.returncode != EXIT_OK:
+        entry["stdout_tail"] = proc.stdout[-2000:]
+        entry["stderr_tail"] = proc.stderr[-2000:]
+    return entry, blockers
+
+
+def run_post_check(
+    conn: Any,
+    gate_symbols: Sequence[str] | None,
+    equivalence_symbols: Sequence[str] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    refuse_if_writers(load_writer_state(conn))
+    swap_state = load_swap_state()
+    swap = swap_state.get("swap")
+    report: dict[str, Any] = {"job": _JOB, "mode": "post-check"}
+    if not isinstance(swap, Mapping):
+        report["result"] = "refused: no swap on record"
+        return report, [f"no swap record in {_SWAP_STATE}: nothing to check"]
+
+    apr, _ = load_apr(conn)
+    _set_timeouts(conn, apr[APR_COPY_TIMEOUT_S])
+    blockers: list[str] = []
+    columns = [row[0] for row in _rows(conn, _COLUMNS_SQL, (_TABLE,))]
+    if "source" in columns:
+        blockers.append(f"{_TABLE} still carries a source column")
+    if "vendor" not in columns or "kind" not in columns:
+        blockers.append(f"{_TABLE} lacks vendor/kind: {columns}")
+    if _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_OLD_TABLE}",)) is None:
+        blockers.append(f"{_OLD_TABLE} does not exist")
+    if views := dependent_views(conn, _TABLE):
+        if views != sorted(_VIEWS):
+            blockers.append(f"dependent views of {_TABLE} are {views}, want {sorted(_VIEWS)}")
+    else:
+        blockers.append(f"no dependent views read {_TABLE}")
+
+    venue_head = int(_scalar(conn, _VENUE_HEAD_COUNT_SQL))
+    if venue_head != swap["venue_head_count"]:
+        blockers.append(
+            f"ohlcv_venue_head count {venue_head} != pre-swap {swap['venue_head_count']}"
+        )
+    report["venue_head_count"] = venue_head
+
+    tradeable = {tf: int(n) for tf, n in _rows(conn, _TRADEABLE_TF_SQL)}
+    if tradeable != swap["tradeable_by_timeframe"]:
+        blockers.append(
+            f"tradeable counts moved: {tradeable} != pre-swap {swap['tradeable_by_timeframe']}"
+        )
+    rebound = _rebound_view_counts(conn, swap)
+    if rebound != tradeable:
+        blockers.append(f"old view on {_OLD_TABLE} counts {rebound} != new view {tradeable}")
+    report["tradeable_by_timeframe"] = tradeable
+
+    n_venue_volume = int(_scalar(conn, _VENUE_FALLBACK_VOLUME_SQL))
+    if n_venue_volume:
+        blockers.append(f"{n_venue_volume} venue/fallback rows carry volume through the view")
+    report["venue_fallback_rows_with_volume"] = n_venue_volume
+
+    spy_read = [[format_iso_ts(ts), o, c, v] for ts, o, c, v in _rows(conn, _S0_SPY_SQL)]
+    if sorted(map(repr, spy_read)) != sorted(map(repr, swap["s0_spy_read"])):
+        blockers.append(f"research S0 SPY read moved: {spy_read} != pre-swap {swap['s0_spy_read']}")
+    report["s0_spy_read"] = spy_read
+
+    gate, gate_blockers = run_selection_gate(target=_TABLE, symbols=gate_symbols)
+    report["selection_gate"] = gate
+    blockers += gate_blockers
+
+    symbols = equivalence_symbols or gate_symbols
+    if not symbols:
+        blockers.append("no symbol subset given: pass --gate-symbols or --equivalence-symbols")
+    else:
+        equivalence, equivalence_blockers = run_d2_equivalence(symbols)
+        report["d2_equivalence"] = equivalence
+        blockers += equivalence_blockers
+
+    if not blockers:
+        report["api"] = restart_api_and_verify()
+        if not report["api"].get("started"):
+            blockers.append(f"api service did not come back: {report['api']}")
+    report["result"] = "verified" if not blockers else "failed"
+    return report, blockers
+
+
+# --- rollback -----------------------------------------------------------------------------------
+
+
+def run_rollback(conn: Any) -> tuple[dict[str, Any], list[str]]:
+    refuse_if_writers(load_writer_state(conn))
+    swap_state = load_swap_state()
+    swap = swap_state.get("swap")
+    report: dict[str, Any] = {"job": _JOB, "mode": "rollback"}
+    if not isinstance(swap, Mapping):
+        report["result"] = "refused: no swap on record"
+        return report, [f"no swap record in {_SWAP_STATE}: nothing to roll back"]
+    if (
+        _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_OLD_TABLE}",)) is None
+        or _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_V2_TABLE}",)) is not None
+    ):
+        report["result"] = "refused: not in the swapped state"
+        return report, ["the tables are not in the swapped state; nothing to roll back"]
+
+    apr, _ = load_apr(conn)
+    _set_timeouts(conn, apr[APR_STATEMENT_TIMEOUT_S])
+    started = time.monotonic()
+    with conn.transaction():
+        conn.execute(f"SET LOCAL lock_timeout = '{int(apr[APR_LOCK_TIMEOUT_S])}s'")
+        conn.execute(f"LOCK TABLE {_TABLE}, {_OLD_TABLE} IN ACCESS EXCLUSIVE MODE")
+        conn.execute(f"ALTER TABLE {_TABLE} RENAME TO {_V2_TABLE}")
+        conn.execute(f"ALTER TABLE {_OLD_TABLE} RENAME TO {_TABLE}")
+        conn.execute(
+            "ALTER INDEX market_data_ohlcv_pkey_idx RENAME TO market_data_ohlcv_pkey_idx_rebuilt"
+        )
+        conn.execute(
+            "ALTER INDEX idx_ohlcv_symbol_tf_time RENAME TO idx_ohlcv_symbol_tf_time_rebuilt"
+        )
+        conn.execute(
+            "ALTER INDEX market_data_ohlcv_old_pkey_idx RENAME TO market_data_ohlcv_pkey_idx"
+        )
+        conn.execute("ALTER INDEX idx_ohlcv_old_symbol_tf_time RENAME TO idx_ohlcv_symbol_tf_time")
+        # COMMENT ON is a utility statement: the text is inlined as a literal, never a bind.
+        conn.execute(
+            sql.SQL("COMMENT ON TABLE {} IS {}").format(
+                sql.Identifier(_TABLE), sql.Literal(swap["table_comment"])
+            )
+        )
+        for view in _VIEWS:
+            conn.execute(f"DROP VIEW {view}")
+        for view in _VIEWS:
+            conn.execute(f"CREATE VIEW {view} AS {swap['view_definitions'][view]}")
+            conn.execute(
+                sql.SQL("COMMENT ON VIEW {} IS {}").format(
+                    sql.Identifier(view), sql.Literal(swap["view_comments"][view])
+                )
+            )
+            for grantee, privilege in swap["view_grants"].get(view, []):
+                conn.execute(f"GRANT {privilege} ON {view} TO {grantee}")
+        # The compression policy moves back: the policy the migration added on the incoming
+        # table is removed, the outgoing table's own job is scheduled again.
+        conn.execute("SELECT remove_compression_policy(%s::regclass)", (f"public.{_V2_TABLE}",))
+        for job, _after, _schedule, _scheduled in swap["policy"]:
+            conn.execute("SELECT alter_job(%s, scheduled => true)", (int(job),))
+        problems = []
+        if _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_OLD_TABLE}",)) is not None:
+            problems.append(f"{_OLD_TABLE} still exists after the rollback")
+        if _scalar(conn, "SELECT to_regclass(%s)", (f"public.{_V2_TABLE}",)) is None:
+            problems.append(f"{_V2_TABLE} does not exist after the rollback")
+        if "source" not in [row[0] for row in _rows(conn, _COLUMNS_SQL, (_TABLE,))]:
+            problems.append(f"{_TABLE} lacks its source column after the rollback")
+        if problems:
+            raise SwapAbortedError("; ".join(problems))
+
+    report["result"] = "rolled back"
+    report["seconds"] = round(time.monotonic() - started, 2)
+    report["api"] = "left stopped: the running api code would 500 against the restored table"
+    return report, []
+
+
 # --- entry ------------------------------------------------------------------------------------
 
-_MODES = ("build", "prove")
+_MODES = ("build", "prove", "swap", "post-check", "rollback")
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -1174,25 +1740,79 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     modes.add_argument(
         "--prove", action="store_true", help=f"prove v2 equal to {_TABLE} and gate-clean"
     )
+    modes.add_argument(
+        "--swap",
+        action="store_true",
+        help=f"rename {_TABLE} to {_OLD_TABLE} and {_V2_TABLE} to {_TABLE} in one transaction",
+    )
+    modes.add_argument(
+        "--post-check", action="store_true", help="verify the swap (counts, views, S0 read, gates)"
+    )
+    modes.add_argument(
+        "--rollback", action="store_true", help="reverse the renames if the post-check failed"
+    )
     parser.add_argument(
         "--data-path",
         default="/var/lib/docker",
         help="a path on the filesystem holding the database volume (free-disk check)",
+    )
+    parser.add_argument(
+        "--gate-symbols",
+        nargs="+",
+        default=None,
+        help="post-check only: the small symbol subset the plan 07 selection gate re-runs on",
+    )
+    parser.add_argument(
+        "--equivalence-symbols",
+        nargs="+",
+        default=None,
+        help="post-check only: the small symbol subset the plan 08 equivalence re-runs on "
+        "(defaults to --gate-symbols)",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
-    mode = next((m for m in (*_MODES, "preflight") if getattr(args, m)), "preflight")
+    mode = next(
+        (m for m in (*_MODES, "preflight") if getattr(args, m.replace("-", "_"))), "preflight"
+    )
     with psycopg.connect(Settings().database_url, autocommit=True, application_name=_JOB) as conn:
         if mode == "preflight":
             conn.execute("SET default_transaction_read_only = on")
         try:
             if mode == "build":
                 report, blockers = run_build(conn, args.data_path)
+                if not blockers:
+                    record_swap_state(
+                        "build",
+                        {
+                            "completed_at": format_iso_ts(datetime.now(UTC)),
+                            "result": report["result"],
+                            "by_timeframe_original": report["copy"]["original_by_timeframe"],
+                            "by_timeframe_v2": report["copy"]["v2_by_timeframe"],
+                        },
+                    )
             elif mode == "prove":
                 report, blockers = run_prove(conn)
+                if not blockers:
+                    record_swap_state(
+                        "prove",
+                        {
+                            "completed_at": format_iso_ts(datetime.now(UTC)),
+                            "result": report["result"],
+                            "rows_original": report["rows_original"],
+                            "rows_v2": report["rows_v2"],
+                            "by_timeframe_original": report["by_timeframe_original"],
+                            "by_timeframe_v2": report["by_timeframe_v2"],
+                        },
+                    )
+            elif mode == "swap":
+                report, blockers = run_swap(conn, args.data_path)
+            elif mode == "post-check":
+                report, blockers = run_post_check(conn, args.gate_symbols, args.equivalence_symbols)
+            elif mode == "rollback":
+                report, blockers = run_rollback(conn)
             else:
                 report, blockers = preflight(conn, args.data_path)
         except (SwapRefusedError, SwapAbortedError) as error:

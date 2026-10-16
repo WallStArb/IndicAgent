@@ -71,16 +71,10 @@ _SCRUB_RULES = (
 _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     # Tables with a dedicated boundary test.
     "market_data_ohlcv": Covered("tests/unit/test_market_data_ohlcv_writer_boundary.py"),
-    # The vendor/kind rebuild target (migration 496, phase 191 plan 12): the swap script's
-    # window-closed copy is its only writer until plan 14's swap, and the script is deleted at
-    # the phase close.
-    "market_data_ohlcv_v2": (
-        Writer(
-            "scripts/ops/bars/ops_canonical_vendor_kind_swap.py",
-            reason="TEMPORARY: the rebuild target's only writer, the window-closed copy with "
-            "map (plan 12) and the plan 14 swap (retire: 191-17)",
-        ),
-    ),
+    # The pre-swap label-column table, renamed away by the plan 14 swap (migration 497) and kept
+    # for one nightly cycle: nothing may write it (the swap script only renames it), and plan
+    # 191-17's DROP TABLE clears the entry with the table.
+    "market_data_ohlcv_old": (),
     "ohlcv_intraday_raw_archive": Covered(
         "tests/unit/test_ohlcv_intraday_raw_archive_writer_boundary.py"
     ),
