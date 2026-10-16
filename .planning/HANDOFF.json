@@ -1,11 +1,16 @@
 {
  "version": "1.0",
- "timestamp": "2026-10-15T23:10:00Z",
+ "timestamp": "2026-10-16T00:52:00Z",
  "phase": "191",
  "phase_name": "unified-raw-bar-table",
- "plan": "191-09 done 2026-10-15 (window closed); next: fresh-context review of 191-11 and 191-09, then 191-12",
+ "plan": "191-11 and 191-09 reviewed (b5d4a0435, no HIGH); GYRE fixed (D-191-O, 7ec5f10fe); basis class fixed (494+495); next: 191-12",
  "status": "in_progress",
  "completed_tasks": [
+  "191-11 and 191-09 fresh-context review committed (191-11-09-REVIEW.md, b5d4a0435): no HIGH; R6 cannot prove no raw row lost (no lower bound on one count) and D7 treats a missing serve time as present (small 1d lookahead) - both ride with plan 12",
+  "D-191-O landed (7ec5f10fe + migration 493): derivation applies vendor restatements last-wins with revision flags; removal breach refuses one name; per-name isolation; batch closes partial; fetcher refreshes 1d ledger bounds for applied names",
+  "GYRE todo 535 item 40 closed; the 23:24 UTC apply derived 1,500 names",
+  "Basis class (todo 535 item 42, migrations 494+495): tradier consolidated 1d back-adjusted before 2023-01-03, 27 names >= 1% median drift; AVA BH FTV CUBI FTI IP PFE restored to unadjusted ibkr basis (31,031 rows restated, 4,290 new, all flagged, zero refusals); AVA 2017 = 43.29 verified; follow-up scan needed for 19 ibkr-thin damaged names once the fetcher deepens raw; UNIT excluded (512 track)",
+  "Fetcher timer restarted 2026-10-16 00:50 UTC after the manual apply window",
   "191-01 to 191-06 executed; 191-04 closed 2026-10-14 (balance check residue explained, summary 8a6dd61b5)",
   "independent reviews of 01-03, 04-05, 06 done; fixes in 191-04-FIXES-SUMMARY.md and 191-06-FIXES-SUMMARY.md; open items in todo 535",
   "migrations 473 to 484 applied (477 origin pending, retired by 482; 480 bar_session_choice; 481 restatement flag and APR; 483 truncated-bar scan APR; 484 primary slot count)",
@@ -23,21 +28,21 @@
   "191-09 done: canonical_bar_lineage (migration 491, set join) and ohlcv_venue_head (492) over ohlcv_raw; bar_auditor and D7 read raw + revision (1513a7d50 7ea18274c eccc76745 e20808496); D7 baseline diff at two fixed nows zero unexplained (191-09-D7-BASELINE-DIFF.json); lineage_missing now counts canonical bars raw displaced (2,310 visible, canonical behind); all three held units cleared and resumed 22:52 UTC, window record empty (closed); first raw-based D7 run started 22:52:58 UTC"
  ],
  "remaining_tasks": [
-  "Canonical 1d ends 2026-10-12 (latest complete session 2026-10-15): the daily stage's 2026-10-15 18:31 UTC apply failed whole on the GYRE refusal (todo 535 item 40); until it applies, lineage_missing and late_heads (AES, BKNG) report canonical behind raw, and test_d2_single_writer_live's lineage assertion fails live",
+  "Plan 191-12 next (carries the R6 lower-bound and D7 serve-time MEDIUM findings), then 13 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint)",
+  "Verify canonical 1d reaches 2026-10-15 after tonight fetcher timer runs; daily stage changed-only if needed",
+  "After the 1d catch-up completes: re-run the basis drift scan (todo 535 item 42) and add policy rows for the 19 ibkr-thin damaged names (ELE, IJR, IBM, RTX, O, LEN, WBD, VMRK, OKE, APO, MGM, RJF, WELL, EWS, EWT, STAG, TIGO, SSP, IESC)",
+  "Check the dividend writer retry (02:30 EDT) heals PSKY/WBD/QRVO/CCO once canonical 1d is current",
+  "Feature rebuild (186-26) runs once, after the 191 selection gate is 0, canonical 1d is caught up and plans 11 to 14 have landed",
   "Verify the 1d catch-up: at 21:05 UTC canonical 1d still ended 2026-10-12 and raw smart_trades held 2026-10-14 for 381 names; after the fetcher runs finish and the daily stage runs, confirm market_data_ohlcv 1d max date is the latest completed session for the 1d-eligible names; re-run the daily stage changed-only if the fetcher did not derive",
-  "Fresh-context review of 191-11 and 191-09, then fixes",
-  "GYRE daily refusal (todo 535 item 40)",
   "Plans 12 to 25 serially with review and fix after each (17 and 19 time-gated; 20 owner checkpoint); plan 16 deletes ops_raw_backfill and ops_selection_gate.locate_groups after its last balance (todo 535 item 41)",
   "Feature rebuild (186-26) runs once, after the 191 selection gate is 0, canonical 1d is caught up and plans 11 to 14 have landed"
  ],
- "blockers": [
-  "Daily stage blocked by the GYRE derivation-stage refusal (todo 535 item 40): one refused name fails the whole batch, so canonical 1d does not advance."
- ],
+ "blockers": [],
  "human_actions_pending": [
   "owner acknowledgement of D-191-B, D and G",
   "plan 20 Tradier deletion checkpoint"
  ],
  "uncommitted_files": [],
- "next_action": "Fresh-context review of 191-11 and 191-09; then 191-12. Decide the GYRE refusal (todo 535 item 40) so the daily stage applies and canonical 1d reaches the latest complete session.",
- "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15). Owner 2026-10-15: Alpaca 1d as a second daily source is a post-191 todo. ohlcv_raw compression (migration 486) ran 2026-10-15; check logs/ohlcv_raw_compress_486.log ends DONE."
+ "next_action": "Start plan 191-12 (serial executor, review after). Verify canonical 1d hits 2026-10-15 with tonight timer runs.",
+ "context_notes": "Owner decision D-191-N 2026-10-14: last-wins for a vendor's own re-serves, revision log keeps every old value, restatement detector (ohlcv_restatement_flag, APR threshold.bar_integrity.restatement_*) reports and never blocks. Owner direction 2026-10-14: no bespoke per-symbol repairs; residue the shared code and one pass do not resolve goes to todo 512 as a deletion candidate with a data-quality reason (none found this round; GE 2021-11 two-decimal span stays, todo 535 item 24). Owner principle 2026-10-13: fetch per source, agnostic to other sources. Raw 1d IBKR kinds: smart_trades, smart_adjusted, venue_<route> (migration 476). Forming 1d bars are not vendor answers (D-191-J). Usage limits killed agents on 2026-10-13/14/15: commit finished work before long steps; wait on PIDs, not pgrep -f on a pattern the loop itself matches. Plan 08: integration tests need pytest --noconftest while migration 485 (concurrent executor) cannot replay into indicagent_test. D-191-D pairing is not part of d2-v3 (TRADES only); plans 09 and 10 own it. No live process or partial DB state from 191-10: all work so far was read-only. Do not pkill -f a pattern your own shell command contains (it killed the shell on 2026-10-15). Owner 2026-10-15: Alpaca 1d as a second daily source is a post-191 todo. ohlcv_raw compression (migration 486) ran 2026-10-15; check logs/ohlcv_raw_compress_486.log ends DONE. D-191-O live: ratio breach flags and applies last-wins, removal breach refuses one name only. bar_source_policy is append-only (closed rows immutable; migrations may correct via session_replication_role=replica). d2-v3 supports (tradier primary, ibkr fallback) and (ibkr primary, no fallback) only. --rewrite-digests is a maintenance-only path that skips the daily load. Tradier consolidated 1d is back-adjusted before 2023-01-03."
 }

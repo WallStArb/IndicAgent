@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-15T21:08:02.530Z"
+last_updated: "2026-10-16T00:37:01.665Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 117
+  completed_plans: 118
   percent: 22
 ---
 
@@ -45,7 +45,7 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-15. Plans 01 to 11 done;
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-16. Plans 01 to 11 done;
 01 to 07 independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
 191-07-FIXES.md, the third with the owner's last-wins decision D-191-N). Plan 08 (2026-10-15):
 the daily stage and the grid read ohlcv_raw; the rule over raw is digest-equal to canonical 1d
@@ -63,9 +63,19 @@ Plan 09 done 2026-10-15 (191-09-SUMMARY.md): D7, bar_auditor, canonical_bar_line
 491) and ohlcv_venue_head (492) read ohlcv_raw; D7 baseline diff zero unexplained; the three held
 units cleared and resumed 22:52 UTC, cutover window closed. Canonical 1d ends 2026-10-12 (latest
 complete session 2026-10-15): the 2026-10-15 daily apply failed whole on the GYRE refusal (todo
-535 item 40), so lineage_missing now reports about 2,300 canonical bars behind raw. Next:
-fresh-context review of 11 and 09, then 12. The feature rebuild (186-26) runs once, after the gate
-is 0, canonical 1d is caught up and plans 11 to 14 have landed. Handoff: `.planning/HANDOFF.json`.
+535 item 40), so lineage_missing now reports about 2,300 canonical bars behind raw. Review of 11 and 09 done
+(191-11-09-REVIEW.md, b5d4a0435, no HIGH; R6 lower bound and D7 serve-time lookahead ride with
+plan 12). GYRE fixed by D-191-O (7ec5f10fe): derivation applies restatements last-wins with
+flags, removal breach refuses one name only, batch closes partial; 1,500 names derive per run.
+Basis class found and fixed (todo 535 item 42, migrations 494+495): tradier consolidated 1d is
+back-adjusted before 2023-01-03 (27 names >= 1% median drift); AVA BH FTV CUBI FTI IP PFE
+restored to the unadjusted ibkr basis (31,031 rows restated, all flagged); 19 damaged names
+wait for ibkr raw to deepen, then a follow-up scan; UNIT stays on its 512 track. Fetcher timer
+restarted 2026-10-16 00:50 UTC (canonical 1d at 10-14, the 10-15 session lands with the timer
+runs; AVA-class names current). Dividend writer failed 13:47 EDT on PSKY/WBD/QRVO/CCO (too few
+daily rows, stale-canonical symptom; retries 02:30 EDT). Next: plan 12. The feature rebuild
+(186-26) runs once, after the gate is 0, canonical 1d is caught up and plans 11 to 14 have
+landed. Handoff: `.planning/HANDOFF.json`.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
   last-wins, the old value is logged, nothing is held and no load is refused; a restatement
