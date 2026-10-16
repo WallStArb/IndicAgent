@@ -37,7 +37,10 @@ def _migration_path() -> Path:
 
 
 def _sql() -> str:
-    return re.sub(r"--[^\n]*", "", read_source(*_migration_path().parts[-3:]))
+    """The migration with comments stripped and whitespace collapsed: the assertions check the
+    presence of statements, not the file's line wrapping."""
+    stripped = re.sub(r"--[^\n]*", "", read_source(*_migration_path().parts[-3:]))
+    return re.sub(r"\s+", " ", stripped)
 
 
 def test_v2_is_created_empty_with_vendor_and_kind_and_no_source_column() -> None:

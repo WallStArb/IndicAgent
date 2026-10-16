@@ -151,6 +151,12 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "batching, deleted by plan 191-05 (the raw write batches by "
         "infra.ohlcv_observation.copy_batch_rows)."
     ),
+    "market_data_ohlcv_v2": (
+        "retire: 191-17. The vendor/kind rebuild target (migration 496, plan 12), written and "
+        "read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py; plan 14 swaps the "
+        "names (v2 becomes market_data_ohlcv) and plan 17 deletes the script, whose commit adds "
+        "the retire entries for the five infra.canonical_swap.* keys the same step orphans."
+    ),
 }
 
 

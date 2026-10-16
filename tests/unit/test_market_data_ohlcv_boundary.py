@@ -47,6 +47,12 @@ _ALLOW_LIST: dict[str, str] = {
         "TEMPORARY retire: 191-17 (one-shot backfill, deleted at close). Reads the raw canonical "
         "table because the backfill copies every vendor-labelled row, volume 0 included."
     ),
+    "scripts/ops/bars/ops_canonical_vendor_kind_swap.py": (
+        "TEMPORARY retire: 191-17 (one-shot rebuild, deleted at close). Copies the raw canonical "
+        "table into market_data_ohlcv_v2 with the vendor/kind mapping and proves it equal: every "
+        "row must be compared, zero-volume provider bars included, or the proof would pass while "
+        "hiding rows the tradeable view filters."
+    ),
     "scripts/ops/bars/ops_d2_raw_equivalence.py": (
         "TEMPORARY retire: 191-17 (one-shot equivalence check, deleted at close). Compares the "
         "daily rule over raw with every stored canonical 1d row, zero-volume rows included."
