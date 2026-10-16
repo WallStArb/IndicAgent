@@ -258,14 +258,16 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     of 2026-09-30, later than the displaced serves), which last-wins keeps by design. 0 keys
     hold a d1-bootstrap value over a later-answered serve. feature_vectors and market_regimes
     hold no 4h rows (tf column), so migration 488 left nothing derived behind.
-40. GYRE daily refusal (2026-10-15 resume): the derivation-stage rule refuses a revision ratio of
-    0.0283 over 4,665 stored rows with no corporate action. Canonical equals IBKR raw on every
-    shared key, so the rows behind the 2.8% (a source switch or removed rows) need one look;
-    by owner direction no per-symbol repair, a shared-code fix or a todo 512 candidate.
-    Measured 2026-10-15 (191-09): the refusal fails the whole daily batch (18:31 UTC run derived
-    1,497 names and 27,455 new rows, wrote none), so canonical 1d ends 2026-10-12 for every name
-    and lineage_missing grows with each IBKR re-serve (2,310 visible bars at 22:30 UTC; GYRE's
-    share is 132 bars of 2015 whose canonical value raw displaced to ohlcv_revision).
+40. CLOSED 2026-10-15 (D-191-O, 7ec5f10fe): GYRE's refusal was the derivation stage refusing a
+    vendor restatement instead of applying it last-wins. The write contract now flags ratio
+    breaches (revision_flagged, non-blocking) and refuses only removals (refuse_removal); one
+    refused or failed name no longer fails the batch (per-name isolation, migration 493).
+    The 23:24 UTC apply derived 1,500 names (canonical 1d to 2026-10-12 head per name with raw
+    to 10-12; AVA then refused alone, see item 42; CTVA held by design, todo 515). GYRE
+    canonical equals IBKR raw on every shared key; fresh sessions arrive with the fetcher.
+    Original finding (2026-10-15 resume): the derivation-stage rule refused a revision ratio
+    of 0.0283 over 4,665 stored rows with no corporate action; the refusal failed the whole
+    daily batch (18:31 UTC run derived 1,497 names and 27,455 new rows, wrote none).
 41. Old-store migration tooling left by 191-11 (plan 16 owns): `scripts/ops/bars/ops_raw_backfill.py`
     (the plan 03 backfill; its source is the two old stores) and `ops_selection_gate.locate_groups`
     (plan 04's balance diagnostic) still read `ohlcv_observation` and `ohlcv_intraday_raw_archive`
@@ -276,3 +278,28 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     is now the earliest bar its id names in raw or the revision log (last-wins moves a re-served
     bar's request id; a head re-ask is the only request over its oldest window, so its head is
     unaffected).
+42. Tradier 1d back-adjusted history class (2026-10-15, surfaced by the AVA daily refusal):
+    tradier consolidated 1d closes are on a back-adjusted basis before 2023-01-03 (all damaged
+    spans end 2022-12-30; the two vendors agree exactly from 2023 on). The 185-17/18 full-history
+    apply authored those spans into canonical under the global tradier-primary row, so canonical
+    1d sits on the adjusted basis for them. Digest-equality checks cannot see basis drift; the
+    D-191-O isolation plus the seam gate surfaced it (AVA: seam median 2.806, 2,766 of 5,229
+    stored rows would be removed, refused alone while 1,500 names derived).
+    Measured: 27 names with median drift >= 1% over >= 60 paired pre-2023 sessions
+    (AVA -57%, ELE -100% (decimal shift, tradier serves ELE at 1/10), EWS/EWT -30%, WELL -24%,
+    UNIT -22%, STAG -17%, RJF +18%, IJR +60%, MGM +12%, SSP +12%, TIGO +11%, BH -11%, FTV -8%,
+    VMRK -5%, APO -5%, CUBI +5%, FTI +4%, OKE +4%, RTX +3%, IP/PFE/LEN/IBM -2%, WBD/O -1%,
+    IESC +2%); 1,022 measurable names are clean (< 1%).
+    Fixed 2026-10-15 (migration 494): scoped bar_source_policy rows make IBKR primary over
+    [1990-01-01, 2026-10-07) for the damaged names whose IBKR raw coverage is >= 98% of stored
+    and whose basis is anchored (non-tradier stored values and non-tradier ohlcv_revision old
+    values equal today's IBKR raw exactly; IBKR's basis never drifted): AVA, BH, FTV, CUBI,
+    FTI, IP, PFE. FTV and IP rows split around the closed 185-47 one-day rows (append-only
+    table). The daily stage re-derives them; the write contract applies last-wins with
+    revision flags and logs every displaced tradier value.
+    Follow-up (owner flow): the remaining damaged names are IBKR-thin (ELE 93.9% coverage,
+    IJR 77%, and 18 more at 75% or less: IBM, RTX, O, LEN, WBD, VMRK, OKE, APO, MGM, RJF,
+    WELL, EWS, EWT, STAG, TIGO, SSP, IESC); the fetcher's 1d catch-up is deepening their raw.
+    Re-run the drift scan after the catch-up completes and add rows for the same class.
+    UNIT is excluded either way: IBKR re-served its own 1d history on another scale
+    (2026-10-12, plan 08 finding); its 512 track owns it.
