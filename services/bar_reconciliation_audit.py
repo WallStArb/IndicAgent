@@ -20,7 +20,7 @@ with the venue study):
 - dividend_freshness: Yahoo dividend coverage trailing the last session.
 - nightly_skipped: the last IBKR history fetcher run (its status file) did not finish with
   success recently.
-- stray_sources: 1d/15m/1h rows with a source the derivation does not write.
+- stray_sources: 1d/15m/1h rows with a (vendor, kind) the derivation does not write.
 - switches: venue switches differing from the venue study verdict.
 - completeness and masked_slots (todo 462): per (symbol, timeframe, year) the share of
   expected session slots that hold a real bar or lie inside an answered request window,
@@ -70,6 +70,8 @@ from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
+    _1D_KINDS,
+    _1D_VENDORS,
     _RAW_DAILY_KINDS,
     _RAW_DAILY_VENDORS,
     _SELECT_1D_FLAG_RULES_SQL,
@@ -90,11 +92,10 @@ from services.ohlcv_coverage_writer import rebuild_from_stored_state
 from src.config.settings import Settings, dimension_where_clause
 from src.core.agent.base_batch import BaseBatch
 from src.core.bar_accumulator import _TF_MINUTES
-from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
 from src.core.integrity_monitor import emit_integrity_fact_async, emit_integrity_facts_async
 from src.core.models import AssetClass
 from src.intelligence.bars.daily_rule import PolicyRow, observation_from_raw
-from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE, Observation, SplitRecord
+from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import EMPTY_INPUT_DIGEST, month_ranges
 from src.intelligence.bars.gap_plan import (
     ANSWERED_OUTCOMES,
@@ -128,10 +129,9 @@ from src.intelligence.bars.sources import (
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
     SOURCE_DERIVED_5M,
-    SOURCE_IBKR_FALLBACK,
     SOURCE_TRADIER,
 )
-from src.intelligence.bars.vendor_kind import VENDOR_IBKR
+from src.intelligence.bars.vendor_kind import VENDOR_IBKR, label_to_vendor_kind
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -147,13 +147,13 @@ FINDINGS_TOTAL = counter(
     "D7 reconciliation audit findings per run, labeled by check only (never by symbol).",
 )
 
-# Sources the derivation (and the Tradier loader, migration 438) may leave in each
-# derivation-owned timeframe. Identifiers, not tunables (schema values).
-ALLOWED_SOURCES: dict[str, frozenset[str]] = {
-    "1d": frozenset(
-        {SOURCE_NAMED, SOURCE_VENUE, SOURCE_TRADIER, SOURCE_IBKR_FALLBACK, SOURCE_SYNTHETIC_FILL}
-    ),
-    **{tf: frozenset({SOURCE_DERIVED_5M, SOURCE_SYNTHETIC_FILL}) for tf in GRID_TIMEFRAMES},
+# The (vendor, kind) pairs the derivation (and the Tradier loader, migration 438) may leave
+# in each derivation-owned timeframe (plan 191-13: canonical rows carry the pair). The retired
+# synthetic_fill class is structurally gone: the pair is NOT NULL and no writer produces it.
+_DERIVED_PAIR = label_to_vendor_kind(SOURCE_DERIVED_5M)
+ALLOWED_PAIRS: dict[str, frozenset[tuple[str, str]]] = {
+    "1d": frozenset(CANONICAL_1D_SOURCES),
+    **{tf: frozenset({_DERIVED_PAIR}) for tf in GRID_TIMEFRAMES},
 }
 
 # The venue study verdict's timeframe for each switch (scripts/ops/bars/ops_venue_study.py).
@@ -460,22 +460,22 @@ def check_dividend_freshness(
     return CheckResult(len(samples), tuple(samples))
 
 
-def check_stray_sources(source_counts: Mapping[tuple[str, str | None], int]) -> CheckResult:
-    """Rows in a derivation-owned timeframe with a source nothing sanctioned writes.
+def check_stray_sources(source_counts: Mapping[tuple[str, tuple[str, str]], int]) -> CheckResult:
+    """Rows in a derivation-owned timeframe with a (vendor, kind) nothing sanctioned writes.
 
-    source_counts: (timeframe, source) -> row count. Timeframes the derivation does not own
-    are not judged. The finding count is the stray row count.
+    source_counts: (timeframe, (vendor, kind)) -> row count. Timeframes the derivation does
+    not own are not judged. The finding count is the stray row count.
     """
     n = 0
     samples: list[str] = []
-    for (tf, source), count in sorted(
-        source_counts.items(), key=lambda kv: (kv[0][0], str(kv[0][1]))
+    for (tf, pair), count in sorted(
+        source_counts.items(), key=lambda kv: (kv[0][0], f"{kv[0][1][0]}/{kv[0][1][1]}")
     ):
-        allowed = ALLOWED_SOURCES.get(tf)
-        if allowed is None or source in allowed or count <= 0:
+        allowed = ALLOWED_PAIRS.get(tf)
+        if allowed is None or pair in allowed or count <= 0:
             continue
         n += count
-        samples.append(f"{tf}:{source if source is not None else 'NULL'}={count}")
+        samples.append(f"{tf}:{pair[0]}/{pair[1]}={count}")
     return CheckResult(n, tuple(samples))
 
 
@@ -969,10 +969,11 @@ FROM ohlcv_venue_head
 WHERE route = ANY($1::text[])
 GROUP BY symbol
 """
-# Raw table (allow-listed): the earliest canonical row of any real source.
+# Raw table (allow-listed): the earliest canonical row (the retired synthetic_fill class is
+# structurally gone since the pair columns are NOT NULL; plan 191-13).
 _CANONICAL_HEAD_SQL = """
 SELECT min(timestamp) FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = '1d' AND source IS DISTINCT FROM 'synthetic_fill'
+WHERE symbol = $1 AND timeframe = '1d'
 """
 # The moved-name inventory restricted to the 1d-eligible names D6 writes, and what
 # listing_venue holds for each.
@@ -1009,23 +1010,22 @@ FROM instruments i
 LEFT JOIN dividend_event_coverage c ON c.symbol = i.symbol AND c.source = 'yahoo'
 WHERE {clause} AND i.contract_details->>'asset_class' = $1
 """
-# Raw table (allow-listed): counts every source, including the ones the view hides.
+# Raw table (allow-listed): counts every (vendor, kind), including the ones the view hides.
 _SOURCE_COUNTS_SQL = """
-SELECT timeframe, source, symbol, count(*) AS n FROM market_data_ohlcv
+SELECT timeframe, vendor, kind, symbol, count(*) AS n FROM market_data_ohlcv
 WHERE timeframe = ANY($1::text[]) AND timestamp >= $2
-GROUP BY 1, 2, 3
+GROUP BY 1, 2, 3, 4
 """
-# Raw table (allow-listed): placeholders and zero-volume provider bars are what the
-# completeness and masked-slot checks classify.
+# Raw table (allow-listed): zero-volume provider bars are what the completeness and
+# masked-slot checks classify (the placeholder class is gone with the pair columns).
 _GRID_ROWS_SQL = """
-SELECT timestamp, volume, source FROM market_data_ohlcv
+SELECT timestamp, volume, vendor, kind FROM market_data_ohlcv
 WHERE symbol = $1 AND timeframe = $2 AND timestamp >= $3 AND timestamp < $4
 """
 _HAS_REAL_BEFORE_SQL = """
 SELECT EXISTS (
     SELECT 1 FROM market_data_ohlcv
     WHERE symbol = $1 AND timeframe = $2 AND timestamp < $3
-      AND source IS DISTINCT FROM 'synthetic_fill'
 )
 """
 _PARTIAL_FLAGS_SQL = """
@@ -1336,11 +1336,12 @@ SELECT i.symbol FROM instruments i
 WHERE EXISTS (SELECT 1 FROM market_data_ohlcv m WHERE m.symbol = i.symbol AND m.timeframe = '5m')
 ORDER BY i.symbol
 """
-# Stored 5m stamps that hold an answer: real bars and zero-volume provider bars; the placeholders
-# ($2) are the only rows left out. Raw table (allow-listed): the tradeable view hides zero volume.
+# Stored 5m stamps that hold an answer: real bars and zero-volume provider bars alike (the
+# retired placeholder class is gone with the pair columns; plan 191-13). Raw table
+# (allow-listed): the tradeable view hides zero volume.
 _RAW_5M_SLOTS_SQL = """
 SELECT "timestamp" FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = '5m' AND source IS DISTINCT FROM $2
+WHERE symbol = $1 AND timeframe = '5m'
 """
 # IBKR's own 15m/1h bars, the grid parity reference (the archive table until plan 191-09).
 _ARCHIVE_ROWS_SQL = """
@@ -1348,10 +1349,13 @@ SELECT timeframe, "timestamp", open, high, low, close, volume
 FROM ohlcv_raw
 WHERE symbol = $1 AND timeframe = ANY($2::text[]) AND vendor = 'ibkr' AND kind = 'named'
 """
-# Raw table (allow-listed): the stray vendor rows are exactly what the tradeable view would hide.
+# Raw table (allow-listed): the stray vendor rows are exactly what the tradeable view would
+# hide. A row of the grid's own (vendor, kind) is the derivation's, anything else is stray.
 _STRAY_VENDOR_SQL = """
 SELECT symbol, timeframe, count(*) AS n FROM market_data_ohlcv
-WHERE timeframe = ANY($1::text[]) AND source IS DISTINCT FROM $2 AND symbol = ANY($3::text[])
+WHERE timeframe = ANY($1::text[])
+  AND (vendor, kind) IS DISTINCT FROM ($2::text, $3::text)
+  AND symbol = ANY($4::text[])
 GROUP BY 1, 2
 """
 _PREVIOUS_DIGEST_VERDICT_SQL = """
@@ -1997,20 +2001,21 @@ class BarReconciliationAudit(BaseBatch):
     @staticmethod
     async def _stray_sources(conn: Any, window: _Window) -> _Judged:
         rows = await conn.fetch(
-            _SOURCE_COUNTS_SQL, sorted(ALLOWED_SOURCES), _day_start(window.judge_from)
+            _SOURCE_COUNTS_SQL, sorted(ALLOWED_PAIRS), _day_start(window.judge_from)
         )
-        counts: dict[tuple[str, str | None], int] = defaultdict(int)
-        # One row per (timeframe, source, symbol) from the GROUP BY: a list holds each once.
-        names_by_key: dict[tuple[str, str | None], list[str]] = defaultdict(list)
+        counts: dict[tuple[str, tuple[str, str]], int] = defaultdict(int)
+        # One row per (timeframe, vendor, kind, symbol) from the GROUP BY: a list holds each
+        # once.
+        names_by_key: dict[tuple[str, tuple[str, str]], list[str]] = defaultdict(list)
         for r in rows:
-            key = (r["timeframe"], r["source"])
+            key = (r["timeframe"], (r["vendor"], r["kind"]))
             counts[key] += r["n"]
             names_by_key[key].append(r["symbol"])
         result = check_stray_sources(counts)
         stray = {
-            f"{tf}:{source}": sorted(names)
-            for (tf, source), names in names_by_key.items()
-            if source not in ALLOWED_SOURCES[tf]
+            f"{tf}:{vendor}/{kind}": sorted(names)
+            for (tf, (vendor, kind)), names in names_by_key.items()
+            if (vendor, kind) not in ALLOWED_PAIRS[tf]
         }
         if stray:
             logger.error("bar_reconciliation.stray_source_symbols", symbols_by_source=stray)
@@ -2056,9 +2061,7 @@ class BarReconciliationAudit(BaseBatch):
                 )
             )
             for tf, minutes in _GRID_MINUTES.items():
-                real = [
-                    r["timestamp"] for r in stored_rows[tf] if r["source"] != SOURCE_SYNTHETIC_FILL
-                ]
+                real = [r["timestamp"] for r in stored_rows[tf]]
                 has_before = await conn.fetchval(_HAS_REAL_BEFORE_SQL, symbol, tf, start)
                 if not real and not has_before:
                     no_history.append(f"{symbol}|{tf}")
@@ -2072,7 +2075,7 @@ class BarReconciliationAudit(BaseBatch):
             fine = [
                 (r["timestamp"], r["volume"])
                 for r in stored_rows[GRID_SOURCE_TF]
-                if r["source"] != SOURCE_SYNTHETIC_FILL and r["volume"] > 0
+                if r["volume"] > 0
             ]
             if not fine:
                 continue
@@ -2084,11 +2087,7 @@ class BarReconciliationAudit(BaseBatch):
             }
             for tf in grid_tfs:
                 coarse = {
-                    r["timestamp"]: (
-                        "placeholder"
-                        if r["source"] == SOURCE_SYNTHETIC_FILL
-                        else "partial" if (tf, r["timestamp"]) in partial else "real"
-                    )
+                    r["timestamp"]: ("partial" if (tf, r["timestamp"]) in partial else "real")
                     for r in stored_rows[tf]
                 }
                 by_slot = bucket_fine_volume(fine, window.sessions, GRID_TIMEFRAMES[tf])
@@ -2097,7 +2096,9 @@ class BarReconciliationAudit(BaseBatch):
                     1 for slot, v in by_slot.items() if v > 0 and coarse.get(slot) == "partial"
                 )
                 if masked.n_findings:
-                    derived = any(r["source"] == SOURCE_DERIVED_5M for r in stored_rows[tf])
+                    derived = any(
+                        (r["vendor"], r["kind"]) == _DERIVED_PAIR for r in stored_rows[tf]
+                    )
                     masked_by_tf[tf] += masked.n_findings
                     if derived:
                         masked_derived[tf] += masked.n_findings
@@ -2292,9 +2293,12 @@ class BarReconciliationAudit(BaseBatch):
                     r["low"],
                     r["close"],
                     r["volume"],
-                    r["source"],
+                    r["vendor"],
+                    r["kind"],
                 )
-                for r in await conn.fetch(_SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_SOURCES))
+                for r in await conn.fetch(
+                    _SELECT_STORED_1D_SQL, symbol, list(_1D_VENDORS), list(_1D_KINDS)
+                )
             ],
             flags=[
                 (r["timestamp"], r["rule"], r["quarantine"])
@@ -2390,7 +2394,7 @@ class BarReconciliationAudit(BaseBatch):
                 loads[r["symbol"]].append((r["loaded_at"], r["first_bar"], r["last_bar"]))
         stray: dict[str, dict[str, int]] = defaultdict(dict)
         for r in await conn.fetch(
-            _STRAY_VENDOR_SQL, sorted(GRID_TIMEFRAMES), SOURCE_DERIVED_5M, names
+            _STRAY_VENDOR_SQL, sorted(GRID_TIMEFRAMES), _DERIVED_PAIR[0], _DERIVED_PAIR[1], names
         ):
             stray[r["symbol"]][r["timeframe"]] = r["n"]
 
@@ -2517,10 +2521,7 @@ class BarReconciliationAudit(BaseBatch):
         return _IntradayInputs(
             symbol=symbol,
             five=five,
-            stored_slots=[
-                r["timestamp"]
-                for r in await conn.fetch(_RAW_5M_SLOTS_SQL, symbol, SOURCE_SYNTHETIC_FILL)
-            ],
+            stored_slots=[r["timestamp"] for r in await conn.fetch(_RAW_5M_SLOTS_SQL, symbol)],
             answered=answered,
             archive=archive,
             current_digests=digests,

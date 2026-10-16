@@ -31,10 +31,9 @@ Modes (exactly one):
                 groups whose raw row count exceeds the distinct keys of archive, canonical vendor
                 rows (non-1d) and observation (1d), then the rows themselves.
 
-Canonical read contract (the same for plans 12, 13 and 14): `--target TABLE` (default
-market_data_ohlcv) is introspected once through information_schema; a table with a `vendor`
-column is read on (vendor, kind) directly, a table with a `source` column is read through
-vendor_kind.LABEL_TO_VENDOR_KIND.
+Canonical read contract: `--target TABLE` (default market_data_ohlcv) is introspected once
+through information_schema and must carry (vendor, kind) columns; the label-column read path
+was deleted in plan 191-13 when canonical swapped `source` for the pair.
 
 Last-wins (owner decision 2026-10-14, D-191-N): raw holds every vendor's latest answer and no
 value is refused or held, so canonical must equal the selection exactly; any difference is real.
@@ -49,8 +48,9 @@ basis-change signature (price_ratio, volume_ratio, time_shift) that no reviewer 
 (`unreviewed_basis_flags`, read once per run over the whole table), and is residue: a re-serve on
 a new basis landed last-wins and canonical may mix bases until someone has looked.
 
-Exit codes: 0 clean (canonical equals the selection exactly); 1 real differences or canonical rows
-with a label outside the vendor map; 2 BLOCKER (--emit-spans: a date no ranking reproduces); 3
+Exit codes: 0 clean (canonical equals the selection exactly); 1 real differences or canonical
+rows the gate never compared (a derived vendor row in a direct timeframe); 2 BLOCKER
+(--emit-spans: a date no ranking reproduces); 3
 residue (a canonical session mixing vendors, a session choice the durable record does not hold,
 or an unreviewed basis-change restatement flag): not clean, nothing may resume on it.
 """
@@ -679,20 +679,20 @@ _POLICY_SQL = (
 )
 _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE namespace = 'bar_kind'"
 _UNMAPPED_SQL = (
-    "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s "
-    "AND (source IS NULL OR NOT (source = ANY(%s)))"
+    "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = 'derived'"
 )
 
 
 def vendor_labels() -> dict[str, VK]:
-    """Source labels that name a vendor row (derived labels are not vendor rows)."""
+    """Source labels that name a vendor row (derived labels are not vendor rows). The archive
+    still carries its labels; canonical carries (vendor, kind) since plan 191-13."""
     return {
         label: pair for label, pair in LABEL_TO_VENDOR_KIND.items() if pair[0] != VENDOR_DERIVED
     }
 
 
-def introspect_target(cur: Any, target: str) -> str:
-    """'vendor' when the table has a vendor column, 'source' when it has a source column."""
+def introspect_target(cur: Any, target: str) -> None:
+    """The target must carry (vendor, kind) columns; anything else is refused before a read."""
     if not _SAFE_IDENT.match(target):
         raise SystemExit(f"refusing target {target!r}: not a plain table name")
     cur.execute(
@@ -701,40 +701,28 @@ def introspect_target(cur: Any, target: str) -> str:
         (target,),
     )
     columns = {r[0] for r in cur.fetchall()}
-    if "vendor" in columns and "kind" in columns:
-        return "vendor"
-    if "source" in columns:
-        return "source"
-    raise SystemExit(f"target {target!r} has neither (vendor, kind) nor source columns")
+    if "vendor" not in columns or "kind" not in columns:
+        raise SystemExit(f"target {target!r} has no (vendor, kind) columns")
 
 
-def read_canonical(
-    cur: Any, target: str, mode: str, symbol: str, timeframe: str
-) -> dict[datetime, Row]:
-    if mode == "vendor":
-        cur.execute(
-            f'SELECT "timestamp", vendor, kind, open, high, low, close, volume FROM {target} '
-            "WHERE symbol = %s AND timeframe = %s AND vendor <> %s",
-            (symbol, timeframe, VENDOR_DERIVED),
-        )
-        return {r[0]: ((r[1], r[2]), tuple(r[3:8])) for r in cur.fetchall()}
-    labels = vendor_labels()
+def read_canonical(cur: Any, target: str, symbol: str, timeframe: str) -> dict[datetime, Row]:
     cur.execute(
-        f'SELECT "timestamp", source, open, high, low, close, volume FROM {target} '
-        "WHERE symbol = %s AND timeframe = %s AND source = ANY(%s)",
-        (symbol, timeframe, list(labels)),
+        f'SELECT "timestamp", vendor, kind, open, high, low, close, volume FROM {target} '
+        "WHERE symbol = %s AND timeframe = %s AND vendor <> %s",
+        (symbol, timeframe, VENDOR_DERIVED),
     )
-    return {r[0]: (labels[r[1]], tuple(r[2:7])) for r in cur.fetchall()}
+    return {r[0]: ((r[1], r[2]), tuple(r[3:8])) for r in cur.fetchall()}
 
 
-def count_unmapped(cur: Any, target: str, mode: str, symbol: str, timeframe: str) -> int:
+def count_unmapped(cur: Any, target: str, symbol: str, timeframe: str) -> int:
     """Canonical rows the gate never compares, counted so they fail the verdict instead of
-    vanishing: a source label outside LABEL_TO_VENDOR_KIND (NULL included) and, in a direct
-    timeframe (1m, 5m, 4h: selection's, never the derivation's), a derived label too."""
-    if mode == "vendor":
-        return 0  # (vendor, kind) columns are the key itself; NOT NULL in the v2 schema
-    allowed = vendor_labels() if timeframe in DIRECT_TIMEFRAMES else LABEL_TO_VENDOR_KIND
-    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe, list(allowed)))
+    vanishing: (vendor, kind) are NOT NULL columns, so the old NULL/unmapped-label residue is
+    structurally gone and what remains is a derived vendor row in a direct timeframe (1m, 5m,
+    4h: selection's, never the derivation's). A derived timeframe is the derivation's own
+    ground and is not counted."""
+    if timeframe not in DIRECT_TIMEFRAMES:
+        return 0
+    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe))
     return int(cur.fetchone()[0])
 
 
@@ -899,7 +887,7 @@ def candidate_policy(paths: Sequence[str]) -> list[PolicyRow]:
 def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     diffs: list[SeriesDiff] = []
     with conn.cursor() as cur:
-        mode = introspect_target(cur, args.target)
+        introspect_target(cur, args.target)
         policy = read_policy(cur) + candidate_policy(args.with_spans)
         kind_order = read_kind_order(cur)
         symbols = shard_of(series_symbols(cur, args.symbols), args.shard)
@@ -909,7 +897,6 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
     meta = {
         "mode": "compare",
         "target": args.target,
-        "target_mode": mode,
         "timeframes": list(args.timeframes),
         "shard": args.shard,
         "with_spans": list(args.with_spans),
@@ -919,8 +906,8 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
     for n, symbol in enumerate(symbols, 1):
         for timeframe in args.timeframes:
             with conn.cursor() as cur:
-                canonical = read_canonical(cur, args.target, mode, symbol, timeframe)
-                unmapped = count_unmapped(cur, args.target, mode, symbol, timeframe)
+                canonical = read_canonical(cur, args.target, symbol, timeframe)
+                unmapped = count_unmapped(cur, args.target, symbol, timeframe)
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates and not unmapped:
                     continue
@@ -960,7 +947,7 @@ def run_compare(conn: psycopg.Connection, args: argparse.Namespace) -> tuple[dic
 
 def run_emit_spans(conn: psycopg.Connection, args: argparse.Namespace) -> int:
     with conn.cursor() as cur:
-        mode = introspect_target(cur, args.target)
+        introspect_target(cur, args.target)
         policy = read_policy(cur)
         kind_order = read_kind_order(cur)
         symbols = shard_of(series_symbols(cur, args.symbols), args.shard)
@@ -977,7 +964,7 @@ def run_emit_spans(conn: psycopg.Connection, args: argparse.Namespace) -> int:
     for n, symbol in enumerate(symbols, 1):
         for timeframe in args.timeframes:
             with conn.cursor() as cur:
-                canonical = read_canonical(cur, args.target, mode, symbol, timeframe)
+                canonical = read_canonical(cur, args.target, symbol, timeframe)
                 candidates = read_candidates(cur, symbol, timeframe)
                 if not canonical and not candidates:
                     continue
@@ -1144,24 +1131,24 @@ def run_idempotence(conn: psycopg.Connection, args: argparse.Namespace, batch_ro
             names = list(args.symbols)
         else:
             cur.execute(
-                "SELECT symbol, source, count(*) FROM market_data_ohlcv "
-                "WHERE timeframe = %s GROUP BY symbol, source",
+                "SELECT symbol, vendor, count(*) FROM market_data_ohlcv "
+                "WHERE timeframe = %s GROUP BY symbol, vendor",
                 (timeframe,),
             )
             dominant: dict[str, tuple[str, int]] = {}
-            for symbol, source, n in cur.fetchall():
+            for symbol, vendor, n in cur.fetchall():
                 if symbol not in dominant or n > dominant[symbol][1]:
-                    dominant[symbol] = (source, n)
+                    dominant[symbol] = (vendor, n)
             excluded = {
                 entry["symbol"]
                 for path in args.exclude_report
                 for entry in json.loads(Path(path).read_text())["series_not_clean"]
             }
-            by_source: dict[str, list[str]] = defaultdict(list)
-            for symbol, (source, _) in dominant.items():
+            by_vendor: dict[str, list[str]] = defaultdict(list)
+            for symbol, (vendor, _) in dominant.items():
                 if symbol not in excluded:
-                    by_source[source].append(symbol)
-            names = spread_names(by_source, args.idempotence_names)
+                    by_vendor[vendor].append(symbol)
+            names = spread_names(by_vendor, args.idempotence_names)
     conn.rollback()
     print(f"idempotence over {len(names)} names ({timeframe}): {', '.join(names)}")
     far_past = datetime(1990, 1, 1, tzinfo=UTC)
@@ -1224,18 +1211,25 @@ def locate_groups(cur: Any, symbol: str) -> list[tuple[str, str, str, int, int]]
     )
     raw = {(tf, v, k): n for tf, v, k, n in cur.fetchall()}
     keys: Counter = Counter()
+    # the UNION mixes the archive's label column with canonical 'vendor/kind' idents; the
+    # canonical side excludes derived and fallback rows in the SQL itself
     cur.execute(
         "SELECT timeframe, source, count(*) FROM ("
         '  SELECT timeframe, source, "timestamp" FROM ohlcv_intraday_raw_archive WHERE symbol = %s '
         "  UNION "
-        '  SELECT timeframe, source, "timestamp" FROM market_data_ohlcv '
-        "   WHERE symbol = %s AND timeframe <> '1d' AND source = ANY(%s)"
+        "  SELECT timeframe, vendor || '/' || kind, \"timestamp\" FROM market_data_ohlcv "
+        "   WHERE symbol = %s AND timeframe <> '1d' AND vendor <> %s AND kind <> 'fallback'"
         ") u GROUP BY 1, 2",
-        (symbol, symbol, list(labels)),
+        (symbol, symbol, VENDOR_DERIVED),
     )
-    for tf, source, n in cur.fetchall():
-        if source in labels:
-            keys[(tf, *labels[source])] += n
+    for tf, ident, n in cur.fetchall():
+        pair = labels.get(ident)
+        if pair is None:
+            vendor, sep, kind = ident.partition("/")
+            if not sep:
+                continue  # an archive label outside the vendor map cannot be counted
+            pair = (vendor, kind)
+        keys[(tf, *pair)] += n
     cur.execute(
         "SELECT o.source, o.route, o.what_to_show, o.bar_date FROM ohlcv_observation o "
         "JOIN ohlcv_request r USING (request_id) "

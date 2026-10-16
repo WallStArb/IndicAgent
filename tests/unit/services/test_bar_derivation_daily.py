@@ -504,12 +504,14 @@ def test_apply_writes_the_contract_and_no_lineage():
         1,
     )
     assert json.loads(load["detail"])["rule_version"] == RULE_VERSION
-    # Old values of changed and removed rows, origin load, under the load row.
+    # Old values of changed and removed rows, origin load, under the load row. New revision
+    # rows carry the composite "vendor/kind" token in old_source (the grid and raw-writer
+    # convention); historical rows keep their labels.
     revisions = conn.many("INSERT INTO ohlcv_revision")
     assert {(r[3].date(), r[7], r[9], r[10], r[11], r[12]) for r in revisions} == {
-        (_D2, 11.5, "tradier", "load", "tradier", "consolidated"),
-        (_D4, 13.0, "ibkr_named", "load", "ibkr", "named"),
-        (_D5, 13.5, "tradier", "load", "tradier", "consolidated"),
+        (_D2, 11.5, "tradier/consolidated", "load", "tradier", "consolidated"),
+        (_D4, 13.0, "ibkr/named", "load", "ibkr", "named"),
+        (_D5, 13.5, "tradier/consolidated", "load", "tradier", "consolidated"),
     }
     assert {r[0] for r in revisions} == {load["load_id"]}
     # Removed by key, new by insert, changed by the upsert on the changed set only.

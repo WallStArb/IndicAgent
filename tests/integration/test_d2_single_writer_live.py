@@ -4,10 +4,11 @@
 Runs against the production database (not indicagent_test) because the point is the live 1d corpus
 and its lineage. Strictly read-only: the connection is set read-only, so a stray write raises.
 
-Asserts the d2-v2 design: the canonical 1d sources are tradier, ibkr_fallback and ibkr_named (the
-last only on dates an exception policy row names IBKR primary); the canonical_bar_lineage view is
-complete on every visible bar; a seeded sample recomputed with derive_daily_v2 equals the stored
-bars; every month with bars has a current digest; no scale break across a recorded split.
+Asserts the d2-v2 design: the canonical 1d identities are (tradier, consolidated), (ibkr,
+fallback) and (ibkr, named) (the last only on dates an exception policy row names IBKR primary);
+the canonical_bar_lineage view is complete on every visible bar; a seeded sample recomputed with
+derive_daily_v2 equals the stored bars; every month with bars has a current digest; no scale
+break across a recorded split.
 
 The sample recompute reads the daily stage's own inputs, the current ohlcv_raw 1d rows (phase 191
 plan 08). A sampled name whose inputs were served after its last applied daily load is not
@@ -33,18 +34,21 @@ pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 _LIVE_DB_URL = "postgresql://postgres:postgres@localhost:5432/indicagent"
 _SAMPLE_SEED = 185
 _SAMPLE_RANDOM = 14
-_ALLOWED_1D_SOURCES = {"tradier", "ibkr_fallback", "ibkr_named"}
+_ALLOWED_1D_PAIRS = {("tradier", "consolidated"), ("ibkr", "fallback"), ("ibkr", "named")}
+# two ANY arrays, not a composite-array parameter: the cross product they admit holds no rows
+_ALLOWED_1D_VENDORS = sorted({v for v, _k in _ALLOWED_1D_PAIRS})
+_ALLOWED_1D_KINDS = sorted({k for _v, k in _ALLOWED_1D_PAIRS})
 _WINDOW_KEY = "threshold.bar_integrity.fallback_basis_window_sessions"
 _TOLERANCE_KEY = "threshold.bar_integrity.fallback_basis_tolerance_bp"
 
-# Stored ibkr_named bars on dates whose resolved 1d policy row (the symbol's row beats the default,
-# daily_rule.resolve_policy) does not name IBKR primary. Since migration 456 the default names IBKR
-# from 2026-10-07.
+# Stored (ibkr, named) bars on dates whose resolved 1d policy row (the symbol's row beats the
+# default, daily_rule.resolve_policy) does not name IBKR primary. Since migration 456 the default
+# names IBKR from 2026-10-07.
 _IBKR_NAMED_OUTSIDE_EXCEPTION_SQL = """
 SELECT m.symbol, (m."timestamp" AT TIME ZONE 'UTC')::date AS bar_date
 FROM market_data_ohlcv m
 CROSS JOIN LATERAL (SELECT (m."timestamp" AT TIME ZONE 'UTC')::date AS d) day
-WHERE m.timeframe = '1d' AND m.source = 'ibkr_named'
+WHERE m.timeframe = '1d' AND m.vendor = 'ibkr' AND m.kind = 'named'
   AND COALESCE(
       (SELECT p.primary_source FROM bar_source_policy p
        WHERE p.timeframe = '1d' AND p.symbol = m.symbol
@@ -55,14 +59,14 @@ WHERE m.timeframe = '1d' AND m.source = 'ibkr_named'
   ) IS DISTINCT FROM 'ibkr'
 """
 
-# Visible (tradeable-view) 1d bars of the canonical sources whose lineage row has no request ids,
+# Visible (tradeable-view) 1d bars of the canonical pairs whose lineage row has no request ids,
 # or that have no lineage row at all.
 _UNLINEAGED_SQL = """
 SELECT t.symbol, (t."timestamp" AT TIME ZONE 'UTC')::date AS bar_date
 FROM market_data_ohlcv_tradeable t
 LEFT JOIN canonical_bar_lineage l
   ON l.symbol = t.symbol AND l.timeframe = '1d' AND l."timestamp" = t."timestamp"
-WHERE t.timeframe = '1d' AND t.source = ANY($1::text[])
+WHERE t.timeframe = '1d' AND t.vendor = ANY($1::text[]) AND t.kind = ANY($2::text[])
   AND (l."timestamp" IS NULL OR l.request_ids IS NULL)
 """
 
@@ -71,7 +75,7 @@ SELECT b.symbol, b.month
 FROM (
     SELECT symbol, date_trunc('month', "timestamp", 'UTC') AS month
     FROM market_data_ohlcv_tradeable
-    WHERE timeframe = '1d' AND source = ANY($1::text[])
+    WHERE timeframe = '1d' AND vendor = ANY($1::text[]) AND kind = ANY($2::text[])
     GROUP BY 1, 2
 ) b
 WHERE NOT EXISTS (
@@ -100,16 +104,19 @@ SELECT EXISTS (
 
 # Category candidates for the sample, each a set of symbols present in the 1d corpus.
 _EXCEPTION_NAMES_SQL = """
-SELECT DISTINCT symbol FROM market_data_ohlcv WHERE timeframe = '1d' AND source = 'ibkr_named'
+SELECT DISTINCT symbol FROM market_data_ohlcv
+WHERE timeframe = '1d' AND vendor = 'ibkr' AND kind = 'named'
 """
 _FALLBACK_NAMES_SQL = """
-SELECT DISTINCT symbol FROM market_data_ohlcv WHERE timeframe = '1d' AND source = 'ibkr_fallback'
+SELECT DISTINCT symbol FROM market_data_ohlcv
+WHERE timeframe = '1d' AND vendor = 'ibkr' AND kind = 'fallback'
 """
 # Tradier-owned names that also hold IBKR SMART TRADES raw rows: both vendors observed (the 236 that
 # moved to Tradier in 185-36 are this kind).
 _BOTH_VENDORS_NAMES_SQL = """
 SELECT symbol FROM (
-    SELECT DISTINCT symbol FROM market_data_ohlcv WHERE timeframe = '1d' AND source = 'tradier'
+    SELECT DISTINCT symbol FROM market_data_ohlcv
+    WHERE timeframe = '1d' AND vendor = 'tradier'
 ) t
 WHERE EXISTS (
     SELECT 1 FROM ohlcv_raw r
@@ -158,16 +165,16 @@ async def _sample_symbols(conn: asyncpg.Connection) -> list[str]:
     return chosen
 
 
-async def test_the_corpus_holds_only_d2v2_canonical_sources(conn):
-    sources = {
-        r["source"]
+async def test_the_corpus_holds_only_d2v2_canonical_identities(conn):
+    pairs = {
+        (r["vendor"], r["kind"])
         for r in await conn.fetch(
-            "SELECT DISTINCT source FROM market_data_ohlcv WHERE timeframe = '1d'"
+            "SELECT DISTINCT vendor, kind FROM market_data_ohlcv WHERE timeframe = '1d'"
         )
     }
-    assert sources <= _ALLOWED_1D_SOURCES, sources - _ALLOWED_1D_SOURCES
-    assert _ALLOWED_1D_SOURCES <= set(CANONICAL_1D_SOURCES)
-    assert "tradier" in sources
+    assert pairs <= _ALLOWED_1D_PAIRS, pairs - _ALLOWED_1D_PAIRS
+    assert _ALLOWED_1D_PAIRS <= set(CANONICAL_1D_SOURCES)
+    assert ("tradier", "consolidated") in pairs
 
 
 async def test_ibkr_named_bars_sit_only_under_an_ibkr_exception_policy_row(conn):
@@ -176,7 +183,7 @@ async def test_ibkr_named_bars_sit_only_under_an_ibkr_exception_policy_row(conn)
 
 
 async def test_every_visible_1d_bar_has_lineage_with_request_ids(conn):
-    unlineaged = await conn.fetch(_UNLINEAGED_SQL, list(CANONICAL_1D_SOURCES))
+    unlineaged = await conn.fetch(_UNLINEAGED_SQL, _ALLOWED_1D_VENDORS, _ALLOWED_1D_KINDS)
     assert not unlineaged, [(r["symbol"], r["bar_date"]) for r in unlineaged[:10]]
     versions = {
         r["rule_version"]

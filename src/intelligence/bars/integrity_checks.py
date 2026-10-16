@@ -25,7 +25,6 @@ from src.intelligence.bars.daily_rule import (
 from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.digest import bar_content_digest, month_ranges
 from src.intelligence.bars.gap_plan import AnsweredWindows
-from src.intelligence.bars.sources import SOURCE_IBKR_FALLBACK
 from src.intelligence.bars.vendor_basis import (
     BasisRun,
     blocking,
@@ -36,7 +35,9 @@ from src.intelligence.bars.vendor_basis import (
 )
 from src.intelligence.bars.write_contract import BarValues, classify
 
-_PRIMARY_LABEL = {"tradier": "tradier", "ibkr": "ibkr_named"}
+# The (vendor, kind) pair each policy primary's canonical bars carry (daily_rule, plan 191-13).
+_PRIMARY_PAIR = {"tradier": ("tradier", "consolidated"), "ibkr": ("ibkr", "named")}
+_FALLBACK_PAIR = ("ibkr", "fallback")
 
 
 @dataclass(frozen=True)
@@ -62,25 +63,25 @@ def session_coverage(
 
 
 def policy_conformance(
-    rows: Sequence[tuple[date, str]],
+    rows: Sequence[tuple[date, str, str]],
     policy_rows: Sequence[PolicyRow],
     tradier_current_dates: Collection[date],
     *,
     symbol: str,
 ) -> list[date]:
-    """Dates of (date, source) rows whose source contradicts the policy row open on that date.
+    """Dates of (date, vendor, kind) rows whose identity contradicts the policy open on that date.
 
-    The source must be the policy's primary label; ibkr_fallback is accepted only under a policy
+    The pair must be the policy primary's; (ibkr, fallback) is accepted only under a policy
     that names IBKR as fallback, on a date with no current-scale Tradier observation (a hole, a
     head, or a date Tradier answered only on a stale scale; d2-v3).
     """
     bad: list[date] = []
-    for bar_date, source in rows:
+    for bar_date, vendor, kind in rows:
         policy = resolve_policy(policy_rows, symbol, bar_date)
-        if source == _PRIMARY_LABEL.get(policy.primary_source):
+        if (vendor, kind) == _PRIMARY_PAIR.get(policy.primary_source):
             continue
         if (
-            source == SOURCE_IBKR_FALLBACK
+            (vendor, kind) == _FALLBACK_PAIR
             and policy.fallback_source == "ibkr"
             and bar_date not in tradier_current_dates
         ):
@@ -129,7 +130,7 @@ class IntegrityThresholds(Protocol):
 
 @dataclass(frozen=True)
 class StoredBar:
-    """One stored canonical 1d row (market_data_ohlcv, a CANONICAL_1D_SOURCES source)."""
+    """One stored canonical 1d row (market_data_ohlcv, a CANONICAL_1D_SOURCES pair)."""
 
     timestamp: datetime
     open: float | None
@@ -137,7 +138,8 @@ class StoredBar:
     low: float | None
     close: float | None
     volume: float | None
-    source: str
+    vendor: str
+    kind: str
 
 
 @dataclass(frozen=True)
@@ -273,7 +275,7 @@ def judge_name_1d(
             timings[check] = timings.get(check, 0.0) + (time.perf_counter() - started)
 
     stored: dict[date, BarValues] = {
-        b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume, b.source)  # type: ignore[misc]
+        b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)  # type: ignore[misc]
         for b in inputs.stored
     }
 
@@ -306,7 +308,7 @@ def judge_name_1d(
     started = time.perf_counter()
     tradier_current, _ = current_closes(inputs.observations, inputs.splits)
     contradicted = policy_conformance(
-        [(d, values[5]) for d, values in stored.items()],
+        [(d, values[5], values[6]) for d, values in stored.items()],
         inputs.policy_rows,
         tradier_current.keys(),
         symbol=symbol,
@@ -333,7 +335,8 @@ def judge_name_1d(
         basis_tolerance_bp=thresholds.basis_tolerance_bp,
     )
     incoming = {
-        b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.source) for b in derived.bars
+        b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
+        for b in derived.bars
     }
     drifted = recompute_findings(incoming, stored)
     verdicts.append(verdict("canonical_recompute", not drifted, len(drifted), 0.0))
@@ -377,7 +380,8 @@ def judge_name_1d(
             {
                 v
                 for d, values in stored.items()
-                if run.start <= d <= run.end and (v := canonical_vendor(values[5])) is not None
+                if run.start <= d <= run.end
+                and (v := canonical_vendor(values[5], values[6])) is not None
             },
         )
     ]

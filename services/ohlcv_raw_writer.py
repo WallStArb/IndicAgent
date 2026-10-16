@@ -59,7 +59,7 @@ from typing import Any
 
 from src.config.config_service import ConfigService
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
-from src.intelligence.bars.vendor_kind import VENDOR_DERIVED, VENDOR_KIND_TO_LABEL
+from src.intelligence.bars.vendor_kind import VENDOR_DERIVED
 from src.intelligence.bars.write_contract import BarValues, classify
 
 BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
@@ -187,10 +187,6 @@ async def read_write_params(config: ConfigService) -> RawWriteParams:
     )
 
 
-def _label(vendor: str, kind: str) -> str:
-    return VENDOR_KIND_TO_LABEL.get((vendor, kind), vendor)
-
-
 def _validate_row(
     row: RawRow,
     *,
@@ -234,14 +230,16 @@ def _validate_row(
 
 
 def _values(row: RawRow) -> BarValues:
-    # The sixth slot is the label; it is identical on both sides of a same-key comparison.
+    # The trailing pair is the row's identity; it is identical on both sides of a same-key
+    # comparison and rides the write contract unchanged (plan 191-13).
     return (
         float(row.open),
         float(row.high),
         float(row.low),
         float(row.close),
         None if row.volume is None else int(row.volume),
-        _label(row.vendor, row.kind),
+        row.vendor,
+        row.kind,
     )
 
 
@@ -350,8 +348,7 @@ def _classify_series(
     _lock_series(cur, symbol, timeframe, vendor, kind)
     cur.execute(_READ_STORED_SQL, (symbol, timeframe, vendor, kind, stamps))
     fetched = cur.fetchall()
-    label = _label(vendor, kind)
-    stored = {r[0]: (r[1], r[2], r[3], r[4], r[5], label) for r in fetched}
+    stored = {r[0]: (r[1], r[2], r[3], r[4], r[5], vendor, kind) for r in fetched}
     served = {r[0]: r[7] for r in fetched}
     delta = classify({ts: _values(keyed[ts]) for ts in stamps}, stored)
     replaced: dict[datetime, tuple] = {}
@@ -428,7 +425,9 @@ def write_raw(
         for series, keyed in sorted(by_series.items()):
             symbol, timeframe, vendor, kind = series
             found = _classify_series(cur, series, keyed, answered_at)
-            label = _label(vendor, kind)
+            # New revision rows carry the composite "vendor/kind" token in old_source (the D2
+            # digest rule token); historical rows keep their labels.
+            token = f"{vendor}/{kind}"
             new_rows += [
                 _raw_params(keyed[ts], answered_at, request_id, load_id)
                 for ts in found.delta.new_timestamps
@@ -436,12 +435,12 @@ def write_raw(
             for ts, old in found.replaced.items():
                 changed_rows.append(_raw_params(keyed[ts], answered_at, request_id, load_id))
                 revisions.append(
-                    (load_id, symbol, timeframe, ts, *old, label, vendor, kind)
+                    (load_id, symbol, timeframe, ts, *old, token, vendor, kind)
                     + (found.old_request[ts], _ORIGIN)
                 )
             for ts, offered in found.superseded.items():
                 revisions.append(
-                    (load_id, symbol, timeframe, ts, *offered, label, vendor, kind)
+                    (load_id, symbol, timeframe, ts, *offered, token, vendor, kind)
                     + (request_id, ORIGIN_SUPERSEDED)
                 )
             deltas.append(found.delta)

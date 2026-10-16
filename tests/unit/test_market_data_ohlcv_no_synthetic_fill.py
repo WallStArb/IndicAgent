@@ -40,10 +40,6 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Refusal: write_raw raises on a synthetic_fill vendor or kind before any SQL (ohlcv_raw "
         "holds vendor answers only; phase 191 plan 02)."
     ),
-    "services/bar_reconciliation_audit.py": (
-        "Reads and comparisons: D7 counts rows by source and excludes synthetic rows from its "
-        "real-row comparisons; nothing is written with the source."
-    ),
     "scripts/ops/bars/ops_masked_slot_baseline.py": (
         "Reads: counts synthetic slots for the masked-slot baseline; read-only."
     ),

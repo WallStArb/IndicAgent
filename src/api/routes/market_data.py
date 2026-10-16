@@ -35,7 +35,7 @@ async def get_market_data(
         Dictionary with market data bars
     """
     query = """
-        SELECT timestamp, open, high, low, close, volume, source
+        SELECT timestamp, open, high, low, close, volume, vendor, kind
         FROM market_data_ohlcv
         WHERE symbol = $1 AND timeframe = $2
         ORDER BY timestamp ASC
@@ -57,7 +57,8 @@ async def get_market_data(
             "low": float(row["low"]),
             "close": float(row["close"]),
             "volume": int(row["volume"]),
-            "source": row["source"],
+            "vendor": row["vendor"],
+            "kind": row["kind"],
         }
         for row in rows
     ]

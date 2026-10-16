@@ -33,8 +33,8 @@ calendar slot) is logged (`bar_selection.session_choice`), counted on the result
 bar_session_choice (migration 480; third review of plan 191-07, finding 4), whose sole writer is
 `record_session_choices`.
 
-Until plan 13 renames the column, the canonical row carries the `source` label of its
-(vendor, kind). `canonical_columns` and `_INSERT_HEAD` are the only two places that change then.
+Since plan 191-13 the canonical row carries the winning raw row's (vendor, kind) directly, the
+same identity it held in ohlcv_raw.
 """
 
 from __future__ import annotations
@@ -55,21 +55,21 @@ from src.intelligence.bars.selection import (
     session_date,
 )
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
-from src.intelligence.bars.vendor_kind import VENDOR_KIND_TO_LABEL, vendor_kind_to_label
+from src.intelligence.bars.vendor_kind import BAR_VENDORS
 
 DIRECT_TIMEFRAMES = frozenset({"1m", "5m", "4h"}) - DERIVATION_OWNED_TIMEFRAMES
 
 _INSERT_HEAD = (
     "INSERT INTO market_data_ohlcv "
-    "(timestamp, symbol, timeframe, open, high, low, close, volume, source) VALUES "
+    "(timestamp, symbol, timeframe, open, high, low, close, volume, vendor, kind) VALUES "
 )
 _UPSERT_TAIL = (
     " ON CONFLICT (timestamp, symbol, timeframe) DO UPDATE SET "
     "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, "
-    "volume = EXCLUDED.volume, source = EXCLUDED.source"
+    "volume = EXCLUDED.volume, vendor = EXCLUDED.vendor, kind = EXCLUDED.kind"
 )
 _LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
-_ROW = "(%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+_ROW = "(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
 _PARAMS_PER_ROW = _ROW.count("%s")
 _MAX_PARAMS = 65535  # psycopg's bind-parameter limit per statement
 
@@ -100,7 +100,7 @@ _POLICY_SQL = (
 )
 
 _READ_CANONICAL_SQL = (
-    'SELECT "timestamp", open, high, low, close, volume, source FROM market_data_ohlcv '
+    'SELECT "timestamp", open, high, low, close, volume, vendor, kind FROM market_data_ohlcv '
     'WHERE symbol = %s AND timeframe = %s AND "timestamp" >= %s AND "timestamp" < %s'
 )
 
@@ -118,11 +118,6 @@ class SelectionResult:
     dropped: int = 0  # slots left out by the session rule (canonical rows retracted)
 
 
-def canonical_columns(vendor: str, kind: str) -> str:
-    """The `source` label a canonical row carries for a selected (vendor, kind)."""
-    return vendor_kind_to_label(vendor, kind)
-
-
 def _canonical_row(c: Candidate) -> tuple:
     return (
         c.timestamp,
@@ -133,7 +128,8 @@ def _canonical_row(c: Candidate) -> tuple:
         c.low,
         c.close,
         c.volume,
-        canonical_columns(c.vendor, c.kind),
+        c.vendor,
+        c.kind,
     )
 
 
@@ -178,7 +174,7 @@ def select_and_write(
     n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = 0
     n_fallback = n_incomplete = n_dropped = 0
     start, end = session_window(start, end)
-    labels = sorted(VENDOR_KIND_TO_LABEL.values())
+    vendors = sorted(BAR_VENDORS)
     with conn.cursor() as cur:
         for symbol in sorted(set(symbols)):
             cur.execute(_LOCK_SQL, (f"bar_selection|{symbol}|{timeframe}",))
@@ -211,7 +207,7 @@ def select_and_write(
             for _symbol, _tf, ts in outcome.dropped:
                 if ts in exclude:
                     continue
-                cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, labels))
+                cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, vendors))
                 n_dropped += cur.rowcount
             winners = [w for w in outcome.winners if w.timestamp not in exclude]
             if not winners:
@@ -309,7 +305,9 @@ def record_session_choices(
         )
 
 
+# A retraction only ever removes a row a ranked vendor could have written; the vendor list is
+# the fence (every mapped (vendor, kind) has one of BAR_VENDORS' vendors).
 _RETRACT_SQL = (
     'DELETE FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s AND "timestamp" = %s '
-    "AND source = ANY(%s)"
+    "AND vendor = ANY(%s)"
 )

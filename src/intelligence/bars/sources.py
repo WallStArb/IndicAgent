@@ -13,17 +13,14 @@ session-anchored edges), matching aggregate_session_grid's minutes argument.
 The digest table's rule_version column records GRID_RULE_VERSION beside every
 bar_content_digest row so a reader can tell which grid rule hashed the slice;
 the digest itself deliberately excludes it (D-07).
+
+Label constants stay the raw-side vocabulary: ohlcv_request, ohlcv_load,
+ohlcv_raw's own history and vendor_kind's map speak labels. Canonical rows
+(market_data_ohlcv) carry (vendor, kind) since plan 191-13; the label map
+itself lives in vendor_kind.py.
 """
 
 from __future__ import annotations
-
-from src.core.bar_normalizer import (
-    SOURCE_IBKR_CONTINUOUS,
-    SOURCE_IBKR_GENERIC,
-    SOURCE_IBKR_NAMED,
-    SOURCE_IBKR_OFFICIAL,
-    SOURCE_IBKR_VENUE,
-)
 
 SOURCE_DERIVED_5M = "derived_5m"
 GRID_RULE_VERSION = "grid-v1"
@@ -41,8 +38,9 @@ DERIVATION_OWNED_TIMEFRAMES: frozenset[str] = frozenset(GRID_TIMEFRAMES) | {"1d"
 
 # Tradier, the 1d primary source before D = 2026-10-07 (migration 438; IBKR primary from D,
 # migration 456). The account is unfunded and the loader is deleted (plan 185-48); its stored
-# observations (route TRADIER) and canonical bars (source tradier) are canonical history before
-# D, read by the daily stage, D7 and the lineage view, so the two identifiers stay here.
+# observations (route TRADIER) and canonical bars ((tradier, consolidated)) are canonical
+# history before D, read by the daily stage, D7 and the lineage view, so the two identifiers
+# stay here.
 SOURCE_TRADIER = "tradier"
 ROUTE_TRADIER = "TRADIER"
 
@@ -56,37 +54,18 @@ ROUTE_ALPACA = "ALPACA"
 
 # An IBKR SMART TRADES 1d bar the d2-v2 rule admitted where the policy's primary source
 # (Tradier) has none: a head before Tradier's first bar, or an interior hole within the basis
-# tolerance (plan 185-36, migration 446). A source label of its own so
-# market_data_ohlcv_tradeable NULLs its volume by source, as for ibkr_venue, with no join to
-# bar_source_policy on every read.
+# tolerance (plan 185-36, migration 446).
 SOURCE_IBKR_FALLBACK = "ibkr_fallback"
 
-# The 1d market_data_ohlcv sources that are canonical bars: IBKR named (an IBKR-primary policy
-# range), venue (stored history from the deleted d2-v1 rule), the admitted IBKR fallback (d2-v2)
-# and Tradier, the 1d primary source before D (bar_source_policy). The 1d content digest and the
-# daily stage's value comparison read every one of them.
-CANONICAL_1D_SOURCES: tuple[str, ...] = (
-    SOURCE_IBKR_NAMED,
-    SOURCE_IBKR_VENUE,
-    SOURCE_IBKR_FALLBACK,
-    SOURCE_TRADIER,
+# The 1d market_data_ohlcv (vendor, kind) pairs that are canonical bars: IBKR named (an
+# IBKR-primary policy range), venue (stored history from the deleted d2-v1 rule), the
+# admitted IBKR fallback (d2-v2) and Tradier, the 1d primary source before D
+# (bar_source_policy). The 1d content digest and the daily stage's value comparison read
+# every one of them. Literal pairs, not vendor_kind imports: vendor_kind builds its map
+# from the label constants here, so importing the map back would be circular.
+CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
+    ("ibkr", "named"),
+    ("ibkr", "venue"),
+    ("ibkr", "fallback"),
+    ("tradier", "consolidated"),
 )
-
-# Bar source label -> the vendor that served it, the one definition. A bar keeps its label;
-# ohlcv_load.source records the vendor (its CHECK admits vendor names only). A label missing
-# here has no known vendor, and the ingress contract refuses it before any write.
-LABEL_VENDOR: dict[str, str] = {
-    **dict.fromkeys(
-        (
-            SOURCE_IBKR_NAMED,
-            SOURCE_IBKR_VENUE,
-            SOURCE_IBKR_CONTINUOUS,
-            SOURCE_IBKR_OFFICIAL,
-            SOURCE_IBKR_GENERIC,
-            SOURCE_IBKR_FALLBACK,
-        ),
-        "ibkr",
-    ),
-    SOURCE_TRADIER: "tradier",
-    SOURCE_ALPACA: "alpaca",
-}

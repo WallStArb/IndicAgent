@@ -10,20 +10,21 @@ Per bar date, the policy row that covers it (a symbol row beats the timeframe de
 raises) names the primary and fallback source:
 
 - primary: the latest current-scale observation of the primary vendor. Tradier observations are
-  route TRADIER (source label tradier); IBKR observations are route SMART TRADES, then the
-  LEGACY_IMPORT copy of the stored corpus as a lower rank (source label ibkr_named when IBKR is
-  primary). Venue routes are never read (the D-17 venue study failed).
+  route TRADIER (canonical identity (tradier, consolidated)); IBKR observations are route SMART
+  TRADES, then the LEGACY_IMPORT copy of the stored corpus as a lower rank (identity
+  (ibkr, named) when IBKR is primary). Venue routes are never read (the D-17 venue study
+  failed).
 - a primary with only stale-scale observations (d2-v3, plan 185-52, todo 517): when the policy
   names a fallback and the fallback has a current-scale answer for the date, that answer is
-  served (source label ibkr_fallback, the date listed in restated) if the basis over the
+  served (identity (ibkr, fallback), the date listed in restated) if the basis over the
   basis_window_sessions common sessions nearest the date (as for an interior hole, below) is
   within basis_tolerance_bp of 1. Otherwise, or with no current fallback answer, the latest
   stale observation is served with the pre_split_unrefetched flag (quarantined per APR), never a
   silently mixed scale. This is the path that keeps a name's Tradier history before
   D = 2026-10-07 tradeable after a later split: Tradier is never asked again, IBKR's split
   re-fetch answers on the new scale;
-- otherwise the fallback (IBKR under the Tradier default), current scale only, source label
-  ibkr_fallback:
+- otherwise the fallback (IBKR under the Tradier default), current scale only, identity
+  (ibkr, fallback):
   - head, a date before Tradier's first observation: admitted only when the seam (the median
     IBKR/Tradier close ratio over the first basis_window_sessions common sessions from Tradier's
     head) is within basis_tolerance_bp of 1, the interior test's tolerance; then one
@@ -80,7 +81,7 @@ from datetime import date, datetime
 from typing import Any
 
 from src.intelligence.bars.derivation import CanonicalBar, Observation, SplitRecord
-from src.intelligence.bars.sources import ROUTE_TRADIER, SOURCE_IBKR_FALLBACK
+from src.intelligence.bars.sources import ROUTE_TRADIER
 from src.intelligence.bars.vendor_basis import BP
 
 RULE_VERSION = "d2-v3"
@@ -102,7 +103,9 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
     FLAG_NO_VOLUME: ("volume",),
 }
 
-_PRIMARY_LABEL = {VENDOR_TRADIER: "tradier", VENDOR_IBKR: "ibkr_named"}
+# The canonical (vendor, kind) identity each policy primary serves under (plan 191-13).
+_PRIMARY_PAIR = {VENDOR_TRADIER: ("tradier", "consolidated"), VENDOR_IBKR: ("ibkr", "named")}
+_FALLBACK_PAIR = ("ibkr", "fallback")
 
 # The raw 1d series d2-v3 reads, as (vendor, kind). Listing-venue kinds and smart_adjusted are
 # never inputs (the D-17 venue study failed; adjusted bars are never canonical).
@@ -354,7 +357,7 @@ def _nearest(
     return chosen
 
 
-def _bar(obs: Observation, source: str, flags: tuple[str, ...]) -> CanonicalBar:
+def _bar(obs: Observation, pair: tuple[str, str], flags: tuple[str, ...]) -> CanonicalBar:
     if obs.volume is None:
         flags = flags + (FLAG_NO_VOLUME,)
     return CanonicalBar(
@@ -364,7 +367,8 @@ def _bar(obs: Observation, source: str, flags: tuple[str, ...]) -> CanonicalBar:
         low=obs.low,
         close=obs.close,
         volume=obs.volume,
-        source=source,
+        vendor=pair[0],
+        kind=pair[1],
         request_ids=(obs.request_id,),
         flags=flags,
     )
@@ -375,7 +379,7 @@ def _check_policy(policy: PolicyRow) -> None:
         raise ValueError(
             f"1d policy is {policy.ingress_mode!r}; d2-v3 derives only an observed timeframe"
         )
-    if policy.primary_source not in _PRIMARY_LABEL:
+    if policy.primary_source not in _PRIMARY_PAIR:
         raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v3 rule")
     if policy.fallback_source is not None and (
         policy.primary_source,
@@ -444,16 +448,16 @@ def derive_daily_v2(
         _check_policy(policy)
         primary = days[policy.primary_source].get(day)
         if primary is not None and primary.current is not None:
-            bars.append(_bar(primary.current, _PRIMARY_LABEL[policy.primary_source], ()))
+            bars.append(_bar(primary.current, _PRIMARY_PAIR[policy.primary_source], ()))
             continue
         fallback = days[policy.fallback_source].get(day) if policy.fallback_source else None
         if primary is not None and primary.stale is not None:
             if fallback is not None and fallback.current is not None and within_tolerance(day):
                 restated.append(day)
-                bars.append(_bar(fallback.current, SOURCE_IBKR_FALLBACK, ()))
+                bars.append(_bar(fallback.current, _FALLBACK_PAIR, ()))
             else:
                 bars.append(
-                    _bar(primary.stale, _PRIMARY_LABEL[policy.primary_source], (FLAG_PRE_SPLIT,))
+                    _bar(primary.stale, _PRIMARY_PAIR[policy.primary_source], (FLAG_PRE_SPLIT,))
                 )
             continue
         if fallback is None:
@@ -474,7 +478,7 @@ def derive_daily_v2(
                 refused.append(day)
                 continue
             admitted.append(day)
-        bars.append(_bar(fallback.current, SOURCE_IBKR_FALLBACK, ()))
+        bars.append(_bar(fallback.current, _FALLBACK_PAIR, ()))
 
     if head and tradier_head is not None:
         bars = _with_seam(
@@ -485,7 +489,12 @@ def derive_daily_v2(
         for rule in bar.flags:
             if rule != FLAG_FALLBACK_SEAM:
                 flags.append(
-                    DerivedFlag(bar.bar_date, rule, FLAG_FIELDS[rule], {"source": bar.source})
+                    DerivedFlag(
+                        bar.bar_date,
+                        rule,
+                        FLAG_FIELDS[rule],
+                        {"vendor": bar.vendor, "kind": bar.kind},
+                    )
                 )
     flags.sort(key=lambda f: (f.bar_date, f.rule))
     return DailyV2Result(
@@ -511,7 +520,11 @@ def _with_seam(
 ) -> list[CanonicalBar]:
     """Mark the first Tradier bar after an admitted head with the measured seam."""
     first = next(
-        (i for i, b in enumerate(bars) if b.source == "tradier" and b.bar_date >= tradier_head),
+        (
+            i
+            for i, b in enumerate(bars)
+            if (b.vendor, b.kind) == _PRIMARY_PAIR[VENDOR_TRADIER] and b.bar_date >= tradier_head
+        ),
         None,
     )
     if first is None:

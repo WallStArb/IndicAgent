@@ -4,14 +4,14 @@ Phase 191 plan 08, the daily rule's balance check (design doc step 6, "each with
 check"; T-191-24). For each symbol it runs the daily stage's own read and rule
 (services/bar_derivation.read_daily_inputs and daily_rule.derive_daily_v2, no write) and compares
 the produced 1d series with the stored canonical 1d rows of CANONICAL_1D_SOURCES: a whole-series
-bar_content_digest over the values with the source label as each row's rule set, and, when the
-digests differ, every differing date.
+bar_content_digest over the values with the (vendor, kind) pair as each row's rule set, and, when
+the digests differ, every differing date.
 
 Each difference is tagged mechanically:
 - rule_only_after_stored_end: a date the rule produces after the symbol's last stored canonical
   date (canonical 1d stops at the cutover until the daily stage runs again);
 - rule_only, stored_only: a date only one side holds, inside the stored span;
-- value: OHLCV differ; label: values equal, source label differs.
+- value: OHLCV differ; label: values equal, the (vendor, kind) identity differs.
 
 The allow-list (--allowlist, reviewed JSON) explains tags: "classes" maps a tag to a reason for
 every symbol, "symbols" maps a symbol to {"tags": [...], "reason": ...}. Exit 0 only when every
@@ -45,7 +45,7 @@ from src.intelligence.bars.daily_rule import derive_daily_v2  # noqa: E402
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
 from src.intelligence.bars.sources import CANONICAL_1D_SOURCES  # noqa: E402
 
-Bar = tuple[float, float, float, float, int | None, str]
+Bar = tuple[float, float, float, float, int | None, str, str]
 
 TAG_AFTER_END = "rule_only_after_stored_end"
 TAG_RULE_ONLY = "rule_only"
@@ -54,10 +54,17 @@ TAG_VALUE = "value"
 TAG_LABEL = "label"
 _EXAMPLES = 5
 
+# two ANY arrays, not a composite-array parameter: asyncpg cannot bind a list of tuples to a
+# (text, text)[] without explicit codecs, and the cross product the pair of arrays admits holds
+# no canonical rows (the same pattern services/bar_derivation reads stored 1d with)
+_STORED_VENDORS = tuple(sorted({vendor for vendor, _kind in CANONICAL_1D_SOURCES}))
+_STORED_KINDS = tuple(sorted({kind for _vendor, kind in CANONICAL_1D_SOURCES}))
+
 _STORED_SQL = """
-SELECT ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, open, high, low, close, volume, source
+SELECT ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, open, high, low, close, volume,
+       vendor, kind
 FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = '1d' AND source = ANY($2::text[])
+WHERE symbol = $1 AND timeframe = '1d' AND vendor = ANY($2::text[]) AND kind = ANY($3::text[])
 """
 _SYMBOLS_SQL = """
 SELECT symbol FROM instruments WHERE is_active AND compute_eligible_1d
@@ -68,7 +75,7 @@ ORDER BY 1
 
 
 def series_digest(series: Mapping[date, Bar]) -> str:
-    """bar_content_digest over a whole 1d series; each row's source label is its rule set."""
+    """bar_content_digest over a whole 1d series; each row's (vendor, kind) is its rule set."""
     days = sorted(series)
     epoch = np.array(
         [int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp()) for d in days],
@@ -82,7 +89,13 @@ def series_digest(series: Mapping[date, Bar]) -> str:
         [np.nan if series[d][4] is None else series[d][4] for d in days], dtype=np.float64
     )
     return bar_content_digest(
-        epoch, column(0), column(1), column(2), column(3), volume, [(series[d][5],) for d in days]
+        epoch,
+        column(0),
+        column(1),
+        column(2),
+        column(3),
+        volume,
+        [(series[d][5], series[d][6]) for d in days],
     )
 
 
@@ -168,8 +181,16 @@ def unexplained(comparison: Mapping[str, Any], allowlist: Mapping[str, Any]) -> 
 
 async def compare_symbol(conn: Any, symbol: str, params: Any) -> Comparison:
     stored: dict[date, Bar] = {
-        r["bar_date"]: (r["open"], r["high"], r["low"], r["close"], r["volume"], r["source"])
-        for r in await conn.fetch(_STORED_SQL, symbol, list(CANONICAL_1D_SOURCES))
+        r["bar_date"]: (
+            r["open"],
+            r["high"],
+            r["low"],
+            r["close"],
+            r["volume"],
+            r["vendor"],
+            r["kind"],
+        )
+        for r in await conn.fetch(_STORED_SQL, symbol, list(_STORED_VENDORS), list(_STORED_KINDS))
     }
     try:
         observations, splits = await read_daily_inputs(conn, symbol)
@@ -186,7 +207,8 @@ async def compare_symbol(conn: Any, symbol: str, params: Any) -> Comparison:
         result.error = f"{type(error).__name__}: {error}"
         return result
     rule: dict[date, Bar] = {
-        b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.source) for b in derived.bars
+        b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
+        for b in derived.bars
     }
     return compare(symbol, rule, stored)
 

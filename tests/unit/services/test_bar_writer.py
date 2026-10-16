@@ -190,10 +190,12 @@ def test_parse_payload_refuses_streaming_aggregate_timeframes():
 
 def test_parse_payload_unmapped_label_goes_to_dlq():
     """A 1m payload whose label has no (vendor, kind) mapping is invalid (DLQ), not a
-    silent default; new labels must be mapped in vendor_kind first."""
+    silent default; new labels must be mapped in vendor_kind first. The label must be
+    BarMessage-Literal-valid to reach the mapping (a Literal-invalid label dies in
+    _parse_bar), so the realistic case is a pair-less streaming label like ibkr_seed."""
     agent = _make_agent()
     payload = _make_bar_payload(tf="1m")
-    payload["source"] = "mystery_vendor"
+    payload["source"] = "ibkr_seed"
 
     valid, invalid = agent._parse_payload(payload)
 

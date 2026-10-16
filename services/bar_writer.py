@@ -44,6 +44,7 @@ from src.core.stream_keys import (
     topic_market_bars_htf,
 )
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
+from src.intelligence.bars.vendor_kind import label_to_vendor_kind
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,9 +52,9 @@ from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 
 _INSERT_OHLCV_SQL: str = """
 INSERT INTO market_data_ohlcv (
-    timestamp, symbol, base, timeframe, open, high, low, close, volume, source
+    timestamp, symbol, base, timeframe, open, high, low, close, volume, vendor, kind
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 """
 
@@ -61,6 +62,12 @@ ON CONFLICT (timestamp, symbol, timeframe) DO NOTHING
 # (D-06/D-15 single writer, plan 185-18 task 1b): DERIVATION_OWNED_TIMEFRAMES
 # in src/intelligence/bars/sources.py is the single definition; the streaming
 # writer imports the fence instead of restating the set.
+
+# The one timeframe this writer persists (plan 191-13): a streaming 1m bar carries its
+# publisher's label, which the vendor_kind map turns into the row's (vendor, kind). 5m/4h
+# aggregator output has no identity of its own (its canonical rows are bar_selection's,
+# chosen from ohlcv_raw), so it is refused rather than written under a made-up pair.
+_STREAMING_WRITTEN_TF = "1m"
 
 # Module-level OTel instruments — single meter, no prometheus_client
 _bw_meter = _otel_metrics.get_meter("indicagent")
@@ -153,7 +160,7 @@ class BarWriter(BaseWriter):
     def topics_produced(self) -> list[str]:
         return []
 
-    def _bar_to_row(self, bar: BarMessage, base: str, source: str) -> tuple:
+    def _bar_to_row(self, bar: BarMessage, base: str, vendor: str, kind: str) -> tuple:
         """Map a BarMessage to positional params for _INSERT_OHLCV_SQL.
 
         Positions must match the $N placeholders in _INSERT_OHLCV_SQL exactly.
@@ -168,7 +175,8 @@ class BarWriter(BaseWriter):
             bar.low,  # $7 low::numeric
             bar.close,  # $8 close::numeric
             bar.volume,  # $9 volume::bigint
-            source,  # $10 source::text
+            vendor,  # $10 vendor::text
+            kind,  # $11 kind::text
         )
 
     def _parse_payload(self, payload: dict) -> tuple[list, list]:
@@ -177,19 +185,22 @@ class BarWriter(BaseWriter):
         Returns (valid_rows, invalid_rows). Derivation-owned timeframes are
         refused with a logged warning and counted as neither valid nor invalid
         (plan 185-18 task 1b): the message is well-formed, its destination is
-        simply not this writer's to write.
+        simply not this writer's to write. 5m/4h aggregator output is refused
+        the same way (plan 191-13): its canonical rows are bar_selection's. A
+        1m payload whose source label has no (vendor, kind) mapping is invalid
+        (DLQ) with a warning: the map is where a new label must be added first.
         """
         if not isinstance(payload, dict) or not payload:
             return [], [payload]
         bar = self._parse_bar(payload)
         if bar is None:
             return [], []
+        # Log once per timeframe, not per refused bar: a returned HTF stream
+        # republishes owned timeframes at bar cadence. Service tests build
+        # BarWriter via __new__ (no __init__), so the refusal memory is created
+        # lazily at the use site.
+        refusals = self.__dict__.setdefault("_refused_tfs", set())
         if bar.tf in DERIVATION_OWNED_TIMEFRAMES:
-            # Log once per timeframe, not per refused bar: a returned HTF
-            # stream republishes owned timeframes at bar cadence. Service
-            # tests build BarWriter via __new__ (no __init__), so the
-            # refusal memory is created lazily at the use site.
-            refusals = self.__dict__.setdefault("_owned_tf_refusals", set())
             if bar.tf not in refusals:
                 refusals.add(bar.tf)
                 self.logger.warning(
@@ -199,10 +210,29 @@ class BarWriter(BaseWriter):
                     "services/bar_derivation (plan 185-18 task 1b)",
                 )
             return [], []
-
+        if bar.tf != _STREAMING_WRITTEN_TF:
+            if bar.tf not in refusals:
+                refusals.add(bar.tf)
+                self.logger.warning(
+                    "bar_writer.refuses_streaming_aggregate_timeframe",
+                    tf=bar.tf,
+                    reason="streaming aggregator output has no canonical (vendor, kind); "
+                    "canonical rows at this timeframe are bar_selection's over ohlcv_raw "
+                    "(plan 191-13)",
+                )
+            return [], []
+        try:
+            vendor, kind = label_to_vendor_kind(bar.source)
+        except KeyError as error:
+            self.logger.warning(
+                "bar_writer.unmapped_source_label",
+                tf=bar.tf,
+                source=bar.source,
+                reason=str(error),
+            )
+            return [], [payload]
         base = self._contract_cache.get(bar.symbol, bar.symbol)
-        source = "live_1m" if bar.tf == "1m" else "live_htf"
-        return [self._bar_to_row(bar, base, source)], []
+        return [self._bar_to_row(bar, base, vendor, kind)], []
 
     async def _flush_batch(self, batch: list) -> None:
         assert self._db_pool is not None

@@ -16,7 +16,8 @@ Planner decisions (D-191-A, resolving design doc ambiguity):
   version stays in bar_derivation_batch, not on the row.
 - Databento is not seeded; it joins as a CVR row after its admission study.
 
-Pure Ring 1: no database access. `sources.LABEL_VENDOR` is untouched and retires in plan 13.
+Pure Ring 1: no database access. Canonical rows have carried (vendor, kind) since plan 191-13;
+the label map stays the raw-side vocabulary's one definition.
 """
 
 from __future__ import annotations

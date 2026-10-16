@@ -14,8 +14,10 @@ from src.core.market_calendar import get_market_calendar
 
 ET = ZoneInfo("America/New_York")
 
-# Bar provenance — stored in market_data_ohlcv.source for every bar written.
-# Always use these constants; never write raw string literals.
+# Bar provenance labels — the raw-side vocabulary (ohlcv_request, ohlcv_load, ohlcv_raw).
+# Canonical rows (market_data_ohlcv) carry (vendor, kind) since plan 191-13; the map between
+# the two is src/intelligence/bars/vendor_kind.py. Always use these constants; never write raw
+# string literals.
 SOURCE_IBKR_NAMED = "ibkr_named"  # Named-contract direct IBKR fetch
 SOURCE_IBKR_CONTINUOUS = "ibkr_continuous_adj"  # Continuous back-adjusted IBKR fetch
 SOURCE_IBKR_OFFICIAL = "ibkr_official"  # Official 1m bars from TWS reconciliation

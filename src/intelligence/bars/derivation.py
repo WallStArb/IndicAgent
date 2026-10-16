@@ -1,10 +1,11 @@
 """The D1 and D2 record types the 1d daily rule shares (phase 185 plans 17 and 38, D-06, D-21).
 
 Observation (one D1 observation of a 1d bar), SplitRecord (a recorded corporate action that
-rescales earlier observations) and CanonicalBar (the derived canonical 1d bar), plus the
-ibkr_named and ibkr_venue source labels. The rule itself is d2-v2 in daily_rule.py; d2-v1
-(derive_daily, its venue-route choice and RULE_VERSION "d2-v1") was deleted in plan 185-42.
-Stored rows and digests may still carry the d2-v1 label as history.
+rescales earlier observations) and CanonicalBar (the derived canonical 1d bar, its identity
+the (vendor, kind) pair since plan 191-13), plus the ibkr_named and ibkr_venue source labels
+(raw-side vocabulary). The rule itself is d2-v2 in daily_rule.py; d2-v1 (derive_daily, its
+venue-route choice and RULE_VERSION "d2-v1") was deleted in plan 185-42. Stored rows and
+digests may still carry the d2-v1 label as history.
 
 Pure: no database, no config service, no I/O.
 """
@@ -52,7 +53,7 @@ class SplitRecord:
 
 @dataclass(frozen=True)
 class CanonicalBar:
-    """The derived canonical 1d bar: values, source label, lineage, flags."""
+    """The derived canonical 1d bar: values, (vendor, kind) identity, lineage, flags."""
 
     bar_date: date
     open: float
@@ -60,6 +61,7 @@ class CanonicalBar:
     low: float
     close: float
     volume: int | None
-    source: str
+    vendor: str
+    kind: str
     request_ids: tuple[str, ...]
     flags: tuple[str, ...]

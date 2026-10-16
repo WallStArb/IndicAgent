@@ -23,8 +23,9 @@ import math
 from collections.abc import Collection, Hashable, Mapping
 from dataclasses import dataclass, field
 
-# (open, high, low, close, volume, source)
-BarValues = tuple[float | None, float | None, float | None, float | None, int | None, str]
+# (open, high, low, close, volume, vendor, kind) -- the row's identity rides the comparison
+# so an identity-only difference is a change, never an unnoticed rewrite (plan 191-13).
+BarValues = tuple[float | None, float | None, float | None, float | None, int | None, str, str]
 
 
 @dataclass(frozen=True)
