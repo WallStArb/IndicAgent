@@ -1,0 +1,89 @@
+{
+  "plan": "191-12",
+  "window": {
+    "record": "logs/raw_cutover_window.json",
+    "opened_at": "2026-10-16T01:16:51Z",
+    "state": "open",
+    "units_held": [
+      "indicagent-bar-reconciliation-audit.timer",
+      "indicagent-dividend-event-writer-yahoo.timer",
+      "indicagent-ibkr-history-fetcher.timer",
+      "indicagent-bar-aggregator.service",
+      "indicagent-bar-auditor.service",
+      "indicagent-bar-derivation.service",
+      "indicagent-bar-reconciliation-audit.service",
+      "indicagent-bar-writer.service",
+      "indicagent-dividend-event-writer@yahoo.service",
+      "indicagent-ibkr-history-fetcher.service"
+    ],
+    "note": "the fetcher service exited on its own at 2026-10-16T01:30:01Z with 'IBKR gateway lost mid-run at ibkr/ARE/1d' (run a4428e8b: 198/200 ok) before the open's bounded wait ended; not killed by the window. Resumable when the timer resumes at close."
+  },
+  "preflight": {
+    "verdict": "ready",
+    "exit_code": 0,
+    "log": "logs/vendor_kind_preflight_191_12.json",
+    "disk": { "free_gib": 622.49, "copy_peak_gib": 34.29, "margin": 2.0, "required_gib": 68.58, "headroom_gib": 553.91 },
+    "sources": { "alpaca": 220108375, "derived_5m": 135090402, "ibkr_fallback": 194470, "ibkr_named": 99140486, "tradier": 6661722 },
+    "shape_differences": []
+  },
+  "baseline_gate_live": {
+    "exit_code": 0,
+    "report": "logs/selection_gate_20261016T013456Z.json",
+    "log": "logs/selection_gate_baseline_191_12.log",
+    "purpose": "run inside the window before --build so any v2 gate failure would be attributable to the build",
+    "real_differences": 0,
+    "series": 1762,
+    "series_clean": 1762
+  },
+  "build": {
+    "exit_code": 0,
+    "result": "copied",
+    "log": "logs/vendor_kind_build_191_12.log",
+    "windows": 114,
+    "rows_copied": 461198119,
+    "copy_seconds": 2419.4,
+    "compress_after": "30 days",
+    "count_differences": []
+  },
+  "prove": {
+    "exit_code": 0,
+    "result": "proven equal and gate-clean",
+    "log": "logs/vendor_kind_prove_191_12.log",
+    "symbols": 1529,
+    "series_compared": 6322,
+    "rows_original": 461198119,
+    "rows_v2": 461198119,
+    "n_missing_in_v2": 0,
+    "n_extra_in_v2": 0,
+    "n_count_mismatch": 0,
+    "n_digest_mismatch": 0,
+    "seconds": 4666.1
+  },
+  "selection_gate_v2": {
+    "exit_code": 0,
+    "report": "logs/selection_gate_20261016T034317Z.json",
+    "totals": {
+      "n_canonical": 318948156,
+      "n_selected": 318948156,
+      "real_differences": 0,
+      "series": 1762,
+      "series_clean": 1762,
+      "mixed_vendor_sessions": 0,
+      "session_choices_unrecorded": 0,
+      "unreviewed_basis_flags": 0,
+      "unmapped_canonical_rows": 0,
+      "unselected_slots": 0,
+      "by_timeframe": {
+        "1m": { "series": 233, "n_canonical": 9775958, "n_selected": 9775958, "real_differences": 0 },
+        "5m": { "series": 1529, "n_canonical": 309172198, "n_selected": 309172198, "real_differences": 0 }
+      }
+    }
+  },
+  "row_counts": {
+    "market_data_ohlcv": 461198119,
+    "market_data_ohlcv_v2": 461198119,
+    "equal": true,
+    "measured_at": "2026-10-16T03:55:00Z"
+  },
+  "migration": { "number": 496, "applied": true, "file": "production/migrations/496_market_data_ohlcv_v2_vendor_kind.sql" }
+}

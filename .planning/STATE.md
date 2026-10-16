@@ -45,7 +45,7 @@ bullets with current facts.
 
 ## Current position
 
-Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-16. Plans 01 to 11 done;
+Phase: 191 (Unified raw bar table, todo 533) - IN PROGRESS 2026-10-16. Plans 01 to 12 done;
 01 to 07 independently reviewed and fixed (reviews in the phase dir; three rounds of 07 fixes in
 191-07-FIXES.md, the third with the owner's last-wins decision D-191-N). Plan 08 (2026-10-15):
 the daily stage and the grid read ohlcv_raw; the rule over raw is digest-equal to canonical 1d
@@ -73,7 +73,18 @@ restored to the unadjusted ibkr basis (31,031 rows restated, all flagged); 19 da
 wait for ibkr raw to deepen, then a follow-up scan; UNIT stays on its 512 track. Fetcher timer
 restarted 2026-10-16 00:50 UTC (canonical 1d at 10-14, the 10-15 session lands with the timer
 runs; AVA-class names current). Dividend writer failed 13:47 EDT on PSKY/WBD/QRVO/CCO (too few
-daily rows, stale-canonical symptom; retries 02:30 EDT). Next: plan 12. The feature rebuild
+daily rows, stale-canonical symptom; retries 02:30 EDT; the writer unit is held in window two,
+its timer resumes at close).
+Plan 12 done 2026-10-16 (191-12-SUMMARY.md, 191-12-WINDOW-EVIDENCE.json): migration 496 creates
+empty market_data_ohlcv_v2 (vendor+kind replace source, five infra.canonical_swap.* APR keys);
+ops_canonical_vendor_kind_swap.py --preflight/--build/--prove; window two opened 01:16:51Z (the
+2026-10-13 window-one record, units cleared empty, was deleted to re-open; the fetcher exited on
+its own at 01:30Z on a gateway loss, resumable); baseline gate on live exit 0 inside the window;
+--build copied 114/114 windows, 461,198,119 rows in 40 min; --prove 1,529 symbols, 6,322 series,
+0 count and 0 digest differences over all 11 columns, selection gate on v2 exit 0 with totals
+identical to the live baseline; both tables count 461,198,119. Nothing swapped. The R6
+lower-bound and D7 serve-time MEDIUM findings are out of plan 12's files and stay with todo 535
+(plans 09/16 domains, per the review's own verdict). Next: plan 13. The feature rebuild
 (186-26) runs once, after the gate is 0, canonical 1d is caught up and plans 11 to 14 have
 landed. Handoff: `.planning/HANDOFF.json`.
 
@@ -83,12 +94,12 @@ landed. Handoff: `.planning/HANDOFF.json`.
   4,652 holds were released (4,572 written, 80 superseded) and the pending origin retired
   (migration 482). Session choices are durable in `bar_session_choice` (migrations 480, 484).
 
-- **Cutover window open since 2026-10-13T19:00:40Z:** ten units held (fetcher, reconciliation
-  audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer);
-  the 5m IBKR backfill is paused. Selection gate over the 57 series exits 0 and idempotence is
-  0/0; 4,569 keys need an IBKR re-serve (`--reserve-keys logs/reserve_keys_191_07.json`, 58
-  lost sessions on nine series, truncated and partial bars) once the fetcher runs. Derived
-  15m/1h over the released and re-selected 5m sessions are stale until bar-derivation resumes.
+- **Cutover window two open since 2026-10-16T01:16:51Z:** ten units held (fetcher, reconciliation
+  audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer),
+  all inactive, resume actions recorded; window one (2026-10-13) had been progressively cleared
+  to an empty record, which was deleted to allow the re-open. The 5m IBKR backfill is paused (the
+  fetcher service exited on its own at 2026-10-16T01:30Z on an IBKR gateway loss, run a4428e8b,
+  resumable when the timer resumes at close).
   Owner acknowledgement pending: D-191-B, D, G; plan 20 (Tradier deletion) has an owner
   checkpoint. Findings for the owner from 08: UNIT's IBKR 1d history re-served on another scale
   2026-10-12 (the next daily apply drops five 2015-04 fallback bars); ETHA's IBKR 1d and 5m
