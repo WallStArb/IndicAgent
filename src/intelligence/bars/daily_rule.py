@@ -105,8 +105,8 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
 
 # The canonical (vendor, kind) identity each policy primary serves under (plan 191-13). The
 # single definition: integrity_checks imports these rather than retyping the pairs.
-_PRIMARY_PAIR = {VENDOR_TRADIER: ("tradier", "consolidated"), VENDOR_IBKR: ("ibkr", "named")}
-_FALLBACK_PAIR = ("ibkr", "fallback")
+PRIMARY_PAIR = {VENDOR_TRADIER: ("tradier", "consolidated"), VENDOR_IBKR: ("ibkr", "named")}
+FALLBACK_PAIR = ("ibkr", "fallback")
 
 # The raw 1d series d2-v3 reads, as (vendor, kind). Listing-venue kinds and smart_adjusted are
 # never inputs (the D-17 venue study failed; adjusted bars are never canonical).
@@ -380,7 +380,7 @@ def _check_policy(policy: PolicyRow) -> None:
         raise ValueError(
             f"1d policy is {policy.ingress_mode!r}; d2-v3 derives only an observed timeframe"
         )
-    if policy.primary_source not in _PRIMARY_PAIR:
+    if policy.primary_source not in PRIMARY_PAIR:
         raise ValueError(f"1d primary source {policy.primary_source!r} has no d2-v3 rule")
     if policy.fallback_source is not None and (
         policy.primary_source,
@@ -449,16 +449,16 @@ def derive_daily_v2(
         _check_policy(policy)
         primary = days[policy.primary_source].get(day)
         if primary is not None and primary.current is not None:
-            bars.append(_bar(primary.current, _PRIMARY_PAIR[policy.primary_source], ()))
+            bars.append(_bar(primary.current, PRIMARY_PAIR[policy.primary_source], ()))
             continue
         fallback = days[policy.fallback_source].get(day) if policy.fallback_source else None
         if primary is not None and primary.stale is not None:
             if fallback is not None and fallback.current is not None and within_tolerance(day):
                 restated.append(day)
-                bars.append(_bar(fallback.current, _FALLBACK_PAIR, ()))
+                bars.append(_bar(fallback.current, FALLBACK_PAIR, ()))
             else:
                 bars.append(
-                    _bar(primary.stale, _PRIMARY_PAIR[policy.primary_source], (FLAG_PRE_SPLIT,))
+                    _bar(primary.stale, PRIMARY_PAIR[policy.primary_source], (FLAG_PRE_SPLIT,))
                 )
             continue
         if fallback is None:
@@ -479,7 +479,7 @@ def derive_daily_v2(
                 refused.append(day)
                 continue
             admitted.append(day)
-        bars.append(_bar(fallback.current, _FALLBACK_PAIR, ()))
+        bars.append(_bar(fallback.current, FALLBACK_PAIR, ()))
 
     if head and tradier_head is not None:
         bars = _with_seam(
@@ -524,7 +524,7 @@ def _with_seam(
         (
             i
             for i, b in enumerate(bars)
-            if (b.vendor, b.kind) == _PRIMARY_PAIR[VENDOR_TRADIER] and b.bar_date >= tradier_head
+            if (b.vendor, b.kind) == PRIMARY_PAIR[VENDOR_TRADIER] and b.bar_date >= tradier_head
         ),
         None,
     )

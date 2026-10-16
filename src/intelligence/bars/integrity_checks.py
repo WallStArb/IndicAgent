@@ -15,8 +15,8 @@ from typing import Protocol
 import numpy as np
 
 from src.intelligence.bars.daily_rule import (
-    _FALLBACK_PAIR,
-    _PRIMARY_PAIR,
+    FALLBACK_PAIR,
+    PRIMARY_PAIR,
     RULE_VERSION,
     PolicyRow,
     basis_closes,
@@ -76,10 +76,10 @@ def policy_conformance(
     bad: list[date] = []
     for bar_date, vendor, kind in rows:
         policy = resolve_policy(policy_rows, symbol, bar_date)
-        if (vendor, kind) == _PRIMARY_PAIR.get(policy.primary_source):
+        if (vendor, kind) == PRIMARY_PAIR.get(policy.primary_source):
             continue
         if (
-            (vendor, kind) == _FALLBACK_PAIR
+            (vendor, kind) == FALLBACK_PAIR
             and policy.fallback_source == "ibkr"
             and bar_date not in tradier_current_dates
         ):

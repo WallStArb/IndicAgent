@@ -59,7 +59,7 @@ from typing import Any
 
 from src.config.config_service import ConfigService
 from src.core.bar_normalizer import SOURCE_SYNTHETIC_FILL
-from src.intelligence.bars.vendor_kind import VENDOR_DERIVED
+from src.intelligence.bars.vendor_kind import VENDOR_DERIVED, pair_token
 from src.intelligence.bars.write_contract import BarValues, classify
 
 BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
@@ -427,7 +427,7 @@ def write_raw(
             found = _classify_series(cur, series, keyed, answered_at)
             # New revision rows carry the composite "vendor/kind" token in old_source (the D2
             # digest rule token); historical rows keep their labels.
-            token = f"{vendor}/{kind}"
+            token = pair_token(vendor, kind)
             new_rows += [
                 _raw_params(keyed[ts], answered_at, request_id, load_id)
                 for ts in found.delta.new_timestamps

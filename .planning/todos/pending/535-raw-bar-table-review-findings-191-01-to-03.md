@@ -324,3 +324,25 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     must hold it for the swap (stop before the rename, restart after with the new code);
     a stale-code reader would 500 on every market-data request post-swap. Same list as
     item 43's plan-14 riders (L4 fresh-prove in --swap, L2 failed-units cleanup at close).
+45. SOP review of the 191-12/13 arc + simplify pass (2026-10-16, range
+    9636711f7~1..dc434a918): verdict FAIL, one P1, all fixed same session.
+    P1 (fixed): bar_reconciliation_audit's `_FIRST_1D_BAR_SQL` still read canonical
+    `source` and its call site passed `list(CANONICAL_1D_SOURCES)` - a list of tuples
+    since plan 13, unbindable to `text[]`, so the held audit unit would have crashed on
+    its first post-swap run (and the query was already broken pre-swap). Converted to
+    `vendor = ANY($1) AND kind = ANY($2)` with the CANONICAL_1D_VENDORS/KINDS arrays,
+    matching every other converted read in the module.
+    P2 (fixed): ohlcv_raw_writer inlined the composite token `f"{vendor}/{kind}"`
+    instead of `pair_token`; both ohlcv_revision writers now route through the one
+    definition in vendor_kind.py.
+    P3 (fixed): SwapAborted/SwapRefused renamed to the Error-suffix taxonomy;
+    daily_rule's PRIMARY_PAIR/FALLBACK_PAIR made public (imported across modules);
+    bar_derivation's stale-delete binds the derived vendor instead of interpolating it;
+    the swap script's local format_ts deleted in favor of format_iso_ts.
+    P3 (dispositioned): ops_source_policy.py, ops_truncated_bar_scan.py and
+    ops_raw_backfill.py read canonical `source` and sat on no plan's file list - all
+    three added to 191-15-PLAN.md's files_modified (verified live: ops_raw_backfill's
+    `m` really aliases market_data_ohlcv; the archive-side `a.source` joins are by
+    design). Clean surfaces: migration 496 + five infra.canonical_swap.* APR keys with
+    provenance, Ring rule (Ring 0 change comment-only), writer topology, circularity
+    constraint, BarValues positional compat, rename sweeps, glossary, test placement.

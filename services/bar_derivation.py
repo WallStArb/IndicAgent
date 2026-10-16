@@ -326,7 +326,7 @@ VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 _DELETE_STALE_DERIVED_SQL = """
 /* delete_stale_derived */
 DELETE FROM market_data_ohlcv
-WHERE symbol = $1 AND timeframe = $2 AND vendor = 'derived'
+WHERE symbol = $1 AND timeframe = $2 AND vendor = $6
   AND "timestamp" BETWEEN $4 AND $5 AND "timestamp" = ANY($3::timestamptz[])
 """
 
@@ -1397,7 +1397,13 @@ class BarDerivation(BaseBatch):
             stale = [datetime.fromtimestamp(ts, tz=UTC) for ts in sorted(delta.removed)]
             n_deleted = _rowcount(
                 await conn.execute(
-                    _DELETE_STALE_DERIVED_SQL, symbol, tf, stale, stale[0], stale[-1]
+                    _DELETE_STALE_DERIVED_SQL,
+                    symbol,
+                    tf,
+                    stale,
+                    stale[0],
+                    stale[-1],
+                    DERIVED_PAIR[0],
                 )
             )
             if n_deleted != len(stale):

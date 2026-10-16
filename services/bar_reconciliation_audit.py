@@ -1110,7 +1110,7 @@ SELECT symbol, max(loaded_at) AS loaded_at FROM ohlcv_load WHERE timeframe = '1d
 """
 _FIRST_1D_BAR_SQL = """
 SELECT min("timestamp") AS first_bar FROM market_data_ohlcv
-WHERE timeframe = '1d' AND source = ANY($1::text[])
+WHERE timeframe = '1d' AND vendor = ANY($1::text[]) AND kind = ANY($2::text[])
 """
 
 
@@ -2151,7 +2151,9 @@ class BarReconciliationAudit(BaseBatch):
         dropped in turn, never as a corpus frame. A finding never raises.
         """
         policy_rows = _policy_rows(await conn.fetch(_SELECT_POLICY_1D_SQL))
-        first_bar = await conn.fetchval(_FIRST_1D_BAR_SQL, list(CANONICAL_1D_SOURCES))
+        first_bar = await conn.fetchval(
+            _FIRST_1D_BAR_SQL, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
+        )
         sessions = sorted(nyse_sessions(first_bar.date(), window.last_session)) if first_bar else []
 
         missing: dict[str, list[date]] = defaultdict(list)

@@ -517,7 +517,7 @@ def test_a_stored_derived_row_no_longer_derived_is_removed_with_its_old_value():
     assert len(deletes) == 1
     sql, args = deletes[0]
     assert args[0] == "SPY" and args[1] == "15m" and list(args[2]) == [stale_ts]
-    assert "vendor = 'derived'" in sql
+    assert args[5] == "derived"  # vendor bound, not interpolated
     (rev,) = _revisions(conn)
     assert rev[2:4] == ("15m", stale_ts) and rev[4:9] == (1.0, 2.0, 0.5, 1.5, 10)
     assert rev[9] == "derived/5m_grid" and rev[10] == "load"

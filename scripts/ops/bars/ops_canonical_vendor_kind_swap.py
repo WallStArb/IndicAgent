@@ -66,6 +66,7 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(project_root))
 
 from src.config.settings import Settings  # noqa: E402
+from src.core.service_utils import format_iso_ts  # noqa: E402
 from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND  # noqa: E402
 
 _JOB = "ops-vendor-kind-swap"
@@ -220,16 +221,12 @@ GROUP BY symbol, timeframe
 _SYMBOLS_SQL = "SELECT DISTINCT symbol FROM {}"
 
 
-class SwapAborted(RuntimeError):
+class SwapAbortedError(RuntimeError):
     """A check failed. The step that raised changed nothing (its transaction rolled back)."""
 
 
-class SwapRefused(RuntimeError):
+class SwapRefusedError(RuntimeError):
     """A writer is running; the operation would read or write a moving table."""
-
-
-def format_ts(ts: datetime) -> str:
-    return ts.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _gib(n: float) -> float:
@@ -264,7 +261,7 @@ def writer_blockers(state: WriterState) -> list[str]:
 def refuse_if_writers(state: WriterState) -> None:
     blockers = writer_blockers(state)
     if blockers:
-        raise SwapRefused("; ".join(blockers))
+        raise SwapRefusedError("; ".join(blockers))
 
 
 def advisory_key_parts(name: str) -> tuple[int, int]:
@@ -759,7 +756,7 @@ def preflight(conn: Any, data_path: str) -> tuple[dict[str, Any], list[str]]:
     report: dict[str, Any] = {
         "job": _JOB,
         "mode": "preflight",
-        "measured_at": format_ts(datetime.now(UTC)),
+        "measured_at": format_iso_ts(datetime.now(UTC)),
         "apr": {k: {"value": v, "source": provenance[k]} for k, v in apr.items()},
         "window": window,
         "writers": {
@@ -860,9 +857,9 @@ def window_chunk(chunks: Sequence[ChunkRange], window: Window) -> ChunkRange | N
     if not chunks:
         return None
     if len(chunks) != 1 or (chunks[0].start, chunks[0].end) != (window.start, window.end):
-        raise SwapAborted(
-            f"chunk grid misaligned for window {format_ts(window.start)}: "
-            f"{[(format_ts(c.start), format_ts(c.end)) for c in chunks]}"
+        raise SwapAbortedError(
+            f"chunk grid misaligned for window {format_iso_ts(window.start)}: "
+            f"{[(format_iso_ts(c.start), format_iso_ts(c.end)) for c in chunks]}"
         )
     return chunks[0]
 
@@ -930,10 +927,12 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
     window's rows, not the table's."""
     policies = load_policies(conn, _TABLE)
     if len(policies) != 1:
-        raise SwapAborted(f"{_TABLE} has {len(policies)} compression policies; want exactly one")
+        raise SwapAbortedError(
+            f"{_TABLE} has {len(policies)} compression policies; want exactly one"
+        )
     interval = _scalar(conn, _TIME_INTERVAL_SQL, (_V2_TABLE,))
     if not isinstance(interval, timedelta):
-        raise SwapAborted(f"{_V2_TABLE} chunk interval {interval!r} is not a fixed duration")
+        raise SwapAbortedError(f"{_V2_TABLE} chunk interval {interval!r} is not a fixed duration")
     lo, hi = _rows(conn, _CHUNK_SPAN_SQL, (_TABLE,))[0]
     cutoff = _scalar(conn, "SELECT now() - %s::interval", (policies[0].compress_after,))
     _set_timeouts(conn, apr[APR_COPY_TIMEOUT_S])
@@ -945,7 +944,7 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
         t0 = time.monotonic()
         chunk = window_chunk(_window_chunks(conn, _V2_TABLE, window), window)
         if chunk is not None and chunk.is_compressed:
-            log.append({"window": format_ts(window.start), "status": "done_earlier_compressed"})
+            log.append({"window": format_iso_ts(window.start), "status": "done_earlier_compressed"})
             continue
         old_n = int(_scalar(conn, _OLD_COUNT_WINDOW_SQL, window.params()))
         v2_n = int(_scalar(conn, _V2_COUNT_WINDOW_SQL, window.params()))
@@ -959,8 +958,8 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
                 copied = conn.execute(_COPY_WINDOW_SQL, window.params()).rowcount
             v2_n = int(_scalar(conn, _V2_COUNT_WINDOW_SQL, window.params()))
             if v2_n != old_n:
-                raise SwapAborted(
-                    f"window {format_ts(window.start)} copied {v2_n} rows, "
+                raise SwapAbortedError(
+                    f"window {format_iso_ts(window.start)} copied {v2_n} rows, "
                     f"the original holds {old_n}; nothing swapped"
                 )
             status = "copied"
@@ -977,7 +976,7 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
         if status == "copied" or cleared:
             log.append(
                 {
-                    "window": format_ts(window.start),
+                    "window": format_iso_ts(window.start),
                     "status": status,
                     "rows": copied,
                     "cleared": cleared,
@@ -1196,8 +1195,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 report, blockers = run_prove(conn)
             else:
                 report, blockers = preflight(conn, args.data_path)
-        except (SwapRefused, SwapAborted) as error:
-            kind = "refused" if isinstance(error, SwapRefused) else "aborted"
+        except (SwapRefusedError, SwapAbortedError) as error:
+            kind = "refused" if isinstance(error, SwapRefusedError) else "aborted"
             print(json.dumps({"job": _JOB, "mode": mode, kind: str(error)}, indent=2))
             return EXIT_BLOCKED
     print(json.dumps(report, indent=2, default=str))
