@@ -894,7 +894,12 @@ class Policy:
 
 
 def load_policies(conn: Any, table: str) -> list[Policy]:
-    return [Policy(int(j), str(a), bool(s)) for j, a, s in _rows(conn, _POLICY_SQL, (table,))]
+    # schedule_interval is selected for the report context but not carried: only compress_after
+    # and the scheduled flag gate the copy's compression step.
+    return [
+        Policy(int(job), str(after), bool(scheduled))
+        for job, after, _schedule_interval, scheduled in _rows(conn, _POLICY_SQL, (table,))
+    ]
 
 
 def _window_chunks(conn: Any, table: str, window: Window) -> list[ChunkRange]:
