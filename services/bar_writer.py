@@ -200,25 +200,27 @@ class BarWriter(BaseWriter):
         # BarWriter via __new__ (no __init__), so the refusal memory is created
         # lazily at the use site.
         refusals = self.__dict__.setdefault("_refused_tfs", set())
-        if bar.tf in DERIVATION_OWNED_TIMEFRAMES:
-            if bar.tf not in refusals:
-                refusals.add(bar.tf)
-                self.logger.warning(
-                    "bar_writer.refuses_derivation_owned_timeframe",
-                    tf=bar.tf,
-                    reason="market_data_ohlcv rows at this timeframe are owned by "
-                    "services/bar_derivation (plan 185-18 task 1b)",
-                )
-            return [], []
         if bar.tf != _STREAMING_WRITTEN_TF:
+            # One refusal path, two reasons: derivation-owned timeframes (plan 185-18
+            # task 1b) and aggregator output with no identity of its own (plan 191-13).
             if bar.tf not in refusals:
                 refusals.add(bar.tf)
+                derivation_owned = bar.tf in DERIVATION_OWNED_TIMEFRAMES
                 self.logger.warning(
-                    "bar_writer.refuses_streaming_aggregate_timeframe",
+                    (
+                        "bar_writer.refuses_derivation_owned_timeframe"
+                        if derivation_owned
+                        else "bar_writer.refuses_streaming_aggregate_timeframe"
+                    ),
                     tf=bar.tf,
-                    reason="streaming aggregator output has no canonical (vendor, kind); "
-                    "canonical rows at this timeframe are bar_selection's over ohlcv_raw "
-                    "(plan 191-13)",
+                    reason=(
+                        "market_data_ohlcv rows at this timeframe are owned by "
+                        "services/bar_derivation (plan 185-18 task 1b)"
+                        if derivation_owned
+                        else "streaming aggregator output has no canonical (vendor, kind); "
+                        "canonical rows at this timeframe are bar_selection's over ohlcv_raw "
+                        "(plan 191-13)"
+                    ),
                 )
             return [], []
         try:

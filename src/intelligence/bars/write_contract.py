@@ -22,10 +22,21 @@ from __future__ import annotations
 import math
 from collections.abc import Collection, Hashable, Mapping
 from dataclasses import dataclass, field
+from typing import NamedTuple
+
 
 # (open, high, low, close, volume, vendor, kind) -- the row's identity rides the comparison
-# so an identity-only difference is a change, never an unnoticed rewrite (plan 191-13).
-BarValues = tuple[float | None, float | None, float | None, float | None, int | None, str, str]
+# so an identity-only difference is a change, never an unnoticed rewrite (plan 191-13). A
+# NamedTuple so consumers read `old.vendor`, not `old[5]`; positional construction and tuple
+# equality are unchanged.
+class BarValues(NamedTuple):
+    open: float | None
+    high: float | None
+    low: float | None
+    close: float | None
+    volume: int | None
+    vendor: str
+    kind: str
 
 
 @dataclass(frozen=True)

@@ -43,7 +43,10 @@ from services.bar_derivation import read_daily_inputs, read_daily_params  # noqa
 from src.config.settings import Settings  # noqa: E402
 from src.intelligence.bars.daily_rule import derive_daily_v2  # noqa: E402
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
-from src.intelligence.bars.sources import CANONICAL_1D_SOURCES  # noqa: E402
+from src.intelligence.bars.sources import (  # noqa: E402
+    CANONICAL_1D_KINDS,
+    CANONICAL_1D_VENDORS,
+)
 
 Bar = tuple[float, float, float, float, int | None, str, str]
 
@@ -57,8 +60,8 @@ _EXAMPLES = 5
 # two ANY arrays, not a composite-array parameter: asyncpg cannot bind a list of tuples to a
 # (text, text)[] without explicit codecs, and the cross product the pair of arrays admits holds
 # no canonical rows (the same pattern services/bar_derivation reads stored 1d with)
-_STORED_VENDORS = tuple(sorted({vendor for vendor, _kind in CANONICAL_1D_SOURCES}))
-_STORED_KINDS = tuple(sorted({kind for _vendor, kind in CANONICAL_1D_SOURCES}))
+_STORED_VENDORS = CANONICAL_1D_VENDORS
+_STORED_KINDS = CANONICAL_1D_KINDS
 
 _STORED_SQL = """
 SELECT ("timestamp" AT TIME ZONE 'UTC')::date AS bar_date, open, high, low, close, volume,

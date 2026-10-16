@@ -69,3 +69,14 @@ CANONICAL_1D_SOURCES: tuple[tuple[str, str], ...] = (
     ("ibkr", "fallback"),
     ("tradier", "consolidated"),
 )
+
+# The two ANY arrays every canonical 1d read filters on (plan 191-13): the vendors and kinds
+# of CANONICAL_1D_SOURCES, zipped nowhere (a pair is admitted only when both sides match a
+# stored row's own vendor and kind; the cross product holds no canonical rows). Derived here
+# once so the daily stage, the audit and the equivalence check bind the same arrays.
+CANONICAL_1D_VENDORS: tuple[str, ...] = tuple(
+    sorted({vendor for vendor, _kind in CANONICAL_1D_SOURCES})
+)
+CANONICAL_1D_KINDS: tuple[str, ...] = tuple(
+    sorted({kind for _vendor, kind in CANONICAL_1D_SOURCES})
+)

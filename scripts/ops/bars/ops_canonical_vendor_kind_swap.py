@@ -45,7 +45,6 @@ error.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -200,21 +199,21 @@ SELECT count(*) FROM market_data_ohlcv_v2 WHERE "timestamp" >= %s AND "timestamp
 # equal digests mean equal rows. The session runs in UTC so timestamps print identically on both
 # sides; the old side maps source to (vendor, kind) with the same CASE the copy renders.
 _OLD_DIGEST_SQL = f"""
-SELECT timeframe, count(*),
+SELECT symbol, timeframe, count(*),
        md5(string_agg(ROW("timestamp", open, high, low, close, volume,
                           {_VENDOR_CASE}, {_KIND_CASE}, base, price_sanity_status)::text,
                           E'\\n' ORDER BY "timestamp"))
 FROM market_data_ohlcv
-WHERE symbol = %s
-GROUP BY timeframe
+WHERE symbol = ANY(%s)
+GROUP BY symbol, timeframe
 """
 _V2_DIGEST_SQL = """
-SELECT timeframe, count(*),
+SELECT symbol, timeframe, count(*),
        md5(string_agg(ROW("timestamp", open, high, low, close, volume, vendor, kind,
                           base, price_sanity_status)::text, E'\\n' ORDER BY "timestamp"))
 FROM market_data_ohlcv_v2
-WHERE symbol = %s
-GROUP BY timeframe
+WHERE symbol = ANY(%s)
+GROUP BY symbol, timeframe
 """
 # Every symbol with any row on either side (a series on one side only is a difference). symbol is
 # a segmentby column, so this reads compressed-batch metadata, not the rows.
@@ -269,8 +268,12 @@ def refuse_if_writers(state: WriterState) -> None:
 
 
 def advisory_key_parts(name: str) -> tuple[int, int]:
-    """(classid, objid) of the session advisory lock on `name`, as pg_locks shows them."""
-    key = int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big", signed=True)
+    """(classid, objid) of the session advisory lock on `name`, as pg_locks shows them.
+    The 64-bit key itself is the FROZEN derivation in scripts/infrastructure/backfill/
+    _fetcher_lock.py (fetcher_lock_key); only the pg_locks split lives here."""
+    from scripts.infrastructure.backfill._fetcher_lock import fetcher_lock_key
+
+    key = fetcher_lock_key(name)
     return (key >> 32) & 0xFFFFFFFF, key & 0xFFFFFFFF
 
 
@@ -949,6 +952,7 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
         if v2_n == old_n:
             status = "done_earlier"
             copied = cleared = 0
+            # Nothing ran in between: the first chunk fetch is still the catalog truth.
         else:
             with conn.transaction():
                 cleared = conn.execute(_CLEAR_WINDOW_SQL, window.params()).rowcount
@@ -960,6 +964,7 @@ def copy_windows(conn: Any, apr: Mapping[str, float]) -> dict[str, Any]:
                     f"the original holds {old_n}; nothing swapped"
                 )
             status = "copied"
+            chunk = window_chunk(_window_chunks(conn, _V2_TABLE, window), window)
         chunk = window_chunk(_window_chunks(conn, _V2_TABLE, window), window)
         compress = chunk is not None and window.end < cutoff and not chunk.is_compressed
         if compress:
@@ -1057,13 +1062,17 @@ def compare_digests(old: DigestMap, v2: DigestMap) -> DigestComparison:
 
 
 def _digests(
-    conn: Any, digest_sql: str, symbols: Sequence[str]
+    conn: Any, digest_sql: str, symbols: Sequence[str], chunk_size: int = 100
 ) -> dict[tuple[str, str], tuple[int, str]]:
+    """Per-(symbol, timeframe) digests, symbols in chunks: one round trip per ~100 symbols
+    instead of per symbol (about 3,000 queries became about 30 on the 1,529-symbol prove),
+    while the statement's string_agg memory stays bounded by the chunk."""
     out: dict[tuple[str, str], tuple[int, str]] = {}
     with conn.cursor() as cur:
-        for symbol in symbols:
-            cur.execute(digest_sql, (symbol,))
-            for tf, n, digest in cur.fetchall():
+        for start in range(0, len(symbols), chunk_size):
+            chunk = symbols[start : start + chunk_size]
+            cur.execute(digest_sql, (chunk,))
+            for symbol, tf, n, digest in cur.fetchall():
                 out[(symbol, tf)] = (int(n), str(digest))
     return out
 

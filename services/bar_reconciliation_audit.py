@@ -70,8 +70,6 @@ from scripts.infrastructure.backfill._fetcher_lock import FetcherLock
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
 from services.bar_derivation import (
-    _1D_KINDS,
-    _1D_VENDORS,
     _RAW_DAILY_KINDS,
     _RAW_DAILY_VENDORS,
     _SELECT_1D_FLAG_RULES_SQL,
@@ -125,13 +123,14 @@ from src.intelligence.bars.integrity_checks import (
 from src.intelligence.bars.restatement import BASIS_SIGNATURES
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
+    CANONICAL_1D_KINDS,
     CANONICAL_1D_SOURCES,
+    CANONICAL_1D_VENDORS,
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
-    SOURCE_DERIVED_5M,
     SOURCE_TRADIER,
 )
-from src.intelligence.bars.vendor_kind import VENDOR_IBKR, label_to_vendor_kind
+from src.intelligence.bars.vendor_kind import DERIVED_PAIR, VENDOR_IBKR
 from src.observability.metrics import counter, point_gauge
 from src.observability.otel import OTelInitError, init_otel_providers
 from src.providers.base import VENUE_ROUTE_ALIASES
@@ -150,10 +149,9 @@ FINDINGS_TOTAL = counter(
 # The (vendor, kind) pairs the derivation (and the Tradier loader, migration 438) may leave
 # in each derivation-owned timeframe (plan 191-13: canonical rows carry the pair). The retired
 # synthetic_fill class is structurally gone: the pair is NOT NULL and no writer produces it.
-_DERIVED_PAIR = label_to_vendor_kind(SOURCE_DERIVED_5M)
 ALLOWED_PAIRS: dict[str, frozenset[tuple[str, str]]] = {
     "1d": frozenset(CANONICAL_1D_SOURCES),
-    **{tf: frozenset({_DERIVED_PAIR}) for tf in GRID_TIMEFRAMES},
+    **{tf: frozenset({DERIVED_PAIR}) for tf in GRID_TIMEFRAMES},
 }
 
 # The venue study verdict's timeframe for each switch (scripts/ops/bars/ops_venue_study.py).
@@ -2096,9 +2094,7 @@ class BarReconciliationAudit(BaseBatch):
                     1 for slot, v in by_slot.items() if v > 0 and coarse.get(slot) == "partial"
                 )
                 if masked.n_findings:
-                    derived = any(
-                        (r["vendor"], r["kind"]) == _DERIVED_PAIR for r in stored_rows[tf]
-                    )
+                    derived = any((r["vendor"], r["kind"]) == DERIVED_PAIR for r in stored_rows[tf])
                     masked_by_tf[tf] += masked.n_findings
                     if derived:
                         masked_derived[tf] += masked.n_findings
@@ -2297,7 +2293,10 @@ class BarReconciliationAudit(BaseBatch):
                     r["kind"],
                 )
                 for r in await conn.fetch(
-                    _SELECT_STORED_1D_SQL, symbol, list(_1D_VENDORS), list(_1D_KINDS)
+                    _SELECT_STORED_1D_SQL,
+                    symbol,
+                    list(CANONICAL_1D_VENDORS),
+                    list(CANONICAL_1D_KINDS),
                 )
             ],
             flags=[
@@ -2394,7 +2393,7 @@ class BarReconciliationAudit(BaseBatch):
                 loads[r["symbol"]].append((r["loaded_at"], r["first_bar"], r["last_bar"]))
         stray: dict[str, dict[str, int]] = defaultdict(dict)
         for r in await conn.fetch(
-            _STRAY_VENDOR_SQL, sorted(GRID_TIMEFRAMES), _DERIVED_PAIR[0], _DERIVED_PAIR[1], names
+            _STRAY_VENDOR_SQL, sorted(GRID_TIMEFRAMES), DERIVED_PAIR[0], DERIVED_PAIR[1], names
         ):
             stray[r["symbol"]][r["timeframe"]] = r["n"]
 

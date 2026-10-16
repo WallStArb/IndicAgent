@@ -395,7 +395,7 @@ def test_derived_vendor_rows_in_a_direct_timeframe_are_counted_not_skipped():
 
     cur = _CountCur([])
     assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "5m") == 2
-    assert "vendor = 'derived'" in cur.sql
+    assert cur.params == ("SPY", "5m", gate.VENDOR_DERIVED)
     # a derived timeframe is the derivation's own ground: no query, zero by construction
     assert gate.count_unmapped(cur, "market_data_ohlcv", "SPY", "15m") == 0
     assert cur.params[1] == "5m"  # the second call never executed

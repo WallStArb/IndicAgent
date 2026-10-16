@@ -114,13 +114,13 @@ from src.intelligence.bars.gap_plan import (
 from src.intelligence.bars.session_grid import GridBars, aggregate_session_grid
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.sources import (
-    CANONICAL_1D_SOURCES,
+    CANONICAL_1D_KINDS,
+    CANONICAL_1D_VENDORS,
     GRID_RULE_VERSION,
     GRID_SOURCE_TF,
     GRID_TIMEFRAMES,
-    SOURCE_DERIVED_5M,
 )
-from src.intelligence.bars.vendor_kind import label_to_vendor_kind
+from src.intelligence.bars.vendor_kind import DERIVED_PAIR, label_to_vendor_kind, pair_token
 from src.intelligence.bars.write_contract import (
     BarValues,
     WriteDelta,
@@ -148,13 +148,9 @@ _CONSTITUENT_RULE = "constituent_flag"
 # derivation edge as a quarantine-false flag, never silently as a complete bar.
 _PARTIAL_RULE = "partial_constituents"
 _GRID_TF_LIST = sorted(GRID_TIMEFRAMES)
-# The derived grid's canonical identity (derived, 5m_grid), derived once from the label map.
-_DERIVED_PAIR = label_to_vendor_kind(SOURCE_DERIVED_5M)
-# The two ANY arrays every canonical 1d read filters on (plan 191-13): the vendors and kinds of
-# CANONICAL_1D_SOURCES, zipped nowhere (a pair is admitted only when both sides match a stored
-# row's own vendor and kind; the cross product holds no canonical rows).
-_1D_VENDORS = tuple(sorted({vendor for vendor, _kind in CANONICAL_1D_SOURCES}))
-_1D_KINDS = tuple(sorted({kind for _vendor, kind in CANONICAL_1D_SOURCES}))
+# The derived grid's canonical identity (derived, 5m_grid) and the canonical 1d ANY arrays
+# are owned by the Ring 1 vocabulary: vendor_kind.DERIVED_PAIR and sources.CANONICAL_1D_*,
+# imported above (plan 191-13 cleanup; no local re-derivations).
 _GRID_FLAG_RULES = (_CONSTITUENT_RULE, _PARTIAL_RULE)
 _WRITE_METHOD = "write_contract"
 _DEFAULT_SYMBOL_BATCH = 10
@@ -163,6 +159,24 @@ _DEFAULT_MAX_REVISION_RATIO = 0.02
 _DEFAULT_REVISION_MIN_STORED = 500
 # The grid stage's ohlcv_load segment (tests/unit/test_ohlcv_load_revision_writer_boundary.py).
 _GRID_LOAD_SOURCE = "derived"
+
+
+def _revision_row(load_id: str, symbol: str, tf: str, ts: datetime, old: BarValues) -> tuple:
+    """One ohlcv_revision row for a displaced canonical bar: the legacy old_value composite
+    token plus the split pair (plan 191-13). Both revision writers go through this layout."""
+    return (
+        load_id,
+        symbol,
+        tf,
+        ts,
+        *old[:5],
+        pair_token(old.vendor, old.kind),
+        "load",
+        old.vendor,
+        old.kind,
+    )
+
+
 _GRID_LOAD_CALLER = "bar_derivation-grid"
 _GRID_LOAD_DESTINATION = "market_data_ohlcv"
 _GRID_OUTCOMES = ("derived", "unchanged", "no_5m", "refused", "failed")
@@ -424,7 +438,7 @@ WHERE timeframe = '1d'
 """
 
 # The write contract's stored side: every canonical 1d (vendor, kind) pair
-# ($2 = _1D_VENDORS, $3 = _1D_KINDS, both from CANONICAL_1D_SOURCES).
+# ($2, $3 = CANONICAL_1D_VENDORS, CANONICAL_1D_KINDS from sources).
 _SELECT_STORED_1D_SQL = """
 /* stored_1d */
 SELECT "timestamp", open, high, low, close, volume, vendor, kind, base
@@ -715,7 +729,9 @@ async def write_1d_digests(
     185-38 cutover and the 185-52 d2-v3 bump relabel every month). write=False counts without inserting. Returns the number
     of rows inserted (or that would be).
     """
-    rows = await conn.fetch(_SELECT_DIGEST_1D_SQL, symbol, list(_1D_VENDORS), list(_1D_KINDS))
+    rows = await conn.fetch(
+        _SELECT_DIGEST_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
+    )
     if not rows:
         return 0
     flag_rows = await conn.fetch(_SELECT_1D_FLAG_RULES_SQL, symbol)
@@ -1037,15 +1053,9 @@ class BarDerivation(BaseBatch):
         n_vendor: dict[str, int] = dict.fromkeys(_GRID_TF_LIST, 0)
         for r in await conn.fetch(_SELECT_STORED_GRID_SQL, symbol, _GRID_TF_LIST):
             tf = r["timeframe"]
-            if (r["vendor"], r["kind"]) == _DERIVED_PAIR:
-                stored_derived[tf][_epoch_seconds(r["timestamp"])] = (
-                    r["open"],
-                    r["high"],
-                    r["low"],
-                    r["close"],
-                    r["volume"],
-                    r["vendor"],
-                    r["kind"],
+            if (r["vendor"], r["kind"]) == DERIVED_PAIR:
+                stored_derived[tf][_epoch_seconds(r["timestamp"])] = BarValues(
+                    r["open"], r["high"], r["low"], r["close"], r["volume"], r["vendor"], r["kind"]
                 )
             else:
                 n_vendor[tf] += 1
@@ -1173,7 +1183,7 @@ class BarDerivation(BaseBatch):
         # The write contract's incoming side, keyed by epoch seconds per timeframe.
         derived_values: dict[str, dict[int, BarValues]] = {
             tf: {
-                int(ts): (float(o), float(h), float(lo), float(c), int(v), *_DERIVED_PAIR)
+                int(ts): BarValues(float(o), float(h), float(lo), float(c), int(v), *DERIVED_PAIR)
                 for ts, o, h, lo, c, v in zip(
                     grid.ts_seconds, grid.open, grid.high, grid.low, grid.close, grid.volume
                 )
@@ -1367,17 +1377,7 @@ class BarDerivation(BaseBatch):
         def _revision(tf: str, ts: int, old: BarValues) -> tuple:
             # New revision rows carry the composite "vendor/kind" token in old_source (the D2
             # digest rule token); historical rows keep their labels.
-            return (
-                load_ids[tf],
-                symbol,
-                tf,
-                datetime.fromtimestamp(ts, tz=UTC),
-                *old[:5],
-                f"{old[5]}/{old[6]}",
-                "load",
-                old[5],
-                old[6],
-            )
+            return _revision_row(load_ids[tf], symbol, tf, datetime.fromtimestamp(ts, tz=UTC), old)
 
         revisions = [
             _revision(tf, ts, old)
@@ -1575,24 +1575,18 @@ class BarDerivation(BaseBatch):
         )
 
         stored_rows = await conn.fetch(
-            _SELECT_STORED_1D_SQL, symbol, list(_1D_VENDORS), list(_1D_KINDS)
+            _SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
         )
         stored: dict[date, BarValues] = {
-            r["timestamp"].date(): (
-                r["open"],
-                r["high"],
-                r["low"],
-                r["close"],
-                r["volume"],
-                r["vendor"],
-                r["kind"],
+            r["timestamp"].date(): BarValues(
+                r["open"], r["high"], r["low"], r["close"], r["volume"], r["vendor"], r["kind"]
             )
             for r in stored_rows
         }
         # base is NULL on every 1d row today; the write carries the stored value if one exists.
         base = next((r["base"] for r in stored_rows if r["base"] is not None), None)
         incoming: dict[date, BarValues] = {
-            b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
+            b.bar_date: BarValues(b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
             for b in derived.bars
         }
         span_start = min(o.bar_date for o in observations)
@@ -1624,7 +1618,7 @@ class BarDerivation(BaseBatch):
                 if refuse
                 else None
             ),
-            group=_stored_group({values[5] for values in stored.values()}),  # values[5] = vendor
+            group=_stored_group({values.vendor for values in stored.values()}),
             n_stored=len(stored),
             n_canonical=len(derived.bars),
             new=len(delta.new),
@@ -1903,17 +1897,11 @@ class BarDerivation(BaseBatch):
         batch_id: str | None,
     ) -> tuple[WriteDelta[date], int]:
         stored_rows = await conn.fetch(
-            _SELECT_STORED_1D_SQL, symbol, list(_1D_VENDORS), list(_1D_KINDS)
+            _SELECT_STORED_1D_SQL, symbol, list(CANONICAL_1D_VENDORS), list(CANONICAL_1D_KINDS)
         )
         stored: dict[date, BarValues] = {
-            r["timestamp"].date(): (
-                r["open"],
-                r["high"],
-                r["low"],
-                r["close"],
-                r["volume"],
-                r["vendor"],
-                r["kind"],
+            r["timestamp"].date(): BarValues(
+                r["open"], r["high"], r["low"], r["close"], r["volume"], r["vendor"], r["kind"]
             )
             for r in stored_rows
         }
@@ -1967,20 +1955,7 @@ async def _apply_1d_delta(
     # "vendor/kind" token in old_source (the D2 digest rule token).
     olds = [(day, old) for day, (_new, old) in delta.changed.items()]
     olds += list(delta.removed.items())
-    revisions = [
-        (
-            load_id,
-            symbol,
-            "1d",
-            _utc_day(day),
-            *old[:5],
-            f"{old[5]}/{old[6]}",
-            "load",
-            old[5],
-            old[6],
-        )
-        for day, old in olds
-    ]
+    revisions = [_revision_row(load_id, symbol, "1d", _utc_day(day), old) for day, old in olds]
     if revisions:
         await conn.executemany(_INSERT_LOAD_REVISION_SQL, revisions)
     if delta.removed:
@@ -2016,7 +1991,7 @@ def _read_1d_snapshot(path: str, symbols: set[str]) -> dict[str, dict[date, BarV
             day = datetime.fromisoformat(row["timestamp"]).astimezone(UTC).date()
             # The snapshot predates the (vendor, kind) columns and carries the label; the map
             # restores it, so a pre-cutover snapshot stays restorable (plan 191-13).
-            out.setdefault(row["symbol"], {})[day] = (
+            out.setdefault(row["symbol"], {})[day] = BarValues(
                 float(row["open"]),
                 float(row["high"]),
                 float(row["low"]),

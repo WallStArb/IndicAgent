@@ -103,7 +103,8 @@ FLAG_FIELDS: dict[str, tuple[str, ...]] = {
     FLAG_NO_VOLUME: ("volume",),
 }
 
-# The canonical (vendor, kind) identity each policy primary serves under (plan 191-13).
+# The canonical (vendor, kind) identity each policy primary serves under (plan 191-13). The
+# single definition: integrity_checks imports these rather than retyping the pairs.
 _PRIMARY_PAIR = {VENDOR_TRADIER: ("tradier", "consolidated"), VENDOR_IBKR: ("ibkr", "named")}
 _FALLBACK_PAIR = ("ibkr", "fallback")
 

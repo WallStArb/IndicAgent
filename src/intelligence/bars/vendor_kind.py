@@ -59,6 +59,19 @@ VENDOR_KIND_TO_LABEL: dict[tuple[str, str], str] = {
     pair: label for label, pair in LABEL_TO_VENDOR_KIND.items()
 }
 
+# The derived grid's canonical identity (derived, 5m_grid): the one pair services derive from
+# the map instead of retyping (the daily stage's grid stage and the reconciliation audit).
+DERIVED_PAIR = LABEL_TO_VENDOR_KIND[SOURCE_DERIVED_5M]
+
+
+def pair_token(vendor: str, kind: str) -> str:
+    """The composite `vendor/kind` token for legacy single-column contexts: ohlcv_revision's
+    old_value column and the archive-side UNION in ops_selection_gate's locate_groups. The
+    format is owned here; the SQL literal in locate_groups follows it (a vendor or kind
+    containing `/` would break the token, and none does)."""
+    return f"{vendor}/{kind}"
+
+
 BAR_VENDORS: tuple[str, ...] = (VENDOR_IBKR, VENDOR_ALPACA, VENDOR_TRADIER, VENDOR_DERIVED)
 
 # kind -> one-line description, in within-vendor selection precedence order (the migration seeds

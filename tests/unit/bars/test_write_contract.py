@@ -17,15 +17,11 @@ from src.intelligence.bars.write_contract import (
     revision_ratio,
 )
 
-_ROW: BarValues = (10.0, 10.5, 9.5, 10.25, 1000, "derived", "5m_grid")
+_ROW = BarValues(10.0, 10.5, 9.5, 10.25, 1000, "derived", "5m_grid")
 
 
 def _with(row: BarValues, **changes: object) -> BarValues:
-    fields = ["open", "high", "low", "close", "volume", "vendor", "kind"]
-    values = list(row)
-    for name, value in changes.items():
-        values[fields.index(name)] = value
-    return tuple(values)  # type: ignore[return-value]
+    return row._replace(**changes)  # type: ignore[arg-type]
 
 
 def _delta(n_changed: int = 0, n_removed: int = 0) -> WriteDelta:

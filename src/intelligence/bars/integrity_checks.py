@@ -15,6 +15,8 @@ from typing import Protocol
 import numpy as np
 
 from src.intelligence.bars.daily_rule import (
+    _FALLBACK_PAIR,
+    _PRIMARY_PAIR,
     RULE_VERSION,
     PolicyRow,
     basis_closes,
@@ -34,10 +36,6 @@ from src.intelligence.bars.vendor_basis import (
     ratio_pairs,
 )
 from src.intelligence.bars.write_contract import BarValues, classify
-
-# The (vendor, kind) pair each policy primary's canonical bars carry (daily_rule, plan 191-13).
-_PRIMARY_PAIR = {"tradier": ("tradier", "consolidated"), "ibkr": ("ibkr", "named")}
-_FALLBACK_PAIR = ("ibkr", "fallback")
 
 
 @dataclass(frozen=True)
@@ -275,7 +273,7 @@ def judge_name_1d(
             timings[check] = timings.get(check, 0.0) + (time.perf_counter() - started)
 
     stored: dict[date, BarValues] = {
-        b.timestamp.date(): (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)  # type: ignore[misc]
+        b.timestamp.date(): BarValues(b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
         for b in inputs.stored
     }
 
@@ -308,7 +306,7 @@ def judge_name_1d(
     started = time.perf_counter()
     tradier_current, _ = current_closes(inputs.observations, inputs.splits)
     contradicted = policy_conformance(
-        [(d, values[5], values[6]) for d, values in stored.items()],
+        [(d, values.vendor, values.kind) for d, values in stored.items()],
         inputs.policy_rows,
         tradier_current.keys(),
         symbol=symbol,
@@ -335,7 +333,7 @@ def judge_name_1d(
         basis_tolerance_bp=thresholds.basis_tolerance_bp,
     )
     incoming = {
-        b.bar_date: (b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
+        b.bar_date: BarValues(b.open, b.high, b.low, b.close, b.volume, b.vendor, b.kind)
         for b in derived.bars
     }
     drifted = recompute_findings(incoming, stored)
@@ -381,7 +379,7 @@ def judge_name_1d(
                 v
                 for d, values in stored.items()
                 if run.start <= d <= run.end
-                and (v := canonical_vendor(values[5], values[6])) is not None
+                and (v := canonical_vendor(values.vendor, values.kind)) is not None
             },
         )
     ]

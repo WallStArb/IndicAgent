@@ -678,9 +678,7 @@ _POLICY_SQL = (
     "FROM bar_source_policy"
 )
 _KIND_ORDER_SQL = "SELECT code, sort_order FROM controlled_vocabulary WHERE namespace = 'bar_kind'"
-_UNMAPPED_SQL = (
-    "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = 'derived'"
-)
+_UNMAPPED_SQL = "SELECT count(*) FROM {target} WHERE symbol = %s AND timeframe = %s AND vendor = %s"
 
 
 def vendor_labels() -> dict[str, VK]:
@@ -722,7 +720,7 @@ def count_unmapped(cur: Any, target: str, symbol: str, timeframe: str) -> int:
     ground and is not counted."""
     if timeframe not in DIRECT_TIMEFRAMES:
         return 0
-    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe))
+    cur.execute(_UNMAPPED_SQL.format(target=target), (symbol, timeframe, VENDOR_DERIVED))
     return int(cur.fetchone()[0])
 
 
