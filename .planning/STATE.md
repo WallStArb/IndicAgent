@@ -88,6 +88,15 @@ lower-bound and D7 serve-time MEDIUM findings are out of plan 12's files and sta
 (186-26) runs once, after the gate is 0, canonical 1d is caught up and plans 11 to 14 have
 landed. Handoff: `.planning/HANDOFF.json`.
 
+- **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
+  raw starts above their own head floor (about 3.66M missing sessions; runbook
+  `docs/plans/2026-10-16-ibkr-1d-raw-deepening.md`). `scripts/ops/bars/
+  ops_ibkr_1d_deepening_gate.sh` runs from bg's crontab (11,41 * * * *): it launches one
+  `--full-scan` compute_1d fetcher pass per free window once plan 14 closes window two, retries
+  failed runs, kills the run if a cutover window re-opens, and self-removes after two
+  consecutive zero-bar passes. Lands before plan 20's Tradier deletion; unblocks the todo 535
+  item 42 follow-up basis scan.
+
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
   last-wins, the old value is logged, nothing is held and no load is refused; a restatement
   detector (`ohlcv_restatement_flag`, APR `threshold.bar_integrity.restatement_*`) reports. All
