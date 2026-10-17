@@ -314,3 +314,12 @@ def test_run_chunk_maps_the_lock_held_line_to_the_lock_held_exit() -> None:
     rc, ids = mod._run_chunk(["AAA"], popen=lambda *a, **k: _FakeProc(lines, 0))
     assert (rc, ids) == (mod._LOCK_HELD_EXIT, [])
     assert mod._LOCK_HELD_EXIT == 3
+
+
+def test_late_names_sql_reads_the_named_pair_not_a_source_label() -> None:
+    """191-15: the tradeable view carries (vendor, kind) since the swap; the first-bar query
+    must not filter a source column that no longer exists."""
+    sql = " ".join(mod._LATE_NAMES_SQL.split())
+    assert "market_data_ohlcv_tradeable" in sql
+    assert "m.vendor = 'ibkr'" in sql and "m.kind = 'named'" in sql
+    assert "m.source" not in sql

@@ -17,11 +17,11 @@ async def test_view_excludes_zero_volume_bars_and_includes_real_bars():
     try:
         await conn.execute("""
             INSERT INTO market_data_ohlcv
-                (timestamp, symbol, timeframe, open, high, low, close, volume, source)
+                (timestamp, symbol, timeframe, open, high, low, close, volume, vendor, kind)
             VALUES
-                ('2024-01-02 09:30:00+00', 'ZZTEST', '5m', 100.0, 100.5, 99.5, 100.2, 500, 'ibkr_named'),
-                ('2024-01-02 09:35:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, NULL),
-                ('2024-01-02 09:40:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, 'ibkr_named')
+                ('2024-01-02 09:30:00+00', 'ZZTEST', '5m', 100.0, 100.5, 99.5, 100.2, 500, 'ibkr', 'named'),
+                ('2024-01-02 09:35:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, 'ibkr', 'named'),
+                ('2024-01-02 09:40:00+00', 'ZZTEST', '5m', 100.2, 100.2, 100.2, 100.2, 0, 'ibkr', 'named')
             """)
         rows = await conn.fetch(
             "SELECT timestamp, volume FROM market_data_ohlcv_tradeable "

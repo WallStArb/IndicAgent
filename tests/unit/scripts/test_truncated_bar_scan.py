@@ -27,3 +27,13 @@ def test_off_grid_slots_are_never_judged():
     after = S0 + timedelta(hours=6, minutes=30)  # 16:00 EDT, after the close
     pairs = [(S0 + timedelta(minutes=5 * i), 900, 1000) for i in range(10)] + [(after, 1, 1000)]
     assert candidates(pairs, 0.2) == []
+
+
+def test_canonical_sql_reads_vendor_not_source():
+    """191-15: market_data_ohlcv carries (vendor, kind); the canonical-held check selects
+    the vendor directly instead of mapping a source label."""
+    from scripts.ops.bars import ops_truncated_bar_scan as scan
+
+    sql = " ".join(scan._CANON_SQL.split())
+    assert 'SELECT "timestamp", vendor FROM market_data_ohlcv' in sql
+    assert "source" not in sql

@@ -512,3 +512,11 @@ def test_load_first_date_comes_from_the_raw_inputs_not_the_observation_store(mon
     _obs, _splits, incumbent, first = asyncio.run(policy._load(_Conn(), "X"))
     assert first == date(2020, 1, 5)
     assert incumbent is False
+
+
+def test_incumbent_sql_reads_the_tradier_pair_not_a_source_label() -> None:
+    """191-15: market_data_ohlcv carries (vendor, kind); the incumbent test must not filter
+    a source column that no longer exists."""
+    sql = " ".join(policy._INCUMBENT_SQL.split())
+    assert "vendor = $2" in sql and "kind = $3" in sql
+    assert "source" not in sql

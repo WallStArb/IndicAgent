@@ -240,9 +240,12 @@ def test_premove_condition_fails_on_pre_move_bar_unless_venue_bars_allowed() -> 
 
 def test_premove_sql_counts_ibkr_sources_only() -> None:
     """185-34: Tradier consolidated history before an IBKR venue move is real history, not
-    truncation; only IBKR-source bars before the SMART head are a defect."""
-    assert "m.source = ANY(%s)" in mod._PREMOVE_SQL
+    truncation; only IBKR-source bars before the SMART head are a defect. 191-15: the stored
+    row is matched by its (vendor, kind) pair, not a source label."""
+    assert "m.vendor = ANY(%s)" in mod._PREMOVE_SQL and "m.kind = ANY(%s)" in mod._PREMOVE_SQL
+    assert "source" not in mod._PREMOVE_SQL
     assert set(mod.IBKR_1D_SOURCES) == {"ibkr_named", "ibkr_venue"}
+    assert set(mod.IBKR_1D_PAIRS) == {("ibkr", "named"), ("ibkr", "venue")}
     assert "ohlcv_venue_head" in mod._PREMOVE_SQL
 
 
@@ -333,12 +336,13 @@ _FIXTURE_KEYS = mod.parse_dry_run_keys(open(_FIXTURE).read())
 
 
 def _known_rows(keys, quarantined: bool = False, hidden: bool = False) -> list[tuple]:
-    """(symbol, ts, quarantined, stored_source, has_ibkr_revision, last_revision_at,
-    stale_status): stale_status is a stored row still carrying the pre-381
-    price_sanity_status = 'confirmed_corrupt' the tradeable view filters on."""
+    """(symbol, ts, quarantined, stored vendor, stored kind, has_ibkr_revision,
+    last_revision_at, stale_status): stale_status is a stored row still carrying the pre-381
+    price_sanity_status = 'confirmed_corrupt' the tradeable view filters on. The stored row
+    arrives as its (vendor, kind) pair since the 191-14 swap."""
     if quarantined:
-        return [(s, t, True, None, False, None, False) for s, t in keys]
-    return [(s, t, False, "tradier", True, _LOADED, hidden) for s, t in keys]
+        return [(s, t, True, None, None, False, None, False) for s, t in keys]
+    return [(s, t, False, "tradier", "consolidated", True, _LOADED, hidden) for s, t in keys]
 
 
 def _replies() -> dict[str, list[object]]:
@@ -429,7 +433,7 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     replies = _replies()
     fixture_rows = _known_rows(_FIXTURE_KEYS)
     fixture_rows[0] = (
-        *fixture_rows[0][:4],
+        *fixture_rows[0][:5],
         False,
         None,
         False,
@@ -444,9 +448,15 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     assert "replaced 71" in scrub.evidence and "open 1" in scrub.evidence
 
     params = {marker: p for marker, p in conn.executed}
-    assert list(params["ohlcv_venue_head"][0]) == list(mod.IBKR_1D_SOURCES)
+    vendor, kinds = params["ohlcv_venue_head"]
+    assert vendor == "ibkr" and sorted(kinds) == ["named", "venue"]
     revision_params = params["ohlcv_revision"]
-    assert list(revision_params[0]) == list(mod.IBKR_1D_SOURCES)
+    assert sorted(revision_params[0]) == [
+        "ibkr/named",
+        "ibkr/venue",
+        "ibkr_named",
+        "ibkr_venue",
+    ]
     assert "tradier" not in revision_params[0]
 
 
@@ -465,7 +475,7 @@ def test_run_checks_excludes_tradier_history_late_names(monkeypatch) -> None:
     assert "Tradier-history excluded 1" in late.evidence and "DAL" in late.evidence
     params = dict(conn.executed)["tradier_history"]
     assert sorted(params[0]) == ["AMD", "DAL"]
-    assert params[1] == "tradier"
+    assert tuple(params[1:]) == ("tradier", "consolidated")
 
 
 def test_tradier_history_predicate_reads_stored_canonical_bars_not_the_open_policy() -> None:
@@ -474,7 +484,9 @@ def test_tradier_history_predicate_reads_stored_canonical_bars_not_the_open_poli
     with any canonical Tradier 1d bar has Tradier history before D; that is the exclusion."""
     sql = " ".join(mod._TRADIER_HISTORY_LATE_SQL.split())
     assert "market_data_ohlcv_tradeable" in sql
-    assert "m.timeframe = '1d'" in sql and "m.source = %s" in sql
+    assert "m.timeframe = '1d'" in sql
+    assert "m.vendor = %s" in sql and "m.kind = %s" in sql
+    assert "m.source" not in sql
     assert "bar_source_policy" not in sql and "valid_to" not in sql
     source = Path(mod.__file__).read_text()
     assert "from scripts.infrastructure.backfill" not in source  # the deleted loader
@@ -489,6 +501,18 @@ def test_known_answer_sql_judges_the_stored_row_not_the_tradeable_view() -> None
     assert re.search(r"\bJOIN\s+market_data_ohlcv\s+m\b", sql)
     assert "market_data_ohlcv_tradeable" not in sql
     assert "price_sanity_status" in sql
+    assert "m.vendor" in sql and "m.kind" in sql and "m.source" not in sql
+    assert "old_source = ANY(%s)" in sql
+
+
+def test_known_answer_revision_predicate_accepts_both_old_source_conventions() -> None:
+    """ohlcv_revision.old_source holds legacy labels ('ibkr_named') on rows written before the
+    191 swap and the 'vendor/kind' token ('ibkr/named') on rows the raw writer logged after it
+    (D2 convention). The known-answer IBKR-value test must match both or a replaced key the
+    post-swap writer logged reads open."""
+    tokens = {mod.pair_token(*pair) for pair in mod.IBKR_1D_PAIRS}
+    assert tokens == {"ibkr/named", "ibkr/venue"}
+    assert set(mod.IBKR_1D_REVISION_SOURCES) == set(mod.IBKR_1D_SOURCES) | tokens
 
 
 def test_replaced_keys_hidden_by_a_stale_status_pass_and_are_reported(monkeypatch) -> None:

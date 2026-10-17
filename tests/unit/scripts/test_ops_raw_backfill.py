@@ -277,8 +277,36 @@ def test_finalize_counts_unexplained_revisions():
 
 def test_canonical_disagreeing_select_is_driven_from_the_archive_twin():
     sql = mod.canonical_disagreeing_select_sql()
-    assert "FROM ohlcv_intraday_raw_archive a" in sql and "m.source = a.source" in sql
+    assert "FROM ohlcv_intraday_raw_archive a" in sql
+    # 191-15: the archive keeps its source label; canonical is reached by (vendor, kind)
+    assert "l.label = a.source" in sql
+    assert "m.vendor = l.vendor AND m.kind = l.kind" in sql
+    assert "m.source" not in sql
     assert "m.timeframe <> '1d'" in sql and "'ibkr_fallback'" not in sql
+
+
+def test_canonical_select_filters_raw_pairs_without_a_source_join():
+    """191-15: canonical rows carry (vendor, kind); the raw-eligible filter is a pair
+    membership test, never a join on a source label."""
+    sql = mod.canonical_select_sql()
+    assert "FROM market_data_ohlcv m" in sql
+    assert "m.vendor, m.kind" in sql and "m.source" not in sql
+    assert "ON l.label = m.source" not in sql
+    for vendor, kind in sorted(set(mod.vendor_labels().values())):
+        assert f"('{vendor}', '{kind}')" in sql
+    assert "('derived', '5m_grid')" not in sql
+
+
+def test_canonical_balance_sql_reads_pairs_not_source():
+    for sql in (mod._CANONICAL_VS_ARCHIVE_SQL, mod._CANONICAL_DISAGREE_SAMPLE_SQL):
+        assert "m.source" not in sql and "a.source = m.source" not in sql
+    assert "GROUP BY 1, 2, 3" in mod._EXCLUSION_SQL and "source" not in mod._EXCLUSION_SQL
+    twin = mod._canonical_1d_twin_sql()
+    assert "k.source = m.vendor" in twin and "m.source" not in twin
+    union = mod._union_keys_sql(
+        mod.build_observation_values_sql([("ibkr", "SMART", "TRADES", "smart_trades")])
+    )
+    assert "l.label = m.source" not in union and "m.vendor, m.kind" in union
 
 
 def test_forming_revision_select_targets_runs_first_served_before_the_close():
