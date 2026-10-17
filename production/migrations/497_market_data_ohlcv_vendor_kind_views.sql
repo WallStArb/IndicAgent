@@ -119,7 +119,7 @@ GRANT SELECT ON market_data_ohlcv_tradeable, market_data_ohlcv_scrub_input, cano
 -- incoming gets the same compress_after and schedule_interval it had.
 DO $$
 DECLARE
-    outgoing_job bigint;
+    outgoing_job integer;
     outgoing_after interval;
     outgoing_schedule interval;
 BEGIN
