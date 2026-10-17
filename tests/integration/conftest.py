@@ -67,7 +67,7 @@ _TEST_DB_NAME = "indicagent_test"
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 _BASELINE_SCHEMA_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02.sql"
 _BASELINE_HYPERTABLES_SQL = _FIXTURES_DIR / "schema_baseline_2026-10-02_hypertables.sql"
-_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-10-02.sql"
+_SEED_INSTRUMENTS_SQL = _FIXTURES_DIR / "seed_instruments_2026-10-16.sql"
 _SEED_TAG_VOCABULARY_SQL = _FIXTURES_DIR / "seed_tag_vocabulary_2026-10-02.sql"
 _SEED_CONTROLLED_VOCABULARY_SQL = _FIXTURES_DIR / "seed_controlled_vocabulary_2026-10-02.sql"
 _SEED_CONFIG_SQL = _FIXTURES_DIR / "seed_config_2026-10-02.sql"
@@ -184,10 +184,13 @@ def _apply_baseline() -> None:
         tolerate_stderr_substrings=("already a hypertable", "already partitioned"),
     )
     # Schema alone isn't a usable test database - a green test against zero rows is a
-    # false-confidence signal, not a real check. instruments is small (~100 rows) and a
-    # correctness-relevant reference table (get_active_contracts() reads it), so seed it
-    # from a real production snapshot rather than leaving tests/integration/test_instrument_
-    # registry.py passing against fabricated data or failing against none.
+    # false-confidence signal, not a real check. instruments is small (1,551 rows in the
+    # 2026-10-16 snapshot; the 2026-10-02 one carried 954) and a correctness-relevant
+    # reference table (get_active_contracts() reads it), so seed it from a real production
+    # snapshot rather than leaving tests/integration/test_instrument_
+    # registry.py passing against fabricated data or failing against none. Regenerated
+    # 2026-10-16 (plan 191-14): migrations 494/495 write bar_source_policy rows for names
+    # the older snapshot lacked, and the FK brought the whole replay down at 494.
     _run_psql_file(_SEED_INSTRUMENTS_SQL)
     # Same reasoning, same fix shape, todo 293: tag_vocabulary (~75 rows) is seeded by
     # migrations 220/221/229/230, all <= _BASELINE_MIGRATION_CUTOFF -- baked into live

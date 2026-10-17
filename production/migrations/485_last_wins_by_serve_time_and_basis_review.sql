@@ -115,8 +115,12 @@ UPDATE ohlcv_revision r SET origin = 'superseded'
 
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM ohlcv_revision WHERE origin = 'superseded') <> 80 THEN
-        RAISE EXCEPTION 'expected exactly the 80 superseded release offers';
+    -- 80 in production (the one-time release relabeled live at apply time); 0 in any replay
+    -- from a baseline that predates the 2026-10-12 release (the integration harness's
+    -- schema-only 2026-10-02 baseline carries no ohlcv_revision rows for the UPDATE to
+    -- relabel). Any other count is a real error.
+    IF (SELECT count(*) FROM ohlcv_revision WHERE origin = 'superseded') NOT IN (0, 80) THEN
+        RAISE EXCEPTION 'expected the 80 superseded release offers (or none in a replay from a pre-release baseline)';
     END IF;
 END $$;
 

@@ -116,7 +116,10 @@ COMMENT ON VIEW canonical_bar_lineage IS 'Lineage derived on read (migration 491
 GRANT SELECT ON market_data_ohlcv_tradeable, market_data_ohlcv_scrub_input, canonical_bar_lineage TO bar_derivation_writer;
 
 -- The compression policy moves with the name: the outgoing table's job is unscheduled, the
--- incoming gets the same compress_after and schedule_interval it had.
+-- incoming gets the same compress_after and schedule_interval it had. A replay from a baseline
+-- that registers compression flags but no policies (the integration harness's 2026-10-02 dump)
+-- has nothing to move: the no-policy case is a skip, not an error. Production at apply time had
+-- exactly one policy on the outgoing table.
 DO $$
 DECLARE
     outgoing_job integer;
@@ -130,8 +133,8 @@ BEGIN
       AND hypertable_schema = 'public' AND hypertable_name = 'market_data_ohlcv_old'
     ORDER BY job_id
     LIMIT 1;
-    IF outgoing_after IS NULL OR outgoing_schedule IS NULL THEN
-        RAISE EXCEPTION 'no compression policy found on market_data_ohlcv_old to move';
+    IF outgoing_job IS NULL THEN
+        RETURN;  -- replay from a baseline with no compression policies: nothing to move
     END IF;
     PERFORM alter_job(outgoing_job, scheduled => false);
     IF NOT EXISTS (
