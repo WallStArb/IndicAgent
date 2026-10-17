@@ -1,7 +1,7 @@
 # Database — TimescaleDB Operations
 
-**Version:** 2.10
-**Last Updated:** 2026-10-08 (phase 185 section only)
+**Version:** 2.11
+**Last Updated:** 2026-10-17 (phase 185 section only)
 **Status:** stale (v2.x, see banner)
 
 ---
@@ -54,7 +54,7 @@ TimescaleDB operations: tables, migrations, backfill, compression, backup, and a
 
 ---
 
-## Daily data foundation (phase 185, current as of 2026-10-08)
+## Daily data foundation (phase 185, current as of 2026-10-17)
 
 This section is current; the banner above applies to the rest of the file. Terms (observation,
 canonical bar, scrub flag, quarantine, corporate action, listing venue, bar content digest,
@@ -65,15 +65,14 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 
 | Table | Holds | Writer |
 |-------|-------|--------|
-| `ohlcv_request` | Every provider history request and its outcome (`bars`, `no_data`, `timeout`, `failed`, `legacy_import`), any timeframe, with route, `primary_exchange` and `caller` | `services/ohlcv_observation_writer.py` |
-| `ohlcv_observation` | Every 1d bar answered (D1), per request, route (`SMART`, `NYSE`, `ARCA`, `ISLAND`, `AMEX`, `BATS`, `TRADIER`, `LEGACY_IMPORT`) and what_to_show | same |
+| `ohlcv_request` | Every provider history request and its outcome (`bars`, `no_data`, `timeout`, `failed`, `legacy_import`), any timeframe, with route, `primary_exchange` and `caller` | `services/ohlcv_request_writer.py` |
+| `ohlcv_raw` | The single raw store of vendor answers (todo 533): every bar a supplier served, under its `(vendor, kind)` label, one row per (symbol, timeframe, vendor, kind, timestamp), any timeframe | `services/ohlcv_raw_writer.py` (single writer) |
 | `ohlcv_load`, `ohlcv_revision` | The write record of every bar writer (ingress write contract, migration 448): one `ohlcv_load` row per series written, with `caller`, `destination` (`d1` or `market_data_ohlcv`), `batch_id`, `n_new`, `n_changed`, `n_unchanged`, `n_removed`; the old values of any bar a write changed in `ohlcv_revision`, with `origin` (`load`, `archive_segment`) | every bar writer through the contract (`bar_derivation` stages, the fetch paths) |
 | `bar_source_policy` | Dated 1d source policy: per timeframe and per symbol exception, `[valid_from, valid_to)`, `ingress_mode`, `primary_source`, `fallback_source`, reason, evidence | `scripts/ops/bars/ops_source_policy.py` |
 | `market_data_ohlcv` | Canonical bars, real rows only (no `synthetic_fill` since 185-25). 1d: `tradier`, `ibkr_fallback` or `ibkr_named` by policy (d2-v3); 15m/1h: `derived_5m`; 5m/1m: provider bars | 1d, 15m, 1h: `bar_derivation`; 5m/1m: the IBKR history fetcher |
 | `ohlcv_coverage` | Per (symbol, timeframe) bounds, row count and last fetch status: the fetcher's ranking cache, derived and rebuildable (`--rebuild-coverage`) | the IBKR history fetcher |
 | `integrity_monitor` (`monitor_type = 'bar_integrity'`) | D7 verdict rows, subject `SYM\|tf`, one per check; the promotion and rebuild gate reads them (`verdict_gate.py`) | `services/bar_reconciliation_audit.py` |
-| `canonical_bar_lineage` | View (migration 447): which observation each canonical 1d bar equals, derived on read | none (a view) |
-| `ohlcv_intraday_raw_archive` | The IBKR 15m/1h answers the derived grid replaced (hypertable) | `bar_derivation --stage grid` |
+| `canonical_bar_lineage` | View (migration 447): which stored vendor bar each canonical 1d bar equals (`ohlcv_raw` joined to `ohlcv_request`), derived on read | none (a view) |
 | `bar_quality_flag` | Scrub flags; `quarantine = true` hides the bar | `bar_scrub` (via the daily stage), `bar_derivation` |
 | `corporate_action` | Splits and reverse splits, append-only, `supersedes` and `void` for corrections | split detect (`ops_split_detect.py`: the nightly overlap and its sanctioned corrections); `tradier_refetch` rows (the Tradier loader, deleted in 185-48) and seam audit rows are history |
 | `listing_venue` | Point-in-time listing venue spans per symbol (D6) | `services/listing_venue_writer.py` (manual run) |
@@ -82,16 +81,24 @@ derived grid) are defined in `docs/foundation/glossary.md`; owners are in
 | `ohlcv_empty_history` | Spans every required route answered no_data for | the fetch helpers (`_empty_history.py`) |
 
 The fetch bookkeeping table was dropped by migration 459 (plan 185-43); progress is
-`ohlcv_coverage` and promotion reads verdicts. D1 tables are plain tables (not hypertables). `ohlcv_request` and `ohlcv_observation` are mutable
-since migration 438; `corporate_action`, `bar_content_digest` and `listing_venue` refuse rewrites
-in a trigger (superuser included).
+`ohlcv_coverage` and promotion reads verdicts. `ohlcv_observation` and
+`ohlcv_intraday_raw_archive` were dropped by migration 499 (plan 191-16): plan 191-05 had moved
+every write to `ohlcv_raw` and plans 191-13 and 191-16 proved the canonical output equal, so the
+stores they replaced were dead weight. A COPY backup of both (218,252,126 rows, 50 gzip slices
+with sha256 in `old_store_backup_manifest.json`) sits in `data/backups/191/`, retained until
+2026-11-12; `scripts/ops/bars/ops_old_store_backup.py --verify-files` checks it against its
+manifest without a database. The fetch-ledger and raw tables are plain tables (not hypertables).
+`ohlcv_request` is mutable since migration 438; `corporate_action`, `bar_content_digest` and
+`listing_venue` refuse rewrites in a trigger (superuser included).
 
 ### Roles
 
 Both writer roles are `NOLOGIN`; the `postgres` login narrows itself with
 `SET LOCAL ROLE <role>` inside each write transaction, so grants are the fence.
 
-- `ohlcv_observation_writer`: INSERT (and since 438 UPDATE, DELETE) on the D1 tables.
+- `ohlcv_observation_writer`: SELECT, INSERT, UPDATE and DELETE on `ohlcv_request` (plus SELECT
+  on `instruments`); the name outlives the 191-16 drop of its old tables (a role rename is a
+  migration with no benefit) and its live user is `services/ohlcv_request_writer.py`.
 - `bar_derivation_writer`: DML on `market_data_ohlcv` and the derivation side tables; read-only on
   D1; INSERT and `UPDATE (valid_to)` only on `listing_venue`.
 
