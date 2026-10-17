@@ -1,14 +1,16 @@
 """Unit tests for the old-store COPY backup script (phase 191 plan 16).
 
 Covers the pure parts on in-memory fixtures: year-slice arithmetic, gzip row counting,
-sha256, the disk-margin refusal and the --verify mismatch path (a slice that disagrees
-with the manifest is named in the failure). No database anywhere in this file.
+sha256, the disk-margin refusal, the --verify mismatch path (a slice that disagrees
+with the manifest is named in the failure) and the --verify-files retention check (the
+same file half with no database anywhere). No database anywhere in this file.
 """
 
 from __future__ import annotations
 
 import gzip
 import hashlib
+import json
 from datetime import date
 from pathlib import Path
 
@@ -133,6 +135,103 @@ def test_verify_slices_flags_a_live_slice_the_manifest_lacks():
     digests = {("t1", 2020): "x"}
     problems = mod.verify_slices(manifest, live, files, digests)
     assert any("t1 2021" in p and "not in the manifest" in p for p in problems)
+
+
+def test_verify_files_passes_when_files_agree():
+    manifest = {
+        "tables": [
+            {
+                "table": "t1",
+                "files": [
+                    {"year": 2020, "file": "t1_2020.csv.gz", "rows": 4, "sha256": "x"},
+                    {"year": 2021, "file": "t1_2021.csv.gz", "rows": 0, "sha256": "y"},
+                ],
+            }
+        ]
+    }
+    files = {("t1", 2020): 4, ("t1", 2021): 0}
+    digests = {("t1", 2020): "x", ("t1", 2021): "y"}
+    assert mod.verify_files(manifest, files, digests) == []
+
+
+def test_verify_files_names_every_mismatching_slice():
+    manifest = {
+        "tables": [
+            {
+                "table": "t1",
+                "files": [
+                    {"year": 2020, "file": "t1_2020.csv.gz", "rows": 4, "sha256": "x"},
+                    {"year": 2021, "file": "t1_2021.csv.gz", "rows": 2, "sha256": "y"},
+                    {"year": 2022, "file": "t1_2022.csv.gz", "rows": 9, "sha256": "z"},
+                ],
+            }
+        ]
+    }
+    files = {("t1", 2020): 4, ("t1", 2021): 3}  # 2021 differs on disk, 2022 deleted
+    digests = {("t1", 2020): "w", ("t1", 2021): "y", ("t1", 2022): "z"}  # 2020 digest moved
+    problems = mod.verify_files(manifest, files, digests)
+    assert "t1 2020" in problems[0] and "sha256" in problems[0]
+    assert "t1 2021" in problems[1] and "file rows" in problems[1]
+    assert "t1 2022" in problems[2] and "missing" in problems[2]
+    assert len(problems) == 3
+
+
+def _write_backup_file(path: Path, rows: int) -> str:
+    """One gzip CSV of `rows` data lines plus a header, as the dump writes; its sha256."""
+    body = b"col\n" + b"1\n" * rows
+    compressed = gzip.compress(body, mtime=0)
+    path.write_bytes(compressed)
+    return hashlib.sha256(compressed).hexdigest()
+
+
+def _write_manifest(tmp_path: Path) -> Path:
+    sha_2020 = _write_backup_file(tmp_path / "t1_2020.csv.gz", rows=2)
+    sha_2021 = _write_backup_file(tmp_path / "t1_2021.csv.gz", rows=3)
+    manifest = {
+        "tables": [
+            {
+                "table": "t1",
+                "date_column": "bar_date",
+                "total_rows": 5,
+                "files": [
+                    {"year": 2020, "file": "t1_2020.csv.gz", "rows": 2, "sha256": sha_2020},
+                    {"year": 2021, "file": "t1_2021.csv.gz", "rows": 3, "sha256": sha_2021},
+                ],
+            }
+        ]
+    }
+    manifest_path = tmp_path / "old_store_backup_manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    return manifest_path
+
+
+def test_run_verify_files_agrees_on_disk_without_any_database(tmp_path, capsys, monkeypatch):
+    manifest_path = _write_manifest(tmp_path)
+
+    def _no_db(*args, **kwargs):
+        raise AssertionError("the file-only verify must not open a database connection")
+
+    monkeypatch.setattr(mod, "_connect", _no_db)
+    assert mod.run_verify_files(manifest_path) == 0
+    out = capsys.readouterr().out
+    assert "verify ok" in out and '"t1": 5' in out
+
+
+def test_run_verify_files_fails_naming_the_slice_when_a_file_changed(tmp_path, capsys):
+    manifest_path = _write_manifest(tmp_path)
+    _write_backup_file(tmp_path / "t1_2021.csv.gz", rows=6)  # bit rot after the manifest
+    assert mod.run_verify_files(manifest_path) == 1
+    captured = capsys.readouterr()
+    assert "VERIFY FAILED" in captured.err
+    assert "t1 2021" in captured.out and "file rows" in captured.out
+
+
+def test_run_verify_files_reports_a_deleted_slice_file(tmp_path, capsys):
+    manifest_path = _write_manifest(tmp_path)
+    (tmp_path / "t1_2021.csv.gz").unlink()
+    assert mod.run_verify_files(manifest_path) == 1
+    out = capsys.readouterr().out
+    assert "t1 2021" in out and "missing" in out
 
 
 def test_disk_check_refuses_below_estimate_times_margin():
