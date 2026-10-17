@@ -4,7 +4,8 @@ A late name is a 1d name whose first ibkr_named bar falls after 2006-11-01. The
 IBKR history fetcher (ohlcv_history_fetcher.py, the only IBKR history CLI) re-asks the
 old window under verify-only (SMART, then every venue in
 infra.ibkr.venue_fallback.exchanges) and every answer lands in ohlcv_request /
-ohlcv_observation (D-16). This script only orchestrates and classifies from those
+ohlcv_raw (D-16; the answers lived in ohlcv_observation until migration 499 dropped it
+in plan 191-16). This script only orchestrates and classifies from those
 stored answers (ohlcv_request plus ohlcv_raw and ohlcv_revision since plan 191-11); it never
 stores venue bars (D-17, plan 13 verdict).
 

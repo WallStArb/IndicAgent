@@ -100,8 +100,8 @@ _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 def _lit(token: str) -> str:
-    """A SQL string literal for a code constant; refuses anything but a plain token
-    (the guard ops_raw_backfill renders its constants-in-SQL through)."""
+    """A SQL string literal for a code constant; refuses anything but a plain token,
+    so no code constant can smuggle punctuation into string-built SQL."""
     if not _SAFE_TOKEN.match(token):
         raise ValueError(f"refusing to render {token!r} into SQL")
     return f"'{token}'"
