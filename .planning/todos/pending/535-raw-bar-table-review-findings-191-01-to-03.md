@@ -358,3 +358,5 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     migration for a script retired at 191-17. Deviations 1-5 judged contained; deviation
     4's NOT IN (0, 80) widens a production assertion permanently (noted, accepted).
 47. Plan 191-15 review (2026-10-17): PASS, five P3s, all fixed in c176329d2.
+48. Plan 191-16 review (2026-10-17): PASS, six P3s - five fixed in b53baec72..be5f01826, P3-6
+    deferred to plan 17 D7 (confirm the week-42 parity draw executed end to end before close).
