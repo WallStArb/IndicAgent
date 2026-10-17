@@ -7,6 +7,9 @@ through one serial connection inside a single REPEATABLE READ transaction, plus 
 JSON (table, file, row count, sha256) beside the files. `--verify` recounts every year
 slice live inside one REPEATABLE READ transaction, counts the rows of each file by reading
 it back, and checks each file's sha256; any mismatch exits nonzero naming the slice.
+`--verify-files` does the file half only (row recount and sha256 against the manifest,
+no database read): since migration 499 dropped both tables, it is the retention-period
+check for the backup sitting on disk.
 
 The script never removes anything and never writes to the database: its only statements are
 SELECT, COPY ... TO STDOUT and catalog reads. A dump refuses to start when the free space on
@@ -190,6 +193,30 @@ def verify_slices(
     return problems
 
 
+def verify_files(
+    manifest: dict[str, Any],
+    files: dict[tuple[str, int], int],
+    digests: dict[tuple[str, int], str],
+) -> list[str]:
+    """Every disagreement between the manifest and the files on disk, one message per
+    slice and aspect, naming the table and the year; no database involved."""
+    problems: list[str] = []
+    for table in manifest["tables"]:
+        name = table["table"]
+        for entry in table["files"]:
+            year, rows = int(entry["year"]), int(entry["rows"])
+            key = (name, year)
+            if key not in files:
+                problems.append(f"{name} {year}: file {entry['file']} missing")
+            elif files[key] != rows:
+                problems.append(f"{name} {year}: file rows {files[key]} != manifest {rows}")
+            if key not in digests:
+                problems.append(f"{name} {year}: digest of {entry['file']} missing")
+            elif digests[key] != entry["sha256"]:
+                problems.append(f"{name} {year}: sha256 of {entry['file']} changed")
+    return problems
+
+
 def disk_refusal(free_bytes: int, estimated_bytes: int, margin: float) -> str | None:
     """A refusal message when free space is below estimate * margin, else None."""
     if margin < 1.0:
@@ -349,6 +376,26 @@ def run_dump(out_dir: Path, manifest_path: Path) -> int:
     return 0
 
 
+def _read_files(
+    manifest: dict[str, Any], base: Path
+) -> tuple[dict[tuple[str, int], int], dict[tuple[str, int], str]]:
+    """Row counts and sha256 digests of every manifest file present on disk, keyed
+    (table, year). A file the manifest names but the volume lacks stays absent from both
+    dicts, so verification reports it missing instead of crashing on the open."""
+    files: dict[tuple[str, int], int] = {}
+    digests: dict[tuple[str, int], str] = {}
+    for table in manifest["tables"]:
+        name = table["table"]
+        for entry in table["files"]:
+            path = base / entry["file"]
+            if not path.exists():
+                continue
+            key = (name, int(entry["year"]))
+            files[key] = count_rows_in_file(path)
+            digests[key] = sha256_of_file(path)
+    return files, digests
+
+
 def run_verify(manifest_path: Path) -> int:
     manifest = json.loads(manifest_path.read_text())
     live: dict[tuple[str, int], int] = {}
@@ -365,16 +412,7 @@ def run_verify(manifest_path: Path) -> int:
                     )
                     for year, count in cur.fetchall():
                         live[(name, year)] = count
-    files: dict[tuple[str, int], int] = {}
-    digests: dict[tuple[str, int], str] = {}
-    base = manifest_path.parent
-    for table in manifest["tables"]:
-        name = table["table"]
-        for entry in table["files"]:
-            key = (name, int(entry["year"]))
-            path = base / entry["file"]
-            files[key] = count_rows_in_file(path)
-            digests[key] = sha256_of_file(path)
+    files, digests = _read_files(manifest, manifest_path.parent)
     problems = verify_slices(manifest, live, files, digests)
     totals = manifest_table_totals(manifest)
     report = {
@@ -394,6 +432,28 @@ def run_verify(manifest_path: Path) -> int:
     return 0
 
 
+def run_verify_files(manifest_path: Path) -> int:
+    """The retention check once the tables are gone: manifest against files only."""
+    manifest = json.loads(manifest_path.read_text())
+    files, digests = _read_files(manifest, manifest_path.parent)
+    problems = verify_files(manifest, files, digests)
+    totals = manifest_table_totals(manifest)
+    report = {
+        "manifest": str(manifest_path),
+        "manifest_totals": totals,
+        "file_totals": {
+            name: sum(n for (t, _), n in files.items() if t == name) for name in totals
+        },
+        "problems": problems,
+    }
+    print(json.dumps(report, indent=2))
+    if problems:
+        print(f"VERIFY FAILED: {len(problems)} mismatch(es)", file=sys.stderr)
+        return 1
+    print("verify ok: manifest and files agree on every slice (no database read)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -401,7 +461,15 @@ def main(argv: list[str] | None = None) -> int:
         "--dump", action="store_true", help="write the per-year gzip CSVs and manifest"
     )
     mode.add_argument(
-        "--verify", action="store_true", help="recount live and on disk against the manifest"
+        "--verify",
+        action="store_true",
+        help="recount live and on disk against the manifest (needs the tables to exist)",
+    )
+    mode.add_argument(
+        "--verify-files",
+        action="store_true",
+        help="recount the manifest's files only (rows and sha256, no database): the "
+        "post-drop retention check",
     )
     parser.add_argument("--backup-dir", type=Path, default=_DEFAULT_BACKUP_DIR)
     parser.add_argument(
@@ -414,6 +482,8 @@ def main(argv: list[str] | None = None) -> int:
     manifest = args.manifest or (args.backup_dir / _DEFAULT_MANIFEST)
     if args.dump:
         return run_dump(args.backup_dir, manifest)
+    if args.verify_files:
+        return run_verify_files(manifest)
     return run_verify(manifest)
 
 

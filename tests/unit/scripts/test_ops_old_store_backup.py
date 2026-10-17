@@ -177,8 +177,8 @@ def test_verify_files_names_every_mismatching_slice():
 
 
 def _write_backup_file(path: Path, rows: int) -> str:
-    """One gzip CSV of `rows` data lines plus a header, as the dump writes; its sha256."""
-    body = b"col\n" + b"1\n" * rows
+    """One gzip CSV of `rows` lines, headerless as COPY TO STDOUT writes; its sha256."""
+    body = b"1\n" * rows
     compressed = gzip.compress(body, mtime=0)
     path.write_bytes(compressed)
     return hashlib.sha256(compressed).hexdigest()
