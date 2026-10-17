@@ -33,9 +33,11 @@
 --     moved to infra.selection_gate.statement_timeout_s (migration 500).
 -- Reader check, 2026-10-17: grep -rn "infra.backfill.ohlcv_insert_batch_size\|infra.raw_backfill.statement_timeout_s" services src scripts -> no output.
 --
--- Idempotent: every DROP is IF EXISTS and the DELETEs match nothing on a rerun. Not
--- decompress/recompress: no chunk is touched, so no trailing VACUUM clause is owed here; the
--- post-apply VACUUMs run as separate statements per the plan.
+-- Rerun semantics, stated exactly: the two trigger drops and the function drop are IF EXISTS;
+-- the two table drops are deliberately plain (no IF EXISTS), so a rerun after the tables are
+-- gone fails loudly on the missing relation instead of silently passing; the DELETEs match
+-- nothing on a rerun. Not decompress/recompress: no chunk is touched, so no trailing VACUUM
+-- clause is owed here; the post-apply VACUUMs run as separate statements per the plan.
 
 BEGIN;
 
