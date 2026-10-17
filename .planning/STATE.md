@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-17T02:07:45.059Z"
+last_updated: "2026-10-17T03:20:20.376Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 120
+  completed_plans: 122
   percent: 22
 ---
 
@@ -87,6 +87,11 @@ lower-bound and D7 serve-time MEDIUM findings are out of plan 12's files and sta
 (plans 09/16 domains, per the review's own verdict). Next: plan 13. The feature rebuild
 (186-26) runs once, after the gate is 0, canonical 1d is caught up and plans 11 to 14 have
 landed. Handoff: `.planning/HANDOFF.json`.
+Plans 13-15 done 2026-10-17 (191-13/14/15-SUMMARY.md): library, services and fetcher
+scripts on (vendor, kind); the swap landed 2026-10-17T00:25Z (window two closed, units
+resumed, market_data_ohlcv_old waits for plan 17); the remaining ops scripts and helpers
+convert, ops_masked_slot_baseline deleted, no canonical source read remains (R-191-07
+complete).
 
 - **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
   raw starts above their own head floor (about 3.66M missing sessions; runbook

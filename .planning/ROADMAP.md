@@ -639,7 +639,7 @@ Plans:
 - R-191-09: close, R6 and D7 green, repro_frozen, old canonical dropped, bookkeeping, todo 530 (step 9)
 - R-191-10: Tradier retirement, residue and fallback proof, gated deletion, code deletion, todo 533 (step 10)
 **Depends on:** Phase 190
-**Plans:** 15/25 plans executed
+**Plans:** 16/25 plans executed
 
 Plans:
 - [x] 191-01-PLAN.md - schema (ohlcv_raw, CVR bar_vendor/bar_kind, revision extension, widened checks), vendor_kind module, glossary, decision record D-191-A to H (R-191-01)
@@ -654,9 +654,9 @@ Plans:
 - [x] 191-10-PLAN.md - evidence readers: split detection, listing venue, bar hold, dividend writer, nightly (R-191-06)
 - [x] 191-11-PLAN.md - ops and research scripts, ObservationSink script writers, R6 over raw, final inventory, window closed (R-191-06)
 - [x] 191-12-PLAN.md - canonical v2 table (vendor, kind): shell migration, copy-with-map build, equality and gate proof, window two (R-191-07)
-- [ ] 191-13-PLAN.md - code switch to vendor and kind: library, services, fetcher-imported scripts, standing gate, equivalence check, API route (R-191-07)
+- [x] 191-13-PLAN.md - code switch to vendor and kind: library, services, fetcher-imported scripts, standing gate, equivalence check, API route (R-191-07)
 - [x] 191-14-PLAN.md - swap names, recreate four views, VACUUM, post-check, units resumed, repro_frozen (R-191-07)
-- [ ] 191-15-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
+- [x] 191-15-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
 - [ ] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
 - [ ] 191-17-PLAN.md - close (time-gated: 24 hours and one 06:00 UTC D7 run after the swap): R6 and D7 green, repro_frozen, drop old canonical, delete one-shots, retire keys, docs (R-191-09)
 - [ ] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
