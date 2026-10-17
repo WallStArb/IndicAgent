@@ -174,3 +174,12 @@ e15fb5108; sequence present in git log.
 
 All created files exist on disk; all four commits (950ccebf2, a956b1dd2, ec2677afd,
 e15fb5108) present in git log.
+
+## Deviation 2: window record archived post-run (main session, 2026-10-17 ~02:35Z)
+
+The executor resumed all ten units individually but the record file outlived the window
+(`status` still printed `window opened`, holding the IBKR 1d deepening gate past the swap).
+The script has no close verb (known gap, 191-12-REVIEW L45); the 191-12 precedent treats the
+record as a log. Archived to `logs/raw_cutover_window.closed_191_14.json` after verifying
+all units healthy (api active, fetcher timer active, catch-up run in flight); `status` now
+exits 1 with no record, and the deepening gate's 02:41Z tick proceeds past the window check.
