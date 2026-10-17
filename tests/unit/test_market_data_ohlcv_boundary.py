@@ -79,11 +79,6 @@ _ALLOW_LIST: dict[str, str] = {
         "tradeable view also hides a bar by that stale status, which would misread a bar "
         "Tradier replaced as missing. Every other gate read uses the tradeable view."
     ),
-    "scripts/ops/bars/ops_masked_slot_baseline.py": (
-        "PERMANENT (todo 462, plan 185-12): counts the synthetic_fill rows of a coarse timeframe "
-        "and compares them with the tradeable 5m volume over the same slots; the synthetic rows "
-        "are the thing measured, so the tradeable view (which hides them) cannot be the source."
-    ),
     "scripts/infrastructure/backfill/infrastructure_ibkr_chunk_and_rate_limit_probe.py": (
         "PERMANENT: _pick_probe_symbols checks whether a (symbol, timeframe) has ANY row at "
         "all -- including synthetic-fill placeholders -- to pick a genuinely never-backfilled "

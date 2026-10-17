@@ -81,6 +81,8 @@ from src.intelligence.bars.source_admission import (  # noqa: E402
     common_session_closes,
     tradier_admission,
 )
+from src.intelligence.bars.sources import SOURCE_TRADIER  # noqa: E402
+from src.intelligence.bars.vendor_kind import label_to_vendor_kind  # noqa: E402
 
 ACTION_ADMIT = "admit"
 ACTION_WRITE = "write"
@@ -113,9 +115,13 @@ _REPORT_COLUMNS = (
     "action",
 )
 
+# The (vendor, kind) of the tradier label; canonical rows carry the pair since the 191-14
+# swap.
+_TRADIER_PAIR = label_to_vendor_kind(SOURCE_TRADIER)
+
 _INCUMBENT_SQL = """
 SELECT EXISTS (SELECT 1 FROM market_data_ohlcv
-               WHERE symbol = $1 AND timeframe = '1d' AND source = 'tradier')
+               WHERE symbol = $1 AND timeframe = '1d' AND vendor = $2 AND kind = $3)
 """
 _OVERLAPPING_ROW_SQL = """
 SELECT policy_id FROM bar_source_policy
@@ -426,7 +432,7 @@ async def _load(
     # answers, so the corpus import (route LEGACY_IMPORT) stays out as before.
     inputs, splits = await read_daily_inputs(conn, symbol)
     observations = [o for o in inputs if o.route in _ROUTES]
-    incumbent = bool(await conn.fetchval(_INCUMBENT_SQL, symbol))
+    incumbent = bool(await conn.fetchval(_INCUMBENT_SQL, symbol, *_TRADIER_PAIR))
     # valid_from covers every route d2-v2 reads (LEGACY_IMPORT included), so no earlier date
     # falls back to the Tradier default. The raw read already holds them (plan 191-11: the
     # first TRADES date comes from the same current raw rows, not from ohlcv_observation).

@@ -46,7 +46,8 @@ from scripts.infrastructure.backfill._fetcher_lock import LOCK_HELD_MESSAGE
 from scripts.ops.bars._campaign import CampaignRefused, preflight
 from src.config.settings import Settings
 from src.core.integrity_monitor import emit_integrity_fact_sync
-from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS
+from src.intelligence.bars.derivation import SOURCE_NAMED
+from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, label_to_vendor_kind
 from src.providers.base import VENUE_ROUTE_ALIASES
 
 _logger = structlog.get_logger(__name__)
@@ -196,22 +197,26 @@ def run_with_refusal(check: Callable[[], None]) -> None:
 # --- D1 reads --------------------------------------------------------------------
 
 
+# The (vendor, kind) of the ibkr_named label; the tradeable view has carried the pair instead
+# of a source column since the 191-14 swap.
+_NAMED_PAIR = label_to_vendor_kind(SOURCE_NAMED)
+
+_LATE_NAMES_SQL = f"""
+    SELECT m.symbol, MIN(m."timestamp")::date
+    FROM market_data_ohlcv_tradeable m
+    JOIN instruments i USING (symbol)
+    WHERE m.timeframe = '1d' AND m.vendor = '{_NAMED_PAIR[0]}' AND m.kind = '{_NAMED_PAIR[1]}'
+      AND i.compute_eligible_1d = true
+    GROUP BY m.symbol
+    HAVING MIN(m."timestamp") > %s
+    ORDER BY m.symbol
+"""
+
+
 def _late_names(conn: Any) -> dict[str, date]:
     """Late 1d names mapped to their SMART head (first ibkr_named 1d bar)."""
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT m.symbol, MIN(m."timestamp")::date
-            FROM market_data_ohlcv_tradeable m
-            JOIN instruments i USING (symbol)
-            WHERE m.timeframe = '1d' AND m.source = 'ibkr_named'
-              AND i.compute_eligible_1d = true
-            GROUP BY m.symbol
-            HAVING MIN(m."timestamp") > %s
-            ORDER BY m.symbol
-            """,
-            (_LATE_CUTOFF,),
-        )
+        cur.execute(_LATE_NAMES_SQL, (_LATE_CUTOFF,))
         return {row[0]: row[1] for row in cur.fetchall()}
 
 

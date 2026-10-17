@@ -45,10 +45,12 @@ from src.config.config_service import ConfigService
 from src.config.settings import get_settings
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.vendor_kind import (
+    DERIVED_PAIR,
     LABEL_TO_VENDOR_KIND,
     VENDOR_DERIVED,
     VENDOR_KIND_TO_LABEL,
     observation_kind,
+    pair_token,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -92,6 +94,16 @@ def vendor_labels() -> dict[str, tuple[str, str]]:
         for label, pair in LABEL_TO_VENDOR_KIND.items()
         if pair[0] != VENDOR_DERIVED and pair[1] not in CANONICAL_ONLY_KINDS
     }
+
+
+def build_raw_pairs_values_sql() -> str:
+    """VALUES rows (vendor, kind) of every raw-eligible pair, for the canonical reads: the
+    table carries the pair since the 191-14 swap, so raw eligibility is a pair membership
+    test, never a join on a source label."""
+    rows = [
+        f"({_lit(vendor)}, {_lit(kind)})" for vendor, kind in sorted(set(vendor_labels().values()))
+    ]
+    return ",\n        ".join(rows)
 
 
 def build_vendor_kind_values_sql() -> str:
@@ -140,17 +152,18 @@ def canonical_select_sql() -> str:
     """Vendor-labelled canonical rows outside 1d; every provenance column NULL (none is known).
 
     1d canonical rows are daily-rule outputs derived from observations, not raw sources, so the
-    whole 1d timeframe is excluded; derived_5m and synthetic_fill are not in the label map."""
+    whole 1d timeframe is excluded; the derived pair and every canonical-only kind fail the
+    raw-pair membership test."""
     return f"""
-    SELECT m.timestamp, m.symbol, m.timeframe, l.vendor, l.kind,
+    SELECT m.timestamp, m.symbol, m.timeframe, m.vendor, m.kind,
            m.open, m.high, m.low, m.close, m.volume,
            NULL::timestamptz AS served_at, NULL::uuid AS request_id, NULL::uuid AS load_id
       FROM market_data_ohlcv m
-      JOIN (VALUES
-        {build_vendor_kind_values_sql()}
-      ) AS l(label, vendor, kind) ON l.label = m.source
      WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
-       AND m.timeframe <> '1d'"""
+       AND m.timeframe <> '1d'
+       AND (m.vendor, m.kind) IN (VALUES
+         {build_raw_pairs_values_sql()}
+       )"""
 
 
 def _observation_rows_cte(obs_values_sql: str, *, windowed: bool = True) -> str:
@@ -764,12 +777,12 @@ def canonical_disagreeing_select_sql() -> str:
            m.open, m.high, m.low, m.close, m.volume,
            NULL::timestamptz AS served_at, NULL::uuid AS request_id, NULL::uuid AS load_id
       FROM ohlcv_intraday_raw_archive a
-      JOIN market_data_ohlcv m
-        ON m.timestamp = a.timestamp AND m.symbol = a.symbol AND m.timeframe = a.timeframe
-       AND m.source = a.source
       JOIN (VALUES
         {build_vendor_kind_values_sql()}
-      ) AS l(label, vendor, kind) ON l.label = m.source
+      ) AS l(label, vendor, kind) ON l.label = a.source
+      JOIN market_data_ohlcv m
+        ON m.timestamp = a.timestamp AND m.symbol = a.symbol AND m.timeframe = a.timeframe
+       AND m.vendor = l.vendor AND m.kind = l.kind
      WHERE a.symbol = %(symbol)s AND a.timestamp >= %(lo)s AND a.timestamp < %(hi)s
        AND m.timeframe <> '1d'
        AND ROW(a.open, a.high, a.low, a.close, a.volume)
@@ -941,32 +954,39 @@ _CANONICAL_VS_ARCHIVE_SQL = f"""
     SELECT count(*) AS pair_rows,
            count(*) FILTER (WHERE ROW(a.open, a.high, a.low, a.close, a.volume)
                IS DISTINCT FROM ROW(m.open, m.high, m.low, m.close, m.volume)) AS disagree
-      FROM market_data_ohlcv m
-      JOIN ohlcv_intraday_raw_archive a
-        ON a.timestamp = m.timestamp AND a.symbol = m.symbol AND a.timeframe = m.timeframe
-       AND a.source = m.source
+      FROM ohlcv_intraday_raw_archive a
+      JOIN (VALUES
+        {build_vendor_kind_values_sql()}
+      ) AS l(label, vendor, kind) ON l.label = a.source
+      JOIN market_data_ohlcv m
+        ON m.timestamp = a.timestamp AND m.symbol = a.symbol AND m.timeframe = a.timeframe
+       AND m.vendor = l.vendor AND m.kind = l.kind
      WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
-       AND m.timeframe <> '1d'
-       AND m.source IN ({", ".join(_lit(label) for label in vendor_labels())})"""
+       AND m.timeframe <> '1d'"""
 
 _CANONICAL_DISAGREE_SAMPLE_SQL = f"""
-    SELECT m.timestamp, m.symbol, m.timeframe, m.source
-      FROM market_data_ohlcv m
-      JOIN ohlcv_intraday_raw_archive a
-        ON a.timestamp = m.timestamp AND a.symbol = m.symbol AND a.timeframe = m.timeframe
-       AND a.source = m.source
+    SELECT m.timestamp, m.symbol, m.timeframe, m.vendor, m.kind
+      FROM ohlcv_intraday_raw_archive a
+      JOIN (VALUES
+        {build_vendor_kind_values_sql()}
+      ) AS l(label, vendor, kind) ON l.label = a.source
+      JOIN market_data_ohlcv m
+        ON m.timestamp = a.timestamp AND m.symbol = a.symbol AND m.timeframe = a.timeframe
+       AND m.vendor = l.vendor AND m.kind = l.kind
      WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
        AND m.timeframe <> '1d'
-       AND m.source IN ({", ".join(_lit(label) for label in vendor_labels())})
        AND ROW(a.open, a.high, a.low, a.close, a.volume)
            IS DISTINCT FROM ROW(m.open, m.high, m.low, m.close, m.volume)
      LIMIT %(limit)s"""
 
+# Canonical exclusions group by (vendor, kind): the derived pair names the grid rows and any
+# pair outside the raw-eligible set lands in the unlabelled bucket (which fails the run);
+# synthetic fills cannot appear, the post-swap table has no kind for them.
 _EXCLUSION_SQL = """
-    SELECT source, (timeframe = '1d') AS is_1d, count(*)
+    SELECT vendor, kind, (timeframe = '1d') AS is_1d, count(*)
       FROM market_data_ohlcv
      WHERE symbol = %(symbol)s AND timestamp >= %(lo)s AND timestamp < %(hi)s
-     GROUP BY 1, 2"""
+     GROUP BY 1, 2, 3"""
 
 _ARCHIVE_EXCLUSION_SQL = """
     SELECT source, count(*)
@@ -987,7 +1007,7 @@ _RAW_PROVENANCE_SQL = """
      GROUP BY 1, 2, 3, 4"""
 
 
-def _canonical_1d_twin_sql(vendor_case_values: str) -> str:
+def _canonical_1d_twin_sql() -> str:
     return f"""
     WITH obs_keys AS (
         SELECT DISTINCT o.symbol, o.bar_date, o.source
@@ -995,12 +1015,11 @@ def _canonical_1d_twin_sql(vendor_case_values: str) -> str:
          WHERE o.symbol = %(symbol)s AND o.bar_date >= %(lo)s::date AND o.bar_date < %(hi)s::date
            AND r.caller NOT LIKE '{_TEST_CALLER}'
     )
-    SELECT m.source, count(*) AS n, count(k.symbol) AS with_twin
+    SELECT m.vendor, count(*) AS n, count(k.symbol) AS with_twin
       FROM market_data_ohlcv m
-      JOIN (VALUES {vendor_case_values}) AS l(label, vendor) ON l.label = m.source
       LEFT JOIN obs_keys k
         ON k.symbol = m.symbol AND k.bar_date = (m.timestamp AT TIME ZONE 'UTC')::date
-       AND k.source = l.vendor
+       AND k.source = m.vendor
      WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
        AND m.timeframe = '1d'
      GROUP BY 1"""
@@ -1019,7 +1038,8 @@ def _union_keys_sql(obs_values_sql: str) -> str:
         UNION
         SELECT m.timestamp, m.symbol, m.timeframe, l.vendor, l.kind
           FROM market_data_ohlcv m
-          JOIN (VALUES {values}) AS l(label, vendor, kind) ON l.label = m.source
+          JOIN (VALUES {values}) AS l(label, vendor, kind)
+            ON (l.vendor, l.kind) = (m.vendor, m.kind)
          WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
            AND m.timeframe <> '1d'
         UNION
@@ -1095,9 +1115,6 @@ def run_check(
 ) -> dict[str, Any]:
     """The balance report. Every count is read inside the caller's one REPEATABLE READ snapshot."""
     totals = new_report_totals()
-    vendor_values = ", ".join(
-        f"({_lit(label)}, {_lit(v)})" for label, (v, _) in vendor_labels().items()
-    )
     obs_current = f"{observation_current_cte(obs_values_sql)}, src AS (SELECT * FROM current_obs)"
     t0 = time.monotonic()
     with conn.cursor() as cur:
@@ -1116,18 +1133,20 @@ def run_check(
                     continue
                 totals["exclusions"]["test_caller_observations"] += test_n
                 labels = vendor_labels()
-                for source, is_1d, n in excl_rows:
-                    if is_1d and source in labels:
+                raw_pairs = set(labels.values())
+                for vendor, kind, is_1d, n in excl_rows:
+                    pair = (vendor, kind)
+                    if is_1d and pair in raw_pairs:
                         continue
-                    if source == _EXCLUDED_DERIVED_LABEL and not is_1d:
+                    if pair == DERIVED_PAIR and not is_1d:
                         totals["exclusions"][_EXCLUDED_DERIVED_LABEL] += n
-                    elif source == _EXCLUDED_SYNTHETIC_LABEL:
-                        totals["exclusions"][_EXCLUDED_SYNTHETIC_LABEL] += n
-                    elif source in labels:
+                    elif pair in raw_pairs:
                         continue
                     else:
                         bucket = totals["unlabelled_source_rows"]["canonical"]
-                        bucket[source] = bucket.get(source, 0) + n
+                        token = pair_token(vendor, kind)
+                        bucket[token] = bucket.get(token, 0) + n
+                # the archive keeps its source label column, so its exclusions stay label-keyed
                 for source, n in arch_excl:
                     if source in labels:
                         continue
@@ -1170,12 +1189,12 @@ def run_check(
                 if disagree and len(sd["sample"]) < sample_limit:
                     cur.execute(_CANONICAL_DISAGREE_SAMPLE_SQL, {**p, "limit": sample_limit})
                     sd["sample"].extend(
-                        [[str(t), s, tf, src] for t, s, tf, src in cur.fetchall()][
+                        [[str(t), s, tf, pair_token(v, k)] for t, s, tf, v, k in cur.fetchall()][
                             : sample_limit - len(sd["sample"])
                         ]
                     )
 
-                cur.execute(_canonical_1d_twin_sql(vendor_values), p)
+                cur.execute(_canonical_1d_twin_sql(), p)
                 for _source, n, with_twin in cur.fetchall():
                     totals["exclusions"]["1d_canonical_with_observation_twin"] += with_twin
                     residue = n - with_twin

@@ -31,7 +31,6 @@ sys.path.insert(0, str(project_root))
 
 from scripts.ops.bars import ops_selection_gate as gate  # noqa: E402
 from src.intelligence.bars.selection import session_date, session_grid  # noqa: E402
-from src.intelligence.bars.vendor_kind import LABEL_TO_VENDOR_KIND  # noqa: E402
 
 RATIO_KEY = "threshold.bar_integrity.truncated_bar_volume_ratio"
 _BAR = timedelta(minutes=5)
@@ -42,7 +41,7 @@ _PAIRS_SQL = (
     "AND i.volume > 0 AND a.volume > 0"
 )
 _CANON_SQL = (
-    'SELECT "timestamp", source FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s '
+    'SELECT "timestamp", vendor FROM market_data_ohlcv WHERE symbol = %s AND timeframe = %s '
     'AND "timestamp" = ANY(%s)'
 )
 _ENDS_SQL = (
@@ -108,9 +107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if found:
                     stamps = [datetime.fromisoformat(c["timestamp"]) for c in found]
                     cur.execute(_CANON_SQL, (symbol, "5m", stamps))
-                    canon = {
-                        r[0]: LABEL_TO_VENDOR_KIND.get(r[1], (r[1],))[0] for r in cur.fetchall()
-                    }
+                    canon = {r[0]: r[1] for r in cur.fetchall()}
                     ends = []
                     for ts in stamps:
                         ends.extend(ts + timedelta(seconds=s) for s in range(1, 300))

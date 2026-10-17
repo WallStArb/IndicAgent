@@ -40,31 +40,58 @@ import psycopg
 
 from src.config.settings import Settings
 from src.core.service_utils import format_iso_ts
+from src.intelligence.bars.vendor_kind import vendor_kind_to_label
 
 _SEAM_SYMBOLS = ("MRNA", "ALMS")
 _SEAM_1D_START = "2026-07-01"
 
 _ET_DATE_SQL = "(timestamp AT TIME ZONE 'America/New_York')::date"
 
+# vendor and kind are selected; _write_cursor_rows collapses the pair into the `source`
+# label column the plan 08 fixtures are shaped around.
 _COLS = (
-    "timestamp, symbol, timeframe, open, high, low, close, volume, source, base, "
+    "timestamp, symbol, timeframe, open, high, low, close, volume, vendor, kind, base, "
     "price_sanity_status"
 )
 
 
 def _write_cursor_rows(cur: psycopg.Cursor, path: Path) -> int:
-    """Write the cursor's result set to a CSV with a header row. Returns row count."""
-    header = [d.name for d in cur.description] if cur.description is not None else []
+    """Write the cursor's result set to a CSV with a header row. Returns row count.
+
+    A result carrying adjacent `vendor` and `kind` columns writes the legacy `source` label
+    column instead (the fixtures' plan-08 shape): the pair renders through
+    vendor_kind_to_label, which raises on an unmapped pair rather than writing a guess.
+    """
+    names = [d.name for d in cur.description] if cur.description is not None else []
+    vi = names.index("vendor") if "vendor" in names else None
+    ki = names.index("kind") if "kind" in names else None
+    collapse = vi is not None and ki is not None and ki == vi + 1
+    header = list(names)
+    if collapse:
+        header[vi : ki + 1] = ["source"]
+
+    def _cell(v: object, d: object) -> object:
+        return format_iso_ts(v) if _is_timestamp(d) else v
+
     n = 0
     with path.open("w", newline="") as handle:
         writer = csv.writer(handle)
         if header:
             writer.writerow(header)
         for row in cur:
-            writer.writerow(
-                format_iso_ts(v) if _is_timestamp(d) else v
-                for v, d in zip(row, cur.description, strict=True)
-            )
+            if collapse:
+                writer.writerow(
+                    [
+                        *(_cell(v, d) for v, d in zip(row[:vi], cur.description[:vi], strict=True)),
+                        vendor_kind_to_label(row[vi], row[ki]),
+                        *(
+                            _cell(v, d)
+                            for v, d in zip(row[ki + 1 :], cur.description[ki + 1 :], strict=True)
+                        ),
+                    ]
+                )
+            else:
+                writer.writerow(_cell(v, d) for v, d in zip(row, cur.description, strict=True))
             n += 1
     return n
 
@@ -81,7 +108,7 @@ def export_status_rows(conn: psycopg.Connection, path: Path) -> int:
     """
     sql = """
         SELECT h.timestamp, h.symbol, h.timeframe, h.open, h.high, h.low, h.close,
-               h.volume, h.source, h.base, h.price_sanity_status,
+               h.volume, h.vendor, h.kind, h.base, h.price_sanity_status,
                (SELECT p.close FROM market_data_ohlcv_tradeable p
                  WHERE p.symbol = h.symbol AND p.timeframe = h.timeframe
                    AND p.timestamp < h.timestamp

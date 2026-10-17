@@ -448,8 +448,8 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     assert "replaced 71" in scrub.evidence and "open 1" in scrub.evidence
 
     params = {marker: p for marker, p in conn.executed}
-    vendor, kinds = params["ohlcv_venue_head"]
-    assert vendor == "ibkr" and sorted(kinds) == ["named", "venue"]
+    vendors, kinds = params["ohlcv_venue_head"]
+    assert vendors == ["ibkr"] and sorted(kinds) == ["named", "venue"]
     revision_params = params["ohlcv_revision"]
     assert sorted(revision_params[0]) == [
         "ibkr/named",

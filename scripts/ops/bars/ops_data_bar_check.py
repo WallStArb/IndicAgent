@@ -74,6 +74,11 @@ from scripts.ops.bars.ops_head_rerun import (
 from src.config.settings import Settings
 from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
 from src.intelligence.bars.sources import SOURCE_TRADIER
+from src.intelligence.bars.vendor_kind import (
+    label_to_vendor_kind,
+    pair_token,
+    vendor_kind_to_label,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "bars" / "corrupt_1d_dry_run_2026_09_26.txt"
@@ -84,6 +89,17 @@ _VENUE_BARS_KEY = "infra.bar_derivation.venue_bars_1d"
 _MIN_YAHOO_COVERAGE = 0.99
 # The 1d sources whose prints the known answers judged and whose pre-move bars are truncation.
 IBKR_1D_SOURCES: tuple[str, ...] = (SOURCE_NAMED, SOURCE_VENUE)
+# The same judged sources after the 191-14 swap: the (vendor, kind) pairs the stored rows
+# carry, and the ohlcv_revision.old_source forms an IBKR value takes, legacy labels on rows
+# written before the swap and `vendor/kind` tokens (the raw writer's D2 convention) on rows
+# logged after it.
+IBKR_1D_PAIRS: tuple[tuple[str, str], ...] = tuple(
+    label_to_vendor_kind(label) for label in IBKR_1D_SOURCES
+)
+IBKR_1D_REVISION_SOURCES: tuple[str, ...] = (
+    *IBKR_1D_SOURCES,
+    *(pair_token(*pair) for pair in IBKR_1D_PAIRS),
+)
 # The 15 1d keys migration 381 copied into legacy_price_sanity_status flags (its source:
 # market_data_ohlcv.price_sanity_status = 'confirmed_corrupt', re-read 2026-10-07). Fixed here
 # because 185-30 retired 12 of those flags when Tradier replaced the bars, so the flags can no
@@ -126,7 +142,7 @@ SELECT k.symbol, k.ts,
   EXISTS (SELECT 1 FROM bar_quality_flag b
            WHERE b.symbol = k.symbol AND b.timeframe = '1d'
              AND b."timestamp" = k.ts AND b.quarantine) AS quarantined,
-  m.source AS stored_source,
+  m.vendor AS stored_vendor, m.kind AS stored_kind,
   EXISTS (SELECT 1 FROM ohlcv_revision r
            WHERE r.symbol = k.symbol AND r.timeframe = '1d'
              AND r."timestamp" = k.ts AND r.old_source = ANY(%s)) AS has_ibkr_revision,
@@ -146,7 +162,8 @@ _TRADIER_HISTORY_LATE_SQL = """
 /* tradier_history */
 SELECT s.symbol FROM unnest(%s::text[]) AS s(symbol)
 WHERE EXISTS (SELECT 1 FROM market_data_ohlcv_tradeable m
-              WHERE m.symbol = s.symbol AND m.timeframe = '1d' AND m.source = %s)
+              WHERE m.symbol = s.symbol AND m.timeframe = '1d'
+                AND m.vendor = %s AND m.kind = %s)
 """
 
 _SEAM_ACTION_SQL = """
@@ -177,7 +194,7 @@ SELECT COUNT(*) AS pre_move_bars
 FROM market_data_ohlcv_tradeable m
 JOIN heads h USING (symbol)
 WHERE m.timeframe = '1d' AND m."timestamp" < h.smart_head
-  AND m.source = ANY(%s)
+  AND m.vendor = ANY(%s) AND m.kind = ANY(%s)
 """
 
 _INVENTORY_SQL = """
@@ -441,13 +458,19 @@ def _known_answer_counts(
     rows = _rows(
         conn,
         _KNOWN_ANSWER_SQL,
-        (list(IBKR_1D_SOURCES), [symbol for symbol, _ in keys], [ts for _, ts in keys]),
+        (
+            list(IBKR_1D_REVISION_SOURCES),
+            [symbol for symbol, _ in keys],
+            [ts for _, ts in keys],
+        ),
     )
     counts: Counter[str] = Counter()
-    for _, _, quarantined, source, has_revision, revised_at, stale_status in rows:
+    for _, _, quarantined, vendor, kind, has_revision, revised_at, stale_status in rows:
         status = known_answer_status(
             quarantined=bool(quarantined),
-            stored_source=source,
+            stored_source=(
+                None if vendor is None or kind is None else vendor_kind_to_label(vendor, kind)
+            ),
             has_ibkr_revision=bool(has_revision),
             last_revision_at=revised_at,
             scrub_at=scrub_at,
@@ -489,10 +512,24 @@ def run_checks(conn: Any) -> list[CheckResult]:
         for symbol in late
     }
     tradier_history = {
-        row[0] for row in _rows(conn, _TRADIER_HISTORY_LATE_SQL, (sorted(late), SOURCE_TRADIER))
+        row[0]
+        for row in _rows(
+            conn,
+            _TRADIER_HISTORY_LATE_SQL,
+            (sorted(late), *label_to_vendor_kind(SOURCE_TRADIER)),
+        )
     }
 
-    pre_move = int(_scalar(conn, _PREMOVE_SQL, (list(IBKR_1D_SOURCES),))[0])
+    pre_move = int(
+        _scalar(
+            conn,
+            _PREMOVE_SQL,
+            (
+                sorted({vendor for vendor, _ in IBKR_1D_PAIRS}),
+                sorted({kind for _, kind in IBKR_1D_PAIRS}),
+            ),
+        )[0]
+    )
     covered, eligible, deactivated = _scalar(conn, _INVENTORY_SQL, (sorted(late),))
     venue_row = _scalar(conn, _VENUE_FLAG_SQL)
     venue_bars_1d = bool(venue_row and str(venue_row[0]).strip().lower() == "true")
