@@ -45,11 +45,11 @@ _DERIVATION = "services/bar_derivation.py"
 _INGRESS = "services/ohlcv_ingress_contract.py"
 _RAW_WRITER = "services/ohlcv_raw_writer.py"
 
-_BACKFILL = "scripts/ops/bars/ops_raw_backfill.py"
-
 # table -> module -> (sources, callers, reason). A segment is the (source, caller) pairs a writer
-# records: sources MAY overlap between writers now (vendor names are shared by the ingress
-# contract and the one-shot raw backfill), the callers MAY NOT. "*" as a source means any vendor.
+# records: sources MAY overlap between writers (vendor names are shared), the callers MAY NOT.
+# "*" as a source means any vendor. The one-shot raw backfill (caller raw-backfill-191, plan
+# 191-04) was deleted with the old stores by plan 191-16; its historical load and revision rows
+# stay, so no writer may claim its caller.
 _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] = {
     "ohlcv_load": {
         _DERIVATION: (
@@ -67,13 +67,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "Alpaca loader and store_bars all write through it since phase 191 plan 05), "
             "outcome applied or refused (plans 185-39, 191-04 and 191-05). Never the caller "
             "raw-backfill-191.",
-        ),
-        _BACKFILL: (
-            frozenset({"*"}),
-            frozenset({"raw-backfill-191"}),
-            "TEMPORARY retire: 191-17. The --revisions mode writes one load per (symbol, vendor, "
-            "restatement ordinal) with destination raw, outcome applied, caller raw-backfill-191 "
-            "(phase 191 plan 04, D-191-E).",
         ),
     },
     "ohlcv_revision": {
@@ -93,12 +86,6 @@ _ALLOW_LISTS: dict[str, dict[str, tuple[frozenset[str], frozenset[str], str]]] =
             "superseded; migration 485) under the load row its caller inserted. "
             "It writes ohlcv_revision rows only and never an ohlcv_load row, so its segment is "
             "the revision origin, not a caller.",
-        ),
-        _BACKFILL: (
-            frozenset({"*"}),
-            frozenset({"raw-backfill-191"}),
-            "TEMPORARY retire: 191-17. The --revisions mode writes the superseded observation "
-            "value runs as origin raw revisions under raw-backfill-191 loads (phase 191 plan 04).",
         ),
     },
 }
@@ -146,10 +133,9 @@ def test_segments_are_declared_and_callers_are_pairwise_disjoint():
             assert not a & b, f"{table}: {first} and {second} both own caller {sorted(a & b)}"
 
 
-def test_the_backfill_caller_is_the_literal_the_module_writes_and_the_contract_never_uses_it():
-    backfill = (_REPO_ROOT / _BACKFILL).read_text()
-    assert '_REVISION_CALLER = "raw-backfill-191"' in backfill
-    assert "'raw'" in backfill  # destination raw
+def test_the_ingress_contract_never_claims_the_backfill_caller():
+    # raw-backfill-191 was the deleted one-shot backfill's caller (plan 191-04); its load rows
+    # are permanent history, so no live writer may claim the caller.
     ingress = (_REPO_ROOT / _INGRESS).read_text()
     assert "raw-backfill-191" not in ingress
 

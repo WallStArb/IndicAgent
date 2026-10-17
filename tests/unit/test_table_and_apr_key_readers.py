@@ -143,14 +143,10 @@ _KEEP_TABLES: dict[str, str] = {
 # name -> reason carrying `retire: <plan id>`. The plan that orphans a table or APR key adds its
 # entry in the same commit; the retiring plan (185-43 for the data layer work) removes the name
 # and the entry together. Checked by test_temporary_allow_list_expiry.py.
-# infra.raw_backfill.statement_timeout_s is read by scripts/ops/bars/ops_raw_backfill.py; plan 17
-# deletes that script and must then add a retire entry here (or a retire migration) for the key.
+# infra.raw_backfill.statement_timeout_s and infra.backfill.ohlcv_insert_batch_size were retired
+# by migration 499 (plan 191-16 deleted ops_raw_backfill.py, their subject; ops_selection_gate.py
+# moved to infra.selection_gate.statement_timeout_s, seeded by migration 500).
 _PENDING_RETIREMENT: dict[str, str] = {
-    "infra.backfill.ohlcv_insert_batch_size": (
-        "retire: 191-16. Its only reader was the fetcher's market_data_ohlcv / archive insert "
-        "batching, deleted by plan 191-05 (the raw write batches by "
-        "infra.ohlcv_observation.copy_batch_rows)."
-    ),
     "infra.old_store_backup.disk_margin": (
         "retire: 191-18. Read only by scripts/ops/bars/ops_old_store_backup.py, which stays "
         "until the backup retention date 2026-11-12 (plan 17 records the date); plan 18 "

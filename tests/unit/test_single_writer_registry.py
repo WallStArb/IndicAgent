@@ -75,9 +75,6 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     # for one nightly cycle: nothing may write it (the swap script only renames it), and plan
     # 191-17's DROP TABLE clears the entry with the table.
     "market_data_ohlcv_old": (),
-    "ohlcv_intraday_raw_archive": Covered(
-        "tests/unit/test_ohlcv_intraday_raw_archive_writer_boundary.py"
-    ),
     "ohlcv_coverage": Covered("tests/unit/test_ohlcv_coverage_writer_boundary.py"),
     # canonical_bar_lineage is a view since migration 447 (plan 185-38); the lineage/digest
     # boundary test still fails any statement that writes the name.
@@ -109,22 +106,10 @@ _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
             reason="the ingress contract records each load the restatement detector flags",
         ),
     ),
-    "ohlcv_observation": (
-        Writer(
-            "services/ohlcv_observation_writer.py",
-            reason="the D1 writer (ObservationSink / AsyncObservationSink, phase 185 D1)",
-        ),
-    ),
     "ohlcv_request": (
         Writer(
             "services/ohlcv_request_writer.py",
             reason="the fetch ledger writer (RequestSink / AsyncRequestSink, phase 191 plan 02)",
-        ),
-        Writer(
-            "services/ohlcv_observation_writer.py",
-            reason="TEMPORARY: the D1 writer's request rows, duplicated in "
-            "ohlcv_request_writer.py. No caller imports it since plan 191-11 deleted "
-            "ops_venue_study and ops_d1_bootstrap; the module goes in 191-16 (retire: 191-16)",
         ),
         Writer(
             "scripts/ops/bars/ops_legacy_restamp.py",

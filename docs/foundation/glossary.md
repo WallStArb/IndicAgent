@@ -2014,19 +2014,26 @@ inside fetch coverage. Reported by the daily audit with the threshold in APR.
 
 The daily data foundation: provider answers are kept as observations (D1), canonical bars are
 derived from them (D2), and side tables record what is wrong with a bar or why it moved, never by
-editing the bar itself. Operations view: `docs/operations/operations-database.md`.
+editing the bar itself. Operations view: `docs/operations/operations-database.md`. Since plan
+191-05 the one store of vendor answers is `ohlcv_raw` (last-wins); the D1/D2 stores below
+(`ohlcv_observation`, `ohlcv_intraday_raw_archive`) were dropped 2026-10-17 by plan 191-16,
+their rows folded into `ohlcv_raw` and kept on disk as the backup in `data/backups/191/` to
+2026-11-12.
 
 ### `observation`
 
-One daily bar exactly as a provider answered it: a row of `ohlcv_observation` (D1), keyed by the
-request that fetched it (`ohlcv_request`, which also logs no_data, timeout and failed answers),
-with its route (`SMART`, a venue such as `NYSE`, `TRADIER`) and what_to_show. The same date can
-hold several observations; the latest per route is what the derivation reads. Daily only;
-intraday answers are stored as bars directly. **Not:** a sample in a statistic ("n
-observations"), and not a canonical bar. **Banned:** (none)
-**Status:** active, retiring with phase 191 (its rows fold into `ohlcv_raw`; the table drops in plan 16)
-(migration 380, phase 185 D1; mutable since migration 438)
-**Code surface:** `ohlcv_request`, `ohlcv_observation`; writer role `ohlcv_observation_writer`
+One daily bar exactly as a provider answered it: a row of the retired `ohlcv_observation` store
+(D1), keyed by the request that fetched it (`ohlcv_request`, which also logs no_data, timeout and
+failed answers), with its route (`SMART`, a venue such as `NYSE`, `TRADIER`) and what_to_show.
+The same date could hold several observations; the latest per route was what the derivation
+read. Daily only; intraday answers were stored as bars directly. The word survives in the fetch
+pipeline's route-evidence mapping (`observation_kind`) and the writer role name. **Not:** a
+sample in a statistic ("n observations"), and not a canonical bar. **Banned:** (none)
+**Status:** retired 2026-10-17, plan 191-16 (migration 499 dropped the table; its rows live in
+`ohlcv_raw`, backup in `data/backups/191/` to 2026-11-12; migration 380, phase 185 D1, mutable
+since migration 438)
+**Code surface:** `ohlcv_request`; writer role `ohlcv_observation_writer` (the role stays; the
+writer module went with the table)
 
 ### `canonical bar`
 
@@ -2064,7 +2071,8 @@ which dates Tradier is the daily source for)
 
 The 15m and 1h bars rebuilt from a name's tradeable 5m bars on session-anchored edges (a 1h bar
 of a 16:00 close ends at 15:30-16:00), `source = 'derived_5m'`. The IBKR 15m/1h answers they
-replace are kept in `ohlcv_intraday_raw_archive`. A derived bar with an unanswered constituent
+replaced were kept in `ohlcv_intraday_raw_archive` until plan 191-16 dropped it (2026-10-17);
+those answers live in `ohlcv_raw`. A derived bar with an unanswered constituent
 slot carries a `partial_constituents` flag. **Not:** a provider 15m/1h bar, and not a synthetic
 fill. **Banned:** (none)
 **Status:** active (D2b, phase 185 plans 11 and 12)
@@ -2166,7 +2174,9 @@ whose `leaf_factory` builds a `HistoryProvider` leaf. **Not:** the retired per-c
 scripts it replaced (one fetch CLI per vendor), and not the nightly capture runner
 (`ops_bar_nightly`, the T4 tail-capture shell; its lanes join this loop when the Alpaca
 ProviderEntry lands). **Banned:** naming any new fetch path after one vendor.
-**Status:** active (phase 190 cutover, 2026-10-10); the parity lane as a separate path retires with phase 191 (parity rows become ordinary `ohlcv_raw` rows keyed by vendor)
+**Status:** active (phase 190 cutover, 2026-10-10); the parity lane as a separate store-path
+retired 2026-10-17 with plan 191-16 (parity rows are ordinary `ohlcv_raw` rows keyed by
+vendor; the lane survives only as the fetcher's sampling priority)
 **Code surface:** `scripts/infrastructure/backfill/ohlcv_history_fetcher.py`; external
 identities intentionally keep the ibkr name (`FETCHER_LOCK_NAME`, JOB label
 `ibkr-history-fetcher`, `indicagent-ibkr-history-fetcher.*` units,
@@ -2223,23 +2233,26 @@ error, and not an empty page (a page can be empty because the window is pending)
 
 ### `raw archive`
 
-The per-supplier observation store: `ohlcv_intraday_raw_archive`, keyed
-(timestamp, symbol, timeframe, source) since migration 468. It holds every bar a vendor
+The retired per-supplier observation store: `ohlcv_intraday_raw_archive`, keyed
+(timestamp, symbol, timeframe, source) since migration 468. It held every bar a vendor
 served that canonical authoring did not store — another source's span, extended-hours rows —
-plus the 15m/1h stored-segment archive, so any two suppliers' tapes stay comparable
-row-for-row and vendor-agreement audits never depend on a tape the pipeline deleted. The
-compute path never reads it (boundary fence). **Not:** scratch (staging, disposable after
+plus the 15m/1h stored-segment archive, so any two suppliers' tapes stayed comparable
+row-for-row and vendor-agreement audits never depended on a tape the pipeline deleted. The
+compute path never read it (boundary fence). **Not:** scratch (staging, disposable after
 reconciliation), and not a second canonical store. **Banned:** dropping non-authored served
-rows (todo 528 R1); a vendor re-archiving its own canonical answer.
-**Status:** active, retiring with phase 191 (its rows fold into `ohlcv_raw`; the table drops in plan 16)
-(migration 383 + 468; no-drop engine since todo 528)
-**Code surface:** `services/intraday_raw_archive.py` (read side only since plan 191-05; the
-loader and the fetcher write `ohlcv_raw`)
+rows (todo 528 R1; every served row survives in `ohlcv_raw`); a vendor re-archiving its own
+canonical answer.
+**Status:** retired 2026-10-17, plan 191-16 (migration 499 dropped the table; its rows live in
+`ohlcv_raw`, backup in `data/backups/191/` to 2026-11-12; migration 383 + 468, no-drop engine
+since todo 528)
+**Code surface:** none live (`services/intraday_raw_archive.py` was deleted with the read side
+by plan 191-08; the loader and the fetcher write `ohlcv_raw`)
 
 ### `source` (bar provenance) / `provider`
 
 Every stored bar is labeled with the supplier that answered it: the `source` column on
-`market_data_ohlcv` and the raw archive (`ibkr_named`, `alpaca`, `derived_5m`), and
+`market_data_ohlcv` and formerly the raw archive (`ibkr_named`, `alpaca`, `derived_5m`; the
+archive dropped 2026-10-17, plan 191-16, its labels live on in `ohlcv_raw` as vendor/kind), and
 `provider` on the ledgers (`ohlcv_coverage`, `ohlcv_provider_head`). The labels name the
 same supplier; `ibkr_named` is the historical span-ownership label on stored IBKR rows and
 stays as-is (stored rows are permanent history), while new code says `provider`/`source`

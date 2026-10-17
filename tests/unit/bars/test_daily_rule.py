@@ -663,11 +663,11 @@ def test_rjf_after_a_hypothetical_split_restates_only_where_ibkr_agrees():
 
 
 def _as_raw(observations: list[Observation]) -> list[Observation]:
-    """The cases in raw-row shape, built as the 1d backfill built ohlcv_raw
-    (scripts/ops/bars/ops_raw_backfill.observation_current_cte): per (date, vendor, kind) the
-    latest value, stamped with the fetch and request of the first serve of its latest run of
-    equal values; SMART and LEGACY_IMPORT TRADES share kind smart_trades. Then mapped back by
-    observation_from_raw, as the daily stage reads it."""
+    """The cases in raw-row shape, as the 1d backfill built ohlcv_raw (per (date, vendor,
+    kind) the latest value, stamped with the fetch and request of the first serve of its
+    latest run of equal values; the ops_raw_backfill helper that did this was deleted with
+    the old stores by plan 191-16). SMART and LEGACY_IMPORT TRADES share kind smart_trades.
+    Then mapped back by observation_from_raw, as the daily stage reads it."""
     series = {"TRADIER": ("tradier", "consolidated"), "SMART": ("ibkr", "smart_trades")}
     series["LEGACY_IMPORT"] = series["SMART"]
     keyed: dict[tuple, list[Observation]] = {}

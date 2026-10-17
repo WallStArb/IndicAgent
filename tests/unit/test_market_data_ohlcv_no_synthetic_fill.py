@@ -40,10 +40,6 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Refusal: write_raw raises on a synthetic_fill vendor or kind before any SQL (ohlcv_raw "
         "holds vendor answers only; phase 191 plan 02)."
     ),
-    "scripts/ops/bars/ops_raw_backfill.py": (
-        "Reads and comparisons: the balance check counts synthetic_fill rows as an explained "
-        "exclusion; the backfill never copies them into ohlcv_raw (phase 191 plan 03)."
-    ),
     "scripts/ops/bars/ops_canonical_vendor_kind_swap.py": (
         "Name reference only: the v2 shape comparison names the live table's NOT VALID "
         "market_data_ohlcv_no_synthetic_fill check as the one constraint the rebuild target does "

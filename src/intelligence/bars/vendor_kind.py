@@ -133,7 +133,9 @@ class UnmappedObservation(ValueError):
 
 
 def observation_kind(source: str, route: str, what_to_show: str) -> str:
-    """The raw kind of an ohlcv_observation row, from its source (vendor), route, what_to_show.
+    """The raw kind for a fetched bar's route evidence (source, route, what_to_show), as the
+    fetcher item pipeline maps it before the raw write (ohlcv_observation, the 1d store that
+    carried these columns, was dropped by plan 191-16).
 
     ibkr SMART TRADES is smart_trades and SMART ADJUSTED_LAST is smart_adjusted; an ibkr
     listing-venue route with TRADES is `venue_<route>` (one kind per route). Route LEGACY_IMPORT carries no route evidence and

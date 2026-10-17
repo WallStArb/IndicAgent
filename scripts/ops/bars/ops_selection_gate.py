@@ -25,11 +25,6 @@ Modes (exactly one):
                 that already match; --exclude-report leaves the not-clean series out of the
                 spread, and --symbols names the ones to probe instead).
 --merge         total several shard reports into one verdict.
---locate-unsourced
-                raw rows that no old store holds a key for (plan 04's balance check counted a
-                dozen per window, never located): per symbol, the (timeframe, vendor, kind)
-                groups whose raw row count exceeds the distinct keys of archive, canonical vendor
-                rows (non-1d) and observation (1d), then the rows themselves.
 
 Canonical read contract: `--target TABLE` (default market_data_ohlcv) is introspected once
 through information_schema and must carry (vendor, kind) columns; the label-column read path
@@ -90,12 +85,11 @@ from src.intelligence.bars.selection import (  # noqa: E402
 from src.intelligence.bars.vendor_kind import (  # noqa: E402
     LABEL_TO_VENDOR_KIND,
     VENDOR_DERIVED,
-    observation_kind,
 )
 
 _LOG_DIR = project_root / "logs"
 _BATCH_ROWS_KEY = "infra.ohlcv_observation.copy_batch_rows"
-_TIMEOUT_KEY = "infra.raw_backfill.statement_timeout_s"
+_TIMEOUT_KEY = "infra.selection_gate.statement_timeout_s"
 _PLAN = "191-07"
 SPAN_REASON = "reproduces canonical (selection gate, plan 191-07)"
 DEFAULT_TIMEFRAMES = ("1m", "5m", "4h")
@@ -1193,98 +1187,6 @@ def run_idempotence(conn: psycopg.Connection, args: argparse.Namespace, batch_ro
     return 0 if inserted == 0 and replaced == 0 else 1
 
 
-def locate_groups(cur: Any, symbol: str) -> list[tuple[str, str, str, int, int]]:
-    """(timeframe, vendor, kind, raw rows, distinct store keys) for each group where raw has
-    more rows than the stores have keys; the stores are those plan 04's balance check reads
-    (archive and canonical vendor rows for the intraday timeframes, observation for 1d). The
-    counting runs in the database; only group counts come back."""
-    labels = {
-        label: pair
-        for label, pair in vendor_labels().items()
-        if pair[1] not in ("fallback",)  # canonical-only kind, never raw
-    }
-    cur.execute(
-        "SELECT timeframe, vendor, kind, count(*) FROM ohlcv_raw WHERE symbol = %s GROUP BY 1, 2, 3",
-        (symbol,),
-    )
-    raw = {(tf, v, k): n for tf, v, k, n in cur.fetchall()}
-    keys: Counter = Counter()
-    # the UNION mixes the archive's label column with canonical 'vendor/kind' idents; the
-    # canonical side excludes derived and fallback rows in the SQL itself
-    cur.execute(
-        "SELECT timeframe, source, count(*) FROM ("
-        '  SELECT timeframe, source, "timestamp" FROM ohlcv_intraday_raw_archive WHERE symbol = %s '
-        "  UNION "
-        "  SELECT timeframe, vendor || '/' || kind, \"timestamp\" FROM market_data_ohlcv "
-        "   WHERE symbol = %s AND timeframe <> '1d' AND vendor <> %s AND kind <> 'fallback'"
-        ") u GROUP BY 1, 2",
-        (symbol, symbol, VENDOR_DERIVED),
-    )
-    for tf, ident, n in cur.fetchall():
-        pair = labels.get(ident)
-        if pair is None:
-            vendor, sep, kind = ident.partition("/")
-            if not sep:
-                continue  # an archive label outside the vendor map cannot be counted
-            pair = (vendor, kind)
-        keys[(tf, *pair)] += n
-    cur.execute(
-        "SELECT o.source, o.route, o.what_to_show, o.bar_date FROM ohlcv_observation o "
-        "JOIN ohlcv_request r USING (request_id) "
-        "WHERE o.symbol = %s AND r.caller NOT LIKE 'test-%%' GROUP BY 1, 2, 3, 4",
-        (symbol,),
-    )
-    by_kind: dict[tuple[str, str], set[date]] = defaultdict(set)
-    for source, route, wts, day in cur.fetchall():
-        try:
-            kind = observation_kind(source, route, wts)
-        except ValueError:
-            continue
-        by_kind[(source, kind)].add(day)
-    for (vendor, kind), days in by_kind.items():
-        keys[("1d", vendor, kind)] += len(days)
-    return [
-        (tf, v, k, n, keys.get((tf, v, k), 0))
-        for (tf, v, k), n in sorted(raw.items())
-        if n > keys.get((tf, v, k), 0)
-    ]
-
-
-def run_locate_unsourced(conn: psycopg.Connection, args: argparse.Namespace) -> int:
-    with conn.cursor() as cur:
-        symbols = shard_of(series_symbols(cur, args.symbols), args.shard)
-    conn.rollback()
-    found: list[dict[str, Any]] = []
-    t0 = time.monotonic()
-    for n, symbol in enumerate(symbols, 1):
-        with conn.cursor() as cur:
-            groups = locate_groups(cur, symbol)
-        conn.rollback()
-        for tf, vendor, kind, n_raw, n_keys in groups:
-            found.append(
-                {
-                    "symbol": symbol,
-                    "timeframe": tf,
-                    "vendor": vendor,
-                    "kind": kind,
-                    "raw_rows": n_raw,
-                    "store_keys": n_keys,
-                    "excess": n_raw - n_keys,
-                }
-            )
-        if n % 50 == 0 or n == len(symbols):
-            print(
-                f"[{datetime.now(UTC):%H:%M:%S}] locate {n}/{len(symbols)} ({symbol}) "
-                f"elapsed={time.monotonic() - t0:.0f}s groups={len(found)}",
-                flush=True,
-            )
-    out = _out_path(args, "selection_gate_unsourced")
-    _write_json(out, {"meta": {"mode": "locate-unsourced", "shard": args.shard}, "groups": found})
-    print(json.dumps(found, indent=2, default=str))
-    print(f"report: {out}")
-    return 1 if found else 0
-
-
 def run_merge(args: argparse.Namespace) -> int:
     reports = [json.loads(Path(p).read_text()) for p in args.files]
     merged = merge_reports(reports)
@@ -1302,7 +1204,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode.add_argument("--emit-spans", action="store_true")
     mode.add_argument("--apply-spans", action="store_true")
     mode.add_argument("--idempotence", action="store_true")
-    mode.add_argument("--locate-unsourced", action="store_true")
     mode.add_argument("--merge", nargs="+", dest="files", metavar="REPORT")
     parser.add_argument("--timeframes", nargs="+", default=list(DEFAULT_TIMEFRAMES))
     parser.add_argument("--target", default="market_data_ohlcv")
@@ -1350,8 +1251,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_compare(conn, args)[1]
         if args.emit_spans:
             return run_emit_spans(conn, args)
-        if args.locate_unsourced:
-            return run_locate_unsourced(conn, args)
         return run_idempotence(conn, args, batch_rows)
     finally:
         conn.close()

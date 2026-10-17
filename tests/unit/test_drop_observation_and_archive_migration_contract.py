@@ -123,4 +123,15 @@ def test_retires_the_two_orphaned_apr_keys_with_history():
         assert key in sql, f"{key} must be retired by this migration"
     for table in ("config_history", "config_state", "config_schema"):
         assert f"DELETE FROM {table}" in sql, f"the retirement order deletes {table}"
-    assert "191-16" in sql
+    # the plan citation is prose in the migration header, so this clause reads the raw text
+    assert "191-16" in _migration_text(), "the retirement must cite plan 191-16"
+
+
+def _migration_text() -> str:
+    import pathlib
+
+    from tests.unit._migration_catalog import MIGRATIONS_DIR
+
+    matches = sorted(pathlib.Path(MIGRATIONS_DIR).glob(_MIGRATION_GLOB))
+    assert len(matches) == 1, f"expected exactly one {_MIGRATION_GLOB}, found {matches}"
+    return matches[0].read_text()

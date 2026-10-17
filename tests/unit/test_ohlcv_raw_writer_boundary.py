@@ -31,11 +31,6 @@ _ALLOW_LIST: dict[str, str] = {
         "write_raw classifies by the same (vendor, kind) key, inserts new rows, replaces "
         "changed rows last-wins and logs the old values to ohlcv_revision."
     ),
-    "scripts/ops/bars/ops_raw_backfill.py": (
-        "TEMPORARY retire: 191-17 (one-shot backfill from the three old stores, plan 191-03; deleted at "
-        "close). It writes NULL load_id and request_id for canonical and archive rows, which "
-        "write_raw refuses by design."
-    ),
 }
 
 

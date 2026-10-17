@@ -322,44 +322,6 @@ def test_apply_spans_is_a_dry_run_without_apply(tmp_path, capsys):
     assert gate.main(["--apply-spans", "--spans", str(path), "--apply"]) == 2
 
 
-class _LocateCur:
-    """Answers the three reads of locate_groups in order: raw groups, intraday store keys, observation."""
-
-    def __init__(self, raw, intraday, observation):
-        self.answers = [raw, intraday, observation]
-        self.sql: list[str] = []
-        self._next: list = []
-
-    def execute(self, sql, params=None):
-        self.sql.append(sql)
-        self._next = self.answers.pop(0)
-
-    def fetchall(self):
-        return self._next
-
-
-def test_locate_groups_reports_only_groups_with_more_raw_rows_than_store_keys():
-    d1, d2, d3 = date(2026, 10, 1), date(2026, 10, 2), date(2026, 10, 5)
-    cur = _LocateCur(
-        raw=[
-            ("5m", "ibkr", "named", 3),
-            ("5m", "alpaca", "sip_rth", 2),
-            ("1d", "ibkr", "smart_trades", 2),
-        ],
-        # the UNION of the archive (label column) and canonical ('vendor/kind' idents): the
-        # canonical side excludes derived and fallback rows in the SQL itself
-        intraday=[("5m", "ibkr_named", 2), ("5m", "alpaca", 2), ("4h", "ibkr/generic", 4)],
-        observation=[
-            ("ibkr", "SMART", "TRADES", d1),
-            ("ibkr", "LEGACY_IMPORT", "TRADES", d1),  # the same session under two routes is one key
-            ("ibkr", "SMART", "TRADES", d2),
-            ("ibkr", "NOT_A_ROUTE", "TRADES", d3),  # unmapped route is skipped, not fatal
-        ],
-    )
-    assert gate.locate_groups(cur, "SPY") == [("5m", "ibkr", "named", 3, 2)]
-    assert "test-%%" in cur.sql[-1] and "UNION" in cur.sql[1]
-
-
 def test_candidate_policy_turns_emitted_spans_into_policy_rows(tmp_path):
     canonical = _canonical(_day(DAY1, IBKR), _day(DAY2, ALPACA))
     raw = _raw(_day(DAY1, IBKR), _day(DAY2, ALPACA))
