@@ -346,3 +346,14 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     design). Clean surfaces: migration 496 + five infra.canonical_swap.* APR keys with
     provenance, Ring rule (Ring 0 change comment-only), writer topology, circularity
     constraint, BarValues positional compat, rename sweeps, glossary, test placement.
+46. Plan 191-14 review (2026-10-17, 8c10d0cc9..0cfb9b825): PASS, no P1/P2; six P3s.
+    Two fixed same session (docstring claimed the script runs the bare VACUUM - it is a
+    runbook step; SUMMARY said eight L4 tests, there are seven). Deferred to plan 17's
+    script-deletion pass (the last consumer of this code): no suite coverage of the
+    swap/rollback path itself (only the live run evidences it; --rollback is the untested
+    residue); run_rollback neither checks nor reports the api service state truthfully
+    and the abort-after-api-stop path leaves it stopped; prove_blockers leniency on a
+    hand-corrupted record shape. Recorded only: _API_START_TIMEOUT_S = 60.0 is a
+    hard-coded tunable beside four seeded infra.canonical_swap.* siblings - not worth a
+    migration for a script retired at 191-17. Deviations 1-5 judged contained; deviation
+    4's NOT IN (0, 80) widens a production assertion permanently (noted, accepted).

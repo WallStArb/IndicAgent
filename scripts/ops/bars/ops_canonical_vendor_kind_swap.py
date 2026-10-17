@@ -6,7 +6,8 @@ rebuild: migration 496 creates an empty `market_data_ohlcv_v2` (structurally ide
 `source` is `vendor text NOT NULL` plus `kind text NOT NULL`); this script copies the live table
 into it with the source-to-(vendor, kind) mapping rendered from vendor_kind.LABEL_TO_VENDOR_KIND,
 proves the copy equal, and opens nothing else. Plan 14 adds `--swap`, `--post-check` and
-`--rollback` and runs the bare `VACUUM market_data_ohlcv;` after the post-check; plan 17 drops
+`--rollback`; the bare `VACUUM market_data_ohlcv;` after a successful swap is a runbook step
+(outside the transaction), not a script mode; plan 17 drops
 the kept `market_data_ohlcv_old`.
 
 Planner decision D-191-G (owner acknowledgement pending): the build is a copy-with-map from the

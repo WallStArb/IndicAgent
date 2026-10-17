@@ -65,7 +65,7 @@ verified against the swapped table before the ten held units resumed.
 
 1. Contract tests first (950ccebf2): literal rename order, four DROP+CREATE view pairs, kind
    based volume nulling, combined grant, policy move, no ohlcv_venue_head touch, catalog final
-   names; plus eight pure tests of the L4 prove gate.
+   names; plus seven pure tests of the L4 prove gate.
 2. Migration 497 and the --swap/--post-check/--rollback modes (a956b1dd2); the alter_job
    job_id type fixed to integer after a BEGIN/ROLLBACK wrap validation caught the signature
    failure server-side (ec2677afd).
