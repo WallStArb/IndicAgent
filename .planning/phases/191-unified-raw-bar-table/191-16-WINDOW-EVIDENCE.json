@@ -1,0 +1,27 @@
+{
+  "plan": "191-16",
+  "written_at": "2026-10-17",
+  "what_the_window_protected": "migration 499 dropped ohlcv_observation and ohlcv_intraday_raw_archive (applied 2026-10-17T05:5xZ, psql -v ON_ERROR_STOP=1; pg_depend guard passed, both tables and the archive-only function gone; migration 500 seeded infra.selection_gate.statement_timeout_s)",
+  "preconditions_recorded": {
+    "backup_dump": "data/backups/191/old_store_backup_manifest.json, 218252126 rows (16269722 observation + 201982404 archive), retention until 2026-11-12",
+    "backup_verify": "ops_old_store_backup.py --verify exit 0 this session (logs/old_store_backup_verify_191_16.log): manifest, live and file totals agree on every slice",
+    "last_balance_gate": "scripts.ops.bars.ops_capture_completeness --gate OK (every served raw bar new, changed, unchanged, removed or superseded, unexplained 0; ops_raw_backfill --check retired with the script)",
+    "in_flight_batch": "the fetcher's 871-name 1d catch-up run finished on its own at 2026-10-17T05:47:06Z (partial: 620 items, 605 ok, 15 error, gateway flakiness) before the apply; no batch was killed"
+  },
+  "cleared": {
+    "indicagent-ibkr-history-fetcher.timer": "timers stopped for the apply; the fetcher writes only ohlcv_raw/ohlcv_request/ohlcv_load/ohlcv_revision/ohlcv_coverage (exec grep for the dropped tables over src services scripts is empty)",
+    "indicagent-ibkr-history-fetcher.service": "batch service left to finish (see in_flight_batch); resume_action none, its timer restarts it",
+    "indicagent-bar-reconciliation-audit.timer": "timer stopped for the apply; the audit module holds no reference to either dropped table (grep empty)",
+    "indicagent-dividend-event-writer-yahoo.timer": "timer stopped for the apply; module holds no reference to either dropped table (grep empty)"
+  },
+  "inactive_before_the_window": {
+    "note": "active_at_open false for bar-aggregator, bar-auditor, bar-derivation, bar-reconciliation-audit, bar-writer and dividend-event-writer@yahoo services (dormant between runs or not enabled); resume_action none",
+    "indicagent-dividend-event-writer@yahoo.service": "unit state 'failed' predates the window (active_at_open false, never touched by it); untouched, to be handled by its own todo"
+  },
+  "post_apply": {
+    "pg_class_count_both_tables": 0,
+    "exec_grep_empty": true,
+    "vacuum": "VACUUM ohlcv_raw; VACUUM market_data_ohlcv; run as separate bare statements",
+    "disk": "269G used / 607G free before the drop; 258G used / 618G free after (about 11 GB returned)"
+  }
+}

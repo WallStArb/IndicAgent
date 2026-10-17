@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-17T03:20:20.376Z"
+last_updated: "2026-10-17T16:27:06.000Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 122
+  completed_plans: 123
   percent: 22
 ---
 
@@ -92,6 +92,16 @@ scripts on (vendor, kind); the swap landed 2026-10-17T00:25Z (window two closed,
 resumed, market_data_ohlcv_old waits for plan 17); the remaining ops scripts and helpers
 convert, ops_masked_slot_baseline deleted, no canonical source read remains (R-191-07
 complete).
+Plan 16 done 2026-10-17 (191-16-SUMMARY.md, 191-16-WINDOW-EVIDENCE.json): the old bar stores are
+gone. Verified COPY backup first (218,252,126 rows, 2.9 GB gz, manifest
+`data/backups/191/old_store_backup_manifest.json`, retention to 2026-11-12), then migration 499
+dropped `ohlcv_intraday_raw_archive` and `ohlcv_observation` under a pg_depend guard (applied in a
+cutover window, `VACUUM ohlcv_raw` + `VACUUM market_data_ohlcv` returned about 11 GB; disk 258G
+used / 618G free); their writers, `ops_raw_backfill` and the guard/boundary rows are deleted;
+migration 500 seeds `infra.selection_gate.statement_timeout_s`. The parity path was verified
+writing `ohlcv_raw` only (explicit URA 15m/1h run: 429 raw rows, canonical 15m/1h count
+unchanged, loads destination raw) and `infra.backfill.grid_parity_sample_names_per_week` is back
+at 10. Next: plan 17 (time-gated close: 24 hours and one 06:00 UTC D7 run after the swap).
 
 - **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
   raw starts above their own head floor (about 3.66M missing sessions; runbook
@@ -108,12 +118,12 @@ complete).
   4,652 holds were released (4,572 written, 80 superseded) and the pending origin retired
   (migration 482). Session choices are durable in `bar_session_choice` (migrations 480, 484).
 
-- **Cutover window two open since 2026-10-16T01:16:51Z:** ten units held (fetcher, reconciliation
-  audit and dividend writer timers and services; bar aggregator, auditor, derivation and writer),
-  all inactive, resume actions recorded; window one (2026-10-13) had been progressively cleared
-  to an empty record, which was deleted to allow the re-open. The 5m IBKR backfill is paused (the
-  fetcher service exited on its own at 2026-10-16T01:30Z on an IBKR gateway loss, run a4428e8b,
-  resumable when the timer resumes at close).
+- **Cutover windows closed:** window two (opened 2026-10-16T01:16:51Z) closed at plan 13's swap
+  2026-10-17T00:25Z, units resumed. Plan 16 opened its own window 2026-10-17T04:43:29Z for the
+  old-store drop and closed it the same morning (record archived to
+  `logs/raw_cutover_window.closed_191_16.json`); fetcher, reconciliation-audit and dividend-writer
+  timers are active again. The 5m IBKR backfill lane resumed with them (the 2026-10-16 gateway-loss
+  run a4428e8b stays resumable).
   Owner acknowledgement pending: D-191-B, D, G; plan 20 (Tradier deletion) has an owner
   checkpoint. Findings for the owner from 08: UNIT's IBKR 1d history re-served on another scale
   2026-10-12 (the next daily apply drops five 2015-04 fallback bars); ETHA's IBKR 1d and 5m

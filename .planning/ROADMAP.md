@@ -657,7 +657,7 @@ Plans:
 - [x] 191-13-PLAN.md - code switch to vendor and kind: library, services, fetcher-imported scripts, standing gate, equivalence check, API route (R-191-07)
 - [x] 191-14-PLAN.md - swap names, recreate four views, VACUUM, post-check, units resumed, repro_frozen (R-191-07)
 - [x] 191-15-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
-- [ ] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
+- [x] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
 - [ ] 191-17-PLAN.md - close (time-gated: 24 hours and one 06:00 UTC D7 run after the swap): R6 and D7 green, repro_frozen, drop old canonical, delete one-shots, retire keys, docs (R-191-09)
 - [ ] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
 - [ ] 191-19-PLAN.md - Tradier residue measurement and fallback-path proof, no rule or policy change (time-gated: weekly IBKR gap-fill cycle) (R-191-10)
