@@ -151,6 +151,11 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "batching, deleted by plan 191-05 (the raw write batches by "
         "infra.ohlcv_observation.copy_batch_rows)."
     ),
+    "infra.old_store_backup.disk_margin": (
+        "retire: 191-18. Read only by scripts/ops/bars/ops_old_store_backup.py, which stays "
+        "until the backup retention date 2026-11-12 (plan 17 records the date); plan 18 "
+        "deletes the script and the backup together."
+    ),
     "market_data_ohlcv_old": (
         "retire: 191-17. The pre-swap label-column table, renamed away by the plan 14 swap "
         "(migration 497) and kept for one nightly cycle; the writer registry holds it with an "

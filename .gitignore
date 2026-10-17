@@ -198,6 +198,9 @@ src/dashboard/.next/
 # Backup files
 *_backup.py
 *_backup.*
+# ...except the old-store backup tooling, whose subject is backups (phase 191 plan 16)
+!scripts/ops/bars/ops_old_store_backup.py
+!tests/unit/scripts/test_ops_old_store_backup.py
 *.backup
 
 # Log files
