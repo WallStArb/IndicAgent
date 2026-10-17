@@ -241,8 +241,10 @@ def test_premove_condition_fails_on_pre_move_bar_unless_venue_bars_allowed() -> 
 def test_premove_sql_counts_ibkr_sources_only() -> None:
     """185-34: Tradier consolidated history before an IBKR venue move is real history, not
     truncation; only IBKR-source bars before the SMART head are a defect. 191-15: the stored
-    row is matched by its (vendor, kind) pair, not a source label."""
-    assert "m.vendor = ANY(%s)" in mod._PREMOVE_SQL and "m.kind = ANY(%s)" in mod._PREMOVE_SQL
+    row is matched by its (vendor, kind) pair, not a source label, and the pair test is
+    tuple membership, never a vendor x kind cross product (191-15 review P3-2)."""
+    assert "(m.vendor, m.kind) IN (VALUES ('ibkr', 'named'), ('ibkr', 'venue'))" in mod._PREMOVE_SQL
+    assert "ANY(%s)" not in mod._PREMOVE_SQL
     assert "source" not in mod._PREMOVE_SQL
     assert set(mod.IBKR_1D_SOURCES) == {"ibkr_named", "ibkr_venue"}
     assert set(mod.IBKR_1D_PAIRS) == {("ibkr", "named"), ("ibkr", "venue")}
@@ -448,16 +450,12 @@ def test_run_checks_counts_known_answers_by_status_and_passes_ibkr_sources(monke
     assert "replaced 71" in scrub.evidence and "open 1" in scrub.evidence
 
     params = {marker: p for marker, p in conn.executed}
-    vendors, kinds = params["ohlcv_venue_head"]
-    assert vendors == ["ibkr"] and sorted(kinds) == ["named", "venue"]
+    # 191-15 review P3-2/P3-4: both IBKR pair predicates render their VALUES from the
+    # label map, so neither query binds vendor/kind lists anymore.
+    assert params["ohlcv_venue_head"] == ()
     revision_params = params["ohlcv_revision"]
-    assert sorted(revision_params[0]) == [
-        "ibkr/named",
-        "ibkr/venue",
-        "ibkr_named",
-        "ibkr_venue",
-    ]
-    assert "tradier" not in revision_params[0]
+    assert revision_params[0] == [symbol for symbol, _ in mod.LEGACY_1D_KEYS]
+    assert "tradier" not in mod._KNOWN_ANSWER_SQL
 
 
 def test_run_checks_excludes_tradier_history_late_names(monkeypatch) -> None:
@@ -502,17 +500,20 @@ def test_known_answer_sql_judges_the_stored_row_not_the_tradeable_view() -> None
     assert "market_data_ohlcv_tradeable" not in sql
     assert "price_sanity_status" in sql
     assert "m.vendor" in sql and "m.kind" in sql and "m.source" not in sql
-    assert "old_source = ANY(%s)" in sql
+    assert "(r.vendor, r.kind) IN (VALUES ('ibkr', 'named'), ('ibkr', 'venue'))" in sql
 
 
-def test_known_answer_revision_predicate_accepts_both_old_source_conventions() -> None:
-    """ohlcv_revision.old_source holds legacy labels ('ibkr_named') on rows written before the
-    191 swap and the 'vendor/kind' token ('ibkr/named') on rows the raw writer logged after it
-    (D2 convention). The known-answer IBKR-value test must match both or a replaced key the
-    post-swap writer logged reads open."""
-    tokens = {mod.pair_token(*pair) for pair in mod.IBKR_1D_PAIRS}
-    assert tokens == {"ibkr/named", "ibkr/venue"}
-    assert set(mod.IBKR_1D_REVISION_SOURCES) == set(mod.IBKR_1D_SOURCES) | tokens
+def test_known_answer_revision_predicate_reads_the_revision_pair_columns() -> None:
+    """ohlcv_revision carries its own vendor/kind columns (NOT NULL key columns since
+    migration 475), so the IBKR-value test judges the pairs directly: no old_source
+    convention enumeration a third writer format could silently dodge (191-15 review
+    P3-4), and Tradier revisions never match."""
+    assert (
+        "(r.vendor, r.kind) IN (VALUES ('ibkr', 'named'), ('ibkr', 'venue'))"
+        in mod._KNOWN_ANSWER_SQL
+    )
+    assert "old_source" not in mod._KNOWN_ANSWER_SQL
+    assert "tradier" not in mod._KNOWN_ANSWER_SQL
 
 
 def test_replaced_keys_hidden_by_a_stale_status_pass_and_are_reported(monkeypatch) -> None:

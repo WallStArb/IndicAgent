@@ -1008,6 +1008,10 @@ _RAW_PROVENANCE_SQL = """
 
 
 def _canonical_1d_twin_sql() -> str:
+    # The twin counters keep the pre-swap label-join scope: only raw-eligible pairs enter
+    # n/with_twin. Canonical-only kinds (the 1d fallback rule's rows) are excluded; they
+    # have no observation twin by construction, so counting them would grow the residue
+    # counters relative to every pre-swap report.
     return f"""
     WITH obs_keys AS (
         SELECT DISTINCT o.symbol, o.bar_date, o.source
@@ -1022,6 +1026,9 @@ def _canonical_1d_twin_sql() -> str:
        AND k.source = m.vendor
      WHERE m.symbol = %(symbol)s AND m.timestamp >= %(lo)s AND m.timestamp < %(hi)s
        AND m.timeframe = '1d'
+       AND (m.vendor, m.kind) IN (VALUES
+         {build_raw_pairs_values_sql()}
+       )
      GROUP BY 1"""
 
 

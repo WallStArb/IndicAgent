@@ -201,11 +201,11 @@ def run_with_refusal(check: Callable[[], None]) -> None:
 # of a source column since the 191-14 swap.
 _NAMED_PAIR = label_to_vendor_kind(SOURCE_NAMED)
 
-_LATE_NAMES_SQL = f"""
+_LATE_NAMES_SQL = """
     SELECT m.symbol, MIN(m."timestamp")::date
     FROM market_data_ohlcv_tradeable m
     JOIN instruments i USING (symbol)
-    WHERE m.timeframe = '1d' AND m.vendor = '{_NAMED_PAIR[0]}' AND m.kind = '{_NAMED_PAIR[1]}'
+    WHERE m.timeframe = '1d' AND m.vendor = %s AND m.kind = %s
       AND i.compute_eligible_1d = true
     GROUP BY m.symbol
     HAVING MIN(m."timestamp") > %s
@@ -216,7 +216,7 @@ _LATE_NAMES_SQL = f"""
 def _late_names(conn: Any) -> dict[str, date]:
     """Late 1d names mapped to their SMART head (first ibkr_named 1d bar)."""
     with conn.cursor() as cur:
-        cur.execute(_LATE_NAMES_SQL, (_LATE_CUTOFF,))
+        cur.execute(_LATE_NAMES_SQL, (*_NAMED_PAIR, _LATE_CUTOFF))
         return {row[0]: row[1] for row in cur.fetchall()}
 
 

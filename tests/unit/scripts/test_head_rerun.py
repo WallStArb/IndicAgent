@@ -318,8 +318,11 @@ def test_run_chunk_maps_the_lock_held_line_to_the_lock_held_exit() -> None:
 
 def test_late_names_sql_reads_the_named_pair_not_a_source_label() -> None:
     """191-15: the tradeable view carries (vendor, kind) since the swap; the first-bar query
-    must not filter a source column that no longer exists."""
+    must not filter a source column that no longer exists. The pair binds as parameters
+    (the same shape as the tradier-history query), never f-string literals."""
     sql = " ".join(mod._LATE_NAMES_SQL.split())
     assert "market_data_ohlcv_tradeable" in sql
-    assert "m.vendor = 'ibkr'" in sql and "m.kind = 'named'" in sql
+    assert "m.vendor = %s AND m.kind = %s" in sql
+    assert "= 'ibkr'" not in sql and "= 'named'" not in sql
+    assert mod._NAMED_PAIR == ("ibkr", "named")
     assert "m.source" not in sql

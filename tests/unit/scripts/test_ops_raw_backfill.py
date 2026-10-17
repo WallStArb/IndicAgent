@@ -303,6 +303,9 @@ def test_canonical_balance_sql_reads_pairs_not_source():
     assert "GROUP BY 1, 2, 3" in mod._EXCLUSION_SQL and "source" not in mod._EXCLUSION_SQL
     twin = mod._canonical_1d_twin_sql()
     assert "k.source = m.vendor" in twin and "m.source" not in twin
+    # 191-15 review P3-1: the twin counters keep the pre-swap raw-eligible scope, so
+    # canonical-only kinds (the 1d fallback rule) never enter n/with_twin.
+    assert "(m.vendor, m.kind) IN (VALUES" in twin
     union = mod._union_keys_sql(
         mod.build_observation_values_sql([("ibkr", "SMART", "TRADES", "smart_trades")])
     )

@@ -53,22 +53,33 @@ _COLS = (
     "timestamp, symbol, timeframe, open, high, low, close, volume, vendor, kind, base, "
     "price_sanity_status"
 )
+# The column names, in order, that any pair-carrying result set must start with (the status
+# export appends its two neighbor columns after price_sanity_status).
+_COL_NAMES = tuple(column.strip() for column in _COLS.split(","))
 
 
 def _write_cursor_rows(cur: psycopg.Cursor, path: Path) -> int:
     """Write the cursor's result set to a CSV with a header row. Returns row count.
 
-    A result carrying adjacent `vendor` and `kind` columns writes the legacy `source` label
-    column instead (the fixtures' plan-08 shape): the pair renders through
-    vendor_kind_to_label, which raises on an unmapped pair rather than writing a guess.
+    A result carrying the `vendor`/`kind` pair writes the legacy `source` label column
+    instead (the fixtures' plan-08 shape): the pair renders through vendor_kind_to_label,
+    which raises on an unmapped pair rather than writing a guess. A pair-carrying result
+    must match _COLS by name, in order; a separated or reordered pair would silently
+    change the fixture shape, so anything else raises instead of collapsing (or not).
     """
     names = [d.name for d in cur.description] if cur.description is not None else []
-    vi = names.index("vendor") if "vendor" in names else None
-    ki = names.index("kind") if "kind" in names else None
-    collapse = vi is not None and ki is not None and ki == vi + 1
-    header = list(names)
+    collapse = "vendor" in names or "kind" in names
     if collapse:
-        header[vi : ki + 1] = ["source"]
+        if names[: len(_COL_NAMES)] != list(_COL_NAMES):
+            raise ValueError(
+                f"pair-carrying result columns {names} do not match the declared "
+                f"_COLS {list(_COL_NAMES)}; refusing to guess the fixture shape"
+            )
+        vi = _COL_NAMES.index("vendor")
+        ki = _COL_NAMES.index("kind")
+        header = [*names[:vi], "source", *names[ki + 1 :]]
+    else:
+        header = list(names)
 
     def _cell(v: object, d: object) -> object:
         return format_iso_ts(v) if _is_timestamp(d) else v

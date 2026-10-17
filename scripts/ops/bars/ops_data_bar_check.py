@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping, Sequence
@@ -76,7 +77,6 @@ from src.intelligence.bars.derivation import SOURCE_NAMED, SOURCE_VENUE
 from src.intelligence.bars.sources import SOURCE_TRADIER
 from src.intelligence.bars.vendor_kind import (
     label_to_vendor_kind,
-    pair_token,
     vendor_kind_to_label,
 )
 
@@ -90,16 +90,27 @@ _MIN_YAHOO_COVERAGE = 0.99
 # The 1d sources whose prints the known answers judged and whose pre-move bars are truncation.
 IBKR_1D_SOURCES: tuple[str, ...] = (SOURCE_NAMED, SOURCE_VENUE)
 # The same judged sources after the 191-14 swap: the (vendor, kind) pairs the stored rows
-# carry, and the ohlcv_revision.old_source forms an IBKR value takes, legacy labels on rows
-# written before the swap and `vendor/kind` tokens (the raw writer's D2 convention) on rows
-# logged after it.
+# carry. ohlcv_revision carries the pair on its own vendor/kind columns (NOT NULL key
+# columns since migration 475), so no old_source-convention enumeration is needed anywhere.
 IBKR_1D_PAIRS: tuple[tuple[str, str], ...] = tuple(
     label_to_vendor_kind(label) for label in IBKR_1D_SOURCES
 )
-IBKR_1D_REVISION_SOURCES: tuple[str, ...] = (
-    *IBKR_1D_SOURCES,
-    *(pair_token(*pair) for pair in IBKR_1D_PAIRS),
-)
+
+_SAFE_TOKEN = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _lit(token: str) -> str:
+    """A SQL string literal for a code constant; refuses anything but a plain token
+    (the guard ops_raw_backfill renders its constants-in-SQL through)."""
+    if not _SAFE_TOKEN.match(token):
+        raise ValueError(f"refusing to render {token!r} into SQL")
+    return f"'{token}'"
+
+
+# VALUES rows of the judged IBKR pairs: membership is per (vendor, kind) tuple, never a
+# vendor x kind cross product, so a future non-ibkr label in IBKR_1D_SOURCES cannot
+# silently over-match mixed pairs.
+_IBKR_JUDGED_PAIRS_SQL = ", ".join(f"({_lit(v)}, {_lit(k)})" for v, k in IBKR_1D_PAIRS)
 # The 15 1d keys migration 381 copied into legacy_price_sanity_status flags (its source:
 # market_data_ohlcv.price_sanity_status = 'confirmed_corrupt', re-read 2026-10-07). Fixed here
 # because 185-30 retired 12 of those flags when Tradier replaced the bars, so the flags can no
@@ -135,9 +146,12 @@ LIMIT 1
 # one key), the stored row's source (raw table: the tradeable view also hides a bar by the
 # pre-381 price_sanity_status, which the Tradier load left on 12 replaced legacy bars, so the
 # view would misread a replaced key as missing), whether an ohlcv_revision row holds an IBKR
-# value for the key, the latest load that revised it (compared with the scrub fact in
-# known_answer_status), and whether the stored row still carries that stale status.
-_KNOWN_ANSWER_SQL = """
+# value for the key (judged on ohlcv_revision's own vendor/kind columns, NOT NULL key
+# columns since migration 475, so a row cannot carry a NULL pair and silently dodge the
+# predicate; no old_source fallback is kept), the latest load that revised it (compared with
+# the scrub fact in known_answer_status), and whether the stored row still carries that
+# stale status.
+_KNOWN_ANSWER_SQL = f"""
 SELECT k.symbol, k.ts,
   EXISTS (SELECT 1 FROM bar_quality_flag b
            WHERE b.symbol = k.symbol AND b.timeframe = '1d'
@@ -145,7 +159,8 @@ SELECT k.symbol, k.ts,
   m.vendor AS stored_vendor, m.kind AS stored_kind,
   EXISTS (SELECT 1 FROM ohlcv_revision r
            WHERE r.symbol = k.symbol AND r.timeframe = '1d'
-             AND r."timestamp" = k.ts AND r.old_source = ANY(%s)) AS has_ibkr_revision,
+             AND r."timestamp" = k.ts
+             AND (r.vendor, r.kind) IN (VALUES {_IBKR_JUDGED_PAIRS_SQL})) AS has_ibkr_revision,
   (SELECT MAX(l.loaded_at) FROM ohlcv_revision r JOIN ohlcv_load l USING (load_id)
     WHERE r.symbol = k.symbol AND r.timeframe = '1d'
       AND r."timestamp" = k.ts) AS last_revision_at,
@@ -183,7 +198,7 @@ SELECT started_at FROM bar_derivation_batch
 WHERE stage = 'daily' AND status = 'completed'
 """
 
-_PREMOVE_SQL = """
+_PREMOVE_SQL = f"""
 WITH heads AS (
     SELECT symbol, MIN(smart_head_date) AS smart_head
     FROM ohlcv_venue_head
@@ -194,7 +209,7 @@ SELECT COUNT(*) AS pre_move_bars
 FROM market_data_ohlcv_tradeable m
 JOIN heads h USING (symbol)
 WHERE m.timeframe = '1d' AND m."timestamp" < h.smart_head
-  AND m.vendor = ANY(%s) AND m.kind = ANY(%s)
+  AND (m.vendor, m.kind) IN (VALUES {_IBKR_JUDGED_PAIRS_SQL})
 """
 
 _INVENTORY_SQL = """
@@ -459,7 +474,6 @@ def _known_answer_counts(
         conn,
         _KNOWN_ANSWER_SQL,
         (
-            list(IBKR_1D_REVISION_SOURCES),
             [symbol for symbol, _ in keys],
             [ts for _, ts in keys],
         ),
@@ -520,16 +534,7 @@ def run_checks(conn: Any) -> list[CheckResult]:
         )
     }
 
-    pre_move = int(
-        _scalar(
-            conn,
-            _PREMOVE_SQL,
-            (
-                sorted({vendor for vendor, _ in IBKR_1D_PAIRS}),
-                sorted({kind for _, kind in IBKR_1D_PAIRS}),
-            ),
-        )[0]
-    )
+    pre_move = int(_scalar(conn, _PREMOVE_SQL)[0])
     covered, eligible, deactivated = _scalar(conn, _INVENTORY_SQL, (sorted(late),))
     venue_row = _scalar(conn, _VENUE_FLAG_SQL)
     venue_bars_1d = bool(venue_row and str(venue_row[0]).strip().lower() == "true")
