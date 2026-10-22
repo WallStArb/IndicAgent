@@ -146,34 +146,14 @@ _KEEP_TABLES: dict[str, str] = {
 # infra.raw_backfill.statement_timeout_s and infra.backfill.ohlcv_insert_batch_size were retired
 # by migration 499 (plan 191-16 deleted ops_raw_backfill.py, their subject; ops_selection_gate.py
 # moved to infra.selection_gate.statement_timeout_s, seeded by migration 500).
-# market_data_ohlcv_old (dropped by migration 501) was retired by plan 191-17; the five
-# infra.canonical_swap.* keys stay pending until migration 502 retires them.
+# market_data_ohlcv_old (dropped by migration 501) and the five infra.canonical_swap.* keys
+# (retired by migration 502) were retired by plan 191-17, which deleted
+# ops_canonical_vendor_kind_swap.py, their only reader.
 _PENDING_RETIREMENT: dict[str, str] = {
     "infra.old_store_backup.disk_margin": (
         "retire: 191-18. Read only by scripts/ops/bars/ops_old_store_backup.py, which stays "
         "until the backup retention date 2026-11-12 (plan 17 records the date); plan 18 "
         "deletes the script and the backup together."
-    ),
-    "infra.canonical_swap.copy_statement_timeout_s": (
-        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
-        "plan 17 deletes; its drop migration retires the five infra.canonical_swap.* keys "
-        "together (the v2 table they rebuilt is market_data_ohlcv since the plan 14 swap)."
-    ),
-    "infra.canonical_swap.disk_margin": (
-        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
-        "plan 17 deletes."
-    ),
-    "infra.canonical_swap.lock_timeout_s": (
-        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
-        "plan 17 deletes."
-    ),
-    "infra.canonical_swap.statement_timeout_s": (
-        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
-        "plan 17 deletes."
-    ),
-    "infra.canonical_swap.stats_flush_wait_s": (
-        "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "
-        "plan 17 deletes."
     ),
 }
 
