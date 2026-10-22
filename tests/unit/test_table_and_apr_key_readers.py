@@ -151,9 +151,11 @@ _KEEP_TABLES: dict[str, str] = {
 # ops_canonical_vendor_kind_swap.py, their only reader.
 _PENDING_RETIREMENT: dict[str, str] = {
     "infra.old_store_backup.disk_margin": (
-        "retire: 191-18. Read only by scripts/ops/bars/ops_old_store_backup.py, which stays "
-        "until the backup retention date 2026-11-12 (plan 17 records the date); plan 18 "
-        "deletes the script and the backup together."
+        "retire: 191-25. Read only by scripts/ops/bars/ops_old_store_backup.py, which "
+        "stays until the backup retention date 2026-11-12; the script, data/backups/191/ "
+        "and this key retire together, tracked in todo 533's status section (set by plan "
+        "191-18: the retention date postdates plan 18, so the removal rides with the "
+        "phase's key-retirement plan instead)"
     ),
 }
 

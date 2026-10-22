@@ -26,3 +26,11 @@ the D7 output, not re-derived by hand.
 
 D7's grid_parity verdict carries the price/volume split and a recorded tolerance rule; the rule is
 dated before it is applied (same discipline as todo 512's exclusion rule).
+
+## Status 2026-10-22 (phase 191 plan 18)
+
+The data half landed with phase 191: the 15m/1h parity lane serves into `ohlcv_raw` (verified
+by plan 16's explicit URA run; the old archive table is dropped), so the parity inputs are raw
+rows under (vendor, kind). Still open, explicitly deferred as D-191-H (planner decision, owner
+acknowledgement pending): D7's dated tolerance rule for the per-name volume basis and the
+price/volume split in its output. The todo stays open for that remainder.

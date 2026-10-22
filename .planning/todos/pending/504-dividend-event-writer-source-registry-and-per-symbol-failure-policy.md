@@ -24,3 +24,12 @@ The process is "get dividend events for a name"; Yahoo and the IBKR adjusted-las
 ## Done when
 
 A new source is added by one registry entry plus its provider function with no change to `reconcile`, the dataclass or the metrics; the PSKY case produces a counted, alerting, non-fatal failure; tests cover the registry, pairwise reconciliation with 3 sources, and the threshold.
+
+## Status 2026-10-22 (phase 191 plan 18)
+
+Not delivered by phase 191; the todo stays open. What the phase did change: the IBKR dividend
+derivation no longer reads `ohlcv_observation` (plan 191-10 moved it to `ohlcv_raw` with the
+D-191-D `pair_d1_series` rule; the observation table is dropped since plan 16), so the old
+"cutover rides 533 step 6" dependency is satisfied. The source registry (a `DividendSource`
+protocol, pairwise reconciliation, CVR-registered sources) and the per-symbol failure policy
+(APR threshold instead of one bad symbol failing the unit) remain open as designed above.

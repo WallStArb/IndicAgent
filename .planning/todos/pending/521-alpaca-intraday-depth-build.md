@@ -22,6 +22,12 @@ Status 2026-10-10: the phase 2 all-names canonical 5m load is RUNNING
 backfill is paused by design until the load's done-report; its fetcher
 timer restarts then (session indicagent-7a holds the restart).
 
+Status 2026-10-22 (phase 191 plan 18): the nightly is wired to the new raw contract (plan
+191-07 moved `ops_bar_nightly` to the raw writer; plan 191-10 confirmed no further edit was
+needed), so the "wired to 533's raw writer" remainder is delivered. The unit remains
+unscheduled pending the owner's wiring call (STATE.md); that scheduling decision is the only
+remainder.
+
 ## What
 
 Build the Alpaca loader leaf (Ring 0, credentials isolated like ib_async),

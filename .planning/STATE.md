@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-22T18:16:00.168Z"
+last_updated: "2026-10-22T23:55:00Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 119
+  completed_plans: 120
   percent: 22
 ---
 
@@ -109,11 +109,21 @@ flags, corporate_action ce003ee6), repro_frozen bit-identical. Migration 501 dro
 market_data_ohlcv_old (461,198,119 rows, 15.7 GB, disk 246G to 230G used; bare VACUUM after);
 migration 502 retired the five infra.canonical_swap.* keys; the one-shot swap, d2 and
 legacy-restamp scripts are deleted with their guard rows; docs state the (vendor, kind)
-layout (CLAUDE.md 5.63.0). Parity lane rank starvation is todo 539. Next: plan 18
-(bookkeeping: todo 530 close, folded todos, ops_old_store_backup removal 2026-11-12).
-completed_plans recounted 2026-10-22 to 119 (ROADMAP checked plan rows 118 plus 190-07,
-done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level SUMMARY
-files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were overcounts).
+layout (CLAUDE.md 5.63.0). Parity lane rank starvation was todo 539 (closed on DB evidence in
+the plan 17 review fixes).
+Plan 18 done 2026-10-22 (191-18-SUMMARY.md): todo 530 closed (R6 residue dissolved by the
+vendor-plus-kind raw plane; plan 03 balance, plan 11 R6-over-raw, plan 17 gate exit 0). The
+folded-in todos are reconciled: 520, 524, 527 and 531 stay open with exactly their D-191-H
+deferral remainders (owner acknowledgement pending); 504 and 521 updated (observation gone,
+nightly on the raw contract); 533's status points at plans 19-25 and the 2026-11-12 removal
+of ops_old_store_backup.py and data/backups/191/. 189-11's vendor-rows-out-of-the-grid
+criterion is satisfied by the new layout: zero vendor 15m/1h rows remain in canonical
+(measured 2026-10-22; 135.5M derived rows). Next: plan 19 (Tradier residue measurement,
+time-gated on the weekly IBKR gap-fill cycle).
+completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked plan rows 118
+plus 190-07, done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level
+SUMMARY files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
+overcounts); plan 18's checked box makes 120.
 
 - **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
   raw starts above their own head floor (about 3.66M missing sessions; runbook
@@ -147,7 +157,9 @@ files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
   missing-session sub-cohort that the resumed 1d lane heals + a genuinely holed cohort ->
   todo 532), the grid marker needle fixed (0cfe7474a) pending the durable data-condition
   marker after indicagent-87's 554-name derive pass, and data_layer_final_landed still
-  requires 189-11 (vendor rows out of the grid -- 38.8M remain until that pass lands; do NOT
+  requires 189-11 (its vendor-rows-out-of-the-grid criterion is satisfied by the phase 191
+  layout: zero vendor 15m/1h rows remain in canonical, measured 2026-10-22, plan 191-18;
+  189-11's remaining verification items stay owned by phase 189; do NOT
   drop the requirement). feature_vectors_v2 was found missing from the live DB and migration
   425 was applied from the committed file (0 rows, awaiting the rebuild). The rebuild does not
   run during phase 191 plans 04 to 14.

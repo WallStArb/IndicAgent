@@ -2,7 +2,27 @@
 
 Filed: 2026-10-10
 Owner: pending
-Priority: P0 with todo 533 (owner, 2026-10-12); closes at 533 step 9
+Status: CLOSED 2026-10-22, with phase 191 plan 18 (todo 533 step 9)
+Priority: was P0 with todo 533 (owner, 2026-10-12); closes at 533 step 9
+
+## Closure evidence (phase 191)
+
+Every residue class this todo tracked is dissolved by the (vendor, kind) raw layout, measured
+green at the phase close:
+
+- Plan 03 (191-03-SUMMARY.md): the bulk backfill counted every old-store row class into
+  `ohlcv_raw` (archive 201.7M, observation 15.6M, canonical 318.5M) and its balance check
+  enumerated the whole residue to the row; the small live-fetcher twins and the 10 rows
+  without a source key were dispositioned by plan 04's delta check before the cutover.
+- Plan 11 (191-11-SUMMARY.md): R6 was rebuilt over the raw plane and "balances every served
+  bar against ohlcv_raw and the revision log"; it exits 0 live.
+- Plan 17 (191-17-SUMMARY.md, close gate 1): `ops_capture_completeness --gate` exit 0,
+  unexplained 0 in every (source, timeframe) group (2026-10-18 run).
+
+The open item this file last carried (derived 1d: 859,949 writer-labeled load rows with no
+bar-label join) no longer exists as a class: loads are keyed to raw by (vendor, kind) and R6
+balances them without a bar-label join. The R6 gate now runs in the nightly without paging on
+known-dead rows, which was the todo's done-when.
 
 The R6 capture-completeness check (todo 528) is now clean for alpaca 5m
 (authored + archived reconciles exactly). It surfaces pre-existing

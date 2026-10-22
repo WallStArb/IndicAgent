@@ -659,7 +659,7 @@ Plans:
 - [x] 191-15-PLAN.md - remaining readers of the canonical source column (ops scripts, label helper) (R-191-07)
 - [x] 191-16-PLAN.md - verified COPY backup, drop observation and archive tables, retire modules, verify parity path, restore parity APR to 10 (R-191-08)
 - [x] 191-17-PLAN.md - close (time-gated: 24 hours and one 06:00 UTC D7 run after the swap): R6 and D7 green, repro_frozen, drop old canonical, delete one-shots, retire keys, docs (R-191-09)
-- [ ] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
+- [x] 191-18-PLAN.md - bookkeeping: close todo 530, reconcile folded-in todos, deferrals D-191-H (R-191-09)
 - [ ] 191-19-PLAN.md - Tradier residue measurement and fallback-path proof, no rule or policy change (time-gated: weekly IBKR gap-fill cycle) (R-191-10)
 - [ ] 191-20-PLAN.md - Tradier deletion behind an owner checkpoint: COPY backup, one-symbol trial, guarded deletes, dated CLAUDE.md exception, re-derive, repro_frozen (R-191-10)
 - [ ] 191-21-PLAN.md - Tradier code deletion, library part 1 (sources, vendor_kind, derivation, corporate_actions) and digest baseline (R-191-10)

@@ -18,3 +18,12 @@ One cheap guard at the ingest boundary, written once: a row whose bar timestamp 
 ## Done when
 
 The guard is in the writer path with tests; the D7 condition exists and is green on live data; the refusal counter appears in the run summary.
+
+## Status 2026-10-22 (phase 191 plan 18)
+
+Delivered by plan 191-02: the one raw writer `services/ohlcv_raw_writer.py` refuses a bar
+dated past the fetch wall clock plus the APR tolerance (`threshold.bar_integrity.future_bar_tolerance_s`),
+with tests. Still open, and explicitly deferred as D-191-H (design doc section "D-191-H:
+explicit deferrals"; planner decision, owner acknowledgement pending): the D7 1d condition
+counting stored canonical bars dated in the future. The todo stays open for that remainder
+only.

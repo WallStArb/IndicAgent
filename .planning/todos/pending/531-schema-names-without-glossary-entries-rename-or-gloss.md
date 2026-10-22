@@ -27,3 +27,9 @@ in one breath; the pre-commit glossary check only fails on retired terms, so
 consider extending it to flag new unglossed relations instead of retrofitting
 CI enforcement for existing ones. Not urgent: nothing here blocks the rebuild
 (186-26) or touches the write path.
+
+Status 2026-10-22 (phase 191 plan 18): phase 191's glossary pass covered the
+new raw-layer names only (plan 191-01: `ohlcv_raw`, the vendor and kind
+vocabularies, the revision extension). The `market_data_5m` naming pass is
+the explicit deferral D-191-H (planner decision, owner acknowledgement
+pending); the other eight relations above are untouched and stay open here.
