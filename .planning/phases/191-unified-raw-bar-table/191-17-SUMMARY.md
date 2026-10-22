@@ -124,3 +124,15 @@ Bare `VACUUM market_data_ohlcv;` then. Disk 246G -> 230G used (16 GB freed). No 
 Run 2026-10-22 on the final tree (after every commit above): exit 0, zero failures, the two
 known intentional skips only (test_pipeline_annotation.py confidence.py capture, and the HMM
 degenerate Viterbi skip in test_causal_hmm_decoding.py).
+
+## Corrections (2026-10-22, from the plan 17 review)
+
+- The plan 16 P3-6 rider answer above ("NOT confirmed") is wrong, and deviation 4's "answered
+  in the negative" with it. The week-42 parity draw executed end to end 2026-10-18 19:49:35Z
+  to 19:52:36Z: `ohlcv_request` and `ohlcv_load` each hold the 19 rows (15m and 1h for EPD,
+  FXC, ARRY, FSLR, GEV, PM, RSG, THRM, BMY plus one PM 15m retry; destination raw, applied;
+  the ARRY 15m load raised a restatement flag). The starvation measured at the 07:45Z dry run
+  was real but transient; the fetcher served the parity lane about 12 hours later, same day.
+  DB-verified by the 191-17 review (P2-1). Todo 539 is corrected and closed on this evidence
+  (`.planning/todos/completed/539-parity-lane-rank-starved-behind-deep-backfill.md`).
+
