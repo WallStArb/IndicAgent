@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-17T16:27:06.000Z"
+last_updated: "2026-10-22T18:16:00.168Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 123
+  completed_plans: 122
   percent: 22
 ---
 
@@ -102,6 +102,15 @@ migration 500 seeds `infra.selection_gate.statement_timeout_s`. The parity path 
 writing `ohlcv_raw` only (explicit URA 15m/1h run: 429 raw rows, canonical 15m/1h count
 unchanged, loads destination raw) and `infra.backfill.grid_parity_sample_names_per_week` is back
 at 10. Next: plan 17 (time-gated close: 24 hours and one 06:00 UTC D7 run after the swap).
+Plan 17 done 2026-10-22 (191-17-SUMMARY.md; gate evidence from the 2026-10-18 qualifying
+cycle): R6 exit 0, D7 same-or-better with every changed condition listed, selection gate
+--compare exit 0 over 1762 series after the first-ever basis-flag review (five ETHA 5m split
+flags, corporate_action ce003ee6), repro_frozen bit-identical. Migration 501 dropped
+market_data_ohlcv_old (461,198,119 rows, 15.7 GB, disk 246G to 230G used; bare VACUUM after);
+migration 502 retired the five infra.canonical_swap.* keys; the one-shot swap, d2 and
+legacy-restamp scripts are deleted with their guard rows; docs state the (vendor, kind)
+layout (CLAUDE.md 5.63.0). Parity lane rank starvation is todo 539. Next: plan 18
+(bookkeeping: todo 530 close, folded todos, ops_old_store_backup removal 2026-11-12).
 
 - **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
   raw starts above their own head floor (about 3.66M missing sessions; runbook
