@@ -8,7 +8,7 @@ progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 122
+  completed_plans: 119
   percent: 22
 ---
 
@@ -111,6 +111,9 @@ migration 502 retired the five infra.canonical_swap.* keys; the one-shot swap, d
 legacy-restamp scripts are deleted with their guard rows; docs state the (vendor, kind)
 layout (CLAUDE.md 5.63.0). Parity lane rank starvation is todo 539. Next: plan 18
 (bookkeeping: todo 530 close, folded todos, ops_old_store_backup removal 2026-11-12).
+completed_plans recounted 2026-10-22 to 119 (ROADMAP checked plan rows 118 plus 190-07,
+done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level SUMMARY
+files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were overcounts).
 
 - **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
   raw starts above their own head floor (about 3.66M missing sessions; runbook
