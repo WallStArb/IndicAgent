@@ -146,16 +146,13 @@ _KEEP_TABLES: dict[str, str] = {
 # infra.raw_backfill.statement_timeout_s and infra.backfill.ohlcv_insert_batch_size were retired
 # by migration 499 (plan 191-16 deleted ops_raw_backfill.py, their subject; ops_selection_gate.py
 # moved to infra.selection_gate.statement_timeout_s, seeded by migration 500).
+# market_data_ohlcv_old (dropped by migration 501) was retired by plan 191-17; the five
+# infra.canonical_swap.* keys stay pending until migration 502 retires them.
 _PENDING_RETIREMENT: dict[str, str] = {
     "infra.old_store_backup.disk_margin": (
         "retire: 191-18. Read only by scripts/ops/bars/ops_old_store_backup.py, which stays "
         "until the backup retention date 2026-11-12 (plan 17 records the date); plan 18 "
         "deletes the script and the backup together."
-    ),
-    "market_data_ohlcv_old": (
-        "retire: 191-17. The pre-swap label-column table, renamed away by the plan 14 swap "
-        "(migration 497) and kept for one nightly cycle; the writer registry holds it with an "
-        "empty writer tuple and plan 17's DROP TABLE clears both entries together."
     ),
     "infra.canonical_swap.copy_statement_timeout_s": (
         "retire: 191-17. Read only by scripts/ops/bars/ops_canonical_vendor_kind_swap.py, which "

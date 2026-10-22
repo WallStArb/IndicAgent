@@ -22,13 +22,10 @@ _DROPPED_TABLES = {
     "batch_job_checkpoints",
     "ic_cell_fingerprints",
     "market_data_ohlcv_new",
+    # migration 497 (phase 191 plan 14) reused this name for the kept pre-swap table; migration
+    # 501 (plan 191-17) dropped it after one full nightly cycle, so the name is dead again.
     "market_data_ohlcv_old",
 }
-
-# migration 497 (phase 191 plan 14) deliberately reuses the market_data_ohlcv_old name for the
-# kept pre-swap table: the name is catalog-created again and pending retirement at 191-17 (plan
-# 17's DROP TABLE clears the reuse with the table). Every other dropped name stays dead.
-_REUSED_BY_191_14 = frozenset({"market_data_ohlcv_old"})
 
 # Raw market data and the 1d policy: never dropped or touched by a cleanup migration.
 _NEVER_TOUCHED = (
@@ -165,13 +162,13 @@ def test_no_retired_key_or_dropped_table_is_left_in_code():
             text = path.read_text(encoding="utf-8", errors="ignore")
             for key in keys:
                 assert key not in text, (key, path)
-            for table in _DROPPED_TABLES - _REUSED_BY_191_14:
+            for table in _DROPPED_TABLES:
                 assert not re.search(rf"\b{table}\b", text), (table, path)
 
 
 def test_catalog_no_longer_creates_or_seeds_them():
     tables, keys = migration_catalog()
-    assert not ((_DROPPED_TABLES - _REUSED_BY_191_14) & tables)
+    assert not (_DROPPED_TABLES & tables)
     assert not (_NAMED_KEYS & keys)
 
 

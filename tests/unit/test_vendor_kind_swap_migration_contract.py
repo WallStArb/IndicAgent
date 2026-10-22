@@ -162,5 +162,7 @@ def test_views_migration_recreates_the_four_views_and_moves_the_policy() -> None
 def test_views_migration_catalog_resolves_the_swapped_names() -> None:
     tables, _ = migration_catalog()
     assert "market_data_ohlcv" in tables
-    assert "market_data_ohlcv_old" in tables, "the kept original must resolve in the catalog"
+    # The kept original was dropped by migration 501 after one full nightly cycle on the
+    # swapped table proved green (plan 191-17); neither old name may resolve any more.
+    assert "market_data_ohlcv_old" not in tables
     assert _V2 not in tables, "v2 renamed away must no longer resolve in the catalog"

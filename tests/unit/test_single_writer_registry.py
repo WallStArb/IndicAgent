@@ -71,10 +71,6 @@ _SCRUB_RULES = (
 _REGISTRY: dict[str, Covered | tuple[Writer, ...]] = {
     # Tables with a dedicated boundary test.
     "market_data_ohlcv": Covered("tests/unit/test_market_data_ohlcv_writer_boundary.py"),
-    # The pre-swap label-column table, renamed away by the plan 14 swap (migration 497) and kept
-    # for one nightly cycle: nothing may write it (the swap script only renames it), and plan
-    # 191-17's DROP TABLE clears the entry with the table.
-    "market_data_ohlcv_old": (),
     "ohlcv_coverage": Covered("tests/unit/test_ohlcv_coverage_writer_boundary.py"),
     # canonical_bar_lineage is a view since migration 447 (plan 185-38); the lineage/digest
     # boundary test still fails any statement that writes the name.
