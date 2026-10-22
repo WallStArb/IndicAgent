@@ -172,9 +172,29 @@ point the split detector and the refetch path started writing (one row on 2026-1
 2026-10-02 split); history before that is not recorded, so a pre-2026-10 split cannot be
 un-adjusted from the database yet.
 
+## Raw bar layer (phase 191): one table, last-wins, windows
+
+`ohlcv_raw` is the one table of vendor answers, keyed (vendor, kind); every write goes through
+`services/ohlcv_raw_writer.py` (`write_raw`), which replaces a changed row last-wins by serve
+time and logs the old values to `ohlcv_revision`. Nothing a vendor serves is dropped; canonical
+`market_data_ohlcv` is a rebuildable selection from raw plus policy (and the derived 15m/1h
+grid), proven a pure function of raw by `scripts/ops/bars/ops_selection_gate.py --compare`.
+Backup before an irreversible drop: `scripts/ops/bars/ops_old_store_backup.py` (COPY to
+per-year gzip CSV under `data/backups/`, one REPEATABLE READ transaction, `--verify` compares
+manifest, live recount and file rows); plain `pg_dump` of a compressed hypertable is not the
+pattern here. Cutover procedure for a swap that renames the canonical table: open the window
+with `scripts/ops/bars/ops_raw_cutover_window.py open --plan <id>` (stops the bar timers,
+requires `SUDO_PASS` exported), do the work, clear each held unit with `--plan`, then
+`resume --all`; the script has no close verb, so after resume archive the record
+(`mv logs/raw_cutover_window.json logs/raw_cutover_window.closed_<plan>.json`), precedents
+191-12, 191-14, 191-16. The one-shot swap tooling (`ops_canonical_vendor_kind_swap.py`,
+`ops_d2_raw_equivalence.py`) and the legacy re-stamp (`ops_legacy_restamp.py`, applied
+2026-10-15, `logs/legacy_restamp_20261015T174031Z.json`) were deleted at phase close (plan
+191-17); the drop migration and the phase summaries are the record.
+
 ## Tests must never append to D1 or spawn derivation against the live database
 
-`bar_derivation` takes the latest observation per bar from D1 (`ohlcv_request`, `ohlcv_observation`), so a
+`bar_derivation` takes the latest answer per bar from the raw layer (`ohlcv_request`, `ohlcv_raw`), so a
 fixture row a test appends on a real symbol and date becomes a canonical bar (27 rows on SPY 2024-01-02 to
 01-04 would have stored close 100.5 for 472.65; found 2026-10-03). D1 was append-only then and those rows stayed;
 the owner has since made D1 mutable (migration 438, 2026-10-03), so such rows are removable now, but the

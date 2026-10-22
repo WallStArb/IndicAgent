@@ -2250,21 +2250,23 @@ by plan 191-08; the loader and the fetcher write `ohlcv_raw`)
 
 ### `source` (bar provenance) / `provider`
 
-Every stored bar is labeled with the supplier that answered it: the `source` column on
-`market_data_ohlcv` and formerly the raw archive (`ibkr_named`, `alpaca`, `derived_5m`; the
+Every stored bar is labeled with the supplier that answered it: formerly the `source` column
+on `market_data_ohlcv` (retired by the phase 191 swap, migration 497; the labels live on there
+as `vendor` and `kind`) and the raw archive (`ibkr_named`, `alpaca`, `derived_5m`; the
 archive dropped 2026-10-17, plan 191-16, its labels live on in `ohlcv_raw` as vendor/kind), and
 `provider` on the ledgers (`ohlcv_coverage`, `ohlcv_provider_head`). The labels name the
 same supplier; `ibkr_named` is the historical span-ownership label on stored IBKR rows and
-stays as-is (stored rows are permanent history), while new code says `provider`/`source`
-with the vendor's registry name. Derived bars are labeled `derived_5m`: their provenance is
+stays as-is (stored rows are permanent history), while new code says `provider` and, on
+canonical, `vendor`/`kind` with the vendor's registry name. Derived bars are labeled
+`derived_5m` (kind on canonical since the swap): their provenance is
 the 5m grid one level down, where each constituent row carries its own supplier — which
 means a derived bucket straddling a span boundary is a blend of two vendors' tapes, and
 vendor-agreement audits compare per source, never inside a blended bucket.
 **Not:** the ingest `caller` (which program asked), and not `route` (which feed answered).
 **Banned:** joining provider-labeled tables to source-labeled tables on the label alone.
-**Status:** active (labels date to migrations 383/446/464/465/468; ruling 2026-10-10)
-**Code surface:** `bar_source_policy`; `market_data_ohlcv.source`;
-`ohlcv_coverage.provider`
+**Status:** active (labels date to migrations 383/446/464/465/468; ruling 2026-10-10; the
+canonical `source` column itself retired by migration 497, phase 191)
+**Code surface:** `bar_source_policy`; `ohlcv_coverage.provider`
 
 ### `ohlcv_raw`
 

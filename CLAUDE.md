@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.62.0
+Version: 5.63.0
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -93,7 +93,7 @@ Non-negotiable. Any violation is wrong regardless of whether it works locally.
 
 - **Kafka is transport, not state store.** Hot state → local file checkpoint; bar history → TimescaleDB.
 - **ProcessPoolExecutor workers are compute-only:** return serializable results to main; all DB writes go through one serial connection in main (concurrent writers on a hypertable deadlock index pages). Killing such a service orphans workers; follow the kill procedure in `docs/reference/gotchas.md`.
-- **Raw capture (528): every bar is stored under its supplier's label** (`source` on canonical rows; losers keep theirs in the raw archive). Nothing a vendor serves is dropped. Vendor onboarding: one `history_leaf` + one `VendorIngress` row + APR seeds.
+- **Raw capture (528): every vendor answer is stored in `ohlcv_raw` under (vendor, kind), last-wins with a revision log.** Nothing a vendor serves is dropped. Canonical `market_data_ohlcv` is a rebuildable selection from raw plus policy, plus derived grid rows; `ops_selection_gate.py --compare` is the standing proof it is a pure function of raw. Vendor onboarding: one `history_leaf` + one `VendorIngress` row + APR seeds.
 - **Never edit a module a fingerprinted batch writer imports while its run is live or resumable** (`code_content_key` hashes it; one edit discards every completed cell). Kill-and-resume with the same command is safe.
 - **Parallel dicts → dataclass:** 3+ `dict[str, X]` keyed by the same ID become `dict[str, MyState]` with a `_state(key)` factory.
 - **Timestamps:** serialize with `format_iso_ts(dt)`, never inline `.isoformat().replace(...)`.
