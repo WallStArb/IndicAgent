@@ -360,3 +360,9 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
 47. Plan 191-15 review (2026-10-17): PASS, five P3s, all fixed in c176329d2.
 48. Plan 191-16 review (2026-10-17): PASS, six P3s - five fixed in b53baec72..be5f01826, P3-6
     deferred to plan 17 D7 (confirm the week-42 parity draw executed end to end before close).
+49. Plan 191-17 review (2026-10-22): PASS, one P2 and two P3s, all fixed same session. P2:
+    todo 539's premise refuted by the DB (the week-42 parity draw executed end to end
+    2026-10-18 19:49Z, destination raw), the todo corrected and closed on that evidence and
+    the SUMMARY rider answer fixed by dated addendum. Two P3s fixed in docs: ETHA
+    effective-date note (corporate_action says 2026-10-05, the citation said 2026-10-06) and
+    the STATE completed_plans recount to 119.
