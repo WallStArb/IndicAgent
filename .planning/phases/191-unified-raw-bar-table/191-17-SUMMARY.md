@@ -135,4 +135,9 @@ degenerate Viterbi skip in test_causal_hmm_decoding.py).
   was real but transient; the fetcher served the parity lane about 12 hours later, same day.
   DB-verified by the 191-17 review (P2-1). Todo 539 is corrected and closed on this evidence
   (`.planning/todos/completed/539-parity-lane-rank-starved-behind-deep-backfill.md`).
+- The ETHA citation of record above (and in the five review_notes) says the split is
+  effective 2026-10-06; corporate_action row ce003ee6 records effective_date 2026-10-05
+  (review P3-1, 2026-10-22). The registry row's date is the one that stands; the DB evidence
+  rows are left untouched.
+
 
