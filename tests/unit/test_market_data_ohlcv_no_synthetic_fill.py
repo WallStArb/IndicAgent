@@ -40,12 +40,6 @@ _SYNTHETIC_REFERENCES: dict[str, str] = {
         "Refusal: write_raw raises on a synthetic_fill vendor or kind before any SQL (ohlcv_raw "
         "holds vendor answers only; phase 191 plan 02)."
     ),
-    "scripts/ops/bars/ops_canonical_vendor_kind_swap.py": (
-        "Name reference only: the v2 shape comparison names the live table's NOT VALID "
-        "market_data_ohlcv_no_synthetic_fill check as the one constraint the rebuild target does "
-        "not carry (its source column is gone); nothing is written with the label, and an "
-        "unmapped source label aborts the build before any row lands (phase 191 plan 12)."
-    ),
 }
 
 
