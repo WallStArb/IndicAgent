@@ -4,10 +4,14 @@ Read-only ops script for the Tradier retirement (todo 533 steps 2 and 3, plan 19
 2026-10-07, the day canonical 1d primary moved from Tradier to IBKR (migration 456); before D
 the closed policy row is primary tradier, fallback ibkr. Four modes:
 
-- --readiness: ready only when, for every name with Tradier 1d raw rows, an IBKR 1d ask
-  (ohlcv_request, outcome bars or no_data) starts at or before max(first Tradier bar, today
-  minus 9800 days) and was answered after the depth change (config_history of
-  infra.backfill.depth_days.1d, 7300 to 9800). Not ready lists the unanswered names, exits 2.
+- --readiness: ready only when every name with Tradier 1d raw rows has its Tradier span
+  settled by evidence (amendment 2026-10-23): a post-depth-change IBKR 1d ask (outcome bars or
+  no_data) starting at or before max(first Tradier bar, today minus 9800 days), an IBKR raw
+  bar at or before that threshold, a definitive no_data window starting at or before it (any
+  age, no open transport failure), or a verified 1d provider head above it. Freshness-gated
+  ohlcv_empty_history spans never settle. Names passed with --frozen-names (todo 519 holds;
+  no machine-readable surface exists) are excluded from the gate and flagged with their
+  measured residue class. Not ready lists the unsettled names, exits 2.
 - --measure: per name, the Tradier sessions no IBKR answer covers (no smart_trades or
   listing-venue route raw row, no ohlcv_empty_history window over the date), the first-bar
   change the deletion would cause, and the Tradier/IBKR value distribution at common smart
@@ -43,6 +47,7 @@ sys.path.insert(0, str(project_root))
 import asyncpg  # noqa: E402
 import numpy as np  # noqa: E402
 
+from scripts.infrastructure.backfill._d1_gaps import daily_no_data_coverage  # noqa: E402
 from services._batch_utils import load_apr_dict_async  # noqa: E402
 from services.bar_derivation import read_daily_inputs, read_daily_params  # noqa: E402
 from src.config.settings import Settings  # noqa: E402
@@ -54,12 +59,15 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     derive_daily_v2,
 )
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
-from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS  # noqa: E402
+from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, VENUE_ROUTES  # noqa: E402
 
 D = date(2026, 10, 7)
 DEPTH_KEY = "infra.backfill.depth_days.1d"
 DEPTH_DAYS = 9800
 SMART_KIND = "smart_trades"
+# The routes the daily no_data question is asked on (SMART plus every listing-venue route);
+# readiness condition (c) reads exactly these request rows, the gap planner's own scope.
+DAILY_COVERAGE_ROUTES: tuple[str, ...] = ("SMART", *VENUE_ROUTES)
 # The raw kinds that mean IBKR answered a daily session: the SMART TRADES answer plus every
 # listing-venue route kind (migration 476; the bare `venue` raw kind no longer exists, so a
 # predicate on it would silently match zero rows). smart_adjusted is never canonical, never
@@ -76,38 +84,89 @@ DEFAULT_REPORT_PATH = ".planning/phases/191-unified-raw-bar-table/191-TRADIER-RE
 
 
 def readiness_threshold(first_tradier: date, today: date) -> date:
-    """The window start an IBKR ask must reach: the deeper of the first Tradier bar and the
-    9800-day depth horizon at `today`."""
+    """The date an IBKR answer must reach: the later of the first Tradier bar and the
+    9800-day depth horizon at `today` (max of the two, so a listing younger than the
+    horizon is bounded by its own first Tradier bar)."""
     return max(first_tradier, today - timedelta(days=DEPTH_DAYS))
 
 
-def readiness_answered(
+def readiness_basis(
     first_tradier: date,
+    today: date,
+    *,
     asks: Sequence[tuple[date, datetime]],
     depth_at: datetime,
-    today: date,
-) -> bool:
-    """True when an ask (window start, answered time) both starts at or before the threshold
-    and was answered after the depth change: an ask answered earlier used the shallower depth
-    and says nothing about the deeper span."""
+    earliest_ibkr: date | None = None,
+    no_data_starts: Sequence[date] = (),
+    head: date | None = None,
+) -> str | None:
+    """Which evidence settles the deep end of the name's Tradier span (amendment
+    2026-10-23), or None when the span is not settled.
+
+    - "ask": a post-depth-change ask (window start, answered time) both starts at or before
+      the threshold and was answered after the depth change (an ask answered earlier used the
+      shallower depth and says nothing about the deeper span).
+    - "raw-bar": IBKR holds a 1d raw bar at or before the threshold (smart_trades or a
+      venue route kind): the deep span is answered by bars, whenever they arrived.
+    - "no_data": a definitive no_data request window (any age, no open transport failure)
+      starts at or before the threshold: the provider answered nothing-traded there.
+    - "head": a verified 1d provider head sits above the threshold, flooring every future
+      ask above it, so the deep span can never be asked and the head is the recorded
+      evidence that nothing is below it.
+
+    Freshness-gated ohlcv_empty_history spans are deliberately absent: they re-open on
+    reverify and get re-asked, which then lands in "ask"."""
     threshold = readiness_threshold(first_tradier, today)
-    return any(start <= threshold and at > depth_at for start, at in asks)
+    if any(start <= threshold and at > depth_at for start, at in asks):
+        return "ask"
+    if earliest_ibkr is not None and earliest_ibkr <= threshold:
+        return "raw-bar"
+    if any(start <= threshold for start in no_data_starts):
+        return "no_data"
+    if head is not None and head > threshold:
+        return "head"
+    return None
+
+
+def definitive_no_data_windows(rows: Sequence[tuple[Any, ...]]) -> list[tuple[date, date]]:
+    """The definitive 1d no_data coverage windows (start, end) as calendar days, from
+    (route, outcome, window_start, window_end, answered_at, error_text) request rows.
+
+    This is the gap planner's own definition (daily_no_data_coverage, todo 535 item 6), so
+    readiness and the planner agree on what a definitive nothing-traded answer is: every
+    no_data window, less the parts an open transport failure (a timeout, or a failed answer
+    the provider raised) that its own route has not answered later reopens."""
+    return [(start.date(), end.date()) for start, end in daily_no_data_coverage(rows)]
 
 
 @dataclass(frozen=True)
 class NameReadiness:
-    """One Tradier name and whether IBKR has been asked deep enough since the depth change."""
+    """One Tradier name, the evidence basis that settles its deep span (None when unsettled)
+    and whether the caller holds it frozen (todo 519; frozen names never gate)."""
 
     symbol: str
     first_tradier: date
-    answered: bool
+    basis: str | None
+    threshold: date
+    frozen: bool = False
 
 
 def classify_readiness(rows: Sequence[NameReadiness]) -> tuple[list[str], list[str]]:
-    """(answered symbols, unanswered symbols) in input order."""
-    answered = [row.symbol for row in rows if row.answered]
-    unanswered = [row.symbol for row in rows if not row.answered]
-    return answered, unanswered
+    """(settled symbols, unsettled symbols) in input order. Frozen names sit in neither
+    list: the readiness gate never counts them (the todo 519 holds are the owner's)."""
+    settled = [row.symbol for row in rows if not row.frozen and row.basis is not None]
+    unsettled = [row.symbol for row in rows if not row.frozen and row.basis is None]
+    return settled, unsettled
+
+
+def parse_frozen_names(value: str | None) -> tuple[str, ...]:
+    """The caller's frozen-name list (comma-separated) as a sorted uppercase tuple; empty
+    when absent. No symbol is hardcoded here: the todo 519 hold has no machine-readable
+    surface (only two of its four names carry bar_source_policy rows), so the caller passes
+    the list."""
+    if not value:
+        return ()
+    return tuple(sorted({name.strip().upper() for name in value.split(",") if name.strip()}))
 
 
 # --- measure (the residue and the value-difference context) --------------------------------------
@@ -366,6 +425,40 @@ _REQUESTS_SQL = """
 SELECT symbol, window_start, answered_at FROM ohlcv_request
 WHERE source = 'ibkr' AND timeframe = '1d'
   AND outcome = ANY($1::text[]) AND answered_at > $2
+  AND (caller IS NULL OR caller NOT LIKE 'test-%')
+"""
+
+# Readiness condition (b): the earliest IBKR daily answer bar per name, with the same
+# test-caller guard the raw reads carry (a fixture request must never settle readiness).
+_IBKR_EARLIEST_SQL = """
+SELECT r.symbol, min((r."timestamp" AT TIME ZONE 'UTC')::date) AS first_day
+FROM ohlcv_raw r
+LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
+WHERE r.vendor = 'ibkr' AND r.timeframe = '1d'
+  AND r.kind = ANY($1::text[])
+  AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
+GROUP BY r.symbol
+"""
+
+# Readiness condition (c): the daily no_data question's request rows (any age), the gap
+# planner's own scope (_d1_gaps._DAILY_REQUESTS_SQL): SMART plus the listing-venue routes,
+# the four coverage-relevant outcomes; definitive coverage is computed in Python.
+_NO_DATA_REQUESTS_SQL = """
+SELECT symbol, route, outcome, window_start, window_end, answered_at, error_text
+FROM ohlcv_request
+WHERE source = 'ibkr' AND timeframe = '1d' AND what_to_show = 'TRADES'
+  AND route = ANY($1::text[])
+  AND outcome IN ('no_data', 'bars', 'failed', 'timeout')
+  AND window_start IS NOT NULL
+  AND (caller IS NULL OR caller NOT LIKE 'test-%')
+"""
+
+# Readiness condition (d): verified 1d provider heads only. A 'floor' row is a seed, not
+# evidence (it marks an unverified assumption), so it never settles anything.
+_HEAD_SQL = """
+SELECT symbol, (head_ts AT TIME ZONE 'UTC')::date AS head_day
+FROM ohlcv_provider_head
+WHERE provider = 'ibkr' AND timeframe = '1d' AND head_kind = 'verified'
 """
 
 _TRADIER_ROWS_SQL = """
@@ -434,32 +527,79 @@ async def fetch_depth_change(conn: asyncpg.Connection) -> tuple[datetime, int]:
     return rows[0]["timestamp"], int(value)
 
 
-async def run_readiness(conn: asyncpg.Connection, today: date | None = None) -> dict[str, Any]:
+async def run_readiness(
+    conn: asyncpg.Connection,
+    today: date | None = None,
+    frozen_names: Sequence[str] = (),
+) -> dict[str, Any]:
+    """The amended readiness gate (plan amendment 2026-10-23): a name passes when any of
+    the four evidence bases settles its deep span; frozen names are flagged, never gated."""
     depth_at, depth_days = await fetch_depth_change(conn)
     today = today or datetime.now(UTC).date()
     names = await tradier_names(conn)
+    frozen = set(frozen_names)
     asks: dict[str, list[tuple[date, datetime]]] = {}
     for row in await conn.fetch(_REQUESTS_SQL, ["bars", "no_data"], depth_at):
         asks.setdefault(row["symbol"], []).append((row["window_start"].date(), row["answered_at"]))
+    earliest: dict[str, date] = {
+        row["symbol"]: row["first_day"]
+        for row in await conn.fetch(_IBKR_EARLIEST_SQL, list(IBKR_RAW_KINDS))
+        if row["first_day"] is not None
+    }
+    coverage_rows: dict[str, list[tuple[Any, ...]]] = {}
+    for row in await conn.fetch(_NO_DATA_REQUESTS_SQL, list(DAILY_COVERAGE_ROUTES)):
+        coverage_rows.setdefault(row["symbol"], []).append(tuple(row)[1:])
+    no_data_starts: dict[str, list[date]] = {
+        symbol: [window[0] for window in definitive_no_data_windows(rows)]
+        for symbol, rows in coverage_rows.items()
+    }
+    heads: dict[str, date] = {row["symbol"]: row["head_day"] for row in await conn.fetch(_HEAD_SQL)}
     rows = [
         NameReadiness(
             symbol,
             first_day,
-            readiness_answered(first_day, asks.get(symbol, ()), depth_at, today),
+            readiness_basis(
+                first_day,
+                today,
+                asks=asks.get(symbol, ()),
+                depth_at=depth_at,
+                earliest_ibkr=earliest.get(symbol),
+                no_data_starts=no_data_starts.get(symbol, ()),
+                head=heads.get(symbol),
+            ),
+            readiness_threshold(first_day, today),
+            symbol in frozen,
         )
         for symbol, first_day in names
     ]
-    answered, unanswered = classify_readiness(rows)
+    settled, unsettled = classify_readiness(rows)
+    basis_counts: dict[str, int] = {}
+    for row in rows:
+        if row.basis is not None:
+            basis_counts[row.basis] = basis_counts.get(row.basis, 0) + 1
+    frozen_rows = [row for row in rows if row.frozen]
     return {
         "mode": "readiness",
         "today": today.isoformat(),
         "depth_key": DEPTH_KEY,
         "depth_changed_at": depth_at.isoformat(),
         "depth_days": depth_days,
+        "frozen_names": list(frozen_names),
         "n_tradier_names": len(rows),
-        "n_answered": len(answered),
-        "n_unanswered": len(unanswered),
-        "unanswered": unanswered,
+        "n_settled": len(settled),
+        "n_unsettled": len(unsettled),
+        "unsettled": unsettled,
+        "basis_counts": basis_counts,
+        "n_frozen": len(frozen_rows),
+        "frozen": [
+            {
+                "symbol": row.symbol,
+                "basis": row.basis,
+                "first_tradier": row.first_tradier.isoformat(),
+                "threshold": row.threshold.isoformat(),
+            }
+            for row in frozen_rows
+        ],
     }
 
 
@@ -500,6 +640,30 @@ async def run_measure(
     }
 
 
+async def _derive_without_tradier(
+    conn: asyncpg.Connection, symbol: str, params: Any
+) -> tuple[Any, BaseException | None]:
+    """(result, error): the unchanged d2-v3 rule over the name's own inputs minus vendor
+    tradier, or the exception that stopped it. Never raises: the exception is the per-name
+    verdict."""
+    try:
+        observations, splits = await read_daily_inputs(conn, symbol)
+        kept = [o for o in observations if o.route != ROUTE_TRADIER]
+        return (
+            derive_daily_v2(
+                kept,
+                params.policy,
+                splits,
+                symbol=symbol,
+                basis_window_sessions=params.window,
+                basis_tolerance_bp=params.tolerance_bp,
+            ),
+            None,
+        )
+    except Exception as error:
+        return None, error
+
+
 async def run_prove(
     conn: asyncpg.Connection,
     *,
@@ -516,21 +680,7 @@ async def run_prove(
     proofs: list[NameProof] = []
     checks: list[SelfCheck] = []
     for i, symbol in enumerate(names, 1):
-        result = None
-        error: BaseException | None = None
-        try:
-            observations, splits = await read_daily_inputs(conn, symbol)
-            kept = [o for o in observations if o.route != ROUTE_TRADIER]
-            result = derive_daily_v2(
-                kept,
-                params.policy,
-                splits,
-                symbol=symbol,
-                basis_window_sessions=params.window,
-                basis_tolerance_bp=params.tolerance_bp,
-            )
-        except Exception as error_found:
-            error = error_found
+        result, error = await _derive_without_tradier(conn, symbol, params)
         ibkr_rows = await conn.fetch(_IBKR_ROWS_SQL, symbol, list(IBKR_RAW_KINDS))
         smart_dates = [row["day"] for row in ibkr_rows if row["kind"] == SMART_KIND]
         venue_dates = [row["day"] for row in ibkr_rows if row["kind"] in VENUE_ROUTE_KINDS]
@@ -672,7 +822,7 @@ async def _run_mode(args: argparse.Namespace) -> dict[str, Any]:
     conn = await open_readonly_connection()
     try:
         if args.readiness:
-            return await run_readiness(conn)
+            return await run_readiness(conn, frozen_names=parse_frozen_names(args.frozen_names))
         if args.measure:
             return await run_measure(conn, args.symbols)
         return await run_prove(conn, sample=args.sample, symbols=args.symbols)
@@ -690,6 +840,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", default=None, help="write the full JSON payload here")
     parser.add_argument("--symbols", nargs="+", default=None, help="limit to these names")
     parser.add_argument("--sample", type=int, default=DEFAULT_SELF_CHECK_SAMPLE)
+    parser.add_argument(
+        "--frozen-names",
+        default=None,
+        help="comma-separated names the owner holds frozen (excluded from the readiness"
+        " gate, flagged with their residue class; todo 519), e.g. MOD,PSKY,QRVO,WBD",
+    )
     parser.add_argument("--measure-json", default=None, help="report input")
     parser.add_argument("--prove-json", default=None, help="report input")
     args = parser.parse_args(argv)
@@ -701,11 +857,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.out:
         Path(args.out).write_text(json.dumps(payload, indent=1))
     summary = {k: v for k, v in payload.items() if k not in ("names", "self_checks")}
-    if "unanswered" in summary:
-        summary["unanswered"] = summary["unanswered"][:50]
-        summary["unanswered_truncated"] = payload["n_unanswered"] > 50
+    if "unsettled" in summary:
+        summary["unsettled"] = summary["unsettled"][:50]
+        summary["unsettled_truncated"] = payload["n_unsettled"] > 50
     print(json.dumps(summary))
-    if payload.get("mode") == "readiness" and payload["n_unanswered"]:
+    if payload.get("mode") == "readiness" and payload["n_unsettled"]:
         return 2
     return 0
 
