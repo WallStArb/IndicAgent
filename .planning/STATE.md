@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-23T00:42:55.302Z"
+last_updated: "2026-10-23T01:30:00.000Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 125
+  completed_plans: 120
   percent: 22
 ---
 
@@ -119,19 +119,29 @@ nightly on the raw contract); 533's status points at plans 19-25 and the 2026-11
 of ops_old_store_backup.py and data/backups/191/. 189-11's vendor-rows-out-of-the-grid
 criterion is satisfied by the new layout: zero vendor 15m/1h rows remain in canonical
 (measured 2026-10-22; 135.5M derived rows).
-Plan 19 NOT-READY 2026-10-23 (191-19-SUMMARY.md): Task 1 landed (harness + tests, commits
-b0280dbbc RED, 1b4bb935e GREEN; no rule or policy edit); Task 2's readiness gate exited 2
-(1,529 Tradier names, 502 answered, 1,027 unanswered). Cause split (measured): 996 asked
-post-depth-change but no ask window reached the threshold (481 IBKR evidence floor already at
-or below it, 515 IBKR verified floor above it, permanent residue); 29 never asked (deepening
-run 1 budget-exhausted after 138 items, runs 2-3 planned 1-2 items and the gate removed its
-crontab at 2026-10-18 02:11Z, before the gateway wedge began 23:59Z); 28 of those flip to
-answered when the cycle asks them; the four frozen names (MOD, PSKY, QRVO, WBD, todo 519)
-never flip on the cycle. A finished cycle flips at most 28 of 1,027; 999 fail the rule as
-written regardless. Next: rerun 191-19 Task 2 (readiness first) once the gateway is
-re-authorized (owner 2FA pending since 2026-10-22 18:15Z) and the weekly gap-fill cycle
-(infra.backfill.gap_fill_interval_days = 7) runs; measure/prove/report and
-191-TRADIER-RESIDUE.md wait on it. completed_plans stays 120 (plan 19 is not done).
+Plan 19 NOT-READY 2026-10-23, review-fixed and amended the same day (191-19-SUMMARY.md,
+191-19-REVIEW.md): Task 1 landed (harness + tests, commits b0280dbbc RED, 1b4bb935e GREEN;
+no rule or policy edit); Task 2's readiness gate exited 2 (1,529 Tradier names, 502 answered
+under the original ask-row predicate, 1,027 not). The review's corrected, DB-verified split
+of the 1,027: 498 covered-but-blind (the deep span already covered by IBKR bars or no_data
+answer windows; the planner never asks into covered ground), 75 with a verified 1d provider
+head above the threshold (it floors every future ask), 11 settled by deep no_data answers,
+440 cycle-flippable (429 A2-unasked plus 11 B1-unasked; the deepening campaign's run 1 ended
+budget-exhausted after 138 items and runs 2-3 planned 1-2 items before the gate's two-zero
+rule removed its crontab 2026-10-18 02:11Z, before the gateway wedge began 23:59Z), and 3
+frozen (WBD, PSKY, QRVO; todo 519). The first record's "515 permanent residue / at most 28
+flip" framing was wrong (446 of 1,027 misclassified; fixed in the docs commit). The
+2026-10-23 plan amendment moved readiness to the evidence basis (post-change ask, IBKR raw
+bar, definitive no_data window, verified head; freshness-gated empty spans never settle;
+frozen names via --frozen-names because todo 519 has no machine-readable surface): the
+amended rerun exits 2 with 1,088 settled (ask 502, raw-bar 378, no_data 137, head 73) and
+437 unsettled (the unasked deep spans; the frozen four are flagged: PSKY/WBD head-floored,
+MOD/QRVO unresolved, none gate). The permanent data residue for plan 20 is the Tradier
+sessions below IBKR's verified floors (about 89 evidence-settled names), far smaller than
+the first framing. Next: rerun Task 2 once the gateway is re-authorized (owner 2FA pending
+since 2026-10-22 18:15Z) and the weekly gap-fill cycle
+(infra.backfill.gap_fill_interval_days = 7) runs; the 437 flip as their slots come due.
+completed_plans stays 120 (plan 19 is not done).
 completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked boxes 118
 plus 190-07, done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level
 SUMMARY files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
