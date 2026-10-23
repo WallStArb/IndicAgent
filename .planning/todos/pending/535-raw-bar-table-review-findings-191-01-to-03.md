@@ -371,3 +371,19 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     as same known failures or better, not exit 0; fixed in both), STATE.md said "checked plan
     rows 118" where the count is of checked boxes, and the 521 row still described the
     2026-10-10 canonical 5m load as RUNNING though it landed 1,502/1,502 that day.
+51. Todo 537 item 2 basis follow-up scan (2026-10-23, after the deepening campaign): drift
+    medians over paired pre-2023 sessions are unchanged in class (ELE 900%, EWS/EWT 100%,
+    IJR 75%, WELL 73%, STAG 47%, OKE 41%, MGM 36%, RJF 33%, SSP 25%, APO 23%, TIGO 21%,
+    VMRK 12%, RTX 6.3%, LEN 5.7%, WBD 5.4%, IBM 4.7%, IESC 3.8%, O 3.3%). Coverage of stored
+    pre-D: only RTX and LEN reach 100%; the big-cap cohort (IBM, O, MGM, RJF, OKE, VMRK,
+    WELL, EWS, EWT, IJR) sits at 74.8 to 77.3 percent, exactly the old 7300-day fetch horizon
+    (2006-10-02 floor) - those deep spans are among plan 19's 437 unasked and re-measure
+    after the cycle; ELE 93.0, SSP 91.4, WBD 78.9 (frozen), APO 63.2, STAG 57.8, TIGO 13.5,
+    IESC 11.1. Anchored (non-tradier canonical and revision values equal today's ibkr raw,
+    pre-D span): exact for 17 names; RTX has 2 isolated late corrections (2026-09-30 0.42
+    percent class); SSP has 1,990 restated values, a full-history rescale around its reverse
+    split - IBKR's own unadjusted basis drifted for SSP, so "restore to unadjusted ibkr" is
+    ambiguous there and SSP is excluded from restoration. Eligibility under the migration 494
+    gates: LEN now (coverage 100, anchored exact), RTX modulo the two corrections; the rest
+    wait on coverage. Disposition: restore deferred to the plan 20 owner checkpoint (deletion
+    subsumes it if confirmed promptly).

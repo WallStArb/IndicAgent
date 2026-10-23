@@ -138,7 +138,10 @@ amended rerun exits 2 with 1,088 settled (ask 502, raw-bar 378, no_data 137, hea
 437 unsettled (the unasked deep spans; the frozen four are flagged: PSKY/WBD head-floored,
 MOD/QRVO unresolved, none gate). The permanent data residue for plan 20 is the Tradier
 sessions below IBKR's verified floors (about 89 evidence-settled names), far smaller than
-the first framing. Next: rerun Task 2 once the gateway is re-authorized (owner 2FA pending
+the first framing. Two caveats carry from the review: empty-span coverage is freshness-gated
+(covered-but-blind is not strictly permanent for the empty-span-backed subset; stale spans
+re-open and get re-asked), and horizon-bound thresholds can miss the first planned session by
+one (ACM). Next: rerun Task 2 once the gateway is re-authorized (owner 2FA pending
 since 2026-10-22 18:15Z) and the weekly gap-fill cycle
 (infra.backfill.gap_fill_interval_days = 7) runs; the 437 flip as their slots come due.
 completed_plans stays 120 (plan 19 is not done).
