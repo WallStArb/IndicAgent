@@ -59,6 +59,7 @@ from src.intelligence.bars.daily_rule import (  # noqa: E402
     derive_daily_v2,
 )
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
+from src.intelligence.bars.gap_plan import COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW  # noqa: E402
 from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, VENUE_ROUTES  # noqa: E402
 
 D = date(2026, 10, 7)
@@ -67,7 +68,7 @@ DEPTH_DAYS = 9800
 SMART_KIND = "smart_trades"
 # The routes the daily no_data question is asked on (SMART plus every listing-venue route);
 # readiness condition (c) reads exactly these request rows, the gap planner's own scope.
-DAILY_COVERAGE_ROUTES: tuple[str, ...] = ("SMART", *VENUE_ROUTES)
+DAILY_COVERAGE_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE, *VENUE_ROUTES)
 # The raw kinds that mean IBKR answered a daily session: the SMART TRADES answer plus every
 # listing-venue route kind (migration 476; the bare `venue` raw kind no longer exists, so a
 # predicate on it would silently match zero rows). smart_adjusted is never canonical, never
@@ -446,7 +447,7 @@ GROUP BY r.symbol
 _NO_DATA_REQUESTS_SQL = """
 SELECT symbol, route, outcome, window_start, window_end, answered_at, error_text
 FROM ohlcv_request
-WHERE source = 'ibkr' AND timeframe = '1d' AND what_to_show = 'TRADES'
+WHERE source = 'ibkr' AND timeframe = '1d' AND what_to_show = $2::text
   AND route = ANY($1::text[])
   AND outcome IN ('no_data', 'bars', 'failed', 'timeout')
   AND window_start IS NOT NULL
@@ -547,7 +548,9 @@ async def run_readiness(
         if row["first_day"] is not None
     }
     coverage_rows: dict[str, list[tuple[Any, ...]]] = {}
-    for row in await conn.fetch(_NO_DATA_REQUESTS_SQL, list(DAILY_COVERAGE_ROUTES)):
+    for row in await conn.fetch(
+        _NO_DATA_REQUESTS_SQL, list(DAILY_COVERAGE_ROUTES), COVERAGE_WHAT_TO_SHOW
+    ):
         coverage_rows.setdefault(row["symbol"], []).append(tuple(row)[1:])
     no_data_starts: dict[str, list[date]] = {
         symbol: [window[0] for window in definitive_no_data_windows(rows)]
@@ -844,7 +847,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--frozen-names",
         default=None,
         help="comma-separated names the owner holds frozen (excluded from the readiness"
-        " gate, flagged with their residue class; todo 519), e.g. MOD,PSKY,QRVO,WBD",
+        " gate, flagged with their residue class; source them from the todo 519 holds)",
     )
     parser.add_argument("--measure-json", default=None, help="report input")
     parser.add_argument("--prove-json", default=None, help="report input")

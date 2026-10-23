@@ -107,11 +107,16 @@ def test_readiness_threshold_is_the_deeper_of_first_tradier_and_the_depth_horizo
 def test_readiness_basis_ask_settles_only_a_post_change_ask_reaching_the_threshold():
     # Amendment 2026-10-23 condition (a): the original ask-row predicate, unchanged.
     first = date(2013, 9, 26)
+    # first is the threshold here, so deep_late's window starts exactly at it: the boundary
+    # settles.
     deep_late = (first, _DEPTH_AT + timedelta(days=5))
     assert residue.readiness_basis(first, _TODAY, asks=[deep_late], depth_at=_DEPTH_AT) == "ask"
     # An ask answered before the depth change does not count (it used the shallower depth).
     deep_early = (first, _DEPTH_AT - timedelta(minutes=1))
     assert residue.readiness_basis(first, _TODAY, asks=[deep_early], depth_at=_DEPTH_AT) is None
+    # The depth-change boundary itself: one microsecond after settles.
+    edge_late = (first, _DEPTH_AT + timedelta(microseconds=1))
+    assert residue.readiness_basis(first, _TODAY, asks=[edge_late], depth_at=_DEPTH_AT) == "ask"
     # A post-change ask that only reaches above the first Tradier bar does not count.
     shallow_late = (date(2014, 1, 15), _DEPTH_AT + timedelta(days=5))
     assert residue.readiness_basis(first, _TODAY, asks=[shallow_late], depth_at=_DEPTH_AT) is None
