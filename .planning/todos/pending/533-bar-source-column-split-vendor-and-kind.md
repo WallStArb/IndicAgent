@@ -10,7 +10,7 @@ Phase-sized: steps 1-2 open it, then promote it to a phase (`/gsd-phase`) for st
 Executing as phase 191. Steps 3 to 9 are done: plans 01 to 18 landed the one raw table
 (`ohlcv_raw`, vendor plus kind, last-wins with the revision log), cut every reader and writer
 over, dropped `ohlcv_observation`, `ohlcv_intraday_raw_archive` and `market_data_ohlcv_old`,
-and closed green (R6 and D7 gate exit 0, selection gate exit 0, repro_frozen bit-identical;
+and closed green (R6 gate exit 0, D7 same known failures or better, selection gate exit 0, repro_frozen bit-identical;
 191-17-SUMMARY.md). What remains is the Tradier retirement (step 10, owner direction above):
 plans 191-19 to 191-25. Removal note: `scripts/ops/bars/ops_old_store_backup.py` and
 `data/backups/191/` (2.9 GB gz old-store backup, manifest retained) are deleted on or after

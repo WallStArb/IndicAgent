@@ -120,7 +120,7 @@ of ops_old_store_backup.py and data/backups/191/. 189-11's vendor-rows-out-of-th
 criterion is satisfied by the new layout: zero vendor 15m/1h rows remain in canonical
 (measured 2026-10-22; 135.5M derived rows). Next: plan 19 (Tradier residue measurement,
 time-gated on the weekly IBKR gap-fill cycle).
-completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked plan rows 118
+completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked boxes 118
 plus 190-07, done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level
 SUMMARY files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
 overcounts); plan 18's checked box makes 120.

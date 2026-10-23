@@ -366,3 +366,8 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     the SUMMARY rider answer fixed by dated addendum. Two P3s fixed in docs: ETHA
     effective-date note (corporate_action says 2026-10-05, the citation said 2026-10-06) and
     the STATE completed_plans recount to 119.
+50. Plan 191-18 review (2026-10-22): PASS, three P3 wording nits, all fixed same session:
+    PRIORITIES.md and the todo 533 body compressed the close to "D7 exit 0" (the gate passed
+    as same known failures or better, not exit 0; fixed in both), STATE.md said "checked plan
+    rows 118" where the count is of checked boxes, and the 521 row still described the
+    2026-10-10 canonical 5m load as RUNNING though it landed 1,502/1,502 that day.
