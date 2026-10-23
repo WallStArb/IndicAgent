@@ -103,6 +103,9 @@ _ALLOW_LIST: dict[str, str] = {
         "address the table, not the tradeable view, whose volume > 0 filter would hide "
         "stored rows the contract must see (a vendor grid row fails the stage loud)."
     ),
+    "scripts/ops/bars/ops_tradier_residue.py": (
+        "TEMPORARY retire: 191-25 (Tradier retirement record script)"
+    ),
 }
 
 

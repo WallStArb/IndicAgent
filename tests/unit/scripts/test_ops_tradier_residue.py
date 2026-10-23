@@ -72,6 +72,10 @@ def _case(symbol: str) -> tuple[list[Observation], list[SplitRecord]]:
     return observations, splits
 
 
+def _utc(day: date) -> datetime:
+    return datetime(day.year, day.month, day.day, tzinfo=UTC)
+
+
 def _derive_without_tradier(symbol: str):
     """The proof harness's core: the unchanged rule over the case with Tradier removed."""
     observations, splits = _case(symbol)
@@ -94,8 +98,10 @@ def test_readiness_threshold_is_the_deeper_of_first_tradier_and_the_depth_horizo
     # A 2000 Tradier head is deeper than the 9800-day horizon: IBKR must have been asked to it.
     assert residue.readiness_threshold(date(2000, 1, 3), _TODAY) == date(2000, 1, 3)
     assert residue.readiness_threshold(date(2000, 1, 3), _TODAY) > horizon
-    # A recent listing is shallower: the horizon bounds the ask.
-    assert residue.readiness_threshold(date(2020, 12, 10), _TODAY) == horizon
+    # A recent listing is shallower than the horizon: Tradier's own first bar bounds the ask.
+    assert residue.readiness_threshold(date(2020, 12, 10), _TODAY) == date(2020, 12, 10)
+    # A listing older than the horizon is bounded by it: the 9800-day depth is the limit.
+    assert residue.readiness_threshold(date(1990, 1, 2), _TODAY) == horizon
 
 
 def test_readiness_needs_a_post_depth_change_ask_reaching_the_threshold():
@@ -142,7 +148,7 @@ def test_residue_is_a_tradier_session_ibkr_never_answered():
         (days[1], "smart_trades", 100.1, 500),
         (days[2], "venue_nyse", 100.0, 400),
     ]
-    empty = [(datetime(days[3], tzinfo=UTC), datetime(days[3], tzinfo=UTC))]
+    empty = [(_utc(days[3]), _utc(days[3]))]
     row = _measure(tradier=tradier, ibkr=ibkr, empty=empty, stored_first=days[0])
     # Only Jan 2 is answered by Tradier alone: smart and venue rows cover, the empty span covers.
     assert row.n_tradier == 4 and row.n_residue == 1
@@ -246,17 +252,14 @@ def test_etha_without_tradier_serves_nothing_every_ibkr_observation_is_stale():
 
 
 def test_classify_proof_marks_a_name_proven_when_every_required_session_is_served():
-    smart = {date(2024, 1, 2), date(2024, 1, 3)}
-    venue = {date(2024, 1, 4)}
     bars = [b for b in _derive_without_tradier("DAL").bars]  # real bars, kinds counted
-    proof = residue.classify_proof(
-        "TEST",
-        smart_dates=smart | {b.bar_date for b in bars},
-        venue_dates=venue,
-        bars=bars,
-    )
+    # TEST's smart sessions are exactly the sessions the harness serves: every required
+    # session has a bar, which is what a real proven name looks like (the rule serves a
+    # fallback bar at every smart session it holds a current observation for).
+    smart = {b.bar_date for b in bars}
+    proof = residue.classify_proof("TEST", smart_dates=smart, venue_dates=set(), bars=bars)
     assert proof.proven and proof.unserved == [] and proof.exception is None
-    assert proof.n_required == len(smart | venue | {b.bar_date for b in bars})
+    assert proof.n_required == len(smart)
     assert proof.served_fallback == len(bars) and proof.served_named == 0
 
 
@@ -307,7 +310,7 @@ def _bar(day: date, close: float, volume: int = 100):
 
 
 def _stored(day: date, close: float, volume: int = 100, kind="named"):
-    return (datetime(day, tzinfo=UTC), "ibkr", kind, close, close, close, close, volume)
+    return (_utc(day), "ibkr", kind, close, close, close, close, volume)
 
 
 def _self_check(harness_bars, stored_rows, harness_flags=None, stored_rules=None):
@@ -324,10 +327,10 @@ def test_self_check_digests_match_when_values_and_rule_overlay_match():
     days = [date(2026, 10, 8), date(2026, 10, 9)]
     bars = [_bar(d, 100.0) for d in days]
     stored = [_stored(d, 100.0) for d in days]
-    rules = {int(datetime(d, tzinfo=UTC).timestamp()): {"scrub_rule"} for d in days}
+    rules = {int(_utc(d).timestamp()): {"scrub_rule"} for d in days}
     # A scrub rule rides both sides identically; the daily-stage rules are the harness's own.
     flags = {days[0]: {FLAG_PRE_SPLIT}}
-    rules[int(datetime(days[0], tzinfo=UTC).timestamp())] = {"scrub_rule", FLAG_PRE_SPLIT}
+    rules[int(_utc(days[0]).timestamp())] = {"scrub_rule", FLAG_PRE_SPLIT}
     check = _self_check(bars, stored, harness_flags=flags, stored_rules=rules)
     assert check.equal and check.n_harness == check.n_stored == 2
     assert check.harness_digest == check.stored_digest and check.harness_digest
@@ -355,7 +358,7 @@ def test_self_check_over_daily_flag_overlay_matches_write_1d_digests_semantics()
     # stored rules {scrub, pre_split} on a bar the harness flags pre_split: the overlay keeps
     # scrub and replaces the daily-stage rules with the harness's own, so identical inputs digest equal.
     day = date(2026, 10, 8)
-    ts = int(datetime(day, tzinfo=UTC).timestamp())
+    ts = int(_utc(day).timestamp())
     check = residue.digest_self_check(
         "TEST",
         [_bar(day, 100.0)],
