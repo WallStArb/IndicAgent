@@ -104,28 +104,108 @@ def test_readiness_threshold_is_the_deeper_of_first_tradier_and_the_depth_horizo
     assert residue.readiness_threshold(date(1990, 1, 2), _TODAY) == horizon
 
 
-def test_readiness_needs_a_post_depth_change_ask_reaching_the_threshold():
+def test_readiness_basis_ask_settles_only_a_post_change_ask_reaching_the_threshold():
+    # Amendment 2026-10-23 condition (a): the original ask-row predicate, unchanged.
     first = date(2013, 9, 26)
     deep_late = (first, _DEPTH_AT + timedelta(days=5))
-    assert residue.readiness_answered(first, [deep_late], _DEPTH_AT, _TODAY)
+    assert residue.readiness_basis(first, _TODAY, asks=[deep_late], depth_at=_DEPTH_AT) == "ask"
     # An ask answered before the depth change does not count (it used the shallower depth).
     deep_early = (first, _DEPTH_AT - timedelta(minutes=1))
-    assert not residue.readiness_answered(first, [deep_early], _DEPTH_AT, _TODAY)
+    assert residue.readiness_basis(first, _TODAY, asks=[deep_early], depth_at=_DEPTH_AT) is None
     # A post-change ask that only reaches above the first Tradier bar does not count.
     shallow_late = (date(2014, 1, 15), _DEPTH_AT + timedelta(days=5))
-    assert not residue.readiness_answered(first, [shallow_late], _DEPTH_AT, _TODAY)
-    # The exact threshold date and the exact depth-change instant count.
-    on_the_line = (first, _DEPTH_AT + timedelta(microseconds=1))
-    assert residue.readiness_answered(first, [on_the_line], _DEPTH_AT, _TODAY)
+    assert residue.readiness_basis(first, _TODAY, asks=[shallow_late], depth_at=_DEPTH_AT) is None
 
 
-def test_classify_readiness_splits_names():
+def test_readiness_basis_settles_on_raw_bars_no_data_windows_and_verified_heads():
+    # first Tradier bar 2000-01-03 is deeper than the 9800-day horizon, so it is the threshold.
+    first = date(2000, 1, 3)
+    # (b) an IBKR raw bar (smart_trades or a venue route kind) at or before the threshold.
+    assert (
+        residue.readiness_basis(
+            first, _TODAY, asks=[], depth_at=_DEPTH_AT, earliest_ibkr=date(1999, 12, 31)
+        )
+        == "raw-bar"
+    )
+    assert (
+        residue.readiness_basis(first, _TODAY, asks=[], depth_at=_DEPTH_AT, earliest_ibkr=first)
+        == "raw-bar"
+    )  # a bar exactly at the threshold settles
+    assert (
+        residue.readiness_basis(
+            first, _TODAY, asks=[], depth_at=_DEPTH_AT, earliest_ibkr=date(2006, 10, 9)
+        )
+        is None
+    )
+    # (c) a definitive no_data window (any age) starting at or before the threshold.
+    assert (
+        residue.readiness_basis(first, _TODAY, asks=[], depth_at=_DEPTH_AT, no_data_starts=[first])
+        == "no_data"
+    )
+    assert (
+        residue.readiness_basis(
+            first, _TODAY, asks=[], depth_at=_DEPTH_AT, no_data_starts=[date(2014, 1, 15)]
+        )
+        is None
+    )
+    # (d) a verified 1d provider head above the threshold floors every future ask above it.
+    assert (
+        residue.readiness_basis(first, _TODAY, asks=[], depth_at=_DEPTH_AT, head=date(2005, 7, 21))
+        == "head"
+    )
+    assert (
+        residue.readiness_basis(first, _TODAY, asks=[], depth_at=_DEPTH_AT, head=first) is None
+    )  # at the threshold it floors nothing the threshold still needs
+
+
+def test_readiness_basis_prefers_the_ask_row_and_is_none_without_evidence():
+    first = date(2000, 1, 3)
+    assert (
+        residue.readiness_basis(
+            first,
+            _TODAY,
+            asks=[(first, _DEPTH_AT + timedelta(days=1))],
+            depth_at=_DEPTH_AT,
+            earliest_ibkr=date(1999, 1, 4),
+            no_data_starts=[date(1999, 1, 5)],
+            head=date(2005, 7, 21),
+        )
+        == "ask"
+    )
+    assert residue.readiness_basis(first, _TODAY, asks=[], depth_at=_DEPTH_AT) is None
+
+
+def test_definitive_no_data_windows_drop_parts_an_open_transport_failure_reopens():
+    d1, d2, d3, d4 = (date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4), date(2024, 1, 5))
+    d6 = date(2024, 1, 7)
     rows = [
-        residue.NameReadiness("AAA", date(2000, 1, 3), True),
-        residue.NameReadiness("BBB", date(2004, 2, 5), False),
+        # SMART answered nothing-traded over d1..d3 (end-exclusive d4).
+        ("SMART", "no_data", _utc(d1), _utc(d4), _utc(d4), None),
+        # ISLAND's timed-out window over d1..d2 was never answered later: it reopens that part.
+        ("ISLAND", "timeout", _utc(d1), _utc(d3), _utc(d4), None),
     ]
-    answered, unanswered = residue.classify_readiness(rows)
-    assert answered == ["AAA"] and unanswered == ["BBB"]
+    assert residue.definitive_no_data_windows(rows) == [(d3, d4)]
+    # A later ISLAND answer closes the failure: the whole SMART window stays definitive.
+    closed = rows + [("ISLAND", "bars", _utc(d1), _utc(d4), _utc(d6), None)]
+    assert residue.definitive_no_data_windows(closed) == [(d1, d4)]
+
+
+def test_classify_readiness_splits_names_and_excludes_frozen_from_the_gate():
+    rows = [
+        residue.NameReadiness("AAA", date(2000, 1, 3), "ask", date(2000, 1, 3)),
+        residue.NameReadiness("BBB", date(2004, 2, 5), None, date(2000, 1, 3)),
+        residue.NameReadiness("MOD", date(2000, 1, 3), None, date(2000, 1, 3), frozen=True),
+        residue.NameReadiness("WBD", date(2000, 1, 3), "head", date(2000, 1, 3), frozen=True),
+    ]
+    settled, unsettled = residue.classify_readiness(rows)
+    # Frozen names sit in neither list: the gate never counts them (todo 519, caller-supplied).
+    assert settled == ["AAA"] and unsettled == ["BBB"]
+
+
+def test_parse_frozen_names_is_caller_supplied_and_uppercased():
+    assert residue.parse_frozen_names(None) == ()
+    assert residue.parse_frozen_names("") == ()
+    assert residue.parse_frozen_names("mod, PSKY,,qrvo ") == ("MOD", "PSKY", "QRVO")
 
 
 # --- measure -----------------------------------------------------------------------------------
