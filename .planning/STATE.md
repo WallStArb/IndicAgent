@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v3.5
 milestone_name: Unified Research Pipeline
 status: in_progress
-last_updated: "2026-10-22T23:55:00Z"
+last_updated: "2026-10-23T00:42:55.302Z"
 progress:
   total_phases: 9
   completed_phases: 2
   total_plans: 130
-  completed_plans: 120
+  completed_plans: 125
   percent: 22
 ---
 
@@ -118,8 +118,20 @@ deferral remainders (owner acknowledgement pending); 504 and 521 updated (observ
 nightly on the raw contract); 533's status points at plans 19-25 and the 2026-11-12 removal
 of ops_old_store_backup.py and data/backups/191/. 189-11's vendor-rows-out-of-the-grid
 criterion is satisfied by the new layout: zero vendor 15m/1h rows remain in canonical
-(measured 2026-10-22; 135.5M derived rows). Next: plan 19 (Tradier residue measurement,
-time-gated on the weekly IBKR gap-fill cycle).
+(measured 2026-10-22; 135.5M derived rows).
+Plan 19 NOT-READY 2026-10-23 (191-19-SUMMARY.md): Task 1 landed (harness + tests, commits
+b0280dbbc RED, 1b4bb935e GREEN; no rule or policy edit); Task 2's readiness gate exited 2
+(1,529 Tradier names, 502 answered, 1,027 unanswered). Cause split (measured): 996 asked
+post-depth-change but no ask window reached the threshold (481 IBKR evidence floor already at
+or below it, 515 IBKR verified floor above it, permanent residue); 29 never asked (deepening
+run 1 budget-exhausted after 138 items, runs 2-3 planned 1-2 items and the gate removed its
+crontab at 2026-10-18 02:11Z, before the gateway wedge began 23:59Z); 28 of those flip to
+answered when the cycle asks them; the four frozen names (MOD, PSKY, QRVO, WBD, todo 519)
+never flip on the cycle. A finished cycle flips at most 28 of 1,027; 999 fail the rule as
+written regardless. Next: rerun 191-19 Task 2 (readiness first) once the gateway is
+re-authorized (owner 2FA pending since 2026-10-22 18:15Z) and the weekly gap-fill cycle
+(infra.backfill.gap_fill_interval_days = 7) runs; measure/prove/report and
+191-TRADIER-RESIDUE.md wait on it. completed_plans stays 120 (plan 19 is not done).
 completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked boxes 118
 plus 190-07, done with its wrap-up SUMMARY but an unchecked box; equal to the 119 plan-level
 SUMMARY files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
