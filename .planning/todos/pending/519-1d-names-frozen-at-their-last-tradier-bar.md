@@ -95,3 +95,14 @@ hold the name as an `unclassified_rescale` (same class as CTVA's 39/7, todo 516)
 restatement detector flags the rows. The scale decision then rides with 516's policy. The factor
 is plausibly a merger exchange or special-distribution adjustment; confirm it against the
 merger terms before choosing a basis.
+
+## Owner decisions (2026-10-26)
+
+1. Listing end gets its own small append-only table (one row per ended name: last session, reason,
+   evidence such as the Form 25), written by migration. `freshness_1d` counts no session after it,
+   the residue readiness gate reads it, and `--frozen-names` is deleted. Rule 6 holds: ended names
+   stay active and in every panel. First rows: WBD, QRVO, CCO (confirm each last session against
+   the filing before writing).
+2. PSKY is repointed to SKYD for IBKR (`provider_meta.ibkr.symbol`, the BRK.B mechanism). The first
+   fetch re-serves its history last-wins on the 0.979 scale; the name is held as an unclassified
+   rescale and decided together with CTVA (todo 516).
