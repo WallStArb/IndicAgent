@@ -141,8 +141,9 @@ sessions below IBKR's verified floors (about 89 evidence-settled names), far sma
 the first framing. Two caveats carry from the review: empty-span coverage is freshness-gated
 (covered-but-blind is not strictly permanent for the empty-span-backed subset; stale spans
 re-open and get re-asked), and horizon-bound thresholds can miss the first planned session by
-one (ACM). Next: rerun Task 2 once the gateway is re-authorized (owner 2FA pending
-since 2026-10-22 18:15Z) and the weekly gap-fill cycle
+one (ACM). Gateway re-authorized 2026-10-26 09:00Z after an eight-day wedge (no IBKR bar
+landed 2026-10-17 to 2026-10-25); fetcher runs resumed 09:03Z. Next: rerun Task 2 after the
+weekly gap-fill cycle
 (infra.backfill.gap_fill_interval_days = 7) runs; the 437 flip as their slots come due.
 completed_plans stays 120 (plan 19 is not done).
 completed_plans recounted 2026-10-22 to 119 before plan 18 (ROADMAP checked boxes 118
@@ -150,14 +151,15 @@ plus 190-07, done with its wrap-up SUMMARY but an unchecked box; equal to the 11
 SUMMARY files across the phase dirs; the 122 written in 855a73a28 and the prior 123 were
 overcounts); plan 18's checked box makes 120.
 
-- **IBKR 1d raw deepening armed 2026-10-16 (todo 537, P1):** 1,135 names' unadjusted ibkr 1d
-  raw starts above their own head floor (about 3.66M missing sessions; runbook
-  `docs/plans/2026-10-16-ibkr-1d-raw-deepening.md`). `scripts/ops/bars/
-  ops_ibkr_1d_deepening_gate.sh` runs from bg's crontab (11,41 * * * *): it launches one
-  `--full-scan` compute_1d fetcher pass per free window once plan 14 closes window two, retries
-  failed runs, kills the run if a cutover window re-opens, and self-removes after two
-  consecutive zero-bar passes. Lands before plan 20's Tradier deletion; unblocks the todo 535
-  item 42 follow-up basis scan.
+- **IBKR 1d raw deepening done 2026-10-18 (todo 537):** three full-scan runs, the last two
+  zero-bar; 1,030 names are no_data-confirmed floors; the gate removed its own crontab line. The
+  item 2 basis scan ran 2026-10-23 (todo 535 item 51); restoring the damaged names waits on
+  plan 20.
+
+- **Frozen and ended names (todo 519, 2026-10-26):** WBD, QRVO and CCO ended by merger or
+  buyout, PSKY moved to NYSE as SKYD; these four are also the nightly dividend writer failures.
+  Recommended surface: listing end on `listing_venue`, which replaces `--frozen-names`; owner
+  decision pending.
 
 - **D-191-N (owner, 2026-10-14):** a vendor's own re-serve always overwrites its raw value
   last-wins, the old value is logged, nothing is held and no load is refused; a restatement
