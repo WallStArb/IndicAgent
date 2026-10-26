@@ -22,6 +22,11 @@ from src.intelligence.feature_factory import (
     _compute_bos_choch,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
+from tests.unit.intelligence.live_parity import (
+    assert_live_batch_parity,
+    batch_last,
+    live_last,
+)
 
 _BOS_FIELDS = (
     "bos_strength",
@@ -370,29 +375,6 @@ def test_compute_batch_produces_non_constant_structure_fields(cfg):
 
 
 def test_structure_compute_live_batch_parity(cfg):
-    """Live (compute() over the full growing history) must match batch to 1e-6."""
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
     bars = _bars_from_path(_downtrend_choch_path())
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    cache_live = FeatureCache()
-    fv_live_last = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        cache_live.update_overnight_range(bar["ts"], bar["high"], bar["low"], cfg)
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _BOS_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    assert_live_batch_parity(_BOS_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

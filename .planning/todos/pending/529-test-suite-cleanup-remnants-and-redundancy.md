@@ -63,6 +63,10 @@ Deliverables:
     equivalence on every FeatureVector field over a 100-bar prefix. Shared module fixtures for
     the batch runs. Module: 46 s -> 8.5 s serial.
   - 6,680 passed, 1 skipped; 58 s wall on a quiet box (88 s with a second suite running).
+- Batch 5, 2026-10-26: `tests/unit/intelligence/live_parity.py` replaces 8 copied live/batch
+  parity loops (one mutator order, compute() once with a per-fixture cache-purity check, a
+  per-group nonzero vacuity guard; it caught the FVG test comparing 0.0 with 0.0, now on an open
+  gap). 6,680 passed, 60 s wall.
 - Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
   probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
   6 s x2, runner_book/order 3-4 s each).

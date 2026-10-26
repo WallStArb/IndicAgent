@@ -16,6 +16,11 @@ import pytest
 
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
+from tests.unit.intelligence.live_parity import (
+    assert_live_batch_parity,
+    batch_last,
+    live_last,
+)
 
 _FVG_FIELDS = ("fvg_dist_atr", "fvg_size_atr", "fvg_open_count")
 
@@ -346,28 +351,6 @@ def test_compute_batch_produces_non_constant_fvg_fields(cfg):
 
 
 def test_fvg_compute_live_batch_parity(cfg):
-    """Live (compute() over the full growing history) must match batch to 1e-6."""
-    bars = _fvg_filled_bars()
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    cache_live = FeatureCache()
-    fv_live_last = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _FVG_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
+    bars, _, _ = _fvg_base_bars()  # ends with the gap open, so every field is live
+    assert_live_batch_parity(_FVG_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))

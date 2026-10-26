@@ -28,6 +28,11 @@ from src.intelligence.feature_factory import (
     _compute_liquidity_sweeps,
 )
 from src.intelligence.features.kernels._cache_state import FeatureCache
+from tests.unit.intelligence.live_parity import (
+    assert_live_batch_parity,
+    batch_last,
+    live_last,
+)
 
 _SWEEP_FIELDS = ("sweep_detected", "sweep_strength", "reclaim_velocity", "bars_since_last_sweep")
 _POOL_FIELDS = ("bsl_dist_atr", "ssl_dist_atr", "bsl_touches", "ssl_touches", "pool_count")
@@ -447,28 +452,8 @@ def test_compute_batch_produces_non_constant_liquidity_fields(cfg):
 
 
 def test_liquidity_compute_live_batch_parity(cfg):
-    """Live (compute() over the full growing history) must match batch to 1e-6."""
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
     bars = _equal_highs_pool_bars()
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    cache_live = FeatureCache()
-    fv_live_last = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _SWEEP_FIELDS + _POOL_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    fv_batch, fv_live = batch_last(bars, cfg), live_last(bars, cfg)
+    assert_live_batch_parity(_SWEEP_FIELDS, fv_batch, fv_live)
+    assert_live_batch_parity(_POOL_FIELDS, fv_batch, fv_live)

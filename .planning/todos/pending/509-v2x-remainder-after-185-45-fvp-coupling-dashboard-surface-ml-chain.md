@@ -85,6 +85,12 @@ the reader guard's `_KEEP_TABLES` until this is decided.
   graduation-compute, graduation-writer): the reader guard counts the service auditor's
   `"alert.lag." + unit` prefix as a reader, so they are not in `_PENDING_RETIREMENT`; 185-43 can
   retire them with the other keys.
+- Live/batch cache asymmetry in `feature_vector_pipeline._get_cache` (found 2026-10-26, todo 529
+  review): its warm-up replays the buffered history from that buffer's bar 0 and calls
+  `update_wk_vwap`, not `advance_bar`, while `compute_batch` starts at bar 1 and advances per
+  bar; nor does it follow `compute_batch`'s `refresh_regime` cadence. The unit parity tests
+  (`tests/unit/intelligence/live_parity.py`) mirror `compute_batch`, so they cannot see it.
+  Decide with item 1's successor whether the streaming path survives; fix or delete with it.
 - `src/self_healing` and `remediation_ledger` (Phase 109 self-healing engine, unit inactive): not
   v2.x, not named, kept.
 - Modules nothing reaches that are not v2.x or AI: `src/persistence/logic/`,

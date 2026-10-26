@@ -20,6 +20,11 @@ import pytest
 from src.intelligence.feature_factory import FeatureFactory, FeatureFactoryConfig
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from src.intelligence.schemas import FeatureVector
+from tests.unit.intelligence.live_parity import (
+    assert_live_batch_parity,
+    batch_last,
+    live_last,
+)
 
 # ---------------------------------------------------------------------------
 # Shared fixtures — single NY session, ~90 1m bars (well within the
@@ -272,32 +277,8 @@ def test_vp_fields_non_constant_batch(bars, cfg):
 
 
 def test_live_batch_parity(bars, cfg):
-    """Live (per-bar update_session_vp + compute()) must match batch to 1e-6."""
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    # Mirror compute_batch's own iteration bounds (range(1, n)) so both paths
-    # accumulate the identical set of bars into the session-VP histogram.
-    cache_live = FeatureCache()
-    fv_live_last: FeatureVector | None = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _VP_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to 1e-6."""
+    assert_live_batch_parity(_VP_FIELDS, batch_last(bars, cfg), live_last(bars, cfg))
 
 
 # ---------------------------------------------------------------------------
