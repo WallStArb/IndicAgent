@@ -107,6 +107,16 @@ consumer in `main.py` are deleted.
 Each slice lands as its own commit with its API routes, tests and pages, after /simplify and
 /code-review.
 
+Progress:
+
+- Slice 1 DONE 2026-10-26 (`46358224c`). The shared envelope is `src/api/envelope.py`
+  (extras go in `meta`); stage status is judged per ingest feed with
+  `ui.dashboard.ingest_failing_fraction`; APR values are re-read per computation (the shared
+  ConfigService caches forever); `/api/pipeline/config` serves the poll interval; the UI's
+  reusable base is `useApi` (paused while hidden), `Panel`, `RowsTable`, `StatusChip` and
+  `Lineage` in `dashboard/src/components/cockpit.tsx`. Deferred: the route smoke test still
+  lists routers by hand (could derive from `app.openapi()` like the dashboard path guard).
+
 ## Out of scope
 
 Writes of any kind from the UI (no APR edits, no promotions), authentication (the dashboard runs on
