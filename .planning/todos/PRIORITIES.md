@@ -47,7 +47,7 @@ until 185 and 186 land; session time goes to the build.
 |---|---|
 | Data (phase 191, 18/25) | 191-19 Task 2 (crontab gate writes the residue report once readiness exits 0; full-scan pass over the 412 unsettled names running 2026-10-26) -> 191-20 owner checkpoint (Tradier deletion) -> 191-21..25 serial |
 | Build (phase 186, 25/29) | After 191-25: 186-17 Task 2 -> 186-26 rebuild (also waits for canonical 5m past the 2026-10-17..25 gateway gap) -> 186-27 -> 186-28 |
-| Build (phase 187, planning) | `/gsd-plan-phase 187` (research lane); its gate is family 2's evidence run, which needs the owner to lift the build-first pause for that one run. 501 closed 2026-10-26 |
+| Build (phase 187, planning) | `/gsd-plan-phase 187` (research lane); its gate is family 2's evidence run, approved by the owner 2026-10-26 for one run after 191-25 lands. 501 closed 2026-10-26 |
 | Research and alpha (paused until 185 and 186 land) | 442 -> 437 -> attempt 2; 441 + 423 + 440; 460, 456, 457 after |
 | Quick, independent | 443, 438; 439's IC purge rides with 186 (write-once landed 2026-10-26) |
 
