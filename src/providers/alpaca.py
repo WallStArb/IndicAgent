@@ -10,8 +10,9 @@ Conventions, from the 521 admission build's measured rulings
   caller loads it from APR, ``infra.alpaca.data_feed``). Since 2026-10-26 the free plan 403s
   recent SIP data (a window ending within ~15 minutes of now on ``feed=sip`` answers
   ``{"message":"subscription does not permit querying recent SIP data"}`` while ``feed=iex``
-  answers it, thin: SPY 5m n=1 vs sip n=2428, volume basis differs), so the nightly asks its
-  recent tail on ``iex`` and labels its rows ``iex_rth``, never ``sip_rth``.
+  answers it, thin: SPY 5m n=1 vs sip n=2428, volume basis differs). The bind is the window
+  end, not the feed, so the nightly asks sip with its end held back (migration 513); an
+  ``iex`` answer is labeled ``iex_rth``, never ``sip_rth``, and is never selected.
 - ``adjustment="split"`` maps to Alpaca's ``adjustment=split``; ``"none"`` maps to ``raw``.
   Anything else raises: a silent convention mismatch is forbidden. (Alpaca serves
   split|raw|all since at least 2026-10-26; the older ``splits`` and ``divide`` answer 400

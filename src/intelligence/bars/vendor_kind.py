@@ -10,9 +10,8 @@ Planner decisions (D-191-A, resolving design doc ambiguity):
 - Raw `kind` is what the vendor served. `fallback` is therefore a canonical-only kind: it is a
   selection outcome the daily rule assigns, never something a vendor serves.
 - Tradier's kind is `consolidated`; Alpaca's is `sip_rth` (RTH-window SIP aggregates,
-  docs/plans/2026-10-09-alpaca-5m-admission-build.md). Since 2026-10-26 the nightly's recent
-  tail is asked on feed=iex (the free plan 403s recent SIP data) and carries `iex_rth`; the
-  feed->kind split lives in ALPACA_FEED_KINDS.
+  docs/plans/2026-10-09-alpaca-5m-admission-build.md). An answer on feed=iex carries `iex_rth`
+  (raw only, never selected); the feed->kind split lives in ALPACA_FEED_KINDS.
 - Canonical 1d rows keep the winning raw row's (vendor, kind), so the tradeable view can null
   volume by kind. `derived` is the vendor only of the 15m/1h grid (kind `5m_grid`). The rule
   version stays in bar_derivation_batch, not on the row.
@@ -66,10 +65,10 @@ VENDOR_KIND_TO_LABEL: dict[tuple[str, str], str] = {
 DERIVED_PAIR = LABEL_TO_VENDOR_KIND[SOURCE_DERIVED_5M]
 
 # Alpaca's feed is part of what was served: the same bars endpoint answers sip (consolidated,
-# the 521 admission build's volume basis) or iex (IEX prints only). The nightly asks its recent
-# tail on iex because the free plan 403s recent SIP data (measured 2026-10-26), and the answer's
-# kind records which feed served it: rows written from iex carry iex_rth, never sip_rth, so raw
-# never lies about the volume basis. The label map stays sip-only: the historical labeling.
+# the 521 admission build's volume basis) or iex (IEX prints only). The nightly asks sip with its
+# window end held back from the recent-SIP horizon (migration 513); whichever feed answers, the
+# kind records it: rows written from iex carry iex_rth, never sip_rth, so raw never lies about
+# the volume basis (and selection never picks iex_rth). The label map stays sip-only: the historical labeling.
 ALPACA_FEED_KINDS: dict[str, str] = {"sip": "sip_rth", "iex": "iex_rth"}
 
 

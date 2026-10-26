@@ -10,8 +10,9 @@ policy, so a vendor daily can never author -- IBKR owns 1d).
 The vendor is a CLI choice dispatched through the ``history_leaf`` factory and
 the HistoryProvider protocol; a new capture vendor is one leaf plus one registry
 entry, nothing here changes. For alpaca the tail is asked on the APR feed
-(``infra.alpaca.data_feed``, migration 511: the free plan 403s recent SIP data)
-and its rows carry that feed's raw kind (``iex_rth``), never ``sip_rth``. Dry
+(``infra.alpaca.data_feed``, sip since migration 513) and its rows carry that
+feed's raw kind; a sip window ends ``infra.alpaca.sip_recent_lag_minutes``
+before now because the free plan 403s a window reaching recent SIP data. Dry
 run is the default: without --apply this plans
 and prints, writing nothing -- but the leaf still runs against the vendor API,
 so a dry run costs vendor requests by design: the nightly's real work is the
@@ -74,6 +75,15 @@ def _apr_str(conn, key: str, default: str) -> str:
     return row[0] if row else default
 
 
+def request_end(now: datetime, data_feed: str | None, sip_lag_minutes: int) -> datetime:
+    """The window end the nightly asks. Free-plan Alpaca 403s a feed=sip window ending within
+    about 15 minutes of now (migration 513), so a sip window ends `sip_lag_minutes` earlier;
+    every other feed and vendor ends at now."""
+    if data_feed == "sip":
+        return now - timedelta(minutes=sip_lag_minutes)
+    return now
+
+
 def _bars_frame(bars) -> pd.DataFrame:
     """Provider bars -> the engine's canonical frame (t, o, h, l, c, v)."""
     return pd.DataFrame(
@@ -100,7 +110,16 @@ def main() -> int:
     conn = psycopg.connect(settings.database_url, autocommit=True)
     try:
         window_days = args.days or _apr_int(conn, "infra.alpaca.nightly_window_days", 5)
-        end = datetime.now(UTC)
+        # Alpaca only: the feed the tail is asked on (APR, migrations 511 and 513) and the raw
+        # kind that basis is written under; a sip window ends before the recent-SIP horizon.
+        data_feed = (
+            _apr_str(conn, "infra.alpaca.data_feed", "sip") if args.vendor == "alpaca" else None
+        )
+        end = request_end(
+            datetime.now(UTC),
+            data_feed,
+            _apr_int(conn, "infra.alpaca.sip_recent_lag_minutes", 20),
+        )
         start = end - timedelta(days=window_days)
         with conn.cursor() as cur:
             params = read_raw_params(cur)
@@ -108,11 +127,6 @@ def main() -> int:
         universe = args.symbols or [
             instrument.symbol for instrument in get_active_contracts(settings, dimension="backfill")
         ]
-        # Alpaca only: the feed the tail is asked on (APR, migration 511; the free plan 403s
-        # recent SIP data) and the raw kind that basis must be written under.
-        data_feed = (
-            _apr_str(conn, "infra.alpaca.data_feed", "iex") if args.vendor == "alpaca" else None
-        )
         sink = _NightlySink(
             RequestSink(conn, caller=CALLER_SINK.format(vendor=args.vendor), source=args.vendor)
         )
