@@ -73,15 +73,9 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-feature-vector-pipeline": 6,  # priority 6: downstream of cross-asset (5) and bar-aggregator (4); upstream of feature/signal writers (7+)
     # Layer 4 — persistence writers (parallel, all consume pipeline output)
     "indicagent-feature-vector-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
-    # ML batch oneshot
-    "indicagent-ml-training": 8,  # oneshot timer service; no lag threshold needed
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-ml-orchestrator": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-ml-data-quality": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-ml-discovery": 8,  # oneshot: timer-triggered, not a daemon
     "indicagent-feature-validation": 8,  # oneshot: timer-triggered daily, not a daemon
-    "indicagent-hmm-training": 8,  # oneshot: timer-triggered monthly, not a daemon
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
     "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
     "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
@@ -145,7 +139,7 @@ _AGENT_ID_TO_UNIT: dict[str, str] = {
     "self_healer": "indicagent-self-healing-agent",
 }
 
-# Timer-triggered oneshot services — ML batch services inactive (dead) between runs is correct
+# Timer-triggered oneshot services — inactive (dead) between runs is correct
 # behavior per CLAUDE.md; do not restart them on the auditor's schedule. Systemd timers control
 # their execution.
 _ONESHOT_UNITS: frozenset[str] = frozenset(
@@ -153,13 +147,8 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-redpanda-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
-        "indicagent-ml-orchestrator",
-        "indicagent-ml-data-quality",
-        "indicagent-ml-discovery",
-        "indicagent-ml-training",
         "indicagent-roll-batch",
         "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
-        "indicagent-hmm-training",  # Type=oneshot, timer-triggered monthly
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct

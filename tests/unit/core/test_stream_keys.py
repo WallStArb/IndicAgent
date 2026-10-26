@@ -86,29 +86,6 @@ def test_topic_health_events_dlq_format():
 
 
 # ---------------------------------------------------------------------------
-# ML stream keys
-# ---------------------------------------------------------------------------
-
-
-def test_topic_ml_data_quality_alerts():
-    from src.core.stream_keys import topic_ml_data_quality_alerts
-
-    assert topic_ml_data_quality_alerts("dev") == "dev.ml.data_quality.alerts"
-
-
-def test_topic_ml_discovery_results():
-    from src.core.stream_keys import topic_ml_discovery_results
-
-    assert topic_ml_discovery_results("dev") == "dev.ml.discovery.results"
-
-
-def test_topic_ml_orchestrator_dlq():
-    from src.core.stream_keys import topic_ml_orchestrator_dlq
-
-    assert topic_ml_orchestrator_dlq("dev") == "dev.ml.orchestrator.dlq"
-
-
-# ---------------------------------------------------------------------------
 # Plan 067-01 Task 4: Alerting and Gap-Fill DLQ stream keys — RED phase
 # ---------------------------------------------------------------------------
 

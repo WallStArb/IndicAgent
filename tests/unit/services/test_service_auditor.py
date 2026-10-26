@@ -179,9 +179,8 @@ def test_all_live_services_in_dag_order():
     assert _DAG_ORDER["indicagent-redpanda-ready"] == 0
     assert _DAG_ORDER["indicagent-redpanda-watchdog"] == 0
     # Oneshot/analytics tier: priority 8
-    assert _DAG_ORDER["indicagent-ml-orchestrator"] == 8
-    assert _DAG_ORDER["indicagent-ml-data-quality"] == 8
-    assert _DAG_ORDER["indicagent-ml-discovery"] == 8
+    assert _DAG_ORDER["indicagent-regime-writer"] == 8
+    assert _DAG_ORDER["indicagent-ic-measure"] == 8
     # API / dashboard: priority 10
     assert _DAG_ORDER["indicagent-api"] == 10
     assert _DAG_ORDER["indicagent-dashboard"] == 10
@@ -216,7 +215,7 @@ async def test_oneshot_units_not_restarted():
     agent._send_alert = AsyncMock()
 
     # Pick a unit from _ONESHOT_UNITS
-    oneshot_unit = "indicagent-hmm-training"
+    oneshot_unit = "indicagent-regime-writer"
     assert oneshot_unit in _ONESHOT_UNITS
 
     agent._service_states[oneshot_unit] = ServiceState()
@@ -251,7 +250,7 @@ def test_stall_loop_skips_oneshot_units():
         "continue" in source
     ), "_prometheus_check_loop must skip (continue) oneshot units in stall loop"
 
-    assert "indicagent-ml-training" in _ONESHOT_UNITS
+    assert "indicagent-regime-writer" in _ONESHOT_UNITS
 
 
 def test_lag_thresholds_cover_consumers():

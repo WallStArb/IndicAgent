@@ -39,27 +39,13 @@ pyarrow>=14.0.0
 polars>=1.0
 scipy>=1.15.0
 statsmodels>=0.14.4
-tsfresh>=0.21.1
 
 # Intelligence / ML
 hmmlearn>=0.3.0
-langgraph>=1.0.0
-lightgbm>=4.0
-# mlflow removed 2026-08-03: its only real callers (src/core/ml/registry.py,
-# src/intelligence/services/ml_trainer.py, src/intelligence/ai/alpha/ml_scorer_agent.py) are
-# dormant v2.x-era code predating the v3.0 rebuild (last touched 2026-05-30 to 2026-06-18,
-# before v3.0 started 2026-06-20), have no live systemd unit (indicagent-ml-training.service +
-# timer both disabled), and the actual live v3.0 ML/ensemble path (services/ensemble_trainer.py,
-# services/ensemble_ic_engine.py) never imports mlflow at all. The registry logic it wrapped
-# (versioning/promotion/staging) was already fully custom-built against the ml_models table --
-# mlflow itself only ever provided serialization (LightGBM has native save/load) and
-# param/metric logging (this project already does that via plain Postgres columns everywhere
-# else), at the cost of a whole separate tracking-server dependency chain (flask, gunicorn,
-# alembic, sqlalchemy, docker, graphene, huey, matplotlib, skops) that was also the sole blocker
-# on pandas<3 and protobuf<7. If this ML path is rebuilt, rebuild it native rather than
-# reinstalling mlflow.
+# langgraph, lightgbm, shap and tsfresh removed 2026-10-26 with the ML batch chain (todo 509
+# item 3; last commit holding it: e4d2345c2). mlflow went 2026-08-03. A rebuilt ML path goes
+# through the research runner and is native, not a revival of these.
 scikit-learn>=1.5.0
-shap>=0.44
 threadpoolctl>=3.1.0
 
 # Observability

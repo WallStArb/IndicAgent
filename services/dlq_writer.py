@@ -39,7 +39,6 @@ from src.core.stream_keys import (
     topic_gap_fill_dlq,
     topic_health_events_dlq,
     topic_intelligence_pipeline_dlq,
-    topic_ml_orchestrator_dlq,
     topic_signal_dlq,
 )
 from src.observability.metrics import DLQ_QUARANTINE_TOTAL
@@ -89,8 +88,8 @@ class DLQWriter(BaseDaemon):
 
     def _build_topics(self) -> list[str]:
         """One DLQ topic per live producer: the bar path (aggregator, writer, gap fill), the
-        feature path (feature_vector_pipeline's signal and pipeline DLQs, feature_vector_writer),
-        the ML orchestrator and the service auditor's health events."""
+        feature path (feature_vector_pipeline's signal and pipeline DLQs, feature_vector_writer)
+        and the service auditor's health events."""
         env = self.settings.env_name
         return [
             topic_bar_aggregator_dlq(env),
@@ -99,7 +98,6 @@ class DLQWriter(BaseDaemon):
             topic_signal_dlq(env),
             topic_intelligence_pipeline_dlq(env),
             topic_feature_vectors_dlq(env),
-            topic_ml_orchestrator_dlq(env),
             topic_health_events_dlq(env),
         ]
 

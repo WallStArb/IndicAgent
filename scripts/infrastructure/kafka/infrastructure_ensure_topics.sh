@@ -15,7 +15,6 @@ DLQ_TOPICS=(
   intelligence.signal.dlq
   intelligence.pipeline.dlq
   intelligence.feature_vectors.dlq
-  ml.orchestrator.dlq
   intelligence.service_auditor.journal.dlq
 )
 

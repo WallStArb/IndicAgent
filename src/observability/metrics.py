@@ -30,7 +30,7 @@ def _tier_to_functional(tier_code: str) -> str:
 def flush_and_shutdown_metrics(timeout_millis: int = 5000) -> None:
     """Flush and shut down the OTel MeterProvider before oneshot process exit.
 
-    Oneshot scripts (ml-training, shadow-auditor, roll-batch) MUST call this
+    Oneshot scripts (regime-writer, ic-measure, roll-batch) MUST call this
     once at the end of main() so the OTLP exporter drains before the process
     exits.  Without this, JOB_COMPLETED_TOTAL increments never reach the
     collector.
@@ -251,19 +251,6 @@ AGENT_SETUP_RETRIES_TOTAL = _meter.create_counter(
 AGENT_CIRCUIT_BREAKER_STATE = _meter.create_gauge(
     "agent_circuit_breaker_state",
     description="Agent setup circuit breaker state: 0=closed, 1=half-open, 2=open",
-)
-
-# ---------------------------------------------------------------------------
-# ML observability metrics
-# ---------------------------------------------------------------------------
-
-FEATURE_IC_SCORE = _meter.create_up_down_counter(
-    "feature_ic_score",
-    description="Information coefficient per feature per regime (updated weekly by MLDiscoveryAnalyzer)",
-)
-DATA_QUALITY_SCORE = _meter.create_up_down_counter(
-    "data_quality_score",
-    description="Training data quality score 0-1 (updated by DataQualityAuditor)",
 )
 
 # ---------------------------------------------------------------------------
@@ -520,16 +507,6 @@ DB_POOL_IDLE = _meter.create_up_down_counter(
 KAFKA_PUBLISH_SECONDS = _meter.create_histogram(
     "kafka_publish_seconds",
     description="Kafka producer send_and_wait latency",
-    unit="s",
-)
-
-# ---------------------------------------------------------------------------
-# ML training (Phase 83)
-# ---------------------------------------------------------------------------
-
-ML_TRAINING_SECONDS = _meter.create_histogram(
-    "ml_training_seconds",
-    description="Full ML training cycle duration",
     unit="s",
 )
 

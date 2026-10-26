@@ -128,11 +128,6 @@ _FROZEN_UNREAD_KEYS: frozenset[str] = frozenset(
 # data is permanent; a table written here and read by another surface). Each needs a reason.
 # Empty on 2026-10-06: every raw market data table has a reader today.
 _KEEP_TABLES: dict[str, str] = {
-    "ml_models": (
-        "written by ModelRegistry.register (ml_trainer, the ML batch chain, out of 185-45's "
-        "scope); its only reader, the alpha swarm's ML scorer, left with the AI stack in plan "
-        "185-45. Kept until todo 509 decides the ML batch chain"
-    ),
     "roll_events": (
         "futures roll record written by scripts/ops/roll/ops_roll_batch.py; its only readers were "
         "v2.x debug replay scripts deleted in plan 185-45. Kept until todo 509 decides whether a "

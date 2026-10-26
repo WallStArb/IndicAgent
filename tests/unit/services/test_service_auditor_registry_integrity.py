@@ -48,7 +48,7 @@ _SYSTEMD_DIR = _REPO_ROOT / "production" / "systemd"
 
 # Unit names CLAUDE.md's Architecture section explicitly flags as archived/dead v2.x units
 # -- confirmed failed/inactive-dead with ExecStart pointing at a deleted file, not a
-# legitimate timer-triggered oneshot (those, e.g. ml-training/ml-orchestrator/roll-batch,
+# legitimate timer-triggered oneshot (those, e.g. regime-writer/ic-measure/roll-batch,
 # are correctly "inactive (dead) between runs" per CLAUDE.md and must NOT be deny-listed).
 # (unit_name, reason) -- a future deliberate exception gets a row here with justification,
 # same convention as tests/unit/test_market_data_ohlcv_boundary.py's _ALLOW_LIST.

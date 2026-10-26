@@ -31,6 +31,8 @@ Removed in todo 509 (2026-10-26; producers deleted in 185-45 and earlier):
   intelligence_i8); topic_market_ticks (no producer) and topic_intelligence_shadow (its
   pipeline is gone); the I8 narrative topics (topic_narratives, topic_narratives_group,
   topic_intelligence_i8), whose producer went with the AI stack
+Removed in todo 509 item 3 (2026-10-26, ML batch chain deleted): topic_ml_data_quality_alerts,
+  topic_ml_discovery_results, topic_ml_orchestrator_dlq
 """
 
 from __future__ import annotations
@@ -161,21 +163,6 @@ def topic_market_data_quality(env_name: str) -> str:
 # ---------------------------------------------------------------------------
 # ML topics (Phase 56)
 # ---------------------------------------------------------------------------
-
-
-def topic_ml_data_quality_alerts(env_name: str) -> str:
-    """DataQualityAuditor publishes here when score < DATA_QUALITY_MIN_SCORE."""
-    return f"{env_prefix(env_name)}ml.data_quality.alerts"
-
-
-def topic_ml_discovery_results(env_name: str) -> str:
-    """MLDiscoveryAnalyzer publishes top-IC feature summaries here."""
-    return f"{env_prefix(env_name)}ml.discovery.results"
-
-
-def topic_ml_orchestrator_dlq(env_name: str) -> str:
-    """DLQ for MLOrchestrator — node failures."""
-    return f"{env_prefix(env_name)}ml.orchestrator.dlq"
 
 
 def topic_alert_requests(env_name: str) -> str:

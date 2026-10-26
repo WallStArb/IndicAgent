@@ -57,16 +57,23 @@ intelligence_features), and the API also serves `features.py`, `validation.py` a
 HTTP 404 from the removed `/api/ai/stats` and `/api/signals/{id}/ai`; both handle it (error text,
 "No swarm data yet").
 
-Step: owner decides whether the dashboard keeps any signal view. If not, delete the panels and the
-routes, then drop the tables (each dumped already in `data/backups/185-45/`).
+Owner decision 2026-10-26: delete the v2.x signal panels, their API routes and the empty tables
+(each dumped already in `data/backups/185-45/`); phase 188's forward runner builds its own views.
 
-## 3. The ML batch chain
+## 3. The ML batch chain (DONE 2026-10-26)
 
-`ml_trainer` (ml-training), ml-orchestrator, ml-discovery, ml-data-quality and `hmm_trainer` train
-on v2.x signal outcomes or `intelligence_features`. 185-45 removed the alpha swarm reload signal
-from `ml_trainer`; `hmm_trainer.emit_sigusr1` still targets the uninstalled
-`indicagent-intelligence-pipeline.service` and degrades to a logged skip. `ml_models` is kept in
-the reader guard's `_KEEP_TABLES` until this is decided.
+Owner decision 2026-10-26: delete. Gone: `services/{ml_training_agent,ml_orchestrator,
+ml_discovery_analyzer,data_quality_auditor,hmm_training_agent}.py`,
+`src/intelligence/services/{ml_trainer,hmm_trainer}.py`, `src/intelligence/ml/`, `src/core/ml/`,
+their tests, the five units and four timers (repo and `/etc/systemd/system`), the ML stream keys
+and DLQ, three dead instruments, the langgraph, lightgbm, shap and tsfresh requirements, and
+(migration 514) the empty `ml_models`, `ml_discovery_runs` and `ml_data_quality_runs` tables
+(dumped to `data/backups/509-ml-chain/`) with the seven `feature.hmm.*` keys only
+`hmm_trainer` read. Kept: the registry regime HMM (`src/intelligence/features/kernels/_hmm.py`,
+`hmm_jit.py`, hmmlearn), which never imported the trainer. Revival starts from git:
+`e4d2345c2` is the last commit that holds the chain. Assessment: nothing was worth carrying
+forward; the trainers read dead v2.x tables, the split was unpurged and uncounted (E15-E18),
+and the reusable glue (a 70-line registry wrapper) is cheaper to rewrite on the research runner.
 
 ## 4. Smaller items
 
