@@ -204,7 +204,7 @@ def select_and_write(
                     n_vendor_grid_slots=choice.n_vendor_grid_slots,
                 )
             record_session_choices(cur, symbol, timeframe, outcome.sessions, outcome.choices)
-            for _symbol, _tf, ts in outcome.dropped:
+            for _symbol, _tf, ts in (*outcome.dropped, *outcome.unselected):
                 if ts in exclude:
                     continue
                 cur.execute(_RETRACT_SQL, (symbol, timeframe, ts, vendors))

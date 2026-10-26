@@ -301,8 +301,11 @@ def test_writer_counts_unselected_and_off_grid():
     ibkr_only = PolicyRow("5m", None, date(2020, 1, 1), None, "ibkr", None)
     pre = _at(datetime(2026, 10, 12, 8, 30, tzinfo=UTC))
     conn = FakeConn([_cand("alpaca", "sip_rth"), pre])
+    conn.cur.rowcount = 0
     result = _run(conn, policy_rows=[ibkr_only])
     assert (result.unselected, result.off_grid, result.new) == (1, 1, 0)
+    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
+    assert [p[2] for p in deletes] == [T0]  # an unranked vendor's slot holds no canonical row
 
 
 # --- held keys (second review of plan 191-07, finding 4) ---------------------------------------
@@ -416,6 +419,26 @@ def test_the_writer_widens_to_whole_sessions_and_retracts_dropped_slots():
     deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
     assert [p[2] for p in deletes] == [S0 + timedelta(minutes=20)]
     assert (result.new, result.dropped, result.sessions_incomplete) == (4, 1, 1)
+
+
+def test_the_writer_retracts_slots_whose_candidates_are_all_unselectable():
+    """Canonical is a pure function of raw plus policy: a slot holding only unselectable
+    candidates (iex_rth, or a vendor the policy does not rank) holds no canonical row, so a row
+    written there before the rule changed is retracted (2026-10-26: SPY and AAPL iex_rth)."""
+    iex = [_at(T0, kind="iex_rth"), _at(T0 + timedelta(minutes=5), kind="iex_rth")]
+    conn = FakeConn(iex)
+    conn.cur.rowcount = 1
+    result = _run(conn)
+    deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
+    assert [p[2] for p in deletes] == [T0, T0 + timedelta(minutes=5)]
+    assert (result.new, result.unselected) == (0, 2)
+    assert not _inserts(conn)
+
+
+def test_the_writer_keeps_excluded_unselectable_slots():
+    conn = FakeConn([_at(T0, kind="iex_rth")])
+    _run(conn, exclude={T0})
+    assert not any(s.startswith("DELETE FROM market_data_ohlcv") for s, _ in conn.cur.executed)
 
 
 def test_the_writer_leaves_excluded_stamps_untouched():
