@@ -85,7 +85,14 @@ class FetcherLock:
         """Try once; True when this process now holds the lock. Never waits."""
         if self._conn is not None:
             return True
-        conn = psycopg.connect(self._dsn, autocommit=True, application_name=self.application_name)
+        # The lock connection idles for the whole run; the server's idle_session_timeout (1h)
+        # would kill it and silently release the lock under a live run (todo 543).
+        conn = psycopg.connect(
+            self._dsn,
+            autocommit=True,
+            application_name=self.application_name,
+            options="-c idle_session_timeout=0",
+        )
         try:
             granted = bool(
                 conn.execute("SELECT pg_try_advisory_lock(%s)", (self._key,)).fetchone()[0]
