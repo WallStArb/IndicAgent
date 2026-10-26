@@ -10,7 +10,6 @@ stale_only and no canonical bar exists).
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -24,10 +23,9 @@ from src.intelligence.bars.daily_rule import (
     PolicyRow,
     derive_daily_v2,
 )
-from src.intelligence.bars.derivation import Observation, SplitRecord
 from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS
+from tests.unit.bars.test_daily_rule import _case
 
-_FIXTURE = Path(__file__).parents[2] / "fixtures" / "bars" / "d2v2_known_cases.json"
 _D = date(2026, 10, 7)
 _DEPTH_AT = datetime(2026, 10, 12, 10, 45, 49, tzinfo=UTC)
 _TODAY = date(2026, 10, 22)
@@ -40,36 +38,6 @@ _DEFAULT = PolicyRow(
     primary_source="tradier",
     fallback_source="ibkr",
 )
-
-
-def _case(symbol: str) -> tuple[list[Observation], list[SplitRecord]]:
-    case = json.loads(_FIXTURE.read_text())["cases"][symbol]
-    observations = [
-        Observation(
-            request_id=o["request_id"],
-            route=o["route"],
-            bar_date=date.fromisoformat(o["bar_date"]),
-            open=o["open"],
-            high=o["high"],
-            low=o["low"],
-            close=o["close"],
-            volume=o["volume"],
-            fetched_at=datetime.fromisoformat(o["fetched_at"]),
-            legacy=o["route"] == "LEGACY_IMPORT",
-            what_to_show=o["what_to_show"],
-        )
-        for o in case["observations"]
-    ]
-    splits = [
-        SplitRecord(
-            effective_date=date.fromisoformat(s["effective_date"]),
-            recorded_at=datetime.fromisoformat(s["recorded_at"]),
-            factor=s["factor"],
-            evidence_request_ids=tuple(s["evidence_request_ids"]),
-        )
-        for s in case["splits"]
-    ]
-    return observations, splits
 
 
 def _utc(day: date) -> datetime:

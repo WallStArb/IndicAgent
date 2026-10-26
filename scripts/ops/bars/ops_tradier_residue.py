@@ -35,6 +35,7 @@ import argparse
 import asyncio
 import json
 import sys
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -47,36 +48,40 @@ sys.path.insert(0, str(project_root))
 import asyncpg  # noqa: E402
 import numpy as np  # noqa: E402
 
-from scripts.infrastructure.backfill._d1_gaps import daily_no_data_coverage  # noqa: E402
-from services._batch_utils import load_apr_dict_async  # noqa: E402
-from services.bar_derivation import read_daily_inputs, read_daily_params  # noqa: E402
-from src.config.settings import Settings  # noqa: E402
-from src.intelligence.bars.daily_rule import (  # noqa: E402
-    FLAG_FALLBACK_SEAM,
-    FLAG_NO_VOLUME,
-    FLAG_PRE_SPLIT,
-    ROUTE_TRADIER,
-    derive_daily_v2,
+# The gap planner's daily routes (SMART plus every listing-venue route): readiness condition
+# (c) reads exactly these request rows, the gap planner's own scope.
+from scripts.infrastructure.backfill._d1_gaps import (  # noqa: E402
+    _DAILY_ROUTES as DAILY_COVERAGE_ROUTES,
 )
+from scripts.infrastructure.backfill._d1_gaps import (
+    daily_no_data_coverage,
+)
+from services._batch_utils import load_apr_dict_async  # noqa: E402
+
+# The daily stage's own flag rules (services.bar_derivation._DAILY_FLAG_RULES). The digest
+# overlay swaps them for the harness's own because the harness re-derives them itself.
+from services.bar_derivation import (  # noqa: E402
+    _DAILY_FLAG_RULES as DAILY_FLAG_RULES,
+)
+from services.bar_derivation import (
+    read_daily_inputs,
+    read_daily_params,
+)
+from src.config.settings import Settings  # noqa: E402
+from src.intelligence.bars.daily_rule import ROUTE_TRADIER, derive_daily_v2  # noqa: E402
 from src.intelligence.bars.digest import bar_content_digest  # noqa: E402
-from src.intelligence.bars.gap_plan import COVERAGE_ROUTE, COVERAGE_WHAT_TO_SHOW  # noqa: E402
-from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS, VENUE_ROUTES  # noqa: E402
+from src.intelligence.bars.gap_plan import COVERAGE_WHAT_TO_SHOW  # noqa: E402
+from src.intelligence.bars.vendor_kind import VENUE_ROUTE_KINDS  # noqa: E402
 
 D = date(2026, 10, 7)
 DEPTH_KEY = "infra.backfill.depth_days.1d"
 DEPTH_DAYS = 9800
 SMART_KIND = "smart_trades"
-# The routes the daily no_data question is asked on (SMART plus every listing-venue route);
-# readiness condition (c) reads exactly these request rows, the gap planner's own scope.
-DAILY_COVERAGE_ROUTES: tuple[str, ...] = (COVERAGE_ROUTE, *VENUE_ROUTES)
 # The raw kinds that mean IBKR answered a daily session: the SMART TRADES answer plus every
 # listing-venue route kind (migration 476; the bare `venue` raw kind no longer exists, so a
 # predicate on it would silently match zero rows). smart_adjusted is never canonical, never
 # coverage.
 IBKR_RAW_KINDS: tuple[str, ...] = (SMART_KIND, *VENUE_ROUTE_KINDS)
-# The daily stage's own flag rules (bar_derivation._DAILY_FLAG_RULES). The digest overlay swaps
-# them for the harness's own because the harness re-derives them itself.
-DAILY_FLAG_RULES = frozenset({FLAG_FALLBACK_SEAM, FLAG_PRE_SPLIT, FLAG_NO_VOLUME})
 DEFAULT_SELF_CHECK_SAMPLE = 50
 DEFAULT_REPORT_PATH = ".planning/phases/191-unified-raw-bar-table/191-TRADIER-RESIDUE.md"
 
@@ -291,27 +296,22 @@ def classify_proof(
     required = sorted(day for day in smart | set(venue_dates) if day < D)
     served_named = sum(1 for bar in bars if bar.kind != "fallback")
     served_fallback = sum(1 for bar in bars if bar.kind == "fallback")
+    exception: str | None = None
+    unserved: list[date] = []
+    unserved_smart = 0
+    unserved_venue_only = 0
+    venue_moved = False
     if error is not None:
-        return NameProof(
-            symbol,
-            False,
-            len(required),
-            served_named,
-            served_fallback,
-            [],
-            0,
-            0,
-            False,
-            str(error),
-        )
-    served = {bar.bar_date for bar in bars}
-    unserved = [day for day in required if day not in served]
-    unserved_smart = sum(1 for day in unserved if day in smart)
-    unserved_venue_only = len(unserved) - unserved_smart
-    venue_moved = unserved_venue_only > 0 and unserved_smart == 0
+        exception = str(error)
+    else:
+        served = {bar.bar_date for bar in bars}
+        unserved = [day for day in required if day not in served]
+        unserved_smart = sum(1 for day in unserved if day in smart)
+        unserved_venue_only = len(unserved) - unserved_smart
+        venue_moved = unserved_venue_only > 0 and unserved_smart == 0
     return NameProof(
         symbol,
-        not unserved,
+        error is None and not unserved,
         len(required),
         served_named,
         served_fallback,
@@ -319,7 +319,7 @@ def classify_proof(
         unserved_smart,
         unserved_venue_only,
         venue_moved,
-        None,
+        exception,
     )
 
 
@@ -387,12 +387,8 @@ def digest_self_check(
         np.array([row[7] for row in stored], dtype=np.float64),
         [tuple(sorted(stored_rules.get(int(ts), ()))) for ts in stored_ts],
     )
-    harness_kinds: dict[str, int] = {}
-    for bar in harness:
-        harness_kinds[bar.kind] = harness_kinds.get(bar.kind, 0) + 1
-    stored_kinds: dict[str, int] = {}
-    for row in stored:
-        stored_kinds[row[2]] = stored_kinds.get(row[2], 0) + 1
+    harness_kinds = dict(Counter(bar.kind for bar in harness))
+    stored_kinds = dict(Counter(row[2] for row in stored))
     return SelfCheck(
         symbol,
         harness_digest == stored_digest,
@@ -441,6 +437,11 @@ WHERE r.vendor = 'ibkr' AND r.timeframe = '1d'
 GROUP BY r.symbol
 """
 
+# The outcomes daily_no_data_coverage accepts as coverage-relevant answers: the input contract
+# of the gap planner's own request read (_d1_gaps._DAILY_REQUESTS_SQL, todo 535 item 6), kept
+# in step by sharing the planner's routes above.
+_DAILY_COVERAGE_OUTCOMES = ("no_data", "bars", "failed", "timeout")
+
 # Readiness condition (c): the daily no_data question's request rows (any age), the gap
 # planner's own scope (_d1_gaps._DAILY_REQUESTS_SQL): SMART plus the listing-venue routes,
 # the four coverage-relevant outcomes; definitive coverage is computed in Python.
@@ -449,7 +450,7 @@ SELECT symbol, route, outcome, window_start, window_end, answered_at, error_text
 FROM ohlcv_request
 WHERE source = 'ibkr' AND timeframe = '1d' AND what_to_show = $2::text
   AND route = ANY($1::text[])
-  AND outcome IN ('no_data', 'bars', 'failed', 'timeout')
+  AND outcome = ANY($3::text[])
   AND window_start IS NOT NULL
   AND (caller IS NULL OR caller NOT LIKE 'test-%')
 """
@@ -462,13 +463,18 @@ FROM ohlcv_provider_head
 WHERE provider = 'ibkr' AND timeframe = '1d' AND head_kind = 'verified'
 """
 
-_TRADIER_ROWS_SQL = """
-SELECT (r."timestamp" AT TIME ZONE 'UTC')::date AS day, r.close, r.volume
+# --measure's set-based fetch: every Tradier 1d answer (day, close, volume) in ONE round trip,
+# replacing the per-symbol re-read (~1,529 round trips at full corpus). Same caller guard as
+# _TRADIER_NAMES_SQL; a NULL symbol list means every name. Ordered by symbol then timestamp,
+# so grouping in Python preserves the per-symbol time order the per-symbol read gave.
+_TRADIER_MEASURE_SQL = """
+SELECT r.symbol, (r."timestamp" AT TIME ZONE 'UTC')::date AS day, r.close, r.volume
 FROM ohlcv_raw r
 LEFT JOIN ohlcv_request q ON q.request_id = r.request_id
-WHERE r.symbol = $1 AND r.vendor = 'tradier' AND r.timeframe = '1d'
+WHERE r.vendor = 'tradier' AND r.timeframe = '1d'
+  AND ($1::text[] IS NULL OR r.symbol = ANY($1))
   AND (q.caller IS NULL OR q.caller NOT LIKE 'test-%')
-ORDER BY r."timestamp"
+ORDER BY r.symbol, r."timestamp"
 """
 
 _IBKR_ROWS_SQL = """
@@ -549,7 +555,10 @@ async def run_readiness(
     }
     coverage_rows: dict[str, list[tuple[Any, ...]]] = {}
     for row in await conn.fetch(
-        _NO_DATA_REQUESTS_SQL, list(DAILY_COVERAGE_ROUTES), COVERAGE_WHAT_TO_SHOW
+        _NO_DATA_REQUESTS_SQL,
+        list(DAILY_COVERAGE_ROUTES),
+        COVERAGE_WHAT_TO_SHOW,
+        list(_DAILY_COVERAGE_OUTCOMES),
     ):
         coverage_rows.setdefault(row["symbol"], []).append(tuple(row)[1:])
     no_data_starts: dict[str, list[date]] = {
@@ -557,24 +566,26 @@ async def run_readiness(
         for symbol, rows in coverage_rows.items()
     }
     heads: dict[str, date] = {row["symbol"]: row["head_day"] for row in await conn.fetch(_HEAD_SQL)}
-    rows = [
-        NameReadiness(
-            symbol,
-            first_day,
-            readiness_basis(
+    rows = []
+    for symbol, first_day in names:
+        threshold = readiness_threshold(first_day, today)
+        rows.append(
+            NameReadiness(
+                symbol,
                 first_day,
-                today,
-                asks=asks.get(symbol, ()),
-                depth_at=depth_at,
-                earliest_ibkr=earliest.get(symbol),
-                no_data_starts=no_data_starts.get(symbol, ()),
-                head=heads.get(symbol),
-            ),
-            readiness_threshold(first_day, today),
-            symbol in frozen,
+                readiness_basis(
+                    first_day,
+                    today,
+                    asks=asks.get(symbol, ()),
+                    depth_at=depth_at,
+                    earliest_ibkr=earliest.get(symbol),
+                    no_data_starts=no_data_starts.get(symbol, ()),
+                    head=heads.get(symbol),
+                ),
+                threshold,
+                symbol in frozen,
+            )
         )
-        for symbol, first_day in names
-    ]
     settled, unsettled = classify_readiness(rows)
     basis_counts: dict[str, int] = {}
     for row in rows:
@@ -609,13 +620,16 @@ async def run_readiness(
 async def run_measure(
     conn: asyncpg.Connection, symbols: Sequence[str] | None = None
 ) -> dict[str, Any]:
-    names = [s for s, _f in await tradier_names(conn)] if symbols is None else list(symbols)
+    rows = await conn.fetch(_TRADIER_MEASURE_SQL, list(symbols) if symbols is not None else None)
+    tradier_by_symbol: dict[str, list[tuple[date, float, int | None]]] = {}
+    for row in rows:
+        tradier_by_symbol.setdefault(row["symbol"], []).append(
+            (row["day"], row["close"], row["volume"])
+        )
+    names = sorted(tradier_by_symbol) if symbols is None else list(symbols)
     measures: list[NameMeasure] = []
     for i, symbol in enumerate(names, 1):
-        tradier = [
-            (row["day"], row["close"], row["volume"])
-            for row in await conn.fetch(_TRADIER_ROWS_SQL, symbol)
-        ]
+        tradier = tradier_by_symbol.get(symbol, [])
         if not tradier:
             continue
         ibkr = [
@@ -694,18 +708,9 @@ async def run_prove(
             )
         )
         if i <= sample:
+            # asyncpg Records iterate in SELECT order, the 8-field shape digest_self_check reads.
             stored_rows = [
-                (
-                    row["timestamp"],
-                    row["vendor"],
-                    row["kind"],
-                    row["open"],
-                    row["high"],
-                    row["low"],
-                    row["close"],
-                    row["volume"],
-                )
-                for row in await conn.fetch(_STORED_POST_D_SQL, symbol, d_utc)
+                tuple(row) for row in await conn.fetch(_STORED_POST_D_SQL, symbol, d_utc)
             ]
             rules: dict[int, set[str]] = {}
             for row in await conn.fetch(_STORED_RULES_SQL, symbol, d_utc):
