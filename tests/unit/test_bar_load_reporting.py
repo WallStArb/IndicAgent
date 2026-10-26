@@ -15,6 +15,7 @@ from services import bar_load
 from services.bar_load import LoadResult, load_status
 from services.ohlcv_ingress_contract import FlaggedSeries, IngressResult
 from src.intelligence.bars.restatement import Restatement
+from src.providers.base import FetchBudget
 
 
 def _flagged(n: int) -> IngressResult:
@@ -73,7 +74,17 @@ def test_nightly_summary_counts_flagged_series_and_stays_applied(monkeypatch):
     policy = bar_load.LoadPolicy(vendor="alpaca", timeframe="5m", caller="x")
     summary = asyncio.run(
         ops_bar_nightly._run(
-            Leaf(), None, sink, policy, None, timedelta(minutes=30), ["SPY"], None, None, True
+            Leaf(),
+            None,
+            sink,
+            policy,
+            None,
+            timedelta(minutes=30),
+            ["SPY"],
+            None,
+            None,
+            True,
+            FetchBudget(deadline=datetime.now(UTC) + timedelta(minutes=30), max_requests=500),
         )
     )
     assert summary["flagged"] == 1 and summary["errors"] == 0
@@ -160,6 +171,7 @@ def test_nightly_holds_back_incomplete_bars_and_records_them_on_the_request(monk
             None,
             now + timedelta(days=1),
             True,
+            FetchBudget(deadline=now + timedelta(minutes=30), max_requests=500),
         )
     )
     assert summary["partial"] == 1 and summary["errors"] == 0

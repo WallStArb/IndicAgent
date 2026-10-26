@@ -112,7 +112,25 @@ def main() -> int:
             fetch_run_id=new_fetch_run_id(),
         )
         summary = asyncio.run(
-            _run(leaf, conn, sink, policy_5m, params, settle, universe, start, end, args.apply)
+            _run(
+                leaf,
+                conn,
+                sink,
+                policy_5m,
+                params,
+                settle,
+                universe,
+                start,
+                end,
+                args.apply,
+                FetchBudget(
+                    deadline=datetime.now(UTC)
+                    + timedelta(
+                        minutes=_apr_int(conn, "infra.alpaca.nightly_deadline_minutes", 60)
+                    ),
+                    max_requests=_apr_int(conn, "infra.alpaca.nightly_max_requests", 4000),
+                ),
+            )
         )
     finally:
         conn.close()
@@ -170,9 +188,8 @@ def exit_code(summary: dict) -> int:
 
 
 async def _run(
-    leaf, conn, sink, policy_5m, params, settle, universe, start, end, write: bool
+    leaf, conn, sink, policy_5m, params, settle, universe, start, end, write: bool, budget
 ) -> dict:
-    budget = FetchBudget(deadline=datetime.now(UTC) + timedelta(minutes=30), max_requests=500)
     await leaf.connect()
     summary = {
         "authored": 0,
