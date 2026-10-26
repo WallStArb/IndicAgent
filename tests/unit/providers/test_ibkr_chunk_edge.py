@@ -9,14 +9,14 @@ fetch layer's complete-bar gate holds it back (second review, finding 5).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.providers import ibkr as ibkr_module
 from src.providers.base import OHLCVBar
-from src.providers.ibkr import IBKRProvider, align_request_end
+from src.providers.ibkr import IBKRProvider, align_request_end, format_request_end
 
 EDGE = datetime(2007, 6, 25, 14, 2, 29, 679673, tzinfo=UTC)
 NOW = datetime(2026, 10, 14, 16, 0, tzinfo=UTC)
@@ -83,7 +83,7 @@ async def test_the_walk_asks_on_the_grid_and_hands_every_served_bar_on_with_its_
 
     async def fake_req(contract, **kwargs):
         asked.append(kwargs["endDateTime"])
-        end = datetime.strptime(kwargs["endDateTime"], "%Y%m%d %H:%M:%S").replace(tzinfo=UTC)
+        end = datetime.strptime(kwargs["endDateTime"], "%Y%m%d-%H:%M:%S").replace(tzinfo=UTC)
         # a vendor that also returns the bar starting at the end (as a partial would be)
         return answer([end - timedelta(minutes=5), end])
 
@@ -108,8 +108,19 @@ async def test_the_walk_asks_on_the_grid_and_hands_every_served_bar_on_with_its_
     finally:
         ibkr_module._MAX_CHUNK_DAYS["5m"] = original
     assert asked and all(a.endswith(("0:00", "5:00")) for a in asked)
-    assert asked[0] == "20070625 14:00:00"
+    assert asked[0] == "20070625-14:00:00"
     assert observed
     for record, bars in observed:
         assert len(bars) == 2
         assert bars[-1].timestamp == record.window_end  # the straddler is handed on
+
+
+def test_request_end_is_sent_in_explicit_utc_form():
+    """IBKR reads yyyymmdd-hh:mm:ss as UTC (warning 2174 retires the implied zone, todo 540):
+    an aware end in any zone goes out as its UTC wall time, and a naive end is refused rather
+    than sent in whatever zone the gateway happens to run in."""
+    assert format_request_end(datetime(2026, 10, 23, 20, 0, tzinfo=UTC)) == "20261023-20:00:00"
+    eastern = timezone(timedelta(hours=-4))
+    assert format_request_end(datetime(2026, 10, 23, 16, 0, tzinfo=eastern)) == "20261023-20:00:00"
+    with pytest.raises(ValueError):
+        format_request_end(datetime(2026, 10, 23, 20, 0))

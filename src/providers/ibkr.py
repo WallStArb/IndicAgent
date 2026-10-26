@@ -637,6 +637,18 @@ def align_request_end(end: datetime, timeframe: str) -> datetime:
     return datetime.fromtimestamp(epoch - epoch % size, tz=UTC)
 
 
+def format_request_end(end: datetime) -> str:
+    """`end` as IBKR's explicit-UTC endDateTime (`yyyymmdd-hh:mm:ss`).
+
+    The space-separated form is read in the gateway's own zone (warning 2174, retired in a
+    future API release), so a gateway zone change would shift every window silently. A naive
+    `end` has no zone to convert from and is refused.
+    """
+    if end.tzinfo is None:
+        raise ValueError(f"request end {end!r} is naive; IBKR windows need an aware UTC time")
+    return end.astimezone(UTC).strftime("%Y%m%d-%H:%M:%S")
+
+
 def _safe_request_callback(callback, *args) -> None:
     """Run a caller's sync request callback (D-05). A lost D1 row must be loud,
     never silent: log the failure, then re-raise into the fetch."""
@@ -1210,7 +1222,7 @@ class IBKRProvider:
                     result = await asyncio.wait_for(
                         self._ib.reqHistoricalDataAsync(
                             contract,
-                            endDateTime=chunk_end.strftime("%Y%m%d %H:%M:%S"),
+                            endDateTime=format_request_end(chunk_end),
                             durationStr=duration_str,
                             barSizeSetting=_TF_TO_IB[timeframe],
                             whatToShow=what_to_show,

@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P2
 filed: 2026-10-26
+closed: 2026-10-26
 source: fetcher run 2026-10-26 09:03Z, IBKR warning 2174
 owner: 2026-10-26
 ---
@@ -26,3 +27,11 @@ documents (`yyyymmdd-hh:mm:ss` is UTC), plus a unit test pinning the format.
 
 The fetcher imports this module; edit it only between fetcher runs (no fetcher process, timer
 fire not imminent), never while a run is live or resumable.
+
+## Resolution (2026-10-26)
+
+`format_request_end()` in `src/providers/ibkr.py` sends the explicit-UTC form and refuses a naive
+end; every caller already passes an aware UTC time. Tests in
+`tests/unit/providers/test_ibkr_chunk_edge.py`. Landed while a fetcher run was live: the fetcher
+carries no code fingerprint, the running process keeps the module it loaded, and systemd starts no
+second run while one is active, so the next run picks the change up.
