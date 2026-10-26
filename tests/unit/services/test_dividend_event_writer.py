@@ -269,9 +269,10 @@ class FakeDividendConn:
     the live tables carry, so a test can assert what a run leaves behind.
     """
 
-    def __init__(self, d1, latest_run=None):
+    def __init__(self, d1, latest_run=None, apr_extra=None):
         self.d1 = d1  # symbol -> {(what_to_show, run_id): [(run_id, bar_date, close)]}
         self.latest_run = latest_run
+        self.apr_extra = apr_extra or {}  # extra config_state rows the test needs read
         self.events = {}  # (symbol, source) -> {ex_date: (amount, prev_close)}
         self.coverage = {}  # (symbol, source) -> (covered_from, covered_to)
         self.disputes = []  # dividend_date_dispute rows as executemany received them
@@ -291,15 +292,16 @@ class FakeDividendConn:
         return FakeDividendConn._Txn(self)
 
     async def fetch(self, sql, *args):
-        if "config_state" in sql:
+        if "config_state" in sql:  # load_apr_dict_async: the writer's APR keys
             return [
-                {"config_key": "threshold.dividend_event.noise_margin", "config_value": "1.25"},
-                {"config_key": "threshold.dividend_event.stable_sessions", "config_value": "3"},
-                {"config_key": "threshold.dividend_event.ex_date_match_days", "config_value": "5"},
-                {
-                    "config_key": "threshold.dividend_event.source_yield_rel_tolerance",
-                    "config_value": "0.10",
-                },
+                {"config_key": key, "config_value": value}
+                for key, value in {
+                    "threshold.dividend_event.noise_margin": "1.25",
+                    "threshold.dividend_event.stable_sessions": "3",
+                    "threshold.dividend_event.ex_date_match_days": "5",
+                    "threshold.dividend_event.source_yield_rel_tolerance": "0.10",
+                    **self.apr_extra,
+                }.items()
             ]
         if "controlled_vocabulary" in sql:
             return [
@@ -347,10 +349,6 @@ class FakeDividendConn:
         raise AssertionError(f"unexpected fetch: {sql}")
 
     async def fetchrow(self, sql, *args):
-        if "config_state cs JOIN config_schema csc" in sql:  # ConfigService.get
-            if args[0] == "threshold.dividend.max_failure_fraction":
-                return {"config_value": "0.05", "value_type": "float"}
-            return None
         if "GROUP BY" in sql:  # _resolve_fetch_run: latest run with both series
             return {"fetch_run_id": self.latest_run} if self.latest_run else None
         if "dividend_event_coverage" in sql:  # _write: this source's stored span
@@ -661,20 +659,11 @@ def _run_yahoo_writer(instruments, failing, threshold, monkeypatch):
     """Run the writer over `instruments` with Yahoo failing for `failing` symbols and
     threshold.dividend.max_failure_fraction read as `threshold`. Returns (writer, conn, logs)."""
 
-    class _FakeConfigService:
-        def __init__(self, dsn, pool=None):
-            pass
-
-        async def get(self, key, default=None):
-            assert key == "threshold.dividend.max_failure_fraction"
-            return threshold
-
     async def fetch(symbol):
         if symbol in failing:
             return [], "too few daily rows"
         return list(_YAHOO_ROWS), None
 
-    monkeypatch.setattr(dividend_event_writer, "ConfigService", _FakeConfigService)
     monkeypatch.setattr(
         dividend_event_writer, "yahoo", SimpleNamespace(fetch_daily_close_and_dividends=fetch)
     )
@@ -687,13 +676,15 @@ def _run_yahoo_writer(instruments, failing, threshold, monkeypatch):
     )
     logs = _CaptureLogger()
     writer.logger = logs
-    conn = FakeDividendConn({})
-    original = dividend_event_writer.get_active_contracts
-    dividend_event_writer.get_active_contracts = lambda settings, dimension: list(instruments)
-    try:
-        asyncio.run(writer.execute(FakePool(conn)))
-    finally:
-        dividend_event_writer.get_active_contracts = original
+    conn = FakeDividendConn(
+        {}, apr_extra={"threshold.dividend.max_failure_fraction": str(threshold)}
+    )
+    monkeypatch.setattr(
+        dividend_event_writer,
+        "get_active_contracts",
+        lambda settings, dimension: list(instruments),
+    )
+    asyncio.run(writer.execute(FakePool(conn)))
     return writer, conn, logs
 
 
@@ -737,7 +728,7 @@ def test_failure_fraction_at_the_threshold_is_partial_not_failure(monkeypatch):
     assert writer.completion_status == "partial"
 
 
-def test_threshold_is_read_from_config_service(monkeypatch):
-    """A zero tolerance from ConfigService turns a single failed name into a nonzero exit."""
+def test_threshold_is_read_from_the_apr(monkeypatch):
+    """A zero tolerance read from the APR turns a single failed name into a nonzero exit."""
     with pytest.raises(RuntimeError, match="exceeds"):
         _run_yahoo_writer([_equity("JPM"), _equity("PSKY")], {"PSKY"}, 0.0, monkeypatch)

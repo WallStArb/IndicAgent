@@ -60,7 +60,6 @@ import asyncpg
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
-from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base_batch import BaseBatch
 from src.core.models import AssetClass
@@ -406,7 +405,7 @@ class _SymbolFailure(Exception):
 
 
 @dataclasses.dataclass(frozen=True)
-class SymbolFailure:
+class FailedSymbol:
     """One symbol's recorded failure (D-191-O per-name isolation): the successes of a pass are
     written, the failures are collected here, and the fraction of failed symbols gates the run's
     end state against threshold.dividend.max_failure_fraction (partial vs nonzero exit)."""
@@ -436,19 +435,29 @@ class DividendEventWriter(BaseBatch):
         self._fetch_run_id = fetch_run_id
         self._symbols = symbols
 
+    def _record_failure(
+        self, failed: list[FailedSymbol], symbol: str, source: str, error: _SymbolFailure
+    ) -> None:
+        """Collect one symbol's failure and log it (D-191-O): the reason is the exception's
+        message, stringified once for both the record and the structured warning."""
+        reason = str(error)
+        failed.append(FailedSymbol(symbol, source, reason))
+        self.logger.warning(
+            "dividend_event_writer.symbol_failed", symbol=symbol, source=source, reason=reason
+        )
+
     async def execute(self, pool: asyncpg.Pool) -> None:
         async with pool.acquire() as conn:
-            apr = await load_apr_dict_async(conn, ["threshold.dividend_event.%"])
+            apr = await load_apr_dict_async(
+                conn, ["threshold.dividend_event.%", "threshold.dividend.%"]
+            )
             if SOURCE_IBKR in self._sources:
                 require_cvr_codes(await conn.fetch(_CVR_SQL))
         margin = float(_cfg(apr, "threshold.dividend_event.noise_margin", 1.25))
         stable = int(_cfg(apr, "threshold.dividend_event.stable_sessions", 3))
         match_days = int(_cfg(apr, "threshold.dividend_event.ex_date_match_days", 5))
         rel_tol = float(_cfg(apr, "threshold.dividend_event.source_yield_rel_tolerance", 0.10))
-        config = ConfigService(self._db_dsn, pool=pool)
-        max_failure_fraction = float(
-            await config.get("threshold.dividend.max_failure_fraction", 0.05)
-        )
+        max_failure_fraction = float(_cfg(apr, "threshold.dividend.max_failure_fraction", 0.05))
 
         instruments = [
             i
@@ -457,7 +466,7 @@ class DividendEventWriter(BaseBatch):
             and (not self._symbols or i.symbol in self._symbols)
         ]
 
-        failed: list[SymbolFailure] = []
+        failed: list[FailedSymbol] = []
         totals = dict.fromkeys(
             (
                 "events",
@@ -488,13 +497,7 @@ class DividendEventWriter(BaseBatch):
                             None, instrument, source, None, margin, stable
                         )
                 except _SymbolFailure as error:
-                    failed.append(SymbolFailure(symbol, source, str(error)))
-                    self.logger.warning(
-                        "dividend_event_writer.symbol_failed",
-                        symbol=symbol,
-                        source=source,
-                        reason=str(error),
-                    )
+                    self._record_failure(failed, symbol, source, error)
             if not derivations:
                 continue
             # One transaction per symbol, reconciliation included: a near miss (one
@@ -511,13 +514,7 @@ class DividendEventWriter(BaseBatch):
                     if disputes:
                         await self._write_disputes(conn, disputes, run_id)
             except _SymbolFailure as error:
-                failed.append(SymbolFailure(symbol, "", str(error)))
-                self.logger.warning(
-                    "dividend_event_writer.symbol_failed",
-                    symbol=symbol,
-                    source="",
-                    reason=str(error),
-                )
+                self._record_failure(failed, symbol, "", error)
                 continue
             for derivation in derivations.values():
                 totals["events"] += len(derivation.events)
