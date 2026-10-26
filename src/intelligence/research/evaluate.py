@@ -38,6 +38,7 @@ from src.intelligence.research.portfolio import (
     arm_weights,
     plan_covariance,
 )
+from src.intelligence.statistics.bootstrap import stationary_bootstrap_indices
 from src.intelligence.statistics.panel_null import (
     admissible_shifts,
     shift_panel,
@@ -380,13 +381,7 @@ def _bootstrap_sharpe_draws(
     these draws; both are reported only, the permutation p decides."""
     x = x[np.isfinite(x)]
     n = len(x)
-    rng = np.random.default_rng(seed)
-    idx = np.empty((reps, n), dtype=np.int64)
-    idx[:, 0] = rng.integers(0, n, reps)
-    restart = rng.random((reps, n)) < 1.0 / mean_block
-    fresh = rng.integers(0, n, (reps, n))
-    for t in range(1, n):
-        idx[:, t] = np.where(restart[:, t], fresh[:, t], (idx[:, t - 1] + 1) % n)
+    idx = stationary_bootstrap_indices(n, mean_block, reps, np.random.default_rng(seed))
     sample = x[idx]
     sd = sample.std(axis=1, ddof=1)
     sharpe = np.where(sd > 0, sample.mean(axis=1) / np.where(sd > 0, sd, 1.0), 0.0)
