@@ -75,7 +75,6 @@ _DAG_ORDER: dict[str, int] = {
     "indicagent-feature-vector-writer": 7,  # priority 7: downstream of feature-vector-pipeline (6)
     # Timer-triggered oneshot analytics (inactive between runs is correct — not failures)
     "indicagent-feature-parity-auditor": 8,  # oneshot: timer-triggered, not a daemon
-    "indicagent-feature-validation": 8,  # oneshot: timer-triggered daily, not a daemon
     # Phase 138 IC pipeline oneshots (inactive between IC pipeline runs is correct)
     "indicagent-regime-writer": 8,  # oneshot; populates feature_vectors.regime
     "indicagent-ic-measure": 8,  # oneshot; fresh IC jobs -> feature_ic_scores_v2 via bulk_load (phase 186, D-17)
@@ -148,7 +147,6 @@ _ONESHOT_UNITS: frozenset[str] = frozenset(
         "indicagent-redpanda-watchdog",  # Type=oneshot timer; inactive between 2-min runs is correct
         "indicagent-timescaledb-ready",  # Type=oneshot, RemainAfterExit=yes; infra sentinel, inactive between boots is correct
         "indicagent-roll-batch",
-        "indicagent-feature-validation",  # Type=oneshot, timer-triggered daily
         "indicagent-feature-parity-auditor",  # Type=oneshot, timer-triggered
         # Phase 138 IC pipeline oneshots — inactive between IC pipeline runs is correct
         "indicagent-regime-writer",  # Type=oneshot; inactive between IC pipeline runs is correct

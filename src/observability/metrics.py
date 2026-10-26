@@ -360,15 +360,6 @@ API_HEALTH = _meter.create_gauge(
 )
 
 # ---------------------------------------------------------------------------
-# Feature validation metrics (Phase 82 D-05)
-# ---------------------------------------------------------------------------
-
-FEATURE_VALIDATION_DECISIONS_TOTAL = _meter.create_counter(
-    "feature_validation_decisions_total",
-    description="Total validation decisions written to validation_results per decision label.",
-)
-
-# ---------------------------------------------------------------------------
 # Config metrics (Phase 109)
 # ---------------------------------------------------------------------------
 

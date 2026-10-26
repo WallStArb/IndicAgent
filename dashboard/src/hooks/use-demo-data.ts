@@ -380,11 +380,8 @@ export function useDemoData(
         patterns: buildPatterns(s),
         smartMoney: null,
         confluence: null,
-        signal: null,
-        tfSignals: {}, signalsByTf: {},
         indicatorsByTf: {},
         intelligenceByTf: {},
-        scorecardByTf: {},
         lastUpdate: Date.now(),
       };
     }
@@ -458,11 +455,8 @@ export function useDemoData(
             patterns: buildPatterns(newState),
             smartMoney: null,
             confluence: null,
-            signal: null,
-            tfSignals: prev[sym]?.tfSignals ?? {}, signalsByTf: prev[sym]?.signalsByTf ?? {},
             indicatorsByTf: prev[sym]?.indicatorsByTf ?? {},
             intelligenceByTf: prev[sym]?.intelligenceByTf ?? {},
-            scorecardByTf: prev[sym]?.scorecardByTf ?? {},
             lastUpdate: now,
           };
         }

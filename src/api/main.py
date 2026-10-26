@@ -19,14 +19,10 @@ from src.observability.metrics import API_HEALTH
 from ..core import DatabaseManager
 from . import dependencies
 from .routes import (
-    drift,
-    features,
     health,
     instruments,
     market_data,
-    signals,
     sse,
-    validation,
     vocabulary,
 )
 
@@ -176,10 +172,6 @@ app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(market_data.router, prefix="/api", tags=["market-data"])
 app.include_router(instruments.router, prefix="/api", tags=["instruments"])
 app.include_router(sse.router, prefix="/api/sse", tags=["sse"])
-app.include_router(features.router, prefix="/api", tags=["features"])
-app.include_router(signals.router, prefix="/api", tags=["signals"])
-app.include_router(drift.router, prefix="/api/drift", tags=["drift"])
-app.include_router(validation.router, prefix="/api/validation", tags=["validation"])
 app.include_router(vocabulary.router, prefix="/api/vocabulary", tags=["vocabulary"])
 
 

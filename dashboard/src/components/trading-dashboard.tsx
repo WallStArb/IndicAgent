@@ -9,30 +9,16 @@ import { ContextPanel } from "./context-panel";
 import { PatternPanel } from "./pattern-panel";
 import { SmartMoneyPanel } from "./smart-money-panel";
 import { ConfluencePanel } from "./confluence-panel";
-import { NarrativePanel } from "./narrative-panel";
 import { PriceHero } from "./price-hero";
 import { RegimeAmbiance } from "./regime-ambiance";
-import { SignalBanner } from "./signal-banner";
-import { NarrativeElevated } from "./narrative-elevated";
 import { TimeframeMatrix } from "./timeframe-matrix";
 import { DrillPanel } from "./drill-panel";
 import { WatchlistRail } from "./watchlist-rail";
-import { SignalAlertStrip } from "./signal-alert-strip";
 import { SkeletonCard } from "./skeleton-card";
-import type { Timeframe, ConnectionStatus, SymbolData, NarrativeData, SignalData, SignalTier } from "@/lib/types";
+import type { Timeframe, ConnectionStatus, SymbolData } from "@/lib/types";
 import { TF_OFFSETS } from "@/lib/timeframe-utils";
 import { TIMEFRAMES } from "@/lib/types";
 import { LayoutGrid, Rows3, ScanLine, ChevronDown } from "lucide-react";
-import { isHeroTier } from "@/lib/signal-tier";
-
-const TF_STALENESS_MS: Record<string, number> = {
-  "1m":  10 * 60_000,
-  "5m":  50 * 60_000,
-  "15m": 150 * 60_000,
-  "1h":  10 * 3_600_000,
-  "4h":  40 * 3_600_000,
-  "1d":  10 * 86_400_000,
-};
 
 // Auto-switch to focus layout above this count
 const GRID_MODE_MAX = 12;
@@ -67,58 +53,19 @@ function getSectorGroup(sector: string | undefined, assetClass?: string): string
   return "other";
 }
 
-function filterNarrativesBySymbol(narratives: Record<string, NarrativeData>, symbol: string): Record<string, NarrativeData> {
-  return Object.fromEntries(Object.entries(narratives).filter(([, n]) => n.symbol === symbol));
-}
-
 /** Groups symbols by sector and renders them in labeled sections */
 function GroupedSymbolGrid({
   symbols,
   symbolData,
-  narratives,
   timeframe,
-  selectedDrillSignal,
-  signalsHistory,
-  setSelectedDrillSignal,
 }: {
   symbols: string[];
   symbolData: Record<string, SymbolData>;
-  narratives: Record<string, NarrativeData>;
   timeframe: Timeframe;
-  selectedDrillSignal: SignalData | null;
-  signalsHistory: Record<string, SignalData[]>;
-  setSelectedDrillSignal: (s: SignalData | null) => void;
 }) {
-  // Coarse clock — updates every minute so decay scores stay fresh even when no signals arrive
-  const [nowMinute, setNowMinute] = useState(() => Math.floor(Date.now() / 60_000));
-  useEffect(() => {
-    const id = setInterval(() => setNowMinute(Math.floor(Date.now() / 60_000)), 60_000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Extract signal-only slice so the sort only re-runs when signals change, not on every tick/bar SSE event
-  const symbolSignals = useMemo(
-    () => Object.fromEntries(symbols.map((s) => [s, symbolData[s]?.signal ?? null])),
-    [symbols, symbolData],
-  );
-
   const grouped = useMemo(() => {
-    const TIER_WEIGHTS: Record<SignalTier, number> = { hero: 100, monitored: 50, candidate: 10 };
-    const now = nowMinute * 60_000;
-    const score = (sym: string): number => {
-      const sig = symbolSignals[sym];
-      if (!sig) return 0;
-      const tsMs = new Date(sig.timestamp).getTime();
-      if (isNaN(tsMs)) return 0;
-      const ageHours = (now - tsMs) / 3_600_000;
-      const decay = Math.max(0, 1 - ageHours / 4);
-      const tierWeight = sig.signal_tier ? (TIER_WEIGHTS[sig.signal_tier] ?? 10) : 10;
-      return (sig.confidence ?? 0) * tierWeight * decay;
-    };
-
-    const sortedSymbols = [...symbols].sort((a, b) => score(b) - score(a));
     const map = new Map<string, string[]>();
-    for (const sym of sortedSymbols) {
+    for (const sym of symbols) {
       const info = symbolConfig.getSymbolInfo(sym);
       const groupKey = getSectorGroup(info?.sector, info?.asset_class);
       if (!map.has(groupKey)) map.set(groupKey, []);
@@ -127,7 +74,7 @@ function GroupedSymbolGrid({
     return SECTOR_GROUPS
       .map((g) => ({ ...g, symbols: map.get(g.key) ?? [] }))
       .filter((g) => g.symbols.length > 0);
-  }, [symbols, symbolSignals, nowMinute]);
+  }, [symbols]);
 
   return (
     <div className="p-4 space-y-6">
@@ -152,18 +99,7 @@ function GroupedSymbolGrid({
             {group.symbols.map((sym) => {
               const data = symbolData[sym];
               if (!data) return <SkeletonCard key={sym} symbol={sym} />;
-              const symNarratives = filterNarrativesBySymbol(narratives, sym);
-              return (
-                <SymbolCard
-                  key={sym}
-                  data={data}
-                  narratives={symNarratives}
-                  globalTf={timeframe}
-                  selectedDrillSignal={selectedDrillSignal}
-                  signalsHistory={signalsHistory}
-                  setSelectedDrillSignal={setSelectedDrillSignal}
-                />
-              );
+              return <SymbolCard key={sym} data={data} globalTf={timeframe} />;
             })}
           </div>
         </section>
@@ -193,7 +129,6 @@ function IndicAgentLogo({ size = 28 }: { size?: number }) {
 export default function TradingDashboard() {
   const [mounted, setMounted] = useState(false);
   const [timeframe, setTimeframe] = useState<Timeframe>("5m");
-  const [selectedDrillSignal, setSelectedDrillSignal] = useState<SignalData | null>(null);
   const [activeProfile, setActiveProfile] = useState(
     symbolConfig.getActiveProfile()
   );
@@ -217,7 +152,7 @@ export default function TradingDashboard() {
     setSelectedSymbol(symbols[0] ?? "ES");
   }, [symbols]);
 
-  const { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives, signalsHistory } = useMarketStream(
+  const { symbolData, connectionStatus, lastUpdate } = useMarketStream(
     timeframe,
     symbols
   );
@@ -229,11 +164,6 @@ export default function TradingDashboard() {
   function handleProfileChange(profile: string) {
     symbolConfig.setActiveProfile(profile);
     setActiveProfile(profile);
-  }
-
-  function handleSignalAlertSelect(sym: string) {
-    setSelectedSymbol(sym);
-    if (layoutMode === "grid") setLayoutMode("focus");
   }
 
   // Ensure selectedSymbol is always valid within current profile
@@ -327,13 +257,6 @@ export default function TradingDashboard() {
         </div>
       </header>
 
-      {/* ── Global Signal Alert Strip ── */}
-      <SignalAlertStrip
-        symbolData={symbolData}
-        symbols={symbols}
-        onSelectSymbol={handleSignalAlertSelect}
-      />
-
       {/* ── Main Content: Rail + View ── */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left watchlist rail — focus mode only */}
@@ -354,11 +277,7 @@ export default function TradingDashboard() {
             <GroupedSymbolGrid
               symbols={symbols}
               symbolData={symbolData}
-              narratives={narratives}
               timeframe={timeframe}
-              selectedDrillSignal={selectedDrillSignal}
-              signalsHistory={signalsHistory}
-              setSelectedDrillSignal={setSelectedDrillSignal}
             />
           ) : (
             /* ── Focus View ── */
@@ -366,42 +285,16 @@ export default function TradingDashboard() {
               {/* Primary card */}
               <div className="flex-1 min-w-0 max-w-[480px]">
                 {symbolData[activeSymbol] ? (
-                  <SymbolCard
-                    data={symbolData[activeSymbol]}
-                    narratives={filterNarrativesBySymbol(narratives, activeSymbol)}
-                    globalTf={timeframe}
-                    selectedDrillSignal={selectedDrillSignal}
-                    signalsHistory={signalsHistory}
-                    setSelectedDrillSignal={setSelectedDrillSignal}
-                  />
+                  <SymbolCard data={symbolData[activeSymbol]} globalTf={timeframe} />
                 ) : (
                   <SkeletonCard symbol={activeSymbol} />
                 )}
               </div>
 
-              {/* Narrative feed: right column in focus mode */}
-              <div className="w-72 shrink-0 hidden lg:block overflow-auto">
-                <NarrativePanel
-                  narratives={narratives}
-                  groupNarratives={groupNarratives}
-                  activeSymbol={activeSymbol}
-                  activeTimeframe={timeframe}
-                />
-              </div>
             </div>
           )}
         </main>
       </div>
-
-      {/* ── AI Narrative Feed — grid mode only (fixed bottom strip) ── */}
-      {layoutMode === "grid" && (
-        <NarrativePanel
-          narratives={narratives}
-          groupNarratives={groupNarratives}
-          activeSymbol={symbols[0] ?? "ES"}
-          activeTimeframe={timeframe}
-        />
-      )}
 
       {/* ── Footer ── */}
       <footer className="flex items-center justify-between px-3 py-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0">
@@ -421,18 +314,10 @@ export default function TradingDashboard() {
 /** Self-contained instrument card with all intelligence tiers */
 function SymbolCard({
   data,
-  narratives,
   globalTf,
-  selectedDrillSignal,
-  signalsHistory,
-  setSelectedDrillSignal,
 }: {
   data: SymbolData;
-  narratives: Record<string, NarrativeData>;
   globalTf: Timeframe;
-  selectedDrillSignal: SignalData | null;
-  signalsHistory: Record<string, SignalData[]>;
-  setSelectedDrillSignal: (signal: SignalData | null) => void;
 }) {
   const [isDrilling, setIsDrilling] = useState(false);
   // activeTf: per-card TF override; resets to global when globalTf changes
@@ -452,24 +337,6 @@ function SymbolCard({
   const smartMoney = intel?.smartMoney ?? null;
   const confluence = intel?.confluence ?? null;
 
-  // Active signal is strictly per-TF — signals only show on the TF that generated them.
-  // signal_generator currently only emits 1m, so signals appear on the 1m tab only.
-  const rawSignal = data.signalsByTf[activeTf] ?? null;
-  // Inline (no memo): Date.now() must stay fresh every render so staleness expiry works.
-  const activeSignal = (() => {
-    if (!rawSignal) return null;
-    const ts = new Date(rawSignal.timestamp).getTime();
-    const cutoff = TF_STALENESS_MS[activeTf] ?? 3_600_000;
-    return isNaN(ts) || Date.now() - ts > cutoff ? null : rawSignal;
-  })();
-
-  // Narrative is TF-matched — only show narrative for the active timeframe
-  const narrative = narratives[`${data.symbol}:${activeTf}`] ?? null;
-
-  const isLong = activeSignal?.direction === "long";
-  const hasSignal = activeSignal !== null;
-  const confidence = activeSignal?.confidence ?? null;
-
   // Bar window for active TF — data timestamp when available, clock-aligned fallback
   const tfPeriodMs = (TF_OFFSETS[activeTf] ?? 60) * 1000;
   const barTime = intel?.barTime || indicators?.timestamp || null;
@@ -488,23 +355,11 @@ function SymbolCard({
   const barIsStale = dataBarCloseMs !== null && now - dataBarCloseMs > tfPeriodMs;
 
 
-  const isHero = activeSignal ? isHeroTier(activeSignal.confidence, activeSignal.cis_score) : false;
-
   return (
     <div
       className="flex flex-col surface rounded overflow-hidden"
-      style={{
-        boxShadow: activeSignal
-          ? isHero
-            ? activeSignal.direction === "long"
-              ? "0 0 0 1px var(--green-dim)"
-              : "0 0 0 1px var(--red-dim)"
-            : "0 0 0 1px var(--border-bright)"
-          : undefined,
-        transition: "box-shadow 0.4s ease",
-      }}
     >
-      {/* Header: name + symbol | TF pills + signal badge + drill button */}
+      {/* Header: name + symbol | TF pills + drill button */}
       <div className="flex items-center justify-between px-3 pt-1.5 pb-1 bg-[var(--bg-elevated)]">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight truncate">
@@ -519,44 +374,11 @@ function SymbolCard({
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <TimeframeMatrix
-            tfSignals={data.tfSignals}
             confluence={confluence}
             activeTf={activeTf}
             onSelectTf={(tf) => setActiveTf(tf)}
             compact
           />
-          {hasSignal && (
-            <button
-              onClick={() => setIsDrilling(true)}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-opacity hover:opacity-80"
-              style={{
-                backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
-                border: `1px solid ${isLong ? "#00dc8233" : "#ff475733"}`,
-              }}
-              title="Open signal detail"
-            >
-              <span
-                className="text-[0.6rem] font-bold uppercase tracking-widest"
-                style={{ color: isLong ? "var(--green)" : "var(--red)" }}
-              >
-                {isLong ? "L" : "S"}
-              </span>
-              {confidence !== null && (
-                <span
-                  className="text-[0.6rem] font-data font-semibold"
-                  style={{ color: isLong ? "var(--green)" : "var(--red)", opacity: 0.9 }}
-                >
-                  {Math.round(confidence * 100)}%
-                </span>
-              )}
-              {isHero && (
-                <span className="text-[0.45rem] font-bold uppercase tracking-widest px-0.5 rounded"
-                  style={{ color: "var(--blue)", backgroundColor: "rgba(59,130,246,0.15)" }}>
-                  ★
-                </span>
-              )}
-            </button>
-          )}
           {/* Always-visible drill button */}
           <button
             onClick={() => setIsDrilling(true)}
@@ -570,13 +392,6 @@ function SymbolCard({
 
       {/* Price hero — single inline row */}
       <PriceHero data={data} activeTf={activeTf} barWindowStr={barWindowStr} barIsStale={barIsStale} />
-
-      {/* L0: High-confidence signal banner */}
-      <SignalBanner signal={activeSignal} onDrillDown={() => setIsDrilling(true)} />
-
-      {/* L0: Elevated AI narrative (only when high confidence + fresh) */}
-      <NarrativeElevated narrative={narrative} signal={activeSignal} />
-
 
       {/* L0: Regime ambiance wraps the tier stack */}
       <RegimeAmbiance context={context}>
@@ -604,20 +419,14 @@ function SymbolCard({
           symbol={data.symbol}
           timeframe={activeTf}
           data={data}
-          signal={selectedDrillSignal}
-          signalsHistory={signalsHistory[data.symbol] || []}
-          onSignalSelect={setSelectedDrillSignal}
-          onClose={() => {
-            setIsDrilling(false);
-            setSelectedDrillSignal(null);
-          }}
+          onClose={() => setIsDrilling(false)}
         />
       )}
     </div>
   );
 }
 
-/** Universe context chip — compact trigger + rich popover with live signal heat */
+/** Universe context chip — compact trigger + profile popover */
 function ProfileChip({
   profiles,
   active,
@@ -649,19 +458,6 @@ function ProfileChip({
       document.removeEventListener("keydown", onEsc);
     };
   }, [open]);
-
-  function signalHeat(syms: string[]) {
-    let long = 0, short = 0;
-    for (const s of syms) {
-      const sig = symbolData[s]?.signal;
-      if (!sig) continue;
-      if (sig.direction === "long") long++;
-      else short++;
-    }
-    return { long, short, total: long + short };
-  }
-
-  const heat = signalHeat(current?.symbols ?? []);
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -704,22 +500,6 @@ function ProfileChip({
           {current?.symbols.length ?? 0}
         </span>
 
-        {/* Live signal heat */}
-        {heat.total > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-            {heat.long > 0 && (
-              <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.58rem", color: "var(--green)", fontWeight: 600 }}>
-                {heat.long}↑
-              </span>
-            )}
-            {heat.short > 0 && (
-              <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.58rem", color: "var(--red)", fontWeight: 600 }}>
-                {heat.short}↓
-              </span>
-            )}
-          </span>
-        )}
-
         <ChevronDown
           size={11}
           style={{
@@ -759,7 +539,7 @@ function ProfileChip({
               Universe
             </span>
             <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.55rem", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-              Sym · L↑ · S↓
+              Sym
             </span>
           </div>
 
@@ -767,7 +547,6 @@ function ProfileChip({
           {keys.map((key) => {
             const p = profiles[key];
             const isActive = key === active;
-            const h = signalHeat(p.symbols);
             return (
               <button
                 key={key}
@@ -815,12 +594,6 @@ function ProfileChip({
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
                   <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: "var(--text-muted)", minWidth: "20px", textAlign: "right" }}>
                     {p.symbols.length}
-                  </span>
-                  <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: h.long > 0 ? "var(--green)" : "var(--border-bright)", minWidth: "22px", textAlign: "right", fontWeight: 600 }}>
-                    {h.long > 0 ? `${h.long}↑` : "—"}
-                  </span>
-                  <span style={{ fontFamily: "var(--font-jetbrains)", fontSize: "0.6rem", color: h.short > 0 ? "var(--red)" : "var(--border-bright)", minWidth: "22px", textAlign: "right", fontWeight: 600 }}>
-                    {h.short > 0 ? `${h.short}↓` : "—"}
                   </span>
                 </div>
               </button>

@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { symbolConfig } from "@/lib/symbol-config";
 import { getApiBase } from "@/lib/api";
-import { pipelineLagS } from "@/lib/format";
 import type {
   SymbolData,
   IndicatorData,
@@ -12,16 +11,10 @@ import type {
   PatternData,
   SmartMoneyData,
   ConfluenceData,
-  SignalData,
-  NarrativeData,
-  GroupNarrativeData,
   ConnectionStatus,
   Timeframe,
-  PerTfSignal,
   IntelligenceTfData,
   SessionState,
-  SignalScorecardData,
-  RankedSignal,
 } from "@/lib/types";
 
 const FLASH_DURATION_MS = 350;
@@ -55,12 +48,8 @@ function emptySymbolData(symbol: string): SymbolData {
     patterns: null,
     smartMoney: null,
     confluence: null,
-    signal: null,
-    tfSignals: {},
-    signalsByTf: {},
     indicatorsByTf: {},
     intelligenceByTf: {},
-    scorecardByTf: {},
     lastUpdate: 0,
   };
 }
@@ -358,17 +347,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
   const [connectionStatus, setConnectionStatus] =
     useState<ConnectionStatus>("connecting");
   const [lastUpdate, setLastUpdate] = useState(0);
-  const [narratives, setNarratives] = useState<Record<string, NarrativeData>>({});
-  const [groupNarratives, setGroupNarratives] = useState<Record<string, GroupNarrativeData>>({});
-  const [signalsHistory, setSignalsHistory] = useState<Record<string, SignalData[]>>({});
   const esRef = useRef<EventSource | null>(null);
-  // Ref to track latest intelligence snapshots synchronously so signal_data handler
-  // can read them without relying on state updater closure timing.
-  const intelligenceSnapshotRef = useRef<Record<string, Record<string, IntelligenceTfData>>>({});
-
-  // Max signals to keep in history per symbol (all TFs combined)
-  const HISTORY_LIMIT = 50;
-
   // Stable identity for the symbols list
   const symbolsCsv = symbols.join(",");
 
@@ -398,128 +377,6 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
 
     es.onopen = () => setConnectionStatus("connected");
     es.onerror = () => setConnectionStatus("disconnected");
-
-    // Seed active signal state from REST API on SSE connect.
-    // Runs in parallel with fetchSession. Populates signalsByTf / signal / tfSignals
-    // so signals are visible immediately on page load rather than waiting for the
-    // next live SSE signal event. SSE live events will overwrite these values as
-    // new signals arrive.
-    const fetchActiveSignals = async () => {
-      try {
-        const res = await fetch(`${base}/api/signals/active`);
-        if (!res.ok) return;
-        const body = await res.json() as {
-          signals: Array<{
-            signal_id: string;
-            symbol: string;
-            timeframe: string;
-            setup_plugin: string;
-            signal_type: string;
-            direction: number;
-            entry_price: number | null;
-            stop_loss: number | null;
-            confidence: number | null;
-            status: string;
-            was_selected: boolean;
-            cis_score: number | null;
-            profit_target: number | null;
-            profit_target_2: number | null;
-            profit_target_3: number | null;
-            risk_reward_ratio: number | null;
-            stop_type: string | null;
-            regime_context: string | null;
-            market_price_at_signal: number | null;
-            ask_at_signal: number | null;
-            bid_at_signal: number | null;
-            entry_zone_low: number | null;
-            entry_zone_high: number | null;
-            zone_valid_at_signal: boolean | null;
-            signal_computed_at: string | null;
-            bar_close_ts: string | null;
-            timestamp: string | null;
-            setup_win_rate: number | null;
-            setup_avg_pnl_r: number | null;
-            signal_tier: string | null;
-          }>
-        };
-        // Build signal objects once from API response; reuse in both setState calls below.
-        type ActiveSignalRow = typeof body.signals[number];
-        const buildSignal = (row: ActiveSignalRow, sym: string): SignalData => ({
-          symbol: sym,
-          direction: row.direction > 0 ? "long" : "short",
-          signal_type: row.signal_type,
-          setup_plugin: row.setup_plugin,
-          confidence: row.confidence ?? 0,
-          entry_price: row.entry_price ?? 0,
-          entry_type: "at_close",
-          stop_loss: row.stop_loss ?? 0,
-          stop_type: row.stop_type ?? undefined,
-          profit_target: row.profit_target,
-          profit_target_2: row.profit_target_2,
-          profit_target_3: row.profit_target_3,
-          risk_reward_ratio: row.risk_reward_ratio ?? 0,
-          regime_context: row.regime_context ?? "",
-          timeframe: row.timeframe,
-          timestamp: row.timestamp ?? "",
-          signal_computed_at: row.signal_computed_at ?? undefined,
-          bar_close_ts: row.bar_close_ts ?? undefined,
-          pipeline_lag_s: pipelineLagS(row.signal_computed_at ?? undefined, row.bar_close_ts ?? undefined) ?? undefined,
-          market_price_at_signal: row.market_price_at_signal ?? undefined,
-          ask_at_signal: row.ask_at_signal ?? undefined,
-          bid_at_signal: row.bid_at_signal ?? undefined,
-          entry_zone_low: row.entry_zone_low ?? undefined,
-          entry_zone_high: row.entry_zone_high ?? undefined,
-          zone_valid_at_signal: row.zone_valid_at_signal ?? undefined,
-          signal_id: row.signal_id,
-          cis_score: row.cis_score,
-          was_selected: row.was_selected,
-          setup_win_rate: row.setup_win_rate ?? undefined,
-          setup_avg_pnl_r: row.setup_avg_pnl_r ?? undefined,
-        });
-        setSymbolData((prev) => {
-          const next = { ...prev };
-          for (const row of body.signals) {
-            const sym = contractToBase(row.symbol);
-            if (row.direction === 0) continue;
-            if (!next[sym]) next[sym] = emptySymbolData(sym);
-            const tf = row.timeframe;
-            const signal = buildSignal(row, sym);
-            const tfSignal = {
-              direction: row.direction > 0 ? "long" as const : "short" as const,
-              confidence: row.confidence ?? 0,
-              updatedAt: Date.now(),
-            };
-            const old = next[sym];
-            next[sym] = {
-              ...old,
-              signal: tf === timeframe ? signal : old.signal,
-              tfSignals: { ...old.tfSignals, [tf]: tfSignal },
-              signalsByTf: { ...old.signalsByTf, [tf]: signal },
-              lastUpdate: Date.now(),
-            };
-          }
-          return next;
-        });
-        // Also seed signalsHistory so RecentSignalCard shows DB signals before live events arrive
-        setSignalsHistory((prev) => {
-          const next = { ...prev };
-          for (const row of body.signals) {
-            if (row.direction === 0) continue;
-            const sym = contractToBase(row.symbol);
-            const signal = buildSignal(row, sym);
-            const existing = next[sym] ?? [];
-            // Only add if signal_id not already present in history
-            if (!existing.some((e) => e.signal_id === signal.signal_id)) {
-              next[sym] = [signal, ...existing].slice(0, HISTORY_LIMIT);
-            }
-          }
-          return next;
-        });
-      } catch {
-        // non-fatal — live SSE signals will populate state when they arrive
-      }
-    };
-    void fetchActiveSignals();
 
     // Seed session state from REST API (session data since 6pm ET boundary).
     // This runs in parallel with the SSE snapshot; the setState call will overwrite
@@ -828,10 +685,6 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         ac: n1("ac"),
       };
 
-      // Keep ref in sync so signal_data handler can read synchronously
-      if (!intelligenceSnapshotRef.current[sym]) intelligenceSnapshotRef.current[sym] = {};
-      intelligenceSnapshotRef.current[sym][tf] = intelligenceSnapshot;
-
       setSymbolData((prev) => {
         const old = prev[sym];
         if (!old) return prev;
@@ -856,263 +709,7 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
       touch();
     });
 
-    // --- Aggregated signal data (I7) ---
-    es.addEventListener("signal_data", (evt) => {
-      const { payload } = JSON.parse(evt.data);
-      const sym = contractToBase(payload.symbol || "");
-      if (!sym) return;
-      const dir = parseInt(String(payload.direction || "0"));
-      const tf = String(payload.timeframe || timeframe);
-
-      const _parseOptFloat = (v: unknown): number | null => {
-        const n = parseFloat(String(v || "0"));
-        return isNaN(n) || n === 0 ? null : n;
-      };
-      const _parseLabels = (v: unknown): string[] => {
-        if (!v) return [];
-        try { return JSON.parse(String(v)) as string[]; } catch { return []; }
-      };
-      const _signalComputedAt = payload.signal_computed_at
-        ? String(payload.signal_computed_at) : undefined;
-      const _barCloseTs = payload.bar_close_ts
-        ? String(payload.bar_close_ts) : undefined;
-
-      // Terminal lifecycle event — direction=0 with status + signal_id
-      // Published by signal_lifecycle_service on every signal exit.
-      // Match by signal_id so stale events for preempted signals are no-ops.
-      if (dir === 0 && payload.status && payload.signal_id) {
-        const resolvedId = String(payload.signal_id);
-        setSymbolData((prev) => {
-          const old2 = prev[sym];
-          if (!old2) return prev;
-          const currentSignal = old2.signalsByTf[tf];
-          if (!currentSignal || currentSignal.signal_id !== resolvedId) {
-            return prev; // stale resolved event for a preempted signal — no-op
-          }
-          const resolvedSignal: SignalData = {
-            ...currentSignal,
-            resolved: true,
-            outcome: String(payload.outcome || payload.status),
-            exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
-          };
-          return {
-            ...prev,
-            [sym]: {
-              ...old2,
-              signal: tf === timeframe ? resolvedSignal : old2.signal,
-              signalsByTf: { ...old2.signalsByTf, [tf]: resolvedSignal },
-              lastUpdate: Date.now(),
-            },
-          };
-        });
-        // Update signalsHistory so RecentSignalCard can show OutcomeBadge.
-        // Unconditional: updates history even when setSymbolData was a no-op
-        // (stale resolved event where active signal was already replaced by a newer birth).
-        setSignalsHistory((prev) => {
-          const symHistory = prev[sym];
-          if (!symHistory) return prev;
-          const updated = symHistory.map((entry) =>
-            entry.signal_id === resolvedId
-              ? {
-                  ...entry,
-                  resolved: true,
-                  outcome: String(payload.outcome || payload.status),
-                  exit_price: _parseOptFloat(payload.exit_price) ?? undefined,
-                }
-              : entry
-          );
-          return { ...prev, [sym]: updated };
-        });
-        touch();
-        return;
-      }
-
-      // Standard signal birth (direction != 0)
-      if (dir !== 0) {
-        // Build the signal object synchronously BEFORE any setState calls.
-        // Reading intelligence from ref (not state) avoids the async updater trap
-        // where assignments inside setSymbolData run during render, not immediately.
-        const intelSnapshot = intelligenceSnapshotRef.current[sym]?.[tf] ?? null;
-
-        const fullSignal: SignalData = {
-          symbol: sym,
-          direction: dir > 0 ? "long" : "short",
-          signal_type: String(payload.signal_type || ""),
-          setup_plugin: String(payload.setup_plugin || ""),
-          confidence: parseFloat(String(payload.confidence || "0")),
-          entry_price: parseFloat(String(payload.entry_price || "0")),
-          entry_type: String(payload.entry_type || "at_close"),
-          stop_loss: parseFloat(String(payload.stop_loss || "0")),
-          stop_type: String(payload.stop_type || "atr"),
-          profit_target: _parseOptFloat(payload.profit_target),
-          profit_target_2: _parseOptFloat(payload.profit_target_2),
-          profit_target_3: _parseOptFloat(payload.profit_target_3),
-          target_labels: _parseLabels(payload.target_labels),
-          rr_t1: _parseOptFloat(payload.rr_t1) ?? undefined,
-          rr_t2: _parseOptFloat(payload.rr_t2) ?? undefined,
-          rr_t3: _parseOptFloat(payload.rr_t3) ?? undefined,
-          framing_method: String(payload.framing_method || "atr_fallback"),
-          risk_reward_ratio: parseFloat(String(payload.risk_reward_ratio || "0")),
-          regime_context: String(payload.regime_context || ""),
-          timeframe: tf,
-          timestamp: String(payload.timestamp || ""),
-          signal_computed_at: _signalComputedAt,
-          bar_close_ts: _barCloseTs,
-          pipeline_lag_s: pipelineLagS(_signalComputedAt, _barCloseTs) ?? undefined,
-          bar_close_price: _parseOptFloat(payload.bar_close_price) ?? undefined,
-          market_price_at_signal: _parseOptFloat(payload.market_price_at_signal) ?? undefined,
-          ask_at_signal: _parseOptFloat(payload.ask_at_signal) ?? undefined,
-          bid_at_signal: _parseOptFloat(payload.bid_at_signal) ?? undefined,
-          entry_zone_low: _parseOptFloat(payload.entry_zone_low) ?? undefined,
-          entry_zone_high: _parseOptFloat(payload.entry_zone_high) ?? undefined,
-          zone_valid_at_signal: payload.zone_valid_at_signal != null ? Number(payload.zone_valid_at_signal) > 0 : undefined,
-          signal_id: String(payload.signal_id || ""),
-          intelligence_snapshot: intelSnapshot,
-          cis_score: (() => {
-            // Pipeline stamps filtered_cis_score (not cis_score) — fall back to cis_score for REST-seeded compat.
-            // Not using _parseOptFloat: that drops 0.0, but CIS=0.0 is a valid neutral score and must be preserved.
-            const raw = payload.filtered_cis_score ?? payload.cis_score;
-            if (raw === undefined || raw === null) return null;
-            const n = parseFloat(String(raw));
-            return isNaN(n) ? null : n;
-          })(),
-          was_selected: payload.was_selected !== undefined ? Number(payload.was_selected) > 0 : true,
-        };
-
-        // Lightweight matrix entry
-        const tfSignal: PerTfSignal = {
-          direction: dir > 0 ? "long" : dir < 0 ? "short" : null,
-          confidence: parseFloat(String(payload.confidence || "0")),
-          updatedAt: Date.now(),
-        };
-
-        setSymbolData((prev) => {
-          const old = prev[sym];
-          if (!old) return prev;
-
-          // Card-level signal: only update for the selected global timeframe.
-          // Per-TF signals (signalsByTf) are always stored for all TFs.
-          const isSelectedTf = tf === timeframe;
-          const signal = isSelectedTf ? fullSignal : old.signal;
-
-          return {
-            ...prev,
-            [sym]: {
-              ...old,
-              signal,
-              tfSignals: { ...old.tfSignals, [tf]: tfSignal },
-              signalsByTf: { ...old.signalsByTf, [tf]: fullSignal },
-              lastUpdate: Date.now(),
-            },
-          };
-        });
-
-        // Accumulate to history — fullSignal is synchronously available here
-        setSignalsHistory((prev) => {
-          const symHistory = prev[sym] || [];
-          const newHistory = [fullSignal, ...symHistory].slice(0, HISTORY_LIMIT);
-          return { ...prev, [sym]: newHistory };
-        });
-
-        touch();
-      }
-    });
-
-    // --- Signal Scorecard (I7 all_ranked — which signals competed and why) ---
-    es.addEventListener("signal_scorecard", (evt) => {
-      const { payload } = JSON.parse(evt.data);
-      const sym = contractToBase(payload.symbol || "");
-      if (!sym) return;
-      const tf = String(payload.tf || payload.timeframe || timeframe);
-      let ranked: RankedSignal[] = [];
-      try {
-        ranked = JSON.parse(String(payload.data || "[]")) as RankedSignal[];
-      } catch {
-        return; // malformed payload — skip silently
-      }
-      const scorecard: SignalScorecardData = {
-        ts: String(payload.ts || ""),
-        symbol: sym,
-        tf,
-        ranked,
-      };
-      setSymbolData((prev) => {
-        const old = prev[sym];
-        if (!old) return prev;
-        return {
-          ...prev,
-          [sym]: {
-            ...old,
-            scorecardByTf: { ...old.scorecardByTf, [tf]: scorecard },
-            lastUpdate: Date.now(),
-          },
-        };
-      });
-      touch();
-    });
-
-    // --- AI narrative data (I8) — per-symbol and group ---
-    es.addEventListener("narrative_data", (evt) => {
-      const { topic, key: msgKey, payload } = JSON.parse(evt.data);
-      if (!payload) return;
-      const topicStr = typeof topic === "string" ? topic : "";
-
-      if (topicStr.includes("narratives.group")) {
-        // Group synthesis narrative — key is the asset group name (e.g. "equity")
-        const groupName = (typeof msgKey === "string" ? msgKey.split(":").pop() : null)
-          || (payload.asset_group as string | undefined);
-        const narrativeText = String(payload.narrative || payload.payload?.text || "");
-        if (!groupName || !narrativeText) return;
-        setGroupNarratives((prev) => ({
-          ...prev,
-          [groupName]: {
-            group: groupName,
-            narrative: narrativeText,
-            timestamp: String(payload.timestamp || payload.ts || ""),
-            receivedAt: Date.now(),
-            model: String(payload.model || payload.payload?.model || ""),
-          },
-        }));
-      } else {
-        // Per-symbol narrative (AgentOutput envelope): payload.symbol, payload.timeframe,
-        // payload.payload.text (text field) and payload.narrative (dashboard-facing alias).
-        const sym = contractToBase(String(payload.symbol || ""));
-        const tf = String(payload.timeframe || "");
-        const narrativeText = String(payload.narrative || payload.payload?.text || "");
-        if (!sym || !narrativeText) return;
-        const narrativeKey = `${sym}:${tf || timeframe}`;
-        const narrativeType = String(payload.narrative_type || payload.payload?.narrative_type || "short");
-        setNarratives((prev) => {
-          const existing = prev[narrativeKey] ?? {
-            symbol: sym,
-            timeframe: tf || timeframe,
-            action_bias: "",
-            action_tag: "",
-            timestamp: "",
-            receivedAt: 0,
-          };
-          return {
-            ...prev,
-            [narrativeKey]: {
-              ...existing,
-              action_bias: String(payload.action_bias ?? payload.payload?.action_bias ?? existing.action_bias),
-              action_tag: String(payload.action_tag ?? payload.payload?.action_tag ?? existing.action_tag),
-              timestamp: String(payload.timestamp ?? payload.ts ?? existing.timestamp),
-              signal_id: String(payload.signal_id ?? existing.signal_id ?? ""),
-              bar_close_ts: String(payload.bar_close_ts ?? payload.payload?.bar_close_ts ?? existing.bar_close_ts ?? ""),
-              receivedAt: Date.now(),
-              ...(narrativeType === "short"
-                ? { narrative_short: narrativeText, narrative: narrativeText }
-                : { narrative_deep: narrativeText }
-              ),
-            },
-          };
-        });
-      }
-      touch();
-    });
-
-    // --- Pipeline reset sentinel — clear stale intelligence/signal/narrative state ---
+    // --- Pipeline reset sentinel — clear stale intelligence state ---
     es.addEventListener("system_event", (evt) => {
       const { payload } = JSON.parse(evt.data) as { payload: Record<string, string> };
       if (payload.event !== "pipeline_reset") return;
@@ -1136,9 +733,6 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
             patterns: null,
             smartMoney: null,
             confluence: null,
-            signal: null,
-            tfSignals: {},
-            signalsByTf: {},
             indicatorsByTf: {},
             intelligenceByTf: {},
           };
@@ -1146,17 +740,6 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
         return next;
       });
 
-      setNarratives((prev) => {
-        const next = { ...prev };
-        for (const sym of resetSymbols) {
-          for (const key of Object.keys(next).filter((k) => k.startsWith(`${sym}:`))) {
-            delete next[key];
-          }
-        }
-        return next;
-      });
-
-      setGroupNarratives({});
       touch();
     });
 
@@ -1166,5 +749,5 @@ export function useMarketStream(timeframe: Timeframe, symbols: string[]) {
     };
   }, [timeframe, symbolsCsv, touch]);
 
-  return { symbolData, connectionStatus, lastUpdate, narratives, groupNarratives, signalsHistory };
+  return { symbolData, connectionStatus, lastUpdate };
 }

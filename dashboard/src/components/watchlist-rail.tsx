@@ -3,17 +3,7 @@
 
 import { useState } from "react";
 import { fmtPrice } from "@/lib/format";
-import { isHeroTier } from "@/lib/signal-tier";
 import type { SymbolData } from "@/lib/types";
-
-const TF_STALENESS_MS: Record<string, number> = {
-  "1m":  10 * 60_000,
-  "5m":  50 * 60_000,
-  "15m": 150 * 60_000,
-  "1h":  10 * 3_600_000,
-  "4h":  40 * 3_600_000,
-  "1d":  10 * 86_400_000,
-};
 
 function getRegimeAccent(data: SymbolData, tf: string): string {
   const regime = data.intelligenceByTf[tf]?.context?.trend_regime;
@@ -23,14 +13,6 @@ function getRegimeAccent(data: SymbolData, tf: string): string {
   if (regime === "strong_down") return "var(--red)";
   if (regime === "weak_down")   return "#ff475766";
   return "var(--border-bright)"; // neutral
-}
-
-function getActiveSignal(data: SymbolData, tf: string) {
-  const signal = data.signalsByTf[tf] ?? null;
-  if (!signal) return null;
-  const ts = new Date(signal.timestamp).getTime();
-  const cutoff = TF_STALENESS_MS[tf] ?? 3_600_000;
-  return isNaN(ts) || Date.now() - ts > cutoff ? null : signal;
 }
 
 interface WatchlistRailProps {
@@ -115,33 +97,17 @@ function WatchlistRow({
   onSelect: (s: string) => void;
 }) {
   const regimeColor = data ? getRegimeAccent(data, globalTf) : "var(--border-default)";
-  const activeSignal = data ? getActiveSignal(data, globalTf) : null;
-
-  // Also scan 1m for signals since that's where they currently fire
-  const signal1m = data && globalTf !== "1m" ? getActiveSignal(data, "1m") : null;
-  const bestSignal = activeSignal ?? signal1m;
-
-  const isHero = bestSignal !== null && isHeroTier(bestSignal.confidence, bestSignal.cis_score);
-  const isLong = bestSignal?.direction === "long";
   const price = data?.tick?.price ?? 0;
   const tickFlash = data?.tickFlash ?? null;
 
-  const hasSignal = isHero && !bestSignal?.resolved;
-  const borderColor = hasSignal ? (isLong ? "var(--green)" : "var(--red)") : regimeColor;
 
   return (
     <button
       onClick={() => onSelect(sym)}
       className="w-full flex items-center gap-1.5 px-2 py-1.5 text-left transition-colors"
       style={{
-        borderLeft: `3px solid ${borderColor}`,
-        backgroundColor: isSelected
-          ? "var(--bg-elevated)"
-          : hasSignal
-            ? isLong
-              ? "rgba(0,220,130,0.04)"
-              : "rgba(255,71,87,0.04)"
-            : "transparent",
+        borderLeft: `3px solid ${regimeColor}`,
+        backgroundColor: isSelected ? "var(--bg-elevated)" : "transparent",
         borderBottom: "1px solid var(--border-subtle)",
       }}
     >
@@ -156,7 +122,7 @@ function WatchlistRow({
         {sym}
       </span>
 
-      {/* Price + signal pill — hidden when collapsed */}
+      {/* Price — hidden when collapsed */}
       {!collapsed && (
         <>
           {price > 0 && (
@@ -172,17 +138,6 @@ function WatchlistRow({
               style={{ color: "var(--text-primary)" }}
             >
               {fmtPrice(price)}
-            </span>
-          )}
-          {hasSignal && (
-            <span
-              className="shrink-0 text-[0.48rem] font-bold uppercase tracking-wider px-1 py-0.5 rounded leading-none"
-              style={{
-                backgroundColor: isLong ? "var(--green-dim)" : "var(--red-dim)",
-                color: isLong ? "var(--green)" : "var(--red)",
-              }}
-            >
-              {isLong ? "L" : "S"}
             </span>
           )}
         </>

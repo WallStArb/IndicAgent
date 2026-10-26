@@ -19,17 +19,6 @@ src/api/routes/health.py:0: error: Cannot determine type of "replay_items"
 src/api/routes/health.py:0: error: Generator has incompatible item type
 src/api/routes/health.py:0: error: Returning Any from function declared to
 src/api/routes/narrative.py:0: error: Item "None" of "Any | None" has no
-src/api/routes/signals.py:0: error: "Settings" has no attribute "contracts"
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
-src/api/routes/signals.py:0: error: Value of type "Any | None" is not
 src/api/routes/sse.py:0: error: "object" has no attribute "messages"
 src/api/routes/sse.py:0: note: Error code "attr-defined" not covered by "type: ignore[union-attr]" comment
 src/api/routes/vocabulary.py:0: error: Cannot determine type of "code_result"
@@ -1101,9 +1090,6 @@ src/intelligence/register_plugins.py:0: note: valid_asset_classes
 src/intelligence/register_plugins.py:0: note: valid_asset_classes
 src/intelligence/register_plugins.py:0: note: valid_asset_classes
 src/intelligence/register_plugins.py:0: note: valid_asset_classes
-src/intelligence/services/feature_validation_analyzer.py:0: error: Item
-src/intelligence/services/feature_validation_analyzer.py:0: error: Item
-src/intelligence/services/feature_validation_analyzer.py:0: error: Item
 src/intelligence/services/hmm_trainer.py:0: error: Returning Any from
 src/intelligence/services/ml_trainer.py:0: error: Argument 2 to
 src/intelligence/services/ml_trainer.py:0: error: Item "None" of
@@ -1112,23 +1098,6 @@ src/intelligence/statistics/factor_math.py:0: error: Returning Any from
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
 src/intelligence/statistics/ic_math.py:0: error: Returning Any from function
-src/intelligence/trading/aggregator.py:0: error: Argument "perf_weights" to
-src/intelligence/trading/aggregator.py:0: error: Returning Any from function
-src/intelligence/trading/anchored_vwap_reversion.py:0: error: Argument 1 to
-src/intelligence/trading/anchored_vwap_reversion.py:0: error: Unsupported
-src/intelligence/trading/anchored_vwap_reversion.py:0: note: Both left and right operands are unions
-src/intelligence/trading/cis_scorer.py:0: error: Returning Any from function
-src/intelligence/trading/gap_analysis_setup.py:0: error: Value of type
-src/intelligence/trading/plugin_utils.py:0: error: Returning Any from function
-src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
-src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
-src/intelligence/trading/prev_day_level_test.py:0: error: Argument 1 to
-src/intelligence/trading/second_leg_continuation.py:0: error: Argument 1 to
-src/intelligence/trading/second_leg_continuation.py:0: error: Argument 1 to
-src/intelligence/trading/squeeze_expansion.py:0: error: Value of type
-src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
-src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
-src/intelligence/trading/volume_profile_utils.py:0: error: Returning Any from
 src/intelligence/utils/common.py:0: error: Returning Any from function
 src/intelligence/utils/core.py:0: error: Returning Any from function declared
 src/intelligence/utils/core.py:0: error: Returning Any from function declared
@@ -1144,13 +1113,6 @@ src/observability/corpus_manifest_verifier.py:0: error: Argument 1 has
 src/observability/log_bridge.py:0: error: Item "None" of "str | None" has no
 src/observability/otel.py:0: error: Argument 3 to "_validate_export" has
 src/observability/otel.py:0: error: Item "None" of "str | None" has no
-src/persistence/repository/feature_snapshot_repository.py:0: error: Returning
-src/persistence/repository/feature_snapshot_repository.py:0: error: Returning
-src/persistence/repository/signal_events_repository.py:0: error: Item "None"
-src/persistence/repository/signal_events_repository.py:0: error: Returning
-src/persistence/repository/signal_events_repository.py:0: error: Returning
-src/persistence/repository/signal_events_repository.py:0: error: Returning
-src/persistence/repository/signal_events_repository.py:0: error: Returning
 src/providers/base_provider_agent.py:0: error: Item
 src/providers/base_provider_agent.py:0: error: Item "None" of
 src/providers/base_provider_agent.py:0: error: Item "None" of

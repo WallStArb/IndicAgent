@@ -1,8 +1,5 @@
 // ── Market data types ──
 
-// ── Signal Quality Tier ──
-export type SignalTier = "hero" | "monitored" | "candidate";
-
 export interface TickData {
   price: number;
   bid: number;
@@ -325,115 +322,7 @@ export interface ConfluenceData {
   ctf_highest_aligned_tf?: number; // minutes (5, 15, 60, etc.)
 }
 
-// ── I7 Trading Signals ──
-
-export interface SignalData {
-  symbol: string;               // Symbol this signal belongs to (needed for history tracking)
-  direction: "long" | "short";
-  signal_type: string;           // e.g., "trend_long", "mean_rev_short"
-  setup_plugin: string;          // e.g., "ind_TrendFollowing"
-  confidence: number;            // 0.0–1.0
-  entry_price: number;
-  entry_type?: string;           // "at_close" | "at_reclaim" | "zone_proximal"
-  stop_loss: number;
-  stop_type?: string;            // "demand_zone" | "sweep_level" | "ob_bottom" | "swing_low" | "sr_support" | "atr"
-  profit_target: number | null;  // targets[0] — T1
-  profit_target_2?: number | null; // targets[1] — T2
-  profit_target_3?: number | null; // targets[2] — T3
-  target_labels?: string[];      // ["S/R 4521.25", "BSL 4530.00", "VWAP+2σ 4545.00"]
-  rr_t1?: number;                // RR to T1
-  rr_t2?: number;                // RR to T2
-  rr_t3?: number;                // RR to T3 (only if structural and >= 4.0R)
-  framing_method?: string;       // "structural" | "atr_fallback"
-  risk_reward_ratio: number;     // computed from entry/stop/T1
-  regime_context: string;        // "bullish" | "bearish"
-  timeframe: string;             // which TF generated this signal, e.g. "1m"
-  timestamp: string;             // ISO timestamp when signal was generated
-  signal_computed_at?: string;   // ISO — when signal_generator_service fired this signal
-  bar_close_ts?: string;         // ISO — when bar closed (pipeline lag start)
-  pipeline_lag_s?: number;       // computed client-side: signal_computed_at - bar_close_ts
-  bar_close_price?: number;      // close price of the bar that triggered the signal
-  market_price_at_signal?: number; // live bid (short) or ask (long) at signal creation
-  ask_at_signal?: number;        // live ask at signal creation
-  bid_at_signal?: number;        // live bid at signal creation
-  entry_zone_low?: number;       // proximal edge of entry zone
-  entry_zone_high?: number;      // distal edge of entry zone
-  zone_valid_at_signal?: boolean; // true = market was inside entry zone when signal fired
-  signal_id?: string;            // unique identifier — used to match terminal lifecycle events
-  intelligence_snapshot?: IntelligenceTfData; // Exact I3/I4/I5/SMC context when signal fired (Renaissance: don't lose historical context)
-  // Resolved state — set when lifecycle service publishes direction=0 terminal event
-  resolved?: boolean;            // true = signal closed, outcome known
-  outcome?: string;              // 8-class: "never_activated" | "stopped_at_entry" | "stopped_in_trade" | "target_1" | "target_1_2" | "target_full" | "ttl_expired_behind" | "ttl_expired_ahead"
-  exit_price?: number;           // price at which signal was closed
-  pnl_r?: number;                // profit/loss in R-multiples (e.g., 2.5R = 2.5x profit)
-  // Setup performance — from setup_performance table JOIN (populated by DB fetch, null when < 30 samples)
-  setup_win_rate?: number;       // 30d rolling win rate for this setup (0.0–1.0)
-  setup_avg_pnl_r?: number;      // 30d rolling avg pnl_r for this setup
-  // Tier classification — from API response or computed client-side from cis_score + was_selected
-  cis_score?: number | null;         // CIS composite score (null for pre-CIS signals and SSE before Task 6)
-  was_selected?: boolean;            // Did this signal win aggregation? (always true in SSE stream)
-  signal_tier?: SignalTier;          // Computed tier — present in API responses; derive client-side for SSE
-  // Phase 35: Confidence pipeline (raw → Kalman-filtered → isotonic-calibrated)
-  raw_cis_score?: number | null;           // Raw CIS score before Kalman filter
-  filtered_cis_score?: number | null;      // Kalman-filtered CIS score (used for fire condition)
-  calibrated_confidence?: number | null;   // Isotonic regression probability; NULL when N < 100 samples
-}
-
-// ── I7 Signal Scorecard (all_ranked from signal_generator_service) ──
-
-export interface RankedSignal {
-  signal_id: string;
-  plugin: string;
-  direction: number;        // 1 = long, -1 = short, 0 = none
-  raw_confidence: number;
-  calibrated_confidence: number;
-  regime_eligible: boolean;
-  quality_score: number;
-  tod_multiplier: number;
-  adjusted_rank: number;
-  is_winner: boolean;
-}
-
-export interface SignalScorecardData {
-  ts: string;
-  symbol: string;
-  tf: string;
-  ranked: RankedSignal[];
-}
-
-// ── I8 AI Narratives ──
-
-export interface NarrativeData {
-  symbol: string;
-  timeframe: string;
-  action_bias: string;           // "bullish" | "bearish"
-  action_tag: string;            // "[BULLISH RECLAIM]" etc. — deterministic from signal
-  narrative_short?: string;      // 2-sentence Context+Execution (~500ms)
-  narrative_deep?: string;       // 3-sentence confluence story (~5-8s)
-  timestamp: string;
-  bar_close_ts?: string;         // ISO — bar close time when narrative was generated
-  receivedAt: number;            // Date.now() when received — for staleness tracking
-  signal_id?: string;            // correlates short + deep events for same signal
-  // Keep for backward compat during transition
-  narrative?: string;
-}
-
-export interface GroupNarrativeData {
-  group: string;                 // e.g. "equity"
-  narrative: string;
-  timestamp: string;
-  receivedAt: number;
-  model: string;
-}
-
-/** Per-timeframe signal direction for cross-TF matrix */
-export interface PerTfSignal {
-  direction: "long" | "short" | null;
-  confidence: number;
-  updatedAt: number;
-}
-
-export type TfSignalMap = Record<string, PerTfSignal>; // key = timeframe string "1m" etc.
+// ── Per-TF intelligence ──
 
 export interface BarOhlcv {
   open: number;
@@ -476,16 +365,10 @@ export interface SymbolData {
   smartMoney: SmartMoneyData | null;
   /** @deprecated Use intelligenceByTf[activeTf] in SymbolCard instead */
   confluence: ConfluenceData | null;
-  signal: SignalData | null;
-  tfSignals: TfSignalMap; // per-TF signal direction for matrix
-  /** Full signal data per TF — keyed by timeframe string */
-  signalsByTf: Record<string, SignalData | null>;
   /** Per-TF I1 indicator snapshots — keyed by timeframe string ("1m", "5m", …) */
   indicatorsByTf: Record<string, IndicatorData>;
   /** Per-TF I3–I6 intelligence snapshots — keyed by timeframe string */
   intelligenceByTf: Record<string, IntelligenceTfData>;
-  /** Per-TF I7 signal scorecard (all_ranked) — keyed by timeframe string */
-  scorecardByTf: Record<string, SignalScorecardData>;
   lastUpdate: number;
 }
 
@@ -503,131 +386,3 @@ export const TIMEFRAMES: { value: Timeframe; label: string; short: string }[] =
     { value: "1d", label: "1 Day", short: "1D" },
   ];
 
-// ── /api/signals/stats response ──
-export interface SignalStatsData {
-  signals_today: number;
-  signals_prev_session: number;
-  hero_rate: number;
-  hero_rate_trend: number;
-  avg_confidence: number | null;
-  avg_confidence_7d: number | null;
-  pipeline_latency_p50: number | null;
-  pipeline_latency_p95: number | null;
-  alpha_7d: number | null;
-  alpha_30d: number | null;
-  edge_trend: "expanding" | "compressing" | "stable";
-  recent_outcomes?: RecentOutcome[];
-}
-
-export interface HeatMapCell {
-  setup_plugin: string;
-  regime: number | null;
-  n: number;
-  avg_r: number | null;
-  win_rate: number | null;
-}
-
-export interface EdgeSeriesPoint {
-  day: string;
-  n: number;
-  avg_r: number | null;
-  win_rate: number | null;
-}
-
-export interface IntradayCell {
-  hour: number;
-  dow: number;
-  n: number;
-  avg_r: number | null;
-}
-
-export interface ActiveSignal {
-  signal_id: string;
-  symbol: string;
-  timeframe: string;
-  setup_plugin: string;
-  signal_type: string;
-  direction: number;
-  entry_price: number | null;
-  stop_loss: number | null;
-  confidence: number | null;
-  status: string;
-  was_selected: boolean;
-  cis_score: number | null;
-  profit_target: number | null;
-  profit_target_2: number | null;
-  profit_target_3: number | null;
-  risk_reward_ratio: number | null;
-  stop_type: string | null;
-  regime_context: string | null;
-  market_price_at_signal: number | null;
-  signal_computed_at: string | null;
-  bar_close_ts: string | null;
-  timestamp: string | null;
-  setup_win_rate: number | null;
-  setup_avg_pnl_r: number | null;
-  staleness_score: number | null;
-  staleness_trigger_reason: string | null;
-  ttl_bars: number | null;
-  hmm_regime_at_fire: number | null;
-  bucket_scores: Record<string, number> | null;
-  signal_tier: string;
-}
-
-export interface RecentOutcome {
-  outcome: string;
-  pnl_r: number | null;
-}
-
-// ── /api/signals/attribution response ──
-export interface AttributionGroup {
-  name: string;
-  n: number;
-  win_rate: number | null;
-  avg_pnl_r: number | null;
-  std_pnl_r?: number | null;
-  sharpe_proxy: number | null;
-  p_value: number | null;
-  n_outliers?: number;
-  never_activated_pct?: number | null;
-  ic_score?: number | null;
-  ic_significant?: boolean | null;
-  insufficient_data?: boolean;
-}
-
-export interface SignalAttributionData {
-  track?: string;
-  window: string;
-  group_by?: string;
-  groups: AttributionGroup[];
-}
-
-// ── /api/signals/recent ledger row ──
-export interface LedgerSignal {
-  signal_id: string;
-  computed_at: string | null;
-  symbol: string;
-  timeframe: string;
-  setup_plugin: string;
-  signal_type: string;
-  direction: number;
-  confidence: number | null;
-  cis_score: number | null;
-  was_selected: boolean;
-  signal_tier: SignalTier;
-  status: string;
-  outcome: string | null;
-  pnl_r: number | null;
-  entry_price: number | null;
-  stop_loss: number | null;
-  exit_price: number | null;
-  setup_win_rate: number | null;
-  setup_avg_pnl_r: number | null;
-  hmm_regime_at_fire: number | null;
-  exit_reason: string | null;
-  mfe: number | null;
-  ttl_bars: number | null;
-  bars_in_trade: number | null;
-  targets: number[];
-  r_ratio: number | null;
-}

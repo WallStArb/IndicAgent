@@ -1,12 +1,11 @@
 // dashboard/src/components/timeframe-matrix.tsx
 "use client";
 
-import type { TfSignalMap, ConfluenceData } from "@/lib/types";
+import type { ConfluenceData } from "@/lib/types";
 import { TIMEFRAMES } from "@/lib/types";
 import { ChevronRight } from "lucide-react";
 
 interface TimeframeMatrixProps {
-  tfSignals: TfSignalMap;
   confluence: ConfluenceData | null;
   activeTf: string;
   onSelectTf: (tf: string) => void;
@@ -15,10 +14,7 @@ interface TimeframeMatrixProps {
   compact?: boolean;
 }
 
-const STALE_THRESHOLD_MS = 5 * 60 * 1000;
-
 export function TimeframeMatrix({
-  tfSignals,
   confluence,
   activeTf,
   onSelectTf,
@@ -39,16 +35,9 @@ export function TimeframeMatrix({
     return (
       <div className="flex items-center gap-1">
         {TIMEFRAMES.map(({ value, short }) => {
-          const sig = tfSignals[value];
-          const isStale = sig && Date.now() - sig.updatedAt > STALE_THRESHOLD_MS;
-          const direction = sig && !isStale ? sig.direction : null;
           const isActive = activeTf === value;
-          const bgColor =
-            direction === "long" ? "var(--green-dim)" :
-            direction === "short" ? "var(--red-dim)" : "var(--bg-base)";
-          const textColor =
-            direction === "long" ? "var(--green)" :
-            direction === "short" ? "var(--red)" : "var(--text-muted)";
+          const bgColor = "var(--bg-base)";
+          const textColor = isActive ? "var(--text-primary)" : "var(--text-muted)";
           return (
             <button
               key={value}
@@ -59,7 +48,6 @@ export function TimeframeMatrix({
                 backgroundColor: bgColor,
                 color: textColor,
                 outline: isActive ? `1px solid ${textColor}` : "none",
-                opacity: isStale ? 0.4 : 1,
               }}
             >
               {short}
@@ -88,24 +76,9 @@ export function TimeframeMatrix({
       </span>
 
       {TIMEFRAMES.map(({ value, short }) => {
-        const sig = tfSignals[value];
-        const isStale = sig && Date.now() - sig.updatedAt > STALE_THRESHOLD_MS;
-        const direction = sig && !isStale ? sig.direction : null;
         const isActive = activeTf === value;
-
-        const bgColor =
-          direction === "long"
-            ? "var(--green-dim)"
-            : direction === "short"
-              ? "var(--red-dim)"
-              : "var(--bg-elevated)";
-
-        const textColor =
-          direction === "long"
-            ? "var(--green)"
-            : direction === "short"
-              ? "var(--red)"
-              : "var(--text-muted)";
+        const bgColor = "var(--bg-elevated)";
+        const textColor = isActive ? "var(--text-primary)" : "var(--text-muted)";
 
         return (
           <button
@@ -120,7 +93,6 @@ export function TimeframeMatrix({
               backgroundColor: bgColor,
               color: textColor,
               outline: isActive ? `1px solid ${textColor}` : "none",
-              opacity: isStale ? 0.4 : 1,
             }}
           >
             {short}

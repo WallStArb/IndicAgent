@@ -28,25 +28,17 @@ from fastapi.testclient import TestClient
 
 from src.api import dependencies
 from src.api.routes import (
-    drift,
-    features,
     health,
     instruments,
     market_data,
-    signals,
-    validation,
     vocabulary,
 )
 
-# name -> dummy value substituted into any {name} path segment. A UUID string
-# also satisfies routes where the same segment name is typed plain `str`
-# (e.g. signals.py's /signals/detail/{signal_id}), so one value per name covers
-# every route regardless of its own path-param type.
+# name -> dummy value substituted into any {name} path segment.
 _PATH_PARAM_VALUES = {
     "symbol": "SPY",
     "timeframe": "5m",
     "namespace": "asset_class",
-    "signal_id": "00000000-0000-4000-8000-000000000000",  # fixed: test ids must not vary per run
 }
 
 
@@ -126,10 +118,6 @@ _ROUTERS: list[tuple[APIRouter, str]] = [
     (health.router, "/health"),
     (market_data.router, "/api"),
     (instruments.router, "/api"),
-    (features.router, "/api"),
-    (signals.router, "/api"),
-    (drift.router, "/api/drift"),
-    (validation.router, "/api/validation"),
     (vocabulary.router, "/api/vocabulary"),
 ]
 
@@ -160,7 +148,7 @@ class TestApiRoutesSmoke:
     def test_route_inventory_is_nonempty(self):
         """Guards against a future router-registration change silently dropping
         every route from this test (an empty parametrize list still 'passes')."""
-        assert len(_GET_ROUTE_PATHS) >= 15
+        assert len(_GET_ROUTE_PATHS) >= 9
 
     @pytest.mark.parametrize("path", _GET_ROUTE_PATHS)
     def test_get_route_does_not_500(self, client, path):

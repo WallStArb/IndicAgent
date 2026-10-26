@@ -20,10 +20,9 @@ Package docstrings in each `__init__.py` are the source of truth for details.
 ## v2.x remainder (do not build on it)
 
 `pipeline/` keeps three primitives `services/feature_vector_pipeline.py` still runs on
-(OutputQueue, PerKeyWorkerManager, PluginStateManager); `trading/signal_outcome.py` stays for the
-dashboard's signal repository. Todo 509 removed the executor, the signal stages, the plugin tier,
-`archive/`, `composites/` and `context/` (item 1, 2026-10-26); the dashboard surface and the ML
-batch chain (items 2 and 3) wait on owner decisions. The I1-I7 signal path, the typed bus and the
+(OutputQueue, PerKeyWorkerManager, PluginStateManager). Todo 509 removed the executor, the signal stages, the plugin tier,
+`archive/`, `composites/` and `context/` (item 1, 2026-10-26); the dashboard signal surface and the
+ML batch chain (items 2 and 3) were deleted on 2026-10-26. The I1-I7 signal path, the typed bus and the
 I8 AI stack were removed in plan 185-45; the archive is the local git tag
 `archive/v2x-ai-stack-2026-10` and `data/backups/185-45/` (kept until about 2026-11-06). The
 pre-removal text of this file, including the plugin protocol, the LLM provider chain and the

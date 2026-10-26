@@ -147,13 +147,7 @@ export default function ObservabilityPanel() {
       <div className="flex flex-col flex-1 p-6 gap-5 overflow-auto">
 
         {/* ── KPI summary strip ── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard
-            label="Tracked Signals"
-            value={summary.activeSignals !== null ? summary.activeSignals.toLocaleString() : "—"}
-            sub="signal ledger"
-            accent="green"
-          />
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <KpiCard
             label="Pipeline Latency"
             value={fmtLatency(summary.pipelineLatencyMs)}

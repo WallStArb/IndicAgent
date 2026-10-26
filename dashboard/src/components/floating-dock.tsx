@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutGrid, Activity, Cpu, BrainCircuit } from "lucide-react";
+import { LayoutGrid, Cpu } from "lucide-react";
 
 const ITEMS = [
   { icon: LayoutGrid, label: "Dashboard", href: "/dashboard",              match: (p: string) => p === "/dashboard",              live: false },
-  { icon: Activity,   label: "Signals",   href: "/signals",                match: (p: string) => p.startsWith("/signals"),         live: false },
   { icon: Cpu,        label: "System",    href: "/dashboard/observability", match: (p: string) => p === "/dashboard/observability", live: false },
-  { icon: BrainCircuit, label: "AI Swarm", href: "/dashboard/ai",          match: (p: string) => p === "/dashboard/ai",            live: true  },
 ] as const;
 
 export function FloatingDock() {

@@ -31,7 +31,6 @@ export interface ServiceEntry {
 }
 
 export interface SummaryMetrics {
-  activeSignals: number | null;
   pipelineLatencyMs: number | null;
   i1LatencyMs: number | null;
   i7LatencyMs: number | null;
@@ -66,7 +65,6 @@ const SERVICE_LAYERS: Array<{ layer: number; name: string; units: string[] }> = 
 // Only services that emit that metric are listed here.
 const UNIT_TO_AGENT: Record<string, string> = {
   "indicagent-signal-tracker-compute":  "signal_tracker",
-  "indicagent-alpha-swarm":             "alpha_swarm",
   "indicagent-cross-asset":             "cross_asset_analyzer",
   "indicagent-macro-compute":           "macro_analyzer",
   "indicagent-graduation-compute":      "graduation_analyzer",
@@ -78,9 +76,7 @@ const UNIT_TO_AGENT: Record<string, string> = {
 
 const GRAFANA = {
   pipeline: "http://localhost:3001/d/indicagent-pipeline-health",
-  signals:  "http://localhost:3001/d/indicagent-signals-i8",
   ops:      "http://localhost:3001/d/indicagent-operations",
-  plugins:  "http://localhost:3001/d/indicagent-plugin-latency",
 };
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
@@ -142,7 +138,7 @@ const EMPTY: ObservabilityData = {
   nodes: [],
   services: [],
   summary: {
-    activeSignals: null, pipelineLatencyMs: null,
+    pipelineLatencyMs: null,
     i1LatencyMs: null, i7LatencyMs: null,
     ingestionRate: null, featureWriteRate: null, threadWorkers: null,
   },
@@ -167,8 +163,6 @@ export function useObservabilityStream(): ObservabilityData {
         // Intelligence
         intelRate, pipelineLatency, i1Latency, i7Latency,
         intelErrors, intelBuffer, threadWorkers,
-        // Signals
-        signalRate, activeSignals, signalDlq,
         // Writers
         featureWriteRate, featureBuffer, barWriteRate, barWriterLag,
         featureCommitLatency,
@@ -187,10 +181,6 @@ export function useObservabilityStream(): ObservabilityData {
         fetchScalar("rate(intelligence_pipeline_pipeline_errors_total[1m])", s),
         fetchScalar("intelligence_pipeline_output_buffer_depth", s),
         fetchScalar("intelligence_pipeline_thread_pool_workers", s),
-        // Signals
-        fetchScalar("rate(intelligence_pipeline_signals_generated_total[1m])", s),
-        fetchScalar("signal_tracker_compute_active_signals", s),
-        fetchScalar("rate(intelligence_pipeline_signal_dlq_total[1m])", s),
         // Writers
         fetchScalar("rate(feature_writer_events_consumed_total[1m])", s),
         fetchScalar("feature_writer_agent_buffer_depth", s),
@@ -209,8 +199,6 @@ export function useObservabilityStream(): ObservabilityData {
         const name = r.labels["agent_id"];
         if (name) agentAge[name] = now - r.value;
       }
-
-      const swarmAge = agentAge["alpha_swarm"] ?? null;
 
       // ── Build nodes ───────────────────────────────────────────────────────
 
@@ -249,24 +237,7 @@ export function useObservabilityStream(): ObservabilityData {
             { label: "Buffer",   value: intelBuffer    !== null ? String(Math.round(intelBuffer))   : "—" },
           ],
           health: nodeHealth(intelRate, intelErrors, null),
-          grafanaDashboard: GRAFANA.plugins,
-        },
-        {
-          id: "signals",
-          label: "Signal Generation",
-          sublabel: "I7 aggregator · signal ledger",
-          rate: signalRate,
-          rateUnit: "sig/s",
-          latencyMs: null,
-          lagSec: null,
-          errorRate: signalDlq,
-          bufferDepth: null,
-          extras: [
-            { label: "Tracked", value: activeSignals !== null ? activeSignals.toLocaleString() : "—" },
-            { label: "DLQ/s",   value: signalDlq     !== null ? `${signalDlq.toFixed(3)}`        : "—" },
-          ],
-          health: nodeHealth(signalRate, signalDlq, null),
-          grafanaDashboard: GRAFANA.signals,
+          grafanaDashboard: GRAFANA.pipeline,
         },
         {
           id: "writers",
@@ -286,27 +257,6 @@ export function useObservabilityStream(): ObservabilityData {
           ],
           health: nodeHealth(featureWriteRate, null, barWriterLag !== null ? barWriterLag / 1000 : null),
           grafanaDashboard: GRAFANA.pipeline,
-        },
-        {
-          id: "ai",
-          label: "AI Swarm",
-          sublabel: "Alpha · Skeptic · Counterfactual · Narrative",
-          rate: null,
-          rateUnit: "agents",
-          latencyMs: null,
-          lagSec: null,
-          errorRate: null,
-          bufferDepth: null,
-          extras: [
-            { label: "Last seen", value: swarmAge !== null ? `${Math.round(swarmAge)}s ago` : "—" },
-          ],
-          health: (() => {
-            if (swarmAge === null) return "unknown";
-            if (swarmAge < 300)  return "active";
-            if (swarmAge < 1800) return "stale";
-            return "degraded";
-          })(),
-          grafanaDashboard: GRAFANA.signals,
         },
       ];
 
@@ -342,7 +292,6 @@ export function useObservabilityStream(): ObservabilityData {
         nodes,
         services,
         summary: {
-          activeSignals,
           pipelineLatencyMs: pipelineLatency,
           i1LatencyMs: i1Latency,
           i7LatencyMs: i7Latency,

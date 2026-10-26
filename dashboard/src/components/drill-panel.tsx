@@ -2,12 +2,10 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { SymbolData, SignalData } from "@/lib/types";
+import type { SymbolData } from "@/lib/types";
 import { fmtPrice, fmtNum, fmtMinutesHM } from "@/lib/format";
 import { TierTooltip } from "@/components/tier-tooltip";
-import { SignalScorecard } from "@/components/signal-scorecard";
 import { Section, Grid, KV, Empty } from "./ui/primitives";
-import { SignalDetail, RecentSignals, type SignalWindowSummary } from "./signal";
 import {
   rsiTooltip, macdTooltip, stochTooltip, atrTooltip, vwapTooltip, mfiTooltip,
   ema13Tooltip, ema21Tooltip,
@@ -28,15 +26,11 @@ interface DrillPanelProps {
   symbol: string;
   timeframe: string;
   data: SymbolData;
-  signal: SignalData | null;
-  signalsHistory: SignalData[];
-  onSignalSelect: (signal: SignalData) => void;
   onClose: () => void;
 }
 
-export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, onSignalSelect, onClose }: DrillPanelProps) {
-  // Renaissance: Use intelligence snapshot from signal when available (historical context), otherwise use current data
-  const intel = signal?.intelligence_snapshot ?? (data.intelligenceByTf[timeframe] ?? null);
+export function DrillPanel({ symbol, timeframe, data, onClose }: DrillPanelProps) {
+  const intel = data.intelligenceByTf[timeframe] ?? null;
   const structure = intel?.structure ?? null;
   const context = intel?.context ?? null;
   const patterns = intel?.patterns ?? null;
@@ -82,31 +76,6 @@ export function DrillPanel({ symbol, timeframe, data, signal, signalsHistory, on
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-0 flex flex-col gap-3">
-          {/* Recent Signals Hero */}
-          <RecentSignals
-            symbol={symbol}
-            timeframe={timeframe}
-            signalsHistory={signalsHistory}
-            selectedSignal={signal}
-            onSignalSelect={onSignalSelect}
-          />
-
-          {/* I7 Signal */}
-          <Section label={<TierTooltip tier="I7">I7 Signal</TierTooltip>}>
-            {signal ? (
-              <SignalDetail signal={signal} />
-            ) : timeframe === "1m" ? (
-              <Empty>No active 1m signal</Empty>
-            ) : (
-              <Empty>No signal for {timeframe} — signals are generated on 1m</Empty>
-            )}
-          </Section>
-
-          {/* Signal Scorecard — all ranked signals for current bar */}
-          <Section label="Signal Scorecard">
-            <SignalScorecard data={data.scorecardByTf?.[timeframe]} />
-          </Section>
-
           {/* I3 Structure */}
           <Section label={<TierTooltip tier="I3">I3 Structure</TierTooltip>}>
             {structure ? (

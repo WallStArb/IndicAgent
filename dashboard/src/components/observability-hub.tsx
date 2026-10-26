@@ -1,17 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Gauge, Database, BrainCircuit, Activity, ChevronRight } from "lucide-react";
+import { Gauge, Activity, ChevronRight } from "lucide-react";
 const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL ?? "http://localhost:3001";
-const LANGFUSE_URL = process.env.NEXT_PUBLIC_LANGFUSE_URL ?? "http://localhost:3010";
-const MLFLOW_URL = process.env.NEXT_PUBLIC_MLFLOW_URL ?? "http://localhost:5000";
 
 const TOOLS = [
   { name: "Command Center", path: "/dashboard/observability", icon: Activity, desc: "Real-time swarm pulse & latency", isExternal: false },
-  { name: "Swarm Intelligence", path: "/dashboard/ai", icon: BrainCircuit, desc: "Agent stats, narrative feed, latency & token observability", isExternal: false },
   { name: "Pipeline Health", path: `${GRAFANA_URL}/d/indicagent-pipeline-health`, icon: Gauge, desc: "Grafana: bar aggregation, intelligence pipeline, writers", isExternal: true },
   { name: "Operations", path: `${GRAFANA_URL}/d/indicagent-operations`, icon: Gauge, desc: "Grafana: service health, restarts, circuit breakers", isExternal: true },
-  { name: "Training Data", path: MLFLOW_URL, icon: Database, desc: "MLflow model versioning", isExternal: true },
 ];
 
 export function ObservabilityHub() {

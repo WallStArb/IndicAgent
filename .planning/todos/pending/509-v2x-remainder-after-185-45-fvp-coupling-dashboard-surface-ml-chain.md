@@ -60,6 +60,19 @@ HTTP 404 from the removed `/api/ai/stats` and `/api/signals/{id}/ai`; both handl
 Owner decision 2026-10-26: delete the v2.x signal panels, their API routes and the empty tables
 (each dumped already in `data/backups/185-45/`); phase 188's forward runner builds its own views.
 
+DONE 2026-10-26 (migration 521): signal, features, validation and drift routes, the signal events
+repository, `src/intelligence/trading/`, the feature-validation service, the dashboard's signal,
+narrative, AI swarm and landing surfaces; `drift_state`, `setup_performance` and ten
+`ui.signals.*` keys dropped. Follow-ups (code review 2026-10-26): SSE still consumes
+`signals.aggregated` and builds `signal_scorecard` frames nobody reads (remove topic, mapping and
+`_extract_signal_scorecard_payload`); the I7 regime_type CI step, pre-commit hook,
+`check_plugin_invariants.sh` and `scan_binary_patterns.py` still target the deleted
+`src/intelligence/trading/` and now pass vacuously; procedure `weekly_db_maintenance` still runs
+`ANALYZE setup_performance` (unscheduled; drop it); `use-observability-stream.ts` SERVICE_LAYERS
+still lists retired units; ProfileChip's dead `symbolData` prop, unimported `use-demo-data.ts` and
+the orphaned format helpers can go; `shadow_registry` (36 rows of plugin settings, dumped) awaits
+an owner drop-or-keep call; restart indicagent-api and indicagent-dashboard to serve the change.
+
 ## 3. The ML batch chain (DONE 2026-10-26)
 
 Owner decision 2026-10-26: delete. Gone: `services/{ml_training_agent,ml_orchestrator,
