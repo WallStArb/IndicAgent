@@ -137,11 +137,11 @@ Ordering against 186-26 (the `feature_vectors` rebuild): canonical values do not
 
 ## Resolved at planning (2026-10-12)
 
-Decisions taken while planning phase 191 (`.planning/phases/191-unified-raw-bar-table/`). Plan numbers are those in ROADMAP.md phase 191. Each carries the line `Status: planner decision, owner acknowledgement pending`.
+Decisions taken while planning phase 191 (`.planning/phases/191-unified-raw-bar-table/`). Plan numbers are those in ROADMAP.md phase 191. Each carries a Status line; all were acknowledged or superseded by the owner on 2026-10-26 (D-191-C content by D-191-P).
 
 ### D-191-A: kind rules
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26 with a follow-up: an Alpaca raw write must be split-adjusted (an unadjusted answer must never land last-wins as `sip_rth`); the kind list also includes `iex_rth` (feed=iex, raw only, never selected).
 
 Raw `kind` is what the vendor served, so `fallback` is a canonical-only kind: a selection outcome the daily rule assigns, never written to `ohlcv_raw`. Tradier's kind is `consolidated` and Alpaca's is `sip_rth` (the RTH-window SIP aggregates, `docs/plans/2026-10-09-alpaca-5m-admission-build.md`). The IBKR 1d observation routes map to `smart_trades` and `smart_adjusted` (a listing-venue route with TRADES maps to `venue`). `derived` is the vendor only of the 15m/1h grid (kind `5m_grid`); the rule version stays in `bar_derivation_batch`, not on the row. The single definition is `src/intelligence/bars/vendor_kind.py`.
 
@@ -153,7 +153,7 @@ This deviates from the Canonical section above, whose example gives derived rows
 
 ### D-191-C: Alpaca policy spans are data, seeded at the selection gate
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision; mechanism acknowledged 2026-10-26, content superseded by D-191-P (the seeded spans preserved an old load order rather than a decided ranking).
 
 The schema migration drops the `bar_source_policy` CHECKs on `primary_source` and `fallback_source` but seeds no span. Alpaca spans are seeded data-driven through `scripts/ops/bars/ops_source_policy.py` in the selection gate plan (07), reproducing today's canonical wherever selection from raw differs.
 
@@ -165,13 +165,13 @@ This deviates from the Migration plan text in step 6, which has the dividend wri
 
 ### D-191-E: revision evidence is reconstructed in the backfill
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26.
 
 The backfill reconstructs `ohlcv_revision` rows from observation value history so split detection keeps its evidence: one real `ohlcv_load` row per (symbol, vendor, restatement ordinal), caller `raw-backfill-191`. It runs in plan 04, after the revision key is widened to include vendor and kind.
 
 ### D-191-F: one cutover window
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26.
 
 The bulk backfill (plan 03) only reads and runs with the fetcher live. The fetcher timer and every timer or service that writes or reads the old stores stop in plan 04 and resume per unit as each reader cuts over. The fetcher resumes only after the selection gate (plan 07) passes.
 
@@ -189,19 +189,19 @@ This deviates from Ingress contract item 3 as first written ("raw still records 
 
 ### D-191-J: a forming 1d bar is not a vendor answer
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26.
 
 A 1d bar served before its NYSE session closes (`session_complete_at(bar_date, answered_at)`, early closes included) is still forming. It is not a complete answer for the day and its later completion is not the vendor restating its own history. Raw is last-wins, so the rule has two halves. Live: `_ChunkPersister` does not offer such a bar to raw (the request row is kept; the planner leaves the session a gap until a run sees it whole). Reconstruction: a value run first served before the close is never superseded evidence, so `--revisions` skips it and keeps the other runs' ordinals; `--prune-forming-revisions` rebuilt the 929 smart_trades rows (929 symbols) the unfiltered reconstruction had logged. The boundary is the close instant, with no grace period: a bar answered at or after the close is complete. A date with no calendar session counts as complete once the date has passed. Origin: review finding 1 of plans 191-04 and 191-05.
 
 ### D-191-K: the fetch question is per source
 
-Status: planner decision (owner principle, 2026-10-13), owner acknowledgement pending
+Status: planner decision (owner principle, 2026-10-13), owner acknowledged 2026-10-26
 
 Raw is stored per source and agnostic to every other source, so the gap planner asks one question: for this vendor, which slots of [A, B] are missing from its own `ohlcv_raw` rows, minus its own answered request windows (a definitive `no_data` included)? Every planner read carries the vendor (`ohlcv_raw.vendor`, `ohlcv_request.source`); the empty-history probes (`has_bar_before`, `has_bar_between`, `load_first_bars`), the queue's 1d currency read and the coverage ledger follow. No date cutoff restricts the question, and another vendor's rows, answers or the canonical selection never cover a slot. A stored 1d bar counts only when its session was complete when it was served (D-191-J). Two kinds of ask are not gaps and stay outside the planner (`_with_verification_asks`): the update lane's 5m overlap, the 1d session overlap, and the escalation refetch. They re-ask slots the vendor already holds, because a restated history (a split, a rescaled level) is visible only by comparing a fresh serve with the same source's stored values, which is what split detection and the 5m waiver read (plans 191-08 and 191-10). Deleting them would leave no restatement ever observed.
 
 ### D-191-L: the selection session rule, session-date spans, and what a loader reports
 
-Status: planner decision (plan 191-07, review of plans 191-04 and 191-05), owner acknowledgement pending
+Status: planner decision (plan 191-07, review of plans 191-04 and 191-05), owner acknowledged 2026-10-26 with a follow-up: slots whose only candidates are a never-selected kind (`iex_rth`) are counted apart from policy-gap unselected slots and do not fail a loader
 
 Four rules in selection and the loaders, each from the review of the raw-first writers.
 
@@ -361,3 +361,17 @@ On 2026-10-15 the daily stage refused GYRE (132 changed of 4,665 stored rows, ra
 Status: planner decision, owner acknowledged 2026-10-26
 
 Phase 191 does not deliver: the D7 condition for todo 520, todo 524's D7 tolerance rule and price/volume split, todo 531's `market_data_5m` naming pass, and todo 527's 5m shaper dedup. Plan 18 records each as a deferral in its todo.
+
+### D-191-P: canonical 5m ranking, Alpaca SIP primary from 2016
+
+Status: owner decision 2026-10-26 (independent review of D-191-C)
+
+The 5m policy seeded at plan 07 reproduced the canonical of the day: IBKR primary with Alpaca
+fallback for every name, plus 56 short Alpaca-primary windows that preserved an old load order.
+Under that ranking canonical 5m moves from Alpaca to IBKR session by session as the IBKR deep 5m
+backfill lands, a volume-basis step (IBKR 5m volume measured at about 0.38 to 0.95 of Alpaca's
+consolidated SIP) that no gate reports, because the selection gate only proves canonical equals
+the selection. Decision: Alpaca SIP (`sip_rth`) is primary for 5m from 2016-01-04 onward with IBKR as fallback; before 2016-01-04 IBKR alone. The 56 fossil windows
+are closed. One fixed, documented seam at 2016-01-04 replaces a moving one. Written through
+`scripts/ops/bars/ops_source_policy.py` (the policy table's one writer) and applied with a
+reselect before the 186-26 rebuild.
