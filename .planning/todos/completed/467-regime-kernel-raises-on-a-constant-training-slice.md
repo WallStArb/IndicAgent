@@ -1,7 +1,8 @@
 ---
-status: pending
+status: closed
 priority: P3
 filed: 2026-09-30
+closed: 2026-10-26
 source: plan 186-13, found while adding a flat-series test
 ---
 
@@ -36,3 +37,21 @@ window query), and zero series are fully constant (min(close) = max(close) per s
 The exception is therefore unreachable on today's universe; the fix is hardening for the one-shot
 186-26 rebuild (where a raise loses a whole (symbol, tf) unit with no recorded reason), not a
 live defect. Cheap insurance if the executor has room; no evidence-based urgency.
+
+## Closed 2026-10-26
+
+`_walk_forward_hmm_full` (`src/intelligence/features/kernels/_hmm.py`) catches hmmlearn's
+covariance-check error ("'covars' must be symmetric, positive-definite") around each segment's
+fit and reports that segment as degenerate with reason `fit_failed`, the error text, and status
+4 (`STATUS_OTHER_GATE`); the next segment seeds from the stationary prior. No convergence event
+is emitted for a segment that never fit. Any other `ValueError` still raises, and so does this
+one if an hmmlearn upgrade rewords it (loud, not silent). A doubled-`n_iter` retry that fails
+the same check keeps the capped first model as not converged (status 3).
+
+The trigger is wider than a fully constant slice: a slice that is mostly constant but not
+entirely constant also fails the check, so a zero-variance precheck would have missed it. The
+normal path is bit-identical (regime kernel goldens and the writer equality tests unchanged).
+Tests: `test_a_fit_that_raises_is_a_skipped_segment_with_a_reason`,
+`test_a_failed_segment_does_not_stop_the_next_from_fitting`, `test_any_other_fit_error_propagates`,
+`test_a_retry_that_raises_keeps_the_capped_first_fit_as_not_converged` in
+`tests/unit/intelligence/test_regime_kernel.py`.

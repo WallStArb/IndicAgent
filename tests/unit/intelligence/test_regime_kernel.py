@@ -571,6 +571,101 @@ def test_duration_and_churn_restart_across_a_skipped_segment(family):
     assert churn[2 * width + 2] > 0.0  # a real A to B change inside segment 3 is counted
 
 
+def test_a_fit_that_raises_is_a_skipped_segment_with_a_reason():
+    """Todo 467: on a constant close the volatility fit raises hmmlearn's "'covars' must be
+    symmetric, positive-definite". The kernel reports each such segment as skipped with reason
+    fit_failed (status 4) instead of failing the whole (symbol, tf) unit with no reason."""
+    n_rows = 3000
+    close = np.full(n_rows, 100.0)
+    spec = FAMILY_SPECS["volatility"]
+    obs, valid_offset = spec.build_observations(close, None, _config().hmm, None)
+    result = _hmm.walk_forward_family_arrays(obs, valid_offset, n_rows, _config().hmm, "1d", spec)
+
+    assert np.isnan(result.code).all()
+    failed = [
+        e.fields
+        for e in result.events
+        if e.kind == _hmm.EVENT_SEGMENT_SKIPPED and e.fields["reason"] == "fit_failed"
+    ]
+    assert failed and all(f["error"] for f in failed)
+    for fields in failed:
+        rows = slice(valid_offset + fields["seg_start"], valid_offset + fields["seg_end"])
+        assert (result.status[rows] == _hmm.STATUS_OTHER_GATE).all()
+    convergence_starts = {
+        e.fields["seg_start"] for e in result.events if e.kind == _hmm.EVENT_CONVERGENCE
+    }
+    assert not convergence_starts & {f["seg_start"] for f in failed}
+
+
+def _walk_forward(obs):
+    config = _config().hmm
+    return _hmm._walk_forward_hmm_full(
+        obs,
+        config.hmm_n_components,
+        config.hmm_covariance_type,
+        config.hmm_n_iter,
+        config.hmm_random_state,
+        config.hmm_refit_every_bars_1d,
+        config.hmm_initial_warmup_bars_1d,
+        config.hmm_min_hold_bars,
+        config.hmm_full_cov_min_obs,
+        config.hmm_min_state_occupation,
+        min_obs_factor=config.hmm_min_obs_factor,
+        covariance_ridge=config.hmm_covariance_ridge,
+    )
+
+
+def test_a_failed_segment_does_not_stop_the_next_from_fitting():
+    """The first segment's fit fails the covariance check; the next is fit and decoded over its
+    whole segment."""
+    config = _config().hmm
+    n_rows = config.hmm_initial_warmup_bars_1d + 2 * config.hmm_refit_every_bars_1d
+    obs = np.random.default_rng(0).normal(size=(n_rows, 2))
+    real_fit = _hmm._fit_with_retry
+    calls = []
+
+    def fit_raising_once(*args):
+        calls.append(len(args[0]))
+        if len(calls) == 1:
+            raise ValueError("'covars' must be symmetric, positive-definite")
+        return real_fit(*args)
+
+    with patch.object(_hmm, "_fit_with_retry", side_effect=fit_raising_once):
+        segments = _walk_forward(obs)
+
+    assert segments[0]["gate_info"]["reason"] == "fit_failed"
+    assert len(segments[0]["states"]) == 0
+    second = segments[1]
+    assert second["gate_info"]["reason"] != "fit_failed"
+    assert len(second["states"]) == second["seg_end"] - second["seg_start"]
+
+
+def test_any_other_fit_error_propagates():
+    """Only the covariance-check failure is reported as a skipped segment; any other fit error is
+    a defect and raises."""
+    obs = np.random.default_rng(0).normal(size=(1200, 2))
+    with patch.object(_hmm, "_fit_with_retry", side_effect=ValueError("bad input")):
+        with pytest.raises(ValueError, match="bad input"):
+            _walk_forward(obs)
+
+
+def test_a_retry_that_raises_keeps_the_capped_first_fit_as_not_converged():
+    fits = []
+
+    class FakeHMM:
+        def __init__(self, n_iter, **_):
+            self.monitor_ = SimpleNamespace(iter=n_iter, n_iter=n_iter)
+            fits.append(self)
+
+        def fit(self, _):
+            if len(fits) == 2:
+                raise ValueError("'covars' must be symmetric, positive-definite")
+
+    with patch.object(_hmm, "GaussianHMM", FakeHMM):
+        model, converged = _hmm._fit_with_retry(np.zeros((10, 2)), 3, "diag", 50, 0)
+    assert model is fits[0] and not converged
+
+
 def _nan_padded_rolling(arr, window, fn, block_rows=None):
     """A `_rolling` whose warmup rows are poisoned with NaN, whatever the production padding is."""
     windows = np.lib.stride_tricks.sliding_window_view(arr, window)

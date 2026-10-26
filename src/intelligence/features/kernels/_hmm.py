@@ -782,6 +782,76 @@ def _seed_prior_from_label(
     return np.asarray(pi0 / pi0.sum())
 
 
+# The text of hmmlearn's covariance validation error ("'covars' must be symmetric,
+# positive-definite"), the one fit error a walk-forward segment reports instead of raising.
+_COVARS_ERROR = "'covars'"
+
+
+def _fit_with_retry(
+    train_scaled: np.ndarray,
+    n_components: int,
+    covariance_type: str,
+    n_iter: int,
+    hmm_random_state: int,
+) -> tuple[GaussianHMM, bool]:
+    """Fit one segment's model, retrying once at doubled n_iter when the first fit hits its cap.
+
+    Returns (model, converged). A ValueError from the first fit propagates to the caller; one
+    from the retry keeps the first model as not converged, the result before todo 467.
+    """
+    model = GaussianHMM(
+        n_components=n_components,
+        covariance_type=covariance_type,
+        n_iter=n_iter,
+        random_state=hmm_random_state,
+    )
+    model.fit(train_scaled)
+    # hmmlearn 0.3.3's monitor_.converged is always True after fit() completes
+    # (ConvergenceMonitor.converged's first disjunct is `iter == n_iter`, which is
+    # trivially satisfied whenever the EM loop runs to its cap) -- iter < n_iter is
+    # the only signal that distinguishes a genuine tolerance-convergence from a
+    # cap-hit (todo 229, proven exact against hmmlearn 0.3.3's fit() loop).
+    if model.monitor_.iter < model.monitor_.n_iter:
+        return model, True
+    retry_model = GaussianHMM(
+        n_components=n_components,
+        covariance_type=covariance_type,
+        n_iter=n_iter * 2,
+        random_state=hmm_random_state,
+    )
+    try:
+        retry_model.fit(train_scaled)
+    except ValueError as error:
+        if _COVARS_ERROR not in str(error):
+            raise
+        return model, False
+    if retry_model.monitor_.iter < retry_model.monitor_.n_iter:
+        return retry_model, True
+    return model, False
+
+
+def _fit_failed_segment(
+    seg_start: int, seg_end: int, n_iter: int, error: ValueError
+) -> dict[str, Any]:
+    """A skipped segment whose fit raised: no states or probabilities, reason `fit_failed`."""
+    return {
+        "seg_start": seg_start,
+        "seg_end": seg_end,
+        "states": np.empty(0, dtype=np.int64),
+        "state_labels": (),
+        "p_up": [],
+        "p_ranging": [],
+        "p_down": [],
+        "prob_val": [],
+        "entropy_val": [],
+        "converged": False,
+        "iters_used": 0,
+        "n_iter_cap": n_iter,
+        "is_degenerate": True,
+        "gate_info": {"reason": "fit_failed", "error": str(error), "gate_basis": "training_slice"},
+    }
+
+
 def _walk_forward_hmm_full(
     obs_matrix: np.ndarray,
     n_components: int,
@@ -863,6 +933,8 @@ def _walk_forward_hmm_full(
             "is_degenerate": bool,     # _check_occupation_gate's verdict for this segment
             "gate_info": dict,         # _check_occupation_gate's diagnostics for this segment
         }
+    A segment whose fit failed hmmlearn's covariance check (todo 467) is degenerate with `gate_info["reason"] == "fit_failed"` and the error text, empty `states`,
+    `state_labels` and probability lists, and `iters_used` 0. Any other fit error propagates.
     Degenerate/non-converged segments ARE included (not silently dropped) -- this
     function is a pure reporter of what each segment's fit produced; the caller
     (`walk_forward_family_arrays`) decides whether to write a segment's bars,
@@ -880,34 +952,24 @@ def _walk_forward_hmm_full(
         train_slice = obs_matrix[:boundary]
         scaler = StandardScaler()
         train_scaled = scaler.fit_transform(train_slice)
+        seg_end = min(boundary + refit_every_bars, n)
 
         eff_cov_type = covariance_type if len(train_scaled) >= full_cov_min_obs else "diag"
-        model = GaussianHMM(
-            n_components=n_components,
-            covariance_type=eff_cov_type,
-            n_iter=n_iter,
-            random_state=hmm_random_state,
-        )
-        model.fit(train_scaled)
-        # hmmlearn 0.3.3's monitor_.converged is always True after fit() completes
-        # (ConvergenceMonitor.converged's first disjunct is `iter == n_iter`, which is
-        # trivially satisfied whenever the EM loop runs to its cap) -- iter < n_iter is
-        # the only signal that distinguishes a genuine tolerance-convergence from a
-        # cap-hit (todo 229, proven exact against hmmlearn 0.3.3's fit() loop).
-        converged = model.monitor_.iter < model.monitor_.n_iter
-        if not converged:
-            retry_model = GaussianHMM(
-                n_components=n_components,
-                covariance_type=eff_cov_type,
-                n_iter=n_iter * 2,
-                random_state=hmm_random_state,
+        try:
+            model, converged = _fit_with_retry(
+                train_scaled, n_components, eff_cov_type, n_iter, hmm_random_state
             )
-            retry_model.fit(train_scaled)
-            if retry_model.monitor_.iter < retry_model.monitor_.n_iter:
-                model = retry_model
-                converged = True
-
-        seg_end = min(boundary + refit_every_bars, n)
+        except ValueError as error:
+            # Todo 467: a training slice with little or no variance (a constant close) makes
+            # hmmlearn's covariance check raise. That segment is reported skipped with the error
+            # and the next seeds from the stationary prior. Any other error is a defect and
+            # raises, as does this one if an hmmlearn upgrade rewords it.
+            if _COVARS_ERROR not in str(error):
+                raise
+            segment_results.append(_fit_failed_segment(boundary, seg_end, n_iter, error))
+            prior_label = None
+            boundary = seg_end
+            continue
 
         label_map = _build_label_map(model.means_, vocab=vocab)
 
@@ -1004,7 +1066,7 @@ FAMILY_VOLATILITY = "volatility"
 N_NUMERIC_COLUMNS = 7
 
 # segment_status codes: 0 no model yet, 1 written, 2 degenerate_occupation, 3 not_converged,
-# 4 any other gate reason.
+# 4 any other gate reason (fit_failed among them: the segment's fit raised, todo 467).
 STATUS_NO_MODEL = 0.0
 STATUS_WRITTEN = 1.0
 STATUS_DEGENERATE_OCCUPATION = 2.0
@@ -1222,19 +1284,22 @@ def walk_forward_family_arrays(
     carried_run = 0
     for seg in segment_results:
         rows = slice(valid_offset + seg["seg_start"], valid_offset + seg["seg_end"])
-        events.append(
-            RegimeEventRecord(
-                EVENT_CONVERGENCE,
-                {
-                    "iters_used": seg["iters_used"],
-                    "n_iter_cap": seg["n_iter_cap"],
-                    "converged": seg["converged"],
-                    "seg_start": seg["seg_start"],
-                    "seg_end": seg["seg_end"],
-                    "train_end": seg["seg_start"],
-                },
+        if (
+            seg["gate_info"].get("reason") != "fit_failed"
+        ):  # no fit ran, so no convergence to report
+            events.append(
+                RegimeEventRecord(
+                    EVENT_CONVERGENCE,
+                    {
+                        "iters_used": seg["iters_used"],
+                        "n_iter_cap": seg["n_iter_cap"],
+                        "converged": seg["converged"],
+                        "seg_start": seg["seg_start"],
+                        "seg_end": seg["seg_end"],
+                        "train_end": seg["seg_start"],
+                    },
+                )
             )
-        )
         if seg["is_degenerate"]:
             events.append(
                 RegimeEventRecord(
