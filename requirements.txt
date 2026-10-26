@@ -99,6 +99,7 @@ mypy-baseline>=0.7.4  # todo 311: grandfathers pre-existing errors, CI blocks on
 numba>=0.65.0
 pytest>=8.4.0
 pytest-asyncio>=1.1.0
+pytest-xdist>=3.8.0
 ruff>=0.15.0
 tqdm>=4.67.3  # was exact-pinned with no recorded reason; pydantic-ai 2.x's own resolution already needs 4.70+
 vulture>=2.11

@@ -100,7 +100,7 @@ sudo systemctl start indicagent-intelligence-pipeline indicagent-feature-vector-
 
 ## Development & Testing
 ```bash
-.venv/bin/pytest tests/unit/ -v        # Unit tests
+.venv/bin/pytest tests/unit/ -n auto   # Unit tests, parallel (-n 0 for pdb)
 .venv/bin/pytest tests/integration/ -v # Integration (requires live Redpanda + PostgreSQL)
 .venv/bin/ruff check . --fix           # Linting
 .venv/bin/black .                      # Formatting

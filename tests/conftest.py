@@ -6,6 +6,13 @@ import os
 import sys
 from pathlib import Path
 
+# One BLAS/OpenMP/numba thread per pytest-xdist worker (todo 529): N workers that each start a
+# full-width thread pool oversubscribe the cores and ran every test about 5x slower. This has to
+# run before numpy or numba is first imported in the worker.
+if os.environ.get("PYTEST_XDIST_WORKER"):
+    for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMBA_NUM_THREADS"):
+        os.environ.setdefault(_var, "1")
+
 # Ensure the project root is on sys.path so services/ is importable
 _project_root = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, _project_root)
@@ -58,3 +65,8 @@ async def mock_database_connection():
     conn_mock.execute = AsyncMock(return_value="INSERT 0 1")
     conn_mock.close = AsyncMock()
     return conn_mock
+
+
+def pytest_xdist_auto_num_workers(config):
+    """`-n auto` takes half the cores: the box also runs the live services and other sessions."""
+    return max(1, (os.cpu_count() or 2) // 2)

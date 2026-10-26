@@ -68,6 +68,7 @@ dev = [
     "black>=26.1.0",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.1.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.15.0",
     "statsmodels>=0.14.6",
 ]

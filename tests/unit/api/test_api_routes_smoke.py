@@ -21,7 +21,6 @@ from __future__ import annotations
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
-from uuid import uuid4
 
 import pytest
 from fastapi import APIRouter, FastAPI
@@ -47,7 +46,7 @@ _PATH_PARAM_VALUES = {
     "symbol": "SPY",
     "timeframe": "5m",
     "namespace": "asset_class",
-    "signal_id": str(uuid4()),
+    "signal_id": "00000000-0000-4000-8000-000000000000",  # fixed: test ids must not vary per run
 }
 
 

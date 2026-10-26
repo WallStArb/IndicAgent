@@ -7,7 +7,6 @@ into its own shared module (todo 092, 2026-07-24) so curve_credit.py could reuse
 from __future__ import annotations
 
 import math
-import statistics
 import sys
 import time
 from pathlib import Path
@@ -132,23 +131,25 @@ class TestCausalExpandingRank:
         Empirically (2026-08-21, this implementation): 6.11x observed. The retired O(n^2)
         implementation measured 19.62x under the identical harness -- a clean, wide
         separation. 10x sits with real margin on both sides regardless of absolute hardware
-        speed. Each measurement takes the median of 5 samples (not a single draw) to further
+        speed. Each measurement takes the minimum CPU time of 5 samples (not a single draw) to
         damp one-off scheduling noise.
         """
 
-        def _median_time(n: int) -> float:
+        # CPU time of this process, minimum of 5: the suite runs under pytest-xdist, where
+        # wall-clock samples include time other workers hold the core (todo 529).
+        def _min_cpu_time(n: int) -> float:
             rng = np.random.default_rng(3)
             series = pd.Series(rng.normal(size=n))
             samples = []
             for _ in range(5):
-                t0 = time.perf_counter()
+                t0 = time.process_time()
                 causal_expanding_rank(series)
-                samples.append(time.perf_counter() - t0)
-            return statistics.median(samples)
+                samples.append(time.process_time() - t0)
+            return min(samples)
 
         n_small, n_large = 20_000, 100_000
-        time_small = _median_time(n_small)
-        time_large = _median_time(n_large)
+        time_small = _min_cpu_time(n_small)
+        time_large = _min_cpu_time(n_large)
         ratio = time_large / time_small
 
         assert ratio < 10.0, (

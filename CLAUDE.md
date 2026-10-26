@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.1
+Version: 5.63.2
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -22,14 +22,14 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
    - docs/planning only: the test that consumes the files, then commit
    - small code change (single area, no schema or src/intelligence/research|statistics):
      targeted tests for the touched area, then commit
-   - substantive code: /simplify -> /review -> pytest tests/unit/ -q, then commit
+   - substantive code: /simplify -> /review -> pytest tests/unit/ -n auto, then commit
      (+ scripts/research/determinism/repro_frozen.py bit-identical for
      src/intelligence/research/ or statistics/ edits)
 2. Commit on main (pre-commit's 9 checks always run)
 3. git push origin main; CI is the backstop
 ```
 
-`/gsd-execute-phase` runs its own simplify gate. **Commands:** `.venv/bin/pytest tests/unit/ -v` · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
+`/gsd-execute-phase` runs its own simplify gate. **Commands:** `.venv/bin/pytest tests/unit/ -n auto` (about 70 s; `-n 0` for pdb) · `.venv/bin/ruff check . --fix` · `.venv/bin/black .` · `docs/reference/cheatsheet.md`.
 
 ## Architecture
 

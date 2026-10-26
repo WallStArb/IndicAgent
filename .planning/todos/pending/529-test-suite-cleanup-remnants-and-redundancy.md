@@ -37,6 +37,13 @@ Deliverables:
   `tests/unit/config/test_settings.py`. 6,970 collected; full run 6,970 passed, 1 skipped,
   299 s (306 s wall). Evidence: the AST reachability check in the commit message, every deleted
   test failed import against the trimmed tree.
+- Batch 2, 2026-10-26 (speed): pytest-xdist added (dev group, requirements.txt, uv.lock);
+  `tests/conftest.py` pins OMP/OpenBLAS/MKL/numba to one thread inside each worker (unpinned,
+  12 workers each started a 24-thread pool and every test ran about 5x slower: 191 s) and caps
+  `-n auto` at half the cores. Full unit run 306 s -> 70 s wall, same 6,970 passed. Fixed what
+  parallel runs exposed: a uuid4 test id that differed per worker
+  (`test_api_routes_smoke.py`) and a wall-clock scaling test now timed by CPU time
+  (`test_regime_signals_causal_rank.py`). CI and CLAUDE.md commands use `-n auto`.
 - Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
   probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
   6 s x2, runner_book/order 3-4 s each).
