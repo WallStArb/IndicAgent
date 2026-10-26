@@ -116,6 +116,7 @@ class SelectionResult:
     sessions_fallback: int = 0  # sessions taken whole from a vendor other than the primary
     sessions_incomplete: int = 0  # sessions no ranked vendor held whole
     dropped: int = 0  # slots left out by the session rule (canonical rows retracted)
+    excluded: int = 0  # slots holding only never-selected kinds (reported, not a failure)
 
 
 def _canonical_row(c: Candidate) -> tuple:
@@ -171,7 +172,7 @@ def select_and_write(
         )
     if batch_rows < 1:
         raise ValueError(f"batch_rows must be >= 1, got {batch_rows}")
-    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = 0
+    n_new = n_changed = n_unchanged = n_skipped = n_unselected = n_off_grid = n_excluded = 0
     n_fallback = n_incomplete = n_dropped = 0
     start, end = session_window(start, end)
     vendors = sorted(BAR_VENDORS)
@@ -186,6 +187,7 @@ def select_and_write(
             candidates = [Candidate(*row) for row in cur.fetchall()]
             outcome = select_slots(candidates, series_policy, kind_order)
             n_unselected += outcome.n_unselected
+            n_excluded += outcome.n_excluded
             n_off_grid += outcome.n_off_grid
             for choice in outcome.choices:
                 n_fallback += choice.vendor != choice.ranking[0]
@@ -242,6 +244,7 @@ def select_and_write(
         n_fallback,
         n_incomplete,
         n_dropped,
+        n_excluded,
     )
 
 

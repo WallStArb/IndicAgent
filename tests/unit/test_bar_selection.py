@@ -248,7 +248,8 @@ def test_iex_rth_is_kept_in_raw_but_never_selected():
     assert select_slot([iex], ["ibkr", "alpaca"], KIND_ORDER) is None
     both = [_at(T0, kind="sip_rth"), _at(T0, kind="iex_rth", volume=99)]
     assert select_slot(both, ["alpaca"], KIND_ORDER).kind == "sip_rth"
-    assert select_slots([iex], [DEFAULT], KIND_ORDER).winners == []
+    outcome = select_slots([iex], [DEFAULT], KIND_ORDER)
+    assert outcome.winners == [] and (outcome.n_unselected, outcome.n_excluded) == (0, 1)
 
 
 def test_ibkr_own_session_is_not_filtered_by_the_calendar():
@@ -303,7 +304,7 @@ def test_writer_counts_unselected_and_off_grid():
     conn = FakeConn([_cand("alpaca", "sip_rth"), pre])
     conn.cur.rowcount = 0
     result = _run(conn, policy_rows=[ibkr_only])
-    assert (result.unselected, result.off_grid, result.new) == (1, 1, 0)
+    assert (result.unselected, result.off_grid, result.new, result.excluded) == (1, 1, 0, 0)
     deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
     assert [p[2] for p in deletes] == [T0]  # an unranked vendor's slot holds no canonical row
 
@@ -431,7 +432,9 @@ def test_the_writer_retracts_slots_whose_candidates_are_all_unselectable():
     result = _run(conn)
     deletes = [p for s, p in conn.cur.executed if s.startswith("DELETE FROM market_data_ohlcv")]
     assert [p[2] for p in deletes] == [T0, T0 + timedelta(minutes=5)]
-    assert (result.new, result.unselected) == (0, 2)
+    # D-191-L follow-up: a never-selected kind is a deliberate exclusion, reported apart from a
+    # policy gap, so it never fails a loader
+    assert (result.new, result.unselected, result.excluded) == (0, 0, 2)
     assert not _inserts(conn)
 
 

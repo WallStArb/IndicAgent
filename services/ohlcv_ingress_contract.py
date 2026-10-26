@@ -271,6 +271,8 @@ class IngressResult:
     flagged: tuple[FlaggedSeries, ...] = ()
     # changed offers older than the stored answer: logged as superseded, raw untouched
     n_superseded: int = 0
+    # slots whose only candidates are never-selected kinds (iex_rth): reported, never a failure
+    n_excluded: int = 0
 
     @property
     def n_basis_flagged(self) -> int:
@@ -487,7 +489,7 @@ def apply_raw_contract(
         new_timestamps.extend(delta.new_timestamps)
         spans[(symbol, timeframe)].extend(stamps)
 
-    selected = unselected = 0
+    selected = unselected = excluded = 0
     for (symbol, timeframe), stamps in sorted(spans.items()):
         if timeframe not in DIRECT_TIMEFRAMES:
             continue
@@ -508,6 +510,7 @@ def apply_raw_contract(
         # row in place: the offered row reached raw and no canonical row took it, so it counts
         # with the unselected slots (191-07 review, low finding).
         unselected += result.unselected + result.skipped_null_volume
+        excluded += result.excluded
     return IngressResult(
         n_offered=len(rows),
         n_new=n_new,
@@ -518,4 +521,5 @@ def apply_raw_contract(
         n_unselected=unselected,
         flagged=tuple(flagged),
         n_superseded=n_superseded,
+        n_excluded=excluded,
     )

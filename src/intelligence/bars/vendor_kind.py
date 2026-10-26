@@ -72,8 +72,21 @@ DERIVED_PAIR = LABEL_TO_VENDOR_KIND[SOURCE_DERIVED_5M]
 ALPACA_FEED_KINDS: dict[str, str] = {"sip": "sip_rth", "iex": "iex_rth"}
 
 
-def alpaca_kind_for_feed(feed: str) -> str:
-    """The raw kind of an Alpaca bars answer on `feed`; ValueError naming the feed when unknown."""
+# Every alpaca kind is a split-adjusted basis (the 521 admission build's stored convention);
+# the leaf's adjustment default is "none", so the kind is only vouched for when the request
+# asked for this adjustment (D-191-A follow-up).
+ALPACA_RAW_ADJUSTMENT = "split"
+
+
+def alpaca_kind_for_feed(feed: str, adjustment: str) -> str:
+    """The raw kind of an Alpaca bars answer on `feed` asked with `adjustment`; ValueError when
+    the feed is unknown or the answer is not split-adjusted (an unadjusted answer has no kind, so
+    it can never land last-wins as sip_rth)."""
+    if adjustment != ALPACA_RAW_ADJUSTMENT:
+        raise ValueError(
+            f"alpaca raw kinds are split-adjusted; an answer asked with adjustment="
+            f"{adjustment!r} has no kind"
+        )
     try:
         return ALPACA_FEED_KINDS[feed]
     except KeyError:

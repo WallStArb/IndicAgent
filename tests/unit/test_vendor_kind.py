@@ -90,10 +90,14 @@ def test_observation_kind(source, route, wts, kind):
 def test_alpaca_kind_for_feed_names_the_answered_basis():
     from src.intelligence.bars.vendor_kind import ALPACA_FEED_KINDS, alpaca_kind_for_feed
 
-    assert alpaca_kind_for_feed("sip") == "sip_rth"
-    assert alpaca_kind_for_feed("iex") == "iex_rth"
+    assert alpaca_kind_for_feed("sip", "split") == "sip_rth"
+    assert alpaca_kind_for_feed("iex", "split") == "iex_rth"
     with pytest.raises(ValueError, match="unknown alpaca feed 'databento'"):
-        alpaca_kind_for_feed("databento")
+        alpaca_kind_for_feed("databento", "split")
+    # D-191-A follow-up: the alpaca kinds are split-adjusted bases; an unadjusted answer has no
+    # kind, so it can never land last-wins as sip_rth
+    with pytest.raises(ValueError, match="split-adjusted"):
+        alpaca_kind_for_feed("sip", "none")
     # The feed map is the vendor-served kinds for alpaca, and both kinds are described.
     assert set(ALPACA_FEED_KINDS.values()) == set(VENDOR_SERVED_KINDS["alpaca"])
     assert {"sip_rth", "iex_rth"} <= set(BAR_KINDS)

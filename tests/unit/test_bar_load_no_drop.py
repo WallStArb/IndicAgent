@@ -16,7 +16,7 @@ from services import bar_load
 from services.bar_load import LoadPolicy, frame_to_raw_rows, load_frame, load_series
 from services.ohlcv_ingress_contract import IngressResult
 
-POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test-load")
+POLICY = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test-load", kind="sip_rth")
 
 
 def _frame(rows: list[str]) -> pd.DataFrame:
@@ -77,7 +77,7 @@ def persisted(monkeypatch):
 
 def test_frame_rows_carry_the_vendor_and_its_kind_and_keep_every_row() -> None:
     frame = _frame(["2026-10-09 12:00:00", "2026-10-09 13:30:00", "2026-10-09 13:35:00"])
-    rows = frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m")
+    rows = frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m", kind="sip_rth")
     assert [r.timestamp.hour for r in rows] == [12, 13, 13]
     assert {(r.vendor, r.kind, r.timeframe, r.symbol) for r in rows} == {
         ("alpaca", "sip_rth", "5m", "SPY")
@@ -158,6 +158,7 @@ def test_load_frame_without_coverage_is_a_raw_only_capture(persisted) -> None:
         write=True,
         answered_at=ANSWERED,
         coverage=False,
+        kind="sip_rth",
     )
     assert persisted.calls[0]["coverage"] is None and persisted.calls[0]["caller"] == "x-1d"
 
@@ -170,3 +171,11 @@ def test_the_derivation_owned_timeframe_fence_still_refuses_a_policy() -> None:
 def test_the_loader_defines_no_split_or_archive_helper() -> None:
     for retired in ("split_series", "archive_rows", "archive_frame_to_tuples", "drop_stored_rows"):
         assert not hasattr(bar_load, retired)
+
+
+def test_alpaca_rows_need_an_explicit_kind() -> None:
+    """D-191-A follow-up: an alpaca kind names a split-adjusted basis, which only
+    alpaca_kind_for_feed can vouch for; the label default would let an unadjusted answer in."""
+    frame = _frame(["2026-10-09 13:30:00"])
+    with pytest.raises(ValueError, match="explicit kind"):
+        frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m")

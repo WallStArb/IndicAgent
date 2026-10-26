@@ -55,6 +55,7 @@ def main() -> int:
         vendor=ingress.source,
         timeframe=ingress.timeframe,
         caller=f"{ingress.source}-{ingress.timeframe}-load",
+        kind=ingress.kind,
     )
     artifact_dir = args.artifacts_dir or ingress.artifact_dir
     artifacts = ingress.read_artifacts(artifact_dir, symbols=args.symbols)

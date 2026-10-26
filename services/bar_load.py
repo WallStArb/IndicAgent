@@ -11,7 +11,11 @@ from services.ohlcv_coverage_writer import CoverageDelta
 from services.ohlcv_ingress_contract import IngressResult, RawContractParams
 from services.ohlcv_raw_writer import RawRow
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
-from src.intelligence.bars.vendor_kind import VENDOR_SERVED_KINDS, label_to_vendor_kind
+from src.intelligence.bars.vendor_kind import (
+    VENDOR_ALPACA,
+    VENDOR_SERVED_KINDS,
+    label_to_vendor_kind,
+)
 
 # Chunk size bounds the rows one transaction offers the contract (its stored-row read renders an
 # array of the chunk's stamps client-side; a 100k-stamp array blew psycopg's 1 GiB query buffer,
@@ -57,6 +61,7 @@ class LoadResult:
     n_flagged_series: int = 0  # series the restatement detector flagged (written all the same)
     n_basis_flagged: int = 0  # of those, flagged with a basis-change signature: run is partial
     n_superseded: int = 0  # offers older than the stored answer: logged, raw unchanged
+    n_excluded: int = 0  # slots holding only never-selected kinds: reported, not a failure
 
     def plus(self, ingress: IngressResult | None) -> LoadResult:
         if ingress is None:
@@ -70,6 +75,7 @@ class LoadResult:
             self.n_flagged_series + len(ingress.flagged),
             self.n_basis_flagged + ingress.n_basis_flagged,
             self.n_superseded + ingress.n_superseded,
+            self.n_excluded + ingress.n_excluded,
         )
 
 
@@ -99,6 +105,11 @@ def frame_to_raw_rows(
     served_vendor, label_kind = label_to_vendor_kind(vendor)
     if served_vendor != vendor:
         raise ValueError(f"vendor {vendor!r} maps to {served_vendor!r}")
+    if kind is None and vendor == VENDOR_ALPACA:
+        raise ValueError(
+            "alpaca rows need an explicit kind from alpaca_kind_for_feed: the kind names a "
+            "split-adjusted basis the label default cannot vouch for (D-191-A)"
+        )
     if kind is not None:
         served = VENDOR_SERVED_KINDS.get(vendor)
         if served is None or kind not in served:

@@ -233,14 +233,18 @@ class SelectionOutcome:
 
     winners: list[Candidate]
     n_slots: int  # on-grid slots with at least one candidate
-    n_unselected: int  # of those, slots no ranked vendor holds (nothing is written for them)
+    n_unselected: int  # of those, slots no ranked vendor holds: a policy gap, a loader fails on it
     n_off_grid: int  # candidates dropped by the session rule
     # slots of a session another ranked vendor held but the chosen vendor did not (no complete
     # vendor): no winner, and the writer retracts a canonical row there
     dropped: tuple[tuple[str, str, datetime], ...] = ()
-    # the n_unselected slots themselves: candidates exist but none is selectable, so canonical
-    # holds no row there and the writer retracts one written before (canonical = f(raw, policy))
+    # every slot whose candidates exist but none is selectable (the n_unselected policy gaps and
+    # the n_excluded never-selected kinds): canonical holds no row there, and the writer retracts
+    # one written before (canonical = f(raw, policy))
     unselected: tuple[tuple[str, str, datetime], ...] = ()
+    # of those, slots whose every candidate is a never-selected kind (iex_rth, smart_adjusted): a
+    # deliberate exclusion, reported but not a failure (D-191-L follow-up)
+    n_excluded: int = 0
     # sessions not taken whole from the primary, or holding fewer slots than the calendar grid
     choices: tuple[SessionChoice, ...] = ()
     sessions: tuple[date, ...] = ()  # every session date selected (the choices' scope)
@@ -264,7 +268,7 @@ def select_slots(
     dropped: list[tuple[str, str, datetime]] = []
     unselected: list[tuple[str, str, datetime]] = []
     choices: list[SessionChoice] = []
-    n_slots = n_unselected = 0
+    n_slots = n_unselected = n_excluded = 0
     for (symbol, timeframe, day), slots in sorted(sessions.items()):
         scoped = scopes.get((symbol, timeframe))
         if scoped is None:
@@ -282,8 +286,14 @@ def select_slots(
                 if best is not None:
                     by_vendor[vendor][ts] = best
         session_slots = set().union(*(set(v) for v in by_vendor.values()))
-        n_unselected += len(slots) - len(session_slots)
-        unselected += [(symbol, timeframe, ts) for ts in sorted(slots) if ts not in session_slots]
+        for ts in sorted(slots):
+            if ts in session_slots:
+                continue
+            unselected.append((symbol, timeframe, ts))
+            if all(c.kind in NEVER_SELECTED_KINDS for c in slots[ts]):
+                n_excluded += 1
+            else:
+                n_unselected += 1
         if not session_slots:
             continue
         # Completeness is judged on the calendar's regular-hours slots where the timeframe has a
@@ -326,6 +336,7 @@ def select_slots(
         len(off_grid),
         tuple(dropped),
         unselected=tuple(unselected),
+        n_excluded=n_excluded,
         choices=tuple(choices),
         sessions=tuple(sorted({day for (_s, _t, day) in sessions})),
     )

@@ -41,6 +41,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src.intelligence.bars.sources import SOURCE_ALPACA
+from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
 
 #: Vendor stamp floors by timeframe vocabulary (a statistic definition of
 #: the grid, not an APR tunable).
@@ -57,7 +58,8 @@ class VendorIngress:
     with the canonical columns and UTC stamps floored to the timeframe
     grid. ``answered_at`` maps (directory, symbol) to the artifact's
     recorded fetch time (tz-aware UTC). ``artifact_dir`` is the directory
-    a caller means when it names none.
+    a caller means when it names none. ``kind`` is the raw kind the
+    artifacts' basis is written under (the pull's feed and adjustment).
     """
 
     source: str
@@ -65,6 +67,7 @@ class VendorIngress:
     artifact_dir: Path
     read_artifacts: Callable[[Path, list[str] | None], dict[str, pd.DataFrame]]
     answered_at: Callable[[Path, str], datetime]
+    kind: str
 
 
 def _read_alpaca_5m(
@@ -141,6 +144,8 @@ ALPACA_5M = VendorIngress(
     artifact_dir=Path("data/scratch/alpaca-pilot/depth"),
     read_artifacts=_read_alpaca_5m,
     answered_at=_alpaca_5m_answered_at,
+    # scripts/research/alpaca_depth_scratch_pull.py pulls feed=sip, adjustment=split
+    kind=alpaca_kind_for_feed("sip", ALPACA_RAW_ADJUSTMENT),
 )
 
 _INGRESSES: dict[tuple[str, str], VendorIngress] = {

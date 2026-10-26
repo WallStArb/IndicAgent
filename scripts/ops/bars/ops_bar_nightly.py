@@ -50,7 +50,7 @@ from services.complete_bar_gate import keep_complete, read_settle
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
-from src.intelligence.bars.vendor_kind import alpaca_kind_for_feed
+from src.intelligence.bars.vendor_kind import ALPACA_RAW_ADJUSTMENT, alpaca_kind_for_feed
 from src.providers import history_leaf
 from src.providers.base import FetchBudget, HistoryRequest
 
@@ -134,7 +134,7 @@ def main() -> int:
             vendor=args.vendor,
             timeframe="5m",
             caller=CALLER_5M.format(vendor=args.vendor),
-            kind=alpaca_kind_for_feed(data_feed) if data_feed else None,
+            kind=alpaca_kind_for_feed(data_feed, ALPACA_RAW_ADJUSTMENT) if data_feed else None,
         )
         leaf_kwargs = {
             "rate_limit_max_requests": _apr_int(conn, "infra.alpaca.rate_limit_max_requests", 190),
@@ -207,7 +207,8 @@ def summary_line(summary: dict, *, apply: bool) -> str:
         f"raw, {summary['errors']} errors, {summary['flagged']} restatement-flagged series "
         f"({summary.get('basis_flagged', 0)} basis-change), "
         f"{summary.get('superseded', 0)} offers superseded by a newer serve, "
-        f"{summary['unselected']} unselected slots, "
+        f"{summary['unselected']} unselected slots, {summary.get('excluded', 0)} excluded (never-selected "
+        f"kinds), "
         f"{summary.get('partial', 0)} incomplete bars held back"
     )
 
@@ -232,6 +233,7 @@ async def _run(
         "basis_flagged": 0,
         "superseded": 0,
         "unselected": 0,
+        "excluded": 0,
         "partial": 0,
     }
     try:
@@ -246,7 +248,7 @@ async def _run(
                             timeframe=timeframe,
                             start=start,
                             end=end,
-                            adjustment="split",
+                            adjustment=ALPACA_RAW_ADJUSTMENT,
                             rth_only=load_canonical,
                         ),
                         budget,
@@ -282,6 +284,7 @@ async def _run(
                         summary["basis_flagged"] += result.n_basis_flagged
                         summary["superseded"] += result.n_superseded
                         summary["unselected"] += result.n_unselected
+                        summary["excluded"] += result.n_excluded
                     elif write and len(frame):
                         result = load_frame(
                             conn,
