@@ -60,6 +60,7 @@ import asyncpg
 
 from services._batch_utils import cfg as _cfg
 from services._batch_utils import load_apr_dict_async
+from src.config.config_service import ConfigService
 from src.config.settings import Settings, get_active_contracts
 from src.core.agent.base_batch import BaseBatch
 from src.core.models import AssetClass
@@ -404,6 +405,17 @@ class _SymbolFailure(Exception):
     """One symbol's fetch, derivation or write failed; the run continues and fails at the end."""
 
 
+@dataclasses.dataclass(frozen=True)
+class SymbolFailure:
+    """One symbol's recorded failure (D-191-O per-name isolation): the successes of a pass are
+    written, the failures are collected here, and the fraction of failed symbols gates the run's
+    end state against threshold.dividend.max_failure_fraction (partial vs nonzero exit)."""
+
+    symbol: str
+    source: str  # "" for a write-phase failure (the whole symbol's transaction)
+    reason: str
+
+
 class DividendEventWriter(BaseBatch):
     """Batch service: IBKR and Yahoo -> dividend_events + dividend_event_coverage, reconciled."""
 
@@ -433,6 +445,10 @@ class DividendEventWriter(BaseBatch):
         stable = int(_cfg(apr, "threshold.dividend_event.stable_sessions", 3))
         match_days = int(_cfg(apr, "threshold.dividend_event.ex_date_match_days", 5))
         rel_tol = float(_cfg(apr, "threshold.dividend_event.source_yield_rel_tolerance", 0.10))
+        config = ConfigService(self._db_dsn, pool=pool)
+        max_failure_fraction = float(
+            await config.get("threshold.dividend.max_failure_fraction", 0.05)
+        )
 
         instruments = [
             i
@@ -441,7 +457,7 @@ class DividendEventWriter(BaseBatch):
             and (not self._symbols or i.symbol in self._symbols)
         ]
 
-        failed: list[str] = []
+        failed: list[SymbolFailure] = []
         totals = dict.fromkeys(
             (
                 "events",
@@ -472,7 +488,13 @@ class DividendEventWriter(BaseBatch):
                             None, instrument, source, None, margin, stable
                         )
                 except _SymbolFailure as error:
-                    failed.append(f"{symbol}/{source}: {error}")
+                    failed.append(SymbolFailure(symbol, source, str(error)))
+                    self.logger.warning(
+                        "dividend_event_writer.symbol_failed",
+                        symbol=symbol,
+                        source=source,
+                        reason=str(error),
+                    )
             if not derivations:
                 continue
             # One transaction per symbol, reconciliation included: a near miss (one
@@ -489,7 +511,13 @@ class DividendEventWriter(BaseBatch):
                     if disputes:
                         await self._write_disputes(conn, disputes, run_id)
             except _SymbolFailure as error:
-                failed.append(f"{symbol}: {error}")
+                failed.append(SymbolFailure(symbol, "", str(error)))
+                self.logger.warning(
+                    "dividend_event_writer.symbol_failed",
+                    symbol=symbol,
+                    source="",
+                    reason=str(error),
+                )
                 continue
             for derivation in derivations.values():
                 totals["events"] += len(derivation.events)
@@ -537,8 +565,27 @@ class DividendEventWriter(BaseBatch):
         sources = ",".join(self._sources)
         for outcome, n in {**totals, "failed": len(failed)}.items():
             _OUTCOME_TOTAL.add(n, {"sources": sources, "outcome": outcome})
-        if failed:
-            raise RuntimeError(f"dividend_event_writer: {len(failed)} failures: {failed}")
+        # Per-name isolation (D-191-O): a minority of dead or thin names must not poison the
+        # unit while the data work of the other ~1,525 completed. The run still ends loud: the
+        # per-name failures are logged as they happen, and a nonzero failure fraction turns the
+        # pass into a nonzero exit instead of a partial completion.
+        failed_symbols = {f.symbol for f in failed}
+        failure_fraction = len(failed_symbols) / len(instruments) if instruments else 0.0
+        if failed_symbols:
+            if failure_fraction > max_failure_fraction:
+                raise RuntimeError(
+                    f"dividend_event_writer: {len(failed_symbols)}/{len(instruments)} symbols "
+                    f"failed (fraction {failure_fraction:.4f} exceeds "
+                    f"threshold.dividend.max_failure_fraction {max_failure_fraction}): {failed}"
+                )
+            self.completion_status = "partial"
+            self.logger.warning(
+                "dividend_event_writer.partial_run",
+                failed_symbols=len(failed_symbols),
+                symbols=len(instruments),
+                failure_fraction=round(failure_fraction, 6),
+                max_failure_fraction=max_failure_fraction,
+            )
 
     @staticmethod
     async def _resolve_fetch_run(

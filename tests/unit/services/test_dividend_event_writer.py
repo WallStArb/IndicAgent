@@ -347,6 +347,10 @@ class FakeDividendConn:
         raise AssertionError(f"unexpected fetch: {sql}")
 
     async def fetchrow(self, sql, *args):
+        if "config_state cs JOIN config_schema csc" in sql:  # ConfigService.get
+            if args[0] == "threshold.dividend.max_failure_fraction":
+                return {"config_value": "0.05", "value_type": "float"}
+            return None
         if "GROUP BY" in sql:  # _resolve_fetch_run: latest run with both series
             return {"fetch_run_id": self.latest_run} if self.latest_run else None
         if "dividend_event_coverage" in sql:  # _write: this source's stored span
@@ -630,3 +634,110 @@ def test_a_runs_superseded_offer_never_pairs_on_either_side_in_any_row_order():
         paired, adj = pair_d1_series(t_rows, adjusted, _RUN)
         assert adj == {day: 9.0}
         assert paired == {day: 10.0}
+
+
+# ---------------------------------------------------------------------------
+# Per-name isolation (threshold.dividend.max_failure_fraction): one name's
+# Yahoo failure never blocks the others, and the failure fraction gates the
+# run's end state (partial vs nonzero exit).
+# ---------------------------------------------------------------------------
+
+_YAHOO_ROWS = [(date(2026, 1, 2), 10.0, 0.0), (date(2026, 1, 3), 10.0, 0.50)]
+_FAILING = ("PSKY", "WBD", "QRVO", "CCO")
+
+
+class _CaptureLogger:
+    def __init__(self):
+        self.events = []
+
+    def info(self, event, **kw):
+        self.events.append((event, kw))
+
+    def warning(self, event, **kw):
+        self.events.append((event, kw))
+
+
+def _run_yahoo_writer(instruments, failing, threshold, monkeypatch):
+    """Run the writer over `instruments` with Yahoo failing for `failing` symbols and
+    threshold.dividend.max_failure_fraction read as `threshold`. Returns (writer, conn, logs)."""
+
+    class _FakeConfigService:
+        def __init__(self, dsn, pool=None):
+            pass
+
+        async def get(self, key, default=None):
+            assert key == "threshold.dividend.max_failure_fraction"
+            return threshold
+
+    async def fetch(symbol):
+        if symbol in failing:
+            return [], "too few daily rows"
+        return list(_YAHOO_ROWS), None
+
+    monkeypatch.setattr(dividend_event_writer, "ConfigService", _FakeConfigService)
+    monkeypatch.setattr(
+        dividend_event_writer, "yahoo", SimpleNamespace(fetch_daily_close_and_dividends=fetch)
+    )
+    writer = dividend_event_writer.DividendEventWriter(
+        "postgresql://unused",
+        None,
+        [dividend_event_writer.SOURCE_YAHOO],
+        None,
+        [i.symbol for i in instruments],
+    )
+    logs = _CaptureLogger()
+    writer.logger = logs
+    conn = FakeDividendConn({})
+    original = dividend_event_writer.get_active_contracts
+    dividend_event_writer.get_active_contracts = lambda settings, dimension: list(instruments)
+    try:
+        asyncio.run(writer.execute(FakePool(conn)))
+    finally:
+        dividend_event_writer.get_active_contracts = original
+    return writer, conn, logs
+
+
+def test_minority_symbol_failures_complete_partial(monkeypatch):
+    """4 dead/thin names of 1,529 (the 2026-10-16 nightly condition): the pass is kept, the
+    run completes with a partial status, and each failed name is logged with its reason."""
+    names = [f"N{i:04d}" for i in range(1525)] + list(_FAILING)
+    instruments = [_equity(symbol) for symbol in names]
+    writer, conn, logs = _run_yahoo_writer(instruments, set(_FAILING), 0.05, monkeypatch)
+    assert writer.completion_status == "partial"
+    failed_lines = [
+        kw for event, kw in logs.events if event == "dividend_event_writer.symbol_failed"
+    ]
+    assert {kw["symbol"] for kw in failed_lines} == set(_FAILING)
+    assert all(kw["reason"] == "too few daily rows" for kw in failed_lines)
+    summary = [kw for event, kw in logs.events if event == "dividend_event_writer.partial_run"]
+    assert summary == [
+        {
+            "failed_symbols": 4,
+            "symbols": 1529,
+            "failure_fraction": round(4 / 1529, 6),
+            "max_failure_fraction": 0.05,
+        }
+    ]
+    # The healthy names' events were written, not discarded with the failed pass.
+    assert conn.events[("N0000", "yahoo")] == {
+        _YAHOO_ROWS[1][0]: (_YAHOO_ROWS[1][2], _YAHOO_ROWS[0][1])
+    }
+
+
+def test_failures_above_the_threshold_exit_nonzero(monkeypatch):
+    instruments = [_equity(f"N{i:03d}") for i in range(60)] + [_equity(s) for s in _FAILING]
+    with pytest.raises(RuntimeError, match="exceeds"):
+        _run_yahoo_writer(instruments, set(_FAILING), 0.05, monkeypatch)
+
+
+def test_failure_fraction_at_the_threshold_is_partial_not_failure(monkeypatch):
+    """4 of 80 is exactly 0.05: the run exits nonzero only when the fraction exceeds it."""
+    instruments = [_equity(f"N{i:03d}") for i in range(76)] + [_equity(s) for s in _FAILING]
+    writer, _conn, _logs = _run_yahoo_writer(instruments, set(_FAILING), 0.05, monkeypatch)
+    assert writer.completion_status == "partial"
+
+
+def test_threshold_is_read_from_config_service(monkeypatch):
+    """A zero tolerance from ConfigService turns a single failed name into a nonzero exit."""
+    with pytest.raises(RuntimeError, match="exceeds"):
+        _run_yahoo_writer([_equity("JPM"), _equity("PSKY")], {"PSKY"}, 0.0, monkeypatch)
