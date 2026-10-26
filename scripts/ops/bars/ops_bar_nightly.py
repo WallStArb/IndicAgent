@@ -85,10 +85,11 @@ def request_end(now: datetime, data_feed: str | None, sip_lag_minutes: int) -> d
 
 
 def _bars_frame(bars) -> pd.DataFrame:
-    """Provider bars -> the engine's canonical frame (t, o, h, l, c, v)."""
+    """Provider bars -> the engine's canonical frame (t, o, h, l, c, v). `t` is always a UTC
+    datetime column, so an empty answer (a name the vendor no longer serves) loads zero rows."""
     return pd.DataFrame(
         {
-            "t": [b.timestamp for b in bars],
+            "t": pd.to_datetime([b.timestamp for b in bars], utc=True),
             "o": [b.open for b in bars],
             "h": [b.high for b in bars],
             "l": [b.low for b in bars],
