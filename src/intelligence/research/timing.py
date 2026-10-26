@@ -100,6 +100,8 @@ class TimingResult:
     warmup_sessions: int
     memory_sessions: int  # L: fbar_L reads sessions older than the signal's memory
     min_history_sessions: int
+    # [n_sessions] D_s, NaN where untested: the attempt's series for StepM selection (E18)
+    series: np.ndarray | None = dataclasses.field(default=None, compare=False, repr=False)
 
 
 def timing_test(
@@ -133,4 +135,5 @@ def timing_test(
         warmup_sessions=warmup_sessions,
         memory_sessions=memory_sessions,
         min_history_sessions=min_history_sessions,
+        series=series,
     )

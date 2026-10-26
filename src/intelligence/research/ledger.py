@@ -41,6 +41,9 @@ LEDGER_LOCK_KEY: int = 183366
 TERMINAL_STATUSES: tuple[str, ...] = ("completed", "guard_failed", "refused", "failed")
 UNCHARGED_STATUSES: tuple[str, ...] = ("refused", "guard_failed")
 
+# A run that computed a statistic counts even when it then failed (design 7.1).
+SERIES_STATUSES: tuple[str, ...] = ("completed", "failed")
+
 _DOMAIN = "construction"
 _ADDED_PHASE = "183"
 
@@ -72,6 +75,48 @@ class RunRequest:
     vintage: str
     budget_m: int | None = None
     screen_alpha: float | None = None
+
+
+@dataclass(frozen=True)
+class AttemptSeries:
+    """An attempt's tested sessions and their E17 D_s (finite only, session order)."""
+
+    sessions: np.ndarray  # datetime64[D]
+    values: np.ndarray  # float64
+
+    @classmethod
+    def from_timing(cls, sessions: np.ndarray, d_s: np.ndarray) -> AttemptSeries | None:
+        """Keep the tested sessions (finite D_s); None when no session was tested."""
+        tested = np.isfinite(d_s)
+        if not tested.any():
+            return None
+        return cls(
+            sessions=np.asarray(sessions, dtype="datetime64[D]")[tested],
+            values=np.asarray(d_s, dtype=np.float64)[tested],
+        )
+
+    def sessions_as_dates(self) -> list:
+        return self.sessions.astype(object).tolist()
+
+
+def _headline(payload: dict, series: AttemptSeries | None) -> tuple:
+    """(t, p, gross Sharpe, mean session P&L, turnover, n sessions, span start, span end)."""
+    decision = payload.get("decision") or {}
+
+    def num(value: Any) -> float | None:
+        return None if value is None else float(value)
+
+    span = (None, None) if series is None else tuple(series.sessions_as_dates()[i] for i in (0, -1))
+    n = decision.get("n_sessions")
+    return (
+        num(decision.get("t")),
+        num(decision.get("p")),
+        num(decision.get("annualized_sharpe")),
+        num(decision.get("mean_session_pnl")),
+        num(payload.get("turnover_per_session")),
+        None if n is None else int(n),
+        *span,
+    )
 
 
 def jsonable(value: Any) -> Any:
@@ -244,11 +289,17 @@ class PostgresLedger:
         status: str,
         snapshot_hash: str | None,
         evidence: dict,
+        series: AttemptSeries | None = None,
     ) -> None:
         """Move a started run to its terminal status, once. Evidence is converted and
         serialized strictly before the write; if that fails, the row is written as 'failed'
         with the error and the error re-raised, so no row stays started because the final
-        write crashed (pitfall 8)."""
+        write crashed (pitfall 8).
+
+        The headline numbers come from the evidence's decision block. A completed or failed
+        run that carries its D_s series writes it to research_run_series in the same
+        transaction (migration 515): the series is the attempt's entry in the StepM selection
+        universe (E18), so it is never written apart from the terminal row."""
         if status not in TERMINAL_STATUSES:
             raise ValueError(f"not a terminal status: {status}")
 
@@ -261,16 +312,29 @@ class PostgresLedger:
             status = "failed"
             payload = {"error": f"evidence not serializable: {error}"}
 
+        headline = _headline(payload, series)
         conn = await connect_with_codecs(self._dsn)
         try:
-            result = await conn.execute(
-                "UPDATE research_run SET status = $2, snapshot_hash = $3, evidence = $4, "
-                "finished_at = now() WHERE run_id = $1",
-                uuid.UUID(run_id),
-                status,
-                snapshot_hash,
-                payload,
-            )
+            async with conn.transaction():
+                result = await conn.execute(
+                    "UPDATE research_run SET status = $2, snapshot_hash = $3, evidence = $4, "
+                    "finished_at = now(), decision_t = $5, decision_p = $6, gross_sharpe = $7, "
+                    "mean_session_pnl = $8, turnover_per_session = $9, n_sessions = $10, "
+                    "span_start = $11, span_end = $12 WHERE run_id = $1",
+                    uuid.UUID(run_id),
+                    status,
+                    snapshot_hash,
+                    payload,
+                    *headline,
+                )
+                if result == "UPDATE 1" and series is not None and status in SERIES_STATUSES:
+                    await conn.execute(
+                        "INSERT INTO research_run_series (run_id, sessions, d_s) "
+                        "VALUES ($1, $2, $3)",
+                        uuid.UUID(run_id),
+                        series.sessions_as_dates(),
+                        series.values.tolist(),
+                    )
         finally:
             await conn.close()
         if result != "UPDATE 1":

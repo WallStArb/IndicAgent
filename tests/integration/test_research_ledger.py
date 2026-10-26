@@ -24,6 +24,7 @@ import pytest
 
 from src.core.database_manager import connect_with_codecs
 from src.intelligence.research.ledger import (
+    AttemptSeries,
     Identity,
     LedgerRefusal,
     PostgresLedger,
@@ -98,6 +99,14 @@ async def scope() -> AsyncIterator[_Scope]:
                 )
             ]
             async with conn.transaction():
+                await conn.execute("ALTER TABLE research_run_series DISABLE TRIGGER USER")
+                await conn.execute(
+                    "DELETE FROM research_run_series WHERE run_id IN (SELECT run_id FROM "
+                    "research_run WHERE concept_id = ANY($1::uuid[]) OR vintage = ANY($2::text[]))",
+                    ids,
+                    tracked.vintages,
+                )
+                await conn.execute("ALTER TABLE research_run_series ENABLE TRIGGER USER")
                 await conn.execute("ALTER TABLE research_run DISABLE TRIGGER USER")
                 await conn.execute(
                     "DELETE FROM research_run WHERE concept_id = ANY($1::uuid[]) "
@@ -220,8 +229,12 @@ async def test_trigger_delete_and_truncate_rejected(ledger, scope):
     run_id = await _started(ledger, scope)
     with pytest.raises(asyncpg.PostgresError, match="append-only"):
         await _execute("DELETE FROM research_run WHERE run_id = $1::uuid", run_id)
-    with pytest.raises(asyncpg.PostgresError, match="append-only"):
+    # Since migration 515 the research_run_series FK refuses a plain TRUNCATE first; CASCADE
+    # reaches the append-only triggers of both tables.
+    with pytest.raises(asyncpg.PostgresError, match="foreign key"):
         await _execute("TRUNCATE research_run")
+    with pytest.raises(asyncpg.PostgresError, match="append-only"):
+        await _execute("TRUNCATE research_run CASCADE")
     assert (await _row(run_id)) is not None
 
 
@@ -312,3 +325,58 @@ async def test_finish_run_unserializable_writes_failed(ledger, scope):
     row = await _row(run_id)
     assert row["status"] == "failed"
     assert "error" in row["evidence"]
+
+
+_SESSIONS = np.array(["2020-01-02", "2020-01-03", "2020-01-06"], dtype="datetime64[D]")
+_DECISION = {
+    "decision": {
+        "t": 2.0,
+        "p": 0.04,
+        "annualized_sharpe": 0.5,
+        "n_sessions": 2,
+        "mean_session_pnl": 0.001,
+    },
+    "turnover_per_session": 1.5,
+}
+
+
+async def _series(run_id: str):
+    conn = await connect_with_codecs(_TEST_DB_URL)
+    try:
+        return await conn.fetchrow(
+            "SELECT sessions, d_s FROM research_run_series WHERE run_id = $1::uuid", run_id
+        )
+    finally:
+        await conn.close()
+
+
+async def test_completed_run_writes_series_and_headline(ledger, scope):
+    """Migration 515 / plan 187-02: the series and headline land with the terminal row."""
+    ids, members = scope.identities()
+    started = await ledger.start_runs(scope.request(), ids, [members[0]])
+    run_id = started[members[0]]
+    series = AttemptSeries.from_timing(_SESSIONS, np.array([0.1, np.nan, -0.05]))
+    await ledger.finish_run(
+        run_id, status="completed", snapshot_hash=None, evidence=_DECISION, series=series
+    )
+    row = await _row(run_id)
+    assert (row["decision_t"], row["n_sessions"], row["turnover_per_session"]) == (2.0, 2, 1.5)
+    assert (row["span_start"].isoformat(), row["span_end"].isoformat()) == (
+        "2020-01-02",
+        "2020-01-06",
+    )
+    stored = await _series(run_id)
+    assert [d.isoformat() for d in stored["sessions"]] == ["2020-01-02", "2020-01-06"]
+    assert list(stored["d_s"]) == [0.1, -0.05]
+
+
+async def test_refused_run_writes_no_series(ledger, scope):
+    ids, members = scope.identities()
+    started = await ledger.start_runs(scope.request(), ids, [members[0]])
+    run_id = started[members[0]]
+    series = AttemptSeries.from_timing(_SESSIONS, np.array([0.1, 0.2, 0.3]))
+    await ledger.finish_run(
+        run_id, status="refused", snapshot_hash=None, evidence={"stage": "S3"}, series=series
+    )
+    assert await _series(run_id) is None
+    assert (await _row(run_id))["decision_t"] is None

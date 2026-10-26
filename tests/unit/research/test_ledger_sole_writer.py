@@ -27,8 +27,10 @@ _REPO_ROOT = Path(__file__).parent.parent.parent.parent
 _SEARCH_DIRS = ("services", "src", "scripts", "production")
 _FILE_GLOBS = ("*.py", "*.sql")
 
+# research_run and the attempt tables of migration 515 (phase 187): one S6 writer for all three.
 _RUN_WRITE_PATTERN = re.compile(
-    r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+research_run\b", re.IGNORECASE | re.DOTALL
+    r"(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(research_run|research_run_series|concept_recipe)\b",
+    re.IGNORECASE | re.DOTALL,
 )
 _CONSTRUCTION_IDENTITY_PATTERN = re.compile(
     r"INSERT\s+INTO\s+concept_registry\b[^;]{0,3000}?'construction'", re.IGNORECASE | re.DOTALL

@@ -115,6 +115,7 @@ class FakeLedger:
         self.calls = []
         self.prior, self.refuse, self.fail_finish = prior, refuse, fail_finish
         self.status = {}
+        self.series = {}
 
     async def has_real_run(self, spec_hash):
         self.calls.append("has_real_run")
@@ -131,8 +132,9 @@ class FakeLedger:
         self.status.update({v: "started" for v in ids.values()})
         return ids
 
-    async def finish_run(self, run_id, *, status, snapshot_hash, evidence):
+    async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None):
         self.calls.append(("finish_run", status))
+        self.series[run_id] = series
         if self.fail_finish:
             raise ConnectionError("database went away")
         self.status[run_id] = status
@@ -191,6 +193,21 @@ def test_real_mode_order(repo, saved_panel):
     assert len(ledger.snapshot_hash) == 64
     assert ledger.evidence["power"] is None
     assert "data_quality" not in ledger.evidence  # a snapshot captured before todo 501
+    for series in ledger.series.values():  # E18: each completed attempt's D_s
+        assert series is not None and series.sessions.dtype == np.dtype("datetime64[D]")
+        assert np.isfinite(series.values).all()
+
+
+def test_recorded_series_reproduces_the_decision_statistic(repo, saved_panel):
+    from src.intelligence.statistics.hac import hac_mean_test
+
+    ledger = FakeLedger()
+    out = _run(load_spec_from_head(repo, SPEC_PATH), _ctx(repo, ledger, saved_panel, []))
+    for member in out.values():
+        series = ledger.series[member["run_id"]]
+        decision = member["evidence"]["decision"]
+        hac = hac_mean_test(series.values)
+        assert hac.t == decision["t"] and hac.n == decision["n_sessions"]
 
 
 def test_pinned_snapshot_evidence_carries_data_quality(repo, tmp_path):

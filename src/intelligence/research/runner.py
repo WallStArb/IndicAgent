@@ -66,7 +66,7 @@ from src.intelligence.research.evidence import (
 )
 from src.intelligence.research.factors import VINTAGE_1, FactorSpec
 from src.intelligence.research.families.common import declared_memory_rows
-from src.intelligence.research.ledger import Identity, LedgerRefusal, RunRequest
+from src.intelligence.research.ledger import AttemptSeries, Identity, LedgerRefusal, RunRequest
 from src.intelligence.research.panel import Panel, fwd_span
 from src.intelligence.research.portfolio import (
     rank_vol_neutral_returns,
@@ -102,7 +102,7 @@ class LedgerPort(Protocol):
 
     async def start_runs(self, request, identities, run_concepts) -> dict[str, str]: ...
 
-    async def finish_run(self, run_id, *, status, snapshot_hash, evidence) -> None: ...
+    async def finish_run(self, run_id, *, status, snapshot_hash, evidence, series=None) -> None: ...
 
 
 async def _default_build(dsn: str, out_dir: Path, spec: FamilySpec) -> Path:
@@ -539,11 +539,17 @@ async def run_family(
     results: dict[str, dict] = {}
     snapshot_hash: str | None = None
 
-    async def finish(name: str, status: str, evidence: dict) -> None:
+    async def finish(
+        name: str, status: str, evidence: dict, series: AttemptSeries | None = None
+    ) -> None:
         results[name] = {"status": status, "run_id": run_ids[name], "evidence": evidence}
         if real:
             await ctx.ledger.finish_run(
-                run_ids[name], status=status, snapshot_hash=snapshot_hash, evidence=evidence
+                run_ids[name],
+                status=status,
+                snapshot_hash=snapshot_hash,
+                evidence=evidence,
+                series=series,
             )
 
     async def finish_all(status: str, evidence: dict) -> None:
@@ -636,7 +642,8 @@ async def run_family(
                 sub_periods=cfg.sub_periods,
                 data_quality=panel.manifest.get("data_quality"),
             )
-            await finish(m.name, "completed", record)
+            series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
+            await finish(m.name, "completed", record, series)
         return results
     except Exception as error:
         unfinished = [m.name for m in spec.members if m.name not in results]
@@ -823,11 +830,15 @@ async def run_book(
     result: dict = {}
     snapshot_hash: str | None = None
 
-    async def finish(status: str, evidence: dict) -> dict:
+    async def finish(status: str, evidence: dict, series: AttemptSeries | None = None) -> dict:
         result.update(status=status, run_id=run_id, evidence=evidence)
         if real:
             await ctx.ledger.finish_run(
-                run_id, status=status, snapshot_hash=snapshot_hash, evidence=evidence
+                run_id,
+                status=status,
+                snapshot_hash=snapshot_hash,
+                evidence=evidence,
+                series=series,
             )
         return result
 
@@ -990,7 +1001,8 @@ async def run_book(
             data_quality=panel.manifest.get("data_quality"),
         )
         _log("done")
-        return await finish("completed", record)
+        series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
+        return await finish("completed", record, series)
     except Exception as error:
         if not result:
             try:
