@@ -86,7 +86,9 @@ identical to the live baseline; both tables count 461,198,119. Nothing swapped. 
 lower-bound and D7 serve-time MEDIUM findings are out of plan 12's files and stay with todo 535
 (plans 09/16 domains, per the review's own verdict). Next: plan 13. The feature rebuild
 (186-26) runs once, after the gate is 0, canonical 1d is caught up and plans 11 to 14 have
-landed. Handoff: `.planning/HANDOFF.json`.
+landed, and (added 2026-10-26) canonical 5m is caught up past the 2026-10-17..25 gateway gap:
+the alpaca SIP catch-up (`logs/alpaca_nightly_catchup_20261026.log`) has finished and the
+selection gate exits 0 on 5m. Handoff: `.planning/HANDOFF.json`.
 Plans 13-15 done 2026-10-17 (191-13/14/15-SUMMARY.md): library, services and fetcher
 scripts on (vendor, kind); the swap landed 2026-10-17T00:25Z (window two closed, units
 resumed, market_data_ohlcv_old waits for plan 17); the remaining ops scripts and helpers
