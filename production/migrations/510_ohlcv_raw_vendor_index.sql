@@ -1,0 +1,19 @@
+-- 510: vendor-led index on ohlcv_raw (owner 2026-10-26: per-vendor coverage and gap questions
+-- are standing workload, not rare censuses). Raw is the audit surface of the unified design:
+-- the readiness gates, restatement and basis scans, capture-completeness checks and vendor
+-- admission studies all ask "what did vendor X answer, when" across all history, and each
+-- such query seq-scanned the full table. Canonical does not need this index: its reads are
+-- slot-shaped and its vendor column is read within an already-indexed slice.
+--
+-- Application: hypertables reject CREATE INDEX CONCURRENTLY at the parent level, so the
+-- zero-downtime path is per chunk (TimescaleDB treats a chunk as a plain table), then the
+-- parent-level CREATE INDEX attaches the finished per-chunk indexes instead of rebuilding:
+--   while read -r chunk; do
+--     PGOPTIONS="-c lock_timeout=30s" psql -c "CREATE INDEX CONCURRENTLY IF NOT EXISTS
+--       idx_ohlcv_raw_vendor_tf_ts ON ${chunk} USING btree (vendor, timeframe, \"timestamp\" DESC);"
+--   done < <(psql -tAc "SELECT chunk_schema||'.'||chunk_name FROM timescaledb_information.chunks
+--                       WHERE hypertable_name='ohlcv_raw' ORDER BY range_start")
+--   psql -c "CREATE INDEX IF NOT EXISTS idx_ohlcv_raw_vendor_tf_ts
+--            ON public.ohlcv_raw USING btree (vendor, timeframe, \"timestamp\" DESC);"
+-- Applied live 2026-10-26 (340 chunks). Future chunks inherit the index from the parent
+-- declaration automatically.
