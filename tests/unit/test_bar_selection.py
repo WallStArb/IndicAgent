@@ -27,6 +27,7 @@ KIND_ORDER = {
     "generic": 5,
     "smart_adjusted": 7,
     "sip_rth": 10,
+    "iex_rth": 12,
 }
 T0 = datetime(2026, 10, 12, 14, 30, tzinfo=UTC)
 DEFAULT = PolicyRow("5m", None, date(2020, 1, 1), None, "ibkr", "alpaca")
@@ -236,6 +237,18 @@ def test_extended_hours_candidates_never_enter_selection():
     outcome = select_slots([_at(pre), in_session, _at(post)], [DEFAULT], KIND_ORDER)
     assert [c.timestamp for c in outcome.winners] == [T0]
     assert outcome.n_off_grid == 2
+
+
+def test_iex_rth_is_kept_in_raw_but_never_selected():
+    """iex_rth (Alpaca feed=iex) is IEX prints only: SPY 5m volume about 4% of consolidated
+    (measured 2026-10-26). Raw keeps it; selection never picks it until a basis study admits it,
+    so an IEX-only session can never fill canonical as the alpaca fallback."""
+    iex = _at(T0, kind="iex_rth")
+    assert select_slot([iex], ["alpaca"], KIND_ORDER) is None
+    assert select_slot([iex], ["ibkr", "alpaca"], KIND_ORDER) is None
+    both = [_at(T0, kind="sip_rth"), _at(T0, kind="iex_rth", volume=99)]
+    assert select_slot(both, ["alpaca"], KIND_ORDER).kind == "sip_rth"
+    assert select_slots([iex], [DEFAULT], KIND_ORDER).winners == []
 
 
 def test_ibkr_own_session_is_not_filtered_by_the_calendar():

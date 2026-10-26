@@ -9,7 +9,10 @@ policy, so a vendor daily can never author -- IBKR owns 1d).
 
 The vendor is a CLI choice dispatched through the ``history_leaf`` factory and
 the HistoryProvider protocol; a new capture vendor is one leaf plus one registry
-entry, nothing here changes. Dry run is the default: without --apply this plans
+entry, nothing here changes. For alpaca the tail is asked on the APR feed
+(``infra.alpaca.data_feed``, migration 511: the free plan 403s recent SIP data)
+and its rows carry that feed's raw kind (``iex_rth``), never ``sip_rth``. Dry
+run is the default: without --apply this plans
 and prints, writing nothing -- but the leaf still runs against the vendor API,
 so a dry run costs vendor requests by design: the nightly's real work is the
 ask.
@@ -46,6 +49,7 @@ from services.complete_bar_gate import keep_complete, read_settle
 from services.ohlcv_ingress_contract import read_raw_params
 from services.ohlcv_request_writer import RequestSink, new_fetch_run_id
 from src.config.settings import get_active_contracts, get_settings
+from src.intelligence.bars.vendor_kind import alpaca_kind_for_feed
 from src.providers import history_leaf
 from src.providers.base import FetchBudget, HistoryRequest
 
@@ -60,6 +64,14 @@ def _apr_int(conn, key: str, default: int) -> int:
         cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (key,))
         row = cur.fetchone()
     return int(row[0]) if row else default
+
+
+def _apr_str(conn, key: str, default: str) -> str:
+    """The string sibling of _apr_int (the capture feed is a name, not a number)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT config_value FROM config_state WHERE config_key = %s", (key,))
+        row = cur.fetchone()
+    return row[0] if row else default
 
 
 def _bars_frame(bars) -> pd.DataFrame:
@@ -96,6 +108,11 @@ def main() -> int:
         universe = args.symbols or [
             instrument.symbol for instrument in get_active_contracts(settings, dimension="backfill")
         ]
+        # Alpaca only: the feed the tail is asked on (APR, migration 511; the free plan 403s
+        # recent SIP data) and the raw kind that basis must be written under.
+        data_feed = (
+            _apr_str(conn, "infra.alpaca.data_feed", "iex") if args.vendor == "alpaca" else None
+        )
         sink = _NightlySink(
             RequestSink(conn, caller=CALLER_SINK.format(vendor=args.vendor), source=args.vendor)
         )
@@ -103,14 +120,16 @@ def main() -> int:
             vendor=args.vendor,
             timeframe="5m",
             caller=CALLER_5M.format(vendor=args.vendor),
+            kind=alpaca_kind_for_feed(data_feed) if data_feed else None,
         )
-        leaf = history_leaf(
-            args.vendor,
-            settings,
-            rate_limit_max_requests=_apr_int(conn, "infra.alpaca.rate_limit_max_requests", 190),
-            on_request=sink.on_request,
-            fetch_run_id=new_fetch_run_id(),
-        )
+        leaf_kwargs = {
+            "rate_limit_max_requests": _apr_int(conn, "infra.alpaca.rate_limit_max_requests", 190),
+            "on_request": sink.on_request,
+            "fetch_run_id": new_fetch_run_id(),
+        }
+        if data_feed is not None:
+            leaf_kwargs["data_feed"] = data_feed
+        leaf = history_leaf(args.vendor, settings, **leaf_kwargs)
         summary = asyncio.run(
             _run(
                 leaf,
@@ -261,6 +280,7 @@ async def _run(
                             answered_at=answered_at,
                             coverage=False,
                             params=params,
+                            kind=policy_5m.kind,  # the 1d capture carries the feed's basis too
                         )
                         summary["raw_1d"] += result.n_offered
                         summary["flagged"] += result.n_flagged_series

@@ -9,13 +9,16 @@ timeframe default, then primary_source, then fallback_source).
 Selection is a function of the raw rows and the policy only, never of write order: shuffling the
 candidates cannot change the result. A missing policy row raises (a slot without a policy fails
 loud, as the daily rule does). A slot no ranked vendor holds yields nothing (missing is NaN, no
-fill). Rows of vendor `derived` and kind `smart_adjusted` are never selected.
+fill). Rows of vendor `derived` and kinds `smart_adjusted` and `iex_rth` are never selected:
+`iex_rth` is Alpaca's feed=iex answer, IEX prints only (SPY 5m volume about 4% of consolidated,
+measured 2026-10-26), kept in raw but not admitted to canonical until a basis study admits it.
 
 Two rules added at the selection gate (plan 191-07, review of plans 04 and 05):
-- Session. A kind that is defined as regular-hours (`sip_rth`, D-191-A) is a candidate only on
+- Session. A kind that is defined as regular-hours (`sip_rth`, D-191-A; `iex_rth`, the same
+  window on feed=iex, though never selected today) is a candidate only on
   the regular trading hours grid (open inclusive, close exclusive, 5 minute step from the NYSE
   open, early closes included). Raw keeps every bar a vendor served, Alpaca's extended-hours bars
-  among them (kind `sip_rth` also holds pre- and post-market stamps); such a stamp is never a
+  among them (the RTH-window kinds also hold pre- and post-market stamps); such a stamp is never a
   candidate, so extended-hours bars cannot enter canonical 5m or the 15m/1h derivation that reads
   it. The rule is by kind, not by vendor-blind calendar: IBKR answers an RTH request with its own
   session (bars to 16:00 ET on early-close days, a 14:30 UTC open on 2006-12-27 where the calendar
@@ -51,12 +54,14 @@ from zoneinfo import ZoneInfo
 from src.intelligence.bars.sessions import nyse_sessions
 from src.intelligence.bars.vendor_kind import VENDOR_DERIVED
 
-NEVER_SELECTED_KINDS = frozenset({"smart_adjusted"})
+NEVER_SELECTED_KINDS = frozenset({"smart_adjusted", "iex_rth"})
 
 # Timeframes with a regular-hours session grid, with the step in minutes, and the raw kinds
 # defined as regular-hours only (the others are the vendor's own answer to an RTH request).
+# sip_rth and iex_rth are the same vendor-aggregate class, one per feed: the feed changes the
+# volume basis, never the session shape, so both are session-bound.
 RTH_GRID_STEP_MINUTES: dict[str, int] = {"5m": 5}
-SESSION_BOUND_KINDS = frozenset({"sip_rth"})
+SESSION_BOUND_KINDS = frozenset({"sip_rth", "iex_rth"})
 SESSION_TZ = ZoneInfo("America/New_York")
 
 
@@ -113,8 +118,8 @@ def rth_grid_stamps(timeframe: str, first_year: int, last_year: int) -> frozense
 def partition_session(
     candidates: Iterable[Candidate],
 ) -> tuple[list[Candidate], list[Candidate]]:
-    """(on-grid, off-grid) candidates. Only session-bound kinds (`sip_rth`) at a timeframe with a
-    session grid are tested; every other candidate is on-grid."""
+    """(on-grid, off-grid) candidates. Only session-bound kinds (`sip_rth`, `iex_rth`) at a
+    timeframe with a session grid are tested; every other candidate is on-grid."""
     held = list(candidates)
     years: dict[str, list[int]] = {}
     for c in held:

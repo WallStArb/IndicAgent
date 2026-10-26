@@ -6,10 +6,16 @@ this concrete class (CI-enforced by tests/unit/test_provider_leaf_boundary.py).
 
 Conventions, from the 521 admission build's measured rulings
 (docs/plans/2026-10-09-alpaca-5m-admission-build.md):
-- Feed is SIP (``feed=sip``); the lineage is Polygon/Massive on Alpaca's side.
-- ``adjustment="split"`` maps to Alpaca's ``adjustment=splits`` (the stored
-  convention); ``"none"`` maps to ``raw``. Anything else raises: a silent
-  convention mismatch is forbidden.
+- Feed is the constructor's ``data_feed`` (default ``sip``, the admission build's basis; the
+  caller loads it from APR, ``infra.alpaca.data_feed``). Since 2026-10-26 the free plan 403s
+  recent SIP data (a window ending within ~15 minutes of now on ``feed=sip`` answers
+  ``{"message":"subscription does not permit querying recent SIP data"}`` while ``feed=iex``
+  answers it, thin: SPY 5m n=1 vs sip n=2428, volume basis differs), so the nightly asks its
+  recent tail on ``iex`` and labels its rows ``iex_rth``, never ``sip_rth``.
+- ``adjustment="split"`` maps to Alpaca's ``adjustment=split``; ``"none"`` maps to ``raw``.
+  Anything else raises: a silent convention mismatch is forbidden. (Alpaca serves
+  split|raw|all since at least 2026-10-26; the older ``splits`` and ``divide`` answer 400
+  "invalid adjustment", measured live.)
 - There is no native RTH knob on Alpaca's bars endpoint: the session
   convention is applied downstream (canonical selection), and the load engine
   (``services.bar_load``) offers every served bar to ohlcv_raw, in session or
@@ -48,9 +54,21 @@ from src.providers.base import (
 logger = structlog.get_logger(__name__)
 
 _TF_TO_ALPACA = {"1m": "1Min", "5m": "5Min", "1d": "1Day"}
-_ADJUSTMENT_TO_ALPACA = {"none": "raw", "split": "splits"}
-_BASE_URL = "https://data.alpaca.markets/v2/stocks/bars"
+# Alpaca serves adjustment=split|raw|all since at least 2026-10-26; the older
+# "splits" (and "divide") now answer 400 "invalid adjustment" (measured live).
+_ADJUSTMENT_TO_ALPACA = {"none": "raw", "split": "split"}
+_BASE_URL = "https://data.alpaca.markets"
+_BARS_PATH = "/v2/stocks/bars"
 _PAGE_LIMIT = 10_000  # vendor API maximum, a documented shape, not a tunable
+
+
+def _flatten_bars(raw) -> list:
+    """The bars answer as one flat list of bar rows. The v2 endpoint keys bars by symbol
+    ({"bars": {"SPY": [...]}}); the leaf asks one symbol per request, so flatten the entries.
+    The older flat list form ({"bars": [...]}) passes through. Measured live 2026-10-26."""
+    if isinstance(raw, dict):
+        return [bar for symbol_bars in raw.values() for bar in symbol_bars]
+    return list(raw)
 
 
 class AlpacaProvider:
@@ -63,12 +81,17 @@ class AlpacaProvider:
         settings: Settings | None = None,
         *,
         rate_limit_max_requests: int | None = None,
+        data_feed: str | None = None,
         on_request: Callable[[RequestRecord], None] | None = None,
         fetch_run_id: str | None = None,
     ):
         self._settings = settings or Settings()
         self._on_request = on_request
         self._fetch_run_id = fetch_run_id or (str(uuid.uuid4()) if on_request else None)
+        # Same pattern as the rate limit: the caller loads the APR value
+        # (infra.alpaca.data_feed) and passes it; sip is the leaf's own default so callers
+        # that don't care keep the admission build's basis.
+        self._data_feed = data_feed or "sip"
         effective_rate = rate_limit_max_requests or self._settings.alpaca_rate_limit_max_requests
         self._min_interval = 60.0 / effective_rate
         self._last_request_monotonic = 0.0
@@ -119,7 +142,7 @@ class AlpacaProvider:
                 fetch_run_id=self._fetch_run_id,
                 symbol=request.symbol,
                 timeframe=request.timeframe,
-                route="SIP",
+                route=self._data_feed.upper(),
                 what_to_show=_TF_TO_ALPACA[request.timeframe],
                 primary_exchange=None,
                 window_start=page_start,
@@ -172,14 +195,17 @@ class AlpacaProvider:
                 "start": request.start.isoformat(),
                 "end": request.end.isoformat(),
                 "adjustment": _ADJUSTMENT_TO_ALPACA[request.adjustment],
-                "feed": "sip",
+                "feed": self._data_feed,
                 "limit": _PAGE_LIMIT,
             }
             if page_token is not None:
                 params["page_token"] = page_token
             requests_spent += 1
             requested_at = datetime.now(UTC)
-            response = await self._client.get("/", params=params)
+            # Alpaca 404s the trailing-slash form ("/v2/stocks/bars/"), so the bars path
+            # is carried on the request, never via a pathed base_url: httpx normalizes a
+            # pathed base to the slash form (measured live 2026-10-26: slash+params 404).
+            response = await self._client.get(_BARS_PATH, params=params)
             if response.status_code == 429:
                 retry_after = float(response.headers.get("retry-after", "1"))
                 logger.warning("alpaca rate limited", retry_after_s=retry_after)
@@ -188,7 +214,7 @@ class AlpacaProvider:
                 continue
             response.raise_for_status()
             payload = response.json() or {}
-            page_bars = payload.get("bars") or []
+            page_bars = _flatten_bars(payload.get("bars") or [])
             n_bars = len(page_bars)
             self._record(
                 request,

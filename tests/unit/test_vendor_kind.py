@@ -10,6 +10,7 @@ from src.intelligence.bars.vendor_kind import (
     BAR_VENDORS,
     LABEL_TO_VENDOR_KIND,
     VENDOR_KIND_TO_LABEL,
+    VENDOR_SERVED_KINDS,
     canonical_kind_for_raw,
     label_to_vendor_kind,
     observation_kind,
@@ -76,12 +77,36 @@ def test_unknown_pair_raises_keyerror_naming_it():
         ("ibkr", "ISLAND", "TRADES", "venue_island"),
         ("tradier", "TRADIER", "TRADES", "consolidated"),
         ("alpaca", "ALPACA", "TRADES", "sip_rth"),
+        ("alpaca", "SIP", "TRADES", "sip_rth"),
+        ("alpaca", "IEX", "TRADES", "iex_rth"),
         ("ibkr", "LEGACY_IMPORT", "TRADES", "smart_trades"),
         ("tradier", "LEGACY_IMPORT", "TRADES", "consolidated"),
     ],
 )
 def test_observation_kind(source, route, wts, kind):
     assert observation_kind(source, route, wts) == kind
+
+
+def test_alpaca_kind_for_feed_names_the_answered_basis():
+    from src.intelligence.bars.vendor_kind import ALPACA_FEED_KINDS, alpaca_kind_for_feed
+
+    assert alpaca_kind_for_feed("sip") == "sip_rth"
+    assert alpaca_kind_for_feed("iex") == "iex_rth"
+    with pytest.raises(ValueError, match="unknown alpaca feed 'databento'"):
+        alpaca_kind_for_feed("databento")
+    # The feed map is the vendor-served kinds for alpaca, and both kinds are described.
+    assert set(ALPACA_FEED_KINDS.values()) == set(VENDOR_SERVED_KINDS["alpaca"])
+    assert {"sip_rth", "iex_rth"} <= set(BAR_KINDS)
+
+
+def test_vendor_served_kinds_gate_the_explicit_kind():
+    """The nightly's kind override is legal exactly for the kinds the vendor serves: an iex
+    answer must never be writable as sip_rth (the basis lie the split exists to prevent)."""
+    from src.intelligence.bars.vendor_kind import VENDOR_SERVED_KINDS
+
+    assert "iex_rth" in VENDOR_SERVED_KINDS["alpaca"]
+    assert VENDOR_SERVED_KINDS["tradier"] == frozenset({"consolidated"})
+    assert "alpaca" in VENDOR_SERVED_KINDS and "ibkr" not in VENDOR_SERVED_KINDS
 
 
 @pytest.mark.parametrize(

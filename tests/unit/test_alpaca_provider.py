@@ -91,6 +91,127 @@ def test_convention_mapping_raises_loudly() -> None:
         asyncio.run(run())
 
 
+def test_split_adjustment_maps_to_the_current_vendor_enum() -> None:
+    """Alpaca serves adjustment=split|raw|all since at least 2026-10-26; the stored convention
+    "split" must go over the wire as "split" (the older "splits" answers 400)."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"bars": []})
+
+    provider, _ = _provider_with(handler)
+
+    async def run() -> None:
+        await provider.connect()
+        try:
+            await provider.fetch_ohlcv(
+                HistoryRequest(
+                    symbol="SPY",
+                    timeframe="5m",
+                    start=_WINDOW_START,
+                    end=_WINDOW_END,
+                    adjustment="split",
+                ),
+                FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=5),
+            )
+        finally:
+            await provider.close()
+
+    import asyncio
+
+    asyncio.run(run())
+    assert "adjustment=split" in str(calls[0].url)
+
+
+def test_request_carries_the_configured_feed_and_the_record_names_it() -> None:
+    """The leaf asks the feed its caller configured (the nightly's APR-backed iex tail) and the
+    request record's route names that feed, so the raw kind derived downstream is honest."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=_bar_payload(["2026-10-06T14:30:00Z"]))
+
+    provider, records = _provider_with(handler)
+    provider._data_feed = "iex"  # noqa: SLF001 - the constructor value under test
+
+    async def run() -> None:
+        await provider.connect()
+        try:
+            await provider.fetch_ohlcv(
+                HistoryRequest(symbol="SPY", timeframe="5m", start=_WINDOW_START, end=_WINDOW_END),
+                FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=5),
+            )
+        finally:
+            await provider.close()
+
+    import asyncio
+
+    asyncio.run(run())
+    assert "feed=iex" in str(calls[0].url)
+    assert records[0].route == "IEX"
+
+
+def test_symbol_keyed_bars_answer_is_flattened() -> None:
+    """The v2 endpoint keys bars by symbol ({"bars": {"SPY": [...]}}); the leaf asks one symbol
+    per request and flattens the entries (measured live 2026-10-26 on feed=iex)."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={"bars": {"SPY": _bar_payload(["2026-10-06T14:30:00Z"])["bars"]}},
+        )
+
+    provider, records = _provider_with(handler)
+
+    async def run() -> HistoryPage:
+        await provider.connect()
+        try:
+            return await provider.fetch_ohlcv(
+                HistoryRequest(symbol="SPY", timeframe="5m", start=_WINDOW_START, end=_WINDOW_END),
+                FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=5),
+            )
+        finally:
+            await provider.close()
+
+    import asyncio
+
+    page = asyncio.run(run())
+    assert len(page.bars) == 1 and page.next_window_start is None
+    assert records[0].outcome == "bars" and records[0].n_bars == 1
+
+
+def test_default_feed_is_sip_end_to_end() -> None:
+    """A caller that passes no feed keeps the admission build's basis: feed=sip on the wire,
+    route SIP on the record."""
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json=_bar_payload(["2026-10-06T14:30:00Z"]))
+
+    provider, records = _provider_with(handler)
+
+    async def run() -> None:
+        await provider.connect()
+        try:
+            await provider.fetch_ohlcv(
+                HistoryRequest(symbol="SPY", timeframe="5m", start=_WINDOW_START, end=_WINDOW_END),
+                FetchBudget(deadline=datetime.now(UTC) + timedelta(seconds=30), max_requests=5),
+            )
+        finally:
+            await provider.close()
+
+    import asyncio
+
+    asyncio.run(run())
+    assert "feed=sip" in str(calls[0].url)
+    assert records[0].route == "SIP"
+
+
 def test_pagination_exhausts_to_none_resume() -> None:
     pages = [
         _bar_payload(["2026-10-06T14:30:00Z"], next_token="tok1"),

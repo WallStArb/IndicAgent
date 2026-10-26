@@ -11,7 +11,7 @@ from services.ohlcv_coverage_writer import CoverageDelta
 from services.ohlcv_ingress_contract import IngressResult, RawContractParams
 from services.ohlcv_raw_writer import RawRow
 from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
-from src.intelligence.bars.vendor_kind import label_to_vendor_kind
+from src.intelligence.bars.vendor_kind import VENDOR_SERVED_KINDS, label_to_vendor_kind
 
 # Chunk size bounds the rows one transaction offers the contract (its stored-row read renders an
 # array of the chunk's stamps client-side; a 100k-stamp array blew psycopg's 1 GiB query buffer,
@@ -27,11 +27,15 @@ class LoadPolicy:
     validates it against the CVR), and the timeframe selects the slot rule. A timeframe in
     DERIVATION_OWNED_TIMEFRAMES is refused outright (writer fence); `load_frame` is the
     fence-free raw capture for the timeframes the vendor serves that no loader authors.
+    `kind` overrides the vendor's label-map kind when the request context names the basis
+    more precisely than the label does (the nightly's feed-derived `iex_rth`); it is checked
+    against the vendor's served kinds so an iex answer can never be written as sip_rth.
     """
 
     vendor: str
     timeframe: str
     caller: str
+    kind: str | None = None
 
     def __post_init__(self) -> None:
         if self.timeframe in DERIVATION_OWNED_TIMEFRAMES:
@@ -86,13 +90,21 @@ def load_status(*, apply: bool, unselected: int = 0, basis_flagged: int = 0) -> 
 
 
 def frame_to_raw_rows(
-    frame: pd.DataFrame, symbol: str, *, vendor: str, timeframe: str
+    frame: pd.DataFrame, symbol: str, *, vendor: str, timeframe: str, kind: str | None = None
 ) -> list[RawRow]:
     """One frame (columns t, o, h, l, c, v) -> RawRow, the kind from the vendor's label map
-    (`label_to_vendor_kind`: alpaca -> sip_rth). Every row is kept; nothing is dropped."""
-    served_vendor, kind = label_to_vendor_kind(vendor)
+    (`label_to_vendor_kind`: alpaca -> sip_rth) unless an explicit kind is passed, which must be
+    one the vendor serves (`VENDOR_SERVED_KINDS`; the nightly's feed-derived iex_rth). Every row
+    is kept; nothing is dropped."""
+    served_vendor, label_kind = label_to_vendor_kind(vendor)
     if served_vendor != vendor:
         raise ValueError(f"vendor {vendor!r} maps to {served_vendor!r}")
+    if kind is not None:
+        served = VENDOR_SERVED_KINDS.get(vendor)
+        if served is None or kind not in served:
+            raise ValueError(f"vendor {vendor!r} does not serve kind {kind!r}")
+    else:
+        kind = label_kind
     stamps = frame["t"].dt.to_pydatetime()
     return [
         RawRow(
@@ -127,6 +139,7 @@ def load_frame(
     params: RawContractParams | None = None,
     chunk_rows: int = CHUNK_ROWS,
     on_chunk=None,
+    kind: str | None = None,
 ) -> LoadResult:
     """Offer one vendor frame to ohlcv_raw in chunks, one transaction per chunk; a dry run
     (`write` False) plans nothing beyond the offered count.
@@ -142,7 +155,7 @@ def load_frame(
         return LoadResult(n_offered=len(frame))
     if answered_at is None:
         raise ValueError(f"load_frame {symbol}: a write needs the vendor's answer time")
-    rows = frame_to_raw_rows(frame, symbol, vendor=vendor, timeframe=timeframe)
+    rows = frame_to_raw_rows(frame, symbol, vendor=vendor, timeframe=timeframe, kind=kind)
     result = LoadResult()
     for start in range(0, len(rows), chunk_rows):
         chunk = rows[start : start + chunk_rows]
@@ -199,4 +212,5 @@ def load_series(
         params=params,
         chunk_rows=chunk_rows,
         on_chunk=on_chunk,
+        kind=policy.kind,
     )

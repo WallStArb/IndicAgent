@@ -85,6 +85,25 @@ def test_frame_rows_carry_the_vendor_and_its_kind_and_keep_every_row() -> None:
     assert rows[0].volume == 100 and isinstance(rows[0].volume, int)
 
 
+def test_explicit_kind_names_the_served_basis_and_an_unserved_kind_raises() -> None:
+    """The nightly's feed-derived kind override: an iex answer is written iex_rth, and the
+    vendor-served check makes the sip_rth basis lie impossible."""
+    frame = _frame(["2026-10-09 13:30:00"])
+    rows = frame_to_raw_rows(frame, "SPY", vendor="alpaca", timeframe="5m", kind="iex_rth")
+    assert {(r.vendor, r.kind) for r in rows} == {("alpaca", "iex_rth")}
+    with pytest.raises(ValueError, match="does not serve kind 'sip_rth'"):
+        frame_to_raw_rows(frame, "SPY", vendor="tradier", timeframe="1d", kind="sip_rth")
+
+
+def test_policy_kind_reaches_the_raw_rows(persisted) -> None:
+    policy_iex = LoadPolicy(vendor="alpaca", timeframe="5m", caller="test-load-iex", kind="iex_rth")
+    frame = _frame(["2026-10-09 13:30:00"])
+    result = load_series(object(), policy_iex, "SPY", frame, write=True, answered_at=ANSWERED)
+    (call,) = persisted.calls
+    assert {(r.vendor, r.kind) for r in call["rows"]} == {("alpaca", "iex_rth")}
+    assert result.n_offered == 1
+
+
 def test_five_minute_is_not_derivation_owned_and_the_grid_helpers_are_gone() -> None:
     from src.intelligence.bars.sources import DERIVATION_OWNED_TIMEFRAMES
 

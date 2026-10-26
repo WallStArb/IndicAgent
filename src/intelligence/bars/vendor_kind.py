@@ -10,7 +10,9 @@ Planner decisions (D-191-A, resolving design doc ambiguity):
 - Raw `kind` is what the vendor served. `fallback` is therefore a canonical-only kind: it is a
   selection outcome the daily rule assigns, never something a vendor serves.
 - Tradier's kind is `consolidated`; Alpaca's is `sip_rth` (RTH-window SIP aggregates,
-  docs/plans/2026-10-09-alpaca-5m-admission-build.md).
+  docs/plans/2026-10-09-alpaca-5m-admission-build.md). Since 2026-10-26 the nightly's recent
+  tail is asked on feed=iex (the free plan 403s recent SIP data) and carries `iex_rth`; the
+  feed->kind split lives in ALPACA_FEED_KINDS.
 - Canonical 1d rows keep the winning raw row's (vendor, kind), so the tradeable view can null
   volume by kind. `derived` is the vendor only of the 15m/1h grid (kind `5m_grid`). The rule
   version stays in bar_derivation_batch, not on the row.
@@ -63,6 +65,33 @@ VENDOR_KIND_TO_LABEL: dict[tuple[str, str], str] = {
 # the map instead of retyping (the daily stage's grid stage and the reconciliation audit).
 DERIVED_PAIR = LABEL_TO_VENDOR_KIND[SOURCE_DERIVED_5M]
 
+# Alpaca's feed is part of what was served: the same bars endpoint answers sip (consolidated,
+# the 521 admission build's volume basis) or iex (IEX prints only). The nightly asks its recent
+# tail on iex because the free plan 403s recent SIP data (measured 2026-10-26), and the answer's
+# kind records which feed served it: rows written from iex carry iex_rth, never sip_rth, so raw
+# never lies about the volume basis. The label map stays sip-only: the historical labeling.
+ALPACA_FEED_KINDS: dict[str, str] = {"sip": "sip_rth", "iex": "iex_rth"}
+
+
+def alpaca_kind_for_feed(feed: str) -> str:
+    """The raw kind of an Alpaca bars answer on `feed`; ValueError naming the feed when unknown."""
+    try:
+        return ALPACA_FEED_KINDS[feed]
+    except KeyError:
+        raise ValueError(
+            f"unknown alpaca feed {feed!r}; valid: {sorted(ALPACA_FEED_KINDS)}"
+        ) from None
+
+
+# The raw kinds each vendor can serve, the check a loader that names an explicit kind (the
+# nightly's feed-derived one) is validated against: an iex answer must never be written under
+# sip_rth. `fallback` is canonical-assigned, never served, and IBKR's kinds carry route evidence
+# the label map already owns, so neither is listed.
+VENDOR_SERVED_KINDS: dict[str, frozenset[str]] = {
+    VENDOR_ALPACA: frozenset(ALPACA_FEED_KINDS.values()),
+    VENDOR_TRADIER: frozenset({"consolidated"}),
+}
+
 
 def pair_token(vendor: str, kind: str) -> str:
     """The composite `vendor/kind` token for legacy single-column contexts: ohlcv_revision's
@@ -87,6 +116,7 @@ BAR_KINDS: dict[str, str] = {
     "fallback": "IBKR 1d bar admitted by the daily rule where the primary has none (canonical only)",
     "consolidated": "Tradier consolidated-volume bar",
     "sip_rth": "Alpaca SIP aggregate over the regular trading hours window",
+    "iex_rth": "Alpaca IEX aggregate over the regular trading hours window",
     "5m_grid": "15m or 1h bar derived from 5m on the session-anchored grid",
 }
 
@@ -107,6 +137,10 @@ _CANONICAL_KIND_FOR_RAW: dict[tuple[str, str], str] = {
 
 _ROUTE_SMART = "SMART"
 _ROUTE_LEGACY_IMPORT = "LEGACY_IMPORT"
+# The route evidence an alpaca request row carries: the feed the leaf asked, upper case
+# ("SIP" is the historical spelling the leaf reported before the feed became configurable).
+_ROUTE_ALPACA_SIP = "SIP"
+_ROUTE_ALPACA_IEX = "IEX"
 _TRADES = "TRADES"
 _ADJUSTED_LAST = "ADJUSTED_LAST"
 
@@ -138,7 +172,9 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
     carried these columns, was dropped by plan 191-16).
 
     ibkr SMART TRADES is smart_trades and SMART ADJUSTED_LAST is smart_adjusted; an ibkr
-    listing-venue route with TRADES is `venue_<route>` (one kind per route). Route LEGACY_IMPORT carries no route evidence and
+    listing-venue route with TRADES is `venue_<route>` (one kind per route). An alpaca route is
+    the feed the leaf asked: SIP (or the label-level ALPACA) is sip_rth, IEX is iex_rth. Route
+    LEGACY_IMPORT carries no route evidence and
     resolves by its source column, as SMART. Anything else raises ValueError.
     """
     if source == VENDOR_IBKR:
@@ -157,9 +193,16 @@ def observation_kind(source: str, route: str, what_to_show: str) -> str:
     elif source == VENDOR_TRADIER and route in (ROUTE_TRADIER, _ROUTE_LEGACY_IMPORT):
         if what_to_show == _TRADES:
             return "consolidated"
-    elif source == VENDOR_ALPACA and route in (ROUTE_ALPACA, _ROUTE_LEGACY_IMPORT):
+    elif source == VENDOR_ALPACA and route in (
+        ROUTE_ALPACA,
+        _ROUTE_ALPACA_SIP,
+        _ROUTE_LEGACY_IMPORT,
+    ):
         if what_to_show == _TRADES:
             return "sip_rth"
+    elif source == VENDOR_ALPACA and route == _ROUTE_ALPACA_IEX:
+        if what_to_show == _TRADES:
+            return "iex_rth"
     raise UnmappedObservation(
         f"unmapped observation (source={source!r}, route={route!r}, what_to_show={what_to_show!r})"
     )

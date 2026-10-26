@@ -82,7 +82,9 @@ def _seed_codes(sql: str, namespace: str) -> list[str]:
 def test_cvr_seeds_equal_the_vendor_kind_module():
     sql = _sql()
     assert tuple(_seed_codes(sql, "bar_vendor")) == BAR_VENDORS
-    assert tuple(_seed_codes(sql, "bar_kind")) == tuple(BAR_KINDS)
+    # 472 seeded the original eleven kinds; iex_rth joined later (migration 511, the alpaca
+    # iex feed), so it is the one BAR_KINDS entry 472 does not carry.
+    assert tuple(_seed_codes(sql, "bar_kind")) == tuple(k for k in BAR_KINDS if k != "iex_rth")
     assert "ON CONFLICT (namespace, code) DO NOTHING" in sql
 
 
