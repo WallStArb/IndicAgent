@@ -39,6 +39,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from src.intelligence.research import (
+    data_quality,
     dividends,
     guards,
     power,
@@ -335,6 +336,10 @@ def _prepare_panel(
                 "members_universe_size": len(source.symbols),
             },
         )
+    # D0 labels on database symbols, before total_return splits a name into segments (todo 501).
+    labels = data_quality.panel_labels(source, total_return=spec.panel.total_return is not None)
+    if labels is not None:
+        source = dataclasses.replace(source, manifest={**source.manifest, "data_quality": labels})
     # After the universe filter (it matches database symbols; total_return renames split
     # segments `<symbol>~<k>`) and before the transform (legs read the corrected prices).
     if spec.panel.total_return is not None:
@@ -629,6 +634,7 @@ async def run_family(
                 hashes=hashes,
                 guards={**checked["summary"], "member": m.name},
                 sub_periods=cfg.sub_periods,
+                data_quality=panel.manifest.get("data_quality"),
             )
             await finish(m.name, "completed", record)
         return results
@@ -981,6 +987,7 @@ async def run_book(
                 "p": p_value,
                 "p_below_bar": p_value < bar,
             },
+            data_quality=panel.manifest.get("data_quality"),
         )
         _log("done")
         return await finish("completed", record)

@@ -24,6 +24,8 @@ import pandas as pd
 
 from src.core.database_manager import create_pool
 from src.core.market_calendar import get_market_calendar
+from src.intelligence.bars.label_inputs import load_label_inputs
+from src.intelligence.research import data_quality
 from src.intelligence.research import dividends as dividends_mod
 from src.intelligence.research import panel as panel_mod
 from src.intelligence.research.panel import Panel
@@ -66,6 +68,18 @@ _DISPUTE_RULE_SQL = (
 _DIV_EVENTS_SQL = (
     "SELECT symbol, ex_date, yahoo_yield, ibkr_yield, ibkr_prev_close "
     "FROM dividend_events_reconciled WHERE symbol = ANY($1) AND ex_date >= $2 AND ex_date < $3"
+)
+
+# Data-quality pinning (todo 501): the content digest ranges the span touches and the latest
+# bar_integrity verdict per subject and metric (integrity_monitor keeps every evaluation).
+_DIGESTS_SQL = (
+    "SELECT symbol, range_start, digest FROM bar_content_digest_current "
+    "WHERE symbol = ANY($1) AND timeframe = $2 AND range_start < $3 AND range_end >= $4"
+)
+_VERDICTS_SQL = (
+    "SELECT DISTINCT ON (subject, metric_name) subject, metric_name, passed "
+    "FROM integrity_monitor WHERE monitor_type = 'bar_integrity' AND subject = ANY($1) "
+    "ORDER BY subject, metric_name, evaluated_at DESC"
 )
 
 # instruments' universe eligibility columns (migration 337). universe_symbols accepts only these,
@@ -256,6 +270,17 @@ async def build_panel(
         requested = sorted(symbols)
         fetched = await asyncio.gather(*(fetch(s) for s in requested))
         known = {r["symbol"] for r in await pool.fetch(_KNOWN_SQL, requested)}
+        async with pool.acquire() as conn:
+            label_inputs = await load_label_inputs(conn, symbols=requested, tf=tf, start=lo, end=hi)
+        pinned = data_quality.snapshot_manifest(
+            label_inputs,
+            symbols=requested,
+            tf=tf,
+            digest_rows=[tuple(r) for r in await pool.fetch(_DIGESTS_SQL, requested, tf, hi, lo)],
+            verdict_rows=[
+                tuple(r) for r in await pool.fetch(_VERDICTS_SQL, [f"{s}|{tf}" for s in requested])
+            ],
+        )
         if dividends:
             coverage = {
                 r["symbol"]: (r["covered_from"], r["covered_to"])
@@ -287,6 +312,7 @@ async def build_panel(
         "end_exclusive": end_exclusive,
         "oos_start": oos.isoformat(),
         "symbols_without_bars": empty,
+        **pinned,
         **(manifest_extra or {}),
     }
     missing = [s for s in grid.symbols if s not in known]

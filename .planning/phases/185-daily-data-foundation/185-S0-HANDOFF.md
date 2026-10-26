@@ -6,7 +6,7 @@ Informed by: `.planning/phases/185-daily-data-foundation/185-16-PLAN.md` (task 2
 `src/intelligence/bars/labels.py`, `src/intelligence/bars/label_inputs.py`,
 `src/intelligence/research/snapshot.py`, `src/intelligence/research/runner.py`
 
-Status: coordination tracked by todo 501 (`.planning/todos/pending/501-apply-185-s0-data-quality-handoff-in-snapshot-and-runner.md`,
+Status: coordination tracked by todo 501 (`.planning/todos/completed/501-apply-185-s0-data-quality-handoff-in-snapshot-and-runner.md`, closed 2026-10-26,
 owner the phase 183 research lane, gate: before daily attempts 3, 3b and 4). The STATE.md lanes
 table holds `src/intelligence/research/` with the phase 183 session, so 185 wrote this document
 and touched nothing under it. Refreshed 2026-10-07 by 185-29 against the data layer integrity

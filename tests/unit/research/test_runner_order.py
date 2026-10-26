@@ -2,6 +2,7 @@
 builder and a throwaway git repository."""
 
 import asyncio
+import dataclasses
 import subprocess
 import textwrap
 
@@ -189,6 +190,36 @@ def test_real_mode_order(repo, saved_panel):
     assert ledger.snapshot_hash == store.verify(saved_panel)
     assert len(ledger.snapshot_hash) == 64
     assert ledger.evidence["power"] is None
+    assert "data_quality" not in ledger.evidence  # a snapshot captured before todo 501
+
+
+def test_pinned_snapshot_evidence_carries_data_quality(repo, tmp_path):
+    base = _panel()
+    first = int(base.timestamps[0].astype("datetime64[s]").astype(np.int64))
+    pinned = panel_mod.save(
+        Panel(
+            **{
+                **{f.name: getattr(base, f.name) for f in dataclasses.fields(Panel)},
+                "manifest": {
+                    **base.manifest,
+                    "d2_rule_version": None,
+                    "data_quality_inputs": {
+                        "moved_symbols": ["S0", "S1", "S2"],
+                        "quarantine_keys": [["S3", first]],
+                        "dividend_coverage": {},
+                    },
+                },
+            }
+        ),
+        tmp_path / "pinned",
+    )
+    ledger = FakeLedger()
+    _run(load_spec_from_head(repo, SPEC_PATH), _ctx(repo, ledger, pinned, []))
+    block = ledger.evidence["data_quality"]
+    assert block["d2_rule_version"] is None
+    assert block["venue_truncation_share"] == pytest.approx(0.1, abs=0.01)
+    assert 0 < block["scrub_flag_share"] < 1e-3
+    assert block["dividends"] == {"total_return": False, "uncovered_share": 1.0}
 
 
 def _refused(repo, saved_panel, ledger=None, loaded=None):

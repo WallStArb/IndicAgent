@@ -102,6 +102,7 @@ def evidence_record(
     guards: dict,
     sub_periods,
     screen: dict | None = None,
+    data_quality: dict | None = None,
 ) -> dict:
     """The E17 record: the decision statistic is the HAC timing t; the shift null is kept as
     a diagnostic block."""
@@ -141,4 +142,6 @@ def evidence_record(
     }
     if screen is not None:
         record["screen"] = screen
+    if data_quality is not None:  # D0 labels (D-04); absent for a snapshot captured before todo 501
+        record["data_quality"] = data_quality
     return jsonable(record)
