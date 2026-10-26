@@ -459,32 +459,30 @@ def test_swing_trend_zero_atr_all_none(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_swing_trend_live_batch_parity(bars, cfg):
-    """Live (compute() over the full growing history) must match batch to
-    1e-6 -- catches a forgotten compute_batch() wiring update (T-165-08)."""
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    cache_live = FeatureCache()
-    fv_live_last: FeatureVector | None = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _SWING_FIELDS + _TREND_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
+def _assert_live_batch_parity(
+    fields: tuple[str, ...], fv_batch: FeatureVector, fv_live: FeatureVector
+) -> None:
+    for field in fields:
+        b = getattr(fv_batch, field)
+        s = getattr(fv_live, field)
         if b is None or s is None:
             assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
         else:
             assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+
+
+@pytest.fixture(scope="module")
+def bars_batch_and_live_last(bars, cfg) -> tuple[FeatureVector, FeatureVector]:
+    """The final batch and live vectors for `bars`, shared by the swing/trend and
+    swing-momentum/fib parity tests."""
+    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", FeatureCache(), cfg)
+    return batch_results[-1][1], _run_live_with_session_levels(bars, cfg)
+
+
+def test_swing_trend_live_batch_parity(bars_batch_and_live_last):
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to
+    1e-6 -- catches a forgotten compute_batch() wiring update (T-165-08)."""
+    _assert_live_batch_parity(_SWING_FIELDS + _TREND_FIELDS, *bars_batch_and_live_last)
 
 
 # ---------------------------------------------------------------------------
@@ -817,32 +815,10 @@ def test_fib_discount_zone_boundaries():
 # ---------------------------------------------------------------------------
 
 
-def test_swing_momentum_fib_live_batch_parity(bars, cfg):
-    """Live (compute() over the full growing history) must match batch to
+def test_swing_momentum_fib_live_batch_parity(bars_batch_and_live_last):
+    """Live (the per-bar mutators, then compute() on the last bar) must match batch to
     1e-6 -- catches a forgotten compute_batch() wiring update."""
-    n = len(bars)
-
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
-
-    cache_live = FeatureCache()
-    fv_live_last: FeatureVector | None = None
-    for i in range(1, n):
-        bar = bars[i]
-        cache_live.update_session_vp(
-            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
-        )
-        fv_live_last = FeatureFactory.compute(bars[: i + 1], "SPY", "5m", cache_live, cfg)
-
-    assert fv_live_last is not None
-    for field in _SWING_MOMENTUM_FIELDS + _FIB_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    _assert_live_batch_parity(_SWING_MOMENTUM_FIELDS + _FIB_FIELDS, *bars_batch_and_live_last)
 
 
 # ---------------------------------------------------------------------------
@@ -931,17 +907,27 @@ def _run_live_with_session_levels(
     symbol: str = "SPY",
     tf: str = "5m",
 ) -> FeatureVector:
-    """Drive compute() incrementally with all 3 required per-bar mutators, in the
-    same order compute_batch()'s internal loop uses them (update_session_vp /
-    update_overnight_range / update_session_levels BEFORE compute(), advance_bar()
-    AFTER) -- extends test_swing_trend_live_batch_parity's single-mutator pattern
-    with the two Phase 164/165 mutators Plan 05's fields depend on. Returns the
-    FINAL FeatureVector only.
+    """The FINAL FeatureVector the live pipeline produces: the 3 per-bar mutators in
+    compute_batch()'s order (update_session_vp / update_overnight_range /
+    update_session_levels before compute(), advance_bar() after), then compute() on the
+    last bar. compute() leaves no state behind
+    (test_per_bar_compute_equals_the_single_call_replay), so the per-bar compute() calls
+    before the last cannot change it; skipping them keeps
+    the replay linear in bar count instead of quadratic.
     """
+    cache = _replay_mutators(bars_local, cfg)
+    return FeatureFactory.compute(bars_local, symbol, tf, cache, cfg)
+
+
+def _replay_mutators(bars_local: list[dict], cfg: FeatureFactoryConfig) -> FeatureCache:
+    """The cache as compute() sees it on the last bar: every mutator applied through the last
+    bar except that bar's advance_bar(), which runs after compute()."""
     cache = FeatureCache()
-    fv: FeatureVector | None = None
     for i in range(1, len(bars_local)):
         bar = bars_local[i]
+        if i > 1:
+            prev = bars_local[i - 1]
+            cache.advance_bar(prev["ts"], prev["high"], prev["low"], prev["close"], prev["volume"])
         cache.update_session_vp(
             bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
         )
@@ -949,10 +935,41 @@ def _run_live_with_session_levels(
         cache.update_session_levels(
             bar["ts"], bar["open"], bar["high"], bar["low"], bar["close"], cfg
         )
-        fv = FeatureFactory.compute(bars_local[: i + 1], symbol, tf, cache, cfg)
+    return cache
+
+
+def test_per_bar_compute_equals_the_single_call_replay(session_bars, cfg):
+    """_run_live_with_session_levels calls compute() once, on the last bar. That equals the live
+    pipeline's per-bar loop only if compute() leaves no state behind, in the cache or anywhere
+    else; this drives the per-bar loop over a prefix that crosses a session rollover and
+    requires every FeatureVector field to match exactly."""
+    prefix = session_bars[:100]
+    cache = FeatureCache()
+    per_bar: FeatureVector | None = None
+    for i in range(1, len(prefix)):
+        bar = prefix[i]
+        cache.update_session_vp(
+            bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"], cfg
+        )
+        cache.update_overnight_range(bar["ts"], bar["high"], bar["low"], cfg)
+        cache.update_session_levels(
+            bar["ts"], bar["open"], bar["high"], bar["low"], bar["close"], cfg
+        )
+        per_bar = FeatureFactory.compute(prefix[: i + 1], "SPY", "5m", cache, cfg)
         cache.advance_bar(bar["ts"], bar["high"], bar["low"], bar["close"], bar["volume"])
-    assert fv is not None
-    return fv
+    assert per_bar is not None
+    single = _run_live_with_session_levels(prefix, cfg)
+
+    def same(a: object, b: object) -> bool:
+        both_nan = isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b)
+        return both_nan or a == b
+
+    differ = [
+        f.name
+        for f in dataclasses.fields(FeatureVector)
+        if not same(getattr(per_bar, f.name), getattr(single, f.name))
+    ]
+    assert not differ, f"per-bar and single-call live vectors differ on {differ}"
 
 
 _SESSION_N_DAYS = 8
@@ -1001,18 +1018,23 @@ def session_bars() -> list[dict]:
     return _build_session_levels_bars()
 
 
+@pytest.fixture(scope="module")
+def session_batch_5m(session_bars, cfg) -> list:
+    """compute_batch() over `session_bars` at 5m; the session-level tests only read it."""
+    return FeatureFactory.compute_batch(session_bars, "SPY", "5m", FeatureCache(), cfg)
+
+
 # ---------------------------------------------------------------------------
 # (a) Session-levels non-constant across bars (batch path) -- direct
 # todo-153-shaped guard
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_non_constant_batch(session_bars, cfg):
+def test_session_levels_non_constant_batch(session_batch_5m):
     """Each of the 16 session-levels fields must take at least 2 distinct
     non-None values across a multi-session, multi-week batch run -- except
     gap_filled, for which both 0.0 and 1.0 must occur."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache, cfg)
+    results = session_batch_5m
 
     for field in _SESSION_LEVEL_FIELDS:
         vals = _finite([getattr(fv, field) for _, fv in results])
@@ -1231,12 +1253,11 @@ def test_session_levels_weekly_pivot_tiny_atr_gated_not_exploded(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_daily_suppression(session_bars, cfg):
+def test_session_levels_daily_suppression(session_bars, session_batch_5m, cfg):
     """The five intraday-only fields must be None at tf=='1d' and non-None at
     tf=='5m' on the same bars; opening_gap_pct and the weekly five must be
     non-None at both."""
-    cache_5m = FeatureCache()
-    results_5m = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache_5m, cfg)
+    results_5m = session_batch_5m
     cache_1d = FeatureCache()
     results_1d = FeatureFactory.compute_batch(session_bars, "SPY", "1d", cache_1d, cfg)
 
@@ -1338,13 +1359,11 @@ def test_session_levels_gap_filled_column(cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_session_levels_live_batch_parity(session_bars, cfg):
+def test_session_levels_live_batch_parity(session_bars, session_batch_5m, cfg):
     """Live (compute() driven per-bar exactly as the live pipeline does) must
     match batch to 1e-6 on all 16 session-levels fields -- catches a
     forgotten compute_batch() wiring update."""
-    cache_batch = FeatureCache()
-    batch_results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache_batch, cfg)
-    _, fv_batch_last = batch_results[-1]
+    _, fv_batch_last = session_batch_5m[-1]
 
     fv_live_last = _run_live_with_session_levels(session_bars, cfg)
 
@@ -1361,13 +1380,7 @@ def test_session_levels_live_batch_parity(session_bars, cfg):
         getattr(fv_live_last, f) is not None for f in _SESSION_LEVEL_FIELDS
     ), "parity check is vacuous -- fv_live_last has all 16 session-levels fields None"
 
-    for field in _SESSION_LEVEL_FIELDS:
-        b = getattr(fv_batch_last, field)
-        s = getattr(fv_live_last, field)
-        if b is None or s is None:
-            assert b == s, f"{field}: batch={b} live={s} (None mismatch)"
-        else:
-            assert abs(b - s) < 1e-6, f"{field}: batch={b:.10f} live={s:.10f}"
+    _assert_live_batch_parity(_SESSION_LEVEL_FIELDS, fv_batch_last, fv_live_last)
 
 
 # ---------------------------------------------------------------------------
@@ -1375,13 +1388,12 @@ def test_session_levels_live_batch_parity(session_bars, cfg):
 # ---------------------------------------------------------------------------
 
 
-def test_phase165_all_41_fields_non_constant_batch(session_bars, cfg):
+def test_phase165_all_41_fields_non_constant_batch(session_batch_5m):
     """Every one of the 41 Phase 165 fields must take at least one non-None
     value somewhere across a multi-session, multi-week batch run -- the
     single test that catches a whole sub-scope silently failing to wire (the
     todo-153 failure mode)."""
-    cache = FeatureCache()
-    results = FeatureFactory.compute_batch(session_bars, "SPY", "5m", cache, cfg)
+    results = session_batch_5m
 
     all_none: list[str] = []
     for field in _PHASE_165_FIELDS:

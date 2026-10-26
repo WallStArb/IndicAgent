@@ -52,6 +52,17 @@ Deliverables:
   survivor is the copy with the rationale docstring. Cross-file matches left alone: they read
   a per-file migration constant, so the bodies match but the subjects differ. 6,953 passed,
   1 skipped, 88 s wall.
+- Batch 4, 2026-10-26 (speed and consolidation):
+  - `test_feature_kernels.py`: the per-kernel probe test (278 cases, 128 s of CPU) re-ran the
+    causality probe and memory check that the three `probe_registry` tests already run on every
+    kernel on the same rows; the partition test keeps every kernel inside one of them. Deleted.
+  - `test_swing_fib_trend_structure_primitives.py`: the live/batch parity replays called
+    `compute()` on every bar over the growing history (quadratic; 26 s, 10 s, 10 s), but
+    `compute()` leaves no state, so the replay now applies the per-bar mutators and calls
+    `compute()` once. `test_per_bar_compute_equals_the_single_call_replay` holds that
+    equivalence on every FeatureVector field over a 100-bar prefix. Shared module fixtures for
+    the batch runs. Module: 46 s -> 8.5 s serial.
+  - 6,680 passed, 1 skipped; 58 s wall on a quiet box (88 s with a second suite running).
 - Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
   probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
   6 s x2, runner_book/order 3-4 s each).

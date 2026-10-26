@@ -23,7 +23,6 @@ from src.intelligence.feature_factory import (
     _macro_kernel_inputs,
 )
 from src.intelligence.features.contract.causality_probe import (
-    CausalityViolation,
     causality_probe,
     memory_check,
     probe_registry,
@@ -43,7 +42,6 @@ from src.intelligence.features.feature_vector_persistence import (
 from src.intelligence.features.kernels._cache_state import FeatureCache
 from tests.unit.intelligence import kernel_parity_reference as ref
 from tests.unit.intelligence.daily_grid_fixtures import (
-    DAILY_GRID_KERNELS,
     daily_grid_inputs,
     daily_grid_kernels,
     intraday_kernels,
@@ -57,6 +55,7 @@ from tests.unit.intelligence.regime_kernel_fixtures import (
 MANIFEST = ref.load_manifest()
 PROBE_ROWS = np.array([700, 1200, 1800, 2400, 2999])
 PROBE_BARS = 3000
+PROBE_DAILY_ROWS = 3000
 
 # Kernels whose output depends on where the series starts (registry path_dependent).
 PATH_DEPENDENT = {
@@ -312,55 +311,6 @@ def test_compute_batch_calls_no_delegated_helper():
     assert called == []
 
 
-@lru_cache(maxsize=2)
-def _probe_case(config_key: str):
-    config = ref.build_config(MANIFEST[config_key])
-    available = with_derived_inputs(synthetic_bars(PROBE_BARS))
-    available.update(
-        compute_kernels(default_registry(), available, config, outputs=_intraday_outputs())
-    )
-    return available, config
-
-
-PROBE_DAILY_ROWS = 3000
-
-
-@lru_cache(maxsize=2)
-def _daily_probe_case(config_key: str):
-    config = ref.build_config(MANIFEST[config_key])
-    return with_derived_inputs(daily_grid_inputs(PROBE_DAILY_ROWS)), config
-
-
-@lru_cache(maxsize=1)
-def _regime_probe_case(_config_key: str):
-    return regime_probe_case()
-
-
-def _case_for(kernel, config_key: str):
-    """(inputs, config, probed rows) of the grid the kernel runs on: daily, regime or intraday."""
-    if kernel.name in DAILY_GRID_KERNELS:
-        return (*_daily_probe_case(config_key), PROBE_ROWS)
-    if kernel.origin == "regime":
-        return (*_regime_probe_case("regime"), REGIME_PROBE_ROWS)
-    return (*_probe_case(config_key), PROBE_ROWS)
-
-
-@pytest.mark.parametrize("config_key", ["synthetic_config", "real_config"])
-@pytest.mark.parametrize("kernel", default_registry().kernels, ids=lambda k: k.name)
-def test_probe_and_memory_check_per_kernel(kernel, config_key):
-    available, config, rows = _case_for(kernel, config_key)
-    if kernel.acausal_control:
-        with pytest.raises(CausalityViolation):
-            causality_probe(kernel, available, config, rows)
-        return
-    causality_probe(kernel, available, config, rows)
-    if kernel.path_dependent:
-        assert kernel.name in PATH_DEPENDENT
-        return
-    assert kernel.name not in PATH_DEPENDENT
-    memory_check(kernel, available, config, rows)
-
-
 def test_the_path_dependent_allow_list_is_the_reviewed_sixteen():
     """A new kernel that declares path_dependent skips the memory check; that needs a review,
     so it has to be added to PATH_DEPENDENT here (and this count changed) by a person. Twelve
@@ -392,7 +342,7 @@ def test_probe_registry_statuses(config_key):
 def test_probe_registry_statuses_on_the_regime_series():
     """The regime kernels go through probe_registry on their own short series under the small HMM
     configuration, like every other kernel; none is exempt."""
-    available, config = _regime_probe_case("regime")
+    available, config = regime_probe_case()
     registry = KernelRegistry.from_kernels(
         regime_kernels(default_registry().kernels), default_registry().external_inputs
     )
@@ -422,8 +372,7 @@ def test_probe_registry_statuses_on_the_daily_grid(config_key):
     registry = KernelRegistry.from_kernels(
         daily_grid_kernels(default_registry().kernels), default_registry().external_inputs
     )
-    rows = np.array([700, 1200, 1800, 2400, 2999])
-    statuses = probe_registry(registry, daily_grid_inputs(PROBE_DAILY_ROWS), config, rows)
+    statuses = probe_registry(registry, daily_grid_inputs(PROBE_DAILY_ROWS), config, PROBE_ROWS)
     assert statuses == {
         "cross_asset_daily": "path_dependent_skipped_memory",
         "factor_beta_daily": "ok",
