@@ -80,3 +80,18 @@ point in time (`valid_from`, `valid_to`, evidence). Extend it to carry listing e
 
 Open questions for the owner: (1) listing end on `listing_venue` vs a new table; (2) PSKY spelling
 point in time vs conid identity.
+
+## PSKY -> SKYD measured at IBKR (2026-10-26, read-only probe)
+
+IBKR resolves SKYD (conid 804144296, NYSE, "SKYDANCE CORP", TRADES head 2025-08-07 = PSKY's own
+SMART head) and no longer resolves PSKY. Over the 17 common sessions 2026-09-08..09-30 every SKYD
+close is the stored PSKY ibkr/smart_trades close times 0.9787..0.9796 (median about 0.979) and
+volume about 1.02x: IBKR re-served the whole series on a new scale at the rename, a constant
+factor that is no split ratio. SKYD also has no 2026-10-05 bar (Tradier served 9.775 that day).
+
+So pointing PSKY at SKYD (`provider_meta.ibkr.symbol`, the BRK.B mechanism) is a one-row change,
+but its first fetch re-serves the history last-wins on the new scale. The overlap judge should
+hold the name as an `unclassified_rescale` (same class as CTVA's 39/7, todo 516) and the
+restatement detector flags the rows. The scale decision then rides with 516's policy. The factor
+is plausibly a merger exchange or special-distribution adjustment; confirm it against the
+merger terms before choosing a basis.
