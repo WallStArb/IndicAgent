@@ -241,3 +241,9 @@ Using 0.6 bp at L 0.1, keep 0.2 on the 233 set gives net E of about +0.04 to +0.
 Conclusion: no version of the same-slot signal traded as a standalone book clears measured cost in
 any slot, keep or liquidity cut tried. Open hypothesis, not tested: use the slot alpha only to time
 trades a slower strategy already makes, which pays no incremental spread.
+
+Dated note 2026-10-26: the panel snapshot `logs/research/snapshots/panel_f7fd3a15bc645e5f`
+(580M) was deleted as trimmed derived cache, family 1 being closed with its verdict recorded
+in the construction ledger (iterations 1-4, net negative at measured cost). The panel was
+rebuildable from raw per the snapshot manifest; its recorded run outputs and digests in this
+doc and the ledger remain the record. The raw inputs in ohlcv_raw are untouched.
