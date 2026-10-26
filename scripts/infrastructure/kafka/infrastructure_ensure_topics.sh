@@ -9,20 +9,13 @@
 set -euo pipefail
 
 DLQ_TOPICS=(
-  market.events.roll.dlq
-  intelligence.signal.dlq
   bar.aggregator.dlq
   bar.writer.dlq
-  feature.writer.dlq
-  intelligence.signal.writer.dlq
-  lifecycle.writer.dlq
-  intelligence.pipeline.dlq
-  signal.tracker.dlq
-  llm.writer.dlq
-  intelligence.transform.graduation.dlq
-  intelligence.signal_lineage.dlq
-  ml.orchestrator.dlq
   gap_fill.dlq
+  intelligence.signal.dlq
+  intelligence.pipeline.dlq
+  intelligence.feature_vectors.dlq
+  ml.orchestrator.dlq
   intelligence.service_auditor.journal.dlq
 )
 

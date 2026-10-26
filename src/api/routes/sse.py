@@ -14,12 +14,9 @@ from src.observability.metrics import SSE_MESSAGES_DROPPED_TOTAL
 
 from ...core.stream_keys import (
     topic_intelligence,
-    topic_intelligence_i8,
     topic_intelligence_journal,
     topic_market_bars,
     topic_market_bars_htf,
-    topic_narratives,
-    topic_narratives_group,
     topic_signals_aggregated,
 )
 from .. import dependencies
@@ -152,33 +149,16 @@ class KafkaSSEBroadcaster:
 # ── Topic list builder ───────────────────────────────────────────────────────
 
 
-def _build_topic_list(symbols: list[str], timeframe: str) -> list[str]:
-    """Return Kafka topics to subscribe for the given symbols and timeframe.
-
-    Topics are flat (one per event type, not per symbol/TF). Deduplication
-    handled by returning unique topic names only.
-    """
-    settings = _get_settings()
-    env_name = settings.env_name or ""
-    topics: list[str] = []
-    # market.ticks removed — IBKRProvider publishes bars not ticks; intelligence_pipeline subscribes internally
-    # indicators removed — only archived services published to this topic
-    topics.append(topic_market_bars(env_name))
-    topics.append(topic_market_bars_htf(env_name))
-    topics.append(topic_intelligence(env_name))
-    topics.append(topic_intelligence_journal(env_name))
-    topics.append(topic_intelligence_i8(env_name))
-    topics.append(topic_signals_aggregated(env_name))
-    topics.append(topic_narratives(env_name))
-    topics.append(topic_narratives_group(env_name))
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    result: list[str] = []
-    for t in topics:
-        if t not in seen:
-            seen.add(t)
-            result.append(t)
-    return result
+def sse_topics(env_name: str) -> list[str]:
+    """The Kafka topics the broadcaster consumes and every SSE client subscribes to. Topics are
+    flat (one per event type), so the list does not depend on the client's symbols."""
+    return [
+        topic_market_bars(env_name),
+        topic_market_bars_htf(env_name),
+        topic_intelligence(env_name),
+        topic_intelligence_journal(env_name),
+        topic_signals_aggregated(env_name),
+    ]
 
 
 # ── Topic → SSE event name mapping ──────────────────────────────────────────
@@ -189,65 +169,25 @@ def _serialize_sse_item(item: dict) -> str:
     return json.dumps({"topic": item["topic"], "key": item["key"], "payload": item["payload"]})
 
 
+# Longest prefix first: intelligence.journal before intelligence.
+_EVENT_BY_PREFIX: tuple[tuple[str, str], ...] = (
+    ("market.bars", "market_data"),
+    # intelligence.journal: BarIntelligenceRecord transformed to scorecard shape by broadcaster
+    ("intelligence.journal", "signal_scorecard"),
+    ("intelligence", "intelligence_data"),
+    ("signals.aggregated", "signal_data"),
+)
+
+
 @functools.lru_cache(maxsize=256)
 def _event_name_for_topic(topic: str) -> str:
-    """Map a Kafka topic name (period-separated) to an SSE event name.
-
-    Strips optional env prefix (e.g. 'dev.') before matching.
-    """
-    # Strip env prefix: everything before the first period that isn't a known domain segment
-    known_prefixes = {
-        "market.ticks",
-        "market.bars",
-        "indicators",
-        "intelligence.journal",
-        "intelligence.i7",
-        "intelligence.i8",
-        "intelligence",
-        "signals.aggregated",
-        "signals",
-        "narratives.group",
-        "narratives",
-        "llm.calls",
-        "llm.outcomes",
-        "system.events",
-    }
-    # Find rest after first dot if the first segment looks like an env name
-    dot_idx = topic.find(".")
-    if dot_idx > 0:
-        rest = topic[dot_idx + 1 :]
-        # Check if rest matches a known prefix → the first part is env prefix
-        matches = any(
-            rest == p or rest.startswith(p + ".") or rest.startswith(p) for p in known_prefixes
-        )
-        if matches:
-            candidate = rest
-        else:
-            candidate = topic
-    else:
-        candidate = topic
-
-    if candidate == "market.ticks" or candidate.startswith("market.ticks"):
-        return "tick_data"
-    if candidate == "market.bars" or candidate.startswith("market.bars"):
-        return "market_data"
-    if candidate == "indicators" or candidate.startswith("indicators"):
-        return "indicator_data"
-    # intelligence.journal — BarIntelligenceRecord transformed to scorecard shape by broadcaster
-    if candidate == "intelligence.journal" or candidate.startswith("intelligence.journal."):
-        return "signal_scorecard"
-    if candidate == "intelligence.i8" or candidate.startswith("intelligence.i8"):
-        return "narrative_data"
-    if candidate == "intelligence" or candidate.startswith("intelligence"):
-        return "intelligence_data"
-    if candidate == "signals.aggregated" or candidate.startswith("signals.aggregated"):
-        return "signal_data"
-    if candidate == "signals" or candidate.startswith("signals"):
-        return "signal_data"
-    if candidate == "narratives.group" or candidate.startswith("narratives.group"):
-        return "narrative_data"
-    if candidate == "narratives" or candidate.startswith("narratives"):
-        return "narrative_data"
+    """Map a Kafka topic name to an SSE event name, with or without an env prefix ('dev.'): the
+    bare name is tried first, then the name after its first segment."""
+    rest = topic.split(".", 1)[1] if "." in topic else ""
+    for candidate in (topic, rest):
+        for prefix, event in _EVENT_BY_PREFIX:
+            if candidate.startswith(prefix):
+                return event
     return "message"
 
 
@@ -277,8 +217,7 @@ async def sse_events(
         )
 
     broadcaster: KafkaSSEBroadcaster = dependencies.kafka_broadcaster
-    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
-    topic_list = _build_topic_list(symbol_list, timeframe)
+    topic_list = sse_topics(_get_settings().env_name or "")
     snapshot, sub = broadcaster.subscribe(frozenset(topic_list))
 
     async def event_generator() -> AsyncGenerator[bytes]:

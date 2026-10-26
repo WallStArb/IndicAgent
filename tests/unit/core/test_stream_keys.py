@@ -3,41 +3,10 @@
 from src.core.stream_keys import (
     env_prefix,
     message_key,
-    narratives_group,
-    system_events,
     topic_intelligence,
-    topic_intelligence_i8,
     topic_market_bars,
-    topic_market_ticks,
-    topic_narratives,
     topic_signals_aggregated,
 )
-
-
-def test_narratives_group_no_prefix():
-    key = narratives_group("", "equity")
-    assert key == "narratives:group:equity"
-
-
-def test_narratives_group_with_env_prefix():
-    key = narratives_group("development:", "metals")
-    assert key == "development:narratives:group:metals"
-
-
-def test_narratives_group_all_groups():
-    groups = ["equity", "energy", "metals", "rates", "fx_crypto", "ag"]
-    for g in groups:
-        key = narratives_group("", g)
-        assert key == f"narratives:group:{g}"
-
-
-def test_system_events_no_prefix():
-    assert system_events("") == "system:events"
-
-
-def test_system_events_with_env_prefix():
-    assert system_events("development:") == "development:system:events"
-
 
 # ---------------------------------------------------------------------------
 # Kafka topic builder tests (Phase 30+)
@@ -52,14 +21,6 @@ def test_env_prefix_empty() -> None:
     assert env_prefix("") == ""
 
 
-def test_topic_market_ticks_with_env() -> None:
-    assert topic_market_ticks("dev") == "dev.market.ticks"
-
-
-def test_topic_market_ticks_no_env() -> None:
-    assert topic_market_ticks("") == "market.ticks"
-
-
 def test_topic_market_bars_with_env() -> None:
     assert topic_market_bars("dev") == "dev.market.bars"
 
@@ -68,16 +29,8 @@ def test_topic_intelligence_with_env() -> None:
     assert topic_intelligence("dev") == "dev.intelligence"
 
 
-def test_topic_intelligence_i8_with_env() -> None:
-    assert topic_intelligence_i8("dev") == "dev.intelligence.i8"
-
-
 def test_topic_signals_aggregated_with_env() -> None:
     assert topic_signals_aggregated("dev") == "dev.signals.aggregated"
-
-
-def test_topic_narratives_with_env() -> None:
-    assert topic_narratives("dev") == "dev.narratives"
 
 
 def test_message_key_with_timeframe() -> None:
@@ -186,20 +139,3 @@ def test_topic_gap_fill_dlq_with_env():
     from src.core.stream_keys import topic_gap_fill_dlq
 
     assert topic_gap_fill_dlq("dev") == "dev.gap_fill.dlq"
-
-
-# ---------------------------------------------------------------------------
-# Phase 72: Transform graduation topic stream keys
-# ---------------------------------------------------------------------------
-
-
-def test_topic_transform_graduation_dlq_with_env():
-    from src.core.stream_keys import topic_transform_graduation_dlq
-
-    assert topic_transform_graduation_dlq("dev") == "dev.intelligence.transform.graduation.dlq"
-
-
-def test_topic_transform_graduation_dlq_no_env():
-    from src.core.stream_keys import topic_transform_graduation_dlq
-
-    assert topic_transform_graduation_dlq("") == "intelligence.transform.graduation.dlq"

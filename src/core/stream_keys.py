@@ -4,11 +4,7 @@ Stream key helpers and Kafka topic builders.
 Version: 3.2.0
 Last Updated: 2026-05-07
 
-Kafka topic builder functions (topic_*) are the primary API.
-Legacy Redis key helpers retained for sse.py backward compat:
-  live_tick, market, indicators, intelligence, intelligence_i8,
-  signals, signals_aggregated, narratives, narratives_group, system_events,
-  llm_calls_stream, llm_outcomes_stream, prefix, patterns_pattern
+Kafka topic builder functions (topic_*) and message_key() are the API.
 
 Removed in Phase 30 (no remaining callers in services or API):
   quote_latest, llm_scores_cache, setup_performance_weights_cache,
@@ -26,6 +22,15 @@ Removed in v3.2 (Phase 44.2 DAG retirement + Phase 80 spec cleanup):
   topic_calibrated, topic_ranked — Phase 40 6-stage microservice DAG retired
   topic_data_quality — pipeline.data_quality never created, unused
   topic_intelligence_pipeline_state — topic deleted (Kafka is transport not state store)
+
+Removed in todo 509 (2026-10-26; producers deleted in 185-45 and earlier):
+  DLQ topics for roll, feature_writer, signal_writer, lifecycle_writer, signal_tracker,
+  llm_writer, transform_graduation and signal_lineage; topic_intelligence_i7_signals;
+  the Redis key helpers (prefix, live_tick, market, intelligence, intelligence_i7, signals,
+  signals_aggregated, narratives_group, system_events, llm_calls_stream, llm_outcomes_stream,
+  intelligence_i8); topic_market_ticks (no producer) and topic_intelligence_shadow (its
+  pipeline is gone); the I8 narrative topics (topic_narratives, topic_narratives_group,
+  topic_intelligence_i8), whose producer went with the AI stack
 """
 
 from __future__ import annotations
@@ -41,11 +46,6 @@ from src.core.service_utils import TF_SECONDS  # noqa: F401 — re-exported for 
 def env_prefix(env_name: str) -> str:
     """Return Kafka topic prefix: 'dev.' for env_name='dev', '' for env_name=''."""
     return f"{env_name}." if env_name else ""
-
-
-def topic_market_ticks(env_name: str) -> str:
-    """Kafka topic for raw tick data from TWS daemon."""
-    return f"{env_prefix(env_name)}market.ticks"
 
 
 def topic_market_bars(env_name: str) -> str:
@@ -94,24 +94,9 @@ def topic_intelligence(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence"
 
 
-def topic_intelligence_i8(env_name: str) -> str:
-    """Kafka topic for I8 AI narrative metadata per bar."""
-    return f"{env_prefix(env_name)}intelligence.i8"
-
-
 def topic_signals_aggregated(env_name: str) -> str:
     """Kafka topic for aggregated/selected signal per bar."""
     return f"{env_prefix(env_name)}signals.aggregated"
-
-
-def topic_narratives(env_name: str) -> str:
-    """Kafka topic for I8 narrative output."""
-    return f"{env_prefix(env_name)}narratives"
-
-
-def topic_narratives_group(env_name: str) -> str:
-    """Kafka topic for I8 group synthesis narrative output."""
-    return f"{env_prefix(env_name)}narratives.group"
 
 
 def topic_system_events(env_name: str) -> str:
@@ -138,26 +123,6 @@ def topic_feature_vectors(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence.feature_vectors"
 
 
-def topic_intelligence_i7_signals(env_name: str) -> str:
-    """Kafka topic carrying all ranked I7 signals per bar (pre-ledger write).
-
-    Published by IntelligencePipeline after each bar's I7 run.
-    Consumed by SignalWriter for signal_ledger persistence.
-    Payload schema: {symbol, tf, bar_ts, computed_at, signals: list[dict]}
-    """
-    return f"{env_prefix(env_name)}intelligence.i7.signals"
-
-
-def topic_intelligence_shadow(env_name: str) -> str:
-    """Kafka topic for shadow rollout output from IntelligencePipeline.
-
-    Activated via INTELLIGENCE_PIPELINE_SHADOW=1 env var. The agent publishes
-    here instead of the canonical intelligence topic while running in shadow mode.
-    Consumer group: intelligence_pipeline_shadow (manual inspection only).
-    """
-    return f"{env_prefix(env_name)}intelligence.shadow"
-
-
 def topic_market_bars_raw(env_name: str, provider: str) -> str:
     """Raw bars from a single provider before merger routing.
 
@@ -179,13 +144,7 @@ def topic_health_events_dlq(env_name: str) -> str:
 
 
 def topic_signal_dlq(env_name: str) -> str:
-    """DLQ for signals that fail CIS assertion before publish.
-
-    Published by intelligence_pipeline_agent when a ranked signal has
-    raw_cis_score IS None or filtered_cis_score IS None — indicates a
-    regression in the CIS stamping path. Never lets null-CIS signals
-    enter intelligence.i7.signals.
-    """
+    """DLQ for bars feature_vector_pipeline could not process (parse failure or bar timeout)."""
     return f"{env_prefix(env_name)}intelligence.signal.dlq"
 
 
@@ -197,16 +156,6 @@ def topic_market_data_quality(env_name: str) -> str:
     for SLA monitoring and ML training signals.
     """
     return f"{env_prefix(env_name)}market.data.quality"
-
-
-# ---------------------------------------------------------------------------
-# Swarm topics
-# ---------------------------------------------------------------------------
-
-
-def topic_signal_lineage_dlq(env_name: str) -> str:
-    """DLQ for LineageWriter — failed lineage event persistence."""
-    return f"{env_prefix(env_name)}intelligence.signal_lineage.dlq"
 
 
 # ---------------------------------------------------------------------------
@@ -305,53 +254,18 @@ def topic_bar_writer_dlq(env_name: str) -> str:
     return f"{env_prefix(env_name)}bar.writer.dlq"
 
 
-def topic_feature_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for FeatureWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}feature.writer.dlq"
-
-
 def topic_feature_vectors_dlq(env_name: str) -> str:
-    """Dead letter queue for feature_writer unparseable FeatureVectorRecord payloads.
+    """Dead letter queue for feature_vector_writer unparseable FeatureVectorRecord payloads.
 
-    Published by feature_writer when a FeatureVectorRecord cannot be deserialized
+    Published by feature_vector_writer when a FeatureVectorRecord cannot be deserialized
     or inserted into feature_vectors. Enables investigation without data loss.
     """
     return f"{env_prefix(env_name)}intelligence.feature_vectors.dlq"
 
 
-def topic_signal_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for SignalWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}intelligence.signal.writer.dlq"
-
-
-def topic_lifecycle_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for LifecycleWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}lifecycle.writer.dlq"
-
-
-def topic_roll_dlq(env_name: str) -> str:
-    """Dead letter queue for roll-batch failures."""
-    return f"{env_prefix(env_name)}roll.batch.dlq"
-
-
 def topic_intelligence_pipeline_dlq(env_name: str) -> str:
     """Dead letter queue for IntelligencePipeline unparseable payloads."""
     return f"{env_prefix(env_name)}intelligence.pipeline.dlq"
-
-
-def topic_signal_tracker_dlq(env_name: str) -> str:
-    """Dead letter queue for SignalTracker unparseable payloads."""
-    return f"{env_prefix(env_name)}signal.tracker.dlq"
-
-
-def topic_llm_writer_dlq(env_name: str) -> str:
-    """Dead letter queue for LLMWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}llm.writer.dlq"
-
-
-def topic_transform_graduation_dlq(env_name: str) -> str:
-    """Dead letter queue for GraduationWriter unparseable payloads."""
-    return f"{env_prefix(env_name)}intelligence.transform.graduation.dlq"
 
 
 def topic_macro_signals(env_name: str) -> str:
@@ -374,72 +288,3 @@ def message_key(symbol: str, timeframe: str | None = None) -> str:
     if timeframe:
         return f"{symbol}:{timeframe}"
     return symbol
-
-
-# ---------------------------------------------------------------------------
-# Redis key helpers (dual-run: kept through Plan 4, removed in Plan 5)
-# prefix() below uses colon-separated format for backwards compatibility.
-# ---------------------------------------------------------------------------
-
-
-def prefix(env_name: str) -> str:
-    return f"{env_name}:" if env_name else ""
-
-
-def live_tick(env_prefix: str, symbol: str) -> str:
-    return f"{env_prefix}ticks:{symbol}:live"
-
-
-def market(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}market:{symbol}:{timeframe}"
-
-
-def intelligence(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}intelligence:{symbol}:{timeframe}"
-
-
-def intelligence_i7(env_prefix: str, symbol: str, timeframe: str) -> str:
-    """Enrichment stream: signal_generator publishes all_ranked per bar."""
-    return f"{env_prefix}intelligence_i7:{symbol}:{timeframe}"
-
-
-def intelligence_i8(env_prefix: str, symbol: str, timeframe: str) -> str:
-    """Enrichment stream: ai_narrative publishes narrative metadata per bar."""
-    return f"{env_prefix}intelligence_i8:{symbol}:{timeframe}"
-
-
-def signals(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}signals:{symbol}:{timeframe}"
-
-
-def signals_aggregated(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}signals:{symbol}:{timeframe}:aggregated"
-
-
-def narratives_group(env_prefix: str, group_name: str) -> str:
-    return f"{env_prefix}narratives:group:{group_name}"
-
-
-def llm_calls_stream(env_prefix: str) -> str:
-    """Stream written by ai_narrative_service after every LLM call."""
-    return f"{env_prefix}llm_calls:stream"
-
-
-def llm_outcomes_stream(env_prefix: str) -> str:
-    """Stream written by signal_lifecycle_service on signal exit for outcome back-fill."""
-    return f"{env_prefix}llm_outcomes:stream"
-
-
-def system_events(env_prefix: str) -> str:
-    """Global stream for system-level events (e.g. pipeline_reset sentinel).
-
-    Intentionally excluded from pipeline_reset _REDIS_PATTERNS so it survives
-    the stream clear — reconnecting SSE clients still see the event via snapshot.
-    """
-    return f"{env_prefix}system:events"
-
-
-# Pattern helpers (ticks_pattern, market_pattern, etc.) removed in Phase 30.
-# No remaining callers in services/ or src/api/.
-# drift_ks and drift_cusum removed in Phase 30 — replaced by drift_state DB table.
-# See production/migrations/028_drift_state.sql.

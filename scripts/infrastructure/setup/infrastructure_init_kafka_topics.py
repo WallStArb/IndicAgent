@@ -4,7 +4,8 @@ infrastructure_init_kafka_topics.py — canonical Kafka topic specifications for
 
 Defines topic suffixes, partition counts, retention policies, and cleanup rules;
 provides get_topic_specs() helper for topic creation and retention enforcement.
-Retention tiers: hot (2h), buffer (1d), htf (3d), compact (infinite).
+Retention tiers: buffer (1d), htf (3d), compact (infinite). DLQ topics are created, at 7 days,
+by infrastructure_ensure_topics.sh, the one owner of the DLQ list and its retention.
 Imported by infrastructure_enforce_topic_retention.py and pipeline reset scripts.
 No standalone execution — module-only specification library.
 """
@@ -12,7 +13,6 @@ No standalone execution — module-only specification library.
 # ---------------------------------------------------------------------------
 # Retention tiers (milliseconds)
 # ---------------------------------------------------------------------------
-_HOT_MS: int = 7_200_000  # 2 hours — ticks, sub-minute transport
 _BUFFER_MS: int = 86_400_000  # 1 day   — standard restart catch-up
 _HTF_MS: int = 259_200_000  # 3 days  — HTF bar accumulation window
 
@@ -22,51 +22,24 @@ _HTF_MS: int = 259_200_000  # 3 days  — HTF bar accumulation window
 # (suffix, num_partitions, retention_ms, cleanup_policy)
 _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     # --- Market data ---
-    ("market.ticks", 1, _HOT_MS, "delete"),
     ("market.bars", 1, _BUFFER_MS, "delete"),
     ("market.bars.htf", 1, _HTF_MS, "delete"),
     # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
     ("market.events.gap_requests", 1, _BUFFER_MS, "delete"),
-    ("market.events.roll", 1, _BUFFER_MS, "delete"),
     ("market.data.quality", 1, _BUFFER_MS, "delete"),
-    # --- Intelligence pipeline (all persisted by feature_writer → intelligence_features) ---
+    # --- Read by the dashboard SSE route; kept until todo 509 item 2 decides that surface ---
     ("intelligence", 1, _BUFFER_MS, "delete"),
-    ("intelligence.i8", 1, _BUFFER_MS, "delete"),
     ("intelligence.journal", 1, _BUFFER_MS, "delete"),
-    ("intelligence.i7.signals", 1, _BUFFER_MS, "delete"),
-    ("intelligence.signal_metrics", 1, _BUFFER_MS, "delete"),
-    ("intelligence.signal.audit", 1, _BUFFER_MS, "delete"),
-    ("intelligence.service_auditor.journal.dlq", 1, _BUFFER_MS, "delete"),
-    # --- Signals (persisted by signal_writer → signal_ledger) ---
     ("signals.aggregated", 1, _BUFFER_MS, "delete"),
-    # --- LLM (persisted by llm_writer → llm_calls) ---
-    ("llm.calls", 1, _BUFFER_MS, "delete"),
-    ("llm.outcomes", 1, _BUFFER_MS, "delete"),
-    # --- Narratives (consumed by dashboard SSE) ---
-    ("narratives", 1, _BUFFER_MS, "delete"),
-    ("narratives.group", 1, _BUFFER_MS, "delete"),
-    # --- Cross-asset (consumed in real-time by pipeline) ---
+    # --- Cross-asset (published by cross_asset_analyzer) ---
     ("cross_asset", 1, _BUFFER_MS, "delete"),
     # --- Macro factors (persisted by macro_compute_agent → macro_features) ---
     ("macro_signals", 1, _BUFFER_MS, "delete"),
-    # --- Lifecycle (persisted by lifecycle_writer) ---
-    ("lifecycle.transitions", 1, _BUFFER_MS, "delete"),
-    # --- Alpha swarm (AlphaSwarmComputeAgent → persisted to alpha_multiplier_shadow) ---
-    ("swarm.alpha", 1, _BUFFER_MS, "delete"),
-    # --- Signal lineage (LineageWriterAgent → signal_lineage hypertable) ---
-    ("intelligence.signal_lineage", 1, _BUFFER_MS, "delete"),
-    ("intelligence.signal_lineage.dlq", 1, _BUFFER_MS, "delete"),
-    # --- Transform graduation (Phase 72) ---
-    ("intelligence.transform.graduation", 1, _BUFFER_MS, "delete"),
-    ("intelligence.transform.graduation.dlq", 1, _BUFFER_MS, "delete"),
     # --- System ---
     ("system.events", 1, _BUFFER_MS, "delete"),
     ("system.health.events", 1, _BUFFER_MS, "delete"),
-    ("pipeline.data_quality", 1, _BUFFER_MS, "delete"),
     # --- Alerting ---
     ("alert.requests", 1, _BUFFER_MS, "delete"),
-    # --- DLQs ---
-    ("gap_fill.dlq", 1, _BUFFER_MS, "delete"),
 ]
 
 # Compacted topics (state snapshots — key-based retention)

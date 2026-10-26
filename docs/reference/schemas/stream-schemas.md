@@ -104,7 +104,7 @@ class SignalEvent(BaseModel):
     is_winner: bool
     source: str
 ```
-**Topic:** `topic_intelligence_i7_signals(env)` → `{env}.intelligence.i7.signals`. **Consumed by** `SignalWriter` for `signal_ledger` persistence — but `signal_ledger` is a view over `signal_events`/`trade_frames`/`trade_executions`, all confirmed at 0 rows (see `docs/reference/db-maintenance.md`).
+**Topic:** retired. `{env}.intelligence.i7.signals` lost its producer at the D-09 cutover and its consumer (`SignalWriter`) in 185-45; the builder was deleted in todo 509 (2026-10-26).
 
 ---
 

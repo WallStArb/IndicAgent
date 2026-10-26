@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """DLQWriter — continuous consumer of all DLQ topics, writes to dlq_events.
 
-Subscribes to all 15 active DLQ topics as a single consumer group. Parses each
+Subscribes to every DLQ topic a live producer publishes to, as a single consumer group. Parses each
 message as a DLQPayload, then inserts into the dlq_events hypertable. All events
 are preserved — no dedup (burst errors from same agent/topic must not be silently
 dropped).
@@ -11,7 +11,7 @@ One consumer, one table, one source of DLQ truth.
 
 Architecture:
     L9 consumer (alongside signal_auditor, parity_auditor, alerting_agent):
-      1. Subscribe to all 15 DLQ topics via dlq_drain_consumer group
+      1. Subscribe to the DLQ topics via dlq_drain_consumer group
       2. For each message: parse DLQPayload, upsert to dlq_events
       3. Emit structured log per event (dlq_written)
       4. Skip unparseable messages with log warning (no crash)
@@ -35,19 +35,12 @@ from src.core.service_utils import setup_service_logging
 from src.core.stream_keys import (
     topic_bar_aggregator_dlq,
     topic_bar_writer_dlq,
-    topic_feature_writer_dlq,
+    topic_feature_vectors_dlq,
     topic_gap_fill_dlq,
     topic_health_events_dlq,
     topic_intelligence_pipeline_dlq,
-    topic_lifecycle_writer_dlq,
-    topic_llm_writer_dlq,
     topic_ml_orchestrator_dlq,
-    topic_roll_dlq,
     topic_signal_dlq,
-    topic_signal_lineage_dlq,
-    topic_signal_tracker_dlq,
-    topic_signal_writer_dlq,
-    topic_transform_graduation_dlq,
 )
 from src.observability.metrics import DLQ_QUARANTINE_TOTAL
 
@@ -75,7 +68,7 @@ VALUES
 
 
 class DLQWriter(BaseDaemon):
-    """Continuous Kafka consumer draining all 15 DLQ topics into dlq_events.
+    """Continuous Kafka consumer draining the DLQ topics into dlq_events.
 
     Follows BaseDaemon lifecycle contract (setup/_run/stop). No timer loop -
     processes messages as they arrive. Consumer group: dlq_drain_consumer.
@@ -95,23 +88,18 @@ class DLQWriter(BaseDaemon):
         self._DLQ_MAX_RETRIES: int = 3
 
     def _build_topics(self) -> list[str]:
-        """Return all 15 active DLQ topic names for this environment."""
+        """One DLQ topic per live producer: the bar path (aggregator, writer, gap fill), the
+        feature path (feature_vector_pipeline's signal and pipeline DLQs, feature_vector_writer),
+        the ML orchestrator and the service auditor's health events."""
         env = self.settings.env_name
         return [
-            topic_roll_dlq(env),
-            topic_signal_dlq(env),
             topic_bar_aggregator_dlq(env),
             topic_bar_writer_dlq(env),
-            topic_feature_writer_dlq(env),
-            topic_signal_writer_dlq(env),
-            topic_lifecycle_writer_dlq(env),
-            topic_intelligence_pipeline_dlq(env),
-            topic_signal_tracker_dlq(env),
-            topic_llm_writer_dlq(env),
-            topic_transform_graduation_dlq(env),
-            topic_signal_lineage_dlq(env),
-            topic_ml_orchestrator_dlq(env),
             topic_gap_fill_dlq(env),
+            topic_signal_dlq(env),
+            topic_intelligence_pipeline_dlq(env),
+            topic_feature_vectors_dlq(env),
+            topic_ml_orchestrator_dlq(env),
             topic_health_events_dlq(env),
         ]
 
@@ -150,7 +138,7 @@ class DLQWriter(BaseDaemon):
             self.logger.warning("dlq_writer.quarantine_seed_failed", error=str(error))
 
     async def _setup(self) -> None:
-        """Create DB pool, seed quarantine counts, subscribe consumer to all 15 DLQ topics."""
+        """Create DB pool, seed quarantine counts, subscribe consumer to the DLQ topics."""
         await super()._setup()
         self._pool = await create_db_pool(self.settings.database_url)
         await self._seed_quarantine_counts_from_db()

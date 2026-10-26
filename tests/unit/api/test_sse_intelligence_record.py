@@ -2,37 +2,37 @@
 Unit tests for SSE topic routing and payload shapes.
 
 Verifies:
-1. intelligence.i7 topic not in _build_topic_list() (retired)
-2. intelligence.journal topic present in _build_topic_list() (current scorecard source)
+1. intelligence.i7 topic not in sse_topics() (retired)
+2. intelligence.journal topic present in sse_topics() (current scorecard source)
 3. BarIntelligenceRecord.ranked_signals serializes to the expected signal_scorecard payload shape
 """
 
 import json
 from datetime import UTC, datetime
 
-from src.api.routes.sse import _build_topic_list
+from src.api.routes.sse import _event_name_for_topic, sse_topics
 from src.core.stream_keys import (
     topic_intelligence_journal,
 )
 
 
 class TestBuildTopicList:
-    """_build_topic_list() uses intelligence.record, not intelligence.i7."""
+    """sse_topics() uses intelligence.record, not intelligence.i7."""
 
     def test_intelligence_record_in_topic_list(self):
-        """intelligence.journal topic must appear in _build_topic_list().
+        """intelligence.journal topic must appear in sse_topics().
 
         Phase 44.3 rewired SSE from intelligence.record to topic_intelligence_journal
         (topic string: intelligence.journal).
         """
-        topics = _build_topic_list(["ES"], "1m")
+        topics = sse_topics("")
         assert any(
             "intelligence.journal" in t for t in topics
         ), f"Expected a topic containing 'intelligence.journal' in topic list, got: {topics}"
 
     def test_intelligence_i7_not_in_topic_list(self):
-        """intelligence.i7 topic must NOT appear in _build_topic_list() after rewire."""
-        topics = _build_topic_list(["ES"], "1m")
+        """intelligence.i7 topic must NOT appear in sse_topics() after rewire."""
+        topics = sse_topics("")
         assert not any(
             "intelligence.i7" in t for t in topics
         ), f"Expected no topic containing 'intelligence.i7' in topic list, got: {topics}"
@@ -115,3 +115,26 @@ class TestStreamKeysLiveTopics:
         """topic_intelligence_journal must be importable and return correct topic string."""
         result = topic_intelligence_journal("")
         assert result == "intelligence.journal"
+
+
+class TestEventNameForTopic:
+    """Every subscribed topic maps to the event the dashboard listens for, with or without the
+    env prefix; intelligence.journal is not swallowed by the shorter intelligence prefix."""
+
+    def test_each_subscribed_topic_maps_to_its_event(self):
+        expected = {
+            "market.bars": "market_data",
+            "market.bars.htf": "market_data",
+            "intelligence": "intelligence_data",
+            "intelligence.journal": "signal_scorecard",
+            "signals.aggregated": "signal_data",
+        }
+        for env in ("", "dev"):
+            topics = sse_topics(env)
+            assert len(topics) == len(expected)
+            for topic in topics:
+                bare = topic.removeprefix(f"{env}.") if env else topic
+                assert _event_name_for_topic(topic) == expected[bare], topic
+
+    def test_an_unknown_topic_is_a_plain_message(self):
+        assert _event_name_for_topic("dev.something.else") == "message"

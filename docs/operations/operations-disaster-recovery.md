@@ -225,9 +225,13 @@ Kafka is not backed up by default — it's a transport buffer, not storage. For 
 
 ### Topic Recreation
 
+Redpanda auto-creates a topic on its first publish or subscribe. After a rebuild, create the
+DLQ topics at their 7-day retention, then set every other topic's retention tier from
+`infrastructure_init_kafka_topics.py`'s specs:
+
 ```bash
-# Recreate all topics
-python3 scripts/infrastructure/setup/infrastructure_init_kafka_topics.py
+scripts/infrastructure/kafka/infrastructure_ensure_topics.sh
+.venv/bin/python -m scripts.infrastructure.kafka.infrastructure_enforce_topic_retention
 ```
 
 ### Offset Reset

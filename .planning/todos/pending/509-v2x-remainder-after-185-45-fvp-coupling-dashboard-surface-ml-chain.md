@@ -72,9 +72,14 @@ the reader guard's `_KEEP_TABLES` until this is decided.
 
 - `roll_events` (written by `ops_roll_batch.py`) lost its only readers (v2.x replay scripts); in
   `_KEEP_TABLES` until someone owes it a reader or it retires.
-- Kafka leftovers for removed producers: `dlq_writer.py`'s lineage, LLM, signal and lifecycle DLQ
-  topics and their stream keys; `infrastructure_init_kafka_topics.py` and
-  `infrastructure_ensure_topics.sh` topic lists; the SSE broadcaster's narratives subscription.
+- DONE 2026-10-26: Kafka leftovers. Eight dead DLQ builders, the I8 narrative topics, the legacy
+  Redis key helpers, `topic_market_ticks` and `topic_intelligence_shadow` deleted from
+  `stream_keys`; `dlq_writer` reads the eight live DLQs (it had never read
+  `intelligence.feature_vectors.dlq`); `infrastructure_ensure_topics.sh` owns DLQ provisioning at
+  7 days, and the empty retired DLQ topics were deleted from Redpanda; SSE subscribes only to
+  topics with a producer or a pending item 2 decision (`intelligence`, `intelligence.journal`,
+  `signals.aggregated`). Left for item 2: those three topics, and the dashboard's dead
+  `narrative_data`, `tick_data` and `indicator_data` listeners in `use-market-stream.ts`.
 - Alert rules and Grafana panels on metrics no service emits now:
   `production/alertmanager-rules.yml` (signal_tracker, signal_replay_auditor, lifecycle_writer),
   `production/grafana/provisioning/alerting/alert-rules.yml` (signal_writer), dashboards
@@ -95,9 +100,8 @@ the reader guard's `_KEEP_TABLES` until this is decided.
   v2.x, not named, kept.
 - Modules nothing reaches that are not v2.x or AI: `src/persistence/logic/`,
   `src/persistence/writer/`, `src/persistence/repository/parity_repository.py`,
-  `feature_snapshot_repository.py`, `src/core/schemas/parity.py`,
-  `src/intelligence/composites/common.py`, `src/intelligence/context/vix_context.py`,
-  `src/intelligence/dag.py`.
+  `feature_snapshot_repository.py`, `src/core/schemas/parity.py`, `src/intelligence/dag.py`
+  (`composites/` and `context/` went with item 1).
 
 Supersedes the remaining scope of todos 056 and 223 (both written before the owner's 2026-10-07
 "clean it" decision, which replaced their archive-in-tree approach with the tag-plus-dumps archive).
