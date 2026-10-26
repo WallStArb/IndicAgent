@@ -136,6 +136,20 @@ The `scripts/analysis/*.py` files cited in the rows above were deleted in 186-16
 
 ## 5. Supporting measurements (not verdicts, but load-bearing context)
 
+- **Forward-span looks, 2025-12-24 onward (disclosure for every book, E18; todo 439).** Seven
+  scored looks read data after `alpha.validation.oos_start` (2025-12-24T05:15:00Z), all recorded
+  in `.planning/gate_look_log.jsonl`: 2026-07-22T21:02Z `gate1_signal` (Phase 148
+  `alpha_score`); 2026-07-23T00:26Z (no gate id, Phase 148 gate, fail); 2026-07-23T13:07Z
+  `gate166_baseline` (fail); 2026-07-23T13:21Z `gate166_scalar` (fail); 2026-08-04T23:13Z
+  `gate1_ctf_momentum_decile_ls` (pass); 2026-08-07T11:59Z
+  `gate1_ctf_momentum_decile_ls_ctf_join_v2` (fail); 2026-08-07T12:00Z
+  `gate2_ctf_momentum_decile_ls_ctf_join_v2` (fail). Until 2026-07-02 every IC and ensemble
+  computation also included the span. Consequence (design 7.3 item 4, UD-20): books with
+  `feature_vectors` or `ctf_momentum`-like members confirm only on data after their own freeze
+  and never before 2026-08-08; price-only families 1 and 2 keep 2025-12-24, disclosed as adjacent
+  to the `ctf_momentum` looks. The log's eighth row (2026-09-28, todo 445) read data up to
+  `oos_start` only and is not a forward-span look. Since 2026-10-26 the key itself is
+  write-once (migration 506), so the span cannot be reopened by a config write.
 - **5m features, incremental IC over 15m, 2026-09-28 (disclosure for the phase 186 rebuild).**
   Todo 445: does a 5m-computed feature carry cross-sectional information the same feature's 15m
   value does not, at matched clock horizons, net of the personal cost hurdle? Ran as a committed

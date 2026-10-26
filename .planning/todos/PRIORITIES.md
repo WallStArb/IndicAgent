@@ -81,7 +81,7 @@ until 185 and 186 land; session time goes to the build.
 | Todo | Why now |
 |---|---|
 | [443](pending/443-postgres-exporter-chunk-scrape-cost-and-idle-in-transaction-timeout.md) | The postgres exporter's per-chunk scrape is the top database consumer (305 min in 3 days) and the idle-in-transaction timeout is 1 hour. Two config changes, measured before and after. |
-| [439](pending/439-forward-span-integrity-write-once-oos-start-and-ic-purge.md) | `oos_start` is a mutable APR key guarding the forward span: make it write-once, purge IC targets crossing it (lands with 186's fresh ic_engine), disclose the 7 recorded looks (E18). |
+| [439](pending/439-forward-span-integrity-write-once-oos-start-and-ic-purge.md) | Parts 1 and 3 done 2026-10-26: `oos_start` is write-once (migration 506) and the 7 forward-span looks are disclosed in the ledger. Part 2 (purge IC targets crossing it) lands with phase 186 (186-20, 186-28). |
 | [438](pending/438-daily-borrow-availability-snapshot-capture.md) | Borrow availability is live-only at IBKR; every unrecorded day is lost for the forward span and the short-leg constraint. A small standalone daily job. |
 
 **Data and onboarding**

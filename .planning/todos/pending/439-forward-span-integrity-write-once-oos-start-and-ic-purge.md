@@ -32,3 +32,16 @@ or after `oos_start` and 186-28 keeps the whole-table bound at zero after the fr
 forward-span looks) are deliberately NOT owned by phase 186 (checker-confirmed 2026-09-27); this
 todo stays pending after 186 lands and needs a named owner - an early phase 187 plan is the
 natural home for the trigger migration.
+
+## Progress 2026-10-26
+
+- Part 1 DONE: migration 506 (`trg_config_state_oos_start_write_once` on config_state) refuses
+  UPDATE and DELETE of the key, ConfigService's upsert and a rename onto it, and
+  `trg_config_state_no_truncate` refuses TRUNCATE config_state; a first INSERT stays allowed. Applied live and verified in rolled-back transactions (four refusals, other keys
+  still update; value unchanged at 2025-12-24T05:15:00Z version 2). Tests:
+  `tests/unit/test_oos_start_write_once_migration_contract.py`,
+  `tests/integration/test_oos_start_write_once.py`.
+- Part 3 DONE: the seven forward-span looks are disclosed in the ledger's section 5 with their
+  run timestamps and gate ids; the eighth log row (todo 445) is in-sample.
+- Part 2 stays with phase 186 (plans 186-20 and 186-28), per the ownership note above; this todo
+  closes when those land.
