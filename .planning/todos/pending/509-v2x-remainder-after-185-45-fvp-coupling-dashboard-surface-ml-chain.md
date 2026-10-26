@@ -108,10 +108,10 @@ the reader guard's `_KEEP_TABLES` until this is decided.
   Decide with item 1's successor whether the streaming path survives; fix or delete with it.
 - `src/self_healing` and `remediation_ledger` (Phase 109 self-healing engine, unit inactive): not
   v2.x, not named, kept.
-- Modules nothing reaches that are not v2.x or AI: `src/persistence/logic/`,
-  `src/persistence/writer/`, `src/persistence/repository/parity_repository.py`,
-  `feature_snapshot_repository.py`, `src/core/schemas/parity.py`, `src/intelligence/dag.py`
-  (`composites/` and `context/` went with item 1).
+- DONE 2026-10-26: the unreached non-v2.x modules (`src/persistence/logic/`, `src/persistence/writer/`,
+  `parity_repository.py`, `feature_snapshot_repository.py`, `src/core/schemas/parity.py`,
+  `src/intelligence/dag.py`) deleted with their tests; only tests and the vulture whitelist
+  imported them, and every table they touched keeps another reader.
 
 Supersedes the remaining scope of todos 056 and 223 (both written before the owner's 2026-10-07
 "clean it" decision, which replaced their archive-in-tree approach with the tag-plus-dumps archive).
