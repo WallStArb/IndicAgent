@@ -26,3 +26,17 @@ Deliverables:
 2. Redundancy consolidations with the surviving test named.
 3. Speed fixes for the top offenders that survive.
 4. A recorded baseline (runtime, counts) before/after.
+
+## Progress
+
+- Baseline 2026-10-26: 7,834 unit tests collected (wall time not captured; pytest.ini's -q hides
+  the summary line, so time runs with `-o addopts="-ra"`).
+- Batch 1, 2026-10-26 (23056ccca, todo 509 item 1): 42 test files whose only subject was v2.x
+  code deleted in the same commit (executor, signal stages, trade framer, zone engine, CIS
+  scorer, plugin observer, I1/I3 plugins, CacheManager); the instrument-row tests moved to
+  `tests/unit/config/test_settings.py`. 6,970 collected; full run 6,970 passed, 1 skipped,
+  299 s (306 s wall). Evidence: the AST reachability check in the commit message, every deleted
+  test failed import against the trimmed tree.
+- Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
+  probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
+  6 s x2, runner_book/order 3-4 s each).
