@@ -106,3 +106,14 @@ merger terms before choosing a basis.
 2. PSKY is repointed to SKYD for IBKR (`provider_meta.ibkr.symbol`, the BRK.B mechanism). The first
    fetch re-serves its history last-wins on the 0.979 scale; the name is held as an unclassified
    rescale and decided together with CTVA (todo 516).
+
+## Landed 2026-10-26
+
+- Migration 518 (58572432d): `listing_end` with CCO 2026-10-14, QRVO 2026-10-02, WBD 2026-10-05
+  (SEC Forms 25-NSE and 15-12G); `freshness_1d` and the 191-19 readiness gate read it.
+- Migration 519: PSKY asked at IBKR as SKYD (`provider_meta.ibkr.symbol`).
+- Open: confirm after the first SKYD fetch that the 0.979 re-serve lands last-wins with
+  restatement flags and that the daily stage holds PSKY as `unclassified_rescale` (as CTVA); if it
+  does not hold, hold it explicitly before the next daily apply. Alpaca has no spelling override:
+  PSKY 5m comes from the IBKR fallback until the alpaca leaf maps symbols (small leaf change).
+  MOD keeps its class C hold (`--frozen-names MOD,PSKY` until the PSKY hold is decided).
