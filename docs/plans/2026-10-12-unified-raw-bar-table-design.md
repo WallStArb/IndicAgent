@@ -147,7 +147,7 @@ Raw `kind` is what the vendor served, so `fallback` is a canonical-only kind: a 
 
 ### D-191-B: canonical 1d rows keep the winning raw (vendor, kind)
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26
 
 This deviates from the Canonical section above, whose example gives derived rows the rule as kind (`d2_v2`) and does not say what a selected 1d row carries. A canonical 1d row keeps the winning raw row's (vendor, kind) (`canonical_kind_for_raw`: `smart_trades` becomes `named`, `venue` stays, `consolidated` stays; adjusted bars are never canonical), so the tradeable view can null volume by kind. The `d2_v2` kind example is superseded.
 
@@ -159,7 +159,7 @@ The schema migration drops the `bar_source_policy` CHECKs on `primary_source` an
 
 ### D-191-D: conservative fetch_run_id pairing
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26
 
 This deviates from the Migration plan text in step 6, which has the dividend writer pair TRADES and ADJUSTED_LAST when their `request_id`s share a `fetch_run_id`. Last-wins raw keeps the `request_id` of the request that first served each value, so a later unchanged re-offer leaves the old request on the row. The dividend writer's, D7's and the daily rule's pairing becomes a conservative rule: `served_at` ordering is accepted only when neither row has `ohlcv_revision` history after the adjusted serve; otherwise the same `fetch_run_id` through `request_id` is required. Split detection orders restatement history by `ohlcv_request.answered_at` through the revision `request_id`, never by `ohlcv_load.loaded_at`.
 
@@ -177,7 +177,7 @@ The bulk backfill (plan 03) only reads and runs with the fetcher live. The fetch
 
 ### D-191-G: the v2 canonical table is a copy-with-map
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26
 
 This deviates from the Canonical section, which builds `market_data_ohlcv_v2` by `INSERT ... SELECT` from `ohlcv_raw` plus derived rows. Plan 12 builds v2 by copy-with-map from the live canonical table (label to (vendor, kind) through `vendor_kind`), and plan 14 swaps the names. The selection gate (plan 07) re-run on v2 is the proof that canonical is rebuildable from raw, so the build path does not need to be the selection path.
 
@@ -358,6 +358,6 @@ On 2026-10-15 the daily stage refused GYRE (132 changed of 4,665 stored rows, ra
 
 ### D-191-H: explicit deferrals
 
-Status: planner decision, owner acknowledgement pending
+Status: planner decision, owner acknowledged 2026-10-26
 
 Phase 191 does not deliver: the D7 condition for todo 520, todo 524's D7 tolerance rule and price/volume split, todo 531's `market_data_5m` naming pass, and todo 527's 5m shaper dedup. Plan 18 records each as a deferral in its todo.
