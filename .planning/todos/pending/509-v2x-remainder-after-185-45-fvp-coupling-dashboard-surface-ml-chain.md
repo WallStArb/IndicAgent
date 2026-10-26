@@ -80,10 +80,20 @@ the reader guard's `_KEEP_TABLES` until this is decided.
   topics with a producer or a pending item 2 decision (`intelligence`, `intelligence.journal`,
   `signals.aggregated`). Left for item 2: those three topics, and the dashboard's dead
   `narrative_data`, `tick_data` and `indicator_data` listeners in `use-market-stream.ts`.
-- Alert rules and Grafana panels on metrics no service emits now:
-  `production/alertmanager-rules.yml` (signal_tracker, signal_replay_auditor, lifecycle_writer),
-  `production/grafana/provisioning/alerting/alert-rules.yml` (signal_writer), dashboards
-  operations, pipeline-health, signals-i8.
+- DONE 2026-10-26: alert rules and Grafana panels on metrics nothing emits. Six Prometheus rules,
+  three Grafana rules and eleven dashboard panels deleted, the signals-I8, plugin-latency and
+  shadow-validation dashboards deleted, the gap-fill DLQ rule and panel fixed (they queried the
+  counter without its `_total` and never saw a value), the signal DLQ panel retargeted to
+  `dlq_messages_total` by topic, and the dead shadow, config and CIS instruments in `metrics.py`
+  deleted.
+  `tests/unit/observability/test_alert_and_dashboard_metric_refs.py` now fails on any queried
+  metric the code does not declare under its exported name. Left for when alerting is wired
+  (deferred, UAT): consumer lag and provider-bars stoppage each alert in both Prometheus
+  (`ConsumerLagHigh`, `ProviderDataStoppage`) and Grafana (`consumer_lag_writer`,
+  `provider_dead`, which also lacks the session-hours gate); pick one home per condition.
+  For item 2: `dashboard/src/hooks/use-observability-stream.ts` (the v2.x pipeline-flow view:
+  I1/I7 latency, swarm age) still links its plugin and signal nodes to the deleted Grafana
+  dashboards; the hub and panel navigation links were removed.
 - APR keys `alert.lag.<unit>` for the removed units (alpha-swarm, narrative-compute, llm-writer,
   swarm-ledger-writer, lineage-writer, intelligence-pipeline, feature-writer,
   signal-tracker-compute, signal-writer, lifecycle-writer, signal-metrics-writer,

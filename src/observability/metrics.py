@@ -215,25 +215,6 @@ MERGER_BAR_LATENCY_SECONDS = _meter.create_histogram(
 )
 
 # ---------------------------------------------------------------------------
-# Shadow plugin metrics
-# ---------------------------------------------------------------------------
-
-SHADOW_N_RESOLVED = point_gauge("shadow_n_resolved", "Resolved shadow signals")
-SHADOW_WIN_RATE = point_gauge("shadow_win_rate", "Shadow plugin win rate")
-SHADOW_EV_R = point_gauge("shadow_ev_r", "Shadow plugin E[PnL_R]")
-SHADOW_EV_CI_LOWER = point_gauge("shadow_ev_ci_lower", "Shadow 95% CI lower bound on E[PnL_R]")
-SHADOW_DAYS_TO_GATE = point_gauge("shadow_days_to_gate", "Estimated days to N=100 resolved")
-SHADOW_PROMOTION_READY = point_gauge("shadow_promotion_ready", "1 when all gate conditions met")
-SHADOW_TAIL_RISK_BLOCKED = _meter.create_counter(
-    "shadow_tail_risk_blocked_total",
-    description="Shadow promotions blocked by tail-risk gate (skewness or recovery_factor)",
-)
-SHADOW_TAIL_GATE_DB_ERROR = _meter.create_counter(
-    "shadow_tail_gate_db_error_total",
-    description="Shadow tail gate DB query failures (fail-open: gate skipped, _should_promote still authoritative)",
-)
-
-# ---------------------------------------------------------------------------
 # Feature parity auditor (Phase 117)
 # ---------------------------------------------------------------------------
 
@@ -392,15 +373,6 @@ API_HEALTH = _meter.create_gauge(
 )
 
 # ---------------------------------------------------------------------------
-# Signal processor gate observability metrics (Phase 089 D-22)
-# ---------------------------------------------------------------------------
-
-SIGNAL_PROCESSOR_CIS_NULL_TOTAL = _meter.create_counter(
-    "signal_processor_cis_null_total",
-    description="CIS scoring returned None — no score available for signal pipeline",
-)
-
-# ---------------------------------------------------------------------------
 # Feature validation metrics (Phase 82 D-05)
 # ---------------------------------------------------------------------------
 
@@ -416,14 +388,6 @@ FEATURE_VALIDATION_DECISIONS_TOTAL = _meter.create_counter(
 CONFIG_SET_TOTAL = _meter.create_counter(
     "config_set_total",
     description="Config set operations by key and outcome",
-)
-CONFIG_VALIDATION_FAILED_TOTAL = _meter.create_counter(
-    "config_validation_failed_total",
-    description="Config validation failures by key and reason",
-)
-CONFIG_REVERT_TOTAL = _meter.create_counter(
-    "config_revert_total",
-    description="Config revert operations by key",
 )
 CONFIG_OUTBOX_PENDING = _meter.create_up_down_counter(
     "config_outbox_pending",
@@ -472,10 +436,6 @@ REMEDIATION_DURATION_SECONDS = _meter.create_histogram(
     "remediation_duration_seconds",
     description="Remediation execution latency",
     unit="s",
-)
-REMEDIATION_SUCCESS_RATE = _meter.create_gauge(
-    "remediation_success_rate",
-    description="30-day rolling success rate per action",
 )
 REMEDIATION_MEASURE_FAILED_TOTAL = _meter.create_counter(
     "remediation_measure_failed_total",

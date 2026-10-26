@@ -6,10 +6,18 @@ apiVersion: 1
 
 # Rules removed from the groups below. Grafana keeps a provisioned rule after its entry is
 # deleted until a deleteRules entry names it. tradier_refused: the Tradier loader is deleted
-# (plan 185-48), so no Tradier load can be refused.
+# (plan 185-48), so no Tradier load can be refused. signals_dropped, signal_dlq_growing and
+# dlq_depth_exceeded: their metrics have no emitter (todo 509); DLQActivity in
+# alertmanager-rules.yml covers DLQ traffic from dlq_messages_total.
 deleteRules:
   - orgId: 1
     uid: tradier_refused_uid
+  - orgId: 1
+    uid: signals_dropped_uid
+  - orgId: 1
+    uid: signal_dlq_growing_uid
+  - orgId: 1
+    uid: dlq_depth_exceeded_uid
 
 groups:
   - orgId: 1
@@ -92,84 +100,6 @@ groups:
         annotations:
           summary: "Service crash-looping: > 3 restarts in 10 minutes"
           description: "rate(service_auditor_service_restarts_total[10m]) > 3/600s. Service: {{ $labels.service_name }}"
-        labels:
-          severity: critical
-          contact_point: telegram-critical
-
-      - uid: signals_dropped_uid
-        title: signals_dropped
-        condition: C
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange:
-              from: 600
-              to: 0
-            model:
-              expr: increase(signal_writer_agent_buffer_overflow_total[5m])
-              intervalMs: 60000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: "__expr__"
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    type: last
-              type: classic_conditions
-              refId: C
-        noDataState: NoData
-        execErrState: Error
-        for: 0s
-        annotations:
-          summary: "Signals being dropped by signal writer buffer"
-          description: "increase(signal_writer_agent_buffer_overflow_total[5m]) > 0. Training data loss in progress."
-        labels:
-          severity: critical
-          contact_point: telegram-critical
-
-      - uid: signal_dlq_growing_uid
-        title: signal_dlq_growing
-        condition: C
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange:
-              from: 600
-              to: 0
-            model:
-              expr: increase(intelligence_pipeline_signal_dlq_total[5m])
-              intervalMs: 60000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: "__expr__"
-            model:
-              conditions:
-                - evaluator:
-                    params: [0]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    type: last
-              type: classic_conditions
-              refId: C
-        noDataState: NoData
-        execErrState: Error
-        for: 0s
-        annotations:
-          summary: "Signal DLQ growing — null-CIS signals detected"
-          description: "increase(intelligence_pipeline_signal_dlq_total[5m]) > 0. CIS regression in I7 pipeline."
         labels:
           severity: critical
           contact_point: telegram-critical
@@ -346,7 +276,7 @@ groups:
               from: 600
               to: 0
             model:
-              expr: increase(bar_auditor_gap_fill_dlq_depth[5m])
+              expr: increase(bar_auditor_gap_fill_dlq_depth_total[5m])
               intervalMs: 60000
               maxDataPoints: 43200
               refId: A
@@ -370,46 +300,7 @@ groups:
         for: 0s
         annotations:
           summary: "Gap fill DLQ growing — gap requests failing after retry"
-          description: "increase(bar_auditor_gap_fill_dlq_depth[5m]) > 0. IBKR gap fill retries exhausted."
-        labels:
-          severity: high
-          contact_point: discord-ops
-
-      - uid: dlq_depth_exceeded_uid
-        title: dlq_depth_exceeded
-        condition: C
-        data:
-          - refId: A
-            datasourceUid: prometheus
-            relativeTimeRange:
-              from: 600
-              to: 0
-            model:
-              expr: dlq_depth
-              intervalMs: 60000
-              maxDataPoints: 43200
-              refId: A
-          - refId: C
-            datasourceUid: "__expr__"
-            model:
-              conditions:
-                - evaluator:
-                    params: [1000]
-                    type: gt
-                  operator:
-                    type: and
-                  query:
-                    params: [A]
-                  reducer:
-                    type: last
-              type: classic_conditions
-              refId: C
-        noDataState: NoData
-        execErrState: Error
-        for: 5m
-        annotations:
-          summary: "Dead Letter Queue depth exceeded"
-          description: "Agent {{ $labels.agent }} has {{ $value }} messages in DLQ topic {{ $labels.topic }}. Data quality issue detected."
+          description: "increase(bar_auditor_gap_fill_dlq_depth_total[5m]) > 0. IBKR gap fill retries exhausted."
         labels:
           severity: high
           contact_point: discord-ops

@@ -37,78 +37,6 @@
       "gridPos": {
         "h": 5,
         "w": 6,
-        "x": 0,
-        "y": 1
-      },
-      "id": 2,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum(rate(indic_bar_to_i1_latency_seconds_bucket[5m])) by (le))",
-          "refId": "A",
-          "legendFormat": "I1 p95"
-        }
-      ],
-      "title": "I1 Latency p95",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 1
-      },
-      "id": 3,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum(rate(indic_bar_to_signal_latency_seconds_bucket[5m])) by (le))",
-          "refId": "A",
-          "legendFormat": "I7 p95"
-        }
-      ],
-      "title": "I7 Latency p95",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
         "x": 12,
         "y": 1
       },
@@ -249,51 +177,6 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 16,
-        "y": 7
-      },
-      "id": 13,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(intelligence_pipeline_signal_dlq_total[5m])",
-          "refId": "A",
-          "legendFormat": "DLQ (failed)"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(signal_tracker_compute_transitions_total[5m])",
-          "refId": "B",
-          "legendFormat": "lifecycle transitions/s"
-        }
-      ],
-      "title": "Signal DLQ & Lifecycle Transitions",
-      "type": "timeseries"
-    },
-    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
@@ -305,78 +188,6 @@
       "panels": [],
       "title": "Health",
       "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 0,
-        "y": 13
-      },
-      "id": 21,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(plugin_skipped_total[5m])",
-          "refId": "A",
-          "legendFormat": "{{ plugin_name }} {{ asset_class }}"
-        }
-      ],
-      "title": "Plugin Skips (Asset Class Gate)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 8,
-        "y": 13
-      },
-      "id": 22,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(intelligence_pipeline_plugin_errors_total[5m])",
-          "refId": "A",
-          "legendFormat": "{{ plugin_name }}"
-        }
-      ],
-      "title": "State Checkpoint Failures",
-      "type": "timeseries"
     },
     {
       "datasource": {

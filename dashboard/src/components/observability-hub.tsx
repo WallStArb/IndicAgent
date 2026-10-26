@@ -10,9 +10,7 @@ const TOOLS = [
   { name: "Command Center", path: "/dashboard/observability", icon: Activity, desc: "Real-time swarm pulse & latency", isExternal: false },
   { name: "Swarm Intelligence", path: "/dashboard/ai", icon: BrainCircuit, desc: "Agent stats, narrative feed, latency & token observability", isExternal: false },
   { name: "Pipeline Health", path: `${GRAFANA_URL}/d/indicagent-pipeline-health`, icon: Gauge, desc: "Grafana: bar aggregation, intelligence pipeline, writers", isExternal: true },
-  { name: "Signals + I8", path: `${GRAFANA_URL}/d/indicagent-signals-i8`, icon: Activity, desc: "Grafana: signal ledger, AI swarm, LLM calls", isExternal: true },
   { name: "Operations", path: `${GRAFANA_URL}/d/indicagent-operations`, icon: Gauge, desc: "Grafana: service health, restarts, circuit breakers", isExternal: true },
-  { name: "Plugin Latency", path: `${GRAFANA_URL}/d/indicagent-plugin-latency`, icon: Gauge, desc: "Grafana: per-plugin latency breakdown (Phase 84)", isExternal: true },
   { name: "Training Data", path: MLFLOW_URL, icon: Database, desc: "MLflow model versioning", isExternal: true },
 ];
 

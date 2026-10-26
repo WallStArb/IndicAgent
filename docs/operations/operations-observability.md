@@ -86,24 +86,12 @@ my_gauge.add(delta, {"label_key": "value"})
 
 Services do not start a `/metrics` HTTP server. All metrics are pushed via OTLP gRPC to the OTel Collector (`:4317`).
 
-### Golden Signals
-
-| Signal | Metric | Type | Labels |
-|--------|--------|------|--------|
-| **Traffic** | `stream_messages_read_total` | Counter | stream, group |
-| **Latency** | `stream_read_seconds` | Histogram | stream, group |
-| **Errors** | `plugin_fallbacks_total` | Counter | plugin_name, reason |
-| **Saturation** | `plugin_state_size_bytes` | Gauge | plugin_name, symbol, timeframe |
-
-### Core Engine Metrics
-
-| Metric | Type | Labels | Purpose |
-|--------|------|--------|---------|
-| `stream_messages_read_total` | Counter | stream, group | Total messages from Redpanda streams |
-| `stream_read_seconds` | Histogram | stream, group | Consumer poll latency |
-| `db_batch_write_seconds` | Histogram | — | TimescaleDB batch write time |
-| `engine_bars_processed` | Gauge | — | Total bars processed (cumulative) |
-| `engine_throughput_per_sec` | Gauge | — | Current bars/second rate |
+Most instruments are declared in `src/observability/metrics.py`; `src/core/agent/base_writer.py`
+adds per-writer ones, and a few services declare their own. Every metric an alert rule, a
+dashboard or a Prometheus query in code asks for must be declared in src/, services/ or
+scripts/ under the series name the exporter publishes (a counter's `_total`, a histogram's
+`_bucket`/`_sum`/`_count`): `tests/unit/observability/test_alert_and_dashboard_metric_refs.py`
+enforces it.
 
 ### Persistence Agent Metrics
 
@@ -113,16 +101,6 @@ Services do not start a `/metrics` HTTP server. All metrics are pushed via OTLP 
 | `persistence_consumer_lag_records` | Gauge | **agent_id** | Current consumer lag |
 
 **Important:** The `agent_id` label (not `agent` or `name`) is the canonical label for persistence metrics.
-
-### Pipeline Timing Metrics
-
-| Metric | Type | Labels | Purpose |
-|--------|------|--------|---------|
-| `indic_bar_to_i1_latency_seconds` | Histogram | symbol, tf | Bar close → I1 computed |
-| `indic_bar_to_intelligence_latency_seconds` | Histogram | symbol, tf | Bar close → I3-I6 published |
-| `indic_bar_to_signal_latency_seconds` | Histogram | symbol, tf | Bar close → I7 signal |
-
-**Buckets:** `[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0]`
 
 ---
 
@@ -189,92 +167,29 @@ Dashboards are provisioned from `production/grafana/dashboards/` and auto-loaded
 **File:** `operations.json`
 **Purpose:** Fleet-wide health monitoring
 
-**Panels:**
-- Service status (up/down)
-- Agent last message timestamps (stall detection)
-- Consumer lag by service
-- OTel Collector health
-- Docker container status
-
-**Key queries:**
-```promql
-# Service health
-agent_last_message_timestamp_seconds{agent_id=~"indicagent-.*"}
-
-# Consumer lag
-persistence_consumer_lag_records{agent_id=~".*-writer"}
-
-# OTel Collector up
-up{job="otel-collector"}
-```
+**Panels:** service health and restart rate, data completeness, IBKR bars produced, time since
+the aggregator's last bar, DLQ messages by topic, gap-fill DLQ growth, writer consumer lag and
+output buffer depth, completeness by symbol and timeframe, open gap windows, bar reconciliation
+findings, and the D7 bar completeness and vendor disagreement panels.
 
 **Use for:**
-- Quick health check of entire fleet
-- Identifying stalled services
-- Verifying OTel pipeline health
+- Quick health check of the fleet and the bar path
+- Identifying stalled services and data gaps
 
 #### 2. Pipeline Health Dashboard
 
 **File:** `pipeline-health.json`
-**Purpose:** End-to-end pipeline performance monitoring
+**Purpose:** Streaming-path latency, throughput and consumer lag
 
-**Panels:**
-- Bars processing rate (BPS)
-- End-to-end latency (p50, p95, p99)
-- Per-stage latency breakdown
-- I1-I7 plugin execution times
-- Circuit breaker states
-
-**Key queries:**
-```promql
-# BPS
-rate(intelligence_pipeline_bars_processed_total[5m])
-
-# E2E latency
-histogram_quantile(0.95, rate(bar_e2e_latency_ms_bucket[5m]))
-
-# Per-stage latency
-rate(plugin_execution_seconds_sum{intelligence_tier="I1"}[5m]) /
-  rate(plugin_execution_seconds_count{intelligence_tier="I1"}[5m])
-```
+**Panels:** p95 latency (feature writer DB writes, merger bars), bars per minute, HTF bars
+emitted, plugin fallback rate, and consumer lag by agent and over time.
 
 **Use for:**
-- Performance regression detection
-- Identifying slow tiers/plugins
-- Circuit breaker monitoring
+- Performance regression detection on the streaming path
+- Consumer lag and DLQ monitoring
 
-#### 3. Plugin Latency Dashboard
-
-**File:** `plugin-latency.json`
-**Purpose:** Per-plugin performance profiling
-
-**Panels:**
-- Plugin execution time by tier
-- Plugin fallback rate
-- Cache hit rate
-- State size by plugin
-
-**Use for:**
-- Plugin performance optimization
-- Identifying expensive plugins
-- Cache effectiveness analysis
-
-#### 4. Signals & I8 Dashboard
-
-**File:** `signals-i8.json`
-**Purpose:** Signal generation and AI intelligence monitoring
-
-**Panels:**
-- Signal fire rate by plugin
-- Signal win rate
-- I8 LLM call latency
-- LLM token usage
-- Model performance scores
-
-**Use for:**
-- Signal quality monitoring
-- LLM performance tracking
-- Model comparison
+The plugin-latency, signals-I8 and shadow-validation dashboards were deleted in todo 509
+(2026-10-26): every metric they read went with the v2.x signal path and the I8 AI stack.
 
 ### Common Query Patterns
 

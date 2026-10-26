@@ -27,68 +27,6 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 1
-      },
-      "id": 2,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "count(indicagent_service_health > 0)",
-          "refId": "A",
-          "legendFormat": "Running"
-        }
-      ],
-      "title": "Services Running",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2
@@ -116,72 +54,6 @@
       ],
       "title": "Restart Rate by Service",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 10
-              },
-              {
-                "color": "red",
-                "value": 20
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 1
-      },
-      "id": 4,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "signal_tracker_compute_active_signals",
-          "refId": "A",
-          "legendFormat": "Active Signals"
-        }
-      ],
-      "title": "Active Signals",
-      "type": "stat"
     },
     {
       "datasource": {
@@ -305,42 +177,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 8,
-        "x": 8,
-        "y": 6
-      },
-      "id": 12,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(indicator_bars_processed_labeled_total[1m])",
-          "refId": "A",
-          "legendFormat": "{{ symbol }}/{{ tf }}"
-        }
-      ],
-      "title": "Bars Processed Rate (Intelligence Pipeline)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
           "unit": "s",
           "color": {
             "mode": "thresholds"
@@ -427,12 +263,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "increase(intelligence_pipeline_signal_dlq_total[5m])",
+          "expr": "sum by (topic) (increase(dlq_messages_total[5m]))",
           "refId": "A",
-          "legendFormat": "signal DLQ/5m"
+          "legendFormat": "{{topic}}"
         }
       ],
-      "title": "Signal DLQ Growth",
+      "title": "DLQ Messages by Topic",
       "type": "timeseries"
     },
     {
@@ -463,84 +299,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "increase(bar_auditor_gap_fill_dlq_depth[5m])",
+          "expr": "increase(bar_auditor_gap_fill_dlq_depth_total[5m])",
           "refId": "A",
           "legendFormat": "gap fill DLQ/5m"
         }
       ],
       "title": "Gap Fill DLQ Growth",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 12
-      },
-      "id": 23,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(signal_writer_buffer_overflow_total[1m])",
-          "refId": "A",
-          "legendFormat": "drops/s"
-        }
-      ],
-      "title": "Signal Writer Buffer Drops",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "drawStyle": "line",
-            "lineWidth": 2
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 12
-      },
-      "id": 24,
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "rate(intelligence_pipeline_plugin_errors_total[5m])",
-          "refId": "A",
-          "legendFormat": "{{ plugin_name }} {{ tier }}"
-        }
-      ],
-      "title": "Plugin Errors",
       "type": "timeseries"
     },
     {
@@ -589,7 +353,7 @@
           "legendFormat": "{{ agent_id }}"
         }
       ],
-      "title": "Consumer Lag — All Writers",
+      "title": "Consumer Lag \u2014 All Writers",
       "type": "timeseries"
     },
     {
@@ -647,72 +411,6 @@
       ],
       "title": "Output Buffer Depth (Intelligence Pipeline)",
       "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 8
-              },
-              {
-                "color": "red",
-                "value": 16
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 17
-      },
-      "id": 33,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "intelligence_pipeline_thread_pool_workers",
-          "refId": "A",
-          "legendFormat": "workers"
-        }
-      ],
-      "title": "Thread Pool Workers (Intelligence Pipeline)",
-      "type": "stat"
     },
     {
       "collapsed": false,

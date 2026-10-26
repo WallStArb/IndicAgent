@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Activity, Gauge, BrainCircuit, Database } from "lucide-react";
+import { ExternalLink, Gauge, Database } from "lucide-react";
 import { useObservabilityStream } from "@/hooks/use-observability-stream";
 import { fmtLatency, fmtRate } from "@/lib/format";
 import { PipelineFlow } from "./pipeline-flow";
@@ -238,24 +238,12 @@ export default function ObservabilityPanel() {
           >
             Deep Dive
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <GrafanaTile
               icon={Gauge}
               label="Pipeline Health"
-              desc="Bar agg · I1-I7 · writers"
+              desc="Bar agg · merger · writers"
               href={`${GRAFANA}/d/indicagent-pipeline-health`}
-            />
-            <GrafanaTile
-              icon={Activity}
-              label="Signals + AI"
-              desc="Signal ledger · LLM calls · swarm"
-              href={`${GRAFANA}/d/indicagent-signals-i8`}
-            />
-            <GrafanaTile
-              icon={BrainCircuit}
-              label="Plugin Latency"
-              desc="Per-plugin breakdown · I1-I7"
-              href={`${GRAFANA}/d/indicagent-plugin-latency`}
             />
             <GrafanaTile
               icon={Database}

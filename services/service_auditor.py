@@ -682,7 +682,7 @@ class ServiceAuditor(BaseDaemon):
             return set()
 
     async def _fetch_prometheus_lag(self) -> dict[str, int]:
-        results = await self._query_prometheus("persistence_consumer_lag")
+        results = await self._query_prometheus("persistence_consumer_lag_records")
         out: dict[str, int] = {}
         for r in results:
             unit = _AGENT_ID_TO_UNIT.get(r["metric"].get("agent_id", ""))

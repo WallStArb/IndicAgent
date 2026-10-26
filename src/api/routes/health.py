@@ -77,7 +77,7 @@ async def full_health_check(db_manager=Depends(get_db_manager)):
 
 @router.get("/system")
 async def system_health() -> dict:
-    """Machine-readable system health: lag, DLQ depth, replay gauge, agent heartbeats."""
+    """Machine-readable system health: lag, DLQ depth, agent heartbeats."""
     prom_url = "http://localhost:9090/api/v1/query"
     timeout = aiohttp.ClientTimeout(total=3)
 
@@ -85,7 +85,6 @@ async def system_health() -> dict:
         "timestamp": datetime.now(UTC).isoformat(),
         "consumer_lag": {},
         "dlq_depth": None,
-        "signal_replay_unresolved": None,
         "agent_heartbeats": {},
     }
 
@@ -97,10 +96,9 @@ async def system_health() -> dict:
             return []
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        lag_items, dlq_items, replay_items, hb_items = await asyncio.gather(
+        lag_items, dlq_items, hb_items = await asyncio.gather(
             _query(session, "persistence_consumer_lag_records"),
             _query(session, "agent_dlq_total"),
-            _query(session, "signal_replay_unresolved_gauge"),
             _query(session, "agent_last_message_timestamp_seconds"),
             return_exceptions=True,
         )
@@ -112,9 +110,6 @@ async def system_health() -> dict:
 
         if isinstance(dlq_items, list) and dlq_items:
             result["dlq_depth"] = int(sum(float(i["value"][1]) for i in dlq_items))
-
-        if isinstance(replay_items, list) and replay_items:
-            result["signal_replay_unresolved"] = int(float(replay_items[0]["value"][1]))
 
         if isinstance(hb_items, list):
             for item in hb_items:
