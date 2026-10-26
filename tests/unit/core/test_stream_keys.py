@@ -5,7 +5,6 @@ from src.core.stream_keys import (
     message_key,
     topic_intelligence,
     topic_market_bars,
-    topic_signals_aggregated,
 )
 
 # ---------------------------------------------------------------------------
@@ -27,10 +26,6 @@ def test_topic_market_bars_with_env() -> None:
 
 def test_topic_intelligence_with_env() -> None:
     assert topic_intelligence("dev") == "dev.intelligence"
-
-
-def test_topic_signals_aggregated_with_env() -> None:
-    assert topic_signals_aggregated("dev") == "dev.signals.aggregated"
 
 
 def test_message_key_with_timeframe() -> None:

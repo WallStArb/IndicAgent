@@ -26,8 +26,16 @@ export function getApiBase(): string {
   return _cachedBase;
 }
 
-export async function fetchJson<T = unknown>(url: string, options?: RequestInit): Promise<T> {
-  const r = await fetch(url, options);
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+/** GET JSON from the API; a failed response throws with the API's `detail` when it sends one. */
+export async function fetchJson<T = unknown>(path: string, options?: RequestInit): Promise<T> {
+  const r = await fetch(`${getApiBase()}${path}`, options);
+  if (!r.ok) {
+    const body = await r.json().catch(() => null);
+    const detail = body?.detail;
+    // FastAPI validation errors (422) send detail as a list of objects, not a string.
+    throw new Error(
+      detail == null ? `HTTP ${r.status} ${path}` : typeof detail === "string" ? detail : JSON.stringify(detail),
+    );
+  }
   return r.json();
 }

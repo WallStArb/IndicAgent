@@ -31,6 +31,8 @@ from src.api.routes import (
     health,
     instruments,
     market_data,
+    pipeline,
+    system,
     vocabulary,
 )
 
@@ -118,6 +120,8 @@ _ROUTERS: list[tuple[APIRouter, str]] = [
     (health.router, "/health"),
     (market_data.router, "/api"),
     (instruments.router, "/api"),
+    (pipeline.router, "/api/pipeline"),
+    (system.router, "/api/system"),
     (vocabulary.router, "/api/vocabulary"),
 ]
 

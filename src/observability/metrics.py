@@ -502,15 +502,6 @@ KAFKA_PUBLISH_SECONDS = _meter.create_histogram(
 )
 
 # ---------------------------------------------------------------------------
-# SSE delivery (Phase hardening)
-# ---------------------------------------------------------------------------
-
-SSE_MESSAGES_DROPPED_TOTAL = _meter.create_counter(
-    "sse_messages_dropped_total",
-    description="SSE messages dropped because the client queue was full",
-)
-
-# ---------------------------------------------------------------------------
 # Contract hot-reload (Phase hardening)
 # ---------------------------------------------------------------------------
 

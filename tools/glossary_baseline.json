@@ -279,9 +279,6 @@
   "services/service_auditor.py": {
    "drain": 2
   },
-  "src/api/routes/sse.py": {
-   "drain": 2
-  },
   "src/config/settings.py": {
    "drain": 3
   },

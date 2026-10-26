@@ -27,10 +27,8 @@ _TOPIC_SPECS: list[tuple[str, int, int, str]] = [
     # market.bars.raw.<provider> entries are added dynamically via get_topic_specs()
     ("market.events.gap_requests", 1, _BUFFER_MS, "delete"),
     ("market.data.quality", 1, _BUFFER_MS, "delete"),
-    # --- Read by the dashboard SSE route; kept until todo 509 item 2 decides that surface ---
+    # --- Cross-asset context (published by cross_asset_analyzer) ---
     ("intelligence", 1, _BUFFER_MS, "delete"),
-    ("intelligence.journal", 1, _BUFFER_MS, "delete"),
-    ("signals.aggregated", 1, _BUFFER_MS, "delete"),
     # --- Cross-asset (published by cross_asset_analyzer) ---
     ("cross_asset", 1, _BUFFER_MS, "delete"),
     # --- Macro factors (persisted by macro_compute_agent → macro_features) ---

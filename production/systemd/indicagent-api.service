@@ -1,5 +1,5 @@
 [Unit]
-Description=IndicAgent FastAPI — SSE bridge and REST API
+Description=IndicAgent FastAPI, read-only REST API for the dashboard
 After=network-online.target indicagent-wave4.target
 Requires=indicagent-infrastructure.target
 Wants=network-online.target

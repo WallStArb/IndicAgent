@@ -31,6 +31,8 @@ Removed in todo 509 (2026-10-26; producers deleted in 185-45 and earlier):
   intelligence_i8); topic_market_ticks (no producer) and topic_intelligence_shadow (its
   pipeline is gone); the I8 narrative topics (topic_narratives, topic_narratives_group,
   topic_intelligence_i8), whose producer went with the AI stack
+Removed with the SSE bridge (dashboard v3.5 slice 1, 2026-10-26): topic_signals_aggregated,
+  topic_intelligence_journal
 Removed in todo 509 item 3 (2026-10-26, ML batch chain deleted): topic_ml_data_quality_alerts,
   topic_ml_discovery_results, topic_ml_orchestrator_dlq
 """
@@ -96,11 +98,6 @@ def topic_intelligence(env_name: str) -> str:
     return f"{env_prefix(env_name)}intelligence"
 
 
-def topic_signals_aggregated(env_name: str) -> str:
-    """Kafka topic for aggregated/selected signal per bar."""
-    return f"{env_prefix(env_name)}signals.aggregated"
-
-
 def topic_system_events(env_name: str) -> str:
     """Kafka topic for system-level events (roll detection, pipeline control)."""
     return f"{env_prefix(env_name)}system.events"
@@ -109,11 +106,6 @@ def topic_system_events(env_name: str) -> str:
 def topic_cross_asset(env_name: str) -> str:
     """Kafka topic for cross-asset spread features (group-level)."""
     return f"{env_prefix(env_name)}cross_asset"
-
-
-def topic_intelligence_journal(env_name: str) -> str:
-    """Kafka topic for atomic IntelligenceJournal records (all provenance/audit/state)."""
-    return f"{env_prefix(env_name)}intelligence.journal"
 
 
 def topic_feature_vectors(env_name: str) -> str:

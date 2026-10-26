@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 # Global resources (set by main.py)
 db_manager = None
-kafka_broadcaster = None
+config_service = None
 
 
 async def get_db_manager():
@@ -18,8 +18,8 @@ async def get_db_manager():
     return db_manager
 
 
-async def get_kafka_broadcaster():
-    """Get Kafka SSE broadcaster dependency."""
-    if kafka_broadcaster is None:
-        raise HTTPException(status_code=503, detail="Kafka broadcaster not initialized")
-    return kafka_broadcaster
+async def get_config_service():
+    """Get the APR config service dependency (ui.dashboard.* keys)."""
+    if config_service is None:
+        raise HTTPException(status_code=503, detail="Config service not initialized")
+    return config_service

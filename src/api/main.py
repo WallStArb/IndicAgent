@@ -22,7 +22,8 @@ from .routes import (
     health,
     instruments,
     market_data,
-    sse,
+    pipeline,
+    system,
     vocabulary,
 )
 
@@ -32,8 +33,6 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management."""
-    _broadcaster_task = None
-    _sse_consumer = None
     _api_health_task = None
     try:
         # Initialize core infrastructure
@@ -65,26 +64,13 @@ async def lifespan(app: FastAPI):
 
         _api_health_task = asyncio.create_task(_refresh_api_health())
 
-        # Initialize Kafka SSE broadcaster
-        from src.core.kafka_utils import KafkaConsumerClient
+        # APR reader for the ui.dashboard.* keys the read routes apply, on the API's own pool
+        from src.config.config_service import ConfigService
 
-        from .routes.sse import KafkaSSEBroadcaster, sse_topics
-
-        kafka_bootstrap = settings.kafka_bootstrap_servers
-        env_name = settings.env_name or ""
-
-        dependencies.kafka_broadcaster = KafkaSSEBroadcaster()
-        _sse_consumer = KafkaConsumerClient(
-            *sse_topics(env_name),
-            bootstrap_servers=kafka_bootstrap,
-            # Single-instance group: every API process must receive all messages for SSE.
-            # latest offset: skip history, only deliver live messages to clients.
-            group_id="sse_broadcaster",
-            auto_offset_reset="latest",
+        dependencies.config_service = ConfigService(
+            settings.database_url, pool=dependencies.db_manager.pool
         )
-        await _sse_consumer.start()
-        await _sse_consumer.seek_to_end()  # always skip committed history; start from live
-        _broadcaster_task = asyncio.create_task(dependencies.kafka_broadcaster.run(_sse_consumer))
+        await dependencies.config_service.initialize()
 
         # Seed instruments table on empty cold-start only (count-gated, idempotent)
         count_rows = await dependencies.db_manager.execute_query(
@@ -131,17 +117,6 @@ async def lifespan(app: FastAPI):
                 await _api_health_task
             except (asyncio.CancelledError, Exception):
                 pass
-        if _broadcaster_task is not None:
-            _broadcaster_task.cancel()
-            try:
-                await _broadcaster_task
-            except Exception:
-                pass
-        if _sse_consumer is not None:
-            try:
-                await _sse_consumer.stop()
-            except Exception:
-                pass
         if dependencies.db_manager:
             await dependencies.db_manager.close()
         logger.info("Application shutdown complete")
@@ -171,7 +146,8 @@ app.add_middleware(
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(market_data.router, prefix="/api", tags=["market-data"])
 app.include_router(instruments.router, prefix="/api", tags=["instruments"])
-app.include_router(sse.router, prefix="/api/sse", tags=["sse"])
+app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(vocabulary.router, prefix="/api/vocabulary", tags=["vocabulary"])
 
 

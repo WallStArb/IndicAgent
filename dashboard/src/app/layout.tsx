@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, JetBrains_Mono, Syne } from "next/font/google";
+import { Outfit, JetBrains_Mono } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
@@ -15,15 +15,9 @@ const jetbrains = JetBrains_Mono({
   weight: ["400", "500", "600"],
 });
 
-const syne = Syne({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-});
-
 export const metadata: Metadata = {
   title: "IndicAgent",
-  description: "Multi-layer agentic intelligence platform for quantitative signal generation, pattern detection, trade lifecycle analysis, and evolvable AI that self-improves through live market feedback",
+  description: "Read-only cockpit for the IndicAgent v3.5 pipeline: ingest, features, measurement, research and books.",
 };
 
 export default function RootLayout({
@@ -33,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${outfit.variable} ${jetbrains.variable} ${syne.variable} antialiased`}>
+      <body className={`${outfit.variable} ${jetbrains.variable} antialiased`}>
         <AppShell>
           {children}
         </AppShell>

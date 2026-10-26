@@ -27,9 +27,21 @@ def mock_db():
     return AsyncMock()
 
 
+class _DefaultConfig:
+    """APR stand-in: every key reads as the default the route passes."""
+
+    async def get(self, key, default=None):
+        return default
+
+    def invalidate(self, key):
+        pass
+
+
 @pytest.fixture
 def client(mock_db):
-    """TestClient against the real app, with get_db_manager overridden to mock_db."""
+    """TestClient against the real app, with get_db_manager overridden to mock_db and the APR
+    config service to one that returns each key's default."""
     app.dependency_overrides[dependencies.get_db_manager] = lambda: mock_db
+    app.dependency_overrides[dependencies.get_config_service] = _DefaultConfig
     yield TestClient(app)
     app.dependency_overrides.clear()
