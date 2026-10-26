@@ -459,8 +459,12 @@ async def _connect_with_circuit_breaker(
 
     Returns (ib_instance, actual_client_id) or (None, client_id) on failure.
     On Error 326, rotates clientId upward. After exhaustion, restarts the
-    ib-gateway container and retries with the original clientId.
+    ib-gateway container and retries with the original clientId. A clientId outside
+    [0, _MAX_CLIENT_ID] raises ValueError: it would skip the rotation loop and fall straight
+    into the restart, which drops every session and needs a human 2FA approval (todo 542).
     """
+    if not 0 <= client_id <= _MAX_CLIENT_ID:
+        raise ValueError(f"IBKR client id {client_id} is outside [0, {_MAX_CLIENT_ID}]")
     global _ibkr_open_since
     provider_id = "ibkr:connection"
     plugin_state = _ibkr_circuit_breaker.plugin_states[provider_id]
