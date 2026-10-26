@@ -1038,7 +1038,7 @@ _DEFAULT_STATEMENT_TIMEOUT_MS = 14_400_000  # 4h -- see migration 314 for proven
 # for it specifically -- kept anyway because compressed_hypertable_write_session is
 # shared infrastructure serving callers that don't all follow that convention (e.g. a bare
 # `psycopg.connect()`, todo 316's own one-off remediation script). See also
-# src/intelligence/pipeline/cache_manager.py's independent `SET idle_session_timeout = 0`
+# src/config/instruments_listener.py's independent `SET idle_session_timeout = 0`
 # for the same underlying GUC-vs-legitimately-idle-connection problem in a different
 # connection-ownership shape (owns its connection for life, no restore needed).
 _IDLE_SESSION_TIMEOUT_APR_KEY = "infra.compressed_hypertable_write_session.idle_session_timeout_ms"

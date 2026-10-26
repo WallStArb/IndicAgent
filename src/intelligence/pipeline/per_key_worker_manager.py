@@ -63,8 +63,7 @@ class PerKeyWorkerManager:
     def start_per_key_workers(self) -> None:
         """No-op at startup — workers are lazily spawned on first enqueue per key.
 
-        Exists for lifecycle symmetry with CacheManager.start_refresh_loops() and
-        PluginStateManager.start_checkpoint_loop() (D-16).
+        Exists for lifecycle symmetry with PluginStateManager.start_checkpoint_loop() (D-16).
         """
 
     async def enqueue(self, bar: BarMessage) -> None:

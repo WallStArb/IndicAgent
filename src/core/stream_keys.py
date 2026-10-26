@@ -394,10 +394,6 @@ def market(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}market:{symbol}:{timeframe}"
 
 
-def indicators(env_prefix: str, symbol: str, timeframe: str) -> str:
-    return f"{env_prefix}indicators:{symbol}:{timeframe}"
-
-
 def intelligence(env_prefix: str, symbol: str, timeframe: str) -> str:
     return f"{env_prefix}intelligence:{symbol}:{timeframe}"
 

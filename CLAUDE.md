@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Version: 5.63.0
+Version: 5.63.1
 <!-- Bump the patch version on every substantive edit to this file (convention, not enforced). -->
 
 **Project nature:** Passion/learning project, not a production system. Decisions prioritize correctness, rigor, and institutional-grade thinking. Renaissance Capital / Jim Simons principles are the north star. Apply the rigor of a system built to last; do not hedge around operational risk that doesn't apply.
@@ -33,7 +33,7 @@ Gate by diff class; the push is the only publishing boundary. Commit directly on
 
 ## Architecture
 
-**Removed (phase 185-45):** the v2.x I1-I7 signal path, typed bus and the I8 AI stack (ollama, langfuse, swarms). Archive: git tag `archive/v2x-ai-stack-2026-10` (local) and dumps in `data/backups/185-45/` until about 2026-11-06. A v2.x remainder (`pipeline/`, `plugins/`, `trading/`) stays only because `feature_vector_pipeline` imports it (todo 509); build nothing on it. Details: `src/intelligence/CLAUDE.md`.
+**Removed (phase 185-45):** the v2.x I1-I7 signal path, typed bus and the I8 AI stack (ollama, langfuse, swarms). Archive: git tag `archive/v2x-ai-stack-2026-10` (local) and dumps in `data/backups/185-45/` until about 2026-11-06. A v2.x remainder (three `pipeline/` primitives `feature_vector_pipeline` runs on, `trading/signal_outcome`) stays until todo 509 items 2 and 3 are decided; build nothing on it. Details: `src/intelligence/CLAUDE.md`.
 **Pipeline (v3.5, adopted 2026-09-26; unified design, E18):** `ingest (IBKR -> market_data_ohlcv) -> feature (feature_vectors, market_regimes) -> measure (ic_measure: proposer, IC term structure, member monitoring) -> research (S0 panel -> S1 target -> S2 families -> S3 guards -> S7 combiner -> construction rule -> S8 book test; S6 ledger is the sole writer of research_run) -> frozen book -> forward runner (BookTracker/BookPositionWriter, sealed shadow) -> capital`. The old chain (`ensemble_trainer`, `EnsembleICEngine`, `alpha_publisher`, `alpha_events`, old ic_engine, `forward_return_writer`, `forward_returns`) was deleted in phase 186; build nothing on it.
 **Service DAG:** registry is `_DAG_ORDER` in `services/service_auditor.py`; live state `systemctl list-units --all | grep indicagent`; Grafana `:3001`. ML batch services (`ml-training`, `ml-orchestrator`, `ml-data-quality`, `ml-discovery`, `roll-batch`) are `inactive (dead)` between runs, which is correct.
 **Data flow:** streaming (IBKR → Redpanda → in-memory services; `BarWriter`/`FeatureVectorWriter` persist in batch) is dormant while the live feed is down; today's data arrives by nightly batch backfill. The real-time path never touches the database directly.

@@ -12,7 +12,27 @@ Plan 185-45 removed the I8 AI stack and every v2.x service, unit, script and tab
 consumer (archive: git tag `archive/v2x-ai-stack-2026-10`, dumps in `data/backups/185-45/`). What
 stays, and why, with the step that would free it:
 
-## 1. feature_vector_pipeline imports the v2.x pipeline package
+## 1. feature_vector_pipeline imports the v2.x pipeline package (DONE 2026-10-26)
+
+Done 2026-10-26. `src/intelligence/pipeline/__init__.py` exports only OutputQueue,
+PerKeyWorkerManager and PluginStateManager. CacheManager is deleted: its v2.x loaders read tables
+with no writer and its cross-asset and macro caches were write-only (nothing called `snapshot()`),
+so the service no longer subscribes to topic_cross_asset or topic_macro_signals. Its one live job,
+LISTEN instruments into `invalidate_active_contracts_cache`, is now
+`src/config/instruments_listener.py` with its two timings in APR (migration 503). An AST
+reachability check from every service, script, tool and `src.api.main` then freed 194 modules,
+all deleted: the executor and signal stages, `register_plugins`, `src/intelligence/archive/`,
+`composites/`, `context/`, `plugins/`, `features/i1_indicators/`, `features/i3_structure/`,
+`features/smc_context/`, all of `trading/` except `signal_outcome` (item 2 reads it),
+`utils/common`, `src/monitoring/`, `core/ml/transform_recorder`, `observability/circuit_breaker`
+and `plugin_observer`. Names left unused by the deletion were removed where they were plain
+dead code (20 metric constants, six v2.x Settings fields, the tick-size and plugin-skip helpers,
+a stream key) and whitelisted for vulture where they belong to items 2 and 3 (schema and
+repository fields, `core/ml/features`). 41 test files that covered only deleted code were
+removed; the instrument-row builder's tests moved to `tests/unit/config/test_instruments_listener.py`.
+
+Original text:
+
 
 `services/feature_vector_pipeline.py` (v3 compute, enabled, failed) imports four names from
 `src.intelligence.pipeline` (CacheManager, OutputQueue, PerKeyWorkerManager, PluginStateManager).

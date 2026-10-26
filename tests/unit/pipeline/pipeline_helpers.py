@@ -1,29 +1,17 @@
-"""Shared test helpers for intelligence pipeline unit tests.
-
-Provides the __new__() agent factory and plugin stubs used across
-test_pipeline_parallelization, test_pipeline_determinism, and
-test_pipeline_exception_isolation.
-"""
+"""Shared test helper for FeatureVectorPipeline unit tests: the __new__() agent factory."""
 
 from __future__ import annotations
 
 import asyncio
-import os
 import pathlib
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from services.feature_vector_pipeline import FeatureVectorPipeline
 from src.core.bar_history import BarHistory
-from src.intelligence.pipeline.cache_manager import CacheManager
-from src.intelligence.pipeline.executor import PluginExecutor
 from src.intelligence.pipeline.output_queue import OutputQueue
-from src.intelligence.pipeline.signal_processor import SignalProcessor
 from src.intelligence.pipeline.state_manager import PluginStateManager
-from src.intelligence.trading.cis_scorer import CISScorer
-from src.observability.plugin_observer import NoOpPluginObserver
 
 
 def make_agent() -> FeatureVectorPipeline:
@@ -31,39 +19,26 @@ def make_agent() -> FeatureVectorPipeline:
 
     Bypasses __init__ so tests can inject only the state they need without
     touching live Kafka, DB, or plugin registry.  Pattern from CLAUDE.md.
-
-    Cache state is seeded via the public seed_* API on agent._cache_mgr.
-    Never mutate agent._cache_mgr._* private attributes directly.
     """
     agent = FeatureVectorPipeline.__new__(FeatureVectorPipeline)
     agent.name = "feature_vector_pipeline_agent"
     agent._stop_event = asyncio.Event()
     agent.logger = MagicMock()
     agent.tracer = MagicMock()
-    agent._plugin_cache = {}
     agent._state_mgr = PluginStateManager(
         checkpoint_path=pathlib.Path(tempfile.mkdtemp()) / "ckpt.json"
     )
-    agent._instrument_map = {}
-    agent._plugin_skipped_total = MagicMock()
-    agent._i1_latency_ms = MagicMock()
-    agent._i7_latency_ms = MagicMock()
     agent._pipeline_latency = MagicMock()
     agent._pipeline_errors = MagicMock()
     agent.settings = MagicMock(env_name="dev")
-    agent.settings.intelligence_thread_pool_workers = 0
     agent._bar_history = BarHistory(maxlen=200)
-    # CacheManager with an async mock DB — queries return [] by default.
-    # Seed cache state via the public seed_* API: agent._cache_mgr.seed_perf_weights({...})
     _db = AsyncMock()
     _db.execute_query = AsyncMock(return_value=[])
-    agent._cache_mgr = CacheManager(db=_db, settings=agent.settings)
-    # self._db is also the daemon's own DB handle (Plan 151-09 Task 2's
+    # self._db is the daemon's own DB handle (Plan 151-09 Task 2's
     # _load_cross_asset_series() reads market_data_ohlcv_tradeable through it) --
     # same mock instance, execute_query([]) by default so a test that doesn't care
     # about cross-asset state gets an empty (all-0.0-default) series harmlessly.
     agent._db = _db
-    agent._regime_cache = {}
     agent._feature_caches = {}
     # Cross-asset daily series (Plan 151-09 Task 2) -- _cross_asset_built_on defaults
     # to "today" (matching production state right after _setup() has run) so a bare
@@ -77,30 +52,6 @@ def make_agent() -> FeatureVectorPipeline:
     agent._background_tasks = set()
     agent._bar_e2e_latency = MagicMock()
     agent._out_queue = OutputQueue(producer=MagicMock(), maxsize=500)
-    agent._transform_recorder = MagicMock()
-    agent._regime_prob_min = 0.7
-    agent._regime_prob_soft_max = 0.55
-    agent._regime_dur_min = 12
-    cpu_count = os.cpu_count() or 24
-    # D-06: self._thread_pool is the underlying ThreadPoolExecutor;
-    # self._executor is the PluginExecutor instance.
-    agent._thread_pool = ThreadPoolExecutor(
-        max_workers=cpu_count * 2,
-        thread_name_prefix="test_intel_",
-    )
-    agent._executor = PluginExecutor(
-        thread_pool=agent._thread_pool,
-        plugin_cache=agent._plugin_cache,
-        instrument_map=agent._instrument_map,
-        circuit_breakers={},
-        observer=NoOpPluginObserver(),
-    )
-    # SignalProcessor owns kalman_state, setup_last_fire, and the I7 signal pipeline stages.
-    agent._sig_proc = SignalProcessor(
-        cis_scorer=CISScorer(),
-        settings=agent.settings,
-        transform_recorder=None,
-    )
     # FeatureFactoryConfig required by _process_bar_compute() assertion.
     # Seeded with default values matching APR defaults.
     from src.intelligence.feature_factory import FeatureFactoryConfig, invert_ctf_higher_tf_map

@@ -28,7 +28,6 @@ from pathlib import Path
 # Directories to scan (relative to project root)
 SCAN_DIRS = [
     "src/intelligence/features",
-    "src/intelligence/composites",
     "src/intelligence/context",
     "src/intelligence/trading",
     "src/intelligence",

@@ -96,44 +96,10 @@ PLUGIN_DURATION_MS = _meter.create_histogram(
     "intelligence_pipeline_plugin_duration_ms",
     description="Per-plugin execution latency",
 )
-PLUGIN_ERRORS_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_errors_total",
-    description="Plugin execution errors",
-)
-THREAD_POOL_WORKERS = _meter.create_up_down_counter(
-    "intelligence_pipeline_thread_pool_workers",
-    description="Current thread pool worker count",
-)
-
-# ---------------------------------------------------------------------------
-# New plugin observability metrics (Phase 100.5)
-# ---------------------------------------------------------------------------
-
-PLUGIN_WARMUP_SKIP_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_warmup_skip_total",
-    description="Plugin executions skipped due to insufficient warmup bars (min_lookback not met)",
-)
-PLUGIN_OUTPUT_NULL_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_output_null_total",
-    description="Plugin calls returning empty or None output (insufficient data bars)",
-)
-PLUGIN_STATE_VALIDATION_ERRORS_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_state_validation_errors_total",
-    description="Plugin state validation errors (missing _state key in incremental plugin output)",
-)
-PLUGIN_SIGNAL_EMIT_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_plugin_signal_emit_total",
-    description="I7 signals emitted via emit_signal(), labeled by plugin and direction",
-)
-PLUGIN_CONFIDENCE_HISTOGRAM = _meter.create_histogram(
-    "intelligence_pipeline_plugin_confidence",
-    description="Distribution of signal confidence values at emission",
-)
 
 # ---------------------------------------------------------------------------
 # Plugin validator metrics — absorbed from plugin_validator.py inline block (Task 2)
 # ---------------------------------------------------------------------------
-
 
 LANGGRAPH_WORKFLOW_EXECUTION_TOTAL = _meter.create_counter(
     "langgraph_workflow_executions_total",
@@ -433,36 +399,6 @@ SIGNAL_PROCESSOR_CIS_NULL_TOTAL = _meter.create_counter(
     "signal_processor_cis_null_total",
     description="CIS scoring returned None — no score available for signal pipeline",
 )
-SIGNAL_PROCESSOR_DLQ_TOTAL = _meter.create_counter(
-    "signal_processor_dlq_total",
-    description="Signals routed to DLQ by SignalProcessor, labeled by reason",
-)
-SIGNAL_PROCESSOR_GATE_REJECTIONS_TOTAL = _meter.create_counter(
-    "signal_processor_gate_rejections_total",
-    description="Signals rejected by a named gate (regime, quality, tod, calibration)",
-)
-SIGNAL_PROCESSOR_WINNER_TOTAL = _meter.create_counter(
-    "signal_processor_winner_total",
-    description="Winner signals selected per bar, labeled by entry_type",
-)
-SIGNAL_PROCESSOR_SIGNALS_EVALUATED_TOTAL = _meter.create_counter(
-    "signal_processor_signals_evaluated_total",
-    description="Total raw signals entering the SignalProcessor pipeline per bar",
-)
-
-# ---------------------------------------------------------------------------
-# Regime gate suppression metrics
-# ---------------------------------------------------------------------------
-
-REGIME_GATE_SUPPRESSIONS_TOTAL = _meter.create_counter(
-    "regime_gate_suppressions_total",
-    description="Signals suppressed by regime gate",
-)
-
-REGIME_SOFT_GATE_SIGNALS_TOTAL = _meter.create_counter(
-    "regime_soft_gate_signals_total",
-    description="Signals flowing through the regime gate's three-band classifier (band in {suppressed, soft, full}).",
-)
 
 # ---------------------------------------------------------------------------
 # Feature validation metrics (Phase 82 D-05)
@@ -581,43 +517,12 @@ def record_langgraph_workflow(
 
 
 # ---------------------------------------------------------------------------
-# Zone engine metrics
-# ---------------------------------------------------------------------------
-
-ZONE_TIER_USED = _meter.create_counter(
-    "zone_tier_used_total",
-    description="Zone engine resolution tier selected per call",
-)
-ZONE_CANDIDATE_COUNT = _meter.create_histogram(
-    "zone_candidate_count",
-    description="Structural candidates evaluated per zone resolution",
-)
-ZONE_CLUSTER_DENSITY = _meter.create_histogram(
-    "zone_cluster_density",
-    description="Cluster quality score (strength x diversity / width_atr)",
-)
-ZONE_WIDTH_ATR = _meter.create_histogram(
-    "zone_width_atr",
-    description="Final zone width in ATR units",
-)
-
-
-# ---------------------------------------------------------------------------
 # Service-up gauge — named constant so service_auditor_agent imports it directly
 # ---------------------------------------------------------------------------
 
 SERVICE_UP_GAUGE = _meter.create_up_down_counter(
     "indicagent_service_up",
     description="Service-up gauge keyed by systemd unit",
-)
-
-# ---------------------------------------------------------------------------
-# Intelligence pipeline publisher metrics (Phase 81)
-# ---------------------------------------------------------------------------
-
-INTELLIGENCE_PIPELINE_BACKFILL_SIGNALS_TOTAL = _meter.create_counter(
-    "intelligence_pipeline_backfill_signals_total",
-    description="Signals published to intelligence.i7.signals with is_backfill=True (catch-up payloads)",
 )
 
 # ---------------------------------------------------------------------------
@@ -635,12 +540,6 @@ BAR_REPLAY_PROVIDER_LAG_SECONDS = _meter.create_up_down_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Signal replay auditor metrics (Phase 81 — Plan 05)
-# North-star metric: signal_replay_unresolved_gauge should converge to 0.
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
 # DB connection pool (Phase 83)
 # ---------------------------------------------------------------------------
 
@@ -655,21 +554,6 @@ DB_POOL_IDLE = _meter.create_up_down_counter(
 )
 
 # ---------------------------------------------------------------------------
-# Framing observability (Phase 115)
-# ---------------------------------------------------------------------------
-
-STOP_BUFFER_MULT_DISTRIBUTION = _meter.create_histogram(
-    "stop_buffer_mult_distribution",
-    description="Adaptive buffer multiplier at frame time by regime_type and stop_type — alerts on vol regime drift",
-    unit="1",
-)
-
-FRAME_TRADE_STOP_CORRECTION_TOTAL = _meter.create_counter(
-    "frame_trade_stop_correction_total",
-    description="Stop placements corrected by frame_trade (stop_capped: structural too wide; zone_corrected: stop inside entry zone). Labels: correction_type, setup_type.",
-)
-
-# ---------------------------------------------------------------------------
 # Kafka publish latency (Phase 83)
 # ---------------------------------------------------------------------------
 
@@ -677,15 +561,6 @@ KAFKA_PUBLISH_SECONDS = _meter.create_histogram(
     "kafka_publish_seconds",
     description="Kafka producer send_and_wait latency",
     unit="s",
-)
-
-# ---------------------------------------------------------------------------
-# Per-tier feature computation (Phase 83)
-# ---------------------------------------------------------------------------
-
-FEATURES_COMPUTED_TOTAL = _meter.create_counter(
-    "features_computed_total",
-    description="Feature rows computed and published per intelligence tier",
 )
 
 # ---------------------------------------------------------------------------

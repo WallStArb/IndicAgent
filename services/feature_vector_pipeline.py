@@ -23,6 +23,7 @@ import numpy as np
 
 from services._batch_utils import get_dict_config as _get_dict_config
 from src.config.config_service import ConfigService
+from src.config.instruments_listener import InstrumentsListener
 from src.config.settings import (
     get_active_contracts,
     get_settings,
@@ -45,10 +46,8 @@ from src.core.stream_keys import (
     message_key,
     topic_config_updates,
     topic_contract_updates,
-    topic_cross_asset,
     topic_feature_vectors,
     topic_intelligence_pipeline_dlq,
-    topic_macro_signals,
     topic_market_bars,
     topic_market_bars_htf,
     topic_signal_dlq,
@@ -83,7 +82,6 @@ from src.intelligence.features.kernels.macro import (
     require_supported_timeframes,
 )
 from src.intelligence.pipeline import (
-    CacheManager,
     OutputQueue,
     PerKeyWorkerManager,
     PluginStateManager,
@@ -188,7 +186,6 @@ class FeatureVectorPipeline(BaseDaemon):
         # (todo 327) -- __init__ stays synchronous, so this is a placeholder until
         # _setup() runs.
         self._timeframes: list[str] = []
-        self._instrument_map: dict[str, Any] = {c.symbol: c for c in self._contracts}
 
         self._bar_history = BarHistory(maxlen=200)
         self._last_bar_offset: dict = {}
@@ -508,8 +505,6 @@ class FeatureVectorPipeline(BaseDaemon):
             topic_market_bars(self.settings.env_name),
             topic_market_bars_htf(self.settings.env_name),
             topic_system_events(self.settings.env_name),
-            topic_cross_asset(self.settings.env_name),
-            topic_macro_signals(self.settings.env_name),
             self._contracts_topic,
             self._config_updates_topic,
         ]
@@ -542,19 +537,6 @@ class FeatureVectorPipeline(BaseDaemon):
 
         await self._seed_bar_history_from_db()
 
-        _symbol_filter_list = self.settings.feature_vector_pipeline_symbol_filter
-        symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
-        self._cache_mgr = CacheManager(
-            db=self._db,
-            settings=self.settings,
-            symbols=symbol_filter,
-            on_instruments_changed=invalidate_active_contracts_cache,
-        )
-        await self._cache_mgr.load_initial()
-        for task in self._cache_mgr.start_refresh_loops():
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-
         # [todo 061] The trigger is schema bootstrap (migration 220), not a runtime
         # concern — a compute daemon must never own schema mutation (DAG Invariants
         # 2/3). LISTEN succeeds even with no trigger installed (it just never fires),
@@ -566,12 +548,24 @@ class FeatureVectorPipeline(BaseDaemon):
                 "apply production/migrations/213_instruments_notify_trigger.sql before "
                 "starting FeatureVectorPipeline"
             )
-        listener_task = self._cache_mgr.start_instruments_listener()
+        assert self._config_service is not None
+        heartbeat_s = await self._config_service.get("infra.instruments_listener.heartbeat_s", 10)
+        backoff_s = await self._config_service.get(
+            "infra.instruments_listener.reconnect_backoff_s", 5
+        )
+        listener_task = InstrumentsListener(
+            self.settings.database_url,
+            invalidate_active_contracts_cache,
+            heartbeat_s=float(heartbeat_s),
+            reconnect_backoff_s=float(backoff_s),
+        ).start()
         self._background_tasks.add(listener_task)
         listener_task.add_done_callback(self._background_tasks.discard)
         self.logger.info("feature_vector_pipeline.instruments_listener_started")
 
         # Per-key concurrency (PERF-07)
+        _symbol_filter_list = self.settings.feature_vector_pipeline_symbol_filter
+        symbol_filter = frozenset(_symbol_filter_list) if _symbol_filter_list else None
         self._worker_manager = PerKeyWorkerManager(
             processor=self._process_bar_inner,
             symbol_filter=symbol_filter,
@@ -593,167 +587,10 @@ class FeatureVectorPipeline(BaseDaemon):
     # ---------------------------------------------------------------------------
 
     _THRESHOLD_KEYS: tuple[tuple[str, Any], ...] = (
-        ("threshold.trend_following.regime_min", 0.5),
-        ("threshold.trend_following.confidence_min", 0.4),
-        ("threshold.ofi_continuation.min_bars", 10),
         (
             "threshold.ofi_continuation.magnitude_floors",
             {"ES": 500, "NQ": 200, "CL": 1000, "GC": 500, "_default": 500},
         ),
-        ("threshold.pattern_completion.confidence_min", 0.70),
-        ("threshold.vwap_reversion.sigma_min", 1.5),
-        ("threshold.vwap_reversion.hurst_max", 0.55),
-        # --- migration 129: Tier A detection gates ---
-        ("threshold.global.min_regime_weight", 0.30),
-        ("threshold.global.min_ctf_score", 0.25),
-        ("threshold.volume_profile.div_min", 0.30),
-        ("threshold.volume_profile.stoch_oversold", 30.0),
-        ("threshold.volume_profile.stoch_overbought", 70.0),
-        ("threshold.hvn_rejection.proximity_atr", 0.30),
-        ("threshold.poc_rejection.proximity_atr", 0.30),
-        ("threshold.session_extremes.proximity_atr", 0.30),
-        ("threshold.session_extremes.rsi_oversold", 35.0),
-        ("threshold.session_extremes.rsi_overbought", 65.0),
-        ("threshold.liquidity_hunt.significance_min", 0.60),
-        ("threshold.gap_analysis.min_gap_atr", 0.80),
-        ("threshold.gap_analysis.continuation_atr", 1.00),
-        ("threshold.gap_analysis.volume_confirm_ratio", 1.50),
-        ("threshold.mtf_alignment.ctf_score_min", 0.70),
-        ("threshold.regime_transition.cp_min", 0.50),
-        ("threshold.dual_divergence.ofi_div_min", 1.00),
-        ("threshold.dual_divergence.cvd_div_min", 1.00),
-        ("threshold.orb.vol_expansion_mult", 1.50),
-        ("threshold.vcp.min_contractions", 3),
-        ("threshold.vcp.vol_expansion_mult", 1.20),
-        ("threshold.ofi_divergence.min_persistence_bars", 2),
-        ("threshold.aggregator.regime_tiebreak", 0.40),
-        ("feature.volume_zscore.window", 20),
-        # --- migration 129: Tier B weights ---
-        ("weights.gap_analysis.geo", 0.40),
-        ("weights.gap_analysis.vol", 0.25),
-        ("weights.gap_analysis.timing", 0.20),
-        ("weights.gap_analysis.type", 0.15),
-        ("weights.mean_reversion.rsi_extreme", 0.30),
-        ("weights.mean_reversion.div_score", 0.30),
-        ("weights.mean_reversion.vol_stability", 0.20),
-        ("weights.mean_reversion.sr_proximity", 0.20),
-        ("weights.momentum_breakout.roc", 0.40),
-        ("weights.momentum_breakout.vol", 0.35),
-        ("weights.momentum_breakout.break_margin", 0.25),
-        ("weights.squeeze_expansion.squeeze_bars", 0.35),
-        ("weights.squeeze_expansion.vol_expansion", 0.35),
-        ("weights.squeeze_expansion.momentum", 0.30),
-        ("weights.vwap_reclaim.vol", 0.30),
-        ("weights.vwap_reclaim.duration", 0.30),
-        ("weights.vwap_reclaim.trend_align", 0.20),
-        ("weights.vwap_reclaim.sr_proximity", 0.20),
-        ("weights.liquidity_sweep.base_conf", 0.40),
-        ("weights.liquidity_sweep.depth_scale", 0.20),
-        ("weights.supply_demand.base_conf", 0.35),
-        ("weights.supply_demand.freshness_scale", 0.23),
-        # --- migration 129: Tier C zone engine ---
-        ("feature.zone_engine.cluster_radius_atr", 0.50),
-        ("feature.zone_engine.zone_buffer_atr", 0.15),
-        ("feature.zone_engine.min_width_atr", 0.25),
-        ("feature.zone_engine.single_level_radius_atr", 0.25),
-        ("weights.zone_engine.strength", 0.60),
-        ("weights.zone_engine.proximity", 0.40),
-        # --- migration 132: Phase 125 CIS gate constants ---
-        ("threshold.cis.fire_threshold", 0.35),
-        ("threshold.cis.bucket_agree_min", 3),
-        ("threshold.cis.bucket_noise_floor", 0.1),
-        # --- migration 132: Phase 125 zone entry width gate ---
-        ("feature.zone_engine.min_zone_width_atr", 1.5),
-        ("feature.zone_engine.min_zone_width_atr.equity", 1.5),
-        ("feature.zone_engine.min_zone_width_atr.fx", 1.0),
-        ("feature.zone_engine.min_zone_width_atr.futures", 1.5),
-        # --- migration 132: Phase 125 anchored_vwap_reversion Tier B weights ---
-        ("weights.vwap_reversion.sigma_magnitude", 0.40),
-        ("weights.vwap_reversion.hurst_quality", 0.35),
-        ("weights.vwap_reversion.vol_stability", 0.25),
-        # --- migration 136: lvn_breakout, ofi_divergence, failed_breakout APR ---
-        ("threshold.lvn_breakout.vol_threshold", 1.5),
-        ("weights.lvn_breakout.vol", 0.30),
-        ("weights.lvn_breakout.trend_clarity", 0.25),
-        ("weights.lvn_breakout.lvn_inverse", 0.25),
-        ("weights.lvn_breakout.close_strength", 0.20),
-        ("threshold.ofi_divergence.min_divergence_sigma", 1.5),
-        ("weights.ofi_divergence.magnitude", 0.40),
-        ("weights.ofi_divergence.alignment", 0.25),
-        ("weights.ofi_divergence.persistence", 0.20),
-        ("weights.ofi_divergence.volume", 0.15),
-        ("threshold.failed_breakout.max_reversal_bars", 3),
-        ("weights.failed_breakout.break_magnitude", 0.35),
-        ("weights.failed_breakout.rejection_strength", 0.30),
-        ("weights.failed_breakout.volume", 0.20),
-        ("weights.failed_breakout.structure_quality", 0.15),
-        # --- migration 138: remaining module-level and plugin APR params ---
-        ("threshold.global.conf_ceil", 0.95),
-        ("threshold.microstructure.spike_z", 2.0),
-        ("feature.state.dedup_min_bars", 20),
-        ("threshold.delta_exhaustion.spike_z", 1.5),
-        ("threshold.delta_exhaustion.price_follow_atr", 0.3),
-        ("weights.delta_exhaustion.cvd_z", 0.35),
-        ("weights.delta_exhaustion.price_fail", 0.30),
-        ("weights.delta_exhaustion.hmm_ranging", 0.25),
-        ("weights.delta_exhaustion.persistence", 0.10),
-        ("feature.cvd_divergence.confirmation_bars", 5),
-        ("threshold.cvd_divergence.div_threshold", 1.0),
-        ("feature.cvd_divergence.div_upper_ref", 2.0),
-        ("threshold.cvd_divergence.ofi_dual_threshold", 1.0),
-        ("feature.dual_divergence.confirmation_bars", 3),
-        ("threshold.divergence_stack.score_threshold", 0.40),
-        ("feature.divergence_stack.min_agreeing", 3),
-        ("feature.divergence_stack.confidence_norm", 0.60),
-        ("weights.divergence_stack.rsi", 0.30),
-        ("weights.divergence_stack.macd", 0.25),
-        ("weights.divergence_stack.vol", 0.20),
-        ("weights.divergence_stack.obv", 0.15),
-        ("weights.divergence_stack.cmf", 0.10),
-        ("threshold.vwap_reclaim.vol_threshold", 1.2),
-        # --- migration 146: Phase 132 trade_framer module-level constants ---
-        ("feature.trade_framer.stop_demand_buffer_atr", 0.25),
-        ("feature.trade_framer.stop_sweep_buffer_atr", 0.30),
-        ("feature.trade_framer.stop_ob_buffer_atr", 0.20),
-        ("feature.trade_framer.stop_swing_buffer_atr", 0.25),
-        ("feature.trade_framer.stop_sr_buffer_atr", 0.50),
-        ("feature.trade_framer.stop_fallback_atr", 2.0),
-        ("feature.trade_framer.zone_sweep_atr", 0.76),
-        ("feature.trade_framer.zone_low_atr", 1.0),
-        ("feature.trade_framer.zone_high_atr", 0.5),
-        ("feature.trade_framer.target_min_atr", 0.5),
-        ("feature.trade_framer.zone_plugin_fallback_atr", 0.2),
-        ("feature.trade_framer.vp_proximity_atr", 0.5),
-        ("feature.trade_framer.fallback_t1_atr", 2.0),
-        ("feature.trade_framer.fallback_t2_atr", 3.5),
-        ("feature.trade_framer.fallback_t3_atr", 5.5),
-        ("feature.trade_framer.min_stop_atr", 1.0),
-        ("threshold.trade_framer.min_rr_t1", 1.5),
-        ("feature.trade_framer.adaptive_buffer_hard_cap", 1.40),
-        ("feature.trade_framer.structure_snap_proximity_atr", 1.5),
-        # --- migration 147: Phase 132 adaptive buffer coefficients ---
-        ("feature.trade_framer.adaptive_buffer_vol_ratio_min", 0.70),
-        ("feature.trade_framer.adaptive_buffer_vol_ratio_max", 1.50),
-        ("feature.trade_framer.adaptive_buffer_low_vol_base", 0.80),
-        ("feature.trade_framer.adaptive_buffer_low_vol_slope_num", 0.20),
-        ("feature.trade_framer.adaptive_buffer_low_vol_slope_den", 0.30),
-        ("feature.trade_framer.adaptive_buffer_high_vol_slope_num", 0.35),
-        ("feature.trade_framer.adaptive_buffer_high_vol_slope_den", 0.50),
-        ("feature.trade_framer.adaptive_buffer_hurst_trend_threshold", 0.55),
-        ("feature.trade_framer.adaptive_buffer_hurst_mr_threshold", 0.45),
-        ("feature.trade_framer.adaptive_buffer_hurst_tighten_rate", 0.16),
-        ("feature.trade_framer.adaptive_buffer_garch_shock_threshold", 3.0),
-        ("feature.trade_framer.adaptive_buffer_garch_shock_mult", 1.35),
-        # --- migration 148: Phase 132 A3 per-asset-class stop floors ---
-        ("feature.trade_framer.stop_multiplier_floor.fx", 1.0),
-        ("feature.trade_framer.stop_multiplier_floor.commodity_small_tick", 1.5),
-        ("feature.trade_framer.stop_multiplier_floor.equity_etf", 1.0),
-        ("feature.trade_framer.stop_multiplier_floor.futures_large_tick", 1.0),
-        # --- migration 153: GARCH and Kalman plugin APR keys ---
-        ("feature.garch.omega", 0.00001),
-        ("feature.garch.alpha", 0.10),
-        ("feature.garch.beta", 0.85),
-        ("feature.kalman.garch_r_scale", 10_000.0),
         # --- v3.0 Phase 137: FeatureFactory APR keys (D-09 cutover) ---
         # todo 103 (2026-07-27): window_short/window_long were dead keys that don't
         # exist in config_state -- FeatureFactoryConfig actually reads window_fast/
@@ -805,7 +642,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.session.power_hour_end_utc_hour", 21),
         ("feature.session.opening_range_start_minute", 810),
         ("feature.session.opening_range_end_minute", 900),
-        ("threshold.backfill.coverage_gate", 0.80),
         # --- migration 206: Phase 142.5 Plan 01 Renaissance primitives (lagged returns + overnight gap) ---
         ("feature.ret_lag.fast", 5),
         ("feature.ret_lag.mid", 20),
@@ -903,8 +739,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.order_blocks.significant_move_pct", 0.003),
         ("feature.smc.order_blocks.opposing_candle_lookback", 10),
         ("feature.smc.order_blocks.strength_fallback", 0.5),
-        ("feature.smc.breaker.lookback", 10),
-        ("feature.smc.mitigation.lookback", 10),
         ("feature.smc.fvg.lookback", 100),
         ("feature.smc.liquidity_sweeps.lookback", 120),
         ("feature.smc.liquidity_sweeps.swing_neighbor", 5),
@@ -913,7 +747,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.liquidity_sweeps.reclaim_velocity_ramp_max", 0.5),
         ("feature.smc.liquidity_pools.lookback", 150),
         ("feature.smc.liquidity_pools.swing_neighbor", 5),
-        ("feature.smc.liquidity_pools.atr_fallback_pct", 0.002),
         ("feature.smc.liquidity_pools.equal_level_tolerance_atr_mult", 0.75),
         ("feature.smc.liquidity_pools.session_bars", 390),
         (
@@ -943,9 +776,7 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.smc.zones.max_tracked_zones", 5),
         ("feature.smc.bos_choch.lookback", 120),
         ("feature.smc.bos_choch.swing_neighbor", 5),
-        ("feature.smc.amd.lookback", 30),
         ("feature.smc.amd.accum_start_utc_hour", 20),
-        ("feature.smc.amd.accum_end_utc_hour", 24),
         ("feature.smc.amd.manip_end_utc_hour", 10),
         ("feature.smc.amd.dist_end_utc_hour", 21),
         # --- migration 267: Phase 165 Plan 01 Swing/Fib/Trend/Session Structure
@@ -964,7 +795,6 @@ class FeatureVectorPipeline(BaseDaemon):
         ("feature.swing_momentum.intensity_ramp_lo", 1.0),
         ("feature.swing_momentum.intensity_ramp_hi", 2.0),
         ("feature.fib.cluster_atr_divisor", 2.0),
-        ("feature.fib.cluster_fallback_divisor", 20.0),
         ("feature.session_levels.asia_start_et_hour", 20),
         ("feature.session_levels.asia_end_et_hour", 4),
         ("feature.atr_normalization.min_atr_pct", 0.0001),
@@ -1429,8 +1259,6 @@ class FeatureVectorPipeline(BaseDaemon):
         self.logger.info("feature_vector_pipeline.sigusr1_received")
 
     async def _process_loop(self) -> None:
-        _cross_asset_topic = topic_cross_asset(self.settings.env_name)
-        _macro_topic = topic_macro_signals(self.settings.env_name)
         _system_topic = topic_system_events(self.settings.env_name)
         _contracts_topic = self._contracts_topic
         COMMIT_BATCH_SIZE = 100
@@ -1444,23 +1272,7 @@ class FeatureVectorPipeline(BaseDaemon):
                     if not self.running:
                         break
                     try:
-                        if _topic == _cross_asset_topic:
-                            tf = payload.get("tf", "1m")
-                            await self._cache_mgr.store_cross_asset_payload(tf, payload)
-                        elif _topic == _macro_topic:
-                            tf = payload.get("timeframe", payload.get("tf", "1m"))
-                            macro_fields = {
-                                k: payload[k]
-                                for k in (
-                                    "yield_curve_slope",
-                                    "yield_curve_regime",
-                                    "ftq_score",
-                                    "ftq_regime",
-                                )
-                                if k in payload
-                            }
-                            await self._cache_mgr.update_macro(tf, macro_fields)
-                        elif _topic == _system_topic:
+                        if _topic == _system_topic:
                             await self._handle_system_event(payload)
                         elif _topic == _contracts_topic:
                             try:

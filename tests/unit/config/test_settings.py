@@ -5,7 +5,9 @@ Settings no longer has a contracts field or build_contracts() validator.
 Instrument config lives in the DB; get_active_contracts() is the access point.
 """
 
-from src.config.settings import Settings
+import pytest
+
+from src.config.settings import Settings, instrument_from_instruments_row
 
 
 class TestBuildContractsBaseSymbolTemplates:
@@ -107,3 +109,35 @@ class TestAlertingSettingsFields:
             assert s.discord_webhook_url == "https://discord.com/api/webhooks/test"
         finally:
             os.environ.pop("DISCORD_WEBHOOK_URL", None)
+
+
+# instrument_from_instruments_row (moved from the deleted CacheManager's tests, todo 509)
+
+
+def _smh_contract(**extra) -> dict:
+    return {
+        "symbol": "SMH",
+        "asset_class": "equity",
+        "exchange": "SMART",
+        "sector": "technology",
+        "session_id": "nyse",
+        **extra,
+    }
+
+
+def test_instrument_row_sector_comes_from_the_classification():
+    inst = instrument_from_instruments_row("SMH", "SMH", _smh_contract(), "Information Technology")
+    assert inst.sector == "Information Technology"
+
+
+def test_instrument_row_without_a_current_assignment_is_unclassified():
+    inst = instrument_from_instruments_row("SMH", "SMH", _smh_contract(), None)
+    assert inst.sector == "indicagent_v1:unclassified"
+
+
+def test_instrument_row_missing_session_id_raises():
+    """No guessed session: the old default named a session absent from SESSION_REGISTRY."""
+    contract = _smh_contract()
+    del contract["session_id"]
+    with pytest.raises(ValueError, match="session_id"):
+        instrument_from_instruments_row("SMH", "SMH", contract, None)

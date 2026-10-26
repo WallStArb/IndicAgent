@@ -32,11 +32,6 @@ _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 class Settings(BaseSettings):
     # General
     env_name: str = Field(default="", validation_alias="INDICAGENT_ENV")
-    intelligence_thread_pool_workers: int = Field(
-        default=0,
-        validation_alias="INTELLIGENCE_THREAD_POOL_WORKERS",
-        description="Thread pool worker count for intelligence pipeline. 0 = cpu_count * 2 (auto).",
-    )
     feature_vector_pipeline_symbol_filter: list[str] = Field(
         default_factory=list,
         alias="FEATURE_VECTOR_PIPELINE_SYMBOL_FILTER",
@@ -51,23 +46,6 @@ class Settings(BaseSettings):
         default=5,
         alias="OUTPUT_QUEUE_DRAIN_RATIO",
         description="Weighted-fair drain ratio: drain up to RATIO high-priority items per 1 low-priority item (Phase 112 task 4-3). Default 5 prevents journal traffic from starving signals.",
-    )
-    tier_budget_ms: dict[str, float] = Field(
-        default_factory=lambda: {
-            "i1": 50.0,  # I1 indicators: 28 plugins, mostly fast numpy; 50ms budget
-            "i2": 30.0,  # I2 composite events: 10 plugins; 30ms budget
-            "i3": 30.0,  # I3 structure: 8 plugins; 30ms budget
-            "i4": 60.0,  # I4 context: 12 plugins (GARCH/Kalman are stateful); 60ms budget
-            "i5": 40.0,  # I5 patterns: 16 plugins; 40ms budget
-            "smc": 50.0,  # SMC: 16 plugins (HMM regime is stateful); 50ms budget
-            "i6": 20.0,  # I6 confluence: 6 plugins; 20ms budget
-        },
-        alias="TIER_BUDGET_MS",
-        description=(
-            "Per-tier millisecond deadline budgets (Phase 112 task 5-1, D-12). "
-            "On a deadline miss: non-stateful plugins carry forward previous-bar output; "
-            "stateful plugins (supports_incremental=True) run anyway with a WARNING log."
-        ),
     )
     feature_vector_pipeline_queue_maxsize: int = Field(
         default=100,
@@ -152,38 +130,6 @@ class Settings(BaseSettings):
 
     # Macro factors service (Phase 64-03A)
     macro_window_bars: int = Field(default=10, validation_alias="MACRO_WINDOW_BARS")
-
-    # Regime gate safety floors (D-01: configurable via env vars — SHADOW-01)
-    # Default 0.30 / 1 are safety floors, not quality filters. Lowered from 0.55 / 3 to
-    # maximize labeled training data for Phase 49 ML. Phase 49 learns optimal thresholds
-    # from accumulated regime-suppressed outcomes.
-    regime_prob_min: float = Field(default=0.30, validation_alias="REGIME_PROB_MIN")
-    regime_dur_min: int = Field(default=1, validation_alias="REGIME_DUR_MIN")
-
-    # Regime gate soft-band upper boundary (Phase 82 D-04).
-    # Signals with prob in [REGIME_PROB_MIN, REGIME_PROB_SOFT_MAX) keep regime_eligible=True
-    # but have calibrated_confidence linearly attenuated toward SOFT_BAND_FLOOR at the low end.
-    # Signals with prob >= REGIME_PROB_SOFT_MAX are unmodified (full confidence).
-    # Set REGIME_PROB_SOFT_MAX in .env to tune without deployment.
-    REGIME_PROB_SOFT_MAX: float = Field(default=0.55, validation_alias="REGIME_PROB_SOFT_MAX")
-
-    # Winner selector configuration (Phase 68-01)
-    # Phase 112 1-F: default changed to False (D-06) — confidence tiebreak, not direction bias.
-    winner_long_bias: bool = Field(default=False, validation_alias="WINNER_LONG_BIAS")
-
-    # Signal quality floor (Phase 112 D-05).
-    # Minimum publishable confidence after quality multipliers applied.
-    # Signals below this floor are rejected and counted by
-    # intelligence_pipeline_quality_floor_rejections_total.
-    # The empirical value is loaded at startup by quality_gate.load_quality_floor()
-    # from .pipeline_quality_floor (written by services/quality_floor_bootstrap.py).
-    # This setting serves as the config-level floor and as the default when the
-    # bootstrap file is absent.
-    SIGNAL_MIN_PUBLISHABLE_CONFIDENCE: float = Field(
-        default=0.12,
-        validation_alias="SIGNAL_MIN_PUBLISHABLE_CONFIDENCE",
-        description="Minimum signal confidence after quality multipliers. Default 0.12 per D-05.",
-    )
 
     # Provider Merger Agent (Phase 54-04)
     # provider_raw_topics: list of provider names whose raw topics to subscribe to
@@ -654,15 +600,3 @@ def get_active_symbols(settings: Settings | None = None, *, dimension: str) -> l
     Delegates to get_active_contracts() for DB-backed resolution.
     """
     return [c.symbol for c in get_active_contracts(settings, dimension=dimension)]
-
-
-def get_tick_size(symbol: str, settings: Settings | None = None) -> float | None:
-    """Get tick size for a contract symbol or base symbol.
-
-    Looks up the instrument in the active contracts cache (widest dimension: a lookup,
-    not a universe choice). Returns None if not found.
-    """
-    for c in get_active_contracts(settings, dimension="backfill"):
-        if c.symbol == symbol or c.base == symbol:
-            return c.tick_size
-    return None

@@ -29,8 +29,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from src.core.bar_accumulator import _RTH_CLOSE_ET, _RTH_OPEN_ET
-from src.intelligence.context.session_context import _et_from_utc
+from src.core.bar_accumulator import _ET, _RTH_CLOSE_ET, _RTH_OPEN_ET
 from src.intelligence.features.kernels._primitives import _zscore_last, wilder_rsi_series
 from src.intelligence.utils import safe_corr
 
@@ -361,7 +360,7 @@ class FeatureCache:
         ctx_VolumeProfile's own non-incremental design). Resets the accumulator at the
         NY session boundary using the existing feature.session.ny_start_utc_hour/minute
         APR key (the same UTC-hour comparison _in_ny_session already uses) to detect
-        "at/after today's open", combined with the ET calendar date (via _et_from_utc)
+        "at/after today's open", combined with the ET calendar date (via ts.astimezone(_ET))
         to identify the session -- the exact session-boundary-reset shape as
         update_wk_vwap's ISO-week reset, keyed on ET session day instead. Called once
         per bar by both the live pipeline and backfill (call sites added in Plan 02);
@@ -371,7 +370,7 @@ class FeatureCache:
         compute-path atr_val.
         """
         ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
-        et = _et_from_utc(ts)
+        et = ts.astimezone(_ET)
         # DST-aware by construction (todo 178 WR-02): compares ET wall-clock time directly
         # against 9:30 ET (the session open, a fixed exchange fact -- not a UTC-hour APR
         # value like ny_session_start_utc_hour, which only equals 9:30 ET during EDT and is
@@ -453,7 +452,7 @@ class FeatureCache:
     # (a 1-minute-bar assumption, wrong on every timeframe v3 actually runs:
     # ~5 sessions of bars at 5m, ~15 sessions at 15m, ~60 sessions/~12 weeks
     # at 1h, ~1.5 years of calendar days at 1d) exist nowhere below; every
-    # boundary decision here is timestamp-driven via _et_from_utc +
+    # boundary decision here is timestamp-driven via ts.astimezone(_ET) +
     # _RTH_OPEN_ET/_RTH_CLOSE_ET instead.
     def update_session_levels(
         self,
@@ -487,7 +486,7 @@ class FeatureCache:
         the same division of labour as update_session_vp()/_derive_session_vp().
         """
         ts = bar_ts if bar_ts.tzinfo is not None else bar_ts.replace(tzinfo=UTC)
-        et = _et_from_utc(ts)
+        et = ts.astimezone(_ET)
         et_date = et.date()
         session_day = et_date if et.time() >= _RTH_OPEN_ET else et_date - timedelta(days=1)
         in_rth = _RTH_OPEN_ET <= et.time() < _RTH_CLOSE_ET
@@ -674,7 +673,7 @@ class FeatureCache:
     ) -> None:
         """Track the AMD accumulation-phase overnight high/low with UTC boundary reset.
 
-        Ported from AMDCyclePlugin (src/intelligence/archive/smc_context/amd_cycle.py),
+        Ported from AMDCyclePlugin (src/intelligence/archive/smc_context/amd_cycle.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10]),
         ICT Accumulation/Manipulation/Distribution cycle: the accumulation phase
         (feature.smc.amd.accum_start_utc_hour, default 20:00 UTC, through end of
         calendar day) builds an overnight high/low range that the manipulation
@@ -843,7 +842,7 @@ def _compute_cross_asset(
 
 # ---------------------------------------------------------------------------
 # Pure computation helpers (used by update_session_vp) — ported from
-# src/intelligence/context/volume_profile.py (ctx_VolumeProfile, D-13). Logic is
+# src/intelligence/context/volume_profile.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10] (ctx_VolumeProfile, D-13). Logic is
 # unchanged from the source plugin's _compute_profile / _compute_value_area /
 # _compute_directional_nodes; only the previously-hardcoded constants
 # (_N_BUCKETS/_HVN_THRESHOLD/_LVN_THRESHOLD) are now explicit parameters sourced
@@ -990,7 +989,7 @@ def _rsi_simple(closes: np.ndarray, period: int) -> float:
 def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
     """Rescaled range (R/S) estimate of the Hurst exponent.
 
-    Extracted from src/intelligence/context/hurst_exponent.py.
+    Extracted from src/intelligence/context/hurst_exponent.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     Returns 0.5 (random walk neutral) on insufficient data or constant series.
     """
     n = len(close)
@@ -1014,7 +1013,7 @@ def _hurst_rs(close: np.ndarray, min_window: int = 16) -> float:
 def _shannon_entropy(close: np.ndarray, n_bins: int = 10) -> float:
     """Normalised Shannon entropy of log-return distribution.
 
-    Extracted from src/intelligence/context/shannon_entropy.py.
+    Extracted from src/intelligence/context/shannon_entropy.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     Returns 1.0 on insufficient data.
     """
     log_returns = np.diff(np.log(np.maximum(close, 1e-10)))
@@ -1036,7 +1035,7 @@ def _shannon_entropy(close: np.ndarray, n_bins: int = 10) -> float:
 def _garch_ratio(close: np.ndarray, window: int) -> float:
     """GARCH(1,1) sigma / realized_vol ratio.
 
-    Simplified extraction from src/intelligence/context/garch_volatility.py.
+    Simplified extraction from src/intelligence/context/garch_volatility.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     Uses default GARCH parameters (omega=0.00001, alpha=0.10, beta=0.85).
     Returns 1.0 on cold start.
     """
@@ -1160,7 +1159,7 @@ def _hma(close: np.ndarray, period: int) -> float:
 def _adx(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> float:
     """Compute ADX using Wilder's smoothing. Returns 0.0 on insufficient data.
 
-    Simplified extraction from src/intelligence/features/i1_indicators/adx.py.
+    Simplified extraction from src/intelligence/features/i1_indicators/adx.py [deleted, todo 509; git tag archive/v2x-ai-stack-2026-10].
     """
     n = len(close)
     if n < period * 2 + 1:

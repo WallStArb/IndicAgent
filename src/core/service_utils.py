@@ -7,13 +7,11 @@ service files: logging setup and timeframe bar thresholds.
 from __future__ import annotations
 
 import logging
-import re as _re
 import sys
 from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import TracebackType
-from typing import Any
 
 import structlog
 
@@ -67,109 +65,6 @@ TF_SECONDS: dict[str, int] = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h":
 # For all higher TFs ts is the period start; close = ts + duration.
 TF_DURATIONS: dict[str, int] = {"5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
-# Per-TF signal TTL (bars). Lifecycle evaluation window per timeframe.
-# 1m=20 min, 5m=60 min, 15m=2 hr, 1h=6 hr.
-# Single source of truth — imported by signal_generator_service and lifecycle_replay.
-TF_TTL_BARS: dict[str, int] = {
-    "1m": 20,
-    "5m": 12,
-    "15m": 10,
-    "1h": 8,
-    "4h": 6,
-    "1d": 4,
-}
-
-# Tick sizes per instrument for price rounding.
-# Unknown symbols get full precision (no rounding).
-TICK_SIZES: dict[str, float] = {
-    # FX pairs — pipette (0.00001)
-    "EURUSD": 0.00001,
-    "GBPUSD": 0.00001,
-    "USDCHF": 0.00001,
-    "AUDUSD": 0.00001,
-    "NZDUSD": 0.00001,
-    "USDCAD": 0.00001,
-    # JPY pairs — 0.001
-    "USDJPY": 0.001,
-    "EURJPY": 0.001,
-    "GBPJPY": 0.001,
-    # Index futures — 0.25
-    "ES": 0.25,
-    "NQ": 0.25,
-    "YM": 1.0,
-    "RTY": 0.10,
-    # Rate futures — 1/64
-    "ZN": 0.015625,
-    "ZB": 0.015625,
-    "ZF": 0.015625,
-    "ZT": 0.015625,
-    # Commodity futures
-    "CL": 0.01,
-    "NG": 0.001,
-    "GC": 0.10,
-    "SI": 0.001,
-    "ZW": 0.25,
-    "ZC": 0.25,
-    "ZS": 0.25,
-    # Commodity futures (continued)
-    "HG": 0.0005,
-    # Equities/ETFs — 0.01
-    "SPY": 0.01,
-    "QQQ": 0.01,
-    "IWM": 0.01,
-    "AAPL": 0.01,
-    # Bond/fixed-income ETFs — 0.01
-    "SHY": 0.01,
-    "IEF": 0.01,
-    "TLT": 0.01,
-    "HYG": 0.01,
-    "LQD": 0.01,
-    "EMB": 0.01,
-    # Sector ETFs — 0.01
-    "XLF": 0.01,
-    "XLE": 0.01,
-    "XLK": 0.01,
-    "GLD": 0.01,
-    "SLV": 0.01,
-    # VIX
-    "VIX": 0.01,
-    "VX": 0.05,
-}
-
-
-def get_tick_size(symbol: str) -> float:
-    """Get minimum tick size for symbol, stripping futures expiry codes if needed.
-
-    Falls back to 0.01 (US equity/ETF default) rather than 0, which would silently
-    bypass the emission stop-distance gate for unknown instruments.
-    """
-    tick = TICK_SIZES.get(symbol)
-    if tick is not None:
-        return tick
-    # Strip futures expiry code: ZTM6 → ZT, NGN6 → NG, ESH7 → ES
-    base = _re.sub(r"[A-Z]\d+$", "", symbol)
-    if base != symbol:
-        tick = TICK_SIZES.get(base)
-        if tick is not None:
-            return tick
-    return 0.01  # Conservative default — prevents gate bypass for unknown instruments
-
-
-def round_to_tick(price: float, symbol: str) -> float:
-    """Round price to the nearest tick for the given symbol.
-
-    Returns the price unchanged for unknown instruments (preserving full precision).
-    Use get_tick_size() when a non-zero fallback is needed (e.g. the emission gate).
-    """
-    tick = TICK_SIZES.get(symbol)
-    if tick is None:
-        base = _re.sub(r"[A-Z]\d+$", "", symbol)
-        if base != symbol:
-            tick = TICK_SIZES.get(base)
-    if not tick:
-        return price
-    return round(round(price / tick) * tick, 10)
-
 
 def bar_close_ts(ts: datetime, tf: str) -> datetime:
     """Return actual bar close time.
@@ -179,30 +74,6 @@ def bar_close_ts(ts: datetime, tf: str) -> datetime:
     Unknown timeframes return ts unchanged (zero offset).
     """
     return ts + timedelta(seconds=TF_DURATIONS.get(tf, 0))
-
-
-def should_skip_plugin(
-    plugin: Any,
-    instrument: Any | None,
-    skipped_counter: Any,
-    plugin_name: str,
-) -> bool:
-    """Return True (and increment counter) if plugin should be skipped for this asset class.
-
-    Pass plugin_name explicitly since not all plugins expose .name at call-site.
-    """
-    if instrument is None:
-        return False
-    from src.core.models import _ALL_ASSET_CLASSES
-
-    allowed: frozenset = getattr(plugin, "valid_asset_classes", _ALL_ASSET_CLASSES)
-    if instrument.asset_class not in allowed:
-        skipped_counter.add(
-            1,
-            {"plugin_name": plugin_name, "asset_class": instrument.asset_class.value},
-        )
-        return True
-    return False
 
 
 def parse_iso_ts(ts: str | bytes | datetime | None) -> datetime | None:

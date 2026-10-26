@@ -33,7 +33,6 @@ the `Settings` class documented here.
 | `INDICAGENT_ENV` | `""` | Environment prefix for Redpanda topic namespacing |
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/indicagent` | asyncpg/psycopg2 connection string |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:19092` | Redpanda bootstrap address |
-| `INTELLIGENCE_THREAD_POOL_WORKERS` | `0` (auto: cpu_count × 2) | Thread pool workers for intelligence pipeline |
 | `FEATURE_VECTOR_PIPELINE_SYMBOL_FILTER` | `[]` (all) | Comma-separated symbol filter for pipeline sharding |
 | `INTELLIGENCE_OUTPUT_DRAIN_BATCH_SIZE` | `20` | Max items drained per OutputQueue iteration |
 | `FEATURE_VECTOR_PIPELINE_QUEUE_MAXSIZE` | `100` | Per-key worker queue depth (back-pressure) |
@@ -98,14 +97,6 @@ the `Settings` class documented here.
 | `SWARM_WEIGHT_MIN_SAMPLES` | `30` | Min resolved predictions before weight learning activates |
 | `SWARM_WEIGHT_FLOOR` | `0.05` | Minimum agent weight before formal demotion |
 | `SWARM_MAX_CONCURRENT_CALLS` | `8` | Max concurrent LLM calls (asyncio.Semaphore) |
-
-### Regime Gate
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REGIME_PROB_MIN` | `0.30` | Minimum regime probability — safety floor, not quality filter |
-| `REGIME_DUR_MIN` | `1` | Minimum regime duration bars |
-| `REGIME_PROB_SOFT_MAX` | `0.55` | Soft-band upper boundary for confidence attenuation |
 
 ### ML Foundation
 
