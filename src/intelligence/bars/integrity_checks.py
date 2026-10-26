@@ -160,6 +160,8 @@ class NameInputs1d:
     # unexplained_seam findings D7's existing rule found for this name
     seam_findings: int
     latest_load_at: datetime | None
+    # the name's recorded last session (listing_end_current, todo 519); None while listed
+    listing_end: date | None = None
 
 
 @dataclass(frozen=True)
@@ -238,17 +240,20 @@ def freshness_1d(
     max_lag: int,
     *,
     symbol: str,
+    listing_end: date | None = None,
 ) -> Verdict:
     """Is the name's canonical 1d series current? The metric is the number of NYSE sessions after
     the latest canonical bar, up to `last_session` (the last completed session), that no
     answered-empty span covers; it passes while that number is at most `max_lag`. `sessions`
     holds trading dates only, so a Friday bar judged on the weekend is 0 behind. A name with no
-    bar fails, counting every uncovered session up to `last_session`."""
+    bar fails, counting every uncovered session up to `last_session`. A name whose listing ended
+    (todo 519) is judged up to its recorded last session, never past it."""
+    judged_to = last_session if listing_end is None else min(last_session, listing_end)
     behind = sum(
         1
         for s in sessions
         if (latest_bar is None or s > latest_bar)
-        and s <= last_session
+        and s <= judged_to
         and not _in_any(s, answered_empty)
     )
     passed = latest_bar is not None and behind <= max_lag
@@ -407,6 +412,7 @@ def judge_name_1d(
             sessions,
             thresholds.freshness_max_lag_sessions_1d,
             symbol=symbol,
+            listing_end=inputs.listing_end,
         )
     )
     return NameReport1d(verdicts, len(derived.refused_head), runs, blocking_runs)

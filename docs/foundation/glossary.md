@@ -2138,6 +2138,20 @@ moved name's SMART history starts late (todo 433). **Not:** a route (`ISLAND` is
 **Status:** active (D6, migration 408, phase 185 plan 24)
 **Code surface:** `services/listing_venue_writer.py`
 
+### `listing end`
+
+A name's recorded last listed session after a merger, buyout or delisting, with its reason
+(`acquired`, `merged`, `taken_private`, `delisted`) and evidence (the exchange's Form 25 or the
+issuer's Form 15, and each vendor's last bar), in `listing_end` (append-only; a correction
+supersedes; read through `listing_end_current`). The name stays active and in every panel
+(onboarding SOP rule 6); its bars stop, `freshness_1d` judges it up to the last session, and the
+plan 191-19 readiness gate flags it instead of gating on it. **Not:** a listing-venue move (the
+name keeps trading elsewhere), a symbol change (a spelling in `provider_meta`), or a held name.
+**Banned:** (none)
+**Status:** active (migration 518, todo 519)
+**Code surface:** `production/migrations/518_listing_end.sql` (the one writer),
+`services/bar_reconciliation_audit.py`, `scripts/ops/bars/ops_tradier_residue.py`
+
 ### `bar content digest`
 
 A checksum of a (symbol, timeframe, calendar month) slice of canonical bars, with the rule

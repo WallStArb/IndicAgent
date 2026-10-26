@@ -1096,6 +1096,9 @@ WHERE l.request_ids IS NULL
 # Sessions an answer says are empty: IBKR's confirmed empty history, and Tradier no_data
 # windows. A lone IBKR SMART no_data is not evidence (IBKR history starts at the last venue
 # move), so ohlcv_request rows of IBKR do not count here.
+# A name's recorded last session (migration 518, todo 519): freshness_1d judges it up to there.
+_LISTING_END_SQL = "SELECT symbol, last_session FROM listing_end_current"
+
 _EMPTY_SESSIONS_SQL = """
 SELECT symbol, (verified_from AT TIME ZONE 'UTC')::date AS span_start,
        (empty_through AT TIME ZONE 'UTC')::date AS span_end
@@ -2167,6 +2170,7 @@ class BarReconciliationAudit(BaseBatch):
         for r in await conn.fetch(_EMPTY_SESSIONS_SQL):
             spans[r["symbol"]].append((r["span_start"], r["span_end"]))
         latest_load = {r["symbol"]: r["loaded_at"] for r in await conn.fetch(_LATEST_1D_LOAD_SQL)}
+        listing_end = {r["symbol"]: r["last_session"] for r in await conn.fetch(_LISTING_END_SQL)}
         seams = findings_by_symbol(seam_samples)
 
         facts: list[tuple[str, str | None, str, float | None, float | None, bool, Any]] = []
@@ -2187,6 +2191,7 @@ class BarReconciliationAudit(BaseBatch):
                 empty_spans=spans.get(symbol, ()),
                 seam_findings=seams.get(symbol, 0),
                 latest_load_at=latest_load.get(symbol),
+                listing_end=listing_end.get(symbol),
             )
             report = judge_name_1d(
                 inputs, sessions, window.last_session, run_start, integ, timings=timings
@@ -2269,6 +2274,7 @@ class BarReconciliationAudit(BaseBatch):
         empty_spans: Iterable[tuple[date, date]],
         seam_findings: int,
         latest_load_at: datetime | None,
+        listing_end: date | None = None,
     ) -> NameInputs1d:
         digests = {
             r["range_start"]: (r["digest"], r["rule_version"])
@@ -2310,6 +2316,7 @@ class BarReconciliationAudit(BaseBatch):
             empty_spans=list(empty_spans),
             seam_findings=seam_findings,
             latest_load_at=latest_load_at,
+            listing_end=listing_end,
         )
 
     @staticmethod

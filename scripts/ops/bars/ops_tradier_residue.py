@@ -9,9 +9,9 @@ the closed policy row is primary tradier, fallback ibkr. Four modes:
   no_data) starting at or before max(first Tradier bar, today minus 9800 days), an IBKR raw
   bar at or before that threshold, a definitive no_data window starting at or before it (any
   age, no open transport failure), or a verified 1d provider head above it. Freshness-gated
-  ohlcv_empty_history spans never settle. Names passed with --frozen-names (todo 519 holds;
-  no machine-readable surface exists) are excluded from the gate and flagged with their
-  measured residue class. Not ready lists the unsettled names, exits 2.
+  ohlcv_empty_history spans never settle. Ended names (listing_end_current, migration 518) and
+  names passed with --frozen-names (the remaining todo 519 holds) are excluded from the gate
+  and flagged with their measured residue class. Not ready lists the unsettled names, exits 2.
 - --measure: per name, the Tradier sessions no IBKR answer covers (no smart_trades or
   listing-venue route raw row, no ohlcv_empty_history window over the date), the first-bar
   change the deletion would cause, and the Tradier/IBKR value distribution at common smart
@@ -148,7 +148,7 @@ def definitive_no_data_windows(rows: Sequence[tuple[Any, ...]]) -> list[tuple[da
 @dataclass(frozen=True)
 class NameReadiness:
     """One Tradier name, the evidence basis that settles its deep span (None when unsettled)
-    and whether the caller holds it frozen (todo 519; frozen names never gate)."""
+    and whether it is held (a caller's frozen name or an ended listing, todo 519; never gates)."""
 
     symbol: str
     first_tradier: date
@@ -165,11 +165,14 @@ def classify_readiness(rows: Sequence[NameReadiness]) -> tuple[list[str], list[s
     return settled, unsettled
 
 
+_LISTING_END_SQL = "SELECT symbol FROM listing_end_current"
+
+
 def parse_frozen_names(value: str | None) -> tuple[str, ...]:
     """The caller's frozen-name list (comma-separated) as a sorted uppercase tuple; empty
-    when absent. No symbol is hardcoded here: the todo 519 hold has no machine-readable
-    surface (only two of its four names carry bar_source_policy rows), so the caller passes
-    the list."""
+    when absent. Ended names come from listing_end_current (migration 518); this list is for
+    the remaining holds a listing end does not describe (todo 519: MOD's class C hold, PSKY
+    until its SKYD repoint), so no symbol is hardcoded here."""
     if not value:
         return ()
     return tuple(sorted({name.strip().upper() for name in value.split(",") if name.strip()}))
@@ -544,7 +547,9 @@ async def run_readiness(
     depth_at, depth_days = await fetch_depth_change(conn)
     today = today or datetime.now(UTC).date()
     names = await tradier_names(conn)
-    frozen = set(frozen_names)
+    # ended names (listing_end_current, migration 518) are flagged like the caller's holds
+    ended = sorted({row["symbol"] for row in await conn.fetch(_LISTING_END_SQL)})
+    frozen = set(frozen_names) | set(ended)
     asks: dict[str, list[tuple[date, datetime]]] = {}
     for row in await conn.fetch(_REQUESTS_SQL, ["bars", "no_data"], depth_at):
         asks.setdefault(row["symbol"], []).append((row["window_start"].date(), row["answered_at"]))
@@ -599,6 +604,7 @@ async def run_readiness(
         "depth_changed_at": depth_at.isoformat(),
         "depth_days": depth_days,
         "frozen_names": list(frozen_names),
+        "ended_names": ended,
         "n_tradier_names": len(rows),
         "n_settled": len(settled),
         "n_unsettled": len(unsettled),

@@ -598,6 +598,12 @@ class _FakeConn:
             return []
         if sql == audit._LATEST_1D_LOAD_SQL:
             return []
+        if sql == audit._LISTING_END_SQL:
+            return [
+                {"symbol": s, "last_session": n["listing_end"]}
+                for s, n in self.names.items()
+                if "listing_end" in n
+            ]
         symbol = args[0]
         data = self.names[symbol]
         if sql == audit._SELECT_DAILY_RAW_SQL:

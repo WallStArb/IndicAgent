@@ -634,6 +634,40 @@ def test_freshness_a_name_with_no_bars_fails():
     assert v.metric_value == float(sum(1 for s in _FRESH_SESSIONS if s <= date(2026, 10, 7)))
 
 
+def test_freshness_counts_no_session_after_a_listing_end():
+    """Todo 519: an ended name (merger, buyout) is judged against its recorded last session."""
+    v = freshness_1d(
+        date(2026, 10, 2),
+        [],
+        date(2026, 10, 9),
+        _FRESH_SESSIONS,
+        0,
+        symbol="QRVO",
+        listing_end=date(2026, 10, 2),
+    )
+    assert (v.passed, v.metric_value) == (True, 0.0)
+    # bars stopping before the recorded last session still count the gap up to it
+    v = freshness_1d(
+        date(2026, 9, 30),
+        [],
+        date(2026, 10, 9),
+        _FRESH_SESSIONS,
+        0,
+        symbol="QRVO",
+        listing_end=date(2026, 10, 2),
+    )
+    assert (v.passed, v.metric_value) == (False, 2.0)
+
+
+def test_judge_name_1d_passes_the_listing_end_to_freshness():
+    clean = _clean()
+    last_bar = max(b.timestamp for b in clean.stored[:3]).date()
+    stopped = replace(clean, stored=list(clean.stored[:3]))
+    assert not _by_check(_judge(stopped))[CHECK_FRESHNESS_1D].passed
+    ended = replace(stopped, listing_end=last_bar)
+    assert _by_check(_judge(ended))[CHECK_FRESHNESS_1D].passed
+
+
 def test_judge_name_1d_reports_freshness_after_the_eight_checks():
     report = _judge(_clean())
     by = _by_check(report)
