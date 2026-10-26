@@ -110,14 +110,15 @@ Phases 184 and 187-188 have no directory yet; `gsd-sdk query phase.add` numbers 
 ## Decisions waiting on the owner
 
 - Plan 20: confirm the Tradier deletion once the residue report exists (it also settles the todo
-  537 item 2 basis restore).
-- D-191-A, C, E, F, J, K, L: under an independent Opus review against the product goals
-  (2026-10-26) before acknowledgement. B, D, G and H acknowledged 2026-10-26.
+  537 item 2 basis restore). Every other owner decision is closed (2026-10-26).
 
-Decided 2026-10-26: todo 519 (listing_end table; PSKY repointed to SKYD with the rescale held as
-in 516); family 2 gets exactly one evidence run, after plan 191-25 lands (build-first lifted for
-that run only, so the counted look reads the final canonical 1d); todo 509 (delete the v2.x
-dashboard signal surface and the ML batch chain, executed by the 509 lane).
+Decided 2026-10-26 and queued for the data lane: D-191-A..L acknowledged (A: refuse a non-split
+Alpaca raw write; L: count never-selected-kind slots apart from policy gaps); D-191-P canonical 5m
+is Alpaca SIP primary from 2016-01-04, IBKR fallback, IBKR alone before (policy rows plus a
+reselect after the Alpaca catch-up, before 186-26); todo 519 listing_end table and PSKY to SKYD;
+family 2 gets one evidence run after 191-25; todo 509 deletes the v2.x dashboard signal surface and
+the ML batch chain (nothing worth keeping; regime HMM kernel stays). Migrations: this lane takes
+518 and up (515-517 reserved by the research lane).
 
 ## Open items that are not verdicts
 
