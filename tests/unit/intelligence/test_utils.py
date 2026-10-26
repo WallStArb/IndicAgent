@@ -77,28 +77,7 @@ class TestFindTroughs:
 
 
 class TestFindPeaksVectorized:
-    """Tests that vectorized implementation matches original behavior exactly."""
-
-    def test_matches_basic_peak(self):
-        data = np.array([1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 3, 2, 1])
-        peaks = find_peaks(data, n=2)
-        assert 4 in peaks
-
-    def test_matches_tied_peak(self):
-        data = np.array([1.0, 2, 3, 5, 5, 5, 3, 2, 1, 0, 0, 0, 0, 0, 0])
-        peaks = find_peaks(data, n=2)
-        assert len(peaks) > 0
-        assert all(data[p] == 5.0 for p in peaks)
-
-    def test_matches_flat_line(self):
-        data = np.full(20, 100.0)
-        assert find_peaks(data, n=3) == []
-
-    def test_matches_single_spike(self):
-        data = np.zeros(20)
-        data[10] = 1.0
-        peaks = find_peaks(data, n=3)
-        assert peaks == [10]
+    """Realistic array sizes and edge widths."""
 
     def test_large_array_n5(self):
         """Realistic size: 120 bars, n=5 (used by SwingDetector)."""
@@ -129,12 +108,6 @@ class TestFindTroughsVectorized:
             for j in range(1, 6):
                 assert data[t] <= data[t - j]
                 assert data[t] <= data[t + j]
-
-    def test_matches_single_dip(self):
-        data = np.ones(20)
-        data[10] = 0.0
-        troughs = find_troughs(data, n=3)
-        assert troughs == [10]
 
 
 # ─── is_num ────────────────────────────────────────────────────

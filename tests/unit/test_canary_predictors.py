@@ -333,12 +333,6 @@ class TestCanarySymbolDifferentiation:
         s_qqq = _canary_sub_seed(bar_ts, "QQQ", base_seed=90042, offset=0)
         assert s_spy != s_qqq
 
-    def test_same_symbol_and_bar_ts_still_deterministic(self) -> None:
-        bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
-        s1 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
-        s2 = _canary_sub_seed(bar_ts, "SPY", base_seed=90042, offset=0)
-        assert s1 == s2
-
     def test_gaussian_canary_differs_across_symbols_at_same_bar_ts(self) -> None:
         bar_ts = datetime(2026, 3, 4, 14, 30, tzinfo=UTC)
         v_spy = _canary_noise_gaussian(bar_ts, "SPY", base_seed=90042)

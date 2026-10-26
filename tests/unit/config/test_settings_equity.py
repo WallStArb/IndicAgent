@@ -160,18 +160,6 @@ class TestPilotETFs:
         for sym, inst in crypto.items():
             assert inst.session_id == "crypto_24_7", f"{sym}: crypto should use crypto_24_7"
 
-    def test_pilot_etf_point_value_is_1(self):
-        """Equity ETFs must have point_value=1.0."""
-        for inst in ALL_MOCK_INSTRUMENTS:
-            if inst.asset_class == AssetClass.EQUITY:
-                assert inst.point_value == 1.0
-
-    def test_pilot_etf_tick_size_is_001(self):
-        """Equity ETFs must have tick_size=0.01."""
-        for inst in ALL_MOCK_INSTRUMENTS:
-            if inst.asset_class == AssetClass.EQUITY:
-                assert inst.tick_size == 0.01
-
     def test_pilot_etfs_in_active_contracts(self):
         """Pilot ETFs must be in the canonical instrument set."""
         symbols = {i.symbol for i in ALL_MOCK_INSTRUMENTS}

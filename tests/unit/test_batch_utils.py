@@ -487,10 +487,6 @@ class TestValidateCompressedHypertable:
         _validate_compressed_hypertable("feature_vectors")
         _validate_compressed_hypertable("feature_ic_scores")
 
-    def test_unknown_hypertable_raises_with_name_in_message(self) -> None:
-        with pytest.raises(ValueError, match="market_data_ohlcv"):
-            _validate_compressed_hypertable("market_data_ohlcv")
-
     def test_a_live_compressed_table_outside_the_hardened_set_still_raises(self) -> None:
         """The regression this class exists to prevent (code review, 2026-09-17): a table
         that IS genuinely compressed in production -- market_data_ohlcv, confirmed live to

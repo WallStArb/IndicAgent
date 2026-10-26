@@ -375,19 +375,6 @@ class TestDetectGaps1dFromD1:
         )
         assert plan == [(self._D2, self._D3)]
 
-    def test_a_bar_with_no_serve_stamp_still_counts(self):
-        conn = _FakeConn([(self._midnight(d), None) for d in (self._D1, self._D2, self._D3)], [])
-        plan = detect_gaps_1d_from_d1(
-            conn,
-            "SPY",
-            self._D1,
-            self._D3,
-            self._sessions(),
-            vendor="ibkr",
-            now=self._NOW_1D,
-        )
-        assert plan == []
-
     def test_daily_coverage_reads_the_vendors_no_data_and_failed_answers(self):
         conn = _FakeConn([], [])
         detect_gaps_1d_from_d1(

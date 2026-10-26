@@ -210,24 +210,6 @@ async def test_send_to_dlq_logs_and_does_not_raise(agent: MinimalAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_otel_providers_initialized_on_start_no_metrics_port() -> None:
-    """BaseDaemon initializes OTel providers on start — no HTTP metrics server."""
-    import src.core.agent.base as base_module
-
-    with patch("src.core.agent.base.init_otel_providers") as mock_init:
-        with patch("src.core.agent.base.BaseDaemon._register_signal_handlers"):
-            original = base_module._tracing_initialized
-            base_module._tracing_initialized = False
-            try:
-                a = MinimalAgent(name="x")
-                await a.start()
-            finally:
-                base_module._tracing_initialized = original
-
-    mock_init.assert_called_once_with(service_name="x")
-
-
-@pytest.mark.asyncio
 async def test_otel_providers_initialized_on_start() -> None:
     """init_otel_providers is called once when BaseDaemon.start() is invoked."""
     import src.core.agent.base as base_module

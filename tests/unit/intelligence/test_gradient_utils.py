@@ -207,11 +207,6 @@ class TestSessionProgress:
         assert session_progress(-0.1, 0.0, 1.0) == pytest.approx(0.0)
         assert session_progress(1.1, 0.0, 1.0) == pytest.approx(0.0)
 
-    def test_mid_range_gradient_continuity(self):
-        """Quarter-through is gradient, not binary."""
-        result = session_progress(0.25, 0.0, 1.0)
-        assert 0.0 < result < 1.0
-
 
 # ---------------------------------------------------------------------------
 # hmm_regime_weight
@@ -330,14 +325,6 @@ class TestGradientContinuity:
         result = z_score_to_score(1.5, sigma_scale=2.0)
         assert 0.0 < result < 1.0
 
-    def test_session_progress_continuity(self):
-        result = session_progress(0.25, 0.0, 1.0)
-        assert 0.0 < result < 1.0
-
     def test_freshness_continuity(self):
         result = freshness_decay(3, k=0.5)
-        assert 0.0 < result < 1.0
-
-    def test_streak_continuity(self):
-        result = streak_score(2, saturation=5)
         assert 0.0 < result < 1.0

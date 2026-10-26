@@ -44,6 +44,14 @@ Deliverables:
   parallel runs exposed: a uuid4 test id that differed per worker
   (`test_api_routes_smoke.py`) and a wall-clock scaling test now timed by CPU time
   (`test_regime_signals_causal_rank.py`). CI and CLAUDE.md commands use `-n auto`.
+- Batch 3, 2026-10-26 (redundancy): an AST hash of every test body (over 200 chars, docstring
+  stripped) found 22 copies of another test in the same file: 7 of the Settings
+  no-contracts check (`test_settings.py`), the 5 "vectorized matches original" peak/trough
+  copies (`test_utils.py`), 3 gradient continuity copies, 2 ETF field checks, and one each in
+  base_agent, d1_gaps, backfill_feature_factory, batch_utils and canary_predictors. The
+  survivor is the copy with the rationale docstring. Cross-file matches left alone: they read
+  a per-file migration constant, so the bodies match but the subjects differ. 6,953 passed,
+  1 skipped, 88 s wall.
 - Next: the slowest survivors (`--durations=40` on 2026-10-26: swing/fib live-batch parity 11 s,
   probe_registry_statuses 9 s x2, families_intraday synthetic guards 6-7 s x4, regime goldens
   6 s x2, runner_book/order 3-4 s each).
