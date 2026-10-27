@@ -3,6 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import {
+  BookOpen,
+  Cpu,
+  Database,
+  FlaskConical,
+  Lightbulb,
+  ListTree,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
+import { Logo } from "@/components/cockpit";
 import { DEFAULT_REFRESH_MS, RefreshContext } from "@/hooks/use-api";
 import { fetchJson } from "@/lib/api";
 import type { UiConfig } from "@/lib/types";
@@ -10,14 +21,14 @@ import { cn } from "@/lib/utils";
 
 // One entry per DAG stage page (design: docs/plans/2026-10-26-dashboard-v35-cockpit-design.md).
 // Entries without an href are later slices, listed so the shape of the cockpit is visible.
-const NAV: { label: string; href?: string }[] = [
-  { label: "Pipeline", href: "/" },
-  { label: "Data" },
-  { label: "Instruments" },
-  { label: "Concepts" },
-  { label: "Research" },
-  { label: "Books" },
-  { label: "System", href: "/system" },
+const NAV: { label: string; icon: LucideIcon; href?: string }[] = [
+  { label: "Pipeline", icon: Workflow, href: "/" },
+  { label: "Data", icon: Database },
+  { label: "Instruments", icon: ListTree },
+  { label: "Concepts", icon: Lightbulb },
+  { label: "Research", icon: FlaskConical },
+  { label: "Books", icon: BookOpen },
+  { label: "System", icon: Cpu, href: "/system" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -32,9 +43,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <RefreshContext.Provider value={refreshMs}>
     <div className="h-screen flex bg-[var(--bg-base)] text-[var(--text-primary)]">
-      <nav className="w-44 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col">
-        <div className="px-4 py-4 text-sm font-semibold tracking-tight">
-          Indic<span className="text-[var(--accent-cyan)]">Agent</span>
+      <nav className="w-48 shrink-0 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-col">
+        <div className="flex items-center gap-2.5 px-4 py-5">
+          <Logo />
+          <span className="font-display text-base font-extrabold tracking-tight">
+            Indic<span className="text-[var(--accent-cyan)]">Agent</span>
+          </span>
         </div>
         <ul className="flex-1 px-2 space-y-0.5 text-sm">
           {NAV.map((item) =>
@@ -43,21 +57,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href={item.href}
                   className={cn(
-                    "block rounded px-2 py-1.5 transition-colors",
+                    "flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors",
                     pathname === item.href
                       ? "bg-[var(--bg-elevated)] text-[var(--text-primary)]"
                       : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
                   )}
                 >
+                  <item.icon
+                    size={15}
+                    className={pathname === item.href ? "text-[var(--accent-cyan)]" : undefined}
+                  />
                   {item.label}
                 </Link>
               </li>
             ) : (
               <li
                 key={item.label}
-                className="flex items-center justify-between px-2 py-1.5 text-[var(--text-muted)]"
+                className="flex items-center gap-2.5 px-2 py-1.5 text-[var(--text-muted)]"
               >
-                {item.label}
+                <item.icon size={15} />
+                <span className="flex-1">{item.label}</span>
                 <span className="text-[0.6rem] uppercase tracking-wider">next</span>
               </li>
             ),

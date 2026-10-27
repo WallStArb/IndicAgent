@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Outfit, JetBrains_Mono } from "next/font/google";
+import { Outfit, JetBrains_Mono, Syne } from "next/font/google";
 import { AppShell } from "@/components/app-shell";
 import "./globals.css";
 
@@ -15,6 +15,13 @@ const jetbrains = JetBrains_Mono({
   weight: ["400", "500", "600"],
 });
 
+// The wordmark, page titles and section labels (the v2.x display face, kept for continuity).
+const syne = Syne({
+  variable: "--font-syne",
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+});
+
 export const metadata: Metadata = {
   title: "IndicAgent",
   description: "Read-only cockpit for the IndicAgent v3.5 pipeline: ingest, features, measurement, research and books.",
@@ -27,7 +34,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${outfit.variable} ${jetbrains.variable} antialiased`}>
+      <body className={`${outfit.variable} ${jetbrains.variable} ${syne.variable} antialiased`}>
         <AppShell>
           {children}
         </AppShell>

@@ -1,9 +1,11 @@
 "use client";
 
-import { ErrorNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
+import { ChevronRight } from "lucide-react";
+import { CARD, ErrorNote, PageHeader, Panel, StatusChip } from "@/components/cockpit";
 import { useApi } from "@/hooks/use-api";
-import { fmtUtc } from "@/lib/time";
-import type { PipelineSummary, Stage, StageName } from "@/lib/types";
+import { fmtAgo, fmtUtc } from "@/lib/time";
+import type { PipelineSummary, Stage, StageName, StageStatus } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const STAGE_LABEL: Record<StageName, string> = {
   ingest: "Ingest",
@@ -23,17 +25,57 @@ const STAGE_QUESTION: Record<StageName, string> = {
   book: "Frozen books running forward",
 };
 
+const STATUS_DOT: Record<StageStatus, string> = {
+  ok: "bg-[var(--green)]",
+  stale: "bg-[var(--amber)]",
+  failing: "bg-[var(--red)]",
+  error: "bg-[var(--red)]",
+  empty: "bg-[var(--text-secondary)]",
+  not_built: "border border-dashed border-[var(--text-muted)]",
+};
+
+/** The DAG in one line: each stage's status and newest row, linking to its card below. */
+function StageFlow({ stages }: { stages: Stage[] }) {
+  return (
+    <nav className={cn(CARD, "flex items-center gap-1 overflow-x-auto py-3")}>
+      {stages.map((stage, i) => (
+        <div key={stage.stage} className="flex items-center gap-1">
+          {i > 0 && <ChevronRight size={14} className="shrink-0 text-[var(--text-muted)]" />}
+          <a
+            href={`#stage-${stage.stage}`}
+            className="flex items-center gap-2 rounded-lg px-3 py-1.5 hover:bg-[var(--bg-hover)]"
+          >
+            <span className="font-display text-[0.6rem] font-bold text-[var(--accent-cyan)]">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <span className={cn("size-2 shrink-0 rounded-full", STATUS_DOT[stage.status])} />
+            <span className="text-sm">{STAGE_LABEL[stage.stage]}</span>
+            <span className="font-mono text-[0.65rem] text-[var(--text-muted)]">
+              {stage.as_of ? fmtAgo(stage.as_of) : stage.status.replace("_", " ")}
+            </span>
+          </a>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
 function StageCard({ stage }: { stage: Stage }) {
   const failing = stage.meta.failing_rows ?? 0;
   return (
+    // Ingest carries the widest table (one row per feed), so it takes the full row.
+    <div
+      id={`stage-${stage.stage}`}
+      className={cn("flex min-w-0 scroll-mt-6", stage.stage === "ingest" && "col-span-full")}
+    >
     <Panel
-      className="rounded border border-[var(--border-default)] bg-[var(--bg-surface)] p-4"
+      className={cn(CARD, "flex-1")}
       title={STAGE_LABEL[stage.stage]}
       question={STAGE_QUESTION[stage.stage]}
       rows={stage.rows}
       source={stage.source}
       asOf={stage.as_of}
-      highlight={(row) => Number(row.failing ?? 0) > 0}
+      tone={(row) => (Number(row.failing ?? 0) > 0 ? "bad" : undefined)}
       empty="The table has no rows yet."
       aside={
         <span className="flex items-center gap-2">
@@ -55,6 +97,7 @@ function StageCard({ stage }: { stage: Stage }) {
         </>
       }
     />
+    </div>
   );
 }
 
@@ -74,10 +117,13 @@ export default function PipelinePage() {
       <ErrorNote error={error} />
       {loading && <p className="px-6 py-4 text-xs text-[var(--text-muted)]">Loading...</p>}
       {data && (
-        <div className="p-6 grid gap-4 grid-cols-[repeat(auto-fill,minmax(420px,1fr))]">
-          {data.stages.map((stage) => (
-            <StageCard key={stage.stage} stage={stage} />
-          ))}
+        <div className="p-6 flex flex-col gap-4">
+          <StageFlow stages={data.stages} />
+          <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(420px,1fr))]">
+            {data.stages.map((stage) => (
+              <StageCard key={stage.stage} stage={stage} />
+            ))}
+          </div>
         </div>
       )}
     </div>

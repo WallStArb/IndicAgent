@@ -24,6 +24,7 @@
   --green-dim: #00dc8233;
   --red: #ff4757;
   --red-dim: #ff475733;
+  --red-faint: #ff475712;
   --amber: #ffb347;
   --amber-dim: #ffb34722;
 
@@ -40,6 +41,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-outfit);
   --font-mono: var(--font-jetbrains);
+  --font-display: var(--font-syne);
 }
 
 /* ── Base reset ── */
