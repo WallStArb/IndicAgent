@@ -127,7 +127,9 @@ def horizon_sessions(spec_text: str, family_text_at) -> int:
     """The spec's holding horizon in sessions (a book's: the longest of its families')."""
     model = parse_spec_text(spec_text)
     if isinstance(model, BookSpec):
-        return max(horizon_sessions(family_text_at(path), None) for path in model.families)
+        return max(
+            horizon_sessions(family_text_at(path), family_text_at) for path in model.families
+        )
     return math.ceil(model.horizon / model.panel.analysis_bars_per_session)
 
 
@@ -199,7 +201,9 @@ async def main(args: argparse.Namespace) -> int:
         "block_mean": out.block_mean,
         "reps": out.reps,
         "max_horizon_sessions": max(horizons),
-        "selection_set": [
+        # Under a failed gate the set is not a selection: its key says so, so a reader that
+        # skips "result" cannot take it for one.
+        ("selection_set" if not refusals else "unattested_set"): [
             {
                 "run_id": r["run_id"],
                 "concept": r["concept"],

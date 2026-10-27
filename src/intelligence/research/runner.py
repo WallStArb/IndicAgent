@@ -294,6 +294,17 @@ async def _gate(loaded: LoadedSpec, ctx: RunContext, *, once: bool = True) -> tu
     return root, provenance.head_commit(root)
 
 
+def _require_r1(spec: FamilySpec | BookSpec) -> None:
+    """The calibrated and fixed-sign rules size from a covariance plan the runner does not build
+    yet: they are the construction attempt at capital readiness (design 4.3), not discovery.
+    Checked in every mode, before any data is read."""
+    if spec.construction.name != RANK_VOL_NEUTRAL_ARM:
+        raise RunRefused(
+            f"construction {spec.construction.name}: the runner runs R1 "
+            f"({RANK_VOL_NEUTRAL_ARM}) only during discovery (design 4.3)"
+        )
+
+
 def _check_spec_tree(loaded: LoadedSpec) -> None:
     specs = [f.model for f in loaded.families] or [loaded.model]
     for spec in specs:
@@ -301,14 +312,8 @@ def _check_spec_tree(loaded: LoadedSpec) -> None:
             _check_spec(spec)
     # A real record's spec hash names its decision statistic (E17): a spec written before E17
     # never runs, and re-scoring one under E17 is a new spec hash, not the old one reused.
-    # The calibrated and fixed-sign rules size from a covariance plan the runner does not build
-    # yet: they are the construction attempt at capital readiness (design 4.3), not discovery.
     for spec in {id(s): s for s in [loaded.model, *specs]}.values():
-        if spec.construction.name != RANK_VOL_NEUTRAL_ARM:
-            raise RunRefused(
-                f"construction {spec.construction.name}: the runner runs R1 "
-                f"({RANK_VOL_NEUTRAL_ARM}) only during discovery (design 4.3)"
-            )
+        _require_r1(spec)
         if spec.scoring.timing_statistic != TIMING_STATISTIC:
             raise RunRefused(
                 f"spec predates {TIMING_STATISTIC}: scoring.timing_statistic must be "
@@ -356,7 +361,7 @@ def _prepare_panel(
 
 
 async def _analysis_panel(
-    spec: FamilySpec, ctx: RunContext, *, real: bool, panel: Panel | None
+    spec: FamilySpec, ctx: RunContext, *, real: bool, panel: Panel | None, replay: bool = False
 ) -> tuple[Panel, str | None, Panel | None]:
     """(analysis panel, snapshot hash, transform probe source): the S0 snapshot in real mode,
     the given panel in synthetic mode (which applies the transform but no universe filter:
@@ -366,6 +371,10 @@ async def _analysis_panel(
     # Generated synthetic panels carry no dividends: the identity grid keeps total_return a no-op.
     # A real S0 snapshot passed here arrives without its grid, so it is refused, never run on
     # unadjusted prices under a total-return spec.
+    # Synthetic mode on a real snapshot is an uncounted look at the vintage; only a replay of
+    # an already recorded run (plan 03's backfill and parity gate) may read one.
+    if panel.manifest.get("source") == snapshot.PRICE_SOURCE and not replay:
+        raise ValueError("a real S0 snapshot runs in real mode (synthetic runs are uncounted)")
     grid = None
     if spec.panel.total_return is not None:
         if panel.manifest.get("source") == snapshot.PRICE_SOURCE:
@@ -503,10 +512,12 @@ async def run_family(
     *,
     mode: Literal["real", "exploration", "synthetic"],
     panel: Panel | None = None,
+    replay: bool = False,
 ) -> dict[str, dict]:
     """A family's member evidence runs. Exploration (E18, design 7.2) is a real-data run that is
     recorded and counted like any other but may repeat a spec and skips the shift-null
-    diagnostic, so it stays cheap; its series joins the selection universe."""
+    diagnostic, so it stays cheap; its series joins the selection universe. `replay` lets
+    synthetic mode read a real snapshot, for replaying runs already recorded (plan 03) only."""
     spec = loaded.model
     if not isinstance(spec, FamilySpec):
         raise TypeError("run_family needs a family spec")
@@ -537,10 +548,14 @@ async def run_family(
         run_ids = {name: started[concept[name]] for name in concept}
     else:
         _check_spec(spec)
+        _require_r1(spec)
         if panel is None:
             raise ValueError("synthetic mode needs a panel")
 
     results: dict[str, dict] = {}
+    # A member whose statistic was computed keeps its series even if the run then fails: it
+    # was seen, so it counts and joins the selection universe (design 7.1).
+    computed: dict[str, AttemptSeries | None] = {}
     snapshot_hash: str | None = None
 
     async def finish(
@@ -564,11 +579,11 @@ async def run_family(
     async def finish_all(status: str, evidence: dict) -> None:
         for m in spec.members:
             if m.name not in results:
-                await finish(m.name, status, evidence)
+                await finish(m.name, status, evidence, computed.get(m.name))
 
     try:
         panel, snapshot_hash, source_probe = await _analysis_panel(
-            spec, ctx, real=real, panel=panel
+            spec, ctx, real=real, panel=panel, replay=replay
         )
         static_block = static_precondition(spec, panel, gate)
         if not static_block["passes"]:
@@ -621,6 +636,8 @@ async def run_family(
                 warmup_sessions=cfg.warmup_sessions,
                 memory_sessions=m.slot_history_sessions,
             )
+            series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
+            computed[m.name] = series
             res, n_shifts = (
                 (None, 0)
                 if exploring
@@ -651,7 +668,6 @@ async def run_family(
                 sub_periods=cfg.sub_periods,
                 data_quality=panel.manifest.get("data_quality"),
             )
-            series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
             await finish(m.name, "completed", record, series)
         return results
     except Exception as error:
@@ -834,10 +850,13 @@ async def run_book(
     else:
         for fam in families:
             _check_spec(fam)
+        for s in (book, *families):
+            _require_r1(s)
         if panel is None:
             raise ValueError("synthetic mode needs a panel")
 
     result: dict = {}
+    series: AttemptSeries | None = None  # set once S8's statistic exists; kept on failure
     snapshot_hash: str | None = None
 
     async def finish(status: str, evidence: dict, series: AttemptSeries | None = None) -> dict:
@@ -963,6 +982,7 @@ async def run_book(
             warmup_sessions=cfg.warmup_sessions,
             memory_sessions=max(slot_histories),
         )
+        series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
         del stack
         _log("S8 shift-null diagnostic")
         res, n_shifts = _shift_diagnostic(
@@ -1009,13 +1029,14 @@ async def run_book(
             data_quality=panel.manifest.get("data_quality"),
         )
         _log("done")
-        series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
         return await finish("completed", record, series)
     except Exception as error:
         if not result:
             try:
                 await finish(
-                    "failed", {"stage": "run", "error": f"{type(error).__name__}: {error}"}
+                    "failed",
+                    {"stage": "run", "error": f"{type(error).__name__}: {error}"},
+                    series,
                 )
             except Exception:  # noqa: BLE001 - the original error is the one to raise
                 pass

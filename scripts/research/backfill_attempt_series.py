@@ -140,7 +140,7 @@ async def main(args: argparse.Namespace) -> int:
         if reason is None:
             panel = panel_mod.load(path)
             print(f"replaying {spec_path} ({len(rows)} runs)", flush=True)
-            results = await run_family(loaded, ctx, mode="synthetic", panel=panel)
+            results = await run_family(loaded, ctx, mode="synthetic", panel=panel, replay=True)
         for row in rows:
             member = row["concept"].rsplit(".", 1)[-1]
             entry = {"run_id": row["run_id"], "spec_path": spec_path, "member": member}

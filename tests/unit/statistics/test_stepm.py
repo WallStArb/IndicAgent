@@ -66,3 +66,15 @@ def test_differing_spans_are_not_filled():
 def test_block_must_exceed_the_longest_horizon():
     with pytest.raises(ValueError, match="horizon"):
         stepm(np.zeros((10, 2)) + 1, **{**KW, "block_mean": 2, "max_horizon_sessions": 2})
+
+
+def test_a_short_span_never_buys_a_selection():
+    """An attempt on a handful of sessions is missing from most draws; such a draw counts as an
+    exceedance, never as a draw the attempt loses, so a short span cannot lower its p-value."""
+    rng = np.random.default_rng(3)
+    x = rng.normal(0, 1, (2000, 3))
+    x[:, 2] = np.nan
+    x[1000:1006, 2] = [3.0, 2.5, 3.5, 2.8, 3.1, 2.9]
+    out = stepm(x, block_mean=20, max_horizon_sessions=1, reps=500, fwer=0.05, seed=1)
+    assert not out.selected[2]
+    assert out.adjusted_p[2] > 0.2  # about the share of draws that miss its span

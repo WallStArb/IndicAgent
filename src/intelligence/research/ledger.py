@@ -150,12 +150,13 @@ class PostgresLedger:
         self._dsn = dsn
 
     async def has_real_run(self, spec_hash: str) -> bool:
+        """Whether the spec has any real-data run, real or exploration: a spec searched in
+        exploration cannot then take its one real run as if it were unlooked."""
         conn = await connect_with_codecs(self._dsn)
         try:
             return bool(
                 await conn.fetchval(
-                    "SELECT EXISTS (SELECT 1 FROM research_run "
-                    "WHERE spec_hash = $1 AND mode = 'real')",
+                    "SELECT EXISTS (SELECT 1 FROM research_run " "WHERE spec_hash = $1)",
                     spec_hash,
                 )
             )
@@ -184,8 +185,8 @@ class PostgresLedger:
     ) -> dict[str, str]:
         """Write identity rows, lineage edges and one `started` research_run row per name in
         `run_concepts`, all sharing one new run_group, in one locked transaction. Returns
-        {concept name: run_id}. Raises LedgerRefusal on a prior real run for the spec hash (real
-        mode only). Since E18 the book-test budget no longer refuses: every attempt is recorded
+        {concept name: run_id}. Raises LedgerRefusal on a prior real-data run (real or exploration)
+        of the spec hash, in real mode only. Since E18 the book-test budget no longer refuses: every attempt is recorded
         and selection prices them all (StepM, design 7.3); budget_m stays on book_test rows as
         the power bar's M and as disclosure."""
         if request.kind == "book_test" and (
@@ -202,8 +203,7 @@ class PostgresLedger:
 
                 if request.mode == "real":
                     prior = await conn.fetchval(
-                        "SELECT EXISTS (SELECT 1 FROM research_run "
-                        "WHERE spec_hash = $1 AND mode = 'real')",
+                        "SELECT EXISTS (SELECT 1 FROM research_run " "WHERE spec_hash = $1)",
                         request.spec_hash,
                     )
                     if prior:

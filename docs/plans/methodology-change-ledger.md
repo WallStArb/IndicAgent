@@ -1067,6 +1067,10 @@ when this was found.
   `select_books` reports a set as a result only when every charged attempt has a series, no
   charged attempt sits on another vintage (re-evaluation onto an extended vintage is not built),
   and a complete passing battery record on the same StepM code attests it (Codex review,
-  2026-10-27). Open: until the full 13-cell per-draw battery holds, no selection set is a
+  2026-10-27). A bootstrap draw with no evidence about an attempt (fewer than two of its
+  sessions) counts as an exceedance, never as a loss. The runner keeps a run's series when it
+  fails after its statistic exists, refuses a synthetic run on a real snapshot (an uncounted
+  look) except a replay of a recorded run, and refuses a real run of a spec already run in
+  exploration (AGY review, 2026-10-27). Open: until the full 13-cell per-draw battery holds, no selection set is a
   result. The book test's power bar still divides by M (`screen_alpha / M`); what replaces it
   under E18 is settled in plan 07.

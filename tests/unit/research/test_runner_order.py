@@ -420,3 +420,33 @@ def test_exploration_repeats_a_spec_is_counted_and_skips_the_shift_null(repo, sa
     assert {v["status"] for v in out.values()} == {"completed"}
     assert all(v["evidence"]["shift_null"] is None for v in out.values())
     assert all(s is not None for s in ledger.series.values())
+
+
+def test_synthetic_mode_refuses_a_real_snapshot_unless_replaying(repo):
+    """Synthetic runs are uncounted, so a real S0 snapshot in synthetic mode would be an
+    uncounted look at the vintage; only a replay of a recorded run may read one."""
+    from src.intelligence.research import snapshot
+
+    loaded = load_spec_from_head(repo, SPEC_PATH)
+    real = dataclasses.replace(_panel(), manifest={"source": snapshot.PRICE_SOURCE})
+    ctx = _ctx(repo, FakeLedger(), None, [])
+    with pytest.raises(ValueError, match="uncounted"):
+        asyncio.run(run_family(loaded, ctx, mode="synthetic", panel=real))
+    out = asyncio.run(run_family(loaded, ctx, mode="synthetic", panel=real, replay=True))
+    assert {v["status"] for v in out.values()} == {"completed"}
+
+
+def test_a_run_that_fails_after_its_statistic_keeps_its_series(repo, saved_panel, monkeypatch):
+    """Design 7.1: a run that computed a statistic and then failed still counts, so its series
+    is stored and joins the selection universe."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("evidence record failed")
+
+    monkeypatch.setattr(runner_mod, "evidence_record", boom)
+    ledger = FakeLedger()
+    with pytest.raises(RuntimeError):
+        _run(load_spec_from_head(repo, SPEC_PATH), _ctx(repo, ledger, saved_panel, []))
+    assert set(ledger.status.values()) == {"failed"}
+    first = next(iter(ledger.series))
+    assert ledger.series[first] is not None  # the member that reached S5 kept its series

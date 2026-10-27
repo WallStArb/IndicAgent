@@ -89,8 +89,9 @@ def stepm(
         count = finite[idx[b]].sum(axis=0)
         with np.errstate(invalid="ignore", divide="ignore"):
             boot_mean = values[idx[b]].sum(axis=0) / count
-        # A draw that lands on no session of an attempt carries no evidence about it.
-        t_star[b] = np.where(count > 0, (boot_mean - mean) / se, -np.inf)
+        # A draw that lands on no session of an attempt cannot show it is null: +inf counts the
+        # draw as exceeding, which can only raise a p-value (see _draw_t).
+        t_star[b] = np.where(count > 0, (boot_mean - mean) / se, np.inf)
 
     adjusted = _step_down_p(t_obs, t_star)
     return StepMResult(
@@ -104,15 +105,18 @@ def stepm(
 
 
 def _draw_t(column: np.ndarray, sample_mean: float) -> float:
-    """One draw's centred t with the draw's own HAC se; -inf when the draw lands on fewer than
-    two of the attempt's sessions or its long-run variance is not positive (no evidence)."""
+    """One draw's centred t with the draw's own HAC se; +inf when the draw lands on fewer than
+    two of the attempt's sessions or its long-run variance is not positive. Such a draw says
+    nothing about the attempt; -inf would drop it from the max and lower every p-value it
+    touches (anti-conservative for short spans), +inf counts it as an exceedance, so the error
+    is conservative and the selection never gains from a short span."""
     finite = column[np.isfinite(column)]
     if len(finite) < 2:
-        return -np.inf
+        return np.inf
     try:
         h = hac_mean_test(finite)
     except ValueError:
-        return -np.inf
+        return np.inf
     return (h.mean - sample_mean) / h.se
 
 

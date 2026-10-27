@@ -44,7 +44,10 @@ now (k + 1) / (reps + 1), the finite-bootstrap form that never rejects above nom
 number above was computed under k / reps, so the full run below uses the new form. The record
 it writes carries `complete` and `stepm_sha256`; `select_books.py --battery` accepts it as its
 attestation only when it covers every cell, holds in every gating cell, and matches the StepM
-code and the APR's fwer and block mean.
+code and the APR's fwer and block mean. An AGY review then found that a draw landing on
+fewer than two of an attempt's sessions scored -inf, dropping it from the max and lowering
+p-values for short spans; such a draw now scores +inf (conservative). The full run uses both
+changes.
 
 ## Open
 

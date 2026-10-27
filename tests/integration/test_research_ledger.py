@@ -270,6 +270,16 @@ async def test_exploration_may_repeat_a_spec_real_may_not(ledger, scope):
     assert (await _row(first[members[0]]))["mode"] == "exploration"
 
 
+async def test_an_explored_spec_cannot_take_its_real_run(ledger, scope):
+    """A spec searched in exploration is not unlooked: its one real run is refused."""
+    ids, members = scope.identities()
+    real = scope.request()
+    await ledger.start_runs(dataclasses.replace(real, mode="exploration"), ids, [members[0]])
+    assert await ledger.has_real_run(real.spec_hash)
+    with pytest.raises(LedgerRefusal, match="already run"):
+        await ledger.start_runs(real, ids, [members[0]])
+
+
 async def test_budget_apr_keys_seeded():
     conn = await asyncpg.connect(_TEST_DB_URL)
     try:
