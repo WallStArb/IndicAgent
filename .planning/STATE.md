@@ -84,7 +84,7 @@ Research lane in parallel: plan 184 now, 187 plans 08-15.
   (`logs/alpaca_nightly_catchup_20261026.log`) and fills canonical 5m where IBKR has no session.
 
 - **186-26 rebuild preconditions:** the selection gate exits 0, canonical 1d is current, plans
-  191-21 and 191-23 have landed (the only phase 191 plans that edit the rebuild's import closure, checked 2026-10-27), and canonical 5m is caught up past the 2026-10-17..25 gap (the
+  191-21 to 191-23 have landed (21 and 23 edit the rebuild's import closure, 23 depends on 22), and canonical 5m is caught up past the 2026-10-17..25 gap (the
   Alpaca catch-up finished, gate exits 0 on 5m). D-32 gates as in `186-26-PLAN.md`; the run tree
   `/home/bg/dev/indicagent-186-26` is kept for it (plan 186-27 removes it).
 
