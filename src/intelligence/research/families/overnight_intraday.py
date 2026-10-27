@@ -43,14 +43,17 @@ def _legs(resid: np.ndarray, bars_per_session: int) -> np.ndarray:
 
 def _prior_window(x: np.ndarray, window: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Over sessions d-window .. d-1 of x [S, m]: (count finite, sum, sum of squares), each
-    [S, m], from prefix sums (index d covers sessions < d)."""
+    [S, m]. Each window is summed from its own sessions only, never as a difference of prefix
+    sums: a prefix difference carries rounding from every earlier session, which moves the
+    centred rank of near-tied names far outside the window and breaks the S3 memory guard."""
     finite = np.isfinite(x)
-    zeros = np.zeros((1, x.shape[1]))
     xs = np.where(finite, x, 0.0)
-    prefix = [np.concatenate([zeros, np.cumsum(a, axis=0)]) for a in (finite, xs, xs * xs)]
-    lo = np.maximum(np.arange(len(x)) - window, 0)
-    hi = np.arange(len(x))
-    return tuple(p[hi] - p[lo] for p in prefix)
+    pad = np.zeros((window, x.shape[1]))
+    out = []
+    for a in (finite.astype(float), xs, xs * xs):
+        windows = np.lib.stride_tricks.sliding_window_view(np.concatenate([pad, a]), window, axis=0)
+        out.append(windows[: len(x)].sum(axis=-1))  # row d: sessions d-window .. d-1
+    return tuple(out)
 
 
 def _prior_mean(x: np.ndarray, window: int) -> np.ndarray:
