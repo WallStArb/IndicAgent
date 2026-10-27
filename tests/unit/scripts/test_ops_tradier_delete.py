@@ -835,3 +835,92 @@ def test_the_migration_seeds_both_keys():
         assert body.count(f"'{key}'") == 3, key  # schema, state, history
         assert f"'{default}'" in body
     assert "Not an ML learning target." in body
+
+
+# --- second review (LOW items) ---------------------------------------------------------------
+
+
+def _no_runtime(tmp_path: Path) -> Any:
+    def _no_db() -> Any:
+        raise AssertionError("refused before any database access")
+
+    return mod.Runtime(connect=_no_db, read_apr=_no_db, measure=_no_db, tsv_path=tmp_path / "t")
+
+
+@pytest.mark.parametrize(
+    "mode", [["--dump", "--apply"], ["--trial", "AAA", "--apply"], ["--delete", "--apply"]]
+)
+def test_every_write_mode_refuses_while_the_state_lock_is_held(tmp_path: Path, mode: list[str]):
+    import fcntl
+
+    lock_path = tmp_path / "tradier_delete_state.json.lock"
+    with lock_path.open("a") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        argv = [*mode, "--backup-dir", str(tmp_path), "--log-dir", str(tmp_path)]
+        assert mod.main(argv, _no_runtime(tmp_path)) == mod.EXIT_REFUSED
+
+
+def test_the_state_lock_is_released_after_a_mode(tmp_path: Path):
+    with mod.state_lock(tmp_path) as acquired:
+        assert acquired
+        with mod.state_lock(tmp_path) as second:
+            assert not second
+    with mod.state_lock(tmp_path) as again:
+        assert again
+
+
+def test_trial_gate_refuses_a_recovered_trial_report():
+    report = {"rows_total": 100, "disk_delta_bytes": 10, "recovered": True}
+    refusal = mod.trial_refusal(report, 10, free_bytes=10**12, floor_bytes=1)
+    assert refusal is not None and "fresh trial" in refusal
+
+
+def test_verify_success_message_says_counts_not_content():
+    source = Path(mod.__file__).read_text()
+    assert "backup matches live" not in source
+    assert "counts match" in source
+
+
+def test_delete_batch_resets_the_isolation_level_on_refusal():
+    manifest = _manifest()
+    conn = _FakeConn(_responder_for(manifest, tamper="ohlcv_raw"))
+    with pytest.raises(mod.DeleteRefused):
+        mod.delete_batch(
+            conn,
+            ["AAA"],
+            [],
+            mod.expected_content(manifest, ["AAA"]),
+            free_bytes=lambda: 1,
+            clock=_clock(),
+        )
+    assert conn.isolation_level == mod.psycopg.IsolationLevel.READ_COMMITTED
+
+
+class _SchemaConn:
+    def __init__(self, schemas: list[str]) -> None:
+        self.schemas = schemas
+        self.closed = False
+
+    def execute(self, sql: str) -> Any:
+        assert sql == "SELECT current_schemas(false)"
+        return self
+
+    def fetchone(self) -> tuple[list[str]]:
+        return (self.schemas,)
+
+    def rollback(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_the_production_connection_refuses_a_non_public_schema_list(monkeypatch):
+    conn = _SchemaConn(["zz_scratch"])
+    monkeypatch.setattr(mod.psycopg, "connect", lambda *a, **k: conn)
+    with pytest.raises(SystemExit, match="public"):
+        mod._connect()
+    assert conn.closed
+    ok = _SchemaConn(["public"])
+    monkeypatch.setattr(mod.psycopg, "connect", lambda *a, **k: ok)
+    assert mod._connect() is ok
