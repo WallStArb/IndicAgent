@@ -387,3 +387,9 @@ APR in migration 485, 99f8c5c8b), the release tool deleted (finding 8 part). Ope
     gates: LEN now (coverage 100, anchored exact), RTX modulo the two corrections; the rest
     wait on coverage. Disposition: restore deferred to the plan 20 owner checkpoint (deletion
     subsumes it if confirmed promptly).
+52. Plan 191-20 simplify review (2026-10-27): `ohlcv_revision.load_id` references `ohlcv_load`
+    ON DELETE CASCADE (migration 438), so deleting any load silently takes the revision rows
+    under it, including another vendor's evidence (3,179,829 IBKR revision rows sit under
+    Tradier loads). The 191-20 tooling now keeps every `ohlcv_load` row, so it is not exposed,
+    but the schema should not allow it for any future deleter: switch the FK to RESTRICT, as
+    `ohlcv_restatement_flag` already uses (add NOT VALID, then VALIDATE, outside a fetch run).
