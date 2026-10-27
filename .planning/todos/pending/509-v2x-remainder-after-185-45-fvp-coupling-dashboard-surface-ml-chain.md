@@ -63,30 +63,16 @@ Owner decision 2026-10-26: delete the v2.x signal panels, their API routes and t
 DONE 2026-10-26 (migration 521): signal, features, validation and drift routes, the signal events
 repository, `src/intelligence/trading/`, the feature-validation service, the dashboard's signal,
 narrative, AI swarm and landing surfaces; `drift_state`, `setup_performance` and ten
-`ui.signals.*` keys dropped. Follow-ups (code review 2026-10-26): SSE still consumes
-`signals.aggregated` and builds `signal_scorecard` frames nobody reads (remove topic, mapping and
-`_extract_signal_scorecard_payload`); the I7 regime_type CI step, pre-commit hook,
-`check_plugin_invariants.sh` and `scan_binary_patterns.py` still target the deleted
-`src/intelligence/trading/` and now pass vacuously; procedure `weekly_db_maintenance` still runs
-`ANALYZE setup_performance` (unscheduled; drop it); `use-observability-stream.ts` SERVICE_LAYERS
-still lists retired units; ProfileChip's dead `symbolData` prop, unimported `use-demo-data.ts` and
-the orphaned format helpers can go; `shadow_registry` (36 rows of plugin settings, dumped) awaits
-an owner drop-or-keep call; restart indicagent-api and indicagent-dashboard to serve the change.
-
-## 3. The ML batch chain (DONE 2026-10-26)
-
-Owner decision 2026-10-26: delete. Gone: `services/{ml_training_agent,ml_orchestrator,
-ml_discovery_analyzer,data_quality_auditor,hmm_training_agent}.py`,
-`src/intelligence/services/{ml_trainer,hmm_trainer}.py`, `src/intelligence/ml/`, `src/core/ml/`,
-their tests, the five units and four timers (repo and `/etc/systemd/system`), the ML stream keys
-and DLQ, three dead instruments, the langgraph, lightgbm, shap and tsfresh requirements, and
-(migration 514) the empty `ml_models`, `ml_discovery_runs` and `ml_data_quality_runs` tables
-(dumped to `data/backups/509-ml-chain/`) with the seven `feature.hmm.*` keys only
-`hmm_trainer` read. Kept: the registry regime HMM (`src/intelligence/features/kernels/_hmm.py`,
-`hmm_jit.py`, hmmlearn), which never imported the trainer. Revival starts from git:
-`e4d2345c2` is the last commit that holds the chain. Assessment: nothing was worth carrying
-forward; the trainers read dead v2.x tables, the split was unpurged and uncounted (E15-E18),
-and the reusable glue (a 70-line registry wrapper) is cheaper to rewrite on the research runner.
+`ui.signals.*` keys dropped. The dashboard-side follow-ups closed with cockpit slice 1
+(2026-10-26): the SSE bridge, `topic_signals_aggregated` and the signal scorecard frames,
+`use-market-stream.ts`, `use-observability-stream.ts`, `use-demo-data.ts` and ProfileChip are
+gone; `dashboard/src/hooks/` holds only `use-api.ts`. Still open (checked 2026-10-27): the I7
+regime_type step in `.github/workflows/ci.yml`, the matching `tools/pre-commit.hook` check,
+`tools/check_plugin_invariants.sh`, `tools/scan_binary_patterns.py` and two
+`tools/duplicate_test_allowlist.txt` lines still target the deleted `src/intelligence/trading/`
+and pass vacuously; procedure `weekly_db_maintenance` still runs `ANALYZE setup_performance`
+(unscheduled; drop it); `shadow_registry` (36 rows of plugin settings, dumped) awaits an owner
+drop-or-keep call.
 
 ## 4. Smaller items
 
