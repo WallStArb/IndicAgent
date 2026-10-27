@@ -49,7 +49,7 @@ the Tradier deletion; 1d re-derive; testing unpauses here) -> 191-21 -> 22 -> 23
 2026-10-27: 23 depends on 22, whose integrity_checks changes bar_reconciliation_audit consumes;
 21 and 23 are the plans that edit modules the rebuild imports) -> 186-26 feature rebuild, with
 191-24 and 25 landing alongside -> 186-27 -> 184 feature families.
-Research lane in parallel: plan 184 now, 187 plans 08-15.
+Research lane in parallel: 184 planned 2026-10-27 (14 plans, 8 waves; wave 1 01-04 new files only, runs on indicagent-5b's go; wiring 06-11 after 187-08/09/10 and 187-15 Task 2, before 187-18), 187 plans 08-15.
 
 - **Phase 191 (unified raw bar table, todo 533): 18 of 25 plans done.** Plans 01 to 18 landed and
   were reviewed (summaries and reviews in the phase dir; the swap landed 2026-10-17, the old stores

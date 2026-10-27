@@ -46,7 +46,7 @@ runs. STATE.md holds current position; PRIORITIES.md holds the lane order and th
 |---|---|---|---|
 | 1 | 191 Unified raw bar table | One raw table, canonical as a selection; Tradier retired. Settles canonical 1d for every daily test | 18/25. Plan 19 Task 2 (residue report) running; plan 20 waits on owner approval of the deletion; then 21 -> 22 -> 23 before the rebuild (23 depends on 22), 24 and 25 alongside it |
 | 2 | 186 Old ensemble chain retirement and ic_engine re-scope | Rebuild `feature_vectors` and the regime columns; fresh IC store | 25/29. 186-17 Task 2, 186-26 (starts once 191-23 is in), 186-27, 186-28 |
-| 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Plan now (owner 2026-10-27); runs on the rebuilt table after 186-27 |
+| 3 | 184 Multi-timeframe research inputs | S0 reads `feature_vectors` across timeframes through the causal align node (todo 435); the gate for every feature family | Planned 2026-10-27: 14 plans in 8 waves; wave 1 runs on 5b's go; wiring after 187-15 Task 2; real data after 186-27 |
 | 4 | 187 Research core: recipe book, selection, construction | Counting, StepM selection, construction and horizon rules, pod books, recipe book | Plans 01-07 landed; 08-15 next. Governance (16 DAG manifest, 17 per-writer DB roles, 18 package renames) moves after the first feature family |
 | 5 | Testing | Family 2's one evidence run and the daily price-only families at 191-20's re-derive; feature and regime families after 184 | Unpauses at 191-20's 1d re-derive |
 | 6 | 188 Forward runner and capital tier | `BookTracker`, sealed shadow, full cost model, `portfolio_state` and sizing | Not planned; waits on a candidate book |
@@ -126,15 +126,28 @@ B8 (added 2026-10-01): economic series (`economic_series_observation`, todo 480)
 same causal alignment, joined on decision time with an age and a maximum age, captured by a knowledge
 cutoff in the panel manifest, and every book using them passes the one-session shift test
 (`docs/ideas/signal-macro-context-layer.md`); needs todo 482 first.
-**Requirements**: TBD
+**Requirements**: MTF-B1a to MTF-B1k, MTF-B2a to MTF-B2c, MTF-B3a to MTF-B3c, MTF-B4, MTF-B5, MTF-B6, MTF-B7, MTF-B8a, MTF-B8b (184-RESEARCH.md)
 **Depends on:** Phase 183 (runner, S7, S8), E16 (adopted in the phase 183 session), phase 185's
 derived 15m and 1h grid (B1), phase 186's kernel registry and shrunk ic_engine (B2, B4). Daily books
 with price-level members declare `panel.total_return` (todo 428, closed 2026-09-26).
-**Plans:** 0 plans
+**Plans:** 14 plans in 8 waves (planned 2026-10-27). Wave 1 (01-04) is new files only and can run on indicagent-5b's go; the wiring wave (06-11) waits on 187-08, 187-09, 187-10 and 187-15 Task 2 and lands before 187-18; 12 waits on 186-27; 13-14 wait on todo 482.
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 184 to break down)
+- [ ] 184-01-PLAN.md - shared MTF fixtures, `clock.closes_at`, the causal `align` node and its probe (wave 1)
+- [ ] 184-02-PLAN.md - research kernels package and `kernel_source` (wave 1)
+- [ ] 184-03-PLAN.md - smoothing menu, member memory, lag term structure in statistics (wave 1)
+- [ ] 184-04-PLAN.md - pure S0 feature-read decisions (provenance pin, warmup mask, coverage floor) and the read boundary (wave 1)
+- [ ] 184-05-PLAN.md - E17 battery for persistent predictors and composed member routes (wave 2)
+- [ ] 184-06-PLAN.md - spec surface for feature and kernel members; `closes_at` in 187-15's fields (wave 2)
+- [ ] 184-07-PLAN.md - S0 bar side: closes_at, warmup prefix, derived-vendor refusal (wave 3)
+- [ ] 184-08-PLAN.md - S0 feature block with every todo 435 gate; finer sources aligned in S0 (wave 4)
+- [ ] 184-09-PLAN.md - runner spec-time memory, route refusal, S0 request (wave 5)
+- [ ] 184-10-PLAN.md - member dispatch on the book clock and S3 for input members (wave 6)
+- [ ] 184-11-PLAN.md - IC term structure by lag as a record nothing reads (wave 7)
+- [ ] 184-12-PLAN.md - one dry S0 build on the rebuilt table, gated on 186-27 (wave 5)
+- [ ] 184-13-PLAN.md - economic block in S0, gated on todo 482 (wave 6)
+- [ ] 184-14-PLAN.md - economic members and the one-session shift test (wave 8)
 
 ### Phase 185: Daily data foundation
 
