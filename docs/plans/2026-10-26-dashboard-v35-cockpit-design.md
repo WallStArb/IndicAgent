@@ -163,6 +163,14 @@ Progress:
   Shared UI added: `SearchInput`, `pressable`, `Panel` `count`, `spaced` in `lib/utils.ts`.
   Deferred from the review: `Panel` taking a whole section envelope (`section={env}`) instead of
   source, as_of, error and empty text one by one, which touches every page.
+- Slice 5 (Research) landed 2026-10-27. `/api/research/summary` (`src/api/routes/research.py`):
+  looks per (vintage, kind, mode) with the charged count from the ledger's own
+  `UNCHARGED_STATUSES`; every attempt with its stored headline (pre-515 rows fall back to
+  `evidence.decision`; the append-only ledger cannot backfill them) and why it was refused or
+  failed; the legacy `gate_evaluations` verdicts. OPEN: the attempts list has no row cap (21 rows
+  today); it needs a `ui.dashboard.*` cap key in a migration numbered with the coordinating
+  sessions. An attempt left `started` by a dead runner shows as unfinished with its age, not
+  flagged stale.
 
 ## Out of scope
 

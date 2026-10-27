@@ -60,7 +60,6 @@ _WRITE_TARGET = re.compile(
 _FROZEN_UNREAD_TABLES: dict[str, str] = {
     "concept_annotation": "no reference outside its migration (225) on 2026-10-06",
     "factor_series_correlation": "written by services/tag_calibrator.py, never read (2026-10-06)",
-    "gate_evaluations": "no reference outside its migration (248) on 2026-10-06",
 }
 
 # Frozen 2026-10-06 (plan 185-44 baseline): APR keys seeded by the migrations with no reader in
@@ -162,6 +161,16 @@ _PENDING_RETIREMENT: dict[str, str] = {
         "and this key retire together, tracked in todo 533's status section (set by plan "
         "191-18: the retention date postdates plan 18, so the removal rides with the "
         "phase's key-retirement plan instead)"
+    ),
+    "infra.tradier_delete.min_free_disk_gb": (
+        "retire: 191-25. Read only by scripts/ops/bars/ops_tradier_delete.py (plan 191-20, "
+        "migration 524), which stays until the Tradier backup retention date 2026-11-12; the "
+        "script, its backup files and this key retire together at plan 25"
+    ),
+    "infra.tradier_delete.batch_symbols": (
+        "retire: 191-25. Read only by scripts/ops/bars/ops_tradier_delete.py (plan 191-20, "
+        "migration 524), which stays until the Tradier backup retention date 2026-11-12; the "
+        "script, its backup files and this key retire together at plan 25"
     ),
 }
 

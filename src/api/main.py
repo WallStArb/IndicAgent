@@ -26,6 +26,7 @@ from .routes import (
     instruments,
     market_data,
     pipeline,
+    research,
     system,
     universe,
     vocabulary,
@@ -160,6 +161,7 @@ app.include_router(data.router, prefix="/api/data", tags=["data"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(universe.router, prefix="/api/universe", tags=["universe"])
 app.include_router(concepts.router, prefix="/api/concepts", tags=["concepts"])
+app.include_router(research.router, prefix="/api/research", tags=["research"])
 app.include_router(vocabulary.router, prefix="/api/vocabulary", tags=["vocabulary"])
 
 

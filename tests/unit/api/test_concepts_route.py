@@ -37,7 +37,11 @@ def test_concepts_carry_their_latest_evidence_and_transition(client, mock_db):
     assert len(section["rows"]) == 2
     # as_of is the newest record of either kind, not just the newest evaluation.
     assert section["as_of"].startswith("2026-09-25")
-    sql = mock_db.execute_query.call_args_list[0].args[0]
+    sql = next(
+        c.args[0]
+        for c in mock_db.execute_query.call_args_list
+        if "FROM concept_registry" in c.args[0]
+    )
     # The newest window, the one the lifecycle judges on, not the newest re-evaluation.
     assert "ORDER BY window_end DESC" in sql and "ORDER BY triggered_at DESC" in sql
 

@@ -16,7 +16,7 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { fmtAgo, fmtUtc } from "@/lib/time";
 import { CONCEPT_STATUSES, type ConceptRow, type ConceptsSummary } from "@/lib/types";
-import { cn, spaced } from "@/lib/utils";
+import { cn, fixed, spaced } from "@/lib/utils";
 
 // A state the registry adds before this list learns it still gets a column (after the known
 // ones), so no concept can drop out of the matrix.
@@ -125,7 +125,7 @@ const RENDER: Partial<Record<keyof ConceptRow & string, (r: ConceptRow) => React
     r.evidence_kind
       ? `${spaced(r.evidence_kind)}: ${r.passed ? "pass" : "fail"}${r.guard_status ? `, guard ${spaced(r.guard_status)}` : ""}`
       : "-",
-  statistic: (r) => (r.statistic === null ? "-" : r.statistic.toFixed(4)),
+  statistic: (r) => fixed(r.statistic, 4),
   evaluated_at: (r) => <span title={fmtUtc(r.evaluated_at)}>{fmtAgo(r.evaluated_at)}</span>,
   trigger_reason: (r) =>
     r.trigger_reason ? (

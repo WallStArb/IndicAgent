@@ -223,3 +223,55 @@ export interface ConceptsSummary {
   concepts: Section<ConceptRow>;
   ic: Envelope<IcStoreRow, { detail?: string }>;
 }
+
+/** Attempts per (vintage, kind, mode) by terminal status (src/api/routes/research.py). */
+export interface VintageRow {
+  vintage: string;
+  kind: string;
+  mode: string;
+  attempts: number;
+  /** Attempts the vintage's budget counts: all but the ledger's uncharged statuses. */
+  charged: number;
+  completed: number;
+  failed: number;
+  guard_failed: number;
+  refused: number;
+  /** Still `started`: in progress, or its runner died before finishing. */
+  unfinished: number;
+  newest: string | null;
+}
+
+/** One research_run attempt with its stored headline numbers. */
+export interface RunRow {
+  run_group: string;
+  started_at: string;
+  finished_at: string | null;
+  kind: string;
+  mode: string;
+  status: string;
+  spec_path: string;
+  concept: string;
+  statistic: string | null;
+  decision_t: number | null;
+  decision_p: number | null;
+  gross_sharpe: number | null;
+  mean_session_pnl: number | null;
+  n_sessions: number | null;
+  span_start: string | null;
+  span_end: string | null;
+  /** Why the ledger refused the attempt, or the error it failed with. */
+  note: string | null;
+}
+
+export interface GateRow {
+  gate_id: string;
+  result: string;
+  run_ts: string;
+}
+
+/** GET /api/research/summary. */
+export interface ResearchSummary {
+  vintages: Section<VintageRow>;
+  runs: Envelope<RunRow, { run_groups?: number }>;
+  gates: Section<GateRow>;
+}
