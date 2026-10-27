@@ -375,3 +375,21 @@ the selection. Decision: Alpaca SIP (`sip_rth`) is primary for 5m from 2016-01-0
 are closed. One fixed, documented seam at 2016-01-04 replaces a moving one. Written through
 `scripts/ops/bars/ops_source_policy.py` (the policy table's one writer) and applied with a
 reselect before the 186-26 rebuild.
+
+### D-191-Q: canonical 1d, Alpaca SIP primary from 2016 after the Tradier deletion
+
+Status: owner decision 2026-10-27 (evidence review: `.planning/todos/pending/545-*`)
+
+Deleting Tradier (plan 20) leaves canonical 1d on IBKR SMART TRADES alone. Measured 2026-10-27:
+IBKR daily volume is 0.41 to 0.91 of consolidated (p10 to p90, varying by name and liquidity),
+IBKR lacks 494,567 of Tradier's 2016+ sessions on 311 names, and the IBKR nightly 1d lane has
+missed about 214 names a day since 2026-10-19. Alpaca SIP 1d matches Tradier (opens p99 5.6 bp,
+open-to-open returns p90 0.16 bp, volume 1.03x) and fills every measured hole. Decision: Alpaca
+SIP (`sip_rth`, split-adjusted) is primary for 1d from 2016-01-04 with IBKR fallback; IBKR alone
+before, the same seam as D-191-P. Two guards: a zero-volume Alpaca 1d bar is never selected
+(Alpaca serves carry-forward placeholders across dead-ticker gaps), and a name's Alpaca span
+starts at its point-in-time listing (Alpaca is keyed by ticker, so a reused ticker splices a
+predecessor). The daily rule moves to d2-v4 (Alpaca as a raw daily input, matched by session
+date: Alpaca stamps 1d at midnight New York, IBKR at 00:00 UTC), lands before plan 20's
+re-derive, and the policy rows go through `ops_source_policy.py --plan`. The 2016 volume seam
+is recorded; specs reading volume across it normalize within each era.

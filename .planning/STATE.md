@@ -136,7 +136,10 @@ Phases 184 and 188 have no directory yet; `gsd-sdk query phase.add` numbers from
   537 item 2 basis restore). The only other open owner call is the research restart below. The tooling is
   built ahead of the approval and reviewed twice (Task 2: `scripts/ops/bars/ops_tradier_delete.py`,
   migration 524, scratch-schema integration test; record `191-20-TASK2-BUILD.md`); nothing has
-  run live. Simplify pass 2026-10-27: every ohlcv_load row stays (lineage,
+  run live. D-191-Q (owner 2026-10-27, todo 545): canonical 1d becomes Alpaca
+  SIP primary from 2016 with IBKR fallback, IBKR before; the Alpaca 1d backfill, a full Alpaca vs
+  Tradier comparison, daily rule d2-v4 and the policy rows land before Task 3's re-derive.
+  Simplify pass 2026-10-27: every ohlcv_load row stays (lineage,
   like ohlcv_request), so only value rows go and the IBKR revision rows under Tradier loads stay
   by construction; the design doc carries the amendment. Task 3 must stop every
   1d consumer, not only the fetcher and bar_derivation, from the first batch to the 1d re-derive.
