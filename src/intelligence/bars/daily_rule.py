@@ -522,6 +522,21 @@ def servable_primary_dates(
     }
 
 
+def vendor_basis_closes(
+    observations: Sequence[Observation], splits: Sequence[SplitRecord]
+) -> dict[str, dict[date, float]]:
+    """Per vendor, its close per session on the current scale (a stale-only answer restated by
+    the recorded split factors, as the basis is measured), after the zero-volume guard. The
+    closes the D-191-Q arbitration compares (vendor_arbitration)."""
+    days = _screen(observations, splits).days
+    return {
+        vendor: {
+            d: close for d, v in sorted(days[vendor].items()) if (close := _basis_close(v, splits))
+        }
+        for vendor in _VENDORS
+    }
+
+
 @dataclass(frozen=True)
 class _BasisFrame:
     """One primary vendor against the IBKR fallback: its head, the common sessions on the pair's
