@@ -26,7 +26,12 @@ def _identity_s1_bar(panel: Panel, factor_spec: FactorSpec) -> np.ndarray:
 
 
 def _identity_s1_target(panel: Panel, horizon: int, factor_spec: FactorSpec) -> np.ndarray:
-    raw = forward_returns(panel.open, horizon, panel.session, closes=panel.close)
+    if panel.bars_per_session == 1:
+        # Daily: every row is its own session, so the target crosses sessions by design:
+        # open-to-open over `horizon` sessions, no session index and no close exit.
+        raw = forward_returns(panel.open, horizon)
+    else:
+        raw = forward_returns(panel.open, horizon, panel.session, closes=panel.close)
     return residual_returns(
         raw, bars_per_session=panel.bars_per_session, horizon=horizon, spec=factor_spec
     ).residual

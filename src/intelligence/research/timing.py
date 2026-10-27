@@ -34,11 +34,25 @@ import math
 import numpy as np
 
 from src.intelligence.research.evaluate import SESSIONS_PER_YEAR
+from src.intelligence.research.panel import fwd_span
 from src.intelligence.statistics.hac import HacTestResult, hac_mean_test
 
 # E17's history floor: part of the statistic's definition, pinned by the methodology ledger
 # (APR-exempt; changing it is a methodology change, not a tuning).
 MIN_HISTORY_SESSIONS = 60
+
+
+def e17_memory(slot_history_sessions: int, horizon: int, bars_per_session: int) -> int:
+    """L for a signal of `slot_history_sessions` sessions and its target. fbar_L may only read
+    forward returns whose price interval ends at or before the signal's first input begins. An
+    intraday target ends inside its entry session (forward_returns exits at the close), so L is
+    the slot history. A daily target at row r runs open[r+1] .. open[r+1+horizon], fwd_span
+    rows past r, and the signal's oldest input starts at close[s-L]; so L adds fwd_span - 1 =
+    horizon sessions, the last of them the overnight move into the exit session
+    (methodology-change-ledger E17 amendment 2026-10-27; under H0 a 5-session reversal member
+    scored with L = 5 had mean t +0.55 and rejected 15% at 0.05)."""
+    reach = fwd_span(horizon) - 1 if bars_per_session == 1 else 0
+    return slot_history_sessions + reach
 
 
 def timing_series(

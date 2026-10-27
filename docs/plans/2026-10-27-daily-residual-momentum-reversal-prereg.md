@@ -61,18 +61,24 @@ on one target (section 3, overlap).
 - **Prices:** total-return (`panel.total_return: {suspect_yield: 0.10}`, todo 428). A daily
   target held across sessions carries every ex-dividend drop as a loss otherwise, which would
   manufacture reversal on high-yield names.
-- **S1:** `vintage_1` on the daily panel (market, statistical group, 5 principal components;
-  252-session window, 21-session refit). Members and target both read S1 residuals.
+- **S1:** `vintage_1` on the members' universe of the daily panel (market, statistical group, 5
+  principal components; 252-session window, 21-session refit). Members and target both read S1
+  residuals.
 - **Members' universe:** `daily_unseen` (build requirement B1): `compute_eligible_1d` names whose
-  `instruments.created_at` is on or after 2026-09-13, so none the 2026-09-13 screen measured
-  (section 6). On 2026-10-27 that is 1,271 of the 1,502 daily names; the 231 excluded are
-  exactly the active instruments that existed on 2026-09-13, the screen's 231-symbol universe.
-  This is a position holdout, not a data holdout: S1 is fitted on the whole daily universe, so
-  the screened names' returns enter the factor values every name is residualized against. That
-  use is deterministic and outcome-blind (the factor model never sees the screen's IC or any
-  member's performance), so it does not reuse what the screen learned. The exact list is
-  mandatory: if the rule ever cannot reproduce the screen's 231 names, the run refuses.
-- **Scored span:** 2003-01-02 through 2025-12-23 (`trading_start` 2003-01-02). M1 and M2 need
+  `instruments.created_at` is on or after 2026-09-13, minus the 13-symbol sleeve the TSMOM look
+  read. On 2026-10-27 that is 1,269 of the 1,502 daily names. The excluded set is the union of
+  every disclosed prior look's names (section 6): the 231 active instruments that existed on
+  2026-09-13 (the screen's universe exactly, and the names the daily corpus IC looks read) and
+  the sleeve (two of whose symbols, EMLC and VIXY, were created after the cutoff). The rule
+  narrows the S0 panel before S1, as family 2's members universe does, so this is a data
+  holdout, not only a position holdout: the excluded names' returns enter neither the members,
+  the target nor S1's factors. The exact list is mandatory: if the rule cannot reproduce the
+  screen's 231 names, the run refuses.
+- **Scored span:** alpha rows from 2003-01-02 (`trading_start`) whose 5-session target completes
+  inside the panel. The panel ends at 2025-12-24 exclusive, so the forward span is not in it at
+  all; an alpha row whose exit open would fall on or after 2025-12-24 has a NaN target
+  (`forward_returns` returns NaN past the panel's end), which makes the last scored alpha row
+  about 2025-12-15. M1 and M2 need
   S1 loadings (252-session window, at least 126 finite) and then 252 sessions of residuals, about
   525 sessions after a name's first bar, so three years precede the scored start for names with
   bars from 2000; later-listing names enter when their own members first turn finite. The run
@@ -100,9 +106,13 @@ positive sd), else NaN. Signs are applied inside each member; the construction d
 | R2 reversal_21 | sum of e over d-20 .. d | 21 | -1 | 21 |
 | R3 reversal_5_skip1 | sum of e over d-5 .. d-1 (one-session skip, todo 423) | 5 | -1 | 6 |
 
-M1 and R2 are the cited canonical forms (12-1 month formation; one-month reversal). R1 (one
-week, Lehmann 1990) and R3 (one week with a one-session skip) are pre-registered variants, and
-M1 and M2 at a one-week target are a variant of the canonical monthly holding period (section 4).
+None of these is a canonical form of its paper. M2 is closest to Blitz, Huij and Martens (their
+12-1 residual return over formation-period residual volatility), adapted to S1's 252-session
+model in place of a 36-month three-factor regression and to a one-week target in place of a
+monthly holding period; M1 is its unstandardized variant. R1-R3 are S1-residual reversal
+proxies: Da, Liu and Schaumburg remove expected returns and analyst-forecast cash-flow news and
+sort within industry, which S1's price clusters do not replicate. A point-in-time
+within-industry reversal is a later diagnostic, outside this attempt.
 
 Declared memory per member is `declared_memory_rows(slot_history_sessions, 1, vintage_1)`:
 slot history plus S1's 252 + 21 sessions (M1, M2: 525 rows; R1: 278; R2: 294; R3: 279).
@@ -123,14 +133,26 @@ windows; family 9 registers after this one and states its correlation with R1-R3
   the loadings in force at d unchanged.
 - **One spec, h = 5:** `daily_residual_h5`. Five member evidence runs, each a counted attempt
   that joins the vintage-1 StepM universe (E18); nothing else is charged by this registration.
-  A 5-session target overlaps the next 4 rows' targets; E17's Newey-West lag at this sample
-  length (floor(4 (n/100)^(2/9)) = 9 sessions at n about 5,800) exceeds that overlap, and the family's battery (B2) has an
-  overlapping-target cell at h = 5 that must hold.
+- **E17 on a multi-session target (methodology-change-ledger E17 amendment 2026-10-27).** E17's
+  L, the window fbar_L excludes, was each signal's memory in sessions, which keeps fbar_L clear
+  of the signal's inputs only when the target ends inside its entry session (every target
+  before this family). A daily target at row r runs open[r+1] .. open[r+1+h], so L is now the
+  memory plus h (`timing.e17_memory`; the last session is the overnight move into the exit
+  session); with L equal to the memory, the B2 battery's 5-session reversal member had mean H0 t
+  +0.55 and rejected 15% at 0.05 (60 simulations), and with the amended L, on a battery panel
+  with overnight gaps, its mean t is about 0. Intraday L is unchanged, so no recorded run moves.
+- **HAC lag at h = 5, open.** A 5-session target overlaps the next 4 rows', and the Bartlett
+  weights of E17's Newey-West lag (floor(4 (n/100)^(2/9)), about 9 at n 5,800) do not fully
+  cover that overlap: in the same 60 simulations the reversal members' H0 t had sd 1.07 to 1.14
+  and rejected about 8% at 0.05. B2 must hold at full size (1,000 simulations per cell); if it
+  does not, the run waits for a second E17 amendment tying the HAC lag to the horizon, the same
+  one h = 21 needs.
 - **Not run: h = 21**, the canonical momentum holding period. Its targets overlap for 20
   sessions, more than the Newey-West lag, so E17 as adopted would overstate its t. It waits for
   a methodology-change-ledger amendment that ties the HAC lag to the horizon (lag at least h - 1)
   and a battery cell at h = 21; it is then a new spec and its own counted attempts.
-- **No book here.** A book that combines these members (with family 9 or others) is its own
+- **No book here, and no promotion from this registration.** It creates five member evidence
+  attempts only. A book that combines these members (with family 9 or others) is its own
   registration: it pins the combiner, standardization, missing-member rule, construction,
   horizon rule and book memory (member memory plus the combiner's training reach).
 - **Construction:** R1 rank-vol-neutral (direction +1, coverage floor 20, trailing residual vol
@@ -204,7 +226,20 @@ Round 1 (2026-10-27, Codex gpt-5.6-terra, read-only; AGY was out of quota until 
   books moved to their own registration; scored start moved to 2003 with per-member spans;
   daily corpus IC looks disclosed. LOW: canonical forms versus variants labelled, M2's formula
   written out.
-A second round runs on this text before registration.
+Round 2 (2026-10-27, Codex): 2 HIGH, 5 MEDIUM, 1 LOW, verdict "register after fixes". Taken:
+- HIGH, scored end: stated in target terms (the panel ends before the forward span; late alpha
+  rows have NaN targets).
+- MEDIUM: literature labels corrected (no member is canonical); no-promotion stated; the seen
+  set is now the union of every disclosed look's names, the sleeve included (EMLC and VIXY were
+  not excluded by the cutoff alone), and S1 is fit on the members' universe, so the holdout is a
+  data holdout; B2 enumerates the five members at their own memories with the spec's
+  construction; B3 at 1,000 replicates.
+- HIGH, construction vol in E17 memory: not taken as a memory change. E17 as adopted takes L
+  from the signal, and the family 1 and 2 batteries held with R1's trailing vol in the loop; B2
+  runs the 60-session vol exactly as the spec does, so if vol in the weights biases D_s the
+  battery fails and the run waits.
+Found while building B2, outside the review: E17's L did not cover a multi-session target
+(amended, section 4), and the HAC lag at h = 5 is open (section 4).
 
 ## 9. Build requirements before the first real-data run
 
@@ -214,13 +249,16 @@ A second round runs on this text before registration.
   before that date; on 2026-10-27, 231 active and 253 total instruments predate it, so the rule
   excludes the screen's names exactly (and 22 inactive ones it never saw). The list and its hash
   are pinned in the snapshot manifest, as `us_session_equity` is.
-- **B2** an E17 H0 battery module for this family (`NULL_BATTERY`) with cells at the daily
-  panel's measured static sizes and an overlapping-target cell at h = 5, size holding at 0.05,
-  0.01 and 0.00167, and the static-size precondition passing on the real daily panel.
+- **B2** an E17 H0 battery module for this family (`null_battery_daily_residual`) scoring each
+  of the five members at its own amended memory through the spec's construction (R1, 60-session
+  trailing vol) on the h = 5 overlapping target, plus their equal-weight book, in gaussian,
+  static-mean, late-listing, hostile and S1 cells, with size holding at 0.05, 0.01 and 0.00167
+  over 1,000 simulations per cell; and the static-size precondition passing on the real
+  1,269-name panel.
 - **B3** synthetic power, disclosed before the run, not a gate (member runs have no power bar
   under E18). Generator: the residual-space synthetic (`synthetic.py`) on the real daily panel's
   availability mask, plant persistence AR(1) phi 0.0 (reversal, turns over in days, todo 423) and
-  0.98 (momentum), planted rank IC 0.005, 0.01 and 0.02, R = 200 replicates per cell, each
+  0.98 (momentum), planted rank IC 0.005, 0.01 and 0.02, R = 1,000 replicates per cell, each
   scored by the real E17 statistic through R1 at h = 5 with each member's declared memory and
   the production HAC lag. Reported: power at one-sided 0.05 and each member's minimum detectable
   IC at 80% power.

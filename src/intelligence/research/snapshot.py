@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -218,6 +219,63 @@ WHERE ic.scheme = 'indicagent_v1' AND ic.valid_to IS NULL AND n.path[1] = 'EQ'
   )
 ORDER BY ic.symbol
 """
+
+
+# The daily residual family's members' universe (docs/plans/2026-10-27-daily-residual-momentum-
+# reversal-prereg.md section 2, B1): daily-eligible names created on or after the 2026-09-13
+# screen, so none of the 231 symbols it measured, and none of the 13-symbol sleeve the
+# 2026-09-24 TSMOM look read (scripts/research/determinism/config.py; two of them, EMLC and
+# VIXY, were created after the cutoff). Pinned SQL, never built from caller text.
+DAILY_UNSEEN_CUTOFF = "2026-09-13"
+DAILY_SEEN_SLEEVE = (
+    "GLD",
+    "DBA",
+    "DBB",
+    "DBC",
+    "URA",
+    "TLT",
+    "UUP",
+    "VIXY",
+    "EMLC",
+    "HYG",
+    "XOM",
+    "DHI",
+    "PGR",
+)
+# The screen ran on the 231 then-active instruments, all created before the cutoff. Every
+# instrument created before it (253, active or not, 2026-10-27) is excluded; the rule is exact
+# only while that set reproduces, so a different set (a rewritten created_at, a deleted row)
+# refuses (B1). Deactivating a name never changes it.
+DAILY_SEEN_BEFORE_CUTOFF_SHA256 = "60adb95610903c45b7f14700485ae8e6fec16c29b5b398368617b137eff5d3d2"
+_DAILY_UNSEEN_SQL = """
+SELECT symbol FROM instruments
+WHERE compute_eligible_1d AND is_active AND created_at >= $1
+  AND symbol <> ALL($2::text[])
+ORDER BY symbol
+"""
+_DAILY_SEEN_SQL = """
+SELECT symbol FROM instruments WHERE created_at < $1 ORDER BY symbol
+"""
+
+
+async def daily_unseen_symbols(dsn: str) -> list[str]:
+    """The daily residual family's members' universe, sorted (B1). Raises when the screened
+    names no longer reproduce exactly."""
+    pool = await read_only_pool(dsn)
+    try:
+        # Midnight UTC, whatever the session's TimeZone.
+        cutoff = datetime.fromisoformat(DAILY_UNSEEN_CUTOFF).replace(tzinfo=UTC)
+        seen = [r["symbol"] for r in await pool.fetch(_DAILY_SEEN_SQL, cutoff)]
+        rows = await pool.fetch(_DAILY_UNSEEN_SQL, cutoff, list(DAILY_SEEN_SLEEVE))
+    finally:
+        await pool.close()
+    digest = hashlib.sha256("\n".join(seen).encode()).hexdigest()
+    if digest != DAILY_SEEN_BEFORE_CUTOFF_SHA256:
+        raise ValueError(
+            f"the {len(seen)} instruments created before {DAILY_UNSEEN_CUTOFF} are not the pinned "
+            "set: the daily_unseen rule no longer excludes the screen exactly (B1)"
+        )
+    return [r["symbol"] for r in rows]
 
 
 async def us_session_equity_symbols(dsn: str) -> list[str]:

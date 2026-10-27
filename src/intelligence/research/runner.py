@@ -77,7 +77,7 @@ from src.intelligence.research.spec import (
     LoadedSpec,
     resolve_member,
 )
-from src.intelligence.research.timing import timing_test
+from src.intelligence.research.timing import e17_memory, timing_test
 from src.intelligence.research.transforms import PanelTransform
 
 FACTOR_SPECS = {"vintage_1": VINTAGE_1}
@@ -407,6 +407,8 @@ async def _load_panel(spec: FamilySpec, ctx: RunContext) -> tuple[Panel, str, Pa
     symbols = None
     if spec.panel.members_universe == "us_session_equity":
         symbols = await snapshot.us_session_equity_symbols(ctx.dsn)
+    elif spec.panel.members_universe == "daily_unseen":
+        symbols = await snapshot.daily_unseen_symbols(ctx.dsn)
     panel, source_probe = _prepare_panel(
         spec, panel, source_hash=digest, symbols=symbols, grid=grid
     )
@@ -634,7 +636,7 @@ async def run_family(
                 trade,
                 bars_per_session=bps,
                 warmup_sessions=cfg.warmup_sessions,
-                memory_sessions=m.slot_history_sessions,
+                memory_sessions=e17_memory(m.slot_history_sessions, spec.horizon, bps),
             )
             series = AttemptSeries.from_timing(snapshot.session_dates(panel), timing.series)
             computed[m.name] = series
@@ -822,6 +824,10 @@ async def run_book(
     if real and power_replicates is not None:
         raise ValueError("power_replicates overrides the spec in synthetic mode only")
     families = [f.model for f in loaded.families]
+    # One target per book: E17's L, the combiner's embargo and the power plant all read
+    # families[0].horizon, so a book mixing horizons would mis-set all three.
+    if len({f.horizon for f in families}) > 1:
+        raise RunRefused(f"book families differ in horizon: {[f.horizon for f in families]}")
     fam0 = families[0]
     check_family_plant(families, book.power)  # before the ledger: a refusal is never charged
     gates = {fam.family: static_gate(fam) for fam in families}
@@ -925,7 +931,14 @@ async def run_book(
         # Refusal before any real-data statistic (E16 (d)): synthetic power at the bar.
         _log("power: calibrating the plant")
         problem, plant = _power_problem(
-            book, families, panel, residuals, bar, members, combiner, max(slot_histories)
+            book,
+            families,
+            panel,
+            residuals,
+            bar,
+            members,
+            combiner,
+            e17_memory(max(slot_histories), fam0.horizon, bps),
         )
         _log(f"power: plant {plant.plant_coef:.6g} (IC {plant.achieved_ic:.6g}); replicates")
         run = power.estimate_power(
@@ -980,7 +993,7 @@ async def run_book(
             rule=resolve_rule(book, bps),
             bars_per_session=bps,
             warmup_sessions=cfg.warmup_sessions,
-            memory_sessions=max(slot_histories),
+            memory_sessions=e17_memory(max(slot_histories), fam0.horizon, bps),
         )
         series = AttemptSeries.from_timing(snapshot.session_dates(panel), booked.timing.series)
         del stack

@@ -162,3 +162,29 @@ def test_timing_test_record():
     assert rec.hac.n == n - 63 and rec.hac.t > 3 and rec.hac.p < 0.01
     assert rec.annualized_sharpe > 0
     assert (rec.memory_sessions, rec.min_history_sessions) == (3, MIN_HISTORY_SESSIONS)
+
+
+def test_e17_memory_adds_a_daily_targets_cross_session_reach():
+    from src.intelligence.research.timing import e17_memory
+
+    assert e17_memory(5, 5, 1) == 10
+    assert e17_memory(20, 1, 1) == 21  # open[r+2] is the overnight move into the exit session
+    assert e17_memory(20, 26, 26) == 20  # intraday targets end inside their entry session
+
+
+def test_fbar_never_reads_a_target_that_overlaps_the_signals_inputs():
+    """The guarantee itself, on price intervals: fbar_L at session s reads rows r <= s - L - 1
+    (timing_series' `below`); row r's daily target spans open[r+1] .. open[r+1+h], and a signal
+    of memory m at s reads closes from close[s-m] on. With L = e17_memory the target's exit
+    open comes no later than close[s-m]'s session open, so no price move is shared."""
+    from src.intelligence.research.timing import e17_memory
+
+    for m in (1, 5, 6, 21, 252):
+        for h in (1, 5, 21):
+            lag = e17_memory(m, h, 1)
+            s = 1000
+            r = s - lag - 1  # the newest row fbar_L reads
+            exit_open_session = r + 1 + h
+            first_input_close_session = s - m  # e[s-m+1] = close[s-m] -> close[s-m+1]
+            # open[k] precedes close[k]; sharing needs the exit open after close[s-m]'s session.
+            assert exit_open_session <= first_input_close_session

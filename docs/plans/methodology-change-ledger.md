@@ -1014,6 +1014,21 @@ when this was found.
 - **Pre-registered?** No book has a real-data test under E16; book_v1 was refused and uncharged.
   Family 1's member evidence exists and stays as recorded, annotated per condition (4).
 
+- **Amendment 2026-10-27 (L on a multi-session target; implementer, indicagent-5b).** L kept
+  `fbar_L` clear of the signal's inputs only because every target so far ended inside its entry
+  session. A daily target at row r runs open[r+1] .. open[r+1+h], so `fbar_L` with L equal to the
+  memory reads forward returns that share price moves with the weight's inputs. L is now the
+  memory plus h on a 1d panel (fwd_span(h) - 1: h sessions, the last being the overnight move
+  into the exit session) and unchanged intraday (`timing.e17_memory`), so no recorded family 1
+  or 2 run, frozen verdict or battery moves. Found building the daily residual family's battery
+  (prereg `docs/plans/2026-10-27-daily-residual-momentum-reversal-prereg.md`): a 5-session
+  reversal member at h = 5 had H0 mean t +0.55 and rejected 15% at 0.05 with L = 5; with L = 10,
+  on a battery panel with overnight gaps, mean t about 0 (60 simulations each). A first version
+  with L = memory + h - 1 missed the overnight move into the exit session; the code review
+  caught it, and the battery could not, because its panel had no overnight gaps then. Open alongside it: the Newey-West lag's Bartlett weights
+  under-cover a 5-session overlap (H0 t sd 1.07 to 1.14 in the same runs); the family's battery
+  at 1,000 simulations decides whether h = 5 runs before a horizon-tied HAC lag is adopted.
+
 ### E18: 2026-09-26 (ADOPTED 2026-09-26 by the owner): uncapped counted attempts with step-down selection, net-expectation promotion, per-book forward span
 
 - **Source:** `docs/plans/2026-09-26-unified-research-to-production-design.md` (todo 436),

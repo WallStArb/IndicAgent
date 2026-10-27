@@ -77,9 +77,10 @@ class PanelSpec(BaseModel):
     end_exclusive: IsoDate
     # Family 2 (B1, B3). Optional and absent from family 1's spec, so its hash is unchanged.
     # transform: the analysis panel derived from the S0 panel (legs.py).
-    # members_universe: a pinned rule narrowing the S0 symbols (legs.us_session_equity_symbols).
+    # members_universe: a pinned rule narrowing the S0 symbols (snapshot.us_session_equity_symbols,
+    # snapshot.daily_unseen_symbols), applied before S1.
     transform: Literal["session_legs"] | None = None
-    members_universe: Literal["us_session_equity"] | None = None
+    members_universe: Literal["us_session_equity", "daily_unseen"] | None = None
     # todo 428. Optional, absent from every earlier spec, so their hashes are unchanged.
     total_return: TotalReturnSpec | None = None
 
