@@ -49,3 +49,19 @@ Full record: design doc D-191-Q.
    with IBKR fallback from 2016-01-04, IBKR before; reconcile the 154 1d symbol rows (143 names).
 5. Plan 20 Task 3 re-derives 1d once under d2-v4; D7 judges it; the 2016 volume seam is recorded
    for the research lane.
+6. Rules and docs, in the same commit that applies the policy rows (not before, so no doc claims
+   a source that is not yet live):
+   - CLAUDE.md: the pipeline line reads `ingest (IBKR -> market_data_ohlcv)`; it becomes
+     `ingest (IBKR + Alpaca -> ohlcv_raw -> market_data_ohlcv selection)`. The IBKR bullet's
+     "Every history fetch goes through ohlcv_history_fetcher" becomes "every IBKR history fetch";
+     Alpaca's path is `ops_bar_nightly.py` (raw capture under the load engine).
+   - `docs/foundation/instrument-onboarding-sop.md` (around line 215): "Alpaca never authors 1d"
+     and the 1d source section; a new name's daily history comes from Alpaca SIP from 2016 plus
+     IBKR before.
+   - `docs/foundation/glossary.md`, the daily source policy entry (around line 2052): the
+     D-191-Q span, the agreement guard and the zero-volume rule.
+   - `scripts/ops/bars/ops_bar_nightly.py` docstring: "IBKR owns 1d" (left stale while the
+     backfill ran).
+   - No change to the universe rules: never screen names on history or returns, never
+     deactivate a dead name, and todo 512's exclude-then-replace-by-fixed-rule stays the only
+     replacement path.
