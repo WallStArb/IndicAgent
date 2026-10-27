@@ -133,7 +133,9 @@ def test_canonical_kind_for_raw():
     assert canonical_kind_for_raw("ibkr", "venue") == "venue"
     assert canonical_kind_for_raw("ibkr", "venue_nyse") == "venue"
     assert canonical_kind_for_raw("tradier", "consolidated") == "consolidated"
-    for pair in (("ibkr", "smart_adjusted"), ("ibkr", "fallback"), ("alpaca", "sip_rth")):
+    # D-191-Q: Alpaca SIP is a canonical 1d primary and keeps its raw kind, as canonical 5m does.
+    assert canonical_kind_for_raw("alpaca", "sip_rth") == "sip_rth"
+    for pair in (("ibkr", "smart_adjusted"), ("ibkr", "fallback"), ("alpaca", "iex_rth")):
         with pytest.raises(ValueError):
             canonical_kind_for_raw(*pair)
 

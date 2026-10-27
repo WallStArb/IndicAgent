@@ -74,6 +74,8 @@ _ROUTE_SERIES = {
     "SMART": ("ibkr", "smart_trades"),
     "LEGACY_IMPORT": ("ibkr", "smart_trades"),
     "ARCA": ("ibkr", "venue_arca"),
+    "ALPACA": ("alpaca", "sip_rth"),
+    "IEX": ("alpaca", "iex_rth"),
 }
 
 
@@ -95,8 +97,8 @@ def _obs(day: date, close: float, *, route: str = "TRADIER", volume: int | None 
     }
 
 
-_1D_VENDORS = ("ibkr", "tradier")
-_1D_KINDS = ("consolidated", "fallback", "named", "venue")
+_1D_VENDORS = ("alpaca", "ibkr", "tradier")
+_1D_KINDS = ("consolidated", "fallback", "named", "sip_rth", "venue")
 
 
 def _row(
@@ -468,7 +470,7 @@ def test_apply_records_restated_dates_in_the_load_detail():
     _run(conn)
     ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
     detail = json.loads(load_args[14])
-    assert detail["rule_version"] == "d2-v3" and len(detail["restated"]) == 7
+    assert detail["rule_version"] == "d2-v4" and len(detail["restated"]) == 7
     assert {(r["vendor"], r["kind"]) for r in conn.stored["TEST"].values()} == {
         ("ibkr", "fallback")
     }
@@ -571,7 +573,7 @@ def test_a_second_apply_over_the_same_answers_writes_no_bar():
     assert not conn.many("INSERT INTO ohlcv_revision")
 
 
-def test_open_batch_gets_rule_d2v3_and_the_integrity_and_scrub_keys(monkeypatch):
+def test_open_batch_gets_rule_d2v4_and_the_integrity_and_scrub_keys(monkeypatch):
     observations, stored = _fixture()
     conn = FakeConn(observations=observations, stored=stored)
     seen: dict = {}
@@ -582,7 +584,7 @@ def test_open_batch_gets_rule_d2v3_and_the_integrity_and_scrub_keys(monkeypatch)
 
     monkeypatch.setattr(bar_derivation_module, "open_batch", fake_open)
     _run(conn)
-    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v3"
+    assert seen["stage"] == "daily" and seen["rule_version"] == "d2-v4"
     keys = set(seen["apr_snapshot"])
     assert "threshold.bar_integrity.fallback_basis_tolerance_bp" in keys
     assert "threshold.bar_integrity.max_revision_ratio" in keys
@@ -789,11 +791,15 @@ def test_daily_stage_calls_d2v2_and_writes_no_lineage():
     assert not re.search(r"(?:INSERT\s+INTO|UPDATE|COPY)\s+canonical_bar_lineage\b", source)
 
 
-def test_daily_read_takes_the_raw_d2v3_series_and_excludes_test_callers():
+def test_daily_read_takes_the_raw_d2v4_series_and_excludes_test_callers():
     from services.bar_derivation import _SELECT_DAILY_RAW_SQL as sql
     from src.intelligence.bars.daily_rule import RAW_DAILY_SERIES
 
-    assert set(RAW_DAILY_SERIES) == {("tradier", "consolidated"), ("ibkr", "smart_trades")}
+    assert set(RAW_DAILY_SERIES) == {
+        ("tradier", "consolidated"),
+        ("ibkr", "smart_trades"),
+        ("alpaca", "sip_rth"),
+    }
     flat = " ".join(sql.split())
     assert "FROM ohlcv_raw r" in flat and "ohlcv_observation" not in flat
     assert "LEFT JOIN ohlcv_request q ON q.request_id = r.request_id" in flat
@@ -1018,3 +1024,62 @@ def test_an_apply_writes_nothing_for_a_held_name_and_does_not_fail_the_run():
     assert [args[1] for args in loads] == ["TEST"]
     assert conn.stored["CTVA"][_D1]["close"] == 77.65  # frozen at the raw bar
     assert scrub_calls[0]["symbols"] == ["TEST"]
+
+
+# --- d2-v4 (D-191-Q, todo 545 step 3) --------------------------------------------------------
+
+
+def test_daily_read_dates_each_series_by_its_session_zone():
+    """Alpaca stamps 1d at midnight New York, IBKR and Tradier at 00:00 UTC: the read takes the
+    session date in each series' own zone, so the rule compares sessions, never stamps."""
+    from services.bar_derivation import (
+        _RAW_DAILY_KINDS,
+        _RAW_DAILY_VENDORS,
+        _RAW_DAILY_ZONES,
+        _SELECT_DAILY_RAW_SQL,
+    )
+    from src.intelligence.bars.daily_rule import RAW_DAILY_SESSION_ZONE
+
+    flat = " ".join(_SELECT_DAILY_RAW_SQL.split())
+    assert "unnest($2::text[], $3::text[], $4::text[]) AS s(vendor, kind, zone)" in flat
+    assert '(r."timestamp" AT TIME ZONE s.zone)::date AS bar_date' in flat
+    zones = dict(zip(zip(_RAW_DAILY_VENDORS, _RAW_DAILY_KINDS, strict=True), _RAW_DAILY_ZONES))
+    assert zones == RAW_DAILY_SESSION_ZONE
+    assert zones[("alpaca", "sip_rth")] == "America/New_York"
+    assert zones[("ibkr", "smart_trades")] == "UTC"
+
+
+def test_alpaca_primary_writes_one_utc_midnight_row_per_session():
+    alpaca_policy = {**_DEFAULT_POLICY, "primary_source": "alpaca", "fallback_source": "ibkr"}
+    days = [_D1, _D2, _D3, _D4, _D6]
+    observations = {
+        "TEST": [_obs(d, 10.0 + i, route="SMART") for i, d in enumerate(days)]
+        + [_obs(d, 10.0 + i, route="ALPACA", volume=500) for i, d in enumerate(days)]
+        + [_obs(_D4, 99.0, route="IEX")]
+    }
+    conn = FakeConn(observations=observations, stored={}, policy=[alpaca_policy])
+    _run(conn)
+    stored = conn.stored["TEST"]
+    assert sorted(stored) == days
+    assert {(r["vendor"], r["kind"]) for r in stored.values()} == {("alpaca", "sip_rth")}
+    assert {r["volume"] for r in stored.values()} == {500}
+    written = conn.many("INSERT INTO market_data_ohlcv")
+    assert {row[0].time() for row in written} == {datetime.min.time()}
+    assert {row[0].tzinfo for row in written} == {UTC}
+
+
+def test_a_zero_volume_alpaca_bar_never_reaches_canonical():
+    alpaca_policy = {**_DEFAULT_POLICY, "primary_source": "alpaca", "fallback_source": "ibkr"}
+    days = [_D1, _D2, _D3, _D4, _D6]
+    observations = {
+        "TEST": [_obs(d, 10.0, route="SMART") for d in days if d != _D3]
+        + [_obs(d, 10.0, route="ALPACA", volume=0 if d == _D3 else 500) for d in days]
+    }
+    conn = FakeConn(observations=observations, stored={}, policy=[alpaca_policy])
+    result, _ = _run(conn)
+    assert _D3 not in conn.stored["TEST"]
+    assert result["zero_volume"] == 1
+    ((load_args),) = conn.executed("INSERT INTO ohlcv_load")
+    detail = json.loads(load_args[14])
+    assert detail["rule_version"] == "d2-v4"
+    assert detail["zero_volume"] == [_D3.isoformat()]

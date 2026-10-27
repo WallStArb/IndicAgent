@@ -166,5 +166,6 @@ def test_sources_export_the_canonical_1d_pairs():
         ("ibkr", "venue"),
         ("ibkr", "fallback"),
         ("tradier", "consolidated"),
+        ("alpaca", "sip_rth"),
     )
     assert not hasattr(sources, "LABEL_VENDOR"), "LABEL_VENDOR was deleted in plan 13"

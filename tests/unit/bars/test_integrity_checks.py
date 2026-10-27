@@ -46,26 +46,46 @@ IBKR_FALLBACK = ("ibkr", "fallback")
 
 def test_policy_conformance_accepts_the_primary_pair():
     d = _days(2)
-    assert policy_conformance([(d[0], *TRADIER)], _POLICY, set(), symbol="AAA") == []
+    assert policy_conformance([(d[0], *TRADIER)], _POLICY, {}, symbol="AAA") == []
 
 
 def test_policy_conformance_flags_a_contradicting_pair():
     d = _days(2)
     rows = [(d[0], *TRADIER), (d[1], *IBKR_NAMED)]
-    assert policy_conformance(rows, _POLICY, set(), symbol="AAA") == [d[1]]
+    assert policy_conformance(rows, _POLICY, {}, symbol="AAA") == [d[1]]
 
 
 def test_fallback_only_where_tradier_has_no_observation():
     d = _days(2)
     rows = [(d[0], *IBKR_FALLBACK), (d[1], *IBKR_FALLBACK)]
-    assert policy_conformance(rows, _POLICY, {d[1]}, symbol="AAA") == [d[1]]
+    assert policy_conformance(rows, _POLICY, {"tradier": {d[1]}}, symbol="AAA") == [d[1]]
 
 
 def test_ibkr_primary_symbol_row_expects_ibkr_named_and_no_fallback_pair():
     d = _days(2)
     rows = [(d[0], *IBKR_NAMED), (d[1], *IBKR_FALLBACK)]
-    assert policy_conformance(rows, _IBKR_PRIMARY, set(), symbol="XYZ") == [d[1]]
-    assert policy_conformance(rows[:1], _IBKR_PRIMARY, set(), symbol="XYZ") == []
+    assert policy_conformance(rows, _IBKR_PRIMARY, {}, symbol="XYZ") == [d[1]]
+    assert policy_conformance(rows[:1], _IBKR_PRIMARY, {}, symbol="XYZ") == []
+
+
+_ALPACA_PRIMARY = [PolicyRow("1d", None, date(2000, 1, 1), None, "observed", "alpaca", "ibkr")]
+ALPACA = ("alpaca", "sip_rth")
+
+
+def test_policy_conformance_accepts_alpaca_under_an_alpaca_primary():
+    d = _days(3)
+    rows = [(d[0], *ALPACA), (d[1], *IBKR_FALLBACK), (d[2], *TRADIER)]
+    # d[1]: Alpaca has no servable answer (absent, zero volume or before its listing).
+    assert policy_conformance(rows, _ALPACA_PRIMARY, {"alpaca": {d[0]}}, symbol="AAA") == [d[2]]
+    # The fallback where Alpaca could serve contradicts the policy.
+    assert policy_conformance(
+        rows[:2], _ALPACA_PRIMARY, {"alpaca": {d[0], d[1]}}, symbol="AAA"
+    ) == [d[1]]
+
+
+def test_policy_conformance_flags_alpaca_under_a_policy_that_does_not_name_it():
+    d = _days(1)
+    assert policy_conformance([(d[0], *ALPACA)], _POLICY, {}, symbol="AAA") == [d[0]]
 
 
 def test_verdict_is_a_plain_record():
@@ -676,3 +696,59 @@ def test_judge_name_1d_reports_freshness_after_the_eight_checks():
     stale = judge_name_1d(_clean(), _SESSIONS + extra, extra[-1], _RUN_START, _Thresholds())
     verdict = _by_check(stale)[CHECK_FRESHNESS_1D]
     assert (verdict.passed, verdict.metric_value, verdict.threshold_value) == (False, 3.0, 2.0)
+
+
+def _alpaca_inputs(dead: date | None = None) -> NameInputs1d:
+    """An Alpaca-primary name (D-191-Q): Alpaca and IBKR agree on every session; `dead` is an
+    Alpaca zero-volume placeholder session that the IBKR fallback serves."""
+    observations = []
+    for i, day in enumerate(_SESSIONS):
+        close = 100.0 + 0.1 * i
+        observations.append(_obs(day, close, "SMART"))
+        alpaca = _obs(day, close, "ALPACA")
+        observations.append(replace(alpaca, volume=0) if day == dead else alpaca)
+    derived = derive_daily_v2(
+        observations,
+        _ALPACA_PRIMARY,
+        [],
+        symbol="AAA",
+        basis_window_sessions=3,
+        basis_tolerance_bp=10.0,
+    )
+    stored = [
+        StoredBar(
+            datetime(b.bar_date.year, b.bar_date.month, b.bar_date.day, tzinfo=UTC),
+            b.open,
+            b.high,
+            b.low,
+            b.close,
+            float(b.volume),
+            b.vendor,
+            b.kind,
+        )
+        for b in derived.bars
+    ]
+    return replace(
+        _clean(),
+        observations=observations,
+        policy_rows=_ALPACA_PRIMARY,
+        stored=stored,
+        current_digests={s: (d, RULE_VERSION) for s, d in month_digests(stored, []).items()},
+    )
+
+
+def test_an_alpaca_primary_name_conforms_and_recomputes():
+    inputs = _alpaca_inputs(dead=_SESSIONS[4])
+    pairs = {b.timestamp.date(): (b.vendor, b.kind) for b in inputs.stored}
+    assert pairs[_SESSIONS[4]] == IBKR_FALLBACK
+    assert {p for d, p in pairs.items() if d != _SESSIONS[4]} == {ALPACA}
+    checks = _by_check(_judge(inputs))
+    for check in ("policy_conformance", "canonical_recompute", "digest_fresh"):
+        assert checks[check].passed, check
+
+
+def test_an_ibkr_fallback_where_alpaca_could_serve_fails_conformance():
+    inputs = _alpaca_inputs()
+    first = inputs.stored[0]
+    bad = [replace(first, vendor="ibkr", kind="fallback"), *inputs.stored[1:]]
+    assert not _by_check(_judge(replace(inputs, stored=bad)))["policy_conformance"].passed
