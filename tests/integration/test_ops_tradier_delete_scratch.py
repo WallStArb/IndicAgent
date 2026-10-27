@@ -208,7 +208,7 @@ def _restore(schema: str, backup_dir: Path, manifest: dict[str, Any]) -> None:
     files = {t["table"]: backup_dir / t["file"] for t in manifest["tables"]}
     with _scratch_connect(schema) as conn:
         with conn.cursor() as cur:
-            for table in mod.RESTORE_ORDER:
+            for table in (spec.table for spec in mod.TABLES):
                 with cur.copy(f"COPY {table} FROM STDIN (FORMAT csv)") as copy:
                     copy.write(gzip.decompress(files[table].read_bytes()))
         conn.commit()
