@@ -52,6 +52,7 @@ import argparse
 import asyncio
 import csv
 import json
+import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -641,8 +642,6 @@ def reselect_series(settings: Any, *, timeframe: str, symbols: Sequence[str], st
     """--reselect-only: re-select each series from `start` on, one transaction per symbol under
     its selection lock (select_and_write takes it), then gate the series. Run after a backdated
     --plan on a direct timeframe."""
-    from scripts.ops.bars import ops_selection_gate as gate
-
     dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
     totals = dict.fromkeys(("new", "changed", "unchanged", "unselected", "excluded", "dropped"), 0)
     with psycopg.connect(dsn) as conn:
@@ -668,7 +667,23 @@ def reselect_series(settings: Any, *, timeframe: str, symbols: Sequence[str], st
                 flush=True,
             )
     print(f"reselect totals: {totals}", flush=True)
-    return gate.main(["--compare", "--symbols", *symbols, "--timeframes", timeframe])
+    # The gate runs its own event loop (asyncio.run); this mode is reached from _main's loop, so
+    # the gate runs as a subprocess (calling gate.main here raised "asyncio.run() cannot be
+    # called from a running event loop" on 2026-10-27).
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.ops.bars.ops_selection_gate",
+            "--compare",
+            "--symbols",
+            *symbols,
+            "--timeframes",
+            timeframe,
+        ],
+        cwd=project_root,
+        check=False,
+    ).returncode
 
 
 async def _main(args: argparse.Namespace) -> int:
