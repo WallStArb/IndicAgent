@@ -74,6 +74,9 @@ and pass vacuously; procedure `weekly_db_maintenance` still runs `ANALYZE setup_
 (unscheduled; drop it); `shadow_registry` (36 rows of plugin settings, dumped) awaits an owner
 drop-or-keep call.
 
+This remainder rode with the dashboard lane until the owner closed that lane on 2026-10-27; it has
+no lane now and sits below the build lanes as cleanup.
+
 ## 4. Smaller items
 
 - `roll_events` (written by `ops_roll_batch.py`) lost its only readers (v2.x replay scripts); in
